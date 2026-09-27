@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.5.0](https://github.com/vdmkenny/openreliant/compare/v0.4.0...v0.5.0) (2026-09-27)
+
+
+### Features
+
+* a mission's end pauses into the menu ([#369](https://github.com/vdmkenny/openreliant/issues/369)) ([e79fc12](https://github.com/vdmkenny/openreliant/commit/e79fc121755bfa1291802e46090219d0a3cfd3d0)), closes [#368](https://github.com/vdmkenny/openreliant/issues/368)
+* Find New Target, Escort and Mill ([#315](https://github.com/vdmkenny/openreliant/issues/315)) ([ab6a94b](https://github.com/vdmkenny/openreliant/commit/ab6a94b01f4ec1ef8282289ac8708a268528ce78))
+* hitting friends draws Moose's warnings, and destroying one sends the player home ([#385](https://github.com/vdmkenny/openreliant/issues/385)) ([6df33a1](https://github.com/vdmkenny/openreliant/commit/6df33a1fe211f813d3156d2501d9415f241a8290))
+* joysticks --watch shows every axis and button by its number, in place ([#299](https://github.com/vdmkenny/openreliant/issues/299)) ([53e34b6](https://github.com/vdmkenny/openreliant/commit/53e34b6f3256082937034541821c9085fd6a2e24))
+* mission 1's convoy commands, PRIMARY TARGET and the nav pointer ([#313](https://github.com/vdmkenny/openreliant/issues/313)) ([1d42b08](https://github.com/vdmkenny/openreliant/commit/1d42b08bfc0c45ece4b8168b3bf29632a4539c5d))
+* missions load and bind as a mission's start does ([#284](https://github.com/vdmkenny/openreliant/issues/284)) ([ee4a103](https://github.com/vdmkenny/openreliant/commit/ee4a1038a0091025c6947005523821f3a6f6d58e))
+* Object Attach and Toggle Cloak ([#316](https://github.com/vdmkenny/openreliant/issues/316)) ([4c6fb2e](https://github.com/vdmkenny/openreliant/commit/4c6fb2ecf1a0c84604b617b770c6a06320af4c4c))
+* PERMISSION TO LAND is asked and answered on the radio ([#377](https://github.com/vdmkenny/openreliant/issues/377)) ([ead1615](https://github.com/vdmkenny/openreliant/commit/ead16152daca16dd7986abb0d587877216ff7811))
+* planets are set up as the original sets them up, lit by the sun alone ([#388](https://github.com/vdmkenny/openreliant/issues/388)) ([787a34c](https://github.com/vdmkenny/openreliant/commit/787a34c7896061a510cdce99006b58078fe4423f))
+* ships dock at a station's port ([#321](https://github.com/vdmkenny/openreliant/issues/321)) ([9d14cd8](https://github.com/vdmkenny/openreliant/commit/9d14cd8f7e9cc376c061f9112acc7f4fbadee9cd))
+* ships follow the mission's curves ([#319](https://github.com/vdmkenny/openreliant/issues/319)) ([7994c25](https://github.com/vdmkenny/openreliant/commit/7994c254bfefeb723b8d892a3575207434ebb4d9))
+* ships jump out and jump in ([#311](https://github.com/vdmkenny/openreliant/issues/311)) ([2bb2dc6](https://github.com/vdmkenny/openreliant/commit/2bb2dc6a177c593301518578216786d16e71e988))
+* ships launch from the Reliant, and the commands mission 1's launch needs ([#306](https://github.com/vdmkenny/openreliant/issues/306)) ([fe4022e](https://github.com/vdmkenny/openreliant/commit/fe4022e55313449fa1ad55bebc65ec9c554dc548))
+* the AI tests its course against a ship's parts, and pulls out of a component by its firing arc ([#387](https://github.com/vdmkenny/openreliant/issues/387)) ([5de906b](https://github.com/vdmkenny/openreliant/commit/5de906b28c1143d30aaafdd9987ce8d9e19553d0))
+* the director's camera flies the mission's curves ([#318](https://github.com/vdmkenny/openreliant/issues/318)) ([d57726d](https://github.com/vdmkenny/openreliant/commit/d57726d07ff32539f935e6d7af229486af0b4add))
+* the escort point's marker ([#372](https://github.com/vdmkenny/openreliant/issues/372)) ([aed76b1](https://github.com/vdmkenny/openreliant/commit/aed76b1af10a3a3b57d2362a01b0ba7f6ce5b8b8)), closes [#312](https://github.com/vdmkenny/openreliant/issues/312)
+* the game's variables start as a new campaign's, and those mission 1 uses are named ([#383](https://github.com/vdmkenny/openreliant/issues/383)) ([8bba5b5](https://github.com/vdmkenny/openreliant/commit/8bba5b5be5366c65b30e277ce64c6640124b7818))
+* the launch's hangar keeps the ship on its retainer, rings, and flashes its beacons on it ([#343](https://github.com/vdmkenny/openreliant/issues/343)) ([127d3ab](https://github.com/vdmkenny/openreliant/commit/127d3aba4759b98d038e32a81ceb0d152362b599))
+* the mission's events fire its triggers ([#308](https://github.com/vdmkenny/openreliant/issues/308)) ([6cf624b](https://github.com/vdmkenny/openreliant/commit/6cf624b32391142d888e97de0f9acdd79e1eba71))
+* the mission's sun and nebula markers aim the sun, the lights and the nebula ([#384](https://github.com/vdmkenny/openreliant/issues/384)) ([b523cf5](https://github.com/vdmkenny/openreliant/commit/b523cf5a534b8a2df6794613b9bf73a7ebf6aafa))
+* the nebulae are magnified smoothly ([#345](https://github.com/vdmkenny/openreliant/issues/345)) ([f61355f](https://github.com/vdmkenny/openreliant/commit/f61355fc2f2704c3f125047f5952013efd11b2d9))
+* the objectives window shows the objectives and pages through them ([#379](https://github.com/vdmkenny/openreliant/issues/379)) ([3efa337](https://github.com/vdmkenny/openreliant/commit/3efa33766ef2fca82cad781b2281feb70c1442d0))
+* the pilots speak by themselves on the radio ([#378](https://github.com/vdmkenny/openreliant/issues/378)) ([f804423](https://github.com/vdmkenny/openreliant/commit/f804423d8a5bdce0eb8a34341ed5266d892fbf09))
+* the pilots' face films decode ([#354](https://github.com/vdmkenny/openreliant/issues/354)) ([ee948ad](https://github.com/vdmkenny/openreliant/commit/ee948ad7bd6a165e4f3363c875365c73e643cabc))
+* the planets' atmospheres glow round their rims as a haze ([#348](https://github.com/vdmkenny/openreliant/issues/348)) ([4ec95a7](https://github.com/vdmkenny/openreliant/commit/4ec95a7fd30b0804957045070df556f3f963fe31))
+* the player's ship lands on the Reliant ([#350](https://github.com/vdmkenny/openreliant/issues/350)) ([3780a1a](https://github.com/vdmkenny/openreliant/commit/3780a1aabb85396a574b599916121a15ee0ab11a))
+* the radio's lines are heard ([#352](https://github.com/vdmkenny/openreliant/issues/352)) ([5568003](https://github.com/vdmkenny/openreliant/commit/55680035f525b89d67551a4577d268033bbb608a))
+* the radio's menu pages to the wingmen, the enemy and the base ([#386](https://github.com/vdmkenny/openreliant/issues/386)) ([73c9c17](https://github.com/vdmkenny/openreliant/commit/73c9c170675a6013bd04786ce4a9ef6a687b2d13))
+* the radio's window shows the speaker's face ([#356](https://github.com/vdmkenny/openreliant/issues/356)) ([3cab6c6](https://github.com/vdmkenny/openreliant/commit/3cab6c6c223b3e9fc237b1b07620ec5d1747b806))
+* the Ripper lifts cargo pods onto the Mammoth ([#325](https://github.com/vdmkenny/openreliant/issues/325)) ([98d294d](https://github.com/vdmkenny/openreliant/commit/98d294dcde08b76498b9bd589e5351a1cb0d7845))
+* the Ripper's pod glides between the ticks, and the tractor beams glow ([#344](https://github.com/vdmkenny/openreliant/issues/344)) ([840b2ab](https://github.com/vdmkenny/openreliant/commit/840b2abae732a6d730bf9b0b234a30bcbb5f5bb4))
+* the sandbox is mission 0, a mission file played through the mission's start ([#302](https://github.com/vdmkenny/openreliant/issues/302)) ([8f9a795](https://github.com/vdmkenny/openreliant/commit/8f9a795719230406191279ddd325dc6fa0f3f649))
+* the script VM runs a mission's threads, calls, clock and timers ([#296](https://github.com/vdmkenny/openreliant/issues/296)) ([63192ab](https://github.com/vdmkenny/openreliant/commit/63192ab0c3f30dba4290032223328fb2c6456209))
+* the wingmen answer ATTACK MY TARGET, BACK OFF and HELP ME ([#380](https://github.com/vdmkenny/openreliant/issues/380)) ([52d7d6e](https://github.com/vdmkenny/openreliant/commit/52d7d6ec78672cc8d352903e75658b9ca1bc6255))
+* what a jump shows: its trails, lights, burst and flare ([#375](https://github.com/vdmkenny/openreliant/issues/375)) ([85c1fe5](https://github.com/vdmkenny/openreliant/commit/85c1fe5e9fafd329e1f2aa3dba0c57a6b7aa5f11))
+* write mission files and assemble their scripts ([#286](https://github.com/vdmkenny/openreliant/issues/286)) ([88ef23c](https://github.com/vdmkenny/openreliant/commit/88ef23c37fad77e027e243ac7ca199a81ac7b1c5))
+
+
+### Fixes
+
+* a point in front of the camera's plane no longer overflows the display's pixels ([#327](https://github.com/vdmkenny/openreliant/issues/327)) ([723cc58](https://github.com/vdmkenny/openreliant/commit/723cc5879480dd9cf844fa1be1a8fcba0a5fa3a3))
+* capital ships turn flat, as the executable's flight stats have them ([#323](https://github.com/vdmkenny/openreliant/issues/323)) ([830c803](https://github.com/vdmkenny/openreliant/commit/830c803ec88b0e628ec9fa8923ac9c6c2b6b62a1))
+* F2, F3 and F4 work in the sandbox alone ([#393](https://github.com/vdmkenny/openreliant/issues/393)) ([305f781](https://github.com/vdmkenny/openreliant/commit/305f7811f42ba1d9d18ddf4f30310c3fda7bda50))
+* mission 1's ambush ends, with the torpedoes flying and the players counted ([#367](https://github.com/vdmkenny/openreliant/issues/367)) ([a080117](https://github.com/vdmkenny/openreliant/commit/a080117506047cb936a1dda3eca8cc15188bc5cd))
+* the hangar's beacons flash on the launching ship's hull ([#347](https://github.com/vdmkenny/openreliant/issues/347)) ([93ed976](https://github.com/vdmkenny/openreliant/commit/93ed97682027dd4e3ce8f606e8c092494006ca35))
+* the sandbox's capital ships hold their fire until the wing is out ([#336](https://github.com/vdmkenny/openreliant/issues/336)) ([8baa2d2](https://github.com/vdmkenny/openreliant/commit/8baa2d2df3b8a955012139033791aaa90558e87b))
+
+
+### Documentation
+
+* a Mammoth's cargo slots are hidden by the mission's script ([#374](https://github.com/vdmkenny/openreliant/issues/374)) ([a7efcad](https://github.com/vdmkenny/openreliant/commit/a7efcade8f3643e840773ef624cd43c8f35bfbe6)), closes [#324](https://github.com/vdmkenny/openreliant/issues/324)
+* a shorter README status, with the graphics and rumble ([#394](https://github.com/vdmkenny/openreliant/issues/394)) ([a9c5185](https://github.com/vdmkenny/openreliant/commit/a9c5185e14d8962724888b64a388ab10705d9d7b))
+* point the gaps the closed issues left at the open ones ([#389](https://github.com/vdmkenny/openreliant/issues/389)) ([0c940ef](https://github.com/vdmkenny/openreliant/commit/0c940ef6294573185ea031e32f769c160793afea))
+* the README's status is mission 1 played through, and how to start it ([#392](https://github.com/vdmkenny/openreliant/issues/392)) ([9726c5e](https://github.com/vdmkenny/openreliant/commit/9726c5e35cacbb125155bdf3ec643d7a4025e927))
+
 ## [0.4.0](https://github.com/vdmkenny/openreliant/compare/v0.3.0...v0.4.0) (2026-09-25)
 
 
