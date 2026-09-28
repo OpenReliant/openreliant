@@ -1,7 +1,12 @@
 //! `C:\lancer\game\interface.cpp`: the front end's screens and the settings they manage. Ported so
-//! far: loading the input settings and bindings from `starlancer.ini` (`load_key_config`).
+//! far: loading the input settings and bindings from `starlancer.ini` (`load_key_config`), and the
+//! main menu (`main_menu`) with its dialog (`dialog`), on the front end's screen (`canvas`).
 
 const std = @import("std");
+
+pub const canvas = @import("interface/canvas.zig");
+pub const dialog = @import("interface/dialog.zig");
+pub const main_menu = @import("interface/main_menu.zig");
 
 const input = @import("../input.zig");
 const controls = input.controls;
@@ -211,4 +216,10 @@ test deadZone {
     try std.testing.expectEqual(1000, deadZone(.empty));
     try std.testing.expectEqual(0, deadZone(.{ .text = "[JoyConfig]\nDeadZone=0\n" }));
     try std.testing.expectEqual(10000, deadZone(.{ .text = "[JoyConfig]\nDeadZone=250\n" }));
+}
+
+test {
+    _ = canvas;
+    _ = dialog;
+    _ = main_menu;
 }

@@ -186,24 +186,11 @@ pub const Place = packed struct(u32) {
 
 /// The colours `hud_palette_ramp` ramps the menus' text through: orange, and white for the item
 /// under the pointer. The title's rule is pure red.
-pub const orange = rgb(0xFE851A);
-pub const white = rgb(0xFFFFFF);
-const red = rgb(0xFF0000);
+pub const orange = hud.rgb(0xFE851A);
+pub const white = hud.rgb(0xFFFFFF);
+const red = hud.rgb(0xFF0000);
 
-fn rgb(hex: u24) [3]f32 {
-    var colour: [3]f32 = undefined;
-    for (&colour, 0..) |*channel, at| {
-        const shift: u5 = @intCast(16 - at * 8);
-        channel.* = @as(f32, @floatFromInt((hex >> shift) & 0xFF)) / 255;
-    }
-    return colour;
-}
-
-/// `colour` at `brightness`, as `palette_ramp_brightness` scales the ramp: 1, or 0.5 for what is
-/// dimmed.
-pub fn lit(colour: [3]f32, brightness: f32) [4]f32 {
-    return .{ colour[0] * brightness, colour[1] * brightness, colour[2] * brightness, 1 };
-}
+pub const lit = hud.atBrightness;
 
 fn brightnessOf(dimmed: bool) f32 {
     return if (dimmed) 0.5 else 1;
@@ -475,7 +462,7 @@ test "Selector.step" {
     try std.testing.expectEqual(0, Selector.step(.value));
 }
 
-test rgb {
+test "the menus' colours" {
     try std.testing.expectEqual([3]f32{ 254.0 / 255.0, 133.0 / 255.0, 26.0 / 255.0 }, orange);
     try std.testing.expectEqual([4]f32{ 0.5, 0.5, 0.5, 1 }, lit(white, 0.5));
 }

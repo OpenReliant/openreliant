@@ -454,15 +454,9 @@ pub const Canvas = struct {
     /// pixels wide (`hud.Wrapping`), at most `max_lines` of them, each drawn as `text` draws a line,
     /// `line_height` below the last.
     pub fn wrapped(canvas: Canvas, words: []const u8, at: [2]i32, alignment: hud.Align, width: i32, line_height: i32, max_lines: usize) Allocator.Error!void {
-        var lines: hud.Wrapping = .init(&canvas.pen.font.widths, words, width);
+        var lines: hud.WrappedText = .init(&canvas.pen.font.widths, words, width, max_lines);
         var y = at[1];
-        for (0..max_lines) |_| {
-            const line = lines.next() orelse return;
-            var buffer: [hud.wrapped_line_room]u8 = undefined;
-            const shown = if (line.hyphen) std.fmt.bufPrint(&buffer, "{s}-", .{line.text}) catch line.text else line.text;
-            try canvas.text(shown, .{ at[0], y }, alignment);
-            y += line_height;
-        }
+        while (lines.next()) |shown| : (y += line_height) try canvas.text(shown, .{ at[0], y }, alignment);
     }
 };
 

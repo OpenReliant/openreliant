@@ -184,6 +184,29 @@ pub fn place(screen: [2]u32, offset: [2]i32, across: f32, down: f32, scale: f32)
     return at;
 }
 
+/// The colour of a `0xRRGGBB` value, as `hud_palette_ramp` and the front end's text colour
+/// (`0x004287C0`) take one to ramp their text through.
+pub fn rgb(hex: u24) [3]f32 {
+    var colour: [3]f32 = undefined;
+    for (&colour, 0..) |*channel, at| {
+        const shift: u5 = @intCast(16 - at * 8);
+        channel.* = @as(f32, @floatFromInt((hex >> shift) & 0xFF)) / 255;
+    }
+    return colour;
+}
+
+/// `colour` at `brightness`, as `palette_ramp_brightness` scales a ramp: 1, or 0.5 for what a
+/// menu dims.
+pub fn atBrightness(colour: [3]f32, brightness: f32) [4]f32 {
+    return .{ colour[0] * brightness, colour[1] * brightness, colour[2] * brightness, 1 };
+}
+
+test rgb {
+    try std.testing.expectEqual([3]f32{ 1, 0, 0 }, rgb(0xFF0000));
+    try std.testing.expectEqual([3]f32{ 0, 0, 1 }, rgb(0x0000FF));
+    try std.testing.expectEqual([4]f32{ 0.5, 0, 0, 1 }, atBrightness(rgb(0xFF0000), 0.5));
+}
+
 /// `n` of the display's own pixels in the screen's, for a display drawn `scale` times its size,
 /// rounded as `sr_round` rounds. At a scale of 1 they are as many.
 pub fn pixels(n: i32, scale: f32) i32 {
@@ -729,6 +752,27 @@ pub fn drawText(
 /// The room `hud_text_wrapped` copies a line into (`0x00480FEC`).
 pub const wrapped_line_room = 0x400;
 
+/// The lines `hud_text_wrapped` (`0x00480FD0`) draws of a text: at most `max_lines` of those
+/// `Wrapping` breaks it into, each ending in a hyphen where a word is broken.
+pub const WrappedText = struct {
+    lines: Wrapping,
+    left: usize,
+    buffer: [wrapped_line_room]u8 = undefined,
+
+    pub fn init(widths: *const [cached_codes]u16, text: []const u8, width: i32, max_lines: usize) WrappedText {
+        return .{ .lines = .init(widths, text, width), .left = max_lines };
+    }
+
+    /// The next line as it is drawn, or null once there is none.
+    pub fn next(wrapped: *WrappedText) ?[]const u8 {
+        if (wrapped.left == 0) return null;
+        const line = wrapped.lines.next() orelse return null;
+        wrapped.left -= 1;
+        if (!line.hyphen) return line.text;
+        return std.fmt.bufPrint(&wrapped.buffer, "{s}-", .{line.text}) catch line.text;
+    }
+};
+
 /// A line of text as `hud_text_wrapped` breaks it (`Wrapping`): what it holds of the text, and
 /// whether a hyphen follows, where a word is broken.
 pub const WrappedLine = struct {
@@ -844,6 +888,15 @@ test Wrapping {
     // No text, no lines.
     var none: Wrapping = .init(&widths, "", 40);
     try std.testing.expectEqual(null, none.next());
+}
+
+test WrappedText {
+    const widths: [cached_codes]u16 = @splat(4);
+    // A broken word's lines carry their hyphens, and no more lines are drawn than allowed.
+    var lines: WrappedText = .init(&widths, "abcdefgh", 16, 2);
+    try std.testing.expectEqualStrings("abc-", lines.next().?);
+    try std.testing.expectEqualStrings("def-", lines.next().?);
+    try std.testing.expectEqual(null, lines.next());
 }
 
 /// Where a line of `text` starts, for a line drawn at `x` with `alignment` and `scale`: `hud_text`

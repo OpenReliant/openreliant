@@ -6,7 +6,7 @@ While a mission is paused, the game draws a configuration menu in place of the h
 
 ## In OpenReliant
 
-[`game/hudoptions.zig`](../../src/engine/game/hudoptions.zig) holds the menu and its screens, with the items, their drawing and the widgets the screens share in [`hudoptions/menu.zig`](../../src/engine/game/hudoptions/menu.zig) and the screens in [`hudoptions/screens.zig`](../../src/engine/game/hudoptions/screens.zig); `game_pause` is in [`game/main.zig`](../../src/engine/game/main.zig). Ported so far: pausing and resuming, the paused frame's outcomes, the menu's items and pointer, and the main, audio and video screens, which save to `starlancer.ini` as the game does. Not yet: the controls screen and F1 ([#210](https://github.com/vdmkenny/openreliant/issues/210)), the multiplayer screen ([#211](https://github.com/vdmkenny/openreliant/issues/211)), and the brightness slider, which stays hidden as it does where hardware cannot set it ([#209](https://github.com/vdmkenny/openreliant/issues/209)). The sandbox's RESTART starts the sandbox again and its LEAVE MISSION quits.
+[`game/hudoptions.zig`](../../src/engine/game/hudoptions.zig) holds the menu and its screens, with the items, their drawing and the widgets the screens share in [`hudoptions/menu.zig`](../../src/engine/game/hudoptions/menu.zig) and the screens in [`hudoptions/screens.zig`](../../src/engine/game/hudoptions/screens.zig); `game_pause` is in [`game/main.zig`](../../src/engine/game/main.zig). Ported so far: pausing and resuming, the paused frame's outcomes, the menu's items and pointer, and the main, audio and video screens, which save to `starlancer.ini` as the game does. Not yet: the controls screen and F1 ([#210](https://github.com/vdmkenny/openreliant/issues/210)), the multiplayer screen ([#211](https://github.com/vdmkenny/openreliant/issues/211)), and the brightness slider, which stays hidden as it does where hardware cannot set it ([#209](https://github.com/vdmkenny/openreliant/issues/209)). RESTART starts the mission again. LEAVE MISSION goes back to the front end, or quits where `--mission` named the mission.
 
 **Improvements**, each marked so in the code:
 
@@ -14,7 +14,7 @@ While a mission is paused, the game draws a configuration menu in place of the h
 - The pointer is where the system's is over the window, rather than DirectInput's motion added up.
 - Losing the window's focus pauses into the menu in single player too.
 - OpenReliant's version is written, dimmed, in the bottom right corner.
-- With no front end yet, the mission starts in the menu; `--no-pause-menu` starts it flying.
+- A mission `--mission` names starts in the menu, and `--no-pause-menu` starts it flying. One the [front end](front-end.md) starts flies at once, and its LEAVE MISSION goes back to the front end.
 
 **Fixes** of the game's bugs, each marked so in the code:
 

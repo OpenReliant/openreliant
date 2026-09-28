@@ -111,12 +111,12 @@ const Doc = struct {
 /// Every option's help, which the compiler holds to having one for each.
 const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, and the sound mixed plainly in stereo" },
-    .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "the mission to play, by the number the game names its file by, mission<number>.dte, from the game's missions folder or resource.hog; 0 by default, OpenReliant's own sandbox, which openreliant carries where the game has no mission 0" },
+    .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "play this mission at once rather than open the main menu: the number the game names its file by, mission<number>.dte, from the game's missions folder or resource.hog; 0 is OpenReliant's own sandbox, which openreliant carries where the game has no mission 0" },
     .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
     .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the pause menu's video screen changes" },
     .@"--difficulty" = .{ .section = .mission, .value = "<easy|medium|hard>", .text = "the game's difficulty: how hard hits land on your ship, and shots on the enemy; medium by default, as in the game" },
     .@"--music" = .{ .section = .mission, .value = "<file>", .text = "a piece from the game's music folder to play from the start, until the mission's script plays its own; none by default" },
-    .@"--no-pause-menu" = .{ .section = .mission, .text = "start flying, and fly the mission again as soon as it ends, where it otherwise starts and ends in the game's pause menu, as there is no front end yet" },
+    .@"--no-pause-menu" = .{ .section = .mission, .text = "with --mission, start flying, and fly the mission again as soon as it ends, where it otherwise starts and ends in the game's pause menu" },
     .@"--fullscreen" = .{ .section = .display, .text = "fill the display; Alt and Enter switch while playing" },
     .@"--size" = .{ .section = .display, .value = "<width>x<height>", .text = "draw frames of this size in pixels whatever the window's, which shows them scaled; for a screenshot larger than the display" },
     .@"--fps" = .{ .section = .display, .value = "<rate>", .text = "frames a second at most; without vsync, the display's rate by default; 0 for no limit" },
@@ -210,8 +210,8 @@ const Problem = union(enum) {
 
 const Options = struct {
     directory: []const u8 = ".",
-    /// The mission to play, by its number.
-    mission: u16 = mission0.number,
+    /// The mission to play at once, by its number, or null to open the front end.
+    mission: ?u16 = null,
     /// The ship the player flies, in place of the loadout screen's choice; null for the mission's
     /// own.
     ship: ?u8 = null,
@@ -221,7 +221,7 @@ const Options = struct {
     screenshot: ?[]const u8 = null,
     /// The game ticks a screenshot runs before it is taken, one a frame.
     screenshot_ticks: u32 = minimum_screenshot_ticks,
-    /// Whether the mission starts in the pause menu.
+    /// Whether a mission `--mission` names starts in the pause menu.
     pause_menu: bool = true,
     fullscreen: bool = false,
     software: bool = false,
@@ -778,12 +778,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     };
     world.display = &display.state;
 
-    // The mission, read once from the game's files, or for mission 0, where the game has none, from
-    // the copy `openreliant` carries, and started; it starts again as each attempt ends.
+    // The mission `--mission` names, read once from the game's files, or for mission 0, where the
+    // game has none, from the copy `openreliant` carries, and started; it starts again as each
+    // attempt ends. Without it, the front end picks the mission.
     var play: Play = .{
         .gpa = gpa,
-        .number = options.mission,
-        .file = try missionFile(io, arena, directory, &resources, options.mission),
+        .number = options.mission orelse mission0.number,
+        .file = if (options.mission) |number| try missionFile(io, arena, directory, &resources, number) else "",
         .clock = &clock,
         .tables = tables,
         .types = &types,
@@ -793,7 +794,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     };
     defer play.end();
     display.play = &play;
-    try play.start(.{ .world = world, .clock = &clock, .devices = &devices });
+    if (options.mission != null) try play.start(.{ .world = world, .clock = &clock, .devices = &devices });
+    // The front end, where the game opens unless `--mission` names a mission, and what it draws
+    // with; whether it is shown, and whether the mission being flown was started from it.
+    var front: engine.genilib.interf.Interface = .{};
+    var front_resources: ?engine.genilib.interf.Resources = null;
+    defer if (front_resources) |*open| open.close();
+    var in_front_end = options.mission == null;
+    var from_front_end = false;
+    var front_ticks = platform.window.ticks();
     // A piece of music asked for, as a mission's script plays one (`cmd_PlayMusic`): from `music\`,
     // for ever, at 80.
     if (options.music) |name| {
@@ -855,70 +864,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
         // the game too.
         try game.winmain.followActivation(&app, pausing);
         if (output) |open| open.update();
-        // The timer's ticks since the last pass, then a game tick for each, as `mission_run` paces
-        // them: the simulation steps on every fourth, reading the keyboard as it goes, and runs the
-        // objects' updates. A screenshot takes one tick a frame so that the camera settles the same
-        // way on every run.
-        const now = platform.window.nanoseconds();
-        if (frames_left != null) clock.advanceBy(now / platform.window.tick_nanoseconds, 1) else clock.advanceToFine(now, platform.window.tick_nanoseconds);
-        // While the communications window is open the keys 1 to 8 are its menu's.
-        devices.keyboard.numbers_taken = display.state.windows.status.get(.comms).phase == .open;
-        world.view = view.view;
-        world.cockpit = if (cockpit.shown) |*shown| &shown.model else null;
-        world.mission = if (play.loaded) |loaded| &loaded.bound else null;
-        world.events = if (play.loaded) |loaded| &loaded.events else null;
-        world.variables = if (play.loaded) |loaded| &loaded.script.variables else null;
-        const orders: game.aigeneric.Context = .{ .world = world, .clock = &clock, .devices = &devices };
-        while (clock.nextTick(&devices, world)) |_| {}
-        clock.frameBegin();
-        const slot = &objects.slots[objects.player];
-        // `mission_frame` looks for Escape before its work, and pausing into the menu leaves the
-        // work out.
-        if (!clock.paused and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) try game.main.pause(pausing, true);
-        if (clock.paused) {
-            game.main.pausedFrame(&devices, hearing, world);
-        } else {
-            // The force feedback plays while the controller rumbles and its setting lets it.
-            force_feedback.feedback = devices.joystick.rumbles;
-            force_feedback.setting = devices.settings.force_feedback;
-            // Each frame `mission_frame` runs every object's orders, which fly the ships and read
-            // the player's controls, and then, before anything is drawn, has every object's frames
-            // drawn between its last two places, as far into the step as the clock is; the camera
-            // follows the player's.
-            const over = game.main.missionFrame(orders, .of(&clock, options.smooth_motion, options.riders), play.loaded);
-            // The mission over, once the camera has watched the player's end or the pilot's pickup,
-            // once the player's ship has landed, or once its script ends it, the game goes to its
-            // debriefing. Until the front end, OpenReliant pauses into the menu over the last
-            // frame, where RESTART, and CONTINUE with nothing left to continue, fly it again; a
-            // screenshot, or a game that starts flying at once, starts it again straight away.
-            if (over) {
-                if (inPauseMenu(options, frames_left)) {
-                    play.over = true;
-                    try game.main.pause(pausing, true);
-                } else try play.again(orders);
-            }
-            if (test_keys.active(play.number)) {
-                for (test_keys.ship_keys) |step| {
-                    if (devices.keyboard.pressed(@intFromEnum(step[0]), .none, true)) try play.changeShip(orders, step[1]);
-                }
-                if (devices.keyboard.pressed(@intFromEnum(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
-            }
-
-            game.main.controlsFrame(.{
-                .orders = orders,
-                .devices = &devices,
-                .camera = &view,
-                .display = &display.state,
-                .sight = display.sight,
-                .screen = display.screen,
-                .last_view = last_view,
-                .cockpit = if (cockpit.shown) |*shown| shown else null,
-                .forces = &force_feedback,
-                .random = &rand,
-                .smooth_motion = options.smooth_motion,
-            });
-        }
-
         // The GPU draws at the display's own resolution; the software device at the window's size
         // in points, made again when it changes.
         const size = switch (screen.*) {
@@ -933,84 +878,194 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
             },
         };
 
-        context.camera = .{ .position = view.place.position, .orientation = view.place.orientation };
-        context.projection = view.projection(size[0], size[1]);
-        // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
-        if (cockpit.shown) |*shown| if (view.cockpit_place) |placed| game.main.cockpit.place(&shown.model, view.place, placed);
-        backing.place(context.projection, view.place, game.hud.scaleFor(size));
-        _ = frame_arena.reset(.retain_capacity);
-        display.target = screen.interface();
-        display.screen = size;
-        display.sight = .{ .place = view.place, .projection = context.projection };
-        display.last_view = last_view;
-        display.cockpit_mode = view.cockpit_mode;
-        try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
-            .objects = objects,
-            .seat = if (slot.object.flags.hidden) objects.player else null,
-            .shown = .of(&player),
-            .space = space,
-            .sky = sky,
-            .view = view.view,
-            .cockpit_mode = view.cockpit_mode,
-            .jumping_in = player.jumping_in,
-            .last_view = last_view,
-            .cut = view.cut,
-            .overlay = display.overlay(),
-            .cockpit = if (cockpit.shown) |*shown| &shown.model else null,
-            // The paused frame hides the radar's backing, whose radar the menu stands in place of.
-            .backing = if (clock.paused) null else backing,
-            .kills_shown = devices.active(.display_kills, false),
-            .particles = &particles,
-            .smoke = &smoke,
-            .gun_particles = &gun_particles,
-            .sparks = &sparks,
-            .ahead = game.objects.pastTick(&clock, options.smooth_motion),
-            .explosions = &explosions,
-            .shockwaves = &shockwaves,
-            .trails = &trails,
-            .countermeasures = &countermeasures,
-            .lock = &display.state.lock,
-            .lock_rings = lock_rings,
-            .chase = chase_objects,
-            .display = &display.state,
-            .shields = &shields,
-            .rays = &rays,
-            .tractors = &tractors,
-            .rippers = &rippers,
-            .jump_effects = &jump_effects,
-            .atmospheres = &atmospheres,
-            .escort_marker = escort_marker,
-            .flash = &flash,
-            .interference = &display.state.interference,
-            .ticks = @intCast(clock.frameTicks()),
-            .paused = clock.paused,
-            .attachments = .{
-                .camera = view.place.position,
-                .frame_start = clock.frame_start,
-                .random = &rand,
-            },
-        }, driver.interface());
-        last_view = view.view;
-        view.cut = false;
-        // What the menu's choice ends the pause in, as `mission_paused_frame` acts on it: the
-        // mission starts again for RESTART, and for CONTINUE once it is over, and LEAVE MISSION
-        // leaves it.
-        if (pause_menu.outcome()) |outcome| {
-            try game.main.pause(pausing, false);
-            switch (outcome) {
-                .continue_mission => if (play.over) try play.again(orders),
-                .restart => try play.again(orders),
-                .leave_mission => return,
+        world.view = view.view;
+        world.cockpit = if (cockpit.shown) |*shown| &shown.model else null;
+        world.mission = if (play.loaded) |loaded| &loaded.bound else null;
+        world.events = if (play.loaded) |loaded| &loaded.events else null;
+        world.variables = if (play.loaded) |loaded| &loaded.script.variables else null;
+        const orders: game.aigeneric.Context = .{ .world = world, .clock = &clock, .devices = &devices };
+        const slot = &objects.slots[objects.player];
+        // The front end's frame while it is shown, as `interface_run` runs its screens, which the
+        // keyboard is read for each pass; the mission it picks starts at once, with its clocks
+        // zeroed as `mission_run` zeroes them.
+        if (in_front_end) {
+            if (front_resources == null) front_resources = try .open(gpa, resources);
+            const ticks = platform.window.ticks();
+            const elapsed = std.math.cast(i32, ticks -| front_ticks) orelse std.math.maxInt(i32);
+            front_ticks = ticks;
+            devices.keyboard.read();
+            sound.updateMusic();
+            if (front.frame(.{ .devices = &devices, .window = size, .elapsed = elapsed, .sound = sound, .bank = stdsmp })) |outcome| switch (outcome) {
+                .quit => return,
+                .fly => |flight| {
+                    play.number = flight.mission;
+                    play.file = missionFile(io, arena, directory, &resources, flight.mission) catch |err| switch (err) {
+                        error.MissingMission => continue,
+                        else => |other| return other,
+                    };
+                    if (flight.ship) |ship| objects.loadout_ships[objects.player] = @enumFromInt(ship);
+                    sound.closeMusic();
+                    clock.start(platform.window.ticks());
+                    try play.start(orders);
+                    in_front_end = false;
+                    from_front_end = true;
+                },
+            };
+        }
+        if (!in_front_end) {
+            // The timer's ticks since the last pass, then a game tick for each, as `mission_run` paces
+            // them: the simulation steps on every fourth, reading the keyboard as it goes, and runs the
+            // objects' updates. A screenshot takes one tick a frame so that the camera settles the same
+            // way on every run.
+            const now = platform.window.nanoseconds();
+            if (frames_left != null) clock.advanceBy(now / platform.window.tick_nanoseconds, 1) else clock.advanceToFine(now, platform.window.tick_nanoseconds);
+            // While the communications window is open the keys 1 to 8 are its menu's.
+            devices.keyboard.numbers_taken = display.state.windows.status.get(.comms).phase == .open;
+            while (clock.nextTick(&devices, world)) |_| {}
+            clock.frameBegin();
+            // `mission_frame` looks for Escape before its work, and pausing into the menu leaves the
+            // work out.
+            if (!clock.paused and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) try game.main.pause(pausing, true);
+            if (clock.paused) {
+                game.main.pausedFrame(&devices, hearing, world);
+            } else {
+                // The force feedback plays while the controller rumbles and its setting lets it.
+                force_feedback.feedback = devices.joystick.rumbles;
+                force_feedback.setting = devices.settings.force_feedback;
+                // Each frame `mission_frame` runs every object's orders, which fly the ships and read
+                // the player's controls, and then, before anything is drawn, has every object's frames
+                // drawn between its last two places, as far into the step as the clock is; the camera
+                // follows the player's.
+                const over = game.main.missionFrame(orders, .of(&clock, options.smooth_motion, options.riders), play.loaded);
+                // The mission over, once the camera has watched the player's end or the pilot's pickup,
+                // once the player's ship has landed, or once its script ends it, the game goes to its
+                // debriefing. Until that is ported, a mission the front end started goes back to it.
+                // One `--mission` named pauses into the menu over the last frame, where RESTART, and
+                // CONTINUE with nothing left to continue, fly it again; a screenshot, or a game that
+                // starts flying at once, starts it again straight away.
+                if (over) {
+                    if (from_front_end) {
+                        backToFrontEnd(&play, &front, sound);
+                        in_front_end = true;
+                        from_front_end = false;
+                    } else if (inPauseMenu(options, frames_left)) {
+                        play.over = true;
+                        try game.main.pause(pausing, true);
+                    } else try play.again(orders);
+                }
+                if (test_keys.active(play.number)) {
+                    for (test_keys.ship_keys) |step| {
+                        if (devices.keyboard.pressed(@intFromEnum(step[0]), .none, true)) try play.changeShip(orders, step[1]);
+                    }
+                    if (devices.keyboard.pressed(@intFromEnum(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
+                }
+
+                game.main.controlsFrame(.{
+                    .orders = orders,
+                    .devices = &devices,
+                    .camera = &view,
+                    .display = &display.state,
+                    .sight = display.sight,
+                    .screen = display.screen,
+                    .last_view = last_view,
+                    .cockpit = if (cockpit.shown) |*shown| shown else null,
+                    .forces = &force_feedback,
+                    .random = &rand,
+                    .smooth_motion = options.smooth_motion,
+                });
             }
         }
-        // The menu draws its own pointer over the window, in place of the system's.
-        if (pause_menu.isOpen() == pointer_shown) {
+
+        _ = frame_arena.reset(.retain_capacity);
+        if (in_front_end) {
+            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings };
+            scene.clear();
+            try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
+        } else {
+            context.camera = .{ .position = view.place.position, .orientation = view.place.orientation };
+            context.projection = view.projection(size[0], size[1]);
+            // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
+            if (cockpit.shown) |*shown| if (view.cockpit_place) |placed| game.main.cockpit.place(&shown.model, view.place, placed);
+            backing.place(context.projection, view.place, game.hud.scaleFor(size));
+            display.target = screen.interface();
+            display.screen = size;
+            display.sight = .{ .place = view.place, .projection = context.projection };
+            display.last_view = last_view;
+            display.cockpit_mode = view.cockpit_mode;
+            try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
+                .objects = objects,
+                .seat = if (slot.object.flags.hidden) objects.player else null,
+                .shown = .of(&player),
+                .space = space,
+                .sky = sky,
+                .view = view.view,
+                .cockpit_mode = view.cockpit_mode,
+                .jumping_in = player.jumping_in,
+                .last_view = last_view,
+                .cut = view.cut,
+                .overlay = display.overlay(),
+                .cockpit = if (cockpit.shown) |*shown| &shown.model else null,
+                // The paused frame hides the radar's backing, whose radar the menu stands in place of.
+                .backing = if (clock.paused) null else backing,
+                .kills_shown = devices.active(.display_kills, false),
+                .particles = &particles,
+                .smoke = &smoke,
+                .gun_particles = &gun_particles,
+                .sparks = &sparks,
+                .ahead = game.objects.pastTick(&clock, options.smooth_motion),
+                .explosions = &explosions,
+                .shockwaves = &shockwaves,
+                .trails = &trails,
+                .countermeasures = &countermeasures,
+                .lock = &display.state.lock,
+                .lock_rings = lock_rings,
+                .chase = chase_objects,
+                .display = &display.state,
+                .shields = &shields,
+                .rays = &rays,
+                .tractors = &tractors,
+                .rippers = &rippers,
+                .jump_effects = &jump_effects,
+                .atmospheres = &atmospheres,
+                .escort_marker = escort_marker,
+                .flash = &flash,
+                .interference = &display.state.interference,
+                .ticks = @intCast(clock.frameTicks()),
+                .paused = clock.paused,
+                .attachments = .{
+                    .camera = view.place.position,
+                    .frame_start = clock.frame_start,
+                    .random = &rand,
+                },
+            }, driver.interface());
+            last_view = view.view;
+            view.cut = false;
+            // What the menu's choice ends the pause in, as `mission_paused_frame` acts on it: the
+            // mission starts again for RESTART, and for CONTINUE once it is over, and LEAVE MISSION
+            // leaves it, for the front end where the mission came from it.
+            if (pause_menu.outcome()) |outcome| {
+                try game.main.pause(pausing, false);
+                switch (outcome) {
+                    .continue_mission => if (play.over) try play.again(orders),
+                    .restart => try play.again(orders),
+                    .leave_mission => {
+                        if (!from_front_end) return;
+                        backToFrontEnd(&play, &front, sound);
+                        in_front_end = true;
+                        from_front_end = false;
+                    },
+                }
+            }
+        }
+        // The menus draw their own pointer over the window, in place of the system's.
+        const menu_pointer = in_front_end or pause_menu.isOpen();
+        if (menu_pointer == pointer_shown) {
             pointer_shown = !pointer_shown;
             window.showPointer(pointer_shown);
         }
         // Steering by the mouse, the window holds it in flight, as the game holds DirectInput's
         // mouse while it is in the foreground.
-        const hold = devices.settings.control_mode == .mouse and !pause_menu.isOpen() and app.active and options.screenshot == null;
+        const hold = devices.settings.control_mode == .mouse and !menu_pointer and app.active and options.screenshot == null;
         if (hold != mouse_held) {
             mouse_held = hold;
             // Where the system won't hold it, the mouse steers by the pointer's movement over the
@@ -1063,18 +1118,52 @@ fn save(io: Io, gpa: Allocator, path: []const u8, rgba: []const u8, size: [2]u32
     try writer.interface.flush();
 }
 
-/// Whether the mission starts and ends in the pause menu, which stands in for the front end and the
-/// debriefing: unless the game starts flying at once (`--no-pause-menu`), or takes a screenshot,
-/// which reads no controls and counts its frames down (`frames_left`).
+/// Whether a mission `--mission` names starts and ends in the pause menu, which stands in for the
+/// briefing and the debriefing: unless the game starts flying at once (`--no-pause-menu`), or takes
+/// a screenshot, which reads no controls and counts its frames down (`frames_left`). A mission the
+/// front end starts flies at once, and ends back in the front end.
 fn inPauseMenu(options: Options, frames_left: ?usize) bool {
-    return options.pause_menu and frames_left == null;
+    return options.mission != null and options.pause_menu and frames_left == null;
 }
 
 test inPauseMenu {
-    try std.testing.expect(inPauseMenu(try parsed(&.{}), null));
-    try std.testing.expect(!inPauseMenu(try parsed(&.{"--no-pause-menu"}), null));
-    try std.testing.expect(!inPauseMenu(try parsed(&.{}), 2));
+    try std.testing.expect(inPauseMenu(try parsed(&.{ "--mission", "1" }), null));
+    try std.testing.expect(!inPauseMenu(try parsed(&.{}), null));
+    try std.testing.expect(!inPauseMenu(try parsed(&.{ "--mission", "1", "--no-pause-menu" }), null));
+    try std.testing.expect(!inPauseMenu(try parsed(&.{ "--mission", "1" }), 2));
 }
+
+/// Goes back to the front end as a mission it started ends, or is left: the mission let go, its
+/// sounds and music ended, and the front end's main menu entered again (`Interface.back`).
+fn backToFrontEnd(play: *Play, front: *engine.genilib.interf.Interface, sound: *game.hog_snd.Sound) void {
+    play.end();
+    sound.endAll();
+    sound.closeMusic();
+    front.back();
+}
+
+/// What draws the front end over the cleared frame: its render hook (`sr + 0x88`), which
+/// `srcore.render` reaches through the overlay it is handed.
+const FrontEndDisplay = struct {
+    front: *const engine.genilib.interf.Interface,
+    resources: *engine.genilib.interf.Resources,
+    target: srd3d.device.Device,
+    window: [2]u32,
+    strings: *const game.language.Language,
+
+    fn overlay(shown: *FrontEndDisplay) srcore.Overlay {
+        return .{ .context = shown, .draw = draw };
+    }
+
+    fn draw(context: *anyopaque) Allocator.Error!void {
+        const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
+        shown.front.draw(shown.resources, shown.target, shown.window, shown.strings) catch |err| switch (err) {
+            error.OutOfMemory => |out| return out,
+            // A shape the file does not hold draws nothing, as it does in the game.
+            else => {},
+        };
+    }
+};
 
 /// The mission being played: the file it starts from, and the mission loaded for play, which
 /// starts again as each attempt ends, with what each start readies (`game.main.startMission`).
@@ -1270,7 +1359,7 @@ test Options {
     try std.testing.expectError(error.Usage, parsed(&.{ "--view", "3" }));
     try std.testing.expectError(error.Usage, parsed(&.{"--ship"}));
     // The mission by its number, mission 0 by default.
-    try std.testing.expectEqual(mission0.number, (try parsed(&.{})).mission);
+    try std.testing.expectEqual(null, (try parsed(&.{})).mission);
     try std.testing.expectEqual(25, (try parsed(&.{ "--mission", "25" })).mission);
     try std.testing.expectEqual(null, (try parsed(&.{})).ship);
     try std.testing.expectError(error.Usage, parsed(&.{ "--mission", "x" }));

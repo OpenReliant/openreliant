@@ -1398,8 +1398,8 @@ address	kind	name	type	comment
 0057daac	data	controls_old_button	int	The joystick button of the binding being redefined, as it was
 0057db14	data	controls_old_key_name	char[30]	The key name of the binding being redefined, as it was
 0057dba0	data	controls_old_modifier	int	The modifier of the binding being redefined, as it was
-0051d5f8	data	controls_conflict_open	int	Set while pause screen 2's dialog is up
-0051d900	data	controls_conflict_text	char[256]	The dialog's text
+0051d5f8	data	dialog_open	int	Set while a YES or NO dialog is up: the front end's (interface_confirm) and pause screen 2's
+0051d900	data	dialog_text	char[212]	The dialog's text where it has no string id, as interface_confirm asks with -1: pause screen 2's conflict
 0057da70	data	controls_conflict_action	int	The action already holding the key or button
 0057da5c	data	controls_conflict_button	int	The joystick button in dispute, or -1 for a key
 0057daa0	data	controls_conflict_key	int	The key in dispute
@@ -1880,3 +1880,37 @@ address	kind	name	type	comment
 00562ce8	data	friendly_fire_quiet_until	int	The game tick up to which friendly_fire_warning gives no warning
 00500820	data	friendly_fire_warnings	char *[3][4]	Moose's warnings of the player's hits on friends, a set of four for each count: ff_001 to ff_012
 00500850	data	friendly_fire_home_lines	char *[11]	Moose's words as the player is sent home, ff_013 to ff_023
+004287c0	function	interface_palette_ramp	void __fastcall (uint rgb)	The front end's copy of hud_palette_ramp: entries 1 to 15 of VFX's global palette, or on an 8-bit pane interface_text_remap, a ramp of rgb at palette_ramp_brightness, which its text is drawn through. The main menu writes in 0x40BCFF, gold 0xFDB951 under the pointer, and the developers' text in 0xFF0000
+004288e0	function	interface_init	void (void)	The front end's start-up: reads bank_stdsmp (stdsmp.fat), opens handel.fnt, interface\optfnt.fnt and interface\smlfnt2.fnt (interface_font_handel, interface_font_large, interface_font_small), and makes interface_text_remap
+004289d0	function	interface_run	int __fastcall (int screen)	The front end: runs the screen of interface_screen, from screen, each until it returns nonzero, the render hook 0x0043E730 between them. Returns 1 to fly without the briefing, 2 to fly, 3 to quit, 4 or 5 to set the display up again
+00428b60	function	main_menu	int (void)	Front end screen 0 over interface\sl_splash2.tga, with interface\frontend.spr (main_menu_shapes): SINGLE PLAYER to screen 12, MULTI PLAYER to 14, GAME OPTIONS to 1, QUIT, which asks (interface_confirm) and returns 3, and INSTANT ACTION, which flies mission 29 in ship 2 as the simulator until it is left. POTATO typed with Control turns on developer_mode: then the number keys type mission_number, Shift or Control with Enter flies it from its briefing, and Shift with F1 to F12 without, in ship 0 to 11
+004291c0	function	main_menu_draw	void (void)	The main menu's render hook: the panels' labels in interface_font_large, QUIT and INSTANT ACTION in interface_font_small, their buttons, the item under the pointer lit (main_menu_hotspots) with a panel's labels in gold, the dialogs, the pointer's shape, and with developer_mode M and mission_number in font_01
+004360d0	function	interface_pointer_update	void (void)	Moves interface_pointer_x and interface_pointer_y by the mouse, within the screen, runs interface_pointer_ticks on by the ticks since it last ran, back to 0 at 64, and reads the buttons (interface_pointer_down, interface_pointer_right_down)
+0042aa80	function	interface_confirm	bool __fastcall (short message)	The front end's YES or NO dialog, with quit.spr (dialog_shapes): asks language_string(message), or dialog_text for -1, until Escape, which answers NO, or a click on a button (dialog_buttons), answered once the button comes up; true for YES
+0042ab60	function	interface_confirm_draw	void (void)	Draws interface_confirm's dialog while dialog_open: the box, the buttons with the one under the pointer lit (dialog_button), the question 400 wide in lines 14 apart, and YES and NO
+0042ade0	function	interface_message_draw	void (void)	Draws the front end's message dialog while 0x0051D7D8 is set: the box, the message, language_string(0x005202D0), 400 wide in lines 16 apart, and OK
+0043eb30	function	interface_hit	int __fastcall (short *rects, int count, int x, int y)	The first of count rectangles of four shorts, corner and size, that holds x, y with the edges left out, or -1
+00494a70	function	background_load	void (void)	Reads background_name as a TGA and hands it to the device (sr + 0x50), or runs background_hook where one is set; with no name, clears the picture
+00494b50	function	background_set	void __fastcall (char *name)	Shows the picture of name behind the frames, loading it (background_load) unless background_name is it already, case aside; null clears it. The front end's screens and loading_screen set one
+004ab3f0	function	loading_screen	void (void)	LOADING over interface\sl_splash.tga, sl_splash800.tga or sl_splash1024.tga, by the screen's width, rendered once as a mission loads
+0051dac4	data	interface_screen	int	The front end's screen, which interface_run runs: 0 main menu, 1 GAME OPTIONS, 3 audio, 7 briefing, 8 the landing movie, 10 and 11 the multiplayer sessions, 12 pilot roster, 13 saved games, 14 connection, 15 video, 16 controls, 17 and 18 a session's loadout
+00520274	data	interface_pointer_x	int	The front end's pointer across (interface_pointer_update), 320 as the main menu starts
+00520270	data	interface_pointer_y	int	The front end's pointer down, 200 as the main menu starts
+0051da0c	data	interface_pointer_down	int	Whether the front end's pointer's left button is down, which chooses what is under it
+0051d9d4	data	interface_pointer_right_down	int	Whether the front end's pointer's right button is down
+0051dabc	data	interface_pointer_ticks	int	The ticks into the pointer's animation: shape 1 + ticks / 4 of the screen's set, 16 of them
+0051d544	data	main_menu_item	int	The main menu's item under the pointer (main_menu_hotspots), or -1
+0051d60c	data	main_menu_shapes	void *	interface\frontend.spr, which the main menu reads as it starts and frees as it leaves: the pointer's 16 shapes, the lit panels and the buttons
+004e5b90	data	main_menu_hotspots	short[5][6]	The main menu's items: corner, size, what choosing returns (3 for QUIT) and the lit shape; SINGLE PLAYER, MULTI PLAYER, GAME OPTIONS, QUIT and INSTANT ACTION
+005d5641	data	developer_mode	byte	Set by the main menu's POTATO, typed with Control, until the game quits: the developers' keys and the mission's number shown
+0051d7d0	data	dialog_message	int	The string id interface_confirm asks, or -1 for dialog_text
+0051d4b8	data	dialog_shapes	void *	quit.spr while interface_confirm's dialog is up
+00520294	data	dialog_button	int	The dialog's button under the pointer: 0 YES, 1 NO, -1 none
+004e5cb8	data	dialog_buttons	short[2][4]	interface_confirm's YES and NO: corner and size
+0051d7bc	data	interface_font_large	void **	interface\optfnt.fnt, opened by interface_init: the main menu's labels and the dialogs
+0051d568	data	interface_font_small	void **	interface\smlfnt2.fnt, opened by interface_init
+0051d604	data	interface_font_handel	void **	handel.fnt, opened by interface_init
+00520284	data	interface_text_remap	byte[16]	The remap table the front end's text is drawn through: 0xFF for level 0 and each level 1 to 15 itself, which interface_palette_ramp colours
+0059506c	data	font_01	void **	font_01.fnt, opened with the display's fonts: the main menu's developers' text
+00588744	data	background_name	char[64]	The name of the picture shown behind the frames (background_set)
+00588740	data	background_hook	void *	A routine background_load runs in place of loading background_name, where set
