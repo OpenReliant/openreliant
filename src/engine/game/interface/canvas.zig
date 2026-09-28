@@ -11,18 +11,21 @@ const input = @import("../../input.zig");
 const hud = @import("../hud.zig");
 const language = @import("../language.zig");
 
-/// The front end's screen in pixels.
-pub const size: [2]i32 = .{ 640, 480 };
+/// The front end's screen in pixels, the mode returning from a mission sets the display to
+/// (`0x004AD2E0`).
+pub const size: [2]u32 = .{ 640, 480 };
 
 pub const Error = spr.Error || Allocator.Error;
 
-/// The colours the front end ramps its text through (`0x004287C0`), from a `0xRRGGBB` value.
+/// The colours the front end ramps its text through (`interface_palette_ramp`, `0x004287C0`),
+/// from a `0xRRGGBB` value: the main menu's labels and the dialogs, a panel's labels under the
+/// pointer, and the developers' text.
 pub const blue = hud.rgb(0x40BCFF);
 pub const gold = hud.rgb(0xFDB951);
 pub const red = hud.rgb(0xFF0000);
 
-/// The front end's fonts, which its start-up opens (`0x004288E0`): `interface\optfnt.fnt` and
-/// `interface\smlfnt2.fnt`, the pause menu's too.
+/// The front end's fonts, which its start-up opens (`interface_init`, `0x004288E0`):
+/// `hud.large_menu_font` and `hud.small_menu_font`, the pause menu's too.
 pub const Fonts = struct {
     large: *hud.Opened,
     small: *hud.Opened,
@@ -100,9 +103,7 @@ pub const Canvas = struct {
 /// How many of a window's pixels one of the front end's spans in a window of `window`: as many as
 /// fit the front end in it.
 pub fn scaleFor(window: [2]u32) f32 {
-    var least: f32 = std.math.floatMax(f32);
-    for (window, size) |pixels, across| least = @min(least, @as(f32, @floatFromInt(pixels)) / @as(f32, @floatFromInt(across)));
-    return least;
+    return hud.fit(window, size);
 }
 
 /// Where the front end's top left corner stands in a window of `window`, which centres it.
@@ -120,34 +121,45 @@ pub const Rect = extern struct {
     width: i16,
     height: i16,
 
-    /// Whether `at` lies inside it, its edges left out (`0x0043EB30`).
+    /// Whether `at` lies inside it, its edges left out, as `interface_hit` tests.
     pub fn holds(rect: Rect, at: [2]i32) bool {
         return rect.x < at[0] and at[0] < @as(i32, rect.x) + rect.width and rect.y < at[1] and at[1] < @as(i32, rect.y) + rect.height;
     }
 };
 
-/// `0x0043EB30`: the first of `rects` that holds `at`, or null for none.
+comptime {
+    std.debug.assert(@sizeOf(Rect) == 8);
+}
+
+/// `interface_hit` (`0x0043EB30`): the first of `rects` that holds `at`, or null for none.
+///
+/// **Unverified:** the file. It lies after `interface.cpp`'s known code and before `itac.cpp`'s,
+/// and every caller is one of the front end's screens, so it goes with `interface.cpp`.
 pub fn hit(rects: []const Rect, at: [2]i32) ?usize {
     for (rects, 0..) |rect, index| if (rect.holds(at)) return index;
     return null;
 }
 
-/// The front end's pointer (`0x00520274`, `0x00520270`), its buttons and its animation.
+/// The front end's pointer (`interface_pointer_x`, `interface_pointer_y`), its buttons and its
+/// animation.
 pub const Pointer = struct {
-    /// Where it points on the front end's screen.
+    /// Where it points on the front end's screen: (320, 200) as the main menu starts.
     at: [2]i32 = .{ 320, 200 },
-    /// Whether the left button is down (`0x0051DA0C`), and the right (`0x0051D9D4`).
+    /// Whether the left button is down (`interface_pointer_down`), and the right
+    /// (`interface_pointer_right_down`).
     down: bool = false,
     right_down: bool = false,
-    /// The ticks into its animation (`0x0051DABC`), which runs through its shapes a shape every
-    /// `ticks_per_shape` ticks.
+    /// The ticks into its animation (`interface_pointer_ticks`), which runs through its shapes a
+    /// shape every `ticks_per_shape` ticks.
     ticks: i32 = 0,
 
+    /// The animation's shapes, 1 to 16 of the screen's set, and how long each shows: the ticks
+    /// wrap at 64 (`0x00436103`), and the drawing takes the shape `ticks / 4 + 1` (`0x0042961C`).
     pub const shapes = 16;
     pub const ticks_per_shape = 4;
 
-    /// `0x004360D0`, once a frame, `elapsed` ticks after the last: the buttons as the mouse has
-    /// them, and the animation on.
+    /// `interface_pointer_update` (`0x004360D0`), once a frame, `elapsed` ticks after the last:
+    /// the buttons as the mouse has them, and the animation on.
     ///
     /// **Improvement.** The pointer is where the system's is, over the window, as the pause menu's
     /// is. The game adds up DirectInput's movements from where its pointer last stood.
@@ -157,7 +169,7 @@ pub const Pointer = struct {
             const from = cornerFor(window);
             for (&pointer.at, share, window, from, size) |*at, fraction, pixels, start, across| {
                 const on_screen = fraction * @as(f32, @floatFromInt(pixels));
-                at.* = std.math.clamp(hud.round((on_screen - start) / s), 0, across - 1);
+                at.* = std.math.clamp(hud.round((on_screen - start) / s), 0, @as(i32, @intCast(across)) - 1);
             }
         }
         pointer.down = mouse.buttons.left;

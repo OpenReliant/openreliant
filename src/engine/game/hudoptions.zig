@@ -114,8 +114,8 @@ pub const PauseMenu = struct {
         files: [2][]u8,
     };
 
-    pub const small_font = "interface\\smlfnt2.fnt";
-    pub const large_font = "interface\\optfnt.fnt";
+    pub const small_font = hud.small_menu_font;
+    pub const large_font = hud.large_menu_font;
 
     pub fn isOpen(pause_menu: PauseMenu) bool {
         return pause_menu.fonts != null;

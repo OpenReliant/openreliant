@@ -111,7 +111,7 @@ const Doc = struct {
 /// Every option's help, which the compiler holds to having one for each.
 const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, and the sound mixed plainly in stereo" },
-    .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "play this mission at once rather than open the main menu: the number the game names its file by, mission<number>.dte, from the game's missions folder or resource.hog; 0 is OpenReliant's own sandbox, which openreliant carries where the game has no mission 0" },
+    .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "play this mission at once rather than open the main menu: the number the game names its file by, mission<number>.dte, from the game's missions folder or resource.hog; 0 is OpenReliant's sandbox, which openreliant carries where the game has no mission 0" },
     .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
     .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the pause menu's video screen changes" },
     .@"--difficulty" = .{ .section = .mission, .value = "<easy|medium|hard>", .text = "the game's difficulty: how hard hits land on your ship, and shots on the enemy; medium by default, as in the game" },
@@ -1157,13 +1157,18 @@ const FrontEndDisplay = struct {
 
     fn draw(context: *anyopaque) Allocator.Error!void {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
-        shown.front.draw(shown.resources, shown.target, shown.window, shown.strings) catch |err| switch (err) {
-            error.OutOfMemory => |out| return out,
-            // A shape the file does not hold draws nothing, as it does in the game.
-            else => {},
-        };
+        return drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings));
     }
 };
+
+/// What an overlay's drawing fails with: running out of memory alone. A shape the file does not
+/// hold draws nothing, as it does in the game.
+fn drawn(result: anytype) Allocator.Error!void {
+    result catch |err| switch (err) {
+        error.OutOfMemory => |out| return out,
+        else => {},
+    };
+}
 
 /// The mission being played: the file it starts from, and the mission loaded for play, which
 /// starts again as each attempt ends, with what each start readies (`game.main.startMission`).
@@ -1290,11 +1295,7 @@ const Display = struct {
 
     fn draw(context: *anyopaque) Allocator.Error!void {
         const display: *Display = @ptrCast(@alignCast(context));
-        display.drawOverlay() catch |err| switch (err) {
-            error.OutOfMemory => |out| return out,
-            // A shape the file does not hold draws nothing, as it does in the game.
-            else => {},
-        };
+        return drawn(display.drawOverlay());
     }
 
     /// What Surrender's overlay slot (`sr + 0x88`) holds: the pause menu while paused

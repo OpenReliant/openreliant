@@ -20,7 +20,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 
 | Option | Description |
 |---|---|
-| `--mission <number>` | Play this mission at once rather than open the main menu: the number the game names its file by, `mission<number>.dte`, from the game's `missions` folder or `resource.hog`; 0 is OpenReliant's own sandbox, which `openreliant` carries where the game has no mission 0 |
+| `--mission <number>` | Play this mission at once rather than open the main menu: the number the game names its file by, `mission<number>.dte`, from the game's `missions` folder or `resource.hog`; 0 is OpenReliant's sandbox, which `openreliant` carries where the game has no mission 0 |
 | `--ship <type>` | The ship type to fly, by its number in `shipstats.bin`, in place of the loadout screen's choice, with its default missiles; the mission's own by default, the Predator in mission 0 |
 | `--view <0\|1\|2>` | The view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the pause menu's video screen changes, or 0 without them |
 | `--difficulty <easy\|medium\|hard>` | The game's difficulty: how hard hits land on your ship, and shots on the enemy; medium by default, as in the game |

@@ -161,12 +161,21 @@ pub const base_screen: [2]u32 = .{ 1024, 768 };
 /// whichever side has room for less so that the display keeps its shape. Drawing at 1 is what the
 /// game does.
 pub fn scaleFor(screen: [2]u32) f32 {
+    return fit(screen, base_screen);
+}
+
+/// How many times larger than `base` what is drawn for it comes out on `screen`, by whichever side
+/// has room for less, so that it keeps its shape.
+pub fn fit(screen: [2]u32, base: [2]u32) f32 {
     var least: f32 = std.math.floatMax(f32);
-    for (screen, base_screen) |size, base| {
-        least = @min(least, @as(f32, @floatFromInt(size)) / @as(f32, @floatFromInt(base)));
-    }
+    for (screen, base) |size, across| least = @min(least, @as(f32, @floatFromInt(size)) / @as(f32, @floatFromInt(across)));
     return least;
 }
+
+/// The menus' fonts in `resource.hog`, which the pause menu (`pause_menu_open`) and the front end
+/// (`interface_init`) each open: the titles and labels, and the smaller text.
+pub const large_menu_font = "interface\\optfnt.fnt";
+pub const small_menu_font = "interface\\smlfnt2.fnt";
 
 /// Where an element stands, for a fraction of the screen across and down and an offset in pixels
 /// (`hud_place`, `0x00482E90`), drawn `scale` times its own size. `screen` is the window's size,

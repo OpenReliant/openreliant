@@ -2,7 +2,7 @@
 
 The screens the game shows outside a mission: the main menu, the pilots, the settings, the briefings and the rest. `interface.cpp` holds them, and GenILib's `interf.cpp` runs them.
 
-**Unverified:** the files of the code between the two files' known code (`0x004282C6` to `0x004296A0`, [Source files](../binary/sources.md)). `interface_run` and the front end's start-up run the screens, so OpenReliant puts them with GenILib's `interf.cpp`; the main menu and its drawing are the game's own screen, so they go with `interface.cpp`.
+**Unverified:** the files of the code between the two files' known code (`0x004282C6` to `0x004296A0`, [Source files](../binary/sources.md)). `interface_run` and the front end's start-up run the screens, so OpenReliant puts them with GenILib's `interf.cpp`; the main menu and its drawing are one of the game's screens rather than what runs them, so they go with `interface.cpp`.
 
 ## In OpenReliant
 

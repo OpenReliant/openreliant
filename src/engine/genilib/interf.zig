@@ -54,15 +54,7 @@ pub const Outcome = union(enum) {
     /// QUIT, answered YES: 3.
     quit,
     /// A mission to fly: 1, where the briefing is skipped, else 2 once the briefing has been.
-    fly: Flight,
-};
-
-/// A mission to fly: its number, the ship type the loadout gives the player, or null for the
-/// mission's own, and whether it is flown without its briefing and loadout (`skip_briefing`).
-pub const Flight = struct {
-    mission: u16,
-    ship: ?u8 = null,
-    skip_briefing: bool = true,
+    fly: main_menu.Flight,
 };
 
 /// The mission SINGLE PLAYER starts while the pilot roster, the Reliant's rooms and the briefing
@@ -70,12 +62,12 @@ pub const Flight = struct {
 pub const first_mission = 1;
 
 /// What the front end draws with, which it opens as it starts and frees as it ends: the fonts its
-/// start-up opens (`0x004288E0`), the developers' font the display opens (`font_01.fnt`,
-/// `0x0059506C`), the main menu's shapes and its dialog's, and the background shown behind them.
+/// start-up opens (`interface_init`, `0x004288E0`), the developers' font the display opens
+/// (`font_01`), the main menu's shapes and its dialog's, and the background shown behind them.
 /// The game frees a screen's shapes as it leaves the screen; the front end has one screen so far.
 pub const Resources = struct {
     gpa: Allocator,
-    files: [5][]u8,
+    files: std.EnumArray(File, []u8),
     large: hud.Opened,
     small: hud.Opened,
     developer: hud.Opened,
@@ -83,27 +75,35 @@ pub const Resources = struct {
     dialog: hud.Art,
     background: matmanager.Background = .{},
 
-    pub const large_font = "interface\\optfnt.fnt";
-    pub const small_font = "interface\\smlfnt2.fnt";
+    /// The files it reads, which the fonts and shapes are made of.
+    pub const File = enum { large, small, developer, shapes, dialog };
+
+    const names = std.EnumArray(File, []const u8).init(.{
+        .large = hud.large_menu_font,
+        .small = hud.small_menu_font,
+        .developer = main_menu.developer_font_name,
+        .shapes = main_menu.shapes_name,
+        .dialog = interface.dialog.shapes_name,
+    });
 
     pub fn open(gpa: Allocator, archive: bigfile.Hog) !Resources {
-        var files: [5][]u8 = undefined;
+        var files: std.EnumArray(File, []u8) = undefined;
         var read: usize = 0;
-        errdefer for (files[0..read]) |file| gpa.free(file);
-        for (&files, [_][]const u8{ large_font, small_font, main_menu.developer_font_name, main_menu.shapes_name, interface.dialog.shapes_name }) |*file, name| {
+        errdefer for (files.values[0..read]) |file| gpa.free(file);
+        for (&files.values, names.values) |*file, name| {
             file.* = try archive.readFile(gpa, name);
             read += 1;
         }
-        var shapes: hud.Art = try .init(gpa, try spr.Sprite.parse(files[3]), null);
+        var shapes: hud.Art = try .init(gpa, try spr.Sprite.parse(files.get(.shapes)), null);
         errdefer shapes.deinit(gpa);
         var resources: Resources = .{
             .gpa = gpa,
             .files = files,
-            .large = .ramp(try fnt.Font.parse(files[0])),
-            .small = .ramp(try fnt.Font.parse(files[1])),
-            .developer = .ramp(try fnt.Font.parse(files[2])),
+            .large = .ramp(try fnt.Font.parse(files.get(.large))),
+            .small = .ramp(try fnt.Font.parse(files.get(.small))),
+            .developer = .ramp(try fnt.Font.parse(files.get(.developer))),
             .shapes = shapes,
-            .dialog = try .init(gpa, try spr.Sprite.parse(files[4]), null),
+            .dialog = try .init(gpa, try spr.Sprite.parse(files.get(.dialog)), null),
         };
         errdefer resources.dialog.deinit(gpa);
         try resources.background.set(gpa, archive, main_menu.background_name);
@@ -116,7 +116,7 @@ pub const Resources = struct {
         resources.shapes.deinit(gpa);
         resources.dialog.deinit(gpa);
         inline for (.{ &resources.large, &resources.small, &resources.developer }) |font| font.deinit(gpa);
-        for (resources.files) |file| gpa.free(file);
+        for (resources.files.values) |file| gpa.free(file);
     }
 };
 
@@ -140,7 +140,7 @@ pub const Interface = struct {
     pointer: canvas.Pointer = .{},
     main_menu: main_menu.MainMenu = .{},
 
-    /// A frame of `interface_run`: the pointer brought up to date (`0x004360D0`), then the shown
+    /// A frame of `interface_run`: the pointer brought up to date (`interface_pointer_update`), then the shown
     /// screen's frame, entering it first where it has just been chosen. Returns what the front end
     /// ends in, once it does.
     ///
@@ -163,7 +163,7 @@ pub const Interface = struct {
                 }) orelse return null;
                 return switch (choice) {
                     .quit => .quit,
-                    .fly => |flight| .{ .fly = .{ .mission = std.math.cast(u16, flight.mission) orelse return null, .ship = flight.ship, .skip_briefing = !flight.briefing } },
+                    .fly => |flight| .{ .fly = flight },
                     .pilot_roster => .{ .fly = .{ .mission = first_mission } },
                     .connection, .game_options, .instant_action => {
                         log.info("MULTI PLAYER, GAME OPTIONS and INSTANT ACTION are not ported yet", .{});
@@ -211,7 +211,7 @@ test "the front end's first choices" {
     devices.mouse.at = .{ 100.0 / 640.0, 200.0 / 480.0 };
     devices.mouse.buttons.left = true;
     const outcome = front.frame(.{ .devices = &devices, .window = .{ 640, 480 }, .elapsed = 1 }).?;
-    try std.testing.expectEqual(Flight{ .mission = first_mission }, outcome.fly);
+    try std.testing.expectEqual(main_menu.Flight{ .mission = first_mission }, outcome.fly);
     // GAME OPTIONS, not ported, stays on the main menu.
     devices.mouse.at = .{ 500.0 / 640.0, 300.0 / 480.0 };
     try std.testing.expectEqual(null, front.frame(.{ .devices = &devices, .window = .{ 640, 480 }, .elapsed = 1 }));

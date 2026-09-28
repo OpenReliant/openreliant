@@ -9,15 +9,17 @@ const Canvas = canvas_module.Canvas;
 const Pointer = canvas_module.Pointer;
 const Rect = canvas_module.Rect;
 
-/// The dialog's shapes: its box in the second palette's colours, and its buttons, lit under the
-/// pointer, in the first's.
+/// The dialog's shapes (`dialog_shapes`): its box in the second palette's colours, and its buttons,
+/// lit under the pointer, in the first's. The shapes and places below come from
+/// `interface_confirm_draw`.
 pub const shapes_name = "quit.spr";
 const box_shape = 6;
 const button_shape = 3;
 const lit_button_shape = 4;
 const box_at: [2]i32 = .{ 0x72, 0xB1 };
 
-/// YES and NO (`0x004E5CB8`), and their labels, written in the large font against them.
+/// YES and NO (`dialog_buttons`, `0x004E5CB8`), and their labels, written in the large font
+/// against them.
 pub const buttons = [_]Rect{
     .{ .x = 0x11E, .y = 0x10D, .width = 25, .height = 16 },
     .{ .x = 0x146, .y = 0x10D, .width = 25, .height = 16 },
@@ -33,17 +35,17 @@ const message_lines: Canvas.Lines = .{ .width = 400, .height = 14, .most = 10 };
 
 /// The question up, and how it has been answered.
 pub const Confirm = struct {
-    /// The question's string (`0x0051D7D0`). The game also asks one given as text, which the
+    /// The question's string (`dialog_message`). The game also asks one given as text, which the
     /// controls screen's conflict writes (`dialog_text`); none of the ported screens does.
     message: u32,
-    /// The button under the pointer (`0x00520294`): 0 YES, 1 NO.
+    /// The button under the pointer (`dialog_button`): 0 YES, 1 NO.
     under: ?usize = null,
     /// The answer given, which holds until the pointer's button comes up.
     answer: ?bool = null,
 
-    /// A frame of `interface_confirm`, `escaped` whether Escape went down since the last: Escape
-    /// answers NO, a click on a button answers it, and the answer holds until the button comes up,
-    /// when the dialog closes with it.
+    /// A pass of `interface_confirm`'s loop (`0x0042AA80`), `escaped` whether Escape went down
+    /// since the last: Escape answers NO, a click on a button answers it, and the answer holds
+    /// until the button comes up, when the dialog closes with it.
     pub fn frame(confirm: *Confirm, pointer: Pointer, escaped: bool) ?bool {
         if (confirm.answer) |answer| return if (pointer.down) null else answer;
         if (escaped) {
@@ -57,8 +59,9 @@ pub const Confirm = struct {
         return null;
     }
 
-    /// `0x0042AB60`, over the screen's drawing while the dialog is up: the box, the buttons with
-    /// the one under the pointer lit, the question, and YES and NO.
+    /// `interface_confirm_draw` (`0x0042AB60`), over the screen's drawing while the dialog is up
+    /// (`dialog_open`): the box, the buttons with the one under the pointer lit, the question, and
+    /// YES and NO.
     pub fn draw(confirm: Confirm, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         try canvas.shape(art, box_shape, box_at);
         for (buttons, 0..) |button, index| {
