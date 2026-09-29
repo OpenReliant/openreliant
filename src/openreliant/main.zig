@@ -886,6 +886,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     }
     var from_front_end = false;
     var front_ticks = platform.window.ticks();
+    // What the front end's screens run and are entered with, its window and the time since its
+    // last pass given each pass.
+    var front_context: engine.genilib.interf.Context = .{ .devices = &devices, .typed = &typed, .window = .{ 0, 0 }, .elapsed = 0, .sound = sound, .bank = stdsmp, .settings = &settings_file };
     // A piece of music asked for, as a mission's script plays one (`cmd_PlayMusic`): from `music\`,
     // for ever, at 80.
     if (options.music) |name| {
@@ -965,21 +968,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
         // zeroed as `mission_run` zeroes them.
         if (in_front_end) {
             if (front_resources == null) front_resources = try .open(gpa, resources);
+            front_context.resources = &front_resources.?;
             const ticks = platform.window.ticks();
             const elapsed = std.math.cast(i32, ticks -| front_ticks) orelse std.math.maxInt(i32);
             front_ticks = ticks;
             devices.keyboard.read();
             sound.updateMusic();
-            if (front.frame(.{
-                .devices = &devices,
-                .typed = &typed,
-                .window = size,
-                .elapsed = elapsed,
-                .sound = sound,
-                .bank = stdsmp,
-                .resources = &front_resources.?,
-                .settings = &settings_file,
-            })) |outcome| {
+            front_context.window = size;
+            front_context.elapsed = elapsed;
+            if (front.frame(front_context)) |outcome| {
                 // The Reliant's rooms and the briefing, which run in loops of their own.
                 var rooms: Rooms = .{
                     .movies = &movies,
@@ -1134,6 +1131,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
 
         _ = frame_arena.reset(.retain_capacity);
         if (in_front_end) {
+            // The screen a transition's movie or a mission's end has just led to entered before
+            // its first frame is drawn, as each of the game's screens enters before its loop.
+            front.enterShown(front_context);
             var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings };
             scene.clear();
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());

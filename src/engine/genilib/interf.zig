@@ -222,7 +222,7 @@ pub const Interface = struct {
     /// transitions are off, the game lets it go on to what lies under the pointer on the new
     /// screen.
     pub fn frame(front: *Interface, context: Context) ?Outcome {
-        if (front.entered != front.screen) front.enter(context);
+        front.enterShown(context);
         front.pointer.update(context.devices.mouse, context.window, context.elapsed);
         var pointer = front.pointer;
         pointer.down = front.press.pressed(front.pointer.down);
@@ -280,6 +280,13 @@ pub const Interface = struct {
                 return null;
             },
         }
+    }
+
+    /// The shown screen entered where it has not been yet, as a pass begins, and as the driver does
+    /// before it draws a screen a transition's movie or a mission's end has just led to, so that
+    /// its first frame is drawn with its own shapes and background.
+    pub fn enterShown(front: *Interface, context: Context) void {
+        if (front.entered != front.screen) front.enter(context);
     }
 
     /// Enters the shown screen, as each screen does before its loop, leaving the last: its shapes
@@ -351,6 +358,10 @@ test "the front end's first choices" {
     devices.mouse.buttons.left = true;
     try std.testing.expectEqual(null, front.frame(context));
     try std.testing.expectEqual(Screen.pilot_roster, front.screen);
+    // The roster is entered before its first frame is drawn, as its movie ends.
+    try std.testing.expectEqual(Screen.main_menu, front.entered);
+    front.enterShown(context);
+    try std.testing.expectEqual(Screen.pilot_roster, front.entered);
     _ = front.frame(context);
     _ = front.frame(context);
     try std.testing.expect(front.takesText() and typed.file_names);

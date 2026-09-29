@@ -78,7 +78,7 @@ A screen chooses what lies under the pointer while the left button is down, rath
 
 ## The main menu
 
-`main_menu` (`0x00428B60`) shows `interface\sl_splash2.tga` behind itself (`background_set`) and reads `interface\frontend.spr` (`interface_shapes`, `0x0051D60C`, which holds the shown screen's shapes), which it frees as it leaves. It starts the pointer at (320, 200), `music\New_Pensive.wav` at 127 where no music is playing, and a new campaign (`campaign_new`). OpenReliant, which has no campaign yet, starts every mission from a new campaign's variables ([Script VM](script-vm.md)).
+`main_menu` (`0x00428B60`) shows `interface\sl_splash2.tga` behind itself (`background_set`) and reads `interface\frontend.spr` (`interface_shapes`, `0x0051D60C`, which holds the shown screen's shapes), which it frees as it leaves. Each screen sets its background and shapes up so before its loop draws its first frame, after the transition movie that led to it; OpenReliant enters a screen before it draws it (`Interface.enterShown`). It starts the pointer at (320, 200), `music\New_Pensive.wav` at 127 where no music is playing, and a new campaign (`campaign_new`). OpenReliant, which has no campaign yet, starts every mission from a new campaign's variables ([Script VM](script-vm.md)).
 
 Its items are `main_menu_hotspots` (`0x004E5B90`), six shorts each: the corner and size where the pointer finds the item, what choosing it returns, and the shape a panel shows lit. The buttons' shape, 24, goes unused: the drawing lights them with shape `0x1C`.
 
