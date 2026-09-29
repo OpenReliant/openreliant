@@ -493,10 +493,16 @@ pub const Attachment = extern struct {
         _,
     };
 
-    /// The id the hardpoint holds for loadout `tier`: its own for tier 0, else the tier's.
+    /// The id the hardpoint holds for loadout `tier`: the low half of its word (`wordFor`), as
+    /// the flight reads it.
     pub fn idFor(attachment: Attachment, tier: u3) u16 {
-        const word = if (tier == 0) attachment.id else attachment.later_tiers[tier - 1];
-        return @truncate(word);
+        return @truncate(attachment.wordFor(tier));
+    }
+
+    /// The word the hardpoint holds for loadout `tier`: its own for tier 0, else the tier's. The
+    /// loadout screen reads it whole (`racks_fit_tier`, `0x00449AD0`).
+    pub fn wordFor(attachment: Attachment, tier: u3) u32 {
+        return if (tier == 0) attachment.id else attachment.later_tiers[tier - 1];
     }
 
     comptime {

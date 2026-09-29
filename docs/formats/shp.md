@@ -137,7 +137,7 @@ the engine keeps 124 bytes of each.
 | `0x04` | vec3 | Position, relative to the part |
 | `0x10` | f32[9] | Orientation, row-major 3x3 |
 | `0x34` | u32 | Id: which model of its kind. A missile hardpoint's (kind 0) missile for loadout tier 0 |
-| `0x38` | u32[4] | A missile hardpoint's missile for loadout tiers 1 to 4, the low half of each (`object_loadout_by_tier`) |
+| `0x38` | u32[4] | A missile hardpoint's missile for loadout tiers 1 to 4, the low half of each (`object_loadout_by_tier`); the loadout screen reads each word whole ([Loadout](../engine/loadout.md#the-racks)) |
 | `0x64` | u32 | For kind 3, the gun type it fires, into `gun_stats`: the Sabre's muzzles hold 1 to 3 and an allied turret's 12 |
 
 The engine's attachment table, filled when the game starts, gives the models and sprites for each

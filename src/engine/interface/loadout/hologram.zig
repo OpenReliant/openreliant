@@ -1,17 +1,20 @@
 //! The loadout's hologram, its pieces and where they stand (`loadout.cpp`): the textured squares
-//! its panels and buttons are (`panel_create`), the disc's mesh, its lights, the buttons' table, and
-//! the slots of the disc the ships stand on (`slot_place`). The loadout makes them and moves them
-//! (`loadout.Loadout`).
+//! its panels, buttons and hardpoint markers are (`panel_create`, `marker_create`), the disc's
+//! mesh, its lights, the buttons' table, the slots of the disc the ships and the missiles stand on
+//! (`slot_place`), and where a point of a missile hardpoint stands (`hardpointPlace`). The loadout
+//! makes them and moves them (`loadout.Loadout`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const shp = @import("../../../formats/shp.zig");
 const math = @import("../../surrender/math.zig");
 const srapi = @import("../../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
 const srlight = @import("../../surrender/surrenderlib/srlight.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const i3d = @import("../../genilib/interf/i3d.zig");
+const gameobj = @import("../../game/gameobj.zig");
 const anims = @import("anims.zig");
 const loadout = @import("loadout.zig");
 const panels = @import("panels.zig");
@@ -37,9 +40,13 @@ pub const Name = enum {
     remove_all_button,
     scroller0,
     scroller1,
+    /// A hardpoint's marker, which keeps its interface object's own name, not its scene object's
+    /// (`0x004EAE24`).
+    marker,
 
     pub fn text(name: Name) []const u8 {
         return switch (name) {
+            .marker => "Panel",
             .disc => "Disc",
             .glow => "Disc Glow",
             .info => "PnlShipInfo",
@@ -162,6 +169,61 @@ pub const Panel = struct {
     }
 };
 
+/// A marker of a missile hardpoint of the chosen ship's, on the missile page, which the pointer
+/// finds as `Hardpoint`: its square and its zoom.
+pub const Marker = struct {
+    panel: Panel,
+    zoom: anims.Pair,
+    /// Its scene object's own colours, one for each corner of its square (`+0x110`).
+    colours: [4][4]f32,
+
+    /// `marker_create` (`0x00444BB0`) with `markers_make`'s changes (`0x0044A750`): a square
+    /// `marker_size` across and down (`loadout.squareMesh`) textured with `image` over the whole
+    /// of it, its faces sorted `marker_bias` nearer, its surface lit and blended onto what lies
+    /// behind (`premultiplied`); its scene object never culled nor tested against the view, and
+    /// coloured by its own colours, white, so that it shows its texture whatever the lights; on
+    /// the overlay, clickable, with the tooltip `Hardpoint` (`0x004EAE40`), added to the
+    /// interface.
+    pub fn make(marker: *Marker, arena: Allocator, interface: *i3d.Interface, image: ?*srtexture.Image) Allocator.Error!void {
+        const panel = &marker.panel;
+        panel.mesh = try loadout.squareMesh(arena, false, marker_size[0], marker_size[1]);
+        panel.mesh.uv[0].?[0..6].* = .{ .{ 0, 1 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 0 }, .{ 0, 0 } };
+        @memset(panel.mesh.biases, marker_bias);
+        panel.mesh.surfaces[0] = .{
+            .polygons = 2,
+            .material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .premultiplied }),
+            .textures = .{ .of(image), .none },
+        };
+        try panel.add(interface, .marker);
+        marker.colours = @splat(@splat(1));
+        panel.scene_object.flags = .{ .not_culled = true, .always_drawn = true, .unbounded = true, .baked_object = true };
+        panel.scene_object.baked = &marker.colours;
+        panel.object.setTooltip(tooltip);
+        panel.object.overlay = true;
+    }
+
+    /// Its size (`0x00444BC0`, `0x00444BB4`), how far nearer the camera its faces are sorted
+    /// (`0x00444C41`), and its tooltip.
+    const marker_size: [2]f32 = .{ 0.7, 1.12 };
+    const marker_bias: f32 = -10;
+    const tooltip = "Hardpoint";
+};
+
+/// How far along a hardpoint's own Y axis its marker stands (`0x0044A7D8`), and how much nearer
+/// the camera, along Z (`0x0044A848`, `0x004DC4C0`).
+pub const marker_lift: Vector = .{ 0, 0.05, 0 };
+pub const marker_nearer: f32 = 0.3;
+
+/// Where a point `lift` along the missile hardpoint `attachment`'s own axes stands in the world,
+/// on a ship at `scale` whose part carrying it stands at `frame` (`markers_make`, `0x0044A7D8`
+/// to `0x0044A843`; `anim_attach_missile`, `0x00448CA7` to `0x00448D3C`): the hardpoint's place on
+/// the part at the ship's scale, and the lift turned as the hardpoint is, turned and moved as the
+/// part stands.
+pub fn hardpointPlace(frame: math.Place, attachment: *const shp.Attachment, lift: Vector, scale: f32) Vector {
+    const on = math.transform(attachment.orientation, lift) + gameobj.vector(attachment.position) * @as(Vector, @splat(scale));
+    return frame.point(on);
+}
+
 /// The loadout's lights (`loadout_enter`, `0x00442729` on).
 pub const Light = enum { green, red, bright_green, ambient, cursor };
 const light_place: Vector = .{ 15, -15, -10 };
@@ -271,4 +333,43 @@ test slotPlace {
     const forward = math.forward(math.fromAngleVector(faced.angles));
     try expectVector(.{ 1, 0, 0 }, forward);
     try expectVector(.{ 0, 1, 0 }, math.yAxis(math.fromAngleVector(faced.angles)));
+}
+
+test "Marker.make" {
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    var context: u8 = 0;
+    var interface: i3d.Interface = .create(gpa, &context);
+    defer interface.deinit();
+    var image: srtexture.Image = .{ .levels = &.{} };
+    var marker: Marker = undefined;
+    try marker.make(arena_state.allocator(), &interface, &image);
+    // Its texture over the whole square, its faces sorted nearer, blended onto what lies behind.
+    const mesh = &marker.panel.mesh;
+    try std.testing.expectEqual([2]f32{ 1, 0 }, mesh.uv[0].?[4]);
+    try std.testing.expectEqualSlices(f32, &.{ -10, -10 }, mesh.biases);
+    try std.testing.expectEqual(&image, mesh.surfaces[0].textures[0].image);
+    try std.testing.expectEqual(srapiext.Material.Blend.premultiplied, mesh.surfaces[0].material.blend[0]);
+    try std.testing.expect(mesh.surfaces[0].material.lit[0]);
+    try std.testing.expectEqual(Vector{ 0.35, 0.56, 0 }, mesh.positions[2]);
+    // White whatever the lights, on the overlay, and found by the pointer as a hardpoint.
+    try std.testing.expectEqual([4]f32{ 1, 1, 1, 1 }, marker.panel.scene_object.baked.?[3]);
+    try std.testing.expect(marker.panel.scene_object.flags.baked_object);
+    try std.testing.expect(marker.panel.object.overlay and marker.panel.object.clickable);
+    try std.testing.expectEqualStrings("Hardpoint", marker.panel.object.tooltip.?);
+    try std.testing.expectEqual(0, interface.indexOf(&marker.panel.object));
+}
+
+test hardpointPlace {
+    var attachment = std.mem.zeroes(shp.Attachment);
+    attachment.position = .{ .x = 100, .y = 0, .z = 20 };
+    attachment.orientation = math.fromAngles(0, std.math.pi / 2.0, 0);
+    // A part a quarter turned about Z, standing at (1, 2, 3).
+    const frame: math.Place = .{ .position = .{ 1, 2, 3 }, .orientation = math.fromAngles(0, 0, std.math.pi / 2.0) };
+    // The hardpoint's place at the ship's scale, the lift along its own axes, all as the part
+    // stands.
+    const at = hardpointPlace(frame, &attachment, .{ 0, 0, 1 }, 0.01);
+    try expectVector(frame.point(Vector{ 1, 0, 0.2 } + math.transform(attachment.orientation, .{ 0, 0, 1 })), at);
+    try expectVector(frame.point(.{ 1, 0.05, 0.2 }), hardpointPlace(frame, &attachment, marker_lift, 0.01));
 }

@@ -506,11 +506,19 @@ pub const Anim = struct {
 
 /// `node_tree_scale` (`0x00428320`): each part of `tree` scaled by `factor`, and its place from
 /// what it hangs from with it (`node_scale`, `0x00428390`), so that the whole grows or shrinks
-/// about the root.
+/// about the root. What its parts carry are nodes of the tree too, such as the missiles the
+/// loadout hangs on a ship: each is scaled with its place on its part, the centre of mass it
+/// stands on among it.
 pub fn scaleTree(tree: *objects.Model, factor: f32) void {
     for (tree.parts) |*part| {
         part.object.scale *= factor;
         part.origin *= @splat(factor);
+    }
+    var each = tree.carried();
+    while (each.next()) |mount| {
+        mount.origin *= @splat(factor);
+        mount.model.centre *= @splat(factor);
+        scaleTree(&mount.model, factor);
     }
 }
 
@@ -599,8 +607,15 @@ pub const Interface = struct {
     /// followed (`follow`).
     pub fn frame(interface: *Interface, arena: Allocator, context: *const srapi.Context, now: u32, mouse: Mouse) Allocator.Error!void {
         // A callback may add animations as the list is stepped: those it adds are stepped too.
+        // It may also take its own animation out, as the loadout's Attach Missile does as it ends:
+        // the game takes each animation's next before it steps it, so the one after it is stepped
+        // all the same.
         var i: usize = 0;
-        while (i < interface.anims.items.len) : (i += 1) interface.anims.items[i].step(interface.context, now);
+        while (i < interface.anims.items.len) {
+            const anim = interface.anims.items[i];
+            anim.step(interface.context, now);
+            if (i < interface.anims.items.len and interface.anims.items[i] == anim) i += 1;
+        }
         if (!interface.busy) try interface.follow(arena, context, now, mouse);
     }
 
@@ -921,6 +936,64 @@ test Interface {
     interface.busy = true;
     try interface.frame(arena, &context, 40, .{ .at = .{ 320, 240 }, .left = true });
     try std.testing.expectEqual(1, counts.press);
+}
+
+test "Interface.frame after an animation takes itself out" {
+    const Removing = struct {
+        interface: Interface,
+        ends: u32 = 0,
+
+        fn ended(context: *anyopaque, anim: *Anim) void {
+            const removing: *@This() = @ptrCast(@alignCast(context));
+            removing.ends += 1;
+            removing.interface.removeAnim(anim);
+        }
+    };
+    var removing: Removing = .{ .interface = undefined };
+    removing.interface = .create(std.testing.allocator, &removing);
+    defer removing.interface.deinit();
+    var mesh_object: srapiext.MeshObject = .{ .flags = .{}, .position = @splat(0), .radius = 1, .levels = &.{} };
+    var object: Object = .create(0, null, false);
+    object.target = .{ .mesh = &mesh_object };
+    var frames: [2][2]Frame = @splat(.{
+        .{ .duration = 100, .position = .linear, .key = .{} },
+        .{ .duration = 0, .key = .{ .position = .{ 1, 0, 0 } } },
+    });
+    var anims: [2]Anim = undefined;
+    for (&anims, &frames) |*anim, *pair| {
+        anim.* = .create("Test", &object, pair, 0);
+        anim.on_end = Removing.ended;
+        try removing.interface.addAnim(anim);
+        anim.start(0);
+    }
+    // The first ends and goes: the second, after it, ends in the same frame.
+    removing.interface.busy = true;
+    try removing.interface.frame(std.testing.allocator, undefined, 100, .{});
+    try std.testing.expectEqual(2, removing.ends);
+    try std.testing.expectEqual(0, removing.interface.anims.items.len);
+}
+
+test scaleTree {
+    const shown: srapiext.MeshObject = .{ .flags = .{}, .position = @splat(0), .radius = 0, .levels = &.{} };
+    var missile_parts = [_]objects.Model.Part{.{ .hidden = false, .parent = null, .origin = .{ 0, 1, 0 }, .object = shown }};
+    var hung = [_]?objects.Model.Mount{ .{
+        .part = 0,
+        .attachment = 0,
+        .origin = .{ 2, 0, 0 },
+        .orientation = math.identity,
+        .model = .{ .parts = &missile_parts, .order = &.{}, .lights = &.{}, .glows = &.{}, .mounts = &.{}, .centre = .{ 0, 0, 1 } },
+    }, null };
+    var parts = [_]objects.Model.Part{.{ .hidden = false, .parent = null, .origin = .{ 4, 0, 0 }, .object = shown }};
+    var ship: objects.Model = .{ .parts = &parts, .order = &.{}, .lights = &.{}, .glows = &.{}, .mounts = &.{}, .hung = &hung };
+    scaleTree(&ship, 0.5);
+    try std.testing.expectEqual(0.5, parts[0].object.scale);
+    try std.testing.expectEqual(Vector{ 2, 0, 0 }, parts[0].origin);
+    // A missile hung on the part scales with it, its place and its centre too.
+    const mount = hung[0].?;
+    try std.testing.expectEqual(Vector{ 1, 0, 0 }, mount.origin);
+    try std.testing.expectEqual(Vector{ 0, 0, 0.5 }, mount.model.centre);
+    try std.testing.expectEqual(0.5, missile_parts[0].object.scale);
+    try std.testing.expectEqual(Vector{ 0, 0.5, 0 }, missile_parts[0].origin);
 }
 
 test cursorMesh {

@@ -274,7 +274,7 @@ from the catalogue.
 | `0x56` | `MultiplayerScriptSync` | In a multiplayer game, holds the players' scripts in step; in a game of one, runs on | Yes |
 | `0x57` | `FriendlyFire` | The carrier sends the player's ship home as though it had destroyed a friend ([Friendly fire](orders.md#friendly-fire)) | Yes |
 | `0x58` | `Cloak` | Cloaks each ship the first argument names while the second is set, or uncloaks it | No |
-| `0x59` | `ReplenishWeapons` | The ship the argument names is armed again, a player's by loadout tier 0 and any other by its own, and made whole ([Missiles](missiles.md)) | Yes |
+| `0x59` | `ReplenishWeapons` | The ship the argument names is armed again, a player's with the racks its loadout chose, or by loadout tier 0 in the simulator or where the briefing was skipped, and any other by its own tier; and made whole ([Missiles](missiles.md#the-loadout)) | Yes |
 | `0x5A` | `WillsBlag` | The mission's record of the ship the argument names is no longer destroyed, and its pilot neither ejects nor has | No |
 | `0x5B` | `ShowHudIcon` | Shows one of the display's icons, off, on or flashing | No |
 | `0x5C` | `DisableListing` | Leaves each ship the first argument names off the display's lists while the second is set | No |

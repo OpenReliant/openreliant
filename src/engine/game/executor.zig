@@ -910,13 +910,10 @@ fn turretSetTargetShip(call: Call, ship: u16) void {
 }
 
 /// `cmd_ReplenishWeapons` (`0x00459FA0`, command `0x59`): the ship the argument names is armed again
-/// (`create.arm`), a player's ship by loadout tier 0 and any other by its `loadout_tier`, and made
-/// whole (`create.makeWhole`); the display's missiles follow the player's
-/// (`hud.missile_display.Ring.build`).
-///
-/// Not ported: a player's ship armed as the loadout screen chose, as the game arms it outside the
-/// simulator where the briefing was not skipped
-/// ([#44](https://github.com/vdmkenny/openreliant/issues/44)).
+/// (`create.arm`), a player's ship as its loadout fitted it where the loadout ran, outside the
+/// simulator (`create.Objects.loadoutRacks`), and by loadout tier 0 otherwise, and any other ship
+/// by its `loadout_tier`; and made whole (`create.makeWhole`); the display's missiles follow the
+/// player's (`hud.missile_display.Ring.build`).
 fn replenishWeapons(call: Call) u32 {
     const machine = call.machine;
     const game = machine.game orelse return 1;
@@ -924,8 +921,10 @@ fn replenishWeapons(call: Call) u32 {
     const all = world.objects;
     const ship = shipSlot(machine, all, call.args[0]) orelse return 1;
     const slot = &all.slots[ship];
-    const tier: u2 = if (ship < all.players) 0 else std.math.lossyCast(u2, slot.object.loadout_tier);
-    create.arm(all.gpa, slot, tier) catch |err| log.warn("mission ship {d} is not armed again: {s}", .{ ship, @errorName(err) });
+    const fit: create.Fit = if (all.loadoutRacks(ship)) |racks| .{ .loadout = racks } else .{
+        .tier = if (ship < all.players) 0 else std.math.lossyCast(u2, slot.object.loadout_tier),
+    };
+    create.arm(all.gpa, slot, fit) catch |err| log.warn("mission ship {d} is not armed again: {s}", .{ ship, @errorName(err) });
     if (ship == all.player) if (world.display) |display| display.missiles.build(&slot.object);
     if (slot.combat) |combat| create.makeWhole(&slot.object, combat);
     return 1;

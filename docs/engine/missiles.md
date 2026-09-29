@@ -79,12 +79,18 @@ bytes at `GameObject + 0x158`, `rack_count` of them (`+0x150`).
    it reads the same rack.
 4. 5000 more of the afterburner's fuel for each fuel pod, and 29 countermeasures.
 
-A re-arm (`order_dock`, `cmd_ReplenishWeapons`) lets go of what hangs and fits the racks again, by
-the tier at `GameObject + 0x648`, which nothing writes.
+A re-arm (`order_dock`, `cmd_ReplenishWeapons`) lets go of what hangs and fits the racks again: a
+player's ship with the racks its loadout chose, but the player's own by tier 0 where the briefing
+was skipped or in the simulator; any other ship by the tier at `GameObject + 0x648`, which nothing
+writes.
 
-OpenReliant fits a player's ship by the tier, as the game does when the briefing is skipped; the
-loadout screen is not ported (#44). The root lists each part at its number (`object_link_part`), so
-the hardpoints of a part linked to another, as in `Jap_Sai.SHP` and `Chin_Han.SHP`, are fitted too.
+OpenReliant fits a player's ship with the racks the loadout screen chose where it ran
+([Loadout](loadout.md#what-it-leaves-the-mission)), and by the tier otherwise, as the game does when
+the briefing is skipped. The root lists each part at its number (`object_link_part`), so the
+hardpoints of a part linked to another, as in `Jap_Sai.SHP` and `Chin_Han.SHP`, are fitted too.
+
+Not ported: the Nanny's re-arm (`order_dock`, `0x00407A5F`,
+[#320](https://github.com/vdmkenny/openreliant/issues/320)).
 
 ## Flight
 

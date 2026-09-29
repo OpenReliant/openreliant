@@ -53,10 +53,12 @@ pub const Driver = struct {
     screenshots: *game.xtrabits.screenshot.Screenshots,
     /// The texture cache, which the loadout decodes its own textures from.
     cache: tcache.Cache,
-    /// The campaign's saved loadout, which the loadout starts from and keeps the ship chosen in.
+    /// The campaign's saved loadout, which the loadout starts from and keeps the ship chosen and
+    /// its racks in.
     saved: *loadout.Saved,
-    /// The ship types' stats, which the loadout shows their figures of.
+    /// The ship types' and the missile types' stats, which the loadout shows their figures of.
     stats: *const game.create.Stats,
+    missile_stats: *const game.missiles.Table,
     /// The campaign's tier and the pilot's rank, which set the ships the loadout offers.
     tier: u2,
     rank: game.gameflow.Rank,
@@ -106,6 +108,7 @@ pub const Driver = struct {
             .cache = driver.cache,
             .strings = driver.strings,
             .stats = driver.stats,
+            .missile_stats = driver.missile_stats,
             .mission = mission,
             .tier = driver.tier,
             .rank = driver.rank,

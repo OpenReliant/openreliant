@@ -994,6 +994,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                     .cache = cache,
                     .saved = &saved_loadout,
                     .stats = tables,
+                    .missile_stats = &objects.missile_stats,
                     .tier = objects.campaign_tier,
                     .rank = player.rank,
                 };
@@ -1004,11 +1005,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                     // briefing room's door leads to the briefing, and the mission.
                     .campaign => |mission| switch (try rooms.campaign(mission) orelse return) {
                         .fly => |chosen| fly: {
-                            // The loadout's ship, but where `--ship` names one, and the tier it
-                            // raised the campaign's to.
+                            // The loadout's ship and its racks, but where `--ship` names a ship,
+                            // which is then fitted by its tier; and the tier the loadout raised
+                            // the campaign's to.
                             const result = chosen orelse break :fly .{ .mission = mission };
                             objects.campaign_tier = result.tier;
-                            break :fly .{ .mission = mission, .ship = options.ship orelse result.ship };
+                            if (options.ship) |ship| break :fly .{ .mission = mission, .ship = ship };
+                            break :fly .{ .mission = mission, .ship = result.ship, .racks = result.racks };
                         },
                         .main_menu => {
                             front.back();
@@ -1031,6 +1034,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                 // The flight's ship, else the one `--ship` names, else the mission's ship; and
                 // the simulator it runs in.
                 objects.loadout_ships[objects.player] = if (flight.ship orelse options.ship) |ship| @enumFromInt(ship) else null;
+                objects.loadout_racks[objects.player] = flight.racks;
                 objects.simulator = flight.simulator;
                 // The pilot the front end has set flies it: the radio says the pilot's own
                 // lines in the pilot's voice, and hits land by the game's difficulty.

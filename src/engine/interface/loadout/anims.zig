@@ -4,11 +4,9 @@
 //! interface (`iinterface_add_anim`). What an animation calls as it steps, as it passes a share of
 //! its way and as it ends is the loadout's, which it hands the builder.
 //!
-//! Not ported yet: the missile page's (Sink Ship, Sink Missile, Ship to Belly Up, Attach Missile
-//! and the hardpoint markers' own Zoom Hardpoint,
-//! [#447](https://github.com/vdmkenny/openreliant/issues/447)), and the internal guns' (Move Clip
-//! Point, [#448](https://github.com/vdmkenny/openreliant/issues/448)). Rotate Scroll Button and the
-//! second Move Clip Point belong to a view nothing opens (`0x0044A470`).
+//! Not ported yet: the internal guns' (Move Clip Point,
+//! [#448](https://github.com/vdmkenny/openreliant/issues/448)). Rotate Scroll Button and the second
+//! Move Clip Point belong to a view nothing opens (`0x0044A470`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -141,16 +139,98 @@ pub fn glowAppears(pair: *Pair, interface: *i3d.Interface, glow: *i3d.Object) Al
 }
 
 /// `anim_zoom_hardpoint` (`0x00448A40`): Zoom Hardpoint (`0x004EAFF0`), `object` growing from a
-/// thousandth of its size to its own over 400 ms, evenly, as it turns to face away from the ship it
-/// stands on, at angles (-pi/2, pi, 0). Its first key's angles are whatever the builder's stack
-/// held, as nothing eases them: here nought.
+/// thousandth of its size to its own over 400 ms, evenly. Its first key's angles are whatever the
+/// builder's stack held, here nought, and its second's `belly_up`; nothing eases them.
 pub fn zoomHardpoint(pair: *Pair, interface: *i3d.Interface, object: *i3d.Object) Allocator.Error!void {
     try pair.make(interface, "Zoom Hardpoint", object, .{
         .duration = hardpoint_time,
         .scale = .linear,
         .key = .at(object, @splat(0), zoomed_out),
-    }, .at(object, .{ -std.math.pi / 2.0, std.math.pi, 0 }, 1));
+    }, .at(object, belly_up, 1));
 }
+
+/// The angles (pitch, yaw, roll) the chosen ship turns over to on the missile page, showing its
+/// underside and its missile hardpoints to the camera (`0x004489B3`), which a missile flying to
+/// a hardpoint turns to as well (`0x00448D45`).
+const belly_up: Vector = .{ -std.math.pi / 2.0, std.math.pi, 0 };
+
+/// `anim_sink_ship` (`0x004486A0`): Sink Ship (`0x004EAF9C`), a ship sinking into the disc from
+/// its slot on the arc (`slot`), `sink_depth` down over 800 ms, easing in. A share of its way
+/// (`chain_share`) it calls `share`, which starts the next, and its end calls `end`.
+pub fn sinkShip(pair: *Pair, interface: *i3d.Interface, ship: *i3d.Object, slot: Placed, share: i3d.AnimCallback, end: i3d.AnimCallback) Allocator.Error!void {
+    try sink(pair, interface, "Sink Ship", ship, slot, share, end);
+}
+
+/// `anim_sink_missile` (`0x004487F0`): Sink Missile (`0x004EAFB4`), a missile's icon sinking into
+/// the disc from its slot on the arc as a ship does. Played back, it rises out of the disc.
+pub fn sinkMissile(pair: *Pair, interface: *i3d.Interface, icon: *i3d.Object, slot: Placed, share: i3d.AnimCallback, end: i3d.AnimCallback) Allocator.Error!void {
+    try sink(pair, interface, "Sink Missile", icon, slot, share, end);
+}
+
+/// A sinking from `slot` to `sink_depth` below it. Its keys take the slot's angles and the arc's
+/// unit of scale (`0x004DC6E0`), which it never eases.
+fn sink(pair: *Pair, interface: *i3d.Interface, name: []const u8, object: *i3d.Object, slot: Placed, share: i3d.AnimCallback, end: i3d.AnimCallback) Allocator.Error!void {
+    var from: i3d.Key = .at(object, slot.angles, arc_unit);
+    from.position = slot.position;
+    var to = from;
+    to.position[1] += sink_depth;
+    try pair.make(interface, name, object, .{ .duration = sink_time, .position = .in, .key = from }, to);
+    pair.anim.on_share = share;
+    pair.anim.share = chain_share;
+    pair.anim.on_end = end;
+}
+
+/// How long a ship or a missile takes to sink (`0x0044874C`), and how far down it sinks: the
+/// float the disc spins in from (`0x004DC480`).
+const sink_time = 800;
+pub const sink_depth: f32 = 2;
+
+/// The share of its way at which a ship's or a missile's sinking starts the next's
+/// (`0x3D8F5C29`).
+const chain_share: f32 = 0.07;
+
+/// The arc's unit of scale (`0x004DC6E0`): a ship on the arc stands at a share of its scale made
+/// of it (`loadout.arc_share`), and the sinkings' keys and Ship to Belly Up's last take it.
+pub const arc_unit: f32 = 0.00175;
+
+/// `anim_belly_up` (`0x00448950`): Ship to Belly Up (`0x004EAFD0`), the chosen `ship` turning
+/// over 1000 ms, eased by the cosine, from the angles of its turn `spin` to `belly_up`. While it
+/// plays, the ship's turn gives its first key the angles it has come to (`ship_spin`), so that it
+/// turns back to where the spin is. Its end calls `end`. Its keys' scales, the ship's `scale` and
+/// the arc's unit, are never eased.
+pub fn bellyUp(pair: *Pair, interface: *i3d.Interface, ship: *i3d.Object, spin: math.Matrix, scale: f32, end: i3d.AnimCallback) Allocator.Error!void {
+    try pair.make(interface, "Ship to Belly Up", ship, .{
+        .duration = belly_up_time,
+        .angles = .cosine,
+        .key = .at(ship, math.angles(spin), scale),
+    }, .at(ship, belly_up, arc_unit));
+    pair.anim.on_end = end;
+}
+
+/// How long the chosen ship takes to turn belly up (`0x004489BD`).
+const belly_up_time = 1000;
+
+/// `anim_attach_missile` (`0x00448B10`): Attach Missile (`0x004EB00C`), `flight`, a copy of a
+/// missile, flying over 1000 ms from the missile's icon `icon` to a hardpoint of the chosen ship
+/// at `hardpoint`, its place and its angles eased by the cosine, from the icon's angles to
+/// `belly_up`. Its end calls `end`. Its keys' scales, the icons' and 1, are never eased.
+pub fn attachMissile(pair: *Pair, interface: *i3d.Interface, icon: *const i3d.Object, flight: *i3d.Object, hardpoint: Vector, end: i3d.AnimCallback) Allocator.Error!void {
+    var to: i3d.Key = .at(icon, belly_up, 1);
+    to.position = hardpoint;
+    try pair.make(interface, "Attach Missile", flight, .{
+        .duration = attach_time,
+        .position = .cosine,
+        .angles = .cosine,
+        .key = .at(icon, anglesOf(icon), missile_scale),
+    }, to);
+    pair.anim.on_end = end;
+}
+
+/// How long a missile takes to fly to a hardpoint or back (`0x00448B77`).
+const attach_time = 1000;
+
+/// The scale of the missiles' icons and of a missile flying to the ship (`0x3BE56042`).
+pub const missile_scale: f32 = 0.007;
 
 /// How long a hardpoint's marker takes to zoom in (`0x00448A6B`).
 const hardpoint_time = 400;
@@ -245,6 +325,8 @@ fn flip(pair: *Pair, interface: *i3d.Interface, panel: *i3d.Object) Allocator.Er
 /// the name's flip calls its `noop` (`0x3F000000`).
 pub const flipped: Vector = .{ std.math.pi, 0, 0 };
 const flip_share: f32 = 0.5;
+
+const expectVector = math.testing.expectVector;
 
 /// The front end's projection, which the tests step the interface with.
 const test_view: srapi.Context = .{ .projection = .init(640, 480, srapi.full_screen, camera.factors) };
@@ -343,6 +425,74 @@ test selectShip {
     try std.testing.expectEqual(spot_angles, pair.frames[1].key.angles);
     try std.testing.expectEqual(0.009, pair.frames[1].key.scale);
     try std.testing.expectEqual(select_time, pair.frames[0].duration);
+}
+
+test sinkShip {
+    var counts: Counts = .{};
+    var interface: i3d.Interface = .create(std.testing.allocator, &counts);
+    defer interface.deinit();
+    var ship_mesh: srapiext.MeshObject = undefined;
+    var ship = testObject(&ship_mesh, @splat(0), @splat(0));
+    var pair: Pair = undefined;
+    const slot: Placed = .{ .position = .{ -6, 2.75, 3 }, .angles = .{ 0, 1, 0 } };
+    try sinkShip(&pair, &interface, &ship, slot, Counts.shared, Counts.ended);
+    // From its slot to two below it.
+    try std.testing.expectEqual(slot.position, pair.frames[0].key.position);
+    try std.testing.expectEqual(Vector{ -6, 4.75, 3 }, pair.frames[1].key.position);
+    pair.play(.forward, 0);
+    interface.busy = true;
+    // Past its share of the way, the next is started; at its end it has sunk.
+    try interface.frame(std.testing.allocator, &test_view, 60, .{});
+    try std.testing.expectEqual(1, counts.shares);
+    try interface.frame(std.testing.allocator, &test_view, sink_time, .{});
+    try std.testing.expectEqual(Vector{ -6, 4.75, 3 }, ship_mesh.position);
+    try std.testing.expectEqual(1, counts.ends);
+    // Played back, it rises to its slot.
+    pair.play(.back, 1000);
+    try interface.frame(std.testing.allocator, &test_view, 1000 + sink_time, .{});
+    try std.testing.expectEqual(slot.position, ship_mesh.position);
+}
+
+test bellyUp {
+    var counts: Counts = .{};
+    var interface: i3d.Interface = .create(std.testing.allocator, &counts);
+    defer interface.deinit();
+    var ship_mesh: srapiext.MeshObject = undefined;
+    var ship = testObject(&ship_mesh, .{ 3.3, -2.25, 3.25 }, @splat(0));
+    var pair: Pair = undefined;
+    try bellyUp(&pair, &interface, &ship, math.fromAngles(-0.75, 0, 0), 0.009, Counts.ended);
+    try std.testing.expectEqual(belly_up, pair.frames[1].key.angles);
+    try std.testing.expectApproxEqAbs(-0.75, pair.frames[0].key.angles[0], 1e-6);
+    // It turns where it stands, and ends belly up.
+    pair.play(.forward, 0);
+    interface.busy = true;
+    try interface.frame(std.testing.allocator, &test_view, belly_up_time, .{});
+    try std.testing.expectEqual(Vector{ 3.3, -2.25, 3.25 }, ship_mesh.position);
+    try expectVector(math.forward(math.fromAngleVector(belly_up)), math.forward(ship_mesh.orientation));
+    try std.testing.expectEqual(1, counts.ends);
+}
+
+test attachMissile {
+    var counts: Counts = .{};
+    var interface: i3d.Interface = .create(std.testing.allocator, &counts);
+    defer interface.deinit();
+    var icon_mesh: srapiext.MeshObject = undefined;
+    const icon = testObject(&icon_mesh, .{ -6, 2.75, 3 }, .{ 0, 1, 0 });
+    var flight_mesh: srapiext.MeshObject = undefined;
+    var flight = testObject(&flight_mesh, @splat(0), @splat(0));
+    var pair: Pair = undefined;
+    try attachMissile(&pair, &interface, &icon, &flight, .{ 3, -1, 2 }, Counts.ended);
+    // The copy flies from the icon, turned as it is, to the hardpoint, belly up.
+    try std.testing.expectEqual(&flight, pair.anim.object);
+    try std.testing.expectEqual(Vector{ -6, 2.75, 3 }, pair.frames[0].key.position);
+    try std.testing.expectApproxEqAbs(1, pair.frames[0].key.angles[1], 1e-6);
+    pair.play(.forward, 0);
+    interface.busy = true;
+    try interface.frame(std.testing.allocator, &test_view, attach_time / 2, .{});
+    try expectVector(.{ -1.5, 0.875, 2.5 }, flight_mesh.position);
+    try interface.frame(std.testing.allocator, &test_view, attach_time, .{});
+    try std.testing.expectEqual(Vector{ 3, -1, 2 }, flight_mesh.position);
+    try std.testing.expectEqual(1, counts.ends);
 }
 
 test flipName {

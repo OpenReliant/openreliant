@@ -4,11 +4,12 @@
 //! ships the pilot may fly on an arc round its rim, the chosen ship turns slowly above it, and
 //! panels with the ship's name and figures, and six buttons, stand round it. All of it spins in
 //! out of the disc's glow as the loadout begins. Clicking a ship on the arc flies it up to the
-//! chosen spot as the chosen one flies back; Exit Loadout Computer spins it all away again, and
-//! the ship chosen is the one the pilot flies.
+//! chosen spot as the chosen one flies back. On the missile page the other ships sink into the disc
+//! and the missiles rise out of it, the chosen ship turns belly up, and a missile clicked flies to
+//! a hardpoint of it. Exit Loadout Computer spins it all away again, and the ship chosen, with the
+//! missiles on its racks, is the one the pilot flies.
 //!
-//! Not ported yet: the missile page and the racks the pilot flies with
-//! ([#447](https://github.com/vdmkenny/openreliant/issues/447)), and the internal guns view
+//! Not ported yet: the internal guns view
 //! ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
 //!
 //! The file's code also builds the band a planet's atmosphere is made of (`bandMesh`) and the
@@ -39,6 +40,7 @@ const hog_snd = @import("../../game/hog_snd.zig");
 const hud = @import("../../game/hud.zig");
 const language = @import("../../game/language.zig");
 const matmanager = @import("../../game/matmanager.zig");
+const missiles = @import("../../game/missiles.zig");
 const objects = @import("../../game/objects.zig");
 const srofiles = @import("../../game/srofiles.zig");
 const videoreports = @import("../../game/videoreports.zig");
@@ -51,6 +53,7 @@ pub const anims = @import("anims.zig");
 pub const bars = @import("bars.zig");
 pub const panels = @import("panels.zig");
 pub const hologram = @import("hologram.zig");
+pub const racks = @import("racks.zig");
 pub const tables = @import("tables.zig");
 
 const log = std.log.scoped(.loadout);
@@ -65,6 +68,8 @@ pub const Context = struct {
     strings: *const language.Language,
     /// The ship types' stats (`stats_load_ships`), which the ships' figures are worked out of.
     stats: *const create.Stats,
+    /// The missile types' stats (`missile_stats`), which the missiles' figures are worked out of.
+    missile_stats: *const missiles.Table,
     /// The mission the loadout comes before (`mission_number`).
     mission: u16,
     /// The campaign's tier as the loadout finds it (`campaign_tier`, `0x00562DF0`), which it raises
@@ -81,23 +86,20 @@ pub const Context = struct {
     detail: explode.Detail = .high,
 };
 
-/// The campaign's saved loadout (`0x00562F18`): the ship the pilot last chose, which `campaign_new`
-/// makes the Predator and a restart keeps.
-///
-/// Not ported yet: its racks (`0x00562F1A`,
-/// [#447](https://github.com/vdmkenny/openreliant/issues/447)).
+/// The campaign's saved loadout (`0x00562F18`): the ship the pilot last chose and the missiles on
+/// its racks (`0x00562F1A`), which `campaign_new` makes the Predator with none, and a restart keeps.
 pub const Saved = struct {
     ship: u8 = predator,
+    racks: racks.Saved = @splat(null),
 };
 
-/// What the loadout leaves the mission: the ship type the pilot flies
-/// (`player_loadouts[player_index]`, `0x00588400`), and the campaign's tier as it raised it, which
-/// the mission's fighters are armed by (`campaign_tier`).
-///
-/// Not ported yet: the racks (`player_loadouts + 4` on), which OpenReliant fits by tier meanwhile
-/// ([#447](https://github.com/vdmkenny/openreliant/issues/447)).
+/// What the loadout leaves the mission (`player_loadouts[player_index]`, `0x00588400`): the ship
+/// type the pilot flies and the missile types on its racks, which `create_object` fits it with
+/// (`create.Objects.loadout_racks`); and the campaign's tier as it raised it, which the mission's
+/// fighters are armed by (`campaign_tier`).
 pub const Result = struct {
     ship: u8,
+    racks: create.Racks,
     tier: u2,
 };
 
@@ -139,11 +141,15 @@ const title_font_name = "ld_handel.fnt";
 const stats_font_name = "handels.fnt";
 const sounds_name = "ldsmp.fat";
 
-/// The textures the loadout requires (`0x004EAA5C` on): the disc's four quarters, the glow, and the
-/// cursor's.
+/// The textures the loadout requires (`0x004EAA5C` on): the disc's four quarters, the glow, the
+/// cursor's, and the hardpoints' markers'.
 const plate_names = [4][]const u8{ "plate-nw", "plate-ne", "plate-sw", "plate-se" };
 const glow_name = "hologlow";
 const cursor_name = "ld_cursor";
+const marker_name = "hpoints";
+
+/// The Ship Missile objects' name (`0x004EAAB8`).
+const ship_missile_name = "Ship Missile";
 
 /// The speech mission 1's loadout says, from `speech_hog` (`0x004EACC8`).
 const speech_name = "loadout.ut";
@@ -158,6 +164,10 @@ const Sound = enum(u8) {
     exit = 2,
     /// The intro (`0x00444977`).
     intro = 3,
+    /// A missile flying to a hardpoint (`0x00447384`), and one flying back to its icon
+    /// (`0x004474E3`).
+    attach = 4,
+    detach = 5,
     /// The loadout's end, as the disc has spun away (`0x004466DE`).
     end = 6,
     /// The pointer onto another object (`0x004435BE`).
@@ -166,8 +176,8 @@ const Sound = enum(u8) {
     select = 8,
     _,
 };
-/// The volume of the loadout's quieter sounds, the hum, a button's, the hover's and a selection's
-/// (`0x28`), and the hum's pitch, 12 quarter tones down (`0x00444950`).
+/// The volume of the loadout's quieter sounds, the hum, a button's, the hover's, a selection's and
+/// a missile's flights (`0x28`), and the hum's pitch, 12 quarter tones down (`0x00444950`).
 const quiet = 40;
 const hum_pitch = -12;
 
@@ -183,12 +193,11 @@ const tooltip_at: [2]i32 = .{ 320, 458 };
 /// How far a button sinks from the camera while it is pressed (`0x004DC3F8`).
 const button_depth: f32 = 0.2;
 
-/// The share of a ship's own scale it is drawn at on the arc (`arc_share`): `arc_unit`
-/// (`0x004DC6E0`) times the double `0x004DC6E8`.
-const arc_unit: f32 = 0.00175;
-const arc_share: f32 = arc_unit * 111.11111111111111;
+/// The share of a ship's own scale it is drawn at on the arc (`arc_share`): the arc's unit of
+/// scale (`anims.arc_unit`) times the double `0x004DC6E8`.
+const arc_share: f32 = anims.arc_unit * 111.11111111111111;
 
-/// What entering scales each ship on the arc by, over `arc_unit` and the ship's scale
+/// What entering scales each ship on the arc by, over `anims.arc_unit` and the ship's scale
 /// (`0x004DC6F0`): near enough the loading's scaling undone.
 const enter_scale: f32 = 0.009;
 
@@ -215,8 +224,14 @@ const cursor_light_mask = 0xFFEF;
 /// Which page the loadout shows (`loadout_page`, `0x005245E8`).
 const Page = enum(u8) { ships = 1, missiles = 2 };
 
+/// The missile page's own buttons, Use Default Loadout and Remove All Missiles, which appear with
+/// it alone (`0x005245DC`, `0x005245E0`).
+const missile_buttons = [_]hologram.Button{ .default, .remove_all };
+
 /// A ship the loadout offers: its tree of parts, the object of the interface that stands for it,
-/// each part's level of detail as the loadout picks it, and its zoom with the disc.
+/// each part's level of detail as the loadout picks it, its zoom with the disc, and its sinking
+/// into it (`0x00524564`). What it carries are the missiles hung on its racks, as the missile page
+/// fits them.
 const Ship = struct {
     model: objects.Model,
     loaded: *const srofiles.Loaded,
@@ -224,6 +239,7 @@ const Ship = struct {
     /// A level for each part: the one the loadout shows it at, which it picks by hand.
     levels: []srapiext.Level,
     zoom: anims.Pair,
+    sink: anims.Pair,
 
     /// `node_tree_level` (`0x0044B340`): each part shown at `level`, or its coarsest where it has
     /// fewer, whatever the distance: `ship_object_create` takes the parts' levels away
@@ -237,15 +253,105 @@ const Ship = struct {
         }
     }
 
-    /// `node_tree_portal` (`0x004492A0`): each part clipped by `portal`, or with none, clipped no
-    /// more, the portal it had left as it was.
+    /// Its parts clipped by `portal`, or clipped no more (`clipTree`).
     fn clip(ship: *Ship, portal: ?*const srapiext.Portal) void {
-        for (ship.model.parts) |*part| {
-            part.object.flags.portal_clipped = portal != null;
-            if (portal) |clipping| part.object.portal = clipping;
-        }
+        clipTree(&ship.model, portal);
     }
 };
+
+/// `node_tree_portal` (`0x004492A0`): each part of `tree` clipped by `portal`, or with none, clipped
+/// no more, the portal it had left as it was; and the parts of what it carries, the missiles hung
+/// on its racks.
+fn clipTree(tree: *objects.Model, portal: ?*const srapiext.Portal) void {
+    for (tree.parts) |*part| {
+        part.object.flags.portal_clipped = portal != null;
+        if (portal) |clipping| part.object.portal = clipping;
+    }
+    var each = tree.carried();
+    while (each.next()) |mount| clipTree(&mount.model, portal);
+}
+
+/// The missile hung in `held` let go of, its tree freed.
+fn unhang(gpa: Allocator, held: *?objects.Model.Mount) void {
+    if (held.*) |mount| mount.model.deinit(gpa);
+    held.* = null;
+}
+
+/// `node_tree_lit_blend` (`0x00445FE0`): every surface of the mesh each part of a model loaded as
+/// `loaded` draws, its finest, made one pass, lit or not, and blended as `blend` says. The parts of
+/// every tree made of `loaded` share its meshes.
+fn litBlend(loaded: *const srofiles.Loaded, lit: bool, blend: srapiext.Material.Blend) void {
+    for (loaded.parts) |part| {
+        if (part.meshes.len == 0) continue;
+        for (part.meshes[0].surfaces) |*surface| {
+            surface.material.two_pass = false;
+            surface.material.lit[0] = lit;
+            surface.material.blend[0] = blend;
+        }
+    }
+}
+
+/// A missile's icon on the arc of the missile page (`0x00523CFC`, `missile_icon_create`,
+/// `0x00445EF0`): a tree of its model at `anims.missile_scale`, lit and opaque, the object of the
+/// interface that stands for it, whose press flies a copy of the missile to the chosen ship, and
+/// its sinking into the disc (`0x005239CC`).
+const Icon = struct {
+    model: objects.Model,
+    object: i3d.Object,
+    sink: anims.Pair,
+};
+
+/// A missile flying to a hardpoint of the chosen ship's, or back to its icon (`0x00523A04`,
+/// `missile_flight_create`, `0x00445D80`): a copy of its model with meshes of its own
+/// (`node_tree_meshes_copy`, `0x0044B3B0`), unlit and added, at `anims.missile_scale`; the object
+/// of the interface that stands for it, shown and not clickable; its Attach Missile, and the
+/// missile.
+const Flight = struct {
+    loaded: srofiles.Loaded,
+    model: objects.Model,
+    object: i3d.Object,
+    attach: anims.Pair,
+    missile: tables.Missile,
+};
+
+/// How many missiles may fly at once (`0x00523A04`, 20 slots).
+const max_flights = 20;
+
+/// The chosen ship's racks the loadout keeps account of, as it empties them and fits them
+/// (`0x00524560`): those its missile hardpoints' markers stand for once they are made
+/// (`markers_make`), or every rack once a missile has been hung on it at once (`rack_fit`), until
+/// the markers are made again.
+const Counted = union(enum) {
+    markers: usize,
+    every_rack,
+
+    /// How many racks it counts.
+    fn count(counted: Counted) usize {
+        return switch (counted) {
+            .markers => |made| made,
+            .every_rack => gameobj.max_racks,
+        };
+    }
+};
+
+/// How a missile comes to hang on the chosen ship (`rack_fit`'s last argument): at once, as the
+/// racks are fitted all together, or flown there from its icon.
+const Hanging = enum { at_once, flown };
+
+/// Where an Attach Missile takes a copy of a missile (`anim_attach_missile`'s data,
+/// `0x00448B8A`): to the next empty hardpoint of the chosen ship's, or back to its icon from the
+/// hardpoint of rack `from_rack`.
+const Route = union(enum) {
+    to_next_empty,
+    from_rack: usize,
+};
+
+/// The light masks of the missiles hung on the chosen ship, which the red light and the ambient
+/// light reach (`0x0044AC40`), so that they glow in with the red light's fade.
+const hung_light_mask = 0xFFFE;
+
+/// The share of the chosen ship's scale a missile hung on it takes (`0x0044B064`, `0x004DC410`).
+const hung_share: f32 = 0.8;
 
 /// The loadout, as `loadout_load` makes it and `loadout_enter`, `loadout_frame` and `loadout_leave`
 /// run it. It must not move once made.
@@ -310,6 +416,33 @@ pub const Loadout = struct {
     /// Each ship's figures as the loadout works them out as it loads (`loadout_ship_stats`,
     /// `0x004EC278`).
     figures: [tables.ship_count]tables.ShipFigures = undefined,
+    /// Each missile's figures, worked out as it loads (`loadout_missile_bars_init`, `0x0044B680`).
+    missile_figures: [tables.missile_count]tables.MissileFigures = undefined,
+    /// The missiles' models (`0x00524450`), loaded with their red textures
+    /// (`loadout_weapon_models`, `0x00524977`), whose meshes their icons and the missiles hung on
+    /// the chosen ship share; and their icons on the arc.
+    missile_models: [tables.missile_count]srofiles.ModelFile = undefined,
+    icons: [tables.missile_count]Icon = undefined,
+    /// The Ship Missile objects (`0x00524228`): each stands for the missile hung on a rack of the
+    /// chosen ship's, whose press flies it back to its icon.
+    ship_missiles: [racks.max_hardpoints]i3d.Object = undefined,
+    /// The chosen ship's racks.
+    fitted: racks.Racks = .{},
+    /// The markers of the chosen ship's missile hardpoints (`0x005246D4`), and the racks the
+    /// loadout keeps account of (`0x00524560`).
+    markers: [racks.max_hardpoints]?*hologram.Marker = @splat(null),
+    counted: Counted = .{ .markers = 0 },
+    /// The markers' texture (`hpoints`, `0x005245E4`), which the loading requires.
+    marker_image: ?*srtexture.Image = null,
+    /// The missiles flying to the chosen ship or back to their icons.
+    flights: [max_flights]?*Flight = @splat(null),
+    /// How many Attach Missiles have been made and have not ended (`0x00524750`): the next
+    /// missile clicked flies past as many empty hardpoints.
+    attaching: usize = 0,
+    /// The missile the info panel shows (`0x00523968`), none while it shows the chosen ship.
+    shown_missile: ?tables.Missile = null,
+    /// Ship to Belly Up (`0x00523E80`), made again each time the missile page is turned to.
+    belly_up: ?anims.Pair = null,
     /// The objects the device's background holds, captured (`capture_background`).
     still: std.ArrayList(*i3d.Object) = .empty,
     title_font: hud.Opened = undefined,
@@ -360,9 +493,11 @@ pub const Loadout = struct {
     /// scaled down to the arc's size but for the chosen one; the disc, its glow, the panels and
     /// the buttons are made and placed, and their animations built.
     ///
-    /// Not ported yet: the missiles' and the guns' models and objects
-    /// ([#447](https://github.com/vdmkenny/openreliant/issues/447),
-    /// [#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// The missiles' models are loaded with their red textures and made into their icons, and the
+    /// ships' and the missiles' sinkings built.
+    ///
+    /// Not ported yet: the guns' models and objects
+    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
     pub fn load(context: Context) !*Loadout {
         const gpa = context.rooms.gpa;
         const loadout = try gpa.create(Loadout);
@@ -399,12 +534,27 @@ pub const Loadout = struct {
         const offered = offeredShips(loadout.tier, context.rank);
         loadout.first_slot = (tables.arc_slot_count - offered) / 2;
         loadout.ships = try arena.alloc(Ship, offered);
+        // Nothing hung on any ship yet, as `destroy` finds them should the loading stop part way.
+        for (loadout.ships) |*ship| ship.model.hung = &.{};
         for (loadout.ships, 0..) |*ship, index| {
             try loadout.makeShip(ship, @intCast(index));
             ship.object = .create(0, context.strings.string(tables.ships[index].name), true);
             ship.object.press = pressShip;
             ship.object.target = .{ .tree = &ship.model };
             for (ship.model.parts) |*part| part.object.light_mask = ship_light_mask;
+        }
+        // The missiles' models with their red textures (`0x00441D84` on), and their icons
+        // (`missiles_create`, `0x004447F0`).
+        for (&loadout.missile_models, &loadout.icons, tables.missiles) |*file, *icon, record| {
+            file.* = try loadout.loadModel(record.model, .loadout_weapons);
+            try loadout.makeIcon(icon, file.*, record);
+        }
+        // The Ship Missile objects, not clickable and standing for nothing until a missile is hung
+        // on their rack (`0x0044218A` on).
+        for (&loadout.ship_missiles) |*object| {
+            object.* = .create(0, null, false);
+            object.press = pressShipMissile;
+            object.shown = false;
         }
         // Every ship but the chosen shrunk to the arc's share of its scale (`0x00442240` on).
         for (loadout.ships, 0..) |*ship, index| {
@@ -431,12 +581,16 @@ pub const Loadout = struct {
             }
         }
         loadout.figures = bars.shipFigures(context.stats);
+        loadout.missile_figures = bars.missileFigures(context.missile_stats);
 
         for (loadout.ships) |*ship| try loadout.interface.addObject(&ship.object, "");
+        for (&loadout.icons) |*icon| try loadout.interface.addObject(&icon.object, "");
+        for (&loadout.ship_missiles) |*object| try loadout.interface.addObject(object, ship_missile_name);
         try loadout.makeGlow(try matmanager.textureRequire(textures, glow_name));
         var plates: [4]?*srtexture.Image = undefined;
         for (&plates, plate_names) |*plate, plate_name| plate.* = try matmanager.textureRequire(textures, plate_name);
         loadout.cursor_image = try matmanager.textureRequire(textures, cursor_name);
+        loadout.marker_image = try matmanager.textureRequire(textures, marker_name);
         try loadout.makeDisc(plates);
         try loadout.makePanels();
         loadout.place();
@@ -444,10 +598,19 @@ pub const Loadout = struct {
             try anims.buttonAppears(appears, &loadout.interface, &loadout.buttons.getPtr(button).object, &loadout.glow.object, nextButtonAppears);
         }
         // Default and Remove All appear with the missile page alone.
-        for ([_]hologram.Button{ .default, .remove_all }) |button| loadout.button_appears.getPtr(button).anim.on_share = null;
+        for (missile_buttons) |button| loadout.button_appears.getPtr(button).anim.on_share = null;
         for (&loadout.panel_zooms, [_]*hologram.Panel{ &loadout.info, &loadout.name, &loadout.title }) |*zoom, panel| {
             try anims.panelZoom(zoom, &loadout.interface, &panel.object, &loadout.glow.object);
         }
+        // Each ship's sinking from its slot on the arc, and each missile's from its slot of the
+        // tier's (`0x004425DA`, `0x00442600`); then the missiles put away.
+        for (loadout.ships, 0..) |*ship, index| {
+            try anims.sinkShip(&ship.sink, &loadout.interface, &ship.object, loadout.arcSlot(@intCast(index)), sinkShipShare, sinkShipEnded);
+        }
+        for (&loadout.icons, tables.missile_slots[loadout.tier]) |*icon, slot| {
+            try anims.sinkMissile(&icon.sink, &loadout.interface, &icon.object, loadout.missileSlot(slot), sinkMissileShare, sinkMissileEnded);
+        }
+        loadout.hideMissiles();
         for (loadout.ships) |*ship| try anims.shipZoom(&ship.zoom, &loadout.interface, &ship.object);
     }
 
@@ -460,29 +623,52 @@ pub const Loadout = struct {
     /// the models take already, their textures named with the prefix.
     fn makeShip(loadout: *Loadout, ship: *Ship, index: u8) !void {
         const arena = loadout.arena.allocator();
-        const record = tables.ships[index];
-        const source = try arena.create(shp.Model);
-        source.* = try .parse(arena, try loadout.context.rooms.resources.readFile(arena, record.model));
-        const loaded = try arena.create(srofiles.Loaded);
-        loaded.* = try srofiles.modelLoad(arena, &loadout.textures.?, source, .{ .hardware = loadout.context.hardware, .prefix = .loadout_ships }, false);
+        const file = try loadout.loadModel(tables.ships[index].model, .loadout_ships);
         ship.* = .{
-            .model = try .create(arena, source, loaded, .{}),
-            .loaded = loaded,
+            .model = try .create(arena, file.model, file.loaded, .{}),
+            .loaded = file.loaded,
             .object = undefined,
-            .levels = try arena.alloc(srapiext.Level, loaded.parts.len),
+            .levels = try arena.alloc(srapiext.Level, file.loaded.parts.len),
             .zoom = undefined,
+            .sink = undefined,
         };
-        gameobj.linkParts(&ship.model, source);
+        // Room for the missiles the missile page hangs on its racks.
+        ship.model.hung = try arena.alloc(?objects.Model.Mount, gameobj.max_racks);
+        @memset(ship.model.hung, null);
+        gameobj.linkParts(&ship.model, file.model);
         ship.model.place(@splat(0), math.identity);
-        for (loaded.parts) |part| {
-            if (part.meshes.len == 0) continue;
-            for (part.meshes[0].surfaces) |*surface| {
-                surface.material.two_pass = false;
-                surface.material.lit[0] = true;
-                surface.material.blend[0] = .off;
-            }
-        }
+        litBlend(file.loaded, true, .off);
         ship.showLevel(0);
+    }
+
+    /// `model_load` (`0x004A44D0`) of `file` from `resource.hog`, its textures named with
+    /// `prefix`'s letter and decoded with the loadout's palette, made in the loadout's arena.
+    fn loadModel(loadout: *Loadout, file: []const u8, prefix: srofiles.Prefix) !srofiles.ModelFile {
+        const arena = loadout.arena.allocator();
+        const source = try arena.create(shp.Model);
+        source.* = try .parse(arena, try loadout.context.rooms.resources.readFile(arena, file));
+        const loaded = try arena.create(srofiles.Loaded);
+        loaded.* = try srofiles.modelLoad(arena, &loadout.textures.?, source, .{ .hardware = loadout.context.hardware, .prefix = prefix }, false);
+        return .{ .model = source, .loaded = loaded };
+    }
+
+    /// `missile_icon_create` (`0x00445EF0`) and the icon's object (`0x00441F64` on): a tree of
+    /// `file`'s model standing at the origin, lit and opaque, at `anims.missile_scale`; an object of
+    /// the interface whose tooltip is the missile's name, not clickable until the missile page
+    /// offers it, whose press flies a copy of the missile to the chosen ship (`pressIcon`) and
+    /// whose pointer's coming onto it shows the missile on the info panel (`enterIcon`); reached
+    /// by the green and the ambient lights alone.
+    fn makeIcon(loadout: *Loadout, icon: *Icon, file: srofiles.ModelFile, record: tables.MissileRecord) !void {
+        icon.model = try .create(loadout.arena.allocator(), file.model, file.loaded, .{});
+        gameobj.linkParts(&icon.model, file.model);
+        icon.model.place(@splat(0), math.identity);
+        litBlend(file.loaded, true, .off);
+        i3d.scaleTree(&icon.model, anims.missile_scale);
+        icon.object = .create(0, loadout.context.strings.string(record.name), false);
+        icon.object.press = pressIcon;
+        icon.object.enter = enterIcon;
+        icon.object.target = .{ .tree = &icon.model };
+        for (icon.model.parts) |*part| part.object.light_mask = ship_light_mask;
     }
 
     /// Opens the loadout's two fonts (`font_open`), the title's taking VFX's palette through the
@@ -584,24 +770,42 @@ pub const Loadout = struct {
     }
 
     /// Draws the panels' textures (`0x00443C20`, `ship_select`): the stats panel's front with ship
-    /// `front`'s figures and its back with `back`'s (`loadout_draw_stats`), the name panels' front
-    /// with `front`'s name and their back with `back`'s (`panel_title_draw`).
+    /// `front`'s figures and its back with `back`'s (`drawInfo`), the name panels' front with
+    /// `front`'s name and their back with `back`'s (`panel_title_draw`).
     fn drawPanels(loadout: *Loadout, front: u8, back: u8) void {
-        const kit: panels.Kit = .{
+        loadout.drawInfo(.front, .{ .ship = front });
+        loadout.drawInfo(.back, .{ .ship = back });
+        const title = &loadout.title_textures;
+        panels.drawTitle(title.get(.front).pixels, loadout.panels_art, loadout.kit(), front);
+        panels.drawTitle(title.get(.back).pixels, loadout.panels_art, loadout.kit(), back);
+        for (&title.values) |*texture| texture.image.changed = true;
+    }
+
+    /// What the info panel shows on a face: a ship's figures or a missile's.
+    const Info = union(enum) {
+        ship: u8,
+        missile: tables.Missile,
+    };
+
+    /// The info panel's `face` drawn with `info` (`loadout_draw_stats`, `0x00444F20`;
+    /// `missile_info_draw`, `0x004456F0`).
+    fn drawInfo(loadout: *Loadout, face: panels.Face, info: Info) void {
+        const texture = loadout.info_textures.getPtr(face);
+        switch (info) {
+            .ship => |ship| panels.drawStats(texture.pixels, loadout.kit(), ship, loadout.figures[ship]),
+            .missile => |missile| panels.drawMissile(texture.pixels, loadout.kit(), missile, loadout.missile_figures[@intFromEnum(missile)]),
+        }
+        texture.image.changed = true;
+    }
+
+    /// What the panels are drawn with.
+    fn kit(loadout: *const Loadout) panels.Kit {
+        return .{
             .title_font = &loadout.title_font,
             .info_font = &loadout.stats_font,
             .palette = &loadout.palette,
             .strings = loadout.context.strings,
         };
-        const info = &loadout.info_textures;
-        const title = &loadout.title_textures;
-        panels.drawStats(info.get(.front).pixels, kit, front, loadout.figures[front]);
-        panels.drawStats(info.get(.back).pixels, kit, back, loadout.figures[back]);
-        panels.drawTitle(title.get(.front).pixels, loadout.panels_art, kit, front);
-        panels.drawTitle(title.get(.back).pixels, loadout.panels_art, kit, back);
-        for ([_]*std.EnumArray(panels.Face, PanelTexture){ info, title }) |faces| {
-            for (&faces.values) |*texture| texture.image.changed = true;
-        }
     }
 
     /// `loadout_enter` (`0x00442720`), once the movie into the hologram has played, at `now`: the
@@ -631,7 +835,7 @@ pub const Loadout = struct {
         chosen.object.shown = false;
         try loadout.interface.scene(loadout.context.rooms.gpa, &loadout.scene, false, treeToScene);
         for (loadout.ships, 0..) |*ship, index| {
-            if (index != loadout.chosen) i3d.scaleTree(&ship.model, enter_scale / (arc_unit * tables.ships[index].scale));
+            if (index != loadout.chosen) i3d.scaleTree(&ship.model, enter_scale / (anims.arc_unit * tables.ships[index].scale));
         }
         chosen.object.shown = true;
         loadout.button_appears.getPtr(.missiles).play(.forward, now);
@@ -689,12 +893,10 @@ pub const Loadout = struct {
             const blinking = since > blink_from and since < blink_until and in.now % blink_period < blink_off;
             loadout.buttons.getPtr(.exit).object.shown = !blinking;
         }
-        if (loadout.context.mission == shroud_mission) {
-            for (loadout.ships, 0..) |*ship, index| {
-                if (index == shroud) continue;
-                ship.object.clickable = false;
-                ship.object.shown = false;
-            }
+        for (loadout.ships, 0..) |*ship, index| {
+            if (loadout.showsShip(index)) continue;
+            ship.object.clickable = false;
+            ship.object.shown = false;
         }
         try loadout.putInScene(false);
         try loadout.interface.frame(arena, &loadout.view, in.now, in.mouse);
@@ -713,6 +915,7 @@ pub const Loadout = struct {
                 _ = loadout.playSound(.hover, quiet, hog_snd.once, hog_snd.own_pitch);
             }
         }
+        if (loadout.page == .missiles and !loadout.interface.busy) loadout.highlightMissile(hovered);
         loadout.last_hovered = hovered;
         try loadout.finishScene();
         return loadout.running;
@@ -736,18 +939,35 @@ pub const Loadout = struct {
     const red_fade_rate: f32 = 0.001;
 
     /// `ship_spin` (`0x00447160`): the chosen ship's turn at this frame's time, about Y a turn
-    /// every four seconds from when it began, tilted back about X; given to the ship where no
-    /// selection is flying it, while the interface is not busy or once it has turned back.
+    /// every four seconds from when it began, tilted back about X. Where no selection is flying
+    /// the ship: while it turns back from belly up, Ship to Belly Up's first key takes the turn's
+    /// angles, which it turns back to; otherwise the ship takes the turn while the interface is
+    /// not busy, or once it has turned back.
     ///
-    /// Not ported yet: the ship turning belly up takes the turn as its first key's angles instead
-    /// ([#447](https://github.com/vdmkenny/openreliant/issues/447)), and the gunship turns with it
+    /// Not ported yet: the gunship turns with it
     /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
     fn spinShip(loadout: *Loadout) void {
         const angle = @as(f32, @floatFromInt(loadout.now -% loadout.spin_start)) * spin_rate;
         loadout.spin = math.turned(math.turned(math.fromAngles(0, 0, 0), .y, angle), .x, spin_tilt);
         if (loadout.select) |select| if (!select.stopped()) return;
+        if (loadout.belly_up) |*belly_up| if (!belly_up.stopped()) {
+            belly_up.frames[0].key.angles = math.angles(loadout.spin);
+            return;
+        };
         if (loadout.turned_back or !loadout.interface.busy) {
             loadout.ships[loadout.chosen].object.setOrientation(loadout.spin);
+        }
+    }
+
+    /// The missile page's highlight (`0x004435C3` to `0x00443639`): each missile's icon lit but
+    /// the one under the pointer, and a missile hung on the ship under the pointer unlit. The
+    /// icons and the missiles hung on the ship share their models' meshes, so a missile under the
+    /// pointer lights up with every other of its kind.
+    fn highlightMissile(loadout: *Loadout, hovered: ?*i3d.Object) void {
+        for (&loadout.icons, &loadout.missile_models) |*icon, file| litBlend(file.loaded, hovered != &icon.object, .off);
+        for (&loadout.ship_missiles, loadout.fitted.racks[0..racks.max_hardpoints]) |*object, rack| {
+            if (object.target == .none or hovered != object) continue;
+            litBlend(loadout.missile_models[@intFromEnum(rack.missile)].loaded, false, .off);
         }
     }
 
@@ -825,13 +1045,14 @@ pub const Loadout = struct {
         of(context).placeShips();
     }
 
-    /// `disc_portal_ship` (`0x00449200`): the disc's portal put in the disc's plane, facing along
-    /// its axis, and set on `ship` to clip what sinks below the disc.
-    fn clipToDisc(loadout: *Loadout, ship: *Ship) void {
+    /// `disc_portal_ship` (`0x00449200`) and `disc_portal_missile` (`0x00449250`): the disc's
+    /// portal put in the disc's plane, facing along its axis, and set on a ship's or a missile's
+    /// `tree` to clip what sinks below the disc.
+    fn clipToDisc(loadout: *Loadout, tree: *objects.Model) void {
         const disc = &loadout.disc.scene_object;
         loadout.disc_portal.position = disc.position;
         loadout.disc_portal.normal = math.forward(disc.orientation);
-        ship.clip(&loadout.disc_portal);
+        clipTree(tree, &loadout.disc_portal);
     }
 
     /// The Spin Disc's end (`0x004466C0`): spun away, the loadout's end sound, and its end; spun
@@ -848,19 +1069,17 @@ pub const Loadout = struct {
     }
 
     /// The ship page built as the disc has spun in (`0x004466EC` on): each ship at its finest level
-    /// and clipped by the disc; a frame run again; the disc, its glow and the ships on the arc
-    /// grabbed as the background, and the chosen ship, the panels, the buttons and the scrollers
-    /// shown before it; the rectangles made again two frames on; the interface free; and the cursor
-    /// made.
-    ///
-    /// Not ported yet: the chosen ship's missiles fitted, the tier's default in missions 1 and 23
-    /// and the campaign's saved racks otherwise
-    /// ([#447](https://github.com/vdmkenny/openreliant/issues/447)).
+    /// and clipped by the disc, and each missile's icon clipped by it; a frame run again; the disc,
+    /// its glow and the ships on the arc grabbed as the background, and the chosen ship, the
+    /// panels, the buttons and the scrollers shown before it; the rectangles made again two frames
+    /// on; the interface free; the cursor made; and the chosen ship's missiles hung on it
+    /// (`fitStartingRacks`).
     fn buildShipPage(loadout: *Loadout) Allocator.Error!void {
         for (loadout.ships, 0..) |*ship, index| {
             if (index != loadout.chosen) ship.showLevel(0);
-            loadout.clipToDisc(ship);
+            loadout.clipToDisc(&ship.model);
         }
+        for (&loadout.icons) |*icon| loadout.clipToDisc(&icon.model);
         _ = try loadout.step(.{ .now = loadout.now, .mouse = loadout.interface.last });
         try loadout.grabShipPage(true);
         const arena = loadout.arena.allocator();
@@ -868,22 +1087,42 @@ pub const Loadout = struct {
         try cursor.create(arena, &loadout.interface, loadout.cursor_image);
         cursor.scene_object.light_mask = cursor_light_mask;
         loadout.cursor = cursor;
+        try loadout.fitStartingRacks();
     }
 
-    /// The ship page's still part grabbed as the device's background, as the Spin Disc's end and
-    /// the resume grab it (`0x0044675A` to `0x004468EF`, `0x0043777F` to `0x004439A5`): the panels,
-    /// the buttons, the scrollers, the cursor and the chosen ship put away, and the ships the page
-    /// offers, the disc and its glow shown, and grabbed; then the other way round, the ships'
-    /// rectangles made again two frames on, and the interface free. Where `placing`, as at the Spin
-    /// Disc's end, the ships are placed each time the scene is made.
+    /// The chosen ship's missiles as the ship page is first built (`0x00446918`): the tier's
+    /// (`fitTierDefault`) in the first mission and in mission 23, the campaign's saved racks
+    /// (`fitSaved`) otherwise, each glowing in with the red light's fade.
+    ///
+    /// **Fix:** where the saved ship is one the loadout does not offer, OpenReliant starts on the
+    /// Predator (`chosenFor`) and fits it the tier's missiles, where the saved racks are another
+    /// ship's.
+    fn fitStartingRacks(loadout: *Loadout) Allocator.Error!void {
+        const mission = loadout.context.mission;
+        if (mission == first_mission or mission == shroud_mission or loadout.context.saved.ship != loadout.chosen) {
+            return loadout.fitTierDefault();
+        }
+        try loadout.fitSaved();
+    }
+
+    /// The page's still part grabbed as the device's background, as the Spin Disc's end and the
+    /// resume grab it (`0x0044675A` to `0x004468EF`, `0x0043777F` to `0x004439A5`): the panels,
+    /// the buttons, the scrollers and the cursor put away, and the disc and its glow shown, with
+    /// the ships the page offers but the chosen one on the ship page, and on the missile page the
+    /// missiles it offers (`missilesAvailable`) and the chosen ship, and grabbed; then the other
+    /// way round, the missiles put away, the ships' rectangles made again two frames on, and the
+    /// interface free. Where `placing`, as at the Spin Disc's end, the ships are placed each time
+    /// the scene is made.
     fn grabShipPage(loadout: *Loadout, placing: bool) Allocator.Error!void {
         const gpa = loadout.context.rooms.gpa;
         loadout.showPanels(false);
-        for (loadout.ships, 0..) |*ship, index| {
-            if (loadout.context.mission != shroud_mission or index == shroud) ship.object.shown = true;
+        if (loadout.page == .missiles) {
+            loadout.missilesAvailable();
+        } else for (loadout.ships, 0..) |*ship, index| {
+            if (loadout.showsShip(index)) ship.object.shown = true;
         }
         loadout.showStill(true);
-        loadout.ships[loadout.chosen].object.shown = false;
+        if (loadout.page != .missiles) loadout.ships[loadout.chosen].object.shown = false;
         for (&loadout.scrollers) |*scroller| scroller.object.shown = false;
         if (loadout.cursor) |cursor| cursor.object.shown = false;
         try loadout.interface.scene(gpa, &loadout.scene, false, treeToScene);
@@ -895,12 +1134,19 @@ pub const Loadout = struct {
         loadout.showStill(false);
         if (loadout.cursor) |cursor| cursor.object.shown = true;
         loadout.ships[loadout.chosen].object.shown = true;
+        loadout.hideMissiles();
         try loadout.interface.scene(gpa, &loadout.scene, false, treeToScene);
         if (placing) loadout.placeShips();
         loadout.rect_countdown = rect_frames;
         loadout.hideShipsButChosen();
         loadout.showStill(false);
         loadout.interface.busy = false;
+    }
+
+    /// Whether the loadout shows ship `index`: every ship it offers, but in mission 23 the Shroud
+    /// alone (`0x0044341E`).
+    fn showsShip(loadout: *const Loadout, index: usize) bool {
+        return loadout.context.mission != shroud_mission or index == shroud;
     }
 
     /// The three panels and the six buttons shown or put away.
@@ -954,13 +1200,13 @@ pub const Loadout = struct {
     /// turned front on and then flipped over; the new ship flies to the chosen spot and the old one
     /// back to its slot; and the interface is busy while they fly.
     ///
-    /// Not ported yet: the old ship's missiles removed first
-    /// ([#447](https://github.com/vdmkenny/openreliant/issues/447)).
+    /// The old ship's missiles are taken off first (`clearRacks`).
     fn selectShip(loadout: *Loadout, new: u8) Allocator.Error!void {
         if (new == loadout.chosen) return;
         const gpa = loadout.context.rooms.gpa;
         const old = loadout.chosen;
         loadout.red_fade = -1;
+        loadout.clearRacks();
         loadout.showOthers(old, new, true);
         loadout.ships[old].object.clickable = true;
         loadout.ships[new].object.clickable = false;
@@ -1006,7 +1252,7 @@ pub const Loadout = struct {
         for (loadout.ships, 0..) |*ship, index| {
             if (index == old or index == new) {
                 ship.object.shown = !before;
-            } else if (loadout.context.mission != shroud_mission or index == shroud) {
+            } else if (loadout.showsShip(index)) {
                 ship.object.shown = before;
             }
         }
@@ -1023,16 +1269,16 @@ pub const Loadout = struct {
         return hologram.slotPlace(loadout.disc.scene_object.place(), tables.chosen_slot, false, hologram.slot_unit).position;
     }
 
-    /// Select Ship's end (`0x00446EF0`): the chosen ship's turn begins again from now, and the
-    /// interface is free.
+    /// Select Ship's end (`0x00446EF0`): the chosen ship's turn begins again from now, the
+    /// interface is free, and the tier's missiles are hung on it at once (`fitTierDefault`).
     ///
-    /// Not ported yet: the tier's default missiles fitted to it at once
-    /// ([#447](https://github.com/vdmkenny/openreliant/issues/447)), and with the guns view
-    /// waiting, the view opened ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// Not ported yet: with the guns view waiting, the view opened
+    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
     fn selectEnded(context: *anyopaque, _: *i3d.Anim) void {
         const loadout = of(context);
         loadout.spin_start = loadout.now;
         loadout.interface.busy = false;
+        loadout.fitTierDefault() catch |err| log.warn("the ship's missiles are left off: {s}", .{@errorName(err)});
     }
 
     /// Deselect Ship's end (`0x00446F70`): the interface free, and each ship's rectangle made
@@ -1088,31 +1334,104 @@ pub const Loadout = struct {
         log.info("the loadout's internal guns view is not ported yet", .{});
     }
 
-    /// Use Default Loadout's release (`0x00447530`), on the missile page.
-    ///
-    /// Not ported yet: the tier's first missile flown to every hardpoint (`0x00449CA0`,
-    /// [#447](https://github.com/vdmkenny/openreliant/issues/447)).
-    fn releaseDefault(_: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
+    /// Use Default Loadout's release (`0x00447530`), on the missile page: tier 0's missiles flown
+    /// to the hardpoints (`fitDefault`).
+    fn releaseDefault(context: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
         releaseButton(object);
-        log.info("the loadout's default missiles are not ported yet", .{});
+        of(context).fitDefault();
     }
 
-    /// Remove All Missiles' release (`0x00447560`), on the missile page.
-    ///
-    /// Not ported yet: every rack emptied (`0x0044AEE0`,
-    /// [#447](https://github.com/vdmkenny/openreliant/issues/447)).
-    fn releaseRemoveAll(_: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
+    /// Remove All Missiles' release (`0x00447560`), on the missile page: every rack emptied
+    /// (`clearRacks`) and every marker shown; the missile page's objects shown and the missiles
+    /// offered again.
+    fn releaseRemoveAll(context: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
         releaseButton(object);
-        log.info("the loadout's missile racks are not ported yet", .{});
+        const loadout = of(context);
+        loadout.clearRacks();
+        loadout.showMarkers(true);
+        loadout.showMissilePage();
+        loadout.missilesAvailable();
     }
 
-    /// `page_switch` (`0x00449D90`): page `page`, where it is not the one shown.
+    /// `page_switch` (`0x00449D90`): page `page`, where it is not the one shown, the one shown
+    /// kept as the last (`loadout_last_page`, `0x00524620`).
     ///
-    /// Not ported yet: the missile page, and the way back from it
-    /// ([#447](https://github.com/vdmkenny/openreliant/issues/447)).
+    /// Not ported yet: with the internal guns view open, the missile page waits until it closes
+    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
     fn switchPage(loadout: *Loadout, page: Page) void {
         if (page == loadout.page) return;
-        log.info("the loadout's missile page is not ported yet", .{});
+        loadout.last_page = loadout.page;
+        loadout.page = page;
+        switch (page) {
+            .ships => loadout.toShipPage(),
+            .missiles => loadout.toMissilePage() catch |err| log.warn("the missile page is left unfinished: {s}", .{@errorName(err)}),
+        }
+    }
+
+    /// `page_switch`'s way back to the ship page (`0x00449DB8` to `0x00449F10`): the interface
+    /// busy; the missiles offered, and not clickable; every ship the page offers clickable, those
+    /// on the arc at the coarse level; the markers not clickable; the chosen ship, the disc and
+    /// its glow shown over the backdrop. The markers zoom away one after another and the ship
+    /// turns back from belly up after them, or at once with none; the missiles sink one after
+    /// another; the info panel's front drawn with the chosen ship; Use Default Loadout and Remove
+    /// All Missiles fly back into the glow, and the info panel flips back to its front.
+    fn toShipPage(loadout: *Loadout) void {
+        const now = loadout.now;
+        loadout.interface.busy = true;
+        loadout.missilesAvailable();
+        for (&loadout.icons) |*icon| icon.object.clickable = false;
+        for (loadout.ships, 0..) |*ship, index| {
+            if (loadout.showsShip(index)) {
+                ship.object.clickable = true;
+                if (index != loadout.chosen) ship.showLevel(loadout.coarse);
+            }
+        }
+        for (loadout.shownMarkers()) |maybe| if (maybe) |marker| {
+            marker.panel.object.clickable = false;
+        };
+        loadout.ships[loadout.chosen].object.shown = true;
+        loadout.showStill(true);
+        loadout.showBackdrop();
+        if (loadout.counted.count() == 0) {
+            loadout.turnBack() catch |err| log.warn("the ship is left belly up: {s}", .{@errorName(err)});
+        } else loadout.nextMarkerZooms(null, .back);
+        loadout.nextMissileSinks(null);
+        loadout.drawInfo(.front, .{ .ship = loadout.chosen });
+        loadout.missileButtonsAppear(.back);
+        loadout.flip_info.play(.back, now);
+    }
+
+    /// `page_switch`'s way to the missile page (`0x00449F18` on): the interface busy; the missiles
+    /// offered; every ship the page offers shown but not clickable, those on the arc at the coarse
+    /// level; the backdrop behind the disc and its glow, shown; the info panel showing no missile;
+    /// Use Default Loadout and Remove All Missiles flying out of the glow; the chosen ship turning
+    /// belly up (`anims.bellyUp`); the missiles offered put on their slots of the arc, sunk into
+    /// the disc; and from the ship page, the ships on the arc sinking one after another, which the
+    /// missiles rise after; otherwise the missiles rising at once.
+    fn toMissilePage(loadout: *Loadout) Allocator.Error!void {
+        const now = loadout.now;
+        loadout.interface.busy = true;
+        loadout.missilesAvailable();
+        for (loadout.ships, 0..) |*ship, index| {
+            if (loadout.showsShip(index)) {
+                ship.object.shown = true;
+                ship.object.clickable = false;
+                if (index != loadout.chosen) ship.showLevel(loadout.coarse);
+            }
+        }
+        loadout.showBackdrop();
+        loadout.showStill(true);
+        loadout.shown_missile = null;
+        if (loadout.belly_up) |*old| loadout.interface.removeAnim(&old.anim);
+        loadout.missileButtonsAppear(.forward);
+        loadout.belly_up = @as(anims.Pair, undefined);
+        const belly_up = &loadout.belly_up.?;
+        try anims.bellyUp(belly_up, &loadout.interface, &loadout.ships[loadout.chosen].object, loadout.spin, tables.ships[loadout.chosen].scale, bellyUpEnded);
+        belly_up.play(.forward, now);
+        loadout.missilesAvailable();
+        loadout.placeMissiles();
+        for (&loadout.icons) |*icon| icon.object.setPosition(icon.object.position() + Vector{ 0, anims.sink_depth, 0 });
+        if (loadout.last_page == .ships) loadout.nextShipSinks(null, .forward) else loadout.nextMissileRises(null);
     }
 
     /// `loadout_exit` (`0x00447730`), once the disc has spun in: Enriquez stops, the interface is
@@ -1122,9 +1441,11 @@ pub const Loadout = struct {
     /// campaign's loadout; the hum ends and the exit's sound plays. The disc's spin's end ends the
     /// loadout.
     ///
-    /// Not ported yet: the missiles and the markers put away, and on the missile page its two
-    /// buttons ([#447](https://github.com/vdmkenny/openreliant/issues/447)); with the internal guns
-    /// view open, it closes first ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// The markers, the Ship Missiles and the missiles' icons are put away, and on the missile
+    /// page Use Default Loadout and Remove All Missiles fly back into the glow too.
+    ///
+    /// Not ported yet: with the internal guns view open, it closes first
+    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
     fn exit(loadout: *Loadout) void {
         if (!loadout.spin_disc.stopped()) return;
         const now = loadout.now;
@@ -1138,16 +1459,20 @@ pub const Loadout = struct {
             ship.zoom.frames[0].scale = .out;
             ship.zoom.play(.back, now);
             ship.clip(null);
-            if (loadout.context.mission != shroud_mission or index == shroud) {
+            if (loadout.showsShip(index)) {
                 ship.object.shown = true;
                 if (index != loadout.chosen) ship.showLevel(loadout.coarse);
             }
         }
+        loadout.showMarkers(false);
+        for (&loadout.ship_missiles) |*object| object.shown = false;
+        loadout.hideMissiles();
         for (&loadout.panel_zooms) |*zoom| zoom.play(.back, now);
         loadout.button_appears.getPtr(.missiles).play(.back, now);
         loadout.showBackdrop();
         loadout.spin_disc.play(.back, now);
         loadout.glow_appears.play(.back, now);
+        if (loadout.page == .missiles) loadout.missileButtonsAppear(.back);
         loadout.context.saved.ship = loadout.chosen;
         if (loadout.hum) |voice| loadout.context.rooms.sound.endVoice(voice);
         loadout.hum = null;
@@ -1155,15 +1480,13 @@ pub const Loadout = struct {
     }
 
     /// `loadout_resume` (`0x00443760`), after the in-game options' BACK at `now`: once the disc has
-    /// spun in, the ship page's background grabbed again with the disc, its glow and the ships on
-    /// the arc, a frame run, and the interface free.
+    /// spun in, a frame run, and the page's background grabbed again (`grabShipPage`): the disc,
+    /// its glow and the ships on the arc, or on the missile page the missiles and the chosen ship;
+    /// and the interface free.
     ///
     /// **Fix:** the in-game options end every sound, the hum's among them, and the game never plays
     /// the hum again, leaving the hologram silent for the rest of the loadout. OpenReliant starts it
     /// again, where the exit has not ended it.
-    ///
-    /// Not ported yet: on the missile page, its missiles grabbed instead
-    /// ([#447](https://github.com/vdmkenny/openreliant/issues/447)).
     pub fn resumeAfterOptions(loadout: *Loadout, now: u32) Allocator.Error!void {
         if (loadout.hum != null) loadout.hum = loadout.playSound(.hum, quiet, hog_snd.forever, hum_pitch);
         if (!loadout.spin_disc.stopped()) return;
@@ -1179,21 +1502,27 @@ pub const Loadout = struct {
         loadout.speech.pause(loadout.context.rooms.sound, paused);
     }
 
-    /// `loadout_leave` (`0x00442CC0`): what the loadout leaves the mission, the chosen ship, once
-    /// it has let go of its sounds and speech (`speech_stop_all`, `sound_end_all`).
-    ///
-    /// Not ported yet: the racks it writes, to the mission and to the campaign's loadout
-    /// ([#447](https://github.com/vdmkenny/openreliant/issues/447)).
+    /// `loadout_leave` (`0x00442CC0`): what the loadout leaves the mission, the chosen ship and
+    /// the missile types on its racks, once it has let go of its sounds and speech
+    /// (`speech_stop_all`, `sound_end_all`); the racks kept in the campaign's saved loadout too.
     pub fn leave(loadout: *Loadout) Result {
         loadout.stopSpeech();
-        if (loadout.entered) loadout.context.rooms.sound.endAll();
+        if (loadout.entered) {
+            loadout.context.rooms.sound.endAll();
+            loadout.context.saved.racks = loadout.fitted.saved();
+        }
         loadout.entered = false;
-        return .{ .ship = loadout.chosen, .tier = loadout.tier };
+        return .{ .ship = loadout.chosen, .racks = loadout.fitted.flown(), .tier = loadout.tier };
     }
 
     /// Lets go of everything the loadout holds.
     pub fn destroy(loadout: *Loadout) void {
         const gpa = loadout.context.rooms.gpa;
+        for (&loadout.flights) |*slot| if (slot.*) |flight| {
+            freeFlight(gpa, flight);
+            slot.* = null;
+        };
+        for (loadout.ships) |*ship| for (ship.model.hung) |*held| unhang(gpa, held);
         loadout.stopSpeech();
         loadout.speech.deinit(gpa);
         if (loadout.fonts_open) {
@@ -1252,18 +1581,692 @@ pub const Loadout = struct {
         loadout.speech_line = &.{};
     }
 
+    // --- The missile page --------------------------------------------------------------------
+
+    /// The markers of the racks the loadout counts (`counted`), as far as the markers reach.
+    fn shownMarkers(loadout: *Loadout) []?*hologram.Marker {
+        return loadout.markers[0..@min(loadout.counted.count(), loadout.markers.len)];
+    }
+
+    /// The markers of the racks the loadout counts shown or put away.
+    fn showMarkers(loadout: *Loadout, shown: bool) void {
+        for (loadout.shownMarkers()) |maybe| if (maybe) |marker| {
+            marker.panel.object.shown = shown;
+        };
+    }
+
+    /// Use Default Loadout's and Remove All Missiles' appearing played `direction`'s way.
+    fn missileButtonsAppear(loadout: *Loadout, direction: i3d.Direction) void {
+        for (missile_buttons) |button| loadout.button_appears.getPtr(button).play(direction, loadout.now);
+    }
+
+    /// Where missile slot `slot` of the arc stands as the disc stands, facing away from its axis,
+    /// which a missile's sinking starts from (`0x0044881E`). A missile the tier doesn't offer has
+    /// none, where the game reads what lies before the slots; OpenReliant sinks its icon, which
+    /// is never shown, from the disc's centre.
+    fn missileSlot(loadout: *Loadout, slot: ?u8) anims.Placed {
+        const disc = loadout.disc.scene_object.place();
+        const at = slot orelse return .{ .position = disc.position, .angles = @splat(0) };
+        return hologram.slotPlace(disc, tables.arc_slots[at], true, hologram.slot_unit);
+    }
+
+    /// `missiles_place` (`0x00449590`): each missile the tier offers put on its slot of the arc as
+    /// the disc stands (`tables.missile_slots`), facing away from its axis, across and down scaled
+    /// by the disc's size while it spins.
+    fn placeMissiles(loadout: *Loadout) void {
+        const disc = &loadout.disc.scene_object;
+        const across = if (loadout.spin_disc.stopped()) hologram.slot_unit else disc.scale * hologram.slot_unit;
+        for (&loadout.icons, tables.missile_slots[loadout.tier]) |*icon, slot| {
+            const at = slot orelse continue;
+            const placed = hologram.slotPlace(disc.place(), tables.arc_slots[at], true, across);
+            icon.object.setPosition(placed.position);
+            icon.object.setOrientation(math.fromAngleVector(placed.angles));
+        }
+    }
+
+    /// `missiles_hide` (`0x00447130`): every missile's icon put away.
+    fn hideMissiles(loadout: *Loadout) void {
+        for (&loadout.icons) |*icon| icon.object.shown = false;
+    }
+
+    /// `missiles_available` (`0x0044B870`): the icon of each missile the tier offers shown and
+    /// clickable while fewer than its limit are carried (`racks.available`), hung on the chosen
+    /// ship, their Ship Missiles clickable, or shown flying to it or back; the rest put away.
+    ///
+    /// **Fix:** the game frees the data of a missile flying back to its icon as its flight begins,
+    /// and counts it by what the freed memory holds. OpenReliant counts it as the missile it is.
+    fn missilesAvailable(loadout: *Loadout) void {
+        var carried: [tables.missile_count]u16 = @splat(0);
+        for (&loadout.ship_missiles, loadout.fitted.racks[0..racks.max_hardpoints]) |*object, rack| {
+            if (object.clickable) carried[@intFromEnum(rack.missile)] += 1;
+        }
+        for (loadout.flights) |maybe| {
+            const flight = maybe orelse continue;
+            if (flight.object.shown) carried[@intFromEnum(flight.missile)] += 1;
+        }
+        const offered = racks.available(loadout.tier, carried);
+        for (&loadout.icons, std.enums.values(tables.Missile)) |*icon, missile| {
+            icon.object.shown = offered.has(missile);
+            icon.object.clickable = offered.has(missile);
+        }
+    }
+
+    /// `ships_sink_next` (`0x004479A0`) and `ships_rise_next` (`0x00447A10`): the ship on the arc
+    /// after the one whose sinking is `after`, or with none the first, the chosen passed over,
+    /// sinking `direction`'s way; none past the last.
+    fn nextShipSinks(loadout: *Loadout, after: ?*const i3d.Anim, direction: i3d.Direction) void {
+        const next: usize = if (after) |anim| next: {
+            for (loadout.ships, 0..) |*ship, index| {
+                if (&ship.sink.anim != anim) continue;
+                break :next if (index + 1 == loadout.chosen) index + 2 else index + 1;
+            }
+            return;
+        } else @intFromBool(loadout.chosen == 0);
+        if (next < loadout.ships.len) loadout.ships[next].sink.play(direction, loadout.now);
+    }
+
+    /// Whether `anim` is the sinking of the last ship on the arc to sink: the last's, or the one
+    /// before it where the last is the chosen one (`0x0044661F` to `0x00446641`).
+    fn lastToSink(loadout: *const Loadout, anim: *const i3d.Anim) bool {
+        const last = loadout.ships.len - 1;
+        if (anim == &loadout.ships[last].sink.anim) return true;
+        return loadout.chosen == last and last > 0 and anim == &loadout.ships[last - 1].sink.anim;
+    }
+
+    /// `missiles_sink_next` (`0x00447A80`): the missile after the one whose sinking is `after`, or
+    /// with none the first, sinking; none past the last.
+    fn nextMissileSinks(loadout: *Loadout, after: ?*const i3d.Anim) void {
+        const next = if (after) |anim| (loadout.missileSinking(anim) orelse return) + 1 else 0;
+        if (next < loadout.icons.len) loadout.icons[next].sink.play(.forward, loadout.now);
+    }
+
+    /// `missiles_rise_next` (`0x00447AE0`): the missile before the one whose sinking is `after`,
+    /// or with none the last, rising: its sinking played back; none before the first.
+    fn nextMissileRises(loadout: *Loadout, after: ?*const i3d.Anim) void {
+        const from = if (after) |anim| loadout.missileSinking(anim) orelse return else loadout.icons.len;
+        if (from == 0) return;
+        loadout.icons[from - 1].sink.play(.back, loadout.now);
+    }
+
+    /// Which missile's sinking `anim` is.
+    fn missileSinking(loadout: *Loadout, anim: *const i3d.Anim) ?usize {
+        for (&loadout.icons, 0..) |*icon, index| {
+            if (&icon.sink.anim == anim) return index;
+        }
+        return null;
+    }
+
+    /// `markers_zoom_next` (`0x00447B40`) and `markers_unzoom_next` (`0x00447BA0`): the marker
+    /// after the one whose zoom is `after`, or with none the first, zooming `direction`'s way; none
+    /// past the chosen ship's hardpoints.
+    fn nextMarkerZooms(loadout: *Loadout, after: ?*const i3d.Anim, direction: i3d.Direction) void {
+        const markers = loadout.shownMarkers();
+        const next: usize = if (after) |anim| next: {
+            for (markers, 0..) |maybe, index| {
+                const marker = maybe orelse continue;
+                if (&marker.zoom.anim == anim) break :next index + 1;
+            }
+            return;
+        } else 0;
+        if (next >= markers.len) return;
+        const marker = markers[next] orelse return;
+        marker.zoom.play(direction, loadout.now);
+    }
+
+    /// Sink Ship's share (`sink_ship_share`, `0x00446610`): sinking, the next ship sinks, and as
+    /// the last to sink passes its share, the missiles begin to rise, from the last; rising, the
+    /// next ship rises.
+    fn sinkShipShare(context: *anyopaque, anim: *i3d.Anim) void {
+        const loadout = of(context);
+        switch (anim.direction) {
+            .forward => {
+                loadout.nextShipSinks(anim, .forward);
+                if (loadout.lastToSink(anim)) loadout.nextMissileRises(null);
+            },
+            .back => loadout.nextShipSinks(anim, .back),
+        }
+    }
+
+    /// Sink Ship's end (`0x00447010`): the last ship on the arc sunk, every ship put away but the
+    /// chosen; the last to rise risen, the ship page built again (`shipPageBack`).
+    fn sinkShipEnded(context: *anyopaque, anim: *i3d.Anim) void {
+        const loadout = of(context);
+        switch (anim.direction) {
+            .forward => if (anim == &loadout.ships[loadout.ships.len - 1].sink.anim) {
+                for (loadout.ships) |*ship| ship.object.shown = false;
+                loadout.ships[loadout.chosen].object.shown = true;
+            },
+            .back => if (loadout.lastToSink(anim)) {
+                loadout.shipPageBack() catch |err| log.warn("the ship page is left unfinished: {s}", .{@errorName(err)});
+            },
+        }
+    }
+
+    /// Sink Missile's share (`0x00446660`): sinking, the next missile sinks; rising, the one
+    /// before it rises.
+    fn sinkMissileShare(context: *anyopaque, anim: *i3d.Anim) void {
+        const loadout = of(context);
+        switch (anim.direction) {
+            .forward => loadout.nextMissileSinks(anim),
+            .back => loadout.nextMissileRises(anim),
+        }
+    }
+
+    /// Sink Missile's end (`0x00446FB0`): a missile sunk, every ship the page offers shown and the
+    /// first on the arc rising, which each missile's end starts again, the last's for good; the
+    /// first missile risen, the missile page ready (`missilesRisen`).
+    fn sinkMissileEnded(context: *anyopaque, anim: *i3d.Anim) void {
+        const loadout = of(context);
+        switch (anim.direction) {
+            .back => if (anim == &loadout.icons[0].sink.anim) loadout.missilesRisen(),
+            .forward => {
+                for (loadout.ships, 0..) |*ship, index| {
+                    if (loadout.showsShip(index)) ship.object.shown = true;
+                }
+                loadout.nextShipSinks(null, .back);
+            },
+        }
+    }
+
+    /// `missiles_risen` (`0x00446950`): on the missile page, its objects shown and the interface
+    /// free (`showMissilePage`), then what waits on the interface's stack; back on the ship page,
+    /// the missiles put away.
+    fn missilesRisen(loadout: *Loadout) void {
+        if (loadout.page == .ships) return loadout.hideMissiles();
+        loadout.showMissilePage();
+        loadout.interface.runDeferred();
+    }
+
+    /// `missile_page_show` (`0x00446B90`): the ships put away but the chosen one; the panels, the
+    /// buttons, the markers of the racks that hold nothing, the scrollers and the cursor shown;
+    /// and the interface free.
+    fn showMissilePage(loadout: *Loadout) void {
+        for (loadout.ships) |*ship| ship.object.shown = false;
+        loadout.showPanels(true);
+        for (loadout.shownMarkers(), 0..) |maybe, index| if (maybe) |marker| {
+            if (!loadout.fitted.racks[index].fitted) marker.panel.object.shown = true;
+        };
+        for (&loadout.scrollers) |*scroller| scroller.object.shown = true;
+        if (loadout.cursor) |cursor| cursor.object.shown = true;
+        loadout.ships[loadout.chosen].object.shown = true;
+        loadout.interface.busy = false;
+    }
+
+    /// `ship_page_rebuild` (`0x004469A0`), as the last ship has risen back onto the arc: the
+    /// panels, the buttons, the missiles, the markers, the scrollers, the chosen ship and the
+    /// cursor put away, the disc and its glow shown, and the interface free; the ships on the arc
+    /// at their finest; the disc, its glow and the ships on the arc grabbed as the background; the
+    /// ships put away, those the page offers clickable again with their rectangles made again,
+    /// the rest shown again as the ship page has it; and what waits on the interface's stack run.
+    fn shipPageBack(loadout: *Loadout) Allocator.Error!void {
+        const gpa = loadout.context.rooms.gpa;
+        loadout.showPanels(false);
+        loadout.hideMissiles();
+        loadout.showMarkers(false);
+        for (&loadout.scrollers) |*scroller| scroller.object.shown = false;
+        loadout.ships[loadout.chosen].object.shown = false;
+        loadout.showStill(true);
+        if (loadout.cursor) |cursor| cursor.object.shown = false;
+        loadout.interface.busy = false;
+        for (loadout.ships, 0..) |*ship, index| {
+            if (index != loadout.chosen) ship.showLevel(0);
+        }
+        try loadout.interface.scene(gpa, &loadout.scene, false, treeToScene);
+        try loadout.captureBackground();
+        for (loadout.ships, 0..) |*ship, index| {
+            ship.object.shown = false;
+            if (loadout.showsShip(index)) {
+                ship.object.clickable = true;
+                try ship.object.updateRect(loadout.frame_arena.allocator(), &loadout.view);
+            }
+        }
+        loadout.showPanels(true);
+        for (&loadout.scrollers) |*scroller| scroller.object.shown = true;
+        loadout.ships[loadout.chosen].object.shown = true;
+        loadout.showStill(false);
+        if (loadout.cursor) |cursor| cursor.object.shown = true;
+        loadout.turned_back = false;
+        loadout.interface.runDeferred();
+    }
+
+    /// `belly_up_back` (`0x00446E90`): the markers put away, the scene made, and the chosen ship
+    /// turning back from belly up: Ship to Belly Up started from its start as it plays forward,
+    /// then turned round.
+    fn turnBack(loadout: *Loadout) Allocator.Error!void {
+        loadout.showMarkers(false);
+        try loadout.interface.scene(loadout.context.rooms.gpa, &loadout.scene, false, treeToScene);
+        const belly_up = if (loadout.belly_up) |*pair| &pair.anim else return;
+        belly_up.reset(.forward);
+        belly_up.direction = .back;
+        belly_up.start(loadout.now);
+    }
+
+    /// Ship to Belly Up's end (`0x00446C70`): turned over, the markers made (`makeMarkers`) and
+    /// the first zooming in; turned back, the ship's turn given it again (`turned_back`).
+    fn bellyUpEnded(context: *anyopaque, anim: *i3d.Anim) void {
+        const loadout = of(context);
+        switch (anim.direction) {
+            .forward => {
+                loadout.makeMarkers() catch |err| log.warn("the hardpoints' markers are left out: {s}", .{@errorName(err)});
+                loadout.nextMarkerZooms(null, .forward);
+            },
+            .back => loadout.turned_back = true,
+        }
+    }
+
+    /// Zoom Hardpoint's share (`0x004465F0`): the next marker zooms the same way.
+    fn markerZoomShare(context: *anyopaque, anim: *i3d.Anim) void {
+        of(context).nextMarkerZooms(anim, anim.direction);
+    }
+
+    /// Zoom Hardpoint's end (`0x00447090`): the last marker gone, the ship turns back from belly
+    /// up (`turnBack`).
+    fn markerZoomEnded(context: *anyopaque, anim: *i3d.Anim) void {
+        const loadout = of(context);
+        if (anim.direction != .back) return;
+        const markers = loadout.shownMarkers();
+        if (markers.len == 0) return;
+        const last = markers[markers.len - 1] orelse return;
+        if (anim != &last.zoom.anim) return;
+        loadout.turnBack() catch |err| log.warn("the ship is left belly up: {s}", .{@errorName(err)});
+    }
+
+    /// The share of its way at which a marker's zoom starts the next's (`0x0044AA35`).
+    const marker_share: f32 = 0.2;
+
+    /// `markers_make` (`0x0044A750`), as the chosen ship has turned belly up: a marker made for
+    /// each of its missile hardpoints in turn, in place of the one before it (`hologram.Marker`),
+    /// the markers counted as they are made (`counted`): at a thousandth of its size, `hologram.marker_lift`
+    /// along the hardpoint's Y axis from it and `hologram.marker_nearer` nearer the camera, where
+    /// the ship's parts stood as the frame's scene was made, facing the camera; shown where its
+    /// rack holds nothing; and its zoom, each starting the next a fifth of its way.
+    fn makeMarkers(loadout: *Loadout) Allocator.Error!void {
+        const arena = loadout.arena.allocator();
+        const ship = &loadout.ships[loadout.chosen];
+        const scale = tables.ships[loadout.chosen].scale;
+        loadout.counted = .{ .markers = 0 };
+        var each = create.hardpoints(&ship.model);
+        while (each.next()) |hardpoint| {
+            const index = loadout.counted.markers;
+            if (index == loadout.markers.len) break;
+            var at = hologram.hardpointPlace(ship.model.parts[hardpoint.part].drawn(), hardpoint.attachment, hologram.marker_lift, scale);
+            at[2] -= hologram.marker_nearer;
+            if (loadout.markers[index]) |old| {
+                loadout.interface.removeObject(&old.panel.object);
+                loadout.interface.removeAnim(&old.zoom.anim);
+            }
+            const marker = try arena.create(hologram.Marker);
+            try marker.make(arena, &loadout.interface, loadout.marker_image);
+            const shown = &marker.panel.scene_object;
+            shown.scale = anims.zoomed_out;
+            shown.position = at;
+            shown.orientation = loadout.view.camera.orientation;
+            try anims.zoomHardpoint(&marker.zoom, &loadout.interface, &marker.panel.object);
+            marker.zoom.anim.on_share = markerZoomShare;
+            marker.zoom.anim.share = marker_share;
+            marker.zoom.anim.on_end = markerZoomEnded;
+            marker.panel.object.shown = !loadout.fitted.racks[index].fitted;
+            loadout.markers[index] = marker;
+            loadout.counted = .{ .markers = index + 1 };
+        }
+    }
+
+    /// The missile the icon `object` stands for.
+    fn iconMissile(loadout: *Loadout, object: *const i3d.Object) ?tables.Missile {
+        for (&loadout.icons, std.enums.values(tables.Missile)) |*icon, missile| {
+            if (&icon.object == object) return missile;
+        }
+        return null;
+    }
+
+    /// The rack the Ship Missile `object` stands for the missile of.
+    fn shipMissileRack(loadout: *Loadout, object: *const i3d.Object) ?usize {
+        for (&loadout.ship_missiles, 0..) |*each, rack| {
+            if (each == object) return rack;
+        }
+        return null;
+    }
+
+    /// A missile's icon pressed (`missile_icon_press`, `0x004472B0`): a copy of the missile flies
+    /// to the chosen ship (`attachMissile`).
+    fn pressIcon(context: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
+        const loadout = of(context);
+        const missile = loadout.iconMissile(object) orelse return;
+        loadout.attachMissile(missile) catch |err| log.warn("the missile is not fitted: {s}", .{@errorName(err)});
+    }
+
+    /// The pointer onto a missile's icon (`0x00447D80`): the missile shown on the info panel.
+    fn enterIcon(context: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
+        const loadout = of(context);
+        const missile = loadout.iconMissile(object) orelse return;
+        loadout.showMissileInfo(missile);
+    }
+
+    /// A Ship Missile pressed (`0x004473B0`), but on the ship page: a copy of its missile flies
+    /// back to its icon (`detachMissile`).
+    fn pressShipMissile(context: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
+        const loadout = of(context);
+        if (loadout.page == .ships) return;
+        const rack = loadout.shipMissileRack(object) orelse return;
+        loadout.detachMissile(rack) catch |err| log.warn("the missile is not taken off: {s}", .{@errorName(err)});
+    }
+
+    /// The pointer onto a Ship Missile (`0x00447DB0`), on the missile page: its missile shown on
+    /// the info panel.
+    fn enterShipMissile(context: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
+        const loadout = of(context);
+        if (loadout.page != .missiles) return;
+        const rack = loadout.shipMissileRack(object) orelse return;
+        loadout.showMissileInfo(loadout.fitted.racks[rack].missile);
+    }
+
+    /// `missile_hover` (`0x00447CC0`): the info panel's front drawn with what it showed, the
+    /// chosen ship or the missile shown before (`panels.drawMissile`), its back with `missile`,
+    /// and the panel turned to show its back.
+    fn showMissileInfo(loadout: *Loadout, missile: tables.Missile) void {
+        loadout.drawInfo(.front, if (loadout.shown_missile) |shown| .{ .missile = shown } else .{ .ship = loadout.chosen });
+        loadout.shown_missile = missile;
+        loadout.drawInfo(.back, .{ .missile = missile });
+        loadout.info.scene_object.orientation = math.fromAngleVector(anims.flipped);
+    }
+
+    /// `missile_icon_press`'s work (`0x004472B0`): a copy of `missile` flying from its icon to
+    /// the chosen ship (`fly`), with sound 4; then the missile page's objects shown and the
+    /// missiles offered again.
+    fn attachMissile(loadout: *Loadout, missile: tables.Missile) !void {
+        const flight = try loadout.fly(missile, .to_next_empty) orelse return;
+        flight.attach.play(.forward, loadout.now);
+        _ = loadout.playSound(.attach, quiet, hog_snd.once, hog_snd.own_pitch);
+        loadout.showMissilePage();
+        loadout.missilesAvailable();
+    }
+
+    /// The Ship Missile's press's work (`0x004473E7` on): a copy of the missile on rack `rack`
+    /// flying back from its hardpoint to its icon (`fly`, played back), shown, unlit and added;
+    /// the rack emptied (`emptyRack`), with sound 5.
+    fn detachMissile(loadout: *Loadout, rack: usize) !void {
+        const flight = try loadout.fly(loadout.fitted.racks[rack].missile, .{ .from_rack = rack }) orelse return;
+        flight.attach.play(.back, loadout.now);
+        flight.object.shown = true;
+        litBlend(&flight.loaded, false, .add);
+        loadout.emptyRack(rack);
+        _ = loadout.playSound(.detach, quiet, hog_snd.once, hog_snd.own_pitch);
+    }
+
+    /// A copy of `missile` made to fly between its icon and a hardpoint of the chosen ship's
+    /// (`anim_attach_missile`, `0x00448B10`, and `missile_flight_create`, `0x00445D80`), the one
+    /// `route` leads to (`flightHardpoint`), where the missile hangs on its centre of mass at the
+    /// ship's scale. Its Attach Missile counts as flying from then on (`attaching`), even where
+    /// no room is left for the copy; with room, the copy stands where its flight starts, the
+    /// icon's place, turned as the icon is.
+    fn fly(loadout: *Loadout, missile: tables.Missile, route: Route) !?*Flight {
+        const ship = &loadout.ships[loadout.chosen];
+        const hardpoint = loadout.flightHardpoint(route) orelse return null;
+        const scale = tables.ships[loadout.chosen].scale;
+        const icon = &loadout.icons[@intFromEnum(missile)];
+        const lift = icon.model.centre * @as(Vector, @splat(scale));
+        const at = hologram.hardpointPlace(ship.model.parts[hardpoint.part].drawn(), hardpoint.attachment, lift, scale);
+        loadout.attaching += 1;
+        const slot = std.mem.indexOfScalar(?*Flight, &loadout.flights, null) orelse return null;
+        const flight = try loadout.makeFlight(missile);
+        loadout.flights[slot] = flight;
+        try anims.attachMissile(&flight.attach, &loadout.interface, &icon.object, &flight.object, at, attachEnded);
+        const start = flight.attach.frames[0].key;
+        flight.object.setPosition(start.position);
+        flight.object.setOrientation(math.fromAngleVector(start.angles));
+        return flight;
+    }
+
+    /// The missile hardpoint of the chosen ship's an Attach Missile flies to or from
+    /// (`0x00448B8A` to `0x00448C8F`): the one of the first empty rack after as many empty ones
+    /// as Attach Missiles fly, or the one of the rack it flies back from; none where there is no
+    /// such rack.
+    fn flightHardpoint(loadout: *Loadout, route: Route) ?create.Hardpoint {
+        const ship = &loadout.ships[loadout.chosen];
+        switch (route) {
+            .from_rack => |rack| return hardpointOfRack(ship, rack),
+            .to_next_empty => {
+                var each = create.hardpoints(&ship.model);
+                var passing = loadout.attaching;
+                var index: usize = 0;
+                while (each.next()) |hardpoint| : (index += 1) {
+                    if (index < loadout.fitted.racks.len and loadout.fitted.racks[index].fitted) continue;
+                    if (passing == 0) return hardpoint;
+                    passing -= 1;
+                }
+                return null;
+            },
+        }
+    }
+
+    /// `missile_flight_create` (`0x00445D80`): a copy of `missile`'s model standing at the origin
+    /// with meshes of its own (`node_tree_meshes_copy`, `0x0044B3B0`), unlit and added, at
+    /// `anims.missile_scale`, and an object of the interface standing for it, shown and not
+    /// clickable, its tooltip empty.
+    fn makeFlight(loadout: *Loadout, missile: tables.Missile) !*Flight {
+        const gpa = loadout.context.rooms.gpa;
+        const file = loadout.missile_models[@intFromEnum(missile)];
+        const flight = try gpa.create(Flight);
+        errdefer gpa.destroy(flight);
+        flight.loaded = try srofiles.modelLoad(gpa, &loadout.textures.?, file.model, .{ .hardware = loadout.context.hardware, .prefix = .loadout_weapons }, false);
+        errdefer flight.loaded.deinit(gpa);
+        flight.model = try .create(gpa, file.model, &flight.loaded, .{});
+        errdefer flight.model.deinit(gpa);
+        gameobj.linkParts(&flight.model, file.model);
+        flight.model.place(@splat(0), math.identity);
+        litBlend(&flight.loaded, false, .add);
+        i3d.scaleTree(&flight.model, anims.missile_scale);
+        flight.object = .create(0, "", false);
+        flight.object.target = .{ .tree = &flight.model };
+        flight.missile = missile;
+        try loadout.interface.addObject(&flight.object, "");
+        return flight;
+    }
+
+    /// The flight whose Attach Missile `anim` is.
+    fn flightOf(loadout: *Loadout, anim: *const i3d.Anim) ?*Flight {
+        for (loadout.flights) |maybe| {
+            const flight = maybe orelse continue;
+            if (&flight.attach.anim == anim) return flight;
+        }
+        return null;
+    }
+
+    /// Attach Missile's end (`0x00446C90`): the copy lit and opaque, and one fewer flying; come to
+    /// its hardpoint, the missile hung on the chosen ship's first empty rack (`fitMissile`) and the
+    /// interface free; come back to its icon, the copy put away and the missiles offered again.
+    /// Either way the copy goes (`dropFlight`).
+    fn attachEnded(context: *anyopaque, anim: *i3d.Anim) void {
+        const loadout = of(context);
+        const flight = loadout.flightOf(anim) orelse return;
+        litBlend(&flight.loaded, true, .off);
+        loadout.attaching -= 1;
+        switch (anim.direction) {
+            .forward => {
+                flight.object.shown = true;
+                loadout.fitMissile(flight.missile, .flown) catch |err| log.warn("the missile is not hung: {s}", .{@errorName(err)});
+                loadout.dropFlight(flight);
+                loadout.interface.busy = false;
+            },
+            .back => {
+                flight.object.shown = false;
+                loadout.dropFlight(flight);
+                loadout.missilesAvailable();
+            },
+        }
+    }
+
+    /// A flight's copy let go: out of the missiles flying, its object and its Attach Missile out
+    /// of the interface, its model and meshes freed.
+    fn dropFlight(loadout: *Loadout, flight: *Flight) void {
+        for (&loadout.flights) |*slot| {
+            if (slot.* == flight) slot.* = null;
+        }
+        loadout.interface.removeObject(&flight.object);
+        loadout.interface.removeAnim(&flight.attach.anim);
+        freeFlight(loadout.context.rooms.gpa, flight);
+    }
+
+    fn freeFlight(gpa: Allocator, flight: *Flight) void {
+        flight.model.deinit(gpa);
+        flight.loaded.deinit(gpa);
+        gpa.destroy(flight);
+    }
+
+    /// The missile hardpoint of rack `rack` on `ship`: its rack-th in the order the flight fits
+    /// them (`create.hardpoints`).
+    fn hardpointOfRack(ship: *const Ship, rack: usize) ?create.Hardpoint {
+        var each = create.hardpoints(&ship.model);
+        var index: usize = 0;
+        while (each.next()) |hardpoint| : (index += 1) {
+            if (index == rack) return hardpoint;
+        }
+        return null;
+    }
+
+    /// `rack_fit` (`0x0044AAC0`): `missile` hung on the chosen ship's first empty rack of those
+    /// the loadout counts (`racks.Racks.take`), every rack from now on where it hangs at once
+    /// (`counted`): a tree of its model (`missile_object_create`, `0x0044AFA0`), lit and opaque at
+    /// `hung_share` of the ship's scale, hung on the rack's hardpoint standing on its centre of
+    /// mass at the ship's scale, reached by the red and the ambient lights alone; its Ship Missile
+    /// standing for it, clickable, the missile's name its tooltip; and where it was flown there,
+    /// the rack's marker put away and not clickable.
+    fn fitMissile(loadout: *Loadout, missile: tables.Missile, hanging: Hanging) Allocator.Error!void {
+        if (hanging == .at_once) loadout.counted = .every_rack;
+        const rack = loadout.fitted.take(missile, loadout.counted.count()) orelse return;
+        const ship = &loadout.ships[loadout.chosen];
+        const hardpoint = hardpointOfRack(ship, rack) orelse return;
+        const gpa = loadout.context.rooms.gpa;
+        const file = loadout.missile_models[@intFromEnum(missile)];
+        var model: objects.Model = try .create(gpa, file.model, file.loaded, .{});
+        gameobj.linkParts(&model, file.model);
+        litBlend(file.loaded, true, .off);
+        const scale = tables.ships[loadout.chosen].scale;
+        i3d.scaleTree(&model, scale * hung_share);
+        model.centre *= @as(Vector, @splat(scale));
+        for (model.parts) |*part| part.object.light_mask = hung_light_mask;
+        ship.model.hung[rack] = .{
+            .part = hardpoint.part,
+            .attachment = hardpoint.index,
+            .origin = gameobj.vector(hardpoint.attachment.position) * @as(Vector, @splat(scale)),
+            .orientation = hardpoint.attachment.orientation,
+            .model = model,
+        };
+        // Past the Ship Missile objects, which no shipped ship's racks go, nothing stands for it:
+        // the game writes past them.
+        if (rack >= loadout.ship_missiles.len) return;
+        const object = &loadout.ship_missiles[rack];
+        object.target = .{ .tree = &ship.model.hung[rack].?.model };
+        object.press = pressShipMissile;
+        object.enter = enterShipMissile;
+        object.setTooltip(loadout.context.strings.string(missile.record().name));
+        object.clickable = true;
+        object.shown = false;
+        if (hanging == .at_once) return;
+        const marker = loadout.markers[rack] orelse return;
+        marker.panel.object.shown = false;
+        marker.panel.object.clickable = false;
+    }
+
+    /// `rack_empty` (`0x0044AE40`): rack `rack` of the chosen ship's emptied: its missile's tree
+    /// let go, its Ship Missile standing for nothing, put away and not clickable; its marker
+    /// shown and clickable again; one fewer fitted.
+    fn emptyRack(loadout: *Loadout, rack: usize) void {
+        unhang(loadout.context.rooms.gpa, &loadout.ships[loadout.chosen].model.hung[rack]);
+        const object = &loadout.ship_missiles[rack];
+        object.target = .none;
+        object.clickable = false;
+        object.shown = false;
+        loadout.fitted.empty(rack);
+        const marker = loadout.markers[rack] orelse return;
+        marker.panel.object.shown = true;
+        marker.panel.object.clickable = true;
+    }
+
+    /// `racks_clear` (`0x0044AEE0`): the chosen ship's racks the loadout counts emptied
+    /// (`counted`), and every missile hung on them let go; every Ship Missile standing for nothing
+    /// and not clickable.
+    fn clearRacks(loadout: *Loadout) void {
+        const gpa = loadout.context.rooms.gpa;
+        const limit = loadout.counted.count();
+        for (loadout.ships[loadout.chosen].model.hung[0..limit]) |*held| unhang(gpa, held);
+        loadout.fitted.clear(limit);
+        for (&loadout.ship_missiles) |*object| {
+            object.target = .none;
+            object.clickable = false;
+        }
+    }
+
+    /// `racks_fit_tier` (`0x00449AD0`): the red light fading in from nothing, the racks cleared,
+    /// and on each missile hardpoint in turn the missile its word names for the campaign's tier,
+    /// hung at once.
+    fn fitTierDefault(loadout: *Loadout) Allocator.Error!void {
+        try loadout.fitEach(.{ .tier = loadout.tier });
+    }
+
+    /// `racks_fit_saved` (`0x00449BB0`): as `fitTierDefault`, each missile hardpoint in turn taking
+    /// the campaign's saved rack of its turn, where it holds a missile.
+    fn fitSaved(loadout: *Loadout) Allocator.Error!void {
+        try loadout.fitEach(.saved);
+    }
+
+    /// What `fitEach` hangs on the hardpoints.
+    const Fitting = union(enum) {
+        tier: u2,
+        saved,
+    };
+
+    fn fitEach(loadout: *Loadout, fitting: Fitting) Allocator.Error!void {
+        loadout.red_level = 0;
+        loadout.red_fade = 1;
+        loadout.clearRacks();
+        var each = create.hardpoints(&loadout.ships[loadout.chosen].model);
+        var index: usize = 0;
+        while (each.next()) |hardpoint| : (index += 1) {
+            const missile = switch (fitting) {
+                .tier => |tier| tables.Missile.ofId(hardpoint.attachment.wordFor(tier)),
+                .saved => if (index < loadout.context.saved.racks.len) loadout.context.saved.racks[index] else null,
+            } orelse continue;
+            try loadout.fitMissile(missile, .at_once);
+        }
+    }
+
+    /// `racks_default` (`0x00449CA0`), Use Default Loadout's: the interface busy, the racks
+    /// cleared, and on each missile hardpoint in turn the missile its word names for tier 0,
+    /// flown to it as the missile's icon's press flies it; then the missiles offered again and the
+    /// missile page's objects shown.
+    fn fitDefault(loadout: *Loadout) void {
+        loadout.interface.busy = true;
+        loadout.clearRacks();
+        var each = create.hardpoints(&loadout.ships[loadout.chosen].model);
+        while (each.next()) |hardpoint| {
+            const missile = tables.Missile.ofId(hardpoint.attachment.wordFor(0)) orelse continue;
+            loadout.attachMissile(missile) catch |err| log.warn("the missile is not fitted: {s}", .{@errorName(err)});
+        }
+        loadout.missilesAvailable();
+        loadout.showMissilePage();
+    }
+
     fn of(context: *anyopaque) *Loadout {
         return @ptrCast(@alignCast(context));
     }
 };
 
 /// `node_tree_to_scene` (`0x0044B0F0`): `tree`'s parts placed as its root stands
-/// (`node_frame_update`), and each shown one put in the scene.
+/// (`node_frame_update`), with what they carry, the missiles hung on a ship, and each shown part
+/// put in the scene (`partsToScene`).
 fn treeToScene(gpa: Allocator, scene: *srcore.Scene, tree: *objects.Model) Allocator.Error!void {
     tree.place(tree.position, tree.orientation);
+    try partsToScene(gpa, scene, tree);
+}
+
+/// Each shown part of `tree` put in the scene, then those of each model it carries, however deep.
+fn partsToScene(gpa: Allocator, scene: *srcore.Scene, tree: *objects.Model) Allocator.Error!void {
     for (tree.parts) |*part| {
         if (!part.hidden) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &part.object }, .world);
     }
+    var each = tree.carried();
+    while (each.next()) |mount| try partsToScene(gpa, scene, &mount.model);
 }
 
 /// The campaign's tier before mission `mission` (`0x00441AA9` to `0x00441AD9`): the highest the
@@ -1411,6 +2414,7 @@ test {
     _ = bars;
     _ = panels;
     _ = hologram;
+    _ = racks;
     _ = tables;
 }
 
@@ -1428,7 +2432,7 @@ test tierBefore {
 
 test chosenFor {
     var saved: Saved = .{ .ship = 7 };
-    var context: Context = .{ .rooms = undefined, .cache = undefined, .strings = undefined, .stats = undefined, .mission = 5, .saved = &saved };
+    var context: Context = .{ .rooms = undefined, .cache = undefined, .strings = undefined, .stats = undefined, .missile_stats = undefined, .mission = 5, .saved = &saved };
     try std.testing.expectEqual(7, chosenFor(context, 12));
     // A saved ship the loadout does not offer starts it on the Predator.
     try std.testing.expectEqual(predator, chosenFor(context, 4));
@@ -1451,4 +2455,80 @@ test offeredShips {
 test coarseLevel {
     try std.testing.expectEqual(0, coarseLevel(.high));
     try std.testing.expectEqual(2, coarseLevel(.low));
+}
+
+/// A ship of one part for the tests, carrying a missile of one part on its first rack, each part
+/// showing `levels`.
+const TestTree = struct {
+    parts: [1]objects.Model.Part,
+    missile_parts: [1]objects.Model.Part,
+    hung: [2]?objects.Model.Mount,
+    ship: objects.Model,
+
+    const first_part = [_]usize{0};
+
+    fn init(tree: *TestTree, levels: []const srapiext.Level) void {
+        const shown: srapiext.MeshObject = .{ .flags = .{}, .position = @splat(0), .radius = 0, .levels = levels };
+        tree.parts = .{.{ .hidden = false, .parent = null, .origin = .{ 1, 0, 0 }, .object = shown }};
+        tree.missile_parts = .{.{ .hidden = false, .parent = null, .origin = @splat(0), .object = shown }};
+        tree.hung = .{ .{
+            .part = 0,
+            .attachment = 0,
+            .origin = .{ 0, 2, 0 },
+            .orientation = math.identity,
+            .model = .{ .parts = &tree.missile_parts, .order = &first_part, .lights = &.{}, .glows = &.{}, .mounts = &.{} },
+        }, null };
+        tree.ship = .{ .parts = &tree.parts, .order = &first_part, .lights = &.{}, .glows = &.{}, .mounts = &.{}, .hung = &tree.hung };
+    }
+};
+
+test clipTree {
+    var tree: TestTree = undefined;
+    tree.init(&.{});
+    const portal: srapiext.Portal = .{};
+    // The ship's parts and the missile it carries clipped alike.
+    clipTree(&tree.ship, &portal);
+    try std.testing.expect(tree.parts[0].object.flags.portal_clipped);
+    try std.testing.expect(tree.missile_parts[0].object.flags.portal_clipped);
+    try std.testing.expectEqual(&portal, tree.missile_parts[0].object.portal.?);
+    // Clipped no more, each keeps the portal it had.
+    clipTree(&tree.ship, null);
+    try std.testing.expect(!tree.missile_parts[0].object.flags.portal_clipped);
+    try std.testing.expectEqual(&portal, tree.missile_parts[0].object.portal.?);
+}
+
+test treeToScene {
+    const gpa = std.testing.allocator;
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    var mesh = try squareMesh(gpa, false, 1, 1);
+    defer mesh.deinit(gpa);
+    const levels = [_]srapiext.Level{.{ .mesh = &mesh, .until = std.math.inf(f32) }};
+    var tree: TestTree = undefined;
+    tree.init(&levels);
+    // The ship's part and the missile it carries, placed on it.
+    try treeToScene(gpa, &scene, &tree.ship);
+    try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
+    try std.testing.expectEqual(Vector{ 1, 2, 0 }, tree.missile_parts[0].object.position);
+    // A hidden part is left out.
+    tree.missile_parts[0].hidden = true;
+    i3d.clearScene(&scene);
+    try treeToScene(gpa, &scene, &tree.ship);
+    try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
+}
+
+test litBlend {
+    const gpa = std.testing.allocator;
+    var mesh = try squareMesh(gpa, false, 1, 1);
+    defer mesh.deinit(gpa);
+    mesh.surfaces[0].material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .off });
+    mesh.surfaces[0].material.two_pass = true;
+    var meshes = [_]srapiext.Mesh{mesh};
+    var parts = [_]srofiles.LoadedPart{.{ .flags = .{}, .meshes = &meshes, .levels = &.{} }};
+    const loaded: srofiles.Loaded = .{ .parts = &parts };
+    // A missile flying: one pass, unlit and added.
+    litBlend(&loaded, false, .add);
+    const material = meshes[0].surfaces[0].material;
+    try std.testing.expect(!material.two_pass and !material.lit[0]);
+    try std.testing.expectEqual(srapiext.Material.Blend.add, material.blend[0]);
 }

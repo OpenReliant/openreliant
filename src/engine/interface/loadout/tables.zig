@@ -10,6 +10,7 @@ const math = @import("../../surrender/math.zig");
 const Vector = math.Vector;
 const gameflow = @import("../../game/gameflow.zig");
 const hud = @import("../../game/hud.zig");
+const missiles_mod = @import("../../game/missiles.zig");
 
 /// A ship the loadout offers: its record (`loadout_ships`, `0x004EC080`, `0x22C` bytes a ship) and
 /// its scale. A ship's index is its ship type.
@@ -322,9 +323,30 @@ pub const Missile = enum(u4) {
     pub fn record(missile: Missile) MissileRecord {
         return missiles[@intFromEnum(missile)];
     }
+
+    /// The missile a hardpoint's id names for the loadout, which takes the id's word as its own
+    /// index (`racks_fit_tier`, `0x00449AD0`; `racks_default`, `0x00449CA0`): none past its
+    /// missiles, where the game reads beyond its tables. No shipped ship's hardpoints name one.
+    pub fn ofId(id: u32) ?Missile {
+        return if (id < missile_count) @enumFromInt(id) else null;
+    }
+
+    /// The missile type the flight fits for it (`loadout_leave`, `0x00442D8C`): its own number,
+    /// but for the fuel pod, which is type 10.
+    pub fn missileType(missile: Missile) missiles_mod.Type {
+        return switch (missile) {
+            .fuel_pod => .fuel_pod,
+            else => @enumFromInt(@intFromEnum(missile)),
+        };
+    }
 };
 
 pub const missile_count = @typeInfo(Missile).@"enum".fields.len;
+
+comptime {
+    // Each of the loadout's missiles flies as the missile type of its name.
+    for (std.enums.values(Missile)) |missile| assert(std.mem.eql(u8, @tagName(missile), @tagName(missile.missileType())));
+}
 
 /// A missile's record (`loadout_missiles`, `0x004EDAA0`, `0x110` bytes a missile). The four
 /// figures after it (`+0x100`) are its `MissileFigures`.
@@ -367,6 +389,11 @@ pub const MissileSet = packed struct(u32) {
 
     pub fn has(set: MissileSet, missile: Missile) bool {
         return @as(u32, @bitCast(set)) >> @intFromEnum(missile) & 1 != 0;
+    }
+
+    /// The set with `missile` in it too.
+    pub fn with(set: MissileSet, missile: Missile) MissileSet {
+        return @bitCast(@as(u32, @bitCast(set)) | @as(u32, 1) << @intFromEnum(missile));
     }
 };
 

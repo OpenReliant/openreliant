@@ -535,6 +535,11 @@ pub const Objects = struct {
     /// ([#44](https://github.com/vdmkenny/openreliant/issues/44)), OpenReliant's driver chooses it,
     /// and where it chooses none the mission's own kind stands.
     loadout_ships: [max_loadouts]?gameobj.Type = @splat(null),
+    /// The racks the loadout screen fitted for each player's slot (`player_loadouts + 4` on),
+    /// which `create_object` and a re-arm fit a player's ship with outside the simulator
+    /// (`loadoutRacks`); null where the mission starts without its briefing and loadout
+    /// (`skip_briefing`, `0x005883B4`), when the ship is fitted by a tier instead.
+    loadout_racks: [max_loadouts]?Racks = @splat(null),
     /// `0x005185A8`, while the byte at `0x005185B1` is set: the number the next order pushed takes
     /// (`aigeneric.Entry.sequence`), as `SetAI` numbers a group's orders
     /// (`aigeneric.startNumbering`); null otherwise, when an order takes 0.
@@ -633,6 +638,28 @@ pub const Objects = struct {
         const chosen = all.loadout_ships[index] orelse return asked;
         if (all.mission_number < twins_from_mission) return chosen;
         return chosen.twin() orelse chosen;
+    }
+
+    /// The racks the loadout screen fitted for the player's ship in slot `index`, which a re-arm
+    /// fits it with (`cmd_ReplenishWeapons`, `0x0045A055`): a player's slot but the player's own
+    /// in the simulator, where the loadout ran. `create_object` passes over mission 25's first
+    /// part too (`createdRacks`).
+    ///
+    /// Not ported yet: the Nanny's re-arm (`order_dock`, `0x00407A5F`,
+    /// [#320](https://github.com/vdmkenny/openreliant/issues/320)).
+    pub fn loadoutRacks(all: *const Objects, index: u16) ?*const Racks {
+        if (index >= all.players or index >= all.loadout_racks.len) return null;
+        if (index == all.player and all.simulator.simulated()) return null;
+        if (all.loadout_racks[index]) |*racks| return racks;
+        return null;
+    }
+
+    /// The racks `create_object` fits the ship it makes in slot `index` with (`0x00467690`):
+    /// the loadout's, as a re-arm takes them, but in the simulator or in mission 25's first part,
+    /// when the ship is fitted by its tier.
+    fn createdRacks(all: *const Objects, index: u16) ?*const Racks {
+        if (all.simulator.simulated() or all.kamovPart()) return null;
+        return all.loadoutRacks(index);
     }
 
     /// The slots the loops over the objects walk, in their order.
@@ -1044,7 +1071,8 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         if (guns.gunAt(slot.guns, second)) |other| other.side = .second;
     }
     object.gun_mode = .created(combat.gun_groups);
-    try arm(all.gpa, slot, settledTier(tier, asked, all.campaign_tier));
+    const fit: Fit = if (all.createdRacks(index)) |racks| .{ .loadout = racks } else .{ .tier = settledTier(tier, asked, all.campaign_tier) };
+    try arm(all.gpa, slot, fit);
     ai.setTargetable(object, combat, true);
     all.exhaust.offer(all, index);
     object.type = @enumFromInt(becomes);
@@ -1054,18 +1082,34 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
 /// The afterburner's fuel a fuel pod adds, in hundredths of a second: 50 seconds.
 pub const fuel_pod_fuel = 5000;
 
+/// The racks a player's loadout names (`player_loadouts + 4` on, the low word of each of 20
+/// longs): a missile type for each rack, none (-1) where it holds nothing.
+pub const Racks = [gameobj.max_racks]missiles.Type;
+
+/// What `arm` fits a ship's racks by: a loadout tier (`object_loadout_by_tier`), or a player's
+/// loadout, which each rack takes its type from in turn.
+pub const Fit = union(enum) {
+    tier: u2,
+    loadout: *const Racks,
+};
+
 /// The weapons `create_object` gives the object in `slot`, which a re-arm gives it again
-/// (`order_dock`, `cmd_ReplenishWeapons`): racks of the loadout `tier` on its missile hardpoints
-/// (`loadoutByTier`), fitted and filled (`fitRacks`), what hung there before let go; its
-/// countermeasures; the afterburner's fuel of its type, 5000 more for each fuel pod; and its guns
-/// charged, with their rounds.
+/// (`order_dock`, `cmd_ReplenishWeapons`): racks as `fit` names them on its missile hardpoints,
+/// fitted and filled (`fitRacks`), what hung there before let go; its countermeasures; the
+/// afterburner's fuel of its type, 5000 more for each fuel pod; and its guns charged, with their
+/// rounds.
 ///
 /// Not ported: a multiplayer game, where a re-arm leaves the afterburner's fuel as it is.
-pub fn arm(gpa: Allocator, slot: *Slot, tier: u2) Allocator.Error!void {
+pub fn arm(gpa: Allocator, slot: *Slot, fit: Fit) Allocator.Error!void {
     const object = &slot.object;
     const combat = slot.combat orelse return;
     if (slot.model) |*model| {
-        loadoutByTier(object, model, tier);
+        switch (fit) {
+            .tier => |tier| loadoutByTier(object, model, tier),
+            .loadout => |racks| for (&object.racks, racks) |*rack, missile| {
+                rack.type = missile;
+            },
+        }
         try fitRacks(gpa, object, model, if (slot.type) |loaded| loaded.effects else .{});
     }
     object.countermeasures = gameobj.countermeasures_when_created;
@@ -1807,6 +1851,43 @@ test "a ship's racks are fitted by its tier" {
     object = &all.slots[index].object;
     try std.testing.expectEqual(missiles.Type.fuel_pod, object.racks[0].type);
     try std.testing.expectEqual(fuel + fuel_pod_fuel, object.afterburner_fuel);
+}
+
+test "a player's ship takes the racks its loadout fitted" {
+    const gpa = std.testing.allocator;
+    var random: libcmt.Rand = .{};
+    const all = try Objects.create(gpa, &random);
+    defer all.destroy();
+    var tables = testing.tables();
+    var model: testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    var points: [3]shp.Attachment = @splat(std.mem.zeroes(shp.Attachment));
+    for (&points) |*point| point.kind = .missile;
+    model.data[0].attachments = &points;
+    var racks: Racks = @splat(.none);
+    racks[0] = .imp;
+    racks[1] = .fuel_pod;
+    racks[2] = .raptor;
+    all.loadout_racks[0] = racks;
+    // The player's slot takes the loadout's, whatever its hardpoints name.
+    const index = try createObject(all, &tables, model.types(), null, .predator, 0, @splat(0), &random);
+    const object = &all.slots[index].object;
+    try std.testing.expectEqual(0, index);
+    try std.testing.expectEqual(3, object.rack_count);
+    try std.testing.expectEqual(missiles.Type.imp, object.racks[0].type);
+    try std.testing.expectEqual(missiles.Type.fuel_pod, object.racks[1].type);
+    try std.testing.expectEqual(missiles.Type.raptor, object.racks[2].type);
+    // Not in the simulator, nor in mission 25's first part.
+    try std.testing.expect(all.createdRacks(0) != null);
+    all.simulator = .{ .mode = .training };
+    try std.testing.expectEqual(null, all.loadoutRacks(0));
+    all.simulator = .{};
+    all.mission_number = kamov_mission;
+    try std.testing.expectEqual(null, all.createdRacks(0));
+    try std.testing.expect(all.loadoutRacks(0) != null);
+    // Another slot has none.
+    try std.testing.expectEqual(null, all.loadoutRacks(1));
 }
 
 test createObject {

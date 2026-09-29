@@ -2294,3 +2294,79 @@ address	kind	name	type	comment
 004e5c10	data	briefing_yamato_segment_starts	short[12]	The first shape past shape 2 of each segment of Enriquez's animation in the Yamato's briefing room
 0050a940	data	screenshot_name_format	char[19]	The name screenshot_save gives a screenshot, by screenshot_count: screenshot%04d.tga
 004ca620	function	tga_write	int __fastcall (char *name, byte *pixels, byte *palette, int width, int height, int bytes_per_pixel, int rle)	Writes a picture as a Targa file: colour-mapped with a palette of 256 RGB triples, grey without one at a byte a pixel, true colour otherwise, run-length encoded with rle, from the top row down. -1 where the file cannot be made
+004447c0	function	gunships_create	void (void)	Makes the twelve ships' gunships' objects of their gun models (gunship_object_create), for the internal guns view
+004447f0	function	missiles_create	void (void)	Makes the ten missiles' icons' objects (missile_icon_create) of their models, loaded with their red textures
+00444bb0	function	marker_create	void * (void)	A hardpoint's marker: a square 0.7 by 1.12 of hpoints over its whole texture, its faces sorted 10 nearer, blended onto what lies behind, its scene object coloured white by its own colours; an I3DOBJECT named Panel on the overlay, clickable, its tooltip Hardpoint, added to the interface
+00445490	function	guns_draw	void __fastcall (void *texture, int ship, int face)	The info panel's texture with the list of the chosen ship's guns, for the internal guns view
+004456f0	function	missile_info_draw	void __fastcall (void *texture, int missile, int face)	The info panel's texture finfo or binfo with a missile: its name and description in capitals, CLICK MISSILE and TO ATTACH TO SHIP centred, and its four rows, a dash for a figure of -1 and every row of the fuel pod
+00445cc0	function	gunship_object_create	void __thiscall (int ship, float x, float y, float z)	A ship's gunship's GameObject of its gun model, its parts added and linked, placed
+00445d80	function	missile_flight_create	void * __fastcall (int missile)	A missile flying to or from the chosen ship: a GameObject of its model with meshes of its own (node_tree_meshes_copy), unlit and added, at 0.007; an I3DOBJECT of it, shown, not clickable, its user data the missile, added to the interface
+00445ef0	function	missile_icon_create	void __thiscall (int missile, float x, float y, float z)	A missile's icon's GameObject of its model, its parts added and linked, placed, lit and opaque, at 0.007
+004460e0	function	gunship_light_masks	void __fastcall (void *node)	Each part of a gunship's tree lit by the green light, or by the bright green one where its first texture is of the second kind
+00446610	function	sink_ship_share	void __fastcall (void *anim)	Sink Ship at its share: sinking, the next ship sinks, and as the last to sink passes it the missiles begin to rise from the last; rising, the next ship rises
+00446950	function	missiles_risen	void (void)	The first missile risen: on the missile page its objects shown and the interface free (missile_page_show), then the function stack run; back on the ship page, the missiles put away
+004469a0	function	ship_page_rebuild	void (void)	The last ship risen back onto the arc: the ship page's still part grabbed as the background again, the ships clickable with their rectangles made again, the rest shown, and the function stack run
+00446b90	function	missile_page_show	void (void)	The ships put away but the chosen one, the panels, buttons, markers of empty racks, scrollers and cursor shown, and the interface free
+00446e90	function	belly_up_back	void (void)	The markers put away, the scene made, and Ship to Belly Up played back from its start
+004472b0	function	missile_icon_press	void __stdcall (int button, int x, int y, int index)	A missile's icon pressed: a copy of it flies to the next empty hardpoint (anim_attach_missile, missile_flight_create), with sound 4; the missile page shown and the missiles offered again
+004479a0	function	ships_sink_next	void __fastcall (void *after)	The ship on the arc after the one whose Sink Ship is after, or the first, the chosen passed over, sinking
+00447a10	function	ships_rise_next	void __fastcall (void *after)	The ship on the arc after the one whose Sink Ship is after, or the first, the chosen passed over, rising
+00447a80	function	missiles_sink_next	void __fastcall (void *after)	The missile after the one whose Sink Missile is after, or the first, sinking
+00447ae0	function	missiles_rise_next	void __fastcall (void *after)	The missile before the one whose Sink Missile is after, or the last, rising
+00447b40	function	markers_zoom_next	void __fastcall (void *after)	The marker after the one whose Zoom Hardpoint is after, or the first, zooming in
+00447ba0	function	markers_unzoom_next	void __fastcall (void *after)	The marker after the one whose Zoom Hardpoint is after, or the first, zooming away
+00447cc0	function	missile_hover	void (void)	The pointer onto a missile's icon or one hung on the ship: the info panel's front drawn with what it showed, its back with the missile, and the panel turned to show its back
+004486a0	function	anim_sink_ship	void * __fastcall (int ship)	Sink Ship: a ship on the arc sinking 2 below its slot over 800 ms, easing in; at 0.07 of its way sink_ship_share, at its end sink_ship_end
+004487f0	function	anim_sink_missile	void * __fastcall (int missile)	Sink Missile: a missile's icon sinking 2 below its slot of the tier's over 800 ms, easing in; at 0.07 of its way sink_missile_share, at its end sink_missile_end
+00448950	function	anim_belly_up	void * __fastcall (int ship)	Ship to Belly Up: the chosen ship turning over 1000 ms, eased by the cosine, from its spin's angles to (-pi/2, pi, 0); its end belly_up_end
+00448b10	function	anim_attach_missile	void * __fastcall (int *data)	Attach Missile: a missile flying over 1000 ms from its icon to a hardpoint of the chosen ship, its place and angles eased by the cosine: the hardpoint data names, or the empty rack's after as many empty ones as fly; null where there is none. Counts it as flying (loadout_attaching)
+00448ff0	function	anim_rotate_scroll	void * __fastcall (void *object)	Rotate Scroll Button: a scroller turning from half a turn about Y to none over 1000 ms, evenly, for the view nothing opens
+00449310	function	node_tree_colour	void __thiscall (void *node, float alpha, float red, float green, float blue)	Every part of a node tree given the colour, as the gunships are given a faint green
+00449590	function	missiles_place	void (void)	Each missile the tier offers put on its slot of the arc as the disc stands, facing away from its axis, across and down scaled by the disc's size while it spins
+00449940	function	loadout_directories	void (void)	The folders the loadout's models are read from under the current one: the ships', inter\missiles and inter\gunships
+00449ad0	function	racks_fit_tier	void (void)	The red light fading in, the racks cleared, and each missile hardpoint's missile for the campaign's tier, its word read whole, hung at once on the next rack (rack_fit)
+00449bb0	function	racks_fit_saved	void (void)	The red light fading in, the racks cleared, and each missile hardpoint in turn taking the campaign's saved rack of its turn, where it holds a missile, hung at once
+00449ca0	function	racks_default	void (void)	Use Default Loadout: the interface busy, the racks cleared, and each missile hardpoint's missile for tier 0 flown to it as its icon's press flies it
+0044a110	function	guns_view_toggle	void (void)	View Internal Guns: the gunship shown where the ship stands and the clip plane swept across, or back
+0044a750	function	markers_make	void (void)	The chosen ship turned belly up: its fitted count cleared, and a marker made for each missile hardpoint in place of the last, 0.05 along its Y axis and 0.3 nearer the camera, facing the camera, at 0.001, shown where its rack is empty, with its Zoom Hardpoint
+0044aac0	function	rack_fit	void __fastcall (int ship, int missile, char instant)	A missile hung on the chosen ship's first empty rack, of the markers' count or of 20 where instant, which makes the count 20: its GameObject (missile_object_create) a child of the part's node at the hardpoint, lit by the red light; its Ship Missile clickable with the missile's name; unless instant, its marker put away
+0044ae40	function	rack_empty	void __fastcall (int *data)	A rack emptied: its missile's GameObject freed, its Ship Missile standing for nothing, the node's child cleared, its marker shown and clickable, one fewer fitted
+0044aee0	function	racks_clear	void (void)	The chosen ship's racks, as many as the markers count, emptied and their missiles' nodes destroyed; every Ship Missile not clickable
+0044afa0	function	missile_object_create	void * __fastcall (int unused, int missile)	A missile hung on the ship: a GameObject of its model, its parts placed and linked, turned half a turn about Y, lit and opaque, at 0.8 of the chosen ship's scale
+0044b3b0	function	node_tree_meshes_copy	void __fastcall (void *node)	Every part of a node tree given a copy of its mesh or levels of its own, flagged to free them
+004465f0	function	marker_zoom_share	void __fastcall (void *anim)	Zoom Hardpoint at a fifth of its way: the next marker zooms the same way
+00446660	function	sink_missile_share	void __fastcall (void *anim)	Sink Missile at its share: sinking, the next missile sinks; rising, the one before it rises
+00446c70	function	belly_up_end	void __fastcall (void *anim)	Ship to Belly Up's end: turned over, the markers made and the first zooming in; turned back, loadout_turned_back set
+00446c90	function	attach_missile_end	void __fastcall (void *anim)	Attach Missile's end: the copy lit and one fewer flying; at the hardpoint, the missile hung (rack_fit) and the interface free; back at its icon, the missiles offered again; the copy freed
+00446fb0	function	sink_missile_end	void __fastcall (void *anim)	Sink Missile's end: sunk, every ship shown and the first rising; the first risen, missiles_risen
+00447010	function	sink_ship_end	void __fastcall (void *anim)	Sink Ship's end: the last ship sunk, every ship put away but the chosen; the last to rise risen, ship_page_rebuild
+00447090	function	marker_zoom_end	void __fastcall (void *anim)	Zoom Hardpoint's end: the last marker gone, belly_up_back
+004473b0	function	ship_missile_press	void __stdcall (int button, int x, int y, int index)	A Ship Missile pressed, but on the ship page: a copy of its missile flies back from its hardpoint to its icon, the rack emptied (rack_empty), with sound 5; frees the missile's data the copy keeps
+00447d80	function	missile_icon_enter	void __stdcall (int button, int x, int y, int index)	The pointer onto a missile's icon: missile_hover
+00447db0	function	ship_missile_enter	void __stdcall (int button, int x, int y, int index)	The pointer onto a Ship Missile, on the missile page: missile_hover
+00449aa0	function	stack_guns_view	void (void)	A function-stack entry: guns_view_toggle
+00523968	data	loadout_missile_shown	int	The missile the info panel shows, -1 while it shows the chosen ship; the racks' fitting leaves the last missile it hung in it
+00523e88	data	loadout_missile_pressed	int	The missile whose icon was pressed last
+00524750	data	loadout_attaching	int	How many Attach Missiles have been made and have not ended; the next attach passes as many empty hardpoints
+00524560	data	loadout_marker_count	int	How many missile hardpoints the chosen ship has, as markers_make counts them; rack_fit makes it 20 for an instant fit
+005246d4	data	loadout_markers	void *[20]	The hardpoints' markers' I3DOBJECTs
+00524594	data	loadout_marker_zooms	void *[12]	The markers' Zoom Hardpoints
+00524228	data	loadout_ship_missiles	void *[12]	The Ship Missile I3DOBJECTs, one for each rack of the chosen ship's, standing for the missile hung on it
+00523a04	data	loadout_flights	void *[20]	The missiles flying to the chosen ship or back to their icons
+00523cfc	data	loadout_missile_icons	void *[12]	The missiles' icons' I3DOBJECTs
+005239cc	data	loadout_missile_sinks	void *[12]	The missiles' Sink Missiles
+00524564	data	loadout_ship_sinks	void *[12]	The ships' Sink Ships
+00523e80	data	loadout_belly_up	void *	Ship to Belly Up, made again each time the missile page is turned to
+005245e4	data	loadout_hpoints	void *	The hardpoints' markers' texture, hpoints
+00523728	data	loadout_gmissiles	void *	The gmissiles texture, which node_tree_gmissiles gives the ships' Missiles surfaces
+00523ae4	data	loadout_missiles_kept	void *	The first Missiles texture node_tree_gmissiles took off, which node_tree_gmissiles_undo gives back
+00524450	data	loadout_missile_files	void *[12]	The missiles' model files, loaded with their red textures
+00524614	data	loadout_flight_count	int	How many missiles fly
+00524724	data	loadout_object_count	int	How many GameObjects the loadout has made
+0052448c	data	loadout_objects	void *[50]	The loadout's GameObjects: the ships, the missiles' icons, the gunships, then the missiles flying
+00524610	data	loadout_guns_open	byte	Set while the internal guns view is open
+00524974	data	loadout_scroll_open	byte	The flag of a view nothing opens, which nothing sets
+00523e74	data	loadout_missile_count	int	How many missiles' icons the loadout makes, 10
+00523aa4	data	loadout_gunship_count	int	How many gunships the loadout makes
+0052372c	data	loadout_gunship_files	void *[12]	The ships' gun models
+00523a64	data	loadout_gunships	void *[12]	The gunships' I3DOBJECTs

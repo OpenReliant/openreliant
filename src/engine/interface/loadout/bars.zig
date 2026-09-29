@@ -256,6 +256,11 @@ pub const MissileBars = extern struct {
     /// A figure a missile has none of, which its panel shows as `-`.
     pub const none = -1;
 
+    /// `figure` as the missile's panel takes it: none where it is `none`.
+    pub fn shown(figure: i32) ?i32 {
+        return if (figure == none) null else figure;
+    }
+
     /// The Jackhammer's damage (`0x0044B81A`): all ten segments, where the range leaves out its
     /// own damage, which lies far past the others'.
     const jack_hammer_damage = 10;

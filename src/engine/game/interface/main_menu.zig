@@ -127,6 +127,10 @@ pub const Choice = union(enum) {
 pub const Flight = struct {
     mission: u16,
     ship: ?u8 = null,
+    /// The racks the loadout fitted the ship with, where it ran (`player_loadouts + 4` on); none
+    /// where the mission starts without it, when the player's ship is fitted by its tier
+    /// (`skip_briefing`, `0x005883B4`).
+    racks: ?create.Racks = null,
     simulator: create.Simulator = .{},
 
     /// Whether `WinMain` flies it, with the hangar's movie before it and the landing after

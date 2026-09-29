@@ -1,16 +1,17 @@
 //! The loadout's panels as their textures are drawn: the title over the page, with the chosen
-//! ship's name, and the info panel with the ship's stats. The game makes each a texture of `size`
-//! by `size` pixels and writes its text into it through a VFX pane (`hud.Pane`), and the scene
-//! shows it on one face of a two-sided panel (`Face`).
+//! ship's name, and the info panel with the ship's stats or a missile's. The game makes each a
+//! texture of `size` by `size` pixels and writes its text into it through a VFX pane
+//! (`hud.Pane`), and the scene shows it on one face of a two-sided panel (`Face`).
 //!
-//! Not ported yet: the info panel's two other contents, the ship's guns (`guns_draw`,
-//! `0x00445490`) and a missile's info (`missile_info_draw`, `0x004456F0`).
+//! Not ported yet: the info panel's list of the ship's guns (`guns_draw`, `0x00445490`,
+//! [#448](https://github.com/vdmkenny/openreliant/issues/448)).
 
 const std = @import("std");
 
 const tga = @import("../../../formats/tga.zig");
 const hud = @import("../../game/hud.zig");
 const language = @import("../../game/language.zig");
+const bars = @import("bars.zig");
 const tables = @import("tables.zig");
 
 /// The panels' textures' size, across and down (`0x00444D83`, `0x00444F40`).
@@ -61,6 +62,15 @@ pub const Kit = struct {
     fn string(kit: Kit, id: u16) []const u8 {
         return kit.strings.string(id) orelse "";
     }
+
+    /// The game's string `id` in capitals, as the panels write their names, labels and
+    /// descriptions (`CharUpperBuffA`, `language.upperCase`).
+    fn capitals(kit: Kit, id: u16) Line {
+        var line: Line = .{};
+        line.append(kit.string(id));
+        language.upperCase(line.slice());
+        return line;
+    }
 };
 
 /// The title's line, `SHIPS AND LOADOUT`.
@@ -79,9 +89,7 @@ pub fn drawTitle(image: *Image, panels: *const Image, kit: Kit, ship: usize) voi
     const pane: hud.Pane = .{ .rgba = image, .size = .{ size, size } };
     const remap: hud.Remap = .{ .table = &tables.title_remap, .palette = kit.palette };
     _ = hud.drawTextInto(pane, kit.title_font, title_at, kit.string(title_string), remap, .left);
-    var name: Line = .{};
-    name.append(kit.string(tables.ships[ship].name));
-    language.upperCase(name.slice());
+    var name = kit.capitals(tables.ships[ship].name);
     _ = hud.drawTextInto(pane, kit.title_font, name_at, name.slice(), remap, .left);
 }
 
@@ -133,25 +141,82 @@ pub fn drawStats(image: *Image, kit: Kit, ship: usize, figures: tables.ShipFigur
 
     var y: i32 = first_row_y;
     for (tables.ship_rows, figures) |row, figure| {
-        defer y += row_step;
-        var label: Line = .{};
-        label.append(kit.string(row.label));
-        language.upperCase(label.slice());
-        _ = hud.drawTextInto(pane, font, .{ label_x, y }, label.slice(), remap, .left);
-        switch (row.kind) {
-            .number => {
-                var number: Line = .{};
-                number.print("{d}", .{figure});
-                number.append(if (row.suffix) |suffix| kit.string(suffix) else "");
-                _ = hud.drawTextInto(pane, font, .{ figure_x, y }, number.slice(), remap, .left);
-            },
-            .bar => drawBar(pane, kit.palette, .{ figure_x, y }, figure),
-        }
+        drawRow(pane, kit, y, row, figure);
+        y += row_step;
     }
 
     var specials = specialsLine(kit, record.specials);
     language.upperCase(specials.slice());
     _ = hud.drawWrappedInto(pane, font, specials_at, specials.slice(), remap, .left, specials_width, specials_line_height, specials_lines);
+}
+
+/// A row of figures at `y` (`loadout_draw_stats`, `0x00445180` to `0x004452F4`;
+/// `missile_info_draw`, `0x0044593B` to `0x00445ADE`): its label in capitals, and beside it the
+/// figure, as a number and its suffix or as a bar (`drawBar`), or a dash where there is none.
+fn drawRow(pane: hud.Pane, kit: Kit, y: i32, row: tables.Row, figure: ?i32) void {
+    const remap: hud.Remap = .{ .table = &tables.text_remap, .palette = kit.palette };
+    const font = kit.info_font;
+    var label = kit.capitals(row.label);
+    _ = hud.drawTextInto(pane, font, .{ label_x, y }, label.slice(), remap, .left);
+    const shown = figure orelse {
+        _ = hud.drawTextInto(pane, font, .{ figure_x, y }, no_figure, remap, .left);
+        return;
+    };
+    switch (row.kind) {
+        .number => {
+            var number: Line = .{};
+            number.print("{d}", .{shown});
+            number.append(if (row.suffix) |suffix| kit.string(suffix) else "");
+            _ = hud.drawTextInto(pane, font, .{ figure_x, y }, number.slice(), remap, .left);
+        },
+        .bar => drawBar(pane, kit.palette, .{ figure_x, y }, shown),
+    }
+}
+
+/// What a row shows for a figure its missile lacks (`0x004EAEB4`).
+const no_figure = "-";
+
+/// Where a missile's name and its description start, and the width, the line height and the most
+/// lines the description is wrapped to (`0x00445839`, `0x004458BA`, `0x004458A4` to
+/// `0x004458A8`).
+const missile_name_at: [2]i32 = .{ 2, 12 };
+const description_at: [2]i32 = .{ 2, 32 };
+const description_width = 252;
+const description_line_height = 15;
+const description_lines = 6;
+
+/// Where a missile's rows start (`0x0044592E`).
+const missile_first_row_y = 127;
+
+/// The two lines under a missile's rows, `CLICK MISSILE` and `TO ATTACH TO SHIP`, and where each is
+/// centred (`0x004458C6`, `0x004458F6`).
+const click_lines = [2]u16{ 0x220, 0x221 };
+const click_at = [2][2]i32{ .{ 128, 195 }, .{ 128, 210 } };
+
+/// `missile_info_draw` (`0x004456F0`): the info panel's texture for `missile`, on a clear image,
+/// in the info panel's font and colours (`tables.text_remap`): its name and its description in
+/// capitals, the description wrapped; `CLICK MISSILE` and `TO ATTACH TO SHIP` centred low down;
+/// and its rows (`tables.missile_rows`), each with its figure of `figures`, or a dash for a figure
+/// of -1 and for every row of the fuel pod (`0x004459B2`).
+pub fn drawMissile(image: *Image, kit: Kit, missile: tables.Missile, figures: tables.MissileFigures) void {
+    image.* = @splat(.{ 0, 0, 0, 0 });
+    const pane: hud.Pane = .{ .rgba = image, .size = .{ size, size } };
+    const remap: hud.Remap = .{ .table = &tables.text_remap, .palette = kit.palette };
+    const font = kit.info_font;
+    const record = missile.record();
+
+    var name = kit.capitals(record.name);
+    _ = hud.drawTextInto(pane, font, missile_name_at, name.slice(), remap, .left);
+    var description = kit.capitals(record.description);
+    _ = hud.drawWrappedInto(pane, font, description_at, description.slice(), remap, .left, description_width, description_line_height, description_lines);
+    for (click_lines, click_at) |line, at| _ = hud.drawTextInto(pane, font, at, kit.string(line), remap, .centre);
+
+    var y: i32 = missile_first_row_y;
+    for (tables.missile_rows, figures) |row, figure| {
+        const value: ?i32 = if (missile == .fuel_pod) null else if (row.dash_for_none) bars.MissileBars.shown(figure) else figure;
+        drawRow(pane, kit, y, row, value);
+        y += row_step;
+    }
 }
 
 /// The names of the specials of `specials`, in their bits' order, `specials_separator` between
@@ -247,7 +312,8 @@ fn testStrings(buffer: *[0x555][]const u8) language.Language {
         .{ class_label, "CLASS : " },           .{ access_label, "ACCESS :" }, .{ 0x223, "LIGHT" },
         .{ 0x229, "BRONZE" },                   .{ 0x21C, " SECS" },           .{ 0x1EF, "Reverse Thrust" },
         .{ 0x1F3, "Spectral Shields" },         .{ 0x1F4, "Blind Fire" },      .{ 0x1F5, "Cloaking Device" },
-        .{ 0x20E, "Max Speed" },
+        .{ 0x20E, "Max Speed" },                .{ 0x205, "Havok" },           .{ 0x1E7, "A big one" },
+        .{ 0x220, "CLICK MISSILE" },            .{ 0x218, "Locking Time" },    .{ 0x219, "Speed" },
     };
     for (strings) |entry| buffer[entry[0] - 1] = entry[1];
     return .{ .strings = buffer };
@@ -328,6 +394,43 @@ test drawStats {
     // The Predator's one special.
     try std.testing.expectEqual(top, image[specials_at[1] * size + specials_at[0] + 9 * 2]);
     try std.testing.expectEqual(clear, image[specials_at[1] * size + specials_at[0] + 10 * 2]);
+}
+
+test drawMissile {
+    const font = try @import("../../../formats/fnt.zig").Font.parse(comptime testFont());
+    const opened: hud.Opened = .open(font, null);
+    const palette = testPalette();
+    var buffer: [0x555][]const u8 = undefined;
+    const strings = testStrings(&buffer);
+    const kit: Kit = .{ .title_font = &opened, .info_font = &opened, .palette = &palette, .strings = &strings };
+    const image = try std.testing.allocator.create(Image);
+    defer std.testing.allocator.destroy(image);
+    const top = colourOf(&palette, tables.text_remap[15]);
+    const bar = colourOf(&palette, tables.bar_colour);
+    const clear: [4]u8 = .{ 0, 0, 0, 0 };
+
+    drawMissile(image, kit, .havoc, .{ 2, 5, 6, 4 });
+    // Its name, `HAVOK`, five letters from its corner.
+    const name = missile_name_at[1] * size + missile_name_at[0];
+    try std.testing.expectEqual(top, image[name + 4 * 2]);
+    try std.testing.expectEqual(clear, image[name + 5 * 2]);
+    // `CLICK MISSILE`, thirteen letters, centred.
+    const click = click_at[0][1] * size + click_at[0][0];
+    try std.testing.expectEqual(top, image[click - 13]);
+    try std.testing.expectEqual(clear, image[click - 14]);
+    // The locking time in seconds, `2 SECS`, and the speed's bar, five segments filled.
+    const locking = missile_first_row_y * size + figure_x;
+    try std.testing.expectEqual(top, image[locking + 5 * 2]);
+    try std.testing.expectEqual(clear, image[locking + 6 * 2]);
+    const speed = (missile_first_row_y + row_step + 3) * size + figure_x;
+    try std.testing.expectEqual(bar, image[speed + 4 * segment_step + 2]);
+    try std.testing.expectEqual(clear, image[speed + 5 * segment_step + 2]);
+
+    // The fuel pod's rows are dashes, whatever its figures.
+    drawMissile(image, kit, .fuel_pod, .{ 2, 5, 6, 4 });
+    try std.testing.expectEqual(top, image[locking]);
+    try std.testing.expectEqual(clear, image[locking + 2]);
+    try std.testing.expectEqual(clear, image[speed + 2]);
 }
 
 test specialsLine {
