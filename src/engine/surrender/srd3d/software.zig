@@ -207,6 +207,7 @@ pub const Software = struct {
                 }
                 const texel: ?[4]f32 = if (state.texture) |texture| blk: {
                     const uv = coordinates(perspective, v);
+                    if (state.filter == .point) break :blk texture.samplePoint(uv[0], uv[1]);
                     const level = mipLevel(texture, uv, .{
                         coordinates(perspectiveWeights(add(weights, step[0]), v), v),
                         coordinates(perspectiveWeights(add(weights, step[1]), v), v),

@@ -223,13 +223,34 @@ pub const Driver = struct {
         return @ptrCast(@alignCast(ptr));
     }
 
-    /// `begin_scene` (`0x100077A0`): the depth scale for the frame, then clears.
+    /// `begin_scene` (`0x100077A0`): the depth scale for the frame, then clears, and draws the
+    /// background image where there is one (`drawBackground`).
     fn begin(ptr: *anyopaque, context: *srapi.Context) void {
         const driver = from(ptr);
         driver.context = context;
         context.projection.depth_scale = srapi.depthScale(context.projection.near);
         driver.target.begin();
+        if (context.background) |image| driver.drawBackground(image, context.projection.viewport);
     }
+
+    /// The background image over `viewport`, the screen's pixels left, top, right and bottom, from
+    /// the nearest texel, white, with neither depth nor blending (`0x10007843` on). The driver draws
+    /// it in squares of up to 256 texels, the most a texture of its time held; OpenReliant draws it
+    /// as one.
+    fn drawBackground(driver: *Driver, image: *srtexture.Image, viewport: [4]f32) void {
+        const left, const top, const right, const bottom = viewport;
+        const corners = [4]Vertex{
+            .{ .x = left, .y = top, .z = background_depth, .rhw = 1, .diffuse = device.white, .u = 0, .v = 0 },
+            .{ .x = right, .y = top, .z = background_depth, .rhw = 1, .diffuse = device.white, .u = 1, .v = 0 },
+            .{ .x = right, .y = bottom, .z = background_depth, .rhw = 1, .diffuse = device.white, .u = 1, .v = 1 },
+            .{ .x = left, .y = bottom, .z = background_depth, .rhw = 1, .diffuse = device.white, .u = 0, .v = 1 },
+        };
+        const look: device.State = .{ .texture = image, .depth = depth(.background, .off), .blend = null, .filter = .point };
+        driver.target.draw(look, .fan, &corners, null);
+    }
+
+    /// The depth the background's corners stand at (`0x3F000000`), which neither tests nor writes.
+    const background_depth: f32 = 0.5;
 
     fn end(ptr: *anyopaque) void {
         from(ptr).target.end();

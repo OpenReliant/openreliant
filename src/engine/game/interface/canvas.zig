@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 const spr = @import("../../../formats/spr.zig");
 const bigfile = @import("../bigfile.zig");
 const device = @import("../../surrender/srd3d/device.zig");
+const srapi = @import("../../surrender/surrenderlib/srapi.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const input = @import("../../input.zig");
 const hud = @import("../hud.zig");
@@ -192,6 +193,45 @@ pub fn scaleFor(window: [2]u32) f32 {
 /// Where the front end's top left corner stands in a window of `window`, which centres it.
 pub fn cornerFor(window: [2]u32) [2]f32 {
     return hud.centred(window, size, scaleFor(window));
+}
+
+/// How the renderer projects onto the front end's screen (`renderer_start`, `0x004ACC6B`): over
+/// the whole of it, by `factors`, carried into the part of a window of `window` the screen fills
+/// (`scaleFor`, `cornerFor`), so that what is drawn in 3D stands where the screen's pictures do.
+pub fn projection(window: [2]u32, factors: [2]f32) srapi.Projection {
+    var fitted: srapi.Projection = .init(size[0], size[1], srapi.full_screen, factors);
+    const scale = scaleFor(window);
+    const corner = cornerFor(window);
+    fitted.screen = window;
+    for (0..2) |axis| {
+        fitted.scale[axis] *= scale;
+        fitted.centre[axis] = corner[axis] + fitted.centre[axis] * scale;
+        for ([2]usize{ axis, axis + 2 }) |edge| fitted.viewport[edge] = corner[axis] + fitted.viewport[edge] * scale;
+    }
+    return fitted;
+}
+
+/// Where the point `at` of the front end's screen stands in a window of `window`, in its pixels.
+pub fn inWindow(window: [2]u32, at: [2]i32) [2]i32 {
+    const scale = scaleFor(window);
+    const corner = cornerFor(window);
+    var placed: [2]i32 = undefined;
+    for (&placed, at, corner) |*axis, point, start| axis.* = @intFromFloat(@round(start + @as(f32, @floatFromInt(point)) * scale));
+    return placed;
+}
+
+test projection {
+    // At the screen's own size, the renderer's own projection.
+    const own = projection(size, .{ 0.6, 0.8 });
+    const renderer: srapi.Projection = .init(640, 480, srapi.full_screen, .{ 0.6, 0.8 });
+    try std.testing.expectEqual(renderer.scale, own.scale);
+    try std.testing.expectEqual(renderer.centre, own.centre);
+    // Fitted into a wider window, half as large again and centred across it.
+    const wide = projection(.{ 1280, 720 }, .{ 0.6, 0.8 });
+    try std.testing.expectEqual([2]f32{ 640, 360 }, wide.centre);
+    try std.testing.expectApproxEqAbs(renderer.scale[0] * 1.5, wide.scale[0], 1e-3);
+    try std.testing.expectEqual([4]f32{ 160, 0, 1120, 720 }, wide.viewport);
+    try std.testing.expectEqual([2]i32{ 640, 360 }, inWindow(.{ 1280, 720 }, .{ 320, 240 }));
 }
 
 /// A sprite set read whole, as `hog_load` reads one, and the shapes made of it.

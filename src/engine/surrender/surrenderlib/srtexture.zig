@@ -87,6 +87,18 @@ pub const Image = struct {
         return out;
     }
 
+    /// The texel of the finest level nearest `u`, `v`, held within the image, as a point filter
+    /// takes it.
+    pub fn samplePoint(image: Image, u: f32, v: f32) [4]f32 {
+        const l = image.levels[0];
+        const x = std.math.clamp(std.math.lossyCast(i64, @floor(u * @as(f32, @floatFromInt(l.width)))), 0, @as(i64, l.width) - 1);
+        const y = std.math.clamp(std.math.lossyCast(i64, @floor(v * @as(f32, @floatFromInt(l.height)))), 0, @as(i64, l.height) - 1);
+        const at: usize = @intCast(y * l.width + x);
+        var out: [4]f32 = undefined;
+        for (&out, l.rgba[at * 4 ..][0..4]) |*c, t| c.* = @as(f32, @floatFromInt(t)) / 255;
+        return out;
+    }
+
     pub fn deinit(image: Image, gpa: Allocator) void {
         for (image.levels) |l| gpa.free(l.rgba);
         gpa.free(image.levels);

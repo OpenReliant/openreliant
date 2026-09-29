@@ -130,7 +130,13 @@ pub const State = struct {
     /// OpenReliant's: the key lights reach a little way past the terminator of what it draws
     /// (`srapiext.MeshObject.soft_terminator`), where the device lights each pixel.
     soft_terminator: bool = false,
+    /// How its texture is filtered (`D3DTSS_MAGFILTER`, `D3DTSS_MINFILTER`, `D3DTSS_MIPFILTER`).
+    filter: Filter = .linear,
 };
+
+/// How a draw's texture is filtered: linearly, or from the nearest texel of its finest level, as
+/// the background image is (`begin_scene`, `0x100077A0`).
+pub const Filter = enum { linear, point };
 
 /// Which shadows a draw's pixels take, which the layer sets: none, the world's cascades, or the
 /// cockpit's map (`srshadow`).

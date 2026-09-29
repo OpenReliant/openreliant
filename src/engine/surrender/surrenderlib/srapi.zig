@@ -7,6 +7,7 @@ const math = @import("../math.zig");
 const srapiext = @import("srapiext.zig");
 const srclip = @import("srclip.zig");
 const srshadow = @import("srshadow.zig");
+const srtexture = @import("srtexture.zig");
 const Vector = math.Vector;
 
 /// The projection `sr_set_projection` (`0x004C3A60`) sets from a viewport, its edges as fractions
@@ -191,6 +192,9 @@ pub const Context = struct {
     /// OpenReliant's: how the device draws the frame's shadows, or null for none (`srshadow`). The
     /// driver sets it with the lights.
     shadows: ?srshadow.Settings = null,
+    /// The picture the device draws behind each frame as it begins, over the screen (`sr + 0x50`,
+    /// the device's background image); none for the clear colour alone.
+    background: ?*srtexture.Image = null,
 
     /// A point of the world in the camera's frame.
     pub fn view(context: Context, point: Vector) Vector {

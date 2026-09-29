@@ -266,6 +266,9 @@ const Run = struct {
     key: PipelineKey,
     /// Null while no vertex of the run has a texture.
     array: ?u15,
+    /// Read held at its texture's edges (`edge_sampler`): a point-filtered draw's, which the
+    /// original never filtered past its edges.
+    held: bool = false,
     first: u32,
     count: u32,
 };
@@ -292,9 +295,10 @@ pub const Gpu = struct {
     vertex_shader: *c.SDL_GPUShader,
     fragment_shader: *c.SDL_GPUShader,
     sampler: *c.SDL_GPUSampler,
-    /// What the images drawn over the finished frame, the display's and the menus', are read with:
-    /// as `sampler`, but held at their edges rather than wrapping, as Direct3D 7 wrapped the
-    /// scene's textures, so that a filter at an image's edge reads nothing from its far side.
+    /// What the images drawn over the finished frame, the display's and the menus', and the
+    /// point-filtered draws, the background image's, are read with: as `sampler`, but held at their
+    /// edges rather than wrapping, as Direct3D 7 wrapped the scene's textures, so that a filter at an
+    /// image's edge reads nothing from its far side.
     edge_sampler: *c.SDL_GPUSampler,
     /// What the screen's passes read with: no wrapping, so a blur does not pull in the far edge.
     screen_sampler: *c.SDL_GPUSampler,
@@ -692,6 +696,7 @@ pub const Gpu = struct {
                 .multisampled = gpu.overlay_from == null,
             },
             .array = if (slot) |s| s.array else null,
+            .held = state.filter == .point,
             .first = first,
             .count = count,
         };
@@ -881,7 +886,7 @@ pub const Gpu = struct {
         for (runs) |run| {
             c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(run.key).?);
             const array = gpu.arrays.items[run.array orelse gpu.blank.array];
-            const bindings = [_]c.SDL_GPUTextureSamplerBinding{ .{ .texture = array.texture, .sampler = sampler }, gpu.shadows.binding() };
+            const bindings = [_]c.SDL_GPUTextureSamplerBinding{ .{ .texture = array.texture, .sampler = if (run.held) gpu.edge_sampler else sampler }, gpu.shadows.binding() };
             c.SDL_BindGPUFragmentSamplers(pass, 0, &bindings, bindings.len);
             c.SDL_DrawGPUIndexedPrimitives(pass, run.count, 1, run.first, 0, 0);
         }
@@ -1168,7 +1173,7 @@ fn appendList(gpa: Allocator, list: *std.ArrayList(u32), primitive: device.Primi
 /// Runs `next` on from `last` when both draw with the same pipeline and array: a run with no
 /// texture joins any.
 fn join(last: *Run, next: Run) bool {
-    if (!std.meta.eql(last.key, next.key)) return false;
+    if (!std.meta.eql(last.key, next.key) or last.held != next.held) return false;
     if (last.array != null and next.array != null and last.array.? != next.array.?) return false;
     if (last.first + last.count != next.first) return false;
     last.count += next.count;
