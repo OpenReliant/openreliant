@@ -20,6 +20,7 @@ const c = @import("sdl");
 const openreliant = @import("openreliant");
 const device = openreliant.engine.surrender.srd3d.device;
 const srd3d = openreliant.engine.surrender.srd3d.srd3d;
+const srapiext = openreliant.engine.surrender.surrenderlib.srapiext;
 const srshadow = openreliant.engine.surrender.surrenderlib.srshadow;
 const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
 const Geometry = @import("gpu/geometry.zig").Geometry;
@@ -204,6 +205,33 @@ const PipelineKey = struct {
     /// Drawn into the frame, which takes several samples a pixel, rather than over the finished
     /// one, which takes a single sample.
     multisampled: bool = true,
+};
+
+/// The pipelines the device makes as it starts (`Gpu.prepare`): the scene's, for each layer and
+/// blend mode in each topology, and those that test no depth again for what is drawn over the
+/// finished frame, which has no depth buffer. Each once, though layers and modes share them.
+const prepared = keys: {
+    const layers = std.enums.values(srd3d.Layer);
+    const modes = std.enums.values(srapiext.Material.Blend);
+    const topologies = std.enums.values(Topology);
+    var found: [layers.len * modes.len * topologies.len * 2]PipelineKey = undefined;
+    var count: usize = 0;
+    @setEvalBranchQuota(20_000);
+    for (layers) |layer| for (modes) |mode| for (topologies) |drawn| {
+        const scene: PipelineKey = .{ .topology = drawn, .depth = srd3d.depth(layer, mode), .blend = srd3d.factors(mode) };
+        var over = scene;
+        over.multisampled = false;
+        for ([_]PipelineKey{ scene, over }) |key| {
+            if (!key.multisampled and key.depth.testing) continue;
+            const known = for (found[0..count]) |seen| {
+                if (std.meta.eql(seen, key)) break true;
+            } else false;
+            if (known) continue;
+            found[count] = key;
+            count += 1;
+        }
+    };
+    break :keys found[0..count].*;
 };
 
 /// A texture's size and levels: textures alike share arrays.
@@ -427,7 +455,16 @@ pub const Gpu = struct {
         };
         gpu.blank = try gpu.place(&blank_levels);
         if (settings.bloom or linear) try gpu.startScreen(spirv);
+        gpu.prepare();
         return gpu;
+    }
+
+    /// Makes every pipeline the frame can draw with (`prepared`), rather than each the first time
+    /// it is drawn: the system compiles a pipeline's shaders for its states, which can take a
+    /// quarter of a second the first time, and would hold up the frame in which an effect first
+    /// shows. One the system refuses is tried again, and the failure logged, as it is drawn.
+    fn prepare(gpu: *Gpu) void {
+        for (prepared) |key| _ = gpu.pipeline(key) catch continue;
     }
 
     /// Floats for a frame that keeps what is stacked past white: 32 bits a pixel where the GPU
@@ -1204,6 +1241,26 @@ test join {
     // Other render states do not join.
     try std.testing.expect(!join(&last, .{ .key = added, .array = 2, .first = 12, .count = 3 }));
     try std.testing.expectEqual(12, last.count);
+}
+
+test prepared {
+    // The scene's ten sets of states in three topologies, and the five that test no depth again
+    // over the finished frame.
+    try std.testing.expectEqual(45, prepared.len);
+    for (prepared, 0..) |key, index| {
+        // The finished frame has no depth to test.
+        try std.testing.expect(key.multisampled or !key.depth.testing);
+        for (prepared[index + 1 ..]) |other| try std.testing.expect(!std.meta.eql(key, other));
+    }
+    // Among them, a blended effect's in the world, and the display's over the finished frame.
+    const effect: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.world, .premultiplied), .blend = srd3d.factors(.premultiplied) };
+    const display: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.overlay, .alpha), .blend = srd3d.factors(.alpha), .multisampled = false };
+    for ([_]PipelineKey{ effect, display }) |wanted| {
+        const found = for (prepared) |key| {
+            if (std.meta.eql(key, wanted)) break true;
+        } else false;
+        try std.testing.expect(found);
+    }
 }
 
 test "Lighting.take" {
