@@ -183,6 +183,7 @@ const help_page = page: {
             .{ .typed = "F4", .text = "in the sandbox, bring in another wing" },
             .{ .typed = "Alt+Enter", .text = "switch between the window and the full screen" },
             .{ .typed = "Escape", .text = "the pause menu, whose LEAVE MISSION quits" },
+            .{ .typed = "0", .text = "save a screenshot, a PNG in the screenshots folder of the game's directory; O does the same in the briefing" },
         }) ++ "\nCommands:\n" ++
         help.table(&.{
             .{ .typed = "install", .text = "install the game's files from the StarLancer discs into a directory" },
@@ -634,6 +635,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     // What draws the frames outside the game's loop: the movies', and the loading screens'.
     var presenter: Presenter = .{ .window = &window, .screen = screen, .driver = &driver, .context = &context, .wanted = options.settings.size, .arena = arena };
     defer presenter.close(gpa);
+    // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
+    var screenshots: game.xtrabits.screenshot.Screenshots = .{ .io = io, .directory = directory };
+    defer screenshots.finish();
     // The movies: FFmpeg's decoders behind the stand-in for Bink, and what plays them in a loop of
     // their own. As the renderer first starts, before its loading screens, `renderer_load` plays the
     // intro; a mission `--mission` names, or a screenshot, starts without it.
@@ -984,6 +988,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                     .strings = &strings,
                     .speech = options.speech,
                     .lines = if (radio.archive) |*archive| archive else null,
+                    .screenshots = &screenshots,
                 };
                 const flight: game.interface.main_menu.Flight = switch (outcome) {
                     .quit => return,
@@ -1171,6 +1176,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                     .random = &rand,
                 },
             }, driver.interface());
+            // `mission_frame` ends with the 0 key, which saves the frame just drawn.
+            if (!clock.paused and game.main.screenshotAsked(&devices.keyboard)) screen.saveScreenshot(gpa, &screenshots);
             last_view = view.view;
             view.cut = false;
             // What the menu's choice ends the pause in, as `mission_paused_frame` acts on it: the
@@ -1216,11 +1223,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
         if (frames_left) |*left| {
             left.* -= 1;
             if (left.* == 0) {
-                const rgba = switch (screen.*) {
-                    .gpu => |*device| try device.capture(frame_arena.allocator()),
-                    .software => |*device| try device.rgba(frame_arena.allocator()),
-                };
-                return save(io, frame_arena.allocator(), options.screenshot.?, rgba, size);
+                const frame = try screen.capture(frame_arena.allocator());
+                return save(io, frame_arena.allocator(), options.screenshot.?, frame.rgba, frame.size);
             }
         }
         if (options.frameRate(window)) |rate| pacer.wait(rate);

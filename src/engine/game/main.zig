@@ -842,6 +842,29 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     try srcore.render(arena, context, scene, driver, frame.overlay);
 }
 
+/// The key that saves a screenshot in flight: 0.
+pub const screenshot_key: input.Key = .zero;
+
+/// Whether the player asks for a screenshot of the frame just drawn, as `mission_frame` ends
+/// (`0x00493480`): 0, once a press, which then saves it (`xtrabits.screenshot`).
+pub fn screenshotAsked(keyboard: *input.Keyboard) bool {
+    return keyboard.pressed(@intFromEnum(screenshot_key), .none, true);
+}
+
+test screenshotAsked {
+    var keyboard: input.Keyboard = .{};
+    const key = @intFromEnum(screenshot_key);
+    try std.testing.expect(!screenshotAsked(&keyboard));
+    // Once a press, and again once the key has come up.
+    keyboard.down[key] = true;
+    try std.testing.expect(screenshotAsked(&keyboard));
+    try std.testing.expect(!screenshotAsked(&keyboard));
+    keyboard.down[key] = false;
+    keyboard.read();
+    keyboard.down[key] = true;
+    try std.testing.expect(screenshotAsked(&keyboard));
+}
+
 /// Where `mission_frame` holds `detail_divisor` (`srapi.Context.detail`) at the high detail setting
 /// on a machine that keeps up: it raises it by 0.05 each frame whose timed sections take under 1/60
 /// s, up to 3, and lowers it by 0.5 each frame over 1/40 s, down to 1.5. OpenReliant holds it at

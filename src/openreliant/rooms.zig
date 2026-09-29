@@ -44,6 +44,8 @@ pub const Driver = struct {
     /// `speech_hog`, which holds Enriquez's words in the briefing; null where the game's folder
     /// has none.
     lines: ?*const openreliant.hog.Archive,
+    /// The screenshots the briefing's O key saves.
+    screenshots: *game.xtrabits.screenshot.Screenshots,
     /// The front end's pointer, which the rooms' follows, and the timer's count it last moved on
     /// at.
     pointer: canvas.Pointer = .{},
@@ -169,11 +171,14 @@ pub const Driver = struct {
             const active = driver.active;
             if (!try driver.pump()) return false;
             if (driver.active != active) meeting.pause(!driver.active, platform.window.nanoseconds());
-            if (meeting.pass(.{
+            const step = meeting.pass(.{
                 .keyboard = &driver.movies.devices.keyboard,
                 .right = driver.pointer.right_down,
                 .ticks = driver.clock.game_ticks,
-            })) |step| switch (step) {
+            });
+            // O saves the screen as it stands, before what the pass leads to.
+            if (meeting.screenshot) driver.movies.presenter.screen.saveScreenshot(driver.movies.gpa, driver.screenshots);
+            if (step) |next| switch (next) {
                 .movie => |name| {
                     _ = try driver.movies.play(name, .over_screen_from_disc) orelse return false;
                     continue;

@@ -19,12 +19,12 @@
 //! (`end_mission`): Enriquez speaks over the room, without a movie, until his speech ends, and no
 //! loadout or last word follows.
 //!
+//! In the briefing, the O key saves a screenshot (`screenshot_key`).
+//!
 //! Not ported: the loadout between the briefing and the last word, with the movies to its hologram
-//! and back (`rel_br2holo.bik` and `rel_holo2br.bik`, `br2hol.bik` and `hol2br.bik`) and the in-game
-//! options it opens, which can lead to the main menu, or back to the rooms where a saved game
-//! loads (`0x0051D4B4`; [#44](https://github.com/vdmkenny/openreliant/issues/44)); and the
-//! screenshot the O key saves (`screenshot_save`, `0x004ADC20`;
-//! [#395](https://github.com/vdmkenny/openreliant/issues/395)).
+//! and back (`rel_br2holo.bik` and `rel_holo2br.bik`, `br2hol.bik` and `hol2br.bik`), its own O key,
+//! and the in-game options it opens, which can lead to the main menu, or back to the rooms where a
+//! saved game loads (`0x0051D4B4`; [#44](https://github.com/vdmkenny/openreliant/issues/44)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -40,6 +40,9 @@ const canvas = @import("canvas.zig");
 const rooms = @import("rooms.zig");
 
 const log = std.log.scoped(.briefing);
+
+/// The key that saves a screenshot in the briefing, as it does in the loadout: O.
+pub const screenshot_key: input.Key = .o;
 
 /// The mission after the campaign's last, 28, for which `WinMain` runs the briefing as the
 /// campaign's end (`0x004373FA`): Enriquez's speech `end_debriefing` in place of the mission's
@@ -293,6 +296,9 @@ pub const Briefing = struct {
     /// **Fix:** the game ends a stage while the button is down, so that the press that skipped the
     /// way in, still held, ends the briefing at once, and the last word after it.
     right: input.FreshPress = .{},
+    /// Whether the last pass's O asked for a screenshot of the screen, which the caller then saves
+    /// (`screenshot_save`).
+    screenshot: bool = false,
 
     /// The briefing before mission `mission`, its door to be shown for a frame (`0x00437010` to
     /// `0x0043716F`); from the loadout where `from_loadout` has it.
@@ -340,6 +346,7 @@ pub const Briefing = struct {
     /// A pass of the loop of the stage the briefing stands at, `in` read: what it leads to, if
     /// anything.
     pub fn pass(briefing: *Briefing, in: Input) ?Step {
+        briefing.screenshot = false;
         return switch (briefing.stage) {
             .door => briefing.load(in.ticks),
             .door_open => briefing.walk(),
@@ -418,10 +425,11 @@ pub const Briefing = struct {
         briefing.narration = player.bink.loudness() catch null;
     }
 
-    /// A pass of the briefing's loop (`0x004374F0` on), `in` read: Escape, the right button, or
-    /// the movie's end ends it; at the campaign's end, the end of Enriquez's speech, which Escape
-    /// and the right button stop.
+    /// A pass of the briefing's loop (`0x004374F0` on), `in` read: O asks for a screenshot
+    /// (`0x004375F1`); then Escape, the right button, or the movie's end ends it; at the
+    /// campaign's end, the end of Enriquez's speech, which Escape and the right button stop.
     fn briefingPass(briefing: *Briefing, in: Input) ?Step {
+        briefing.screenshot = in.keyboard.pressed(@intFromEnum(screenshot_key), .none, true);
         const sound = briefing.context.sound;
         const ending = briefing.mission == end_mission;
         const over = in.keyboard.pressed(input.scan.escape, .none, true) or
@@ -679,6 +687,36 @@ test "Escape ends the briefing, and the right button the last word" {
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, true, 3));
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 4));
     try std.testing.expectEqual(Step.over, passAt(&briefing, &keyboard, true, 5).?);
+}
+
+test "O asks for a screenshot in the briefing, before Escape ends it" {
+    var tested: rooms.testing.Tested = undefined;
+    try testFiles(&tested, &.{ "rel_c2bre.bik", "new_m02.bik" });
+    defer tested.deinit();
+    var keyboard: input.Keyboard = .{};
+    var briefing: Briefing = .open(tested.context(), 2, false);
+    defer briefing.close();
+    const o = @intFromEnum(screenshot_key);
+    // Not at the door.
+    keyboard.down[o] = true;
+    _ = passAt(&briefing, &keyboard, false, 0);
+    try std.testing.expect(!briefing.screenshot);
+    keyboard.down[o] = false;
+    keyboard.read();
+    _ = passAt(&briefing, &keyboard, false, 1);
+    try std.testing.expectEqual(Stage.briefing, briefing.stage);
+    // Once a press in the briefing, and in the pass Escape ends it.
+    keyboard.down[o] = true;
+    keyboard.down[input.scan.escape] = true;
+    try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 2));
+    try std.testing.expect(briefing.screenshot);
+    try std.testing.expectEqual(Stage.tag, briefing.stage);
+    // Not in the last word.
+    keyboard.down[o] = false;
+    keyboard.read();
+    keyboard.down[o] = true;
+    _ = passAt(&briefing, &keyboard, false, 3);
+    try std.testing.expect(!briefing.screenshot);
 }
 
 test "the press that skipped the way in, still held, ends no stage" {

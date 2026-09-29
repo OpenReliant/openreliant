@@ -10,6 +10,9 @@ const engine = openreliant.engine;
 const srapi = engine.surrender.surrenderlib.srapi;
 const srcore = engine.surrender.surrenderlib.srcore;
 const srd3d = engine.surrender.srd3d;
+const screenshot = engine.game.xtrabits.screenshot;
+
+const log = std.log.scoped(.screenshot);
 
 /// What the driver draws with: the GPU, or the software device, OpenReliant's reference, whose
 /// frames the window shows.
@@ -21,6 +24,25 @@ pub const Screen = union(enum) {
         return switch (screen.*) {
             inline else => |*device| device.interface(),
         };
+    }
+
+    /// The last frame drawn: what a screenshot saves, as the game grabs the screen (`sr + 0x7C`).
+    /// The caller owns the pixels.
+    pub fn capture(screen: *Screen, gpa: Allocator) !screenshot.Picture {
+        return switch (screen.*) {
+            .gpu => |*device| {
+                const frame = try device.capture(gpa);
+                return .{ .rgba = frame.rgba, .size = frame.size };
+            },
+            .software => |*device| .{ .rgba = try device.rgba(gpa), .size = .{ device.width, device.height } },
+        };
+    }
+
+    /// Saves the last frame drawn as the next of `screenshots` (`screenshot_save`), which says
+    /// where once it is written. A failure is logged, and the game goes on.
+    pub fn saveScreenshot(screen: *Screen, gpa: Allocator, screenshots: *screenshot.Screenshots) void {
+        const picture = screen.capture(gpa) catch |err| return log.err("the screen can't be read: {s}", .{@errorName(err)});
+        screenshots.save(gpa, picture) catch |err| log.err("the screenshot can't be saved: {s}", .{@errorName(err)});
     }
 };
 

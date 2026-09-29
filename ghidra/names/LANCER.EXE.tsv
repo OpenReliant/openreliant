@@ -2123,3 +2123,5 @@ address	kind	name	type	comment
 004e5c40	data	briefing_reliant_segment_starts	short[12]	The first shape past shape 2 of each segment of Enriquez's animation in the Reliant's briefing room
 004e5c28	data	briefing_yamato_segment_lasts	short[12]	The last frame of each segment of Enriquez's animation in the Yamato's briefing room
 004e5c10	data	briefing_yamato_segment_starts	short[12]	The first shape past shape 2 of each segment of Enriquez's animation in the Yamato's briefing room
+0050a940	data	screenshot_name_format	char[19]	The name screenshot_save gives a screenshot, by screenshot_count: screenshot%04d.tga
+004ca620	function	tga_write	int __fastcall (char *name, byte *pixels, byte *palette, int width, int height, int bytes_per_pixel, int rle)	Writes a picture as a Targa file: colour-mapped with a palette of 256 RGB triples, grey without one at a byte a pixel, true colour otherwise, run-length encoded with rle, from the top row down. -1 where the file cannot be made

@@ -51,6 +51,7 @@ Guides for installing, configuring and playing OpenReliant:
 | [`engine/briefing.md`](engine/briefing.md) | The briefing: the door, the way into the briefing room, Enriquez with the mission's movie, his last word, and the campaign's end. |
 | [`engine/movies.md`](engine/movies.md) | Movies: how the game plays them, the discs' archives, the intro, the transitions, the hangar's, the landing and the chapters' ends, and the stand-in for Bink. |
 | [`engine/controls.md`](engine/controls.md) | Player input: devices, bindings, settings, steering and throttle. |
+| [`engine/screenshots.md`](engine/screenshots.md) | Screenshots: the keys that save the screen, and where the pictures go. |
 | [`engine/hud.md`](engine/hud.md) | The head-up display: how it is reached, where an element stands, its text and its art. |
 | [`engine/radio.md`](engine/radio.md) | The radio: the lines the pilots say, their queue, the window with the speaker's face, and the speech. |
 | [`engine/orders.md`](engine/orders.md) | Orders: the table of what objects can be told to do, each object's stack, and how orders run. |

@@ -1068,9 +1068,12 @@ pub const Gpu = struct {
         return made;
     }
 
-    /// The last frame drawn, as rows of red, green, blue and alpha from the top: what a screenshot
-    /// saves.
-    pub fn capture(gpu: *Gpu, gpa: Allocator) Error![]u8 {
+    /// A frame read back: rows of red, green, blue and alpha from the top, `size` pixels across
+    /// and down.
+    pub const Capture = struct { rgba: []u8, size: [2]u32 };
+
+    /// The last frame drawn: what a screenshot saves.
+    pub fn capture(gpu: *Gpu, gpa: Allocator) Error!Capture {
         const targets = gpu.targets orelse {
             log.err("no frame drawn to capture", .{});
             return error.Sdl;
@@ -1108,7 +1111,7 @@ pub const Gpu = struct {
         const mapped: [*]const u8 = @ptrCast(c.SDL_MapGPUTransferBuffer(gpu.handle, transfer, false) orelse return fail("SDL_MapGPUTransferBuffer"));
         @memcpy(rgba, mapped[0..bytes]);
         c.SDL_UnmapGPUTransferBuffer(gpu.handle, transfer);
-        return rgba;
+        return .{ .rgba = rgba, .size = size };
     }
 };
 

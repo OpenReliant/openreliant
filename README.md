@@ -82,7 +82,7 @@ Or play a mission at once, such as the sandbox, mission 0, where you can fly any
 ./openreliant StarLancer --mission 0
 ```
 
-In flight, number keys **1-8** change camera views, **C** opens the radio menu, whose number keys call your wingmen and the base, and **Escape** opens the pause menu. In the sandbox, **F2** / **F3** restart it in another ship and **F4** brings in another enemy wing.
+In flight, number keys **1-8** change camera views, **C** opens the radio menu, whose number keys call your wingmen and the base, **0** saves a screenshot, and **Escape** opens the pause menu. In the sandbox, **F2** / **F3** restart it in another ship and **F4** brings in another enemy wing.
 
 For complete setup instructions, see the [Installation Guide](docs/guide/installation.md).
 

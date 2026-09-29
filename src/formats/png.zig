@@ -5,8 +5,9 @@
 //! is the original data, not a re-quantised copy of it. Textures, whose formats vary, are written
 //! as 8-bit RGBA.
 //!
-//! Pixel data is deflated as stored blocks: no compression, but the result is a valid zlib stream
-//! every reader accepts, and it keeps this file free of any dependency on a compressor.
+//! Pixel data is deflated with the standard library's compressor, at its default level. Each row of
+//! an RGBA picture is filtered first as the difference from the pixel to its left, which deflates
+//! far smaller; indices are left as they are, which a filter does not help.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -15,9 +16,6 @@ const Writer = std.Io.Writer;
 const spr = @import("spr.zig");
 
 pub const signature = "\x89PNG\r\n\x1a\n";
-
-/// Largest payload a single stored deflate block can carry.
-const stored_block_max = 0xFFFF;
 
 /// 256 RGB triples, 8 bits a channel: the size of a sprite set's palette.
 pub const Palette = [spr.palette_size]u8;
@@ -66,7 +64,7 @@ pub fn writeIndexed(
         try writeChunk(out, "tRNS", alpha);
     }
 
-    try writePixels(gpa, out, options.width, options.height, 1, pixels);
+    try writePixels(gpa, out, options.width, options.height, 1, pixels, .none);
 }
 
 /// Writes an 8-bit RGBA PNG. `pixels` is `width * height` red, green, blue, alpha quadruples,
@@ -81,7 +79,7 @@ pub fn writeRgba(
     if (width == 0 or height == 0) return error.DimensionsInvalid;
     if (pixels.len != @as(usize, width) * height * 4) return error.PixelCountMismatch;
     try writeHeader(out, width, height, .rgba);
-    try writePixels(gpa, out, width, height, 4, pixels);
+    try writePixels(gpa, out, width, height, 4, pixels, .sub);
 }
 
 const ColourType = enum(u8) { indexed = 3, rgba = 6 };
@@ -100,7 +98,15 @@ fn writeHeader(out: *Writer, width: u32, height: u32, colour_type: ColourType) W
     try writeChunk(out, "IHDR", &header);
 }
 
-/// The `IDAT` and `IEND` chunks.
+/// How a scanline is filtered before it is deflated: PNG's filter types, those this writer uses.
+const Filter = enum(u8) {
+    none = 0,
+    /// Each byte less the same byte of the pixel to its left.
+    sub = 1,
+};
+
+/// The `IDAT` and `IEND` chunks: each scanline filtered by `filter`, behind its filter type, then
+/// deflated as a zlib stream.
 fn writePixels(
     gpa: Allocator,
     out: *Writer,
@@ -108,21 +114,36 @@ fn writePixels(
     height: u32,
     bytes_per_pixel: u3,
     pixels: []const u8,
+    filter: Filter,
 ) (Allocator.Error || Writer.Error)!void {
-    // Each scanline is prefixed with its filter type, which is always "none" here.
     const stride = @as(usize, width) * bytes_per_pixel;
     const raw = try gpa.alloc(u8, pixels.len + height);
     defer gpa.free(raw);
     for (0..height) |row| {
-        raw[row * (stride + 1)] = 0;
-        @memcpy(raw[row * (stride + 1) + 1 ..][0..stride], pixels[row * stride ..][0..stride]);
+        const line = pixels[row * stride ..][0..stride];
+        const filtered = raw[row * (stride + 1) ..][0 .. stride + 1];
+        filtered[0] = @intFromEnum(filter);
+        switch (filter) {
+            .none => @memcpy(filtered[1..], line),
+            .sub => for (filtered[1..], line, 0..) |*byte, value, at| {
+                byte.* = value -% if (at >= bytes_per_pixel) line[at - bytes_per_pixel] else 0;
+            },
+        }
     }
 
-    const deflated = try storedZlib(gpa, raw);
-    defer gpa.free(deflated);
-    try writeChunk(out, "IDAT", deflated);
+    var deflated: Writer.Allocating = try .initCapacity(gpa, raw.len / 2 + minimum_output);
+    defer deflated.deinit();
+    const window = try gpa.alloc(u8, std.compress.flate.max_window_len);
+    defer gpa.free(window);
+    var compress: std.compress.flate.Compress = try .init(&deflated.writer, window, .zlib, .default);
+    try compress.writer.writeAll(raw);
+    try compress.finish();
+    try writeChunk(out, "IDAT", deflated.written());
     try writeChunk(out, "IEND", &.{});
 }
+
+/// The least room the compressor asks of what it writes into.
+const minimum_output = 9;
 
 fn writeChunk(out: *Writer, name: *const [4]u8, data: []const u8) Writer.Error!void {
     var length: [4]u8 = undefined;
@@ -137,36 +158,6 @@ fn writeChunk(out: *Writer, name: *const [4]u8, data: []const u8) Writer.Error!v
     var checksum: [4]u8 = undefined;
     std.mem.writeInt(u32, &checksum, crc.final(), .big);
     try out.writeAll(&checksum);
-}
-
-/// Wraps `data` in a zlib stream made of stored deflate blocks.
-fn storedZlib(gpa: Allocator, data: []const u8) Allocator.Error![]u8 {
-    const block_count = @max(1, std.math.divCeil(usize, data.len, stored_block_max) catch unreachable);
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    try out.ensureTotalCapacity(gpa, 2 + block_count * 5 + data.len + 4);
-
-    // zlib header: deflate, 32 KiB window, default level, no preset dictionary.
-    out.appendSliceAssumeCapacity(&.{ 0x78, 0x01 });
-
-    var offset: usize = 0;
-    while (true) {
-        const len: u16 = @intCast(@min(data.len - offset, stored_block_max));
-        const final = offset + len == data.len;
-        out.appendAssumeCapacity(if (final) 1 else 0);
-        var sizes: [4]u8 = undefined;
-        std.mem.writeInt(u16, sizes[0..2], len, .little);
-        std.mem.writeInt(u16, sizes[2..4], ~len, .little);
-        out.appendSliceAssumeCapacity(&sizes);
-        out.appendSliceAssumeCapacity(data[offset..][0..len]);
-        offset += len;
-        if (final) break;
-    }
-
-    var adler: [4]u8 = undefined;
-    std.mem.writeInt(u32, &adler, std.hash.Adler32.hash(data), .big);
-    out.appendSliceAssumeCapacity(&adler);
-    return out.toOwnedSlice(gpa);
 }
 
 test "writes a readable indexed PNG" {
@@ -203,13 +194,53 @@ test "writes an RGBA PNG" {
     const png = buffer.written();
     try std.testing.expectEqualStrings("IHDR", png[12..16]);
     try std.testing.expectEqual(6, png[16 + 9]); // colour type
-    // IDAT holds the one scanline, its filter byte, then the pixels, in a single stored block.
-    const idat = 8 + 12 + 13;
-    try std.testing.expectEqualStrings("IDAT", png[idat + 4 ..][0..4]);
-    try std.testing.expectEqualSlices(u8, &(.{0} ++ pixels), png[idat + 8 + 7 ..][0..9]);
+    // IDAT holds the one scanline, deflated: its filter type, Sub, the first pixel as it is, and
+    // the second less the first.
+    const scanlines = try inflated(gpa, png);
+    defer gpa.free(scanlines);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 1, 2, 3, 4, 4, 4, 4, 4 }, scanlines);
 
     try std.testing.expectError(error.PixelCountMismatch, writeRgba(gpa, &buffer.writer, 2, 2, &pixels));
     try std.testing.expectError(error.DimensionsInvalid, writeRgba(gpa, &buffer.writer, 0, 1, &.{}));
+}
+
+/// The scanlines a PNG's `IDAT` chunk holds, inflated.
+fn inflated(gpa: Allocator, png: []const u8) ![]u8 {
+    var at: usize = signature.len;
+    while (!std.mem.eql(u8, png[at + 4 ..][0..4], "IDAT")) at += 12 + std.mem.readInt(u32, png[at..][0..4], .big);
+    const length = std.mem.readInt(u32, png[at..][0..4], .big);
+    var input: std.Io.Reader = .fixed(png[at + 8 ..][0..length]);
+    var decompress: std.compress.flate.Decompress = .init(&input, .zlib, &.{});
+    return decompress.reader.allocRemaining(gpa, .unlimited);
+}
+
+test "a large picture deflates smaller and comes back whole" {
+    const gpa = std.testing.allocator;
+    var buffer: std.Io.Writer.Allocating = .init(gpa);
+    defer buffer.deinit();
+    // A gradient, which the filter turns into runs.
+    const width = 300;
+    const height = 200;
+    var pixels: [width * height * 4]u8 = undefined;
+    for (0..height) |y| for (0..width) |x| {
+        const at = (y * width + x) * 4;
+        pixels[at..][0..4].* = .{ @truncate(x), @truncate(y), @truncate(x + y), 0xFF };
+    };
+    try writeRgba(gpa, &buffer.writer, width, height, &pixels);
+    try std.testing.expect(buffer.written().len < pixels.len / 4);
+
+    const scanlines = try inflated(gpa, buffer.written());
+    defer gpa.free(scanlines);
+    const stride = width * 4;
+    try std.testing.expectEqual(height * (stride + 1), scanlines.len);
+    for (0..height) |y| {
+        const line = scanlines[y * (stride + 1) ..][0 .. stride + 1];
+        try std.testing.expectEqual(@intFromEnum(Filter.sub), line[0]);
+        // Undone, the filter gives the row back.
+        var row: [stride]u8 = undefined;
+        for (&row, line[1..], 0..) |*byte, filtered, at| byte.* = filtered +% if (at >= 4) row[at - 4] else 0;
+        try std.testing.expectEqualSlices(u8, pixels[y * stride ..][0..stride], &row);
+    }
 }
 
 test "rejects mismatched input" {

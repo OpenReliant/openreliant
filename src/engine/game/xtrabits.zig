@@ -7,8 +7,9 @@
 //!
 //! The loading screens the game shows as it starts and before each attempt at a mission are in
 //! [`xtrabits/loading.zig`](xtrabits/loading.zig), the movies it plays in a loop of their own in
-//! [`xtrabits/movie.zig`](xtrabits/movie.zig), and what it plays as the pilot comes back from a
-//! mission in [`xtrabits/landing.zig`](xtrabits/landing.zig).
+//! [`xtrabits/movie.zig`](xtrabits/movie.zig), what it plays as the pilot comes back from a
+//! mission in [`xtrabits/landing.zig`](xtrabits/landing.zig), and the screenshots its keys save in
+//! [`xtrabits/screenshot.zig`](xtrabits/screenshot.zig).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -25,6 +26,7 @@ const objects = @import("objects.zig");
 pub const landing = @import("xtrabits/landing.zig");
 pub const loading = @import("xtrabits/loading.zig");
 pub const movie = @import("xtrabits/movie.zig");
+pub const screenshot = @import("xtrabits/screenshot.zig");
 
 /// A scene object of any kind `scene_add` takes.
 pub const Object = union(enum) {
@@ -238,4 +240,5 @@ test {
     _ = landing;
     _ = loading;
     _ = movie;
+    _ = screenshot;
 }

@@ -104,6 +104,7 @@ The flight keys are the game's own, as `starlancer.ini` binds them. OpenReliant 
 | Alt+Enter | Switch between windowed and fullscreen mode |
 | Escape | Open the pause menu, whose LEAVE MISSION quits and RESTART restarts |
 | 1 to 8 | Camera views: 1 cockpit, 2 left, 3 right, 4 rear, 5 flyby, 6 target, 7 external, 8 missile |
+| 0 | Save a screenshot, a PNG in the `screenshots` folder of the game directory; O does the same in the briefing |
 
 In the target view (6) and external view (7), arrow keys orbit around the object and Shift with Up or Down zooms.
 

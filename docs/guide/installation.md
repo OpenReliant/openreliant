@@ -85,6 +85,7 @@ While flying:
 - A mission started with `--mission` starts flying at once. Its LEAVE MISSION quits, and when the mission ends the pause menu opens, where RESTART or CONTINUE flies it again.
 - Keys 1 to 8 switch camera views: 1 cockpit, 2 left, 3 right, 4 rear, 5 flyby, 6 target, 7 external, and 8 missile.
 - Press C for the radio menu, whose number keys call your wingmen and the base; F5 to F8 give orders to your wingmen and request landing.
+- Press 0 to save a screenshot, a PNG in the `screenshots` folder of the game directory. In the briefing, O does the same.
 - In the sandbox, press F2 or F3 to start it again in the previous or next ship, and F4 to bring in another enemy wing.
 
 ## Building from source
