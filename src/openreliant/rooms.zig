@@ -39,8 +39,8 @@ pub const Driver = struct {
     resources: *const game.bigfile.Hog,
     front: *engine.genilib.interf.Resources,
     strings: *const game.language.Language,
-    /// What becomes of the loudest peaks of Enriquez's scenes.
-    peaks: game.cbox.Style.Peaks,
+    /// How Enriquez's scenes and words sound: the radio's style.
+    speech: game.cbox.Style,
     /// `speech_hog`, which holds Enriquez's words in the briefing; null where the game's folder
     /// has none.
     lines: ?*const openreliant.hog.Archive,
@@ -92,7 +92,7 @@ pub const Driver = struct {
             .disc = movies.disc,
             .resources = driver.resources,
             .sound = driver.sound,
-            .peaks = driver.peaks,
+            .speech = driver.speech,
             .lines = driver.lines,
         };
     }

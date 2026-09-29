@@ -11,7 +11,8 @@
 //! the device has; a listener that moves, a stronger Doppler shift, sounds with a size, high
 //! frequencies fading with distance, a subwoofer; a reverb on the 3D sounds, of the generic room
 //! the game asks EAX for with its effect volume at nothing, or of a hangar while a launch shows one
-//! from within, and one of a cabin on the cockpit's own voice.
+//! from within, and on the sounds of a carrier's rooms and its briefing room, of a room of the
+//! ship; and one of a cabin on the cockpit's own voice.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -216,11 +217,39 @@ const Reverb = struct {
         .decay_hf_limit = true,
     };
 
+    /// `EFX_REVERB_PRESET_SPACESTATION_CUPBOARD`: the smallest room of a space station's, metal
+    /// and ringing for under a second, for a carrier's inside; its gain 5 dB under the preset's,
+    /// 0.3162, so that it rings subtly under the voices.
+    const inside: Reverb = .{
+        .density = 0.1715,
+        .diffusion = 0.56,
+        .gain = 0.1778,
+        .gain_hf = 0.7079,
+        .gain_lf = 0.8913,
+        .decay_time = 0.79,
+        .decay_hf_ratio = 0.81,
+        .decay_lf_ratio = 0.55,
+        .reflections_gain = 1.4125,
+        .reflections_delay = 0.007,
+        .late_reverb_gain = 1.7783,
+        .late_reverb_delay = 0.018,
+        .echo_time = 0.181,
+        .echo_depth = 0.31,
+        .modulation_time = 0.25,
+        .modulation_depth = 0,
+        .air_absorption_gain_hf = 0.9943,
+        .hf_reference = 3316.1001,
+        .lf_reference = 458.2,
+        .room_rolloff_factor = 0,
+        .decay_hf_limit = true,
+    };
+
     /// The room for what surrounds the camera.
     fn of(surroundings: mss.Surroundings) Reverb {
         return switch (surroundings) {
             .space => generic,
             .hangar => hangar,
+            .inside => inside,
         };
     }
 
@@ -479,7 +508,8 @@ pub const Renderer = struct {
     }
 
     /// **Improvement:** the room the 3D sounds, and the samples of the scene, ring in follows what
-    /// surrounds the camera: a hangar's while a launch shows one from within.
+    /// surrounds the camera: a hangar's while a launch shows one from within, and a small room of
+    /// the ship's in a carrier's rooms and its briefing room.
     pub fn setSurroundings(renderer: *Renderer, surroundings: mss.Surroundings) void {
         if (surroundings == renderer.surroundings) return;
         renderer.surroundings = surroundings;
@@ -490,12 +520,16 @@ pub const Renderer = struct {
     }
 
     fn sendToRoom(renderer: *Renderer, voice: *Voice) void {
-        const effect = switch (voice.room) {
+        c.alSource3i(voice.source, c.AL_AUXILIARY_SEND_FILTER, Effect.slotOf(renderer.effectOf(voice.room)), 0, c.AL_FILTER_NULL);
+    }
+
+    /// The reverb a sound heard in `room` sends to, where there is one.
+    fn effectOf(renderer: *Renderer, room: mss.Room) ?Effect {
+        return switch (room) {
             .none => null,
             .cockpit => renderer.cabin,
             .scene => renderer.room,
         };
-        c.alSource3i(voice.source, c.AL_AUXILIARY_SEND_FILTER, Effect.slotOf(effect), 0, c.AL_FILTER_NULL);
     }
 
     pub fn setSampleVolume(renderer: *Renderer, handle: mss.Sample, volume: i32) void {
@@ -768,6 +802,11 @@ pub const Renderer = struct {
         c.alSourcef(renderer.stream(handle).source, c.AL_GAIN, mss.gain(mss.clampLevel(volume)));
     }
 
+    /// **Improvement:** a stream heard in `room`, as a movie's sound on a screen of the scene is.
+    pub fn setStreamRoom(renderer: *Renderer, handle: mss.Stream, room: mss.Room) void {
+        c.alSource3i(renderer.stream(handle).source, c.AL_AUXILIARY_SEND_FILTER, Effect.slotOf(renderer.effectOf(room)), 0, c.AL_FILTER_NULL);
+    }
+
     pub fn setStreamLoopCount(renderer: *Renderer, handle: mss.Stream, count: u32) void {
         const held = &(renderer.stream(handle).open orelse return);
         held.loops = count;
@@ -1038,52 +1077,83 @@ const tone_burst = file: {
     break :file openreliant.wave.testing.pcm(&std.mem.toBytes(tone));
 };
 
+/// How long after a tone burst a test listens for its ring: over the rest of the first block, or
+/// from about a second on.
+const Listen = enum { soon, a_second_on };
+
+/// What the tone burst just started leaves ringing, summed over the output as `listen` has it; the
+/// room then let fall quiet for the next.
+fn ringing(renderer: *Renderer, listen: Listen) f32 {
+    var out: [2 * 4096]f32 = undefined;
+    var sum: f32 = 0;
+    switch (listen) {
+        .soon => {
+            renderer.render(&out);
+            for (out[2 * 1500 ..]) |value| sum += @abs(value);
+        },
+        .a_second_on => for (0..8) |block| {
+            renderer.render(&out);
+            if (block >= 5) for (out) |value| {
+                sum += @abs(value);
+            };
+        },
+    }
+    for (0..24) |_| renderer.render(&out);
+    return sum;
+}
+
+/// The tone burst started on a sample of `driver`, heard in `room`.
+fn startBurst(driver: mss.Driver, room: mss.Room) !void {
+    const sample = driver.allocateSample().?;
+    try std.testing.expect(driver.setSampleFile(sample, tone_burst));
+    driver.setSampleRoom(sample, room);
+    driver.startSample(sample);
+}
+
 test "the cockpit's cabin" {
     // A short sound in the cockpit rings on in the cabin after it ends; one nowhere in particular
     // doesn't.
     const renderer = Renderer.create(std.testing.allocator, 22050, 2, .{}, false) catch return error.SkipZigTest;
     defer renderer.destroy();
-    const driver = renderer.driver();
     var tails: [2]f32 = undefined;
     for ([_]mss.Room{ .none, .cockpit }, &tails) |room, *tail| {
-        const sample = driver.allocateSample().?;
-        try std.testing.expect(driver.setSampleFile(sample, tone_burst));
-        driver.setSampleRoom(sample, room);
-        driver.startSample(sample);
-        var out: [2 * 4096]f32 = undefined;
-        renderer.render(&out);
-        tail.* = 0;
-        for (out[2 * 1500 ..]) |value| tail.* += @abs(value);
-        // Let the room fall quiet before the next.
-        for (0..8) |_| renderer.render(&out);
+        try startBurst(renderer.driver(), room);
+        tail.* = ringing(renderer, .soon);
     }
     try std.testing.expect(tails[1] > 10 * tails[0] + 1e-3);
 }
 
-test "a hangar rings on longer than space" {
-    // A short sound of the scene still rings a second on in a hangar, where space's room has all
-    // but died away.
+test "a hangar rings on longer than space and the ship's inside" {
+    // A short sound of the scene still rings a second on in a hangar, where space's room and the
+    // ship's small rooms have all but died away.
     const renderer = Renderer.create(std.testing.allocator, 22050, 2, .{}, false) catch return error.SkipZigTest;
     defer renderer.destroy();
     const driver = renderer.driver();
-    var tails: [2]f32 = undefined;
-    for ([_]mss.Surroundings{ .space, .hangar }, &tails) |surroundings, *tail| {
+    var tails: [3]f32 = undefined;
+    for ([_]mss.Surroundings{ .space, .inside, .hangar }, &tails) |surroundings, *tail| {
         driver.setSurroundings(surroundings);
-        const sample = driver.allocateSample().?;
-        try std.testing.expect(driver.setSampleFile(sample, tone_burst));
-        driver.setSampleRoom(sample, .scene);
-        driver.startSample(sample);
-        var out: [2 * 4096]f32 = undefined;
-        tail.* = 0;
-        for (0..8) |block| {
-            renderer.render(&out);
-            if (block >= 5) for (out) |value| {
-                tail.* += @abs(value);
-            };
-        }
-        // Let the room fall quiet before the next.
-        for (0..24) |_| renderer.render(&out);
+        try startBurst(driver, .scene);
+        tail.* = ringing(renderer, .a_second_on);
     }
     try std.testing.expectEqual(.hangar, renderer.surroundings);
-    try std.testing.expect(tails[1] > 4 * tails[0] + 1e-3);
+    try std.testing.expect(tails[2] > 4 * tails[0] + 1e-3);
+    try std.testing.expect(tails[2] > 4 * tails[1] + 1e-3);
+}
+
+test "a stream heard in the scene rings on in its room" {
+    // A short stream rings on after it ends where it is heard in the scene; one heard nowhere in
+    // particular doesn't.
+    const renderer = Renderer.create(std.testing.allocator, 22050, 2, .{}, false) catch return error.SkipZigTest;
+    defer renderer.destroy();
+    const driver = renderer.driver();
+    driver.setSurroundings(.inside);
+    var tails: [2]f32 = undefined;
+    for ([_]mss.Room{ .none, .scene }, &tails) |room, *tail| {
+        const stream = driver.openStream(tone_burst).?;
+        defer driver.closeStream(stream);
+        driver.setStreamRoom(stream, room);
+        driver.startStream(stream);
+        tail.* = ringing(renderer, .soon);
+    }
+    try std.testing.expect(tails[1] > 10 * tails[0] + 1e-3);
 }

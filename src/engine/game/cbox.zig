@@ -16,6 +16,7 @@ const scramble = @import("../../formats/scramble.zig");
 const wave = @import("../../formats/wave.zig");
 const math = @import("../surrender/math.zig");
 const mss = @import("../mss.zig");
+const loudness = mss.loudness;
 const hog_snd = @import("hog_snd.zig");
 const voice = @import("voice.zig");
 
@@ -99,6 +100,7 @@ pub fn unscramble(bytes: []u8) void {
 pub const Style = struct {
     peaks: Peaks = .rounded,
     room: Room = .cabin,
+    levels: Levels = .matched,
 
     /// What becomes of the loudest peaks, which the recordings push past full scale in a few
     /// samples of every thousand.
@@ -113,12 +115,34 @@ pub const Style = struct {
     pub const Room = enum {
         /// **Improvement:** in the cockpit's cabin, as Betty's warnings are (`mss.Room.cockpit`).
         cabin,
+        /// **Improvement:** in what surrounds the listener, as the scene's sounds are
+        /// (`mss.Room.scene`): Enriquez's in person, in the briefing room.
+        scene,
         /// Dry, as the game plays them.
         dry,
     };
 
-    pub const original: Style = .{ .peaks = .cut, .room = .dry };
+    /// How loud a line plays beside the recording it follows (`Player.start`).
+    pub const Levels = enum {
+        /// **Improvement:** brought down to that recording's loudness where it is louder
+        /// (`bringDown`), as Enriquez's last word is to the briefing's narration, whose
+        /// recordings are mastered quieter.
+        matched,
+        /// As the recordings have them.
+        recorded,
+    };
+
+    pub const original: Style = .{ .peaks = .cut, .room = .dry, .levels = .recorded };
 };
+
+/// **Improvement:** `samples`, at the speech's `rate`, brought down to the loudness `target`, in
+/// LUFS, where they are louder, as ITU-R BS.1770 measures both (`mss.loudness`).
+pub fn bringDown(gpa: Allocator, samples: []i16, target: f32) Allocator.Error!void {
+    const measured = try loudness.integrated(gpa, samples, 1, rate) orelse return;
+    if (measured <= target) return;
+    const gain = std.math.pow(f32, 10, (target - measured) / 20);
+    for (samples) |*value| value.* = @intFromFloat(@round(@as(f32, @floatFromInt(value.*)) * gain));
+}
 
 /// Where the rounding of the peaks begins, as a share of full scale (`Style.Peaks.rounded`).
 pub const knee: f32 = 0.8;
@@ -178,17 +202,19 @@ pub const Player = struct {
 
     /// `speech_start`: `speech` played through `sound`'s speech sample, the line playing ended:
     /// once, in the middle, at `rate`, as loud as the speech volume, the master volume and
-    /// `volume`, 0 to 127, make it (`hog_snd.Sound.speechVolume`), sounding as `style` has it.
+    /// `volume`, 0 to 127, make it (`hog_snd.Sound.speechVolume`), sounding as `style` has it; where
+    /// it follows a recording `follows` LUFS loud, matched to it as the style's levels have it.
     /// Whether it plays.
     ///
     /// Not ported: a line that loops (bit 0 of the game's flags), which nothing the game ships
     /// asks for.
-    pub fn start(player: *Player, gpa: Allocator, sound: *hog_snd.Sound, speech: Speech, volume: i32, style: Style) bool {
+    pub fn start(player: *Player, gpa: Allocator, sound: *hog_snd.Sound, speech: Speech, volume: i32, style: Style, follows: ?f32) bool {
         const driver = sound.driver orelse return false;
         const handle = sound.speech orelse return false;
         player.stop(gpa, sound);
         const samples = decode(gpa, speech, style.peaks) catch return false;
         defer gpa.free(samples);
+        if (style.levels == .matched) if (follows) |target| bringDown(gpa, samples, target) catch return false;
         player.file = wave.pcm16(gpa, rate, 1, samples) catch return false;
         driver.initSample(handle);
         if (!driver.setSampleFile(handle, player.file)) {
@@ -197,6 +223,7 @@ pub const Player = struct {
         }
         driver.setSampleRoom(handle, switch (style.room) {
             .cabin => .cockpit,
+            .scene => .scene,
             .dry => .none,
         });
         driver.setSampleLoopCount(handle, hog_snd.once);
@@ -311,6 +338,23 @@ test decode {
     for (samples) |value| try std.testing.expectEqual(0, value);
 }
 
+test bringDown {
+    const gpa = std.testing.allocator;
+    // A loud tone brought down to the loudness it follows, 12 dB quieter; then left as it is
+    // beside a louder one.
+    var samples: [rate]i16 = undefined;
+    for (&samples, 0..) |*value, n| {
+        const t = @as(f32, @floatFromInt(n)) / rate;
+        value.* = @intFromFloat(@round(16000 * @sin(2 * std.math.pi * 997 * t)));
+    }
+    const before = (try loudness.integrated(gpa, &samples, 1, rate)).?;
+    try bringDown(gpa, &samples, before - 12);
+    try std.testing.expectApproxEqAbs(before - 12, (try loudness.integrated(gpa, &samples, 1, rate)).?, 0.1);
+    const quieter = samples;
+    try bringDown(gpa, &samples, before);
+    try std.testing.expectEqualSlices(i16, &quieter, &samples);
+}
+
 test Player {
     const gpa = std.testing.allocator;
     var mixer: mss.Mixer = .init(22050);
@@ -323,7 +367,7 @@ test Player {
     defer gpa.free(file);
     const speech = Speech.parse(file).?;
     try std.testing.expect(!player.playing(&sound));
-    try std.testing.expect(player.start(gpa, &sound, speech, hog_snd.loudest, .{}));
+    try std.testing.expect(player.start(gpa, &sound, speech, hog_snd.loudest, .{}, null));
     try std.testing.expect(player.playing(&sound));
     try std.testing.expect(player.file.len > 0);
     player.stop(gpa, &sound);

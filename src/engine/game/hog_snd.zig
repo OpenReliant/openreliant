@@ -519,6 +519,14 @@ pub const Sound = struct {
         if (v < sound.voice_count) driver.setSampleRoom(sound.voices[v].sample, .scene);
     }
 
+    /// `play`, the sound then ringing in what surrounds the camera (`inScene`): the voice it plays
+    /// on, or null.
+    pub fn playInScene(sound: *Sound, bank: fat.Bank, index: usize, volume: i32, loops: u32, pan: i32, pitch: i32) ?u8 {
+        const v = sound.play(bank, index, volume, loops, pan, pitch) orelse return null;
+        sound.inScene(v);
+        return v;
+    }
+
     /// Not the game's: what surrounds the camera, whose reverb the 3D sounds and the samples of the
     /// scene ring in, told to the driver as it changes.
     pub fn surround(sound: *Sound, surroundings: mss.Surroundings) void {
@@ -1010,6 +1018,16 @@ pub const testing = struct {
 
     pub const sound_file = wave.testing.pcm(&std.mem.toBytes([4]i16{ 16384, 16384, 16384, 16384 }));
 };
+
+test "Sound.playInScene plays as play does" {
+    var mixer: mss.Mixer = .init(22050);
+    var sound: Sound = undefined;
+    sound.init(mixer.driver(), 2, null);
+    const bytes = comptime testing.bank(1);
+    const bank = try fat.Bank.parse(&bytes);
+    try std.testing.expectEqual(1, sound.playInScene(bank, 0, loudest, once, centre, own_pitch));
+    try std.testing.expect(sound.voicePlaying(1));
+}
 
 test BankFile {
     const gpa = std.testing.allocator;

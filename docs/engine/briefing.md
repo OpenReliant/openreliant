@@ -19,6 +19,11 @@ Not ported:
 - Past the table of the missions' movies, the game reads what lies beside it on the stack for the movie's name. OpenReliant plays none there, and the briefing ends at once.
 - The pointer's right button ends a stage only once it has come up since the stage began. The game ends one while the button is down, so that the press that skipped the way in, still held, ends the briefing at once, and the last word after it.
 
+**Improvements:**
+
+- The briefing's sounds, the wait's, the door, the room's chatter, the mission's movie and Enriquez's words, ring subtly in a small room of the ship, as the rooms' do ([Sound](../port/sound.md#openal-soft)); the game plays them dry. `--no-reverb` and `--original` leave the room out.
+- Enriquez's last word is brought down to the loudness of the mission's movie he has just narrated, as ITU-R BS.1770 measures both, where the game plays it as recorded: the recordings of his last words are mastered louder than the movies', in every shipped mission, which makes them jump out. `--original` plays them as recorded.
+
 ## The briefing room
 
 The Reliant's briefing room serves up to mission 18, and the Yamato's after it:

@@ -279,6 +279,9 @@ pub const Briefing = struct {
     /// The mission's movie on the room's screen, and whether it plays on (`0x0052027C`).
     film: rooms.Film = .{},
     playing: bool = false,
+    /// The loudness of the movie's sound, Enriquez's narration, in LUFS, which his last word is
+    /// matched to (`cbox.Style.Levels`); null for none.
+    narration: ?f32 = null,
     /// The speech file of Enriquez's words (`0x0051D9F0`), whether the last word has been said
     /// (`0x0051DA14`), and the speech they play through.
     line: []u8 = &.{},
@@ -293,7 +296,11 @@ pub const Briefing = struct {
 
     /// The briefing before mission `mission`, its door to be shown for a frame (`0x00437010` to
     /// `0x0043716F`); from the loadout where `from_loadout` has it.
+    ///
+    /// **Improvement:** its sounds, the movie's and Enriquez's words among them, ring subtly in a
+    /// small room of the ship (`mss.Surroundings.inside`). The game plays them dry.
     pub fn open(context: rooms.Context, mission: u16, from_loadout: bool) Briefing {
+        context.sound.surround(.inside);
         const room = Room.of(.of(mission));
         var briefing: Briefing = .{ .context = context, .mission = mission, .room = room, .from_loadout = from_loadout };
         briefing.door.set(context.gpa, context.resources.*, room.door) catch |err|
@@ -356,7 +363,7 @@ pub const Briefing = struct {
         const context = briefing.context;
         const sound = context.sound;
         briefing.wait = .read(context.gpa, context.resources, wait_bank);
-        if (briefing.wait) |wait| _ = sound.play(wait.bank, 0, wait_volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+        if (briefing.wait) |wait| _ = sound.playInScene(wait.bank, 0, wait_volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         briefing.shapes = readShapes(context, briefing.room.shapes);
         briefing.speech.stop(context.gpa, sound);
         sound.fadeMusic(music_fade_step, ticks);
@@ -376,8 +383,8 @@ pub const Briefing = struct {
         const way = briefing.room.way;
         if (briefing.sounds) |sounds| {
             const sound = briefing.context.sound;
-            _ = sound.play(sounds.bank, door_sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, way.door_pitch);
-            _ = sound.play(sounds.bank, chatter_sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+            _ = sound.playInScene(sounds.bank, door_sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, way.door_pitch);
+            _ = sound.playInScene(sounds.bank, chatter_sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         }
         briefing.stage = .walked_in;
         return .{ .movie = way.movie };
@@ -405,7 +412,10 @@ pub const Briefing = struct {
             return;
         };
         briefing.film.open(briefing.context, name, .briefing);
-        briefing.playing = briefing.film.player != null;
+        const player = &(briefing.film.player orelse return);
+        briefing.playing = true;
+        player.bink.setRoom(.scene);
+        briefing.narration = player.bink.loudness() catch null;
     }
 
     /// A pass of the briefing's loop (`0x004374F0` on), `in` read: Escape, the right button, or
@@ -478,10 +488,11 @@ pub const Briefing = struct {
         briefing.line = videoreports.readLine(briefing.context.gpa, lines.*, name) orelse &.{};
     }
 
-    /// The words read, `name`, spoken (`speech_play`).
+    /// The words read, `name`, spoken (`speech_play`): the last word at the loudness of the
+    /// narration before it, where the style's levels match them.
     fn sayWords(briefing: *Briefing, name: []const u8) void {
         if (briefing.line.len == 0) return;
-        rooms.say(briefing.context, &briefing.speech, briefing.line, videoreports.lineName(name));
+        rooms.say(briefing.context, &briefing.speech, briefing.line, videoreports.lineName(name), .in_person, briefing.narration);
     }
 
     /// `briefing_draw`'s moves (`0x0043E730`), at `now` and the timer's count `ticks`: the shape
@@ -619,6 +630,7 @@ test Briefing {
     var briefing: Briefing = .open(context, 1, false);
     defer briefing.close();
     try std.testing.expectEqual(Stage.door, briefing.stage);
+    try std.testing.expectEqual(.inside, tested.sound.surroundings);
     try std.testing.expectEqualDeep(Step{ .movie = "rel_c2bre.bik" }, passAt(&briefing, &keyboard, false, 0).?);
     try std.testing.expect(tested.sound.paused[1]);
     try std.testing.expect(tested.sound.voicePlaying(2) and tested.sound.voicePlaying(3));

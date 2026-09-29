@@ -27,6 +27,7 @@ Not ported:
 - OpenReliant's version is written in the window's corner of the in-game options, as on the front end's screens. The rooms, the news report and the induction don't show it.
 - The in-game options' ABOUT STARLANCER is ABOUT OPENRELIANT ([The in-game options](#the-in-game-options)).
 - The loudest peaks of Enriquez's scenes are rounded off, as the radio's lines' are ([Radio](radio.md)). `--original` cuts them flat.
+- The rooms' sounds, the hum, the steps and the doors, ring subtly in a small room of the ship, and Enriquez's scenes on the television and the monitors as the radio's voices do, in the cockpit's cabin, as over a speaker ([Sound](../port/sound.md#openal-soft)); the game plays them dry. `--no-reverb` and `--original` leave the rooms out.
 
 ## A campaign's start
 

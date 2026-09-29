@@ -1174,7 +1174,7 @@ pub const Radio = struct {
             log.warn("a line of the radio's is not a speech file", .{});
             return;
         };
-        _ = radio.player.start(radio.gpa, sound, parsed, hog_snd.loudest, radio.style);
+        _ = radio.player.start(radio.gpa, sound, parsed, hog_snd.loudest, radio.style, null);
     }
 };
 

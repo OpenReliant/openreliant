@@ -381,8 +381,7 @@ fn playOnHangar(all: *create.Objects, part: usize, track: []const u8, time: f32,
 fn playSample(world: gameobj.World, index: usize) void {
     const hearing = world.hearing orelse return;
     const bank = hearing.sound.stdsmp orelse return;
-    const v = hearing.sound.play(bank, index, sample_volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch) orelse return;
-    hearing.sound.inScene(v);
+    _ = hearing.sound.playInScene(bank, index, sample_volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
 }
 
 /// Switches the camera to one of the launch's views, `view`, of the object in slot `object`

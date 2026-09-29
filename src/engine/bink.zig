@@ -293,6 +293,21 @@ pub const Bink = struct {
         const level = @min(@as(u64, volume) * mss.max_level / full_volume, mss.max_level);
         sound.driver.setStreamVolume(sound.stream, @intCast(level));
     }
+
+    /// Not Bink's: its sound heard in `room`, as a movie's on a screen of the scene is.
+    pub fn setRoom(bink: Bink, room: mss.Room) void {
+        const sound = bink.sound orelse return;
+        sound.driver.setStreamRoom(sound.stream, room);
+    }
+
+    /// Not Bink's: its sound's integrated loudness, in LUFS (`mss.loudness`), measured as it is
+    /// asked for; null where it has no sound playing, or its sound is silence.
+    pub fn loudness(bink: Bink) Allocator.Error!?f32 {
+        const sound = bink.sound orelse return null;
+        const decoded = wave.Wave.parse(sound.file) catch return null;
+        const samples = std.mem.bytesAsSlice(i16, decoded.data);
+        return mss.loudness.integrated(bink.gpa, samples, decoded.channels, decoded.rate);
+    }
 };
 
 /// What the tests of Bink and of what plays it share.
@@ -416,6 +431,28 @@ test "a movie's sound plays as a stream" {
     try std.testing.expectEqual(mss.Status.playing, driver.streamStatus(sound.stream));
     bink.pause(true, 5);
     try std.testing.expectEqual(mss.Status.stopped, driver.streamStatus(sound.stream));
+    // All but silence, it has no loudness to be matched to.
+    try std.testing.expectEqual(null, try bink.loudness());
     bink.close();
     try std.testing.expectEqual(0, decoders.streams);
+}
+
+test "Bink.loudness" {
+    const gpa = std.testing.allocator;
+    var decoders: testing.Decoders = .{};
+    var mixer: mss.Mixer = .init(22050);
+    var buffer: [256]u8 = undefined;
+    // A sound that swings, and one the same but for its louder swing.
+    const quiet_bytes = container.testing.movie(&buffer, 2, &.{ 8, 0, 0, 0, 64, 0, 64, 0 });
+    var quiet: Bink = try .open(gpa, decoders.codec(), try gpa.dupe(u8, quiet_bytes), .{ .sound = mixer.driver() });
+    defer quiet.close();
+    const loud_bytes = container.testing.movie(&buffer, 2, &.{ 8, 0, 0, 0, 255, 0, 255, 0 });
+    var loud: Bink = try .open(gpa, decoders.codec(), try gpa.dupe(u8, loud_bytes), .{ .sound = mixer.driver() });
+    defer loud.close();
+    const soft = (try quiet.loudness()).?;
+    try std.testing.expectApproxEqAbs(soft + 20 * std.math.log10(@as(f32, 255.0 / 64.0)), (try loud.loudness()).?, 0.1);
+    // Without its sound, none.
+    var silent: Bink = try .open(gpa, decoders.codec(), try gpa.dupe(u8, loud_bytes), .{});
+    defer silent.close();
+    try std.testing.expectEqual(null, try silent.loudness());
 }

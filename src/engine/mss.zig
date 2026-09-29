@@ -22,6 +22,7 @@ const std = @import("std");
 pub const voice = @import("mss/voice.zig");
 pub const positional = @import("mss/positional.zig");
 pub const master = @import("mss/master.zig");
+pub const loudness = @import("mss/loudness.zig");
 
 pub const Status = voice.Status;
 pub const Vector = positional.Vector;
@@ -54,6 +55,9 @@ pub const Surroundings = enum {
     space,
     /// A carrier's hangar, as a launch shows it from within.
     hangar,
+    /// A carrier's inside, its rooms and its briefing room, which the pilot walks through between
+    /// missions.
+    inside,
 };
 
 /// What keeps the platform's mixing thread out while the game changes the driver.
@@ -174,6 +178,7 @@ pub const Driver = struct {
         setStreamLoopCount: *const fn (*anyopaque, Stream, u32) void,
         setStreamLoopBlock: *const fn (*anyopaque, Stream, i32, i32) void,
         setStreamPosition: *const fn (*anyopaque, Stream, i32) void,
+        setStreamRoom: *const fn (*anyopaque, Stream, Room) void,
     };
 
     /// The driver `implementation` is: a `T` with a method for each of `VTable`'s, taking a `*T`.
@@ -350,6 +355,9 @@ pub const Driver = struct {
     pub fn setStreamVolume(driver: Driver, handle: Stream, volume: i32) void {
         driver.vtable.setStreamVolume(driver.context, handle, volume);
     }
+    pub fn setStreamRoom(driver: Driver, handle: Stream, room: Room) void {
+        driver.vtable.setStreamRoom(driver.context, handle, room);
+    }
     pub fn setStreamLoopCount(driver: Driver, handle: Stream, count: u32) void {
         driver.vtable.setStreamLoopCount(driver.context, handle, count);
     }
@@ -469,6 +477,13 @@ pub const Mixer = struct {
     pub fn setSurroundings(mixer: *Mixer, surroundings: Surroundings) void {
         _ = mixer;
         _ = surroundings;
+    }
+
+    /// Not Miles's: where a stream is heard. The software mixer has no reverbs.
+    pub fn setStreamRoom(mixer: *Mixer, handle: Stream, room: Room) void {
+        _ = mixer;
+        _ = handle;
+        _ = room;
     }
 
     pub fn setSampleVolume(mixer: *Mixer, handle: Sample, volume: i32) void {

@@ -391,9 +391,9 @@ pub const Context = struct {
     /// `resource.hog`, which holds the pointer's shapes.
     resources: *const bigfile.Hog,
     sound: *hog_snd.Sound,
-    /// What becomes of the loudest peaks of Enriquez's scenes and words, which play dry, as a
-    /// television's sound does.
-    peaks: cbox.Style.Peaks,
+    /// How Enriquez's scenes and words sound: the radio's style (`cbox.Style`), where she is heard
+    /// as she speaks from a screen or in person (`Voice`).
+    speech: cbox.Style,
     /// `speech_hog`, which holds Enriquez's words in the briefing (`videoreports.speech_archive`);
     /// null where the game's folder has none.
     lines: ?*const hog.Archive = null,
@@ -492,26 +492,49 @@ pub const Film = struct {
     }
 };
 
-/// One of Enriquez's scenes, `scene.box` from the disc, spoken through `speech`, the scene before
-/// ended (`say`). A scene left out is not spoken.
+/// One of Enriquez's scenes, `scene.box` from the disc, spoken through `speech` from a screen, the
+/// scene before ended (`say`). A scene left out is not spoken.
 pub fn speak(context: Context, speech: *cbox.Player, scene: []const u8) void {
     speech.stop(context.gpa, context.sound);
     var name: [16]u8 = undefined;
     const box = std.fmt.bufPrint(&name, "{s}.box", .{scene}) catch unreachable;
     const bytes = context.read(box) orelse return;
     defer context.gpa.free(bytes);
-    say(context, speech, bytes, box);
+    say(context, speech, bytes, box, .screen, null);
 }
 
-/// `bytes`, the speech file `name`, unscrambled in place and spoken through `speech`: once, dry,
-/// at full volume (`speech_play`, `0x00461D80`). A file that is not speech is not spoken, which
-/// the log says.
-pub fn say(context: Context, speech: *cbox.Player, bytes: []u8, name: []const u8) void {
+/// Where Enriquez speaks from, which decides where she is heard.
+pub const Voice = enum {
+    /// **Improvement:** a screen, the television's or a monitor's: heard as the radio's voices
+    /// are, in the cockpit's cabin (`cbox.Style.Room.cabin`), short and hard, as over a speaker.
+    screen,
+    /// **Improvement:** in person, in the briefing room: heard in the scene's room, as the rooms'
+    /// other sounds are.
+    in_person,
+
+    /// Where she is heard with the radio's style `style`: dry where the style's lines are, as the
+    /// game plays them.
+    fn room(voice: Voice, style: cbox.Style.Room) cbox.Style.Room {
+        if (style == .dry) return .dry;
+        return switch (voice) {
+            .screen => .cabin,
+            .in_person => .scene,
+        };
+    }
+};
+
+/// `bytes`, the speech file `name`, unscrambled in place and spoken through `speech` from `from`:
+/// once, at full volume (`speech_play`, `0x00461D80`); where it follows a recording `follows`
+/// LUFS loud, matched to it as the style's levels have it (`cbox.Style.Levels`). A file that is not
+/// speech is not spoken, which the log says.
+pub fn say(context: Context, speech: *cbox.Player, bytes: []u8, name: []const u8, from: Voice, follows: ?f32) void {
     const parsed = cbox.Speech.parse(bytes) orelse {
         log.warn("{s} is left out: it is not speech", .{name});
         return;
     };
-    _ = speech.start(context.gpa, context.sound, parsed, speech_volume, .{ .peaks = context.peaks, .room = .dry });
+    var style = context.speech;
+    style.room = from.room(style.room);
+    _ = speech.start(context.gpa, context.sound, parsed, speech_volume, style, follows);
 }
 
 /// The volume Enriquez's scenes and words play at.
@@ -620,7 +643,12 @@ pub const Rooms = struct {
     speech: cbox.Player = .{},
 
     /// The rooms before mission `mission` from `view`, its way in shown as it starts, at `now`.
+    ///
+    /// **Improvement:** their sounds ring subtly in a small room of the ship
+    /// (`mss.Surroundings.inside`), and Enriquez's scenes as the radio's voices do (`Voice`). The
+    /// game plays them dry.
     pub fn open(context: Context, mission: u16, view: u8, now: u64) Rooms {
+        context.sound.surround(.inside);
         var rooms: Rooms = .{ .context = context, .mission = mission, .carrier = .of(mission), .view = view, .opened_at = now };
         rooms.readBanks();
         rooms.playHum();
@@ -655,12 +683,12 @@ pub const Rooms = struct {
     fn playHum(rooms: *Rooms) void {
         const hum = rooms.hum orelse return;
         if (rooms.hum_voice) |voice| rooms.context.sound.endVoice(voice);
-        rooms.hum_voice = rooms.context.sound.play(hum.bank, rooms.carrier.hum(), hum_volume, hog_snd.forever, hog_snd.centre, hog_snd.own_pitch);
+        rooms.hum_voice = rooms.context.sound.playInScene(hum.bank, rooms.carrier.hum(), hum_volume, hog_snd.forever, hog_snd.centre, hog_snd.own_pitch);
     }
 
     fn playStep(rooms: *Rooms, which: StepSound) void {
         const steps = rooms.steps orelse return;
-        _ = rooms.context.sound.play(steps.bank, @intFromEnum(which), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+        _ = rooms.context.sound.playInScene(steps.bank, @intFromEnum(which), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
     }
 
     /// Into a view: its movie `name` opened, its first frame shown at `now` where `show` has it.
@@ -766,7 +794,7 @@ pub const Rooms = struct {
     fn take(rooms: *Rooms, exit: u8, in: Input) bool {
         const next = views.views[exit];
         if (next.sound) |sound| if (!in.right or (in.left and !in.transitions)) {
-            if (rooms.hum) |hum| _ = rooms.context.sound.play(hum.bank, sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+            if (rooms.hum) |hum| _ = rooms.context.sound.playInScene(hum.bank, sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         };
         rooms.view = exit;
         if (next.movie == null) {
@@ -1031,6 +1059,14 @@ test Pointer {
     try std.testing.expectEqual(Pointer.right, pointer.shape);
 }
 
+test Voice {
+    // From a screen as the radio's voices, in person in the room; dry where the style's lines are.
+    try std.testing.expectEqual(.cabin, Voice.screen.room(.cabin));
+    try std.testing.expectEqual(.scene, Voice.in_person.room(.cabin));
+    try std.testing.expectEqual(.dry, Voice.screen.room(.dry));
+    try std.testing.expectEqual(.dry, Voice.in_person.room(.dry));
+}
+
 test "the rooms' decls" {
     std.testing.refAllDecls(Rooms);
 }
@@ -1081,7 +1117,7 @@ pub const testing = struct {
         }
 
         pub fn context(tested: *Tested) Context {
-            return .{ .gpa = std.testing.allocator, .codec = tested.decoders.codec(), .look = .{}, .disc = &tested.disc, .resources = &tested.resources, .sound = &tested.sound, .peaks = .rounded };
+            return .{ .gpa = std.testing.allocator, .codec = tested.decoders.codec(), .look = .{}, .disc = &tested.disc, .resources = &tested.resources, .sound = &tested.sound, .speech = .{} };
         }
     };
 };
@@ -1102,6 +1138,8 @@ test Rooms {
     var rooms: Rooms = .open(tested.context(), 1, Carrier.start(.reliant), 0);
     defer rooms.close();
     var keyboard: input.Keyboard = .{};
+    // Their sounds ring in a room of the ship.
+    try std.testing.expectEqual(.inside, tested.sound.surroundings);
 
     // The way in shows its first frame at once, and the view is arrived in at its last.
     try std.testing.expectEqual(1, tested.decoders.pictures);

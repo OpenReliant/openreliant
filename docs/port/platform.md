@@ -83,7 +83,7 @@ zig build -Dtarget=aarch64-macos               # Apple silicon, from any Zig
 |---|---|
 | `--hrtf` | Places the sounds for headphones, through a head-related transfer function, whatever the output; by default they are while the output is headphones |
 | `--no-hrtf` | Places the sounds for speakers, whatever the output |
-| `--no-reverb` | Plays the 3D sounds and the cockpit's warnings without reverb |
+| `--no-reverb` | Plays the 3D sounds, the cockpit's warnings and the sounds of the Reliant's rooms and briefing without reverb |
 | `--no-compressor` | Leaves the master bus's compressor out, keeping its limiter |
 | `--no-sound` | Runs without sound |
 
