@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/vdmkenny/openreliant/compare/v0.5.0...v0.5.1) (2026-09-29)
+
+
+### Fixes
+
+* the GPU's pipelines made as the game starts, so a new effect doesn't stall a fight ([#434](https://github.com/vdmkenny/openreliant/issues/434)) ([f511a17](https://github.com/vdmkenny/openreliant/commit/f511a1704d613dd16d5f4eee36b2deffcb19f03d)), closes [#430](https://github.com/vdmkenny/openreliant/issues/430)
+
 ## [0.5.0](https://github.com/vdmkenny/openreliant/compare/v0.4.0...v0.5.0) (2026-09-27)
 
 
