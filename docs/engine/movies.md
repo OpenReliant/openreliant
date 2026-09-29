@@ -198,8 +198,7 @@ without a disc's archive or a bank.
   Super Resolution 1.0), which keeps its edges sharp without steps
   ([Renderer](../port/renderer.md#improvements)).
 
-Not ported: the other movies, each with what plays it: the loadout's
-([#44](https://github.com/vdmkenny/openreliant/issues/44)), those of how a mission ended, the medals'
+Not ported: the other movies, each with what plays it: those of how a mission ended, the medals'
 and the story's end ([#416](https://github.com/vdmkenny/openreliant/issues/416)), those of the
 rooms' places ([#419](https://github.com/vdmkenny/openreliant/issues/419) to
 [#422](https://github.com/vdmkenny/openreliant/issues/422)), and the transitions of the screens not

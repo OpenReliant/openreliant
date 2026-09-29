@@ -179,9 +179,9 @@ band's middle, to 0.25 at least. The band reaches the next ring or place of chev
 mission bound for play with its script, which `main.missionFrame` runs each frame, the script's
 clock ticking once for each 100 of the game's ticks the pause does not hold. Every attempt starts
 from a new campaign's variables (`gameflow.restartPoint`). The commands are in
-[`executor.zig`](../../src/engine/game/executor.zig). Until the loadout screen is ported
-([#44](https://github.com/vdmkenny/openreliant/issues/44)), `openreliant` chooses the loadout's ship,
-`--ship` or the test keys, and where it chooses none the player's record's kind stands.
+[`executor.zig`](../../src/engine/game/executor.zig). The player flies the ship the loadout chose
+([Loadout](loadout.md#what-it-leaves-the-mission)), or the one `--ship` or the test keys choose, and
+where none is chosen the player's record's kind stands.
 
 `create.escort` ([`escort.zig`](../../src/engine/game/create/escort.zig)) is the escort point's
 marker.

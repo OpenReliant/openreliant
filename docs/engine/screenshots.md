@@ -21,4 +21,4 @@ The game grabs the screen (`sr + 0x7C`), turns it into 32 bits a pixel unless it
 
 **Fix:** the numbers go on past the screenshots the folder already holds. The game counts from 0 each run, and writes over the last run's.
 
-Not ported: the locker's 0 key, which comes with the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)), and the loadout's O key, with the loadout ([#44](https://github.com/vdmkenny/openreliant/issues/44)).
+Not ported: the locker's 0 key, which comes with the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)).

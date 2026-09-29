@@ -531,9 +531,8 @@ pub const Objects = struct {
     simulator: Simulator = .{},
     /// The ship the loadout screen chose for each player's slot (`player_loadouts`, `0x00588400`,
     /// the first word of each), which `create_object` makes the player's ship of (`slotType`).
-    /// Until the loadout screen is ported
-    /// ([#44](https://github.com/vdmkenny/openreliant/issues/44)), OpenReliant's driver chooses it,
-    /// and where it chooses none the mission's own kind stands.
+    /// OpenReliant's driver sets the player's from the loadout, from `--ship`, or as the test keys
+    /// change it; where it sets none, the mission's own kind stands.
     loadout_ships: [max_loadouts]?gameobj.Type = @splat(null),
     /// The racks the loadout screen fitted for each player's slot (`player_loadouts + 4` on),
     /// which `create_object` and a re-arm fit a player's ship with outside the simulator
@@ -918,14 +917,13 @@ fn recentreMesh(mesh: *@import("../surrender/surrenderlib/srapiext.zig").Mesh) v
 /// second number takes the other's stats (`donor`), and its number once it is made.
 ///
 /// It is armed by the loadout `tier` a mission's ship record asks for, as `settledTier` settles it
-/// for the type asked for (`arm`). Given a player's slot, it makes the type the loadout chose
+/// for the type asked for, or in a player's slot with the racks the loadout fitted, where it ran
+/// (`Objects.createdRacks`, `arm`). Given a player's slot, it makes the type the loadout chose
 /// (`Objects.slotType`).
 ///
 /// Not ported: the components (#40); what it does for capital ships, gates and other single types
-/// but the wrecks and the planets (#233, `wreckMade`, `planetMade`); for a player's slot, the
-/// missiles the player
-/// chose on the loadout screen (#44), where OpenReliant fits a player's ship by the tier as the
-/// game does when the briefing is skipped; and what differs in a multiplayer game.
+/// but the wrecks and the planets (#233, `wreckMade`, `planetMade`); and what differs in a
+/// multiplayer game.
 pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, asked: gameobj.Type, tier: i32, at: Vector, random: *libcmt.Rand) Error!u16 {
     const index = wanted orelse all.count;
     if (index >= gameobj.max_objects) return error.Overrun;
@@ -1195,10 +1193,17 @@ pub fn loadoutByTier(object: *GameObject, model: *const objects.Model, tier: u2)
 }
 
 /// `object_fit_missiles` (`0x0045E1A0`): hangs on each missile hardpoint, in turn, what its rack
-/// holds, a pod or a missile on its rail, and fills the rack: a pod's capacity, or 1. A rack of no
-/// missile ends the loadout: its count is 0, and each hardpoint after it reads the same rack, so
-/// stays empty. What hung there before is let go first, as a re-arm does. A model the game lacks
-/// hangs nothing, and its rack stays filled.
+/// holds, a pod or a missile on its rail, and fills the rack: a pod's capacity, or 1. What hung
+/// there before is let go first, as a re-arm does. A model the game lacks hangs nothing, and its
+/// rack stays filled.
+///
+/// **Fix:** the game ends the loadout at a rack of no missile (`0x0045E24F`): its count is 0, and
+/// each hardpoint after it reads the same rack, so stays empty. A pilot who leaves a rack empty on
+/// the loadout screen flies without the missiles of every rack after it, and without any where it
+/// is the first. OpenReliant leaves that hardpoint bare and takes the rack out, the racks after it
+/// moving down, so that each hardpoint after it takes the rack the loadout fitted on it
+/// ([#451](https://github.com/vdmkenny/openreliant/issues/451)). In every shipped model each tier
+/// names a missile for each missile hardpoint, so a ship fitted by its tier flies as in the game.
 pub fn fitRacks(gpa: Allocator, object: *GameObject, model: *objects.Model, effects: objects.Effects) Allocator.Error!void {
     if (model.hung.len == 0) {
         model.hung = try gpa.alloc(?objects.Model.Mount, gameobj.max_racks);
@@ -1214,10 +1219,12 @@ pub fn fitRacks(gpa: Allocator, object: *GameObject, model: *objects.Model, effe
         if (object.rack_count == gameobj.max_racks) break;
         const at: usize = @intCast(object.rack_count);
         const rack = &object.racks[at];
-        const held = models.attachment(.missile, @intCast(rack.type.index() orelse {
-            rack.count = 0;
+        const number = rack.type.index() orelse {
+            std.mem.copyForwards(gameobj.Rack, object.racks[at .. gameobj.max_racks - 1], object.racks[at + 1 ..]);
+            object.racks[gameobj.max_racks - 1] = .{ .type = .none };
             continue;
-        })) orelse models.Attachment{};
+        };
+        const held = models.attachment(.missile, @intCast(number)) orelse models.Attachment{};
         rack.count = @intCast(held.count);
         model.hung[at] = try hang(gpa, effects, hardpoint, held.model);
         object.rack_count += 1;
@@ -1477,6 +1484,16 @@ pub const testing = struct {
         pub fn deinit(model: *Model, gpa: Allocator) void {
             if (model.loaded_parts[0].cloaking) |cloaking| cloaking.deinit(gpa);
             model.mesh.deinit(gpa);
+        }
+
+        /// Has every hardpoint hold the fixture's own part, as its pod or missile.
+        pub fn hangsItself(model: *Model) void {
+            model.type.effects.mounts = .{ .context = model, .load = mounted };
+        }
+
+        fn mounted(context: *anyopaque, _: []const u8) ?objects.Mounts.Mounted {
+            const model: *Model = @ptrCast(@alignCast(context));
+            return .{ .model = &model.source, .loaded = &model.loaded };
         }
 
         /// Answers every ship type with the one model.
@@ -1813,7 +1830,8 @@ test "a ship's racks are fitted by its tier" {
     try model.init(gpa);
     defer model.deinit(gpa);
     // Four hardpoints: for tier 0 a Screamer pod, a Havoc, none, and a Raptor after the gap; for
-    // tier 1 a fuel pod first. A light among them is passed over.
+    // tier 1 a fuel pod first. A light among them is passed over. Every hardpoint holds the
+    // fixture's own part.
     var points: [5]shp.Attachment = @splat(std.mem.zeroes(shp.Attachment));
     for (&points, [_]u32{ 0, 2, 0xFFFF, 1, 0 }) |*point, id| {
         point.kind = .missile;
@@ -1825,24 +1843,22 @@ test "a ship's racks are fitted by its tier" {
     points[3].id = 0xFFFF;
     points[4].id = 1;
     model.data[0].attachments = &points;
-    // Every model a hardpoint holds is the fixture's own part.
-    const Loader = struct {
-        fn load(context: *anyopaque, _: []const u8) ?objects.Mounts.Mounted {
-            const fixture: *testing.Model = @ptrCast(@alignCast(context));
-            return .{ .model = &fixture.source, .loaded = &fixture.loaded };
-        }
-    };
-    model.type.effects.mounts = .{ .context = &model, .load = Loader.load };
+    model.hangsItself();
     var index = try createObject(all, &tables, model.types(), null, .predator, 0, @splat(0), &random);
     var object = &all.slots[index].object;
-    // The gap ends the loadout: the Raptor after it stays off.
-    try std.testing.expectEqual(2, object.rack_count);
+    try std.testing.expectEqual(3, object.rack_count);
     try std.testing.expectEqual(missiles.Type.screamer, object.racks[0].type);
     try std.testing.expectEqual(20, object.racks[0].count);
     try std.testing.expectEqual(missiles.Type.havoc, object.racks[1].type);
     try std.testing.expectEqual(1, object.racks[1].count);
+    // The gap's hardpoint stays bare, and the Raptor pod after it hangs on its own.
+    try std.testing.expectEqual(missiles.Type.raptor, object.racks[2].type);
+    try std.testing.expectEqual(3, object.racks[2].count);
     const hung = all.slots[index].model.?.hung;
-    try std.testing.expect(hung[0] != null and hung[1] != null and hung[2] == null);
+    try std.testing.expectEqual(0, hung[0].?.attachment);
+    try std.testing.expectEqual(1, hung[1].?.attachment);
+    try std.testing.expectEqual(4, hung[2].?.attachment);
+    try std.testing.expectEqual(null, hung[3]);
 
     // At tier 1, the first holds a fuel pod, which adds to the afterburner's fuel.
     all.campaign_tier = 1;
@@ -1888,6 +1904,36 @@ test "a player's ship takes the racks its loadout fitted" {
     try std.testing.expect(all.loadoutRacks(0) != null);
     // Another slot has none.
     try std.testing.expectEqual(null, all.loadoutRacks(1));
+}
+
+test "a rack left empty on the loadout leaves its hardpoint bare" {
+    const gpa = std.testing.allocator;
+    var random: libcmt.Rand = .{};
+    const all = try Objects.create(gpa, &random);
+    defer all.destroy();
+    var tables = testing.tables();
+    var model: testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    var points: [4]shp.Attachment = @splat(std.mem.zeroes(shp.Attachment));
+    for (&points) |*point| point.kind = .missile;
+    model.data[0].attachments = &points;
+    model.hangsItself();
+    // The first rack and the third taken off.
+    var racks: Racks = @splat(.none);
+    racks[1] = .imp;
+    racks[3] = .raptor;
+    all.loadout_racks[0] = racks;
+    const index = try createObject(all, &tables, model.types(), null, .predator, 0, @splat(0), &random);
+    const object = &all.slots[index].object;
+    // Each missile flies, on the hardpoint the loadout hung it on.
+    try std.testing.expectEqual(2, object.rack_count);
+    try std.testing.expectEqual(missiles.Type.imp, object.racks[0].type);
+    try std.testing.expectEqual(missiles.Type.raptor, object.racks[1].type);
+    const hung = all.slots[index].model.?.hung;
+    try std.testing.expectEqual(1, hung[0].?.attachment);
+    try std.testing.expectEqual(3, hung[1].?.attachment);
+    try std.testing.expectEqual(null, hung[2]);
 }
 
 test createObject {

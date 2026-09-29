@@ -75,8 +75,9 @@ bytes at `GameObject + 0x158`, `rack_count` of them (`+0x150`).
    (`0x00588400`, `0x54` bytes a player), unless the briefing is skipped.
 3. The fitting (`object_fit_missiles`, `0x0045E1A0`): on each hardpoint, in turn, hangs what its
    rack holds, the pod or the missile (`attachment_models`), and fills the rack with the pod's
-   capacity, or 1. A rack of no missile ends the loadout: its count is 0 and every hardpoint after
-   it reads the same rack.
+   capacity, or 1. A rack of no missile ends the loadout (`0x0045E24F`): its count is 0 and every
+   hardpoint after it reads the same rack. In every shipped model each tier names a missile for
+   each missile hardpoint, so only a rack left empty on the loadout screen ends it.
 4. 5000 more of the afterburner's fuel for each fuel pod, and 29 countermeasures.
 
 A re-arm (`order_dock`, `cmd_ReplenishWeapons`) lets go of what hangs and fits the racks again: a
@@ -88,6 +89,11 @@ OpenReliant fits a player's ship with the racks the loadout screen chose where i
 ([Loadout](loadout.md#what-it-leaves-the-mission)), and by the tier otherwise, as the game does when
 the briefing is skipped. The root lists each part at its number (`object_link_part`), so the
 hardpoints of a part linked to another, as in `Jap_Sai.SHP` and `Chin_Han.SHP`, are fitted too.
+
+**Fix:** a rack of no missile leaves its hardpoint bare and is taken out, the racks after it moving
+down, so that each hardpoint after it takes the rack the loadout fitted on it
+([#451](https://github.com/vdmkenny/openreliant/issues/451)). The game flies without the missiles
+of every rack after an empty one, and without any where the first is empty.
 
 Not ported: the Nanny's re-arm (`order_dock`, `0x00407A5F`,
 [#320](https://github.com/vdmkenny/openreliant/issues/320)).

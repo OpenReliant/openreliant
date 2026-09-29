@@ -193,4 +193,6 @@ The panels are added, so their black is clear and the room shows through.
 
 `create_object` makes the player's ship of the ship type, and fits its racks with the types in turn outside the simulator and mission 25's first part (`0x00467690`); a re-arm fits them again (`cmd_ReplenishWeapons`, `0x0045A055`; the Nanny's, `order_dock`, `0x00407A5F`, [#320](https://github.com/vdmkenny/openreliant/issues/320)). Where the mission starts without its briefing (`skip_briefing`), the ship is fitted by the tier instead. The flight's fitting ends at the first rack that holds nothing, so a rack left empty leaves every rack after it empty in flight too ([Missiles](missiles.md#the-loadout)).
 
+**Fix:** OpenReliant flies every missile the loadout hung, each on the hardpoint the loadout showed it on, and leaves the hardpoints of the empty racks bare ([#451](https://github.com/vdmkenny/openreliant/issues/451)).
+
 OpenReliant flies the chosen ship with its racks, at the tier the loadout raised the campaign's to; `--ship` still overrides the ship, which is then fitted by the tier. The campaign's saved loadout is kept for the session, the campaign's saving not being ported ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
