@@ -975,6 +975,7 @@ test {
 
 const gameobj = @import("game/gameobj.zig");
 const create = @import("game/create.zig");
+const gameflow = @import("game/gameflow.zig");
 const camera = @import("game/camera.zig");
 const guns = @import("game/guns.zig");
 const hud = @import("game/hud.zig");
@@ -1054,6 +1055,11 @@ pub const Player = struct {
     rescue_odds: @import("game/aieject.zig").RescueOdds = .{},
     /// The pilot's kills over the whole campaign.
     kills: Kills = .{},
+    /// `pilot_rank` (`0x00562DEC`): the pilot's rank, from 0, which the end of a mission the pilot
+    /// comes through raises by the kills (`gameflow.promote`), and which with the campaign's tier
+    /// sets how many ships the loadout offers. A new pilot starts at 0 (`campaign_new`,
+    /// `0x004751DE`).
+    rank: gameflow.Rank = 0,
 
     /// A mission's primary target: a ship's slot, and one of its components or the whole ship.
     pub const PrimaryTarget = struct {

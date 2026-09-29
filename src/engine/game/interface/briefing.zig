@@ -8,8 +8,11 @@
 //!    room's chatter (`Way`).
 //! 3. Enriquez at the room's screen, which plays the mission's movie (`movies`), going round his
 //!    animation (`Segment`). Escape, the pointer's right button, or the movie's end ends it.
-//! 4. After the loadout, his last word, a line of `speech_hog` over an animation of its own, which
-//!    ends at its last frame, or on Escape or the right button (`Stage.tag`).
+//! 4. The loadout (`loadout.Loadout`), between the movies into its hologram and back
+//!    (`Room.hologram`), in the briefing's loop (`Stage.hologram`). Its Escape opens the in-game
+//!    options, which lead back to it or to the main menu (`Briefing.afterOptions`).
+//! 5. His last word, a line of `speech_hog` over an animation of its own, which ends at its last
+//!    frame, or on Escape or the right button (`Stage.tag`).
 //!
 //! The briefing room is the Reliant's up to mission 18, and the Yamato's after it (`Room`). A pass
 //! of the briefing (`Briefing.pass`) runs a pass of the loop of the stage it stands at, and the
@@ -19,12 +22,11 @@
 //! (`end_mission`): Enriquez speaks over the room, without a movie, until his speech ends, and no
 //! loadout or last word follows.
 //!
-//! In the briefing, the O key saves a screenshot (`screenshot_key`).
+//! In the briefing and the loadout, the O key saves a screenshot (`screenshot_key`).
 //!
-//! Not ported: the loadout between the briefing and the last word, with the movies to its hologram
-//! and back (`rel_br2holo.bik` and `rel_holo2br.bik`, `br2hol.bik` and `hol2br.bik`), its own O key,
-//! and the in-game options it opens, which can lead to the main menu, or back to the rooms where a
-//! saved game loads (`0x0051D4B4`; [#44](https://github.com/vdmkenny/openreliant/issues/44)).
+//! Not ported: the in-game options' LOAD over the loadout, which takes the rooms back to their
+//! first view where a saved game loads (`0x0051D4B4`;
+//! [#75](https://github.com/vdmkenny/openreliant/issues/75)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -38,6 +40,8 @@ const matmanager = @import("../matmanager.zig");
 const videoreports = @import("../videoreports.zig");
 const canvas = @import("canvas.zig");
 const rooms = @import("rooms.zig");
+const loadout = @import("../../interface/loadout/loadout.zig");
+const in_game_options = @import("in_game_options.zig");
 
 const log = std.log.scoped(.briefing);
 
@@ -177,6 +181,9 @@ pub const Room = struct {
     screen_at: [2]i32,
     frame_shape: usize,
     frame_at: [2]i32,
+    /// The movies from the room to the loadout's hologram and back, from the disc's archive
+    /// (`0x00437711`, `0x00437B57`).
+    hologram: struct { into: []const u8, back: []const u8 },
 
     pub const reliant: Room = .{
         .door = "inter\\rbriefdor.tga",
@@ -189,6 +196,8 @@ pub const Room = struct {
         .screen_at = .{ 97, 29 },
         .frame_shape = 0xB6,
         .frame_at = .{ 89, 17 },
+        // `0x004E8918`, `0x004E88FC`.
+        .hologram = .{ .into = "rel_br2holo.bik", .back = "rel_holo2br.bik" },
     };
 
     pub const yamato: Room = .{
@@ -202,6 +211,8 @@ pub const Room = struct {
         .screen_at = .{ 200, 42 },
         .frame_shape = 0xA8,
         .frame_at = .{ 190, 28 },
+        // `0x004E8928`, `0x004E890C`.
+        .hologram = .{ .into = "br2hol.bik", .back = "hol2br.bik" },
     };
 
     pub fn of(carrier: rooms.Carrier) *const Room {
@@ -230,6 +241,12 @@ pub const Stage = enum {
     walked_in,
     /// Enriquez at the room's screen (`briefing_state` 1, `0x00520280`).
     briefing,
+    /// The movie into the loadout's hologram has played: the next pass enters the loadout.
+    to_hologram,
+    /// The loadout, in the briefing's loop (`0x00437784`).
+    hologram,
+    /// The movie back from the hologram has played: the next pass starts the last word.
+    from_hologram,
     /// His last word (`briefing_state` 2).
     tag,
 };
@@ -241,6 +258,8 @@ pub const Input = struct {
     right: bool,
     /// The timer's count, a hundred a second (`game_ticks`), which Enriquez's frames step by.
     ticks: u32,
+    /// What the loadout's frame reads (`read_mouse`, the clock), where the caller runs it.
+    hologram: ?loadout.Frame = null,
 };
 
 /// What a pass leads to, which the briefing's caller then runs.
@@ -252,6 +271,12 @@ pub const Step = union(enum) {
     /// The briefing over, and the mission to be flown (`interface_briefing` returns -1, with
     /// `0x0051D4B4` clear).
     over,
+    /// The in-game options over the loadout (Escape, `0x004377A4`), whose choice `afterOptions`
+    /// takes.
+    options,
+    /// The briefing left from the loadout's in-game options for the main menu (`briefing_outcome`
+    /// 2, `0x004378E7` on).
+    main_menu,
 };
 
 /// The briefing, as `interface_briefing` runs it.
@@ -299,16 +324,23 @@ pub const Briefing = struct {
     /// Whether the last pass's O asked for a screenshot of the screen, which the caller then saves
     /// (`screenshot_save`).
     screenshot: bool = false,
+    /// What the loadout reads and draws with; none leaves the loadout out, the last word following
+    /// the briefing at once.
+    hologram_context: ?loadout.Context = null,
+    /// The loadout, from the briefing's loading to its leaving (`loadout_load`, `loadout_leave`).
+    hologram: ?*loadout.Loadout = null,
+    /// What the loadout leaves the mission.
+    result: ?loadout.Result = null,
 
     /// The briefing before mission `mission`, its door to be shown for a frame (`0x00437010` to
     /// `0x0043716F`); from the loadout where `from_loadout` has it.
     ///
     /// **Improvement:** its sounds, the movie's and Enriquez's words among them, ring subtly in a
     /// small room of the ship (`mss.Surroundings.inside`). The game plays them dry.
-    pub fn open(context: rooms.Context, mission: u16, from_loadout: bool) Briefing {
+    pub fn open(context: rooms.Context, mission: u16, from_loadout: bool, hologram: ?loadout.Context) Briefing {
         context.sound.surround(.inside);
         const room = Room.of(.of(mission));
-        var briefing: Briefing = .{ .context = context, .mission = mission, .room = room, .from_loadout = from_loadout };
+        var briefing: Briefing = .{ .context = context, .mission = mission, .room = room, .from_loadout = from_loadout, .hologram_context = hologram };
         briefing.door.set(context.gpa, context.resources.*, room.door) catch |err|
             log.warn("{s} is left out: {s}", .{ room.door, @errorName(err) });
         return briefing;
@@ -316,6 +348,7 @@ pub const Briefing = struct {
 
     pub fn close(briefing: *Briefing) void {
         const gpa = briefing.context.gpa;
+        if (briefing.hologram) |hologram| hologram.destroy();
         briefing.speech.stop(gpa, briefing.context.sound);
         briefing.film.close();
         briefing.context.sound.endAll();
@@ -355,22 +388,36 @@ pub const Briefing = struct {
                 return briefing.briefingPass(in);
             },
             .briefing => briefing.briefingPass(in),
+            .to_hologram => {
+                briefing.enterHologram(in);
+                return briefing.hologramPass(in);
+            },
+            .hologram => briefing.hologramPass(in),
+            .from_hologram => {
+                briefing.lastWord(in.ticks);
+                return null;
+            },
             .tag => briefing.tagPass(in),
         };
     }
 
     /// What the briefing loads once its door has shown (`0x00437172` on): the wait's sound plays,
-    /// the briefing's sprite set is read, the music fades out and the voices pause, and the way
-    /// in's sounds are read, before the way in, or from the loadout, the last word. The disc that
-    /// holds the briefing opens, as the rooms have it open.
-    ///
-    /// Not ported: the loadout's models and sounds, which the game loads here but for mission 29
-    /// (`loadout_load`, `0x00441AA0`).
+    /// the loadout loads, but for mission 29 (`loadout_load`, `0x00441AA0`), the briefing's sprite
+    /// set is read, the music fades out and the voices pause, and the way in's sounds are read,
+    /// before the way in, or from the loadout on, the loadout. The disc that holds the briefing
+    /// opens, as the rooms have it open.
     fn load(briefing: *Briefing, ticks: u32) ?Step {
         const context = briefing.context;
         const sound = context.sound;
         briefing.wait = .read(context.gpa, context.resources, wait_bank);
         if (briefing.wait) |wait| _ = sound.playInScene(wait.bank, 0, wait_volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+        // The loadout loads, but for the campaign's end (`0x0043719F`).
+        if (briefing.mission != end_mission) if (briefing.hologram_context) |hologram| {
+            briefing.hologram = loadout.Loadout.load(hologram) catch |err| blk: {
+                log.warn("the loadout is left out: {s}", .{@errorName(err)});
+                break :blk null;
+            };
+        };
         briefing.shapes = readShapes(context, briefing.room.shapes);
         briefing.speech.stop(context.gpa, sound);
         sound.fadeMusic(music_fade_step, ticks);
@@ -452,8 +499,81 @@ pub const Briefing = struct {
         briefing.freeShapes();
         briefing.freeBanks();
         if (briefing.mission == end_mission) return .over;
-        briefing.lastWord(ticks);
-        return null;
+        if (briefing.hologram == null) {
+            briefing.lastWord(ticks);
+            return null;
+        }
+        // The movie into the loadout's hologram (`0x00437711`).
+        briefing.stage = .to_hologram;
+        return .{ .movie = briefing.room.hologram.into };
+    }
+
+    /// The loadout, while the briefing shows its hologram (`0x00437784` on), which the driver
+    /// draws its scene of; null otherwise.
+    pub fn shownHologram(briefing: *const Briefing) ?*loadout.Loadout {
+        return if (briefing.stage == .hologram) briefing.hologram else null;
+    }
+
+    /// The loadout entered, once the movie into its hologram has played (`0x00437741`).
+    fn enterHologram(briefing: *Briefing, in: Input) void {
+        briefing.stage = .hologram;
+        const hologram = briefing.hologram.?;
+        const now = if (in.hologram) |frame| frame.now else 0;
+        hologram.enter(now) catch |err| log.warn("the loadout is left out: {s}", .{@errorName(err)});
+    }
+
+    /// A pass of the briefing's loop as it runs the loadout (`0x00437784` on), `in` read: Escape
+    /// asks for the in-game options (`0x004377A4`), the loadout's speech paused and every sound
+    /// ended; otherwise a frame of the loadout (`loadout_frame`), which ends the loop once it has
+    /// ended, and its O a screenshot.
+    fn hologramPass(briefing: *Briefing, in: Input) ?Step {
+        const hologram = briefing.hologram.?;
+        if (in.keyboard.pressed(input.scan.escape, .none, true)) {
+            // The scene's objects are let go of, the loadout's speech paused, and every sound ended
+            // (`0x004377A8` to `0x004377E8`).
+            hologram.pauseSpeech(true);
+            briefing.context.sound.endAll();
+            return .options;
+        }
+        const frame = in.hologram orelse return null;
+        const running = hologram.frame(frame, in.keyboard) catch |err| blk: {
+            log.warn("the loadout ends: {s}", .{@errorName(err)});
+            break :blk false;
+        };
+        briefing.screenshot = hologram.screenshot;
+        if (running) return null;
+        return briefing.leaveHologram();
+    }
+
+    /// The loadout left, its result kept for the mission (`loadout_leave`, `0x00437A5A`), and the
+    /// movie back from its hologram (`0x00437B57`).
+    fn leaveHologram(briefing: *Briefing) Step {
+        const hologram = briefing.hologram.?;
+        briefing.result = hologram.leave();
+        hologram.destroy();
+        briefing.hologram = null;
+        briefing.stage = .from_hologram;
+        return .{ .movie = briefing.room.hologram.back };
+    }
+
+    /// What the in-game options' `choice` leads to over the loadout (`0x00437841`, `0x004378E7`
+    /// on): BACK, the loadout again (`loadout_resume`); MAIN MENU, the loadout left and the main
+    /// menu.
+    pub fn afterOptions(briefing: *Briefing, choice: in_game_options.Choice, now: u32) ?Step {
+        const hologram = briefing.hologram orelse return null;
+        switch (choice) {
+            .back => {
+                hologram.pauseSpeech(false);
+                hologram.resumeAfterOptions(now) catch |err| log.warn("the loadout's page is left as it was: {s}", .{@errorName(err)});
+                return null;
+            },
+            .main_menu, .quit => {
+                _ = hologram.leave();
+                hologram.destroy();
+                briefing.hologram = null;
+                return .main_menu;
+            },
+        }
     }
 
     /// After the loadout, Enriquez's last word, at the timer's count `ticks` (`0x00437B80` on):
@@ -509,7 +629,7 @@ pub const Briefing = struct {
     /// over at its last.
     pub fn advance(briefing: *Briefing, now: u64, ticks: u32) void {
         switch (briefing.stage) {
-            .door, .door_open, .walked_in => return,
+            .door, .door_open, .walked_in, .to_hologram, .hologram, .from_hologram => return,
             .briefing, .tag => {},
         }
         briefing.shown = first_frame + briefing.start + briefing.frame;
@@ -535,7 +655,7 @@ pub const Briefing = struct {
             .tag => if (briefing.frame < tag_last) {
                 briefing.frame += 1;
             },
-            .door, .door_open, .walked_in => {},
+            .door, .door_open, .walked_in, .to_hologram, .hologram, .from_hologram => {},
         }
     }
 
@@ -546,10 +666,13 @@ pub const Briefing = struct {
     }
 
     /// `briefing_draw` (`0x0043E730`): the room, Enriquez, and in the briefing the movie on the
-    /// room's screen with the frame round it. Before the briefing, the door (`drawDoor`).
+    /// room's screen with the frame round it. Before the briefing, the door (`drawDoor`); in the
+    /// loadout, its render hook's tooltip (`0x0044B200`) over its hologram.
     pub fn draw(briefing: *Briefing, target: canvas.Canvas) canvas.Error!void {
         switch (briefing.stage) {
             .door, .door_open, .walked_in => return briefing.drawDoor(target),
+            .hologram => if (briefing.hologram) |hologram| return hologram.draw(target) else return,
+            .to_hologram, .from_hologram => return,
             .briefing, .tag => {},
         }
         const shapes = if (briefing.shapes) |*loaded| &loaded.art else null;
@@ -635,7 +758,7 @@ test Briefing {
 
     // The door shows, then the briefing loads, its wait's sound paused as it ends, and the way in
     // plays, the door's sound and the room's chatter starting as its movie does.
-    var briefing: Briefing = .open(context, 1, false);
+    var briefing: Briefing = .open(context, 1, false, null);
     defer briefing.close();
     try std.testing.expectEqual(Stage.door, briefing.stage);
     try std.testing.expectEqual(.inside, tested.sound.surroundings);
@@ -672,7 +795,7 @@ test "Escape ends the briefing, and the right button the last word" {
     try testFiles(&tested, &.{ "rel_c2bre.bik", "new_m02.bik" });
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 2, false);
+    var briefing: Briefing = .open(tested.context(), 2, false, null);
     defer briefing.close();
     _ = passAt(&briefing, &keyboard, false, 0);
     _ = passAt(&briefing, &keyboard, false, 1);
@@ -694,7 +817,7 @@ test "O asks for a screenshot in the briefing, before Escape ends it" {
     try testFiles(&tested, &.{ "rel_c2bre.bik", "new_m02.bik" });
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 2, false);
+    var briefing: Briefing = .open(tested.context(), 2, false, null);
     defer briefing.close();
     const o = @intFromEnum(screenshot_key);
     // Not at the door.
@@ -724,7 +847,7 @@ test "the press that skipped the way in, still held, ends no stage" {
     try testFiles(&tested, &.{ "rel_c2bre.bik", "new_m02.bik" });
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 2, false);
+    var briefing: Briefing = .open(tested.context(), 2, false, null);
     defer briefing.close();
     _ = passAt(&briefing, &keyboard, true, 0);
     for (0..3) |_| try std.testing.expectEqual(null, passAt(&briefing, &keyboard, true, 1));
@@ -742,7 +865,7 @@ test "the Yamato's way in and the frames of Enriquez's animation" {
     try testFiles(&tested, &.{});
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 19, false);
+    var briefing: Briefing = .open(tested.context(), 19, false, null);
     defer briefing.close();
     try std.testing.expectEqual(&Room.yamato, briefing.room);
     try std.testing.expectEqualDeep(Step{ .movie = "amonoff_.bik" }, passAt(&briefing, &keyboard, false, 0).?);
@@ -790,7 +913,7 @@ test "the campaign's end: Enriquez's speech, and no last word" {
     var context = tested.context();
     context.lines = &lines;
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(context, end_mission, false);
+    var briefing: Briefing = .open(context, end_mission, false, null);
     defer briefing.close();
     _ = passAt(&briefing, &keyboard, false, 0);
     _ = passAt(&briefing, &keyboard, false, 0);
@@ -810,7 +933,7 @@ test "from the loadout, the last word alone" {
     try testFiles(&tested, &.{});
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 3, true);
+    var briefing: Briefing = .open(tested.context(), 3, true, null);
     defer briefing.close();
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 0));
     try std.testing.expectEqual(Stage.tag, briefing.stage);

@@ -80,6 +80,21 @@ const cp1252_high = [32]u16{
     0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178,
 };
 
+/// `CharUpperBuffA` over `text`, in place, under code page 1252, which the game's strings are in
+/// (`codePage1252`): the small letters of the page become its capitals, and the rest stay, `ß` and
+/// `µ` among them, which have no capital in the page. The loadout's panels write their labels so.
+/// **Unverified:** the function. The payload calls it through SafeDisc, whose stubs pick the
+/// function by the call's own address, so the import tables don't name it; it takes a buffer and
+/// its length, and the panels' other text is in capitals.
+pub fn upperCase(text: []u8) void {
+    for (text) |*character| character.* = switch (character.*) {
+        'a'...'z', 0xE0...0xF6, 0xF8...0xFE => character.* - 0x20,
+        0x9A, 0x9C, 0x9E => character.* - 0x10,
+        0xFF => 0x9F,
+        else => character.*,
+    };
+}
+
 test Language {
     const gpa = std.testing.allocator;
     var table: [20]?[]const u8 = @splat(null);
@@ -118,4 +133,10 @@ test codePage1252 {
     try std.testing.expectEqual(0x80, codePage1252(0x20AC));
     try std.testing.expectEqual(0x99, codePage1252(0x2122));
     try std.testing.expectEqual('?', codePage1252(0x4E2D));
+}
+
+test upperCase {
+    var text = "Max Speed \xE9\xF7\xFF\x9A\xDF\xB5".*;
+    upperCase(&text);
+    try std.testing.expectEqualStrings("MAX SPEED \xC9\xF7\x9F\x8A\xDF\xB5", &text);
 }

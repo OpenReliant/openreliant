@@ -984,6 +984,209 @@ pub fn textLeft(opened: Opened, x: i32, text: []const u8, alignment: Align, scal
     return x - pixels(shift, scale);
 }
 
+/// A pane as VFX draws into it (`VFX_window_construct`, `VFX_pane_construct`) over an image of
+/// `size` pixels, four bytes a pixel (red, green, blue and alpha), rows from the top. The pane is
+/// the whole image, and what is drawn past its edges is lost. The loadout writes its panels' text
+/// into their textures this way, where the display draws its own through the device (`drawText`).
+pub const Pane = struct {
+    rgba: [][4]u8,
+    size: [2]u32,
+
+    /// Sets the pixel at `at` to `colour`, opaque, where it lies in the pane.
+    pub fn plot(pane: Pane, at: [2]i32, colour: [3]u8) void {
+        const x = std.math.cast(u32, at[0]) orelse return;
+        const y = std.math.cast(u32, at[1]) orelse return;
+        if (x >= pane.size[0] or y >= pane.size[1]) return;
+        pane.rgba[@as(usize, y) * pane.size[0] + x] = .{ colour[0], colour[1], colour[2], opaque_alpha };
+    }
+
+    /// `VFX_line_draw` (`winvfx16.dll`, `0x10002849`) of a line along a row or a column, as the
+    /// loadout's bars draw them: every pixel from `from` to `to` in `colour`, both ends taken.
+    pub fn line(pane: Pane, colour: [3]u8, from: [2]i32, to: [2]i32) void {
+        assert(from[0] == to[0] or from[1] == to[1]);
+        const step: [2]i32 = .{ std.math.sign(to[0] - from[0]), std.math.sign(to[1] - from[1]) };
+        var at = from;
+        while (true) : (at = .{ at[0] + step[0], at[1] + step[1] }) {
+            pane.plot(at, colour);
+            if (at[0] == to[0] and at[1] == to[1]) break;
+        }
+    }
+
+    /// The alpha of a pixel drawn into a pane.
+    pub const opaque_alpha = 255;
+};
+
+/// The colours `VFX_character_draw` draws a glyph in where its caller gives a remap table: each of
+/// the glyph's bytes, a level of coverage, picks the table's entry, and that entry of VFX's palette
+/// is drawn, save where the entry is `clear`. A level of 0 is drawn like any other; the tables
+/// leave it clear.
+///
+/// **Unverified:** the loadout draws into textures of the device's texture format
+/// (`loadout_image_convert`, `0x00446160`), and WinVFX writes a pixel 2 bytes wide only where the
+/// texture's pixels are. A 16-bit texture takes the palette's colours at 16 bits, which OpenReliant
+/// keeps at 8 bits a channel; a wider one would take the bare entries, a byte a pixel.
+pub const Remap = struct {
+    /// An entry for each level.
+    table: []const u8,
+    /// VFX's global palette, 8 bits a channel: in the loadout, `palette3`'s colours
+    /// (`loadout_palette`, `0x004436B0`).
+    palette: *const tga.Palette,
+
+    /// The entry that leaves a level clear.
+    pub const clear: u8 = 0xFF;
+
+    /// The colour `level` is drawn in, or null where it is left clear. A level past the table is
+    /// left clear, where VFX reads on past it (`Opened.Paint.ramp`).
+    pub fn colour(remap: Remap, level: u8) ?[3]u8 {
+        if (level >= remap.table.len) return null;
+        const entry = remap.table[level];
+        if (entry == clear) return null;
+        return remap.palette[entry];
+    }
+};
+
+/// `VFX_character_draw` (`winvfx16.dll`, `0x10008819`) with a remap table: `glyph` with its top
+/// left corner at `at`, in `remap`'s colours.
+fn drawGlyphInto(pane: Pane, glyph: fnt.Glyph, at: [2]i32, remap: Remap) void {
+    for (0..glyph.height) |row| {
+        for (0..glyph.width) |column| {
+            const colour = remap.colour(glyph.pixels[row * glyph.width + column]) orelse continue;
+            pane.plot(.{ at[0] + @as(i32, @intCast(column)), at[1] + @as(i32, @intCast(row)) }, colour);
+        }
+    }
+}
+
+/// `hud_text` (`0x00480E40`) into `pane`: `text` in `opened`'s font at `at`, aligned as `alignment`
+/// says, in `remap`'s colours, and returns where the line ends. The glyphs follow one another by
+/// their widths, as `VFX_string_draw` (`winvfx16.dll`, `0x10008A11`) moves along; a code past those
+/// `font_open` caches is left out, as `drawText` leaves it.
+pub fn drawTextInto(pane: Pane, opened: *const Opened, at: [2]i32, text: []const u8, remap: Remap, alignment: Align) i32 {
+    if (text.len == 0) return at[0];
+    var x = textLeft(opened.*, at[0], text, alignment, 1);
+    for (text) |code| {
+        if (code >= cached_codes) continue;
+        if (opened.font.glyph(code)) |glyph| drawGlyphInto(pane, glyph, .{ x, at[1] }, remap);
+        x += opened.widths[code];
+    }
+    return x;
+}
+
+/// `hud_text_wrapped` (`0x00480FD0`) into `pane`: `text` broken into lines at most `width` pixels
+/// wide (`WrappedText`), at most `max_lines` of them, each drawn as `drawTextInto` draws a line,
+/// `line_height` below the last. Returns how many lines it took, an empty one among them.
+pub fn drawWrappedInto(
+    pane: Pane,
+    opened: *const Opened,
+    at: [2]i32,
+    text: []const u8,
+    remap: Remap,
+    alignment: Align,
+    width: i32,
+    line_height: i32,
+    max_lines: usize,
+) usize {
+    var lines: WrappedText = .init(&opened.widths, text, width, max_lines);
+    var taken: usize = 0;
+    var y = at[1];
+    while (lines.next()) |line| : (y += line_height) {
+        _ = drawTextInto(pane, opened, .{ at[0], y }, line, remap, alignment);
+        taken += 1;
+    }
+    return taken;
+}
+
+/// A font of three codes for the tests of the drawing into a pane: `A`, three pixels wide and two
+/// tall, levels 0, 15 and 1 over 2, 0 and 15; `B`, one pixel wide, level 3 over level 16; and a
+/// space two pixels wide, all level 0.
+fn paneTestFont() []const u8 {
+    const header: fnt.Header = .{ .version = "2.\x00\x00".*, .count = 0x43, .height = 2, ._unknown_0c = 0 };
+    const table_end = fnt.header_size + 0x43 * @sizeOf(u32);
+    const a = std.mem.toBytes(@as(u32, 3)) ++ [_]u8{ 0, 15, 1, 2, 0, 15 };
+    const b = std.mem.toBytes(@as(u32, 1)) ++ [_]u8{ 3, 16 };
+    const space = std.mem.toBytes(@as(u32, 2)) ++ [_]u8{ 0, 0, 0, 0 };
+    var table: [0x43]u32 = @splat(0);
+    table[' '] = table_end;
+    table['A'] = table_end + space.len;
+    table['B'] = table_end + space.len + a.len;
+    return std.mem.toBytes(header) ++ std.mem.sliceAsBytes(&table) ++ space ++ a ++ b;
+}
+
+/// A palette for the tests, entry `i` of which is `(i, 255 - i, 7)`.
+fn paneTestPalette() tga.Palette {
+    var palette: tga.Palette = undefined;
+    for (&palette, 0..) |*entry, i| entry.* = .{ @intCast(i), @intCast(255 - i), 7 };
+    return palette;
+}
+
+test drawTextInto {
+    const font = try fnt.Font.parse(comptime paneTestFont());
+    const opened: Opened = .open(font, null);
+    const palette = paneTestPalette();
+    // Level 0 clear, 1 to entry 0x40, 2 to entry 0x41, 3 clear, 15 to entry 0x4F.
+    var table: [16]u8 = @splat(Remap.clear);
+    table[1] = 0x40;
+    table[2] = 0x41;
+    table[15] = 0x4F;
+    const remap: Remap = .{ .table = &table, .palette = &palette };
+    const empty: [4]u8 = .{ 0, 0, 0, 0 };
+
+    var rgba: [8 * 3][4]u8 = @splat(empty);
+    const pane: Pane = .{ .rgba = &rgba, .size = .{ 8, 3 } };
+    // Each glyph after the last by its width; the line ends past the last.
+    try std.testing.expectEqual(7, drawTextInto(pane, &opened, .{ 1, 1 }, "A B", remap, .left));
+    const drawn = [_]struct { [2]u32, u8 }{
+        .{ .{ 2, 1 }, 0x4F }, .{ .{ 3, 1 }, 0x40 }, .{ .{ 1, 2 }, 0x41 }, .{ .{ 3, 2 }, 0x4F },
+    };
+    for (drawn) |pixel| {
+        const at = pixel[0];
+        try std.testing.expectEqual([4]u8{ pixel[1], 255 - pixel[1], 7, 255 }, rgba[at[1] * 8 + at[0]]);
+    }
+    // What the remap leaves clear is left as it was: level 0, the `B`'s level 3, and its level 16,
+    // past the table.
+    var untouched: usize = 0;
+    for (rgba) |pixel| {
+        if (std.mem.eql(u8, &pixel, &empty)) untouched += 1;
+    }
+    try std.testing.expectEqual(rgba.len - drawn.len, untouched);
+
+    // Centred, half the width comes off; to the right, all of it. A glyph cut by the pane's edge
+    // keeps the part inside: the `A`'s level 2 falls off to the left.
+    rgba = @splat(empty);
+    try std.testing.expectEqual(3, drawTextInto(pane, &opened, .{ 1, 0 }, "AB", remap, .centre));
+    try std.testing.expectEqual([4]u8{ 0x4F, 0xB0, 7, 255 }, rgba[0]);
+    try std.testing.expectEqual([4]u8{ 0x40, 0xBF, 7, 255 }, rgba[1]);
+    try std.testing.expectEqual([4]u8{ 0x4F, 0xB0, 7, 255 }, rgba[8 + 1]);
+    try std.testing.expectEqual(empty, rgba[8]);
+    rgba = @splat(empty);
+    try std.testing.expectEqual(8, drawTextInto(pane, &opened, .{ 8, 0 }, "AA", remap, .right));
+    try std.testing.expectEqual([4]u8{ 0x4F, 0xB0, 7, 255 }, rgba[3]);
+    try std.testing.expectEqual([4]u8{ 0x41, 0xBE, 7, 255 }, rgba[8 + 5]);
+    // Nothing to draw leaves the line where it starts.
+    try std.testing.expectEqual(5, drawTextInto(pane, &opened, .{ 5, 0 }, "", remap, .right));
+}
+
+test drawWrappedInto {
+    const font = try fnt.Font.parse(comptime paneTestFont());
+    const opened: Opened = .open(font, null);
+    const palette = paneTestPalette();
+    var table: [16]u8 = @splat(Remap.clear);
+    table[15] = 0x4F;
+    const remap: Remap = .{ .table = &table, .palette = &palette };
+    const empty: [4]u8 = .{ 0, 0, 0, 0 };
+    var rgba: [8 * 8][4]u8 = @splat(empty);
+    const pane: Pane = .{ .rgba = &rgba, .size = .{ 8, 8 } };
+
+    // "AA AA" is 14 wide: at 7 a line, it breaks at the space, the second line 3 below the first.
+    try std.testing.expectEqual(2, drawWrappedInto(pane, &opened, .{ 0, 1 }, "AA AA", remap, .left, 7, 3, 3));
+    for ([_][2]u32{ .{ 1, 1 }, .{ 4, 1 }, .{ 1, 4 }, .{ 4, 4 } }) |at| {
+        try std.testing.expectEqual([4]u8{ 0x4F, 0xB0, 7, 255 }, rgba[at[1] * 8 + at[0]]);
+    }
+    // A line feed last takes a line with nothing in it, and no more lines are drawn than allowed.
+    try std.testing.expectEqual(2, drawWrappedInto(pane, &opened, .{ 0, 0 }, "A\n", remap, .left, 7, 3, 3));
+    try std.testing.expectEqual(1, drawWrappedInto(pane, &opened, .{ 0, 0 }, "AA AA", remap, .left, 7, 3, 1));
+    try std.testing.expectEqual(0, drawWrappedInto(pane, &opened, .{ 0, 0 }, "", remap, .left, 7, 3, 3));
+}
+
 test place {
     // Half of the way across is the middle of the screen, which is what the inset and the margin
     // between them come to: (640 - 0x21) / 2 rounded is 304, and 0x10 on top is 320.

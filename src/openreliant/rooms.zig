@@ -13,7 +13,9 @@ const openreliant = @import("openreliant");
 const platform = @import("platform");
 const engine = openreliant.engine;
 const srcore = engine.surrender.surrenderlib.srcore;
+const tcache = openreliant.tcache;
 const game = engine.game;
+const loadout = engine.interface.loadout;
 const interface = game.interface;
 const briefing = interface.briefing;
 const canvas = interface.canvas;
@@ -27,8 +29,11 @@ const version = @import("version.zig");
 const log = std.log.scoped(.rooms);
 
 /// How the rooms end, where the game goes on: through the briefing room's door and the briefing,
-/// the mission flown, or to the main menu.
-pub const End = enum { fly, main_menu };
+/// the mission flown, as its loadout left it where it ran; or to the main menu.
+pub const End = union(enum) {
+    fly: ?loadout.Result,
+    main_menu,
+};
 
 /// What the rooms run with.
 pub const Driver = struct {
@@ -46,6 +51,15 @@ pub const Driver = struct {
     lines: ?*const openreliant.hog.Archive,
     /// The screenshots the briefing's O key saves.
     screenshots: *game.xtrabits.screenshot.Screenshots,
+    /// The texture cache, which the loadout decodes its own textures from.
+    cache: tcache.Cache,
+    /// The campaign's saved loadout, which the loadout starts from and keeps the ship chosen in.
+    saved: *loadout.Saved,
+    /// The ship types' stats, which the loadout shows their figures of.
+    stats: *const game.create.Stats,
+    /// The campaign's tier and the pilot's rank, which set the ships the loadout offers.
+    tier: u2,
+    rank: game.gameflow.Rank,
     /// The front end's pointer, which the rooms' follows, and the timer's count it last moved on
     /// at.
     pointer: canvas.Pointer = .{},
@@ -76,13 +90,28 @@ pub const Driver = struct {
     /// quits meanwhile.
     pub fn loadoutBriefing(driver: *Driver, mission: u16) !bool {
         driver.startTimer();
-        return driver.brief(mission, true);
+        return try driver.brief(mission, true) != null;
     }
 
     /// The timer counted from now, as the loops step by it.
     fn startTimer(driver: *Driver) void {
         driver.clock.start(platform.window.ticks());
         driver.ticks = platform.window.ticks();
+    }
+
+    /// What the briefing's loadout before mission `mission` reads, plays and draws with.
+    fn loadoutContext(driver: *Driver, mission: u16) loadout.Context {
+        return .{
+            .rooms = driver.context(),
+            .cache = driver.cache,
+            .strings = driver.strings,
+            .stats = driver.stats,
+            .mission = mission,
+            .tier = driver.tier,
+            .rank = driver.rank,
+            .saved = driver.saved,
+            .hardware = driver.movies.presenter.screen.* != .software,
+        };
     }
 
     fn context(driver: *Driver) rooms.Context {
@@ -157,33 +186,47 @@ pub const Driver = struct {
                 try driver.present(.{ .rooms = &inside });
             }
         }
-        return if (try driver.brief(mission, false)) .fly else null;
+        return driver.brief(mission, false);
     }
 
     /// The briefing (`interface_briefing`) before mission `mission`, in its loop, from the
-    /// loadout where `from_loadout` has it: its door drawn for the frame it loads after, and the
-    /// movies of its way in played as it comes to them. False where the game quits meanwhile.
-    fn brief(driver: *Driver, mission: u16, from_loadout: bool) !bool {
-        var meeting: briefing.Briefing = .open(driver.context(), mission, from_loadout);
+    /// loadout where `from_loadout` has it: its door drawn for the frame it loads after, the
+    /// movies of its way in played as it comes to them, and its loadout run, with the in-game
+    /// options its Escape opens. How it ends: the mission flown, in the ship the loadout chose; the
+    /// main menu; or null where the game quits meanwhile.
+    fn brief(driver: *Driver, mission: u16, from_loadout: bool) !?End {
+        var meeting: briefing.Briefing = .open(driver.context(), mission, from_loadout, driver.loadoutContext(mission));
         defer meeting.close();
         try driver.present(.{ .briefing = &meeting });
         while (true) {
             const active = driver.active;
-            if (!try driver.pump()) return false;
+            if (!try driver.pump()) return null;
             if (driver.active != active) meeting.pause(!driver.active, platform.window.nanoseconds());
+            const pointer = driver.pointer;
             const step = meeting.pass(.{
                 .keyboard = &driver.movies.devices.keyboard,
-                .right = driver.pointer.right_down,
+                .right = pointer.right_down,
                 .ticks = driver.clock.game_ticks,
+                .hologram = .{ .now = milliseconds(), .mouse = .{ .at = pointer.at, .left = pointer.down, .right = pointer.right_down } },
             });
             // O saves the screen as it stands, before what the pass leads to.
             if (meeting.screenshot) driver.movies.presenter.screen.saveScreenshot(driver.movies.gpa, driver.screenshots);
             if (step) |next| switch (next) {
                 .movie => |name| {
-                    _ = try driver.movies.play(name, .over_screen_from_disc) orelse return false;
+                    _ = try driver.movies.play(name, .over_screen_from_disc) orelse return null;
                     continue;
                 },
-                .over => return true,
+                .over => return .{ .fly = meeting.result },
+                .options => {
+                    const choice = try driver.options() orelse return null;
+                    if (choice == .quit) return null;
+                    if (meeting.afterOptions(choice, milliseconds())) |after| switch (after) {
+                        .main_menu => return .main_menu,
+                        else => {},
+                    };
+                    continue;
+                },
+                .main_menu => return .main_menu,
             };
             meeting.advance(platform.window.nanoseconds(), driver.clock.game_ticks);
             try driver.present(.{ .briefing = &meeting });
@@ -238,12 +281,20 @@ pub const Driver = struct {
         if (active) driver.sound.resumeAll() else driver.sound.pauseAll();
     }
 
-    /// Draws a frame of `screen` and puts it on the window, at the frame rate asked for.
+    /// Draws a frame of `screen` and puts it on the window, at the frame rate asked for: over the
+    /// loadout's hologram where the briefing shows it.
     fn present(driver: *Driver, screen: Shown.Screen) !void {
         const presenter = driver.movies.presenter;
         const pixels = try presenter.size();
         var shown: Shown = .{ .driver = driver, .window = pixels, .screen = screen };
-        try presenter.present(pixels, shown.overlay());
+        const hologram = switch (screen) {
+            .briefing => |meeting| meeting.shownHologram(),
+            else => null,
+        };
+        if (hologram) |shown_hologram| {
+            var view = shown_hologram.viewIn(pixels);
+            try presenter.presentScene(pixels, &view, &shown_hologram.scene, shown.overlay());
+        } else try presenter.present(pixels, shown.overlay());
         if (driver.movies.frame_rate) |rate| driver.movies.pacer.wait(rate);
     }
 
@@ -258,6 +309,11 @@ pub const Driver = struct {
         };
     }
 };
+
+/// The clock's milliseconds, which the loadout's animations run by (`timeGetTime`).
+fn milliseconds() u32 {
+    return @truncate(platform.window.nanoseconds() / std.time.ns_per_ms);
+}
 
 /// The in-game options, and what they draw with: their background and shapes, and ABOUT
 /// STARLANCER's.

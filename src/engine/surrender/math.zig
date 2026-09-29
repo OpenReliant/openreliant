@@ -355,9 +355,15 @@ pub fn lookAt(direction: Vector) Matrix {
     };
 }
 
-fn expectVector(expected: Vector, actual: Vector) !void {
-    inline for (0..3) |i| try std.testing.expectApproxEqAbs(expected[i], actual[i], 1e-5);
-}
+/// What the tests of the modules that work with vectors share.
+pub const testing = struct {
+    /// Whether `actual` is `expected`, each of its axes within a hundred-thousandth.
+    pub fn expectVector(expected: Vector, actual: Vector) !void {
+        inline for (0..3) |i| try std.testing.expectApproxEqAbs(expected[i], actual[i], 1e-5);
+    }
+};
+
+const expectVector = testing.expectVector;
 
 test lookAt {
     for ([_]Vector{ .{ 0, 0, 1 }, .{ 1, -0.5, 0.2 }, .{ -1, 0.5, 0 }, .{ 0.2, 0.9, -0.3 } }) |d| {

@@ -85,7 +85,8 @@ The loader copies `0x40` to `0x5C` into the ship's flight model in the order spe
 diffs pair them. It also derives `0x40 / 0x50` per ship.
 
 The loadout screen places each ship on a bar between the minimum and maximum of that stat across the
-ships it lists: the Alliance fighters the player can fly, and in a second list Coalition fighters.
+ships it lists: the Alliance fighters the player can fly, and in a second list Coalition fighters
+([Loadout](../engine/loadout.md#the-figures)).
 
 ## Guns
 

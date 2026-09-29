@@ -12,7 +12,7 @@ OpenReliant opens in the front end unless `--mission` names a mission. The pilot
 
 Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, the pilot roster with SET GAME DIFFICULTY, the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, and the movies around a mission ([Movies](movies.md)). Not yet:
 
-- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them), the loadout among them ([#44](https://github.com/vdmkenny/openreliant/issues/44)). MULTI PLAYER ([#404](https://github.com/vdmkenny/openreliant/issues/404)) and GAME OPTIONS ([#400](https://github.com/vdmkenny/openreliant/issues/400)) stay on the main menu, and LOAD GAME ([#75](https://github.com/vdmkenny/openreliant/issues/75)) on the pilot roster.
+- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported but for its missile page and its internal guns view ([Loadout](loadout.md)). MULTI PLAYER ([#404](https://github.com/vdmkenny/openreliant/issues/404)) and GAME OPTIONS ([#400](https://github.com/vdmkenny/openreliant/issues/400)) stay on the main menu, and LOAD GAME ([#75](https://github.com/vdmkenny/openreliant/issues/75)) on the pilot roster.
 - The debriefing after a mission, the ITAC's ([#419](https://github.com/vdmkenny/openreliant/issues/419)), which the campaign's way on opens ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
@@ -119,7 +119,7 @@ With `developer_mode` set:
 
 - A number key types a digit of `mission_number`: after one digit it adds a second, after two it starts again.
 - Enter with Shift flies the mission without its briefing, in ship type 0, as Shift with F1 does (`skip_briefing`).
-- Enter with Control leads to the mission's briefing from the loadout on (`briefing_from_loadout`, [Briefing](briefing.md)), in ship type 0 and the campaign's tier 0, and from there back to the main menu. OpenReliant, without the loadout, shows Enriquez's last word.
+- Enter with Control leads to the mission's briefing from the loadout on (`briefing_from_loadout`, [Briefing](briefing.md)), in ship type 0 and the campaign's tier 0, and from there back to the main menu.
 - Shift with F1 to F10, F11 or F12 flies it without its briefing, in ship type 0 to 11.
 
 ### Drawing

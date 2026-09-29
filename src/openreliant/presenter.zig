@@ -73,9 +73,15 @@ pub const Presenter = struct {
 
     /// Draws a frame `pixels` in size of `overlay` alone and puts it on the window.
     pub fn present(presenter: *Presenter, pixels: [2]u32, overlay: srcore.Overlay) !void {
+        return presenter.presentScene(pixels, presenter.context, &presenter.scene, overlay);
+    }
+
+    /// Draws a frame `pixels` in size of `scene`, as the camera and the projection of `context`
+    /// have it and over its background, with `overlay` over it, and puts it on the window.
+    pub fn presentScene(presenter: *Presenter, pixels: [2]u32, context: *srapi.Context, scene: *srcore.Scene, overlay: srcore.Overlay) !void {
         _ = presenter.frame_arena.reset(.retain_capacity);
         const arena = presenter.frame_arena.allocator();
-        try srcore.render(arena, presenter.context, &presenter.scene, presenter.driver.interface(), overlay);
+        try srcore.render(arena, context, scene, presenter.driver.interface(), overlay);
         if (presenter.screen.* == .software) try presenter.window.present(try presenter.screen.software.rgba(arena), pixels[0], pixels[1]);
     }
 };

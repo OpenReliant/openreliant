@@ -870,6 +870,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
     var front_resources: ?engine.genilib.interf.Resources = null;
     defer if (front_resources) |*open| open.close();
+    // The campaign's saved loadout, which `campaign_new` starts in the Predator. OpenReliant keeps
+    // it for the session, the campaign's saving not being ported.
+    var saved_loadout: engine.interface.loadout.Saved = .{};
     var in_front_end = options.mission == null;
     // The pilot as the game starts: the call sign the profile gives, as `campaign_new` reads it,
     // and the list of call signs, which `WinMain` reads and writes straight back (`0x004A919B`).
@@ -988,6 +991,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                     .speech = options.speech,
                     .lines = if (radio.archive) |*archive| archive else null,
                     .screenshots = &screenshots,
+                    .cache = cache,
+                    .saved = &saved_loadout,
+                    .stats = tables,
+                    .tier = objects.campaign_tier,
+                    .rank = player.rank,
                 };
                 const flight: game.interface.main_menu.Flight = switch (outcome) {
                     .quit => return,
@@ -995,7 +1003,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                     // START GAME: `WinMain` takes the campaign into the Reliant's rooms, whose
                     // briefing room's door leads to the briefing, and the mission.
                     .campaign => |mission| switch (try rooms.campaign(mission) orelse return) {
-                        .fly => .{ .mission = mission },
+                        .fly => |chosen| fly: {
+                            // The loadout's ship, but where `--ship` names one, and the tier it
+                            // raised the campaign's to.
+                            const result = chosen orelse break :fly .{ .mission = mission };
+                            objects.campaign_tier = result.tier;
+                            break :fly .{ .mission = mission, .ship = options.ship orelse result.ship };
+                        },
                         .main_menu => {
                             front.back();
                             continue;
@@ -1080,6 +1094,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                 if (over) {
                     game.main.missionRunEnd(world.player, objects.mission_number);
                     if (from_front_end) {
+                        // `WinMain` records the mission as it ends (`0x004A9FBA`), which promotes
+                        // the pilot (`mission_end_record`).
+                        game.gameflow.endMission(world.player, missionRating(&world));
                         if (!try backToFrontEnd(&play, &front, sound, objects, player.ending, &movies, &resources)) return;
                         in_front_end = true;
                         from_front_end = false;
@@ -1283,6 +1300,12 @@ fn waitBeforeLaunch(clock: *game.main.Clock, sound: *game.hog_snd.Sound) void {
     }
 }
 
+/// How the mission's script rates the mission (`mission_success`), a failure where no script runs.
+fn missionRating(world: *const game.gameobj.World) engine.vm.Variables.Outcome {
+    const variables = world.variables orelse return .failure;
+    return variables.mission_success;
+}
+
 /// Goes back to the front end as a mission it started ends as `ending`, or is left: the mission
 /// let go, out of the simulator, its sounds and music ended, what `play_landing_movie` plays where
 /// `WinMain` plays it (`Play.landing`), and the front end's main menu entered again
@@ -1419,7 +1442,7 @@ const Play = struct {
     /// Starts the mission again as an attempt ends, the kills kept where the ending keeps them, as
     /// when the ejected pilot is picked up by a nanny ship (`gameflow.endMission`).
     fn again(play: *Play, orders: game.aigeneric.Context) !void {
-        game.gameflow.endMission(orders.world.player);
+        game.gameflow.endMission(orders.world.player, missionRating(&orders.world));
         try play.start(orders);
     }
 

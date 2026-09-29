@@ -192,23 +192,192 @@ address	kind	name	type	comment
 005035e8	data	missile_flight_stats	FlightModel[11]	
 005037a0	data	missile_stats	MissileStats[11]	Every missile type's figures: the executable's own words and what stats_load_missiles reads of missilestats.bin
 0058a968	data	pilot_stats	PilotStats[194]	
-00441aa0	function	loadout_load		Preloads the loadout screen: stats, models, sounds
-00444f20	function	loadout_draw_stats		Draws the stat rows the layout table describes
-00426600	function	loadout_ship_bars_init		Sets the bar ranges from the listed ships, then computes every ship's bars
-00426700	function	loadout_ship_widen_ranges		
-00426790	function	loadout_ship_bars		
+00441aa0	function	loadout_load	void __fastcall (void *sr)	Loads the loadout as the briefing loads, but for mission 29: the tier raised to what the missions before reached, the ship and missile figures, ldsmp.fat, palette3, the ships' models with their green textures, the missiles' and gunships' with their red ones, their objects, the textures, the backdrop, fpanels.tga, the fonts, the disc, its glow, the panels and buttons placed, and the animations
+00444f20	function	loadout_draw_stats	void __fastcall (TextureImage **texture, int ship, int face)	Makes the finfo texture where face is 5, else binfo: a ship's class at (2, 12) and access at (2, 32), the eight rows of loadout_stat_layout from y 57, 15 apart, labels upper-cased, and its specials upper-cased and wrapped at (2, 180), in handels.fnt through loadout_text_remap
+00426600	function	loadout_ship_bars_init	void (void)	Starts the bar ranges from the first alliance and Coalition fighters of the ITAC lists, widens them over all 21 with loadout_ship_widen_ranges, then gives each fighter its bars with loadout_ship_bars
+00426700	function	loadout_ship_widen_ranges	void __fastcall (void *fighter)	Takes an ITAC fighter's max speed, yaw rate (into the friendly or the other sides' range by its side), inertia, shield power, shield recharge and armour class into the bar ranges
+00426790	function	loadout_ship_bars	void __fastcall (void *fighter)	Writes an ITAC fighter's bars, 3 to 10 segments each by range_scale, at +0x0E to +0x1A of its entry, and the low half of its afterburner fuel at +0x18
 00426900	function	ease_in	float10 (int unused, float from, float to, float at)	From from to to by the square of at
 00426920	function	ease_out	float10 (int unused, float from, float to, float at)	From from to to by the square root of at
 00426950	function	ease_rise_fall	float10 (int falling, float from, float to, float at)	From from up to to and back over at from 0 to 1: by the square root of twice at over the first half and one less the square of twice the rest after; falling, the other way
-0044b680	function	loadout_missile_bars_init		
-0044b710	function	loadout_missile_widen_ranges		
-0044b770	function	loadout_missile_bars		
-004504c0	function	range_widen		Widens a {min, max} pair to include a value
-004504f0	function	range_scale		Places a value within a {min, max} pair on n segments
-004ec020	data	loadout_stat_layout		Eight 8-byte rows: label string ID, display kind
+0044b680	function	loadout_missile_bars_init	void (void)	Starts the missile ranges from type 0, widens them over the 11 types, then writes each type's locking seconds (lock_time * 0.01, truncated) and bars into the loadout_missiles record of its number, the eleventh past the table's end
+0044b710	function	loadout_missile_widen_ranges	void __fastcall (int type)	Takes a missile type's speed, flight time times speed, and shield plus hull damage, but the Jackhammer's, into the missile ranges
+0044b770	function	loadout_missile_bars	void __fastcall (int type)	Writes a missile type's speed and range bars (3 to 10) and damage bar (1 to 8) into the loadout_missiles record of its number: no locking time for the Screamer and the Solomon, a damage of 10 for the Jackhammer, none of the bars for type 10
+004504c0	function	range_widen	void __fastcall (float *range, float value)	Widens a {min, max} pair to take in a value; a value below the least becomes the least without being compared with the most
+004504f0	function	range_scale	int __fastcall (float *range, int low, int high, float exponent, float value)	Where a value stands from low to high: its share of the way from the least to the most, raised to exponent, times high - low, plus low, truncated; high where the least is the most
+004ec020	data	loadout_stat_layout		A ship's eight rows, 8 bytes each: label string, kind byte (1 a number, 2 a bar of ten segments), suffix string or -1, and a byte telling missile_info_draw to show a figure of -1 as a dash
 004e5470	data	loadout_alliance_ships		0x44 bytes per ship; ship index at +0x40
 004e57a0	data	loadout_coalition_ships		
-004ec278	data	loadout_ship_stats		Per-ship loadout values, 0x22C bytes apart
+004ec278	data	loadout_ship_stats	int[8]	The first ship's figures, +0x1F8 of loadout_ships: its speed, acceleration, agility, shield power, shield recharge and armour bars and afterburner fuel, which loadout_load copies from its ITAC fighter, then its crew
+00444d60	function	panel_title_draw	void __fastcall (TextureImage **texture, int ship, int face)	Makes the fpanels texture where face is 7, else bpanels: fpanels.tga's pixels, then SHIPS AND LOADOUT at (17, 4) and the ship's name upper-cased at (17, 28), in ld_handel.fnt through loadout_title_remap
+00445b20	function	bar_segment_draw	void __fastcall (void *pane, int x0, int y0, int x1, int y1, char filled, int colour)	A bar's segment in palette entry 0xC9 with VFX_line_draw: filled, a line along each row from y0 to y1 - 1; else its outline, rows y0 and y1 taken; the colour argument is not read
+004436b0	function	loadout_palette	void (void)	Gives the device palette3 and its colour cube, and makes VFX's global palette of palette3 in the screen's pixel format, colour bits only
+00446160	function	loadout_image_convert	void __fastcall (TextureImage *image)	image_convert to the device's texture pixel format (sr + 0x1612), reached through the loadout's GenILib interface
+004497f0	function	slots_set	void __stdcall (float unused)	Sets loadout_chosen_slot to (23, -23, -6) and the twelve loadout_arc_slots from (-98, -23, -1) round to (96, -23, -1); its argument is not read
+0044b5e0	function	loadout_placements	void (void)	Puts the camera at (-2.8, -6.5, -16.85), turned by (-0.368, 0.067, 0.03), then each object loadout_placement_table names at its position, turned by its angles
+00444760	function	loadout_ships_create	void (void)	Makes the objects of the ships the loadout offers: as many as the more of loadout_ships_by_tier and loadout_ships_by_rank say, the first in arc slot (12 - n) / 2
+004ec080	data	loadout_ships		The loadout's 12 ships, 0x22C bytes each, a ship's index its type: name string, model (250 bytes), guns model at +0xFC (250 bytes), class byte at +0x1F6, access byte at +0x1F7, eight figures from +0x1F8, specials bits at +0x218, four guns of a string and a count at +0x21C ending at -1
+004ec060	data	loadout_missile_layout		A missile's four rows, laid out as loadout_stat_layout's: Locking Time, Speed, Range, Damage
+004edaa0	data	loadout_missiles		The loadout's 10 missiles, 0x110 bytes each: name string, model (250 bytes), description string at +0xFC, then its locking seconds and speed, range and damage bars from +0x100, which loadout_missile_bars_init writes
+004eda90	data	loadout_special_names	short[8]	The strings that name a ship's specials, bit by bit: Reverse Thrust, Constant ECM, Tractor Beam, Nova Cannon, Spectral Shields, Blind Fire, Cloaking Device, Super Charge
+004ee540	data	loadout_gun_descriptions	short[55]	The guns 0x238 to 0x242, five strings each: power, kind, range, fire rate, and energy drain or -1; guns_draw runs them together into a sentence
+004ea2d8	data	loadout_ship_scales	float[12]	The scale the hologram shows each ship's model at
+004ea308	data	loadout_text_remap	byte[16]	The palette3 entries the info panels' text takes for each coverage level: 0xFF, clear, for level 0, then greens up to 0xC9, the bars' colour
+00523d64	data	loadout_title_remap	byte[16]	loadout_text_remap the other way round, which loadout_load makes, level 0 clear and level 15 black: the title's colours
+004ea408	data	loadout_ships_by_tier	int[4]	How many ships each campaign tier offers: 4, 7, 10, 12
+004ea418	data	loadout_ships_by_rank	int[9]	How many ships each pilot rank offers: 4 to 12
+004ea448	data	loadout_missile_masks	uint[4]	The missiles each campaign tier adds, a bit per missile; loadout_load ORs each with those before it
+004ea458	data	loadout_missile_limits	int[10]	The most of each missile a ship carries and has in flight at once: 999, but 3 Jackhammers
+004ea480	data	loadout_missile_slots	int[40]	For each campaign tier, the arc slot each missile's icon takes on the missiles page, or -1 where the tier doesn't offer it
+004ea520	data	loadout_placement_table		The scene's objects, 0x2C bytes each: a name of up to 20 bytes, a position at +0x14 and angles at +0x20, ending at an empty name
+0051d38c	data	ship_speed_range	float[2]	The least and the most max speed of the ITAC's fighters, which the loadout's speed bars measure against
+0051d3a4	data	ship_agility_range	float[2]	The least and the most yaw rate of the ITAC's fighters on the player's side
+0051d42c	data	ship_other_agility_range	float[2]	The least and the most yaw rate of the ITAC's fighters on the other sides
+0051d3b4	data	ship_acceleration_range	float[2]	The least and the most inertia of the ITAC's fighters
+0051d440	data	ship_shield_power_range	float[2]	The least and the most shield power of the ITAC's fighters
+0051d438	data	ship_shield_recharge_range	float[2]	The least and the most shield recharge of the ITAC's fighters
+0051d3ac	data	ship_armor_range	float[2]	The least and the most armour class of the ITAC's fighters
+0052375c	data	missile_speed_range	float[2]	The least and the most speed of the missile types
+00524728	data	missile_range_range	float[2]	The least and the most flight time times speed of the missile types
+00524738	data	missile_damage_range	float[2]	The least and the most shield plus hull damage of the missile types, the Jackhammer's left out
+005240b0	data	loadout_arc_slots		The twelve slots round the disc's arc, 0x1C bytes each, a position at +4, which slots_set sets
+005245f0	data	loadout_chosen_slot		The chosen ship's slot, a position at +4, which slots_set sets
+00523964	data	loadout_title_font	void *	ld_handel.fnt, opened: the title's font
+00523724	data	loadout_info_font	void *	handels.fnt, opened: the info panel's font
+00524258	data	loadout_palette3	byte *	palette3.tga's palette, which the device and VFX take while the loadout runs
+005246d0	data	loadout_colour_cube	void *	palette3.ccb, the colour cube the device takes with palette3
+00523960	data	loadout_panels_pixels	uint *	fpanels.tga's pixels, top row first, which panel_title_draw copies into each title texture
+00523ac0	data	loadout_vfx_window	void *	The VFX window the panel functions build over a texture's pixels
+00523cec	data	loadout_vfx_pane	void *	The VFX pane over the whole of loadout_vfx_window
+00594858	data	vfx_string_draw	void *	VFX_string_draw, looked up out of the VFX library
+0044b870	function	missiles_available	void (void)	Shows the icon of each missile the campaign tier offers while fewer than its limit (loadout_missile_limits) are on the ship or in flight, and hides the others
+00424460	function	cursor_create	void * __fastcall (void *texture)	GenILib's 3D cursor: its mesh textured, lit and opaque, a lit scene object named Cursor Mesh at z -20 and scale 3, made the interface's cursor, and an I3DOBJECT that is not clickable over it, added on layer 2 into the scene
+004244e0	function	cursor_mesh_build	void * (void)	The 3D cursor's mesh: ten triangles over seven vertices, a small pointer from its tip at the origin to 2.4 down Y, texture coordinates all nought
+00426a30	function	i3dobject_create	void * __fastcall (int kind, char *tooltip, char clickable)	An I3DOBJECT, 0x48 bytes: its kind, a copy of the tooltip where given (30 bytes), clickable or not, shown, standing for nothing yet
+00426b30	function	i3dobject_hit_tree	bool __fastcall (void *node, int x, int y)	Whether the pointer lies on a projected triangle of any shown part of a GameObject's node tree
+00426dd0	function	frect_holds	bool __fastcall (void *rect, int x, int y)	Whether a point lies within a FRECT, its edges included
+00426e20	function	i3dobject_hit	bool __fastcall (void *object, int x, int y)	Whether the pointer lies on an I3DOBJECT: within its rectangle first, then on a triangle of its projected mesh or its tree's
+00427080	function	point_in_triangle	bool __fastcall (int x, int y, float *a, float *b, float *c)	Whether a point lies within a triangle on the screen, edges included; a triangle of doubled area under 1e-4 holds nothing
+004271c0	function	i3dobject_rect_update	void __fastcall (void *object)	Makes a tree object's screen rectangle again round every corner of its parts' drawn polygons
+00427200	function	i3dobject_rect_grow	void __fastcall (void *object, void *node)	Grows a tree object's rectangle round a node's drawn polygons, and its children's
+004274f0	function	i3dkeyinfo_create	void * (void)	An I3DKEYINFO, 0x2C bytes: place and angles nought, scale 1, no vertices or colours
+00427570	function	i3dframe_create	void * __fastcall (void *anim)	An I3DFRAME, 0x34 bytes, of an animation: no eases and no key yet
+004275d0	function	i3dframe_key	void __fastcall (void *frame, void *scene_object)	Gives a frame its key: the scene object's place, the angles in ESI, the scale in EBX, and a copy of its mesh's vertices
+004276a0	function	i3dframe_step	void * __fastcall (void *frame, int now)	Moves a frame's object each eased property of the way from its key to the next frame's, by the time since the frame began over its length; calls the step and share callbacks; at its end, the next frame or i3dframe_end
+004279b0	function	i3dframe_end	void * __fastcall (void *frame, int now)	A frame's end: the frame to go on to, where there is one; at the animation's last, played again, turned round, or ended with its end callback
+00427a40	function	i3danim_create	void * __fastcall (int user)	An I3DANIM, 0x5C bytes, with no frames, reset to play forward
+00427a90	function	i3danim_free	void __fastcall (void *anim)	Frees an animation and its frames
+00427ac0	function	i3danim_reset	void __fastcall (void *anim, int direction)	Stops an animation to play the given way from its start: no frame playing, its share not reached, each frame's last scale that of the key it starts from
+00427b10	function	i3danim_step	void __fastcall (void *anim)	Steps the frame playing, starting the next where it ends into one
+00427b30	function	i3danim_add_frame	void __fastcall (void *anim, void *frame)	Adds a frame after an animation's last
+00427b60	function	i3danim_start	void __fastcall (void *anim)	Plays an animation from its first frame forward or the one before its last going back, where no frame plays, the frame starting now
+00427bb0	function	i3danim_stop	void __fastcall (void *anim)	Stops an animation where it is
+00427bd0	function	iinterface_create	void * __fastcall (void *sr)	An IINTERFACE, 0x60 bytes, over sr: no objects or animations, the pointer at (320, 240), not busy
+00427c30	function	iinterface_free	void __fastcall (void *iinterface)	Frees an interface
+00427c40	function	iinterface_frame	void __fastcall (void *iinterface, void *mouse)	Steps every animation, then, unless the interface is busy, follows the pointer
+00427c70	function	iinterface_add_object	void __fastcall (void *iinterface, void *object, int layer, char to_scene)	Adds an object at the end of the list; where asked and shown, puts it in the scene on the layer and names it after its scene object, or its tree's first part
+00427d90	function	iinterface_remove_object	void __fastcall (void *iinterface, void *object)	Takes an object out of the list; it is no longer the one hovered or pressed
+00427de0	function	iinterface_add_anim	void __fastcall (void *iinterface, void *anim)	Adds an animation at the end of the list
+00427e10	function	iinterface_remove_anim	void __fastcall (void *iinterface, void *anim)	Takes an animation out of the list
+00427e40	function	iinterface_object_at	void * __fastcall (void *iinterface, int index)	The object at a place in the list
+00427e50	function	iinterface_object_index	int __fastcall (void *iinterface, void *object)	An object's place in the list, or -1
+00427e70	function	iinterface_step_anims	void __fastcall (void *iinterface)	Steps every animation of the list
+00427ea0	function	iinterface_pointer	void __fastcall (void *iinterface, void *mouse)	Follows the pointer: moves it by the mouse and keeps it on the screen, calls the press of the first clickable object under it and the release of the pressed one, makes the object under it the hovered one, and puts the 3D cursor 1.5 before the camera at its place, spinning once every 1200 ms
+004281e0	function	iinterface_scene	void __fastcall (void *iinterface, char clickable)	Empties the scene but for its lights and puts each object shown in it, or with clickable each clickable one too
+00428250	function	object_face_camera	void __fastcall (void *scene_object, void *camera)	Turns a scene object with the camera about its place
+00428290	function	ifuncstack_push	void __fastcall (void *iinterface, void *function, void *argument)	Pushes a function and its argument, to be called once an animation ends
+004282e0	function	ifuncstack_run	void __fastcall (void *iinterface)	Calls the function last pushed and takes it off the stack, if any
+00428300	function	node_tree_scale_all	void __fastcall (void *node, float factor)	node_tree_scale with flags 3: the scene objects' scales and their places
+00428320	function	node_tree_scale	void __fastcall (void *node, int flags, float factor)	Scales each part of a node tree by a factor, and its place from what it hangs from with it (node_scale)
+00428390	function	node_scale	void __fastcall (void *node, int flags, float factor)	A child node's part scaled, and its children's
+004c1ab0	function	sr_atan2_pair	float (float y, float x)	sr_atan2 of its two arguments, the caller popping them
+00442720	function	loadout_enter	void __fastcall (void *sr)	Once the movie into the hologram has played: near plane 1, far 1000, palette3 given to the device, page 1, the backdrop as the device's background, the five lights, the ships placed, loadout.ut spoken in mission 1, the CAMERA object, the ships scaled back from the arc's share, the first Button Appears and the intro started, the four portals made
+00442cc0	function	loadout_leave	void (void)	Writes the chosen ship and its racks to player_loadouts and the racks to the campaign's saved loadout; frees the textures, fonts, objects, animations, lights, portals and models; gives the device its palette back; ends every sound and reads stdsmp.fat again
+004433c0	function	loadout_frame	bool __fastcall (int now, void *mouse)	A frame of the loadout: mission 1's exit blinking, mission 23's ships but the Shroud put away, the scene made, the interface stepped, the cursor shown while not busy, the ships' rectangles made again once due, the red light faded, the chosen ship turned, the hover's sound, the portals put in the scene, O's screenshot; returns loadout_running
+00443760	function	loadout_resume	void (void)	After the in-game options' BACK: palette3 again, and once the disc has spun in, the page's still part grabbed as the background again and the interface free
+004439d0	function	loadout_reset	void (void)	Clears the loadout's globals and picks the chosen ship: the Shroud in mission 23, the Predator in mission 1, the campaign's saved one otherwise
+00443bb0	function	loadout_scene	void __fastcall (char shown_trees)	Empties the scene but for its lights and puts the interface's objects shown in it, and every tree unless shown_trees
+00443c20	function	loadout_panels_create	void (void)	The panels' textures drawn with the chosen ship; PnlShipInfo, PnlShipName and PnlPageTitle; the six buttons with their tooltips, press and releases, too small to see until they appear; the two scrollers facing away; the ship clipper and the panel clip object; the two Flip Shipinfo animations
+00444310	function	loadout_disc_create	void (void)	The disc: a square of 20 in four quarters textured plate-nw to plate-se, unlit and added, named Disc and clickable; the placements; Spin Disc
+00444720	function	loadout_glow_create	void (void)	Disc Glow, a 10 square of hologlow, and Glow Appears
+00444830	function	loadout_intro	void (void)	The interface busy; each ship a thousandth of its size at the coarse level, the chosen one at its finest; Spin Disc, Glow Appears, every Ship zooms with disc and the panels' zooms started; the hum looping and the intro's sound
+00444980	function	panel_create	void * __fastcall (char *name, void *front, float width, float height, float top, float left, float bottom, float right, void *back, char two_sided)	A textured square of the hologram: mesh_build_square, the texture over the given part of the image each edge half a texel on, the back's turned round, unlit and added; a scene object of the name and a clickable I3DOBJECT named Panel added into the scene
+00445bd0	function	ship_object_create	void __thiscall (int ship, float x, float y, float z)	A ship's GameObject of its model, type -1, its parts added and linked, placed; every group lit and opaque, the parts' levels taken away, a Missiles texture swapped for gmissiles
+00445fe0	function	node_tree_lit_blend	void __fastcall (void *node, char lit, char blend)	Every group of the drawn mesh of each part of a node tree made one pass, lit or not and blended as asked
+00446070	function	node_tree_light_mask	void __fastcall (void *node, uint mask)	Every part's light mask set
+00446180	function	capture_background	void * (void)	Renders the scene with nothing under the pointer, presents it and grabs the screen as an image of palette3, which becomes the device's background
+004461e0	function	anim_spin_disc	void * __fastcall (void *disc)	Spin Disc: the disc spinning in over 2000 ms from the glow's place 2 nearer the camera, a turn behind about Z and a thousandth of its size; ships_place each step; its end 0x004466C0
+00446310	function	anim_ship_zoom	void * __fastcall (int ship)	Ship zooms with disc: a ship growing a thousand times over 2000 ms, easing in
+004463e0	function	anim_button_appears	void * __fastcall (void *button)	Button Appears: a button flying out of the glow over 500 ms, a turn about Y and growing from a thousandth; at a fifth of its way 0x00446670
+00446510	function	anim_glow_appears	void * __fastcall (void *glow)	Glow Appears: the glow growing from a thousandth over 2000 ms, eased by the cosine
+00446670	function	button_appears_next	void __fastcall (void *anim)	Button Appears at a fifth of its way: the next of the first four buttons' appearing started the same way
+004466c0	function	spin_disc_end	void __fastcall (void *anim)	Spin Disc's end: spun away, sound 6 and loadout_running cleared; spun in, the ship page built, the still part grabbed as the background, the cursor made and the chosen ship's missiles fitted
+00446ef0	function	select_ship_end	void __fastcall (void *anim)	Select Ship's end: the turn from now, the interface free, the attached missiles freed and the tier's default fitted, and a waiting guns view opened
+00446f70	function	deselect_ship_end	void __fastcall (void *anim)	Deselect Ship's end: the interface free, and each ship's rectangle made again
+004470f0	function	ships_hide_but_chosen	void (void)	Puts away every ship but the chosen
+00447130	function	missiles_hide	void (void)	Puts away every missile's icon
+00447160	function	ship_spin	void (void)	The chosen ship's turn at this frame's time: a turn every four seconds about Y, tilted -0.75 about X; given to it and its gunship while no selection flies it and the interface is free or the ship has turned back, or to Ship to Belly Up's first key
+00447270	function	button_press	void __stdcall (int button, int x, int y, int index)	A button's press: sound 1 at 40, and the button 0.2 further from the camera
+00447500	function	button_release	void __stdcall (int button, int x, int y, int index)	A button's release: the pressed button moved back
+00447530	function	button_default_release	void __stdcall (int button, int x, int y, int index)	Use Default Loadout's release: the tier's first missile to every hardpoint
+00447560	function	button_remove_all_release	void __stdcall (int button, int x, int y, int index)	Remove All Missiles' release: every rack emptied and the markers shown
+004475d0	function	button_ships_release	void __stdcall (int button, int x, int y, int index)	Ship Selection's release: the guns view closed, else page 1
+00447630	function	button_missiles_release	void __stdcall (int button, int x, int y, int index)	Missile Loadout's release: page 2
+00447670	function	button_guns_release	void __stdcall (int button, int x, int y, int index)	View Internal Guns' release: from page 2 back to page 1 with the guns view to follow, else the guns view turned on or off
+004476f0	function	button_exit_release	void __stdcall (int button, int x, int y, int index)	Exit Loadout Computer's release: loadout_exit, unless the interface is busy
+00447730	function	loadout_exit	void (void)	Once the disc has spun in: the speech stopped, everything shown spinning and zooming back into the glow, easing out, the chosen ship kept in the campaign's saved loadout, the hum ended and sound 2
+00447c00	function	ship_press	void __stdcall (int button, int x, int y, int index)	A ship's press: unless a selection flies, the ship at that place of the interface's list selected, with the guns view closed first
+00447df0	function	loadout_ship_count	int (void)	How many ships the loadout offers
+00447e00	function	stack_select_ship	void __fastcall (int *ship)	A function-stack entry: ship_select of the ship it holds, which it frees
+00447e20	function	ship_select	void __fastcall (int ship)	Another ship chosen: the red light fading out, the missiles removed, the rest of the ships grabbed as the background, the panels' fronts drawn with the old ship and their backs with the new and flipped, Select Ship and Deselect Ship flown, sound 8, the interface busy
+00448160	function	anim_select_ship	void * __fastcall (int ship)	Select Ship: a ship flying from its slot at the arc's share of its scale to the chosen spot at its own, tilted back, over 1500 ms
+00448320	function	anim_deselect_ship	void * __fastcall (int ship)	Deselect Ship: the chosen ship flying from where it turns back to its slot, at the arc's share of its scale, over 1500 ms
+004484a0	function	anim_flip_ship_name	void * (void)	Flip Shipinfo of PnlShipName: turning over about X over 1500 ms; noop half way
+004485a0	function	anim_flip_ship_info	void * (void)	Flip Shipinfo of PnlShipInfo: turning over about X over 1500 ms
+00448a40	function	anim_zoom_hardpoint	void * __fastcall (void *object)	Zoom Hardpoint: an object growing from a thousandth of its size over 400 ms as it turns to (-pi/2, pi, 0)
+00449200	function	disc_portal_ship	void __fastcall (void *ship)	The disc portal put in the disc's plane, facing along its axis, and set on a ship's parts
+00449250	function	disc_portal_missile	void __fastcall (void *missile)	The disc portal put in the disc's plane, and set on a missile's parts
+004492a0	function	node_tree_portal	void __fastcall (void *node, void *portal)	Every part of a node tree clipped by a portal, or with none clipped no more
+004493b0	function	ships_place	void (void)	Every ship put on its slot of the disc as it stands: the chosen ship on the chosen spot, the rest on the arc facing away from its axis, the slots scaled by the disc's size while it spins
+00449690	function	slot_place	void __fastcall (void *slot, char face, float *out, float across)	Where a slot stands on the disc: across and down scaled, turned as the disc is from its centre; where face, its angles facing away from the disc's axis
+00449750	function	face_away	void __fastcall (float *matrix, float *from, float *to, float roll)	An orientation at a point facing away from another: turned about Y toward it, about X by pi less its rise, and rolled
+00449ab0	function	stack_switch_page	void __fastcall (int *page)	A function-stack entry: page_switch to the page it holds, which it frees
+00449d90	function	page_switch	void __fastcall (int page)	Another page: to the missiles, the ship belly up and the other ships sinking as the missiles rise; to the ships, the markers going, the ship turning back, the missiles sinking and the ships rising
+0044b080	function	scene_object_find	void * __fastcall (char *name)	The first scene object of sr's list with the name
+0044b0f0	function	node_tree_to_scene	void __fastcall (void *node, uint skip, int flags)	Puts each shown part of a node tree in the scene, its frame placed first
+0044b200	function	loadout_draw	void (void)	The loadout's render hook, while the interface is free: the tooltip of the object under the pointer, but the chosen ship's, centred at (320, 458) in ld_handel.fnt through loadout_text_remap
+0044b2f0	function	node_tree_levels_clear	void __fastcall (void *node)	Every part's levels taken away, so that it keeps the mesh it is given
+0044b340	function	node_tree_level	void __fastcall (void *node, int level)	Every part given its mesh of a level of detail, or its coarsest where it has fewer
+0044b440	function	node_tree_gmissiles	void __fastcall (void *node)	A part whose first group's texture is Missiles given gmissiles, the first such texture kept
+0044b520	function	node_tree_gmissiles_undo	void __fastcall (void *node)	The gmissiles textures given back the one node_tree_gmissiles kept
+00523e68	data	loadout_ship	int	The ship the loadout has chosen, a ship type
+00523e84	data	loadout_ship_count_made	int	How many ships the loadout offers
+00524754	data	loadout_first_slot	int	The arc slot the first ship offered stands in
+0052461c	data	loadout_running	byte	Set as the loadout enters, cleared by the Spin Disc's end going back: the next frame returns false
+00524975	data	loadout_entered	byte	Whether loadout_enter has run and loadout_leave not yet
+005245e8	data	loadout_page	int	1 the ship page, 2 the missile page
+00524620	data	loadout_last_page	int	The page before
+00523eac	data	loadout_interface	void *	The loadout's IINTERFACE
+00523a54	data	loadout_backdrop	void *	The device's background as the loadout begins: rbackground.tga up to mission 18, background.tga after
+00523ce8	data	loadout_captured	void *	The still part of the page as capture_background grabbed it, the device's background since
+00524734	data	loadout_red_level	float	The red light's level, which it is drawn at twice
+00523aa0	data	loadout_red_fade	int	The way the red light fades: 1 up, -1 down, 0 still
+00523cf4	data	loadout_spin_start	int	When the chosen ship began turning
+00524758	data	loadout_spin	float[9]	The chosen ship's turn
+005246c8	data	loadout_now	int	This frame's time
+00523720	data	loadout_last	int	The last frame's time
+005246a4	data	loadout_last_hovered	void *	The object under the pointer at the last frame
+00523ea8	data	loadout_rect_countdown	int	Frames until each ship's rectangle is made again
+00523ab0	data	loadout_coarse_level	int	The level of detail the ships on the arc are drawn at while they move: 2 less the detail setting
+0052395c	data	loadout_speech_start	int	When mission 1's loadout began to say loadout.ut
+00524744	data	loadout_hum	int	The voice the hum plays on
+0052474c	data	loadout_disc_scale	float	The disc's scale as the ships were last placed; nothing reads it
+0052460c	data	loadout_spin_phase	int	The clock at the latest selection, modulo 4000; nothing reads it
+00523ac8	data	loadout_turned_back	byte	Set once the chosen ship has turned back from belly up
+005009d8	data	mission_tiers	byte[28]	The loadout tier each mission brings the campaign to: the 11th 1, the 19th 2, the 21st 3
+00562f18	data	campaign_saved_ship	short	The ship the pilot last chose in the loadout, which campaign_new makes the Predator and a restart keeps
+00562f1a	data	campaign_saved_racks	short[20]	The racks the loadout last left, a missile each or -1
+00562dec	data	pilot_rank	int	The pilot's rank, 0 to 8, by rank_kills
 004c7e20	function	hog_open	void * __fastcall (char *path)	Opens a .HOG archive (bigfile.cpp): the file, a Win32 handle to it, and its header and directory read whole; null unless it starts BIGF
 004c7f20	function	hog_close	void __fastcall (void *hog)	
 004c7f60	function	hog_read_file	void * __fastcall (void *hog, char *name)	Reads a file from the archive, expanding RefPack: the name less an extension beginning ut, from its last backslash on; a missing one is fatal (HOG bigread2)
@@ -229,7 +398,7 @@ address	kind	name	type	comment
 004826a0	function	sound_start	void __fastcall (void *bank, int index, int volume, int pitch, int loops, int pan, int voice)	Hands Miles the WAVE file at bank + offset, at its rate moved by pitch quarter tones and its volume scaled by Fxvolume and Mastervolume
 00565080	data	sound_voices	SoundVoice[16]	Voices, 0x20 bytes each
 005d6ca0	data	bank_stdsmp		stdsmp.fat
-00524748	data	bank_ldsmp		ldsmp.fat
+00524748	data	bank_ldsmp	void *	ldsmp.fat, the loadout's sounds
 0056654c	data	bank_betty		betty.fat: the cockpit's warnings
 0058cb10	data	bank_smp3d		smp3d.fat
 00507138	data	sound3d_eax_damping	float	EAX damping sound3d_init hands the 3D provider: 1

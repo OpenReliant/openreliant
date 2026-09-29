@@ -5,7 +5,7 @@
 //!
 //! Ported so far: the game's variables as a campaign begins and as each attempt at a mission
 //! starts (`restartPoint`), the call sign the pilot's profile gives (`profileCallSign`), and what a
-//! mission's end keeps of the pilot's kills (`endMission`).
+//! mission's end makes of the pilot's kills (`endMission`): the pilot's rank and the kills kept.
 
 const std = @import("std");
 
@@ -50,6 +50,12 @@ pub fn profileCallSign(bytes: []const u8) []const u8 {
     const name = bytes[@min(bytes.len, pilot_name_at)..@min(bytes.len, pilot_name_at + pilot_name_size)];
     return std.mem.sliceTo(name, 0);
 }
+
+/// The tier of the loadout each mission's end brings the campaign to, by mission from the first
+/// (`0x005009D8`, a byte a mission): the 11th's 1, the 19th's 2 and the 21st's 3, the rest none.
+/// The loadout raises `campaign_tier` to the highest of those before its mission, reading at most
+/// 28 (`loadout_load`, `0x00441AA9`).
+pub const mission_tiers = [28]u2{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0 };
 
 /// `mission_reset_variables` (`0x00475620`) before each attempt at a mission: clears the variables
 /// that belong to the attempt.
@@ -120,29 +126,80 @@ pub fn keepsKills(ending: Ending) bool {
     };
 }
 
-/// `mission_end_record` (`0x00475A90`) as a mission ends: keeps the pilot's kills, where the
-/// ending keeps them (`keepsKills`), for the next mission's start (`winmain.startMission`).
+/// `mission_end_record` (`0x00475A90`) as a mission ends, the script having rated it `rating`:
+/// nothing where the ending keeps no kills (`keepsKills`, `mission_ending` 1 or 3); where the
+/// script rated it a total failure, the ending becomes one (`0x00475CE5`); otherwise the pilot is
+/// promoted by the kills over the campaign (`promote`), and the kills are kept for the next
+/// mission's start (`winmain.startMission`).
+///
 /// **Not ported:** the rest of what it keeps and does, which the campaign needs: the mission's
-/// rating in `vm.Variables.last_success`, promoting the pilot by the kills each rank needs
-/// (`rank_kills`, 0, 35, 72, 115, 150, 200, 255, 275 and 300), the medals, the mission's rank and
-/// moving `mission_number` on ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
-pub fn endMission(player: *input.Player) void {
-    if (keepsKills(player.ending)) player.kills.kept = player.kills.count;
+/// rating in `vm.Variables.last_success`, the medals, the rank kept for the mission, the tier its
+/// end brings (`mission_tiers`, which the loadout raises the tier by meanwhile) and moving
+/// `mission_number` on ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+pub fn endMission(player: *input.Player, rating: vm.Variables.Outcome) void {
+    if (!keepsKills(player.ending)) return;
+    if (rating == .total_failure) {
+        player.ending = .total_failure;
+        return;
+    }
+    promote(player);
+    player.kills.kept = player.kills.count;
+}
+
+/// The kills each rank needs, from the first (`rank_kills`, `0x005009F4`).
+pub const rank_kills = [_]i32{ 0, 35, 72, 115, 150, 200, 255, 275, 300 };
+
+/// The pilot's ranks, from the first.
+pub const Rank = std.math.IntFittingRange(0, rank_kills.len - 1);
+
+/// `mission_end_record`'s promotion (`0x00475AE6` to `0x00475B14`): the pilot raised to the highest
+/// rank whose kills the campaign's reach, where it is above the pilot's own. A rank is never lost.
+pub fn promote(player: *input.Player) void {
+    var earned: Rank = 0;
+    for (rank_kills, 0..) |needed, rank| {
+        if (player.kills.count < needed) break;
+        earned = @intCast(rank);
+    }
+    player.rank = @max(player.rank, earned);
 }
 
 test endMission {
-    var player: input.Player = .{ .kills = .{ .count = 7, .kept = 2 } };
-    // Destroyed, or captured after ejecting, the attempt's kills are not kept.
+    var player: input.Player = .{ .kills = .{ .count = 40, .kept = 2 } };
+    // Destroyed, or captured after ejecting, the attempt's kills are not kept, nor the pilot
+    // promoted.
     player.ending = .destroyed;
-    endMission(&player);
+    endMission(&player, .success);
     try std.testing.expectEqual(2, player.kills.kept);
     player.ending = .captured;
-    endMission(&player);
+    endMission(&player, .success);
     try std.testing.expectEqual(2, player.kills.kept);
-    // Picked up, they are.
+    try std.testing.expectEqual(0, player.rank);
+    // A total failure keeps nothing, and becomes the mission's ending.
     player.ending = .rescued;
-    endMission(&player);
-    try std.testing.expectEqual(7, player.kills.kept);
+    endMission(&player, .total_failure);
+    try std.testing.expectEqual(2, player.kills.kept);
+    try std.testing.expectEqual(.total_failure, player.ending);
+    // Picked up, they are kept, and 40 kills make the pilot's rank 1.
+    player.ending = .rescued;
+    endMission(&player, .failure);
+    try std.testing.expectEqual(40, player.kills.kept);
+    try std.testing.expectEqual(1, player.rank);
+}
+
+test promote {
+    var player: input.Player = .{};
+    try std.testing.expectEqual(0, player.rank);
+    // Each rank at its kills exactly, and the last from 300 on.
+    player.kills.count = 72;
+    promote(&player);
+    try std.testing.expectEqual(2, player.rank);
+    player.kills.count = 1000;
+    promote(&player);
+    try std.testing.expectEqual(rank_kills.len - 1, player.rank);
+    // A rank earned is kept, whatever the kills.
+    player.kills.count = 0;
+    promote(&player);
+    try std.testing.expectEqual(rank_kills.len - 1, player.rank);
 }
 
 test profileCallSign {

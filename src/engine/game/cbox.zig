@@ -243,6 +243,18 @@ pub const Player = struct {
         player.file = &.{};
     }
 
+    /// The line playing stopped where it is (`AIL_stop_sample` on the speech sample), or where it
+    /// was stopped so, going on (`AIL_resume_sample`), as the in-game options open and close over
+    /// the loadout.
+    pub fn pause(player: Player, sound: *hog_snd.Sound, paused: bool) void {
+        if (player.file.len == 0) return;
+        const driver = sound.driver orelse return;
+        const handle = sound.speech orelse return;
+        if (paused) {
+            if (driver.sampleStatus(handle) == .playing) driver.stopSample(handle);
+        } else if (driver.sampleStatus(handle) == .stopped) driver.resumeSample(handle);
+    }
+
     /// `speech_playing`: whether a line plays.
     pub fn playing(player: Player, sound: *hog_snd.Sound) bool {
         _ = player;

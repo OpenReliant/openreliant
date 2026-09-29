@@ -19,6 +19,7 @@ const srapi = @import("../../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../../surrender/surrenderlib/srcore.zig");
 const srmesh = @import("../../surrender/surrenderlib/srmesh.zig");
+const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const objects = @import("../../game/objects.zig");
 const xtrabits = @import("../../game/xtrabits.zig");
 const ease = @import("ease.zig");
@@ -105,11 +106,31 @@ pub const Object = struct {
     /// `i3dobject_create` (`0x00426A30`): an object of `kind`, `clickable` or not, with a copy of
     /// `tooltip` where it has one, standing for nothing yet.
     pub fn create(kind: u32, tooltip: ?[]const u8, clickable: bool) Object {
-        return .{ .kind = kind, .tooltip = if (tooltip) |text| text[0..@min(text.len, tooltip_size - 1)] else null, .clickable = clickable };
+        var object: Object = .{ .kind = kind, .clickable = clickable };
+        object.setTooltip(tooltip);
+        return object;
+    }
+
+    /// A copy of `text` made its tooltip, as far as it keeps one (`tooltip_size`), or none; as its
+    /// creation takes one, and as the loadout gives each of its buttons its label (`0x00443EC6`
+    /// on).
+    pub fn setTooltip(object: *Object, text: ?[]const u8) void {
+        object.tooltip = if (text) |words| words[0..@min(words.len, tooltip_size - 1)] else null;
     }
 
     /// The most bytes of a tooltip an object keeps, its terminator's among them (`0x00426A93`).
     pub const tooltip_size = 30;
+
+    /// Puts it in the scene: a scene object on the world's layer, or the overlay's where it asks,
+    /// and a tree's parts as `tree_to_scene` puts them (`iinterface_scene`'s, and
+    /// `iinterface_add_object`'s).
+    pub fn addToScene(object: *Object, gpa: Allocator, scene: *srcore.Scene, tree_to_scene: TreeToScene) Allocator.Error!void {
+        switch (object.target) {
+            .none => {},
+            .mesh => |mesh| try xtrabits.sceneAdd(gpa, scene, .{ .mesh = mesh }, if (object.overlay) .overlay else .world),
+            .tree => |tree| try tree_to_scene(gpa, scene, tree),
+        }
+    }
 
     /// `i3dobject_hit` (`0x00426E20`): whether the pointer at `at` lies on the object as the
     /// camera of `context` sees it: within its rectangle, where it has one, then on a triangle of
@@ -130,21 +151,40 @@ pub const Object = struct {
         }
     }
 
+    /// Where its scene object, or its tree's root, stands, which a key made of it starts from
+    /// (`i3dframe_key`); the origin for an object that stands for nothing.
+    pub fn position(object: Object) Vector {
+        return switch (object.target) {
+            .none => @splat(0),
+            .mesh => |mesh| mesh.position,
+            .tree => |tree| tree.position,
+        };
+    }
+
+    /// Which way its scene object, or its tree's root, is turned.
+    pub fn orientation(object: Object) math.Matrix {
+        return switch (object.target) {
+            .none => math.identity,
+            .mesh => |mesh| mesh.orientation,
+            .tree => |tree| tree.orientation,
+        };
+    }
+
     /// Its scene object, or its tree's root, moved to `position`, as a frame's step moves it.
-    fn setPosition(object: *Object, position: Vector) void {
+    pub fn setPosition(object: *Object, at: Vector) void {
         switch (object.target) {
             .none => {},
-            .mesh => |mesh| mesh.position = position,
-            .tree => |tree| tree.position = position,
+            .mesh => |mesh| mesh.position = at,
+            .tree => |tree| tree.position = at,
         }
     }
 
     /// Its scene object, or its tree's root, turned to `orientation`.
-    fn setOrientation(object: *Object, orientation: math.Matrix) void {
+    pub fn setOrientation(object: *Object, turned: math.Matrix) void {
         switch (object.target) {
             .none => {},
-            .mesh => |mesh| mesh.orientation = orientation,
-            .tree => |tree| tree.orientation = orientation,
+            .mesh => |mesh| mesh.orientation = turned,
+            .tree => |tree| tree.orientation = turned,
         }
     }
 
@@ -173,6 +213,18 @@ pub const Object = struct {
         object.rect = if (first) null else rect;
     }
 };
+
+/// What puts a tree's parts in the scene, which the interface's creator gives it
+/// (`node_tree_to_scene`, which places each part's frame as it goes).
+pub const TreeToScene = *const fn (gpa: Allocator, scene: *srcore.Scene, tree: *objects.Model) Allocator.Error!void;
+
+/// The scene emptied but for its lights, as `iinterface_scene` and the loadout empty it before they
+/// put their objects in.
+pub fn clearScene(scene: *srcore.Scene) void {
+    for (&scene.layers.values) |*list| list.clearRetainingCapacity();
+    scene.casters.clearRetainingCapacity();
+    scene.portals.clearRetainingCapacity();
+}
 
 /// The pipeline's view of `mesh` from the camera of `context`, as the interface projects an object
 /// to find it (`SR_object_rotate`, `object_level_select`, `mesh_cull`, `mesh_list_marked`,
@@ -234,6 +286,12 @@ pub const Key = struct {
     position: Vector = @splat(0),
     angles: Vector = @splat(0),
     scale: f32 = 1,
+
+    /// `i3dframe_key` (`0x004275D0`): a key where `object` stands, turned by `angles`, at `scale`,
+    /// which a builder makes each frame's key of before it moves it elsewhere.
+    pub fn at(object: *const Object, angles: Vector, scale: f32) Key {
+        return .{ .position = object.position(), .angles = angles, .scale = scale };
+    }
 };
 
 /// An ease a frame moves a property of its object by, from its key to the next frame's.
@@ -547,12 +605,12 @@ pub const Interface = struct {
     }
 
     /// `iinterface_pointer` (`0x00427EA0`): the pointer at `mouse`'s place, kept on the screen; the
-    /// left button's press called on the first clickable object under it
-    /// (`Object.hit`), which becomes the pressed one, and its release on the pressed one; and, where
-    /// the pointer has moved with neither button down, the object under it made the hovered one,
-    /// calling its `enter` where nothing was hovered, and the one left behind's `leave`. The cursor
-    /// then stands `cursor_distance` before the camera at the pointer's place, turned with the
-    /// camera, and spins about its Y axis once every `cursor_turn` milliseconds.
+    /// left button's press called on the first clickable object under it (`Object.hit`), which
+    /// becomes the pressed one, and its release on the pressed one; and, where the pointer has
+    /// moved with neither button down, the object under it made the hovered one, calling its
+    /// `enter` where nothing was hovered, and the one left behind's `leave`. The cursor then stands
+    /// `cursor_distance` before the camera at the pointer's place, turned with the camera, and
+    /// spins about its Y axis once every `cursor_turn` milliseconds.
     fn follow(interface: *Interface, arena: Allocator, context: *const srapi.Context, now: u32, mouse: Mouse) Allocator.Error!void {
         const screen = context.projection.screen;
         interface.pointer = .{
@@ -615,20 +673,13 @@ pub const Interface = struct {
         cursor.orientation = math.fromAngles(angles[0], angles[1], angles[2]);
     }
 
-    /// `iinterface_scene` (`0x004281E0`): the scene emptied but for its lights, then each object
-    /// shown, or with `clickable` each clickable one too, put in it: a scene object on the world's
-    /// layer, or the overlay's where it asks, and a tree's parts (`loadout.treeToScene`).
-    pub fn scene(interface: *Interface, gpa: Allocator, scene_: *srcore.Scene, clickable: bool, tree_to_scene: *const fn (gpa: Allocator, scene: *srcore.Scene, tree: *objects.Model) Allocator.Error!void) Allocator.Error!void {
-        for (&scene_.layers.values) |*list| list.clearRetainingCapacity();
-        scene_.casters.clearRetainingCapacity();
-        scene_.portals.clearRetainingCapacity();
+    /// `iinterface_scene` (`0x004281E0`): the scene emptied but for its lights (`clearScene`), then
+    /// each object shown, or with `clickable` each clickable one too, put in it
+    /// (`Object.addToScene`).
+    pub fn scene(interface: *Interface, gpa: Allocator, scene_: *srcore.Scene, clickable: bool, tree_to_scene: TreeToScene) Allocator.Error!void {
+        clearScene(scene_);
         for (interface.objects.items) |object| {
-            if (!object.shown and !(clickable and object.clickable)) continue;
-            switch (object.target) {
-                .none => {},
-                .mesh => |mesh| try xtrabits.sceneAdd(gpa, scene_, .{ .mesh = mesh }, if (object.overlay) .overlay else .world),
-                .tree => |tree| try tree_to_scene(gpa, scene_, tree),
-            }
+            if (object.shown or (clickable and object.clickable)) try object.addToScene(gpa, scene_, tree_to_scene);
         }
     }
 
@@ -650,6 +701,73 @@ pub const Interface = struct {
 const cursor_distance: f32 = 1.5;
 const cursor_scale: f32 = 0.045;
 const cursor_turn: u32 = 1200;
+
+/// `cursor_mesh_build` (`0x004244E0`): the 3D cursor's mesh, a small pointer with its tip at the
+/// origin: a diamond of four vertices from 1.6 to 2.4 down Y about the middle, 0.2 in front of and
+/// behind which two more stand, the ten triangles running from the tip and round the two, its
+/// texture coordinates all nought. Its faces' planes, its vertex normals and its bounds are worked
+/// out; its one surface is left for the caller.
+pub fn cursorMesh(gpa: Allocator) Allocator.Error!srapiext.Mesh {
+    var mesh: srapiext.Mesh = try .create(gpa, .{ .polygons = 10, .vertices = 7, .indices = 30 });
+    errdefer mesh.deinit(gpa);
+    mesh.positions[0..7].* = .{
+        .{ 0, 0, 0 },      .{ 0.6, 1.6, 0 },  .{ 0.3, 2.4, 0 }, .{ -0.3, 2.4, 0 },
+        .{ -0.6, 1.6, 0 }, .{ 0, 1.2, -0.2 }, .{ 0, 1.2, 0.2 },
+    };
+    mesh.numberPolygons(3);
+    mesh.indices[0..30].* = .{ 1, 0, 5, 2, 1, 5, 3, 2, 5, 4, 3, 5, 4, 5, 0, 0, 6, 4, 6, 3, 4, 6, 2, 3, 6, 1, 2, 6, 0, 1 };
+    _ = try mesh.addCoordinates(gpa);
+    srapi.calcPolyNormals(&mesh);
+    srapi.calcVertexNormals(&mesh);
+    srapi.findBoundingBox(&mesh);
+    return mesh;
+}
+
+/// The 3D cursor, which the interface keeps before the camera at the pointer's place
+/// (`Interface.cursor`), and the object of the interface that stands for it.
+pub const Cursor = struct {
+    mesh: srapiext.Mesh,
+    levels: [1]srapiext.Level,
+    scene_object: srapiext.MeshObject,
+    object: Object,
+
+    /// `cursor_create` (`0x00424460`): the cursor's mesh textured with `image`, lit and opaque, its
+    /// scene object lit, 20 behind the camera's plane and 3 times its size until the pointer first
+    /// places it; made the interface's cursor, and its object, which the pointer does not find,
+    /// added to `interface` on the overlay's layer. The cursor must not move once made.
+    pub fn create(cursor: *Cursor, gpa: Allocator, interface: *Interface, image: ?*srtexture.Image) Allocator.Error!void {
+        cursor.mesh = try cursorMesh(gpa);
+        errdefer cursor.mesh.deinit(gpa);
+        cursor.mesh.surfaces[0] = .{
+            .polygons = @intCast(cursor.mesh.polygons.len),
+            .material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .off }),
+            .textures = .{ .of(image), .none },
+        };
+        cursor.levels = .{.{ .mesh = &cursor.mesh, .until = std.math.inf(f32) }};
+        cursor.scene_object = .{
+            .flags = .{ .lit = true },
+            .position = .{ 0, 0, created_depth },
+            .scale = created_scale,
+            .radius = cursor.mesh.radius,
+            .levels = &cursor.levels,
+        };
+        cursor.object = .create(0, null, false);
+        cursor.object.target = .{ .mesh = &cursor.scene_object };
+        cursor.object.overlay = true;
+        interface.cursor = &cursor.scene_object;
+        try interface.addObject(&cursor.object, cursor_name);
+    }
+
+    pub fn deinit(cursor: *Cursor, gpa: Allocator) void {
+        cursor.mesh.deinit(gpa);
+    }
+
+    /// Its scene object's name (`0x004E490C`).
+    const cursor_name = "Cursor Mesh";
+    /// Where it stands along Z, and its scale, as it is made (`0x00424498`, `0x0042449F`).
+    const created_depth: f32 = -20;
+    const created_scale: f32 = 3;
+};
 
 test Rect {
     const rect: Rect = .{ .top = 10, .left = 20, .bottom = 30, .right = 40 };
@@ -803,4 +921,65 @@ test Interface {
     interface.busy = true;
     try interface.frame(arena, &context, 40, .{ .at = .{ 320, 240 }, .left = true });
     try std.testing.expectEqual(1, counts.press);
+}
+
+test cursorMesh {
+    const gpa = std.testing.allocator;
+    var mesh = try cursorMesh(gpa);
+    defer mesh.deinit(gpa);
+    try std.testing.expectEqual(10, mesh.polygons.len);
+    // Its tip at the origin, the last triangle closing the fan round the vertex behind.
+    try std.testing.expectEqual(Vector{ 0, 0, 0 }, mesh.positions[0]);
+    try std.testing.expectEqual(27, mesh.polygons[9].first);
+    try std.testing.expectEqualSlices(u16, &.{ 6, 0, 1 }, mesh.indices[27..30]);
+}
+
+test Cursor {
+    const gpa = std.testing.allocator;
+    var counts: Counts = .{};
+    var interface: Interface = .create(gpa, &counts);
+    defer interface.deinit();
+    var cursor: Cursor = undefined;
+    try cursor.create(gpa, &interface, null);
+    defer cursor.deinit(gpa);
+    // The interface's cursor, and an object of it on the overlay that the pointer does not find.
+    try std.testing.expectEqual(&cursor.scene_object, interface.cursor.?);
+    try std.testing.expectEqual(0, interface.indexOf(&cursor.object));
+    try std.testing.expect(cursor.object.overlay and !cursor.object.clickable);
+    // The pointer puts it before the camera, at its own scale.
+    var context: srapi.Context = .{ .projection = .init(640, 480, srapi.full_screen, .{ 0.6, 0.8 }) };
+    context.projection.near = 1;
+    try interface.frame(std.testing.allocator, &context, 0, .{ .at = .{ 320, 240 } });
+    try std.testing.expectEqual(cursor_scale, cursor.scene_object.scale);
+    try std.testing.expectApproxEqAbs(cursor_distance, cursor.scene_object.position[2], 1e-6);
+}
+
+test "Object.setTooltip" {
+    var object: Object = .create(0, "Exit Loadout Computer", true);
+    try std.testing.expectEqualStrings("Exit Loadout Computer", object.tooltip.?);
+    // What passes its room is cut to it, its terminator's byte left.
+    object.setTooltip("A tooltip far longer than the thirty bytes it keeps");
+    try std.testing.expectEqual(Object.tooltip_size - 1, object.tooltip.?.len);
+    object.setTooltip(null);
+    try std.testing.expectEqual(null, object.tooltip);
+}
+
+test clearScene {
+    const gpa = std.testing.allocator;
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    var mesh = try cursorMesh(gpa);
+    defer mesh.deinit(gpa);
+    const levels = [_]srapiext.Level{.{ .mesh = &mesh, .until = std.math.inf(f32) }};
+    var scene_object: srapiext.MeshObject = .{ .flags = .{}, .position = @splat(0), .radius = 1, .levels = &levels };
+    var object: Object = .create(0, null, false);
+    object.target = .{ .mesh = &scene_object };
+    object.overlay = true;
+    try object.addToScene(gpa, &scene, undefined);
+    try std.testing.expectEqual(1, scene.layers.get(.overlay).items.len);
+    try scene.lights.append(gpa, .{ .mask = 0, .intensity = 1, .colour = @splat(1), .kind = .ambient });
+    // The objects go, the lights stay.
+    clearScene(&scene);
+    try std.testing.expectEqual(0, scene.layers.get(.overlay).items.len);
+    try std.testing.expectEqual(1, scene.lights.items.len);
 }
