@@ -10,7 +10,7 @@ The front end's screen 7 (`interface_briefing`, `0x00437010`, named after its as
 
 Not ported:
 
-- The in-game options' LOAD over the loadout, which leaves the briefing for the rooms' first view ([#75](https://github.com/vdmkenny/openreliant/issues/75)); and the loadout's internal guns view ([Loadout](loadout.md#not-ported-yet)).
+- The in-game options' LOAD over the loadout, which leaves the briefing for the rooms' first view ([#75](https://github.com/vdmkenny/openreliant/issues/75)).
 - The way to the campaign's end after mission 28 ([#74](https://github.com/vdmkenny/openreliant/issues/74)). The briefing's part in it is ported.
 
 **Fixes:**

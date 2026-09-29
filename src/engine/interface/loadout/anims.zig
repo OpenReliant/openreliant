@@ -4,9 +4,8 @@
 //! interface (`iinterface_add_anim`). What an animation calls as it steps, as it passes a share of
 //! its way and as it ends is the loadout's, which it hands the builder.
 //!
-//! Not ported yet: the internal guns' (Move Clip Point,
-//! [#448](https://github.com/vdmkenny/openreliant/issues/448)). Rotate Scroll Button and the second
-//! Move Clip Point belong to a view nothing opens (`0x0044A470`).
+//! Not ported: Rotate Scroll Button (`0x00448FF0`) and the panel's Move Clip Point (`0x00448EF0`),
+//! which belong to a view nothing opens (`0x0044A470`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -234,6 +233,26 @@ pub const missile_scale: f32 = 0.007;
 
 /// How long a hardpoint's marker takes to zoom in (`0x00448A6B`).
 const hardpoint_time = 400;
+
+/// `anim_move_clip_point` (`0x00448DF0`): Move Clip Point (`0x004EB028`), the ship clipper
+/// `clipper` sweeping from its first key to its second over 1500 ms, its place eased by the cosine
+/// and its size rising from a thousandth of it to the whole half way, then falling back
+/// (`i3d.Ease.rise_fall`), either way it plays. Its angles are never eased. Each step calls
+/// `step`, and its end `end`. The guns view gives the keys their places each time it plays it
+/// (`guns_view_toggle`, `0x0044A110`); the game makes them of whatever its stack held.
+pub fn moveClipPoint(pair: *Pair, interface: *i3d.Interface, clipper: *i3d.Object, step: i3d.AnimCallback, end: i3d.AnimCallback) Allocator.Error!void {
+    try pair.make(interface, "Move Clip Point", clipper, .{
+        .duration = clip_time,
+        .position = .cosine,
+        .scale = .rise_fall,
+        .key = .at(clipper, @splat(0), zoomed_out),
+    }, .at(clipper, @splat(0), 1));
+    pair.anim.on_step = step;
+    pair.anim.on_end = end;
+}
+
+/// How long the ship clipper takes to sweep across the ship (`0x00448E66`).
+const clip_time = 1500;
 
 /// The panels' zoom (`loadout_load`, `0x00442514` to `0x0044259B`): a Zoom Hardpoint of `panel`
 /// changed to fly it out of the glow as the disc spins in: over 2000 ms from the glow's place and
@@ -493,6 +512,35 @@ test attachMissile {
     try interface.frame(std.testing.allocator, &test_view, attach_time, .{});
     try std.testing.expectEqual(Vector{ 3, -1, 2 }, flight_mesh.position);
     try std.testing.expectEqual(1, counts.ends);
+}
+
+test moveClipPoint {
+    var counts: Counts = .{};
+    var interface: i3d.Interface = .create(std.testing.allocator, &counts);
+    defer interface.deinit();
+    var clipper_mesh: srapiext.MeshObject = undefined;
+    var clipper = testObject(&clipper_mesh, @splat(0), @splat(0));
+    var pair: Pair = undefined;
+    try moveClipPoint(&pair, &interface, &clipper, Counts.stepped, Counts.ended);
+    pair.frames[0].key.position = .{ -2, 1, 0 };
+    pair.frames[1].key.position = .{ 9, 1, 0 };
+    // Half way across, the plane is whole.
+    pair.play(.forward, 0);
+    interface.busy = true;
+    try interface.frame(std.testing.allocator, &test_view, clip_time / 2, .{});
+    try expectVector(.{ 3.5, 1, 0 }, clipper_mesh.position);
+    try std.testing.expectApproxEqAbs(1, clipper_mesh.scale, 1e-6);
+    // At its end it is a thousandth of its size again.
+    try interface.frame(std.testing.allocator, &test_view, clip_time, .{});
+    try std.testing.expectEqual(Vector{ 9, 1, 0 }, clipper_mesh.position);
+    try std.testing.expectApproxEqAbs(zoomed_out, clipper_mesh.scale, 1e-6);
+    try std.testing.expectEqual(2, counts.steps);
+    try std.testing.expectEqual(1, counts.ends);
+    // Back, it sweeps the other way and ends where it began.
+    pair.play(.back, clip_time);
+    try interface.frame(std.testing.allocator, &test_view, 2 * clip_time, .{});
+    try std.testing.expectEqual(Vector{ -2, 1, 0 }, clipper_mesh.position);
+    try std.testing.expectEqual(2, counts.ends);
 }
 
 test flipName {

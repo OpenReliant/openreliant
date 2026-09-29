@@ -1,10 +1,7 @@
 //! The loadout's panels as their textures are drawn: the title over the page, with the chosen
-//! ship's name, and the info panel with the ship's stats or a missile's. The game makes each a
-//! texture of `size` by `size` pixels and writes its text into it through a VFX pane
+//! ship's name, and the info panel with the ship's stats, a missile's, or the ship's guns. The game
+//! makes each a texture of `size` by `size` pixels and writes its text into it through a VFX pane
 //! (`hud.Pane`), and the scene shows it on one face of a two-sided panel (`Face`).
-//!
-//! Not ported yet: the info panel's list of the ship's guns (`guns_draw`, `0x00445490`,
-//! [#448](https://github.com/vdmkenny/openreliant/issues/448)).
 
 const std = @import("std");
 
@@ -35,7 +32,7 @@ pub const Face = enum {
         };
     }
 
-    /// The info panel's texture: `loadout_draw_stats`, `guns_draw` and `missile_info_draw` name
+    /// The info panel's texture: `loadout_draw_stats`, `missile_info_draw` and `guns_draw` name
     /// the front's where their last argument is 5 (`0x004EAE94`), and the back's otherwise
     /// (`0x004EAE8C`).
     pub fn infoTexture(face: Face) []const u8 {
@@ -70,6 +67,35 @@ pub const Kit = struct {
         line.append(kit.string(id));
         language.upperCase(line.slice());
         return line;
+    }
+};
+
+/// The info panel's texture as each of its pages begins it (`loadout_draw_stats`,
+/// `missile_info_draw`, `guns_draw`): its image cleared, and written through a pane in the info
+/// panel's font and colours (`tables.text_remap`).
+const InfoPage = struct {
+    kit: Kit,
+    pane: hud.Pane,
+    remap: hud.Remap,
+
+    fn begin(image: *Image, kit: Kit) InfoPage {
+        image.* = @splat(.{ 0, 0, 0, 0 });
+        return .{
+            .kit = kit,
+            .pane = .{ .rgba = image, .size = .{ size, size } },
+            .remap = .{ .table = &tables.text_remap, .palette = kit.palette },
+        };
+    }
+
+    /// `text` from `at`, aligned as `alignment` says (`hud_text`).
+    fn write(page: InfoPage, at: [2]i32, text: []const u8, alignment: hud.Align) void {
+        _ = hud.drawTextInto(page.pane, page.kit.info_font, at, text, page.remap, alignment);
+    }
+
+    /// `text` from `at`, broken into lines at most `width` wide, `line_height` apart, at most
+    /// `max_lines` of them (`hud_text_wrapped`); returns how many it took.
+    fn wrap(page: InfoPage, at: [2]i32, text: []const u8, width: i32, line_height: i32, max_lines: usize) usize {
+        return hud.drawWrappedInto(page.pane, page.kit.info_font, at, text, page.remap, .left, width, line_height, max_lines);
     }
 };
 
@@ -124,52 +150,45 @@ const specials_separator = ", ";
 /// figure of `figures` beside it, as a number and its suffix or as a bar (`drawBar`); and the
 /// specials it has, in capitals, one after another (`specialsLine`).
 pub fn drawStats(image: *Image, kit: Kit, ship: usize, figures: tables.ShipFigures) void {
-    image.* = @splat(.{ 0, 0, 0, 0 });
-    const pane: hud.Pane = .{ .rgba = image, .size = .{ size, size } };
-    const remap: hud.Remap = .{ .table = &tables.text_remap, .palette = kit.palette };
-    const font = kit.info_font;
+    const page: InfoPage = .begin(image, kit);
     const record = tables.ships[ship];
 
     var class: Line = .{};
     class.append(kit.string(class_label));
     class.append(kit.string(record.class.string()));
-    _ = hud.drawTextInto(pane, font, class_at, class.slice(), remap, .left);
+    page.write(class_at, class.slice(), .left);
     var access: Line = .{};
     access.append(kit.string(access_label));
     access.append(kit.string(record.access.string()));
-    _ = hud.drawTextInto(pane, font, access_at, access.slice(), remap, .left);
+    page.write(access_at, access.slice(), .left);
 
     var y: i32 = first_row_y;
     for (tables.ship_rows, figures) |row, figure| {
-        drawRow(pane, kit, y, row, figure);
+        drawRow(page, y, row, figure);
         y += row_step;
     }
 
     var specials = specialsLine(kit, record.specials);
     language.upperCase(specials.slice());
-    _ = hud.drawWrappedInto(pane, font, specials_at, specials.slice(), remap, .left, specials_width, specials_line_height, specials_lines);
+    _ = page.wrap(specials_at, specials.slice(), specials_width, specials_line_height, specials_lines);
 }
 
 /// A row of figures at `y` (`loadout_draw_stats`, `0x00445180` to `0x004452F4`;
 /// `missile_info_draw`, `0x0044593B` to `0x00445ADE`): its label in capitals, and beside it the
 /// figure, as a number and its suffix or as a bar (`drawBar`), or a dash where there is none.
-fn drawRow(pane: hud.Pane, kit: Kit, y: i32, row: tables.Row, figure: ?i32) void {
-    const remap: hud.Remap = .{ .table = &tables.text_remap, .palette = kit.palette };
-    const font = kit.info_font;
+fn drawRow(page: InfoPage, y: i32, row: tables.Row, figure: ?i32) void {
+    const kit = page.kit;
     var label = kit.capitals(row.label);
-    _ = hud.drawTextInto(pane, font, .{ label_x, y }, label.slice(), remap, .left);
-    const shown = figure orelse {
-        _ = hud.drawTextInto(pane, font, .{ figure_x, y }, no_figure, remap, .left);
-        return;
-    };
+    page.write(.{ label_x, y }, label.slice(), .left);
+    const shown = figure orelse return page.write(.{ figure_x, y }, no_figure, .left);
     switch (row.kind) {
         .number => {
             var number: Line = .{};
             number.print("{d}", .{shown});
             number.append(if (row.suffix) |suffix| kit.string(suffix) else "");
-            _ = hud.drawTextInto(pane, font, .{ figure_x, y }, number.slice(), remap, .left);
+            page.write(.{ figure_x, y }, number.slice(), .left);
         },
-        .bar => drawBar(pane, kit.palette, .{ figure_x, y }, shown),
+        .bar => drawBar(page.pane, kit.palette, .{ figure_x, y }, shown),
     }
 }
 
@@ -199,23 +218,57 @@ const click_at = [2][2]i32{ .{ 128, 195 }, .{ 128, 210 } };
 /// and its rows (`tables.missile_rows`), each with its figure of `figures`, or a dash for a figure
 /// of -1 and for every row of the fuel pod (`0x004459B2`).
 pub fn drawMissile(image: *Image, kit: Kit, missile: tables.Missile, figures: tables.MissileFigures) void {
-    image.* = @splat(.{ 0, 0, 0, 0 });
-    const pane: hud.Pane = .{ .rgba = image, .size = .{ size, size } };
-    const remap: hud.Remap = .{ .table = &tables.text_remap, .palette = kit.palette };
-    const font = kit.info_font;
+    const page: InfoPage = .begin(image, kit);
     const record = missile.record();
 
     var name = kit.capitals(record.name);
-    _ = hud.drawTextInto(pane, font, missile_name_at, name.slice(), remap, .left);
+    page.write(missile_name_at, name.slice(), .left);
     var description = kit.capitals(record.description);
-    _ = hud.drawWrappedInto(pane, font, description_at, description.slice(), remap, .left, description_width, description_line_height, description_lines);
-    for (click_lines, click_at) |line, at| _ = hud.drawTextInto(pane, font, at, kit.string(line), remap, .centre);
+    _ = page.wrap(description_at, description.slice(), description_width, description_line_height, description_lines);
+    for (click_lines, click_at) |line, at| page.write(at, kit.string(line), .centre);
 
     var y: i32 = missile_first_row_y;
     for (tables.missile_rows, figures) |row, figure| {
         const value: ?i32 = if (missile == .fuel_pod) null else if (row.dash_for_none) bars.MissileBars.shown(figure) else figure;
-        drawRow(pane, kit, y, row, value);
+        drawRow(page, y, row, value);
         y += row_step;
+    }
+}
+
+/// Where each gun's line starts and how far below it the next thing starts (`0x004455E9`,
+/// `0x004455F3`); the width, the line height and the most lines a gun's description is wrapped
+/// to, and the room under it (`0x00445677` to `0x0044567B`, `0x0044569B`).
+const gun_x = 2;
+const gun_step = 20;
+const gun_description_width = 252;
+const gun_description_line_height = 15;
+const gun_description_lines = 20;
+const gun_description_gap = 10;
+
+/// What ends the description of a gun that drains no energy (`0x004EAEA8`).
+const no_drain = ",";
+
+/// `guns_draw` (`0x00445490`): the info panel's texture for `ships[ship]`'s guns, on a clear image,
+/// in the info panel's font and colours (`tables.text_remap`), from the top down: for each kind of
+/// its guns, its name and how many the ship has in capitals (`%s X %d`, `0x004EAEAC`), and under
+/// it, but for a rear turret (`tables.first_rear_turret` on), its description wrapped: its power,
+/// kind, range, rate and drain run together (`%s%s%s%s%s`, `0x004EAE9C`), in the strings' own
+/// case.
+pub fn drawGuns(image: *Image, kit: Kit, ship: usize) void {
+    const page: InfoPage = .begin(image, kit);
+    var y: i32 = 0;
+    for (tables.ships[ship].guns) |mount| {
+        var line: Line = .{};
+        line.print("{s} X {d}", .{ kit.string(mount.gun), mount.count });
+        language.upperCase(line.slice());
+        page.write(.{ gun_x, y }, line.slice(), .left);
+        y += gun_step;
+        const description = tables.gunDescription(mount.gun) orelse continue;
+        var sentence: Line = .{};
+        for ([_]u16{ description.power, description.kind, description.range, description.rate }) |part| sentence.append(kit.string(part));
+        sentence.append(if (description.drain) |drain| kit.string(drain) else no_drain);
+        const lines = page.wrap(.{ gun_x, y }, sentence.slice(), gun_description_width, gun_description_line_height, gun_description_lines);
+        y += @as(i32, @intCast(lines)) * gun_description_line_height + gun_description_gap;
     }
 }
 
@@ -314,6 +367,9 @@ fn testStrings(buffer: *[0x555][]const u8) language.Language {
         .{ 0x1F3, "Spectral Shields" },         .{ 0x1F4, "Blind Fire" },      .{ 0x1F5, "Cloaking Device" },
         .{ 0x20E, "Max Speed" },                .{ 0x205, "Havok" },           .{ 0x1E7, "A big one" },
         .{ 0x220, "CLICK MISSILE" },            .{ 0x218, "Locking Time" },    .{ 0x219, "Speed" },
+        .{ 0x23B, "Laser" },                    .{ 0x54E, "Rear" },            .{ 0x244, "ab" },
+        .{ 0x24F, "cd" },                       .{ 0x247, "e" },               .{ 0x249, "f" },
+        .{ 0x24D, "g" },
     };
     for (strings) |entry| buffer[entry[0] - 1] = entry[1];
     return .{ .strings = buffer };
@@ -431,6 +487,34 @@ test drawMissile {
     try std.testing.expectEqual(top, image[locking]);
     try std.testing.expectEqual(clear, image[locking + 2]);
     try std.testing.expectEqual(clear, image[speed + 2]);
+}
+
+test drawGuns {
+    const font = try @import("../../../formats/fnt.zig").Font.parse(comptime testFont());
+    const opened: hud.Opened = .open(font, null);
+    const palette = testPalette();
+    var buffer: [0x555][]const u8 = undefined;
+    const strings = testStrings(&buffer);
+    const kit: Kit = .{ .title_font = &opened, .info_font = &opened, .palette = &palette, .strings = &strings };
+    const image = try std.testing.allocator.create(Image);
+    defer std.testing.allocator.destroy(image);
+    image.* = @splat(.{ 9, 9, 9, 9 });
+    const top = colourOf(&palette, tables.text_remap[15]);
+    const clear: [4]u8 = .{ 0, 0, 0, 0 };
+
+    // The Predator's guns: two lasers, `LASER X 2`, nine letters at the top, on a clear image.
+    drawGuns(image, kit, 0);
+    try std.testing.expectEqual(top, image[gun_x + 8 * 2]);
+    try std.testing.expectEqual(clear, image[gun_x + 9 * 2]);
+    // Their description, one line of seven letters.
+    const description = gun_step * size + gun_x;
+    try std.testing.expectEqual(top, image[description + 6 * 2]);
+    try std.testing.expectEqual(clear, image[description + 7 * 2]);
+    // Then the rear turret, `REAR X 1`, with no description under it.
+    const turret = (gun_step + gun_description_line_height + gun_description_gap) * size + gun_x;
+    try std.testing.expectEqual(top, image[turret + 7 * 2]);
+    try std.testing.expectEqual(clear, image[turret + 8 * 2]);
+    try std.testing.expectEqual(clear, image[turret + gun_step * size]);
 }
 
 test specialsLine {

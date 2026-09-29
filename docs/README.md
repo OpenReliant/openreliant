@@ -49,7 +49,7 @@ Guides for installing, configuring and playing OpenReliant:
 | [`engine/front-end.md`](engine/front-end.md) | The front end: its screens, the main menu, the pilot roster, the dialogs and the backgrounds. |
 | [`engine/rooms.md`](engine/rooms.md) | The Reliant's rooms: their views and movies, the pointer, the fish tank, the news report, a new pilot's induction and the in-game options. |
 | [`engine/briefing.md`](engine/briefing.md) | The briefing: the door, the way into the briefing room, Enriquez with the mission's movie, his last word, and the campaign's end. |
-| [`engine/loadout.md`](engine/loadout.md) | The loadout: its hologram, GenILib's 3D interface, the ship page, choosing a ship, the missile page and the racks, the exit, its panels and figures, and the ship and racks it leaves the mission. |
+| [`engine/loadout.md`](engine/loadout.md) | The loadout: its hologram, GenILib's 3D interface, the ship page, choosing a ship, the missile page and the racks, the internal guns view, the exit, its panels and figures, and the ship and racks it leaves the mission. |
 | [`engine/movies.md`](engine/movies.md) | Movies: how the game plays them, the discs' archives, the intro, the transitions, the hangar's, the landing and the chapters' ends, and the stand-in for Bink. |
 | [`engine/controls.md`](engine/controls.md) | Player input: devices, bindings, settings, steering and throttle. |
 | [`engine/screenshots.md`](engine/screenshots.md) | Screenshots: the keys that save the screen, and where the pictures go. |

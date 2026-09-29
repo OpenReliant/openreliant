@@ -1,11 +1,11 @@
 # Loadout
 
-The loadout screen (`loadout.cpp`, `0x00441AA0` to `0x0044B870`) is a hologram the briefing runs between the mission's movie and Enriquez's last word ([Briefing](briefing.md)). A disc lies before the camera with the ships the pilot may fly on an arc round its rim; the chosen ship turns slowly above it; panels with the ship's name and figures, and six buttons, stand round it. All of it spins in out of the disc's glow as the loadout begins. Clicking a ship on the arc flies it up to the chosen spot as the chosen one flies back. On the missile page the other ships sink into the disc and the missiles rise out of it, the chosen ship turns belly up, and a missile clicked flies to one of its hardpoints ([The missile page](#the-missile-page)). Exit Loadout Computer spins it all away again, and the ship chosen, with the missiles on its racks, is the one the pilot flies. It is built on GenILib's 3D interface ([GenILib's 3D interface](#genilibs-3d-interface)).
+The loadout screen (`loadout.cpp`, `0x00441AA0` to `0x0044B870`) is a hologram the briefing runs between the mission's movie and Enriquez's last word ([Briefing](briefing.md)). A disc lies before the camera with the ships the pilot may fly on an arc round its rim; the chosen ship turns slowly above it; panels with the ship's name and figures, and six buttons, stand round it. All of it spins in out of the disc's glow as the loadout begins. Clicking a ship on the arc flies it up to the chosen spot as the chosen one flies back. On the missile page the other ships sink into the disc and the missiles rise out of it, the chosen ship turns belly up, and a missile clicked flies to one of its hardpoints ([The missile page](#the-missile-page)). View Internal Guns sweeps a glowing plane across the chosen ship, which turns into its guns as the plane passes ([The internal guns view](#the-internal-guns-view)). Exit Loadout Computer spins it all away again, and the ship chosen, with the missiles on its racks, is the one the pilot flies. It is built on GenILib's 3D interface ([GenILib's 3D interface](#genilibs-3d-interface)).
 
 ## In the code
 
-- [`interface/loadout/loadout.zig`](../../src/engine/interface/loadout/loadout.zig): the loadout's life, its frames, the ship page, the selection, the missile page and the exit.
-- [`hologram.zig`](../../src/engine/interface/loadout/hologram.zig): the hologram's pieces and where they stand: the panels, the buttons and the hardpoints' markers, the disc's mesh, the lights, the slots of the disc, and where a point of a missile hardpoint stands.
+- [`interface/loadout/loadout.zig`](../../src/engine/interface/loadout/loadout.zig): the loadout's life, its frames, the ship page, the selection, the missile page, the internal guns view and the exit.
+- [`hologram.zig`](../../src/engine/interface/loadout/hologram.zig): the hologram's pieces and where they stand: the panels, the buttons, the ship clipper and the hardpoints' markers, the disc's mesh, the lights, the slots of the disc, and where a point of a missile hardpoint stands.
 - [`racks.zig`](../../src/engine/interface/loadout/racks.zig): the chosen ship's racks: which rack a missile takes, which missiles stay offered, and what the loadout leaves the campaign and the mission of them.
 - [`anims.zig`](../../src/engine/interface/loadout/anims.zig): its animations.
 - [`tables.zig`](../../src/engine/interface/loadout/tables.zig): its tables in the executable: the ships and missiles it offers, the rows its panels show, what the tier and the rank open, its text's colours, and where its objects stand.
@@ -16,8 +16,7 @@ The loadout screen (`loadout.cpp`, `0x00441AA0` to `0x0044B870`) is a hologram t
 
 ## Not ported yet
 
-- View Internal Guns, with its gunship models, the plane that sweeps across the ship and the guns' list ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
-- A view nothing opens (`0x0044A470`): it turns the ship's panel behind a portal, sinks the ships and turns the two scrollers round. Every call of it (`0x00449E3F`, `0x0044760F`, `0x004476B0`, `0x00447CA3`) waits on a flag (`0x00524974`) nothing sets, so it never runs.
+- A view nothing opens (`0x0044A470`): it turns the ship's panel behind a portal, sinks the ships and turns the two scrollers round, with its own Move Clip Point and Rotate Scroll Button (`0x00448EF0`, `0x00448FF0`) and the panel's clip object (`0x00523E7C`). Every call of it (`0x00449E3F`, `0x0044760F`, `0x004476B0`, `0x00447CA3`) waits on a flag (`0x00524974`) nothing sets, so it never runs.
 - The loadout kept across a change of display (`video_screen`, `0x0042F1FE` to `0x0042F237`), whose screen is not ported ([#400](https://github.com/vdmkenny/openreliant/issues/400)).
 
 ## GenILib's 3D interface
@@ -63,7 +62,7 @@ The camera stands at (-2.8, -6.5, -16.85), turned by (-0.368, 0.067, 0.03) (`loa
 | BtnExit, BtnShips, BtnMissiles, BtnGuns | 2.333 by 1.667 | parts of the name panels' art | (10, -8.35, 0), (10, -5.8, 0), (10, -3.8, 0), (10, -1.8, 0) | |
 | BtnDefault, BtnRemoveAll | 2.333 by 1.667 | parts of the name panels' art | (4.2, -8.35, 0), (6.7, -8.35, 0) | |
 
-Every panel is a square (`panel_create`, `0x00444980`) drawn unlit and added, each texture coordinate half a texel of 256 on; a two-sided panel shows its back texture on its other face, turned round. The buttons are made at a ten-thousandth of their size and grow as they appear, so that Use Default Loadout and Remove All Missiles, which appear with the missile page alone, are not seen on the ship page. Two more panels, the scrollers, stand at (-9, 1.2, 0) and (-9, 1.7, 0) facing away from the camera, and so are never seen.
+Every panel is a square (`panel_create`, `0x00444980`) drawn unlit and added, each texture coordinate half a texel of 256 on; a two-sided panel shows its back texture on its other face, turned round. The buttons are made at a ten-thousandth of their size and grow as they appear, so that Use Default Loadout and Remove All Missiles, which appear with the missile page alone, are not seen on the ship page. Two more panels, the scrollers, stand at (-9, 1.2, 0) and (-9, 1.7, 0) facing away from the camera, and so are never seen. The ship clipper, a two-sided square of `hologlow` 14 across (`0x0044408C`), is put away until the internal guns view sweeps it across the ship.
 
 The ships stand on slots of the disc (`ships_place`, `0x004493B0`; `slot_place`, `0x00449690`): the chosen spot at (23, -23, -6), and twelve on the arc from (-98, -23, -1) round the front to (96, -23, -1) (`slots_set`, `0x004497F0`), across and down scaled by 0.078125, turned with the disc and from its centre. A ship on the arc faces away from the disc's axis, at 0.19444 of its own scale; the chosen one floats 6 above the disc at its own, turning about Y once every four seconds, tilted back by 0.75 (`ship_spin`, `0x00447160`). Each ship's scale is its own (`0x004EA2D8`, 0.006 to 0.01). A portal in the disc's plane clips what sinks below it (`0x00449200`).
 
@@ -78,7 +77,7 @@ The loadout's textures are indexed into `palette3.tga` ([Texture caches](../form
 | Loadout Ambient light | ambient | | 0.2 | green | everything |
 | Loadout cursor light | directional, turned (0.5, 0.5, 0.5) | | 1 | (0.4, 1, 0.4), green on the software renderer | the cursor |
 
-A fifth, Loadout bgreen light, is made and never put in the scene. What a light reaches is by its mask against the objects' (`srlight.Light.reaches`): the ships' parts take `0xFFFD`, the cursor `0xFFEF`.
+A fifth, Loadout bgreen light, is made and never put in the scene. What a light reaches is by its mask against the objects' (`srlight.Light.reaches`): the ships' parts take `0xFFFD`, the cursor `0xFFEF`, and a gunship's parts drawn in lines `0xFFFB`, the bgreen light's, so that the ambient light alone reaches them.
 
 ## The intro and the ship page
 
@@ -98,11 +97,11 @@ The hum, sound 0, loops 12 quarter tones down, and sound 3 plays. As the disc ha
 
 ## Choosing a ship
 
-A ship on the arc pressed (`0x00447C00`) is selected unless a selection is still flying (`ship_select`, `0x00447E20`). The red light fades out; the ships but the old and the new are grabbed as the background; the new ship can no longer be clicked and the old one can again. The panels' fronts are drawn with the old ship and their backs with the new, turned front on, and then flip over about X in 1500 ms (Flip Shipinfo, `0x004484A0`, `0x004485A0`), showing the new ship. The new ship flies from its slot to the chosen spot and the old one back to its slot, each in 1500 ms (Select Ship, `0x00448160`; Deselect Ship, `0x00448320`); sound 8 plays, and the interface is busy until they arrive. The old ship's missiles are taken off first (`racks_clear`, `0x0044AEE0`); the chosen ship's turn starts again as it arrives, and it takes the tier's missiles at once, glowing in with the red light (`0x00446EF0`, [The racks](#the-racks)).
+A ship on the arc pressed (`0x00447C00`) is selected unless a selection is still flying (`ship_select`, `0x00447E20`). The red light fades out; the ships but the old and the new are grabbed as the background; the new ship can no longer be clicked and the old one can again. The panels' fronts are drawn with the old ship and their backs with the new, turned front on, and then flip over about X in 1500 ms (Flip Shipinfo, `0x004484A0`, `0x004485A0`), showing the new ship. The new ship flies from its slot to the chosen spot and the old one back to its slot, each in 1500 ms (Select Ship, `0x00448160`; Deselect Ship, `0x00448320`); sound 8 plays, and the interface is busy until they arrive. The old ship's missiles are taken off first (`racks_clear`, `0x0044AEE0`); the chosen ship's turn starts again as it arrives, and it takes the tier's missiles at once, glowing in with the red light (`0x00446EF0`, [The racks](#the-racks)). With the internal guns view open, the view closes first and opens again as the new ship arrives ([The internal guns view](#the-internal-guns-view)).
 
 ## The missile page
 
-Missile Loadout's release (`0x00447630`) turns to the missile page (`page_switch`, `0x00449D90`), unless the internal guns view is open ([#448](https://github.com/vdmkenny/openreliant/issues/448)). The interface is busy, the missiles the tier offers are shown (`missiles_available`) and the ships on the arc can no longer be clicked, the backdrop stands behind the live disc and its glow, and Use Default Loadout and Remove All Missiles fly out of the glow. Then, each starting the next:
+Missile Loadout's release (`0x00447630`) turns to the missile page (`page_switch`, `0x00449D90`), once the internal guns view has closed where it is open ([The internal guns view](#the-internal-guns-view)). The interface is busy, the missiles the tier offers are shown (`missiles_available`) and the ships on the arc can no longer be clicked, the backdrop stands behind the live disc and its glow, and Use Default Loadout and Remove All Missiles fly out of the glow. Then, each starting the next:
 
 | Step | Animation | What it does |
 |---|---|---|
@@ -142,6 +141,27 @@ The racks are those of the chosen ship's missile hardpoints, in the order the fl
 
 Ship Selection's release (`0x004475D0`) turns back to the ship page (`0x00449DB8`): the interface is busy; the ships on the arc can be clicked again, at the coarse level; the markers zoom away one after another, and the ship turns back from belly up after the last (`belly_up_back`, `0x00446E90`), or at once where it has none; the missiles sink one after another, and each missile's end shows the ships and starts the first on the arc rising again, so that they rise after the last missile has sunk; as the last ship has risen, the ship page is built again (`ship_page_rebuild`, `0x004469A0`). The info panel's front is drawn with the chosen ship and flips back to it, and the two buttons fly back into the glow.
 
+## The internal guns view
+
+View Internal Guns' release (`0x00447670`) opens the internal guns view, or closes it where it is open (`guns_view_toggle`, `0x0044A110`). On the missile page it turns back to the ship page first, and the view opens once the page is built.
+
+Each ship has a gunship (`gunships_create`, `0x004447C0`; `gunship_object_create`, `0x00445CC0`): a tree of the ship's gun model (`+0xFC` of its record, `predator_gun.SHP` for the Predator), loaded with the `r` texture prefix, standing at the origin, and scaled to its ship's own scale as the loadout enters (`0x00442BD0`). Its parts are reached by the green light, but those whose finest mesh begins with a line, which the ambient light alone reaches (`gunship_light_masks`, `0x004460E0`), and each has a faint green of its own, (0, 0.03, 0), which its lights add to (`node_tree_colour`, `0x00449310`). Its object is not clickable, and is put away until the view shows it. The game makes the gunships of all twelve ships; OpenReliant makes those of the ships offered, the only ones the view shows.
+
+Opening, the interface is busy and the gunship is put where the chosen ship stands, turned as it is. Two portals are set where the sweep starts, 5.5 back along X from the ship's place: `gun portal1` on the gunship, facing along X, and `gun portal2` on the ship, facing back along it. They are made as the loadout enters (`0x00442C81`, `0x00442C95`) and put in the scene each frame (`0x00443657`, `0x00443667`). Then:
+
+- The ship clipper sweeps from there 11 along X over 1500 ms (Move Clip Point, `0x00448DF0`), its place eased by the cosine and its size rising from a thousandth to its whole half way, then falling back. Each step (`0x004490E0`) shows the clipper, the gunship and the ship, moves both portals to the plane, facing along X and back, and turns the plane across X. The gunship shows behind the plane and the ship ahead of it, so that the ship turns into its guns as the plane passes.
+- The info panel's front is drawn with the ship's figures and its back with its guns ([The panels](#the-panels)), turned front on and flipped over in 1500 ms, and sound 10 plays.
+- As the sweep ends (`0x00446E30`), the interface is free and the clipper is put away, and the ship too, leaving the gunship. While the view is open the gunship turns with the ship's turn, which goes on while the interface is busy (`ship_spin`, `0x00447235`).
+
+Closing plays the sweep back from the same start, and the info panel flips from the guns to the figures, with sound 10. At its end the gunship is put away, the view is closed and the ship is clipped by the disc's portal again. What waits on the interface's function stack then runs:
+
+- Ship Selection's release closes the view (`0x004475F5`).
+- A ship on the arc pressed closes it, and the ship is selected once it has closed; the view waits under the selection (`stack_guns_view`, `0x00449AA0`) and opens again as the new ship arrives (`0x00447C00`, `0x00446F57`). The chosen ship pressed does nothing.
+- Missile Loadout turns to the missile page once the view has closed (`0x00449DB9`).
+- Exit Loadout Computer exits once the view has closed (`0x00447767`).
+
+**Fix:** the game makes the ship clipper clickable, as it makes every panel, and the pointer finds it though it is put away. Standing at the origin at its whole size until the view first sweeps it, it covers the chosen ship and takes the pointer from the hardpoints' markers, which come after it, so that their tooltip shows only once the view has been opened. OpenReliant's is not clickable.
+
 ## The exit
 
 Exit Loadout Computer's release (`0x004476F0`), once the interface is free, runs `loadout_exit` (`0x00447730`): the speech stops, the ships on the arc and the disc are shown live again and the portal clips no more, the markers and the missiles' icons are put away, and everything plays back into the glow, the disc and the ships easing out: the ships' zooms, the panels' zooms, the buttons one after another, on the missile page its two as well, the glow and the disc's spin. The chosen ship is kept in the campaign's saved loadout (`0x00562F18`), the hum ends and sound 2 plays. As the disc has spun away, sound 6 plays and the next frame ends the loadout.
@@ -165,7 +185,7 @@ The sounds are `ldsmp.fat`'s, in the middle:
 | 6 | 127 | the loadout's end |
 | 7 | 40 | the pointer onto another object |
 | 8 | 40 | another ship selected |
-| 10 | 127 | the internal guns view ([#448](https://github.com/vdmkenny/openreliant/issues/448)) |
+| 10 | 127 | the internal guns view opening or closing |
 
 In mission 1, `loadout.ut` from `speech_hog` is said as the loadout enters, and Exit Loadout Computer blinks twice a second from 15 to 25 seconds in. The in-game options pause the speech and end every sound, the hum's among them; BACK resumes the speech.
 
@@ -178,6 +198,7 @@ The panels' textures are 256 by 256 (`panels.zig`), their text written into them
 - **The name panels** (`panel_title_draw`, `0x00444D60`): `fpanels.tga`'s art, with SHIPS AND LOADOUT at (17, 4) and the ship's name in capitals at (17, 28), in `ld_handel.fnt` through the text remap the other way round (`0x00523D64`), black edged in green. The buttons take their art from the same texture.
 - **The ship's figures** (`loadout_draw_stats`, `0x00444F20`): the class and the access at (2, 12) and (2, 32); eight rows from y 57, 15 apart, each labelled at x 2 and showing a number and its suffix, or ten segments with as many filled as the figure, at x 180; and the ship's specials in capitals, wrapped at (2, 180), in `handels.fnt` through the text remap (`0x004EA308`), a green ramp.
 - **A missile** (`missile_info_draw`, `0x004456F0`), on the missile page: its name in capitals at (2, 12) and its description in capitals wrapped at (2, 32), 252 wide, 15 a line, six lines at most; its four rows from y 127, 15 apart, as the ship's are, a dash for a figure of -1 and for every row of the fuel pod; and CLICK MISSILE and TO ATTACH TO SHIP centred at x 128, y 195 and 210, in the same font and colours.
+- **The ship's guns** (`guns_draw`, `0x00445490`), in the internal guns view: from the top, each kind of its guns, up to four, with how many it has in capitals (`%s X %d`), 20 apart, at x 2; and under each but a rear turret its description, wrapped 252 wide, 15 a line, 20 lines at most, with 10 more below it: its power, kind, range, rate and drain run together in the strings' own case (`%s%s%s%s%s`), a comma in place of the drain of a gun that drains none. It is in the same font and colours.
 
 The panels are added, so their black is clear and the room shows through.
 

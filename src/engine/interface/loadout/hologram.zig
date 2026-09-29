@@ -40,6 +40,8 @@ pub const Name = enum {
     remove_all_button,
     scroller0,
     scroller1,
+    /// The plane the internal guns view sweeps across the chosen ship (`0x004EAD64`).
+    ship_clipper,
     /// A hardpoint's marker, which keeps its interface object's own name, not its scene object's
     /// (`0x004EAE24`).
     marker,
@@ -60,6 +62,7 @@ pub const Name = enum {
             .remove_all_button => "BtnRemoveAll",
             .scroller0 => "Scroller0",
             .scroller1 => "Scroller1",
+            .ship_clipper => "Ship clipper",
         };
     }
 };
@@ -108,6 +111,11 @@ pub const Button = enum {
         };
     }
 };
+
+/// The ship clipper's size, `hologlow` on both its faces (`0x004440A8`), and how the internal guns
+/// view turns it as it sweeps, across the X axis (`0x004491A5`).
+pub const clipper_size: [2]f32 = .{ 14, 14 };
+pub const clipper_angles: Vector = .{ 0, std.math.pi / 2.0, 0 };
 
 /// A button's size (`0x40155182` by `0x3FD54FDF`).
 pub const button_size: [2]f32 = .{ 2.333, 1.667 };

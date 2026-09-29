@@ -2370,3 +2370,21 @@ address	kind	name	type	comment
 00523aa4	data	loadout_gunship_count	int	How many gunships the loadout makes
 0052372c	data	loadout_gunship_files	void *[12]	The ships' gun models
 00523a64	data	loadout_gunships	void *[12]	The gunships' I3DOBJECTs
+00448df0	function	anim_move_clip_point	void * (void)	Move Clip Point: the ship clipper sweeping over 1500 ms between two keys guns_view_toggle places, its place eased by the cosine and its size rising from a thousandth to whole half way and falling back; clip_sweep_step each step and clip_sweep_end at its end
+004490e0	function	clip_sweep_step	void __fastcall (void *anim)	Move Clip Point's step: the ship clipper, the chosen ship's gunship and the ship shown; gun portal1 and gun portal2 moved to the clipper, facing along X and back, and set on the gunship and on the ship; the clipper turned by (0, pi/2, 0)
+00446e30	function	clip_sweep_end	void __fastcall (void *anim)	Move Clip Point's end: the interface free and the ship clipper put away; played forward, the ship put away, leaving its gunship; played back, the gunship put away, loadout_guns_open cleared and the ship clipped by the disc again; then ifuncstack_run
+00448ef0	function	anim_move_panel_clip	void * (void)	The panel clip's Move Clip Point, for the view nothing opens: 750 ms, its place eased by the cosine, panel_clip_step each step
+004491c0	function	panel_clip_step	void __fastcall (void *anim)	The panel clip's Move Clip Point step, for the view nothing opens: the info panel clipped by the panel portal, which stands where the panel clip does
+0044a470	function	scroll_view_toggle	void (void)	The view nothing opens: the ship's panel turned behind a portal, the ships sunk and the scrollers turned round, or back; every call waits on loadout_scroll_open, which nothing sets
+00427bc0	function	i3danim_frame	void * __fastcall (void *anim, int index)	The animation's frame at an index, walked along its frame list from the first
+00426af0	function	i3dobject_free	void __fastcall (void *object)	Frees an I3DOBJECT: its name, its tooltip, its rectangle and the object
+00523958	data	loadout_clipper	void *	The ship clipper's I3DOBJECT: a two-sided square of hologlow 14 across, put away until the internal guns view sweeps it across the chosen ship
+005245c4	data	loadout_clip_sweep	void *	The ship clipper's Move Clip Point
+00523eb4	data	loadout_gun_portal1	void *	gun portal1, which clips the gunship behind the ship clipper
+00523eb0	data	loadout_gun_portal2	void *	gun portal2, which clips the chosen ship ahead of the ship clipper
+0052396c	data	loadout_ship_objects	void *[12]	The ships' I3DOBJECTs, the Shroud's at 0x00523994
+00523acc	data	loadout_flip_info	void *	Flip Shipinfo of the info panel
+00523ae8	data	loadout_info_panel	void *	PnlShipInfo's I3DOBJECT, before PnlShipName's and PnlPageTitle's
+00523e7c	data	loadout_panel_clip	void *	The panel clip object, for the view nothing opens
+00524558	data	loadout_panel_portal	void *	panel portal, for the view nothing opens
+005239fc	data	loadout_panel_clip_sweep	void *	The panel clip's Move Clip Point, for the view nothing opens

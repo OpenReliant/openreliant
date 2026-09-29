@@ -12,7 +12,7 @@ OpenReliant opens in the front end unless `--mission` names a mission. The pilot
 
 Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, the pilot roster with SET GAME DIFFICULTY, the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, and the movies around a mission ([Movies](movies.md)). Not yet:
 
-- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported but for its internal guns view ([Loadout](loadout.md)). MULTI PLAYER ([#404](https://github.com/vdmkenny/openreliant/issues/404)) and GAME OPTIONS ([#400](https://github.com/vdmkenny/openreliant/issues/400)) stay on the main menu, and LOAD GAME ([#75](https://github.com/vdmkenny/openreliant/issues/75)) on the pilot roster.
+- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER ([#404](https://github.com/vdmkenny/openreliant/issues/404)) and GAME OPTIONS ([#400](https://github.com/vdmkenny/openreliant/issues/400)) stay on the main menu, and LOAD GAME ([#75](https://github.com/vdmkenny/openreliant/issues/75)) on the pilot roster.
 - The debriefing after a mission, the ITAC's ([#419](https://github.com/vdmkenny/openreliant/issues/419)), which the campaign's way on opens ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 

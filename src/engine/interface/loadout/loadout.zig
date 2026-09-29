@@ -6,11 +6,9 @@
 //! out of the disc's glow as the loadout begins. Clicking a ship on the arc flies it up to the
 //! chosen spot as the chosen one flies back. On the missile page the other ships sink into the disc
 //! and the missiles rise out of it, the chosen ship turns belly up, and a missile clicked flies to
-//! a hardpoint of it. Exit Loadout Computer spins it all away again, and the ship chosen, with the
-//! missiles on its racks, is the one the pilot flies.
-//!
-//! Not ported yet: the internal guns view
-//! ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+//! a hardpoint of it. The internal guns view sweeps a glowing plane across the chosen ship, which
+//! turns into its guns as the plane passes. Exit Loadout Computer spins it all away again, and the
+//! ship chosen, with the missiles on its racks, is the one the pilot flies.
 //!
 //! The file's code also builds the band a planet's atmosphere is made of (`bandMesh`) and the
 //! square the chase view's sights and a jump's flare are drawn on (`squareMesh`).
@@ -174,6 +172,8 @@ const Sound = enum(u8) {
     hover = 7,
     /// Another ship selected (`0x00448140`).
     select = 8,
+    /// The internal guns view opened or closed (`0x0044A453`, `0x0044A240`).
+    guns = 10,
     _,
 };
 /// The volume of the loadout's quieter sounds, the hum, a button's, the hover's, a selection's and
@@ -221,6 +221,32 @@ const rect_frames = 2;
 const ship_light_mask = 0xFFFD;
 const cursor_light_mask = 0xFFEF;
 
+/// The light mask of a gunship's part drawn in lines (`gunship_light_masks`, `0x004460E0`): the
+/// bright green light's, which the loadout never adds, so the ambient light alone reaches it.
+const gunship_line_light_mask = 0xFFFB;
+
+/// How many corners a mesh's polygon of a line has (`0x0044610C`).
+const line_corners = 2;
+
+/// The colour of a gunship's own, red, green, blue and alpha (`node_tree_colour`, `0x0044204D`): a
+/// faint green its lights add to.
+const gunship_colour: [4]f32 = .{ 0, 0.03, 0, 1 };
+
+/// How far back along X from the chosen ship's place the ship clipper's sweep starts, and how far
+/// along X it goes (`0x004DC5E8`, `0x004DC718`).
+const clip_back: f32 = 5.5;
+const clip_sweep: f32 = 11;
+
+/// Which way the guns view's portals face as the ship clipper sweeps (`0x0044912E`,
+/// `0x0044917B`): the gunship's along X, keeping what lies behind the plane, and the ship's back
+/// along it, keeping what lies ahead.
+const gunship_normal: Vector = .{ 1, 0, 0 };
+const ship_normal: Vector = .{ -1, 0, 0 };
+
+/// How long the portals' normals are as the guns view opens (`0x0044A2C6`, `0x0044A320`): a quarter
+/// turn, as if they were angles, until the sweep's first step makes them 1.
+const opening_normal_length: f32 = std.math.pi / 2.0;
+
 /// Which page the loadout shows (`loadout_page`, `0x005245E8`).
 const Page = enum(u8) { ships = 1, missiles = 2 };
 
@@ -228,10 +254,10 @@ const Page = enum(u8) { ships = 1, missiles = 2 };
 /// it alone (`0x005245DC`, `0x005245E0`).
 const missile_buttons = [_]hologram.Button{ .default, .remove_all };
 
-/// A ship the loadout offers: its tree of parts, the object of the interface that stands for it,
-/// each part's level of detail as the loadout picks it, its zoom with the disc, and its sinking
-/// into it (`0x00524564`). What it carries are the missiles hung on its racks, as the missile page
-/// fits them.
+/// A ship the loadout offers: its tree of parts, the object of the interface that stands for it
+/// (`0x0052396C`), each part's level of detail as the loadout picks it, its zoom with the disc, its
+/// sinking into it (`0x00524564`), and its gunship. What it carries are the missiles hung on its
+/// racks, as the missile page fits them.
 const Ship = struct {
     model: objects.Model,
     loaded: *const srofiles.Loaded,
@@ -240,6 +266,7 @@ const Ship = struct {
     levels: []srapiext.Level,
     zoom: anims.Pair,
     sink: anims.Pair,
+    gunship: Gunship,
 
     /// `node_tree_level` (`0x0044B340`): each part shown at `level`, or its coarsest where it has
     /// fewer, whatever the distance: `ship_object_create` takes the parts' levels away
@@ -258,6 +285,26 @@ const Ship = struct {
         clipTree(&ship.model, portal);
     }
 };
+
+/// A ship's gunship, which the internal guns view shows in the ship's place (`0x00523A64`): a tree
+/// of the ship's gun model, and the object of the interface that stands for it.
+const Gunship = struct {
+    model: objects.Model,
+    object: i3d.Object,
+};
+
+/// `gunship_light_masks` (`0x004460E0`): each part of a gunship's tree, whose meshes `loaded`
+/// holds, reached by the green light and the ambient one, as the ships' parts are, but a part whose
+/// finest mesh begins with a line, which the ambient light alone reaches
+/// (`gunship_line_light_mask`).
+fn gunshipLightMasks(tree: *objects.Model, loaded: *const srofiles.Loaded) void {
+    for (tree.parts, loaded.parts) |*part, file| {
+        if (file.meshes.len == 0 or file.meshes[0].surfaces.len == 0) continue;
+        const polygons = file.meshes[0].polygons;
+        const lines = polygons.len > 0 and polygons[0].count == line_corners;
+        part.object.light_mask = if (lines) gunship_line_light_mask else ship_light_mask;
+    }
+}
 
 /// `node_tree_portal` (`0x004492A0`): each part of `tree` clipped by `portal`, or with none, clipped
 /// no more, the portal it had left as it was; and the parts of what it carries, the missiles hung
@@ -405,6 +452,15 @@ pub const Loadout = struct {
     lights: std.EnumArray(hologram.Light, srlight.Light),
     /// The portal in the disc's plane, which clips what sinks below it (`0x00524740`).
     disc_portal: srapiext.Portal = .{},
+    /// The plane the internal guns view sweeps across the chosen ship (`0x00523958`), and its sweep
+    /// (`0x005245C4`); the two portals that follow the plane, the first clipping the gunship and
+    /// the second the ship, on either side of it (`gun portal1`, `0x00523EB4`; `gun portal2`,
+    /// `0x00523EB0`); and whether the view is open (`loadout_guns_open`, `0x00524610`).
+    clipper: hologram.Panel = undefined,
+    clip_sweep: anims.Pair = undefined,
+    gunship_portal: srapiext.Portal = .{},
+    ship_portal: srapiext.Portal = .{},
+    guns_open: bool = false,
     /// The device's background as the loadout begins (`0x00523A54`).
     backdrop: srtexture.Image = .{ .levels = &.{} },
     /// The stats panel's textures, `finfo` and `binfo`, and the name panels', `fpanels` and
@@ -493,11 +549,8 @@ pub const Loadout = struct {
     /// scaled down to the arc's size but for the chosen one; the disc, its glow, the panels and
     /// the buttons are made and placed, and their animations built.
     ///
-    /// The missiles' models are loaded with their red textures and made into their icons, and the
-    /// ships' and the missiles' sinkings built.
-    ///
-    /// Not ported yet: the guns' models and objects
-    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// The missiles' models are loaded with their red textures and made into their icons, the
+    /// ships' gun models into their gunships, and the ships' and the missiles' sinkings built.
     pub fn load(context: Context) !*Loadout {
         const gpa = context.rooms.gpa;
         const loadout = try gpa.create(Loadout);
@@ -549,6 +602,8 @@ pub const Loadout = struct {
             file.* = try loadout.loadModel(record.model, .loadout_weapons);
             try loadout.makeIcon(icon, file.*, record);
         }
+        // Each ship's gunship (`0x00441E08` on, `gunships_create`, `0x004447C0`).
+        for (loadout.ships, 0..) |*ship, index| try loadout.makeGunship(&ship.gunship, @intCast(index));
         // The Ship Missile objects, not clickable and standing for nothing until a missile is hung
         // on their rack (`0x0044218A` on).
         for (&loadout.ship_missiles) |*object| {
@@ -585,14 +640,16 @@ pub const Loadout = struct {
 
         for (loadout.ships) |*ship| try loadout.interface.addObject(&ship.object, "");
         for (&loadout.icons) |*icon| try loadout.interface.addObject(&icon.object, "");
+        for (loadout.ships) |*ship| try loadout.interface.addObject(&ship.gunship.object, "");
         for (&loadout.ship_missiles) |*object| try loadout.interface.addObject(object, ship_missile_name);
-        try loadout.makeGlow(try matmanager.textureRequire(textures, glow_name));
+        const glow = try matmanager.textureRequire(textures, glow_name);
+        try loadout.makeGlow(glow);
         var plates: [4]?*srtexture.Image = undefined;
         for (&plates, plate_names) |*plate, plate_name| plate.* = try matmanager.textureRequire(textures, plate_name);
         loadout.cursor_image = try matmanager.textureRequire(textures, cursor_name);
         loadout.marker_image = try matmanager.textureRequire(textures, marker_name);
         try loadout.makeDisc(plates);
-        try loadout.makePanels();
+        try loadout.makePanels(glow);
         loadout.place();
         for (&loadout.button_appears.values, std.enums.values(hologram.Button)) |*appears, button| {
             try anims.buttonAppears(appears, &loadout.interface, &loadout.buttons.getPtr(button).object, &loadout.glow.object, nextButtonAppears);
@@ -631,6 +688,7 @@ pub const Loadout = struct {
             .levels = try arena.alloc(srapiext.Level, file.loaded.parts.len),
             .zoom = undefined,
             .sink = undefined,
+            .gunship = undefined,
         };
         // Room for the missiles the missile page hangs on its racks.
         ship.model.hung = try arena.alloc(?objects.Model.Mount, gameobj.max_racks);
@@ -671,6 +729,26 @@ pub const Loadout = struct {
         for (icon.model.parts) |*part| part.object.light_mask = ship_light_mask;
     }
 
+    /// `gunship_object_create` (`0x00445CC0`) and its object (`0x00442059` on): ship type `index`'s
+    /// gunship, a tree of the ship's gun model loaded with its red textures
+    /// (`loadout_weapon_models`, `0x00524977`), linked and standing at the origin, its parts lit as
+    /// `gunshipLightMasks` says and given a faint green of their own (`node_tree_colour`,
+    /// `0x00449310`); an object of the interface whose tooltip is the ship's name, not clickable,
+    /// and put away. The game names the object after its ship with ` GS` after it
+    /// (`0x00442103`), a name nothing looks for, and makes the gunships of all twelve ships, where
+    /// OpenReliant makes those of the ships offered, the only ones the view shows.
+    fn makeGunship(loadout: *Loadout, gunship: *Gunship, index: u8) !void {
+        const file = try loadout.loadModel(tables.ships[index].guns_model, .loadout_weapons);
+        gunship.model = try .create(loadout.arena.allocator(), file.model, file.loaded, .{});
+        gameobj.linkParts(&gunship.model, file.model);
+        gunship.model.place(@splat(0), math.identity);
+        gunshipLightMasks(&gunship.model, file.loaded);
+        for (gunship.model.parts) |*part| part.object.colour = gunship_colour;
+        gunship.object = .create(0, loadout.context.strings.string(tables.ships[index].name), false);
+        gunship.object.target = .{ .tree = &gunship.model };
+        gunship.object.shown = false;
+    }
+
     /// Opens the loadout's two fonts (`font_open`), the title's taking VFX's palette through the
     /// text remap for the tooltip, in 6-bit levels as a font's palette holds them.
     fn openFonts(loadout: *Loadout) !void {
@@ -707,11 +785,18 @@ pub const Loadout = struct {
     /// `loadout_panels_create` (`0x00443C20`): the panels' textures drawn with the chosen ship; the
     /// ship's figures, its name and the page's title as panels turning over to their backs; the
     /// six buttons, each with its tooltip and its press and release, made too small to see until
-    /// it appears; the two scrollers, facing away; and the flips of the two ship panels.
+    /// it appears; the two scrollers, facing away; the ship clipper, a square of `glow` on both its
+    /// faces, put away, and its sweep (Move Clip Point); and the flips of the two ship panels.
     ///
-    /// Not ported yet: the ship clipper and the panel's clip object, of the internal guns view
-    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
-    fn makePanels(loadout: *Loadout) !void {
+    /// **Fix:** the game makes the ship clipper clickable, as it makes every panel, and the pointer
+    /// finds it though it is put away. Standing at the origin at its whole size until the guns
+    /// view first sweeps it, it covers the chosen ship and takes the pointer from the hardpoints'
+    /// markers, which come after it, so that their tooltip shows only once the view has been
+    /// opened. OpenReliant's is not clickable.
+    ///
+    /// Not ported: the panel's clip object and its own Move Clip Point (`0x00523E7C`,
+    /// `0x00448EF0`), which belong to a view nothing opens (`0x0044A470`).
+    fn makePanels(loadout: *Loadout, glow: *srtexture.Image) !void {
         loadout.drawPanels(loadout.chosen, loadout.chosen);
         const info = &loadout.info_textures;
         const title_front = &loadout.title_textures.getPtr(.front).image;
@@ -744,6 +829,10 @@ pub const Loadout = struct {
             scroller.scene_object.position = at;
             scroller.scene_object.orientation = math.fromAngles(0, std.math.pi, 0);
         }
+        try loadout.clipper.make(loadout.arena.allocator(), &loadout.interface, .ship_clipper, glow, glow, true, hologram.clipper_size, .whole);
+        loadout.clipper.object.shown = false;
+        loadout.clipper.object.clickable = false;
+        try anims.moveClipPoint(&loadout.clip_sweep, &loadout.interface, &loadout.clipper.object, sweepStep, sweepEnded);
         try anims.flipInfo(&loadout.flip_info, &loadout.interface, &loadout.info.object);
         try anims.flipName(&loadout.flip_name, &loadout.interface, &loadout.name.object, noop);
     }
@@ -781,19 +870,21 @@ pub const Loadout = struct {
         for (&title.values) |*texture| texture.image.changed = true;
     }
 
-    /// What the info panel shows on a face: a ship's figures or a missile's.
+    /// What the info panel shows on a face: a ship's figures, a missile's, or a ship's guns.
     const Info = union(enum) {
         ship: u8,
         missile: tables.Missile,
+        guns: u8,
     };
 
     /// The info panel's `face` drawn with `info` (`loadout_draw_stats`, `0x00444F20`;
-    /// `missile_info_draw`, `0x004456F0`).
+    /// `missile_info_draw`, `0x004456F0`; `guns_draw`, `0x00445490`).
     fn drawInfo(loadout: *Loadout, face: panels.Face, info: Info) void {
         const texture = loadout.info_textures.getPtr(face);
         switch (info) {
             .ship => |ship| panels.drawStats(texture.pixels, loadout.kit(), ship, loadout.figures[ship]),
             .missile => |missile| panels.drawMissile(texture.pixels, loadout.kit(), missile, loadout.missile_figures[@intFromEnum(missile)]),
+            .guns => |ship| panels.drawGuns(texture.pixels, loadout.kit(), ship),
         }
         texture.image.changed = true;
     }
@@ -837,6 +928,8 @@ pub const Loadout = struct {
         for (loadout.ships, 0..) |*ship, index| {
             if (index != loadout.chosen) i3d.scaleTree(&ship.model, enter_scale / (anims.arc_unit * tables.ships[index].scale));
         }
+        // Each gunship at its ship's own scale (`0x00442BD0` on).
+        for (loadout.ships, 0..) |*ship, index| i3d.scaleTree(&ship.gunship.model, tables.ships[index].scale);
         chosen.object.shown = true;
         loadout.button_appears.getPtr(.missiles).play(.forward, now);
         loadout.intro(now);
@@ -942,10 +1035,8 @@ pub const Loadout = struct {
     /// every four seconds from when it began, tilted back about X. Where no selection is flying
     /// the ship: while it turns back from belly up, Ship to Belly Up's first key takes the turn's
     /// angles, which it turns back to; otherwise the ship takes the turn while the interface is
-    /// not busy, or once it has turned back.
-    ///
-    /// Not ported yet: the gunship turns with it
-    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// not busy, once it has turned back, or while the internal guns view is open, and then its
+    /// gunship too (`0x00447235` on).
     fn spinShip(loadout: *Loadout) void {
         const angle = @as(f32, @floatFromInt(loadout.now -% loadout.spin_start)) * spin_rate;
         loadout.spin = math.turned(math.turned(math.fromAngles(0, 0, 0), .y, angle), .x, spin_tilt);
@@ -954,8 +1045,10 @@ pub const Loadout = struct {
             belly_up.frames[0].key.angles = math.angles(loadout.spin);
             return;
         };
-        if (loadout.turned_back or !loadout.interface.busy) {
-            loadout.ships[loadout.chosen].object.setOrientation(loadout.spin);
+        if (loadout.turned_back or !loadout.interface.busy or loadout.guns_open) {
+            const ship = &loadout.ships[loadout.chosen];
+            ship.object.setOrientation(loadout.spin);
+            if (loadout.guns_open) ship.gunship.object.setOrientation(loadout.spin);
         }
     }
 
@@ -982,7 +1075,8 @@ pub const Loadout = struct {
     }
 
     /// The scene's lights and portals, as `loadout_enter` adds the lights and each frame the disc's
-    /// portal; and what the device's background holds.
+    /// portal and the internal guns view's two (`0x00443657`, `0x00443667`); and what the device's
+    /// background holds.
     ///
     /// **Improvement:** the game renders the hologram's still part once, whenever a page is built,
     /// and grabs it as the device's background, drawn behind every frame after at 640 by 480
@@ -996,7 +1090,9 @@ pub const Loadout = struct {
             if (light == .bright_green) continue;
             try xtrabits.sceneAdd(gpa, scene, .{ .light = loadout.lights.getPtr(light) }, .world);
         }
-        try xtrabits.sceneAdd(gpa, scene, .{ .portal = &loadout.disc_portal }, .world);
+        for ([_]*srapiext.Portal{ &loadout.disc_portal, &loadout.gunship_portal, &loadout.ship_portal }) |portal| {
+            try xtrabits.sceneAdd(gpa, scene, .{ .portal = portal }, .world);
+        }
         for (loadout.still.items) |object| {
             if (!object.shown) try object.addToScene(gpa, scene, treeToScene);
         }
@@ -1113,8 +1209,13 @@ pub const Loadout = struct {
     /// way round, the missiles put away, the ships' rectangles made again two frames on, and the
     /// interface free. Where `placing`, as at the Spin Disc's end, the ships are placed each time
     /// the scene is made.
+    ///
+    /// The resume puts the ship clipper away, and the gunship with the ship while it is grabbed
+    /// where the internal guns view is open (`0x00443883` to `0x0044389B`, `0x00443970`); as the
+    /// Spin Disc ends, the view is closed and the clipper put away already.
     fn grabShipPage(loadout: *Loadout, placing: bool) Allocator.Error!void {
         const gpa = loadout.context.rooms.gpa;
+        const gunship = &loadout.ships[loadout.chosen].gunship;
         loadout.showPanels(false);
         if (loadout.page == .missiles) {
             loadout.missilesAvailable();
@@ -1125,6 +1226,8 @@ pub const Loadout = struct {
         if (loadout.page != .missiles) loadout.ships[loadout.chosen].object.shown = false;
         for (&loadout.scrollers) |*scroller| scroller.object.shown = false;
         if (loadout.cursor) |cursor| cursor.object.shown = false;
+        loadout.clipper.object.shown = false;
+        if (loadout.guns_open) gunship.object.shown = false;
         try loadout.interface.scene(gpa, &loadout.scene, false, treeToScene);
         if (placing) loadout.placeShips();
         try loadout.captureBackground();
@@ -1134,6 +1237,7 @@ pub const Loadout = struct {
         loadout.showStill(false);
         if (loadout.cursor) |cursor| cursor.object.shown = true;
         loadout.ships[loadout.chosen].object.shown = true;
+        if (loadout.guns_open) gunship.object.shown = true;
         loadout.hideMissiles();
         try loadout.interface.scene(gpa, &loadout.scene, false, treeToScene);
         if (placing) loadout.placeShips();
@@ -1183,14 +1287,22 @@ pub const Loadout = struct {
     /// `noop`, which the name's flip calls half way.
     fn noop(_: *anyopaque, _: *i3d.Anim) void {}
 
-    /// A ship's press (`0x00447C00`): the ship pressed selected, unless a selection is flying.
-    ///
-    /// Not ported yet: with the internal guns view open, it closes first and the selection follows
-    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// A ship's press (`0x00447C00`): the ship pressed selected, unless a selection is flying. With
+    /// the internal guns view open, the view closes first, unless the ship pressed is the chosen
+    /// one; the selection waits on the interface's stack until it has, and the view waits under it
+    /// to open again once the ship has arrived (`selectEnded`).
     fn pressShip(context: *anyopaque, _: *i3d.Object, press: i3d.Press) void {
         const loadout = of(context);
+        const ship: u8 = @intCast(press.index);
+        if (loadout.guns_open and ship == loadout.chosen) return;
         if (loadout.select) |select| if (!select.stopped()) return;
-        loadout.selectShip(@intCast(press.index)) catch |err| log.warn("the ship is not selected: {s}", .{@errorName(err)});
+        if (!loadout.guns_open) {
+            loadout.selectShip(ship) catch |err| log.warn("the ship is not selected: {s}", .{@errorName(err)});
+            return;
+        }
+        loadout.toggleGuns();
+        loadout.interface.push(stackGunsView, 0) catch |err| log.warn("the internal guns view stays closed: {s}", .{@errorName(err)});
+        loadout.interface.push(stackSelectShip, ship) catch |err| log.warn("the ship is not selected: {s}", .{@errorName(err)});
     }
 
     /// `ship_select` (`0x00447E20`): ship `new` chosen in place of the chosen one, unless it is
@@ -1270,15 +1382,16 @@ pub const Loadout = struct {
     }
 
     /// Select Ship's end (`0x00446EF0`): the chosen ship's turn begins again from now, the
-    /// interface is free, and the tier's missiles are hung on it at once (`fitTierDefault`).
-    ///
-    /// Not ported yet: with the guns view waiting, the view opened
-    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// interface is free, and the tier's missiles are hung on it at once (`fitTierDefault`). Where
+    /// the internal guns view waits on top of the interface's stack, as a ship pressed with the
+    /// view open leaves it, it opens (`0x00446F57`).
     fn selectEnded(context: *anyopaque, _: *i3d.Anim) void {
         const loadout = of(context);
         loadout.spin_start = loadout.now;
         loadout.interface.busy = false;
         loadout.fitTierDefault() catch |err| log.warn("the ship's missiles are left off: {s}", .{@errorName(err)});
+        const waiting = loadout.interface.stack.getLastOrNull() orelse return;
+        if (waiting.function == &stackGunsView) loadout.interface.runDeferred();
     }
 
     /// Deselect Ship's end (`0x00446F70`): the interface free, and each ship's rectangle made
@@ -1317,21 +1430,24 @@ pub const Loadout = struct {
         if (!loadout.interface.busy) loadout.exit();
     }
 
-    /// Ship Selection's release (`0x004475D0`): the ship page.
-    ///
-    /// Not ported yet: with the internal guns view open, it closes instead
-    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// Ship Selection's release (`0x004475D0`): the internal guns view closed where it is open,
+    /// and otherwise the ship page.
     fn releaseShips(context: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
         releaseButton(object);
-        of(context).switchPage(.ships);
+        const loadout = of(context);
+        if (loadout.guns_open) return loadout.toggleGuns();
+        loadout.switchPage(.ships);
     }
 
-    /// View Internal Guns' release (`0x00447670`): the internal guns view, from the ship page.
-    ///
-    /// Not ported yet: the view ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
-    fn releaseGuns(_: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
+    /// View Internal Guns' release (`0x00447670`): the internal guns view opened or closed
+    /// (`toggleGuns`). On the missile page, the view waits on the interface's stack while the ship
+    /// page is turned to, and opens once the page is built.
+    fn releaseGuns(context: *anyopaque, object: *i3d.Object, _: i3d.Press) void {
         releaseButton(object);
-        log.info("the loadout's internal guns view is not ported yet", .{});
+        const loadout = of(context);
+        if (loadout.page != .missiles) return loadout.toggleGuns();
+        loadout.interface.push(stackGunsView, 0) catch |err| log.warn("the internal guns view stays closed: {s}", .{@errorName(err)});
+        loadout.switchPage(.ships);
     }
 
     /// Use Default Loadout's release (`0x00447530`), on the missile page: tier 0's missiles flown
@@ -1354,17 +1470,24 @@ pub const Loadout = struct {
     }
 
     /// `page_switch` (`0x00449D90`): page `page`, where it is not the one shown, the one shown
-    /// kept as the last (`loadout_last_page`, `0x00524620`).
-    ///
-    /// Not ported yet: with the internal guns view open, the missile page waits until it closes
-    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// kept as the last (`loadout_last_page`, `0x00524620`). With the internal guns view open, the
+    /// missile page waits on the interface's stack while the view closes, and the ship page stays
+    /// the page shown until it does (`0x00449DB9` on).
     fn switchPage(loadout: *Loadout, page: Page) void {
         if (page == loadout.page) return;
         loadout.last_page = loadout.page;
         loadout.page = page;
         switch (page) {
             .ships => loadout.toShipPage(),
-            .missiles => loadout.toMissilePage() catch |err| log.warn("the missile page is left unfinished: {s}", .{@errorName(err)}),
+            .missiles => {
+                if (loadout.guns_open) {
+                    loadout.interface.push(stackMissilePage, 0) catch |err| log.warn("the missile page is not turned to: {s}", .{@errorName(err)});
+                    loadout.toggleGuns();
+                    loadout.page = .ships;
+                    return;
+                }
+                loadout.toMissilePage() catch |err| log.warn("the missile page is left unfinished: {s}", .{@errorName(err)});
+            },
         }
     }
 
@@ -1444,14 +1567,19 @@ pub const Loadout = struct {
     /// The markers, the Ship Missiles and the missiles' icons are put away, and on the missile
     /// page Use Default Loadout and Remove All Missiles fly back into the glow too.
     ///
-    /// Not ported yet: with the internal guns view open, it closes first
-    /// ([#448](https://github.com/vdmkenny/openreliant/issues/448)).
+    /// With the internal guns view open, the view closes first, and the exit waits on the
+    /// interface's stack until it has (`0x00447767` on).
     fn exit(loadout: *Loadout) void {
         if (!loadout.spin_disc.stopped()) return;
         const now = loadout.now;
         loadout.stopSpeech();
         loadout.spin_disc.frames[0].scale = .out;
         loadout.info.scene_object.flags.portal_clipped = false;
+        if (loadout.guns_open) {
+            loadout.interface.push(stackExit, 0) catch |err| log.warn("the loadout's exit is left undone: {s}", .{@errorName(err)});
+            loadout.toggleGuns();
+            return;
+        }
         loadout.interface.busy = true;
         loadout.interface.hovered = null;
         loadout.showStill(true);
@@ -2247,6 +2375,115 @@ pub const Loadout = struct {
         loadout.showMissilePage();
     }
 
+    // --- The internal guns view --------------------------------------------------------------
+
+    /// `guns_view_toggle` (`0x0044A110`): the internal guns view opened, or closed where it is open,
+    /// the interface busy while the ship clipper sweeps across the chosen ship along X, from
+    /// `clip_back` before its place to as far past it (Move Clip Point). Opening, the gunship is
+    /// put where the ship stands, turned as it is, and the two portals are set on the gunship and
+    /// on the ship where the sweep starts, so that the ship turns into its guns as the plane
+    /// passes (`sweepStep`); closing, the sweep plays back. The info panel's front is drawn with
+    /// what it shows and its back with what it is to show, the ship's figures or its guns, turned
+    /// front on and flipped over; and sound 10 plays.
+    ///
+    /// The game sets the flip's time to 1500 ms each time, the time it is made with.
+    fn toggleGuns(loadout: *Loadout) void {
+        const now = loadout.now;
+        const ship = &loadout.ships[loadout.chosen];
+        const gunship = &ship.gunship;
+        const opening = !loadout.guns_open;
+        loadout.interface.busy = true;
+        if (opening) {
+            gunship.object.setPosition(ship.object.position());
+            gunship.object.setOrientation(ship.object.orientation());
+        }
+        const from = gunship.object.position() - Vector{ clip_back, 0, 0 };
+        if (opening) {
+            const length: Vector = @splat(opening_normal_length);
+            loadout.gunship_portal.position = from;
+            loadout.gunship_portal.normal = gunship_normal * length;
+            clipTree(&gunship.model, &loadout.gunship_portal);
+            loadout.ship_portal.position = from;
+            loadout.ship_portal.normal = ship_normal * length;
+            ship.clip(&loadout.ship_portal);
+        }
+        loadout.clipper.object.setPosition(from);
+        const sweep = &loadout.clip_sweep;
+        sweep.frames[0].key.position = from;
+        sweep.frames[1].key.position = from + Vector{ clip_sweep, 0, 0 };
+        sweep.play(if (opening) .forward else .back, now);
+        const figures: Info = .{ .ship = loadout.chosen };
+        const guns: Info = .{ .guns = loadout.chosen };
+        loadout.drawInfo(.front, if (opening) figures else guns);
+        loadout.drawInfo(.back, if (opening) guns else figures);
+        loadout.info.scene_object.orientation = math.identity;
+        loadout.flip_info.play(.forward, now);
+        _ = loadout.playSound(.guns, hog_snd.loudest, hog_snd.once, hog_snd.own_pitch);
+        if (opening) loadout.guns_open = true;
+    }
+
+    /// Move Clip Point's step (`0x004490E0`): the ship clipper, the gunship and the ship shown;
+    /// the two portals moved to the plane, the gunship's facing along X and the ship's back along
+    /// it, and set on them, so that the gunship shows behind the plane and the ship ahead of it;
+    /// and the plane turned across X (`hologram.clipper_angles`).
+    fn sweepStep(context: *anyopaque, _: *i3d.Anim) void {
+        const loadout = of(context);
+        const ship = &loadout.ships[loadout.chosen];
+        loadout.clipper.object.shown = true;
+        ship.gunship.object.shown = true;
+        ship.object.shown = true;
+        const at = loadout.clipper.object.position();
+        loadout.gunship_portal.position = at;
+        loadout.gunship_portal.normal = gunship_normal;
+        clipTree(&ship.gunship.model, &loadout.gunship_portal);
+        loadout.ship_portal.position = at;
+        loadout.ship_portal.normal = ship_normal;
+        ship.clip(&loadout.ship_portal);
+        loadout.clipper.object.setOrientation(math.fromAngleVector(hologram.clipper_angles));
+    }
+
+    /// Move Clip Point's end (`0x00446E30`): the interface free and the ship clipper put away.
+    /// Opened, the ship is put away, leaving its gunship; closed, the gunship is put away, the view
+    /// is closed and the ship is clipped by the disc's portal again (`clipToDisc`). Then what waits
+    /// on the interface's stack runs.
+    fn sweepEnded(context: *anyopaque, anim: *i3d.Anim) void {
+        const loadout = of(context);
+        const ship = &loadout.ships[loadout.chosen];
+        loadout.interface.busy = false;
+        loadout.clipper.object.shown = false;
+        switch (anim.direction) {
+            .forward => ship.object.shown = false,
+            .back => {
+                ship.gunship.object.shown = false;
+                loadout.guns_open = false;
+                loadout.clipToDisc(&ship.model);
+            },
+        }
+        loadout.interface.runDeferred();
+    }
+
+    /// `stack_guns_view` (`0x00449AA0`): a function-stack entry, the internal guns view toggled.
+    fn stackGunsView(context: *anyopaque, _: usize) void {
+        of(context).toggleGuns();
+    }
+
+    /// `stack_select_ship` (`0x00447E00`): a function-stack entry, the ship it holds selected.
+    fn stackSelectShip(context: *anyopaque, ship: usize) void {
+        of(context).selectShip(@truncate(ship)) catch |err| log.warn("the ship is not selected: {s}", .{@errorName(err)});
+    }
+
+    /// `stack_switch_page` (`0x00449AB0`) as `page_switch` pushes it: a function-stack entry, the
+    /// missile page turned to.
+    fn stackMissilePage(context: *anyopaque, _: usize) void {
+        of(context).switchPage(.missiles);
+    }
+
+    /// `loadout_exit` as a function-stack entry, as the exit leaves itself to run once the
+    /// internal guns view has closed (`0x0044777C`).
+    fn stackExit(context: *anyopaque, _: usize) void {
+        of(context).exit();
+    }
+
     fn of(context: *anyopaque) *Loadout {
         return @ptrCast(@alignCast(context));
     }
@@ -2515,6 +2752,34 @@ test treeToScene {
     i3d.clearScene(&scene);
     try treeToScene(gpa, &scene, &tree.ship);
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
+}
+
+test gunshipLightMasks {
+    const gpa = std.testing.allocator;
+    var faces = try squareMesh(gpa, false, 1, 1);
+    defer faces.deinit(gpa);
+    var lines = try squareMesh(gpa, false, 1, 1);
+    defer lines.deinit(gpa);
+    lines.polygons[0] = .{ .kind = .lines, .continues = 0, .first = 0, .count = line_corners };
+    var face_meshes = [_]srapiext.Mesh{faces};
+    var line_meshes = [_]srapiext.Mesh{lines};
+    var no_meshes = [_]srapiext.Mesh{};
+    var loaded_parts = [_]srofiles.LoadedPart{
+        .{ .flags = .{}, .meshes = &face_meshes, .levels = &.{} },
+        .{ .flags = .{}, .meshes = &line_meshes, .levels = &.{} },
+        .{ .flags = .{}, .meshes = &no_meshes, .levels = &.{} },
+    };
+    const loaded: srofiles.Loaded = .{ .parts = &loaded_parts };
+    const object: srapiext.MeshObject = .{ .flags = .{}, .position = @splat(0), .radius = 0, .levels = &.{}, .light_mask = 0x1234 };
+    var parts: [3]objects.Model.Part = @splat(.{ .hidden = false, .parent = null, .origin = @splat(0), .object = object });
+    var tree: objects.Model = .{ .parts = &parts, .order = &.{}, .lights = &.{}, .glows = &.{}, .mounts = &.{} };
+    gunshipLightMasks(&tree, &loaded);
+    // A part drawn in faces takes the green light, as the ships' parts do, and one drawn in lines
+    // the ambient light alone.
+    try std.testing.expectEqual(ship_light_mask, parts[0].object.light_mask);
+    try std.testing.expectEqual(gunship_line_light_mask, parts[1].object.light_mask);
+    // A part with no mesh keeps its own.
+    try std.testing.expectEqual(0x1234, parts[2].object.light_mask);
 }
 
 test litBlend {
