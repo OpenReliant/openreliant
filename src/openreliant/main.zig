@@ -917,7 +917,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
         .player = &objects.player,
     };
     // Whether the system's pointer shows over the window, and whether the window holds the mouse.
-    var pointer_shown = true;
     var mouse_held = false;
     // As `WinMain` opens the front end, the splash leads into the main menu (`0x004AB6A0`).
     if (in_front_end and options.screenshot == null) {
@@ -1198,12 +1197,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                 }
             }
         }
-        // The menus draw their own pointer over the window, in place of the system's.
+        // The menus draw their own pointer over the window, in place of the system's, which also
+        // hides in full screen and once it rests over the window.
         const menu_pointer = in_front_end or pause_menu.isOpen();
-        if (menu_pointer == pointer_shown) {
-            pointer_shown = !pointer_shown;
-            window.showPointer(pointer_shown);
-        }
+        window.showPointer(menu_pointer);
         // Steering by the mouse, the window holds it in flight, as the game holds DirectInput's
         // mouse while it is in the foreground.
         const hold = devices.settings.control_mode == .mouse and !menu_pointer and app.active and options.screenshot == null;

@@ -225,6 +225,10 @@ Each archive holds the executable, the README, the license and the changelog, an
 
 release-please opens its pull request with the workflow's own token, which needs "Allow GitHub Actions to create and approve pull requests" turned on in the repository's Actions settings. GitHub does not run workflows for pull requests opened with that token, so the release pull request never gets its checks, and an admin merges it past the branch protection.
 
+## The pointer
+
+The front end, the Reliant's rooms and the pause menu draw the game's own pointer, and the system's is hidden over the window meanwhile. In flight the system's pointer is hidden in full screen, where the original's screen showed none, and in a window once it has rested over it for two seconds; it shows again as soon as it moves (`Window.showPointer`). While the mouse steers the ship, the window holds it, its pointer hidden (`Window.holdMouse`).
+
 ## Frames
 
 The window is drawn into at the display's own density. With vsync, the default, the display paces the frames: each waits for the display the window is on, at its refresh rate. Without it, frames are held to that display's refresh rate, or to `--fps`; `--fps` holds them to its rate with vsync too. The game's clock ticks 100 times a second, so past 100 frames a second some frames show the same moment of the game; objects move on every fourth tick ([Game loop](../engine/loop.md)).

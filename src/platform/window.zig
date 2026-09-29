@@ -49,6 +49,10 @@ pub const Window = struct {
     text: [text_room]u8 = undefined,
     text_left: []const u8 = &.{},
     backspace_owed: bool = false,
+    /// When the pointer last moved over the window (`nanoseconds`), and whether the system's
+    /// pointer shows over it (`showPointer`).
+    pointer_moved_at: u64 = 0,
+    pointer_shown: bool = true,
 
     /// The most of one of the system's text events kept, the room SDL gives one.
     const text_room = 32;
@@ -69,7 +73,7 @@ pub const Window = struct {
         const gpu = c.SDL_CreateGPUDevice(formats, false, null) orelse return fail("SDL_CreateGPUDevice");
         errdefer c.SDL_DestroyGPUDevice(gpu);
         if (!c.SDL_ClaimWindowForGPUDevice(gpu, handle)) return fail("SDL_ClaimWindowForGPUDevice");
-        return .{ .handle = handle, .gpu = gpu };
+        return .{ .handle = handle, .gpu = gpu, .pointer_moved_at = nanoseconds() };
     }
 
     pub fn close(window: *Window) void {
@@ -128,6 +132,7 @@ pub const Window = struct {
                 c.SDL_EVENT_WINDOW_FOCUS_GAINED => return .{ .active = true },
                 c.SDL_EVENT_WINDOW_FOCUS_LOST => return .{ .active = false },
                 c.SDL_EVENT_MOUSE_MOTION => {
+                    window.pointer_moved_at = nanoseconds();
                     const points = window.size();
                     return .{ .pointer = .{
                         .at = .{
@@ -181,9 +186,13 @@ pub const Window = struct {
         _ = if (on) c.SDL_StartTextInput(window.handle) else c.SDL_StopTextInput(window.handle);
     }
 
-    /// Shows the system's pointer over the window, or hides it where the game draws its own.
-    pub fn showPointer(window: Window, shown: bool) void {
-        _ = window;
+    /// Shows the system's pointer over the window, or hides it: where the game draws its own
+    /// (`drawn`), in full screen, and once it has rested over the window (`pointerShows`). It
+    /// shows again as soon as it moves.
+    pub fn showPointer(window: *Window, drawn: bool) void {
+        const shown = pointerShows(drawn, window.fillsDisplay(), nanoseconds() -| window.pointer_moved_at);
+        if (shown == window.pointer_shown) return;
+        window.pointer_shown = shown;
         _ = if (shown) c.SDL_ShowCursor() else c.SDL_HideCursor();
     }
 
@@ -260,9 +269,13 @@ pub const Window = struct {
         window.frame = null;
     }
 
+    /// Whether the window fills the display.
+    pub fn fillsDisplay(window: Window) bool {
+        return c.SDL_GetWindowFlags(window.handle) & c.SDL_WINDOW_FULLSCREEN != 0;
+    }
+
     fn toggleFullscreen(window: *Window) void {
-        const fullscreen = c.SDL_GetWindowFlags(window.handle) & c.SDL_WINDOW_FULLSCREEN != 0;
-        if (!c.SDL_SetWindowFullscreen(window.handle, !fullscreen)) std.log.scoped(.sdl).warn("SDL_SetWindowFullscreen: {s}", .{c.SDL_GetError()});
+        if (!c.SDL_SetWindowFullscreen(window.handle, !window.fillsDisplay())) std.log.scoped(.sdl).warn("SDL_SetWindowFullscreen: {s}", .{c.SDL_GetError()});
     }
 
     /// The refresh rate of the display the window is on, in frames a second, or null where SDL
@@ -306,6 +319,26 @@ test Pacer {
     // A late frame goes at once, and the next is timed from it.
     try std.testing.expectEqual(0, pacer.delay(1_050_000_000, 100));
     try std.testing.expectEqual(10_000_000, pacer.delay(1_050_000_000, 100));
+}
+
+/// How long the pointer rests over a window before the system's pointer hides.
+const pointer_rest: u64 = 2 * std.time.ns_per_s;
+
+/// Whether the system's pointer shows over the window: not where the game draws its own (`drawn`),
+/// nor in full screen, where the original's screen showed none, nor once it has rested for
+/// `pointer_rest` (`rested` nanoseconds).
+fn pointerShows(drawn: bool, full_screen: bool, rested: u64) bool {
+    return !drawn and !full_screen and rested < pointer_rest;
+}
+
+test pointerShows {
+    // In a window, the pointer shows while it moves, and hides once it rests.
+    try std.testing.expect(pointerShows(false, false, 0));
+    try std.testing.expect(pointerShows(false, false, pointer_rest - 1));
+    try std.testing.expect(!pointerShows(false, false, pointer_rest));
+    // Never where the game draws its own, nor in full screen.
+    try std.testing.expect(!pointerShows(true, false, 0));
+    try std.testing.expect(!pointerShows(false, true, 0));
 }
 
 /// Nanoseconds since SDL started, which the game's ticks are counted from (`ticks`).
