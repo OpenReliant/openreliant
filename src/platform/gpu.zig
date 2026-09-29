@@ -292,6 +292,10 @@ pub const Gpu = struct {
     vertex_shader: *c.SDL_GPUShader,
     fragment_shader: *c.SDL_GPUShader,
     sampler: *c.SDL_GPUSampler,
+    /// What the images drawn over the finished frame, the display's and the menus', are read with:
+    /// as `sampler`, but held at their edges rather than wrapping, as Direct3D 7 wrapped the
+    /// scene's textures, so that a filter at an image's edge reads nothing from its far side.
+    edge_sampler: *c.SDL_GPUSampler,
     /// What the screen's passes read with: no wrapping, so a blur does not pull in the far edge.
     screen_sampler: *c.SDL_GPUSampler,
     /// The screen's passes (`shaders/bloom.glsl`): the bloom's, and the last, which finishes the
@@ -392,6 +396,11 @@ pub const Gpu = struct {
         sampler_info.max_anisotropy = if (modern) 16 else 1;
         const sampler = c.SDL_CreateGPUSampler(handle, &sampler_info) orelse return fail("SDL_CreateGPUSampler");
         errdefer c.SDL_ReleaseGPUSampler(handle, sampler);
+        sampler_info.address_mode_u = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        sampler_info.address_mode_v = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        sampler_info.address_mode_w = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        const edge_sampler = c.SDL_CreateGPUSampler(handle, &sampler_info) orelse return fail("SDL_CreateGPUSampler");
+        errdefer c.SDL_ReleaseGPUSampler(handle, edge_sampler);
 
         // 16-bit colour where the GPU draws into it; elsewhere the shader's dither alone.
         const sixteen = settings.sixteen_bit and c.SDL_GPUTextureSupportsFormat(
@@ -451,6 +460,7 @@ pub const Gpu = struct {
             .vertex_shader = vertex_shader,
             .fragment_shader = fragment_shader,
             .sampler = sampler,
+            .edge_sampler = edge_sampler,
             .shadows = shadows,
         };
         gpu.blank = try gpu.place(&blank_levels);
@@ -495,6 +505,7 @@ pub const Gpu = struct {
         if (gpu.screen_fragment_shader) |shader_| c.SDL_ReleaseGPUShader(gpu.handle, shader_);
         c.SDL_ReleaseGPUSampler(gpu.handle, gpu.screen_sampler);
         c.SDL_ReleaseGPUSampler(gpu.handle, gpu.sampler);
+        c.SDL_ReleaseGPUSampler(gpu.handle, gpu.edge_sampler);
         c.SDL_ReleaseGPUShader(gpu.handle, gpu.vertex_shader);
         c.SDL_ReleaseGPUShader(gpu.handle, gpu.fragment_shader);
     }
@@ -861,10 +872,16 @@ pub const Gpu = struct {
         c.SDL_PushGPUFragmentUniformData(commands, 2, &gpu.shadows.uniforms, @sizeOf(shadow.Uniforms));
         const geometry = gpu.geometry orelse return;
         geometry.bind(pass);
+        // The scene's textures wrap; the images drawn over the finished frame are held at their
+        // edges.
+        const sampler = switch (into) {
+            .scene => gpu.sampler,
+            .finished => gpu.edge_sampler,
+        };
         for (runs) |run| {
             c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(run.key).?);
             const array = gpu.arrays.items[run.array orelse gpu.blank.array];
-            const bindings = [_]c.SDL_GPUTextureSamplerBinding{ .{ .texture = array.texture, .sampler = gpu.sampler }, gpu.shadows.binding() };
+            const bindings = [_]c.SDL_GPUTextureSamplerBinding{ .{ .texture = array.texture, .sampler = sampler }, gpu.shadows.binding() };
             c.SDL_BindGPUFragmentSamplers(pass, 0, &bindings, bindings.len);
             c.SDL_DrawGPUIndexedPrimitives(pass, run.count, 1, run.first, 0, 0);
         }
