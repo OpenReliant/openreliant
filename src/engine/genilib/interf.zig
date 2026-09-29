@@ -28,6 +28,7 @@ const movie = game.xtrabits.movie;
 const device = @import("../surrender/srd3d/device.zig");
 
 pub const ease = @import("interf/ease.zig");
+pub const i3d = @import("interf/i3d.zig");
 
 const log = std.log.scoped(.interface);
 
