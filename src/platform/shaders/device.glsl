@@ -409,27 +409,28 @@ vec4 easu(vec2 at, float layer) {
 // outside the glyph.
 float coverageAt(ivec2 at, float layer, ivec2 size) {
     if (any(lessThan(at, ivec2(0))) || any(greaterThanEqual(at, size))) return 0.0;
-    return texelFetch(images, ivec3(at, int(layer)), 0).r;
+    float level = texelFetch(images, ivec3(at, int(layer)), 0).r;
+    // In linear light the texture comes decoded, as a colour; the coverage is taken as stored,
+    // whatever the lighting.
+    return frame.settings.w > 0.0 ? encoded(vec3(level)).x : level;
 }
 
-// A glyph of the menus' fonts from its coverage, the grey its levels are drawn in, as crisp as the
-// frame allows: the coverage taken straight between the four texels' centres about the fragment,
-// so that the glyph's straight edges stay straight without the rounding or ringing of a cubic
-// filter, then sharpened about half over half a texel, or a pixel of the frame where that is
-// wider. A grey the font joins its strokes with stays part lit, as it does at the font's own size.
-// Its colour is the vertex's alone. texels is how many of the texture's texels a pixel of the frame
-// spans.
+// A glyph of the menus' fonts as the font draws it, each of its pixels a square of its own
+// coverage, the grey its level is drawn in: the step from one texel to the next eased over a pixel
+// of the frame rather than a texel, so that the letters keep the fonts' shapes and greys at any
+// size, without the nearest texel's uneven steps or a filter's blur. At a whole multiple of the
+// font's size, its pixels come out as they are. Its colour is the vertex's alone. texels is how
+// many of the texture's texels a pixel of the frame spans.
 vec4 glyph(vec2 at, float layer, float texels) {
     ivec2 size = textureSize(images, 0).xy;
     vec2 position = at * vec2(size) - 0.5;
     ivec2 cell = ivec2(floor(position));
-    vec2 f = position - vec2(cell);
+    vec2 f = clamp((position - vec2(cell) - 0.5) / texels + 0.5, 0.0, 1.0);
     float coverage = mix(
         mix(coverageAt(cell, layer, size), coverageAt(cell + ivec2(1, 0), layer, size), f.x),
         mix(coverageAt(cell + ivec2(0, 1), layer, size), coverageAt(cell + ivec2(1, 1), layer, size), f.x),
         f.y);
-    float ease = max(0.25, 0.5 * texels);
-    return vec4(1.0, 1.0, 1.0, smoothstep(0.5 - ease, 0.5 + ease, coverage));
+    return vec4(1.0, 1.0, 1.0, coverage);
 }
 
 // The texture at the fragment: magnified as the settings say, smoothly, by FSR 1 or as a glyph

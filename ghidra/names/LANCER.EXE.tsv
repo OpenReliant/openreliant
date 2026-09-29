@@ -1905,12 +1905,12 @@ address	kind	name	type	comment
 005d5641	data	developer_mode	byte	Set by the main menu's POTATO, typed with Control, until the game quits: the developers' keys and the mission's number shown
 0051d7d0	data	dialog_message	int	The string id interface_confirm asks, or -1 for dialog_text
 0051d4b8	data	dialog_shapes	void *	quit.spr while interface_confirm's dialog is up
-00520294	data	dialog_button	int	The dialog's button under the pointer: 0 YES, 1 NO, -1 none; in SET GAME DIFFICULTY (difficulty_dialog), 0 START, 1 BACK, 2 and 3 the arrows down and up
+00520294	data	dialog_button	int	The dialog's button under the pointer: 0 YES, 1 NO, -1 none; in SET GAME DIFFICULTY (difficulty_dialog), 0 START, 1 BACK, 2 and 3 the arrows down and up; its low byte is also interface_text_remap's entry for level 16, -1 and so clear while no dialog's button is under the pointer
 004e5cb8	data	dialog_buttons	short[2][4]	interface_confirm's YES and NO: corner and size
 0051d7bc	data	interface_font_large	void **	interface\optfnt.fnt, opened by interface_init: the main menu's labels and the dialogs
 0051d568	data	interface_font_small	void **	interface\smlfnt2.fnt, opened by interface_init
 0051d604	data	interface_font_handel	void **	handel.fnt, opened by interface_init
-00520284	data	interface_text_remap	byte[16]	The remap table the front end's text is drawn through: 0xFF for level 0 and each level 1 to 15 itself, which interface_palette_ramp colours
+00520284	data	interface_text_remap	byte[16]	The remap table the front end's text is drawn through: 0xFF for level 0 and each level 1 to 15 itself, which interface_palette_ramp colours; level 16, which a few glyphs use in their first column, reads the low byte of dialog_button after it
 0059506c	data	font_01	void **	font_01.fnt, opened with the display's fonts: the main menu's developers' text
 00588744	data	background_name	char[64]	The name of the picture shown behind the frames (background_set)
 00588740	data	background_hook	void *	A routine background_load runs in place of loading background_name, where set

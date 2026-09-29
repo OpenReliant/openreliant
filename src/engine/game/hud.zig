@@ -304,8 +304,13 @@ pub const Opened = struct {
         /// `hud_palette_ramp` sets to the colour times level / 15; level 0 is clear. A glyph is
         /// drawn in grey at level / 15 and tinted with the colour, which comes to the same.
         ///
-        /// **Fix.** Level 16, which a few pixels of the menu's fonts use, reads past the game's
-        /// table into another variable's byte (`audio_saved_effects`); OpenReliant draws it as 15.
+        /// Level 16, which a few glyphs of the menus' fonts use, each in its first column, reads
+        /// past the remap table into the byte after it: in the front end the low byte of
+        /// `dialog_button` (`0x00520294`), -1, clear, while no dialog's button is under the
+        /// pointer; in the pause menu the low byte of `audio_saved_effects`, a volume, which draws
+        /// the pixel in whatever colour of the palette it picks.
+        ///
+        /// **Fix:** OpenReliant leaves level 16 clear, as the front end draws it.
         ramp,
     };
 
@@ -719,10 +724,12 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
         if (palette) |colours| {
             // The palette holds 6-bit levels, as the sprites' does.
             for (pixel[0..3], colours[@as(usize, index) * 3 ..][0..3]) |*channel, level| channel.* = spr.expandLevel(level);
+            pixel[3] = if (index == 0) 0 else 255;
         } else {
-            @memset(pixel[0..3], rampLevel(index));
+            const grey = rampLevel(index);
+            @memset(pixel[0..3], grey);
+            pixel[3] = if (grey == 0) 0 else 255;
         }
-        pixel[3] = if (index == 0) 0 else 255;
     }
     var image: srtexture.Image = try .single(gpa, glyph.width, opened.font.header.height, rgba);
     // **Improvement:** the menus' text, magnified from its coverage (`srtexture.Image.Magnify`).
@@ -731,9 +738,11 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
     return &opened.images[code].?;
 }
 
-/// Coverage `level` of a ramp font as a grey, 0 to 255 for the levels 0 to 15.
+/// Coverage `level` of a ramp font as a grey: 0 to 255 for the levels 0 to 15, and 0, clear, past
+/// them (`Opened.Paint.ramp`).
 fn rampLevel(level: u8) u8 {
-    return @intCast(@as(u32, @min(level, ramp_top)) * 255 / ramp_top);
+    if (level > ramp_top) return 0;
+    return @intCast(@as(u32, level) * 255 / ramp_top);
 }
 
 /// The top of the ramp `hud_palette_ramp` sets: entries 1 to 15.
@@ -1063,11 +1072,11 @@ test textLeft {
 }
 
 test "a ramp font's glyphs are levels of grey" {
-    // Level 0 clear, 15 white, and 16, which the game reads past its table for, white too.
+    // Level 0 clear, 15 white, and 16, which the game reads past its table for, clear too.
     try std.testing.expectEqual(0, rampLevel(0));
     try std.testing.expectEqual(17, rampLevel(1));
     try std.testing.expectEqual(255, rampLevel(15));
-    try std.testing.expectEqual(255, rampLevel(16));
+    try std.testing.expectEqual(0, rampLevel(16));
 
     const gpa = std.testing.allocator;
     var opened: Opened = .ramp(try fnt.Font.parse(comptime fnt.testing.font(true)));
@@ -1081,7 +1090,7 @@ test "a ramp font's glyphs are levels of grey" {
         const pixel = image.levels[0].rgba[at * 4 ..][0..4];
         try std.testing.expectEqual(rampLevel(level), pixel[0]);
         try std.testing.expectEqual(pixel[0], pixel[2]);
-        try std.testing.expectEqual(@as(u8, if (level == 0) 0 else 255), pixel[3]);
+        try std.testing.expectEqual(@as(u8, if (level == 0 or level > ramp_top) 0 else 255), pixel[3]);
     }
 }
 

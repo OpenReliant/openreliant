@@ -19,7 +19,7 @@ While a mission is paused, the game draws a configuration menu in place of the h
 
 **Fixes** of the game's bugs, each marked so in the code:
 
-- Coverage level 16 of the fonts is drawn as 15, where the game reads past its remap table.
+- Coverage level 16 of the fonts, which a few glyphs use in their first column, is left clear, as the front end draws it, where the game reads past its remap table into a volume's byte.
 - The effects' test sound plays at the volume set, where the game plays it at what the pointer's place works out to.
 - The video screen's RESET DEFAULTS sets the cockpit mode the setting stands for.
 
