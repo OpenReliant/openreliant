@@ -949,9 +949,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                 .right => devices.mouse.buttons.right = button.down,
             },
         };
-        // While the window is inactive, the sound is paused, as the message pump pauses it, and
-        // the game too.
-        try game.winmain.followActivation(&app, pausing);
+        // While the window is inactive, the sound is paused, as the message pump pauses it, and a
+        // mission loaded too.
+        try game.winmain.followActivation(&app, pausing, play.loaded != null);
         if (output) |open| open.update();
         const size = try frameSize(screen, &window, options.settings.size, arena);
 

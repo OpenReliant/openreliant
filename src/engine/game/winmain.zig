@@ -39,20 +39,21 @@ pub const App = struct {
 
 /// `message_pump` (`0x004AAB20`), the part that follows the window's activation. Going inactive,
 /// the music, the 3D voices and the voices pause, and the pump waits on the window's messages
-/// until it is active again; then the sound goes on. Only in a multiplayer session does it pause
-/// the mission as well (`game_pause`), which it then leaves in its pause menu. The textures, which
-/// DirectDraw loses with the window, need nothing in OpenReliant.
+/// until it is active again; then the sound goes on. Only in a multiplayer session with a mission
+/// `loaded` (`mission_loaded`, `0x00588734`) does it pause the mission as well (`game_pause`),
+/// which it then leaves in its pause menu. The textures, which DirectDraw loses with the window,
+/// need nothing in OpenReliant.
 ///
-/// **Improvement.** OpenReliant pauses the mission into its menu in single player too, where the
-/// game pauses only the sound and the timer's ticks pile up while the window is away. Active again,
-/// the music goes on; the rest waits for the menu's CONTINUE.
-pub fn followActivation(app: *App, pausing: main.Pausing) !void {
+/// **Improvement.** OpenReliant pauses a mission `loaded` into its menu in single player too, where
+/// the game pauses only the sound and the timer's ticks pile up while the window is away. Active
+/// again, the music goes on; the rest waits for the menu's CONTINUE.
+pub fn followActivation(app: *App, pausing: main.Pausing, loaded: bool) !void {
     if (app.active and app.paused) {
         pausing.sound.pauseMusic(false);
         app.paused = false;
     } else if (!app.active and !app.paused) {
         pausing.sound.pauseMusic(true);
-        try main.pause(pausing, true);
+        if (loaded) try main.pause(pausing, true);
         app.paused = true;
     }
 }
@@ -86,19 +87,28 @@ test followActivation {
     };
 
     // Active, nothing changes.
-    try followActivation(&app, pausing);
+    try followActivation(&app, pausing, true);
     try std.testing.expectEqual(mss.Status.playing, driver.sampleStatus(sound.voices[v].sample));
 
-    // Inactive, the sound and the clock stop, once, and the menu opens.
+    // Inactive with no mission loaded, as in the front end, the clock runs on and the menu stays
+    // shut, for a mission started later to find.
     app.active = false;
-    try followActivation(&app, pausing);
-    try followActivation(&app, pausing);
+    try followActivation(&app, pausing, false);
+    try std.testing.expect(!clock.paused and app.paused and !menu.isOpen());
+    app.active = true;
+    try followActivation(&app, pausing, false);
+    try std.testing.expect(!app.paused);
+
+    // Inactive with a mission loaded, the sound and the clock stop, once, and the menu opens.
+    app.active = false;
+    try followActivation(&app, pausing, true);
+    try followActivation(&app, pausing, true);
     try std.testing.expect(clock.paused and app.paused and menu.isOpen());
     try std.testing.expectEqual(mss.Status.stopped, driver.sampleStatus(sound.voices[v].sample));
 
     // Active again, the mission waits in the menu; continuing, the voices go on.
     app.active = true;
-    try followActivation(&app, pausing);
+    try followActivation(&app, pausing, true);
     try std.testing.expect(clock.paused and !app.paused);
     try main.pause(pausing, false);
     try std.testing.expect(!clock.paused and !menu.isOpen());
