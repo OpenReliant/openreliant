@@ -2,7 +2,8 @@
 # release-please from the Conventional Commits pushed to main, or to a release branch that patches
 # an earlier version, such as release/0.5 for 0.5.1. Merging that pull request tags the version and
 # publishes a GitHub release with its changelog; the builds for each system are then attached to
-# it. The builds hold no game files: the game needs your own copy.
+# it, and the changes contributors made are credited to them in its notes. The builds hold no game
+# files: the game needs your own copy.
 #
 # Run by hand from the Actions tab, it builds everything and keeps the archives as the run's
 # artifacts, but publishes nothing.
@@ -89,17 +90,21 @@ jobs:
     if: needs.release-please.outputs.created == 'true'
     runs-on: ubuntu-latest
     steps:
+      # For the script that credits the contributors.
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-      - name: Attach the builds to the release
+      # Each change a contributor made gets their handle in the notes (`release-credits.sh`).
+      - name: Attach the builds to the release, and credit the contributors
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release-please.outputs.tag }}
         run: |
           gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
-          changelog="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          changelog="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body | scripts/release-credits.sh)"
           note="OpenReliant needs your own copy of StarLancer: see the README for where to point it. The macOS builds are not signed, so macOS blocks them at first; run \`xattr -d com.apple.quarantine openreliant\` once to allow it."
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$note
 

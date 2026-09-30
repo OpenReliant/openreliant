@@ -210,6 +210,8 @@ Merging the release pull request updates [`CHANGELOG.md`](../../CHANGELOG.md) an
 | `macos-x86_64.tar.gz` | macOS | `x86_64-macos` |
 | `macos-aarch64.tar.gz` | macOS | `aarch64-macos` |
 
+As it attaches them, the workflow credits the contributors in the release's notes: each change's line gets the handle of whoever opened the pull request that brought it in, unless that is the repository's owner or a bot ([`release-credits.sh`](../../scripts/release-credits.sh)). `CHANGELOG.md` keeps the lines as release-please writes them.
+
 Run by hand from the Actions tab, the workflow builds all six and keeps the archives as the run's artifacts, but publishes nothing.
 
 The build gives `openreliant` its version ([`version.zig`](../../src/openreliant/version.zig)), which `--version` and the top of `--help` show. It is the version in `build.zig.zon`, followed by what `git describe` says of the checkout as SemVer build metadata when it is not exactly a release:
