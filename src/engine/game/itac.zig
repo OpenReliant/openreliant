@@ -60,10 +60,6 @@ const eye_read = "itac_eye_recog.bik";
 const opening = "inter\\itac\\itac open.bik";
 const closing = "inter\\itac\\itaclose.bik";
 
-/// The last mission flown from the Reliant, up to which the rooms open the ITAC with the pilot's
-/// eye read, and after which it closes with its movie (`0x0043F47C`, `0x0043FA92`).
-const last_on_reliant = 18;
-
 /// The ITAC's sections, in the order of the buttons along its foot, the last of which closes it.
 pub const Section = enum(u4) {
     debriefings,
@@ -75,11 +71,6 @@ pub const Section = enum(u4) {
     personnel,
     killboard,
     exit,
-
-    /// Its button (`itac_buttons`, `0x004E9340`).
-    pub fn button(section: Section) Rect {
-        return .{ .x = button_x.get(section), .y = button_y, .width = button_size[0], .height = button_size[1] };
-    }
 
     /// The string of its title, which in the sections that show either side names the side
     /// (`itac_titles`, `0x004E9484`; `itac_titles_coalition`, `0x004E9498`).
@@ -112,20 +103,18 @@ pub const Section = enum(u4) {
     }
 };
 
-/// Where each section's button stands along the foot of the screen, and its size.
-const button_x = std.EnumArray(Section, i16).init(.{
-    .debriefings = 12,
-    .news_reports = 81,
-    .video_reports = 151,
-    .fighters = 220,
-    .ships = 290,
-    .squadrons = 359,
-    .personnel = 429,
-    .killboard = 499,
-    .exit = 570,
+/// Each section's button, 58 by 51 along the foot of the screen (`itac_buttons`, `0x004E9340`).
+const buttons = std.EnumArray(Section, Rect).init(.{
+    .debriefings = .{ .x = 12, .y = 422, .width = 58, .height = 51 },
+    .news_reports = .{ .x = 81, .y = 422, .width = 58, .height = 51 },
+    .video_reports = .{ .x = 151, .y = 422, .width = 58, .height = 51 },
+    .fighters = .{ .x = 220, .y = 422, .width = 58, .height = 51 },
+    .ships = .{ .x = 290, .y = 422, .width = 58, .height = 51 },
+    .squadrons = .{ .x = 359, .y = 422, .width = 58, .height = 51 },
+    .personnel = .{ .x = 429, .y = 422, .width = 58, .height = 51 },
+    .killboard = .{ .x = 499, .y = 422, .width = 58, .height = 51 },
+    .exit = .{ .x = 570, .y = 422, .width = 58, .height = 51 },
 });
-const button_y = 422;
-const button_size: [2]i16 = .{ 58, 51 };
 
 /// A section's movies in and out and its picture, in `inter\itac\` (`itac_movies`, `0x004E9418`).
 const Files = struct {
@@ -295,12 +284,6 @@ pub const Pane = struct {
         pane.revealed = 0;
     }
 
-    /// Its text written again, where it is shown already, without a wipe.
-    pub fn show(pane: *Pane, rect: Rect) void {
-        pane.rect = rect;
-        pane.shown = true;
-    }
-
     /// Where it shows: the part wiped in so far (`itac_panes_draw`, `0x0043FF50`).
     pub fn showing(pane: Pane) ?Rect {
         if (!pane.shown) return null;
@@ -367,10 +350,8 @@ pub const ScrollBox = struct {
 
     /// `itac_scroll_text_update` (`0x004409F0`), the timer at `tick`: on each tick, a scroll under
     /// way a step on, and the scroll kept to its text. With none under way, the left button down
-    /// over an arrow starts one. True where the text is to be written again, which the game does
-    /// on every tick.
-    pub fn update(box: *ScrollBox, tick: u32, pointer: canvas_module.Pointer) bool {
-        var moved = false;
+    /// over an arrow starts one.
+    pub fn update(box: *ScrollBox, tick: u32, pointer: canvas_module.Pointer) void {
         if (tick != box.last_tick) {
             if (box.steps == 0 or box.steps > steps_to_a_line or box.steps < -steps_to_a_line) {
                 box.steps = 0;
@@ -381,14 +362,11 @@ pub const ScrollBox = struct {
             }
             box.keep();
             box.last_tick = tick;
-            moved = true;
         }
         if (box.steps == 0 and pointer.down) if (canvas_module.hit(&box.arrows, pointer.at)) |arrow| {
             box.steps = if (arrow == 0) -1 else 1;
             box.keep();
-            moved = true;
         };
-        return moved;
     }
 
     /// The scroll kept between the top of its text and `least`.
@@ -560,8 +538,10 @@ pub const Itac = struct {
                 itac.stage = .power;
                 if (itac.run == .rooms) {
                     itac.play(.eye, full_volume, 1);
-                    if (itac.pilot.mission <= last_on_reliant) return .{ .play = .{ .name = eye_read, .kind = .over_screen_from_disc } };
-                    return .{ .play = .{ .name = opening, .kind = .over_screen } };
+                    return switch (rooms.Carrier.of(itac.pilot.mission)) {
+                        .reliant => .{ .play = .{ .name = eye_read, .kind = .over_screen_from_disc } },
+                        .yamato => .{ .play = .{ .name = opening, .kind = .over_screen } },
+                    };
                 }
                 itac.powerOn(in.now);
             },
@@ -576,7 +556,7 @@ pub const Itac = struct {
                 }
                 if (escape) return itac.close();
                 itac.nowAndThen(in.ticks);
-                if (itac.left) if (hitButton(in.pointer.at)) |section| if (section != itac.section) itac.leave(section, in.now);
+                if (itac.left) if (canvas_module.itemAt(Section, &buttons, in.pointer.at)) |section| if (section != itac.section) itac.leave(section, in.now);
                 itac.movePointer(in.ticks, pointer_wrap);
                 if (itac.stage == .shown) {
                     itac.wipePanes();
@@ -711,9 +691,10 @@ pub const Itac = struct {
     }
 
     /// The shown section's movie out played: it is left, and `to` opened, its movie in playing with
-    /// its title and text fading in over it, the pointer left out (`0x0043F751` on).
+    /// its title and text fading in over it, the pointer left out (`0x0043F751` on). Of the
+    /// sections' handlers for leaving them, DEBRIEFINGS' does nothing (`noop`), and the others are
+    /// not ported.
     fn openNext(itac: *Itac, to: Section, now: u64) void {
-        if (itac.section) |from| itac.leaveSection(from);
         itac.section = to;
         if (to != .exit) itac.enter(to);
         itac.fading = .in;
@@ -729,14 +710,6 @@ pub const Itac = struct {
         switch (section) {
             .debriefings => itac.debriefings.enter(itac.pilot),
             .news_reports, .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
-        }
-    }
-
-    /// A section's second handler, as it is left (slot 1).
-    fn leaveSection(itac: *Itac, section: Section) void {
-        _ = itac;
-        switch (section) {
-            .debriefings, .news_reports, .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
         }
     }
 
@@ -794,8 +767,10 @@ pub const Itac = struct {
         if (itac.hum) |voice| itac.context.rooms.sound.fadeVoice(voice, close_fade_step);
         itac.close_voice = itac.playVoice(.close, full_volume, 1);
         itac.stage = .closed_movie;
-        if (itac.pilot.mission > last_on_reliant) return .{ .play = .{ .name = closing, .kind = .over_screen } };
-        return null;
+        return switch (rooms.Carrier.of(itac.pilot.mission)) {
+            .reliant => null,
+            .yamato => .{ .play = .{ .name = closing, .kind = .over_screen } },
+        };
     }
 
     /// The pointer's frame.
@@ -895,18 +870,12 @@ fn openFont(bytes: ?[]u8, name: []const u8) ?hud.Opened {
     return .ramp(font);
 }
 
-/// The button under `at`: the first whose rectangle holds it, its edges left out (`0x0043F6A3`).
-fn hitButton(at: [2]i32) ?Section {
-    for (std.enums.values(Section)) |section| if (section.button().holds(at)) return section;
-    return null;
-}
-
-test hitButton {
-    try std.testing.expectEqual(.debriefings, hitButton(.{ 40, 440 }).?);
-    try std.testing.expectEqual(.exit, hitButton(.{ 600, 440 }).?);
+test buttons {
+    try std.testing.expectEqual(.debriefings, canvas_module.itemAt(Section, &buttons, .{ 40, 440 }).?);
+    try std.testing.expectEqual(.exit, canvas_module.itemAt(Section, &buttons, .{ 600, 440 }).?);
     // The edges are left out.
-    try std.testing.expectEqual(null, hitButton(.{ 12, 440 }));
-    try std.testing.expectEqual(null, hitButton(.{ 300, 300 }));
+    try std.testing.expectEqual(null, canvas_module.itemAt(Section, &buttons, .{ 12, 440 }));
+    try std.testing.expectEqual(null, canvas_module.itemAt(Section, &buttons, .{ 300, 300 }));
 }
 
 test "Section.title" {
@@ -944,15 +913,15 @@ test ScrollBox {
     try std.testing.expect(box.more(false));
     try std.testing.expect(!box.more(true));
     // A press on the first arrow scrolls a line on over five ticks, three pixels a tick.
-    _ = box.update(0, .{ .at = .{ 230, 330 }, .down = true });
+    box.update(0, .{ .at = .{ 230, 330 }, .down = true });
     try std.testing.expectEqual(-1, box.steps);
-    for (1..6) |tick| _ = box.update(@intCast(tick), .{});
+    for (1..6) |tick| box.update(@intCast(tick), .{});
     try std.testing.expectEqual(-16, box.scroll);
-    _ = box.update(6, .{});
+    box.update(6, .{});
     try std.testing.expectEqual(0, box.steps);
     // The second arrow scrolls back, no further than the top.
-    _ = box.update(6, .{ .at = .{ 250, 330 }, .down = true });
-    for (7..20) |tick| _ = box.update(@intCast(tick), .{});
+    box.update(6, .{ .at = .{ 250, 330 }, .down = true });
+    for (7..20) |tick| box.update(@intCast(tick), .{});
     try std.testing.expectEqual(ScrollBox.top, box.scroll);
 }
 

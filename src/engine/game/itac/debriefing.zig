@@ -14,6 +14,7 @@ const hud = @import("../hud.zig");
 const gameflow = @import("../gameflow.zig");
 const canvas_module = @import("../interface/canvas.zig");
 const itac_module = @import("../itac.zig");
+const landing = @import("../xtrabits/landing.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -21,27 +22,42 @@ const Itac = itac_module.Itac;
 const ScrollBox = itac_module.ScrollBox;
 
 /// The campaign's missions in the order they are flown, by their places in it
-/// (`campaign_missions`, `0x004E4954`).
-const campaign_missions = [_]u16{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28 };
+/// (`campaign_missions`, `0x004E4954`): mission 1 on, as the campaign moves on
+/// (`gameflow.nextMission`), to the last.
+const campaign_missions = order: {
+    var missions: [campaignLength()]u16 = undefined;
+    var number: u16 = 1;
+    for (&missions) |*flown| {
+        flown.* = number;
+        number = gameflow.nextMission(number);
+    }
+    break :order missions;
+};
 
-/// Each mission's place in the campaign's order, by its number (`campaign_place`, `0x004E49B0`):
-/// the missions the campaign has none of share the next one's. **Unknown:** the 28 of mission 0.
-const campaign_place = [_]u8{ 28, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 11, 12, 13, 14, 14, 15, 16, 17, 18, 18, 19, 20, 21, 22, 23, 24 };
-
-/// The mission number `debrief_select_latest` takes the place of the 26th of (`0x004258E0`).
-/// **Unknown:** why; the campaign never comes to it.
-const odd_mission = 0xFC;
-const odd_mission_place = 26;
-
-/// The place of mission `mission` in the campaign's order; past the table, the last's.
-fn placeOf(mission: u16) u8 {
-    return campaign_place[@min(mission, campaign_place.len - 1)];
+fn campaignLength() usize {
+    var count: usize = 1;
+    var number: u16 = 1;
+    while (number != gameflow.last_mission) : (count += 1) number = gameflow.nextMission(number);
+    return count;
 }
 
-/// The debriefings on offer as the campaign comes to mission `mission`: the missions flown before
-/// it (`itac_debriefings`, `0x00523078`).
-pub fn offered(mission: u16) u8 {
-    return placeOf(mission);
+/// The place mission 0 has, and the mission number `debrief_select_latest` takes as mission 26
+/// (`0x004258E0`). **Unknown:** why; the campaign comes to neither.
+const place_of_none = 28;
+const odd_mission = 0xFC;
+const odd_mission_as = 26;
+
+/// The place of mission `mission` in the campaign's order (`campaign_place`, `0x004E49B0`): the
+/// missions flown before it, so that those the campaign has none of share the next one's place, and
+/// as the campaign comes to it, the debriefings on offer (`itac_debriefings`, `0x00523078`).
+fn placeOf(mission: u16) u8 {
+    if (mission == 0) return place_of_none;
+    var place: u8 = 0;
+    for (campaign_missions) |flown| {
+        if (flown >= mission) break;
+        place += 1;
+    }
+    return place;
 }
 
 /// The text box of the body, with its arrows (`0x004E4918`), where "(more)" hangs from, and the
@@ -84,10 +100,6 @@ const tier_texts = [_]u16{ 0, 238, 239, 240 };
 const objectives_met_text = 0x720;
 const objectives_missed_text = 0x721;
 const pickup_texts = [_]u16{ 0, 227, 228, 229 };
-
-/// The ribbon each mission awards, by the mission's number, 0 for none (`ribbon_of_mission`,
-/// `0x0050099F`).
-const ribbon_of_mission = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 4, 0, 0, 0, 5, 0, 0, 0 };
 
 /// The figures at its foot (`debrief_draw`, `0x00424930`): the labels at the left, in the labels'
 /// colour, and the values right-aligned at `values_x`, in the text's, a line of `figure_line`
@@ -161,7 +173,7 @@ pub const Debriefing = struct {
     /// `debrief_enter` (`0x004246C0`): the latest debriefing chosen (`debrief_select_latest`,
     /// `0x004258E0`), the list from its start, and the body's box at its top.
     pub fn enter(debriefing: *Debriefing, pilot: itac_module.Pilot) void {
-        const place = if (pilot.mission == odd_mission) campaign_place[odd_mission_place] else placeOf(pilot.mission);
+        const place = placeOf(if (pilot.mission == odd_mission) odd_mission_as else pilot.mission);
         debriefing.selected = std.math.sub(u8, place, 1) catch null;
         debriefing.first = 0;
         debriefing.rebuild = false;
@@ -185,7 +197,7 @@ pub const Debriefing = struct {
             debriefing.build(itac, true);
             debriefing.rebuild = false;
         }
-        if (debriefing.box.update(itac.ticks, itac.pointer)) debriefing.reach(itac);
+        debriefing.box.update(itac.ticks, itac.pointer);
         if (itac.left) if (debriefing.listedAt(itac.pointer.at)) |place| if (debriefing.selected != place) {
             debriefing.selected = place;
             debriefing.box.scroll = ScrollBox.top;
@@ -211,7 +223,7 @@ pub const Debriefing = struct {
     /// Whether REPLAY MISSION shows: after a mission, for its debriefing, the latest.
     fn replayOffered(debriefing: Debriefing, itac: *const Itac) bool {
         const selected = debriefing.selected orelse return false;
-        return itac.run == .after_mission and offered(itac.pilot.mission) == selected + 1;
+        return itac.run == .after_mission and placeOf(itac.pilot.mission) == selected + 1;
     }
 
     /// The listed mission whose entry holds `at`, its edges left out.
@@ -246,7 +258,8 @@ pub const Debriefing = struct {
     /// picked the pilot up, whether the objectives were met, as the campaign's variables have it
     /// now, and the pickup; otherwise the paragraphs its rating calls for, and after them each
     /// that the mission brought of a medal, where its rating is a success with its bonus, a
-    /// promotion, a ribbon and new fighters.
+    /// promotion, a ribbon and new fighters. A mission's ribbon (`ribbon_of_mission`, `0x0050099F`)
+    /// is the chapter it ends, whose table holds the same (`landing.chapterOf`).
     fn write(debriefing: *Debriefing, itac: *Itac) void {
         var writer: std.Io.Writer = .fixed(&debriefing.text);
         defer debriefing.text_len = writer.end;
@@ -263,20 +276,13 @@ pub const Debriefing = struct {
                 if (n > 0) writer.writeAll(between) catch {};
                 writer.writeAll(itac.string(id)) catch {};
             }
-            const medal = gameflow.Medal.of(number);
-            if (medal != null and record.rating == .success_bonus) debriefing.add(&writer, itac, medal_texts[@intFromEnum(medal.?)]);
-            if (record.promotion) |rank| debriefing.add(&writer, itac, promotion_texts[rank]);
-            if (number < ribbon_of_mission.len and ribbon_of_mission[number] != 0) debriefing.add(&writer, itac, ribbon_texts[ribbon_of_mission[number]]);
+            if (gameflow.Medal.of(number)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@intFromEnum(medal)]);
+            if (record.promotion) |rank| addParagraph(&writer, itac, promotion_texts[rank]);
+            if (landing.chapterOf(number)) |ribbon| addParagraph(&writer, itac, ribbon_texts[ribbon]);
             const tier = gameflow.mission_tiers[number - 1];
-            if (tier != 0) debriefing.add(&writer, itac, tier_texts[tier]);
+            if (tier != 0) addParagraph(&writer, itac, tier_texts[tier]);
         }
         debriefing.reach(itac);
-    }
-
-    fn add(debriefing: *Debriefing, writer: *std.Io.Writer, itac: *Itac, id: u16) void {
-        _ = debriefing;
-        writer.writeAll(between) catch {};
-        writer.writeAll(itac.string(id)) catch {};
     }
 
     /// How far the body can scroll, as it breaks into lines.
@@ -353,7 +359,7 @@ pub const Debriefing = struct {
         if (itac.panes[header].showing()) |shown| if (debriefing.chosen()) |number| {
             const in_pane = canvas.within(shown);
             const top = header_pane.y + 1;
-            const heading = tables.debriefings[ratingOf(itac.pilot.campaign.kept(number))][number - 1].header;
+            const heading = textOf(itac.pilot.campaign.kept(number), number).header;
             try in_pane.text(small, .{ header_pane.x + header_labels_x, top }, itac.string(from_string), header_colour, .left);
             try in_pane.text(small, .{ header_pane.x + header_values_x, top }, itac.string(heading), header_colour, .left);
             try in_pane.text(small, .{ header_pane.x + header_labels_x, top + header_line }, itac.string(to_string), header_colour, .left);
@@ -384,6 +390,12 @@ fn ratingOf(record: gameflow.MissionRecord) usize {
 /// The debriefing of mission `number` as its record has it.
 fn textOf(record: gameflow.MissionRecord, number: u16) tables.Text {
     return tables.debriefings[ratingOf(record)][number - 1];
+}
+
+/// A paragraph of the ITAC's string `id` after those written.
+fn addParagraph(writer: *std.Io.Writer, itac: *Itac, id: u16) void {
+    writer.writeAll(between) catch {};
+    writer.writeAll(itac.string(id)) catch {};
 }
 
 /// A figure's row down the screen.

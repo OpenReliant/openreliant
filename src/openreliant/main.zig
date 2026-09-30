@@ -558,18 +558,10 @@ fn readGameFile(io: Io, arena: Allocator, directory: Io.Dir, name: []const u8) !
     return directory.readFileAlloc(io, name, arena, .limited(engine.files.max_file_size));
 }
 
-/// The ITAC's strings, from `itaclang.dll` in the game's folder `directory`; none where it has none,
-/// which the log says, the ITAC then writing nothing.
-fn itacStrings(io: Io, arena: Allocator, directory: Io.Dir) Allocator.Error!game.language.Language {
-    const bytes = readGameFile(io, arena, directory, game.itac.strings_name) catch |err| {
-        std.log.warn("{s} is left out: {s}", .{ game.itac.strings_name, @errorName(err) });
-        return .{ .strings = &.{} };
-    };
-    const module = openreliant.pe.Image.parse(bytes) catch |err| {
-        std.log.warn("{s} is left out: {s}", .{ game.itac.strings_name, @errorName(err) });
-        return .{ .strings = &.{} };
-    };
-    return .load(arena, module);
+/// The strings of the module `name` in the game's folder `directory`, as `language_init` reads them
+/// (`game.language.Language.load`).
+fn readStrings(io: Io, arena: Allocator, directory: Io.Dir, name: []const u8) !game.language.Language {
+    return .load(arena, try .parse(try readGameFile(io, arena, directory, name)));
 }
 
 /// The records of the stats table `table`, from its file in the game's folder `directory`, as its
@@ -602,9 +594,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     const missile_stats = try readStats(io, arena, directory, .missiles);
     const pilot_stats = try readStats(io, arena, directory, .pilots);
     // The strings `language_init` reads out of `language.dll` at start-up, and those the ITAC reads
-    // out of `itaclang.dll` as it opens.
-    const strings: game.language.Language = try .load(arena, try .parse(try readGameFile(io, arena, directory, game.language.file_name)));
-    const itac_strings = try itacStrings(io, arena, directory);
+    // out of `itaclang.dll` as it opens, which without it writes nothing.
+    const strings = try readStrings(io, arena, directory, game.language.file_name);
+    const itac_strings = readStrings(io, arena, directory, game.itac.strings_name) catch |err| blank: {
+        std.log.warn("{s} is left out: {s}", .{ game.itac.strings_name, @errorName(err) });
+        break :blank game.language.Language{ .strings = &.{} };
+    };
 
     var window: platform.window.Window = try .open("OpenReliant", initial_size[0], initial_size[1], options.fullscreen);
     defer window.close();

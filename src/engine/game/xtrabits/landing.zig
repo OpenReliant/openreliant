@@ -117,7 +117,7 @@ const chapter_movies = [_][]const u8{ "dummy.bik", "new_chapter1.bik", "new_chap
 ///
 /// **Fix:** past the table's end, the game reads the chapter from what follows it in memory, and
 /// the movie of that from past its own table's end. OpenReliant ends no chapter there.
-fn chapterOf(mission: u16) ?u8 {
+pub fn chapterOf(mission: u16) ?u8 {
     if (mission == 0 or mission > chapters.len) return null;
     const chapter = chapters[mission - 1];
     return if (chapter == 0) null else chapter;
