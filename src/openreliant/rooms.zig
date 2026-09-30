@@ -24,6 +24,7 @@ const induction = interface.induction;
 const in_game_options = interface.in_game_options;
 const restart_screen = interface.restart;
 const rooms = interface.rooms;
+const itac_module = game.itac;
 const Movies = @import("movies.zig").Movies;
 const drawn = @import("presenter.zig").drawn;
 const version = @import("version.zig");
@@ -36,6 +37,9 @@ pub const End = union(enum) {
     fly: ?loadout.Result,
     main_menu,
 };
+
+/// How the ITAC ends, where the game goes on: closed, or with REPLAY MISSION.
+pub const ItacEnd = enum { closed, replay };
 
 /// What the rooms run with.
 pub const Driver = struct {
@@ -65,6 +69,12 @@ pub const Driver = struct {
     /// stand each time the loadout runs.
     tier: *const u2,
     rank: *const game.gameflow.Rank,
+    /// `ITACLANG.DLL`'s strings, which the ITAC writes with, and what it shows of the pilot and the
+    /// campaign: the call sign the pilot roster set, the pilot's kills and the campaign flown.
+    itac_strings: *const game.language.Language,
+    call_sign: *const interface.pilot_roster.CallSign,
+    player: *const engine.input.Player,
+    campaign_flown: *const ?game.gameflow.Campaign,
     /// The front end's pointer, which the rooms' follows, and the timer's count it last moved on
     /// at.
     pointer: canvas.Pointer = .{},
@@ -119,6 +129,44 @@ pub const Driver = struct {
             last = ticks;
             if (screen.state.frame(driver.pointer, &driver.movies.devices.keyboard, elapsed)) |choice| return choice;
             try driver.present(.{ .restart = &screen });
+        }
+    }
+
+    /// The ITAC (`itac`) in its loop, for `run`, as the campaign comes to mission `mission`: how it
+    /// ends, or null where the game quits meanwhile. Its sounds end as it does (`0x0043FB3D`), and
+    /// with none flown, it closes at once.
+    pub fn itac(driver: *Driver, run: itac_module.Run, mission: u16) !?ItacEnd {
+        const flown = if (driver.campaign_flown.*) |*going| going else return .closed;
+        const pilot: itac_module.Pilot = .{
+            .call_sign = driver.call_sign.slice(),
+            .kills = driver.player.kills.count,
+            .rank = driver.player.rank,
+            .tier = driver.tier.*,
+            .campaign = flown,
+            .mission = mission,
+        };
+        const with: itac_module.Context = .{ .rooms = driver.context(), .strings = driver.itac_strings, .language = driver.strings };
+        driver.startTimer();
+        var terminal: itac_module.Itac = .open(with, run, pilot, platform.window.nanoseconds(), driver.clock.game_ticks);
+        defer terminal.deinit();
+        defer driver.sound.endAll();
+        while (true) {
+            if (!try driver.pump()) return null;
+            const step = terminal.pass(.{
+                .keyboard = &driver.movies.devices.keyboard,
+                .pointer = driver.pointer,
+                .now = platform.window.nanoseconds(),
+                .ticks = driver.clock.game_ticks,
+            }) orelse {
+                try driver.present(.{ .itac = &terminal });
+                continue;
+            };
+            switch (step) {
+                .play => |shown| _ = try driver.movies.play(shown.name, shown.kind) orelse return null,
+                .hold => driver.movies.pacer.wait(game.main.ticks_per_second),
+                .closed => return .closed,
+                .replay => return .replay,
+            }
         }
     }
 
@@ -221,10 +269,12 @@ pub const Driver = struct {
                         .main_menu => return .main_menu,
                         .quit => return null,
                     },
-                    // The places' screens are not ported yet (`rooms.Place`): the rooms go on as
-                    // though each had closed at once.
+                    // Use ITAC; the other places' screens are not ported yet (`rooms.Place`): the
+                    // rooms go on as though each had closed at once.
                     .place => |place| {
-                        log.info("the rooms' {s} is not ported yet", .{@tagName(place)});
+                        if (place == .itac) {
+                            _ = try driver.itac(.rooms, mission) orelse return null;
+                        } else log.info("the rooms' {s} is not ported yet", .{@tagName(place)});
                         inside.leave(place, platform.window.nanoseconds());
                     },
                     .briefing => break,
@@ -407,6 +457,7 @@ const Shown = struct {
         options: *Menu,
         briefing: *briefing.Briefing,
         restart: *Restarting,
+        itac: *itac_module.Itac,
     };
 
     fn overlay(shown: *Shown) srcore.Overlay {
@@ -423,6 +474,7 @@ const Shown = struct {
             .options => |menu| try drawn(menu.draw(target, &driver.front.dialog, driver.pointer)),
             .briefing => |meeting| try drawn(meeting.draw(target)),
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
+            .itac => |terminal| try drawn(terminal.draw(target)),
         }
     }
 };

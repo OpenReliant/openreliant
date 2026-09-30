@@ -82,11 +82,16 @@ pub const Kind = enum {
     /// (`interface_briefing`): from the disc's archive, at the movie's rate and full volume
     /// (`BinkSetVolume`, `0x00437527`), whatever the settings.
     briefing,
+    /// The ITAC's movies, which it plays in its own loop, its sections' titles and text over them
+    /// (`itac_movie_play`, `0x00440010`): from the game's folder, at 15 frames a second
+    /// (`BinkSetFrameRate` and `BINKFRAMERATE`, `0x0044003F`), whatever the settings. Only Escape
+    /// ends one.
+    itac,
 
     /// Where it is read from.
     pub fn source(kind: Kind) Source {
         return switch (kind) {
-            .cleared, .over_screen, .thread => .folder,
+            .cleared, .over_screen, .thread, .itac => .folder,
             .cleared_from_disc, .over_screen_from_disc, .landing, .screen, .briefing => .disc,
         };
     }
@@ -94,7 +99,7 @@ pub const Kind = enum {
     /// The rate it plays at in place of its own (`BinkSetFrameRate` with `BINKFRAMERATE`).
     pub fn rate(kind: Kind) ?bink.Rate {
         return switch (kind) {
-            .over_screen, .landing, .screen => transition_rate,
+            .over_screen, .landing, .screen, .itac => transition_rate,
             .cleared, .cleared_from_disc, .over_screen_from_disc, .thread, .briefing => null,
         };
     }
@@ -106,7 +111,7 @@ pub const Kind = enum {
         return switch (kind) {
             .cleared, .cleared_from_disc => transitions or hardware,
             .over_screen, .over_screen_from_disc => transitions,
-            .landing, .thread, .screen, .briefing => true,
+            .landing, .thread, .screen, .briefing, .itac => true,
         };
     }
 
@@ -114,7 +119,7 @@ pub const Kind = enum {
     pub fn rightButtonEnds(kind: Kind) bool {
         return switch (kind) {
             .cleared, .over_screen, .cleared_from_disc, .over_screen_from_disc => true,
-            .landing, .thread, .screen, .briefing => false,
+            .landing, .thread, .screen, .briefing, .itac => false,
         };
     }
 };

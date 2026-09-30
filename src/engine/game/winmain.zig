@@ -326,7 +326,7 @@ pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variabl
         .destroyed => return lost(second_part, funeral.get(carrier)),
         .captured => return lost(second_part, capture),
         .left => return lost(second_part, null),
-        .rescued => if (campaign.pickedUp()) return .{ .career_over = transfer.get(carrier) },
+        .rescued => if (campaign.pickedUp(mission)) return .{ .career_over = transfer.get(carrier) },
         .friendly_fire => return .{ .restart = execution.get(carrier) },
         else => {},
     }
@@ -335,7 +335,7 @@ pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variabl
         return .second_part;
     }
     second_part.* = false;
-    const record = gameflow.endMission(player, variables, mission, tier) orelse return .{ .career_over = careerOver(mission, variables) };
+    const record = gameflow.endMission(player, variables, mission, tier, campaign.record(mission)) orelse return .{ .career_over = careerOver(mission, variables) };
     if (record.next == gameflow.story_end) return .story_end;
     return .{ .goes_on = record };
 }
@@ -415,17 +415,19 @@ test afterMission {
 }
 
 /// What `WinMain` does before each single-player mission (`0x004A99CC`): puts back the pilot's
-/// kills as the last mission the pilot came through kept them (`gameflow.endMission`). **Not
-/// ported:** the rank, the medals and the other tallies it puts back with them, which no screen
-/// of OpenReliant shows.
-pub fn startMission(player: *input.Player) void {
+/// kills as the last mission the pilot came through kept them (`gameflow.endMission`), and the
+/// mission's as its record keeps them, `kept` (`0x004A9A2D`). **Not ported:** the rank, the medals
+/// and the other tallies it puts back with them, which no screen of OpenReliant shows.
+pub fn startMission(player: *input.Player, kept: u16) void {
     player.kills.count = player.kills.kept;
+    player.kills.mission = kept;
 }
 
 test startMission {
-    var player: input.Player = .{ .kills = .{ .count = 9, .kept = 4 } };
-    startMission(&player);
+    var player: input.Player = .{ .kills = .{ .count = 9, .kept = 4, .mission = 5 } };
+    startMission(&player, 0);
     try std.testing.expectEqual(4, player.kills.count);
+    try std.testing.expectEqual(0, player.kills.mission);
 }
 
 test missionPath {

@@ -761,6 +761,22 @@ pub fn drawText(
     alignment: Align,
     scale: f32,
 ) Allocator.Error!i32 {
+    return drawTextIn(opened, gpa, target, at, text, colour, alignment, scale, null);
+}
+
+/// `drawText`, only what falls inside `clip` where there is one, as a VFX pane clips what is
+/// written into it.
+pub fn drawTextIn(
+    opened: *Opened,
+    gpa: Allocator,
+    target: device.Device,
+    at: [2]i32,
+    text: []const u8,
+    colour: [4]f32,
+    alignment: Align,
+    scale: f32,
+    clip: ?Clip,
+) Allocator.Error!i32 {
     if (text.len == 0) return at[0];
     var x: f32 = @floatFromInt(textLeft(opened.*, at[0], text, alignment, scale));
     const top: f32 = @floatFromInt(at[1]);
@@ -771,7 +787,7 @@ pub fn drawText(
         const width = @as(f32, @floatFromInt(opened.widths[code])) * scale;
         defer x += width;
         const image = try glyphImage(opened, gpa, code) orelse continue;
-        drawPart(target, image, .{ .left = x, .top = top, .right = x + width, .bottom = top + height }, .{ 0, 1 }, .{ 0, 1 }, tint, null);
+        drawPart(target, image, .{ .left = x, .top = top, .right = x + width, .bottom = top + height }, .{ 0, 1 }, .{ 0, 1 }, tint, clip);
     }
     return @intFromFloat(x);
 }

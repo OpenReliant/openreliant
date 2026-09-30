@@ -558,6 +558,20 @@ fn readGameFile(io: Io, arena: Allocator, directory: Io.Dir, name: []const u8) !
     return directory.readFileAlloc(io, name, arena, .limited(engine.files.max_file_size));
 }
 
+/// The ITAC's strings, from `itaclang.dll` in the game's folder `directory`; none where it has none,
+/// which the log says, the ITAC then writing nothing.
+fn itacStrings(io: Io, arena: Allocator, directory: Io.Dir) Allocator.Error!game.language.Language {
+    const bytes = readGameFile(io, arena, directory, game.itac.strings_name) catch |err| {
+        std.log.warn("{s} is left out: {s}", .{ game.itac.strings_name, @errorName(err) });
+        return .{ .strings = &.{} };
+    };
+    const module = openreliant.pe.Image.parse(bytes) catch |err| {
+        std.log.warn("{s} is left out: {s}", .{ game.itac.strings_name, @errorName(err) });
+        return .{ .strings = &.{} };
+    };
+    return .load(arena, module);
+}
+
 /// The records of the stats table `table`, from its file in the game's folder `directory`, as its
 /// loader reads them (`stats_load_ships` and the others).
 fn readStats(io: Io, arena: Allocator, directory: Io.Dir, comptime table: stats.Table) ![]align(1) const stats.Table.Record(table) {
@@ -587,8 +601,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     const gun_stats = try readStats(io, arena, directory, .guns);
     const missile_stats = try readStats(io, arena, directory, .missiles);
     const pilot_stats = try readStats(io, arena, directory, .pilots);
-    // The strings `language_init` reads out of `language.dll` at start-up.
+    // The strings `language_init` reads out of `language.dll` at start-up, and those the ITAC reads
+    // out of `itaclang.dll` as it opens.
     const strings: game.language.Language = try .load(arena, try .parse(try readGameFile(io, arena, directory, game.language.file_name)));
+    const itac_strings = try itacStrings(io, arena, directory);
 
     var window: platform.window.Window = try .open("OpenReliant", initial_size[0], initial_size[1], options.fullscreen);
     defer window.close();
@@ -988,6 +1004,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                     .missile_stats = &objects.missile_stats,
                     .tier = &objects.campaign_tier,
                     .rank = &player.rank,
+                    .itac_strings = &itac_strings,
+                    .call_sign = &front.pilot.call_sign,
+                    .player = &player,
+                    .campaign_flown = &flow.campaign,
                 };
             }
             front_context.resources = &front_resources.?;
@@ -1046,6 +1066,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
             objects.loadout_racks[objects.player] = flight.racks;
             objects.simulator = flight.simulator;
             play.campaign = if (flow.campaign) |*going| going else null;
+            if (flow.campaign) |going| flow.restart_point = .take(going, &player, objects);
             // The pilot the front end has set flies it: the radio says the pilot's own lines in
             // the pilot's voice, and hits land by the game's difficulty.
             player.female = front.pilot.female;
@@ -1326,6 +1347,8 @@ const Flow = struct {
     campaign: ?game.gameflow.Campaign = null,
     next: ?Launch = null,
     flown: game.interface.main_menu.Flight = .{ .mission = 0 },
+    /// The campaign and the pilot as the last flight of the campaign began.
+    restart_point: ?RestartPoint = null,
 
     /// Back to the front end's main menu, out of the campaign.
     fn toFrontEnd(flow: *Flow, front: *engine.genilib.interf.Interface) void {
@@ -1333,6 +1356,28 @@ const Flow = struct {
         flow.in_front_end = true;
         flow.from_front_end = false;
         flow.campaign = null;
+    }
+};
+
+/// The campaign and the pilot as a flight of the campaign began, which the ITAC's REPLAY MISSION puts
+/// back (`restart_save`, `0x00475D20`; `restart_load`, `0x00475D30`).
+const RestartPoint = struct {
+    campaign: game.gameflow.Campaign,
+    kills: engine.input.Player.Kills,
+    rank: game.gameflow.Rank,
+    tier: u2,
+
+    fn take(campaign: game.gameflow.Campaign, player: *const engine.input.Player, all: *const game.create.Objects) RestartPoint {
+        return .{ .campaign = campaign, .kills = player.kills, .rank = player.rank, .tier = all.campaign_tier };
+    }
+
+    /// Puts the campaign and the pilot back, mission 25 at its first part (`0x004AA2EC`).
+    fn restore(point: RestartPoint, campaign: *game.gameflow.Campaign, player: *engine.input.Player, all: *game.create.Objects) void {
+        campaign.* = point.campaign;
+        player.kills = point.kills;
+        player.rank = point.rank;
+        all.campaign_tier = point.tier;
+        all.mission25_second_part = false;
     }
 };
 
@@ -1350,7 +1395,8 @@ const Launch = struct {
 /// where the game quits meanwhile.
 fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Play, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !bool {
     if (flow.campaign) |*campaign| {
-        switch (try campaignGoesOn(play, campaign, rooms, all, player, flow.flown, ship, sound, movies, resources) orelse return false) {
+        const point = if (flow.restart_point) |*kept| kept else null;
+        switch (try campaignGoesOn(play, campaign, rooms, all, player, flow.flown, point, ship, sound, movies, resources) orelse return false) {
             .fly => |launch| {
                 flow.next = launch;
                 return true;
@@ -1403,22 +1449,22 @@ const CampaignNext = union(enum) {
 };
 
 /// What `WinMain` does as a mission of the campaign ends (`game.winmain.afterMission`), the flight
-/// that started it `flown`: the mission let go, with the landing where it plays one (`letGo`). The
-/// game's variables as the mission left them carry on to the next mission and to mission 25's
-/// second part, but not to a replay, which starts from those the mission began with. Then, as the
-/// mission ended: the medal's ceremony, and the rooms the campaign goes on through; the movie of
-/// how it ended and the restart screen; or the movie that ends the pilot's career. Null where the
-/// game quits meanwhile.
+/// that started it `flown` and the campaign as it began at `restart_point`: the mission let go, with
+/// the landing where it plays one (`letGo`). The game's variables as the mission left them carry on
+/// to the next mission and to mission 25's second part, but not to a replay, which starts from
+/// those the mission began with. Then, as the mission ended: the medal's ceremony, the debriefing in
+/// the ITAC (`0x004AA696`), and the rooms the campaign goes on through, or with the ITAC's REPLAY
+/// MISSION the campaign put back as the mission began and its briefing again (`0x004AA2E0` on);
+/// the movie of how it ended and the restart screen; or the movie that ends the pilot's career.
+/// Null where the game quits meanwhile.
 ///
 /// **Fix:** after the pilot's execution in mission 25's second part, REPLAY MISSION FROM BRIEFING
 /// replays the first part's briefing. The game flies the second part again at once, and leaves the
 /// replay asked for, so that the next mission's briefing follows it without the rooms, from the
 /// game's variables as the second part began.
 ///
-/// Not ported: the ITAC's debriefing before the rooms
-/// ([#419](https://github.com/vdmkenny/openreliant/issues/419)), and the story's end
-/// ([#416](https://github.com/vdmkenny/openreliant/issues/416)).
-fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, flown: game.interface.main_menu.Flight, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !?CampaignNext {
+/// Not ported: the story's end ([#416](https://github.com/vdmkenny/openreliant/issues/416)).
+fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, flown: game.interface.main_menu.Flight, restart_point: ?*const RestartPoint, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !?CampaignNext {
     const loaded = play.loaded orelse return .main_menu;
     const variables = &loaded.script.variables;
     const landing = play.landing(player.ending, all.mission25_second_part);
@@ -1432,7 +1478,13 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
         .goes_on => |record| {
             all.campaign_tier = record.tier;
             if (record.medal) |medal| _ = try movies.play(medal.movie(), .cleared_from_disc) orelse return null;
-            return .briefed(try rooms.goOn(record.next) orelse return null, record.next, all, ship);
+            switch (try rooms.itac(.after_mission, record.next) orelse return null) {
+                .closed => return .briefed(try rooms.goOn(record.next) orelse return null, record.next, all, ship),
+                .replay => {
+                    if (restart_point) |point| point.restore(campaign, player, all);
+                    return .briefed(try rooms.replayBriefing(play.number) orelse return null, play.number, all, ship);
+                },
+            }
         },
         .second_part => return .{ .fly = .{ .flight = flown } },
         .restart => |ending| {
@@ -1586,7 +1638,7 @@ const Play = struct {
     /// (`campaignGoesOn`).
     fn again(play: *Play, orders: game.aigeneric.Context) !void {
         if (play.campaign == null) if (play.loaded) |loaded| {
-            _ = game.gameflow.endMission(orders.world.player, &loaded.script.variables, play.number, orders.world.objects.campaign_tier);
+            _ = game.gameflow.endMission(orders.world.player, &loaded.script.variables, play.number, orders.world.objects.campaign_tier, null);
         };
         try play.start(orders);
     }

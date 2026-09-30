@@ -175,6 +175,8 @@ ship picked the pilot up (`mission_end_record`, `0x00475B57` on), before the ITA
   MENU plays `interface\igo2mm.bik` before the main menu ([The Reliant's rooms](rooms.md)).
 - Around each mission `WinMain` flies, the hangar's movie, the landing or a chapter's end, and how
   the mission ended or a medal's ceremony ([Around a mission](#around-a-mission)).
+- The ITAC plays its own in its loop, its sections' movies in and out, and on the Reliant the pilot's
+  eye read ([The ITAC](itac.md)).
 
 ## In OpenReliant
 

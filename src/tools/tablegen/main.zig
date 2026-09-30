@@ -13,6 +13,7 @@
 //!     tablegen maneuvers <LANCER.EXE> <output.zig>
 //!     tablegen views <LANCER.EXE> <output.zig>
 //!     tablegen objectives <LANCER.EXE> <output.zig>
+//!     tablegen itac <LANCER.EXE> <output.zig>
 //!     tablegen sequences <LANCER.EXE> <output.zig>
 //!     tablegen speech <LANCER.EXE> <output.zig>
 //!     tablegen faces <LANCER.EXE> <output.zig>
@@ -52,6 +53,9 @@
 //!
 //! `objectives`: the strings that name each mission's objectives.
 //!
+//! `itac`: the ITAC's tables: the shapes it lights under the pointer, and the strings of each
+//! mission's debriefing by the rating its script gave it.
+//!
 //! `sequences`: how each capital ship type that splits in two as its hull is destroyed does so.
 //!
 //! `speech`: the speech codec's tables, the levels of its reflection coefficients and the code
@@ -77,6 +81,7 @@ const max_file_size = openreliant.engine.files.max_file_size;
 
 const combat = @import("combat.zig");
 const commands = @import("commands.zig");
+const itac = @import("itac.zig");
 const conditions = @import("conditions.zig");
 const controls = @import("controls.zig");
 const eval = @import("eval.zig");
@@ -124,6 +129,7 @@ const usage =
     \\       tablegen maneuvers <LANCER.EXE> <output.zig>
     \\       tablegen views <LANCER.EXE> <output.zig>
     \\       tablegen objectives <LANCER.EXE> <output.zig>
+    \\       tablegen itac <LANCER.EXE> <output.zig>
     \\       tablegen sequences <LANCER.EXE> <output.zig>
     \\       tablegen speech <LANCER.EXE> <output.zig>
     \\       tablegen faces <LANCER.EXE> <output.zig>
@@ -146,6 +152,7 @@ const Mode = union(enum) {
     maneuvers: struct { binary: []const u8, output: []const u8 },
     views: struct { binary: []const u8, output: []const u8 },
     objectives: struct { binary: []const u8, output: []const u8 },
+    itac: struct { binary: []const u8, output: []const u8 },
     sequences: struct { binary: []const u8, output: []const u8 },
     speech: struct { binary: []const u8, output: []const u8 },
     faces: struct { binary: []const u8, output: []const u8 },
@@ -214,6 +221,7 @@ pub fn main(init: std.process.Init) !u8 {
         .maneuvers => |paths| maneuverTable(init, arena, paths),
         .views => |paths| viewTable(init, arena, paths),
         .objectives => |paths| objectiveTable(init, arena, paths),
+        .itac => |paths| itacTables(init, arena, paths),
         .sequences => |paths| sequenceTable(init, arena, paths),
         .speech => |paths| speechTables(init, arena, paths),
         .faces => |paths| faceTable(init, arena, paths),
@@ -283,6 +291,13 @@ fn objectiveTable(init: std.process.Init, arena: std.mem.Allocator, paths: @Fiel
     const rows = try objectives.read(arena, try loadBinary(init, arena, paths.binary));
     try writeOutput(init, paths.output, objectives.emit, .{rows});
     std.debug.print("{d} rows of objectives -> {s}\n", .{ rows.len, paths.output });
+    return 0;
+}
+
+fn itacTables(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType(Mode, "itac")) !u8 {
+    const tables = try itac.read(arena, try loadBinary(init, arena, paths.binary));
+    try writeOutput(init, paths.output, itac.emit, .{tables});
+    std.debug.print("{d} lit shapes and {d} tables of debriefings -> {s}\n", .{ tables.lit_shapes.len, tables.debriefings.len, paths.output });
     return 0;
 }
 
@@ -505,6 +520,7 @@ test {
     _ = commands;
     _ = conditions;
     _ = controls;
+    _ = itac;
     _ = eval;
     _ = faces;
     _ = flight;

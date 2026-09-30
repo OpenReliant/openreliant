@@ -2401,3 +2401,108 @@ address	kind	name	type	comment
 00562ed4	data	pickups	short	The times a nanny ship has picked the ejected pilot up in the campaign (pickup_count), from 0 at campaign_new; past two, WinMain ends the career with a transfer
 0050099f	data	ribbon_of_mission	char[28]	The ribbon each mission awards, by mission number, 0 for none (mission_end_record): missions 7, 11, 19, 21 and 25, which end chapters 1 to 5, award ribbons 1 to 5 unless the mission is a total failure
 004cc350	function	refpack_expand	void (byte *stream, byte *out, int unused)	Expands a RefPack stream to out, until its terminator: the header size is read and never used, nothing is checked, and each command is fetched 4 bytes at a time, up to 3 past the stream. hog_unpack calls it with the stream at the end of the output block, so the output must not overtake the input still to read. The code runs to 0x004CC46F, past where Ghidra ends the function
+0043fc60	function	itac_timer	void __stdcall (uint id, uint message, uint user, uint unused1, uint unused2)	The ITAC's timer, 30 times a second: itac_ticks and itac_repeat_ticks on, and itac_repeat_phase as the ticks round five, which the panes wipe in by and the scrolling and the arrows' auto-repeat step by
+0043fc90	function	itac_timer_20hz	void __stdcall (uint id, uint message, uint user, uint unused1, uint unused2)	The ITAC's second timer, 20 times a second: a count at 0x0052306C that nothing reads
+0043fca0	function	itac_section_load	void __fastcall (int section)	A section's picture, inter\itac\ and its itactrans name .tga, converted to the screen's format into itac_backdrop, its panes hidden, itac_text_top 0, and its third handler (itac_section_handlers), which builds them
+0043fde0	function	itac_panes_hide	void (void)	Hides the ITAC's four panes (itac_pane_records)
+0043fe00	function	itac_section_update	void __fastcall (int section)	While no fade runs: the section's fourth handler, the lit shapes (itac_lit_draw), then unless itac_frozen the more mark and the tooltips
+0043fe40	function	itac_hit	int __fastcall (short *rects, int count)	The first of count rectangles (x, y, width, height) that holds the pointer, its edges left out, or -1
+0043fe90	function	itac_section_draw	void __fastcall (int section, float fade)	A section's title at (167, 22) in itacbig in (236, 105, 77), from itac_titles, or itac_titles_coalition for sections 3 to 6 on the Coalition's side, then its fifth handler with fade
+0043ff50	function	itac_panes_draw	void (void)	While no fade runs, copies each shown pane of the ITAC to the screen, a wiping one as far as it has wiped, which then wipes 14 pixels further on each new tick of itac_timer
+00440010	function	itac_movie_play	void __fastcall (char *path, char *background)	Plays a movie of the ITAC's in a loop of its own, from the game's folder at 15 frames a second, the section's title and text fading over it (itac_movie_draw), Escape ending it; then background as the screen's picture, where there is one
+00440170	function	itac_pause	void (void)	Holds the ITAC for 16 ticks of itac_timer, reading input but drawing nothing, as a debriefing or another item is chosen
+004401f0	function	itac_movie_draw	void (void)	The ITAC's render hook during itac_movie_play: the movie's frame due over the whole screen, the fade a step on each frame drawn, the section's title and text at the fade, and the pointer unless itac_frozen
+004403f0	function	itac_draw	void (void)	The ITAC's render hook: the section's title and text (itac_section_draw), then unless itac_frozen its update (itac_section_update) and the pointer, shapes 2 to 22 of itacgfx.spr
+004404a0	function	itac_pointer_update	void (void)	Moves the rooms' pointer by the mouse, within the screen, and keeps the ITAC's buttons: itac_left_down and itac_left_held
+004405c0	function	itac_text_colour	void __fastcall (int red, int green, int blue, float brightness)	Sets VFX's global palette entries 1 to 15 to a ramp from black to the colour at the brightness, at most 1, which the ITAC's text is drawn through
+004406a0	function	dynamiclist_getbyindex	void * __fastcall (void *node, int index)	The node index nodes on from node (its assert's name)
+004406e0	function	dynamiclist_insert_after	void __fastcall (void **cursor, void *node)	Links node in after the node at cursor, or makes it the first; a node is its next and its previous, then its data
+00440710	function	dynamiclist_append	void __fastcall (void **head, void *node)	Links node in at the end of the list at head
+00440740	function	dynamiclist_count	int __fastcall (void *node, char from_here)	The nodes to the end of a list, from its first unless from_here
+00440770	function	itac_language_init	void (void)	Loads itaclang.dll and reads its strings from id 1 on with LoadString until one fails, into one block (itac_strings)
+004408e0	function	itac_language_close	void (void)	Frees the ITAC's strings and unloads itaclang.dll
+00440910	function	itac_string	char * __fastcall (int id)	The ITAC's string of id, from 1 (itac_strings)
+00440920	function	itac_scroll_text_draw	void __fastcall (void *box)	Writes a scrolling box's text into its pane, broken into lines of its width less 5, 15 pixels apart, from its scroll; sets itac_scroll_least, and itac_more where the text runs past the box
+004409f0	function	itac_scroll_text_update	void __fastcall (void *box)	A scrolling box's arrows: a press starts a scroll of a line, 3 pixels on each tick of itac_timer for five, kept between the top and itac_scroll_least; the box's text written again on every tick
+00440b10	function	itac_panes_reset	void (void)	Clears the ITAC's four panes: shown, wiping and the width wiped
+00440b30	function	tooltips_init	void __fastcall (int use_language)	Clears the tooltips, reads newfont.fnt for them and inter\itac\itacgfx.spr (itac_shapes); their strings are language_string's where use_language, else itac_string's
+00440bb0	function	tooltips_close	void (void)	Closes newfont.fnt and frees itacgfx.spr
+00440bd0	function	tooltip_add	void __fastcall (void *record)	Adds a tooltip, at most 30
+00440c10	function	tooltips_clear	void (void)	Drops every tooltip
+00440c40	function	tooltips_update	void (void)	The tooltip under the pointer, shown 100 ticks after the pointer comes to rest on it, or at once where one showed within the last 30
+00440d80	function	tooltip_draw	void (void)	Draws the tooltip shown: its text in newfont.fnt in a filled box, kept within the screen
+00440eb0	function	itac_tooltips_add	void (void)	Adds the ITAC's nine buttons' tooltips, View Debriefings to Exit ITAC; it walks ten records, the tenth the start of itac_movies
+00440f90	function	itac_lit_draw	void (void)	The shapes of itac_lit_shapes the shown section lights where the pointer is over them, with block 30's palette of itacgfx.spr
+00441060	function	itac_repeat	int (void)	Auto-repeat of a list's arrows: true as the left button goes down, then while it is held on the fourth tick of itac_timer and every fifth after
+00441090	function	itac_more_draw	void (void)	Where itac_more is set: (more), ITAC string 0x78C, right-aligned at itac_more_x and itac_more_y in itacsml
+004246c0	function	debrief_enter	void (void)	DEBRIEFINGS opened: the latest debriefing chosen (debrief_select_latest), the list from its start, and the body's box: pane 1, its arrows at 0x004E4918, 400 by 191, at the top of its text
+004247a0	function	debrief_loaded	void (void)	DEBRIEFINGS loaded: itac_rebuild set, the panes reset, and built with its panes wiping in
+004247c0	function	debrief_update	void (void)	DEBRIEFINGS each frame: a build asked for, the body scrolled, another debriefing chosen from the list, the list stepped through with auto-repeat, and REPLAY MISSION, which sets replay_briefing
+00424930	function	debrief_draw	void __stdcall (float fade)	DEBRIEFINGS drawn: its panes while no fade runs, the labels Mission Kills, Overall Kills, Rank and Level, their values at the fade, and REPLAY MISSION after a mission for the latest debriefing
+00424be0	function	debrief_build	void __fastcall (char wipe)	After the campaign's first mission: sound 5 of itacsnd.fat, the body written, the list drawn, and the header's pane wiping in; with wipe, the body's and the list's too
+00424cf0	function	debrief_text_draw	void (void)	The header, FROM and TO, and the body of the debriefing chosen: after a pickup whether the objectives were met and the pickup, otherwise the paragraphs of debrief_texts by the mission's rating, then a medal, a promotion, a ribbon and new fighters where the mission brought them
+00425780	function	debrief_list_draw	void __stdcall (float fade)	The list of the missions flown in pane 2, Mission and each place from 1, the chosen in blue, each a hotspot (debrief_list_hotspots)
+004258e0	function	debrief_select_latest	void (void)	Chooses the latest debriefing: campaign_place of mission_number less 1
+004e9288	data	itac_section_handlers	void *[45]	Five handlers for each of the ITAC's nine sections: opened, left, loaded, each frame and drawn
+004e9340	data	itac_buttons	short[36]	The ITAC's nine buttons: x, y, width and height each, 58 by 51 along the foot of the screen
+004e9418	data	itac_movies	char *[27]	Each of the ITAC's sections' movie in, movie out and picture, in inter\itac\
+004e9484	data	itac_titles	short[10]	The ITAC string of each section's title
+004e9498	data	itac_titles_coalition	short[10]	The ITAC string of sections 3 to 6's titles on the Coalition's side
+004e94d8	data	itac_lit_shapes		The shapes itac_lit_draw lights under the pointer: x, y, shape and a halfword unread, then a mask of the sections they light in, 12 bytes each, up to an x of -1
+004e4954	data	campaign_missions	int[24]	The campaign's missions in the order they are flown, by their places in it
+004e49b0	data	campaign_place	int[30]	Each mission's place in the campaign's order, by its number; the missions the campaign has none of share the next one's
+004e4918	data	debrief_arrows	short[8]	The rectangles of the debriefing's arrows, scrolling its body on and back
+004e4928	data	debrief_list_arrows	short[8]	The rectangles of the debriefing's list's arrows
+004e4948	data	debrief_replay_button	short[4]	The rectangle of REPLAY MISSION's button
+004e4a26	data	debrief_medal_text	short[6]	The ITAC string of the paragraph on each medal, 1 to 6, reading on into debrief_ribbon_text
+004e4a32	data	debrief_ribbon_text	short[6]	The ITAC string of the paragraph on each ribbon, 1 to 5
+004e4a3e	data	debrief_pickup_text	short[5]	The ITAC string of the paragraph on a pickup by a nanny ship, by the campaign's pickups, 1 to 3
+004e4a48	data	debrief_promotion_text	short[9]	The ITAC string of the paragraph on a promotion, by the rank, 1 to 8
+004e4a5a	data	debrief_tier_text	short[7]	The ITAC string of the paragraph on the fighters a tier brings, 1 to 3
+004e4a68	data	debrief_texts	short[1260]	Five tables of the debriefings, by the rating from success with its bonus down to failure, each of 28 rows by the mission: the header's ITAC string, then up to eight paragraphs' ended by string 9
+004e5bcc	data	rank_names	short[9]	The game's string of each rank's name
+004e5bec	data	tier_names	short[4]	The game's string of each tier's name: Bronze, Silver, Gold and Platinum
+0051d2e8	data	debrief_box	byte[36]	The debriefing's scrolling box: its pane, arrows, text place and size, place on screen, scroll, steps, text and redraw callback
+0051d30c	data	debrief_list_first	int	The first debriefing listed
+0051d310	data	debrief_replay_hover	int	Set while the pointer is over REPLAY MISSION
+0051d314	data	debrief_list_count	int	The debriefings listed, in debrief_list_hotspots
+0051d318	data	debrief_list_hotspots	short[52]	The listed debriefings' rectangles, 13 at most
+0051d380	data	debrief_selected	int	The debriefing chosen, a place in the campaign's order, or -1
+005202fc	data	itac_windows	void *[4]	The ITAC's four VFX windows its panes write into, 620 by 450 and three 450 by 450, 16 bits
+0052030c	data	itac_movie_done	short	Set as itac_movie_play's movie ends or is skipped
+0052030e	data	itac_switching	short	Set while a list's choice holds the ITAC (itac_pause)
+00520314	data	itac_backdrop	void *	The section's picture in the screen's format, which each pane is filled from before its text is written
+00520318	data	itac_sounds	void *	inter\itac\itacsnd.fat
+0052031c	data	itac_more_x	int	
+00520320	data	itac_more_y	int	
+00520324	data	itac_fade_state	short	The fade of the section's title and text over its movies: 0 none, 1 in, 2 out
+00520328	data	itac_repeat_phase	int	itac_repeat_ticks round five, which itac_repeat fires at 0
+0052032c	data	itac_rebuild	int	Set for a section to build its panes on its next update
+00520330	data	itac_pane_records	short[28]	The ITAC's four panes: x, y, shown, wiping, the width wiped, width and height
+005207e0	data	itac_repeat_ticks	int	Ticks of itac_timer since the left button went down
+00520820	data	itac_left_held	int	Set while the left button is down on this pass and was on the last
+0052082c	data	itac_fade	float	How far the section's title and text have faded in or out
+0052083c	data	itac_text_top	int	The y of a debriefing's header lines in their pane
+00520844	data	itac_text	char[10000]	A section's box text as it is written
+00522f54	data	itac_pointer_shown	int	
+00522f58	data	itac_text_remap	byte[256]	Each coverage level of the ITAC's fonts to itself, level 0 clear
+00523058	data	itac_side	short	The side sections 3 to 6 show: 0 the Alliance's, 1 the Coalition's
+0052305c	data	itac_panes	void *[4]	The VFX panes of itac_windows
+00523070	data	itac_scroll_tick	int	The tick of itac_timer a box's scrolling last moved on
+00523074	data	itac_font_large	void *	inter\itac\itacbig.fnt
+00523078	data	itac_debriefings	int	The debriefings on offer: campaign_place of mission_number
+0052307c	data	itac_wipe_tick	int	The tick of itac_timer the panes last wiped at
+00523084	data	itac_section	short	The section shown, -1 before the first
+00523088	data	itac_after_mission	int	Set by WinMain for the ITAC after a mission: DEBRIEFINGS at once; cleared by the debriefing's first update
+0052308c	data	itac_frozen	byte	Set over a section's movie in: no pointer and no update
+00523094	data	itac_more	byte	Set where a box's text runs past it
+005231ac	data	itac_strings	char **	itaclang.dll's strings, by id less one
+005231bc	data	itac_shapes	void *	inter\itac\itacgfx.spr: the ITAC's pointer, buttons and arrows lit, and REPLAY MISSION's button
+005231c0	data	itac_ticks	int	The ticks of itac_timer
+005231c4	data	itac_font_small	void *	inter\itac\itacsml.fnt
+005231c8	data	itac_scroll_least	int	How far the box last written can scroll
+005251dc	data	itac_video_request	void *	The video report VIDEO REPORTS asks the ITAC to play
+005d6094	data	itac_replay_offered	int	Set by WinMain for the ITAC after a mission, which offers REPLAY MISSION for the latest debriefing
+00562e2c	data	mission_ratings	short[28]	How each mission of the campaign was rated as it ended, by mission_number less 1; mission_end_record keeps it, but for the last
+00562e9c	data	mission_pickups	short[28]	The campaign's pickups by a nanny ship where one picked the ejected pilot up in each mission, by mission_number less 1 (pickup_count)
+00562ed6	data	mission_promotions	short[28]	The rank the pilot was promoted to at each mission's end, by mission_number less 1, 0 for none (mission_end_record)

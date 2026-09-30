@@ -58,6 +58,9 @@ pub const Canvas = struct {
     /// The palette's brightness the screen's shapes and text are drawn at
     /// (`palette_ramp_brightness`): 1, but as a screen fades in or out.
     brightness: f32 = 1,
+    /// The rectangle of the front end's screen its shapes and text are cut to, as a VFX pane
+    /// clips what is drawn into it; null for the whole screen.
+    clip: ?Rect = null,
 
     /// How many of the window's pixels one of the front end's spans.
     pub fn scale(canvas: Canvas) f32 {
@@ -80,7 +83,24 @@ pub const Canvas = struct {
 
     /// Draws `index` of `art` with its anchor at `at` (`VFX_shape_draw`).
     pub fn shape(canvas: Canvas, art: *hud.Art, index: usize, at: [2]i32) Error!void {
-        try hud.drawShape(art, canvas.gpa, canvas.target, index, canvas.point(at), hud.atBrightness(.{ 1, 1, 1 }, canvas.brightness), canvas.scale());
+        try hud.drawShapeWith(art, canvas.gpa, canvas.target, index, canvas.point(at), hud.atBrightness(.{ 1, 1, 1 }, canvas.brightness), canvas.scale(), .{ .clip = canvas.cut() });
+    }
+
+    /// The canvas cut to `rect` of the front end's screen, within any cut it has already.
+    pub fn within(canvas: Canvas, rect: Rect) Canvas {
+        var inside = canvas;
+        inside.clip = if (canvas.clip) |outer| outer.intersect(rect) else rect;
+        return inside;
+    }
+
+    /// Where its clip lies in the window; null for none.
+    fn cut(canvas: Canvas) ?hud.Clip {
+        const rect = canvas.clip orelse return null;
+        const s = canvas.scale();
+        const from = canvas.corner();
+        const left = from[0] + @as(f32, @floatFromInt(rect.x)) * s;
+        const top = from[1] + @as(f32, @floatFromInt(rect.y)) * s;
+        return .{ .left = left, .top = top, .right = left + @as(f32, @floatFromInt(rect.width)) * s, .bottom = top + @as(f32, @floatFromInt(rect.height)) * s };
     }
 
     /// Draws `picture` over the whole of the front end's screen, whatever its size.
@@ -140,7 +160,7 @@ pub const Canvas = struct {
 
     /// Writes `words` in `font` at `at`, ramped through `colour` (`hud_text`).
     pub fn text(canvas: Canvas, font: *hud.Opened, at: [2]i32, words: []const u8, colour: [3]f32, alignment: hud.Align) Allocator.Error!void {
-        _ = try hud.drawText(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale());
+        _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale(), canvas.cut());
     }
 
     /// `hud_text_wrapped` (`0x00480FD0`): `words` broken into lines at most `lines.width` of the
@@ -292,6 +312,15 @@ pub const Rect = extern struct {
     /// Whether `at` lies inside it, its edges left out, as `interface_hit` tests.
     pub fn holds(rect: Rect, at: [2]i32) bool {
         return rect.x < at[0] and at[0] < @as(i32, rect.x) + rect.width and rect.y < at[1] and at[1] < @as(i32, rect.y) + rect.height;
+    }
+
+    /// What lies inside both.
+    pub fn intersect(a: Rect, b: Rect) Rect {
+        const left = @max(a.x, b.x);
+        const top = @max(a.y, b.y);
+        const right = @min(@as(i32, a.x) + a.width, @as(i32, b.x) + b.width);
+        const bottom = @min(@as(i32, a.y) + a.height, @as(i32, b.y) + b.height);
+        return .{ .x = left, .y = top, .width = @intCast(@max(right - left, 0)), .height = @intCast(@max(bottom - top, 0)) };
     }
 };
 

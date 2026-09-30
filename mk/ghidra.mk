@@ -271,6 +271,16 @@ objective-tables: ## Re-derive the strings that name each mission's objectives f
 	$(ROOT)/zig-out/bin/tablegen objectives $(PAYLOAD) $(OBJECTIVE_TABLES)
 	$(ZIG) fmt $(OBJECTIVE_TABLES)
 
+ITAC_TABLES := $(ROOT)/src/engine/game/itac/tables.zig
+
+.PHONY: itac-tables
+itac-tables: ## Re-derive the ITAC's lit shapes and its debriefings, by their ratings, from the payload executable
+	@test -f $(PAYLOAD) || { echo "missing $(PAYLOAD), the game executable with its code readable" >&2; exit 1; }
+	$(ZIG) build tablegen
+	mkdir -p $(dir $(ITAC_TABLES))
+	$(ROOT)/zig-out/bin/tablegen itac $(PAYLOAD) $(ITAC_TABLES)
+	$(ZIG) fmt $(ITAC_TABLES)
+
 SOURCE_MAP     := $(ROOT)/src/engine/sources.zig
 PAYLOAD_STRINGS := $(GHIDRA_EXPORT_DIR)/game/LANCER.EXE/strings.tsv
 

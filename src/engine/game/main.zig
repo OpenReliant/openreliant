@@ -1630,7 +1630,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
         view.locked = false;
         view.cockpit_mode = view.setting.mode();
     }
-    winmain.startMission(world.player);
+    winmain.startMission(world.player, if (start.campaign) |campaign| campaign.kept(number).kills else 0);
     all.mission_number = number;
     const loaded = try Loaded.create(gpa, image, world.random);
     errdefer loaded.destroy();

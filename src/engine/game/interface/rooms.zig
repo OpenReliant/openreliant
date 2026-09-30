@@ -460,6 +460,12 @@ pub const Film = struct {
         return false;
     }
 
+    /// The frame it shows, from 1; none where there is no movie.
+    pub fn frame(film: Film) ?u32 {
+        const player = film.player orelse return null;
+        return player.bink.frame_number;
+    }
+
     /// Back to its second frame, as a loop goes round (`BinkGoto`). The game first puts back its
     /// first frame's pictures, for the second to build on; the stand-in's `goto` decodes from the
     /// key frame before it.

@@ -1076,6 +1076,10 @@ pub const Player = struct {
         /// left it (`gameflow.endMission`), which the start of the next puts back
         /// (`winmain.startMission`), undoing the kills of an attempt that failed.
         kept: i32 = 0,
+        /// The kills of the mission flown, one a ship, as `kills_add` counts them for a mission of
+        /// the campaign (`mission_kills`, `0x00562E64`), which its record keeps
+        /// (`gameflow.MissionRecord.kills`).
+        mission: u16 = 0,
     };
 };
 
