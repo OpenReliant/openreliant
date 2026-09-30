@@ -127,6 +127,39 @@ script may clear; each attempt at a mission clears 34. What each stands for is n
 16 too, `new_chapter3_thread1.bik`, `new_chapter3_thread2.bik` and `new_chapter2_thread3.bik`,
 which are never reached, as mission 16 ends no chapter.
 
+### How a mission ended
+
+After the landing, or where there is none, `WinMain` plays how a mission of the campaign ended
+from the archive of the disc open, the mission's carrier's, on a cleared screen
+(`play_bink_movie_resourced`), then turns to the restart screen or the main menu
+([After a mission](rooms.md#after-a-mission)). The Reliant's movies play up to mission 18 and the
+Yamato's after it:
+
+| Ending | Up to mission 18 | After mission 18 | Then |
+|---|---|---|---|
+| The player's ship destroyed, or the ejected pilot killed: the funeral | `new_funeral.bik` | `new_funeral2.bik` | The restart screen |
+| The ejected pilot captured: the pilot in the enemy's hands | `int.bik` | `int.bik` | The restart screen |
+| Sent home for destroying a friend: the pilot's execution | `new_rel_exec.bik` | `new_y_exec.bik` | The restart screen |
+| Picked up by a nanny ship the third time: the pilot's transfer | `new_reliant_transfer.bik` | `new_a y trans.bik` | The main menu |
+| A total failure: the pilot's transfer | `new_reliant_transfer.bik` where the game's variable 32 is set, else `new_a y trans.bik` | `new_a y trans.bik` | The main menu |
+
+After missions 25 and 27, where variable 36 is clear, a total failure plays the shuttle at Fort
+Bear, `fortbearshuttle_.bik`, in the transfer's place (`0x004AA5E0`). Each movie lies on its
+carrier's disc, and `int.bik` and `new_a y trans.bik` on both.
+
+A mission that awards a medal (`medal_of_mission`, `0x005009BB`) plays its ceremony from the disc
+as the mission's end is recorded, where the script rated it a success with its bonus and no nanny
+ship picked the pilot up (`mission_end_record`, `0x00475B57` on), before the ITAC:
+
+| After mission | Medal | Ceremony |
+|---|---|---|
+| 6 | 1 | `new_silver.bik` |
+| 11 | 2 | `new_black eagle.bik` |
+| 16 | 3 | `new_valour.bik` |
+| 21 | 4 | `new_legion.bik` |
+| 23 | 5 | `new_navy_cross.bik` |
+| 27 | 6 | `new_medal_of_honour.bik` |
+
 ## The movies played
 
 - As the renderer first starts, before its loading screens, `renderer_load` plays the intro:
@@ -140,8 +173,8 @@ which are never reached, as mission 16 ends no chapter.
 - As START GAME starts a campaign, `WinMain` plays a new pilot's intro, `new_intro.bik`, before
   mission 1's induction, and the ways from where the induction ended; the in-game options' MAIN
   MENU plays `interface\igo2mm.bik` before the main menu ([The Reliant's rooms](rooms.md)).
-- Around each mission `WinMain` flies, the hangar's movie and the landing or a chapter's end
-  ([Around a mission](#around-a-mission)).
+- Around each mission `WinMain` flies, the hangar's movie, the landing or a chapter's end, and how
+  the mission ended or a medal's ceremony ([Around a mission](#around-a-mission)).
 
 ## In OpenReliant
 
@@ -165,10 +198,10 @@ message pump reads them.
 The intro, the splash's movie and the transitions of the screens ported play as the game plays
 them; a mission `--mission` names, or a screenshot, starts without the intro. A mission the front
 end starts, all but INSTANT ACTION's, fades the music out over a second and plays the hangar's
-movie before its loading screen, and the
-landing or a chapter's end as it ends, before the main menu; LEAVE MISSION leaves it without. A
-movie that is missing, or that cannot be decoded, is left out, and the game goes on, as it does
-without a disc's archive or a bank.
+movie before its loading screen, and as it ends the landing or a chapter's end, and how it ended
+or a medal's ceremony; LEAVE MISSION leaves it without the landing. A movie that is missing, or
+that cannot be decoded, is left out, and the game goes on, as it does without a disc's archive or
+a bank.
 
 **Fixes:**
 
@@ -198,9 +231,9 @@ without a disc's archive or a bank.
   Super Resolution 1.0), which keeps its edges sharp without steps
   ([Renderer](../port/renderer.md#improvements)).
 
-Not ported: the other movies, each with what plays it: those of how a mission ended, the medals'
-and the story's end ([#416](https://github.com/vdmkenny/openreliant/issues/416)), those of the
-rooms' places ([#419](https://github.com/vdmkenny/openreliant/issues/419) to
+Not ported: the other movies, each with what plays it: the story's end
+([#416](https://github.com/vdmkenny/openreliant/issues/416)), those of the rooms' places
+([#419](https://github.com/vdmkenny/openreliant/issues/419) to
 [#422](https://github.com/vdmkenny/openreliant/issues/422)), and the transitions of the screens not
 yet ported, the in-game options' `igofade.bik` among them
 ([#43](https://github.com/vdmkenny/openreliant/issues/43)).

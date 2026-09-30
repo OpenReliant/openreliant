@@ -17,6 +17,7 @@ const hud = @import("../hud.zig");
 const canvas_module = @import("canvas.zig");
 const Canvas = canvas_module.Canvas;
 const Pointer = canvas_module.Pointer;
+const Label = canvas_module.Label;
 const Rect = canvas_module.Rect;
 const dialog = @import("dialog.zig");
 
@@ -57,9 +58,6 @@ pub const hotspots = std.EnumArray(Item, Hotspot).init(.{
     .quit = .{ .rect = .{ .x = 332, .y = 441, .width = 20, .height = 15 }, .result = .quit, .shape = 24 },
     .instant_action = .{ .rect = .{ .x = 300, .y = 441, .width = 20, .height = 15 }, .result = .go, .shape = 24 },
 });
-
-/// A line of text in `main_menu_draw`: its string and where it stands.
-const Label = struct { string: u32, at: [2]i32 };
 
 /// A panel's two lines, in the large font, centred under it; QUIT and INSTANT ACTION have none.
 fn panelLabels(item: Item) ?[2]Label {

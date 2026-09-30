@@ -41,6 +41,7 @@ const Screen = presenting.Screen;
 const frameSize = presenting.frameSize;
 const drawn = presenting.drawn;
 const Rooms = @import("rooms.zig").Driver;
+const RoomsEnd = @import("rooms.zig").End;
 const test_keys = @import("test_keys.zig");
 const version = @import("version.zig");
 
@@ -853,7 +854,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     var play: Play = .{
         .gpa = gpa,
         .number = options.mission orelse mission0.number,
-        .file = if (options.mission) |number| try missionFile(io, arena, directory, &resources, number) else "",
+        .file = if (options.mission) |number| try missionFile(io, arena, directory, &resources, number, false) else "",
         .clock = &clock,
         .tables = tables,
         .types = &types,
@@ -866,17 +867,17 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     display.play = &play;
     if (options.mission != null) try play.start(.{ .world = world, .clock = &clock, .devices = &devices });
     // The front end, where the game opens unless `--mission` names a mission, and what it draws
-    // with; whether it is shown, and whether the mission being flown was started from it.
+    // with; and where the game is between it and the missions.
     var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
     var front_resources: ?engine.genilib.interf.Resources = null;
     defer if (front_resources) |*open| open.close();
+    var flow: Flow = .{ .in_front_end = options.mission == null };
     // The campaign's saved loadout, which `campaign_new` starts in the Predator. OpenReliant keeps
     // it for the session, the campaign's saving not being ported.
     var saved_loadout: engine.interface.loadout.Saved = .{};
-    var in_front_end = options.mission == null;
     // The pilot as the game starts: the call sign the profile gives, as `campaign_new` reads it,
     // and the list of call signs, which `WinMain` reads and writes straight back (`0x004A919B`).
-    if (in_front_end) {
+    if (flow.in_front_end) {
         if (readGameFile(io, arena, directory, game.gameflow.profile_name)) |bytes| {
             front.pilot.call_sign.set(game.gameflow.profileCallSign(bytes));
         } else |_| {}
@@ -884,11 +885,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
         front.pilot_roster.list = game.winmain.loadCallSigns(settings_file.profile, player_name);
         try game.winmain.saveCallSigns(&front.pilot_roster.list, &settings_file);
     }
-    var from_front_end = false;
     var front_ticks = platform.window.ticks();
     // What the front end's screens run and are entered with, its window and the time since its
     // last pass given each pass.
     var front_context: engine.genilib.interf.Context = .{ .devices = &devices, .typed = &typed, .window = .{ 0, 0 }, .elapsed = 0, .sound = sound, .bank = stdsmp, .settings = &settings_file };
+    // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
+    // play and draw with: made as the front end's resources open.
+    var rooms: ?Rooms = null;
     // A piece of music asked for, as a mission's script plays one (`cmd_PlayMusic`): from `music\`,
     // for ever, at 80.
     if (options.music) |name| {
@@ -925,7 +928,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
     // Whether the system's pointer shows over the window, and whether the window holds the mouse.
     var mouse_held = false;
     // As `WinMain` opens the front end, the splash leads into the main menu (`0x004AB6A0`).
-    if (in_front_end and options.screenshot == null) {
+    if (flow.in_front_end and options.screenshot == null) {
         _ = try movies.play(game.xtrabits.movie.splash_to_menu, .over_screen) orelse return;
     }
     while (true) {
@@ -966,19 +969,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
         // The front end's frame while it is shown, as `interface_run` runs its screens, which the
         // keyboard is read for each pass; the mission it picks starts at once, with its clocks
         // zeroed as `mission_run` zeroes them.
-        if (in_front_end) {
-            if (front_resources == null) front_resources = try .open(gpa, resources);
-            front_context.resources = &front_resources.?;
-            const ticks = platform.window.ticks();
-            const elapsed = std.math.cast(i32, ticks -| front_ticks) orelse std.math.maxInt(i32);
-            front_ticks = ticks;
-            devices.keyboard.read();
-            sound.updateMusic();
-            front_context.window = size;
-            front_context.elapsed = elapsed;
-            if (front.frame(front_context)) |outcome| {
-                // The Reliant's rooms and the briefing, which run in loops of their own.
-                var rooms: Rooms = .{
+        if (flow.in_front_end) {
+            if (front_resources == null) {
+                front_resources = try .open(gpa, resources);
+                rooms = .{
                     .movies = &movies,
                     .sound = sound,
                     .clock = &clock,
@@ -992,64 +986,82 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                     .saved = &saved_loadout,
                     .stats = tables,
                     .missile_stats = &objects.missile_stats,
-                    .tier = objects.campaign_tier,
-                    .rank = player.rank,
+                    .tier = &objects.campaign_tier,
+                    .rank = &player.rank,
                 };
-                const flight: game.interface.main_menu.Flight = switch (outcome) {
+            }
+            front_context.resources = &front_resources.?;
+            const ticks = platform.window.ticks();
+            const elapsed = std.math.cast(i32, ticks -| front_ticks) orelse std.math.maxInt(i32);
+            front_ticks = ticks;
+            devices.keyboard.read();
+            sound.updateMusic();
+            front_context.window = size;
+            front_context.elapsed = elapsed;
+            if (front.frame(front_context)) |outcome| {
+                const through = &rooms.?;
+                flow.next = switch (outcome) {
                     .quit => return,
-                    .fly => |flight| flight,
-                    // START GAME: `WinMain` takes the campaign into the Reliant's rooms, whose
+                    .fly => |flight| fly: {
+                        flow.campaign = null;
+                        break :fly .{ .flight = flight };
+                    },
+                    // START GAME: `WinMain` takes a new campaign into the Reliant's rooms, whose
                     // briefing room's door leads to the briefing, and the mission.
-                    .campaign => |mission| switch (try rooms.campaign(mission) orelse return) {
-                        .fly => |chosen| fly: {
-                            // The loadout's ship and its racks, but where `--ship` names a ship,
-                            // which is then fitted by its tier; and the tier the loadout raised
-                            // the campaign's to.
-                            const result = chosen orelse break :fly .{ .mission = mission };
-                            objects.campaign_tier = result.tier;
-                            if (options.ship) |ship| break :fly .{ .mission = mission, .ship = ship };
-                            break :fly .{ .mission = mission, .ship = result.ship, .racks = result.racks };
-                        },
-                        .main_menu => {
-                            front.back();
+                    .campaign => |mission| fly: {
+                        flow.campaign = .begin();
+                        objects.mission25_second_part = false;
+                        const flight = briefedFlight(try through.campaign(mission) orelse return, mission, objects, options.ship) orelse {
+                            flow.toFrontEnd(&front);
                             continue;
-                        },
+                        };
+                        break :fly .{ .flight = flight };
                     },
                     // The developers' briefing from its loadout on, after which the front end
                     // starts again at its main menu.
                     .briefing => |mission| {
-                        if (!try rooms.loadoutBriefing(mission)) return;
+                        if (!try through.loadoutBriefing(mission)) return;
                         front.back();
                         continue;
                     },
                 };
-                play.number = flight.mission;
-                play.file = missionFile(io, arena, directory, &resources, flight.mission) catch |err| switch (err) {
-                    error.MissingMission => continue,
-                    else => |other| return other,
-                };
-                // The flight's ship, else the one `--ship` names, else the mission's ship; and
-                // the simulator it runs in.
-                objects.loadout_ships[objects.player] = if (flight.ship orelse options.ship) |ship| @enumFromInt(ship) else null;
-                objects.loadout_racks[objects.player] = flight.racks;
-                objects.simulator = flight.simulator;
-                // The pilot the front end has set flies it: the radio says the pilot's own
-                // lines in the pilot's voice, and hits land by the game's difficulty.
-                player.female = front.pilot.female;
-                world.difficulty = front.pilot.difficulty;
-                // `WinMain` fades the music out over a second, then plays the hangar's movie
-                // before the mission's loading, and the landing after it.
-                play.winmain_flight = flight.byWinMain();
-                if (play.winmain_flight) {
-                    waitBeforeLaunch(&clock, sound);
-                    if (!try movies.launch(&hangar, flight.mission)) return;
-                }
-                sound.closeMusic();
-                clock.start(platform.window.ticks());
-                try play.start(.{ .world = world, .clock = &clock, .devices = &devices });
-                in_front_end = false;
-                from_front_end = true;
             }
+        }
+        // The flight the front end chose, or the campaign goes on to.
+        if (flow.next) |launch| {
+            flow.next = null;
+            const flight = launch.flight;
+            flow.flown = flight;
+            play.number = flight.mission;
+            play.file = missionFile(io, arena, directory, &resources, flight.mission, objects.mission25_second_part) catch |err| switch (err) {
+                error.MissingMission => {
+                    flow.toFrontEnd(&front);
+                    continue;
+                },
+                else => |other| return other,
+            };
+            // The flight's ship, else the one `--ship` names, else the mission's ship; and the
+            // simulator it runs in; and the campaign whose variables each attempt starts from.
+            objects.loadout_ships[objects.player] = if (flight.ship orelse options.ship) |ship| @enumFromInt(ship) else null;
+            objects.loadout_racks[objects.player] = flight.racks;
+            objects.simulator = flight.simulator;
+            play.campaign = if (flow.campaign) |*going| going else null;
+            // The pilot the front end has set flies it: the radio says the pilot's own lines in
+            // the pilot's voice, and hits land by the game's difficulty.
+            player.female = front.pilot.female;
+            world.difficulty = front.pilot.difficulty;
+            // `WinMain` fades the music out over a second, then plays the hangar's movie before
+            // the mission's loading, and the landing after it.
+            play.winmain_flight = flight.byWinMain();
+            if (play.winmain_flight and launch.hangar) {
+                waitBeforeLaunch(&clock, sound);
+                if (!try movies.launch(&hangar, flight.mission)) return;
+            }
+            sound.closeMusic();
+            clock.start(platform.window.ticks());
+            try play.start(.{ .world = world, .clock = &clock, .devices = &devices });
+            flow.in_front_end = false;
+            flow.from_front_end = true;
         }
         // The movie a screen of the front end plays as it leads to another.
         if (front.movie) |name| {
@@ -1057,10 +1069,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
             _ = try movies.play(name, .over_screen) orelse return;
         }
         // The window takes text while the front end has a line to type into.
-        window.takeText(in_front_end and front.takesText());
+        window.takeText(flow.in_front_end and front.takesText());
         const orders: game.aigeneric.Context = .{ .world = world, .clock = &clock, .devices = &devices };
         const slot = &objects.slots[objects.player];
-        if (!in_front_end) {
+        if (!flow.in_front_end) {
             // The timer's ticks since the last pass, then a game tick for each, as `mission_run` paces
             // them: the simulation steps on every fourth, reading the keyboard as it goes, and runs the
             // objects' updates. A screenshot takes one tick a frame so that the camera settles the same
@@ -1087,20 +1099,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                 const over = game.main.missionFrame(orders, .of(&clock, options.smooth_motion, options.riders), play.loaded);
                 // The mission over, once the camera has watched the player's end or the pilot's pickup,
                 // once the player's ship has landed, or once its script ends it, the game settles how
-                // it ended and goes to its debriefing. Until that is ported, a mission the front end
-                // started goes back to it.
+                // it ended and goes on from it (`missionEnded`): the campaign to its next mission or
+                // the restart screen, and INSTANT ACTION back to the main menu.
                 // One `--mission` named pauses into the menu over the last frame, where RESTART, and
                 // CONTINUE with nothing left to continue, fly it again; a screenshot, or a game told
                 // not to (`--no-pause-menu`), starts it again straight away.
                 if (over) {
                     game.main.missionRunEnd(world.player, objects.mission_number);
-                    if (from_front_end) {
-                        // `WinMain` records the mission as it ends (`0x004A9FBA`), which promotes
-                        // the pilot (`mission_end_record`).
-                        game.gameflow.endMission(world.player, missionRating(&world));
-                        if (!try backToFrontEnd(&play, &front, sound, objects, player.ending, &movies, &resources)) return;
-                        in_front_end = true;
-                        from_front_end = false;
+                    if (flow.from_front_end) {
+                        if (!try missionEnded(&flow, &front, &play, &rooms.?, objects, world.player, options.ship, sound, &movies, &resources)) return;
+                        continue;
                     } else if (endsInPauseMenu(options, frames_left)) {
                         play.over = true;
                         try game.main.pause(pausing, true);
@@ -1130,7 +1138,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
         }
 
         _ = frame_arena.reset(.retain_capacity);
-        if (in_front_end) {
+        if (flow.in_front_end) {
             // The screen a transition's movie or a mission's end has just led to entered before
             // its first frame is drawn, as each of the game's screens enters before its loop.
             front.enterShown(front_context);
@@ -1207,20 +1215,25 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options) !void {
                 try game.main.pause(pausing, false);
                 switch (outcome) {
                     .continue_mission => if (play.over) try play.again(orders),
-                    .restart => try play.again(orders),
+                    // `WinMain` restarts mission 25 from its first part, which it reads again
+                    // (`0x004AA47A`).
+                    .restart => if (objects.mission25_second_part) {
+                        objects.mission25_second_part = false;
+                        flow.next = .{ .flight = flow.flown, .hangar = false };
+                        continue;
+                    } else try play.again(orders),
                     .leave_mission => {
-                        if (!from_front_end) return;
+                        if (!flow.from_front_end) return;
                         player.ending = .left;
-                        if (!try backToFrontEnd(&play, &front, sound, objects, player.ending, &movies, &resources)) return;
-                        in_front_end = true;
-                        from_front_end = false;
+                        if (!try missionEnded(&flow, &front, &play, &rooms.?, objects, world.player, options.ship, sound, &movies, &resources)) return;
+                        continue;
                     },
                 }
             }
         }
         // The menus draw their own pointer over the window, in place of the system's, which also
         // hides in full screen and once it rests over the window.
-        const menu_pointer = in_front_end or pause_menu.isOpen();
+        const menu_pointer = flow.in_front_end or pause_menu.isOpen();
         window.showPointer(menu_pointer);
         // Steering by the mouse, the window holds it in flight, as the game holds DirectInput's
         // mouse while it is in the foreground.
@@ -1304,25 +1317,145 @@ fn waitBeforeLaunch(clock: *game.main.Clock, sound: *game.hog_snd.Sound) void {
     }
 }
 
-/// How the mission's script rates the mission (`mission_success`), a failure where no script runs.
-fn missionRating(world: *const game.gameobj.World) engine.vm.Variables.Outcome {
-    const variables = world.variables orelse return .failure;
-    return variables.mission_success;
+/// Where the game is between the front end and the missions, as `WinMain` goes from one to the
+/// other: whether the front end is shown, and whether the mission flown was started from it; the
+/// campaign it is flown in, none outside one; and the flight to start next, and the last started.
+const Flow = struct {
+    in_front_end: bool,
+    from_front_end: bool = false,
+    campaign: ?game.gameflow.Campaign = null,
+    next: ?Launch = null,
+    flown: game.interface.main_menu.Flight = .{ .mission = 0 },
+
+    /// Back to the front end's main menu, out of the campaign.
+    fn toFrontEnd(flow: *Flow, front: *engine.genilib.interf.Interface) void {
+        front.back();
+        flow.in_front_end = true;
+        flow.from_front_end = false;
+        flow.campaign = null;
+    }
+};
+
+/// A flight to start, with the hangar's movie before it where `WinMain` flies it, but where the
+/// mission is flown again from its launch, as the restart screen's REPLAY MISSION FROM LAUNCH and
+/// RESTART fly it (`0x004AA3D9`).
+const Launch = struct {
+    flight: game.interface.main_menu.Flight,
+    hangar: bool = true,
+};
+
+/// As a mission the front end or the campaign started ends, or is left: the campaign goes on
+/// (`campaignGoesOn`), to the flight it leads to or to the main menu; outside it, the mission is
+/// let go, with the landing where it plays one, and the front end's main menu entered again. False
+/// where the game quits meanwhile.
+fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Play, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !bool {
+    if (flow.campaign) |*campaign| {
+        switch (try campaignGoesOn(play, campaign, rooms, all, player, flow.flown, ship, sound, movies, resources) orelse return false) {
+            .fly => |launch| {
+                flow.next = launch;
+                return true;
+            },
+            .main_menu => {},
+        }
+    } else if (!try letGo(play, all, sound, play.landing(player.ending, all.mission25_second_part), movies, resources)) return false;
+    flow.toFrontEnd(front);
+    return true;
 }
 
-/// Goes back to the front end as a mission it started ends as `ending`, or is left: the mission
-/// let go, out of the simulator, its sounds and music ended, what `play_landing_movie` plays where
-/// `WinMain` plays it (`Play.landing`), and the front end's main menu entered again
-/// (`Interface.back`). False where the window was closed meanwhile.
-fn backToFrontEnd(play: *Play, front: *engine.genilib.interf.Interface, sound: *game.hog_snd.Sound, all: *game.create.Objects, ending: game.main.Ending, movies: *Movies, resources: *const game.bigfile.Hog) !bool {
-    const landing = play.landing(ending, all.mission25_second_part);
+/// The mission let go as it ends: out of the simulator, its sounds and music ended, and what
+/// `play_landing_movie` plays, where `WinMain` plays it (`Play.landing`). False where the game
+/// quits meanwhile.
+fn letGo(play: *Play, all: *game.create.Objects, sound: *game.hog_snd.Sound, landing: ?game.xtrabits.landing.Landing, movies: *Movies, resources: *const game.bigfile.Hog) !bool {
     play.end();
     all.simulator = .{};
     sound.endAll();
     sound.closeMusic();
-    if (landing) |what| if (!try movies.land(what, resources, sound)) return false;
-    front.back();
+    if (landing) |what| return movies.land(what, resources, sound);
     return true;
+}
+
+/// The flight a briefing of mission `mission` leads to as it `end`s: the ship its loadout chose
+/// and its racks, but where `--ship` names a `ship`, which is then fitted by its tier; and the
+/// campaign's tier as the loadout raised it. Null where the briefing led to the main menu.
+fn briefedFlight(end: RoomsEnd, mission: u16, all: *game.create.Objects, ship: ?u8) ?game.interface.main_menu.Flight {
+    const chosen = switch (end) {
+        .fly => |chosen| chosen,
+        .main_menu => return null,
+    };
+    const result = chosen orelse return .{ .mission = mission };
+    all.campaign_tier = result.tier;
+    if (ship) |named| return .{ .mission = mission, .ship = named };
+    return .{ .mission = mission, .ship = result.ship, .racks = result.racks };
+}
+
+/// What follows a mission of the campaign, as `WinMain` goes on after it (`campaignGoesOn`).
+const CampaignNext = union(enum) {
+    /// The mission its briefing leads to, mission 25's second part, or the mission again from its
+    /// launch.
+    fly: Launch,
+    main_menu,
+
+    /// Where a briefing of mission `mission` leads as it `end`s (`briefedFlight`).
+    fn briefed(end: RoomsEnd, mission: u16, all: *game.create.Objects, ship: ?u8) CampaignNext {
+        const flight = briefedFlight(end, mission, all, ship) orelse return .main_menu;
+        return .{ .fly = .{ .flight = flight } };
+    }
+};
+
+/// What `WinMain` does as a mission of the campaign ends (`game.winmain.afterMission`), the flight
+/// that started it `flown`: the mission let go, with the landing where it plays one (`letGo`). The
+/// game's variables as the mission left them carry on to the next mission and to mission 25's
+/// second part, but not to a replay, which starts from those the mission began with. Then, as the
+/// mission ended: the medal's ceremony, and the rooms the campaign goes on through; the movie of
+/// how it ended and the restart screen; or the movie that ends the pilot's career. Null where the
+/// game quits meanwhile.
+///
+/// **Fix:** after the pilot's execution in mission 25's second part, REPLAY MISSION FROM BRIEFING
+/// replays the first part's briefing. The game flies the second part again at once, and leaves the
+/// replay asked for, so that the next mission's briefing follows it without the rooms, from the
+/// game's variables as the second part began.
+///
+/// Not ported: the ITAC's debriefing before the rooms
+/// ([#419](https://github.com/vdmkenny/openreliant/issues/419)), and the story's end
+/// ([#416](https://github.com/vdmkenny/openreliant/issues/416)).
+fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, flown: game.interface.main_menu.Flight, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !?CampaignNext {
+    const loaded = play.loaded orelse return .main_menu;
+    const variables = &loaded.script.variables;
+    const landing = play.landing(player.ending, all.mission25_second_part);
+    const after = game.winmain.afterMission(campaign, player, variables, play.number, &all.mission25_second_part, all.campaign_tier);
+    switch (after) {
+        .goes_on, .second_part => campaign.variables = variables.*,
+        .restart, .career_over, .story_end => {},
+    }
+    if (!try letGo(play, all, sound, landing, movies, resources)) return null;
+    switch (after) {
+        .goes_on => |record| {
+            all.campaign_tier = record.tier;
+            if (record.medal) |medal| _ = try movies.play(medal.movie(), .cleared_from_disc) orelse return null;
+            return .briefed(try rooms.goOn(record.next) orelse return null, record.next, all, ship);
+        },
+        .second_part => return .{ .fly = .{ .flight = flown } },
+        .restart => |ending| {
+            if (ending) |name| _ = try movies.play(name, .cleared_from_disc) orelse return null;
+            switch (try rooms.restart() orelse return null) {
+                // The replay starts from mission 25's first part (`0x004AA2EC`).
+                .replay_from_briefing => {
+                    all.mission25_second_part = false;
+                    return .briefed(try rooms.replayBriefing(play.number) orelse return null, play.number, all, ship);
+                },
+                .replay_from_launch => return .{ .fly = .{ .flight = flown, .hangar = false } },
+                .main_menu => return .main_menu,
+            }
+        },
+        .career_over => |name| {
+            _ = try movies.play(name, .cleared_from_disc) orelse return null;
+            return .main_menu;
+        },
+        .story_end => {
+            std.log.info("the story's end is not ported yet", .{});
+            return .main_menu;
+        },
+    }
 }
 
 /// What draws the front end over the cleared frame: its render hook (`sr + 0x88`), which
@@ -1419,6 +1552,9 @@ const Play = struct {
     winmain_flight: bool = false,
     /// The loading screen each start shows.
     loading: ?*Loading = null,
+    /// The campaign the mission is flown in, whose variables each attempt starts from; none
+    /// outside it.
+    campaign: ?*const game.gameflow.Campaign = null,
 
     /// Starts the mission, letting go of the one before, the loading screen shown first
     /// (`game.xtrabits.loading.missionFrames`).
@@ -1436,6 +1572,7 @@ const Play = struct {
             .types = play.types,
             .cockpit = play.cockpit,
             .display = play.display,
+            .campaign = play.campaign,
         }, try play.gpa.dupe(u8, play.file), play.number);
         // A launch holds the camera until the ship is out; a ship that does not launch starts in
         // its view at once.
@@ -1443,10 +1580,14 @@ const Play = struct {
         if (!play.view.locked) _ = play.view.setView(startingView(&all.slots[all.player], play.view.cockpit_mode), all.player, false, true, play.clock.viewTime());
     }
 
-    /// Starts the mission again as an attempt ends, the kills kept where the ending keeps them, as
-    /// when the ejected pilot is picked up by a nanny ship (`gameflow.endMission`).
+    /// Starts the mission again as an attempt ends, or as RESTART starts it again: outside the
+    /// campaign, the kills kept where the ending keeps them, as when the ejected pilot is picked up
+    /// by a nanny ship (`gameflow.endMission`). The campaign records its missions only as they end
+    /// (`campaignGoesOn`).
     fn again(play: *Play, orders: game.aigeneric.Context) !void {
-        game.gameflow.endMission(orders.world.player, missionRating(&orders.world));
+        if (play.campaign == null) if (play.loaded) |loaded| {
+            _ = game.gameflow.endMission(orders.world.player, &loaded.script.variables, play.number, orders.world.objects.campaign_tier);
+        };
         try play.start(orders);
     }
 
@@ -1485,9 +1626,9 @@ const Play = struct {
 /// The file of mission `number`, as the game reads it (`game.mission.bind.read`): from the game's
 /// `missions` folder, or from `resource.hog`. Mission 0, OpenReliant's own, comes from the copy
 /// `openreliant` carries where the game has none.
-fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const game.bigfile.Hog, number: u16) ![]const u8 {
+fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const game.bigfile.Hog, number: u16, second_part: bool) ![]const u8 {
     var path_buffer: [game.winmain.mission_path_size]u8 = undefined;
-    const path = game.winmain.missionPath(&path_buffer, number, false, false);
+    const path = game.winmain.missionPath(&path_buffer, number, second_part, false);
     if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| return file.image;
     if (number == mission0.number) return @embedFile("mission0.dte");
     std.debug.print("openreliant: the game has no mission {d}: neither its missions folder nor {s} holds {s}\n", .{ number, game.bigfile.resource_name, std.fs.path.basenameWindows(path) });

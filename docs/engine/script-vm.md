@@ -107,9 +107,10 @@ between missions reads to pick its films and messages. The pilot's saved game ke
 13, 16 to 27, 29 to 32, 34 and 36 in its `VARS` chunk (`game_save`, `0x00475650`; `game_load`,
 `0x00475430`). WinMain saves the game as a restart point before a mission's attempts and loads it
 again for a replay or a restart (`restart_save`, `0x00475D20`; `restart_load`, `0x00475D30`), so
-that every attempt starts from the variables the first had. OpenReliant, which has no campaign yet,
-starts every attempt from a new campaign's variables (`gameflow.restartPoint`), as the game's first
-mission does. **Unknown:** what the campaign's other flags stand for
+that every attempt starts from the variables the first had. OpenReliant keeps a campaign's
+variables in `gameflow.Campaign`: each attempt at a mission starts from those the last mission the
+pilot came through left, and a mission outside a campaign from a new campaign's
+(`gameflow.restartPoint`). **Unknown:** what the campaign's other flags stand for
 ([#381](https://github.com/vdmkenny/openreliant/issues/381)).
 
 ## Calls

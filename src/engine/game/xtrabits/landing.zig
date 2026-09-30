@@ -183,8 +183,15 @@ const mission27 = 27;
 /// The variable that, clear, has mission 25's second part and mission 27 end without the landing
 /// (`0x004ABEA7`), and the one that, clear, has mission 8 end on the Yamato, as mission 7 always
 /// does (`0x004ABF09`, `0x004AC1F0`). Both are the campaign's flags.
-const last_missions_land = 36;
-const mission8_on_reliant = 32;
+pub const last_missions_land = 36;
+pub const mission8_on_reliant = 32;
+
+/// Whether mission `number` is mission 25 or 27 with `last_missions_land` clear: no landing plays
+/// after it, where it is 25's second part, and a total failure in it ends the pilot's career in the
+/// shuttle at Fort Bear (`winmain.afterMission`).
+pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
+    return (number == winmain.second_part_mission or number == mission27) and variables.slot(last_missions_land).* == 0;
+}
 
 /// `play_landing_movie` (`0x004ABDE0`) after mission `mission` ended as `ending`: what it plays by
 /// the mission, its rating (`vm.Variables.mission_success`) and the game's `variables`, which a
@@ -200,8 +207,8 @@ const mission8_on_reliant = 32;
 pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.Variables) ?Landing {
     // Mission 25's second part may come numbered 251, which counts as 25 (`0x004ABE8D`).
     const number = if (mission == winmain.second_part_number) winmain.second_part_mission else mission;
-    const last = (number == winmain.second_part_mission and second_part) or number == mission27;
-    if (last and variables.slot(last_missions_land).* == 0) return null;
+    const first_part = number == winmain.second_part_mission and !second_part;
+    if (!first_part and lastWithoutLanding(number, variables)) return null;
     switch (ending) {
         .friendly_fire, ._unknown_7 => return null,
         else => {},
@@ -306,4 +313,13 @@ test "no landing" {
     try std.testing.expectEqual(null, landing(25, true, .playing, &variables));
     try std.testing.expectEqual(null, landing(winmain.second_part_number, true, .playing, &variables));
     try std.testing.expect(landing(25, false, .playing, &variables) != null);
+}
+
+test lastWithoutLanding {
+    var variables = campaign();
+    try std.testing.expect(!lastWithoutLanding(25, &variables));
+    variables.slot(last_missions_land).* = 0;
+    try std.testing.expect(lastWithoutLanding(25, &variables));
+    try std.testing.expect(lastWithoutLanding(27, &variables));
+    try std.testing.expect(!lastWithoutLanding(26, &variables));
 }

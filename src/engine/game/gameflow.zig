@@ -4,8 +4,9 @@
 //! `explode.cpp`'s and `gameobj.cpp`'s.
 //!
 //! Ported so far: the game's variables as a campaign begins and as each attempt at a mission
-//! starts (`restartPoint`), the call sign the pilot's profile gives (`profileCallSign`), and what a
-//! mission's end makes of the pilot's kills (`endMission`): the pilot's rank and the kills kept.
+//! starts (`Campaign`), the call sign the pilot's profile gives (`profileCallSign`), and what a
+//! mission's end makes of the campaign (`endMission`): the pilot's rank, the kills kept, the rating
+//! kept, the tier, the medal and the next mission.
 
 const std = @import("std");
 
@@ -70,18 +71,48 @@ pub fn resetVariables(variables: *vm.Variables) void {
     variables._unknown_34 = 0;
 }
 
-/// The game's variables as an attempt at a mission starts. `WinMain` saves the variables before a
-/// mission's first attempt and loads them again for each replay and each restart (`restart_save`,
-/// `0x00475D20`; `restart_load`, `0x00475D30`), so that every attempt starts from the variables
-/// the first had, less the attempt's own (`resetVariables`). OpenReliant, which has no campaign
-/// yet, starts every attempt from a new campaign's (`newCampaign`), as the game's first mission
-/// does. **Not ported:** a mission's end moving the campaign on to the next mission with the
-/// variables it leaves ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+/// The campaign as it goes from one mission to the next.
+pub const Campaign = struct {
+    /// The game's variables as the last mission the pilot came through left them, which each
+    /// attempt at the mission starts from, less the attempt's own (`attempt`): `WinMain` saves the
+    /// game as a mission's attempts begin and loads it again for each replay (`restart_save`,
+    /// `0x00475D20`; `restart_load`, `0x00475D30`).
+    variables: vm.Variables,
+    /// How many times a nanny ship has picked the ejected pilot up (`0x00562ED4`).
+    pickups: u8 = 0,
+
+    /// A new campaign (`campaign_new`).
+    pub fn begin() Campaign {
+        var variables: vm.Variables = .{};
+        newCampaign(&variables);
+        return .{ .variables = variables };
+    }
+
+    /// The game's variables an attempt at the mission starts with.
+    pub fn attempt(campaign: Campaign) vm.Variables {
+        var variables = campaign.variables;
+        resetVariables(&variables);
+        return variables;
+    }
+
+    /// `pickup_count` (`0x00475A60`), as a nanny ship picks the ejected pilot up: whether this is
+    /// past the pickups the pilot is allowed, which transfers the pilot off the carrier.
+    ///
+    /// Not ported: each mission's count, which the pilot's profile keeps
+    /// ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+    pub fn pickedUp(campaign: *Campaign) bool {
+        campaign.pickups +|= 1;
+        return campaign.pickups > allowed_pickups;
+    }
+
+    /// How many pickups the pilot is allowed (`0x00475A68`).
+    const allowed_pickups = 2;
+};
+
+/// The game's variables as an attempt at a mission of a new campaign starts, as the first mission's
+/// do, and every mission's the front end flies outside the campaign.
 pub fn restartPoint() vm.Variables {
-    var variables: vm.Variables = .{};
-    newCampaign(&variables);
-    resetVariables(&variables);
-    return variables;
+    return Campaign.begin().attempt();
 }
 
 test restartPoint {
@@ -126,25 +157,98 @@ pub fn keepsKills(ending: Ending) bool {
     };
 }
 
-/// `mission_end_record` (`0x00475A90`) as a mission ends, the script having rated it `rating`:
-/// nothing where the ending keeps no kills (`keepsKills`, `mission_ending` 1 or 3); where the
-/// script rated it a total failure, the ending becomes one (`0x00475CE5`); otherwise the pilot is
-/// promoted by the kills over the campaign (`promote`), and the kills are kept for the next
-/// mission's start (`winmain.startMission`).
+/// What `mission_end_record` moves the campaign on to.
+pub const Record = struct {
+    /// The next mission (`mission_number`).
+    next: u16,
+    /// The campaign's tier (`campaign_tier`).
+    tier: u2,
+    /// The medal the mission awards, whose ceremony then plays.
+    medal: ?Medal = null,
+};
+
+/// `mission_end_record` (`0x00475A90`) as mission `mission` ends, rated by its script in
+/// `variables`, the campaign at `tier`: nothing where the ending keeps no kills (`keepsKills`,
+/// `mission_ending` 1 or 3); where the script rated it a total failure, the ending becomes one
+/// (`0x00475CE5`). Otherwise the rating is kept as the last (`0x00475AC2`), the pilot promoted by
+/// the kills over the campaign (`promote`) and the kills kept for the next mission's start
+/// (`winmain.startMission`); the tier is the one the mission brings, where it brings one
+/// (`mission_tiers`, `0x00475B28`); and the campaign moves on (`nextMission`), from the last
+/// mission to the story's end (`0x00475B3A`). A mission that awards a medal (`medal_of_mission`,
+/// `0x00475B57`) awards it for a success with its bonus, unless a nanny ship picked the pilot up.
 ///
-/// **Not ported:** the rest of what it keeps and does, which the campaign needs: the mission's
-/// rating in `vm.Variables.last_success`, the medals, the rank kept for the mission, the tier its
-/// end brings (`mission_tiers`, which the loadout raises the tier by meanwhile) and moving
-/// `mission_number` on ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
-pub fn endMission(player: *input.Player, rating: vm.Variables.Outcome) void {
-    if (!keepsKills(player.ending)) return;
+/// Not ported: the pilot's records the ITAC and the locker show, the medals won and each mission's
+/// rating, rank and kills among them; and the game and the pilot's profile saved
+/// ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16, tier: u2) ?Record {
+    if (!keepsKills(player.ending)) return null;
+    const rating = variables.mission_success;
     if (rating == .total_failure) {
         player.ending = .total_failure;
-        return;
+        return null;
     }
+    variables.last_success = rating;
     promote(player);
     player.kills.kept = player.kills.count;
+    const reached = if (mission >= 1 and mission <= mission_tiers.len and mission_tiers[mission - 1] != 0) mission_tiers[mission - 1] else tier;
+    if (mission == last_mission) return .{ .next = story_end, .tier = reached };
+    const awards = player.ending != .rescued and rating == .success_bonus;
+    return .{ .next = nextMission(mission), .tier = reached, .medal = if (awards) Medal.of(mission) else null };
 }
+
+/// The campaign's last mission, and the number the story's end takes after it
+/// (`mission_end_record`, `0x00475B3A`).
+pub const last_mission = 28;
+pub const story_end = 29;
+
+/// The mission after mission `mission` (`mission_end_record`, `0x00475BB2` on): the next number,
+/// but 11 and 12 go on to 14, 16 to 18 and 21 to 23, the campaign having no missions 12, 13, 17 and
+/// 22.
+pub fn nextMission(mission: u16) u16 {
+    return switch (mission) {
+        11, 12 => 14,
+        16 => 18,
+        21 => 23,
+        else => mission + 1,
+    };
+}
+
+/// A medal, which a mission awards (`medal_of_mission`, `0x005009BB`), and whose ceremony plays as
+/// it does (`medal_movies`, `0x00500A08`).
+pub const Medal = enum(u3) {
+    silver = 1,
+    black_eagle = 2,
+    valour = 3,
+    legion = 4,
+    navy_cross = 5,
+    medal_of_honour = 6,
+
+    /// The medal mission `mission` awards: missions 6, 11, 16, 21, 23 and 27 award the six in
+    /// turn.
+    pub fn of(mission: u16) ?Medal {
+        return switch (mission) {
+            6 => .silver,
+            11 => .black_eagle,
+            16 => .valour,
+            21 => .legion,
+            23 => .navy_cross,
+            27 => .medal_of_honour,
+            else => null,
+        };
+    }
+
+    /// Its ceremony, from the disc's archive open (`play_bink_movie_resourced`, `0x00475B98`).
+    pub fn movie(medal: Medal) []const u8 {
+        return switch (medal) {
+            .silver => "new_silver.bik",
+            .black_eagle => "new_black eagle.bik",
+            .valour => "new_valour.bik",
+            .legion => "new_legion.bik",
+            .navy_cross => "new_navy_cross.bik",
+            .medal_of_honour => "new_medal_of_honour.bik",
+        };
+    }
+};
 
 /// The kills each rank needs, from the first (`rank_kills`, `0x005009F4`).
 pub const rank_kills = [_]i32{ 0, 35, 72, 115, 150, 200, 255, 275, 300 };
@@ -165,25 +269,53 @@ pub fn promote(player: *input.Player) void {
 
 test endMission {
     var player: input.Player = .{ .kills = .{ .count = 40, .kept = 2 } };
+    var variables: vm.Variables = .{ .mission_success = .success };
     // Destroyed, or captured after ejecting, the attempt's kills are not kept, nor the pilot
-    // promoted.
+    // promoted, and the campaign stays where it is.
     player.ending = .destroyed;
-    endMission(&player, .success);
+    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0));
     try std.testing.expectEqual(2, player.kills.kept);
     player.ending = .captured;
-    endMission(&player, .success);
+    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0));
     try std.testing.expectEqual(2, player.kills.kept);
     try std.testing.expectEqual(0, player.rank);
     // A total failure keeps nothing, and becomes the mission's ending.
     player.ending = .rescued;
-    endMission(&player, .total_failure);
+    variables.mission_success = .total_failure;
+    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0));
     try std.testing.expectEqual(2, player.kills.kept);
     try std.testing.expectEqual(.total_failure, player.ending);
-    // Picked up, they are kept, and 40 kills make the pilot's rank 1.
+    // Picked up, they are kept, 40 kills make the pilot's rank 1, and the campaign goes on.
     player.ending = .rescued;
-    endMission(&player, .failure);
+    variables.mission_success = .failure;
+    try std.testing.expectEqual(Record{ .next = 6, .tier = 0 }, endMission(&player, &variables, 5, 0).?);
     try std.testing.expectEqual(40, player.kills.kept);
     try std.testing.expectEqual(1, player.rank);
+    try std.testing.expectEqual(.failure, variables.last_success);
+    // Mission 11 raises the tier, skips to 14, and awards its medal for a success with its bonus.
+    player.ending = .playing;
+    variables.mission_success = .success_bonus;
+    try std.testing.expectEqual(Record{ .next = 14, .tier = 1, .medal = .black_eagle }, endMission(&player, &variables, 11, 0).?);
+    // Picked up, the medal is not awarded; and the last mission leads to the story's end.
+    player.ending = .rescued;
+    try std.testing.expectEqual(Record{ .next = 14, .tier = 1 }, endMission(&player, &variables, 11, 0).?);
+    try std.testing.expectEqual(Record{ .next = story_end, .tier = 3 }, endMission(&player, &variables, last_mission, 3).?);
+}
+
+test nextMission {
+    try std.testing.expectEqual(2, nextMission(1));
+    try std.testing.expectEqual(14, nextMission(12));
+    try std.testing.expectEqual(18, nextMission(16));
+    try std.testing.expectEqual(23, nextMission(21));
+    try std.testing.expectEqual(25, nextMission(24));
+}
+
+test "Campaign.pickedUp" {
+    var campaign: Campaign = .begin();
+    // The third pickup transfers the pilot.
+    try std.testing.expect(!campaign.pickedUp());
+    try std.testing.expect(!campaign.pickedUp());
+    try std.testing.expect(campaign.pickedUp());
 }
 
 test promote {

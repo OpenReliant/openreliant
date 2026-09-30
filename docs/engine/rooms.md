@@ -4,22 +4,24 @@ The hub a single-player campaign comes back to between missions: the Reliant's r
 
 ## In OpenReliant
 
-[`game/interface/rooms.zig`](../../src/engine/game/interface/rooms.zig) holds the rooms and the news report, and [`rooms/views.zig`](../../src/engine/game/interface/rooms/views.zig) their views, which `tablegen rooms` reads out of the executable (`make room-tables`). [`induction.zig`](../../src/engine/game/interface/induction.zig) holds the induction, [`in_game_options.zig`](../../src/engine/game/interface/in_game_options.zig) the in-game options, and [`game/winmain.zig`](../../src/engine/game/winmain.zig) what `WinMain` does as a campaign starts (`CampaignStart`). The driver runs each in a loop of its own ([`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), and plays the movies between them as the game plays them ([Movies](movies.md)).
+[`game/interface/rooms.zig`](../../src/engine/game/interface/rooms.zig) holds the rooms and the news report, and [`rooms/views.zig`](../../src/engine/game/interface/rooms/views.zig) their views, which `tablegen rooms` reads out of the executable (`make room-tables`). [`induction.zig`](../../src/engine/game/interface/induction.zig) holds the induction, [`in_game_options.zig`](../../src/engine/game/interface/in_game_options.zig) the in-game options, [`restart.zig`](../../src/engine/game/interface/restart.zig) the restart screen, [`game/winmain.zig`](../../src/engine/game/winmain.zig) what `WinMain` does as a campaign starts (`CampaignStart`) and after each mission (`afterMission`), and [`game/gameflow.zig`](../../src/engine/game/gameflow.zig) the campaign it carries from one mission to the next. The driver runs each in a loop of its own ([`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), and plays the movies between them as the game plays them ([Movies](movies.md)).
 
-The pilot roster's START GAME leads into the rooms, through the induction for mission 1. The briefing room's door leads to the briefing ([Briefing](briefing.md)), and then to the mission, after the hangar's movie; the in-game options' MAIN MENU leads back to the main menu, and QUIT quits. While the window is away, the rooms' loops pause the music and the voices, as the message pump does; the game's pump also waits for the window to come back, where the rooms go on.
+The pilot roster's START GAME leads into the rooms, through the induction for mission 1. The briefing room's door leads to the briefing ([Briefing](briefing.md)), and then to the mission, after the hangar's movie; the in-game options' MAIN MENU leads back to the main menu, and QUIT quits. After the mission the campaign goes on through the rooms to the next briefing, or through the restart screen to the same mission ([After a mission](#after-a-mission)). While the window is away, the rooms' loops pause the music and the voices, as the message pump does; the game's pump also waits for the window to come back, where the rooms go on.
 
 Not ported:
 
 - The crew the player passes on the way to the briefing room's door, a sprite over the movie and a line of speech ([#418](https://github.com/vdmkenny/openreliant/issues/418)).
 - The screens of the ITAC ([#419](https://github.com/vdmkenny/openreliant/issues/419)), the simulator pod ([#420](https://github.com/vdmkenny/openreliant/issues/420)), the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)) and the CD player ([#422](https://github.com/vdmkenny/openreliant/issues/422)). The rooms go on as though each had closed at once, turned away from it.
 - The in-game options' SAVE and LOAD ([#75](https://github.com/vdmkenny/openreliant/issues/75)), and AUDIO, CONTROL DEVICES and VIDEO ([#400](https://github.com/vdmkenny/openreliant/issues/400)), which stay on the menu.
-- The pilot's profile, which the rooms write with the call sign as they open (`profile_save`), and the campaign's way on after a mission: the debriefing, and the rooms again before the next ([#74](https://github.com/vdmkenny/openreliant/issues/74)). A mission the rooms lead to goes back to the main menu as it ends.
+- The pilot's profile, which the rooms write with the call sign as they open (`profile_save`), and the game and the profile a mission's end saves, with the pilot's records ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+- The ITAC's debriefing after a mission ([#419](https://github.com/vdmkenny/openreliant/issues/419)): the rooms open where it leaves the pilot. The story's end after the last mission ([#416](https://github.com/vdmkenny/openreliant/issues/416)): OpenReliant goes back to the main menu.
 
 **Fixes:**
 
 - The fish's food falls by the ticks since it last moved; the game moves it on by the ticks between the pass's start and the drawing, so that it hardly falls on a fast machine ([The fish tank](#the-fish-tank)).
 - A mission outside the table of news reports has none; the game reads what lies either side of the table for its name.
 - The pointer's right button ends the induction only once it has come up since the place showed. The game ends it while the button is down, so that the press that skipped the way to a place, still held, ends the induction there at once ([The induction](#the-induction)).
+- After the pilot's execution in mission 25's second part, REPLAY MISSION FROM BRIEFING replays the first part's briefing. The game flies the second part again at once, and leaves the replay asked for, so that the next mission's briefing follows it without the rooms, from the game's variables as the second part began ([The restart screen](#the-restart-screen)).
 
 **Improvements**, each marked so in the code:
 
@@ -42,6 +44,38 @@ As START GAME starts a campaign (`interface_run` returns 1), `WinMain` (`0x004AA
 | The ITAC | | The pod, from the ITAC |
 
 The movies play over the screen (`play_bink_movie_no_clear_resourced`). Any other mission's rooms start at the carrier's first view. Through the briefing room's door, `vr_rooms` lets its movie, sounds and pictures go and runs the briefing, the front end's screen 7 (`interface_run`; [Briefing](briefing.md)), and returns 1 for `WinMain` to fly the mission; where the briefing ends otherwise (`0x0051D4B4`), the rooms go on, or return 0 for the main menu, as the in-game options' MAIN MENU has them do.
+
+## After a mission
+
+As a mission of the campaign ends (`0x004AA4B2` on), `WinMain` plays the landing or a chapter's end where the pilot came back ([Movies](movies.md#around-a-mission)), then goes on by how the mission ended (`winmain.afterMission`):
+
+| Ending | What follows |
+|---|---|
+| The player's ship destroyed, or the ejected pilot killed | The funeral, then the restart screen |
+| The ejected pilot captured | The pilot in the enemy's hands, then the restart screen |
+| LEAVE MISSION | The restart screen |
+| Sent home for destroying a friend | The pilot's execution, then the restart screen |
+| Picked up by a nanny ship, the third time in the campaign (`pickup_count`, `0x00475A60`) | The pilot's transfer, then the main menu |
+| Mission 25's first part, unless the script rated it a total failure | Its second part, after the hangar's movie |
+| Any other | The mission's end recorded (`mission_end_record`) |
+
+The record (`mission_end_record`, `0x00475A90`) keeps the script's rating as the last (`last_success`), promotes the pilot by the kills, keeps them for the next mission's start, raises the campaign's tier after missions 11, 19 and 21, and moves the campaign on to the next mission: 11 and 12 to 14, 16 to 18, 21 to 23, and the others to the next number, the campaign having no missions 12, 13, 17 and 22. A mission that awards a medal plays its ceremony for a success with its bonus, unless a nanny ship picked the pilot up ([Movies](movies.md#how-a-mission-ended)). The debriefing follows in the ITAC (`itac`, `0x0043EFC0`), then the rooms open where the ITAC leaves the pilot (`0x00506C80`, and the Yamato's `0x0050AEC8`), and the briefing room leads to the next mission. After mission 28, the last, the story ends (`ending_movies_play`, `0x004AC620`) and the campaign goes back to mission 1 and the main menu. A script that rates the mission a total failure ends the pilot's career instead: the transfer, or the shuttle, then the main menu.
+
+The game's variables go on from each mission to the next as its script left them. `WinMain` saves the game as each attempt begins (`restart_save`, `0x00475D20`), and a replay loads it again (`restart_load`, `0x00475D30`), so that a replay starts from the variables the mission began with ([Script VM](script-vm.md)).
+
+### The restart screen
+
+`restart_screen` (`0x0043EB80`), in `interface\restart.spr`, offers three choices, each a button 30 by 21 with its label beside it in orange (`0xFE851A`), in the small font:
+
+| Choice | Button | Label | What follows |
+|---|---|---|---|
+| REPLAY MISSION FROM BRIEFING (`0x32D`) | (162, 371) | (199, 374) | The game as the mission began, and its briefing, the front end's screen 7 (`0x004AA2E0` on) |
+| REPLAY MISSION FROM LAUNCH (`0x32E`) | (162, 398) | (199, 402) | The game as the mission began, and the mission again at once, without the hangar's movie (`0x004AA3D9`) |
+| MAIN MENU (`0x32F`) | (162, 425) | (199, 428) | The main menu |
+
+Its drawing (`restart_screen_draw`, `0x0043ED90`) takes the palette of shape 17 at the screen's brightness, clears the screen, and draws shape 18 at (1, 1), shape 19 over the button under the pointer at (164, 373), (164, 400) or (164, 427), the labels, and the pointer. The screen fades in from dark by a thirtieth of full each game tick (`palette_ramp_brightness`, `0x004DC64C`). A press on a button chooses at once, and Escape chooses MAIN MENU; the pointer is put away and the screen fades out, the button chosen still lit, ending as it is dark or as Escape is pressed again.
+
+Mission 25's second part replays as its first part, but after the pilot's execution, which leaves REPLAY MISSION FROM LAUNCH the second (`0x004AA750`). The pause menu's RESTART, too, starts mission 25 again from its first part (`0x004AA47A`).
 
 ## The views
 

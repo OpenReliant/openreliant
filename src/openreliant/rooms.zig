@@ -4,7 +4,8 @@
 //! each in a loop of its own, as the game runs them, each frame drawn over an empty scene and put
 //! on the window, with the window's messages read as the message pump reads them, and the movies
 //! between them played by `Movies`. `campaign` is what `WinMain` does as START GAME starts a
-//! campaign.
+//! campaign, `goOn` as the campaign goes on after a mission, and `restart` and `replayBriefing` as
+//! it turns back to a mission the pilot did not come through.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -21,6 +22,7 @@ const briefing = interface.briefing;
 const canvas = interface.canvas;
 const induction = interface.induction;
 const in_game_options = interface.in_game_options;
+const restart_screen = interface.restart;
 const rooms = interface.rooms;
 const Movies = @import("movies.zig").Movies;
 const drawn = @import("presenter.zig").drawn;
@@ -59,9 +61,10 @@ pub const Driver = struct {
     /// The ship types' and the missile types' stats, which the loadout shows their figures of.
     stats: *const game.create.Stats,
     missile_stats: *const game.missiles.Table,
-    /// The campaign's tier and the pilot's rank, which set the ships the loadout offers.
-    tier: u2,
-    rank: game.gameflow.Rank,
+    /// The campaign's tier and the pilot's rank, which set the ships the loadout offers, as they
+    /// stand each time the loadout runs.
+    tier: *const u2,
+    rank: *const game.gameflow.Rank,
     /// The front end's pointer, which the rooms' follows, and the timer's count it last moved on
     /// at.
     pointer: canvas.Pointer = .{},
@@ -73,9 +76,7 @@ pub const Driver = struct {
     /// (`winmain.CampaignStart`), then the rooms. Null where the game quits meanwhile.
     pub fn campaign(driver: *Driver, mission: u16) !?End {
         const start: game.winmain.CampaignStart = .of(mission);
-        driver.startTimer();
-        driver.sound.fadeMusic(game.winmain.music_fade_step, driver.clock.game_ticks);
-        driver.movies.disc.open(start.disc);
+        driver.turnTo(start.disc);
         var view = rooms.Carrier.of(mission).start();
         if (start.induction) {
             _ = try driver.movies.play(game.winmain.new_intro, .cleared_from_disc) orelse return null;
@@ -87,12 +88,55 @@ pub const Driver = struct {
         return driver.visit(mission, view);
     }
 
+    /// What `WinMain` does as the campaign goes on after a mission, before mission `mission`: the
+    /// rooms from where the ITAC leaves the pilot (`0x004AA372`, `0x004AA381`), whose briefing
+    /// room leads to the mission. Null where the game quits meanwhile.
+    pub fn goOn(driver: *Driver, mission: u16) !?End {
+        const carrier = rooms.Carrier.of(mission);
+        driver.turnTo(carrier.disc());
+        return driver.visit(mission, carrier.after(.itac));
+    }
+
+    /// REPLAY MISSION FROM BRIEFING's way back to mission `mission` (`0x004AA2E0` on): the
+    /// mission's briefing. Null where the game quits meanwhile.
+    pub fn replayBriefing(driver: *Driver, mission: u16) !?End {
+        driver.turnTo(rooms.Carrier.of(mission).disc());
+        return driver.brief(mission, false);
+    }
+
+    /// The restart screen (`restart_screen`) in its loop, with its shapes: what it chose, or null
+    /// where the game quits meanwhile.
+    pub fn restart(driver: *Driver) !?restart_screen.Choice {
+        const gpa = driver.movies.gpa;
+        var screen: Restarting = .{ .shapes = .read(gpa, driver.resources, restart_screen.shapes_name) };
+        defer if (screen.shapes) |*shapes| shapes.deinit(gpa);
+        driver.startTimer();
+        var last = driver.clock.game_ticks;
+        while (true) {
+            if (!try driver.pump()) return null;
+            const ticks = driver.clock.game_ticks;
+            const elapsed = ticks -% last;
+            last = ticks;
+            if (screen.state.frame(driver.pointer, &driver.movies.devices.keyboard, elapsed)) |choice| return choice;
+            try driver.present(.{ .restart = &screen });
+        }
+    }
+
     /// The developers' briefing of mission `mission`, from its loadout on
     /// (`briefing_from_loadout`), after which the front end starts again. False where the game
     /// quits meanwhile.
     pub fn loadoutBriefing(driver: *Driver, mission: u16) !bool {
         driver.startTimer();
         return try driver.brief(mission, true) != null;
+    }
+
+    /// What `WinMain` does as it turns to the rooms or a briefing (`0x004AA1BA` on): the music
+    /// fading out by 15 (`music_fade_out`) and the archive of disc `number` opened
+    /// (`cd_hog_open`), the timer counted from now.
+    fn turnTo(driver: *Driver, number: interface.disc.Number) void {
+        driver.startTimer();
+        driver.sound.fadeMusic(game.winmain.music_fade_step, driver.clock.game_ticks);
+        driver.movies.disc.open(number);
     }
 
     /// The timer counted from now, as the loops step by it.
@@ -110,8 +154,8 @@ pub const Driver = struct {
             .stats = driver.stats,
             .missile_stats = driver.missile_stats,
             .mission = mission,
-            .tier = driver.tier,
-            .rank = driver.rank,
+            .tier = driver.tier.*,
+            .rank = driver.rank.*,
             .saved = driver.saved,
             .hardware = driver.movies.presenter.screen.* != .software,
         };
@@ -340,6 +384,17 @@ const Menu = struct {
     }
 };
 
+/// The restart screen, and its shapes.
+const Restarting = struct {
+    state: restart_screen.Restart = .{},
+    shapes: ?canvas.Shapes = null,
+
+    fn draw(screen: *Restarting, target: canvas.Canvas, pointer: canvas.Pointer) canvas.Error!void {
+        const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
+        try screen.state.draw(target, shapes, pointer);
+    }
+};
+
 /// A frame's overlay: one of the screens, on the front end's screen fitted to the window.
 const Shown = struct {
     driver: *Driver,
@@ -351,6 +406,7 @@ const Shown = struct {
         rooms: *rooms.Rooms,
         options: *Menu,
         briefing: *briefing.Briefing,
+        restart: *Restarting,
     };
 
     fn overlay(shown: *Shown) srcore.Overlay {
@@ -366,6 +422,7 @@ const Shown = struct {
             .rooms => |inside| try drawn(inside.draw(target, driver.clock.game_ticks)),
             .options => |menu| try drawn(menu.draw(target, &driver.front.dialog, driver.pointer)),
             .briefing => |meeting| try drawn(meeting.draw(target)),
+            .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
         }
     }
 };

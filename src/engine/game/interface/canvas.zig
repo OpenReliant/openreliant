@@ -55,6 +55,9 @@ pub const Canvas = struct {
     /// OpenReliant's version, which a screen writes in the window's corner (`drawVersion`); null
     /// for none.
     version: ?[]const u8 = null,
+    /// The palette's brightness the screen's shapes and text are drawn at
+    /// (`palette_ramp_brightness`): 1, but as a screen fades in or out.
+    brightness: f32 = 1,
 
     /// How many of the window's pixels one of the front end's spans.
     pub fn scale(canvas: Canvas) f32 {
@@ -77,7 +80,7 @@ pub const Canvas = struct {
 
     /// Draws `index` of `art` with its anchor at `at` (`VFX_shape_draw`).
     pub fn shape(canvas: Canvas, art: *hud.Art, index: usize, at: [2]i32) Error!void {
-        try hud.drawShape(art, canvas.gpa, canvas.target, index, canvas.point(at), .{ 1, 1, 1, 1 }, canvas.scale());
+        try hud.drawShape(art, canvas.gpa, canvas.target, index, canvas.point(at), hud.atBrightness(.{ 1, 1, 1 }, canvas.brightness), canvas.scale());
     }
 
     /// Draws `picture` over the whole of the front end's screen, whatever its size.
@@ -137,7 +140,7 @@ pub const Canvas = struct {
 
     /// Writes `words` in `font` at `at`, ramped through `colour` (`hud_text`).
     pub fn text(canvas: Canvas, font: *hud.Opened, at: [2]i32, words: []const u8, colour: [3]f32, alignment: hud.Align) Allocator.Error!void {
-        _ = try hud.drawText(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, 1), alignment, canvas.scale());
+        _ = try hud.drawText(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale());
     }
 
     /// `hud_text_wrapped` (`0x00480FD0`): `words` broken into lines at most `lines.width` of the
@@ -275,6 +278,9 @@ pub const Shapes = struct {
         gpa.free(shapes.bytes);
     }
 };
+
+/// A line of a screen's text: the game's string, and where it stands.
+pub const Label = struct { string: u32, at: [2]i32 };
 
 /// A rectangle of the front end's screen, as its tables keep one: its corner and its size.
 pub const Rect = extern struct {

@@ -1531,6 +1531,10 @@ pub const Start = struct {
     /// The cockpit it loads for the player's ship, and the display it readies for it.
     cockpit: *cockpit.Cockpit,
     display: *hud.State,
+    /// The campaign the mission is flown in, whose variables the attempt starts from
+    /// (`gameflow.Campaign.attempt`); none for a mission flown outside one, which starts from a new
+    /// campaign's (`gameflow.restartPoint`).
+    campaign: ?*const gameflow.Campaign = null,
 };
 
 /// Where the mission's start makes the camera's marker (`0x00588390`), which the flyby and target
@@ -1554,7 +1558,7 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///    the options' setting picks, and the ejected pilot always picked up, and puts back the pilot's
 ///    kills (`winmain.startMission`);
 /// 2. binds the mission, whose records the orders then reach (`gameobj.World.mission`), gives its
-///    script the game's variables an attempt starts with (`gameflow.restartPoint`) and the number
+///    script the game's variables an attempt starts with (`Start.campaign`) and the number
 ///    of players, which WinMain sets before the mission loads (`script_set_players`,
 ///    `0x004124D0`, `vm.Variables.players`), and starts the script (`mission.Loaded.start`),
 ///    whose start part makes the mission's first ships and gives them their orders, a launch
@@ -1630,7 +1634,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     all.mission_number = number;
     const loaded = try Loaded.create(gpa, image, world.random);
     errdefer loaded.destroy();
-    loaded.script.variables = gameflow.restartPoint();
+    loaded.script.variables = if (start.campaign) |campaign| campaign.attempt() else gameflow.restartPoint();
     loaded.script.variables.players = all.players;
     orders.world.mission = &loaded.bound;
     orders.world.events = &loaded.events;

@@ -3,7 +3,8 @@
 //! menu (`main_menu`) with its dialog (`dialog`), and the pilot roster (`pilot_roster`), on the
 //! front end's screen (`canvas`); opening the discs' archives (`disc`); and the Reliant's rooms
 //! (`rooms`), with a new pilot's induction (`induction`), the in-game options
-//! (`in_game_options`) and the briefing (`briefing`).
+//! (`in_game_options`) and the briefing (`briefing`); and the restart screen after a mission lost
+//! (`restart`).
 
 const std = @import("std");
 
@@ -15,6 +16,7 @@ pub const in_game_options = @import("interface/in_game_options.zig");
 pub const induction = @import("interface/induction.zig");
 pub const main_menu = @import("interface/main_menu.zig");
 pub const pilot_roster = @import("interface/pilot_roster.zig");
+pub const restart = @import("interface/restart.zig");
 pub const rooms = @import("interface/rooms.zig");
 
 const input = @import("../input.zig");
@@ -236,5 +238,6 @@ test {
     _ = induction;
     _ = main_menu;
     _ = pilot_roster;
+    _ = restart;
     _ = rooms;
 }

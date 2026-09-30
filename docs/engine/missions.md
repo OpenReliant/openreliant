@@ -177,8 +177,9 @@ band's middle, to 0.25 at least. The band reaches the next ring or place of chev
 `game.main.startMission` ([`main.zig`](../../src/engine/game/main.zig)) is the loading and
 `mission_start`; `mission.Loaded` ([`mission.zig`](../../src/engine/game/mission.zig)) holds a
 mission bound for play with its script, which `main.missionFrame` runs each frame, the script's
-clock ticking once for each 100 of the game's ticks the pause does not hold. Every attempt starts
-from a new campaign's variables (`gameflow.restartPoint`). The commands are in
+clock ticking once for each 100 of the game's ticks the pause does not hold. Each attempt starts
+from the campaign's variables (`gameflow.Campaign`), or outside a campaign from a new campaign's
+(`gameflow.restartPoint`). The commands are in
 [`executor.zig`](../../src/engine/game/executor.zig). The player flies the ship the loadout chose
 ([Loadout](loadout.md#what-it-leaves-the-mission)), or the one `--ship` or the test keys choose, and
 where none is chosen the player's record's kind stands.

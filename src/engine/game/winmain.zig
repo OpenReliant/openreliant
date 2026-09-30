@@ -4,9 +4,9 @@
 //! file's code that its assertions place; by what they do they are this file's.
 //!
 //! Ported so far: what the pump does as the game's window goes inactive and active again, as far
-//! as the sound and the pause go; the characters typed, which the window's procedure queues; and
-//! the list of call signs the settings keep. `openreliant`'s own frame loop stands in for the
-//! rest.
+//! as the sound and the pause go; the characters typed, which the window's procedure queues; the
+//! list of call signs the settings keep; and what follows a mission of the campaign
+//! (`afterMission`). `openreliant`'s own frame loop stands in for the rest.
 
 const std = @import("std");
 
@@ -24,6 +24,9 @@ const profile = @import("../profile.zig");
 const Profile = profile.Profile;
 const Sound = hog_snd.Sound;
 const Ending = main.Ending;
+const gameflow = @import("gameflow.zig");
+const vm = @import("../vm.zig");
+const landing = @import("xtrabits/landing.zig");
 
 /// The window's activation, as the pump follows it.
 pub const App = struct {
@@ -281,6 +284,134 @@ test landsAfter {
     try std.testing.expect(!landsAfter(.left, 1, false));
     try std.testing.expect(!landsAfter(.playing, 25, false));
     try std.testing.expect(landsAfter(.playing, 25, true));
+}
+
+/// What follows a mission of the campaign, as `WinMain` goes on after it (`afterMission`).
+pub const AfterMission = union(enum) {
+    /// The pilot came through: the next mission and the campaign's tier (`gameflow.endMission`),
+    /// the medal's ceremony first where there is one; then the ITAC's debriefing, and the rooms from
+    /// where the ITAC leaves the pilot, whose briefing room leads to the next mission
+    /// (`0x004AA6A0`, `0x004AA372`).
+    goes_on: gameflow.Record,
+    /// Mission 25's first part leads straight into its second, flown after the hangar's movie
+    /// (`0x004AA597`).
+    second_part,
+    /// A movie of how the mission ended, where there is one, then the restart screen
+    /// (`interface.restart`, `0x004AA557`, `0x004AA756`).
+    restart: ?[]const u8,
+    /// A movie of the pilot's career ending, then the front end's main menu.
+    career_over: []const u8,
+    /// The campaign's last mission won: the story's end, then the main menu with the campaign back
+    /// at its first mission (`0x004AA6F7`).
+    story_end,
+};
+
+/// What `WinMain` does as mission `mission` of the campaign ends (`0x004AA4B2` to `0x004AA756`),
+/// after the landing where it plays one (`landsAfter`), `variables` being the game's as the mission
+/// left them and `second_part` whether it was mission 25's second part, which it sets for what
+/// follows:
+///
+/// - Destroyed, the pilot's funeral; captured, the pilot in the enemy's hands; and each then the
+///   restart screen, as leaving the mission from the pause menu turns to it at once (`lost`).
+/// - Picked up past the pickups allowed (`gameflow.Campaign.pickedUp`), the pilot's transfer, which
+///   ends the career.
+/// - Sent home for destroying a friend, the pilot's execution, then the restart screen.
+/// - Mission 25's first part leads into its second, unless the script rated it a total failure.
+/// - Otherwise the mission's end is recorded (`gameflow.endMission`): the campaign goes on, the
+///   story ends after the last mission, and a total failure ends the career in the transfer or
+///   the shuttle the story gives (`careerOver`).
+pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variables: *vm.Variables, mission: u16, second_part: *bool, tier: u2) AfterMission {
+    const carrier = rooms.Carrier.of(mission);
+    switch (player.ending) {
+        .destroyed => return lost(second_part, funeral.get(carrier)),
+        .captured => return lost(second_part, capture),
+        .left => return lost(second_part, null),
+        .rescued => if (campaign.pickedUp()) return .{ .career_over = transfer.get(carrier) },
+        .friendly_fire => return .{ .restart = execution.get(carrier) },
+        else => {},
+    }
+    if (mission == second_part_mission and !second_part.* and variables.mission_success != .total_failure) {
+        second_part.* = true;
+        return .second_part;
+    }
+    second_part.* = false;
+    const record = gameflow.endMission(player, variables, mission, tier) orelse return .{ .career_over = careerOver(mission, variables) };
+    if (record.next == gameflow.story_end) return .story_end;
+    return .{ .goes_on = record };
+}
+
+/// The restart screen after `movie`, where there is one, for a pilot lost or a mission left: mission
+/// 25 is then replayed from its first part (`0x004AA750`).
+fn lost(second_part: *bool, movie: ?[]const u8) AfterMission {
+    second_part.* = false;
+    return .{ .restart = movie };
+}
+
+/// The movies of how a mission ended, each carrier's (`0x00509694` to `0x005096F8`): the funeral,
+/// the pilot's execution and the pilot's transfer. The pilot in the enemy's hands and the shuttle at
+/// Fort Bear have one each (`0x0050968C`, `0x00509664`).
+const funeral = std.EnumArray(rooms.Carrier, []const u8).init(.{ .reliant = "new_funeral.bik", .yamato = "new_funeral2.bik" });
+const execution = std.EnumArray(rooms.Carrier, []const u8).init(.{ .reliant = "new_rel_exec.bik", .yamato = "new_y_exec.bik" });
+const transfer = std.EnumArray(rooms.Carrier, []const u8).init(.{ .reliant = "new_reliant_transfer.bik", .yamato = "new_a y trans.bik" });
+const capture = "int.bik";
+const shuttle = "fortbearshuttle_.bik";
+
+/// The movie of a total failure (`0x004AA5AD` on): after missions 25 and 27, the shuttle at Fort
+/// Bear where the landing would be none (`landing.lastWithoutLanding`); on the Reliant, the pilot's
+/// transfer off it where the game's variable 32 is set, and otherwise, as on the Yamato, off the
+/// Yamato.
+fn careerOver(mission: u16, variables: *vm.Variables) []const u8 {
+    if (landing.lastWithoutLanding(mission, variables)) return shuttle;
+    const on_reliant = rooms.Carrier.of(mission) == .reliant and variables.slot(landing.mission8_on_reliant).* != 0;
+    return transfer.get(if (on_reliant) .reliant else .yamato);
+}
+
+test afterMission {
+    var campaign: gameflow.Campaign = .begin();
+    var variables = campaign.attempt();
+    var player: input.Player = .{};
+    var second_part = true;
+    // Destroyed, the funeral, the Yamato's after mission 18, and mission 25 replayed from its first
+    // part; captured, the capture; and left, the restart screen at once.
+    player.ending = .destroyed;
+    try std.testing.expectEqualStrings(funeral.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0).restart.?);
+    try std.testing.expect(!second_part);
+    try std.testing.expectEqualStrings(funeral.get(.yamato), afterMission(&campaign, &player, &variables, 20, &second_part, 0).restart.?);
+    player.ending = .captured;
+    try std.testing.expectEqualStrings(capture, afterMission(&campaign, &player, &variables, 5, &second_part, 0).restart.?);
+    player.ending = .left;
+    try std.testing.expectEqual(null, afterMission(&campaign, &player, &variables, 5, &second_part, 0).restart);
+    // Sent home, the execution, mission 25's part as it was.
+    player.ending = .friendly_fire;
+    second_part = true;
+    try std.testing.expectEqualStrings(execution.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0).restart.?);
+    try std.testing.expect(second_part);
+    // Won, mission 25's first part leads into its second, and the others go on.
+    player.ending = .playing;
+    variables.mission_success = .success;
+    second_part = false;
+    try std.testing.expectEqual(.second_part, std.meta.activeTag(afterMission(&campaign, &player, &variables, 25, &second_part, 0)));
+    try std.testing.expect(second_part);
+    try std.testing.expectEqual(26, afterMission(&campaign, &player, &variables, 25, &second_part, 0).goes_on.next);
+    try std.testing.expect(!second_part);
+    try std.testing.expectEqual(6, afterMission(&campaign, &player, &variables, 5, &second_part, 0).goes_on.next);
+    try std.testing.expectEqual(.story_end, std.meta.activeTag(afterMission(&campaign, &player, &variables, gameflow.last_mission, &second_part, 0)));
+    // A total failure ends the career: off the Reliant where variable 32 is set, as a new
+    // campaign has it; off the Yamato after mission 18; and after mission 25, where the landing
+    // would be none, the shuttle.
+    variables.mission_success = .total_failure;
+    try std.testing.expectEqualStrings(transfer.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0).career_over);
+    player.ending = .playing;
+    try std.testing.expectEqualStrings(transfer.get(.yamato), afterMission(&campaign, &player, &variables, 20, &second_part, 0).career_over);
+    player.ending = .playing;
+    variables.slot(landing.last_missions_land).* = 0;
+    try std.testing.expectEqualStrings(shuttle, afterMission(&campaign, &player, &variables, 25, &second_part, 0).career_over);
+    // Picked up twice, the campaign goes on; the third time, the pilot is transferred.
+    variables.mission_success = .success;
+    player.ending = .rescued;
+    try std.testing.expectEqual(.goes_on, std.meta.activeTag(afterMission(&campaign, &player, &variables, 5, &second_part, 0)));
+    try std.testing.expectEqual(.goes_on, std.meta.activeTag(afterMission(&campaign, &player, &variables, 5, &second_part, 0)));
+    try std.testing.expectEqualStrings(transfer.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0).career_over);
 }
 
 /// What `WinMain` does before each single-player mission (`0x004A99CC`): puts back the pilot's
