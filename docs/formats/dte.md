@@ -314,10 +314,12 @@ The rest are a fixed size, with up to three operand bytes. Three carry their own
   the bytes after it, and steps over them. They are a NUL-terminated string, usually the name of a
   `.wav` of speech or a `.ut` cutscene: `mission81` opens by cueing `new_sim02.wav`.
 - **`0x51` random_branch** takes a count, a big-endian default target, then that many four-byte
-  arms of big-endian target, threshold and one unidentified byte: `3 + 4n` bytes. It rolls a number
-  below 100 and takes the first arm whose threshold exceeds it, or the default. Its targets count
-  from the opcode. This is the one encoding read by hand: its length depends on a byte the analysis
-  cannot follow.
+  arms of big-endian target, threshold and a byte the engine never reads: `3 + 4n` bytes. It rolls a
+  number below 100 once (`vm_random_branch`, `0x0045C910`) and takes the first arm whose threshold
+  exceeds it, or the default, which an arm targeting `0xFFFF` also takes. Its targets count from the
+  opcode. This is the one encoding read by hand: its length depends on a byte the analysis cannot
+  follow. The shipped missions' four have two arms each but room for ten: the first arm's code
+  starts 44 bytes past the opcode, and the eight slots between hold stale bytes nothing reaches.
 
 The analysis also records whether any path leaves the instruction pointer just past the operands.
 None does for `0x42` jump, so it never falls through. The transfers are classified by name, and a
@@ -386,7 +388,11 @@ arguments up there (`vm_argument_component`, `0x0045D950`) to learn which compon
 - **`spawn_part`** moves the part's arguments from this thread's stack to a new thread's, starts the
   new thread on the part, and carries on. At most 32 threads run at once.
 - **`call_part_b`** and **`spawn_part_b`** do the same through the second part table, which serves
-  section 18; **`command_b`** uses a second command table, which is empty.
+  section 18. **`command_b`** reads the second command table (`0x004F3AD0`), whose one command,
+  `Test_AI_Function`, has no implementation, so the table counts none; the game calls a stub in its
+  place that gives 1 (`0x0045D800`), so `command_b` pops the command's arguments and gives 1.
+  Sections 17, 18 and 25 are empty in every shipped mission, and no script uses these three
+  opcodes.
 - **`branch_if_zero`** and **`jump`** take a **big-endian** displacement, counted from its own
   position. The handler loads it as an unsigned 16-bit number and adds it to the instruction
   pointer (`vm_jump`, `0x0045C2B0`), so a branch only goes forward. The script's other two-byte
@@ -490,8 +496,9 @@ sltool dte script <mission>    # every routine, with its constants
 `sltool dte script` follows control flow from each block's entry rather than sweeping, because
 `jump`, `return` and `random_branch` never fall through, and shows the value behind each
 `push_constant`, the name of each command, and the part, ship or global an index names. **Every
-routine disassembles completely**, except the regions listed under [Open](#open). The first block of
-`mission1`, which its first trigger runs, calls one of two parts depending on a global:
+routine disassembles completely**, but for the unused arm slots of the four `random_branch`es. The
+first block of `mission1`, which its first trigger runs, calls one of two parts depending on a
+global:
 
 ```
 0 to 36: trigger 0
@@ -515,9 +522,6 @@ block.
 
 ### Open
 
-- Four 32-byte regions that nothing reaches, two in one part of `mission15` and one each in
-  `mission18` and `mission23`. Each follows a random_branch whose two arms split 50/50 and target
-  the bytes after the gap: `51 02 00 43` in three cases, `51 02 00 45` in the fourth.
 - What the qualifier byte selects.
 
 ## Writing
@@ -555,7 +559,7 @@ counts itself and the NUL after the text.
 
 Assembled again from its disassembly, every routine of the 44 missions comes back the same, but for
 the padding after its last instruction, which in the shipped missions holds stale bytes, and the
-three routines with bytes nothing reaches (see [Open](#open)).
+three routines that hold unused arm slots of a `random_branch`.
 
 ## Prior art
 

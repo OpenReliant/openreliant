@@ -14,7 +14,7 @@ address	kind	name	type	comment
 0045d460	function	for_each_ship	void __fastcall (void *entity, uint *args, VmShipCommand *callback)	Runs a command's callback for each ship of a ship, flight group or squad record
 004f6350	data	vm_dispatch_table	VmHandler *[86]	Opcode handler table
 004f0f50	data	command_catalogue	VmFunction[96]	Executor commands, then an entry with no implementation
-004f3ad0	data	command_catalogue_b	VmFunction	Second command catalogue; empty
+004f3ad0	data	command_catalogue_b	VmFunction	Second command catalogue: one command, Test_AI_Function (Test AI Function, two parameters), with no implementation, so catalogue_count counts none, then the empty record that ends it. command_b reads a record by its number whatever the count
 004f6348	data	vm_threads	VmThread *	
 00537590	data	vm_thread_pool	VmThread[32]	
 004f6344	data	vm_timers	VmTimer *	
@@ -124,7 +124,7 @@ address	kind	name	type	comment
 00452c40	function	destroyed_group_begin		Starts the verdict at true
 00452c50	function	destroyed_group_add		Clears the verdict for a member, or its named component, not yet destroyed
 00452ca0	function	destroyed_group_verdict		Returns the verdict
-0045d800	function	cloak_group_add		Cloaked's and Decloaked's handler for each member: does nothing, so every event goes ahead
+0045d800	function	cloak_group_add		Cloaked's and Decloaked's handler for each member: does nothing, so every event goes ahead. The one stub serves command_b too (0x0045BF20), which calls it in place of a command's implementation and so gives 1
 0045d810	function	trigger_check_operand	bool __fastcall (EventValue *value, uint *operand, uint event_value, Trigger *trigger)	Checks one trigger operand against the event's value: any ship passes the players' ships, a number of the proximity conditions is an upper bound, else the two must be equal
 004530a0	function	trigger_operand_value	uint __fastcall (uint kinds, uint operand)	What an operand stands for: a number as it is, 0xFFFFFFFE for any of the players' ships, else the record a reference names
 004530d0	function	reference_resolve	void * __fastcall (uint reference)	The record a reference names

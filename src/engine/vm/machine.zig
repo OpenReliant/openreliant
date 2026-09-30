@@ -163,6 +163,19 @@ const free_timer = std.mem.bytesToValue(vm.Timer, &([_]u8{0xFF} ** @sizeOf(vm.Ti
 /// The value `push_percent` scales by (`0x004DC730`), a hundredth as a float rounds it.
 const percent: f32 = 0.01;
 
+/// The records of the second command catalogue that `command_b` reads (`command_catalogue_b`,
+/// `0x004F3AD0`): its one command, Test_AI_Function, which has no implementation, and the empty
+/// record that ends the catalogue. The catalogue counts no commands (`catalogue_count`), but
+/// `command_b` reads a record by its number whatever the count: past these two, the game's strings.
+const catalogue_b = [_]struct { name: []const u8, arguments: u8 }{
+    .{ .name = "Test_AI_Function", .arguments = 2 },
+    .{ .name = "", .arguments = 0 },
+};
+
+/// What `command_b` gives: the game calls a stub in place of the command's implementation, which
+/// returns 1 (`0x0045D800`).
+const stub_result = 1;
+
 pub const Machine = struct {
     gpa: Allocator,
     /// The mission it runs: its image, which the script reads its records from and writes its
@@ -746,8 +759,7 @@ pub const Machine = struct {
                 };
             },
             .command => return machine.command(index, try machine.operand(thread)),
-            // The second catalogue is empty.
-            .command_b => return error.OutOfRange,
+            .command_b => return machine.commandB(index, try machine.operand(thread)),
             .call_part => try machine.callPart(index, machine.partEntry(.a, try machine.operand(thread))),
             .call_part_b => try machine.callPart(index, machine.partEntry(.b, try machine.operand(thread))),
             .spawn_part => try machine.spawnPart(index, machine.partEntry(.a, try machine.operand(thread)), true),
@@ -830,9 +842,26 @@ pub const Machine = struct {
         const count: u8 = @intCast(executor.commands.table[number].params.len);
         try thread.drop(count);
         machine._unknown_00537401 = 0xFF;
-        machine.command_flag = machine.commandFlags(number) & 1 == 0;
+        machine.command_flag = machine.commandFlags(.command_flags, number) & 1 == 0;
         const call: Call = .{ .machine = machine, .thread = index, .args = thread.record.stack[thread.top..][0..count] };
         const result = if (executor.implementation(number)) |implementation| implementation(call) else machine.unported(number);
+        return machine.commandResult(index, result);
+    }
+
+    /// `vm_command_b` (`0x0045BF20`): `command` through the second catalogue (`catalogue_b`), with
+    /// its flags in section 25. For the command, the game calls a stub that gives 1
+    /// (`stub_result`), so it pops its arguments and gives 1.
+    fn commandB(machine: *Machine, index: u8, number: u8) Fault!u32 {
+        if (number >= catalogue_b.len) return error.OutOfRange;
+        try machine.threads[index].drop(catalogue_b[number].arguments);
+        machine.command_flag = machine.commandFlags(.command_flags_b, number) & 1 == 0;
+        return machine.commandResult(index, stub_result);
+    }
+
+    /// A command's result, which takes the first argument's place, above the stack, and is the
+    /// thread's result.
+    fn commandResult(machine: *Machine, index: u8, result: u32) Fault!u32 {
+        const thread = &machine.threads[index];
         if (thread.top >= thread.record.stack.len) return error.StackOverflow;
         thread.record.stack[thread.top] = result;
         thread.record.result = result;
@@ -850,9 +879,10 @@ pub const Machine = struct {
         return 1;
     }
 
-    /// Command `number`'s flags in section 24; none past the section.
-    fn commandFlags(machine: *const Machine, number: u8) u16 {
-        const flags = machine.mission.file.records(u16, .command_flags) catch return 0;
+    /// Command `number`'s flags in `section`, 24 for the catalogue and 25 for the second; none past
+    /// the section.
+    fn commandFlags(machine: *const Machine, section: dte.Section, number: u8) u16 {
+        const flags = machine.mission.file.records(u16, section) catch return 0;
         return if (number < flags.len) flags[number] else 0;
     }
 
@@ -1421,6 +1451,40 @@ test "a command not ported yet does nothing and lets the thread run on" {
     defer fixture.deinit();
     try fixture.machine.start();
     try std.testing.expectEqual(1, fixture.global(0));
+    try std.testing.expectEqual(0, fixture.machine.thread_count);
+}
+
+test "command_b pops its arguments and gives 1" {
+    const gpa = std.testing.allocator;
+    const code = try assembled(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            // Test_AI_Function's two arguments, and none for the record that ends the catalogue.
+            try r.op(.push_byte, &.{7});
+            try r.op(.push_byte, &.{8});
+            try r.op(.command_b, &.{0});
+            try r.op(.select_global, &.{0});
+            try r.op(.push_result, &.{});
+            try r.op(.assign, &.{});
+            try r.op(.command_b, &.{1});
+            try r.op(.select_global, &.{1});
+            try r.op(.push_result, &.{});
+            try r.op(.add_assign, &.{});
+            // Past the catalogue, the thread ends.
+            try r.op(.command_b, &.{2});
+            try r.op(.select_global, &.{1});
+            try r.op(.push_byte, &.{5});
+            try r.op(.assign, &.{});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(code);
+    var fixture: testing.Fixture = undefined;
+    try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{ 0, 0 } });
+    defer fixture.deinit();
+    try fixture.machine.start();
+    try std.testing.expectEqual(1, fixture.global(0));
+    try std.testing.expectEqual(1, fixture.global(1));
+    try std.testing.expectEqual(0, fixture.machine.threads[0].top);
     try std.testing.expectEqual(0, fixture.machine.thread_count);
 }
 

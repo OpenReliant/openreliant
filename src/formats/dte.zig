@@ -951,10 +951,12 @@ pub const Opcode = enum(u8) {
     spawn_part = 0x4D,
     /// `spawn_part` through the second part table.
     spawn_part_b = 0x4E,
-    /// `command` through the second command table, which is empty.
+    /// `command` through the second command table, whose one command has no implementation: it
+    /// pops the command's arguments and gives 1.
     command_b = 0x4F,
     /// Branches to one of a table of arms, chosen by a roll below 100 against each arm's
-    /// threshold. A count byte, a big-endian default target, then that many four-byte arms.
+    /// threshold. A count byte, a big-endian default target, then that many four-byte arms, with
+    /// room for ten in the shipped missions.
     random_branch = 0x51,
     nop = 0x53,
     _,
