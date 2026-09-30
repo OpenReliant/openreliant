@@ -817,13 +817,14 @@ const version_brightness = 0.5;
 
 /// `text_entry_step` (`0x004812F0`), with the line set up for it each frame (`text_entry_set_up`,
 /// `0x004812B0`): takes the next character typed (`winmain.Typed.pop`) into the line, the first
-/// `length` of `buffer`. A backspace takes the last character off; any other goes on the end where
-/// the line stays narrower than `max_width` pixels in `font`, and is taken back off otherwise.
+/// `length` of `buffer`. A backspace takes the last character off; any other goes on the end, and
+/// where the line is measured (`measure`), is taken back off unless the line stays narrower than its
+/// width in its font. Unmeasured, the line takes characters while it has room (`0x004813BA`).
 ///
-/// **Fix:** the game goes on adding characters while the line stays narrow enough, whatever room
-/// its buffer has, which a line of narrow characters overruns; OpenReliant stops at the buffer's
-/// end.
-pub fn typeInto(typed: *winmain.Typed, buffer: []u8, length: *usize, font: *const Opened, max_width: u32) void {
+/// **Fix:** the game goes on adding characters to a measured line while it stays narrow enough,
+/// whatever room its buffer has, which a line of narrow characters overruns; OpenReliant stops at
+/// the buffer's end.
+pub fn typeInto(typed: *winmain.Typed, buffer: []u8, length: *usize, measure: ?Fit) void {
     const character = typed.pop() orelse return;
     if (character == backspace) {
         length.* -|= 1;
@@ -831,8 +832,13 @@ pub fn typeInto(typed: *winmain.Typed, buffer: []u8, length: *usize, font: *cons
     }
     if (length.* >= buffer.len) return;
     buffer[length.*] = character;
-    if (font.textWidth(buffer[0 .. length.* + 1]) < max_width) length.* += 1;
+    const fits = if (measure) |measured| measured.font.textWidth(buffer[0 .. length.* + 1]) < measured.max_width else true;
+    if (fits) length.* += 1;
 }
+
+/// How `typeInto` measures a line: the font it is written in, and the width it keeps narrower
+/// than, in pixels.
+pub const Fit = struct { font: *const Opened, max_width: u32 };
 
 /// The character a backspace types, which `typeInto` takes as one taken off.
 pub const backspace = 8;
@@ -1319,18 +1325,24 @@ test typeInto {
     var typed: winmain.Typed = .{};
     var buffer: [4]u8 = undefined;
     var length: usize = 0;
+    const measure: Fit = .{ .font = &opened, .max_width = width * 3 };
     // Code 1 is the fixture's one glyph: two of them stay narrower than three, a third doesn't.
     for (0..3) |_| typed.push(1);
-    for (0..3) |_| typeInto(&typed, &buffer, &length, &opened, width * 3);
+    for (0..3) |_| typeInto(&typed, &buffer, &length, measure);
     try std.testing.expectEqual(2, length);
     // A backspace takes the last off, and with nothing typed nothing changes.
     typed.push(backspace);
-    typeInto(&typed, &buffer, &length, &opened, width * 3);
-    typeInto(&typed, &buffer, &length, &opened, width * 3);
+    typeInto(&typed, &buffer, &length, measure);
+    typeInto(&typed, &buffer, &length, measure);
     try std.testing.expectEqual(1, length);
     // Code 2 has no glyph and no width, and the line stops at the buffer's end.
     for (0..6) |_| typed.push(2);
-    for (0..6) |_| typeInto(&typed, &buffer, &length, &opened, width * 3);
+    for (0..6) |_| typeInto(&typed, &buffer, &length, measure);
+    try std.testing.expectEqual(buffer.len, length);
+    // Unmeasured, a line takes characters while it has room.
+    length = 0;
+    for (0..6) |_| typed.push(1);
+    for (0..6) |_| typeInto(&typed, &buffer, &length, null);
     try std.testing.expectEqual(buffer.len, length);
 }
 

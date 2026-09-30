@@ -1922,14 +1922,14 @@ address	kind	name	type	comment
 0040f600	function	land_reliant_cutaway	void __fastcall (int slot)	The cutaway of the Reliant's landing: view 0x23 or 0x26, the carrier moved to (0, -1000000, 0), the middle of its first launch tube, and the ship stood 20000 ahead of it and 5000 above
 0040f940	function	land_reliant_update	void __fastcall (int slot)	The update of Land's Reliant style: the cutaway, the approach over the first launch tube, the sink into it through its upper door, and the mission's end 270 ticks after the ship is down
 00453620	function	bridge_line	char * __fastcall (char *suffix)	The carrier's bridge officer's line ending in suffix, written into 0x00529CC0: yam where player_carrier is a Yamato or explodes, rel otherwise; the officer's film path, pilots\Yam_Brdge_Off.fm8 or pilots\Rel_Brdge_Off.fm8, into radio_report_film
-004536d0	function	pilot_line	char * __fastcall (char *line)	The pilot's own line, mp and line for a man or fp and line for a woman (pilot_female), written into 0x00529CC0
+004536d0	function	pilot_line	char * __fastcall (char *line)	The pilot's own line, mp and line for a male pilot or fp and line for a female one (pilot_female), written into 0x00529CC0
 00453a50	function	pick_line	char * __fastcall (char **lines, int size)	One of lines at random by rand, size being their table's bytes
 004566c0	function	pilot_says	void __fastcall (char *speech)	Plays the pilot's own line at once through the speech sample, without the radio's window, ending the line playing; nothing in a multiplayer mission
 00456050	function	radio_reports_frame	void (void)	Each frame after radio_frame: each report whose game tick has passed goes, and one of kind 1 that is neither nobody's, object 0x3E9's nor an exploding ship's is queued (radio_say, mode 1, flags 5), named by a ship's pilot record or the report's string
 004560d0	function	radio_report_free	int (void)	The first free report of radio_reports, or -1
 00529d48	data	radio_reports	RadioReport[5]	The reports waiting their time to go to the radio's queue: PERMISSION TO LAND's answer, and those of the wingmen's keys and the radio's menu
 005297f0	data	radio_report_film	char[50]	The film path bridge_line leaves for the report it makes
-00562f16	data	pilot_female	short	Whether the pilot is a woman, which the pilot roster sets: the pilot's own lines are fp's rather than mp's
+00562f16	data	pilot_female	short	Whether the pilot is female, which the pilot roster sets: the pilot's own lines are fp's rather than mp's
 00453de0	function	permission_to_land	void __fastcall (int remote)	PERMISSION TO LAND, from frame_controls and the radio's menu with remote 0: heard once in 500 ticks, the pilot asks (pilot_says hud_012) and in 300 ticks the training's instructor clears the player's ship where landing_cleared is set, or the carrier's bridge answers (bridge_line), clearing it by a line mission_success picks or refusing it; a cleared ship lands on its carrier. With remote set, the bridge clears the ship whatever the script says (Land)
 0052987c	data	permission_heard_from	int	The game_ticks from which PERMISSION TO LAND is heard again
 0052a418	data	landing_cleared	int	Script variable 10: whether PERMISSION TO LAND clears the player's ship to land
@@ -2147,7 +2147,7 @@ address	kind	name	type	comment
 005d6200	data	loading_line	char[128]	The line the loading screens write under their picture (loading_line_draw)
 005955a0	data	text_ramps	byte[16][16]	Sixteen remap tables of a font's coverage levels, which fonts_open builds: level c of table k to 255 less 63 k c / 225 of the renderer's palette under a hardware renderer, the greys at the top of palette.tga, and to 31 k c / 225 under the software one; level 0 clear (0xFF). The loading screens draw through the last
 00595074	data	hud_font_large	void **	optfnt.fnt, opened by fonts_open: the loading screens' line
-00430490	function	pilot_roster	int (void)	Front end screen 12 over interface\main2sin.tga with interface\frntend2.spr (interface_shapes): the pilot a man or a woman (pilot_female), the call sign (call_sign) typed in pilot_roster_draw or picked from callsign_list, Enter or a click off the call sign ending its typing (the profile's name, profile_save, callsign_add); START GAME asks the difficulty (difficulty_dialog), then campaign_new and returns 1; LOAD GAME leads to screen 13, MAIN MENU and Escape to screen 0, and QUIT asks (interface_confirm) and ends the game (game_exit)
+00430490	function	pilot_roster	int (void)	Front end screen 12 over interface\main2sin.tga with interface\frntend2.spr (interface_shapes): the pilot male or female (pilot_female), the call sign (call_sign) typed in pilot_roster_draw or picked from callsign_list, Enter or a click off the call sign ending its typing (the profile's name, profile_save, callsign_add); START GAME asks the difficulty (difficulty_dialog), then campaign_new and returns 1; LOAD GAME leads to screen 13, MAIN MENU and Escape to screen 0, and QUIT asks (interface_confirm) and ends the game (game_exit)
 00430c60	function	pilot_roster_draw	void (void)	The pilot roster's render hook: the pilot chosen lit, the labels in blue, the call sign's frame (interface_box) and the call sign, white while it is typed a character a frame (text_entry_step) with its cursor, the buttons with the one under the pointer lit and its label white, the list of call signs where it is open, SET GAME DIFFICULTY or QUIT's dialog where either is up, and the pointer
 00430300	function	difficulty_dialog	int (void)	SET GAME DIFFICULTY over the pilot roster (difficulty_dialog_open): sets difficulty to 1, then its arrows step it down and up, going round, until START (1), or BACK or Escape (0); a press acts once, until the button comes up
 00430b80	function	callsign_add	void (void)	Puts call_sign in callsign_list unless it is there: in the first empty place, or, the list full, in the last, the rest moved up a place and the first let go; then callsigns_save
@@ -2171,9 +2171,9 @@ address	kind	name	type	comment
 0052016c	data	roster_cursor_shown	int	Whether the call sign's cursor shows while it is typed, which turns on or off once 25 ticks have passed (roster_cursor_blink)
 00520164	data	roster_cursor_blink	int	The timer's tick after which the call sign's cursor next turns on or off
 005202b8	data	roster_list_open	short	Whether the pilot roster's list of call signs is open
-00520130	data	roster_item	int	The pilot roster's item under the pointer, -1 for none: the man, the woman, LOAD GAME, START GAME, MAIN MENU, the call sign, QUIT, the list's arrow
+00520130	data	roster_item	int	The pilot roster's item under the pointer, -1 for none: the male pilot, the female pilot, LOAD GAME, START GAME, MAIN MENU, the call sign, QUIT, the list's arrow
 0051d534	data	difficulty_dialog_open	int	Set while SET GAME DIFFICULTY is up over the pilot roster (difficulty_dialog)
-0051da54	data	roster_female	int	Whether the roster's pilot is a woman, which the pilot roster and the saved games set with pilot_female; nothing reads it
+0051da54	data	roster_female	int	Whether the roster's pilot is female, which the pilot roster and the saved games set with pilot_female; nothing reads it
 00562cf8	data	profile	byte[208]	The pilot's profile, profile.bin: the pilot's name at 0x00562CFC, 32 bytes, then the rank, the medals and the tallies from 0x00562D1C
 00500acc	data	profile_name	char[12]	profile.bin, the pilot's profile in the game's folder
 004ab6a0	function	splash_to_menu_play	int (void)	As WinMain opens the front end, unless launched by a lobby: plays splash to mm.bik (play_bink_movie_no_clear), the splash turning into the main menu, then puts 0x005D54E8 in bink_copy_extra; returns 1
@@ -2506,3 +2506,65 @@ address	kind	name	type	comment
 00562e2c	data	mission_ratings	short[28]	How each mission of the campaign was rated as it ended, by mission_number less 1; mission_end_record keeps it, but for the last
 00562e9c	data	mission_pickups	short[28]	The campaign's pickups by a nanny ship where one picked the ejected pilot up in each mission, by mission_number less 1 (pickup_count)
 00562ed6	data	mission_promotions	short[28]	The rank the pilot was promoted to at each mission's end, by mission_number less 1, 0 for none (mission_end_record)
+004759d0	function	iff_write_dword	void __fastcall (uint value, short big_endian)	Writes a dword to save_file as it lies in memory, or byte-swapped where big_endian is set (byte_swap32); game_save's writer
+00475930	function	iff_write_chunk	void __fastcall (uint id, void *data, uint size)	Writes an IFF chunk to save_file: the id, a zero, the data, then goes back to set the size big-endian, and writes a zero byte after an odd end, which the size leaves out (iff_write_byte)
+00475a20	function	iff_write_byte	void __fastcall (char value)	Writes one byte to save_file
+00475d70	function	restart_choice_keep	void (void)	Keeps the loadout's saved ship and racks (0x00562F18) in restart_ship_kept and restart_racks_kept, as restart_load loads the restart point
+00475da0	function	restart_choice_put_back	void (void)	Puts back the 42 bytes restart_choice_keep kept at 0x00562F18, so that a replay keeps the ship and missiles chosen last
+004908b0	function	iff_reader_init	void __fastcall (void *reader)	Makes an IFF reader, a class of 0xE0 bytes over the binary file class: its file closed and its form stack empty
+004908e0	function	iff_reader_destroy	void __fastcall (void *reader)	iff_close, then bin_file_destroy
+00490930	function	iff_open	int __thiscall (void *reader, char *path)	Opens path to read as IFF (bin_file_open, mode rb, not fatal), the reader at the file's own chunks; 1 where it opened
+00490980	function	iff_close	void __fastcall (void *reader)	Frees the reader's form stack and closes its file
+004909d0	function	iff_find_form	int __thiscall (void *reader, uint type, int from_current)	Finds the first FORM of type among the chunks of the form entered, or of the file, from the first (iff_rewind) or past the current one, and enters it (iff_enter_form); 1 where found, else the reader put back as it was and 0
+00490af0	function	iff_rewind	void __fastcall (void *reader)	The reader to the first chunk of the form entered, or of the file, and its header read
+00490b20	function	iff_enter_form	void __fastcall (void *reader)	Enters the FORM the reader stands on: pushes its start, size, type and end on the form stack, its chunks then those searched
+00490bb0	function	iff_read_header	void __fastcall (void *reader)	Reads the chunk header at the reader's position where it is short of the end of the form entered or of the file: the id, the size big-endian, and a FORM's type
+00490c40	function	iff_find_chunk	int __thiscall (void *reader, uint id, int from_current)	Finds the first chunk with id that is not a FORM among the chunks of the form entered, forms passed over whole; found, the reader stands at its data with its size from the file, and 1; else put back as it was and 0
+00490d50	function	iff_read_string	int __thiscall (void *reader, char *dest)	Reads bytes up to and with a terminator into dest, without a limit; returns the count
+00490d80	function	byte_swap32	uint __fastcall (uint value)	Reverses a dword's four bytes
+0045e640	function	bin_file_read_be	uint __thiscall (void *file, byte *bytes, int count)	A big-endian number of count bytes from memory, for an archive's directory
+0045e670	function	bin_file_fatal	void __cdecl (char *format, ...)	Prints Fatal Error and the message, then exits the game
+0045e6b0	function	bin_file_open	int __thiscall (void *file, char *name, int mode, int fatal)	Keeps the name, 79 characters at most, upper-cased, and the mode, then opens the file (bin_file_open_now); fatal where a file is open already
+0045e710	function	bin_file_open_now	int __thiscall (void *file, int fatal)	Opens the file by its mode and measures it; not opened, a fatal error where fatal is set. In archive mode it finds the name in a big-endian directory instead
+0045e890	function	bin_file_close	void __fastcall (void *file)	Closes the file where it is open; a failure is fatal
+0045e8d0	function	bin_file_read	uint __thiscall (void *file, void *dest, uint count)	Reads count bytes at the position, cut at the file's end; fatal where the file is not open or is written only, count is 0, or the read comes short. Returns the count read
+0045e9f0	function	bin_file_read_byte	char __fastcall (void *file)	bin_file_read of one byte
+0045ea10	function	bin_file_seek	void __thiscall (void *file, int position)	Seeks to the base plus position unless the file stands there; a failure is fatal
+0045ea80	function	bin_file_destroy	void __fastcall (void *file)	bin_file_close
+004315c0	function	saved_games_scan	void (void)	Lists the saved games of the call sign: for slots 0 to 99, stopping at the first file missing, each one's name (saved_games_names), pilot (saved_games_pilots) and mission (saved_games_missions); the count in saved_games_count
+00431580	function	saved_games_scroll_down	void (void)	The saved games' list one row on, where more than 10 are found and the last is not shown
+004315a0	function	saved_games_scroll_up	void (void)	The saved games' list one row back, where more than 10 are found and the first is not shown
+00432480	function	saved_games_draw	void (void)	The saved games screen's render hook: the title, the list with the selected row lit, the selected save's details and date, the arrows and buttons, the name typed with OK while saving, then the dialogs and the pointer
+0042a870	function	save_error_dialog	void (void)	The box saying the game could not be saved (string 0x561), in its own loop until OK (save_error_open)
+0042a950	function	save_error_draw	void (void)	Draws save_error_dialog's box: quit.spr's box and OK, the message and OK's label
+0049cd70	function	update_pilots	void (void)	Sets the wing's fifth and sixth pilots (alpha_pilots) by mission_number, then gives each of the wing's places that has none the first free pilot of pilot_pool; asserts where the pool has run out. Runs at each mission's start and end
+004b1580	function	deaths_add	void __fastcall (int slot, int count, bool report)	Counts the local player's deaths in a multiplayer mission (mp_deaths)
+00441460	function	killboard_kills	void (void)	Adds up the ITAC killboard pilots' kills mission by mission, rand seeded with killboard_seed
+00500a20	data	save_chunks	uint[15]	The records a saved game keeps after its name, in order, each an id, an address and a size: MISS, VERS, VARS, PILO, ALPH
+00562f44	data	save_version	int	The saved games' version, VERS, which game_save sets to 1; nothing checks it
+00562f70	data	save_file	FILE *	The file game_save writes, opened wb
+00562f48	data	restart_racks_kept	short[20]	The loadout's saved racks, kept as restart_load loads the restart point (restart_choice_keep)
+00562f74	data	restart_ship_kept	short	The loadout's saved ship, kept as restart_load loads the restart point (restart_choice_keep)
+00562df8	data	mp_deaths	int	The local player's deaths in a multiplayer mission (deaths_add), in the saves' MISS; 0 in single player
+00562f10	data	killboard_seed	int	The seed killboard_kills gives rand, in the saves' MISS; the co-op host's new game sets it
+005047d0	data	pilot_pool	byte[260]	The pilots that replace the wingmen who die: a pilot by the pilot stats' number, a status (0 dead, 1 in the wing, 2 free) and a byte nothing uses. update_pilots takes the first free; a save keeps the first record alone (PILO)
+0058a958	data	alpha_pilots	short[6]	The pilots of the player's wing, Alpha 1 to 6: -1 for the player, then the five wingmen's (ALPH); campaign_pilots_reset starts them, update_pilots keeps them, and mission_start gives the wing's ships them
+004e5c78	data	mission_display_numbers	short[32]	The number the player sees for each mission, by mission_number: the campaign's missions counted in the order they are flown, 1 to 24; the autosave's name and the saved games' list show it
+0051d5f4	data	saved_games_saving	int	Whether the saved games screen saves (1) or loads (0)
+005201a4	data	saved_games_no_fade	int	Set where the saved games screen plays no movie as it is left for the roster, as the co-op host screen has it
+005202d8	data	saved_games_no_exit	byte	Set where the saved games screen hides MAIN MENU and QUIT, as the multiplayer debriefing has it
+0051d9f8	data	saved_games_selected	int	The saved game selected on the saved games screen, or -1
+0051da1c	data	saved_games_first	int	The saved game the list's first row shows
+00520248	data	saved_games_count	int	How many saved games saved_games_scan found
+0051d61c	data	saved_games_missions	int[100]	Each saved game's mission_number, as saved_games_scan read it
+0051dbac	data	saved_games_pilots	char[100][48]	Each saved game's call sign, as saved_games_scan read it
+0051ee70	data	saved_games_names	char[100][48]	Each saved game's name, as saved_games_scan read it
+0051da5c	data	saved_games_name	char[20]	The name typed on the saved games screen, 18 characters at most
+0051da10	data	saved_games_rank	int	The selected saved game's rank, which its details show
+00520258	data	saved_games_tier	int	The selected saved game's tier, which its details show as the level
+0052013c	data	saved_games_medals	int[6]	The selected saved game's medals; nothing draws them
+0051d7b4	data	saved_games_time_text	char *	The selected saved game's date as the details show it, or null
+0051dad0	data	saved_games_time	char[100]	The date text: the hour and minute, two spaces, and the date
+0051db38	data	saved_games_arrow	int	The saved games' list arrow under the pointer
+005202c4	data	saved_games_ok_under	short	Whether the pointer is over the saved games screen's OK while a name is typed
+0052026c	data	save_error_open	int	Set while save_error_dialog's box is up

@@ -1027,8 +1027,8 @@ pub const Player = struct {
     /// `0x0052987C`: the timer's tick from which PERMISSION TO LAND is heard again
     /// (`videoreports.permissionToLand`).
     permission_heard_from: u32 = 0,
-    /// Whether the pilot is a woman (`0x00562F16`), whose own lines the radio plays in a woman's
-    /// voice (`videoreports.playerSays`). The pilot roster sets it (`pilot_roster.Pilot`), for
+    /// Whether the pilot is female (`0x00562F16`), whose own lines the radio then plays in the
+    /// female voice (`videoreports.playerSays`). The pilot roster sets it (`pilot_roster.Pilot`), for
     /// each mission the front end starts.
     female: bool = false,
     /// The cutaway the player's launch from the Reliant shows.

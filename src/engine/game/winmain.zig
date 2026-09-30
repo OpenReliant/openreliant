@@ -335,7 +335,7 @@ pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variabl
         return .second_part;
     }
     second_part.* = false;
-    const record = gameflow.endMission(player, variables, mission, tier, campaign.record(mission)) orelse return .{ .career_over = careerOver(mission, variables) };
+    const record = gameflow.endMission(player, variables, mission, tier, campaign) orelse return .{ .career_over = careerOver(mission, variables) };
     if (record.next == gameflow.story_end) return .story_end;
     return .{ .goes_on = record };
 }

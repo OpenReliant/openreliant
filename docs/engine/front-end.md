@@ -6,13 +6,13 @@ The screens the game shows outside a mission: the main menu, the pilots, the set
 
 ## In OpenReliant
 
-[`genilib/interf.zig`](../../src/engine/genilib/interf.zig) runs the screens (`interface_run`) and opens what they draw with. [`game/interface/`](../../src/engine/game/interface) holds the screens: the front end's screen and pointer in [`canvas.zig`](../../src/engine/game/interface/canvas.zig), the main menu in [`main_menu.zig`](../../src/engine/game/interface/main_menu.zig), the pilot roster in [`pilot_roster.zig`](../../src/engine/game/interface/pilot_roster.zig), and the YES or NO dialog in [`dialog.zig`](../../src/engine/game/interface/dialog.zig). The picture behind the screens is `matmanager.Background` ([`game/matmanager.zig`](../../src/engine/game/matmanager.zig)). The loading screens are in [`game/xtrabits/loading.zig`](../../src/engine/game/xtrabits/loading.zig).
+[`genilib/interf.zig`](../../src/engine/genilib/interf.zig) runs the screens (`interface_run`) and opens what they draw with. [`game/interface/`](../../src/engine/game/interface) holds the screens: the front end's screen and pointer in [`canvas.zig`](../../src/engine/game/interface/canvas.zig), the main menu in [`main_menu.zig`](../../src/engine/game/interface/main_menu.zig), the pilot roster in [`pilot_roster.zig`](../../src/engine/game/interface/pilot_roster.zig), the saved games in [`saved_games.zig`](../../src/engine/game/interface/saved_games.zig), and the YES or NO dialog and the box saying a save failed in [`dialog.zig`](../../src/engine/game/interface/dialog.zig). The picture behind the screens is `matmanager.Background` ([`game/matmanager.zig`](../../src/engine/game/matmanager.zig)). The loading screens are in [`game/xtrabits/loading.zig`](../../src/engine/game/xtrabits/loading.zig).
 
-OpenReliant opens in the front end unless `--mission` names a mission. The pilot roster's START GAME leads into the Reliant's rooms ([The Reliant's rooms](rooms.md)). A mission the front end or the rooms start flies at once, after the music's fade and the hangar's movie but for INSTANT ACTION's. As a mission of the campaign ends, OpenReliant plays the landing or a chapter's end ([Movies](movies.md#around-a-mission)), and the campaign goes on to the next mission's briefing, or turns to the restart screen ([After a mission](rooms.md#after-a-mission)). INSTANT ACTION's goes back to the main menu.
+OpenReliant opens in the front end unless `--mission` names a mission. The pilot roster's START GAME, or a game its LOAD GAME loads, leads into the Reliant's rooms ([The Reliant's rooms](rooms.md)). A mission the front end or the rooms start flies at once, after the music's fade and the hangar's movie but for INSTANT ACTION's. As a mission of the campaign ends, OpenReliant plays the landing or a chapter's end ([Movies](movies.md#around-a-mission)), and the campaign goes on to the next mission's briefing, or turns to the restart screen ([After a mission](rooms.md#after-a-mission)). INSTANT ACTION's goes back to the main menu.
 
-Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, the pilot roster with SET GAME DIFFICULTY, the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
+Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER ([#404](https://github.com/vdmkenny/openreliant/issues/404)) and GAME OPTIONS ([#400](https://github.com/vdmkenny/openreliant/issues/400)) stay on the main menu, and LOAD GAME ([#75](https://github.com/vdmkenny/openreliant/issues/75)) on the pilot roster.
+- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER ([#404](https://github.com/vdmkenny/openreliant/issues/404)) and GAME OPTIONS ([#400](https://github.com/vdmkenny/openreliant/issues/400)) stay on the main menu.
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -35,7 +35,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, th
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
 | 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/vdmkenny/openreliant/issues/404) |
 | 12, the pilot roster | `0x00430490` | [#397](https://github.com/vdmkenny/openreliant/issues/397) |
-| 13, the saved games | `0x00431730` | [#75](https://github.com/vdmkenny/openreliant/issues/75) |
+| 13, the saved games ([The saved games](#the-saved-games)) | `saved_games` (`0x00431730`) | |
 | 14, the multiplayer connection | `0x00432FC0` | [#404](https://github.com/vdmkenny/openreliant/issues/404) |
 | 17 and 18, a session's loadout | `0x0044B950`, with `0x0051D54C` set or clear | [#404](https://github.com/vdmkenny/openreliant/issues/404) |
 
@@ -150,14 +150,14 @@ The shapes take the palette of their block's set: the pointer's the first, the l
 
 ## The pilot roster
 
-`pilot_roster` (`0x00430490`), screen 12, which SINGLE PLAYER leads to, shows `interface\main2sin.tga` behind itself and reads `interface\frntend2.spr` (`interface_shapes`), which it frees as it leaves. Its render hook is `pilot_roster_draw` (`0x00430C60`). As it starts, the pilot is a man (`pilot_female`, `0x00562F16`), the call sign is typed afresh (`0x0052019C`) with the characters typed so far let go (`typed_keys_clear`, `0x004AADA0`), its cursor shows (`0x0052016C`), and the list of call signs is closed (`0x005202B8`). While the roster is up (`0x005D6088`), the window's procedure refuses the characters a file's name can't hold, `\/:*?<>|"` (`0x0050954C`), since the call sign names the pilot's saved games.
+`pilot_roster` (`0x00430490`), screen 12, which SINGLE PLAYER leads to, shows `interface\main2sin.tga` behind itself and reads `interface\frntend2.spr` (`interface_shapes`), which it frees as it leaves. Its render hook is `pilot_roster_draw` (`0x00430C60`). As it starts, the pilot is male (`pilot_female`, `0x00562F16`), the call sign is typed afresh (`0x0052019C`) with the characters typed so far let go (`typed_keys_clear`, `0x004AADA0`), its cursor shows (`0x0052016C`), and the list of call signs is closed (`0x005202B8`). While the roster is up (`0x005D6088`), the window's procedure refuses the characters a file's name can't hold, `\/:*?<>|"` (`0x0050954C`), since the call sign names the pilot's saved games.
 
 Its items, in the order `interface_hit` tries them:
 
 | Item | Corner | Size | Does |
 |---|---|---|---|
-| The man | (62, 145) | 111 by 228 | The pilot a man |
-| The woman | (239, 151) | 102 by 275 | The pilot a woman |
+| The male pilot | (62, 145) | 111 by 228 | The pilot male |
+| The female pilot | (239, 151) | 102 by 275 | The pilot female |
 | LOAD GAME | (397, 295) | 133 by 20 | Screen 13, the saved games, after a transition movie |
 | START GAME | (397, 249) | 145 by 20 | SET GAME DIFFICULTY |
 | MAIN MENU | (292, 441) | 25 by 16 | Screen 0, after a transition movie |
@@ -189,7 +189,7 @@ START GAME puts up `difficulty_dialog` (`0x00430300`) over the roster (`0x0051D5
 
 `pilot_roster_draw`, the render hook:
 
-1. The pilot chosen, lit: shape 19 at (34, 114) for the man, shape 20 at (200, 114) for the woman.
+1. The pilot chosen, lit: shape 19 at (34, 114) for the male pilot, shape 20 at (200, 114) for the female.
 2. In blue, in `interface_font_large`: SELECT PILOT (string `0xB7`) centred on (217, 105), CALL SIGN (Alpha 2) (`0xB8`) from (396, 168), START GAME (`0xB9`) from (433, 247) and LOAD GAME (`0xBA`) from (433, 298); in `interface_font_small`, MAIN MENU (`0xBB`) to the left of (288, 440) and QUIT (`0xBC`) from (353, 440).
 3. The call sign's frame, `interface_box` at (398, 192), 140 by 28, and the call sign from (402, 197) in `interface_font_small`, white while it is typed and blue once it isn't. While it is typed and its cursor shows, `_` follows it in blue, at 200 down.
 4. The list's arrow, shape 24 at (543, 200), or shape 25 under the pointer; the large buttons, shape 22 at (398, 249) and (398, 300), and the small ones, shape 26 at (292, 441) and (324, 441).
@@ -200,19 +200,53 @@ START GAME puts up `difficulty_dialog` (`0x00430300`) over the roster (`0x0051D5
 
 ### What the missions take
 
-The pilot's sex and the difficulty are what the missions take from the roster: the radio says the pilot's own lines in a woman's voice for a woman ([Radio](radio.md)), and the difficulty scales damage ([Destruction](objects.md#destruction)). Both start at 0 as the game starts: a man, and easy until SET GAME DIFFICULTY sets it, so INSTANT ACTION, chosen first, is flown on easy. The call sign names the pilot's profile and saved games.
+The pilot's sex and the difficulty are what the missions take from the roster: the radio says the pilot's own lines in the female voice for a female pilot ([Radio](radio.md)), and the difficulty scales damage ([Destruction](objects.md#destruction)). Both start at 0 as the game starts: male, and easy until SET GAME DIFFICULTY sets it, so INSTANT ACTION, chosen first, is flown on easy. The call sign names the pilot's profile and saved games.
 
 OpenReliant keeps what the roster sets in `Interface.pilot`, which flies every mission the front end starts. `--difficulty` sets the difficulty the game starts with. As the game starts, `campaign_new` reads the pilot's profile, `profile.bin` (the 0xD0 bytes at `0x00562CF8`), whose name becomes the call sign (`profile_load`, `0x00475390`); where the game's folder has none, it makes one under the name PLAYER and leaves the call sign empty.
 
 Not ported:
 
 - Writing the pilot's profile, as the roster changes the call sign, as a campaign starts without one, and as each mission starts ([#74](https://github.com/vdmkenny/openreliant/issues/74), [#301](https://github.com/vdmkenny/openreliant/issues/301)). OpenReliant reads the call sign from the profile the game's folder has.
-- The saved games LOAD GAME leads to ([#75](https://github.com/vdmkenny/openreliant/issues/75)), and the transition movies ([#401](https://github.com/vdmkenny/openreliant/issues/401)).
 
 **Fixes:**
 
 - The game copies a call sign into the list, the profile's name or the call sign whatever its length; OpenReliant keeps what fits.
 - The call sign's typing goes on adding characters while the call sign stays narrow enough, whatever room its buffer has, which a call sign of narrow characters overruns; OpenReliant stops at the buffer's end.
+
+## The saved games
+
+`saved_games` (`0x00431730`), screen 13, lists the pilot's saved games, to load one or to save the game as one ([Saved games](../formats/save.md)); `saved_games_saving` (`0x0051D5F4`) picks which. The pilot roster's LOAD GAME opens it to load, after `interface\sinfade.bik`, over `interface\sinfade.tga`; the in-game options' SAVE and LOAD open it over the Reliant's rooms and the briefing's loadout, after `interface\igofade.bik`, over `interface\igoptfad.tga` ([The in-game options](rooms.md#the-in-game-options)). It reads `interface\frntend2.spr` and draws with `saved_games_draw` (`0x00432480`). As it starts, loading, the autosave is selected where there is one; the typed name is empty, and the saves are found (`saved_games_scan`, `0x004315C0`): the call sign's, from slot 0 on, up to the first file missing, so that without the autosave nothing is listed.
+
+| What | Where | Drawn |
+|---|---|---|
+| Title | Centred on (320, 86) | LOAD GAME FOR (`0x55F`) or SAVE GAME FOR (`0x560`), then the call sign in capitals, large, blue |
+| The list's frame, the details' frame | (45, 126), 530 by 175; (45, 321), 550 by 38 | `interface_box` |
+| Heads | y 107 | GAMES (`0xE3`) from x 45, PILOT (`0xE4`) centred on 320, MISSION (`0xE5`) to the left of 575, small, blue |
+| Rows, ten at most | 17 apart from (49, 126), each 400 by 17 | The save's name from x 49, its pilot centred on 320, the mission's number as the player sees it to the left of 570; blue, the selected row white over a bar of pure blue from x 49 to 572, y 2 to 19 below the row's |
+| Details | GAME INFORMATION (`0xE6`) at (49, 302); `Callsign:` at (49, 322), `Rank:` at (49, 339), `Level:` at (290, 322), `Time:` at (290, 339) | The selected save's pilot at (113, 322), rank at (113, 339) and level at (350, 322), from its `MISS`; the date its file was written at (350, 339), as `%02d:%02d` then two spaces and `ddd',' MMM dd yyyy` |
+| Arrows | (579, 250) and (579, 268), each 26 by 16 | Shape 28, lit 29 up or 25 down under the pointer |
+| Buttons | BACK (292, 421), LOAD GAME or NEW SAVE GAME (324, 421), MAIN MENU (292, 441), QUIT (324, 441), each 25 by 16 | Shape 26, lit 27 under the pointer, the label small, blue, white under the pointer |
+| The name, saving | Its frame (45, 380), 358 by 20; the name at (49, 378), large, white, with `_` after it; OK at (562, 384), 32 by 20 | Shape 22, lit 23; SAVE GAME (`0x54D`) to the left of (562, 384) |
+
+Each pass, Escape leaves, and Down and Up scroll the list a row while held, where it holds more than ten. A press acts on the pass it is first seen, but for the arrows', which scroll a row each pass it is held. Rows never light under the pointer; a click on a row selects it, and a second click on the row selected loads it, or, saving, starts typing its name. Saving, the autosave can't be selected. LOAD GAME loads the row selected, and waits for the button to come up. The name typed takes 18 characters at most, and its cursor turns every 25 ticks; Enter, or a click on OK, saves the game under it in the slot selected. NEW SAVE GAME, once a visit, saves the game in the slot after the last found, named Empty Save Game (`0x179`), selects it with the game's rank and level, loads it back, and starts typing its name from Empty Save Game; leaving without saving removes it. A save that fails puts up a box saying so (`save_error_dialog`, `0x0042A870`), which OK closes. There is no DELETE, and no question before a save goes over another.
+
+| Way out | Movie | Then |
+|---|---|---|
+| BACK, Escape | Loading: `interface\sinfade2.bik` to the roster, `igofade2.bik` to the in-game options. Saving: `igofade2.bik` to the in-game options | Back where it was opened from |
+| MAIN MENU | Loading: `interface\sifad2mm.bik` from the roster, `igof2mm.bik` from the in-game options | The main menu |
+| QUIT | | Do you really want to Quit?; YES quits |
+| A game loaded | | From the roster, `WinMain` takes it as START GAME's, into the rooms before its mission (`0x004AA1AB` on); from the in-game options, the rooms start again from the first view of its mission's carrier |
+| The game saved | | Back to the rooms |
+
+**Fixes:**
+
+- Where NEW SAVE GAME fails, leaving removes nothing; the game removes whatever file its buffer names. With every slot taken, NEW SAVE GAME does nothing, where the game saves over the restart point's file.
+- A name taken from a save is kept to the typed name's room, and a listed name to the list's, where the game copies either whatever its length. A rank or a level past the game's names is taken as the highest.
+- A file with no `SAVE` form is listed with no name, pilot or mission, where the game shows what its buffers held.
+
+**Improvement:** the day's and the month's names in the date are English, where the game takes the system's language's.
+
+Not ported: what the multiplayer games do with the saved games: the co-op host's load, the multiplayer debriefing's save, and a load sent to the other players ([#475](https://github.com/vdmkenny/openreliant/issues/475)).
 
 ## Backgrounds
 

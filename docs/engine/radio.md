@@ -127,7 +127,7 @@ empties them.
 
 `0x004566C0` plays the pilot's own line at once through the speech sample, without the window,
 ending the line playing, unless the mission is a multiplayer one: `0x004536D0` names it `mp` and the
-line for a man, `fp` for a woman (`0x00562F16`, which the [pilot roster](front-end.md#the-pilot-roster) sets).
+line for a male pilot, `fp` for a female one (`0x00562F16`, which the [pilot roster](front-end.md#the-pilot-roster) sets).
 
 PERMISSION TO LAND ([Landing](orders.md#landing)) has the pilot ask, `hud_012`, and queues the
 answer 300 ticks on:

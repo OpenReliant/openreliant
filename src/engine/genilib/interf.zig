@@ -24,6 +24,7 @@ const interface = game.interface;
 const canvas = interface.canvas;
 const main_menu = interface.main_menu;
 const pilot_roster = interface.pilot_roster;
+const saved_games = interface.saved_games;
 const movie = game.xtrabits.movie;
 const device = @import("../surrender/srd3d/device.zig");
 
@@ -71,6 +72,9 @@ pub const Outcome = union(enum) {
     /// (`briefing_from_loadout`): screen 7, whose -1 takes `WinMain` back to the front end's main
     /// menu.
     briefing: u16,
+    /// LOAD GAME's saved game loaded: 1, which `WinMain` takes as START GAME's, into the Reliant's
+    /// rooms before the loaded campaign's mission (`0x004AA1AB` on).
+    loaded,
 };
 
 /// The mission a new campaign starts with (`campaign_new` sets `mission_number` to 1).
@@ -169,6 +173,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
     return switch (screen) {
         .main_menu => .{ .shapes = main_menu.shapes_name, .background = main_menu.background_name },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
+        .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
         else => null,
     };
 }
@@ -190,6 +195,9 @@ pub const Context = struct {
     resources: ?*Resources = null,
     /// `starlancer.ini`, which keeps the roster's call signs; none leaves them unsaved.
     settings: ?*profile.File = null,
+    /// The saved games LOAD GAME lists, and the game it loads into; none leaves LOAD GAME on the
+    /// roster.
+    saves: ?saved_games.Saves = null,
 };
 
 /// The front end's state, which the game keeps in globals.
@@ -200,8 +208,11 @@ pub const Interface = struct {
     pointer: canvas.Pointer = .{},
     main_menu: main_menu.MainMenu = .{},
     pilot_roster: pilot_roster.Roster = .{},
+    saved_games: saved_games.SavedGames = .{},
     /// The pilot the roster sets, which every mission the front end starts is flown by.
     pilot: pilot_roster.Pilot = .{},
+    /// The timer's ticks since the front end began, which the saved games' cursor blinks by.
+    ticks: u32 = 0,
     /// The pointer's button, which the shown screen takes only once the press held as it was
     /// entered has come up.
     press: input.FreshPress = .{},
@@ -222,6 +233,7 @@ pub const Interface = struct {
     /// transitions are off, the game lets it go on to what lies under the pointer on the new
     /// screen.
     pub fn frame(front: *Interface, context: Context) ?Outcome {
+        front.ticks +%= @intCast(@max(context.elapsed, 0));
         front.enterShown(context);
         front.pointer.update(context.devices.mouse, context.window, context.elapsed);
         var pointer = front.pointer;
@@ -265,12 +277,33 @@ pub const Interface = struct {
                         front.screen = .main_menu;
                         front.movie = movie.single_to_main;
                     },
-                    .saved_games => log.info("LOAD GAME's saved games are not ported yet", .{}),
+                    .saved_games => if (context.saves != null) {
+                        front.screen = .saved_games;
+                        front.movie = saved_games.opening(.roster).movie;
+                    },
                     .start_game => {
                         front.leave(context);
                         return .{ .campaign = first_mission };
                     },
                     .quit => return .quit,
+                }
+                return null;
+            },
+            .saved_games => {
+                const saves = context.saves orelse {
+                    front.screen = .pilot_roster;
+                    return null;
+                };
+                const end = front.saved_games.frame(savesContext(front, context, saves, pointer)) orelse return null;
+                front.movie = saved_games.leavingMovie(.load, .roster, end);
+                switch (end) {
+                    .back => front.screen = .pilot_roster,
+                    .main_menu => front.screen = .main_menu,
+                    .quit => return .quit,
+                    .done => {
+                        front.leave(context);
+                        return .loaded;
+                    },
                 }
                 return null;
             },
@@ -298,6 +331,7 @@ pub const Interface = struct {
         switch (front.screen) {
             .main_menu => front.main_menu.enter(&front.pointer, context.sound),
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
+            .saved_games => if (context.saves) |saves| front.saved_games.enter(.load, .roster, savesContext(front, context, saves, front.pointer)),
             else => {},
         }
         if (context.resources) |resources| resources.show(front.screen) catch |err| {
@@ -312,9 +346,14 @@ pub const Interface = struct {
         front.entered = null;
     }
 
-    /// Whether the front end takes text as it is typed: while the roster's call sign is.
+    /// Whether the front end takes text as it is typed: while the roster's call sign is, or a saved
+    /// game's name.
     pub fn takesText(front: *const Interface) bool {
-        return front.screen == .pilot_roster and front.pilot_roster.typing;
+        return switch (front.screen) {
+            .pilot_roster => front.pilot_roster.typing,
+            .saved_games => front.saved_games.takesText(),
+            else => false,
+        };
     }
 
     /// Comes back to the front end, as a mission started from it ends: its main menu again, until
@@ -341,10 +380,16 @@ pub const Interface = struct {
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
+            .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
             else => {},
         }
     }
 };
+
+/// What a pass of the saved games reads, with the pointer at `pointer`.
+fn savesContext(front: *const Interface, context: Context, saves: saved_games.Saves, pointer: canvas.Pointer) saved_games.Context {
+    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .typed = context.typed, .ticks = front.ticks, .saves = saves };
+}
 
 test "the front end's first choices" {
     var devices: input.Devices = .{};
@@ -385,6 +430,50 @@ test "the front end's first choices" {
     // INSTANT ACTION flies mission 29 in the simulator.
     devices.mouse.at = .{ 310.0 / 640.0, 450.0 / 480.0 };
     try std.testing.expectEqual(main_menu.instant_action, front.frame(context).?.fly);
+}
+
+test "LOAD GAME opens the saved games, where there are saves to list" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var devices: input.Devices = .{};
+    var typed: winmain.Typed = .{};
+    var front: Interface = .{ .screen = .pilot_roster };
+    var campaign: game.gameflow.Campaign = .begin();
+    var player: input.Player = .{};
+    var tier: u2 = 0;
+    var saved: @import("../interface/loadout/loadout.zig").Saved = .{};
+    const strings: language.Language = .{ .strings = &.{} };
+    var context: Context = .{ .devices = &devices, .typed = &typed, .window = .{ 640, 480 }, .elapsed = 1 };
+    const click = struct {
+        fn at(on: *Interface, with: Context, x: f32, y: f32) ?Outcome {
+            with.devices.mouse.at = .{ x / 640.0, y / 480.0 };
+            with.devices.mouse.buttons.left = false;
+            _ = on.frame(with);
+            with.devices.mouse.buttons.left = true;
+            return on.frame(with);
+        }
+    }.at;
+    // Without the saved games to list, LOAD GAME stays on the roster.
+    try std.testing.expectEqual(null, click(&front, context, 450, 305));
+    try std.testing.expectEqual(Screen.pilot_roster, front.screen);
+    // With them, it leads to the saved games after the roster's movie, loading, with none found.
+    context.saves = .{
+        .gpa = std.testing.allocator,
+        .folder = .{ .io = std.testing.io, .dir = tmp.dir },
+        .game = .{ .campaign = &campaign, .player = &player, .tier = &tier, .pilot = &front.pilot, .saved = &saved },
+        .strings = &strings,
+    };
+    try std.testing.expectEqual(null, click(&front, context, 450, 305));
+    try std.testing.expectEqual(Screen.saved_games, front.screen);
+    try std.testing.expectEqualStrings(saved_games.opening(.roster).movie, front.movie.?);
+    front.movie = null;
+    front.enterShown(context);
+    try std.testing.expectEqual(saved_games.Mode.load, front.saved_games.mode);
+    try std.testing.expectEqual(0, front.saved_games.count);
+    // BACK goes back to the roster, after its movie.
+    try std.testing.expectEqual(null, click(&front, context, 300, 428));
+    try std.testing.expectEqual(Screen.pilot_roster, front.screen);
+    try std.testing.expectEqualStrings("interface\\sinfade2.bik", front.movie.?);
 }
 
 test {

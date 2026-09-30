@@ -104,7 +104,7 @@ const pickup_texts = [_]u16{ 0, 227, 228, 229 };
 /// The figures at its foot (`debrief_draw`, `0x00424930`): the labels at the left, in the labels'
 /// colour, and the values right-aligned at `values_x`, in the text's, a line of `figure_line`
 /// apart from `figures_y`. Rank and Level are the game's strings, and so are the names of the rank
-/// (`rank_names`, `0x004E5BCC`) and the level (`tier_names`, `0x004E5BEC`).
+/// and the level (`gameflow.rank_names`, `gameflow.tier_names`).
 const mission_kills_string = 0x8A;
 const overall_kills_string = 0x8B;
 const rank_string = 0xE8;
@@ -114,8 +114,6 @@ const values_x = 214;
 const figures_y = 346;
 const figure_line = 16;
 pub const label_colour = hud.rgb(0xFFBD82);
-const rank_names = [_]u16{ 0x55C, 0xED, 0xEE, 0x1BD, 0x1BE, 0x1BF, 0x1C0, 0xF0, 0x1C1 };
-const tier_names = [_]u16{ 0xFA, 0xF9, 0xF8, 0xFB };
 
 /// REPLAY MISSION: its button, lit where the pointer is over it (`0x004E4948`), shapes 27 and 28
 /// of `itacgfx.spr` with the palette of block 26, and its label, the game's string, right-aligned
@@ -340,8 +338,8 @@ pub const Debriefing = struct {
         const values = [_][]const u8{
             std.fmt.bufPrint(&mission_kills, "{d}", .{itac.pilot.campaign.kept(number).kills}) catch "",
             std.fmt.bufPrint(&overall_kills, "{d}", .{itac.pilot.kills}) catch "",
-            itac.context.language.string(rank_names[itac.pilot.rank]) orelse "",
-            itac.context.language.string(tier_names[itac.pilot.tier]) orelse "",
+            itac.context.language.string(gameflow.rank_names[itac.pilot.rank]) orelse "",
+            itac.context.language.string(gameflow.tier_names[itac.pilot.tier]) orelse "",
         };
         for (values, 0..) |value, row| try faded.text(small, .{ values_x, figureY(row) }, value, itac_module.text_colour, .right);
 

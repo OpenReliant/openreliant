@@ -3,9 +3,10 @@
 //! MAIN MENU, QUIT and ABOUT STARLANCER, which OpenReliant makes ABOUT OPENRELIANT (`About`). Its
 //! drawing (`in_game_options_draw`, `0x004398B0`) is the render hook it puts in `sr + 0x88`.
 //!
-//! Not ported: SAVE and LOAD, which open the saved games
-//! ([#75](https://github.com/vdmkenny/openreliant/issues/75)), and AUDIO, CONTROL DEVICES and
-//! VIDEO, the front end's settings screens
+//! SAVE and LOAD open the saved games (`saved_games`) over the menu, after `igofade.bik`, which
+//! the driver runs (`afterSavedGames`).
+//!
+//! Not ported: AUDIO, CONTROL DEVICES and VIDEO, the front end's settings screens
 //! ([#400](https://github.com/vdmkenny/openreliant/issues/400)). Each plays `igofade.bik` before
 //! its screen; OpenReliant stays on the menu.
 
@@ -18,6 +19,7 @@ const Canvas = canvas_module.Canvas;
 const Pointer = canvas_module.Pointer;
 const Rect = canvas_module.Rect;
 const dialog = @import("dialog.zig");
+const saved_games = @import("saved_games.zig");
 
 const log = std.log.scoped(.interface);
 
@@ -184,7 +186,37 @@ pub const Choice = enum {
     main_menu,
     /// QUIT, answered YES.
     quit,
+    /// SAVE and LOAD: the saved games over the menu, saving or loading (`0x00439695`,
+    /// `0x004396E4`).
+    save,
+    load,
 };
+
+/// How the in-game options end, with the saved games they open.
+pub const End = enum {
+    back,
+    main_menu,
+    quit,
+    /// A saved game loaded: the rooms again from the loaded mission's first view, on its disc
+    /// (`0x0043980C`).
+    loaded,
+};
+
+/// What the in-game options do as the saved games `mode` opened ends by `end`
+/// (`0x004396BE` on, `0x00439715` on): back to the menu, where it returns null; a game saved, the
+/// rooms again; a game loaded, the rooms from its mission; the main menu or QUIT as the screen chose
+/// them.
+pub fn afterSavedGames(mode: saved_games.Mode, end: saved_games.End) ?End {
+    return switch (end) {
+        .back => null,
+        .done => switch (mode) {
+            .save => .back,
+            .load => .loaded,
+        },
+        .main_menu => .main_menu,
+        .quit => .quit,
+    };
+}
 
 /// The menu's state.
 pub const InGameOptions = struct {
@@ -199,7 +231,8 @@ pub const InGameOptions = struct {
     told: bool = false,
 
     /// A pass of the menu's loop: Escape, or BACK once the pointer's button comes up, goes back to
-    /// the rooms. While QUIT's question or ABOUT OPENRELIANT's box is up, it takes the pass.
+    /// the rooms; SAVE and LOAD lead to the saved games. While QUIT's question or ABOUT
+    /// OPENRELIANT's box is up, it takes the pass.
     pub fn frame(menu: *InGameOptions, pointer: Pointer, keyboard: *input.Keyboard) ?Choice {
         const escaped = keyboard.pressed(input.scan.escape, .none, true);
         if (menu.leaving) return if (pointer.down) null else .back;
@@ -218,7 +251,9 @@ pub const InGameOptions = struct {
         const chosen = menu.under orelse return null;
         if (!pointer.down) return null;
         switch (chosen) {
-            .save, .load, .audio, .control_devices, .video => if (!menu.told) {
+            .save => return .save,
+            .load => return .load,
+            .audio, .control_devices, .video => if (!menu.told) {
                 menu.told = true;
                 log.info("the in-game options' {s} is not ported yet", .{@tagName(chosen)});
             },
@@ -261,6 +296,13 @@ pub const InGameOptions = struct {
     }
 };
 
+test afterSavedGames {
+    try std.testing.expectEqual(null, afterSavedGames(.load, .back));
+    try std.testing.expectEqual(End.back, afterSavedGames(.save, .done).?);
+    try std.testing.expectEqual(End.loaded, afterSavedGames(.load, .done).?);
+    try std.testing.expectEqual(End.main_menu, afterSavedGames(.save, .main_menu).?);
+}
+
 test "the items under the pointer" {
     try std.testing.expectEqual(.save, canvas_module.itemAt(Item, &rects, .{ 200, 180 }));
     try std.testing.expectEqual(.video, canvas_module.itemAt(Item, &rects, .{ 500, 300 }));
@@ -295,9 +337,10 @@ test InGameOptions {
     // MAIN MENU at once.
     menu = .{};
     try std.testing.expectEqual(.main_menu, menu.frame(.{ .at = .{ 250, 450 }, .down = true }, &keyboard).?);
-    // An item not ported stays on the menu.
+    // SAVE leads to the saved games; an item not ported stays on the menu.
     menu = .{};
-    try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 200, 180 }, .down = true }, &keyboard));
+    try std.testing.expectEqual(.save, menu.frame(.{ .at = .{ 200, 180 }, .down = true }, &keyboard).?);
+    try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 500, 300 }, .down = true }, &keyboard));
     try std.testing.expect(menu.told);
     // QUIT asks first; YES quits.
     try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 350, 450 }, .down = true }, &keyboard));

@@ -22,11 +22,9 @@
 //! (`end_mission`): Enriquez speaks over the room, without a movie, until his speech ends, and no
 //! loadout or last word follows.
 //!
-//! In the briefing and the loadout, the O key saves a screenshot (`screenshot_key`).
-//!
-//! Not ported: the in-game options' LOAD over the loadout, which takes the rooms back to their
-//! first view where a saved game loads (`0x0051D4B4`;
-//! [#75](https://github.com/vdmkenny/openreliant/issues/75)).
+//! In the briefing and the loadout, the O key saves a screenshot (`screenshot_key`). The in-game
+//! options' LOAD over the loadout ends the briefing where a saved game loads, for the rooms from
+//! its mission (`afterOptions`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -277,6 +275,9 @@ pub const Step = union(enum) {
     /// The briefing left from the loadout's in-game options for the main menu (`briefing_outcome`
     /// 2, `0x004378E7` on).
     main_menu,
+    /// The briefing left from the loadout's in-game options with a game loaded, for the rooms from
+    /// its mission (`briefing_outcome` 1).
+    loaded,
 };
 
 /// The briefing, as `interface_briefing` runs it.
@@ -556,22 +557,22 @@ pub const Briefing = struct {
         return .{ .movie = briefing.room.hologram.back };
     }
 
-    /// What the in-game options' `choice` leads to over the loadout (`0x00437841`, `0x004378E7`
+    /// What the in-game options' `end` leads to over the loadout (`0x00437841`, `0x004378E7`
     /// on): BACK, the loadout again (`loadout_resume`); MAIN MENU, the loadout left and the main
-    /// menu.
-    pub fn afterOptions(briefing: *Briefing, choice: in_game_options.Choice, now: u32) ?Step {
+    /// menu; a game loaded, the loadout left and the rooms.
+    pub fn afterOptions(briefing: *Briefing, end: in_game_options.End, now: u32) ?Step {
         const hologram = briefing.hologram orelse return null;
-        switch (choice) {
+        switch (end) {
             .back => {
                 hologram.pauseSpeech(false);
                 hologram.resumeAfterOptions(now) catch |err| log.warn("the loadout's page is left as it was: {s}", .{@errorName(err)});
                 return null;
             },
-            .main_menu, .quit => {
+            .main_menu, .quit, .loaded => {
                 _ = hologram.leave();
                 hologram.destroy();
                 briefing.hologram = null;
-                return .main_menu;
+                return if (end == .loaded) .loaded else .main_menu;
             },
         }
     }

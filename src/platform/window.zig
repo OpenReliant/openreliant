@@ -353,3 +353,31 @@ pub const tick_nanoseconds = 10_000_000;
 pub fn ticks() u64 {
     return nanoseconds() / tick_nanoseconds;
 }
+
+/// A moment on the local calendar and clock.
+pub const LocalTime = struct {
+    year: i32,
+    /// 1 to 12.
+    month: u8,
+    /// 1 to 31.
+    day: u8,
+    hour: u8,
+    minute: u8,
+    /// 0 to 6, from Sunday.
+    day_of_week: u8,
+};
+
+/// The moment `since_1970` nanoseconds after 1970 began in UTC, on the local calendar and clock
+/// (`SDL_TimeToDateTime`); null where the system can't tell it.
+pub fn localTime(since_1970: i64) ?LocalTime {
+    var time: c.SDL_DateTime = undefined;
+    if (!c.SDL_TimeToDateTime(since_1970, &time, true)) return null;
+    return .{
+        .year = time.year,
+        .month = std.math.cast(u8, time.month) orelse return null,
+        .day = std.math.cast(u8, time.day) orelse return null,
+        .hour = std.math.cast(u8, time.hour) orelse return null,
+        .minute = std.math.cast(u8, time.minute) orelse return null,
+        .day_of_week = std.math.cast(u8, time.day_of_week) orelse return null,
+    };
+}

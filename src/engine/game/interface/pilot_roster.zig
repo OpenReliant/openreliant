@@ -1,14 +1,12 @@
 //! The front end's pilot roster, its screen 12 (`pilot_roster`, `0x00430490`), which SINGLE
 //! PLAYER opens, drawn by `pilot_roster_draw` (`0x00430C60`), the render hook it puts in
-//! `sr + 0x88`. The pilot types a call sign or picks one of the last ten, and is a man or a woman;
+//! `sr + 0x88`. The pilot types a call sign or picks one of the last ten, and is male or female;
 //! START GAME asks the game's difficulty (`DifficultyDialog`) and starts a new campaign, LOAD GAME
 //! leads to the saved games, and MAIN MENU and QUIT to what they name.
 //!
 //! Not ported: writing the pilot's profile, `profile.bin`, which the roster does as the call sign
 //! changes (`profile_save`, [#74](https://github.com/vdmkenny/openreliant/issues/74),
-//! [#301](https://github.com/vdmkenny/openreliant/issues/301)); the saved games LOAD GAME leads to
-//! ([#75](https://github.com/vdmkenny/openreliant/issues/75)); and the movies played between
-//! screens as the roster is left ([#401](https://github.com/vdmkenny/openreliant/issues/401)).
+//! [#301](https://github.com/vdmkenny/openreliant/issues/301)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -37,12 +35,12 @@ pub const shapes_name = "interface\\frntend2.spr";
 /// The roster's items, in the order of its rectangles, which `pilot_roster` lays out on the stack
 /// (`0x0043049C` on): the two pilots, the buttons, the call sign's line, and the arrow that opens
 /// the list of call signs.
-pub const Item = enum(u3) { man, woman, load_game, start_game, main_menu, call_sign, quit, list };
+pub const Item = enum(u3) { male, female, load_game, start_game, main_menu, call_sign, quit, list };
 
 /// Where the pointer finds each item (`interface_hit`).
 pub const rects = std.EnumArray(Item, Rect).init(.{
-    .man = .{ .x = 62, .y = 145, .width = 111, .height = 228 },
-    .woman = .{ .x = 239, .y = 151, .width = 102, .height = 275 },
+    .male = .{ .x = 62, .y = 145, .width = 111, .height = 228 },
+    .female = .{ .x = 239, .y = 151, .width = 102, .height = 275 },
     .load_game = .{ .x = 397, .y = 295, .width = 133, .height = 20 },
     .start_game = .{ .x = 397, .y = 249, .width = 145, .height = 20 },
     .main_menu = .{ .x = 292, .y = 441, .width = 25, .height = 16 },
@@ -107,10 +105,10 @@ const labels = std.EnumArray(String, ?Label).initDefault(@as(?Label, null), .{
 
 /// The shapes of the roster's set it draws, and where: the pilot chosen, lit, and the list's
 /// arrow, lit under the pointer.
-const man_shape = 19;
-const woman_shape = 20;
-const man_at: [2]i32 = .{ 34, 114 };
-const woman_at: [2]i32 = .{ 200, 114 };
+const male_shape = 19;
+const female_shape = 20;
+const male_at: [2]i32 = .{ 34, 114 };
+const female_at: [2]i32 = .{ 200, 114 };
 const arrow_shape = 24;
 const lit_arrow_shape = 25;
 const arrow_at: [2]i32 = .{ 543, 200 };
@@ -202,10 +200,10 @@ pub const CallSigns = struct {
 };
 
 /// What the roster sets of the pilot, which the missions flown after it go by: the call sign
-/// (`call_sign`), whether the pilot is a woman, whose own lines the radio then plays in a woman's
+/// (`call_sign`), whether the pilot is female, whose own lines the radio then plays in the female
 /// voice (`pilot_female`, `0x00562F16`), and the game's difficulty (`difficulty`, `0x00562F14`).
 /// As the game starts, the call sign is the profile's (`gameflow.profileCallSign`) or none, the
-/// pilot a man, and the difficulty 0, easy, until SET GAME DIFFICULTY sets it, so INSTANT ACTION
+/// pilot male, and the difficulty 0, easy, until SET GAME DIFFICULTY sets it, so INSTANT ACTION
 /// chosen first is flown on easy.
 pub const Pilot = struct {
     call_sign: CallSign = .{},
@@ -360,7 +358,7 @@ pub const Roster = struct {
     confirm: ?dialog.Confirm = null,
 
     /// Entering the roster, as `pilot_roster` does before its loop: the call sign typed afresh,
-    /// its cursor on, the list closed, the pilot a man, and the characters a file's name can't
+    /// its cursor on, the list closed, the pilot male, and the characters a file's name can't
     /// hold refused as they are typed (`winmain.Typed.file_names`).
     pub fn enter(roster: *Roster, typed: *winmain.Typed, pilot: *Pilot) void {
         roster.* = .{ .list = roster.list };
@@ -423,7 +421,7 @@ pub const Roster = struct {
             };
         }
         defer if (roster.typing) if (context.small) |small| {
-            hud.typeInto(context.typed, &pilot.call_sign.bytes, &pilot.call_sign.len, small, call_sign_width);
+            hud.typeInto(context.typed, &pilot.call_sign.bytes, &pilot.call_sign.len, .{ .font = small, .max_width = call_sign_width });
         };
         if (roster.picked) {
             if (!pointer.down) roster.picked = false;
@@ -438,8 +436,8 @@ pub const Roster = struct {
             return null;
         }
         switch (chosen) {
-            .man => pilot.female = false,
-            .woman => pilot.female = true,
+            .male => pilot.female = false,
+            .female => pilot.female = true,
             .load_game => return .saved_games,
             .start_game => roster.difficulty = .open(&pilot.difficulty),
             .main_menu => return .main_menu,
@@ -472,7 +470,7 @@ pub const Roster = struct {
     /// background is drawn behind it all (`background_set`).
     pub fn draw(roster: Roster, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, pointer: Pointer, pilot: Pilot) canvas_module.Error!void {
         const small = canvas.fonts.small;
-        if (pilot.female) try canvas.shape(art, woman_shape, woman_at) else try canvas.shape(art, man_shape, man_at);
+        if (pilot.female) try canvas.shape(art, female_shape, female_at) else try canvas.shape(art, male_shape, male_at);
         for (labels.values) |held| if (held) |label| try writeLabel(canvas, label, canvas_module.blue);
         canvas.box(call_sign_box_at, call_sign_box_size);
         try canvas.text(small, call_sign_at, pilot.call_sign.slice(), if (roster.typing) white else canvas_module.blue, .left);
@@ -585,7 +583,8 @@ test "the call sign is typed, and a click elsewhere puts it in the list" {
     for ([_]u8{ 'A', 'c', 'e' }) |character| fixture.typed.push(character);
     for (0..3) |_| _ = fixture.frame(.{ .at = .{ 450, 190 } });
     try std.testing.expectEqualStrings("Ace", fixture.pilot.call_sign.slice());
-    // A click on the woman ends the typing, puts the call sign in the list, and picks her.
+    // A click on the female pilot ends the typing, puts the call sign in the list, and makes the
+    // pilot female.
     _ = fixture.frame(.{ .at = .{ 280, 300 }, .down = true });
     try std.testing.expect(!fixture.roster.typing and fixture.pilot.female);
     try std.testing.expectEqualStrings("Ace", fixture.roster.list.names[0].slice());

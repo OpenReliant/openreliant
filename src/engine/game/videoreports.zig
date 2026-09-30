@@ -228,7 +228,7 @@ fn bridgeLine(buffer: []u8, all: *const create.Objects, carrier: u16, suffix: []
 }
 
 /// `0x004566C0` with `0x004536D0`: the pilot's own line ending in `line`, said at once without the
-/// window, in a man's voice (`mp`) or a woman's (`fp`) by the pilot's sex (`input.Player.female`),
+/// window, in the male voice (`mp`) or the female one (`fp`) by the pilot's sex (`input.Player.female`),
 /// ending the line playing. Not ported: that a multiplayer mission says nothing
 /// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 pub fn playerSays(world: gameobj.World, line: []const u8) void {

@@ -38,6 +38,8 @@ pub const Movies = struct {
     /// Whether a controller was connected or taken out while a movie played, which the game's loop
     /// then takes up.
     controllers_changed: bool = false,
+    /// The characters typed into the window, which a screen with a line to type into takes.
+    typed: *game.winmain.Typed,
 
     /// Plays the movie `name` names as `kind` has it, until it ends or is skipped; null where the
     /// window was closed meanwhile, which quits the game, as it quits the game's loop
@@ -71,7 +73,7 @@ pub const Movies = struct {
             },
             .active => |active| pumped.active = active,
             .controllers => movies.controllers_changed = true,
-            .typed => {},
+            .typed => |character| movies.typed.push(game.language.fromUnicode(character)),
         };
         return pumped;
     }

@@ -4,8 +4,10 @@
 //! each in a loop of its own, as the game runs them, each frame drawn over an empty scene and put
 //! on the window, with the window's messages read as the message pump reads them, and the movies
 //! between them played by `Movies`. `campaign` is what `WinMain` does as START GAME starts a
-//! campaign, `goOn` as the campaign goes on after a mission, and `restart` and `replayBriefing` as
-//! it turns back to a mission the pilot did not come through.
+//! campaign, or LOAD GAME loads one, `goOn` as the campaign goes on after a mission, and `restart`
+//! and `replayBriefing` as it turns back to a mission the pilot did not come through. The in-game
+//! options' SAVE and LOAD open the saved games (`game.interface.saved_games`); a game loaded takes
+//! the rooms to its mission.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -24,6 +26,8 @@ const induction = interface.induction;
 const in_game_options = interface.in_game_options;
 const restart_screen = interface.restart;
 const rooms = interface.rooms;
+const saved_games = interface.saved_games;
+const save = game.gameflow.save;
 const itac_module = game.itac;
 const Movies = @import("movies.zig").Movies;
 const drawn = @import("presenter.zig").drawn;
@@ -34,8 +38,20 @@ const log = std.log.scoped(.rooms);
 /// How the rooms end, where the game goes on: through the briefing room's door and the briefing,
 /// the mission flown, as its loadout left it where it ran; or to the main menu.
 pub const End = union(enum) {
-    fly: ?loadout.Result,
+    fly: Flown,
     main_menu,
+
+    /// The mission the briefing leads to, which a game loaded on the way may have changed, and
+    /// what its loadout chose, where it ran.
+    pub const Flown = struct { mission: u16, result: ?loadout.Result };
+};
+
+/// How a briefing ends: as the rooms do, or with a game loaded from its in-game options, which
+/// takes the rooms to its mission.
+const Briefed = union(enum) {
+    fly: End.Flown,
+    main_menu,
+    loaded,
 };
 
 /// How the ITAC ends, where the game goes on: closed, or with REPLAY MISSION.
@@ -65,16 +81,19 @@ pub const Driver = struct {
     /// The ship types' and the missile types' stats, which the loadout shows their figures of.
     stats: *const game.create.Stats,
     missile_stats: *const game.missiles.Table,
-    /// The campaign's tier and the pilot's rank, which set the ships the loadout offers, as they
-    /// stand each time the loadout runs.
-    tier: *const u2,
-    rank: *const game.gameflow.Rank,
-    /// `ITACLANG.DLL`'s strings, which the ITAC writes with, and what it shows of the pilot and the
-    /// campaign: the call sign the pilot roster set, the pilot's kills and the campaign flown.
+    /// The campaign's tier and the pilot, which set the ships the loadout offers, as they stand each
+    /// time the loadout runs, and which the ITAC shows and the saved games keep: the pilot the
+    /// roster set, the pilot's kills and rank, and the campaign flown.
+    tier: *u2,
+    pilot: *interface.pilot_roster.Pilot,
+    player: *engine.input.Player,
+    campaign_flown: *?game.gameflow.Campaign,
+    /// `ITACLANG.DLL`'s strings, which the ITAC writes with.
     itac_strings: *const game.language.Language,
-    call_sign: *const interface.pilot_roster.CallSign,
-    player: *const engine.input.Player,
-    campaign_flown: *const ?game.gameflow.Campaign,
+    /// The game's folder, which holds the saved games, and the local date and time of a moment,
+    /// which the saved games show the dates of their files by.
+    saves: save.Folder,
+    local_time: ?*const fn (i96) ?saved_games.Date = null,
     /// The front end's pointer, which the rooms' follows, and the timer's count it last moved on
     /// at.
     pointer: canvas.Pointer = .{},
@@ -82,8 +101,8 @@ pub const Driver = struct {
     /// Whether the window is the active one.
     active: bool = true,
 
-    /// What `WinMain` does as a single-player campaign starts, before mission `mission`
-    /// (`winmain.CampaignStart`), then the rooms. Null where the game quits meanwhile.
+    /// What `WinMain` does as a single-player campaign starts, or is loaded, before mission
+    /// `mission` (`winmain.CampaignStart`), then the rooms. Null where the game quits meanwhile.
     pub fn campaign(driver: *Driver, mission: u16) !?End {
         const start: game.winmain.CampaignStart = .of(mission);
         driver.turnTo(start.disc);
@@ -111,7 +130,14 @@ pub const Driver = struct {
     /// mission's briefing. Null where the game quits meanwhile.
     pub fn replayBriefing(driver: *Driver, mission: u16) !?End {
         driver.turnTo(rooms.Carrier.of(mission).disc());
-        return driver.brief(mission, false);
+        return switch (try driver.brief(mission, false) orelse return null) {
+            .fly => |flown| .{ .fly = flown },
+            .main_menu => .main_menu,
+            .loaded => {
+                const start = driver.loadedStart() orelse return .main_menu;
+                return driver.visit(start.mission, start.view);
+            },
+        };
     }
 
     /// The restart screen (`restart_screen`) in its loop, with its shapes: what it chose, or null
@@ -138,7 +164,7 @@ pub const Driver = struct {
     pub fn itac(driver: *Driver, run: itac_module.Run, mission: u16) !?ItacEnd {
         const flown = if (driver.campaign_flown.*) |*going| going else return .closed;
         const pilot: itac_module.Pilot = .{
-            .call_sign = driver.call_sign.slice(),
+            .call_sign = driver.pilot.call_sign.slice(),
             .kills = driver.player.kills.count,
             .rank = driver.player.rank,
             .tier = driver.tier.*,
@@ -178,6 +204,13 @@ pub const Driver = struct {
         return try driver.brief(mission, true) != null;
     }
 
+    /// The game the saved games save and load: the campaign flown, and the pilot; none outside a
+    /// campaign.
+    fn played(driver: *Driver) ?save.Game {
+        const going = if (driver.campaign_flown.*) |*flown| flown else return null;
+        return .{ .campaign = going, .player = driver.player, .tier = driver.tier, .pilot = driver.pilot, .saved = driver.saved };
+    }
+
     /// What `WinMain` does as it turns to the rooms or a briefing (`0x004AA1BA` on): the music
     /// fading out by 15 (`music_fade_out`) and the archive of disc `number` opened
     /// (`cd_hog_open`), the timer counted from now.
@@ -203,7 +236,7 @@ pub const Driver = struct {
             .missile_stats = driver.missile_stats,
             .mission = mission,
             .tier = driver.tier.*,
-            .rank = driver.rank.*,
+            .rank = driver.player.rank,
             .saved = driver.saved,
             .hardware = driver.movies.presenter.screen.* != .software,
         };
@@ -246,44 +279,78 @@ pub const Driver = struct {
 
     /// The rooms (`vr_rooms`) before mission `mission`, from `view`, in their loop, and through
     /// the briefing room's door, the briefing, which `vr_rooms` runs once it has let the rooms go:
-    /// how they end, or null where the game quits meanwhile.
-    fn visit(driver: *Driver, mission: u16, view: u8) !?End {
-        {
-            var inside: rooms.Rooms = .open(driver.context(), mission, view, platform.window.nanoseconds());
-            defer inside.close();
-            while (true) {
-                if (!try driver.pump()) return null;
-                const now = platform.window.nanoseconds();
-                const pointer = driver.pointer;
-                if (inside.pass(.{
-                    .keyboard = &driver.movies.devices.keyboard,
-                    .at = pointer.at,
-                    .left = pointer.down,
-                    .right = pointer.right_down,
-                    .transitions = driver.movies.transitions,
-                    .now = now,
-                    .ticks = driver.clock.game_ticks,
-                })) |step| switch (step) {
-                    .options => switch (try driver.options() orelse return null) {
-                        .back => {},
-                        .main_menu => return .main_menu,
-                        .quit => return null,
-                    },
-                    // Use ITAC; the other places' screens are not ported yet (`rooms.Place`): the
-                    // rooms go on as though each had closed at once.
-                    .place => |place| {
-                        if (place == .itac) {
-                            _ = try driver.itac(.rooms, mission) orelse return null;
-                        } else log.info("the rooms' {s} is not ported yet", .{@tagName(place)});
-                        inside.leave(place, platform.window.nanoseconds());
-                    },
-                    .briefing => break,
-                };
-                inside.advance(now);
-                try driver.present(.{ .rooms = &inside });
+    /// how they end, or null where the game quits meanwhile. A game loaded from the in-game options
+    /// takes the rooms to its mission (`loadedStart`).
+    fn visit(driver: *Driver, first_mission: u16, first_view: u8) !?End {
+        var mission = first_mission;
+        var view = first_view;
+        while (true) {
+            const briefed: Briefed = switch (try driver.walk(mission, view) orelse return null) {
+                .briefing => try driver.brief(mission, false) orelse return null,
+                .main_menu => return .main_menu,
+                .loaded => .loaded,
+            };
+            switch (briefed) {
+                .fly => |flown| return .{ .fly = flown },
+                .main_menu => return .main_menu,
+                .loaded => {
+                    const start = driver.loadedStart() orelse return .main_menu;
+                    mission = start.mission;
+                    view = start.view;
+                },
             }
         }
-        return driver.brief(mission, false);
+    }
+
+    /// Where the rooms start again as the in-game options load a game (`0x0043A309` on): the disc
+    /// of its mission opened, and the first view of its carrier. None outside a campaign.
+    fn loadedStart(driver: *Driver) ?struct { mission: u16, view: u8 } {
+        const going = driver.campaign_flown.* orelse return null;
+        const carrier = rooms.Carrier.of(going.mission);
+        driver.turnTo(carrier.disc());
+        return .{ .mission = going.mission, .view = carrier.start() };
+    }
+
+    /// How the rooms' loop ends: through the briefing room's door, to the main menu, or with a
+    /// game loaded.
+    const Walked = enum { briefing, main_menu, loaded };
+
+    /// The rooms' loop before mission `mission`, from `view`; null where the game quits meanwhile.
+    fn walk(driver: *Driver, mission: u16, view: u8) !?Walked {
+        var inside: rooms.Rooms = .open(driver.context(), mission, view, platform.window.nanoseconds());
+        defer inside.close();
+        while (true) {
+            if (!try driver.pump()) return null;
+            const now = platform.window.nanoseconds();
+            const pointer = driver.pointer;
+            if (inside.pass(.{
+                .keyboard = &driver.movies.devices.keyboard,
+                .at = pointer.at,
+                .left = pointer.down,
+                .right = pointer.right_down,
+                .transitions = driver.movies.transitions,
+                .now = now,
+                .ticks = driver.clock.game_ticks,
+            })) |step| switch (step) {
+                .options => switch (try driver.options() orelse return null) {
+                    .back => {},
+                    .main_menu => return .main_menu,
+                    .quit => return null,
+                    .loaded => return .loaded,
+                },
+                // Use ITAC; the other places' screens are not ported yet (`rooms.Place`): the
+                // rooms go on as though each had closed at once.
+                .place => |place| {
+                    if (place == .itac) {
+                        _ = try driver.itac(.rooms, mission) orelse return null;
+                    } else log.info("the rooms' {s} is not ported yet", .{@tagName(place)});
+                    inside.leave(place, platform.window.nanoseconds());
+                },
+                .briefing => return .briefing,
+            };
+            inside.advance(now);
+            try driver.present(.{ .rooms = &inside });
+        }
     }
 
     /// The briefing (`interface_briefing`) before mission `mission`, in its loop, from the
@@ -291,7 +358,7 @@ pub const Driver = struct {
     /// movies of its way in played as it comes to them, and its loadout run, with the in-game
     /// options its Escape opens. How it ends: the mission flown, in the ship the loadout chose; the
     /// main menu; or null where the game quits meanwhile.
-    fn brief(driver: *Driver, mission: u16, from_loadout: bool) !?End {
+    fn brief(driver: *Driver, mission: u16, from_loadout: bool) !?Briefed {
         var meeting: briefing.Briefing = .open(driver.context(), mission, from_loadout, driver.loadoutContext(mission));
         defer meeting.close();
         try driver.present(.{ .briefing = &meeting });
@@ -313,17 +380,19 @@ pub const Driver = struct {
                     _ = try driver.movies.play(name, .over_screen_from_disc) orelse return null;
                     continue;
                 },
-                .over => return .{ .fly = meeting.result },
+                .over => return .{ .fly = .{ .mission = mission, .result = meeting.result } },
                 .options => {
                     const choice = try driver.options() orelse return null;
                     if (choice == .quit) return null;
                     if (meeting.afterOptions(choice, milliseconds())) |after| switch (after) {
                         .main_menu => return .main_menu,
+                        .loaded => return .loaded,
                         else => {},
                     };
                     continue;
                 },
                 .main_menu => return .main_menu,
+                .loaded => return .loaded,
             };
             meeting.advance(platform.window.nanoseconds(), driver.clock.game_ticks);
             try driver.present(.{ .briefing = &meeting });
@@ -331,8 +400,12 @@ pub const Driver = struct {
     }
 
     /// The in-game options in their loop, with what they draw with: where they lead, or null where
-    /// the game quits meanwhile. MAIN MENU plays its movie first.
-    fn options(driver: *Driver) !?in_game_options.Choice {
+    /// the game quits meanwhile. MAIN MENU plays its movie first; SAVE and LOAD open the saved
+    /// games over the menu, while a campaign is flown.
+    ///
+    /// **Fix:** the menu takes no press until the button held as the saved games led back to it
+    /// comes up, as the front end's screens take none.
+    fn options(driver: *Driver) !?in_game_options.End {
         const gpa = driver.movies.gpa;
         var menu: Menu = .{};
         defer menu.close(gpa);
@@ -340,14 +413,64 @@ pub const Driver = struct {
             log.warn("{s} is left out: {s}", .{ in_game_options.background_name, @errorName(err) });
         menu.shapes = .read(gpa, driver.resources, in_game_options.shapes_name);
         menu.about_shapes = .read(gpa, driver.resources, in_game_options.about_shapes_name);
+        var press: engine.input.FreshPress = .{ .held = false };
         while (true) {
             if (!try driver.pump()) return null;
-            if (menu.state.frame(driver.pointer, &driver.movies.devices.keyboard)) |choice| {
-                if (choice == .main_menu) _ = try driver.movies.play(in_game_options.to_main_menu, .over_screen) orelse return null;
-                return choice;
-            }
+            var pointer = driver.pointer;
+            pointer.down = press.pressed(pointer.down);
+            if (menu.state.frame(pointer, &driver.movies.devices.keyboard)) |choice| switch (choice) {
+                .back => return .back,
+                .main_menu => {
+                    _ = try driver.movies.play(in_game_options.to_main_menu, .over_screen) orelse return null;
+                    return .main_menu;
+                },
+                .quit => return .quit,
+                .save, .load => {
+                    const mode: saved_games.Mode = if (choice == .save) .save else .load;
+                    const end = try driver.savedGames(mode) orelse return null;
+                    if (saved_games.leavingMovie(mode, .in_game_options, end)) |movie| _ = try driver.movies.play(movie, .over_screen) orelse return null;
+                    if (in_game_options.afterSavedGames(mode, end)) |after| return after;
+                    menu.state = .{};
+                    press = .{};
+                },
+            };
             try driver.present(.{ .options = &menu });
         }
+    }
+
+    /// The saved games (`saved_games`) over the in-game options, `mode` saving or loading, after
+    /// the movie that leads to them, in their loop: how they end, or null where the game quits
+    /// meanwhile. Outside a campaign there is no game to save or load, and they end at once.
+    fn savedGames(driver: *Driver, mode: saved_games.Mode) !?saved_games.End {
+        const flown = driver.played() orelse {
+            log.info("the saved games need a campaign", .{});
+            return .back;
+        };
+        const gpa = driver.movies.gpa;
+        const opening = saved_games.opening(.in_game_options);
+        _ = try driver.movies.play(opening.movie, .over_screen) orelse return null;
+        const saves: saved_games.Saves = .{ .gpa = gpa, .folder = driver.saves, .game = flown, .strings = driver.strings, .local_time = driver.local_time };
+        var screen: SavesScreen = .{ .shapes = .read(gpa, driver.resources, saved_games.shapes_name) };
+        defer screen.close(gpa);
+        screen.background.set(gpa, driver.resources.*, opening.background) catch |err|
+            log.warn("{s} is left out: {s}", .{ opening.background, @errorName(err) });
+        var press: engine.input.FreshPress = .{};
+        screen.state.enter(mode, .in_game_options, driver.savesContext(saves, driver.pointer));
+        const window = driver.movies.presenter.window;
+        defer window.takeText(false);
+        while (true) {
+            if (!try driver.pump()) return null;
+            var pointer = driver.pointer;
+            pointer.down = press.pressed(pointer.down);
+            window.takeText(screen.state.takesText());
+            if (screen.state.frame(driver.savesContext(saves, pointer))) |end| return end;
+            try driver.present(.{ .saved_games = &screen });
+        }
+    }
+
+    /// What a pass of the saved games reads, with the pointer at `pointer`.
+    fn savesContext(driver: *Driver, saves: saved_games.Saves, pointer: canvas.Pointer) saved_games.Context {
+        return .{ .pointer = pointer, .keyboard = &driver.movies.devices.keyboard, .typed = driver.movies.typed, .ticks = driver.clock.game_ticks, .saves = saves };
     }
 
     /// The window's messages since the last pass, as the message pump reads them, the keyboard
@@ -434,6 +557,24 @@ const Menu = struct {
     }
 };
 
+/// The saved games, and what they draw with: their background and shapes.
+const SavesScreen = struct {
+    state: saved_games.SavedGames = .{},
+    background: game.matmanager.Background = .{},
+    shapes: ?canvas.Shapes = null,
+
+    fn close(screen: *SavesScreen, gpa: Allocator) void {
+        screen.background.deinit(gpa);
+        if (screen.shapes) |*shapes| shapes.deinit(gpa);
+    }
+
+    fn draw(screen: *SavesScreen, target: canvas.Canvas, dialog: *game.hud.Art, pointer: canvas.Pointer, call_sign: []const u8) canvas.Error!void {
+        if (screen.background.image) |*shown| target.image(shown, .{ 0, 0 });
+        const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
+        try screen.state.draw(target, shapes, dialog, pointer, call_sign);
+    }
+};
+
 /// The restart screen, and its shapes.
 const Restarting = struct {
     state: restart_screen.Restart = .{},
@@ -455,6 +596,7 @@ const Shown = struct {
         induction: *induction.Induction,
         rooms: *rooms.Rooms,
         options: *Menu,
+        saved_games: *SavesScreen,
         briefing: *briefing.Briefing,
         restart: *Restarting,
         itac: *itac_module.Itac,
@@ -472,6 +614,7 @@ const Shown = struct {
             .induction => |tour| tour.draw(target),
             .rooms => |inside| try drawn(inside.draw(target, driver.clock.game_ticks)),
             .options => |menu| try drawn(menu.draw(target, &driver.front.dialog, driver.pointer)),
+            .saved_games => |screen| try drawn(screen.draw(target, &driver.front.dialog, driver.pointer, driver.pilot.call_sign.slice())),
             .briefing => |meeting| try drawn(meeting.draw(target)),
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
             .itac => |terminal| try drawn(terminal.draw(target)),

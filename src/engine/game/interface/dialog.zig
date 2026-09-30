@@ -75,6 +75,55 @@ pub const Confirm = struct {
     }
 };
 
+/// The box saying the game could not be saved (`save_error_dialog`, `0x0042A870`), which the saved
+/// games screen puts up over itself as a save fails (`save_error_open`, `0x0052026C`): the dialog's
+/// box, its OK button, lit under the pointer, the message, and OK's label.
+pub const SaveError = struct {
+    /// Whether OK is under the pointer (`dialog_button`).
+    under: bool = false,
+    /// Set as OK is clicked or Escape pressed, until the pointer's button comes up.
+    closing: bool = false,
+
+    /// Its OK button (`0x0042A870`), which a click closes it by, and where its box's parts stand
+    /// (`save_error_draw`, `0x0042A950`).
+    pub const ok_button: Rect = .{ .x = 310, .y = 269, .width = 25, .height = 16 };
+    const error_text = 0x561;
+    const error_at: [2]i32 = .{ 320, 180 };
+    const ok_string = 0x316;
+    const ok_at: [2]i32 = .{ 360, 263 };
+
+    /// A pass of its loop: Escape, or a click on OK, closes it once the pointer's button comes up
+    /// (`0x0042A91C`). A press held as it opens counts. Whether it has closed.
+    pub fn frame(box: *SaveError, pointer: Pointer, escaped: bool) bool {
+        if (box.closing) return !pointer.down;
+        box.under = ok_button.holds(pointer.at);
+        if (escaped or (box.under and pointer.down)) {
+            box.closing = true;
+            return !pointer.down;
+        }
+        return false;
+    }
+
+    pub fn draw(box: SaveError, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
+        try canvas.shape(art, box_shape, box_at);
+        try canvas.shape(art, if (box.under) lit_button_shape else button_shape, .{ ok_button.x, ok_button.y });
+        if (canvas.strings.string(error_text)) |words| try canvas.wrapped(canvas.fonts.small, error_at, words, canvas_module.blue, .centre, message_lines);
+        try canvas.string(canvas.fonts.large, ok_at, ok_string, canvas_module.blue, .right);
+    }
+};
+
+test SaveError {
+    var box: SaveError = .{};
+    // A click off OK does nothing; on it, the box closes once the button comes up.
+    try std.testing.expect(!box.frame(.{ .at = .{ 10, 10 }, .down = true }, false));
+    try std.testing.expect(!box.frame(.{ .at = .{ 315, 275 }, .down = true }, false));
+    try std.testing.expect(box.under and box.closing);
+    try std.testing.expect(box.frame(.{ .at = .{ 315, 275 } }, false));
+    // Escape closes it at once where no button is down.
+    box = .{};
+    try std.testing.expect(box.frame(.{}, true));
+}
+
 test Confirm {
     var confirm: Confirm = .{ .message = 0x374 };
     // Over nothing, nothing is answered.

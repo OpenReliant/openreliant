@@ -8,10 +8,9 @@ The front end's screen 7 (`interface_briefing`, `0x00437010`, named after its as
 
 [`game/interface/briefing.zig`](../../src/engine/game/interface/briefing.zig) holds the briefing. The driver runs it in a loop of its own once the rooms have ended ([`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), plays the movies of its way in as the game plays them ([Movies](movies.md)), and draws the loadout's hologram while it runs ([Loadout](loadout.md)). Once it ends, the mission flies in the ship the loadout chose, after the hangar's movie ([The Reliant's rooms](rooms.md)).
 
-Not ported:
+The in-game options' SAVE and LOAD over the loadout open the saved games ([Front end](front-end.md#the-saved-games)); a game loaded leaves the loadout and ends the briefing for the rooms, from the first view of its mission's carrier.
 
-- The in-game options' LOAD over the loadout, which leaves the briefing for the rooms' first view ([#75](https://github.com/vdmkenny/openreliant/issues/75)).
-- The way to the campaign's end after mission 28 ([#74](https://github.com/vdmkenny/openreliant/issues/74)). The briefing's part in it is ported.
+Not ported: the way to the campaign's end after mission 28 ([#74](https://github.com/vdmkenny/openreliant/issues/74)). The briefing's part in it is ported.
 
 **Fixes:**
 

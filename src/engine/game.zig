@@ -35,6 +35,7 @@ pub const gameobj = @import("game/gameobj.zig");
 pub const guns = @import("game/guns.zig");
 pub const hog_snd = @import("game/hog_snd.zig");
 pub const sound3d = @import("game/sound3d.zig");
+pub const iff = @import("game/iff.zig");
 pub const interface = @import("game/interface.zig");
 pub const itac = @import("game/itac.zig");
 pub const jump = @import("game/jump.zig");
