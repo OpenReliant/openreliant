@@ -59,6 +59,15 @@ pub fn fromUnicode(character: u21) u8 {
     return codePage1252(std.math.cast(u16, character) orelse return '?');
 }
 
+/// The character the game's code page, 1252, holds at `byte` (`codePage1252`): `byte` itself below
+/// `0x80` and from `0xA0`, and the page's own between.
+pub fn toUnicode(byte: u8) u21 {
+    return switch (byte) {
+        0x80...0x9F => cp1252_high[byte - 0x80],
+        else => byte,
+    };
+}
+
 /// A UTF-16 unit as `LoadStringA` writes it under Windows' Western code page, 1252: itself below
 /// `0x80` and from `0xA0` to `0xFF`, the page's own byte for the characters it holds between, and
 /// a question mark for the rest. **Unverified:** that the game's strings meet the Western page;
@@ -125,6 +134,15 @@ test fromUnicode {
     try std.testing.expectEqual(0xE9, fromUnicode(0xE9));
     try std.testing.expectEqual(0x80, fromUnicode(0x20AC));
     try std.testing.expectEqual('?', fromUnicode(0x1F600));
+}
+
+test toUnicode {
+    try std.testing.expectEqual('A', toUnicode('A'));
+    try std.testing.expectEqual(0xE9, toUnicode(0xE9));
+    try std.testing.expectEqual(0x20AC, toUnicode(0x80));
+    try std.testing.expectEqual(0x2122, toUnicode(0x99));
+    // Every byte back where it came from, the page's five undefined places among them.
+    for (0..0x100) |byte| try std.testing.expectEqual(byte, fromUnicode(toUnicode(@intCast(byte))));
 }
 
 test codePage1252 {

@@ -38,6 +38,34 @@ Codes 0 to 31 are empty. Codes 32 to 127 are ASCII, and in the larger fonts 128 
 accented letters and symbols. Some tables run past 255, but those entries are empty, and the
 payload's font setup, `font_open` (`0x00480D70`), caches the width of codes below 255 only.
 
+## Outline fonts
+
+OpenReliant draws the fonts drawn in one colour from outline fonts at the window's resolution, in
+place of their glyphs magnified ([`hud/outline.zig`](../../src/engine/game/hud/outline.zig)).
+FreeType draws the glyphs ([Platform](../port/platform.md#fonts)).
+
+- **Which font.** A mod's TrueType or OpenType font named for the font stands in for it:
+  `optfnt.ttf` or `optfnt.otf` for `interface\optfnt.fnt`, the TrueType one first
+  ([Modding](../guide/modding.md#fonts)). Without one, Newtown, which OpenReliant carries
+  ([`deps/newtown`](../../deps/newtown/README.md)), stands in for the game's own Handel Gothic
+  fonts drawn in one colour: `optfnt.fnt` and `smlfnt2.fnt`, the menus' large and small fonts, and
+  `itacbig.fnt` and `itacsml.fnt`, the ITAC's. A mod's own `.fnt` keeps its glyphs.
+- **The layout.** The bitmap font stays the layout: each character's width and the line's height
+  are its own, so that every screen lays its text out as the original does. Each character is drawn
+  from the outline font at the size that stands its capitals as tall as the bitmap's, by the first
+  of `H`, `I`, `E`, `F`, `L` and `T` both fonts have; on the bitmap's baseline, the foot of that
+  letter's ink; and centred across where the bitmap's glyph has its ink. An edge of ink half over a
+  pixel counts as half way into it. A character the outline font has no glyph for keeps the
+  bitmap's, and a code whose bitmap glyph has no ink draws nothing. The codes are the game's code
+  page, 1252.
+- **The pixels.** Each size a font is drawn at is drawn once into one picture, white and as opaque
+  as each pixel is covered, which the text's colour tints, and each glyph is drawn with its pixels
+  on the window's, so that the text is as sharp as the window is fine. FreeType's light hinting fits
+  the glyphs' heights to the pixels.
+
+**Improvement:** the original draws its text in its bitmap fonts at 640 by 480. `--bitmap-fonts` and
+`--original` draw the bitmap fonts, magnified.
+
 ## Prior art
 
 [DMJC's StarLanceDecomp](https://github.com/DMJC/StarLanceDecomp) read the header, the glyph

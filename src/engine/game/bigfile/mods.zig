@@ -5,7 +5,9 @@
 //! picture of the interface, a sound, a piece of music, a line of speech or a movie alike, with a
 //! file of the name of the one it replaces, and adds a file under a name of its own. Its PNG
 //! pictures (`Mods.pictures`) stand in for the game's images at any size: for a texture of the
-//! texture cache, with its material maps, a shape of a sprite set, and a TGA picture.
+//! texture cache, with its material maps, a shape of a sprite set, and a TGA picture. Its TrueType
+//! and OpenType fonts stand in for the game's fonts, drawn at the window's resolution
+//! (`hud.outline`).
 //!
 //! A mod is an archive of the game's own format, a `.hog`, or a folder of files, as for a mod while
 //! it is being made, read as the archive `sltool hog pack` makes of the folder reads. Its names are
@@ -21,6 +23,7 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
 const checksums = @import("../../../formats/checksums.zig");
+const fnt = @import("../../../formats/fnt.zig");
 const hog = @import("../../../formats/hog.zig");
 const spr = @import("../../../formats/spr.zig");
 const tcache = @import("../../../formats/tcache.zig");
@@ -497,6 +500,7 @@ pub const Mods = struct {
                 .map => |map| log.info("{s} gives the texture {s} its {s}", .{ mod.name, map.texture, map.kind.label() }),
                 .shape => |shape| log.info("{s} replaces shape {d} of the sprite set {s}", .{ mod.name, shape.index, shape.set }),
                 .picture => |picture| log.info("{s} replaces the picture {s}", .{ mod.name, picture }),
+                .font => |font| log.info("{s} replaces the font {s}", .{ mod.name, font }),
                 .added => log.info("{s} adds {s}", .{ mod.name, name }),
             };
         }
@@ -519,6 +523,9 @@ const Effect = union(enum) {
     /// It stands in for the game's TGA picture of its name, which it names less the picture's
     /// extension (`game.matmanager.pictureName`).
     picture: []const u8,
+    /// It is an outline font that stands in for one of the game's fonts (`fnt.outlineName`), which
+    /// it names less the font's extension.
+    font: []const u8,
     /// It is a file of the mod's own.
     added,
 };
@@ -534,6 +541,7 @@ fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effe
     if (own.mapOf(name)) |map| return .{ .map = map };
     if (own.shapeOf(name)) |shape| return .{ .shape = shape };
     if (own.pictureOf(name)) |picture| return .{ .picture = picture };
+    if (own.fontOf(name)) |font| return .{ .font = font };
     return .added;
 }
 
@@ -660,6 +668,19 @@ const GameFiles = struct {
         const picture = std.fmt.bufPrint(&buffer, "{s}" ++ tga.extension, .{stem}) catch return null;
         if (gathered.kindOf(picture) != .file) return null;
         return stem;
+    }
+
+    /// The game's font the outline font `name` stands in for, `<font>.ttf` or `<font>.otf`
+    /// (`fnt.outline_extensions`), named less its extension; null where it is none.
+    fn fontOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
+        for (fnt.outline_extensions) |extension| {
+            if (!std.ascii.endsWithIgnoreCase(name, extension)) continue;
+            const stem = name[0 .. name.len - extension.len];
+            var buffer: [files.max_path]u8 = undefined;
+            const font = std.fmt.bufPrint(&buffer, "{s}" ++ fnt.extension, .{stem}) catch return null;
+            if (gathered.kindOf(font) == .file) return stem;
+        }
+        return null;
     }
 
     /// The file `name` less the picture extension; null where it has another.
@@ -900,7 +921,7 @@ test effectOf {
     // Two mods: `a` and `b`, which comes after it.
     try tmp.dir.createDirPath(io, "mods/a");
     try tmp.dir.createDirPath(io, "mods/b");
-    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga" }) |path| {
+    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf" }) |path| {
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = path });
     }
     var mods: Mods = try .open(gpa, io, tmp.dir);
@@ -911,15 +932,18 @@ test effectOf {
     try own.add(gpa, "yank_2.png", .texture);
     try own.add(gpa, "hudhard.spr", .file);
     try own.add(gpa, "back.tga", .file);
+    try own.add(gpa, "optfnt.fnt", .file);
 
     // An earlier mod's file, the game's own, a texture and one of its maps, a sprite set's shape, a
-    // picture, and a file of its own.
+    // picture, an outline font, and a file of its own.
     try std.testing.expectEqual(&mods.list[0], effectOf(mods.list, 1, own, "hull.tga").over);
     try std.testing.expectEqual(.file, effectOf(mods.list, 1, own, "ship.shp"));
     try std.testing.expectEqualStrings("yank_2", effectOf(mods.list, 1, own, "yank_2.png").texture);
     try std.testing.expectEqual(.normal, effectOf(mods.list, 1, own, "yank_2_normal.png").map.kind);
     try std.testing.expectEqual(21, effectOf(mods.list, 1, own, "hudhard_021.png").shape.index);
     try std.testing.expectEqualStrings("back", effectOf(mods.list, 1, own, "back.png").picture);
+    try std.testing.expectEqualStrings("OPTFNT", effectOf(mods.list, 1, own, "OPTFNT.ttf").font);
+    try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "optfnt.woff"));
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "logo.tga"));
     // The first mod replaces no mod's file.
     try std.testing.expectEqual(.added, effectOf(mods.list, 0, own, "hull.tga"));

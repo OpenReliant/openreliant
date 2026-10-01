@@ -40,8 +40,12 @@ REPORTS ([#462](https://github.com/vdmkenny/openreliant/issues/462)), the fighte
 - As another debriefing is chosen, the game holds the screen still for half a second, drawing
   nothing (`itac_pause`, `0x00440170`). OpenReliant shows it at once.
 
-**Improvement:** the times of the sounds now and then, and which plays, are drawn from
-`std.Random`, where the game uses `rand`.
+**Improvements:**
+
+- The times of the sounds now and then, and which plays, are drawn from `std.Random`, where the
+  game uses `rand`.
+- Its text, in `itacbig.fnt` and `itacsml.fnt`, is drawn from outline fonts at the window's
+  resolution, Newtown or a mod's ([Outline fonts](../formats/fnt.md#outline-fonts)).
 
 ## Opening and closing
 

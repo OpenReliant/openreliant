@@ -145,9 +145,8 @@ pub const PauseMenu = struct {
     /// (`menu_font_large`, `menu_font_small`), and what holds them and their glyphs' images.
     const Fonts = struct {
         gpa: Allocator,
-        small: hud.Opened,
-        large: hud.Opened,
-        files: [2][]u8,
+        small: hud.FontFile,
+        large: hud.FontFile,
     };
 
     pub const small_font = hud.small_menu_font;
@@ -157,20 +156,14 @@ pub const PauseMenu = struct {
         return pause_menu.fonts != null;
     }
 
-    /// `pause_menu_open` (`0x00490600`), as the game pauses: opens the fonts from `archive` and
-    /// starts on the main screen. The game also ends the missile lock tone; missiles are not
-    /// ported yet (#39).
-    pub fn open(pause_menu: *PauseMenu, gpa: Allocator, archive: bigfile.Hog) !void {
-        const small = try archive.readFile(gpa, small_font);
-        errdefer gpa.free(small);
-        const large = try archive.readFile(gpa, large_font);
-        errdefer gpa.free(large);
-        pause_menu.fonts = .{
-            .gpa = gpa,
-            .small = .ramp(try fnt.Font.parse(small)),
-            .large = .ramp(try fnt.Font.parse(large)),
-            .files = .{ small, large },
-        };
+    /// `pause_menu_open` (`0x00490600`), as the game pauses: opens the fonts from `archive`, with
+    /// the outline fonts of `outlines` that stand in for them, and starts on the main screen. The
+    /// game also ends the missile lock tone; missiles are not ported yet (#39).
+    pub fn open(pause_menu: *PauseMenu, gpa: Allocator, archive: bigfile.Hog, outlines: ?*hud.outline.Outlines) !void {
+        var small: hud.FontFile = try .open(gpa, archive, small_font, outlines);
+        errdefer small.deinit(gpa);
+        const large: hud.FontFile = try .open(gpa, archive, large_font, outlines);
+        pause_menu.fonts = .{ .gpa = gpa, .small = small, .large = large };
         pause_menu.at = .{ .screen = .main };
         pause_menu.entered = null;
         pause_menu.archive = archive;
@@ -183,7 +176,6 @@ pub const PauseMenu = struct {
         pause_menu.settings = null;
         fonts.small.deinit(fonts.gpa);
         fonts.large.deinit(fonts.gpa);
-        for (fonts.files) |file| fonts.gpa.free(file);
         pause_menu.fonts = null;
         pause_menu.at = .{ .screen = .main };
     }
@@ -211,7 +203,7 @@ pub const PauseMenu = struct {
             .screen = frame.screen,
             .scale = hud.scaleFor(frame.screen),
             .art = frame.art,
-            .fonts = .{ .display = frame.font, .small = &fonts.small, .large = &fonts.large },
+            .fonts = .{ .display = frame.font, .small = &fonts.small.font, .large = &fonts.large.font },
             .strings = frame.strings,
         };
         const screen = switch (pause_menu.at) {
@@ -271,7 +263,7 @@ pub const PauseMenu = struct {
             .gpa = fonts.gpa,
             .target = frame.target,
             .window = frame.screen,
-            .fonts = .{ .large = &fonts.large, .small = &fonts.small },
+            .fonts = .{ .large = &fonts.large.font, .small = &fonts.small.font },
             .strings = frame.strings,
             .version = frame.version,
         };
@@ -325,7 +317,7 @@ test "PauseMenu.outcome" {
     var archive = try testing.fontArchive(gpa);
     defer archive.close(gpa);
     var pause_menu: PauseMenu = .{};
-    try pause_menu.open(gpa, archive.hog);
+    try pause_menu.open(gpa, archive.hog, null);
     try std.testing.expectEqual(null, pause_menu.outcome());
     pause_menu.at = .{ .outcome = .restart };
     try std.testing.expectEqual(Outcome.restart, pause_menu.outcome().?);

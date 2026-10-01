@@ -1,0 +1,17 @@
+.{
+    .name = .freetype,
+    // FreeType's release 2.14.3: the tag VER-2-14-3, commit 0a0221a1347e2f1e07c395263540026e9a0aa7c7.
+    .version = "2.14.3",
+    .fingerprint = 0xac2059b6431965c9,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .upstream = .{
+            .url = "git+https://gitlab.freedesktop.org/freetype/freetype.git?ref=VER-2-14-3#0a0221a1347e2f1e07c395263540026e9a0aa7c7",
+            .hash = "N-V-__8AAGJsqgDtM-7hGxs3GiSanZStnUfFiuHmioYRK3hN",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}

@@ -17,6 +17,9 @@
         .ffmpeg = .{
             .path = "deps/ffmpeg",
         },
+        .freetype = .{
+            .path = "deps/freetype",
+        },
     },
     .paths = .{
         "build.zig",

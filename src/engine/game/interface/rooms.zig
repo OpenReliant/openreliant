@@ -29,6 +29,7 @@ const bigfile = @import("../bigfile.zig");
 const cbox = @import("../cbox.zig");
 const gameflow = @import("../gameflow.zig");
 const hog_snd = @import("../hog_snd.zig");
+const hud = @import("../hud.zig");
 const videoreports = @import("../videoreports.zig");
 const movie = @import("../xtrabits/movie.zig");
 const canvas = @import("canvas.zig");
@@ -421,6 +422,9 @@ pub const Context = struct {
     /// Which of the Yamato's second crew comes next, which outlasts the rooms; none to start from
     /// the first each time.
     second_crew: ?*crew.Turn = null,
+    /// The outline fonts that stand in for the fonts of the screens the rooms open, the ITAC's
+    /// among them (`hud.FontFile`); none for the bitmap fonts alone.
+    outlines: ?*hud.outline.Outlines = null,
 
     /// The file `name` of the disc's archive open, expanded; null where it is left out, which the
     /// log says.

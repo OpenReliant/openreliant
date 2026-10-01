@@ -61,7 +61,9 @@ Any other number returns 3. **Unknown:** what selects screen 8: `WinMain` plays 
 
 The front end writes with `hud_text` and `hud_text_wrapped` through `interface_text_remap`, ramped by `interface_palette_ramp` (`0x004287C0`), the front end's copy of `hud_palette_ramp` ([Pause menu](pause-menu.md)): entries 1 to 15 of VFX's global palette, a ramp of a `0xRRGGBB` colour at `palette_ramp_brightness`. Level 16, which a few glyphs of the fonts use in their first column, reads past the table into the low byte of `dialog_button` (`0x00520294`): -1, clear, while no dialog's button is under the pointer, and otherwise palette entry 0 or 1. **Fix:** OpenReliant leaves it clear.
 
-**Improvement:** with the crisp filter, the default, the menus' text is drawn from its glyphs' coverage at the window's size: each of a glyph's pixels a square of its own coverage, eased into the next over a pixel of the frame, so that the letters keep the fonts' own shapes and greys, crisp, at any size, where a glyph magnified as it stands comes out soft ([Renderer](../port/renderer.md)). `--original` draws them as they stand, bilinearly.
+**Improvement:** the menus' text is drawn from outline fonts at the window's resolution, over the fonts' own layout: Newtown, built in, or a mod's ([Outline fonts](../formats/fnt.md#outline-fonts)). `--bitmap-fonts` and `--original` draw the bitmap fonts.
+
+**Improvement:** with the crisp filter, the default, a bitmap font's text is drawn from its glyphs' coverage at the window's size: each of a glyph's pixels a square of its own coverage, eased into the next over a pixel of the frame, so that the letters keep the fonts' own shapes and greys, crisp, at any size, where a glyph magnified as it stands comes out soft ([Renderer](../port/renderer.md)). `--original` draws them as they stand, bilinearly.
 
 | Colour | Where |
 |---|---|

@@ -57,11 +57,10 @@ out. Names are flat, so a mod gives the files it adds a prefix of its own, which
 from another mod's.
 
 A mod's files are in the game's own formats, which the [developer documentation](../README.md)
-describes, but for the pictures below: textures and the interface's pictures, in PNG at any size.
-Files in today's formats come later: glTF models
-([#359](https://github.com/vdmkenny/openreliant/issues/359)), sounds, music, speech and movies
-([#496](https://github.com/vdmkenny/openreliant/issues/496)), and fonts
-([#508](https://github.com/vdmkenny/openreliant/issues/508)).
+describes, but for the pictures and fonts below: textures and the interface's pictures, in PNG at
+any size, and the interface's fonts, in TrueType or OpenType. Files in today's formats come later:
+glTF models ([#359](https://github.com/vdmkenny/openreliant/issues/359)), and sounds, music,
+speech and movies ([#496](https://github.com/vdmkenny/openreliant/issues/496)).
 
 ## Textures
 
@@ -200,6 +199,37 @@ that size alone, and one of another size is left out, which the log says
 **Improvement:** the original draws its interface from its own pictures, at their own size, and
 stretches its backgrounds over the screen.
 
+### Fonts
+
+The interface writes its text in bitmap fonts made for the 640x480 screens
+([`.fnt` fonts](../formats/fnt.md)). A mod replaces one drawn in one colour with a TrueType or
+OpenType font of its name, `optfnt.ttf` or `optfnt.otf` for `interface\optfnt.fnt`, drawn at the
+window's resolution ([Outline fonts](../formats/fnt.md#outline-fonts)):
+
+| Font | What it writes |
+|---|---|
+| `optfnt.fnt` | The large text of the front end, the pause menu and the loading screens: titles and labels |
+| `smlfnt2.fnt` | Their small text: the buttons, the lists and OpenReliant's version |
+| `itacbig.fnt` | The ITAC's large text, and the CD player's and the simulator pod's titles |
+| `itacsml.fnt` | The ITAC's small text |
+| `font_01.fnt` | The main menu's developers' text |
+
+- **Layout.** The game lays its text out by the bitmap font's widths, which stay. Each character of
+  the mod's font is drawn in the place the bitmap font gives it, centred on where the bitmap's
+  glyph has its ink, with its capitals as tall as the bitmap's, so a font of other proportions
+  still fits each screen.
+- **Characters.** The game's text is in Windows code page 1252. A character the font has no glyph
+  for is drawn from the bitmap font.
+- **Built in.** OpenReliant draws the first four in Newtown, a public domain font in the style of
+  Handel Gothic, the original's face. A mod's font comes before Newtown, and a mod's own `.fnt`
+  before both.
+- **Licence.** A font goes out with the mod, so its licence has to allow that.
+
+The fonts drawn through palettes, the loadout's and the flight display's, keep their glyphs
+([#520](https://github.com/vdmkenny/openreliant/issues/520)).
+
+**Improvement:** the original draws its text in its bitmap fonts, at 640x480.
+
 ## The order of the mods
 
 The mods are read in the order of their names, whatever their case, and a later mod's file stands in
@@ -258,8 +288,9 @@ one the file gives, since the archive is then damaged or not the one the checksu
 ## What OpenReliant says
 
 As it starts, `openreliant` lists each mod it plays with, in its order, by its manifest's name
-where it has one, then each of its files: what it replaces, the game's file, texture, shape or
-picture or an earlier mod's file, or the file it adds.
+where it has one, then each of its files: what it replaces, the game's file, texture, shape,
+picture or font or an earlier mod's file, or the file it adds. As a font opens, it says which
+outline font draws it.
 
 ```text
 info(mods): music.hog matches music.hog.sha256
@@ -268,6 +299,7 @@ info(mods): coyote replaces USA_Coyote.SHP
 info(mods): mod 2 of 2: music.hog
 info(mods): music.hog replaces New_Pensive.wav
 info(mods): music.hog adds msc_theme.wav
+info(fonts): optfnt.fnt is drawn in Newtown
 ```
 
 `openreliant missions` lists and checks the missions the mods hold, `mod` in the file column, and

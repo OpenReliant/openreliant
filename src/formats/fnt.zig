@@ -13,7 +13,27 @@ const assert = std.debug.assert;
 const layout = @import("layout.zig");
 const spr = @import("spr.zig");
 
+pub const extension = ".fnt";
+
 pub const header_size = 0x10;
+
+/// OpenReliant's: the extensions of the outline fonts that stand in for a font, TrueType's and
+/// OpenType's, in the order they are looked for (`outlineName`).
+pub const outline_extensions = [_][]const u8{ ".ttf", ".otf" };
+
+/// The name of the outline font that stands in for the font `name`, with `outline_extension`: the
+/// font's name without its folder or extension, and `outline_extension`.
+pub fn outlineName(buffer: []u8, name: []const u8, outline_extension: []const u8) error{NoSpaceLeft}![]u8 {
+    const stem = std.fs.path.stem(std.fs.path.basenameWindows(name));
+    return std.fmt.bufPrint(buffer, "{s}{s}", .{ stem, outline_extension });
+}
+
+test outlineName {
+    var buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("optfnt.ttf", try outlineName(&buffer, "interface\\optfnt.fnt", ".ttf"));
+    try std.testing.expectEqualStrings("BLUFONT.otf", try outlineName(&buffer, "BLUFONT.FNT", ".otf"));
+    try std.testing.expectError(error.NoSpaceLeft, outlineName(buffer[0..4], "optfnt.fnt", ".ttf"));
+}
 
 /// Bytes of the palette some fonts carry after their last glyph: 256 RGB triples of 6-bit levels,
 /// as a sprite set's.

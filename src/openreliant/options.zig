@@ -38,6 +38,7 @@ pub const Arg = enum {
     @"--no-cockpit-shadows",
     @"--no-smooth-motion",
     @"--few-shot-lights",
+    @"--bitmap-fonts",
     @"--hrtf",
     @"--no-hrtf",
     @"--no-reverb",
@@ -88,7 +89,7 @@ const Doc = struct {
 
 /// Every option's help, which the compiler holds to having one for each.
 const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
-    .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no material maps, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, and the sound mixed plainly in stereo" },
+    .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no material maps, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, the interface's text in the game's bitmap fonts, and the sound mixed plainly in stereo" },
     .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "play this mission at once rather than open the main menu: the number the game names its file by, mission<number>.dte, from a mod, the game's missions folder or resource.hog; 0 is OpenReliant's sandbox, which openreliant carries where the game has no mission 0" },
     .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
     .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes" },
@@ -112,6 +113,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--shadows" = .{ .section = .graphics, .value = "<off|low|high>", .text = "shadows from the sun: low is soft and light on older GPUs, high sharp and smooth; high by default, and none without lighting each pixel" },
     .@"--no-smooth-motion" = .{ .section = .graphics, .text = "move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame" },
     .@"--few-shot-lights" = .{ .section = .graphics, .text = "light only the latest two of the player's shots and the latest two of everyone else's, as the original does" },
+    .@"--bitmap-fonts" = .{ .section = .graphics, .text = "write the interface's text in the game's own bitmap fonts, magnified to the window, rather than in outline fonts drawn at its resolution: Newtown, built in, or a mod's" },
     .@"--hrtf" = .{ .section = .sound, .text = "place the sounds for headphones whatever the output; by default they are while the output is headphones" },
     .@"--no-hrtf" = .{ .section = .sound, .text = "place the sounds for speakers whatever the output" },
     .@"--no-reverb" = .{ .section = .sound, .text = "play the sounds around you, the cockpit's voice and the Reliant's rooms without reverb" },
@@ -273,6 +275,9 @@ pub const Options = struct {
     draw_budget: game.main.DrawBudget = .roomy,
     /// Where the line starts that places the marker for a target out of sight.
     edge_line: game.hud.EdgeLine = .from_tip,
+    /// Whether the interface's text is drawn in outline fonts at the window's resolution
+    /// (`game.hud.outline`), or in the game's bitmap fonts alone.
+    outline_fonts: bool = true,
     /// How the sound plays, or null for none.
     sound: ?platform.audio.Options = .{},
     /// Where a missile's sound is heard from.
@@ -350,6 +355,7 @@ pub const Options = struct {
                 options.detail_reach = .original;
                 options.draw_budget = .original;
                 options.edge_line = .original;
+                options.outline_fonts = false;
                 if (options.sound) |*sound| sound.* = .{ .player = .software, .master = null };
                 options.missile_sound = .stays;
             },
@@ -396,6 +402,7 @@ pub const Options = struct {
             .@"--no-cockpit-shadows" => options.settings.cockpit_shadows = false,
             .@"--no-smooth-motion" => options.smooth_motion = false,
             .@"--few-shot-lights" => options.shot_lights = .latest_two,
+            .@"--bitmap-fonts" => options.outline_fonts = false,
             .@"--hrtf" => if (options.openAl()) |settings| {
                 settings.hrtf = .on;
             },
@@ -553,6 +560,8 @@ test Options {
     try std.testing.expectEqual(.fitted, plain.movie_size);
     try std.testing.expectEqual(.screen, retro.movie_size);
     try std.testing.expect(plain.movie_look.deblock and !retro.movie_look.deblock);
+    try std.testing.expect(plain.outline_fonts and !retro.outline_fonts);
+    try std.testing.expect(!(try parsed(&.{"--bitmap-fonts"})).outline_fonts);
     try std.testing.expectEqual(.whole_view, plain.ice_field);
     try std.testing.expectEqual(.original, retro.ice_field);
     try std.testing.expectEqual(game.wgate.Settings{}, plain.gates);

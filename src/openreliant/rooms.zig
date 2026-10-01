@@ -69,9 +69,11 @@ pub const Driver = struct {
     movies: *Movies,
     sound: *game.hog_snd.Sound,
     clock: *game.main.Clock,
-    /// `resource.hog`, the front end's fonts and dialog, and the strings.
+    /// `resource.hog`, the front end's fonts and dialog, the outline fonts that stand in for the
+    /// fonts, and the strings.
     resources: *const game.bigfile.Hog,
     front: *engine.genilib.interf.Resources,
+    outlines: *game.hud.outline.Outlines,
     strings: *const game.language.Language,
     /// How Enriquez's scenes and words sound: the radio's style.
     speech: game.cbox.Style,
@@ -279,6 +281,7 @@ pub const Driver = struct {
             .lines = driver.lines,
             .campaign = if (driver.campaign_flown.*) |*going| going else null,
             .second_crew = &driver.crew_turn,
+            .outlines = driver.outlines,
         };
     }
 
@@ -719,7 +722,7 @@ pub const Driver = struct {
             .gpa = driver.movies.gpa,
             .target = driver.movies.presenter.screen.interface(),
             .window = window,
-            .fonts = .{ .large = &driver.front.large, .small = &driver.front.small },
+            .fonts = .{ .large = &driver.front.large.font, .small = &driver.front.small.font },
             .strings = driver.strings,
             .version = version.string,
         };

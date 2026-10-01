@@ -437,8 +437,8 @@ pub const Itac = struct {
     run: Run,
     pilot: Pilot,
     /// Its fonts, shapes and sounds.
-    large: ?canvas_module.FontFile = null,
-    small: ?canvas_module.FontFile = null,
+    large: ?hud.FontFile = null,
+    small: ?hud.FontFile = null,
     shapes: ?canvas_module.Shapes = null,
     sounds: ?hog_snd.BankFile = null,
     /// The shown section's picture, which its text is written on.
@@ -491,8 +491,8 @@ pub const Itac = struct {
             .pointer_clock = .{ .last = ticks },
             .random = .init(now),
         };
-        itac.large = .read(gpa, resources, large_font_name);
-        itac.small = .read(gpa, resources, small_font_name);
+        itac.large = .read(gpa, resources.*, large_font_name, context.rooms.outlines);
+        itac.small = .read(gpa, resources.*, small_font_name, context.rooms.outlines);
         itac.shapes = .read(gpa, resources, shapes_name);
         itac.sounds = .read(gpa, resources, sounds_name);
         return itac;
@@ -831,6 +831,10 @@ pub const Itac = struct {
         try canvas.shape(&shapes.art, itac.pointerShape(), itac.pointer.at);
     }
 };
+
+test "Newtown stands in for the ITAC's fonts" {
+    try std.testing.expect(hud.outline.standsIn(large_font_name) and hud.outline.standsIn(small_font_name));
+}
 
 test buttons {
     try std.testing.expectEqual(.debriefings, canvas_module.itemAt(Section, &buttons, .{ 40, 440 }).?);

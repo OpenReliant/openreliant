@@ -20,8 +20,9 @@ case $mode in
 esac
 cd "$(git rev-parse --show-toplevel)"
 
-# The only binary files the repository holds: the compiled shaders.
-allowed_binary='^src/platform/shaders/[^/]+\.spv$'
+# The only binary files the repository holds: the compiled shaders, and the font OpenReliant
+# carries built in, which is no file of the game's (deps/newtown/README.md).
+allowed_binary='^(src/platform/shaders/[^/]+\.spv|deps/newtown/Newtown\.ttf)$'
 game_dirs='^(game|references|tools|ghidra/projects|ghidra/export)/'
 game_types='hog|shp|spr|dte|fat|fnt|frc|tga|bik|icd|exe|dll|m3d|asi|ccb|cab|bin|dat|iso|cue|mdf|mds|nrg|img|wav|mp3|ogg|png|jpg|jpeg|gif|bmp|pcx|ppm|obj|pdf|rtf|doc|ini|sav|zip'
 max_size=$((1024 * 1024))

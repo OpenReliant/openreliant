@@ -115,31 +115,20 @@ const line_rise = 40;
 /// shown.
 pub const Resources = struct {
     gpa: Allocator,
-    /// The fonts' files, which their glyphs stay in.
-    font_file: []const u8,
-    font: hud.Opened,
-    small_file: []const u8,
-    small: hud.Opened,
+    large: hud.FontFile,
+    small: hud.FontFile,
     picture: matmanager.Background = .{},
 
-    pub fn open(gpa: Allocator, archive: bigfile.Hog) !Resources {
-        const font_file = try archive.readFile(gpa, hud.large_menu_font);
-        errdefer gpa.free(font_file);
-        const small_file = try archive.readFile(gpa, hud.small_menu_font);
-        errdefer gpa.free(small_file);
-        return .{
-            .gpa = gpa,
-            .font_file = font_file,
-            .font = .ramp(try fnt.Font.parse(font_file)),
-            .small_file = small_file,
-            .small = .ramp(try fnt.Font.parse(small_file)),
-        };
+    /// The fonts of `archive`, with the outline fonts of `outlines` that stand in for them.
+    pub fn open(gpa: Allocator, archive: bigfile.Hog, outlines: ?*hud.outline.Outlines) !Resources {
+        var large: hud.FontFile = try .open(gpa, archive, hud.large_menu_font, outlines);
+        errdefer large.deinit(gpa);
+        return .{ .gpa = gpa, .large = large, .small = try .open(gpa, archive, hud.small_menu_font, outlines) };
     }
 
     pub fn close(resources: *Resources) void {
         resources.picture.deinit(resources.gpa);
-        inline for (.{ &resources.font, &resources.small }) |font| font.deinit(resources.gpa);
-        inline for (.{ resources.font_file, resources.small_file }) |file| resources.gpa.free(file);
+        inline for (.{ &resources.large, &resources.small }) |font| font.deinit(resources.gpa);
     }
 
     /// Readies `frame`'s picture (`background_set`), read from `archive` unless it is shown
@@ -161,7 +150,7 @@ pub const Resources = struct {
         if (resources.picture.image) |*picture| drawn.fill(picture);
         if (line) |words| {
             const at: [2]i32 = .{ @divTrunc(canvas.size[0], 2), canvas.size[1] - line_rise };
-            try drawn.text(&resources.font, at, words, white, .centre);
+            try drawn.text(&resources.large.font, at, words, white, .centre);
         }
         try drawn.drawVersion();
     }
@@ -196,14 +185,13 @@ test Resources {
     const gpa = std.testing.allocator;
     const device = @import("../../surrender/srd3d/device.zig");
     const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
+    const font = comptime fnt.testing.font(true);
     var resources: Resources = .{
         .gpa = gpa,
-        .font_file = &.{},
-        .font = .ramp(try fnt.Font.parse(comptime fnt.testing.font(true))),
-        .small_file = &.{},
-        .small = .ramp(try fnt.Font.parse(comptime fnt.testing.font(true))),
+        .large = .{ .bytes = &.{}, .font = .ramp(try fnt.Font.parse(font)) },
+        .small = .{ .bytes = &.{}, .font = .ramp(try fnt.Font.parse(font)) },
     };
-    defer inline for (.{ &resources.font, &resources.small }) |font| font.deinit(gpa);
+    defer inline for (.{ &resources.large, &resources.small }) |file| file.font.deinit(gpa);
     // A picture 4 by 3, of the front end's shape.
     const rgba = try gpa.alloc(u8, 4 * 3 * 4);
     @memset(rgba, 0xFF);
@@ -219,7 +207,7 @@ test Resources {
         .gpa = gpa,
         .target = recorder.interface(),
         .window = .{ 1280, 960 },
-        .fonts = .{ .large = &resources.font, .small = &resources.small },
+        .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
         .strings = &strings,
     };
 
@@ -237,7 +225,7 @@ test Resources {
     try resources.draw(drawn, &.{1});
     try std.testing.expectEqual(2, recorder.draws.items.len);
     const glyph = recorder.drawn(1);
-    const width: f32 = @floatFromInt(resources.font.widths[1]);
+    const width: f32 = @floatFromInt(resources.large.font.widths[1]);
     try std.testing.expectEqual(640 - width, glyph[0].x);
     try std.testing.expectEqual((480 - 40) * 2, glyph[0].y);
 }

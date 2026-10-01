@@ -59,7 +59,10 @@ const winmain = @import("winmain.zig");
 const Clock = main.Clock;
 const Vector = math.Vector;
 
+const log = std.log.scoped(.hud);
+
 pub const windows = @import("hud/windows.zig");
+pub const outline = @import("hud/outline.zig");
 pub const chase = @import("hud/chase.zig");
 pub const damage = @import("hud/damage.zig");
 pub const gunnery = @import("hud/gunnery.zig");
@@ -74,6 +77,7 @@ pub const wing_status = @import("hud/wing_status.zig");
 test {
     _ = chase;
     _ = damage;
+    _ = outline;
     _ = gunnery;
     _ = missile_display;
     _ = windows;
@@ -298,6 +302,9 @@ pub const Opened = struct {
     paint: Paint = .palette,
     /// What the GPU draws each code with, made as each is first drawn.
     images: [cached_codes]?srtexture.Image = @splat(null),
+    /// **Improvement:** the outline font that stands in for it, drawn at the window's resolution
+    /// over its layout (`outline`); none for the bitmap's glyphs alone.
+    outline: ?*outline.Outline = null,
 
     pub const Paint = enum {
         /// Through the font's palette, or else VFX's global one, as the display's text is.
@@ -352,6 +359,37 @@ pub const Opened = struct {
             if (code < cached_codes) width += opened.widths[code];
         }
         return width;
+    }
+};
+
+/// A font read whole, as `hog_load` reads one, and opened (`font_open`), its levels ramped through
+/// the colour it is drawn in (`Opened.ramp`), with the outline font that stands in for it where
+/// there is one (`outline.Outlines`): the front end's fonts, the pause menu's, the loading
+/// screens', the ITAC's, the CD player's and the simulator pod's.
+pub const FontFile = struct {
+    bytes: []u8,
+    font: Opened,
+
+    /// The font `name` of `archive`, and the outline of `outlines` that stands in for it.
+    pub fn open(gpa: Allocator, archive: bigfile.Hog, name: []const u8, outlines: ?*outline.Outlines) !FontFile {
+        const bytes = try archive.readFile(gpa, name);
+        errdefer gpa.free(bytes);
+        var font: Opened = .ramp(try fnt.Font.parse(bytes));
+        if (outlines) |made| font.outline = try made.of(name, font.font);
+        return .{ .bytes = bytes, .font = font };
+    }
+
+    /// `open`; null where the font is left out, which the log says.
+    pub fn read(gpa: Allocator, archive: bigfile.Hog, name: []const u8, outlines: ?*outline.Outlines) ?FontFile {
+        return open(gpa, archive, name, outlines) catch |err| {
+            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+            return null;
+        };
+    }
+
+    pub fn deinit(file: *FontFile, gpa: Allocator) void {
+        file.font.deinit(gpa);
+        gpa.free(file.bytes);
     }
 };
 
@@ -812,7 +850,7 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
 
 /// Coverage `level` of a ramp font as a grey: 0 to 255 for the levels 0 to 15, and 0, clear, past
 /// them (`Opened.Paint.ramp`).
-fn rampLevel(level: u8) u8 {
+pub fn rampLevel(level: u8) u8 {
     if (level > ramp_top) return 0;
     return @intCast(@as(u32, level) * 255 / ramp_top);
 }
@@ -854,10 +892,21 @@ pub fn drawTextIn(
     const top: f32 = @floatFromInt(at[1]);
     const height = @as(f32, @floatFromInt(opened.font.header.height)) * scale;
     const tint = device.pack(colour);
+    // **Improvement:** the outline font that stands in for the font, its glyphs drawn at this size
+    // over the font's layout, the bitmap's where it has none (`outline`).
+    const outlined = if (opened.outline) |shown| try shown.at(gpa, scale) else null;
     for (text) |code| {
         if (code >= cached_codes) continue;
         const width = @as(f32, @floatFromInt(opened.widths[code])) * scale;
         defer x += width;
+        if (outlined) |glyphs| switch (glyphs.shown(code, x, top, scale)) {
+            .blank => continue,
+            .bitmap => {},
+            .quad => |quad| {
+                drawPart(target, quad.image, quad.edges, quad.u, quad.v, tint, clip);
+                continue;
+            },
+        };
         const image = try glyphImage(opened, gpa, code) orelse continue;
         drawPart(target, image, .{ .left = x, .top = top, .right = x + width, .bottom = top + height }, .{ 0, 1 }, .{ 0, 1 }, tint, clip);
     }
@@ -1453,6 +1502,30 @@ test "the menus' glyphs are magnified from their coverage" {
     _ = try drawText(&menus, gpa, recorder.interface(), .{ 0, 0 }, "\x01", .{ 1, 1, 1, 1 }, .left, 2);
     try std.testing.expectEqual(.sharp, display.images[1].?.magnify);
     try std.testing.expectEqual(.coverage, menus.images[1].?.magnify);
+}
+
+test "an outline font draws over the bitmap font's layout" {
+    const gpa = std.testing.allocator;
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    var boxes: outline.testing.Boxes = .{};
+    const rasterizer = boxes.rasterizer();
+    const face = rasterizer.open("face").?;
+    var opened: Opened = .ramp(try fnt.Font.parse(outline.testing.font));
+    defer opened.deinit(gpa);
+    var shown: outline.Outline = .{ .rasterizer = rasterizer, .face = face, .file = null, .fit = outline.Fit.of(rasterizer, face, opened.font).? };
+    defer shown.deinit(gpa);
+    opened.outline = &shown;
+    // H from the outline font's atlas, centred on the bitmap's glyph, then `#`, which it has no
+    // glyph for, from the bitmap's, in its own place six pixels on: the line ends as the bitmap
+    // font lays it out, whatever the outline's.
+    const end = try drawText(&opened, gpa, recorder.interface(), .{ 30, 100 }, "H#", .{ 1, 1, 1, 1 }, .left, 3);
+    try std.testing.expectEqual(30 + 2 * 6 * 3, end);
+    try std.testing.expectEqual(2, recorder.draws.items.len);
+    try std.testing.expectEqual(&shown.atlases[0].?.image, recorder.draws.items[0].state.texture.?);
+    try std.testing.expectEqual(33.5, recorder.drawn(0)[0].x);
+    try std.testing.expectEqual(&opened.images['#'].?, recorder.draws.items[1].state.texture.?);
+    try std.testing.expectEqual(48, recorder.drawn(1)[0].x);
 }
 
 test drawText {

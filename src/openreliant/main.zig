@@ -297,10 +297,17 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     if (options.intro and options.mission == null and options.screenshot == null) {
         for (game.xtrabits.movie.intro) |name| _ = try movies.play(name, .cleared) orelse return;
     }
+    // The outline fonts that draw the interface's text at the window's resolution, through
+    // FreeType: Newtown, built in, and the mods' fonts in their places. The bitmap fonts alone with
+    // `--bitmap-fonts`, or where FreeType doesn't start.
+    var free_type: ?platform.fonts.FreeType = if (options.outline_fonts) platform.fonts.FreeType.init() catch null else null;
+    defer if (free_type) |*library| library.deinit();
+    var outlines: game.hud.outline.Outlines = .init(gpa, if (free_type) |*library| library.rasterizer() else null, &mods);
+    defer outlines.deinit();
     // The loading screen the renderer's start shows as the game loads, and each mission's start
     // after it: the picture alone, then with LOADING before each part of the game it loads.
     var loading: Loading = .{
-        .resources = try .open(gpa, resources),
+        .resources = try .open(gpa, resources, &outlines),
         .archive = &resources,
         .presenter = &presenter,
         .strings = &strings,
@@ -575,6 +582,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .sound = sound,
         .menu = &pause_menu,
         .archive = resources,
+        .outlines = &outlines,
         .camera = &view,
         .player = &objects.player,
     };
@@ -629,13 +637,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         // zeroed as `mission_run` zeroes them.
         if (flow.in_front_end) {
             if (front_resources == null) {
-                front_resources = try .open(gpa, resources);
+                front_resources = try .open(gpa, resources, &outlines);
                 rooms = .{
                     .movies = &movies,
                     .sound = sound,
                     .clock = &clock,
                     .resources = &resources,
                     .front = &front_resources.?,
+                    .outlines = &outlines,
                     .strings = &strings,
                     .speech = options.speech,
                     .lines = if (radio.archive) |*archive| archive else null,
@@ -1300,7 +1309,7 @@ const Loading = struct {
                 .gpa = resources.gpa,
                 .target = shown.loading.presenter.screen.interface(),
                 .window = shown.window,
-                .fonts = .{ .large = &resources.font, .small = &resources.small },
+                .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
                 .strings = shown.loading.strings,
                 .version = version.string,
             }, shown.line);

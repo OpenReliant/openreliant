@@ -367,8 +367,9 @@ pub const Pausing = struct {
     clock: *Clock,
     sound: *hog_snd.Sound,
     menu: *hudoptions.PauseMenu,
-    /// The archive the menu's fonts come from.
+    /// The archive the menu's fonts come from, and the outline fonts that stand in for them.
     archive: bigfile.Hog,
+    outlines: ?*hud.outline.Outlines = null,
     /// The camera, which resuming switches to view 0, following the player's ship's slot, when its
     /// cockpit setting (`camera.Camera.setting`) changed while paused.
     camera: *camera.Camera,
@@ -394,7 +395,7 @@ pub fn pause(pausing: Pausing, on: bool) !void {
             clock.paused = true;
             sound3d.pause(sound, true);
             sound.pauseAll();
-            try menu.open(pausing.gpa, pausing.archive);
+            try menu.open(pausing.gpa, pausing.archive, pausing.outlines);
         }
         menu.view_setting = pausing.camera.setting;
         return;

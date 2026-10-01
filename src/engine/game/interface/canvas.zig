@@ -344,32 +344,6 @@ pub const Shapes = struct {
     }
 };
 
-/// A font read whole, as `hog_load` reads one, and opened (`font_open`), its levels ramped
-/// through the colour it is drawn in (`hud.Opened.ramp`): the ITAC's and the simulator pod's.
-pub const FontFile = struct {
-    bytes: []u8,
-    font: hud.Opened,
-
-    /// The font `name` of `archive`; null where it is left out, which the log says.
-    pub fn read(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8) ?FontFile {
-        const bytes = archive.readFile(gpa, name) catch |err| {
-            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
-            return null;
-        };
-        const parsed = fnt.Font.parse(bytes) catch |err| {
-            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
-            gpa.free(bytes);
-            return null;
-        };
-        return .{ .bytes = bytes, .font = .ramp(parsed) };
-    }
-
-    pub fn deinit(file: *FontFile, gpa: Allocator) void {
-        file.font.deinit(gpa);
-        gpa.free(file.bytes);
-    }
-};
-
 /// A line of a screen's text: a string of the game's (`language_string`), or OpenReliant's words,
 /// where it stands, and how it lines up there.
 pub const Label = struct {

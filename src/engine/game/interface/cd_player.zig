@@ -212,7 +212,7 @@ pub const CdPlayer = struct {
     /// palette of block 0 for the buttons and of block 11 for the pointer (`0x00438AFB`,
     /// `0x00438CF8`).
     shapes: ?canvas_module.Shapes = null,
-    title_font: ?canvas_module.FontFile = null,
+    title_font: ?hud.FontFile = null,
     /// The pointer as the pass read it, and what lies under it.
     pointer: canvas_module.Pointer = .{},
     under: ?Hotspot = null,
@@ -243,7 +243,7 @@ pub const CdPlayer = struct {
         };
         player.picture.show(gpa, resources.*, picture);
         player.shapes = .read(gpa, resources, shapes_name);
-        player.title_font = .read(gpa, resources, title_font_name);
+        player.title_font = .read(gpa, resources.*, title_font_name, context.rooms.outlines);
         return player;
     }
 

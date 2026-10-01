@@ -191,7 +191,7 @@ pub const Pod = struct {
     picture: matmanager.Background = .{},
     shapes: ?canvas_module.Shapes = null,
     pointer_shapes: ?canvas_module.Shapes = null,
-    title_font: ?canvas_module.FontFile = null,
+    title_font: ?hud.FontFile = null,
     /// The pointer as the pass read it, and its animation's ticks.
     pointer: canvas_module.Pointer = .{},
     pointer_clock: canvas_module.PointerClock = .{},
@@ -204,7 +204,7 @@ pub const Pod = struct {
         var pod: Pod = .{ .context = context, .mission = mission, .pointer_clock = .{ .last = ticks } };
         pod.shapes = .readWith(gpa, resources, shapes_name, palette_block);
         pod.pointer_shapes = .readWith(gpa, resources, pointer_shapes_name, palette_block);
-        pod.title_font = .read(gpa, resources, title_font_name);
+        pod.title_font = .read(gpa, resources.*, title_font_name, context.rooms.outlines);
         pod.show(simulator_picture);
         return pod;
     }

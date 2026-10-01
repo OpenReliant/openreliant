@@ -11,17 +11,26 @@ The `openreliant` executable runs the game on SDL3, which stands in for everythi
 | [`platform/audio.zig`](../../src/platform/audio.zig) | The wave-out device Miles played through; OpenAL Soft or OpenReliant's own mixer plays the game's sound into it ([Sound](sound.md)) |
 | [`platform/openal.zig`](../../src/platform/openal.zig) | Miles's 3D providers: the game's sound calls played by OpenAL Soft ([Sound](sound.md#openal-soft)) |
 | [`platform/video.zig`](../../src/platform/video.zig) | Bink's and MP3's decoders: the movies' packets and the crew's lines decoded by FFmpeg ([Movies](#movies)) |
+| [`platform/fonts.zig`](../../src/platform/fonts.zig) | Nothing: the outline fonts' glyphs, drawn by FreeType ([Fonts](#fonts)) |
 | [`platform/macos.zig`](../../src/platform/macos.zig) | Nothing: what macOS needs before SDL starts |
 | [`openreliant/main.zig`](../../src/openreliant/main.zig) | `WinMain`: opening the game's files and running the frame loop |
 | [`openreliant/install.zig`](../../src/openreliant/install.zig) | The installer on disc 1, `SETUP.EXE`: unpacking `LANCER.CAB` and copying the disc's `GAME/CAB` files |
 
-SDL comes from the [castholm/SDL](https://github.com/castholm/SDL) package, which builds it from source for the target, so no SDL has to be installed. `build.zig` translates its header into the `sdl` module the platform layer imports. OpenAL Soft is built from source the same way, by [`deps/openal-soft`](../../deps/openal-soft/build.zig), into the `al` module, and FFmpeg by [`deps/ffmpeg`](../../deps/ffmpeg/build.zig), into the `av` module.
+SDL comes from the [castholm/SDL](https://github.com/castholm/SDL) package, which builds it from source for the target, so no SDL has to be installed. `build.zig` translates its header into the `sdl` module the platform layer imports. OpenAL Soft is built from source the same way, by [`deps/openal-soft`](../../deps/openal-soft/build.zig), into the `al` module, FFmpeg by [`deps/ffmpeg`](../../deps/ffmpeg/build.zig), into the `av` module, and FreeType by [`deps/freetype`](../../deps/freetype/build.zig), into the `ft` module.
 
 ## Movies
 
 The game's movies ([Movies](../engine/movies.md)) are decoded by [FFmpeg](https://ffmpeg.org)'s Bink decoders, in place of RAD's library, and the crew's lines in the rooms by its MP3 decoder, in place of Miles's ([The crew](../engine/rooms.md#the-crew)). [`deps/ffmpeg`](../../deps/ffmpeg/build.zig) builds FFmpeg 9.0.2, pinned in its manifest by the release's tag and commit, as a static library of the Bink video and audio decoders, the MP3 decoder, and the part of `libavcodec` and `libavutil` they reach: the files a program using the decoding calls links, as FFmpeg's `configure --disable-everything --enable-decoder=bink,binkaudio_rdft,binkaudio_dct,mp3float --disable-asm --disable-pthreads` builds them, and the settings those files read. It is plain C for any processor, without assembly or threads, and built optimized whatever the game is built as, as OpenAL Soft is. None of FFmpeg's GPL parts is built.
 
 [`platform/video.zig`](../../src/platform/video.zig) sets each decoder up as FFmpeg's reader of the container would, and hands the engine the pictures, 4:2:0 in BT.601's limited range, and the sound, as 16-bit samples rounded as FFmpeg's conversion rounds them. The pictures and the sound come out as the `ffmpeg` tool decodes the same files. Built without threads, FFmpeg is called from the game's thread alone.
+
+## Fonts
+
+The outline fonts that draw the interface's text at the window's resolution ([Outline fonts](../formats/fnt.md#outline-fonts)) are drawn by [FreeType](https://freetype.org). [`deps/freetype`](../../deps/freetype/build.zig) builds FreeType 2.14.3, pinned in its manifest by the release's tag and commit, as a static library of its TrueType and CFF drivers, which read TrueType and OpenType fonts, the modules they need, its auto-hinter and its anti-aliasing rasterizer, with the upstream's own options. It is built optimized whatever the game is built as, as FFmpeg is. OpenReliant takes FreeType under the FreeType License, whose credit the README gives.
+
+[`platform/fonts.zig`](../../src/platform/fonts.zig) opens each font from its file in memory, and draws a glyph at the size the engine asks for, in 64ths of a pixel to the em, anti-aliased, with FreeType's light hinting, which fits the glyphs' heights to the pixels and leaves their widths as the outlines have them. FreeType is called from the game's thread alone.
+
+The font OpenReliant carries, Newtown, lies in [`deps/newtown`](../../deps/newtown/README.md), which gives its source and its licence, and the build puts it in the executable.
 
 ## Running
 

@@ -9,7 +9,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const fat = @import("../../formats/fat.zig");
-const fnt = @import("../../formats/fnt.zig");
 const spr = @import("../../formats/spr.zig");
 const input = @import("../input.zig");
 const profile = @import("../profile.zig");
@@ -91,9 +90,9 @@ pub const Resources = struct {
     gpa: Allocator,
     archive: bigfile.Hog,
     files: std.EnumArray(File, []u8),
-    large: hud.Opened,
-    small: hud.Opened,
-    developer: hud.Opened,
+    large: hud.FontFile,
+    small: hud.FontFile,
+    developer: hud.FontFile,
     dialog: hud.Art,
     about: hud.Art,
     /// The screen whose shapes and background are read, its shapes, and the file they are read
@@ -103,19 +102,23 @@ pub const Resources = struct {
     shapes_file: []u8 = &.{},
     background: matmanager.Background = .{},
 
-    /// The files it reads, which the fonts and the dialogs' shapes are made of.
-    pub const File = enum { large, small, developer, dialog, about };
+    /// The files it reads, which the dialogs' shapes are made of.
+    pub const File = enum { dialog, about };
 
     const names = std.EnumArray(File, []const u8).init(.{
-        .large = hud.large_menu_font,
-        .small = hud.small_menu_font,
-        .developer = main_menu.developer_font_name,
         .dialog = interface.dialog.shapes_name,
         .about = interface.in_game_options.about_shapes_name,
     });
 
-    /// Opens what the front end draws with, and the main menu's shapes and background.
-    pub fn open(gpa: Allocator, archive: bigfile.Hog) !Resources {
+    /// Opens what the front end draws with, its fonts with the outline fonts of `outlines` that
+    /// stand in for them, and the main menu's shapes and background.
+    pub fn open(gpa: Allocator, archive: bigfile.Hog, outlines: ?*hud.outline.Outlines) !Resources {
+        var large: hud.FontFile = try .open(gpa, archive, hud.large_menu_font, outlines);
+        errdefer large.deinit(gpa);
+        var small: hud.FontFile = try .open(gpa, archive, hud.small_menu_font, outlines);
+        errdefer small.deinit(gpa);
+        var developer: hud.FontFile = try .open(gpa, archive, main_menu.developer_font_name, outlines);
+        errdefer developer.deinit(gpa);
         var files: std.EnumArray(File, []u8) = undefined;
         var read: usize = 0;
         errdefer for (files.values[0..read]) |file| gpa.free(file);
@@ -127,9 +130,9 @@ pub const Resources = struct {
             .gpa = gpa,
             .archive = archive,
             .files = files,
-            .large = .ramp(try fnt.Font.parse(files.get(.large))),
-            .small = .ramp(try fnt.Font.parse(files.get(.small))),
-            .developer = .ramp(try fnt.Font.parse(files.get(.developer))),
+            .large = large,
+            .small = small,
+            .developer = developer,
             .dialog = try .init(gpa, try spr.Sprite.parse(files.get(.dialog)), null, .of(archive.mods, names.get(.dialog))),
             .about = undefined,
         };
@@ -320,7 +323,7 @@ pub const Interface = struct {
                     .keyboard = &context.devices.keyboard,
                     .typed = context.typed,
                     .elapsed = context.elapsed,
-                    .small = if (context.resources) |resources| &resources.small else null,
+                    .small = if (context.resources) |resources| &resources.small.font else null,
                     .pilot = &front.pilot,
                     .settings = context.settings,
                 }) orelse return null;
@@ -427,14 +430,14 @@ pub const Interface = struct {
             .gpa = resources.gpa,
             .target = target,
             .window = window,
-            .fonts = .{ .large = &resources.large, .small = &resources.small },
+            .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
             .strings = strings,
             .version = version,
         };
         if (resources.background.image) |*picture| drawn.fill(picture);
         const art = if (resources.shapes) |*shapes| shapes else return;
         switch (front.screen) {
-            .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer),
+            .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer.font),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about, front.pointer),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown, front.pointer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),

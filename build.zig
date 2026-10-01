@@ -13,6 +13,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
     });
+    // The outline font OpenReliant carries built in, Newtown, which deps/newtown describes.
+    lib.addAnonymousImport("Newtown.ttf", .{ .root_source_file = b.path("deps/newtown/Newtown.ttf") });
 
     // The game: SDL3 in place of Win32 and DirectX, from the SDL package, which builds SDL from
     // source for the target.
@@ -71,6 +73,19 @@ pub fn build(b: *std.Build) void {
     ffmpeg_c.addIncludePath(ffmpeg_library.getEmittedIncludeTree());
     platform.addImport("av", ffmpeg_c.createModule());
     platform.linkLibrary(ffmpeg_library);
+    // The outline fonts, which draw the interface's text at the window's resolution: FreeType,
+    // which deps/freetype builds from source for the target. It is built optimized whatever mode
+    // the game is built in, as FFmpeg is, so that a font's glyphs are drawn in time in a debug
+    // build too.
+    const freetype_library = b.dependency("freetype", .{ .target = target, .optimize = .ReleaseFast }).artifact("freetype");
+    const freetype_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/platform/freetype.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    freetype_c.addIncludePath(freetype_library.getEmittedIncludeTree());
+    platform.addImport("ft", freetype_c.createModule());
+    platform.linkLibrary(freetype_library);
     if (macos_sdk) |sdk| {
         // OpenAL Soft reads its configuration through CoreFoundation on a Mac.
         addMacosSdk(b, openal_library.root_module, sdk);
