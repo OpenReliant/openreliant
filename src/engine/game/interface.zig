@@ -30,9 +30,21 @@ const Modifier = input.ControlBinding.Modifier;
 const profile = @import("../profile.zig");
 const Profile = profile.Profile;
 
-/// The `starlancer.ini` sections with the input settings and bindings.
+/// The `starlancer.ini` sections with the input settings and bindings: the settings and the keys,
+/// a joystick's buttons, and a gamepad's (`buttonSection`).
 const key_section = "KeyConfig";
 pub const joy_section = "JoyConfig";
+const gamepad_section = "GamepadConfig";
+
+/// The section a controller of `kind` keeps its buttons in: `JoyConfig` for a joystick, as the game
+/// keeps them, and for a gamepad, whose buttons OpenReliant numbers as its own
+/// (`input.GamepadButton`), `GamepadConfig`, which the game never reads.
+fn buttonSection(kind: input.JoystickDevice.Kind) []const u8 {
+    return switch (kind) {
+        .joystick => joy_section,
+        .gamepad => gamepad_section,
+    };
+}
 
 /// The input settings `KeyConfig` holds, by the names the game reads and writes them under.
 pub const Setting = enum {
@@ -84,21 +96,20 @@ pub fn saveSetting(held: input.Settings, settings_file: *profile.File, setting: 
 
 /// `key_config_defaults` (`0x0042CAA0`), as the controls screen's RESET DEFAULTS calls it, and
 /// `load_key_config` starts from: the input settings at their defaults, force feedback on, pitch
-/// as the stick has it, the hat on, the twist not rolling, and the joystick steering where there is
-/// one, the keyboard where not; and the default bindings (`input.defaultBindings`). Added by
-/// OpenReliant: a gamepad's twist, its right stick, rolls; and the dead zone stays as it is.
+/// as the stick has it, the hat on, the twist not rolling, and the joystick steering; and the
+/// default bindings (`input.defaultBindings`), a gamepad's its own. The dead zone stays as it is.
+///
+/// **Fix:** the game chooses the joystick only where one is attached, and the keyboard where not
+/// (`0x0042CAF2`), which its controls screen then writes, so that a game started without the
+/// joystick steers with the keyboard ever after. OpenReliant chooses the joystick, which steers with
+/// the keyboard while none is attached (`input.Devices.controlMode`).
 ///
 /// Not ported: the game reads the bindings from `DEFAULT.TXT` in its folder, the executable's
 /// standing where it names none
 /// ([#488](https://github.com/vdmkenny/openreliant/issues/488)).
 pub fn keyConfigDefaults(devices: *input.Devices) void {
-    const joystick = devices.joystick;
-    devices.settings = .{
-        .twist_enabled = joystick.device != null and joystick.kind == .gamepad,
-        .control_mode = if (joystick.device != null) .joystick else .keyboard,
-        .dead_zone = devices.settings.dead_zone,
-    };
-    devices.bindings = input.defaultBindings(joystick.kind);
+    devices.settings = .{ .dead_zone = devices.settings.dead_zone };
+    devices.bindings = input.defaultBindings(devices.joystick.kind);
 }
 
 /// `control_binding_find` (`0x0042C5F0`): the first action but `except` bound to `key` with
@@ -127,11 +138,14 @@ const modifier_names = [_]struct { name: []const u8, modifier: Modifier }{
 
 /// `load_key_config` (`0x0042C800`): loads the input settings from the `KeyConfig` section of
 /// `starlancer.ini`, then each action's bindings from both sections, using the action's name as the
-/// key. If `Controller` is 0 but there is no joystick, the keyboard is used instead.
+/// key (`loadBinding`).
 ///
 /// A `KeyConfig` value is either a key, as a decimal scan code optionally preceded by `SHIFT `,
 /// `CONTROL ` or `ALT `, or `JOY BUTTON ` and a button number starting at 0. A `JoyConfig` value is
 /// a button, and overrides the one from `KeyConfig`. A missing entry keeps the default binding.
+///
+/// **Fix:** where `Controller` is 0 and no joystick is attached, the game makes it 1, the keyboard
+/// (`0x0042C8A5`); OpenReliant keeps the choice (`input.Devices.controlMode`).
 ///
 /// Two bugs in the original are fixed; files the game writes itself load the same either way. When
 /// the `KeyConfig` entry has a modifier, the original checks the `JoyConfig` value for
@@ -142,42 +156,71 @@ const modifier_names = [_]struct { name: []const u8, modifier: Modifier }{
 ///
 /// Each call starts from the defaults (`keyConfigDefaults`), as `hud_init` calls the two, so
 /// OpenReliant can load the file again when a controller is connected or disconnected. Added by
-/// OpenReliant: gamepads get their own default bindings and roll with their twist by default; and
-/// `DeadZone` in `JoyConfig` sets the joystick's dead zone (`deadZone`).
+/// OpenReliant: a gamepad's bindings come from `GamepadConfig` (`loadPadBinding`); and `DeadZone`
+/// in `JoyConfig` sets the joystick's dead zone (`deadZone`).
 pub fn loadKeyConfig(devices: *input.Devices, settings_file: Profile) void {
     keyConfigDefaults(devices);
     const held = &devices.settings;
     for (std.enums.values(Setting)) |setting| setting.set(held, settings_file.int(key_section, setting.key(), setting.of(held.*)));
-    if (held.control_mode == .joystick and devices.joystick.device == null) held.control_mode = .keyboard;
     held.dead_zone = deadZone(settings_file);
+    for (&devices.bindings.values) |*binding| switch (devices.joystick.kind) {
+        .joystick => loadBinding(binding, settings_file),
+        .gamepad => loadPadBinding(binding, settings_file),
+    };
+}
 
-    for (&devices.bindings.values) |*binding| {
-        var default_buffer: [32]u8 = undefined;
-        const default = defaultValue(&default_buffer, binding.*);
-        var buffer: Buffer = @splat(0);
-        copy(&buffer, settings_file.string(key_section, binding.name, default, buffer.len));
-        binding.button = null;
-        var joy_default = default;
-        if (std.mem.eql(u8, buffer[0..button_name.len], button_name)) {
-            binding.button = buttonNumber(read(buffer[button_name.len..]));
-            joy_default = std.mem.sliceTo(&buffer, 0);
-        } else {
-            binding.modifier = .none;
-            var skipped: usize = 0;
-            for (modifier_names) |named| {
-                if (!std.mem.eql(u8, buffer[0..named.name.len], named.name)) continue;
-                binding.modifier = named.modifier;
-                skipped = named.name.len + 1;
-                break;
-            }
-            binding.key = @truncate(@as(u32, @bitCast(read(buffer[skipped..]))));
-        }
-        var joy_buffer: Buffer = @splat(0);
-        copy(&joy_buffer, settings_file.string(joy_section, binding.name, joy_default, joy_buffer.len));
-        if (std.mem.eql(u8, joy_buffer[0..button_name.len], button_name)) {
-            binding.button = buttonNumber(read(joy_buffer[button_name.len..]));
-        }
+/// An action's binding as `load_key_config` reads it: its `KeyConfig` value, a key or a button, then
+/// its `JoyConfig` value, a button, over it.
+fn loadBinding(binding: *controls.Binding, settings_file: Profile) void {
+    var default_buffer: [32]u8 = undefined;
+    const default = defaultValue(&default_buffer, binding.*);
+    var buffer: Buffer = @splat(0);
+    copy(&buffer, settings_file.string(key_section, binding.name, default, buffer.len));
+    binding.button = null;
+    var joy_default = default;
+    if (isButton(&buffer)) {
+        binding.button = buttonNumber(read(buffer[button_name.len..]));
+        joy_default = std.mem.sliceTo(&buffer, 0);
+    } else readKey(binding, &buffer);
+    var joy_buffer: Buffer = @splat(0);
+    copy(&joy_buffer, settings_file.string(joy_section, binding.name, joy_default, joy_buffer.len));
+    if (isButton(&joy_buffer)) binding.button = buttonNumber(read(joy_buffer[button_name.len..]));
+}
+
+/// A gamepad's binding, added by OpenReliant: its key from `KeyConfig`, where that names a key, and
+/// its button from `GamepadConfig`, `JOY BUTTON ` and the button as OpenReliant numbers a gamepad's
+/// (`input.GamepadButton`), or nothing for none; the default where either has no entry. A
+/// joystick's buttons, `JoyConfig`'s and a `JOY BUTTON` in `KeyConfig`, are numbered otherwise, and
+/// a gamepad reads none of them.
+fn loadPadBinding(binding: *controls.Binding, settings_file: Profile) void {
+    var key_buffer: [32]u8 = undefined;
+    var key_default: std.Io.Writer = .fixed(&key_buffer);
+    keyValue(&key_default, binding.*);
+    var buffer: Buffer = @splat(0);
+    copy(&buffer, settings_file.string(key_section, binding.name, key_default.buffered(), buffer.len));
+    if (!isButton(&buffer)) readKey(binding, &buffer);
+    var button_buffer: [32]u8 = undefined;
+    var pad_buffer: Buffer = @splat(0);
+    copy(&pad_buffer, settings_file.string(gamepad_section, binding.name, buttonValue(&button_buffer, binding.button), pad_buffer.len));
+    binding.button = if (isButton(&pad_buffer)) buttonNumber(read(pad_buffer[button_name.len..])) else null;
+}
+
+/// Whether a value names a button.
+fn isButton(buffer: *const Buffer) bool {
+    return std.mem.eql(u8, buffer[0..button_name.len], button_name);
+}
+
+/// The key a value names, after its modifier's name, into `binding`.
+fn readKey(binding: *controls.Binding, buffer: *const Buffer) void {
+    binding.modifier = .none;
+    var skipped: usize = 0;
+    for (modifier_names) |named| {
+        if (!std.mem.eql(u8, buffer[0..named.name.len], named.name)) continue;
+        binding.modifier = named.modifier;
+        skipped = named.name.len + 1;
+        break;
     }
+    binding.key = @truncate(@as(u32, @bitCast(read(buffer[skipped..]))));
 }
 
 /// The joystick dead zone from `DeadZone` in `JoyConfig` (added by OpenReliant), given as a
@@ -191,7 +234,8 @@ pub fn deadZone(settings_file: Profile) u16 {
 /// `save_key_config` (`0x0042C630`): writes the input settings to the `KeyConfig` section of
 /// `starlancer.ini`, then each action's key there, by the action's name, after the modifier's name
 /// (`keyValue`), and its button to `JoyConfig`, `JOY BUTTON ` and the button's number, or nothing for
-/// none. Added by OpenReliant: the joystick's dead zone, `DeadZone` in `JoyConfig` (`deadZone`).
+/// none (`buttonValue`). Added by OpenReliant: the joystick's dead zone, `DeadZone` in `JoyConfig`
+/// (`deadZone`); and a gamepad's buttons go to `GamepadConfig` (`buttonSection`).
 ///
 /// **Fix:** for a key held with Alt, the game writes the address of the key's name, which loads as
 /// another key; OpenReliant writes the key's scan code, as it does with the other modifiers.
@@ -199,15 +243,14 @@ pub fn saveKeyConfig(devices: *const input.Devices, settings_file: *profile.File
     const held = devices.settings;
     for (std.enums.values(Setting)) |setting| try saveSetting(held, settings_file, setting);
     try settings_file.writeInt(joy_section, "DeadZone", held.dead_zone / dead_zone_unit);
+    const buttons = buttonSection(devices.joystick.kind);
     for (devices.bindings.values) |binding| {
         var key_buffer: [32]u8 = undefined;
         var key: std.Io.Writer = .fixed(&key_buffer);
         keyValue(&key, binding);
         try settings_file.write(key_section, binding.name, key.buffered());
         var button_buffer: [32]u8 = undefined;
-        var button: std.Io.Writer = .fixed(&button_buffer);
-        if (binding.button) |number| button.print(button_name ++ "{d}", .{number}) catch {};
-        try settings_file.write(joy_section, binding.name, button.buffered());
+        try settings_file.write(buttons, binding.name, buttonValue(&button_buffer, binding.button));
     }
 }
 
@@ -217,13 +260,17 @@ const dead_zone_unit = 100;
 /// A binding formatted the way the game writes it, which is also the default when the file has no
 /// entry: `JOY BUTTON ` and the button, or the key as `keyValue` writes it.
 fn defaultValue(buffer: *[32]u8, binding: controls.Binding) []const u8 {
-    var writer: std.Io.Writer = .fixed(buffer);
+    if (binding.button != null) return buttonValue(buffer, binding.button);
     // The longest value, `CONTROL -32768`, fits the buffer with room to spare.
-    if (binding.button) |button| {
-        writer.print(button_name ++ "{d}", .{button}) catch {};
-    } else {
-        keyValue(&writer, binding);
-    }
+    var writer: std.Io.Writer = .fixed(buffer);
+    keyValue(&writer, binding);
+    return writer.buffered();
+}
+
+/// A button as the game writes it: `JOY BUTTON ` and its number, or nothing for none.
+fn buttonValue(buffer: *[32]u8, button: ?u8) []const u8 {
+    var writer: std.Io.Writer = .fixed(buffer);
+    if (button) |number| writer.print(button_name ++ "{d}", .{number}) catch {};
     return writer.buffered();
 }
 
@@ -277,8 +324,9 @@ test loadKeyConfig {
     loadKeyConfig(&devices, settings_file);
     const loaded = devices.settings;
     try std.testing.expect(!loaded.joystick_invert and loaded.twist_enabled and loaded.hat_enabled);
-    // Without a joystick, the keyboard is used.
-    try std.testing.expectEqual(input.ControlMode.keyboard, loaded.control_mode);
+    // Without a joystick, the joystick stays the choice, and the keyboard steers until one comes.
+    try std.testing.expectEqual(input.ControlMode.joystick, loaded.control_mode);
+    try std.testing.expectEqual(input.ControlMode.keyboard, devices.controlMode());
     try std.testing.expectEqual(400, loaded.dead_zone);
 
     const bindings = devices.bindings;
@@ -359,6 +407,45 @@ test saveKeyConfig {
     }
 }
 
+test "a gamepad keeps its own buttons" {
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    var devices: input.Devices = .{};
+    devices.joystick.kind = .gamepad;
+    const settings_file: Profile = .{ .text =
+        \\[KeyConfig]
+        \\FIRE LASERS=JOY BUTTON 5
+        \\AFTERBURNERS=15
+        \\[JoyConfig]
+        \\ACCELERATE=
+        \\AFTERBURNERS=JOY BUTTON 9
+        \\[GamepadConfig]
+        \\LAUNCH MISSILE=JOY BUTTON 3
+        \\COUNTERMEASURES=
+        \\
+    };
+    loadKeyConfig(&devices, settings_file);
+    const pad = input.defaultBindings(.gamepad);
+    // A joystick's buttons, in `JoyConfig` or in `KeyConfig`, leave the gamepad's as they are; its
+    // keys are taken.
+    for ([_]controls.Action{ .fire_lasers, .accelerate, .afterburners }) |action| {
+        try std.testing.expectEqual(pad.get(action).button, devices.bindings.get(action).button);
+    }
+    try std.testing.expectEqual(15, devices.bindings.get(.afterburners).key);
+    // `GamepadConfig` gives a button, or takes one away.
+    try std.testing.expectEqual(3, devices.bindings.get(.launch_missile).button.?);
+    try std.testing.expectEqual(null, devices.bindings.get(.countermeasures).button);
+    // Its right stick rolls whatever `TwistEnable` says.
+    try std.testing.expect(!devices.settings.twist_enabled and devices.twistRolls());
+
+    // Its buttons are written to `GamepadConfig`, and `JoyConfig`'s left alone.
+    var file: profile.File = .{ .arena = arena_state.allocator(), .profile = settings_file };
+    try saveKeyConfig(&devices, &file);
+    try std.testing.expectEqualStrings("JOY BUTTON 3", file.profile.value(gamepad_section, "LAUNCH MISSILE").?);
+    try std.testing.expectEqualStrings("JOY BUTTON 9", file.profile.value(joy_section, "AFTERBURNERS").?);
+}
+
 test read {
     // Up to the terminator, past which the buffer keeps what an earlier value left.
     try std.testing.expectEqual(57, read("57\x0099"));
@@ -370,8 +457,8 @@ test keyConfigDefaults {
     devices.settings = .{ .joystick_invert = false, .twist_enabled = true, .control_mode = .mouse, .dead_zone = 400 };
     devices.bindings.getPtr(.eject).key = 0;
     keyConfigDefaults(&devices);
-    // Without a joystick, the keyboard steers; the dead zone, OpenReliant's, stays.
-    try std.testing.expectEqual(input.Settings{ .control_mode = .keyboard, .dead_zone = 400 }, devices.settings);
+    // The joystick chosen, which steers once one is attached; the dead zone, OpenReliant's, stays.
+    try std.testing.expectEqual(input.Settings{ .dead_zone = 400 }, devices.settings);
     try std.testing.expectEqual(controls.binding(.eject).key, devices.bindings.get(.eject).key);
 }
 

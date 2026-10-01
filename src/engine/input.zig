@@ -326,7 +326,7 @@ pub const KeyName = extern struct {
 
 /// How `player_controls` steers the player's ship: the `Controller` setting.
 pub const ControlMode = enum(u32) {
-    /// The joystick's axes. The game picks the keyboard instead when it finds no joystick.
+    /// The joystick's axes, or the keyboard while no joystick is attached (`Devices.controlMode`).
     joystick = 0,
     /// Steering keys held step the inputs.
     keyboard = 1,
@@ -569,6 +569,7 @@ pub const Settings = struct {
     /// rear views.
     hat_enabled: bool = true,
     /// `TwistEnable` (`twist_enabled`, `0x00595D88`): whether the joystick's twist rolls the ship.
+    /// A gamepad's right stick rolls whatever it says (`Devices.twistRolls`).
     twist_enabled: bool = false,
     /// `Controller` (`control_mode`, `0x0057E064`).
     control_mode: ControlMode = .joystick,
@@ -749,6 +750,24 @@ pub const Devices = struct {
     bindings: Bindings = defaultBindings(.joystick),
     settings: Settings = .{},
 
+    /// What the player steers with: the controller chosen, but the keyboard while the joystick
+    /// chosen is not attached, as `load_key_config` has it (`0x0042C8A5`).
+    ///
+    /// **Fix:** the game steers with the keyboard by changing the setting itself, which its controls
+    /// screen then writes to `starlancer.ini`, so that the joystick is lost as the choice for every
+    /// game after. OpenReliant keeps the choice, and steers with the joystick as soon as one is
+    /// attached.
+    pub fn controlMode(devices: Devices) ControlMode {
+        if (devices.settings.control_mode == .joystick and devices.joystick.device == null) return .keyboard;
+        return devices.settings.control_mode;
+    }
+
+    /// Whether the joystick's twist rolls the ship: a joystick's where `TwistEnable` says so, and a
+    /// gamepad's right stick always, as OpenReliant presents it to the game (`GamepadButton`).
+    pub fn twistRolls(devices: Devices) bool {
+        return devices.settings.twist_enabled or devices.joystick.kind == .gamepad;
+    }
+
     /// Reads the keyboard, the joystick and the mouse, as `simulation_step` does at the start of
     /// each step.
     pub fn read(devices: *Devices) void {
@@ -908,6 +927,22 @@ const TestDevice = struct {
         state.* = test_device.state;
     }
 };
+
+test "the joystick chosen, and a gamepad's roll" {
+    var devices: Devices = .{};
+    // The joystick chosen steers once one is attached; until then, the keyboard.
+    try std.testing.expectEqual(ControlMode.keyboard, devices.controlMode());
+    var stick = testing.stick();
+    devices.joystick.open(stick.device(), default_dead_zone);
+    try std.testing.expectEqual(ControlMode.joystick, devices.controlMode());
+    // Another choice stands whatever is attached.
+    devices.settings.control_mode = .mouse;
+    try std.testing.expectEqual(ControlMode.mouse, devices.controlMode());
+    // A joystick's twist rolls by `TwistEnable`, a gamepad's right stick always.
+    try std.testing.expect(!devices.twistRolls());
+    devices.joystick.kind = .gamepad;
+    try std.testing.expect(devices.twistRolls());
+}
 
 /// What the tests elsewhere plug in: `testStick`'s device.
 pub const testing = struct {
@@ -1238,7 +1273,7 @@ pub fn playerControls(
 /// The steering and the throttle of `player_controls`, while the stick is free.
 fn steer(player: *Player, devices: *Devices, object: *gameobj.GameObject, stick: *[2]i16, view: camera.View) void {
     const pitch_sign: f32 = if (devices.settings.joystick_invert) 1 else -1;
-    switch (devices.settings.control_mode) {
+    switch (devices.controlMode()) {
         .joystick => {
             const joystick = &devices.joystick;
             const state = joystick.state;
@@ -1247,7 +1282,7 @@ fn steer(player: *Player, devices: *Devices, object: *gameobj.GameObject, stick:
             object.roll_input = 0;
             const x = @as(f32, @floatFromInt(state.x)) * axis_scale;
             const y = @as(f32, @floatFromInt(state.y)) * axis_scale;
-            if (devices.settings.twist_enabled and joystick.axes.rz) {
+            if (devices.twistRolls() and joystick.axes.rz) {
                 object.yaw_input = x;
                 object.pitch_input = y * pitch_sign;
                 object.roll_input = @as(f32, @floatFromInt(state.rz)) * axis_scale;
@@ -1325,7 +1360,7 @@ fn holdStick(player: *Player, devices: *Devices, object: *gameobj.GameObject, co
     object.pitch_input = 0;
     object.roll_input = 0;
     var stick: [2]f32 = .{ 0, 0 };
-    switch (devices.settings.control_mode) {
+    switch (devices.controlMode()) {
         .joystick => {
             const state = devices.joystick.state;
             stick = .{ @as(f32, @floatFromInt(state.x)) * axis_scale, @as(f32, @floatFromInt(state.y)) * axis_scale };
@@ -1513,7 +1548,7 @@ test nextNavPoint {
 pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
     const slot = &world.objects.slots[index];
     const object = &slot.object;
-    const mouse = if (devices.settings.control_mode == .mouse) devices.mouse.state.buttons else Mouse.Buttons{};
+    const mouse = if (devices.controlMode() == .mouse) devices.mouse.state.buttons else Mouse.Buttons{};
     if (devices.active(.fire_lasers, false) or mouse.left) {
         if (!object.flags.jumping) {
             if (world.display) |display| _ = display.windows.open(.gunnery, false);

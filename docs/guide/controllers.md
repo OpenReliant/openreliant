@@ -95,7 +95,9 @@ The view updates in place as you move the controls. The first line shows the val
 
 ## The controls screen
 
-GAME OPTIONS' CONTROL DEVICES opens the controls, as do the in-game options' and the pause menu's, and F1 in flight. There you choose what you steer with, the joystick or gamepad, the mouse or the keyboard, turn force feedback, pitch inversion, the hat and the twist's roll on and off, and bind the actions. To bind an action, click its row and press a key, alone or with Shift or Ctrl, or a button on your controller; click anywhere else when you are done, or press Escape to keep the old binding. A key or button another action has asks first whether to take it. The mouse wheel, or Up and Down, scroll the list. CANCEL CHANGES undoes what you changed since the screen opened, and RESET DEFAULTS goes back to the defaults. The screen saves to `starlancer.ini` ([Settings](#settings)).
+GAME OPTIONS' CONTROL DEVICES opens the controls, as do the in-game options' and the pause menu's, and F1 in flight. There you choose what you steer with, the joystick or gamepad, the mouse or the keyboard, turn force feedback, pitch inversion, the hat and the twist's roll on and off, and bind the actions. To bind an action, click its row and press a key, alone or with Shift or Ctrl, or a button on your controller; click anywhere else when you are done, or press Escape to keep the old binding. A key or button another action has asks first whether to take it. The mouse wheel, or Up and Down, scroll the list. CANCEL CHANGES undoes what you changed since the screen opened, and RESET DEFAULTS goes back to the defaults. The screen saves what you change to `starlancer.ini` ([Settings](#settings)), and leaves the rest as the file has it.
+
+With the joystick chosen and none connected, the keyboard steers until a controller is connected, and the joystick stays your choice. A gamepad's right stick always rolls, so its JOYSTICK ROLL box shows ticked and dimmed.
 
 ## Settings
 
@@ -123,9 +125,9 @@ A setting you leave out keeps its default.
 | Setting | Section | Default | Description |
 |---|---|---|---|
 | `JoystickInvert` | `KeyConfig` | 1 | 1: pull back to pitch up. 0: inverted |
-| `TwistEnable` | `KeyConfig` | 0 (1 for gamepads) | 1: the stick's twist, or a gamepad's right stick, rolls the ship |
+| `TwistEnable` | `KeyConfig` | 0 | 1: the stick's twist rolls the ship. A gamepad's right stick always does |
 | `HatEnable` | `KeyConfig` | 1 | 1: the hat, or a gamepad's D-pad, looks around |
-| `Controller` | `KeyConfig` | 0 | 0: use the joystick or gamepad. 1: use the keyboard. 2: steer with the mouse |
+| `Controller` | `KeyConfig` | 0 | 0: use the joystick or gamepad, and the keyboard while none is connected. 1: use the keyboard. 2: steer with the mouse |
 | `ForceFeedback` | `KeyConfig` | 1 | 1: the controller rumbles, where it can. 0: it doesn't |
 | `DeadZone` | `JoyConfig` | 10 | How far an axis must move before it registers, in percent of its travel (0 to 100) |
 | `Joystick` | `JoyConfig` | | Part of the name of the controller to use |
@@ -137,7 +139,7 @@ A setting you leave out keeps its default.
 
 ### Button bindings
 
-The controls screen binds buttons ([The controls screen](#the-controls-screen)). To bind one by hand, add `ACTION NAME=JOY BUTTON number` to the `JoyConfig` section. For a joystick, use the button numbers shown by `openreliant joysticks --watch`. For a gamepad, the numbers are always these:
+The controls screen binds buttons ([The controls screen](#the-controls-screen)). To bind one by hand, add `ACTION NAME=JOY BUTTON number` to the `JoyConfig` section for a joystick, with the button numbers `openreliant joysticks --watch` shows, or to the `GamepadConfig` section for a gamepad, which keeps its buttons apart since they are numbered otherwise; `ACTION NAME=` with nothing unbinds the action. A gamepad's numbers are always these:
 
 | Number | Gamepad button | Number | Gamepad button |
 |---|---|---|---|

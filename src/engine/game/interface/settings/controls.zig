@@ -140,27 +140,29 @@ pub const Check = enum {
 
     /// Whether it can be changed, else it is dimmed: FORCE FEEDBACK from a joystick that has it,
     /// steering; HAT ENABLE and JOYSTICK ROLL while the joystick steers (`0x0042BBB4`,
-    /// `0x0042BC4F`, `0x0042BE79`).
+    /// `0x0042BC4F`, `0x0042BE79`), but JOYSTICK ROLL not for a gamepad, whose right stick always
+    /// rolls (`input.Devices.twistRolls`).
     fn usable(check: Check, devices: *const input.Devices) bool {
-        const steering = devices.settings.control_mode == .joystick;
+        const steering = devices.controlMode() == .joystick;
         return switch (check) {
             .force_feedback => devices.joystick.rumbles and steering,
             .invert_pitch => true,
-            .hat_enable, .joystick_roll => steering,
+            .hat_enable => steering,
+            .joystick_roll => steering and devices.joystick.kind != .gamepad,
         };
     }
 
     /// Whether it is ticked: where it can be changed, and its setting is on (`0x0042D96C` on).
-    /// INVERT PITCH is ticked while pitch is as the stick has it, `JoystickInvert` 1.
+    /// INVERT PITCH is ticked while pitch is as the stick has it, `JoystickInvert` 1; and JOYSTICK
+    /// ROLL while the twist rolls and the joystick steers, a gamepad's dimmed.
     fn ticked(check: Check, devices: *const input.Devices) bool {
         const kept = devices.settings;
-        const on = switch (check) {
-            .force_feedback => kept.force_feedback,
+        return switch (check) {
+            .force_feedback => kept.force_feedback and check.usable(devices),
             .invert_pitch => kept.joystick_invert,
-            .hat_enable => kept.hat_enabled,
-            .joystick_roll => kept.twist_enabled,
+            .hat_enable => kept.hat_enabled and check.usable(devices),
+            .joystick_roll => devices.twistRolls() and devices.controlMode() == .joystick,
         };
-        return on and check.usable(devices);
     }
 
     fn toggle(check: Check, kept: *input.Settings) void {
@@ -515,8 +517,15 @@ pub const Controls = struct {
     }
 
     /// As the screen is left: the settings and the bindings written (`save_key_config`,
-    /// `0x0042C4CD`, `0x0042C517`, `0x0042C537`).
+    /// `0x0042C4CD`, `0x0042C517`, `0x0042C537`), where they are not what the file gives already.
+    ///
+    /// **Fix:** the game writes them all as its controls screen is left, and OpenReliant's one
+    /// screen is left from any tab, so that a visit to another wrote the defaults of the controller
+    /// attached, or of none, as though they had been chosen.
     pub fn save(_: *Controls, devices: *const input.Devices, settings_file: *profile.File) Allocator.Error!void {
+        var filed: input.Devices = .{ .joystick = devices.joystick };
+        interface.loadKeyConfig(&filed, settings_file.profile);
+        if (std.meta.eql(filed.settings, devices.settings) and std.meta.eql(filed.bindings, devices.bindings)) return;
         try interface.saveKeyConfig(devices, settings_file);
     }
 
@@ -536,7 +545,7 @@ pub const Controls = struct {
             if (controller == .joystick) label.text = .{ .words = joystickLabel(&buffer, &devices.joystick, canvas.strings, small) };
             const shown = canvas.dimmedUnless(controller.usable(devices));
             try label.write(shown, small, blue);
-            try Box.draw(shown, art, .{ Controller.box_x, controller.y() }, devices.settings.control_mode == controller.mode());
+            try Box.draw(shown, art, .{ Controller.box_x, controller.y() }, devices.controlMode() == controller.mode());
         }
         for (std.enums.values(Check)) |check| {
             const shown = canvas.dimmedUnless(check.usable(devices));
@@ -823,19 +832,35 @@ test "the check boxes and the controllers" {
     const devices = &fixture.devices;
     // Without a joystick the keyboard steers: HAT ENABLE can't change, INVERT PITCH can, and is
     // written at once.
-    try std.testing.expectEqual(input.ControlMode.keyboard, devices.settings.control_mode);
+    try std.testing.expectEqual(input.ControlMode.keyboard, devices.controlMode());
     try std.testing.expectEqual(Item{ .check = .hat_enable }, Controls.itemAt(.{ 350, 380 }).?);
     _ = try fixture.tab.choose(.{ .check = .hat_enable }, fixture.context(.{}));
     try std.testing.expect(devices.settings.hat_enabled);
     _ = try fixture.tab.choose(.{ .check = .invert_pitch }, fixture.context(.{}));
     try std.testing.expect(!devices.settings.joystick_invert);
     try std.testing.expectEqualStrings("0", fixture.file.profile.value("KeyConfig", "JoystickInvert").?);
-    // JOYSTICK can't be chosen without one; MOUSE can.
+    // JOYSTICK can't be chosen without one, and stays the choice; MOUSE can.
     _ = try fixture.tab.choose(.{ .controller = .joystick }, fixture.context(.{}));
-    try std.testing.expectEqual(input.ControlMode.keyboard, devices.settings.control_mode);
+    try std.testing.expectEqual(input.ControlMode.joystick, devices.settings.control_mode);
+    try std.testing.expectEqual(input.ControlMode.keyboard, devices.controlMode());
     try std.testing.expectEqual(Item{ .controller = .mouse }, Controls.itemAt(.{ 50, 380 }).?);
     _ = try fixture.tab.choose(.{ .controller = .mouse }, fixture.context(.{}));
     try std.testing.expectEqualStrings("2", fixture.file.profile.value("KeyConfig", "Controller").?);
+}
+
+test "leaving writes the controls where they are not what the file gives" {
+    var fixture: Fixture = .init();
+    defer fixture.deinit();
+    fixture.enter();
+    const devices = &fixture.devices;
+    // Unchanged, nothing is written, the defaults of no joystick among it.
+    try fixture.tab.save(devices, &fixture.file);
+    try std.testing.expectEqual(null, fixture.file.profile.value("KeyConfig", "Controller"));
+    try std.testing.expectEqual(null, fixture.file.profile.value("JoyConfig", "FIRE LASERS"));
+    // A binding changed, they are.
+    devices.bindings.getPtr(.eject).key = 0x2D;
+    try fixture.tab.save(devices, &fixture.file);
+    try std.testing.expectEqualStrings("45", fixture.file.profile.value("KeyConfig", "EJECT").?);
 }
 
 test "the arrows scroll a row each 5 ticks while held" {

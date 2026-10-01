@@ -708,11 +708,12 @@ test Settings {
         }
     }.context;
     screen.enter(.pause_menu, .controls, at(&devices, &file, 0, 0, false));
-    // The pointer over OK lights it; a click leaves, the bindings written.
+    // The pointer over OK lights it; a click leaves, the bindings, unchanged, left as the file has
+    // them.
     try std.testing.expectEqual(null, screen.frame(at(&devices, &file, 250, 430, false)));
     try std.testing.expectEqual(Button.ok, screen.lit.?);
     try std.testing.expectEqual(End.back, screen.frame(at(&devices, &file, 250, 430, true)).?);
-    try std.testing.expectEqualStrings("2", file.profile.value("KeyConfig", "COCKPIT CAMERA").?);
+    try std.testing.expectEqual(null, file.profile.value("KeyConfig", "COCKPIT CAMERA"));
     // In the pause menu, the second button continues the mission.
     screen.enter(.pause_menu, .controls, at(&devices, &file, 0, 0, false));
     try std.testing.expectEqual(End.continue_mission, screen.frame(at(&devices, &file, 250, 450, true)).?);

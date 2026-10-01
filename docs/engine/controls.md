@@ -55,7 +55,7 @@ and `JoyConfig` sections of `starlancer.ini` in the game's directory. The settin
 | `JoystickInvert` | 1 | `joystick_invert` (`0x51D610`). While it is 0, pitch is reversed, from the stick, the keys and the mouse. |
 | `HatEnable` | 1 | `hat_enabled` (`0x52029C`). While it is set, the hat looks around ([The hat](#the-hat)). |
 | `TwistEnable` | 0 | `twist_enabled` (`0x595D88`). While it is set, the joystick's twist rolls the ship. |
-| `Controller` | 0 | `control_mode` (`0x57E064`), the device the player steers with: 0 the joystick, 1 the keyboard, 2 the mouse. With no joystick, 0 becomes 1. |
+| `Controller` | 0 | `control_mode` (`0x57E064`), the device the player steers with: 0 the joystick, 1 the keyboard, 2 the mouse. With no joystick, `load_key_config` makes 0 into 1 (`0x0042C8A5`), and `key_config_defaults` chooses 1 (`0x0042CAF2`). |
 
 Each action also has an entry in each section, named after the action. In `KeyConfig` the value is
 a scan code in decimal, optionally after `SHIFT `, `CONTROL ` or `ALT ` for a modifier, or
@@ -343,9 +343,17 @@ screen that sets them is the settings screen ([Front end](front-end.md#controls)
 
 **Improvement:** OpenReliant reads `starlancer.ini` again whenever a controller is connected or
 disconnected, since the settings and bindings depend on the controller. A gamepad gets its own
-default bindings and has `TwistEnable` on by default. `DeadZone` in `JoyConfig` sets the dead zone,
-which the original fixes at a tenth. A joystick that is disconnected is closed and reads as
-centered, where the original tries to acquire it again.
+default bindings, and keeps its buttons in a section of its own, `GamepadConfig`, since
+OpenReliant numbers them otherwise than a joystick's; its right stick, the twist, always rolls
+(`input.Devices.twistRolls`). `DeadZone` in `JoyConfig` sets the dead zone, which the original
+fixes at a tenth. A joystick that is disconnected is closed and reads as centered, where the
+original tries to acquire it again.
+
+**Fix:** with no joystick attached, the game makes `Controller` 1 itself, which its controls screen
+then writes, so that a game started once without the joystick steers with the keyboard ever after.
+OpenReliant keeps the joystick as the choice and steers with the keyboard while none is attached
+(`input.Devices.controlMode`); and its settings screen writes the controls as it is left only
+where they are not what the file gives already ([Front end](front-end.md#controls)).
 
 Not yet ported: force feedback ([issue 83](https://github.com/vdmkenny/openreliant/issues/83)), the
 weapons and other actions `player_controls` reads, and the special cases for the byte at `0x529FB8`,

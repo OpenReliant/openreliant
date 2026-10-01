@@ -928,7 +928,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         window.showPointer(menu_pointer);
         // Steering by the mouse, the window holds it in flight, as the game holds DirectInput's
         // mouse while it is in the foreground.
-        const hold = devices.settings.control_mode == .mouse and !menu_pointer and app.active and options.screenshot == null;
+        const hold = devices.controlMode() == .mouse and !menu_pointer and app.active and options.screenshot == null;
         if (hold != mouse_held) {
             mouse_held = hold;
             // Where the system won't hold it, the mouse steers by the pointer's movement over the
