@@ -21,31 +21,7 @@ SDL comes from the [castholm/SDL](https://github.com/castholm/SDL) package, whic
 
 The original keeps its settings in `starlancer.ini` in its own folder. OpenReliant keeps that file in each user's folder, which SDL names (`SDL_GetPrefPath`, [`folders.zig`](../../src/platform/folders.zig)): `~/Library/Application Support/OpenReliant` on macOS, `%APPDATA%\OpenReliant` on Windows, and `$XDG_DATA_HOME/OpenReliant`, or `~/.local/share/OpenReliant`, elsewhere ([`settings.zig`](../../src/openreliant/settings.zig)). The game's code reads and writes it as the original reads and writes its own. The first run starts it from the game folder's file, where there is one, which OpenReliant then leaves as it is. Where the system gives no folder for the user's files, the file stays in the game's folder, as the original keeps it.
 
-`[OpenReliant]`, a section the original never reads, holds OpenReliant's own settings. An option that turns on and off takes 1 or 0.
-
-| Key | Takes | On the command line |
-|---|---|---|
-| `GameDirectory` | The game's folder OpenReliant last played from, by its whole path, which it plays from where none is named and the current directory holds no game | `<game-directory>` |
-| `Original` | 1 for the original's look and sound, which the keys below then change | `--original` |
-| `Fullscreen` | 1 or 0 | `--fullscreen` |
-| `Size` | `<width>x<height>` | `--size` |
-| `FrameRate` | Frames a second at most; 0 for no limit | `--fps` |
-| `Vsync` | 1 or 0 | `--no-vsync` |
-| `Software` | 1 or 0 | `--software` |
-| `SixteenBit` | 1 or 0 | `--16-bit` |
-| `Samples` | 1, 2, 4 or 8 | `--msaa` |
-| `Filter` | `original`, `trilinear` or `crisp` | `--filter` |
-| `Bloom` | 1 or 0 | `--no-bloom` |
-| `Dither` | 1 or 0 | `--no-dither` |
-| `PixelLighting` | 1 or 0 | `--no-pixel-lighting` |
-| `LinearLight` | 1 or 0 | `--gamma-space` |
-| `Shadows` | `off`, `low` or `high` | `--shadows` |
-| `CockpitShadows` | 1 or 0 | `--no-cockpit-shadows` |
-| `SmoothMotion` | 1 or 0 | `--no-smooth-motion` |
-| `ShotLights` | 1 for every shot's light; 0 for the latest two of each side's | `--few-shot-lights` |
-| `Hrtf` | `auto`, `on` or `off` | `--hrtf`, `--no-hrtf` |
-| `Reverb` | 1 or 0 | `--no-reverb` |
-| `Compressor` | 1 or 0 | `--no-compressor` |
+`[OpenReliant]`, a section the original never reads, holds OpenReliant's own settings: `GameDirectory`, the game's folder OpenReliant last played from by its whole path, which it plays from where none is named and the current directory holds no game; and a key for each of the options the [guide lists](../guide/configuration.md#openreliants-settings), such as `Bloom` for `--no-bloom`, which takes 1 or 0.
 
 `Original` is read first, as `--original` comes first on a command line, and the other keys change what it set: `Original=1` with `Bloom=1` is the original's look with the bloom. A key left out keeps the option's default, and a value a key does not take is logged and left out. The command line's options change these for the run, and are not kept. `--screenshot` leaves `[OpenReliant]` out, so that a screenshot comes out the same for everyone.
 

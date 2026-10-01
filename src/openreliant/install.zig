@@ -84,6 +84,30 @@ pub fn missingGameFile(io: Io, dir: Io.Dir) ?[]const u8 {
     return null;
 }
 
+/// What a folder holds, as OpenReliant looks for the game in it (`openGame`).
+pub const Found = union(enum) {
+    /// An installed copy of the game, the folder open.
+    game: Io.Dir,
+    /// There is no such folder.
+    no_folder,
+    /// The folder, without the game's file this names.
+    missing: []const u8,
+};
+
+/// The folder `path` in `parent`, open where it holds an installed copy of the game
+/// (`missingGameFile`).
+pub fn openGame(io: Io, parent: Io.Dir, path: []const u8) Io.Dir.OpenError!Found {
+    const dir = parent.openDir(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return .no_folder,
+        else => |other| return other,
+    };
+    if (missingGameFile(io, dir)) |name| {
+        dir.close(io);
+        return .{ .missing = name };
+    }
+    return .{ .game = dir };
+}
+
 /// A release whose disc 1 the installer knows.
 const Release = struct {
     name: []const u8,
@@ -652,9 +676,7 @@ fn remember(io: Io, arena: Allocator, path: []const u8) void {
     defer folder.close(io);
     var settings: Settings = .openUser(io, arena);
     defer settings.close();
-    settings.start(folder);
-    settings.remember(folder);
-    settings.save();
+    settings.useGameFolder(folder);
 }
 
 /// Whether `file` is a terminal. On Windows, `GetConsoleMode` says so for a console, which Wine
@@ -1584,4 +1606,18 @@ test missingGameFile {
         try tmp.dir.writeFile(io, .{ .sub_path = name, .data = "" });
     }
     try std.testing.expectEqual(null, missingGameFile(io, tmp.dir));
+}
+
+test openGame {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    // No folder, then a folder without the game's files, then one with them all.
+    try std.testing.expectEqual(.no_folder, std.meta.activeTag(try openGame(io, tmp.dir, "StarLancer")));
+    var folder = try tmp.dir.createDirPathOpen(io, "StarLancer", .{});
+    defer folder.close(io);
+    try std.testing.expectEqualStrings(game_files[0], (try openGame(io, tmp.dir, "StarLancer")).missing);
+    for (game_files) |name| try folder.writeFile(io, .{ .sub_path = name, .data = "" });
+    const found = try openGame(io, tmp.dir, "StarLancer");
+    found.game.close(io);
 }

@@ -47,7 +47,9 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
         std.debug.print("{s}", .{usage});
         return 2;
     }
-    var settings: Settings = .openUser(io, gpa);
+    var settings_arena: std.heap.ArenaAllocator = .init(gpa);
+    defer settings_arena.deinit();
+    var settings: Settings = .openUser(io, settings_arena.allocator());
     defer settings.close();
     const directory_name = settings.findGameFolder(if (args.len == 1) args[0] else null);
     var directory = Io.Dir.cwd().openDir(io, directory_name, .{ .iterate = true }) catch |err| {

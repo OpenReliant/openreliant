@@ -1,7 +1,8 @@
 //! `openreliant`: the engine, on SDL3 in place of Win32 and DirectX. It has no data of its own: it
-//! runs in the directory of an installed copy of StarLancer, or in the one given, and reads
-//! `resource.hog` and the texture cache from it as the game does. `openreliant install` installs
-//! the game's files from its discs; see `install.zig`.
+//! plays from the folder of an installed copy of StarLancer, the one given or the one it finds
+//! (`settings.zig`), and reads `resource.hog` and the texture cache from it as the game does, with
+//! the player's settings kept in their own folder. `openreliant install` installs the game's files
+//! from its discs; see `install.zig`.
 //!
 //! It plays a mission, which pauses into the game's menu as each attempt ends, to be flown again:
 //! by default mission 0, OpenReliant's own sandbox (`mission0.zig`), which it carries, or the
@@ -80,41 +81,34 @@ pub fn main(init: std.process.Init) !u8 {
     var settings: Settings = .openUser(io, arena);
     defer settings.close();
     const folder = settings.findGameFolder(asked.directory);
-    const directory = openGameFolder(io, folder) catch |err| switch (err) {
-        error.MissingGameFiles => return 1,
-        else => return err,
+    const directory = switch (try install.openGame(io, .cwd(), folder)) {
+        .game => |opened| opened,
+        .no_folder => return missingGameFiles(folder, null),
+        .missing => |name| return missingGameFiles(folder, name),
     };
     defer directory.close(io);
-    settings.start(directory);
-    settings.remember(directory);
-    settings.save();
+    settings.useGameFolder(directory);
     // OpenReliant's own options: those the settings keep, then the command line's. A screenshot
     // leaves the settings' out, so that it comes out the same for everyone.
     var kept: Options = .{};
     if (asked.screenshot == null) settings.read(&kept);
-    var options = switch (Options.parse(args[1..], kept)) {
+    const options = switch (Options.parse(args[1..], kept)) {
         .play => |options| options,
         // Read the same way again, the command line asks for nothing else.
         .help, .version, .wrong => asked,
     };
-    options.directory = folder;
-    run(io, init.gpa, arena, options, directory, &settings) catch |err| switch (err) {
+    run(io, init.gpa, arena, options, .{ .path = folder, .dir = directory }, &settings) catch |err| switch (err) {
         error.MissingMission => return 1,
         else => return err,
     };
     return 0;
 }
 
-/// The game's folder `path`, which must hold an installed copy of the game.
-fn openGameFolder(io: Io, path: []const u8) !Io.Dir {
-    const directory = Io.Dir.cwd().openDir(io, path, .{}) catch |err| switch (err) {
-        error.FileNotFound, error.NotDir => return missingGameFiles(path, null),
-        else => return err,
-    };
-    errdefer directory.close(io);
-    if (install.missingGameFile(io, directory)) |name| return missingGameFiles(path, name);
-    return directory;
-}
+/// The game's folder played from: its path, and the folder, open.
+const GameFolder = struct {
+    path: []const u8,
+    dir: Io.Dir,
+};
 
 /// Opens the controller the game should use, unless it is already open, and loads the input
 /// settings and bindings, which depend on the controller. The original does this once at startup in
@@ -139,8 +133,9 @@ fn connectController(arena: Allocator, devices: *engine.input.Devices, controlle
     game.interface.loadKeyConfig(devices, settings_file);
 }
 
-/// Says that `directory` holds no installed copy of the game, and what the engine needs.
-fn missingGameFiles(directory: []const u8, file: ?[]const u8) error{MissingGameFiles} {
+/// Says that `directory` holds no installed copy of the game, and what the engine needs; exit
+/// status 1.
+fn missingGameFiles(directory: []const u8, file: ?[]const u8) u8 {
     if (file) |name| {
         std.debug.print("openreliant: {s} is missing from {s}.\n", .{ name, directory });
     } else {
@@ -157,7 +152,7 @@ fn missingGameFiles(directory: []const u8, file: ?[]const u8) error{MissingGameF
         \\    openreliant install <game-directory>
         \\
     , .{});
-    return error.MissingGameFiles;
+    return 1;
 }
 
 /// The window's size in points as it opens, which the software device draws at until the first
@@ -190,9 +185,10 @@ fn readStats(io: Io, arena: Allocator, directory: Io.Dir, comptime table: stats.
     return @field(file, @tagName(table));
 }
 
-/// Plays from the game's folder `directory`, with the player's settings `settings`, which the
-/// game's settings screens write to.
-fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io.Dir, settings: *Settings) !void {
+/// Plays from the game's folder `folder`, with the player's settings `settings`, which the game's
+/// settings screens write to.
+fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, folder: GameFolder, settings: *Settings) !void {
+    const directory = folder.dir;
     // What `WinMain` opens at start-up, and the texture cache `renderer_start` opens.
     var resources: game.bigfile.Hog = try .open(arena, io, directory, game.bigfile.resource_name);
     defer resources.close(arena);
@@ -353,7 +349,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // whenever a controller is connected or disconnected.
     try platform.joystick.init(.game);
     defer platform.joystick.deinit();
-    _ = platform.joystick.addMappings(try std.fs.path.joinZ(arena, &.{ options.directory orelse settings_module.current_folder, platform.joystick.mappings_name }));
+    _ = platform.joystick.addMappings(try std.fs.path.joinZ(arena, &.{ folder.path, platform.joystick.mappings_name }));
     var controller: ?platform.joystick.Controller = null;
     defer if (controller) |*open| open.close();
     // A screenshot reads no controls, so that it comes out the same whatever is plugged in.

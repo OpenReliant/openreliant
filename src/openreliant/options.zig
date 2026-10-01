@@ -196,7 +196,7 @@ pub const Problem = union(enum) {
 
 pub const Options = struct {
     /// The game's folder the command line names, or null to look for it
-    /// (`settings.Settings.gameFolder`); the one found, once it is.
+    /// (`settings.Settings.findGameFolder`).
     directory: ?[]const u8 = null,
     /// The mission to play at once, by its number, or null to open the front end.
     mission: ?u16 = null,
@@ -290,9 +290,9 @@ pub const Options = struct {
         return &sound.player.openal;
     }
 
-    /// What `args` ask for: to play with `base` changed by the options they give, the help page,
-    /// the version, or what is wrong with them. The command line's options change the settings
-    /// file's for the run (`settings.Settings.read`), which reads into `base`.
+    /// What `args` ask for: to play with `base`, what the settings keep (`settings.Settings.read`),
+    /// changed for the run by the options they give; the help page; the version; or what is wrong
+    /// with them.
     pub fn parse(args: []const [:0]const u8, base: Options) Command {
         var options = base;
         var i: usize = 0;

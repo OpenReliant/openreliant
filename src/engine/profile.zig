@@ -19,10 +19,10 @@ pub const Profile = struct {
     /// An empty profile, used when the file is missing: every read returns its default.
     pub const empty: Profile = .{ .text = "" };
 
-    /// The settings file in the game's folder `dir`, read into `arena`; empty where it is missing
-    /// or can't be read, so that every setting keeps its default.
-    pub fn read(io: Io, arena: Allocator, dir: Io.Dir) Profile {
-        return .{ .text = dir.readFileAlloc(io, settings_name, arena, .limited(files.max_file_size)) catch "" };
+    /// The settings file in the folder `dir`, read into `arena`; null where it is missing or can't
+    /// be read, which `empty` stands in for.
+    pub fn find(io: Io, arena: Allocator, dir: Io.Dir) ?Profile {
+        return .{ .text = dir.readFileAlloc(io, settings_name, arena, .limited(files.max_file_size)) catch return null };
     }
 
     /// The value of `key` in `section`, or null if there is none.
@@ -182,16 +182,15 @@ test Profile {
     try std.testing.expectEqual(null, Profile.empty.value("KeyConfig", "Controller"));
 }
 
-test "Profile.read" {
+test "Profile.find" {
     const io = std.testing.io;
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    // Without the file, every setting keeps its default.
-    try std.testing.expectEqualStrings("", Profile.read(io, arena_state.allocator(), tmp.dir).text);
+    try std.testing.expectEqual(null, Profile.find(io, arena_state.allocator(), tmp.dir));
     try tmp.dir.writeFile(io, .{ .sub_path = settings_name, .data = "[Device]\r\nView=1\r\n" });
-    try std.testing.expectEqual(1, Profile.read(io, arena_state.allocator(), tmp.dir).int("Device", "View", 0));
+    try std.testing.expectEqual(1, Profile.find(io, arena_state.allocator(), tmp.dir).?.int("Device", "View", 0));
 }
 
 test "Profile.write" {

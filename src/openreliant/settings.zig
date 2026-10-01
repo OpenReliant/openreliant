@@ -22,13 +22,13 @@ const Options = options_page.Options;
 const log = std.log.scoped(.settings);
 
 /// OpenReliant's section of the file, which the game never reads.
-pub const section = "OpenReliant";
+const section = "OpenReliant";
 
 /// The key that names the game's folder OpenReliant last played from, by its whole path.
 const game_folder_key = "GameDirectory";
 
 /// The game's folder by default: the current directory.
-pub const current_folder = ".";
+const current_folder = ".";
 
 pub const Settings = struct {
     io: Io,
@@ -40,15 +40,16 @@ pub const Settings = struct {
     /// (`start`).
     found: bool,
 
-    /// The file in the user's folder, read into `arena`, or an empty one where there is none.
-    /// Without the folder, which is logged, the file is the game folder's (`start`).
+    /// The file in the user's folder, read into `arena`, which keeps every version of it, or an
+    /// empty one where there is none. Without the folder, which is logged, the file is the game
+    /// folder's (`start`).
     pub fn openUser(io: Io, arena: Allocator) Settings {
         const path = platform.folders.user(arena) catch |err| {
-            log.warn("the settings are not kept: there is no folder for them: {s}", .{@errorName(err)});
+            log.warn("the settings stay in the game's folder: there is no folder for the user's files: {s}", .{@errorName(err)});
             return .open(io, arena, null);
         };
         const folder = Io.Dir.cwd().openDir(io, path, .{}) catch |err| {
-            log.warn("the settings are not kept: {s} can't be opened: {s}", .{ path, @errorName(err) });
+            log.warn("the settings stay in the game's folder: {s} can't be opened: {s}", .{ path, @errorName(err) });
             return .open(io, arena, null);
         };
         return .open(io, arena, folder);
@@ -57,15 +58,12 @@ pub const Settings = struct {
     /// The file in the user's folder `folder`, read into `arena`, or an empty one where there is
     /// none.
     pub fn open(io: Io, arena: Allocator, folder: ?Io.Dir) Settings {
-        const text: ?[]const u8 = if (folder) |dir|
-            dir.readFileAlloc(io, profile.settings_name, arena, .limited(engine.files.max_file_size)) catch null
-        else
-            null;
+        const found = if (folder) |dir| profile.Profile.find(io, arena, dir) else null;
         return .{
             .io = io,
             .folder = folder,
-            .file = .{ .arena = arena, .profile = .{ .text = text orelse "" } },
-            .found = text != null,
+            .file = .{ .arena = arena, .profile = found orelse .empty },
+            .found = found != null,
         };
     }
 
@@ -98,11 +96,17 @@ pub const Settings = struct {
         if (!own) settings.folder = game.openDir(settings.io, current_folder, .{}) catch null;
         if (settings.found) return;
         settings.found = true;
-        const arena = settings.file.arena;
-        const text = game.readFileAlloc(settings.io, profile.settings_name, arena, .limited(engine.files.max_file_size)) catch return;
-        settings.file.profile.text = text;
+        settings.file.profile = profile.Profile.find(settings.io, settings.file.arena, game) orelse return;
         if (!own) return;
         settings.file.changed = true;
+        settings.save();
+    }
+
+    /// Plays from the game's folder `game`: the settings start from its file on the first run
+    /// (`start`), note it as the folder last played from (`remember`), and are saved.
+    pub fn useGameFolder(settings: *Settings, game: Io.Dir) void {
+        settings.start(game);
+        settings.remember(game);
         settings.save();
     }
 
@@ -142,11 +146,15 @@ pub const Settings = struct {
     }
 };
 
-/// Whether the folder `path` holds an installed copy of the game (`install.missingGameFile`).
+/// Whether the folder `path` holds an installed copy of the game (`install.openGame`).
 fn holdsGame(io: Io, path: []const u8) bool {
-    const directory = Io.Dir.cwd().openDir(io, path, .{}) catch return false;
-    defer directory.close(io);
-    return install.missingGameFile(io, directory) == null;
+    switch (install.openGame(io, .cwd(), path) catch return false) {
+        .game => |folder| {
+            folder.close(io);
+            return true;
+        },
+        .no_folder, .missing => return false,
+    }
 }
 
 /// One of OpenReliant's options in `[OpenReliant]`: its key, which follows the way the game names
@@ -163,7 +171,7 @@ const Reader = *const fn (options: *Options, value: []const u8) error{BadValue}!
 const on_off = "1 or 0";
 
 /// The keys, in the order they are read: `Original` first.
-pub const keys = [_]Key{
+const keys = [_]Key{
     .{ .name = "Original", .takes = on_off, .read = original },
     .{ .name = "Fullscreen", .takes = on_off, .read = onOff("fullscreen") },
     .{ .name = "Size", .takes = "<width>x<height>", .read = byOption(.@"--size") },
@@ -249,7 +257,7 @@ fn reverb(options: *Options, value: []const u8) error{BadValue}!void {
 /// alone (`--no-compressor`).
 fn compressor(options: *Options, value: []const u8) error{BadValue}!void {
     if (try onOrOff(value)) {
-        if (options.sound) |*sound| sound.master = .{};
+        if (options.sound) |*sound| sound.master = (platform.audio.Options{}).master;
     } else {
         try options.apply(.@"--no-compressor", "");
     }
