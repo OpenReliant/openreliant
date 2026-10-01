@@ -107,7 +107,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-dither" = .{ .section = .graphics, .text = "draw 32-bit colour without dithering" },
     .@"--no-pixel-lighting" = .{ .section = .graphics, .text = "light each vertex rather than each pixel, as the original does" },
     .@"--gamma-space" = .{ .section = .graphics, .text = "light, blend and filter the encoded colours, as the original does, rather than in linear light" },
-    .@"--no-materials" = .{ .section = .graphics, .text = "light the mods' textures without their material maps: no normal maps, and the original's highlights in place of the maps'" },
+    .@"--no-materials" = .{ .section = .graphics, .text = "light the mods' textures without their material maps: no normal maps or reflections, and the original's highlights in place of the maps'" },
     .@"--no-cockpit-shadows" = .{ .section = .graphics, .text = "leave the shadows out of the cockpit, keeping them on the ships" },
     .@"--shadows" = .{ .section = .graphics, .value = "<off|low|high>", .text = "shadows from the sun: low is soft and light on older GPUs, high sharp and smooth; high by default, and none without lighting each pixel" },
     .@"--no-smooth-motion" = .{ .section = .graphics, .text = "move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame" },

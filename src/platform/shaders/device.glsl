@@ -590,10 +590,16 @@ vec4 sampled(float texels) {
 }
 
 void main() {
-    // Worked out here, where every pixel of a quad reaches it, as a derivative needs.
+    // Worked out here, where every pixel of a quad reaches it, as a derivative needs: the texels a
+    // pixel spans for every pixel, and the texture's frame where its normal map is shaded, which
+    // the shading says alike for every pixel of a primitive, so that the other pixels pay nothing
+    // for it.
     vec2 span = fwidth(uv) * vec2(textureSize(images, 0).xy);
-    vec3 unbent = dot(facing, facing) < 1e-12 ? vec3(0.0, 0.0, 1.0) : normalize(facing);
-    mat3 onTexture = textureFrame(unbent, place, uv);
+    mat3 onTexture = mat3(0.0);
+    if ((shade & 0x800u) != 0u) {
+        vec3 unbent = dot(facing, facing) < 1e-12 ? vec3(0.0, 0.0, 1.0) : normalize(facing);
+        onTexture = textureFrame(unbent, place, uv);
+    }
     vec4 texel = image < 0 ? vec4(1.0) : sampled(max(span.x, span.y));
     Surface s = surfaceOf(texel, onTexture);
     vec3 highlights;

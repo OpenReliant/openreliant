@@ -23,6 +23,7 @@ const srd3d = openreliant.engine.surrender.srd3d.srd3d;
 const srapiext = openreliant.engine.surrender.surrenderlib.srapiext;
 const srshadow = openreliant.engine.surrender.surrenderlib.srshadow;
 const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
+const srgb = openreliant.engine.surrender.colour;
 const Geometry = @import("gpu/geometry.zig").Geometry;
 const shadow = @import("gpu/shadows.zig");
 const sdl = @import("sdl.zig");
@@ -198,7 +199,7 @@ const Lighting = extern struct {
     /// A light's colour times `intensity`, decoded into linear light first where `linear`.
     fn colourOf(colour: [3]f32, intensity: f32, linear: bool) [4]f32 {
         var taken: [4]f32 = @splat(0);
-        for (taken[0..3], colour) |*channel, given| channel.* = (if (linear) decoded(given) else given) * intensity;
+        for (taken[0..3], colour) |*channel, given| channel.* = (if (linear) srgb.decoded(given) else given) * intensity;
         return taken;
     }
 
@@ -1570,11 +1571,6 @@ fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, ma
     }
 }
 
-/// A colour's channel, sRGB-encoded, in linear light (`shaders/colour.glsl`'s `decoded`).
-fn decoded(channel: f32) f32 {
-    return if (channel <= 0.04045) channel / 12.92 else std.math.pow(f32, (channel + 0.055) / 1.055, 2.4);
-}
-
 /// A white texel, which runs with no texture bind.
 const blank_levels = [1]srtexture.Level{.{ .width = 1, .height = 1, .rgba = &.{ 0xFF, 0xFF, 0xFF, 0xFF } }};
 
@@ -1685,15 +1681,6 @@ test {
     _ = shadow;
 }
 
-test decoded {
-    try std.testing.expectEqual(0, decoded(0));
-    try std.testing.expectApproxEqAbs(1, decoded(1), 1e-6);
-    // Half the encoding is a fifth of the light.
-    try std.testing.expectApproxEqAbs(0.214, decoded(0.5), 1e-3);
-    // The dark end is a straight line.
-    try std.testing.expectApproxEqAbs(0.02 / 12.92, decoded(0.02), 1e-7);
-}
-
 test "Lighting.take in linear light" {
     var lighting: Lighting = .{};
     const list = [_]device.Light{
@@ -1703,8 +1690,8 @@ test "Lighting.take in linear light" {
     try std.testing.expectEqual(2, lighting.take(&list, true));
     // Each colour decoded, and a point light's intensity applied after: the light, not the
     // encoding, doubled.
-    try std.testing.expectApproxEqAbs(decoded(0.5), lighting.lights[0].colour[1], 1e-6);
-    try std.testing.expectApproxEqAbs(2 * decoded(0.5), lighting.lights[1].colour[0], 1e-6);
+    try std.testing.expectApproxEqAbs(srgb.decoded(0.5), lighting.lights[0].colour[1], 1e-6);
+    try std.testing.expectApproxEqAbs(2 * srgb.decoded(0.5), lighting.lights[1].colour[0], 1e-6);
     try std.testing.expectEqual(1, lighting.lights[0].shadowed);
 }
 

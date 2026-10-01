@@ -177,25 +177,7 @@ fn renderReflections(arena: Allocator, context: *srapi.Context, scene: *const Sc
         context.camera.orientation = math.product(camera.orientation, turn);
         var budget: srmesh.Budget = .{ .limit = context.budget };
         var blended: Blended = .{ .arena = arena };
-        for (scene.reflected.items) |object| switch (object) {
-            .mesh => |mesh| {
-                if (mesh.flags.hidden or mesh.scale == 0) continue;
-                const drawn = try srmesh.pipe(arena, context, mesh, &.{}, &budget) orelse continue;
-                const stored = try arena.create(srmesh.Drawn);
-                stored.* = drawn;
-                try driver.vtable.mesh(driver.ptr, stored, .background, &blended);
-            },
-            .sprites => |sprites| {
-                if (sprites.flags.hidden or sprites.scale == 0) continue;
-                const drawn = try srbmo.project(arena, context, sprites) orelse continue;
-                try driver.vtable.sprites(driver.ptr, drawn, .background, &blended);
-            },
-            .stars => |field| {
-                if (field.flags.hidden) continue;
-                const drawn = try srstars.project(arena, context, field) orelse continue;
-                try driver.vtable.stars(driver.ptr, drawn, .background, &blended);
-            },
-        };
+        for (scene.reflected.items) |object| try drawObject(arena, context, object, &.{}, &budget, driver, .background, &blended);
         depthSort(blended.list.items);
         driver.vtable.flush(driver.ptr, blended.list.items, .background);
     }
@@ -243,25 +225,7 @@ pub fn render(arena: Allocator, context: *srapi.Context, scene: *Scene, driver: 
         var i = objects.len;
         while (i > 0) {
             i -= 1;
-            switch (objects[i]) {
-                .mesh => |mesh| {
-                    if (mesh.flags.hidden or mesh.scale == 0) continue;
-                    const drawn = try srmesh.pipe(arena, context, mesh, lights, &budget) orelse continue;
-                    const stored = try arena.create(srmesh.Drawn);
-                    stored.* = drawn;
-                    try driver.vtable.mesh(driver.ptr, stored, layer, &blended);
-                },
-                .sprites => |sprites| {
-                    if (sprites.flags.hidden or sprites.scale == 0) continue;
-                    const drawn = try srbmo.project(arena, context, sprites) orelse continue;
-                    try driver.vtable.sprites(driver.ptr, drawn, layer, &blended);
-                },
-                .stars => |field| {
-                    if (field.flags.hidden) continue;
-                    const drawn = try srstars.project(arena, context, field) orelse continue;
-                    try driver.vtable.stars(driver.ptr, drawn, layer, &blended);
-                },
-            }
+            try drawObject(arena, context, objects[i], lights, &budget, driver, layer, &blended);
         }
         depthSort(blended.list.items);
         driver.vtable.flush(driver.ptr, blended.list.items, layer);
@@ -271,6 +235,31 @@ pub fn render(arena: Allocator, context: *srapi.Context, scene: *Scene, driver: 
         try over.draw(over.context);
     }
     driver.vtable.end(driver.ptr);
+}
+
+/// Sends `object` through the pipeline for its kind, lit by `lights`, and to the driver on `layer`,
+/// which draws what is opaque now and puts the rest in `blended`; nothing for a hidden object, or
+/// one the pipeline finds none of in view.
+fn drawObject(arena: Allocator, context: *srapi.Context, object: Object, lights: []const srlight.Light, budget: *srmesh.Budget, driver: Driver, layer: Layer, blended: *Blended) Allocator.Error!void {
+    switch (object) {
+        .mesh => |mesh| {
+            if (mesh.flags.hidden or mesh.scale == 0) return;
+            const drawn = try srmesh.pipe(arena, context, mesh, lights, budget) orelse return;
+            const stored = try arena.create(srmesh.Drawn);
+            stored.* = drawn;
+            try driver.vtable.mesh(driver.ptr, stored, layer, blended);
+        },
+        .sprites => |sprites| {
+            if (sprites.flags.hidden or sprites.scale == 0) return;
+            const drawn = try srbmo.project(arena, context, sprites) orelse return;
+            try driver.vtable.sprites(driver.ptr, drawn, layer, blended);
+        },
+        .stars => |field| {
+            if (field.flags.hidden) return;
+            const drawn = try srstars.project(arena, context, field) orelse return;
+            try driver.vtable.stars(driver.ptr, drawn, layer, blended);
+        },
+    }
 }
 
 /// OpenReliant's: hands the driver the frame's shadows, where its device draws them (`srshadow`).

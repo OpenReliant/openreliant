@@ -48,7 +48,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--no-dither` | Draw 32-bit colour without dithering |
 | `--no-pixel-lighting` | Light each vertex rather than each pixel, as the original does |
 | `--gamma-space` | Light, blend and filter the encoded colours, as the original does, rather than in linear light |
-| `--no-materials` | Light the mods' textures without their material maps: no normal maps, and the original's highlights in place of the maps' ([Modding](modding.md#material-maps)) |
+| `--no-materials` | Light the mods' textures without their material maps: no normal maps or reflections, and the original's highlights in place of the maps' ([Modding](modding.md#material-maps)) |
 | `--shadows <off\|low\|high>` | Shadows from the sun: low is soft and light on older GPUs, high sharp and smooth; high by default, and none without lighting each pixel |
 | `--no-cockpit-shadows` | Leave the shadows out of the cockpit, keeping them on the ships |
 | `--no-smooth-motion` | Move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame |

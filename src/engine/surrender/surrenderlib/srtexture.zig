@@ -2,12 +2,14 @@
 //! (`0x004C9E20`) looks a name up in the texture cache and reads the pixels on first use; the
 //! driver makes its device texture when it first draws with it (`texture_upload`, `0x004C9C90`).
 //! OpenReliant keeps each image as 8-bit RGBA mip levels, and takes a mod's picture of a texture's
-//! name in place of the cache's (`Files`).
+//! name in place of the cache's (`Files`), with the material maps that come beside it
+//! (`Image.Maps`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const png = @import("../../../formats/png.zig");
+const colour = @import("../colour.zig");
 const tcache = @import("../../../formats/tcache.zig");
 const tga = @import("../../../formats/tga.zig");
 
@@ -376,7 +378,7 @@ fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level 
         for (rows) |row| for (columns) |column| {
             const texel = level.rgba[(row * level.width + column) * 4 ..][0..4];
             const value: Rgb = switch (content) {
-                .colour => .{ srgb.light(texel[0]), srgb.light(texel[1]), srgb.light(texel[2]) },
+                .colour => .{ colour.light(texel[0]), colour.light(texel[1]), colour.light(texel[2]) },
                 .normal => Rgb{ unit(texel[0]), unit(texel[1]), unit(texel[2]) } * @as(Rgb, @splat(2)) - @as(Rgb, @splat(1)),
                 .data => .{ unit(texel[0]), unit(texel[1]), unit(texel[2]) },
             };
@@ -392,7 +394,7 @@ fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level 
                 // Weighted by alpha, so that a clear pixel lends its colour nothing; where the four
                 // are all clear, the mean of their colours, which filtering may still reach.
                 const mean = if (alpha > 0) weighted / @as(Rgb, @splat(alpha)) else sum / @as(Rgb, @splat(4));
-                out.* = .{ srgb.level(mean[0]), srgb.level(mean[1]), srgb.level(mean[2]), mean_alpha };
+                out.* = .{ colour.level(mean[0]), colour.level(mean[1]), colour.level(mean[2]), mean_alpha };
             },
             .normal => {
                 // The vectors' mean, a unit long again; straight out of the surface where they
@@ -420,52 +422,6 @@ fn unit(level: u8) f32 {
 fn level8(value: f32) u8 {
     return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(u8)));
 }
-
-/// sRGB's transfer function (IEC 61966-2-1), between a colour's 8-bit levels and its light from 0
-/// to 1, worked out exactly once for every level.
-const srgb = struct {
-    /// Below this encoded value the curve is a straight line.
-    const knee = 0.04045;
-    const slope = 12.92;
-    const offset = 0.055;
-    const exponent = 2.4;
-
-    /// The light of each level.
-    const lights: [256]f32 = table: {
-        @setEvalBranchQuota(100_000);
-        var out: [256]f32 = undefined;
-        for (&out, 0..) |*light_of, at| light_of.* = decoded(@as(f64, @floatFromInt(at)) / 255);
-        break :table out;
-    };
-
-    /// The light halfway, in encoded value, between each level and the next: where the nearest
-    /// level changes.
-    const bounds: [255]f32 = table: {
-        @setEvalBranchQuota(100_000);
-        var out: [255]f32 = undefined;
-        for (&out, 0..) |*bound, at| bound.* = decoded((@as(f64, @floatFromInt(at)) + 0.5) / 255);
-        break :table out;
-    };
-
-    fn decoded(value: f64) f32 {
-        return @floatCast(if (value <= knee) value / slope else std.math.pow(f64, (value + offset) / (1 + offset), exponent));
-    }
-
-    fn light(of: u8) f32 {
-        return lights[of];
-    }
-
-    /// The level nearest the light `of`, in encoded value.
-    fn level(of: f32) u8 {
-        var low: usize = 0;
-        var high: usize = bounds.len;
-        while (low < high) {
-            const middle = (low + high) / 2;
-            if (of < bounds[middle]) high = middle else low = middle + 1;
-        }
-        return @intCast(low);
-    }
-};
 
 fn decode(gpa: Allocator, texture: tcache.Texture, palette: *const tga.Palette) Allocator.Error!Image {
     var levels: std.ArrayList(Level) = .empty;
@@ -656,16 +612,6 @@ test mipmapped {
     defer kept.deinit(gpa);
     try std.testing.expectEqual(max_side / 2, kept.width());
     try std.testing.expectEqual(1, kept.levels[kept.levels.len - 1].width);
-}
-
-test "sRGB's levels and light" {
-    for (0..256) |at| {
-        const level: u8 = @intCast(at);
-        try std.testing.expectEqual(level, srgb.level(srgb.light(level)));
-    }
-    try std.testing.expectEqual(188, srgb.level(0.5));
-    try std.testing.expectEqual(0, srgb.level(-1));
-    try std.testing.expectEqual(255, srgb.level(2));
 }
 
 /// Fixtures for the tests here and in the modules that draw with textures.

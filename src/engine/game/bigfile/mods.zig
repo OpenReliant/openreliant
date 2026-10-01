@@ -3,7 +3,9 @@
 //! archives, `resource.hog`, the speech's, the pilots' films' and the discs', and its loose files,
 //! such as its music, its movies, its missions and its tables. So a mod replaces a model, a
 //! picture of the interface, a sound, a piece of music, a line of speech or a movie alike, with a
-//! file of the name of the one it replaces, and adds a file under a name of its own.
+//! file of the name of the one it replaces, and adds a file under a name of its own. Through the
+//! texture table (`Mods.textures`), a picture of a texture's name stands in for the texture
+//! cache's image, with its material maps.
 //!
 //! A mod is an archive of the game's own format, a `.hog`, or a folder of files, as for a mod while
 //! it is being made, read as the archive `sltool hog pack` makes of the folder reads. Its names are
@@ -486,21 +488,43 @@ pub const Mods = struct {
         for (mods.list, 0..) |*mod, at| {
             log.info("mod {d} of {d}: {f}", .{ at + 1, mods.list.len, mod.* });
             var names = mod.names();
-            while (names.next()) |name| {
-                if (lastHolder(mods.list[0..at], name)) |earlier| {
-                    log.info("{s} replaces {s}'s {s}", .{ mod.name, earlier.name, name });
-                } else if (own.kindOf(name)) |kind| switch (kind) {
-                    .file => log.info("{s} replaces {s}", .{ mod.name, name }),
-                    .texture => log.info("{s} replaces the texture {s}", .{ mod.name, name[0 .. name.len - srtexture.picture_extension.len] }),
-                } else if (own.mapOf(name)) |map| {
-                    log.info("{s} gives the texture {s} its {s}", .{ mod.name, map.texture, map.kind.label() });
-                } else {
-                    log.info("{s} adds {s}", .{ mod.name, name });
-                }
-            }
+            while (names.next()) |name| switch (effectOf(mods.list, at, own, name)) {
+                .over => |earlier| log.info("{s} replaces {s}'s {s}", .{ mod.name, earlier.name, name }),
+                .file => log.info("{s} replaces {s}", .{ mod.name, name }),
+                .texture => |texture| log.info("{s} replaces the texture {s}", .{ mod.name, texture }),
+                .map => |map| log.info("{s} gives the texture {s} its {s}", .{ mod.name, map.texture, map.kind.label() }),
+                .added => log.info("{s} adds {s}", .{ mod.name, name }),
+            };
         }
     }
 };
+
+/// What a mod's file does, as the log says.
+const Effect = union(enum) {
+    /// It stands in for an earlier mod's file of its name.
+    over: *const Mod,
+    /// It stands in for the game's own file of its name.
+    file,
+    /// It stands in for the image of the texture cache of its name (`srtexture.Files`), which it
+    /// names less the picture's extension.
+    texture: []const u8,
+    /// It gives a texture of the cache one of its material maps.
+    map: GameFiles.Map,
+    /// It is a file of the mod's own.
+    added,
+};
+
+/// What the file `name` of the mod at `at` in `list` does: an earlier mod's file of its name comes
+/// first, then the game's own (`own`).
+fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effect {
+    if (lastHolder(list[0..at], name)) |earlier| return .{ .over = earlier };
+    if (own.kindOf(name)) |kind| return switch (kind) {
+        .file => .file,
+        .texture => .{ .texture = name[0 .. name.len - srtexture.picture_extension.len] },
+    };
+    if (own.mapOf(name)) |map| return .{ .map = map };
+    return .added;
+}
 
 /// The last of `list` that holds the file `name`, whatever its case.
 fn lastHolder(list: []const Mod, name: []const u8) ?*const Mod {
@@ -778,4 +802,61 @@ test "an archive is read where it matches its checksum" {
     try std.testing.expectEqualStrings("a picture of the mod", thumbnail);
     try std.testing.expect(!mods.has("mod.png"));
     try std.testing.expect(mods.has("ship.shp"));
+}
+
+test GameFiles {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    // An archive's member, a loose file in a folder, the texture cache's image, and a mod's file,
+    // which is none of the game's.
+    try hog.testing.write(gpa, io, tmp.dir, "resource.hog", &.{.{ .name = "Ship.SHP", .data = "ship" }});
+    try tmp.dir.createDirPath(io, "music");
+    try tmp.dir.writeFile(io, .{ .sub_path = "music/theme.wav", .data = "theme" });
+    const cache = try tcache.testing.build(gpa, &.{.{ .name = "yank_2", .encoding = .index8, .width = 2, .height = 2 }});
+    defer gpa.free(cache);
+    try tmp.dir.writeFile(io, .{ .sub_path = tcache.hardware_name, .data = cache });
+    try tmp.dir.createDirPath(io, "Mods/own");
+    try tmp.dir.writeFile(io, .{ .sub_path = "Mods/own/new.tga", .data = "new" });
+
+    var own: GameFiles = try .gather(gpa, io, tmp.dir);
+    defer own.deinit(gpa);
+    try std.testing.expectEqual(.file, own.kindOf("SHIP.shp").?);
+    try std.testing.expectEqual(.file, own.kindOf("theme.wav").?);
+    try std.testing.expectEqual(.texture, own.kindOf("Yank_2.png").?);
+    try std.testing.expectEqual(null, own.kindOf("new.tga"));
+    const map = own.mapOf("yank_2_ROUGHNESS.png").?;
+    try std.testing.expectEqualStrings("yank_2", map.texture);
+    try std.testing.expectEqual(.roughness, map.kind);
+    try std.testing.expectEqual(null, own.mapOf("hull_normal.png"));
+}
+
+test effectOf {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    // Two mods: `a` and `b`, which comes after it.
+    try tmp.dir.createDirPath(io, "mods/a");
+    try tmp.dir.createDirPath(io, "mods/b");
+    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/logo.tga" }) |path| {
+        try tmp.dir.writeFile(io, .{ .sub_path = path, .data = path });
+    }
+    var mods: Mods = try .open(gpa, io, tmp.dir);
+    defer mods.close(gpa);
+    var own: GameFiles = .{};
+    defer own.deinit(gpa);
+    try own.add(gpa, "ship.shp", .file);
+    try own.add(gpa, "yank_2.png", .texture);
+
+    // An earlier mod's file, the game's own, a texture and one of its maps, and a file of its own.
+    try std.testing.expectEqual(&mods.list[0], effectOf(mods.list, 1, own, "hull.tga").over);
+    try std.testing.expectEqual(.file, effectOf(mods.list, 1, own, "ship.shp"));
+    try std.testing.expectEqualStrings("yank_2", effectOf(mods.list, 1, own, "yank_2.png").texture);
+    try std.testing.expectEqual(.normal, effectOf(mods.list, 1, own, "yank_2_normal.png").map.kind);
+    try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "logo.tga"));
+    // The first mod replaces no mod's file.
+    try std.testing.expectEqual(.added, effectOf(mods.list, 0, own, "hull.tga"));
 }
