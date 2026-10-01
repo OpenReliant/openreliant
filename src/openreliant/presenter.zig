@@ -53,8 +53,9 @@ pub const Presenter = struct {
     screen: *Screen,
     driver: *srd3d.srd3d.Driver,
     context: *srapi.Context,
-    /// The size `--size` asks the frames to be drawn at, where it does.
-    wanted: ?[2]u32,
+    /// The size the frames are drawn at, which `--size` and the settings choose: for the GPU, its
+    /// settings', which `setSize` keeps the same.
+    wanted: srd3d.device.FrameSize,
     /// What the software device is made in.
     arena: Allocator,
     /// The scene, empty, and what a frame is drawn in.
@@ -69,6 +70,24 @@ pub const Presenter = struct {
     /// The size the frames are drawn at.
     pub fn size(presenter: *Presenter) ![2]u32 {
         return frameSize(presenter.screen, presenter.window, presenter.wanted, presenter.arena);
+    }
+
+    /// Draws the frames at `wanted` from the next on.
+    pub fn setSize(presenter: *Presenter, wanted: srd3d.device.FrameSize) void {
+        presenter.wanted = wanted;
+        switch (presenter.screen.*) {
+            .gpu => |*device| device.settings.size = wanted,
+            .software => {},
+        }
+    }
+
+    /// The window's own size, which a share of it is of: in pixels for the GPU, and in points for
+    /// the software device.
+    pub fn windowSize(presenter: *const Presenter) [2]u32 {
+        return switch (presenter.screen.*) {
+            .gpu => |*device| device.windowSize(),
+            .software => presenter.window.size(),
+        };
     }
 
     /// Draws a frame `pixels` in size of `overlay` alone and puts it on the window.
@@ -86,13 +105,14 @@ pub const Presenter = struct {
     }
 };
 
-/// The size a frame is drawn at: on the GPU the display's own resolution; for the software device
-/// `wanted`, or else the window's size in points, the device made again when it changes.
-pub fn frameSize(screen: *Screen, window: *const platform.window.Window, wanted: ?[2]u32, arena: Allocator) ![2]u32 {
+/// The size a frame is drawn at: on the GPU as its settings have it, of the window's size at the
+/// display's own density; for the software device `wanted`, of the window's size in points, the
+/// device made again when it changes.
+fn frameSize(screen: *Screen, window: *const platform.window.Window, wanted: srd3d.device.FrameSize, arena: Allocator) ![2]u32 {
     return switch (screen.*) {
         .gpu => |*device| device.frameSize(),
         .software => |*device| resized: {
-            const size = wanted orelse window.size();
+            const size = wanted.of(window.size());
             if (device.width != size[0] or device.height != size[1]) {
                 device.deinit(arena);
                 device.* = try .init(arena, size[0], size[1]);

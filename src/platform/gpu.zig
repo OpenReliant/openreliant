@@ -62,9 +62,9 @@ pub const Settings = struct {
     shadows: Shadows = .high,
     /// Shadows in the cockpit as well: the canopy's struts on the dashboard.
     cockpit_shadows: bool = true,
-    /// The frames' size in pixels whatever the window's, which shows them scaled to fit; null for
-    /// the window's own, at the display's density.
-    size: ?[2]u32 = null,
+    /// The frames' size, a share of the window's own at the display's density, or a size in pixels
+    /// whatever the window's, which shows them scaled to fit.
+    size: device.FrameSize = .window,
 
     pub const Shadows = shadow.Quality;
 
@@ -310,6 +310,16 @@ pub const Gpu = struct {
     bloom_pipeline: ?*c.SDL_GPUGraphicsPipeline = null,
     /// Draws the last pass, into the finished frame.
     finish_pipeline: ?*c.SDL_GPUGraphicsPipeline = null,
+    /// Puts the finished frame on the screen through the gamma ramp, in the swapchain's format,
+    /// which it was made for; made the first time the brightness is other than 1.
+    gamma_pipeline: ?*c.SDL_GPUGraphicsPipeline = null,
+    gamma_format: c.SDL_GPUTextureFormat = c.SDL_GPU_TEXTUREFORMAT_INVALID,
+    /// Whether the GPU takes SPIR-V, rather than Metal's shaders.
+    spirv: bool,
+    /// The brightness the display's gamma ramp is set to (`Device.gamma`): 1 puts the finished
+    /// frame on the screen as it is. Where the ramp's pass can't be made, the frame goes as it is.
+    brightness: f32 = 1,
+    gamma_failed: bool = false,
     pipelines: std.AutoHashMapUnmanaged(PipelineKey, *c.SDL_GPUGraphicsPipeline) = .empty,
     arrays: std.ArrayList(Array) = .empty,
     uploads: std.ArrayList(Upload) = .empty,
@@ -387,23 +397,9 @@ pub const Gpu = struct {
         var shadows: shadow.Shadows = try .init(handle, spirv, if (settings.pixel_lighting) settings.shadows else .off);
         errdefer shadows.deinit(handle);
 
-        const modern = settings.filter != .original;
-        var sampler_info = std.mem.zeroes(c.SDL_GPUSamplerCreateInfo);
-        sampler_info.min_filter = c.SDL_GPU_FILTER_LINEAR;
-        sampler_info.mag_filter = c.SDL_GPU_FILTER_LINEAR;
-        sampler_info.mipmap_mode = if (modern) c.SDL_GPU_SAMPLERMIPMAPMODE_LINEAR else c.SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
-        sampler_info.address_mode_u = c.SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-        sampler_info.address_mode_v = c.SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-        sampler_info.address_mode_w = c.SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-        sampler_info.max_lod = 1000;
-        sampler_info.enable_anisotropy = modern;
-        sampler_info.max_anisotropy = if (modern) 16 else 1;
-        const sampler = c.SDL_CreateGPUSampler(handle, &sampler_info) orelse return fail("SDL_CreateGPUSampler");
+        const sampler = try textureSampler(handle, settings.filter, c.SDL_GPU_SAMPLERADDRESSMODE_REPEAT);
         errdefer c.SDL_ReleaseGPUSampler(handle, sampler);
-        sampler_info.address_mode_u = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-        sampler_info.address_mode_v = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-        sampler_info.address_mode_w = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-        const edge_sampler = c.SDL_CreateGPUSampler(handle, &sampler_info) orelse return fail("SDL_CreateGPUSampler");
+        const edge_sampler = try textureSampler(handle, settings.filter, c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE);
         errdefer c.SDL_ReleaseGPUSampler(handle, edge_sampler);
 
         // 16-bit colour where the GPU draws into it; elsewhere the shader's dither alone.
@@ -422,22 +418,8 @@ pub const Gpu = struct {
             c.SDL_GPU_TEXTUREFORMAT_D32_FLOAT
         else
             c.SDL_GPU_TEXTUREFORMAT_D24_UNORM;
-        var samples: c.SDL_GPUSampleCount = c.SDL_GPU_SAMPLECOUNT_1;
-        for ([_]struct { u8, c.SDL_GPUSampleCount }{ .{ 2, c.SDL_GPU_SAMPLECOUNT_2 }, .{ 4, c.SDL_GPU_SAMPLECOUNT_4 }, .{ 8, c.SDL_GPU_SAMPLECOUNT_8 } }) |option| {
-            if (option[0] <= settings.samples and
-                c.SDL_GPUTextureSupportsSampleCount(handle, colour_format, option[1]) and
-                c.SDL_GPUTextureSupportsSampleCount(handle, depth_format, option[1])) samples = option[1];
-        }
-
-        const present_mode: c.SDL_GPUPresentMode = if (settings.vsync)
-            c.SDL_GPU_PRESENTMODE_VSYNC
-        else if (c.SDL_WindowSupportsGPUPresentMode(handle, window, c.SDL_GPU_PRESENTMODE_IMMEDIATE))
-            c.SDL_GPU_PRESENTMODE_IMMEDIATE
-        else if (c.SDL_WindowSupportsGPUPresentMode(handle, window, c.SDL_GPU_PRESENTMODE_MAILBOX))
-            c.SDL_GPU_PRESENTMODE_MAILBOX
-        else
-            c.SDL_GPU_PRESENTMODE_VSYNC;
-        if (!c.SDL_SetGPUSwapchainParameters(handle, window, c.SDL_GPU_SWAPCHAINCOMPOSITION_SDR, present_mode)) return fail("SDL_SetGPUSwapchainParameters");
+        const samples = sampleCount(handle, colour_format, depth_format, settings.samples);
+        if (!c.SDL_SetGPUSwapchainParameters(handle, window, c.SDL_GPU_SWAPCHAINCOMPOSITION_SDR, presentMode(handle, window, settings.vsync))) return fail("SDL_SetGPUSwapchainParameters");
 
         var screen_info = std.mem.zeroes(c.SDL_GPUSamplerCreateInfo);
         screen_info.min_filter = c.SDL_GPU_FILTER_LINEAR;
@@ -454,6 +436,7 @@ pub const Gpu = struct {
             .screen_sampler = screen_sampler,
             .handle = handle,
             .window = window,
+            .spirv = spirv,
             .settings = settings,
             .samples = samples,
             .linear = linear,
@@ -468,9 +451,140 @@ pub const Gpu = struct {
             .shadows = shadows,
         };
         gpu.blank = try gpu.place(&blank_levels);
-        if (settings.bloom or linear) try gpu.startScreen(spirv);
+        if (settings.bloom or linear) try gpu.startScreen();
         gpu.prepare();
         return gpu;
+    }
+
+    /// The sample counts the frame can take, and how many samples a pixel each is.
+    const sample_counts = [_]struct { u8, c.SDL_GPUSampleCount }{
+        .{ 1, c.SDL_GPU_SAMPLECOUNT_1 },
+        .{ 2, c.SDL_GPU_SAMPLECOUNT_2 },
+        .{ 4, c.SDL_GPU_SAMPLECOUNT_4 },
+        .{ 8, c.SDL_GPU_SAMPLECOUNT_8 },
+    };
+
+    /// The most samples a pixel up to `wanted` that the GPU draws into frames of `colour` and
+    /// `depth` with.
+    fn sampleCount(handle: *c.SDL_GPUDevice, colour: c.SDL_GPUTextureFormat, depth: c.SDL_GPUTextureFormat, wanted: u8) c.SDL_GPUSampleCount {
+        var samples: c.SDL_GPUSampleCount = c.SDL_GPU_SAMPLECOUNT_1;
+        for (sample_counts[1..]) |option| {
+            if (option[0] <= wanted and
+                c.SDL_GPUTextureSupportsSampleCount(handle, colour, option[1]) and
+                c.SDL_GPUTextureSupportsSampleCount(handle, depth, option[1])) samples = option[1];
+        }
+        return samples;
+    }
+
+    /// The most samples a pixel the GPU draws the frame with.
+    pub fn mostSamples(gpu: Gpu) u8 {
+        const most = sampleCount(gpu.handle, gpu.colour_format, gpu.depth_format, std.math.maxInt(u8));
+        for (sample_counts) |option| if (option[1] == most) return option[0];
+        return 1;
+    }
+
+    /// How the frames go to the window: as the display shows each, with vsync; otherwise at once,
+    /// or each replacing the last waiting, where the window offers either.
+    fn presentMode(handle: *c.SDL_GPUDevice, window: *c.SDL_Window, vsync: bool) c.SDL_GPUPresentMode {
+        if (vsync) return c.SDL_GPU_PRESENTMODE_VSYNC;
+        if (c.SDL_WindowSupportsGPUPresentMode(handle, window, c.SDL_GPU_PRESENTMODE_IMMEDIATE)) return c.SDL_GPU_PRESENTMODE_IMMEDIATE;
+        if (c.SDL_WindowSupportsGPUPresentMode(handle, window, c.SDL_GPU_PRESENTMODE_MAILBOX)) return c.SDL_GPU_PRESENTMODE_MAILBOX;
+        return c.SDL_GPU_PRESENTMODE_VSYNC;
+    }
+
+    /// Waits for the display to show each frame, or not, from the next frame on.
+    fn setVsync(gpu: *Gpu, vsync: bool) void {
+        if (gpu.settings.vsync == vsync) return;
+        gpu.settings.vsync = vsync;
+        if (!c.SDL_SetGPUSwapchainParameters(gpu.handle, gpu.window, c.SDL_GPU_SWAPCHAINCOMPOSITION_SDR, presentMode(gpu.handle, gpu.window, vsync)))
+            log.warn("vsync is left as it was: {s}", .{c.SDL_GetError()});
+    }
+
+    /// Draws the frame with `samples` a pixel from the next frame on, as many as the GPU offers up
+    /// to it: the frame's targets are made again, and the pipelines, which the GPU compiles as the
+    /// device starts (`prepare`).
+    fn setSamples(gpu: *Gpu, samples: u8) void {
+        gpu.settings.samples = samples;
+        const count = sampleCount(gpu.handle, gpu.colour_format, gpu.depth_format, samples);
+        if (count == gpu.samples) return;
+        _ = c.SDL_WaitForGPUIdle(gpu.handle);
+        gpu.releaseTargets();
+        var pipelines = gpu.pipelines.valueIterator();
+        while (pipelines.next()) |made| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made.*);
+        gpu.pipelines.clearRetainingCapacity();
+        gpu.samples = count;
+        gpu.prepare();
+    }
+
+    /// What reads the textures, filtered as `filter` has them, `address` at their edges.
+    fn textureSampler(handle: *c.SDL_GPUDevice, filter: Settings.Filter, address: c.SDL_GPUSamplerAddressMode) sdl.Error!*c.SDL_GPUSampler {
+        const modern = filter != .original;
+        var info = std.mem.zeroes(c.SDL_GPUSamplerCreateInfo);
+        info.min_filter = c.SDL_GPU_FILTER_LINEAR;
+        info.mag_filter = c.SDL_GPU_FILTER_LINEAR;
+        info.mipmap_mode = if (modern) c.SDL_GPU_SAMPLERMIPMAPMODE_LINEAR else c.SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+        info.address_mode_u = address;
+        info.address_mode_v = address;
+        info.address_mode_w = address;
+        info.max_lod = 1000;
+        info.enable_anisotropy = modern;
+        info.max_anisotropy = if (modern) 16 else 1;
+        return c.SDL_CreateGPUSampler(handle, &info) orelse fail("SDL_CreateGPUSampler");
+    }
+
+    /// Draws with `wanted` from the next frame on, as far as it can while it runs: but for 16-bit
+    /// colour and linear light, which change the formats the device made as it started, and the
+    /// frames' size, which the driver keeps. What it can't make is logged, and left as it was.
+    pub fn apply(gpu: *Gpu, wanted: Settings) void {
+        gpu.setVsync(wanted.vsync);
+        gpu.setSamples(wanted.samples);
+        gpu.settings.dither = wanted.dither;
+        gpu.settings.cockpit_shadows = wanted.cockpit_shadows;
+        if (wanted.filter != gpu.settings.filter) gpu.setFilter(wanted.filter) catch |err| log.err("the texture filter is left as it was: {s}", .{@errorName(err)});
+        if (wanted.bloom != gpu.settings.bloom) gpu.setBloom(wanted.bloom) catch |err| log.err("the bloom is left as it was: {s}", .{@errorName(err)});
+        if (wanted.pixel_lighting != gpu.settings.pixel_lighting or wanted.shadows != gpu.settings.shadows) {
+            gpu.setLighting(wanted.pixel_lighting, wanted.shadows) catch |err| log.err("the shadows are left out: {s}", .{@errorName(err)});
+        }
+    }
+
+    fn setFilter(gpu: *Gpu, filter: Settings.Filter) sdl.Error!void {
+        const sampler = try textureSampler(gpu.handle, filter, c.SDL_GPU_SAMPLERADDRESSMODE_REPEAT);
+        errdefer c.SDL_ReleaseGPUSampler(gpu.handle, sampler);
+        const edge_sampler = try textureSampler(gpu.handle, filter, c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE);
+        _ = c.SDL_WaitForGPUIdle(gpu.handle);
+        c.SDL_ReleaseGPUSampler(gpu.handle, gpu.sampler);
+        c.SDL_ReleaseGPUSampler(gpu.handle, gpu.edge_sampler);
+        gpu.sampler = sampler;
+        gpu.edge_sampler = edge_sampler;
+        gpu.settings.filter = filter;
+    }
+
+    /// The bloom on or off: its pipeline made or let go, and the frame's targets made again, with
+    /// the bloom's or without.
+    fn setBloom(gpu: *Gpu, on: bool) Error!void {
+        _ = c.SDL_WaitForGPUIdle(gpu.handle);
+        gpu.releaseTargets();
+        gpu.settings.bloom = on;
+        if (on) return gpu.startScreen();
+        if (gpu.bloom_pipeline) |made| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made);
+        gpu.bloom_pipeline = null;
+    }
+
+    /// Each pixel lit, or each vertex, and the shadows of `quality`, which take each pixel lit: their
+    /// maps made again, the ones before let go first. Where the new can't be made, there are none.
+    fn setLighting(gpu: *Gpu, pixel_lighting: bool, quality: Settings.Shadows) Error!void {
+        gpu.settings.pixel_lighting = pixel_lighting;
+        gpu.settings.shadows = quality;
+        const drawn: Settings.Shadows = if (pixel_lighting) quality else .off;
+        if (drawn == gpu.shadows.quality) return;
+        _ = c.SDL_WaitForGPUIdle(gpu.handle);
+        const none: shadow.Shadows = try .init(gpu.handle, gpu.spirv, .off);
+        gpu.shadows.deinit(gpu.handle);
+        gpu.shadows = none;
+        if (drawn == .off) return;
+        const made: shadow.Shadows = try .init(gpu.handle, gpu.spirv, drawn);
+        gpu.shadows.deinit(gpu.handle);
+        gpu.shadows = made;
     }
 
     /// Makes every pipeline the frame can draw with (`prepared`), rather than each the first time
@@ -505,6 +619,7 @@ pub const Gpu = struct {
         gpu.releaseTargets();
         if (gpu.bloom_pipeline) |p| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, p);
         if (gpu.finish_pipeline) |p| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, p);
+        if (gpu.gamma_pipeline) |p| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, p);
         if (gpu.screen_vertex_shader) |shader_| c.SDL_ReleaseGPUShader(gpu.handle, shader_);
         if (gpu.screen_fragment_shader) |shader_| c.SDL_ReleaseGPUShader(gpu.handle, shader_);
         c.SDL_ReleaseGPUSampler(gpu.handle, gpu.screen_sampler);
@@ -516,11 +631,32 @@ pub const Gpu = struct {
 
     /// The shaders and pipelines the screen's passes draw with: a triangle over the whole screen,
     /// so there is nothing to bind but what it reads.
-    fn startScreen(gpu: *Gpu, spirv: bool) Error!void {
-        gpu.screen_vertex_shader = try shader(gpu.handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, if (spirv) shaders.bloom_vertex_spirv else shaders.bloom_vertex_msl, 0, 1);
-        gpu.screen_fragment_shader = try shader(gpu.handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) shaders.bloom_fragment_spirv else shaders.bloom_fragment_msl, 2, 1);
-        if (gpu.settings.bloom) gpu.bloom_pipeline = try gpu.screenPipeline(gpu.colour_format);
-        gpu.finish_pipeline = try gpu.screenPipeline(gpu.finish_format);
+    fn startScreen(gpu: *Gpu) Error!void {
+        try gpu.screenShaders();
+        if (gpu.settings.bloom and gpu.bloom_pipeline == null) gpu.bloom_pipeline = try gpu.screenPipeline(gpu.colour_format);
+        if (gpu.finish_pipeline == null) gpu.finish_pipeline = try gpu.screenPipeline(gpu.finish_format);
+    }
+
+    /// The screen's passes' shaders, made the first time they are needed.
+    fn screenShaders(gpu: *Gpu) sdl.Error!void {
+        const spirv = gpu.spirv;
+        if (gpu.screen_vertex_shader == null) gpu.screen_vertex_shader = try shader(gpu.handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, if (spirv) shaders.bloom_vertex_spirv else shaders.bloom_vertex_msl, 0, 1);
+        if (gpu.screen_fragment_shader == null) gpu.screen_fragment_shader = try shader(gpu.handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) shaders.bloom_fragment_spirv else shaders.bloom_fragment_msl, 2, 1);
+    }
+
+    /// The gamma ramp's pass into the swapchain, whose format is `format`: made the first time it
+    /// is needed, and again where the format has changed.
+    fn gammaPipeline(gpu: *Gpu, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUGraphicsPipeline {
+        if (gpu.gamma_pipeline) |made| {
+            if (gpu.gamma_format == format) return made;
+            c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made);
+            gpu.gamma_pipeline = null;
+        }
+        try gpu.screenShaders();
+        const made = try gpu.screenPipeline(format);
+        gpu.gamma_pipeline = made;
+        gpu.gamma_format = format;
+        return made;
     }
 
     fn screenPipeline(gpu: *Gpu, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUGraphicsPipeline {
@@ -546,6 +682,8 @@ pub const Gpu = struct {
         blur,
         /// Adds the bloom back and finishes the frame.
         finish,
+        /// Puts the finished frame on the screen through the gamma ramp.
+        gamma,
     };
 
     /// What the screen's passes read, in std140's layout (`shaders/bloom.glsl`).
@@ -607,7 +745,13 @@ pub const Gpu = struct {
         .lights = lights,
         .shadow_settings = shadowSettings,
         .shadows = takeShadows,
+        .gamma = setGamma,
     };
+
+    /// The gamma ramp, which the frame goes to the screen through (`present`).
+    fn setGamma(ptr: *anyopaque, brightness: f32) void {
+        from(ptr).brightness = brightness;
+    }
 
     fn shadowSettings(ptr: *anyopaque) ?srshadow.Settings {
         const gpu = from(ptr);
@@ -640,10 +784,13 @@ pub const Gpu = struct {
         return @ptrCast(@alignCast(ptr));
     }
 
-    /// The frame's size in pixels: the settings' where they give one, or the window's, at the
-    /// display's own density.
+    /// The frame's size in pixels, as the settings have it (`Settings.size`).
     pub fn frameSize(gpu: Gpu) [2]u32 {
-        if (gpu.settings.size) |size| return size;
+        return gpu.settings.size.of(gpu.windowSize());
+    }
+
+    /// The window's size in pixels, at the display's own density.
+    pub fn windowSize(gpu: Gpu) [2]u32 {
         var width: c_int = 0;
         var height: c_int = 0;
         _ = c.SDL_GetWindowSizeInPixels(gpu.window, &width, &height);
@@ -789,10 +936,22 @@ pub const Gpu = struct {
         if (!c.SDL_SubmitGPUCommandBuffer(commands)) return fail("SDL_SubmitGPUCommandBuffer");
     }
 
-    /// Puts the finished frame on the screen, with the display drawn over it.
+    /// Puts the finished frame on the screen, with the display drawn over it: through the gamma
+    /// ramp, where the brightness is other than 1, as the display's ramp showed the game's whole
+    /// screen.
     fn present(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets, swapchain: *c.SDL_GPUTexture, width: u32, height: u32) Error!void {
         try gpu.finish(commands, targets);
         try gpu.drawOverlay(commands, targets);
+        if (gpu.brightness != 1 and !gpu.gamma_failed) {
+            const format = c.SDL_GetGPUSwapchainTextureFormat(gpu.handle, gpu.window);
+            if (gpu.gammaPipeline(format)) |pipeline_| {
+                const finished = targets.finished();
+                return gpu.screenPass(commands, swapchain, pipeline_, finished, finished, .of(.gamma, .{ 0, 0 }, gpu.brightness, @splat(0)));
+            } else |err| {
+                log.err("the brightness is left out: {s}", .{@errorName(err)});
+                gpu.gamma_failed = true;
+            }
+        }
         var blit = std.mem.zeroes(c.SDL_GPUBlitInfo);
         blit.source = .{ .texture = targets.finished(), .w = targets.width, .h = targets.height };
         blit.destination = .{ .texture = swapchain, .w = width, .h = height };

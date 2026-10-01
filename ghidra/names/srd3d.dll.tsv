@@ -60,3 +60,6 @@ address	kind	name	type	comment
 10069cf4	data	clip_right	float	The right edge, sr + 0x1676
 10069cfc	data	clip_top	float	The top edge, sr + 0x168A
 10069ce4	data	clip_bottom	float	The bottom edge, sr + 0x168E
+10005270	function	set_gamma	int (void)	Sets the display's gamma ramp to the brightness at sr + 0x15FA (the payload's sr + 0x54), where the primary surface has a gamma control: each of the 256 levels at its share of the way up to the power 1 / brightness, times 65535, or 0 for a brightness of 0, the same for red, green and blue
+1005f6d4	data	gamma_control	void *	The primary surface's IDirectDrawGammaControl, which the screen modes ask for where the device's caps have DDCAPS2_PRIMARYGAMMA, setting sr + 0x38 bit 0
+10020240	data	iid_gamma_control		IID_IDirectDrawGammaControl, 69C11C3E-B46B-11D1-AD7A-00C04FC29B4E

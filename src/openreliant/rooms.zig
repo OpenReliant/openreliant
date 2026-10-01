@@ -100,6 +100,8 @@ pub const Driver = struct {
     /// options, which it shows.
     settings_file: *engine.profile.File,
     own: ?settings.Own = null,
+    /// The game's video settings, which the settings screen's video changes.
+    video: ?settings.Video = null,
     /// The front end's pointer, which the rooms' follows, and the timer's count it last moved on
     /// at.
     pointer: canvas.Pointer = .{},
@@ -407,7 +409,8 @@ pub const Driver = struct {
 
     /// The in-game options in their loop, with what they draw with: where they lead, or null where
     /// the game quits meanwhile. MAIN MENU plays its movie first; SAVE and LOAD open the saved
-    /// games over the menu, while a campaign is flown; CONTROL DEVICES the settings screen.
+    /// games over the menu, while a campaign is flown; AUDIO, CONTROL DEVICES and VIDEO the
+    /// settings screen.
     ///
     /// **Fix:** the menu takes no press until the button held as the saved games led back to it
     /// comes up, as the front end's screens take none.
@@ -438,8 +441,8 @@ pub const Driver = struct {
                     menu.state = .{};
                     press = .{};
                 },
-                inline .audio, .control_devices => |icon| {
-                    const end = try driver.settingsScreen(if (icon == .audio) .audio else .controls) orelse return null;
+                .settings => |tab| {
+                    const end = try driver.settingsScreen(tab) orelse return null;
                     if (settings.leavingMovie(.in_game_options, end)) |movie| _ = try driver.movies.play(movie, .over_screen) orelse return null;
                     if (end == .main_menu) return .main_menu;
                     menu.state = .{};
@@ -499,7 +502,7 @@ pub const Driver = struct {
 
     /// What a pass of the settings screen reads, with the pointer at `pointer`.
     fn settingsContext(driver: *Driver, pointer: canvas.Pointer) settings.Context {
-        return .{ .pointer = pointer, .devices = driver.movies.devices, .settings_file = driver.settings_file, .ticks = driver.clock.game_ticks, .sound = driver.sound, .own = driver.own };
+        return .{ .pointer = pointer, .devices = driver.movies.devices, .settings_file = driver.settings_file, .ticks = driver.clock.game_ticks, .sound = driver.sound, .own = driver.own, .video = driver.video };
     }
 
     /// What a pass of the saved games reads, with the pointer at `pointer`.
@@ -549,7 +552,7 @@ pub const Driver = struct {
             var view = shown_hologram.viewIn(pixels);
             try presenter.presentScene(pixels, &view, &shown_hologram.scene, shown.overlay());
         } else try presenter.present(pixels, shown.overlay());
-        if (driver.movies.frame_rate) |rate| driver.movies.pacer.wait(rate);
+        driver.movies.pace();
     }
 
     fn canvasFor(driver: *Driver, window: [2]u32) canvas.Canvas {
@@ -687,7 +690,7 @@ const Shown = struct {
             .rooms => |inside| try drawn(inside.draw(target, driver.clock.game_ticks)),
             .options => |menu| try drawn(menu.draw(target, &driver.front.dialog, driver.pointer)),
             .saved_games => |screen| try drawn(screen.draw(target, &driver.front.dialog, driver.pointer, driver.pilot.call_sign.slice())),
-            .settings => |screen| try drawn(screen.draw(target, &driver.front.dialog, .{ .devices = driver.movies.devices, .sound = driver.sound }, driver.pointer)),
+            .settings => |screen| try drawn(screen.draw(target, &driver.front.dialog, .{ .devices = driver.movies.devices, .sound = driver.sound, .video = driver.video }, driver.pointer)),
             .briefing => |meeting| try drawn(meeting.draw(target)),
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
             .itac => |terminal| try drawn(terminal.draw(target)),

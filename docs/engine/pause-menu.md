@@ -6,12 +6,12 @@ While a mission is paused, the game draws a configuration menu in place of the h
 
 ## In OpenReliant
 
-[`game/hudoptions.zig`](../../src/engine/game/hudoptions.zig) holds the menu and its screens, with the items, their drawing and the widgets the screens share in [`hudoptions/menu.zig`](../../src/engine/game/hudoptions/menu.zig) and the screens in [`hudoptions/screens.zig`](../../src/engine/game/hudoptions/screens.zig); `game_pause` is in [`game/main.zig`](../../src/engine/game/main.zig). Ported so far: pausing and resuming, the paused frame's outcomes, the menu's items and pointer, and the main and video screens, which save to `starlancer.ini` as the game does. The audio and the controls screens, the latter of which F1 opens too, are OpenReliant's settings screen ([The settings screen](front-end.md#the-settings-screen)). Not yet: the multiplayer screen ([#211](https://github.com/vdmkenny/openreliant/issues/211)), and the brightness slider, which stays hidden as it does where hardware cannot set it ([#209](https://github.com/vdmkenny/openreliant/issues/209)). RESTART starts the mission again, mission 25 from its first part ([After a mission](rooms.md#after-a-mission)). LEAVE MISSION turns to the restart screen in the campaign ([After a mission](rooms.md#after-a-mission)), goes back to the main menu from INSTANT ACTION, and quits where `--mission` named the mission.
+[`game/hudoptions.zig`](../../src/engine/game/hudoptions.zig) holds the menu and its screens, with the items, their drawing and the buttons the screens share in [`hudoptions/menu.zig`](../../src/engine/game/hudoptions/menu.zig) and the main screen in [`hudoptions/screens.zig`](../../src/engine/game/hudoptions/screens.zig); `game_pause` is in [`game/main.zig`](../../src/engine/game/main.zig). Ported so far: pausing and resuming, the paused frame's outcomes, the menu's items and pointer, and the main screen. The audio, the video and the controls screens, the last of which F1 opens too, are OpenReliant's settings screen ([The settings screen](front-end.md#the-settings-screen)). Not yet: the multiplayer screen ([#211](https://github.com/vdmkenny/openreliant/issues/211)). RESTART starts the mission again, mission 25 from its first part ([After a mission](rooms.md#after-a-mission)). LEAVE MISSION turns to the restart screen in the campaign ([After a mission](rooms.md#after-a-mission)), goes back to the main menu from INSTANT ACTION, and quits where `--mission` named the mission.
 
 **Improvements**, each marked so in the code:
 
 - The menu is drawn `hud.scaleFor` times larger, as the display is, so it keeps its proportions on a larger screen.
-- The audio and the controls screens are the front end's, the settings screen, over the mission darkened, with CONTINUE in MAIN MENU's place ([The settings screen](front-end.md#the-settings-screen)).
+- The audio, the video and the controls screens are the front end's, the settings screen, over the mission darkened, with CONTINUE in MAIN MENU's place ([The settings screen](front-end.md#the-settings-screen)).
 - The pointer is where the system's is over the window, rather than DirectInput's motion added up.
 - Losing the window's focus with a mission loaded pauses into the menu in single player too.
 - OpenReliant's version is written, dimmed, in the bottom right corner, as on the front end's menus ([Front end](front-end.md)).
@@ -21,7 +21,6 @@ While a mission is paused, the game draws a configuration menu in place of the h
 **Fixes** of the game's bugs, each marked so in the code:
 
 - Coverage level 16 of the fonts, which a few glyphs use in their first column, is left clear, as the front end draws it, where the game reads past its remap table into a volume's byte.
-- The video screen's RESET DEFAULTS sets the cockpit mode the setting stands for.
 
 W and H below are the screen's size in pixels (`sr + 0x1666`, `sr + 0x166A`). The layout is in pixels about fractions of the screen, and does not scale.
 
@@ -160,6 +159,8 @@ round(v / 127 × 171 + 24) for volume v.
   `Mastervolume`.
 
 ### Video (4)
+
+OpenReliant shows its settings screen in this one's place ([The settings screen](front-end.md#the-settings-screen)). The game's:
 
 Entering keeps `cockpit_mode_setting` and the brightness (`sr + 0x15FA`) for CANCEL CHANGES. Title
 `0x10D` GRAPHICS CONFIGURATION; the items are the table at `0x00502BB0` (11 items).

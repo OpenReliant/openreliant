@@ -3,9 +3,8 @@
 //! ABOUT STARLANCER, which OpenReliant makes ABOUT OPENRELIANT (`in_game_options.About`). Its
 //! drawing (`game_options_draw`, `0x0042AFB0`) is the render hook it puts in `sr + 0x88`.
 //!
-//! AUDIO and CONTROL DEVICES open the settings screen on its audio and its controls (`settings`).
-//! Not ported: VIDEO, its video ([#206](https://github.com/vdmkenny/openreliant/issues/206));
-//! OpenReliant stays on the menu.
+//! AUDIO, CONTROL DEVICES and VIDEO open the settings screen on its audio, its controls and its
+//! video (`settings`).
 
 const std = @import("std");
 
@@ -19,8 +18,7 @@ const Label = canvas_module.Label;
 const dialog = @import("dialog.zig");
 const in_game_options = @import("in_game_options.zig");
 const About = in_game_options.About;
-
-const log = std.log.scoped(.interface);
+const settings = @import("settings.zig");
 
 /// The menu's shapes and what it shows behind itself (`0x0042A6D7`, `0x0042A6E1`): the options'
 /// picture, with the icons.
@@ -74,15 +72,14 @@ const quit_question = 0x374;
 pub const to_main_menu = "interface\\opt2main.bik";
 
 /// Where the menu leads.
-pub const Choice = enum {
+pub const Choice = union(enum) {
     /// MAIN MENU, or Escape: `to_main_menu`, then the main menu.
     main_menu,
     /// QUIT, answered YES.
     quit,
-    /// AUDIO and CONTROL DEVICES: the settings screen, on its audio (screen 3) or its controls
-    /// (screen 16).
-    audio,
-    control_devices,
+    /// AUDIO, CONTROL DEVICES and VIDEO: the settings screen, on its audio (screen 3), its controls
+    /// (screen 16) or its video (screen 15).
+    settings: settings.Tab,
 };
 
 /// The menu's state.
@@ -92,12 +89,10 @@ pub const GameOptions = struct {
     /// QUIT's question, and ABOUT OPENRELIANT's box, while either is up.
     confirm: ?dialog.Confirm = null,
     about: ?About = null,
-    /// Whether the press on an item not ported has been told of.
-    told: bool = false,
 
-    /// A pass of the menu's loop (`0x0042A709` on): Escape and MAIN MENU go to the main menu, AUDIO
-    /// and CONTROL DEVICES to the settings screen, QUIT asks first, and ABOUT opens its box. While
-    /// QUIT's question or ABOUT OPENRELIANT's box is up, it takes the pass.
+    /// A pass of the menu's loop (`0x0042A709` on): Escape and MAIN MENU go to the main menu, AUDIO,
+    /// CONTROL DEVICES and VIDEO to the settings screen, QUIT asks first, and ABOUT opens its box.
+    /// While QUIT's question or ABOUT OPENRELIANT's box is up, it takes the pass.
     pub fn frame(menu: *GameOptions, pointer: Pointer, keyboard: *input.Keyboard) ?Choice {
         const escaped = keyboard.pressed(input.scan.escape, .none, true);
         if (menu.about) |*about| {
@@ -110,20 +105,16 @@ pub const GameOptions = struct {
             return if (answer) .quit else null;
         }
         if (escaped) return .main_menu;
-        if (!pointer.down) menu.told = false;
         menu.under = canvas_module.itemAt(Item, &rects, pointer.at);
         const chosen = menu.under orelse return null;
         if (!pointer.down) return null;
         switch (chosen) {
-            .audio => return .audio,
-            .control_devices => return .control_devices,
+            .audio => return .{ .settings = .audio },
+            .control_devices => return .{ .settings = .controls },
+            .video => return .{ .settings = .video },
             .main_menu => return .main_menu,
             .quit => menu.confirm = .{ .message = .{ .string = quit_question } },
             .about => menu.about = .{},
-            .video => if (!menu.told) {
-                menu.told = true;
-                log.info("GAME OPTIONS' {s} is not ported yet", .{@tagName(chosen)});
-            },
         }
         return null;
     }
@@ -161,11 +152,10 @@ pub const GameOptions = struct {
 test GameOptions {
     var keyboard: input.Keyboard = .{};
     var menu: GameOptions = .{};
-    // AUDIO and CONTROL DEVICES lead to the settings screen; VIDEO, not ported, stays.
-    try std.testing.expectEqual(.control_devices, menu.frame(.{ .at = .{ 300, 200 }, .down = true }, &keyboard).?);
-    try std.testing.expectEqual(.audio, menu.frame(.{ .at = .{ 100, 200 }, .down = true }, &keyboard).?);
-    try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 500, 200 }, .down = true }, &keyboard));
-    try std.testing.expect(menu.told);
+    // The icons lead to the settings screen.
+    try std.testing.expectEqual(Choice{ .settings = .controls }, menu.frame(.{ .at = .{ 300, 200 }, .down = true }, &keyboard).?);
+    try std.testing.expectEqual(Choice{ .settings = .audio }, menu.frame(.{ .at = .{ 100, 200 }, .down = true }, &keyboard).?);
+    try std.testing.expectEqual(Choice{ .settings = .video }, menu.frame(.{ .at = .{ 500, 200 }, .down = true }, &keyboard).?);
     // MAIN MENU at once; QUIT asks first.
     try std.testing.expectEqual(.main_menu, menu.frame(.{ .at = .{ 300, 450 }, .down = true }, &keyboard).?);
     try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 330, 450 }, .down = true }, &keyboard));

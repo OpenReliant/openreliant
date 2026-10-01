@@ -24,24 +24,12 @@ const settings = @import("../settings.zig");
 const Context = settings.Context;
 const Own = settings.Own;
 const Box = settings.Box;
+const Slider = settings.Slider;
+const Step = settings.Step;
+const steppedChoice = settings.steppedChoice;
 
 const Volumes = hog_snd.Volumes;
 const Volume = std.meta.FieldEnum(Volumes);
-
-/// The sliders' knobs and their tracks (`0x0042E5E3` on): a knob, shape `0x2C`, 15 by 27, slides
-/// from x 313 to 488 for the volume from 0 to 127; the track, shape `0x2D`, stands 10 below its top,
-/// from x 313 every 45 until 538.
-const knob_shape = 0x2C;
-const track_shape = 0x2D;
-const knob_size: [2]i32 = .{ 15, 27 };
-const knob_from = 313;
-const knob_travel = 175;
-const track_drop = 10;
-const track_step = 45;
-const track_end = 538;
-
-/// Where the pointer holds a knob: 4 to the right of its edge (`0x0042DEB3`).
-const grip = 4;
 
 /// Each slider's row, from the top, and its label, right of which the slider starts (`0x0042E426`
 /// on): SPEECH VOLUME, SOUND EFFECTS VOLUME, MUSIC VOLUME and MASTER VOLUME.
@@ -55,6 +43,12 @@ const slider_label_x = 295;
 /// The labels stand a little below their knob's top.
 const label_drop = 5;
 
+/// The slider of `volume`: its knob from x 313 to 488 for the volume from 0 to 127, and its track
+/// until 538 (`0x0042E5E3` on).
+fn sliderOf(volume: Volume) Slider {
+    return .{ .from = .{ 313, sliders.get(volume).y }, .end = 538 };
+}
+
 /// The order the volumes are written in as the screen is left (`0x0042E0AE` on).
 const saved = [_]Volume{ .effects, .music, .speech, .master };
 
@@ -67,8 +61,6 @@ const test_sound = 14;
 /// (300, 369) and (322, 369), each found 19 by 26, and the choice from (346, 371).
 const sound_3d: Label = .of(0x2F0, .{ 291, 371 }, .right);
 const choice_at: [2]i32 = .{ 346, 371 };
-/// Its arrows, which step its choice back or on.
-pub const Step = enum { back, on };
 const step_rects = std.EnumArray(Step, Rect).init(.{
     .back = .{ .x = 300, .y = 369, .width = 19, .height = 26 },
     .on = .{ .x = 322, .y = 369, .width = 19, .height = 26 },
@@ -190,8 +182,7 @@ pub const Audio = struct {
     pub fn slide(tab: *Audio, context: Context) void {
         const sound = context.sound orelse return;
         if (tab.held) |volume| {
-            const x = std.math.clamp(context.pointer.at[0] - grip, knob_from, knob_from + knob_travel);
-            const share = @as(f32, @floatFromInt(x - knob_from)) / knob_travel;
+            const share = @as(f32, @floatFromInt(sliderOf(volume).held(context.pointer.at[0]))) / Slider.travel;
             setLevel(&sound.volumes, volume, @intFromFloat(@round(share * hog_snd.loudest)));
             sound.applyVolumes();
         } else if (tab.held_last == .effects) {
@@ -208,13 +199,7 @@ pub const Audio = struct {
         switch (item) {
             .knob => {},
             .step => |step| if (tab.own.openal) {
-                const choices = std.enums.values(Own.Hrtf);
-                const at = std.mem.indexOfScalar(Own.Hrtf, choices, tab.own.hrtf).?;
-                const by = switch (step) {
-                    .back => choices.len - 1,
-                    .on => 1,
-                };
-                tab.own.hrtf = choices[(at + by) % choices.len];
+                tab.own.hrtf = steppedChoice(Own.Hrtf, tab.own.hrtf, step);
                 tab.applyOwn(context);
             },
             .check => |check| if (check.usable(tab.own)) {
@@ -269,13 +254,9 @@ pub const Audio = struct {
         for (std.enums.values(Volume)) |volume| {
             const slider = sliders.get(volume);
             try Label.of(slider.label, .{ slider_label_x, slider.y + label_drop }, .right).write(canvas, small, blue);
-            var x: i32 = knob_from;
-            while (x < track_end) : (x += track_step) try canvas.shape(art, track_shape, .{ x, slider.y + track_drop });
+            try sliderOf(volume).drawTrack(canvas, art);
         }
-        for (std.enums.values(Volume)) |volume| {
-            const rect = knobRect(volume, level(volumes, volume));
-            try canvas.shape(art, knob_shape, .{ rect.x, rect.y });
-        }
+        for (std.enums.values(Volume)) |volume| try sliderOf(volume).drawKnob(canvas, art, along(level(volumes, volume)));
         try sound_3d.write(canvas, small, blue);
         const dim_3d = canvas.dimmedUnless(tab.own.openal);
         for (std.enums.values(Step)) |step| {
@@ -299,16 +280,15 @@ fn volumesOf(context: Context) Volumes {
     return if (context.sound) |sound| sound.volumes else .{};
 }
 
-/// The knob of `volume` at `value`, where the pointer finds it: its share of the travel from x 313,
-/// cut to a whole pixel as the game cuts it (`0x0042DAF1` on).
-fn knobRect(volume: Volume, value: i32) Rect {
-    const x = knob_from + @divTrunc(value * knob_travel, hog_snd.loudest);
-    return .{ .x = @intCast(x), .y = @intCast(sliders.get(volume).y), .width = knob_size[0], .height = knob_size[1] };
+/// How far along its travel the knob of a volume at `value` stands: its share of the travel, cut
+/// to a whole pixel as the game cuts it (`0x0042DAF1` on).
+fn along(value: i32) i32 {
+    return @divTrunc(value * Slider.travel, hog_snd.loudest);
 }
 
 /// The knob under `at`, of `volumes`' knobs.
 fn knobAt(volumes: Volumes, at: [2]i32) ?Volume {
-    for (std.enums.values(Volume)) |volume| if (knobRect(volume, level(volumes, volume)).holds(at)) return volume;
+    for (std.enums.values(Volume)) |volume| if (sliderOf(volume).knob(along(level(volumes, volume))).holds(at)) return volume;
     return null;
 }
 
@@ -324,27 +304,7 @@ fn setLevel(volumes: *Volumes, volume: Volume, value: i32) void {
     }
 }
 
-/// OpenReliant's options as a driver keeps them, for the tests: what it was last given, and how
-/// often.
-const Recorder = struct {
-    audio: Own.Audio = .{},
-    given: usize = 0,
-
-    fn own(recorder: *Recorder) Own {
-        return .{ .context = recorder, .vtable = &.{ .audio = get, .setAudio = set } };
-    }
-
-    fn get(context: *anyopaque) Own.Audio {
-        const recorder: *Recorder = @ptrCast(@alignCast(context));
-        return recorder.audio;
-    }
-
-    fn set(context: *anyopaque, chosen: Own.Audio) void {
-        const recorder: *Recorder = @ptrCast(@alignCast(context));
-        recorder.audio = chosen;
-        recorder.given += 1;
-    }
-};
+const Recorder = settings.testing.Recorder;
 
 test "the knobs change the volumes as they are dragged" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);

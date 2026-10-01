@@ -5,16 +5,15 @@
 //! **Unverified:** the file's name, which no assertion gives; the doc says where it comes from.
 //!
 //! Ported so far: the menu's items, how they are drawn and found under the pointer, and the
-//! widgets the screens share ([`hudoptions/menu.zig`](hudoptions/menu.zig)); the pointer, the
-//! fonts and the screens' order (`pause_menu_draw`); and the main and video screens
-//! ([`hudoptions/screens.zig`](hudoptions/screens.zig)). The audio and the controls screens, the
-//! latter of which F1 opens too, are OpenReliant's settings screen (`SettingsScreen`). Not yet: the
-//! multiplayer screen (#211); and the two screens nothing reaches.
+//! buttons the screens share ([`hudoptions/menu.zig`](hudoptions/menu.zig)); the pointer, the
+//! fonts and the screens' order (`pause_menu_draw`); and the main screen
+//! ([`hudoptions/screens.zig`](hudoptions/screens.zig)). The audio, controls and video screens, the
+//! controls of which F1 opens too, are OpenReliant's settings screen (`SettingsScreen`). Not yet:
+//! the multiplayer screen (#211); and the two screens nothing reaches.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const fat = @import("../../formats/fat.zig");
 const fnt = @import("../../formats/fnt.zig");
 const device = @import("../surrender/srd3d/device.zig");
 const input = @import("../input.zig");
@@ -54,17 +53,8 @@ pub const Next = union(enum) {
 pub const Settings = struct {
     file: *profile.File,
     sound: *hog_snd.Sound,
-    /// `stdsmp.fat`, whose sound 14 tries the effects' volume.
-    stdsmp: fat.Bank,
-    /// The camera, whose cockpit setting (`Camera.setting`) the video screen changes, its cockpit
-    /// mode following it.
-    camera: *camera.Camera,
-    /// The brightness (`sr + 0x15FA`), 0.5 to 2, and whether the device sets it
-    /// (`sr + 0x38` bit 0), which shows its slider. OpenReliant's devices don't set it yet (#209):
-    /// the slider stays hidden, as it does on hardware without gamma, and the brightness goes
-    /// back to the file as it came, or as RESET DEFAULTS sets it, as the game does there.
-    brightness: *f32,
-    gamma: bool = false,
+    /// The game's video settings, which the settings screen's video changes.
+    video: settings_screen.Video,
     /// OpenReliant's own options, which the settings screen shows; none shows them as they come.
     own: ?settings_screen.Own = null,
 };
@@ -75,7 +65,6 @@ pub const Context = struct {
     pointer: menu.Pointer,
     /// Whether Escape went down since the last frame (`key_pressed`, once).
     escaped: bool,
-    settings: Settings,
 };
 
 /// What `pause_menu_draw` draws with.
@@ -94,15 +83,15 @@ pub const Frame = struct {
     timer: u64 = 0,
 };
 
-/// The controls and the audio, pause screens 2 and 3: OpenReliant's settings screen on its controls
-/// or its audio, drawn as the front end draws it, fitted to the window, over the mission, which it
-/// darkens; with the front end's shapes and its dialog's, read as it opens, and a pointer of its
-/// own, which moves over it.
+/// The controls, the audio and the video, pause screens 2, 3 and 4: OpenReliant's settings screen
+/// on its controls, its audio or its video, drawn as the front end draws it, fitted to the window,
+/// over the mission, which it darkens; with the front end's shapes and its dialog's, read as it
+/// opens, and a pointer of its own, which moves over it.
 ///
 /// **Improvement:** OpenReliant shows the front end's settings screen in place of the pause menu's
-/// own controls and audio screens (`pause_screen_controls`, `0x0048FEF0`; `pause_screen_audio`,
-/// `0x0048EC70`), as GAME OPTIONS and the in-game options show it, with CONTINUE where those have
-/// MAIN MENU.
+/// own controls, audio and video screens (`pause_screen_controls`, `0x0048FEF0`;
+/// `pause_screen_audio`, `0x0048EC70`; `pause_screen_video`, `0x0048F260`), as GAME OPTIONS and the
+/// in-game options show it, with CONTINUE where those have MAIN MENU.
 const SettingsScreen = struct {
     screen: settings_screen.Settings = .{},
     shapes: ?canvas.Shapes,
@@ -121,12 +110,14 @@ const SettingsScreen = struct {
         if (shown.dialog) |*shapes| shapes.deinit(gpa);
     }
 
-    /// The tab the pause menu's `screen` shows, of the two the screen stands in for.
-    fn tabOf(comptime screen: Screen) settings_screen.Tab {
+    /// The tab the pause menu's `screen` shows, of those the screen stands in for; null for the
+    /// main screen, the pause menu's own.
+    fn tabOf(screen: Screen) ?settings_screen.Tab {
         return switch (screen) {
             .audio => .audio,
             .controls => .controls,
-            .main, .video => @compileError("not one of the settings screen's"),
+            .video => .video,
+            .main => null,
         };
     }
 };
@@ -140,11 +131,8 @@ pub const PauseMenu = struct {
     pointer: menu.Pointer = .{},
     /// The menu's fonts, open while it is.
     fonts: ?Fonts = null,
-    /// Each screen's own state.
-    screens: struct {
-        main: screens.Main = .{},
-        video: screens.Video = .{},
-    } = .{},
+    /// The main screen's own state.
+    main: screens.Main = .{},
     /// `pause_view_setting` (`0x00582E88`), `main.cpp`'s: the cockpit setting as the game paused,
     /// which resuming compares.
     view_setting: camera.CockpitSetting = .cockpit,
@@ -230,39 +218,22 @@ pub const PauseMenu = struct {
             .screen => |shown| shown,
             .outcome => return,
         };
+        const tab = SettingsScreen.tabOf(screen);
         if (pause_menu.entered != screen) {
-            switch (screen) {
-                inline .controls, .audio => |shown| pause_menu.enterSettings(frame, comptime SettingsScreen.tabOf(shown)),
-                inline else => |entering| {
-                    const state = &@field(pause_menu.screens, @tagName(entering));
-                    if (@hasDecl(@TypeOf(state.*), "enter")) state.enter(frame.settings);
-                },
-            }
+            if (tab) |shown| pause_menu.enterSettings(frame, shown);
             pause_menu.entered = screen;
         }
-        const next = switch (screen) {
-            .controls, .audio => try pause_menu.settingsFrame(frame),
-            inline else => |shown| try @field(pause_menu.screens, @tagName(shown)).frame(.{
-                .ui = ui,
-                .pointer = pause_menu.pointer,
-                .escaped = frame.devices.keyboard.pressed(input.scan.escape, .none, true),
-                .settings = frame.settings,
-            }),
-        };
+        const next = if (tab != null) try pause_menu.settingsFrame(frame) else try pause_menu.main.frame(.{
+            .ui = ui,
+            .pointer = pause_menu.pointer,
+            .escaped = frame.devices.keyboard.pressed(input.scan.escape, .none, true),
+        });
         if (next) |going| if (!std.meta.eql(going, pause_menu.at)) {
-            switch (screen) {
-                .controls, .audio => if (pause_menu.settings) |*shown| {
-                    shown.close(fonts.gpa);
-                    pause_menu.settings = null;
-                },
-                inline else => |leaving| {
-                    const state = &@field(pause_menu.screens, @tagName(leaving));
-                    if (@hasDecl(@TypeOf(state.*), "leave")) try state.leave(frame.settings);
-                },
-            }
+            if (pause_menu.settings) |*shown| shown.close(fonts.gpa);
+            pause_menu.settings = null;
             pause_menu.at = going;
         };
-        if (screen == .controls or screen == .audio) return;
+        if (tab != null) return;
         if (frame.version) |version| try hud.drawVersion(ui.fonts.small, ui.gpa, ui.target, ui.screen, version);
         try ui.drawPointer(pause_menu.pointer);
     }
@@ -304,7 +275,7 @@ pub const PauseMenu = struct {
             .strings = frame.strings,
             .version = frame.version,
         };
-        try shown.screen.draw(drawn, shapes, dialog_art, .{ .devices = frame.devices, .sound = frame.settings.sound }, shown.pointer);
+        try shown.screen.draw(drawn, shapes, dialog_art, .{ .devices = frame.devices, .sound = frame.settings.sound, .video = frame.settings.video }, shown.pointer);
         return switch (end orelse return null) {
             .back, .main_menu => .{ .screen = .main },
             .continue_mission => .{ .outcome = .continue_mission },
@@ -320,6 +291,7 @@ pub const PauseMenu = struct {
             .ticks = @truncate(frame.timer),
             .sound = frame.settings.sound,
             .own = frame.settings.own,
+            .video = frame.settings.video,
         };
     }
 };

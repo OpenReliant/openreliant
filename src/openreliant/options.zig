@@ -8,6 +8,7 @@ const platform = @import("platform");
 const engine = openreliant.engine;
 const game = engine.game;
 const camera = game.camera;
+const FrameSize = engine.surrender.srd3d.device.FrameSize;
 const help = @import("help.zig");
 const version = @import("version.zig");
 
@@ -88,12 +89,12 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, and the sound mixed plainly in stereo" },
     .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "play this mission at once rather than open the main menu: the number the game names its file by, mission<number>.dte, from the game's missions folder or resource.hog; 0 is OpenReliant's sandbox, which openreliant carries where the game has no mission 0" },
     .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
-    .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the pause menu's video screen changes" },
+    .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes" },
     .@"--difficulty" = .{ .section = .mission, .value = "<easy|medium|hard>", .text = "the game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with --mission, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it" },
     .@"--music" = .{ .section = .mission, .value = "<file>", .text = "a piece from the game's music folder to play from the start, until the mission's script plays its own; none by default" },
     .@"--no-pause-menu" = .{ .section = .mission, .text = "with --mission, fly the mission again as soon as it ends, where it otherwise ends in the game's pause menu" },
     .@"--fullscreen" = .{ .section = .display, .text = "fill the display; Alt and Enter switch while playing" },
-    .@"--size" = .{ .section = .display, .value = "<width>x<height>", .text = "draw frames of this size in pixels whatever the window's, which shows them scaled; for a screenshot larger than the display" },
+    .@"--size" = .{ .section = .display, .value = "<width>x<height>|<percent>%", .text = "draw frames of this size in pixels whatever the window's, which shows them scaled, as for a screenshot larger than the display; or a share of the window's own, such as 50%, to draw faster; the window's own by default" },
     .@"--fps" = .{ .section = .display, .value = "<rate>", .text = "frames a second at most; without vsync, the display's rate by default; 0 for no limit" },
     .@"--no-vsync" = .{ .section = .display, .text = "draw without waiting for the display" },
     .@"--software" = .{ .section = .graphics, .text = "draw on the software device, OpenReliant's reference, rather than the GPU" },
@@ -407,8 +408,13 @@ pub const Options = struct {
         }
     }
 
-    /// A size given as `<width>x<height>`, each from 1 to `max_size`.
-    fn parseSize(text: []const u8) ?[2]u32 {
+    /// A size given as `<width>x<height>`, each from 1 to `max_size`, or as `<percent>%` of the
+    /// window's own, from 1 to the whole.
+    fn parseSize(text: []const u8) ?FrameSize {
+        if (std.mem.endsWith(u8, text, "%")) {
+            const share = std.fmt.parseInt(u8, text[0 .. text.len - 1], 10) catch return null;
+            return if (share >= 1 and share <= FrameSize.whole) .{ .share = share } else null;
+        }
         var halves = std.mem.splitScalar(u8, text, 'x');
         var size: [2]u32 = undefined;
         for (&size) |*side| {
@@ -416,16 +422,32 @@ pub const Options = struct {
             side.* = std.fmt.parseInt(u32, digits, 10) catch return null;
             if (side.* == 0 or side.* > max_size) return null;
         }
-        return if (halves.next() == null) size else null;
+        return if (halves.next() == null) .{ .pixels = size } else null;
     }
 
     /// The largest side `--size` takes, which GPUs draw to.
     const max_size = 16384;
 
+    /// How the frames are paced as the game starts.
+    pub fn pacing(options: Options) Pacing {
+        return .{ .fps = options.fps, .vsync = options.settings.vsync, .software = options.software };
+    }
+};
+
+/// How the frames are paced, which the settings screen changes as the game plays: frames a second at
+/// most, and whether the display paces them.
+pub const Pacing = struct {
+    /// Frames a second at most, 0 for no limit; null for the display's rate without vsync.
+    fps: ?f32 = null,
+    vsync: bool = true,
+    /// Whether the software device draws the frames, which go to the window as the display shows
+    /// them.
+    software: bool = false,
+
     /// The frames a second to hold to, where the display does not already.
-    pub fn frameRate(options: Options, window: platform.window.Window) ?f32 {
-        if (options.fps) |fps| return if (fps > 0) fps else null;
-        if (options.software or options.settings.vsync) return null;
+    pub fn rate(pacing: Pacing, window: platform.window.Window) ?f32 {
+        if (pacing.fps) |fps| return if (fps > 0) fps else null;
+        if (pacing.software or pacing.vsync) return null;
         return window.refreshRate();
     }
 };
@@ -554,8 +576,10 @@ test Options {
     try std.testing.expectEqualStrings("New_Sim01.wav", (try parsed(&.{ "--music", "New_Sim01.wav" })).music.?);
     try std.testing.expectEqual(null, (try parsed(&.{ "--music", "none" })).music);
     try std.testing.expect((try parsed(&.{})).smooth_motion);
-    try std.testing.expectEqual([2]u32{ 3840, 2160 }, (try parsed(&.{ "--size", "3840x2160" })).settings.size.?);
-    for ([_][:0]const u8{ "3840", "0x100", "100x", "1x2x3", "99999x100" }) |bad| {
+    try std.testing.expectEqual(FrameSize{ .pixels = .{ 3840, 2160 } }, (try parsed(&.{ "--size", "3840x2160" })).settings.size);
+    try std.testing.expectEqual(FrameSize{ .share = 50 }, (try parsed(&.{ "--size", "50%" })).settings.size);
+    try std.testing.expectEqual(FrameSize.window, (try parsed(&.{})).settings.size);
+    for ([_][:0]const u8{ "3840", "0x100", "100x", "1x2x3", "99999x100", "0%", "101%", "%", "x%" }) |bad| {
         try std.testing.expectError(error.Usage, parsed(&.{ "--size", bad }));
     }
     const chosen = try parsed(&.{ "--filter", "trilinear", "--16-bit", "--software", "--fullscreen" });

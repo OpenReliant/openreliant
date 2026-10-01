@@ -12,7 +12,6 @@ Not ported:
 
 - The crew the player passes on the way to the briefing room's door, a sprite over the movie and a line of speech ([#418](https://github.com/vdmkenny/openreliant/issues/418)).
 - The screens of the simulator pod ([#420](https://github.com/vdmkenny/openreliant/issues/420)), the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)) and the CD player ([#422](https://github.com/vdmkenny/openreliant/issues/422)). The rooms go on as though each had closed at once, turned away from it. Use ITAC opens the ITAC ([The ITAC](itac.md)).
-- The in-game options' VIDEO ([#206](https://github.com/vdmkenny/openreliant/issues/206)), which stays on the menu.
 - The pilot's profile, which the rooms write with the call sign as they open (`profile_save`), and a mission's end writes with the pilot's records ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
 - The story's end after the last mission ([#416](https://github.com/vdmkenny/openreliant/issues/416)): OpenReliant goes back to the main menu.
 
@@ -189,7 +188,7 @@ Escape opens them over the rooms (`in_game_options`, `0x004394D0`): `interface\i
 | LOAD | (338, 121) | 130 by 109 | Outside a network session, as SAVE, to load from; a game loaded opens its disc and starts the rooms again |
 | AUDIO | (65, 276) | 130 by 109 | `igofade.bik` over `interface\igoptfad.tga`, then the audio screen (`0x0042DAB0`), OpenReliant's settings screen ([Front end](front-end.md#the-settings-screen)) |
 | CONTROL DEVICES | (250, 272) | 130 by 111 | `igofade.bik` over `interface\igofade.tga`, then the controls screen (`0x0042B690`), OpenReliant's settings screen ([Front end](front-end.md#the-settings-screen)) |
-| VIDEO | (436, 272) | 131 by 110 | `igofade.bik`, then the video screen (`0x0042E9B0`) |
+| VIDEO | (436, 272) | 131 by 110 | `igofade.bik` over `interface\igoptfad.tga`, then the video screen (`0x0042E9B0`), OpenReliant's settings screen ([Front end](front-end.md#the-settings-screen)) |
 | BACK | (199, 422) | 120 by 15 | The rooms again |
 | MAIN MENU | (199, 443) | 120 by 15 | `interface\igo2mm.bik`, then the main menu |
 | QUIT | (329, 443) | 100 by 15 | QUIT's dialog ([Front end](front-end.md#the-dialogs)), whose YES quits the game |

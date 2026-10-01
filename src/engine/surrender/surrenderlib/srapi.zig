@@ -195,6 +195,11 @@ pub const Context = struct {
     /// The picture the device draws behind each frame as it begins, over the screen (`sr + 0x50`,
     /// the device's background image); none for the clear colour alone.
     background: ?*srtexture.Image = null,
+    /// The brightness (`sr + 0x15FA`), the display's gamma, 1 for none: `renderer_start` sets it
+    /// from `[Device] Gamma` (`0x004ACCE4`), and the video settings change it. The driver hands it
+    /// to the device as each frame begins (`device.Device.gamma`), where `srd3d.dll` sets the
+    /// display's ramp as the brightness changes (`sr + 0x54`).
+    brightness: f32 = 1,
 
     /// A point of the world in the camera's frame.
     pub fn view(context: Context, point: Vector) Vector {

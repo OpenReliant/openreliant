@@ -58,6 +58,17 @@ pub const Profile = struct {
         return std.mem.concat(gpa, u8, &.{ text, separate, "[", section, "]", newline, key, "=", written, newline });
     }
 
+    /// `WritePrivateProfileStringA` with no value, which deletes the key: the text without `key`'s
+    /// line in `section`, its line ending with it; null where the section has no such key.
+    pub fn remove(profile: Profile, gpa: Allocator, section: []const u8, key: []const u8) Allocator.Error!?[]u8 {
+        const text = profile.text;
+        const line = locate(text, section, key).line orelse return null;
+        var end = line.end;
+        if (end < text.len and text[end] == '\r') end += 1;
+        if (end < text.len and text[end] == '\n') end += 1;
+        return try std.mem.concat(gpa, u8, &.{ text[0..line.start], text[end..] });
+    }
+
     /// Where `key` of `section` stands in `text`.
     const Location = struct {
         /// The key's line, without its line ending, where the section has it.
@@ -137,7 +148,31 @@ pub const File = struct {
         const length = std.fmt.printInt(&buffer, number, 10, .lower, .{});
         try file.write(section, key, buffer[0..length]);
     }
+
+    /// Deletes `key` of `section`, where the file has it (`Profile.remove`).
+    pub fn remove(file: *File, section: []const u8, key: []const u8) Allocator.Error!void {
+        file.profile.text = try file.profile.remove(file.arena, section, key) orelse return;
+        file.changed = true;
+    }
 };
+
+test "File.remove" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var file: File = .{ .arena = arena.allocator(), .profile = .{ .text = "[Device]\r\nView=1\r\nGamma=100\r\n[Sound]\r\nView=2\r\n" } };
+    // The key's line goes with its ending, the other section's key of the name stays.
+    try file.remove("device", "VIEW");
+    try std.testing.expectEqualStrings("[Device]\r\nGamma=100\r\n[Sound]\r\nView=2\r\n", file.profile.text);
+    try std.testing.expect(file.changed);
+    // A key the section lacks leaves the file as it is.
+    file.changed = false;
+    try file.remove("Device", "View");
+    try std.testing.expect(!file.changed);
+    // The last line, without an ending.
+    file.profile = .{ .text = "[OpenReliant]\nFrameRate=60" };
+    try file.remove("OpenReliant", "FrameRate");
+    try std.testing.expectEqualStrings("[OpenReliant]\n", file.profile.text);
+}
 
 /// The C runtime's `atol`: skips spaces, reads an optional sign and then as many decimal digits as
 /// there are. Returns 0 if there are none.

@@ -27,7 +27,7 @@ Escape, the pointer's right button down, the movie's end (`0x005D6C90`) or the g
 last. The message pump pauses the movie while the window is away (`BinkPause`). A movie that cannot
 be opened stops the game with a message (`play_bink_movie: error loading %s.`).
 
-The video settings' `Transitions` (`[Device]`, 1 unless set, read at `0x004A9081`) turns off the
+The video settings' `Transitions` (`[Device]`, 1 unless set, read at `0x004A9081`; [Video](front-end.md#video)) turns off the
 movies over the screen; those on a cleared screen play whatever it says on a hardware renderer
 (`sr + 0x1AC`). With it off, a chapter's end plays its zoom alone.
 

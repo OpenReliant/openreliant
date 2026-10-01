@@ -16,6 +16,7 @@ const input = @import("../input.zig");
 const camera = @import("camera.zig");
 const hog_snd = @import("hog_snd.zig");
 const hudoptions = @import("hudoptions.zig");
+const interface = @import("interface.zig");
 const pilot_roster = @import("interface/pilot_roster.zig");
 const rooms = @import("interface/rooms.zig");
 const disc = @import("interface/disc.zig");
@@ -126,26 +127,24 @@ pub const Device = struct {
     /// file has none.
     view: camera.CockpitSetting,
     /// The brightness, which the file keeps in hundredths (`Gamma`, `device_gamma`, `0x005D6080`),
-    /// 100 where it has none: the renderer opens with it (`0x004A8600`), and the pause menu's video
-    /// screen changes it.
+    /// 100 where it has none: the renderer opens with it (`0x004A8600`), and the settings' video
+    /// changes it.
     brightness: f32,
     /// Whether the movies between the front end's screens play (`Transitions`, `0x005D5E80`), 1
-    /// where the file has none (`0x004A9081`); the front end's video options change it.
+    /// where the file has none (`0x004A9081`); the settings' video changes it.
     transitions: bool,
 
-    const video = hudoptions.screens.Video;
+    const video = interface.settings.video;
     /// The key `WinMain` reads the brightness from (`0x00509948`); the video screen writes it as
     /// `gamma`, which is the same key, as a key's case does not matter.
     const gamma_key = "Gamma";
     const default_gamma = 100;
-    /// The key of the transitions (`0x004E861C`).
-    const transitions_key = "Transitions";
 
     pub fn read(settings: Profile) Device {
         return .{
             .view = @enumFromInt(settings.int(video.section, video.view_key, 0)),
             .brightness = @as(f32, @floatFromInt(settings.int(video.section, gamma_key, default_gamma))) / video.gamma_scale,
-            .transitions = settings.int(video.section, transitions_key, 1) != 0,
+            .transitions = settings.int(video.section, video.transitions_key, 1) != 0,
         };
     }
 };

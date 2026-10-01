@@ -14,6 +14,7 @@ const game = engine.game;
 const hog_snd = game.hog_snd;
 const movie = game.xtrabits.movie;
 const landing = game.xtrabits.landing;
+const Pacing = @import("options.zig").Pacing;
 const Presenter = @import("presenter.zig").Presenter;
 
 pub const Movies = struct {
@@ -24,8 +25,8 @@ pub const Movies = struct {
     presenter: *Presenter,
     devices: *engine.input.Devices,
     pacer: *platform.window.Pacer,
-    /// The frames a second the loop keeps to, where the display does not keep it.
-    frame_rate: ?f32,
+    /// How the loop's frames are paced, as the settings have it.
+    pacing: *const Pacing,
     size: movie.Size,
     look: engine.bink.Look,
     /// The video settings' `Transitions`, and whether the renderer is a hardware one, which decide
@@ -102,8 +103,13 @@ pub const Movies = struct {
             const pixels = try movies.presenter.size();
             var shown: Shown = .{ .movies = movies, .player = player, .window = pixels };
             try movies.presenter.present(pixels, shown.overlay());
-            if (movies.frame_rate) |rate| movies.pacer.wait(rate);
+            movies.pace();
         }
+    }
+
+    /// Holds the loop to the frames a second the settings ask for, where the display does not.
+    pub fn pace(movies: *Movies) void {
+        if (movies.pacing.rate(movies.presenter.window.*)) |rate| movies.pacer.wait(rate);
     }
 
     /// A frame's overlay: the movie's frame, over the cleared frame.

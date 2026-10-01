@@ -1,9 +1,10 @@
 // The bloom the engine draws the finished frame through, so that the game's own bright things, its
 // lights, its engine glows, its flares and the sun, bleed a little light into what stands around
 // them, as a camera does. The original drew none: `--original` turns it off and the frame goes
-// straight to the screen instead.
+// straight to the screen instead. And the display's gamma ramp, which the brightness sets, as the
+// finished frame goes to the screen.
 //
-// One shader for all three passes, which `frame.settings.x` picks. `make shaders` compiles the
+// One shader for all four passes, which `frame.settings.x` picks. `make shaders` compiles the
 // vertex stage, with VERTEX defined, and the fragment stage, with FRAGMENT, as it does the device's.
 #version 450
 #extension GL_GOOGLE_include_directive : require
@@ -33,8 +34,9 @@ layout(set = 2, binding = 1) uniform sampler2D frame_image;
 
 layout(set = 3, binding = 0) uniform Frame {
     // x: which pass, 0 to take the bright parts, 1 to blur, 2 to add the bloom back and finish the
-    // frame. yz: one texel of the image being read, along the axis a blur runs. w: the brightness a
-    // colour must pass to bloom, and, in the last pass, how much of the bloom is added.
+    // frame, 3 to put the finished frame on the screen through the gamma ramp. yz: one texel of the
+    // image being read, along the axis a blur runs. w: the brightness a colour must pass to bloom;
+    // in the third pass, how much of the bloom is added; in the fourth, the display's brightness.
     vec4 settings;
     // x: 1 for a frame kept in floats, whose highlights, past 1 where glows are stacked, are eased
     // rather than clipped, before they bloom and as the last pass finishes the frame. y: 1 for the
@@ -64,11 +66,17 @@ void main() {
             colour += texture(source, uv - along).rgb * weights[tap];
         }
         result = vec4(colour, 1.0);
-    } else {
+    } else if (pass == 2) {
         vec3 colour = texture(frame_image, uv).rgb + texture(source, uv).rgb * frame.settings.w;
         if (frame.finish.x > 0.0) colour = shouldered(colour);
         if (frame.finish.y > 0.0) colour = dithered(colour, ivec2(gl_FragCoord.xy), vec3(255.0));
         result = vec4(colour, 1.0);
+    } else {
+        // The gamma ramp `srd3d.dll` sets (`0x10005270`): each level at its power 1 / brightness,
+        // and black for a brightness of 0.
+        float brightness = frame.settings.w;
+        vec3 colour = texture(source, uv).rgb;
+        result = vec4(brightness > 0.0 ? pow(colour, vec3(1.0 / brightness)) : vec3(0.0), 1.0);
     }
 }
 

@@ -63,7 +63,7 @@ struct main0_in
     float2 m_129 [[user(locn0)]];
 };
 
-fragment main0_out main0(main0_in in [[stage_in]], constant _102& _104 [[buffer(0)]], texture2d<float> _126 [[texture(0)]], texture2d<float> _225 [[texture(1)]], sampler _126Smplr [[sampler(0)]], sampler _225Smplr [[sampler(1)]], float4 gl_FragCoord [[position]])
+fragment main0_out main0(main0_in in [[stage_in]], constant _102& _104 [[buffer(0)]], texture2d<float> _126 [[texture(0)]], texture2d<float> _230 [[texture(1)]], sampler _126Smplr [[sampler(0)]], sampler _230Smplr [[sampler(1)]], float4 gl_FragCoord [[position]])
 {
     main0_out out = {};
     int _109 = int(_104._m0.x);
@@ -71,59 +71,76 @@ fragment main0_out main0(main0_in in [[stage_in]], constant _102& _104 [[buffer(
     {
         float4 _131 = _126.sample(_126Smplr, in.m_129);
         float3 _132 = _131.xyz;
-        float3 _339;
+        float3 _370;
         if (_104._m1.x > 0.0)
         {
-            float3 _275 = fast::max(_132 - float3(0.800000011920928955078125), float3(0.0));
-            _339 = fast::min(_132, float3(0.800000011920928955078125)) + ((_275 * 0.20000000298023223876953125) / (_275 + float3(0.199999988079071044921875)));
+            float3 _305 = fast::max(_132 - float3(0.800000011920928955078125), float3(0.0));
+            _370 = fast::min(_132, float3(0.800000011920928955078125)) + ((_305 * 0.20000000298023223876953125) / (_305 + float3(0.199999988079071044921875)));
         }
         else
         {
-            _339 = _132;
+            _370 = _132;
         }
-        out.m_143 = float4(fast::max(_339 - float3(_104._m0.w), float3(0.0)), 1.0);
+        out.m_143 = float4(fast::max(_370 - float3(_104._m0.w), float3(0.0)), 1.0);
     }
     else
     {
         if (_109 == 1)
         {
-            float3 _338;
-            _338 = _126.sample(_126Smplr, in.m_129).xyz * 0.227026998996734619140625;
-            for (int _337 = 1; _337 < 5; )
+            float3 _369;
+            _369 = _126.sample(_126Smplr, in.m_129).xyz * 0.227026998996734619140625;
+            for (int _368 = 1; _368 < 5; )
             {
-                float2 _181 = _104._m0.yz * float(_337);
-                _338 = (_338 + (_126.sample(_126Smplr, (in.m_129 + _181)).xyz * _194[_337])) + (_126.sample(_126Smplr, (in.m_129 - _181)).xyz * _194[_337]);
-                _337++;
+                float2 _181 = _104._m0.yz * float(_368);
+                _369 = (_369 + (_126.sample(_126Smplr, (in.m_129 + _181)).xyz * _194[_368])) + (_126.sample(_126Smplr, (in.m_129 - _181)).xyz * _194[_368]);
+                _368++;
                 continue;
             }
-            out.m_143 = float4(_338, 1.0);
+            out.m_143 = float4(_369, 1.0);
         }
         else
         {
-            float4 _228 = _225.sample(_225Smplr, in.m_129);
-            float4 _232 = _126.sample(_126Smplr, in.m_129);
-            float3 _237 = _228.xyz + (_232.xyz * _104._m0.w);
-            float3 _335;
-            if (_104._m1.x > 0.0)
+            if (_109 == 2)
             {
-                float3 _294 = fast::max(_237 - float3(0.800000011920928955078125), float3(0.0));
-                _335 = fast::min(_237, float3(0.800000011920928955078125)) + ((_294 * 0.20000000298023223876953125) / (_294 + float3(0.199999988079071044921875)));
+                float4 _233 = _230.sample(_230Smplr, in.m_129);
+                float4 _237 = _126.sample(_126Smplr, in.m_129);
+                float3 _242 = _233.xyz + (_237.xyz * _104._m0.w);
+                float3 _366;
+                if (_104._m1.x > 0.0)
+                {
+                    float3 _324 = fast::max(_242 - float3(0.800000011920928955078125), float3(0.0));
+                    _366 = fast::min(_242, float3(0.800000011920928955078125)) + ((_324 * 0.20000000298023223876953125) / (_324 + float3(0.199999988079071044921875)));
+                }
+                else
+                {
+                    _366 = _242;
+                }
+                float3 _367;
+                if (_104._m1.y > 0.0)
+                {
+                    int2 _343 = int2(gl_FragCoord.xy) & int2(3);
+                    _367 = floor((_366 * float3(255.0)) + float3((_70[(_343.y * 4) + _343.x] + 0.5) * 0.0625)) * float3(0.0039215688593685626983642578125);
+                }
+                else
+                {
+                    _367 = _366;
+                }
+                out.m_143 = float4(_367, 1.0);
             }
             else
             {
-                _335 = _237;
+                float4 _280 = _126.sample(_126Smplr, in.m_129);
+                float3 _365;
+                if (_104._m0.w > 0.0)
+                {
+                    _365 = powr(_280.xyz, float3(1.0 / _104._m0.w));
+                }
+                else
+                {
+                    _365 = float3(0.0);
+                }
+                out.m_143 = float4(_365, 1.0);
             }
-            float3 _336;
-            if (_104._m1.y > 0.0)
-            {
-                int2 _313 = int2(gl_FragCoord.xy) & int2(3);
-                _336 = floor((_335 * float3(255.0)) + float3((_70[(_313.y * 4) + _313.x] + 0.5) * 0.0625)) * float3(0.0039215688593685626983642578125);
-            }
-            else
-            {
-                _336 = _335;
-            }
-            out.m_143 = float4(_336, 1.0);
         }
     }
     return out;

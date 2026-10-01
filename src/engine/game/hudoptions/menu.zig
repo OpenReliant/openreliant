@@ -1,8 +1,7 @@
 //! The pause menu's items and how they are drawn: `menu_draw` (`0x0048DB00`) and the pieces the
-//! screens are made of. A screen is a list of `Item`s and what choosing each does; the widgets here
-//! (`buttons`, `Slider`, `Selector`) make the items the screens share and read what the pointer
-//! does to them. [`pause-menu.md`](../../../../docs/engine/pause-menu.md#menu-items) describes
-//! them.
+//! screens are made of. A screen is a list of `Item`s and what choosing each does; `buttons` makes
+//! the buttons the screens share.
+//! [`pause-menu.md`](../../../../docs/engine/pause-menu.md#menu-items) describes them.
 //!
 //! **Improvement.** The game lays a menu out in pixels about fractions of the screen, at the size
 //! of its art whatever the screen's. OpenReliant multiplies the pixels by `hud.scaleFor`, as it
@@ -251,11 +250,6 @@ pub const Ui = struct {
         return hud.pixels(pixels, ui.scale);
     }
 
-    /// The screen's pixels in the menu's.
-    pub fn unscaled(ui: Ui, pixels: i32) f32 {
-        return @as(f32, @floatFromInt(pixels)) / ui.scale;
-    }
-
     /// The point an item stands about, with `offset` added.
     fn point(ui: Ui, anchor: [2]f32, offset: [2]i32) [2]i32 {
         return .{ ui.across(anchor[0]) + ui.scaled(offset[0]), ui.down(anchor[1]) + ui.scaled(offset[1]) };
@@ -364,103 +358,12 @@ pub fn button(offset: [2]i32, label: String) Item {
     };
 }
 
-/// The buttons the screens share.
+/// The buttons the screens share: the main screen's, LEAVE MISSION where the others have OK.
 pub const buttons = struct {
-    pub const ok = button(.{ 16, -32 }, .ok);
-    /// In OK's place on the main screen.
     pub const leave_mission = button(.{ 16, -32 }, .leave_mission);
     pub const restart = button(.{ -16, -32 }, .restart);
     pub const continue_game = button(.{ -16, -52 }, .continue_game);
-    pub const reset_defaults = button(.{ 16, -52 }, .reset_defaults);
-    pub const cancel_changes = button(.{ 16, -74 }, .cancel_changes);
 };
-
-/// A setting dragged between `low` and `high` by a knob along a track: the audio screen's volumes
-/// and the video screen's brightness. Its row is `down` pixels from the middle of the screen, the
-/// track starting 16 to the right of the middle with its label before it.
-pub const Slider = struct {
-    down: i32,
-    label: String,
-    low: f32,
-    high: f32,
-
-    /// How far the knob's middle travels along the track, from where it starts, in the menu's
-    /// pixels.
-    const travel = 171;
-    const start = 24;
-
-    pub fn track(slider: Slider) Item {
-        return .{
-            .anchor = .{ 0.5, 0.5 },
-            .offset = .{ 16, slider.down },
-            .place = .{ .across = .start },
-            .shape = .track,
-            .text_offset = .{ -32, -6 },
-            .font = .small,
-            .string = slider.label,
-            .style = .{ .alignment = .right },
-        };
-    }
-
-    /// The knob, where `value` puts it.
-    pub fn knob(slider: Slider, value: f32) Item {
-        const along = (value - slider.low) / (slider.high - slider.low) * travel + start;
-        return .{ .anchor = .{ 0.5, 0.5 }, .offset = .{ round(along), slider.down }, .shape = .knob, .lit = .knob };
-    }
-
-    /// The value the pointer at `x` across the screen drags the knob to, within the slider's.
-    pub fn valueAt(slider: Slider, ui: Ui, x: i32) f32 {
-        const along = ui.unscaled(x - ui.across(0.5)) - start;
-        return std.math.clamp(along / travel * (slider.high - slider.low) + slider.low, slider.low, slider.high);
-    }
-};
-
-/// A setting stepped back and forth through its values by the arrows of a box, its value written
-/// to the right of the middle: the video screen's default view. Its row is `down` pixels from the
-/// middle of the screen, the box ending 16 to the left of it with its label before it.
-pub const Selector = struct {
-    down: i32,
-    label: String,
-
-    pub const Part = enum { box, back, forward, value };
-    pub const Items = std.EnumArray(Part, Item);
-
-    /// The box and its value, and the halves that light as the pointer finds them.
-    pub fn items(selector: Selector, value: String) Items {
-        const ends: Place = .{ .across = .end };
-        return .init(.{
-            .box = .{
-                .anchor = .{ 0.5, 0.5 },
-                .offset = .{ -16, selector.down },
-                .place = ends,
-                .shape = .arrows,
-                .text_offset = .{ -41, -6 },
-                .font = .small,
-                .string = selector.label,
-                .style = .{ .alignment = .right },
-            },
-            .back = .{ .anchor = .{ 0.5, 0.5 }, .offset = .{ -33, selector.down }, .place = ends, .lit = .arrow_back },
-            .forward = .{ .anchor = .{ 0.5, 0.5 }, .offset = .{ -16, selector.down }, .place = ends, .lit = .arrow_forward },
-            .value = .{ .anchor = .{ 0.5, 0.5 }, .offset = .{ 16, selector.down }, .place = .{ .across = .start }, .text_offset = .{ 0, -6 }, .font = .small, .string = value },
-        });
-    }
-
-    /// Which way choosing `part` steps: back, forward, or nowhere.
-    pub fn step(part: Part) i32 {
-        return switch (part) {
-            .back => -1,
-            .forward => 1,
-            .box, .value => 0,
-        };
-    }
-};
-
-test "Selector.step" {
-    try std.testing.expectEqual(-1, Selector.step(.back));
-    try std.testing.expectEqual(1, Selector.step(.forward));
-    try std.testing.expectEqual(0, Selector.step(.box));
-    try std.testing.expectEqual(0, Selector.step(.value));
-}
 
 test "the menus' colours" {
     try std.testing.expectEqual([3]f32{ 254.0 / 255.0, 133.0 / 255.0, 26.0 / 255.0 }, orange);
@@ -489,29 +392,6 @@ test "Place.Edge.lead" {
     try std.testing.expectEqual(24, Place.Edge.end.lead(24));
 }
 
-test Slider {
-    // A volume's knob runs from 24 to 195 across the middle of the screen, as the game draws it.
-    const volume: Slider = .{ .down = -30, .label = .sound_effects_volume, .low = 0, .high = 127 };
-    try std.testing.expectEqual([2]i32{ 24, -30 }, volume.knob(0).offset);
-    try std.testing.expectEqual([2]i32{ 195, -30 }, volume.knob(127).offset);
-    try std.testing.expectEqual([2]i32{ 78, -30 }, volume.knob(40).offset);
-    // The brightness's knob, 114 pixels to a step of 1, as the game works it out.
-    const brightness: Slider = .{ .down = -30, .label = .brightness, .low = 0.5, .high = 2 };
-    try std.testing.expectEqual(24 + 114, brightness.knob(1.5).offset[0]);
-
-    // The pointer drags the knob to its value, within the range, drawn twice as large or not.
-    for ([_]f32{ 1, 2 }) |scale| {
-        var ui: Ui = undefined;
-        ui.screen = .{ 1024, 768 };
-        ui.scale = scale;
-        const middle = ui.across(0.5);
-        try std.testing.expectEqual(0, volume.valueAt(ui, middle));
-        try std.testing.expectApproxEqAbs(40, volume.valueAt(ui, middle + ui.scaled(78)), 0.5);
-        try std.testing.expectEqual(127, volume.valueAt(ui, middle + ui.scaled(400)));
-        try std.testing.expectApproxEqAbs(1.5, brightness.valueAt(ui, middle + ui.scaled(24 + 114)), 0.001);
-    }
-}
-
 test Box {
     const box: Box = .{ .at = .{ 10, 20 }, .size = .{ 24, 15 } };
     try std.testing.expect(box.holds(.{ 10, 20 }));
@@ -522,8 +402,8 @@ test Box {
 
 test button {
     // A button right of the middle is labelled to its right, one left of it to its left.
-    try std.testing.expectEqual(Alignment.left, buttons.ok.style.alignment);
-    try std.testing.expectEqual([2]i32{ 25, -5 }, buttons.ok.text_offset);
+    try std.testing.expectEqual(Alignment.left, buttons.leave_mission.style.alignment);
+    try std.testing.expectEqual([2]i32{ 25, -5 }, buttons.leave_mission.text_offset);
     try std.testing.expectEqual(Alignment.right, buttons.restart.style.alignment);
     try std.testing.expectEqual([2]i32{ -25, -5 }, buttons.restart.text_offset);
 }

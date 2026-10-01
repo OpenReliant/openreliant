@@ -278,8 +278,13 @@ pub const Window = struct {
         return c.SDL_GetWindowFlags(window.handle) & c.SDL_WINDOW_FULLSCREEN != 0;
     }
 
+    /// Fills the display, or goes back to the window.
+    pub fn setFullscreen(window: *Window, on: bool) void {
+        if (!c.SDL_SetWindowFullscreen(window.handle, on)) std.log.scoped(.sdl).warn("SDL_SetWindowFullscreen: {s}", .{c.SDL_GetError()});
+    }
+
     fn toggleFullscreen(window: *Window) void {
-        if (!c.SDL_SetWindowFullscreen(window.handle, !window.fillsDisplay())) std.log.scoped(.sdl).warn("SDL_SetWindowFullscreen: {s}", .{c.SDL_GetError()});
+        window.setFullscreen(!window.fillsDisplay());
     }
 
     /// The refresh rate of the display the window is on, in frames a second, or null where SDL

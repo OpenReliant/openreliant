@@ -359,8 +359,8 @@ pub const Camera = struct {
     /// The object the view shows (`camera_object`, `0x00539A8C`).
     object: ?u16 = null,
     cockpit_mode: CockpitMode = .open,
-    /// The options' cockpit setting (`cockpit_mode_setting`, `0x005D5A78`), which the video screen
-    /// changes: a mission's start, and the end of the player's launch, put the camera in the
+    /// The options' cockpit setting (`cockpit_mode_setting`, `0x005D5A78`), which the settings'
+    /// video changes: a mission's start, and the end of the player's launch, put the camera in the
     /// cockpit mode it picks (`CockpitSetting.mode`).
     setting: CockpitSetting = .cockpit,
     /// Set while a script holds the camera (`0x00539ACC`): the camera keys do nothing.

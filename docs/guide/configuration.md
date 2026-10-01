@@ -22,7 +22,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 |---|---|
 | `--mission <number>` | Play this mission at once rather than open the main menu: the number the game names its file by, `mission<number>.dte`, from the game's `missions` folder or `resource.hog`; 0 is OpenReliant's sandbox, which `openreliant` carries where the game has no mission 0 |
 | `--ship <type>` | The ship type to fly, by its number in `shipstats.bin`, in place of the loadout screen's choice, with its default missiles; the mission's own by default, the Predator in mission 0 |
-| `--view <0\|1\|2>` | The view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the pause menu's video screen changes, or 0 without them |
+| `--view <0\|1\|2>` | The view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes, or 0 without them |
 | `--difficulty <easy\|medium\|hard>` | The game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with `--mission`, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it |
 | `--music <file>` | A piece from the game's music folder to play from the start, until the mission's script plays its own; none by default |
 | `--no-pause-menu` | With `--mission`, fly the mission again as soon as it ends, where it otherwise ends in the game's pause menu |
@@ -32,7 +32,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | Option | Description |
 |---|---|
 | `--fullscreen` | Fill the display; Alt and Enter switch while playing |
-| `--size <width>x<height>` | Draw frames of this size in pixels whatever the window's, which shows them scaled; for a screenshot larger than the display |
+| `--size <width>x<height>\|<percent>%` | Draw frames of this size in pixels whatever the window's, which shows them scaled, as for a screenshot larger than the display; or a share of the window's own, such as `50%`, to draw faster; the window's own by default |
 | `--fps <rate>` | Frames a second at most; without vsync, the display's rate by default; 0 for no limit |
 | `--no-vsync` | Draw without waiting for the display |
 
@@ -131,9 +131,10 @@ Speechvolume=127
 [Device]
 View=0
 gamma=100
+Transitions=1
 ```
 
-`[Sound]` keeps the four volumes, from 0 to 127, which the settings screen's AUDIO changes. `[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no cockpit) and the brightness in hundredths (`gamma`), which the pause menu's graphics screen changes. The controller's settings and the bindings, in `[KeyConfig]` and `[JoyConfig]`, are in [Controllers and input](controllers.md#settings).
+`[Sound]` keeps the four volumes, from 0 to 127, which the settings screen's AUDIO changes. `[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no cockpit), the brightness in hundredths (`gamma`), and whether the movies between the front end's screens and into the Reliant's rooms play (`Transitions`, 1 or 0), which the settings screen's VIDEO changes. The controller's settings and the bindings, in `[KeyConfig]` and `[JoyConfig]`, are in [Controllers and input](controllers.md#settings).
 
 ### OpenReliant's settings
 
@@ -149,22 +150,22 @@ Samples=8
 | Setting | Values | Option |
 |---|---|---|
 | `Original` | 1 for the original's look and sound; the settings below then change it | `--original` |
-| `Fullscreen` | 1 or 0 | `--fullscreen` |
-| `Size` | `<width>x<height>` | `--size` |
-| `FrameRate` | Frames a second at most; 0 for no limit | `--fps` |
-| `Vsync` | 1 or 0 | `--no-vsync` |
+| `Fullscreen` | 1 or 0, which VIDEO's FULL SCREEN sets | `--fullscreen` |
+| `Size` | `<width>x<height>`, or a share of the window's own such as `50%`, which VIDEO's RESOLUTION sets | `--size` |
+| `FrameRate` | Frames a second at most, which VIDEO's FRAME RATE LIMIT sets; 0 for no limit, and without it, the display's rate where vsync is off | `--fps` |
+| `Vsync` | 1 or 0, which VIDEO's VSYNC sets | `--no-vsync` |
 | `Software` | 1 or 0 | `--software` |
-| `SixteenBit` | 1 or 0 | `--16-bit` |
-| `Samples` | 1, 2, 4 or 8 | `--msaa` |
-| `Filter` | `original`, `trilinear` or `crisp` | `--filter` |
-| `Bloom` | 1 or 0 | `--no-bloom` |
-| `Dither` | 1 or 0 | `--no-dither` |
-| `PixelLighting` | 1 or 0 | `--no-pixel-lighting` |
-| `LinearLight` | 1 or 0 | `--gamma-space` |
-| `Shadows` | `off`, `low` or `high` | `--shadows` |
-| `CockpitShadows` | 1 or 0 | `--no-cockpit-shadows` |
-| `SmoothMotion` | 1 or 0 | `--no-smooth-motion` |
-| `ShotLights` | 1: every shot lights the ships it passes; 0: the latest two of each side's, as the original | `--few-shot-lights` |
+| `SixteenBit` | 1 or 0, which GRAPHICS' COLOR DEPTH sets: 16-BIT or 32-BIT | `--16-bit` |
+| `Samples` | 1, 2, 4 or 8, which VIDEO's ANTI-ALIASING sets | `--msaa` |
+| `Filter` | `original`, `trilinear` or `crisp`, which GRAPHICS' TEXTURE FILTER sets | `--filter` |
+| `Bloom` | 1 or 0, which GRAPHICS' BLOOM sets | `--no-bloom` |
+| `Dither` | 1 or 0, which GRAPHICS' DITHER sets | `--no-dither` |
+| `PixelLighting` | 1 or 0, which GRAPHICS' PER-PIXEL LIGHTING sets | `--no-pixel-lighting` |
+| `LinearLight` | 1 or 0, which GRAPHICS' LINEAR LIGHT sets | `--gamma-space` |
+| `Shadows` | `off`, `low` or `high`, which GRAPHICS' SHADOWS sets | `--shadows` |
+| `CockpitShadows` | 1 or 0, which GRAPHICS' COCKPIT SHADOWS sets | `--no-cockpit-shadows` |
+| `SmoothMotion` | 1 or 0, which GRAPHICS' SMOOTH MOTION sets | `--no-smooth-motion` |
+| `ShotLights` | 1: every shot lights the ships it passes; 0: the latest two of each side's, as the original; which GRAPHICS' SHOT LIGHTS sets | `--few-shot-lights` |
 | `Hrtf` | `auto`, `on` or `off`, which AUDIO's 3D SOUND sets: AUTOMATIC, HEADPHONES or SPEAKERS | `--hrtf`, `--no-hrtf` |
 | `Reverb` | 1 or 0, which AUDIO's REVERB sets | `--no-reverb` |
 | `Compressor` | 1 or 0, which AUDIO's COMPRESSOR sets | `--no-compressor` |

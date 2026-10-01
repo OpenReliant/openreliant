@@ -4,12 +4,8 @@
 //! drawing (`in_game_options_draw`, `0x004398B0`) is the render hook it puts in `sr + 0x88`.
 //!
 //! SAVE and LOAD open the saved games (`saved_games`) over the menu, after `igofade.bik`, which
-//! the driver runs (`afterSavedGames`); AUDIO and CONTROL DEVICES open the settings screen on its
-//! audio and its controls (`settings`), after the same movie.
-//!
-//! Not ported: VIDEO, the settings screen's video
-//! ([#206](https://github.com/vdmkenny/openreliant/issues/206)), which plays `igofade.bik` before
-//! its screen; OpenReliant stays on the menu.
+//! the driver runs (`afterSavedGames`); AUDIO, CONTROL DEVICES and VIDEO open the settings screen
+//! on its audio, its controls and its video (`settings`), after the same movie.
 
 const std = @import("std");
 
@@ -21,8 +17,7 @@ const Pointer = canvas_module.Pointer;
 const Rect = canvas_module.Rect;
 const dialog = @import("dialog.zig");
 const saved_games = @import("saved_games.zig");
-
-const log = std.log.scoped(.interface);
+const settings = @import("settings.zig");
 
 /// What the menu shows behind itself (`background_set`), its shapes (`0x00520278`), the ABOUT
 /// STARLANCER box's (`0x0051D540`), and the movie MAIN MENU plays before the main menu
@@ -161,7 +156,7 @@ pub const About = struct {
 };
 
 /// Where the menu leads.
-pub const Choice = enum {
+pub const Choice = union(enum) {
     /// BACK, or Escape: the rooms again.
     back,
     /// MAIN MENU: `to_main_menu`, then the main menu.
@@ -172,10 +167,9 @@ pub const Choice = enum {
     /// `0x004396E4`).
     save,
     load,
-    /// AUDIO and CONTROL DEVICES: the settings screen over the menu, on its audio or its controls
-    /// (`0x0043973A`, `0x00439770`).
-    audio,
-    control_devices,
+    /// AUDIO, CONTROL DEVICES and VIDEO: the settings screen over the menu, on its audio, its
+    /// controls or its video (`0x0043973A`, `0x00439770`, `0x0043978B`).
+    settings: settings.Tab,
 };
 
 /// How the in-game options end, with the saved games they open.
@@ -213,8 +207,6 @@ pub const InGameOptions = struct {
     about: ?About = null,
     /// BACK chosen, which waits for the pointer's button to come up.
     leaving: bool = false,
-    /// Whether the press on an item not ported has been told of.
-    told: bool = false,
 
     /// A pass of the menu's loop: Escape, or BACK once the pointer's button comes up, goes back to
     /// the rooms; SAVE and LOAD lead to the saved games. While QUIT's question or ABOUT
@@ -232,19 +224,15 @@ pub const InGameOptions = struct {
             return if (answer) .quit else null;
         }
         if (escaped) return .back;
-        if (!pointer.down) menu.told = false;
         menu.under = canvas_module.itemAt(Item, &rects, pointer.at);
         const chosen = menu.under orelse return null;
         if (!pointer.down) return null;
         switch (chosen) {
             .save => return .save,
             .load => return .load,
-            .audio => return .audio,
-            .control_devices => return .control_devices,
-            .video => if (!menu.told) {
-                menu.told = true;
-                log.info("the in-game options' {s} is not ported yet", .{@tagName(chosen)});
-            },
+            .audio => return .{ .settings = .audio },
+            .control_devices => return .{ .settings = .controls },
+            .video => return .{ .settings = .video },
             .back => menu.leaving = true,
             .main_menu => return .main_menu,
             .quit => menu.confirm = .{ .message = .{ .string = quit_question } },
@@ -314,14 +302,12 @@ test InGameOptions {
     // MAIN MENU at once.
     menu = .{};
     try std.testing.expectEqual(.main_menu, menu.frame(.{ .at = .{ 250, 450 }, .down = true }, &keyboard).?);
-    // SAVE leads to the saved games, CONTROL DEVICES to the settings screen; an item not ported
-    // stays on the menu.
+    // SAVE leads to the saved games, AUDIO, CONTROL DEVICES and VIDEO to the settings screen.
     menu = .{};
     try std.testing.expectEqual(.save, menu.frame(.{ .at = .{ 200, 180 }, .down = true }, &keyboard).?);
-    try std.testing.expectEqual(.control_devices, menu.frame(.{ .at = .{ 300, 300 }, .down = true }, &keyboard).?);
-    try std.testing.expectEqual(.audio, menu.frame(.{ .at = .{ 100, 300 }, .down = true }, &keyboard).?);
-    try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 500, 300 }, .down = true }, &keyboard));
-    try std.testing.expect(menu.told);
+    try std.testing.expectEqual(Choice{ .settings = .controls }, menu.frame(.{ .at = .{ 300, 300 }, .down = true }, &keyboard).?);
+    try std.testing.expectEqual(Choice{ .settings = .audio }, menu.frame(.{ .at = .{ 100, 300 }, .down = true }, &keyboard).?);
+    try std.testing.expectEqual(Choice{ .settings = .video }, menu.frame(.{ .at = .{ 500, 300 }, .down = true }, &keyboard).?);
     // QUIT asks first; YES quits.
     try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 350, 450 }, .down = true }, &keyboard));
     try std.testing.expect(menu.confirm != null);

@@ -5,16 +5,20 @@
 //! of their titles, and their buttons: OK and MAIN MENU, or CONTINUE in the pause menu, RESET
 //! DEFAULTS and CANCEL CHANGES, which act on the tab shown.
 //!
-//! Ported so far: the controls ([`settings/controls.zig`](settings/controls.zig)). Not yet: the
-//! audio and the video, with OpenReliant's own options
-//! ([#206](https://github.com/vdmkenny/openreliant/issues/206),
-//! [#209](https://github.com/vdmkenny/openreliant/issues/209)).
+//! The tabs: the audio ([`settings/audio.zig`](settings/audio.zig)), the controls
+//! ([`settings/controls.zig`](settings/controls.zig)), the video
+//! ([`settings/video.zig`](settings/video.zig)), and OpenReliant's graphics options
+//! ([`settings/graphics.zig`](settings/graphics.zig)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const input = @import("../../input.zig");
 const profile = @import("../../profile.zig");
+const device = @import("../../surrender/srd3d/device.zig");
+const srapi = @import("../../surrender/surrenderlib/srapi.zig");
+const camera = @import("../camera.zig");
+const guns = @import("../guns.zig");
 const hud = @import("../hud.zig");
 const hog_snd = @import("../hog_snd.zig");
 const canvas_module = @import("canvas.zig");
@@ -26,6 +30,8 @@ const dialog = @import("dialog.zig");
 
 pub const audio = @import("settings/audio.zig");
 pub const controls = @import("settings/controls.zig");
+pub const video = @import("settings/video.zig");
+pub const graphics = @import("settings/graphics.zig");
 
 const log = std.log.scoped(.interface);
 
@@ -38,20 +44,25 @@ pub const shapes_name = "interface\\frntend5.spr";
 pub const Tab = enum {
     audio,
     controls,
+    video,
+    graphics,
 
-    /// Its label, the one the menus' icon for it has, where the game's screens write their titles
-    /// (`0x0042CDA9`), each above its icon's column in GAME OPTIONS (`0x0042B320` on).
+    /// Its label, the one the menus' icon for it has, and GRAPHICS, OpenReliant's word, where the
+    /// game's screens write their titles (`0x0042CDA9`), spread across the screen.
     fn label(tab: Tab) Label {
         return switch (tab) {
-            .audio => .of(0x109, .{ 133, title_y }, .centre),
-            .controls => .of(0x10A, .{ 320, title_y }, .centre),
+            .audio => .of(0x109, .{ 80, title_y }, .centre),
+            .controls => .of(0x10A, .{ 245, title_y }, .centre),
+            .video => .of(0x10B, .{ 410, title_y }, .centre),
+            .graphics => .{ .text = .{ .words = "GRAPHICS" }, .at = .{ 555, title_y }, .alignment = .centre },
         };
     }
 
     /// Where the pointer finds it: round its label, as wide as it is.
     fn rect(tab: Tab) Rect {
         const half_width: i16 = switch (tab) {
-            .audio => 50,
+            .audio, .video => 40,
+            .graphics => 55,
             .controls => 80,
         };
         const centre: i16 = @intCast(tab.label().at[0]);
@@ -74,13 +85,13 @@ pub const End = enum { back, main_menu, continue_mission };
 
 /// The movie that leads into the screen from `from` on `tab`, and the background it shows: the one
 /// GAME OPTIONS plays as an icon is chosen, which fades the icons out of its picture (`0x0042A798`,
-/// `0x0042A7C9`), and the in-game options' (`0x0043973A`, `0x00439770`). The pause menu has
-/// neither: the screen stands over the mission.
+/// `0x0042A7C9`), and the in-game options' (`0x0043973A`, `0x00439770`, `0x0043978B`). The pause
+/// menu has neither: the screen stands over the mission.
 pub fn opening(from: From, tab: Tab) ?struct { movie: []const u8, background: []const u8 } {
     return switch (from) {
         .game_options => .{ .movie = "interface\\optfade.bik", .background = "interface\\optfade.tga" },
         .in_game_options => .{ .movie = "interface\\igofade.bik", .background = switch (tab) {
-            .audio => "interface\\igoptfad.tga",
+            .audio, .video, .graphics => "interface\\igoptfad.tga",
             .controls => "interface\\igofade.tga",
         } },
         .pause_menu => null,
@@ -96,6 +107,10 @@ pub const Own = struct {
     pub const VTable = struct {
         audio: *const fn (context: *anyopaque) Audio,
         setAudio: *const fn (context: *anyopaque, audio: Audio) void,
+        display: *const fn (context: *anyopaque) Display,
+        setDisplay: *const fn (context: *anyopaque, chosen: Display.Chosen) void,
+        graphics: *const fn (context: *anyopaque) Graphics,
+        setGraphics: *const fn (context: *anyopaque, chosen: Graphics.Chosen) void,
     };
 
     /// The sound's options: how OpenAL Soft renders the 3D sounds, for headphones (HRTF) by the
@@ -111,12 +126,181 @@ pub const Own = struct {
 
     pub const Hrtf = enum { auto, on, off };
 
+    /// The display's options: what the screen chooses, and what the driver tells, which choosing
+    /// leaves as it is.
+    pub const Display = struct {
+        chosen: Chosen = .{},
+        told: Told = .{},
+
+        pub const Chosen = struct {
+            /// The size the frames are drawn at.
+            size: device.FrameSize = .window,
+            /// Whether the window fills the display.
+            fullscreen: bool = false,
+            /// Frames a second at most: null for the display's rate where vsync is off, 0 for no
+            /// limit.
+            frame_rate: ?f32 = null,
+            /// Whether the display paces the frames.
+            vsync: bool = true,
+            /// Samples a pixel, for smooth edges: 1, 2, 4 or 8.
+            samples: u8 = 4,
+        };
+
+        pub const Told = struct {
+            /// The window's own size, which a share of it is of.
+            window: [2]u32 = canvas_module.size,
+            /// The display's refresh rate, where it is known.
+            refresh_rate: ?f32 = null,
+            /// The most samples a pixel the GPU draws with.
+            most_samples: u8 = 8,
+        };
+    };
+
+    /// The graphics' options: what the screen chooses, and what the game runs with of those that
+    /// take effect at the next start, which choosing leaves as it is.
+    pub const Graphics = struct {
+        chosen: Chosen = .{},
+        running: Running = .{},
+
+        pub const Chosen = struct {
+            pixel_lighting: bool = true,
+            linear_light: bool = true,
+            shadows: Shadows = .high,
+            cockpit_shadows: bool = true,
+            shot_lights: guns.ShotLights = .every_shot,
+            bloom: bool = true,
+            dither: bool = true,
+            filter: Filter = .crisp,
+            sixteen_bit: bool = false,
+            smooth_motion: bool = true,
+        };
+
+        pub const Running = struct {
+            linear_light: bool = true,
+            sixteen_bit: bool = false,
+        };
+
+        pub const Shadows = enum { off, low, high };
+        pub const Filter = enum { original, trilinear, crisp };
+    };
+
     pub fn audio(own: Own) Audio {
         return own.vtable.audio(own.context);
     }
 
     pub fn setAudio(own: Own, chosen: Audio) void {
         own.vtable.setAudio(own.context, chosen);
+    }
+
+    pub fn display(own: Own) Display {
+        return own.vtable.display(own.context);
+    }
+
+    pub fn setDisplay(own: Own, chosen: Display.Chosen) void {
+        own.vtable.setDisplay(own.context, chosen);
+    }
+
+    pub fn graphics(own: Own) Graphics {
+        return own.vtable.graphics(own.context);
+    }
+
+    pub fn setGraphics(own: Own, chosen: Graphics.Chosen) void {
+        own.vtable.setGraphics(own.context, chosen);
+    }
+};
+
+/// The game's video settings, where the driver keeps them, which the video changes.
+pub const Video = struct {
+    /// The camera, whose cockpit setting is the options' (`cockpit_mode_setting`), which a
+    /// mission starts in.
+    camera: *camera.Camera,
+    /// Surrender's state, whose brightness (`sr + 0x15FA`) the device's gamma ramp follows.
+    surrender: *srapi.Context,
+    /// Whether the device has a gamma ramp (`sr + 0x38` bit 0), without which the brightness is
+    /// hidden.
+    gamma: bool,
+    /// Whether the movies between the front end's screens play (`transitions`, `0x005D5E80`).
+    transitions: *bool,
+};
+
+/// An arrow, which steps a choice back or on.
+pub const Step = enum { back, on };
+
+/// The choice a step from the one at `at` of `count`, round from the last to the first; from one
+/// not among them, on to the first or back to the last.
+pub fn steppedIndex(at: ?usize, count: usize, step: Step) usize {
+    return switch (step) {
+        .on => if (at) |index| (index + 1) % count else 0,
+        .back => if (at) |index| (index + count - 1) % count else count - 1,
+    };
+}
+
+/// The choice of `E` a step from `current`, in its order, round from the last to the first.
+pub fn steppedChoice(comptime E: type, current: E, step: Step) E {
+    const choices = comptime std.enums.values(E);
+    return choices[steppedIndex(std.mem.indexOfScalar(E, choices, current), choices.len, step)];
+}
+
+/// A row of the video's and the graphics' tabs, as the game's video screen lays one out
+/// (`video_screen_draw`, `0x0042F440`): its label to the left of x 280; an arrows' box, shape
+/// `0x2E`, a pixel above it at x 301 (`0x0042F903` on), whose halves the pointer finds 12 by 23 from
+/// x 301 and 318 (`video_items`, `0x004E76F0`) and which light under the pointer with `0x2F` and
+/// `0x30` (`0x0042FD3D` on), or a check box two pixels below it at x 311 (`0x0042FC89` on); and its
+/// value from x 352 (`0x0042F744` on).
+pub const Line = struct {
+    /// Where its label's text stands, from the top.
+    y: i32,
+
+    const label_x = 280;
+    const value_x = 352;
+    const arrows_shape = 0x2E;
+    const arrows_x = 301;
+    const arrow_on_x = 318;
+    const arrows_raise = 1;
+    const arrow_size: [2]i16 = .{ 12, 23 };
+    const box_x = 311;
+    const box_drop = 2;
+
+    pub fn label(line: Line, text: Label.Text) Label {
+        return .{ .text = text, .at = .{ label_x, line.y }, .alignment = .right };
+    }
+
+    pub fn value(line: Line, text: Label.Text) Label {
+        return .{ .text = text, .at = .{ value_x, line.y } };
+    }
+
+    /// Where the pointer finds its arrow `step`.
+    pub fn arrow(line: Line, step: Step) Rect {
+        const x: i16 = switch (step) {
+            .back => arrows_x,
+            .on => arrow_on_x,
+        };
+        return .{ .x = x, .y = @intCast(line.y - arrows_raise), .width = arrow_size[0], .height = arrow_size[1] };
+    }
+
+    /// Where its check box stands.
+    pub fn box(line: Line) [2]i32 {
+        return .{ box_x, line.y + box_drop };
+    }
+
+    /// Where the pointer finds its check box.
+    pub fn boxRect(line: Line) Rect {
+        const corner = line.box();
+        return .{ .x = @intCast(corner[0]), .y = @intCast(corner[1]), .width = Box.size, .height = Box.size };
+    }
+
+    pub fn drawArrows(line: Line, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
+        try canvas.shape(art, arrows_shape, .{ arrows_x, line.y - arrows_raise });
+    }
+
+    /// Its arrow `step` lit, as under the pointer.
+    pub fn drawLit(line: Line, canvas: Canvas, art: *hud.Art, step: Step) canvas_module.Error!void {
+        const rect = line.arrow(step);
+        const shape: usize = switch (step) {
+            .back => 0x2F,
+            .on => 0x30,
+        };
+        try canvas.shape(art, shape, .{ rect.x, rect.y });
     }
 };
 
@@ -132,6 +316,46 @@ pub const Box = struct {
     pub fn draw(canvas: Canvas, art: *hud.Art, at: [2]i32, ticked: bool) canvas_module.Error!void {
         try canvas.shape(art, shape, at);
         if (ticked) try canvas.shape(art, tick, .{ at[0] + tick_offset, at[1] + tick_offset });
+    }
+};
+
+/// A slider of the screen's shapes, as the audio's volumes and the video's brightness have it: a
+/// knob, shape `0x2C`, 15 by 27, which slides `travel` to the right of where it starts, and a
+/// track, shape `0x2D`, 10 below the knob's top, every 45 from where the knob starts until `end`
+/// (`0x0042E5E3` on, `0x0042FA39` on). The pointer holds the knob 4 pixels to the right of its left
+/// edge (`0x0042DEB3`, `0x0042EB27`).
+pub const Slider = struct {
+    /// Where the knob's corner stands at the slider's start.
+    from: [2]i32,
+    /// Where the track's marks end.
+    end: i32,
+
+    pub const travel = 175;
+    const knob_shape = 0x2C;
+    const track_shape = 0x2D;
+    const knob_size: [2]i16 = .{ 15, 27 };
+    const track_drop = 10;
+    const track_step = 45;
+    const grip = 4;
+
+    /// The knob `along` its travel from the start, where the pointer finds it.
+    pub fn knob(slider: Slider, along: i32) Rect {
+        return .{ .x = @intCast(slider.from[0] + along), .y = @intCast(slider.from[1]), .width = knob_size[0], .height = knob_size[1] };
+    }
+
+    /// How far along its travel the knob held stands, for the pointer at `x`.
+    pub fn held(slider: Slider, x: i32) i32 {
+        return std.math.clamp(x - grip - slider.from[0], 0, travel);
+    }
+
+    pub fn drawTrack(slider: Slider, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
+        var x = slider.from[0];
+        while (x < slider.end) : (x += track_step) try canvas.shape(art, track_shape, .{ x, slider.from[1] + track_drop });
+    }
+
+    pub fn drawKnob(slider: Slider, canvas: Canvas, art: *hud.Art, along: i32) canvas_module.Error!void {
+        const rect = slider.knob(along);
+        try canvas.shape(art, knob_shape, .{ rect.x, rect.y });
     }
 };
 
@@ -206,6 +430,8 @@ pub const Context = struct {
     sound: ?*hog_snd.Sound = null,
     /// OpenReliant's own options; none shows them as they come.
     own: ?Own = null,
+    /// The game's video settings; none leaves the video as it is.
+    video: ?Video = null,
 };
 
 /// What the pointer finds: a tab's label, a button, or an item of the tab shown.
@@ -214,6 +440,8 @@ const Item = union(enum) {
     button: Button,
     audio: audio.Item,
     controls: controls.Item,
+    video: video.Item,
+    graphics: graphics.Item,
 };
 
 /// The screen's state.
@@ -222,6 +450,8 @@ pub const Settings = struct {
     tab: Tab = .controls,
     audio: audio.Audio = .{},
     controls: controls.Controls = .{},
+    video: video.Video = .{},
+    graphics: graphics.Graphics = .{},
     /// The tab's label under the pointer, gold.
     lit_tab: ?Tab = null,
     /// The button under the pointer, lit (`0x0051DB44`).
@@ -237,6 +467,8 @@ pub const Settings = struct {
         screen.* = .{ .from = from, .tab = tab };
         screen.audio.enter(context);
         screen.controls.enter(context);
+        screen.video.enter(context);
+        screen.graphics.enter(context);
     }
 
     /// A pass of the screen's loop (`controls_screen`, `0x0042BB08` on); how it ends, once it
@@ -250,9 +482,9 @@ pub const Settings = struct {
 
     /// The joystick read, as the controls screen's loop reads it (`0x0042BB17`); the questions up
     /// and the button taken take the pass. Then Escape, which asks first where a binding has
-    /// changed; the audio's knobs, and the keys and the wheel that scroll the controls' list; then
-    /// the item under the pointer, chosen as the pointer's button goes down, and lit while it is
-    /// up; then the waiting row's keys and buttons.
+    /// changed; the audio's knobs, the keys and the wheel that scroll the controls' list, and the
+    /// video's knob; then the item under the pointer, chosen as the pointer's button goes down, and
+    /// lit while it is up; then the waiting row's keys and buttons.
     ///
     /// **Improvement:** Escape while a row waits only ends the wait, the old binding back where it
     /// took nothing; the game leaves the screen.
@@ -284,10 +516,14 @@ pub const Settings = struct {
         screen.lit = null;
         screen.lit_tab = null;
         screen.audio.arrow = null;
+        screen.video.arrow = null;
+        screen.graphics.arrow = null;
         bindings.arrow = null;
         switch (screen.tab) {
             .audio => screen.audio.slide(context),
             .controls => bindings.scrollKeys(context),
+            .video => screen.video.slide(context),
+            .graphics => {},
         }
         const under = screen.itemAt(context, pointer.at) orelse {
             if (pointer.down) bindings.endWait(devices);
@@ -300,6 +536,8 @@ pub const Settings = struct {
                 .button => |button| screen.lit = button,
                 .audio => |item| screen.audio.hover(item),
                 .controls => |item| bindings.hover(item),
+                .video => |item| screen.video.hover(item),
+                .graphics => |item| screen.graphics.hover(item),
             }
         } else {
             screen.held = true;
@@ -314,13 +552,19 @@ pub const Settings = struct {
                     .reset_defaults => switch (screen.tab) {
                         .audio => try screen.audio.reset(context),
                         .controls => try bindings.reset(devices, context.settings_file),
+                        .video => try screen.video.reset(context),
+                        .graphics => screen.graphics.reset(context),
                     },
                     .cancel_changes => switch (screen.tab) {
                         .audio => screen.audio.cancel(context),
                         .controls => bindings.cancel(devices),
+                        .video => try screen.video.cancel(context),
+                        .graphics => screen.graphics.cancel(context),
                     },
                 },
                 .audio => |item| screen.audio.choose(item, context),
+                .video => |item| try screen.video.choose(item, context),
+                .graphics => |item| screen.graphics.choose(item, context),
                 .controls => |item| if (try bindings.choose(item, context)) {
                     screen.held = false;
                 },
@@ -330,7 +574,8 @@ pub const Settings = struct {
         return null;
     }
 
-    /// Leaves by `end`, each tab's settings written (`save_key_config`, and `0x0042E0AE` on).
+    /// Leaves by `end`, each tab's settings written (`save_key_config`, `0x0042E0AE` on, and
+    /// `0x0042F0AF` on).
     ///
     /// **Fix:** leaving puts back the binding of a row waiting with nothing taken, where the game
     /// writes the action unbound.
@@ -338,6 +583,7 @@ pub const Settings = struct {
         screen.controls.endWait(context.devices);
         try screen.controls.save(context.devices, context.settings_file);
         try screen.audio.save(context);
+        try screen.video.save(context);
         return end;
     }
 
@@ -349,11 +595,13 @@ pub const Settings = struct {
         return switch (screen.tab) {
             .audio => .{ .audio = audio.itemAt(context, at) orelse return null },
             .controls => .{ .controls = controls.Controls.itemAt(at) orelse return null },
+            .video => .{ .video = video.itemAt(context, at) orelse return null },
+            .graphics => .{ .graphics = graphics.itemAt(at) orelse return null },
         };
     }
 
     /// The screen's drawing (`controls_screen_draw`, `0x0042CD30`, `audio_screen_draw`,
-    /// `0x0042E2E0`): the tabs' labels, the shown one white and one under the pointer gold, the
+    /// `0x0042E2E0`, `video_screen_draw`, `0x0042F440`): the tabs' labels, the shown one white and one under the pointer gold, the
     /// tab, the buttons, the one under the pointer lit, Escape's question where it is up,
     /// OpenReliant's version, then the pointer.
     pub fn draw(screen: Settings, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, shown: Shown, pointer: Pointer) canvas_module.Error!void {
@@ -365,6 +613,8 @@ pub const Settings = struct {
         switch (screen.tab) {
             .audio => try screen.audio.draw(canvas, art, shown.sound),
             .controls => try screen.controls.draw(canvas, art, dialog_art, shown.devices),
+            .video => try screen.video.draw(canvas, art, shown.video),
+            .graphics => try screen.graphics.draw(canvas, art),
         }
         if (screen.question) |question| try question.draw(canvas, dialog_art);
         try canvas.drawVersion();
@@ -376,6 +626,63 @@ pub const Settings = struct {
 pub const Shown = struct {
     devices: *const input.Devices,
     sound: ?*const hog_snd.Sound = null,
+    video: ?Video = null,
+};
+
+/// What the tabs' tests stand a driver in with.
+pub const testing = struct {
+    /// OpenReliant's options as a driver keeps them: what it was last given, and how often.
+    pub const Recorder = struct {
+        audio: Own.Audio = .{},
+        display: Own.Display = .{},
+        graphics: Own.Graphics = .{},
+        given: usize = 0,
+
+        pub fn own(recorder: *Recorder) Own {
+            return .{ .context = recorder, .vtable = &.{
+                .audio = getAudio,
+                .setAudio = setAudio,
+                .display = getDisplay,
+                .setDisplay = setDisplay,
+                .graphics = getGraphics,
+                .setGraphics = setGraphics,
+            } };
+        }
+
+        fn from(context: *anyopaque) *Recorder {
+            return @ptrCast(@alignCast(context));
+        }
+
+        fn getAudio(context: *anyopaque) Own.Audio {
+            return from(context).audio;
+        }
+
+        fn setAudio(context: *anyopaque, chosen: Own.Audio) void {
+            const recorder = from(context);
+            recorder.audio = chosen;
+            recorder.given += 1;
+        }
+
+        fn getDisplay(context: *anyopaque) Own.Display {
+            return from(context).display;
+        }
+
+        fn setDisplay(context: *anyopaque, chosen: Own.Display.Chosen) void {
+            const recorder = from(context);
+            recorder.display.chosen = chosen;
+            recorder.given += 1;
+        }
+
+        fn getGraphics(context: *anyopaque) Own.Graphics {
+            return from(context).graphics;
+        }
+
+        fn setGraphics(context: *anyopaque, chosen: Own.Graphics.Chosen) void {
+            const recorder = from(context);
+            recorder.graphics.chosen = chosen;
+            recorder.given += 1;
+        }
+    };
 };
 
 test leavingMovie {
@@ -451,7 +758,7 @@ test "the tabs' labels switch the tab" {
     clicked.pointer = .{ .at = .{ 100, 143 }, .down = true };
     _ = screen.frame(clicked);
     try std.testing.expect(screen.controls.waiting != null);
-    clicked.pointer = .{ .at = .{ 133, 100 } };
+    clicked.pointer = .{ .at = .{ 80, 100 } };
     _ = screen.frame(clicked);
     try std.testing.expectEqual(Tab.audio, screen.lit_tab.?);
     clicked.pointer.down = true;
@@ -464,4 +771,6 @@ test "the tabs' labels switch the tab" {
 test {
     _ = audio;
     _ = controls;
+    _ = video;
+    _ = graphics;
 }

@@ -138,6 +138,42 @@ pub const State = struct {
 /// the background image is (`begin_scene`, `0x100077A0`).
 pub const Filter = enum { linear, point };
 
+/// OpenReliant's: the size a device draws its frames at, which the window shows scaled to fit: a
+/// share of the window's own each way, in hundredths, 100 for the window's own; or a size in pixels
+/// of its own, whatever the window's.
+pub const FrameSize = union(enum) {
+    share: u8,
+    pixels: [2]u32,
+
+    /// The whole of the window, in hundredths.
+    pub const whole = 100;
+
+    /// The window's own size.
+    pub const window: FrameSize = .{ .share = whole };
+
+    /// The size in pixels for a window `window_size` pixels in size: a share rounded to the nearest
+    /// pixel, at least one each way.
+    pub fn of(size: FrameSize, window_size: [2]u32) [2]u32 {
+        return switch (size) {
+            .pixels => |pixels| pixels,
+            .share => |share| .{ part(window_size[0], share), part(window_size[1], share) },
+        };
+    }
+
+    fn part(pixels: u32, share: u8) u32 {
+        return std.math.lossyCast(u32, @max((@as(u64, pixels) * share + whole / 2) / whole, 1));
+    }
+};
+
+test FrameSize {
+    try std.testing.expectEqual([2]u32{ 2560, 1440 }, FrameSize.window.of(.{ 2560, 1440 }));
+    try std.testing.expectEqual([2]u32{ 1920, 1080 }, (FrameSize{ .share = 75 }).of(.{ 2560, 1440 }));
+    // Rounded to the nearest pixel, and never less than one.
+    try std.testing.expectEqual([2]u32{ 756, 491 }, (FrameSize{ .share = 25 }).of(.{ 3024, 1964 }));
+    try std.testing.expectEqual([2]u32{ 1, 1 }, (FrameSize{ .share = 1 }).of(.{ 10, 10 }));
+    try std.testing.expectEqual([2]u32{ 800, 600 }, (FrameSize{ .pixels = .{ 800, 600 } }).of(.{ 2560, 1440 }));
+}
+
 /// Which shadows a draw's pixels take, which the layer sets: none, the world's cascades, or the
 /// cockpit's map (`srshadow`).
 pub const Receives = enum(u8) {
@@ -171,6 +207,13 @@ pub const Device = struct {
         shadow_settings: ?*const fn (*anyopaque) ?srshadow.Settings = null,
         /// OpenReliant's: the frame's shadows, after its lights, which last until the scene ends.
         shadows: ?*const fn (*anyopaque, *const srshadow.Frame) void = null,
+        /// The display's gamma ramp, which `srd3d.dll` sets to the brightness (`set_gamma`,
+        /// `0x10005270`, the payload's `sr + 0x54`): each level of the finished frame, from 0 to 1,
+        /// shown at its power 1 / brightness, so that a brightness above 1 lightens the frame and
+        /// one below darkens it; a brightness of 0 shows it black. A device without it has no ramp
+        /// (`sr + 0x38` bit 0 clear), and the brightness can't be set. A screenshot keeps the frame
+        /// as drawn, as the game's did, the ramp being the display's.
+        gamma: ?*const fn (*anyopaque, f32) void = null,
     };
 
     pub fn begin(device: Device) void {
@@ -206,6 +249,17 @@ pub const Device = struct {
     pub fn shadows(device: Device, frame: *const srshadow.Frame) void {
         const take = device.vtable.shadows orelse return;
         take(device.ptr, frame);
+    }
+
+    /// Whether the device has a gamma ramp, which the brightness sets (`sr + 0x38` bit 0).
+    pub fn setsGamma(device: Device) bool {
+        return device.vtable.gamma != null;
+    }
+
+    /// Sets the device's gamma ramp to `brightness`, where it has one.
+    pub fn gamma(device: Device, brightness: f32) void {
+        const set = device.vtable.gamma orelse return;
+        set(device.ptr, brightness);
     }
 };
 

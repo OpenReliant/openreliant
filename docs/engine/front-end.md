@@ -10,9 +10,9 @@ The screens the game shows outside a mission: the main menu, the pilots, the set
 
 OpenReliant opens in the front end unless `--mission` names a mission. The pilot roster's START GAME, or a game its LOAD GAME loads, leads into the Reliant's rooms ([The Reliant's rooms](rooms.md)). A mission the front end or the rooms start flies at once, after the music's fade and the hangar's movie but for INSTANT ACTION's. As a mission of the campaign ends, OpenReliant plays the landing or a chapter's end ([Movies](movies.md#around-a-mission)), and the campaign goes on to the next mission's briefing, or turns to the restart screen ([After a mission](rooms.md#after-a-mission)). INSTANT ACTION's goes back to the main menu.
 
-Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio and the controls, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
+Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/vdmkenny/openreliant/issues/404)), and GAME OPTIONS' VIDEO on its menu ([#206](https://github.com/vdmkenny/openreliant/issues/206)).
+- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/vdmkenny/openreliant/issues/404)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -33,7 +33,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 | 0, the main menu | `main_menu` (`0x00428B60`) | [#396](https://github.com/vdmkenny/openreliant/issues/396) |
 | 1, GAME OPTIONS ([GAME OPTIONS](#game-options)) | `game_options` (`0x0042A620`) | |
 | 3, the audio ([Audio](#audio)) | `audio_screen` (`0x0042DAB0`) | |
-| 15, video | `0x0042E9B0` | [#206](https://github.com/vdmkenny/openreliant/issues/206) |
+| 15, the video ([Video](#video)) | `video_screen` (`0x0042E9B0`) | |
 | 16, the controls ([Controls](#controls)) | `controls_screen` (`0x0042B690`) | |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
@@ -148,7 +148,7 @@ The shapes take the palette of their block's set: the pointer's the first, the l
 |---|---|---|---|
 | AUDIO | (30, 165) | 152 by 127 | `interface\optfade.bik` over `interface\optfade.tga`, then the audio (screen 3, [Audio](#audio)) |
 | CONTROL DEVICES | (219, 165) | 152 by 127 | The same, then the controls (screen 16, [Controls](#controls)) |
-| VIDEO | (408, 165) | 152 by 127 | The same, then the video screen (screen 15) |
+| VIDEO | (408, 165) | 152 by 127 | The same, then the video (screen 15, [Video](#video)) |
 | MAIN MENU | (292, 441) | 25 by 16 | `interface\opt2main.bik`, then the main menu |
 | QUIT | (324, 441) | 25 by 16 | QUIT's dialog ([The dialogs](#the-dialogs)), whose YES quits the game |
 | ABOUT STARLANCER | (292, 421) | 25 by 16 | The about box ([The in-game options](rooms.md#the-in-game-options)) |
@@ -164,23 +164,20 @@ Its drawing (`game_options_draw`, `0x0042AFB0`), the render hook:
 
 **Improvement:** ABOUT STARLANCER is ABOUT OPENRELIANT, as in the in-game options.
 
-Not ported: VIDEO, which stays on the menu ([#206](https://github.com/vdmkenny/openreliant/issues/206)).
-
 ## The settings screen
 
-OpenReliant shows one settings screen where the game has a screen for each setting's kind: GAME OPTIONS' and the in-game options' AUDIO, CONTROL DEVICES and VIDEO (screens 3, 16 and 15), and the pause menu's audio, controls and video ([Pause menu](pause-menu.md#screens)). It is laid out on the front end's screen as the game's are, with their buttons and their shapes: `interface\frntend5.spr`, the audio and video screens' set, which holds the controls screen's widgets too, its buttons in a smoother palette than screen 16's own. A tab for each kind stands in place of their titles, in `interface_font_large`: AUDIO (`0x109`) centred on (133, 95) and CONTROL DEVICES (`0x10A`) on (320, 95), above their icons' columns in GAME OPTIONS, the shown tab's white, the one under the pointer gold, the other blue. A click on a label shows its tab; leaving the controls ends a row's wait. Each menu's AUDIO and CONTROL DEVICES open the screen on that tab, as F1 does in flight on the controls.
+OpenReliant shows one settings screen where the game has a screen for each setting's kind: GAME OPTIONS' and the in-game options' AUDIO, CONTROL DEVICES and VIDEO (screens 3, 16 and 15), and the pause menu's audio, controls and video ([Pause menu](pause-menu.md#screens)). It is laid out on the front end's screen as the game's are, with their buttons and their shapes: `interface\frntend5.spr`, the audio and video screens' set, which holds the controls screen's widgets too, its buttons in a smoother palette than screen 16's own. A tab for each kind stands in place of their titles, with GRAPHICS for OpenReliant's own options, in `interface_font_large`: AUDIO (`0x109`) centred on (80, 95), CONTROL DEVICES (`0x10A`) on (245, 95), VIDEO (`0x10B`) on (410, 95) and GRAPHICS on (555, 95), the shown tab's white, the one under the pointer gold, the others blue. A click on a label shows its tab; leaving the controls ends a row's wait. Each menu's AUDIO, CONTROL DEVICES and VIDEO open the screen on that tab, as F1 does in flight on the controls.
 
 | Opened from | Movie in | Behind | OK, Escape | MAIN MENU |
 |---|---|---|---|---|
 | GAME OPTIONS | `interface\optfade.bik` | `interface\optfade.tga` | `interface\optfade2.bik`, then GAME OPTIONS | `interface\opfad2mm.bik`, then the main menu |
-| The in-game options | `interface\igofade.bik` | `interface\igoptfad.tga` for the audio, `interface\igofade.tga` for the controls | `interface\igofade2.bik`, then the in-game options | `interface\igof2mm.bik`, then the main menu |
+| The in-game options | `interface\igofade.bik` | `interface\igoptfad.tga` for the audio and the video, `interface\igofade.tga` for the controls | `interface\igofade2.bik`, then the in-game options | `interface\igof2mm.bik`, then the main menu |
 | The pause menu, and F1 | | The mission, darkened | The pause menu's main screen | CONTINUE (`0x180`) in its place, the mission again |
 
 The buttons are shape `0x28`, `0x29` under the pointer, with their labels in `interface_font_small`, blue, white under the pointer: OK (`0x316`) at (299, 422), to the left of (292, 421); MAIN MENU (`0xBB`) at (299, 443), to the left of (292, 442); RESET DEFAULTS (`0x183`) at (329, 422), from (357, 421); CANCEL CHANGES (`0x5A9`) at (329, 443), from (357, 442). The pointer finds OK and MAIN MENU 120 by 15 from x 199, and the other two 100 by 15 from x 329, each at its shape's height. RESET DEFAULTS and CANCEL CHANGES act on the tab shown; leaving writes every tab's settings. A click acts once, until the button comes up, but for the list's arrows and the audio's knobs.
 
 **Improvement:** the screen is OpenReliant's own design, built from the game's screens: one screen with tabs, the same from the front end, the Reliant's rooms and the pause menu, where the game has a screen for each kind, and the pause menu has screens of its own.
 
-Not ported: the video tab ([#206](https://github.com/vdmkenny/openreliant/issues/206), [#209](https://github.com/vdmkenny/openreliant/issues/209)).
 
 ### Audio
 
@@ -241,6 +238,51 @@ A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (
 - Up and Down scroll the list as its arrows do while no row waits, and the mouse's wheel scrolls it; the game scrolls it by its arrows alone.
 
 Not ported: the defaults the game reads from `DEFAULT.TXT`, which RESET DEFAULTS sets ([#488](https://github.com/vdmkenny/openreliant/issues/488)); OpenReliant's are the executable's. The keys' names as the keyboard's layout gives them, which the game shows ([#489](https://github.com/vdmkenny/openreliant/issues/489)); OpenReliant shows the executable's.
+
+### Video
+
+The video is `video_screen` (`0x0042E9B0`), screen 15, which draws with `video_screen_draw` (`0x0042F440`). Opening, it keeps what CANCEL CHANGES puts back: the display's mode, the device, the details, the light maps, the view and the transitions (`0x0042EA41` on), and the brightness. Its eight rows stand 37 apart from y 129, each label to the left of x 280 and its value from x 352, in `interface_font_small`, blue. OpenReliant keeps the game's RESOLUTION, DEFAULT VIEW, BRIGHTNESS and VR TRANSITIONS in their rows, and puts its own in the rows of those it leaves out:
+
+| Row | The game's | OpenReliant's |
+|---|---|---|
+| 129 | RESOLUTION (`0x10E`): the device's display modes, written `%dx%d` (`0x004E8638`) | RESOLUTION: the size the frames are drawn at |
+| 166 | 3D RENDER MODE (`0x10F`): the 3D device, by its name | FULL SCREEN |
+| 203 | TEXTURE DETAIL (`0x110`): LOW (`0x11D`) or HIGH (`0x11B`) | VSYNC |
+| 240 | GRAPHIC DETAIL (`0x111`): LOW, MEDIUM (`0x11C`) or HIGH | FRAME RATE LIMIT |
+| 277 | DEFAULT VIEW (`0x28A`): COCKPIT VIEW (`0x28B`), CHASE VIEW (`0x28C`) or NO COCKPIT VIEW (`0x57F`) | The same |
+| 314 | BRIGHTNESS (`0x113`), where the device has a gamma ramp | The same |
+| 351 | LIGHT MAPS (`0x114`) | ANTI-ALIASING |
+| 388 | VR TRANSITIONS (`0x2D4`) | The same |
+
+A row with choices has the arrows' box, shape `0x2E`, a pixel above it at x 301; the pointer finds its halves 12 by 23 from x 301 and 318 (`video_items`, `0x004E76F0`), lit under the pointer with `0x2F` and `0x30`. A row that is on or off has a box, shape `0x1A`, two pixels below it at x 311, ticked with `0x1B`. The brightness's knob, shape `0x2C`, slides from x 347 at 0.5 to 522 at 2 (`video_brightness_knob`, `0x004E7778`), over its track, shape `0x2D`, every 45 from x 347 until 572, 10 below the knob's top. The buttons are the controls screen's.
+
+- An arrow steps its row's choice back or on, round from the last to the first. A view the game doesn't know steps on to the first, and back by one.
+- DEFAULT VIEW and VR TRANSITIONS take effect at once, and are written to `[Device] View` and `Transitions` at once (`0x0042EE3F`, `0x0042EFC9` on).
+- The knob held follows the pointer, 4 pixels to its left, and the brightness, 0.5 and its place over its travel times 1.5, sets the display's gamma ramp at once (`sr + 0x54`): `srd3d.dll`'s `set_gamma` (`0x10005270`) sets each of the ramp's 256 levels to its share of the way up, at its power 1 over the brightness, the same for red, green and blue. The device has a gamma ramp, which sets bit 0 of `sr + 0x38`, where its primary surface takes one (`DDCAPS2_PRIMARYGAMMA`, `0x10005204`); without one, the brightness is hidden.
+- Leaving by Escape, OK or MAIN MENU writes the brightness to `[Device] gamma`, in hundredths (`0x0042F2B3`, `0x0042F0AF`), and starts the renderer again where the mode, the device, the details or the light maps changed.
+- RESET TO DEFAULT (`0x112`) sets the defaults at `0x004E5BF4`: the first mode of the second device, the details LOW, the light maps off, the view from the cockpit and the transitions on, and the brightness's knob in the middle of its track.
+- DEFAULT VIEW sets the camera's cockpit mode too, as the pause menu's video screen does ([Pause menu](pause-menu.md#video-4)).
+
+OpenReliant's rows change at once, as the driver applies them, and are written to `[OpenReliant]` ([Configuration](../guide/configuration.md#openreliants-settings)): RESOLUTION steps through NATIVE, the window's own size, and 75, 50 and 25 percent of it, each as tall as the front end's 480 rows or more; FULL SCREEN fills the display, as Alt and Enter do; VSYNC waits for the display; FRAME RATE LIMIT steps through DISPLAY, the display's rate where vsync is off, 30, 60, 120, 144 and 240 frames a second, and NONE; ANTI-ALIASING steps through OFF and 2, 4 and 8 samples a pixel, as many as the GPU offers.
+
+**Fixes:**
+
+- RESET DEFAULTS and CANCEL CHANGES set the view and the transitions, and write them. The game shows them set, but takes RESET DEFAULTS' view only where OK or MAIN MENU start the renderer again, its transitions never, and writes neither; and CANCEL CHANGES leaves the game, and the file, with the view and the transitions chosen since.
+- RESET DEFAULTS sets the brightness 1. The game puts the knob in the middle of its track, which is 1.25, beside setting the file's value to 100.
+
+**Improvements:**
+
+- RESOLUTION chooses the size the frames are drawn at, which the window shows scaled, where the game's chooses the display's mode. FULL SCREEN, VSYNC, FRAME RATE LIMIT and ANTI-ALIASING are OpenReliant's own.
+- The brightness is the knob's place over its travel exactly, where the game multiplies by a rounded reciprocal (`0x004DC6A4`).
+- The settings change at once, where the game starts its renderer again to change the mode.
+
+Not ported: 3D RENDER MODE, which OpenReliant has no Direct3D devices for; and TEXTURE DETAIL, GRAPHIC DETAIL and LIGHT MAPS, at whose highest OpenReliant draws ([#493](https://github.com/vdmkenny/openreliant/issues/493)).
+
+### Graphics
+
+The graphics are OpenReliant's own options ([Configuration](../guide/configuration.md#openreliants-settings)), a row each, laid out as the video's rows are, 29 apart from y 129 to 390: PER-PIXEL LIGHTING, LINEAR LIGHT, SHADOWS (OFF, LOW or HIGH), COCKPIT SHADOWS, SHOT LIGHTS (EVERY SHOT or LATEST TWO), BLOOM, DITHER, TEXTURE FILTER (ORIGINAL, TRILINEAR or CRISP), COLOR DEPTH (32-BIT or 16-BIT) and SMOOTH MOTION. An arrow steps its row's choice round, and a check box turns its option on or off; each change is written to `[OpenReliant]` at once. The picture changes at once, but for LINEAR LIGHT and COLOR DEPTH, which change the GPU's formats and take effect at the next start: once either differs from what the game runs with, its row says CHANGES APPLY AFTER RESTART, in gold, from x 420. RESET DEFAULTS sets OpenReliant's defaults, every improvement on, and CANCEL CHANGES puts back what the tab opened with.
+
+**Improvement:** the tab is OpenReliant's own, with its own words; the game has none of these options.
 
 ## The dialogs
 

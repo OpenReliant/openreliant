@@ -2588,3 +2588,14 @@ address	kind	name	type	comment
 0052026c	data	save_error_open	int	Set while save_error_dialog's box is up
 004521e0	function	object_place	void __thiscall (GameObject *object, float x, float y, float z)	Places an object at x, y, z: its root where it is and where it goes next, and the root's frame; object_set_position without the multiplayer game's copies
 0040b140	function	find_scoop_up_nearest	bool __fastcall (int slot, OrderEntry *entry)	Find Scoop Up's walk: a ship the searcher can aim at, ejected or not, nearer to where the searcher will be next than the nearest so far becomes the nearest; never ends the walk
+0042f440	function	video_screen_draw	void (void)	Screen 15's render hook: the labels, BRIGHTNESS's only where sr + 0x38 bit 0 is set, the values, the arrows' boxes, the buttons, the brightness's track and knob (video_brightness_knob), the button under the pointer lit, LIGHT MAPS' and VR TRANSITIONS' boxes, the arrow under the pointer lit (in_game_options_item), the dialogs and the pointer
+004e76f0	data	video_items	short[68]	Screen 15's 17 items, a corner and a size each: the arrows back and on of RESOLUTION, 3D RENDER MODE, TEXTURE DETAIL, GRAPHIC DETAIL and DEFAULT VIEW, RESET TO DEFAULT, one empty, LIGHT MAPS' box, OK, MAIN MENU, VR TRANSITIONS' box and CANCEL CHANGES
+004e7778	data	video_brightness_knob	short[4]	Screen 15's brightness knob, a corner and a size, which moves with the brightness
+004e5bf4	data	video_defaults	int[7]	What screen 15's RESET TO DEFAULT sets: the display mode, the device, the texture detail, the graphic detail, the light maps, the view and the transitions
+00520174	data	video_mode	int	The display mode screen 15 shows, by its index among the device's
+0051d4e8	data	video_device	int	The 3D device screen 15 shows
+005201a8	data	video_texture_detail	int	The texture detail screen 15 shows
+0051d7c0	data	video_graphic_detail	int	The graphic detail screen 15 shows
+00520198	data	video_light_maps	int	Whether screen 15 shows the light maps on
+0051da00	data	video_transitions	int	Whether screen 15 shows the transitions on; VR TRANSITIONS sets transitions with it and writes it at once
+005d54e0	data	graphic_detail	int	Gdetail in the Device section of the settings: 0 to 2, 2 by default, which the warp gates' segments, the loadout's coarse level and several effects read

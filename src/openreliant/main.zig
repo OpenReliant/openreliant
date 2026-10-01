@@ -39,7 +39,6 @@ const Movies = @import("movies.zig").Movies;
 const presenting = @import("presenter.zig");
 const Presenter = presenting.Presenter;
 const Screen = presenting.Screen;
-const frameSize = presenting.frameSize;
 const drawn = presenting.drawn;
 const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
@@ -214,6 +213,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var driver: srd3d.srd3d.Driver = try .init(arena, screen.interface());
     defer driver.deinit();
     var pacer: platform.window.Pacer = .{};
+    // How the frames are paced, which the settings screen changes as the game plays.
+    var pacing = options.pacing();
 
     var context: srapi.Context = .{
         .projection = (camera.Camera{}).projection(initial_size[0], initial_size[1]),
@@ -236,14 +237,26 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory });
     defer sound.shutdown();
     sound.volumes = .read(settings_file.profile);
-    // OpenReliant's own options as the settings screen shows and changes them.
-    var own: settings_module.Own = .{ .settings_file = settings_file, .output = output, .sound = options.sound };
-    // What `WinMain` reads from `[Device]`: the options' cockpit setting, the brightness, and
-    // whether the transitions play.
+    // What `WinMain` reads from `[Device]`: the options' cockpit setting, the brightness, which
+    // the renderer starts with, and whether the transitions play.
     const device_settings: game.winmain.Device = .read(settings_file.profile);
+    context.brightness = device_settings.brightness;
     // What draws the frames outside the game's loop: the movies', and the loading screens'.
     var presenter: Presenter = .{ .window = &window, .screen = screen, .driver = &driver, .context = &context, .wanted = options.settings.size, .arena = arena };
     defer presenter.close(gpa);
+    // Whether what moves is drawn between the game's ticks, which the settings screen changes as
+    // the game plays.
+    var smooth_motion = options.smooth_motion;
+    // OpenReliant's own options as the settings screen shows and changes them.
+    var own: settings_module.Own = .{
+        .settings_file = settings_file,
+        .output = output,
+        .sound = options.sound,
+        .pacing = &pacing,
+        .display = .{ .window = &window, .presenter = &presenter },
+        .graphics = settings_module.graphicsOf(options),
+        .smooth_motion = &smooth_motion,
+    };
     // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
     var screenshots: game.xtrabits.screenshot.Screenshots = .{ .io = io, .directory = directory };
     defer screenshots.finish();
@@ -263,7 +276,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .presenter = &presenter,
         .devices = &devices,
         .pacer = &pacer,
-        .frame_rate = options.frameRate(window),
+        .pacing = &pacing,
         .size = options.movie_size,
         .look = options.movie_look,
         .transitions = device_settings.transitions,
@@ -331,6 +344,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // each mission starts.
     objects.bullets.looks = try game.guns.Looks.create(arena, &textures);
     objects.bullets.shot_lights = options.shot_lights;
+    own.shot_lights = &objects.bullets.shot_lights;
     var player: engine.input.Player = .{};
     // The joystick or gamepad the game uses, opened as `input_init` opens a joystick, and again
     // whenever a controller is connected or disconnected.
@@ -360,8 +374,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // The camera, which keeps the options' cockpit setting and starts in the cockpit mode it picks,
     // as a mission's start does.
     const cockpit_setting = options.cockpit orelse device_settings.view;
-    var brightness = device_settings.brightness;
     var view: camera.Camera = .{ .setting = cockpit_setting, .cockpit_mode = cockpit_setting.mode(), .missiles = &objects.missiles };
+    // The game's video settings, which the settings screen's video changes.
+    const video_settings: game.interface.settings.Video = .{ .camera = &view, .surrender = &context, .gamma = screen.interface().setsGamma(), .transitions = &movies.transitions };
     var last_view = view.view;
     // The mission's clocks, which `mission_run` zeroes before it loops.
     var clock: game.main.Clock = .{};
@@ -450,9 +465,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .settings = .{
             .file = settings_file,
             .sound = sound,
-            .stdsmp = stdsmp,
-            .camera = &view,
-            .brightness = &brightness,
+            .video = video_settings,
             .own = own.interface(),
         },
     };
@@ -516,6 +529,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .bank = stdsmp,
         .settings = settings_file,
         .own = own.interface(),
+        .video = video_settings,
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
     };
     // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
@@ -593,7 +607,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         // mission loaded too.
         try game.winmain.followActivation(&app, pausing, play.loaded != null);
         if (output) |open| open.update();
-        const size = try frameSize(screen, &window, options.settings.size, arena);
+        const size = try presenter.size();
 
         world.view = view.view;
         world.cockpit = if (cockpit.shown) |*shown| &shown.model else null;
@@ -629,6 +643,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     .local_time = localDate,
                     .settings_file = settings_file,
                     .own = own.interface(),
+                    .video = video_settings,
                 };
             }
             front_context.resources = &front_resources.?;
@@ -751,7 +766,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 // the player's controls, and then, before anything is drawn, has every object's frames
                 // drawn between its last two places, as far into the step as the clock is; the camera
                 // follows the player's.
-                const over = game.main.missionFrame(orders, .of(&clock, options.smooth_motion, options.riders), play.loaded);
+                const over = game.main.missionFrame(orders, .of(&clock, smooth_motion, options.riders), play.loaded);
                 // The mission over, once the camera has watched the player's end or the pilot's pickup,
                 // once the player's ship has landed, or once its script ends it, the game settles how
                 // it ended and goes on from it (`missionEnded`): the campaign to its next mission or
@@ -787,7 +802,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     .cockpit = if (cockpit.shown) |*shown| shown else null,
                     .forces = &force_feedback,
                     .random = &rand,
-                    .smooth_motion = options.smooth_motion,
+                    .smooth_motion = smooth_motion,
                 });
             }
         }
@@ -797,7 +812,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             // The screen a transition's movie or a mission's end has just led to entered before
             // its first frame is drawn, as each of the game's screens enters before its loop.
             front.enterShown(front_context);
-            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound } };
+            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings } };
             scene.clear();
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
@@ -833,7 +848,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 .smoke = &smoke,
                 .gun_particles = &gun_particles,
                 .sparks = &sparks,
-                .ahead = game.objects.pastTick(&clock, options.smooth_motion),
+                .ahead = game.objects.pastTick(&clock, smooth_motion),
                 .explosions = &explosions,
                 .shockwaves = &shockwaves,
                 .trails = &trails,
@@ -917,7 +932,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 return writeScreenshot(io, frame_arena.allocator(), options.screenshot.?, frame.rgba, frame.size);
             }
         }
-        if (options.frameRate(window)) |rate| pacer.wait(rate);
+        if (pacing.rate(window)) |rate| pacer.wait(rate);
     }
 }
 
@@ -1193,8 +1208,8 @@ const FrontEndDisplay = struct {
     target: srd3d.device.Device,
     window: [2]u32,
     strings: *const game.language.Language,
-    /// What the settings screen shows the state of: the devices' settings and bindings, and the
-    /// sound's volumes.
+    /// What the settings screen shows the state of: the devices' settings and bindings, the
+    /// sound's volumes, and the video.
     settings: game.interface.settings.Shown,
 
     fn overlay(shown: *FrontEndDisplay) srcore.Overlay {

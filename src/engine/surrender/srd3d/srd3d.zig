@@ -224,11 +224,14 @@ pub const Driver = struct {
     }
 
     /// `begin_scene` (`0x100077A0`): the depth scale for the frame, then clears, and draws the
-    /// background image where there is one (`drawBackground`).
+    /// background image where there is one (`drawBackground`). OpenReliant hands the device the
+    /// brightness first, for its gamma ramp, where the driver sets the ramp only as the brightness
+    /// changes (`set_gamma`, `0x10005270`).
     fn begin(ptr: *anyopaque, context: *srapi.Context) void {
         const driver = from(ptr);
         driver.context = context;
         context.projection.depth_scale = srapi.depthScale(context.projection.near);
+        driver.target.gamma(context.brightness);
         driver.target.begin();
         if (context.background) |image| driver.drawBackground(image, context.projection.viewport);
     }
