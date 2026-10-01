@@ -30,6 +30,7 @@ const input = @import("../../input.zig");
 const bigfile = @import("../bigfile.zig");
 const cbox = @import("../cbox.zig");
 const hog_snd = @import("../hog_snd.zig");
+const videoreports = @import("../videoreports.zig");
 const movie = @import("../xtrabits/movie.zig");
 const canvas = @import("canvas.zig");
 const disc_module = @import("disc.zig");
@@ -414,6 +415,12 @@ pub const Context = struct {
     pub fn readBank(context: Context, name: []const u8) ?hog_snd.BankFile {
         const bytes = context.read(name) orelse return null;
         return .of(context.gpa, bytes, name);
+    }
+
+    /// The speech file `speech` of `speech_hog` (`hog_read_file`), a mod's first
+    /// (`videoreports.readLine`); null where it is left out.
+    pub fn readLine(context: Context, speech: []const u8) ?[]u8 {
+        return videoreports.readLine(context.gpa, context.resources.mods, if (context.lines) |lines| lines.* else null, speech);
     }
 };
 

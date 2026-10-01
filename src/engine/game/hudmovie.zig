@@ -9,6 +9,7 @@ const Io = std.Io;
 const log = std.log.scoped(.radio);
 
 const hog = @import("../../formats/hog.zig");
+const bigfile = @import("bigfile.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const talkie = @import("talkie.zig");
 const ticks_per_second = @import("main.zig").ticks_per_second;
@@ -89,8 +90,10 @@ pub fn memberName(path: []const u8) []const u8 {
 pub const Movie = struct {
     gpa: Allocator,
     /// `pilots_hog` (`0x0057C3B4`); null where it cannot be opened, which leaves the window
-    /// without films.
+    /// without films but for the mods'.
     archive: ?hog.Archive = null,
+    /// OpenReliant's: the mods, whose films come before the archive's (`bigfile.Mods`).
+    mods: *const bigfile.Mods = &bigfile.Mods.none,
     /// The film playing, as `pilots.hog` holds it, its chunks unscrambled once as it starts, and
     /// which of them the timer decodes next; the game reads each from the archive as it comes
     /// (`hudmovie_file`, `0x0057C290`, from `hudmovie_start`, `0x0057C27C`).
@@ -176,9 +179,7 @@ pub const Movie = struct {
     /// The film at `path` read from the archive, its chunks up to the end chunk unscrambled, in
     /// place of the one before.
     fn load(movie: *Movie, path: []const u8) !void {
-        const archive = movie.archive orelse return error.NoArchive;
-        const entry = archive.find(memberName(path)) orelse return error.NotInArchive;
-        const bytes = try archive.readRaw(movie.gpa, entry);
+        const bytes = try movie.read(path);
         errdefer movie.gpa.free(bytes);
         var chunks: std.ArrayList(talkie.Chunk) = .empty;
         errdefer chunks.deinit(movie.gpa);
@@ -191,6 +192,16 @@ pub const Movie = struct {
         movie.release();
         movie.bytes = bytes;
         movie.chunks = chunks;
+    }
+
+    /// The film at `path` as it is stored, a mod's of its name first (`bigfile.Mods.readStored`),
+    /// then the archive's (`hog_seek`).
+    fn read(movie: *Movie, path: []const u8) ![]u8 {
+        const name = memberName(path);
+        if (try movie.mods.readStored(movie.gpa, name)) |bytes| return bytes;
+        const archive = movie.archive orelse return error.NoArchive;
+        const entry = archive.find(name) orelse return error.NotInArchive;
+        return archive.readRaw(movie.gpa, entry);
     }
 
     /// The film's bytes and chunks let go of.

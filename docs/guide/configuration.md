@@ -20,7 +20,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 
 | Option | Description |
 |---|---|
-| `--mission <number>` | Play this mission at once rather than open the main menu: the number the game names its file by, `mission<number>.dte`, from the game's `missions` folder or `resource.hog`; 0 is OpenReliant's sandbox, which `openreliant` carries where the game has no mission 0 |
+| `--mission <number>` | Play this mission at once rather than open the main menu: the number the game names its file by, `mission<number>.dte`, from a mod, the game's `missions` folder or `resource.hog`; 0 is OpenReliant's sandbox, which `openreliant` carries where the game has no mission 0 |
 | `--ship <type>` | The ship type to fly, by its number in `shipstats.bin`, in place of the loadout screen's choice, with its default missiles; the mission's own by default, the Predator in mission 0 |
 | `--view <0\|1\|2>` | The view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes, or 0 without them |
 | `--difficulty <easy\|medium\|hard>` | The game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with `--mission`, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it |
@@ -67,11 +67,11 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 
 | Option | Description |
 |---|---|
+| `--no-mods` | Play the game's own files alone, without the mods in its `mods` folder ([Modding](modding.md)) |
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
 | `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls and the `[OpenReliant]` settings are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--version` | Show the version |
-| `-h`, `--help` | Show the options |
 | `-h`, `--help` | Show the help page |
 
 ## Commands

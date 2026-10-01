@@ -16,6 +16,7 @@ const Io = std.Io;
 const log = std.log.scoped(.radio);
 
 const hog = @import("../../formats/hog.zig");
+const bigfile = @import("bigfile.zig");
 const aigeneric = @import("aigeneric.zig");
 const cbox = @import("cbox.zig");
 const create = @import("create.zig");
@@ -846,16 +847,23 @@ pub fn lineName(name: []const u8) []const u8 {
     return if (std.ascii.startsWithIgnoreCase(after[dot + 1 ..], "ut")) after[0..dot] else after;
 }
 
-/// The speech file `speech` names, as `archive`, the speech's (`speech_hog`), holds it
-/// (`hog_read_file`, `lineName`), in `gpa`; or null, with a warning, for one the archive lacks or
-/// that cannot be read.
-pub fn readLine(gpa: Allocator, archive: hog.Archive, speech: []const u8) ?[]u8 {
+/// The speech file `speech` names, as a mod or `archive`, the speech's (`speech_hog`), holds it
+/// (`hog_read_file`, `lineName`), in `gpa`: a mod's file of the name first
+/// (`bigfile.Mods.readFile`). Null where there is no archive and no mod holds it; and, with a
+/// warning, for one the archive lacks or that cannot be read.
+pub fn readLine(gpa: Allocator, mods: *const bigfile.Mods, archive: ?hog.Archive, speech: []const u8) ?[]u8 {
     const name = lineName(speech);
-    const entry = archive.find(name) orelse {
+    const modded = mods.readFile(gpa, name) catch |err| {
+        log.warn("the line {s} cannot be read: {s}", .{ name, @errorName(err) });
+        return null;
+    };
+    if (modded) |bytes| return bytes;
+    const lines = archive orelse return null;
+    const entry = lines.find(name) orelse {
         log.warn("the line {s} is not in {s}", .{ name, speech_archive });
         return null;
     };
-    const contents = archive.read(gpa, entry) catch |err| {
+    const contents = lines.read(gpa, entry) catch |err| {
         log.warn("the line {s} cannot be read: {s}", .{ name, @errorName(err) });
         return null;
     };
@@ -876,8 +884,11 @@ fn filmPath(buffer: []u8, face: ?*const pilots.Face, head: pilots.Head) []const 
 /// film of the speaker's face.
 pub const Radio = struct {
     gpa: Allocator,
-    /// `speech_hog`; null where the game's folder has none, which leaves the radio silent.
+    /// `speech_hog`; null where the game's folder has none, which leaves the radio silent but for
+    /// the mods' lines.
     archive: ?hog.Archive,
+    /// OpenReliant's: the mods, whose lines come before the archive's (`bigfile.Mods`).
+    mods: *const bigfile.Mods = &bigfile.Mods.none,
     player: cbox.Player = .{},
     /// How the lines sound.
     style: cbox.Style = .{},
@@ -901,9 +912,12 @@ pub const Radio = struct {
     reports: [report_count]?Report = @splat(null),
 
     /// The radio with its lines from `speech_archive` and its films from `hudmovie.archive_path` in
-    /// `dir`, or without either where it cannot be opened.
-    pub fn open(gpa: Allocator, io: Io, dir: Io.Dir) Radio {
-        return .openAt(gpa, io, dir, speech_archive, hudmovie.archive_path);
+    /// `dir`, or without either where it cannot be opened, and the `mods`' before them.
+    pub fn open(gpa: Allocator, io: Io, dir: Io.Dir, mods: *const bigfile.Mods) Radio {
+        var radio: Radio = .openAt(gpa, io, dir, speech_archive, hudmovie.archive_path);
+        radio.mods = mods;
+        radio.movie.mods = mods;
+        return radio;
     }
 
     /// The radio with its lines from the archive at `lines` and its films from the one at `films`
@@ -1161,10 +1175,9 @@ pub const Radio = struct {
         radio.play(sound, radio.line);
     }
 
-    /// The speech file `speech` names as the archive holds it (`readLine`), in `gpa`.
+    /// The speech file `speech` names as a mod or the archive holds it (`readLine`), in `gpa`.
     fn readSpeech(radio: *Radio, speech: []const u8) ?[]u8 {
-        const archive = radio.archive orelse return null;
-        return readLine(radio.gpa, archive, speech);
+        return readLine(radio.gpa, radio.mods, radio.archive, speech);
     }
 
     /// `bytes`, a speech file, played (`cbox.Player.start`) at the volume every line the game plays
@@ -1305,6 +1318,36 @@ test filmPath {
     try std.testing.expectEqualStrings("pilots\\45TigersWL_Bandit_d.fm8", filmPath(&buffer, bandit, .dying));
     try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, bandit, @enumFromInt(4)));
     try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, null, .talking));
+}
+
+test readLine {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try hog.testing.write(gpa, io, tmp.dir, "speech.hog", &.{
+        .{ .name = "ABRT_001", .data = "the game's line" },
+        .{ .name = "ABRT_002", .data = "the game's other line" },
+    });
+    try tmp.dir.createDirPath(io, "mods/voices");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_001", .data = "a mod's line" });
+    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir);
+    defer mods.close(gpa);
+    var archive: hog.Archive = try .open(gpa, io, tmp.dir, "speech.hog");
+    defer archive.close(gpa);
+
+    // A mod's line under the name the archive keeps it by, then the archive's.
+    const modded = readLine(gpa, &mods, archive, "ms_speech\\ABRT_001.ut").?;
+    defer gpa.free(modded);
+    try std.testing.expectEqualStrings("a mod's line", modded);
+    const own = readLine(gpa, &mods, archive, "ABRT_002.ut").?;
+    defer gpa.free(own);
+    try std.testing.expectEqualStrings("the game's other line", own);
+    // Without the archive, the mods' lines alone.
+    const alone = readLine(gpa, &mods, null, "ABRT_001.ut").?;
+    defer gpa.free(alone);
+    try std.testing.expectEqualStrings("a mod's line", alone);
+    try std.testing.expectEqual(null, readLine(gpa, &mods, null, "ABRT_002.ut"));
 }
 
 test lineName {

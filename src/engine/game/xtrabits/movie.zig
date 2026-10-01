@@ -222,12 +222,13 @@ pub const Player = struct {
     }
 
     /// The movie `name`, read from where `kind` reads it, the game's folder or the disc's archive
-    /// open (`archive`, whose folder is the game's), and opened to play as `open` has it; null
-    /// where it is left out, which the log says.
+    /// open (`archive`, whose folder is the game's), a mod's file of its name first
+    /// (`bigfile.Mods`), and opened to play as `open` has it; null where it is left out, which the
+    /// log says.
     pub fn load(gpa: Allocator, codec: bink.Codec, archive: *const disc.Disc, name: []const u8, kind: Kind, sound: ?mss.Driver, look: bink.Look) ?Player {
         const source = kind.source();
         const found = switch (source) {
-            .folder => files.readFile(archive.io, gpa, archive.directory, name, .limited(files.max_file_size)),
+            .folder => archive.mods.readLoose(archive.io, gpa, archive.directory, name, .limited(files.max_file_size)),
             .disc => archive.readStored(gpa, name),
         } catch |err| {
             log.warn("the movie {s} is left out: {s}", .{ name, @errorName(err) });

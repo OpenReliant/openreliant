@@ -24,7 +24,7 @@ const log = std.log.scoped(.mission);
 pub const loose_limit = 0xFA000;
 
 /// Where a mission's file came from.
-pub const Source = enum { loose, archive };
+pub const Source = enum { mod, loose, archive };
 
 pub const File = struct {
     /// The file's bytes as the mission binds them, made in the allocator `read` is given.
@@ -39,7 +39,12 @@ pub const File = struct {
 /// expanded where RefPack packed it. Null where there is neither, on which the archive's reader
 /// reports the member missing and the mission's start stops the game: "The mission number is
 /// invalid". OpenReliant leaves saying so to the caller.
+///
+/// **Improvement:** a mod's file of the mission's name comes first
+/// (`bigfile.Mods.readInPlaceOf`), before even the loose file, which the installation itself holds
+/// missions 18 and 25 as, so that a mod replaces any mission.
 pub fn read(io: Io, gpa: Allocator, dir: Io.Dir, resources: *const bigfile.Hog, path: []const u8) !?File {
+    if (try resources.mods.readInPlaceOf(gpa, path)) |bytes| return .{ .image = bytes, .source = .mod };
     if (try files.readFile(io, gpa, dir, path, .limited(files.max_file_size))) |bytes| {
         if (bytes.len <= loose_limit) return .{ .image = bytes, .source = .loose };
         // The game reads no more than its buffer holds, and binds what it read.
@@ -373,4 +378,20 @@ test read {
     try std.testing.expectEqual(.archive, two.source);
     // A mission in neither is none.
     try std.testing.expectEqual(null, try read(io, gpa, tmp.dir, &resources, ".\\missions\\mission3.dte"));
+
+    // A mod's comes before the loose file, and adds a mission the game lacks.
+    try tmp.dir.createDirPath(io, "mods/missions");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/missions/Mission1.dte", .data = "mod one" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/missions/mission3.dte", .data = "mod three" });
+    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir);
+    defer mods.close(gpa);
+    resources.mods = &mods;
+    for ([_][]const u8{ "mod one", "archive two", "mod three" }, [_]Source{ .mod, .archive, .mod }, 1..) |image, source, number| {
+        var buffer: [32]u8 = undefined;
+        const path = try std.fmt.bufPrint(&buffer, ".\\missions\\mission{d}.dte", .{number});
+        const file = (try read(io, gpa, tmp.dir, &resources, path)).?;
+        defer gpa.free(file.image);
+        try std.testing.expectEqualStrings(image, file.image);
+        try std.testing.expectEqual(source, file.source);
+    }
 }

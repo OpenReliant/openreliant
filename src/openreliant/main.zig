@@ -155,45 +155,51 @@ comptime {
     std.debug.assert(platform.window.tick_nanoseconds * game.main.ticks_per_second == std.time.ns_per_s);
 }
 
-/// One of the game's files in its folder `directory`, whole, into `arena`.
-fn readGameFile(io: Io, arena: Allocator, directory: Io.Dir, name: []const u8) ![]u8 {
-    return directory.readFileAlloc(io, name, arena, .limited(engine.files.max_file_size));
+/// One of the game's files in its folder `directory`, whole, into `arena`: a mod's file of its name
+/// first (`game.bigfile.Mods.readLoose`).
+fn readGameFile(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigfile.Mods, name: []const u8) ![]u8 {
+    return try mods.readLoose(io, arena, directory, name, .limited(engine.files.max_file_size)) orelse error.FileNotFound;
 }
 
 /// The strings of the module `name` in the game's folder `directory`, as `language_init` reads them
 /// (`game.language.Language.load`).
-fn readStrings(io: Io, arena: Allocator, directory: Io.Dir, name: []const u8) !game.language.Language {
-    return .load(arena, try .parse(try readGameFile(io, arena, directory, name)));
+fn readStrings(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigfile.Mods, name: []const u8) !game.language.Language {
+    return .load(arena, try .parse(try readGameFile(io, arena, directory, mods, name)));
 }
 
 /// The records of the stats table `table`, from its file in the game's folder `directory`, as its
 /// loader reads them (`stats_load_ships` and the others).
-fn readStats(io: Io, arena: Allocator, directory: Io.Dir, comptime table: stats.Table) ![]align(1) const stats.Table.Record(table) {
-    const file = try stats.File.parse(table, try readGameFile(io, arena, directory, table.fileName()));
+fn readStats(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigfile.Mods, comptime table: stats.Table) ![]align(1) const stats.Table.Record(table) {
+    const file = try stats.File.parse(table, try readGameFile(io, arena, directory, mods, table.fileName()));
     return @field(file, @tagName(table));
 }
 
 /// Plays from the game's folder `directory`, with its settings file `settings_file`, which the
 /// pause menu's screens write to.
 fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io.Dir, settings_file: *engine.profile.File) !void {
+    // OpenReliant's mods, whose files come before the game's own wherever it keeps them; none with
+    // `--no-mods`.
+    var mods: game.bigfile.Mods = if (options.mods) try .open(arena, io, directory) else .none;
+    defer mods.close(arena);
     // What `WinMain` opens at start-up, and the texture cache `renderer_start` opens.
     var resources: game.bigfile.Hog = try .open(arena, io, directory, game.bigfile.resource_name);
     defer resources.close(arena);
-    const cache_bytes = try readGameFile(io, arena, directory, tcache.hardware_name);
+    resources.mods = &mods;
+    const cache_bytes = try readGameFile(io, arena, directory, &mods, tcache.hardware_name);
     const cache: tcache.Cache = try .parse(arena, cache_bytes);
     const palette = try tga.palette(try resources.readFile(arena, "palette.tga"));
     var textures: srtexture.Table = .init(arena, cache, palette);
     // The flight and combat stats `stats_load_ships` reads; every gun type's figures, which
     // `stats_load_guns` reads; every missile type's, which `stats_load_missiles` reads; and the
     // pilots'.
-    const ship_stats = try readStats(io, arena, directory, .ships);
-    const gun_stats = try readStats(io, arena, directory, .guns);
-    const missile_stats = try readStats(io, arena, directory, .missiles);
-    const pilot_stats = try readStats(io, arena, directory, .pilots);
+    const ship_stats = try readStats(io, arena, directory, &mods, .ships);
+    const gun_stats = try readStats(io, arena, directory, &mods, .guns);
+    const missile_stats = try readStats(io, arena, directory, &mods, .missiles);
+    const pilot_stats = try readStats(io, arena, directory, &mods, .pilots);
     // The strings `language_init` reads out of `language.dll` at start-up, and those the ITAC reads
     // out of `itaclang.dll` as it opens, which without it writes nothing.
-    const strings = try readStrings(io, arena, directory, game.language.file_name);
-    const itac_strings = readStrings(io, arena, directory, game.itac.strings_name) catch |err| blank: {
+    const strings = try readStrings(io, arena, directory, &mods, game.language.file_name);
+    const itac_strings = readStrings(io, arena, directory, &mods, game.itac.strings_name) catch |err| blank: {
         std.log.warn("{s} is left out: {s}", .{ game.itac.strings_name, @errorName(err) });
         break :blank game.language.Language{ .strings = &.{} };
     };
@@ -234,7 +240,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     } else null;
     defer if (output) |open| open.destroy();
     const sound = try arena.create(game.hog_snd.Sound);
-    sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory });
+    sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory, .mods = &mods });
     defer sound.shutdown();
     sound.volumes = .read(settings_file.profile);
     // What `WinMain` reads from `[Device]`: the options' cockpit setting, the brightness, which
@@ -266,7 +272,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var decoders: platform.video.Decoders = .init();
     // The discs' archives, which a full install keeps in the game's folder (`cd_hog_open`), and
     // the hangar's movie played last (`hangar_movie_last`, `0x005D6C8C`).
-    var disc: game.interface.disc.Disc = .{ .gpa = gpa, .io = io, .directory = directory };
+    var disc: game.interface.disc.Disc = .{ .gpa = gpa, .io = io, .directory = directory, .mods = &mods };
     defer disc.close();
     var hangar: game.xtrabits.movie.Hangar = .{};
     var movies: Movies = .{
@@ -359,7 +365,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     try loading.show(game.xtrabits.loading.startup_step);
     // The radio's lines, from the game's speech archive, said through the sound's speech sample,
     // and the films of the speakers' faces.
-    var radio: game.videoreports.Radio = .open(gpa, io, directory);
+    var radio: game.videoreports.Radio = .open(gpa, io, directory, &mods);
     defer radio.deinit(sound);
     radio.style = options.speech;
     sound.objects = objects;
@@ -435,7 +441,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var gates: game.wgate.Gates = try .init(gpa, &textures, explosions.settings.detail, context.hardware, options.gates);
     defer gates.deinit();
     // The force feedback's effects, and what plays them on the player's controller.
-    const found_forces = engine.input.force.load(io, arena, directory);
+    const found_forces = engine.input.force.load(io, arena, directory, &mods);
     var lacking = found_forces.lacking.iterator();
     while (lacking.next()) |effect| std.log.warn("forces\\{s} is missing or isn't an effect file: it plays nothing", .{effect.fileName()});
     var force_feedback: engine.input.force.Forces = .{ .library = &found_forces.library, .settings = options.forces };
@@ -510,7 +516,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // The pilot as the game starts: the call sign the profile gives, as `campaign_new` reads it,
     // and the list of call signs, which `WinMain` reads and writes straight back (`0x004A919B`).
     if (flow.in_front_end) {
-        if (readGameFile(io, arena, directory, game.gameflow.profile_name)) |bytes| {
+        if (directory.readFileAlloc(io, game.gameflow.profile_name, arena, .limited(engine.files.max_file_size))) |bytes| {
             front.pilot.call_sign.set(game.gameflow.profileCallSign(bytes));
         } else |_| {}
         const player_name = strings.string(@intFromEnum(game.interface.pilot_roster.String.player)) orelse "";
@@ -1368,8 +1374,8 @@ const Play = struct {
     }
 };
 
-/// The file of mission `number`, as the game reads it (`game.mission.bind.read`): from the game's
-/// `missions` folder, or from `resource.hog`. Mission 0, OpenReliant's own, comes from the copy
+/// The file of mission `number`, as the game reads it (`game.mission.bind.read`): from a mod, the
+/// game's `missions` folder, or `resource.hog`. Mission 0, OpenReliant's own, comes from the copy
 /// `openreliant` carries where the game has none.
 fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const game.bigfile.Hog, number: u16, second_part: bool) ![]const u8 {
     var path_buffer: [game.winmain.mission_path_size]u8 = undefined;

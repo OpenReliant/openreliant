@@ -216,6 +216,12 @@ test parseEntry {
     try std.testing.expectEqual(@as(?ParsedEntry, null), parseEntry(&(@as([32]u8, @splat(0xCD))), 0x100000));
 }
 
+/// The order `sltool hog pack` gives a folder's files, so that a folder packs the same wherever it
+/// is: by their names' bytes.
+pub fn nameOrder(_: void, a: []const u8, b: []const u8) bool {
+    return std.mem.lessThan(u8, a, b);
+}
+
 /// A member to write: its name, and its bytes as they are to be stored.
 pub const Member = struct { name: []const u8, data: []const u8 };
 

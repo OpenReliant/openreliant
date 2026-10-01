@@ -69,6 +69,10 @@ The game opens the discs' archives one at a time, as it needs them (`cd_hog_open
 [Movies](../engine/movies.md#the-discs-archives)), and Bink reads a movie from one as it is
 stored (`hog_locate`).
 
+OpenReliant's mods, archives of this format and folders of files, stand in for the members of
+every one of these archives, and for the game's loose files, by their names
+([Modding](../guide/modding.md)).
+
 `resource.hog`'s members by extension: `.shp` models, `.spr` sprites, `.tga` images, `.dte`
 missions, `.fat` [sound banks](fat.md), `.fnt` [fonts](fnt.md), `.ccb` colour tables, and five `.bin` files:
 the four stat tables and `profile.bin`.

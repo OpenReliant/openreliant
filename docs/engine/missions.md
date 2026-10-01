@@ -32,6 +32,10 @@ name takes that mission's place the same way. OpenReliant finds the loose file w
 its names, as Windows does, on every system
 ([`files.zig`](../../src/engine/files.zig)).
 
+**Improvement:** a mod's file of the mission's name comes first, before even the loose file, so that
+a mod replaces any mission ([Modding](../guide/modding.md),
+[`bigfile/mods.zig`](../../src/engine/game/bigfile/mods.zig)).
+
 ## Binding
 
 `mission_bind_sections` (`0x00451D90`) runs at the mission's start. It reads the file, then binds

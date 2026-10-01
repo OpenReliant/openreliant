@@ -21,6 +21,7 @@ const Io = std.Io;
 
 const frc = @import("../../formats/frc.zig");
 const files = @import("../files.zig");
+const bigfile = @import("../game/bigfile.zig");
 const collision = @import("../game/collision.zig");
 const main = @import("../game/main.zig");
 
@@ -121,14 +122,15 @@ const folder = "forces\\";
 
 /// `load_force_effects` (`0x004BD800`): each effect's file in `folder` under the game's folder
 /// `directory`, into `arena`, the folder and the files found whatever the case of their names, as
-/// Windows finds them. OpenReliant reads the files the game never reads with its own (`Unread`),
-/// and reads them all whatever the controller.
-pub fn load(io: Io, arena: Allocator, directory: Io.Dir) Found {
+/// Windows finds them, a mod's file of an effect's name first (`bigfile.Mods.readLoose`).
+/// OpenReliant reads the files the game never reads with its own (`Unread`), and reads them all
+/// whatever the controller.
+pub fn load(io: Io, arena: Allocator, directory: Io.Dir, mods: *const bigfile.Mods) Found {
     var found: Found = .{};
     for (std.enums.values(Effect)) |effect| {
         var path: [files.max_path]u8 = undefined;
         const name = std.fmt.bufPrint(&path, folder ++ "{s}", .{effect.fileName()}) catch continue;
-        const bytes = (files.readFile(io, arena, directory, name, .limited(files.max_file_size)) catch continue) orelse continue;
+        const bytes = (mods.readLoose(io, arena, directory, name, .limited(files.max_file_size)) catch continue) orelse continue;
         const file = frc.File.parse(arena, bytes) catch continue;
         found.library.files.set(effect, file);
         found.lacking.remove(effect);
@@ -469,7 +471,7 @@ test load {
     defer tmp.cleanup();
 
     // Without the folder, nothing plays.
-    try std.testing.expect(load(io, arena, tmp.dir).lacking.contains(.lc));
+    try std.testing.expect(load(io, arena, tmp.dir, &bigfile.Mods.none).lacking.contains(.lc));
 
     // The folder and its files are found whatever the case of their names; a file that isn't one
     // is left out.
@@ -477,7 +479,7 @@ test load {
     const bytes = try frc.testing.file(arena, &.{.{ .id = 0, .name = "Sine1", .kind = 2, .type = 102, .duration = 305, .rest = &.{ 4, 30, @bitCast(@as(i32, -30)) } }});
     try tmp.dir.writeFile(io, .{ .sub_path = "Forces/Lc.FRC", .data = bytes });
     try tmp.dir.writeFile(io, .{ .sub_path = "Forces/SHAKE.frc", .data = "not an effect" });
-    const found = load(io, arena, tmp.dir);
+    const found = load(io, arena, tmp.dir, &bigfile.Mods.none);
     try std.testing.expectEqual(305, found.library.files.get(.lc).?.effects[0].duration);
     try std.testing.expect(!found.lacking.contains(.lc));
     try std.testing.expectEqual(null, found.library.files.get(.shake));

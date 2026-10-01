@@ -189,7 +189,7 @@ fn pack(ctx: Context, dir_path: []const u8, path: []const u8, store: bool) !void
         }
         try names.append(ctx.arena, try ctx.arena.dupe(u8, entry.name));
     }
-    std.mem.sort([]const u8, names.items, {}, nameOrder);
+    std.mem.sort([]const u8, names.items, {}, hog.nameOrder);
 
     var compressor: refpack.Compressor = try .init(ctx.arena);
     defer compressor.deinit(ctx.arena);
@@ -219,10 +219,6 @@ fn pack(ctx: Context, dir_path: []const u8, path: []const u8, store: bool) !void
         counts.get(.already_compressed),
         counts.get(.stored),
     });
-}
-
-fn nameOrder(_: void, a: []const u8, b: []const u8) bool {
-    return std.mem.lessThan(u8, a, b);
 }
 
 /// `dest.SHP` becomes `dest~2.SHP`, keeping the extension so the file still opens as its type.

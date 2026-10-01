@@ -275,11 +275,12 @@ pub const BankFile = struct {
 };
 
 /// Where the music comes from: files of their own in the game's directory, `music\` and the name,
-/// which Miles streamed from the disk (`AIL_open_stream`).
+/// which Miles streamed from the disk (`AIL_open_stream`), and OpenReliant's mods before them.
 pub const Files = struct {
     gpa: Allocator,
     io: Io,
     dir: Io.Dir,
+    mods: *const bigfile.Mods = &bigfile.Mods.none,
 };
 
 /// The music (`0x00565300` on): a stream of one file, which fades out before another starts.
@@ -967,9 +968,10 @@ pub fn musicLoopStart(path: []const u8) i32 {
 }
 
 /// Reads the music file at `path`, a path of the game's with backslashes, from the game's
-/// directory, found whatever the case of its names, as Windows finds it (`files.find`).
+/// directory, found whatever the case of its names, as Windows finds it (`files.find`). A mod's
+/// file of its name comes first (`bigfile.Mods.readLoose`).
 fn readMusic(files: Files, path: []const u8) ![]u8 {
-    return try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse error.FileNotFound;
+    return try files.mods.readLoose(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse error.FileNotFound;
 }
 
 /// A camera-space vector as Miles takes it: the camera's `y` points down, Miles's up.

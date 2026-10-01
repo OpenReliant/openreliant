@@ -1696,8 +1696,7 @@ pub const Loadout = struct {
     /// Mission 1's speech, `loadout.ut` of `speech_hog`, said at full volume (`speech_play`).
     fn say(loadout: *Loadout) void {
         const context = loadout.context.rooms;
-        const lines = context.lines orelse return;
-        loadout.speech_line = videoreports.readLine(context.gpa, lines.*, speech_name) orelse return;
+        loadout.speech_line = context.readLine(speech_name) orelse return;
         rooms.say(context, &loadout.speech, loadout.speech_line, videoreports.lineName(speech_name), .in_person, null);
     }
 

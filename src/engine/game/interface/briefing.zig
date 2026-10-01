@@ -613,8 +613,7 @@ pub const Briefing = struct {
     /// it is left out.
     fn readWords(briefing: *Briefing, name: []const u8) void {
         briefing.freeLine();
-        const lines = briefing.context.lines orelse return;
-        briefing.line = videoreports.readLine(briefing.context.gpa, lines.*, name) orelse &.{};
+        briefing.line = briefing.context.readLine(name) orelse &.{};
     }
 
     /// The words read, `name`, spoken (`speech_play`): the last word at the loudness of the

@@ -1,7 +1,7 @@
-//! `openreliant missions`: lists the missions a game's folder holds, the loose files in its
-//! `missions` folder and those in `resource.hog`, and binds each as a mission's start does, to show
-//! that it loads, with OpenReliant's own mission 0 where the game has none. A mission of one's own,
-//! dropped into `missions`, is checked the same way. Each is
+//! `openreliant missions`: lists the missions a game's folder holds, its mods', the loose files in
+//! its `missions` folder and those in `resource.hog`, and binds each as a mission's start does, to
+//! show that it loads, with OpenReliant's own mission 0 where the game has none. A mission of one's
+//! own, dropped into `missions` or a mod, is checked the same way. Each is
 //! shown by what its file holds, as the file holds it: its counts, its format flags, the ship
 //! type and name of the player's own record, and the name OpenReliant's own section gives it, where
 //! the file has one (`dte.OpenReliantName`).
@@ -18,15 +18,16 @@ const game = engine.game;
 const files = engine.files;
 
 pub const usage =
-    \\usage: openreliant missions [<game-directory>]
+    \\usage: openreliant missions [<game-directory>] [--no-mods]
     \\  <game-directory>  the folder StarLancer is installed in; the current directory by default
+    \\  --no-mods         the game's own missions alone, without the mods in its mods folder
     \\  -h, --help        show this page
     \\
-    \\Lists the missions in the game's missions folder and in resource.hog, and OpenReliant's own
-    \\mission 0, built in, where the game has none, and binds each as a mission's start does. A
-    \\loose file stands in for the archive's copy, as in the game. Each is shown by what its file
-    \\holds: its counts, its format flags, the ship type and name of the player's own record, and
-    \\the mission's name where the file carries OpenReliant's.
+    \\Lists the missions in the game's mods, its missions folder and resource.hog, and OpenReliant's
+    \\own mission 0, built in, where the game has none, and binds each as a mission's start does. A
+    \\mod's file stands in for the others, and a loose file for the archive's copy, as in the game.
+    \\Each is shown by what its file holds: its counts, its format flags, the ship type and name of
+    \\the player's own record, and the mission's name where the file carries OpenReliant's.
     \\
 ;
 
@@ -41,23 +42,32 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
         try out.writeAll(usage);
         return 0;
     }
-    if (args.len > 1 or (args.len == 1 and std.mem.startsWith(u8, args[0], "-"))) {
-        std.debug.print("{s}", .{usage});
-        return 2;
+    var directory_name: ?[]const u8 = null;
+    var with_mods = true;
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--no-mods")) {
+            with_mods = false;
+        } else if (std.mem.startsWith(u8, arg, "-") or directory_name != null) {
+            std.debug.print("{s}", .{usage});
+            return 2;
+        } else directory_name = arg;
     }
-    const directory_name: []const u8 = if (args.len == 1) args[0] else ".";
-    var directory = Io.Dir.cwd().openDir(io, directory_name, .{ .iterate = true }) catch |err| {
-        std.debug.print("openreliant: {s} can't be opened: {s}\n", .{ directory_name, @errorName(err) });
+    const directory_path = directory_name orelse ".";
+    var directory = Io.Dir.cwd().openDir(io, directory_path, .{ .iterate = true }) catch |err| {
+        std.debug.print("openreliant: {s} can't be opened: {s}\n", .{ directory_path, @errorName(err) });
         return 1;
     };
     defer directory.close(io);
     var hog_name: [files.max_path]u8 = undefined;
     const archive_name = files.find(io, directory, game.bigfile.resource_name, &hog_name) orelse {
-        std.debug.print("openreliant: {s} has no {s}: is it the game's folder?\n", .{ directory_name, game.bigfile.resource_name });
+        std.debug.print("openreliant: {s} has no {s}: is it the game's folder?\n", .{ directory_path, game.bigfile.resource_name });
         return 1;
     };
     var resources: game.bigfile.Hog = try .open(gpa, io, directory, archive_name);
     defer resources.close(gpa);
+    var mods: game.bigfile.Mods = if (with_mods) try .open(gpa, io, directory) else .none;
+    defer mods.close(gpa);
+    resources.mods = &mods;
 
     const numbers = try listed(io, gpa, directory, resources);
     defer gpa.free(numbers);
@@ -119,11 +129,17 @@ fn show(gpa: Allocator, image: []u8, source: []const u8, out: *Io.Writer) !void 
 const player_width = 22;
 const player_field = std.fmt.comptimePrint("{{s:<{d}}}", .{player_width});
 
-/// The numbers of the missions `directory` holds, loose in its `missions` folder or in
+/// The numbers of the missions `directory` holds, in the mods, loose in its `missions` folder or in
 /// `resources`, in order, each once.
 fn listed(io: Io, gpa: Allocator, directory: Io.Dir, resources: game.bigfile.Hog) ![]u16 {
     var numbers: std.ArrayList(u16) = .empty;
     errdefer numbers.deinit(gpa);
+    for (resources.mods.list) |*mod| {
+        var names = mod.names();
+        while (names.next()) |name| {
+            if (game.winmain.missionNumber(name)) |number| try numbers.append(gpa, number);
+        }
+    }
     for (resources.archive.entries) |entry| {
         if (game.winmain.missionNumber(entry.name)) |number| try numbers.append(gpa, number);
     }
