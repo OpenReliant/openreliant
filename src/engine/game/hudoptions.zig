@@ -121,11 +121,12 @@ const SettingsScreen = struct {
         if (shown.dialog) |*shapes| shapes.deinit(gpa);
     }
 
-    /// The tab the pause menu's `screen` shows.
-    fn tabOf(screen: Screen) settings_screen.Tab {
+    /// The tab the pause menu's `screen` shows, of the two the screen stands in for.
+    fn tabOf(comptime screen: Screen) settings_screen.Tab {
         return switch (screen) {
             .audio => .audio,
-            else => .controls,
+            .controls => .controls,
+            .main, .video => @compileError("not one of the settings screen's"),
         };
     }
 };
@@ -231,7 +232,7 @@ pub const PauseMenu = struct {
         };
         if (pause_menu.entered != screen) {
             switch (screen) {
-                .controls, .audio => pause_menu.enterSettings(frame, SettingsScreen.tabOf(screen)),
+                inline .controls, .audio => |shown| pause_menu.enterSettings(frame, comptime SettingsScreen.tabOf(shown)),
                 inline else => |entering| {
                     const state = &@field(pause_menu.screens, @tagName(entering));
                     if (@hasDecl(@TypeOf(state.*), "enter")) state.enter(frame.settings);

@@ -2220,6 +2220,14 @@ address	kind	name	type	comment
 004362f0	function	medal_display	void (void)	The locker, which Open Locker opens in the rooms: the pilot's medals and ribbons, with the lid's movies
 00437fc0	function	cd_player	void (void)	The CD player, which Use CD player opens in the rooms: a choice of the game's music (music\%s.wav), with cdplay.spr
 0042dab0	function	audio_screen	int (void)	Screen 3, the audio settings, which GAME OPTIONS and the in-game options' AUDIO open
+0042e2e0	function	audio_screen_draw	void (void)	Screen 3's render hook: the sliders' labels, tracks and knobs (audio_knobs), 3D SOUND with its arrows, the one under the pointer lit (in_game_options_item), the provider's name, the buttons, the dialogs and the pointer
+0042e2b0	function	sound_3d_reopen	bool __fastcall (char fallback)	Closes the 3D provider and opens sound_3d_provider's instead; where it won't open, opens provider 0 if fallback is set. Whether it opened
+005d5630	data	sound_3d_provider	int	The 3D provider the audio screen chose, [Sound] 3DProvider: 0 Miles's own, 1 Aureal A3D, 2 Creative Labs EAX, 3 RSX
+004e76a0	data	audio_items	short[24]	Screen 3's six items, a corner and a size each: RESET TO DEFAULT, OK, MAIN MENU, 3D SOUND's arrows back and on, CANCEL CHANGES
+004e76d0	data	audio_knobs	short[16]	Screen 3's knobs, a corner and a size each, which move with their volumes: the effects', the music's, the speech's and the master's
+00520188	data	audio_knob_held	int[4]	Which of screen 3's knobs the pointer holds, by audio_knobs' order
+0051d550	data	audio_knob_held_last	int[4]	audio_knob_held as it was last pass, whose effects' letting go tries the volume
+005202b0	data	options_held	int	Set while the press that chose one of screen 3's items is down, and while screen 15's brightness knob is held
 0042b690	function	controls_screen	int (void)	Screen 16, the control devices, which GAME OPTIONS and the in-game options' CONTROL DEVICES open
 0042cd30	function	controls_screen_draw	void (void)	Screen 16's render hook: the panes, the labels, dimmed where they can't be used, the 12 rows of controls_list from controls_first, the buttons, the one under the pointer lit, the check boxes, the arrows, the ticks, the dialogs and the pointer
 0042b660	function	controls_scroll_down	void (void)	Screen 16's list a row down, while its last row is not shown

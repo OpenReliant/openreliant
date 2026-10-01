@@ -133,7 +133,7 @@ View=0
 gamma=100
 ```
 
-`[Sound]` keeps the four volumes, from 0 to 127, which the pause menu's sound screen changes. `[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no cockpit) and the brightness in hundredths (`gamma`), which the pause menu's graphics screen changes. The controller's settings and the bindings, in `[KeyConfig]` and `[JoyConfig]`, are in [Controllers and input](controllers.md#settings).
+`[Sound]` keeps the four volumes, from 0 to 127, which the settings screen's AUDIO changes. `[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no cockpit) and the brightness in hundredths (`gamma`), which the pause menu's graphics screen changes. The controller's settings and the bindings, in `[KeyConfig]` and `[JoyConfig]`, are in [Controllers and input](controllers.md#settings).
 
 ### OpenReliant's settings
 
@@ -165,8 +165,8 @@ Samples=8
 | `CockpitShadows` | 1 or 0 | `--no-cockpit-shadows` |
 | `SmoothMotion` | 1 or 0 | `--no-smooth-motion` |
 | `ShotLights` | 1: every shot lights the ships it passes; 0: the latest two of each side's, as the original | `--few-shot-lights` |
-| `Hrtf` | `auto`, `on` or `off` | `--hrtf`, `--no-hrtf` |
-| `Reverb` | 1 or 0 | `--no-reverb` |
-| `Compressor` | 1 or 0 | `--no-compressor` |
+| `Hrtf` | `auto`, `on` or `off`, which AUDIO's 3D SOUND sets: AUTOMATIC, HEADPHONES or SPEAKERS | `--hrtf`, `--no-hrtf` |
+| `Reverb` | 1 or 0, which AUDIO's REVERB sets | `--no-reverb` |
+| `Compressor` | 1 or 0, which AUDIO's COMPRESSOR sets | `--no-compressor` |
 
 In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default. A screenshot taken with `--screenshot` leaves this section out, so that it comes out the same for everyone.

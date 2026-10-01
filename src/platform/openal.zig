@@ -999,6 +999,18 @@ test Renderer {
     try std.testing.expect(renderer.resampler != null);
     try std.testing.expect(renderer.room != null and renderer.cabin != null);
     try std.testing.expectEqual(c.ALC_STEREO_UHJ_SOFT, renderer.outputMode());
+    // HRTF turned on and back by the output; the reverbs silenced and heard again.
+    renderer.setHrtf(.on, false);
+    try std.testing.expectEqual(c.ALC_STEREO_HRTF_SOFT, renderer.outputMode());
+    renderer.setHrtf(.auto, false);
+    try std.testing.expectEqual(c.ALC_STEREO_UHJ_SOFT, renderer.outputMode());
+    var gain: c.ALfloat = 1;
+    renderer.setReverb(false);
+    c.alGetAuxiliaryEffectSlotf(renderer.room.?.slot, c.AL_EFFECTSLOT_GAIN, &gain);
+    try std.testing.expectEqual(0, gain);
+    renderer.setReverb(true);
+    c.alGetAuxiliaryEffectSlotf(renderer.room.?.slot, c.AL_EFFECTSLOT_GAIN, &gain);
+    try std.testing.expectApproxEqAbs(renderer.settings.reverb_level, gain, 1e-6);
 
     // A 3D sample to the right, heard in the right ear more than the left.
     const file = comptime openreliant.wave.testing.pcm(&std.mem.toBytes([_]i16{16384} ** 2048));

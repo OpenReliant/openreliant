@@ -10,9 +10,9 @@ The screens the game shows outside a mission: the main menu, the pilots, the set
 
 OpenReliant opens in the front end unless `--mission` names a mission. The pilot roster's START GAME, or a game its LOAD GAME loads, leads into the Reliant's rooms ([The Reliant's rooms](rooms.md)). A mission the front end or the rooms start flies at once, after the music's fade and the hangar's movie but for INSTANT ACTION's. As a mission of the campaign ends, OpenReliant plays the landing or a chapter's end ([Movies](movies.md#around-a-mission)), and the campaign goes on to the next mission's briefing, or turns to the restart screen ([After a mission](rooms.md#after-a-mission)). INSTANT ACTION's goes back to the main menu.
 
-Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the controls, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
+Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio and the controls, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/vdmkenny/openreliant/issues/404)), and GAME OPTIONS' AUDIO and VIDEO on its menu ([#206](https://github.com/vdmkenny/openreliant/issues/206)).
+- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/vdmkenny/openreliant/issues/404)), and GAME OPTIONS' VIDEO on its menu ([#206](https://github.com/vdmkenny/openreliant/issues/206)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -32,7 +32,8 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 |---|---|---|
 | 0, the main menu | `main_menu` (`0x00428B60`) | [#396](https://github.com/vdmkenny/openreliant/issues/396) |
 | 1, GAME OPTIONS ([GAME OPTIONS](#game-options)) | `game_options` (`0x0042A620`) | |
-| 3, audio; 15, video | `0x0042DAB0`, `0x0042E9B0` | [#206](https://github.com/vdmkenny/openreliant/issues/206) |
+| 3, the audio ([Audio](#audio)) | `audio_screen` (`0x0042DAB0`) | |
+| 15, video | `0x0042E9B0` | [#206](https://github.com/vdmkenny/openreliant/issues/206) |
 | 16, the controls ([Controls](#controls)) | `controls_screen` (`0x0042B690`) | |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
@@ -145,7 +146,7 @@ The shapes take the palette of their block's set: the pointer's the first, the l
 
 | Item | Corner | Size | Does |
 |---|---|---|---|
-| AUDIO | (30, 165) | 152 by 127 | `interface\optfade.bik` over `interface\optfade.tga`, then the audio screen (screen 3) |
+| AUDIO | (30, 165) | 152 by 127 | `interface\optfade.bik` over `interface\optfade.tga`, then the audio (screen 3, [Audio](#audio)) |
 | CONTROL DEVICES | (219, 165) | 152 by 127 | The same, then the controls (screen 16, [Controls](#controls)) |
 | VIDEO | (408, 165) | 152 by 127 | The same, then the video screen (screen 15) |
 | MAIN MENU | (292, 441) | 25 by 16 | `interface\opt2main.bik`, then the main menu |
@@ -163,23 +164,43 @@ Its drawing (`game_options_draw`, `0x0042AFB0`), the render hook:
 
 **Improvement:** ABOUT STARLANCER is ABOUT OPENRELIANT, as in the in-game options.
 
-Not ported: AUDIO and VIDEO, which stay on the menu ([#206](https://github.com/vdmkenny/openreliant/issues/206)).
+Not ported: VIDEO, which stays on the menu ([#206](https://github.com/vdmkenny/openreliant/issues/206)).
 
 ## The settings screen
 
-OpenReliant shows one settings screen where the game has a screen for each setting's kind: GAME OPTIONS' and the in-game options' AUDIO, CONTROL DEVICES and VIDEO (screens 3, 16 and 15), and the pause menu's audio, controls and video ([Pause menu](pause-menu.md#screens)). It is laid out on the front end's screen as the game's are, with their shapes, `interface\frntend6.spr`, and their buttons, with a tab for each kind in place of their titles: CONTROL DEVICES (`0x10A`), white, centred on (320, 95) in `interface_font_large`. Each menu's CONTROL DEVICES opens it on the controls, as F1 does in flight.
+OpenReliant shows one settings screen where the game has a screen for each setting's kind: GAME OPTIONS' and the in-game options' AUDIO, CONTROL DEVICES and VIDEO (screens 3, 16 and 15), and the pause menu's audio, controls and video ([Pause menu](pause-menu.md#screens)). It is laid out on the front end's screen as the game's are, with their buttons and their shapes: `interface\frntend5.spr`, the audio and video screens' set, which holds the controls screen's widgets too, its buttons in a smoother palette than screen 16's own. A tab for each kind stands in place of their titles, in `interface_font_large`: AUDIO (`0x109`) centred on (133, 95) and CONTROL DEVICES (`0x10A`) on (320, 95), above their icons' columns in GAME OPTIONS, the shown tab's white, the one under the pointer gold, the other blue. A click on a label shows its tab; leaving the controls ends a row's wait. Each menu's AUDIO and CONTROL DEVICES open the screen on that tab, as F1 does in flight on the controls.
 
 | Opened from | Movie in | Behind | OK, Escape | MAIN MENU |
 |---|---|---|---|---|
 | GAME OPTIONS | `interface\optfade.bik` | `interface\optfade.tga` | `interface\optfade2.bik`, then GAME OPTIONS | `interface\opfad2mm.bik`, then the main menu |
-| The in-game options | `interface\igofade.bik` | `interface\igofade.tga` | `interface\igofade2.bik`, then the in-game options | `interface\igof2mm.bik`, then the main menu |
+| The in-game options | `interface\igofade.bik` | `interface\igoptfad.tga` for the audio, `interface\igofade.tga` for the controls | `interface\igofade2.bik`, then the in-game options | `interface\igof2mm.bik`, then the main menu |
 | The pause menu, and F1 | | The mission, darkened | The pause menu's main screen | CONTINUE (`0x180`) in its place, the mission again |
 
-The buttons are shape `0x28`, `0x29` under the pointer, with their labels in `interface_font_small`, blue, white under the pointer: OK (`0x316`) at (299, 422), to the left of (292, 421); MAIN MENU (`0xBB`) at (299, 443), to the left of (292, 442); RESET DEFAULTS (`0x183`) at (329, 422), from (357, 421); CANCEL CHANGES (`0x5A9`) at (329, 443), from (357, 442). The pointer finds OK and MAIN MENU 120 by 15 from x 199, and the other two 100 by 15 from x 329, each at its shape's height. RESET DEFAULTS and CANCEL CHANGES act on the tab shown. A click acts once, until the button comes up, but for the list's arrows.
+The buttons are shape `0x28`, `0x29` under the pointer, with their labels in `interface_font_small`, blue, white under the pointer: OK (`0x316`) at (299, 422), to the left of (292, 421); MAIN MENU (`0xBB`) at (299, 443), to the left of (292, 442); RESET DEFAULTS (`0x183`) at (329, 422), from (357, 421); CANCEL CHANGES (`0x5A9`) at (329, 443), from (357, 442). The pointer finds OK and MAIN MENU 120 by 15 from x 199, and the other two 100 by 15 from x 329, each at its shape's height. RESET DEFAULTS and CANCEL CHANGES act on the tab shown; leaving writes every tab's settings. A click acts once, until the button comes up, but for the list's arrows and the audio's knobs.
 
 **Improvement:** the screen is OpenReliant's own design, built from the game's screens: one screen with tabs, the same from the front end, the Reliant's rooms and the pause menu, where the game has a screen for each kind, and the pause menu has screens of its own.
 
-Not ported: the audio and the video tabs ([#206](https://github.com/vdmkenny/openreliant/issues/206), [#209](https://github.com/vdmkenny/openreliant/issues/209)).
+Not ported: the video tab ([#206](https://github.com/vdmkenny/openreliant/issues/206), [#209](https://github.com/vdmkenny/openreliant/issues/209)).
+
+### Audio
+
+The audio is `audio_screen` (`0x0042DAB0`), screen 3, which draws with `audio_screen_draw` (`0x0042E2E0`). Opening, it keeps the four volumes for CANCEL CHANGES, and the 3D provider (`sound_3d_provider`, `0x005D5630`).
+
+| What | Where | Drawn |
+|---|---|---|
+| Labels | SPEECH VOLUME (`0x576`), SOUND EFFECTS VOLUME (`0x2EE`), MUSIC VOLUME (`0x2EF`) and MASTER VOLUME (`0x577`) to the left of x 295, at y 131, 191, 251 and 311 | Small, blue |
+| The sliders' tracks | Shape `0x2D`, 9 by 9, every 45 from x 313 to 538, at y 136, 196, 256 and 316 | |
+| The knobs | Shape `0x2C`, 15 by 27, at y 126, 186, 246 and 306, from x 313 at a volume of 0 to 488 at 127 (`audio_knobs`, `0x004E76D0`, where the pointer finds them) | |
+| 3D SOUND (`0x2F0`) | To the left of (291, 371); the arrows, shapes `0x13` and `0x14`, at (300, 369) and (322, 369), each found 19 by 26, `0x15` and `0x16` under the pointer; the choice from (346, 371) | Small, blue |
+
+A knob held follows the pointer, 4 pixels to its left, from x 313 to 488, while the button is down over it, and its volume is its place over its travel, 0 to 127; the music's and the master volume change as it moves (`AIL_set_stream_volume`). Letting go of the sound effects' knob plays `stdsmp.fat`'s sound 14 at its volume, in the middle. The game's 3D SOUND steps back and on through its 3D providers (`sound_3d_reopen`, `0x0042E2B0`): NONE (`0x1B3`, Miles's own), Aureal A3D Interactive (TM) (`0x2F2`), Creative Labs EAX (TM) (`0x2F1`) and Software 3D Audio - RSX (`0x416`), passing over any that won't open, and keeps the one chosen as `[Sound] 3DProvider`. RESET TO DEFAULT (`0x112`) sets the volumes to their defaults, the speech and the master volume at 127 and the effects and the music at 80, and the provider to NONE, and writes them at once; CANCEL CHANGES puts back what the screen opened with. Leaving writes the volumes to `[Sound]`.
+
+**Improvements:**
+
+- Every volume changes as its knob moves, where the game changes the effects' and the speech's as the screen is left.
+- The volume is the knob's place over its travel exactly, where the game multiplies by its rounded reciprocal (`0x004DC6A4`).
+- 3D SOUND chooses how OpenAL Soft renders the 3D sounds ([Sound in OpenReliant](../port/sound.md#openal-soft)): AUTOMATIC, by the output, HEADPHONES, with HRTF, or SPEAKERS, where the game's chooses one of Miles's providers, which OpenReliant has none of. REVERB and COMPRESSOR, OpenReliant's own words, turn the reverbs and the master bus's compressor on and off, from the box at (45, 349) and (45, 373). They change the sound at once, and are written to `[OpenReliant]` ([Configuration](../guide/configuration.md)). With the software Miles of `--original`, 3D SOUND and REVERB, OpenAL Soft's, are dimmed.
+- RESET DEFAULTS and CANCEL CHANGES set OpenReliant's options too.
 
 ### Controls
 

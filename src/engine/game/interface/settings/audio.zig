@@ -12,6 +12,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const input = @import("../../../input.zig");
 const profile = @import("../../../profile.zig");
 const hud = @import("../../hud.zig");
 const hog_snd = @import("../../hog_snd.zig");
@@ -200,7 +201,7 @@ pub const Audio = struct {
         tab.held = if (context.pointer.down) knobAt(sound.volumes, context.pointer.at) else null;
     }
 
-    /// A click on `item` (`0x0042DC34` on): an arrow steps 3D SOUND's choice back or on, round from
+    /// A click on `item` (`0x0042DC3C`): an arrow steps 3D SOUND's choice back or on, round from
     /// the last to the first; a check box that can be changed changes. OpenReliant's options are
     /// applied, and written, as they change.
     pub fn choose(tab: *Audio, item: Item, context: Context) void {
@@ -242,7 +243,7 @@ pub const Audio = struct {
         try tab.save(context);
     }
 
-    /// CANCEL CHANGES (`0x0042DDE0` on): the volumes and OpenReliant's options as the screen opened.
+    /// CANCEL CHANGES (`0x0042DDDA` on): the volumes and OpenReliant's options as the screen opened.
     pub fn cancel(tab: *Audio, context: Context) void {
         if (context.sound) |sound| {
             sound.volumes = tab.kept;
@@ -298,7 +299,8 @@ fn volumesOf(context: Context) Volumes {
     return if (context.sound) |sound| sound.volumes else .{};
 }
 
-/// The knob of `volume` at `value`, where the pointer finds it.
+/// The knob of `volume` at `value`, where the pointer finds it: its share of the travel from x 313,
+/// cut to a whole pixel as the game cuts it (`0x0042DAF1` on).
 fn knobRect(volume: Volume, value: i32) Rect {
     const x = knob_from + @divTrunc(value * knob_travel, hog_snd.loudest);
     return .{ .x = @intCast(x), .y = @intCast(sliders.get(volume).y), .width = knob_size[0], .height = knob_size[1] };
@@ -343,8 +345,6 @@ const Recorder = struct {
         recorder.given += 1;
     }
 };
-
-const input = @import("../../../input.zig");
 
 test "the knobs change the volumes as they are dragged" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);

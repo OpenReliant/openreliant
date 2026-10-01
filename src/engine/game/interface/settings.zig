@@ -29,7 +29,7 @@ pub const controls = @import("settings/controls.zig");
 
 const log = std.log.scoped(.interface);
 
-/// The shapes the screen draws with: the audio and video screens' (`audio_screen`, `0x0042DAC1`),
+/// The shapes the screen draws with: the audio and video screens' (`audio_screen`, `0x0042DAC4`),
 /// which hold the controls screen's widgets too, but for the buttons, which take a smoother palette
 /// than screen 16's own.
 pub const shapes_name = "interface\\frntend5.spr";
@@ -48,18 +48,22 @@ pub const Tab = enum {
         };
     }
 
-    /// Where the pointer finds it: round its label.
+    /// Where the pointer finds it: round its label, as wide as it is.
     fn rect(tab: Tab) Rect {
         const half_width: i16 = switch (tab) {
             .audio => 50,
             .controls => 80,
         };
         const centre: i16 = @intCast(tab.label().at[0]);
-        return .{ .x = centre - half_width, .y = title_y - 4, .width = 2 * half_width, .height = 20 };
+        return .{ .x = centre - half_width, .y = title_y - tab_above, .width = 2 * half_width, .height = tab_height };
     }
 };
 
+/// The labels' row, and where the pointer finds a label: from a little above it, as high as the
+/// large font's letters.
 const title_y = 95;
+const tab_above = 4;
+const tab_height = 20;
 
 /// The menu the screen opened from, which its second button and its movies follow.
 pub const From = enum { game_options, in_game_options, pause_menu };
