@@ -27,7 +27,7 @@ pub const wave = @import("formats/wave.zig");
 /// Windows executables: the game binary and its libraries.
 pub const pe = @import("formats/pe.zig");
 
-/// Images the tools write.
+/// Images: those the tools write, and the pictures mods bring.
 pub const png = @import("formats/png.zig");
 
 /// Checksum files, which check mods' archives.

@@ -241,6 +241,28 @@ const Shape = struct { width: u32, height: u32, levels: u32 };
 /// second array.
 const max_layers = 256;
 
+/// The layers a new array of the cache's largest textures, 256x256, starts with; it grows as more
+/// come (`Gpu.uploadTextures`).
+const first_layers = 16;
+
+/// The side of the cache's largest textures.
+const cache_side = 256;
+
+/// The layers a new array of `shape` starts with: as many as take the room `first_layers` of the
+/// cache's largest textures take, and at least one, so that a mod's large textures reserve no more
+/// than they fill.
+fn firstLayers(shape: Shape) u32 {
+    const room = first_layers * cache_side * cache_side;
+    return std.math.clamp(room / (shape.width * shape.height), 1, first_layers);
+}
+
+test firstLayers {
+    try std.testing.expectEqual(first_layers, firstLayers(.{ .width = 256, .height = 256, .levels = 9 }));
+    try std.testing.expectEqual(first_layers, firstLayers(.{ .width = 8, .height = 4, .levels = 1 }));
+    try std.testing.expectEqual(4, firstLayers(.{ .width = 512, .height = 512, .levels = 10 }));
+    try std.testing.expectEqual(1, firstLayers(.{ .width = 4096, .height = 4096, .levels = 13 }));
+}
+
 const Array = struct {
     shape: Shape,
     texture: *c.SDL_GPUTexture,
@@ -877,7 +899,7 @@ pub const Gpu = struct {
         } else made: {
             const index = std.math.cast(u15, gpu.arrays.items.len) orelse return error.OutOfMemory;
             try gpu.arrays.ensureUnusedCapacity(gpu.gpa, 1);
-            const capacity = 16;
+            const capacity = firstLayers(shape);
             gpu.arrays.appendAssumeCapacity(.{ .shape = shape, .texture = try gpu.arrayTexture(shape, capacity), .capacity = capacity, .count = 0 });
             break :made index;
         };

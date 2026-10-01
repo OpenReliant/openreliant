@@ -145,6 +145,9 @@ image is then converted to the device's format.
 The shipped game adds nothing to the file. The loadout screen draws its panels into transient
 32-bit textures, `fpanels`, `bpanels`, `finfo` and `binfo`, kept in memory.
 
+OpenReliant looks for a mod's picture of the texture's name, `<name>.png`, before the cache, and
+makes its mipmaps as it reads it ([Modding](../guide/modding.md#textures)).
+
 ## Contents
 
 The two caches hold the same names in the same order. Besides the palette, a few images differ:

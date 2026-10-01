@@ -57,13 +57,28 @@ out. Names are flat, so a mod gives the files it adds a prefix of its own, which
 from another mod's.
 
 A mod's files are in the game's own formats, which the [developer documentation](../README.md)
-describes. The textures of the models come from the texture cache, `tcachehw.dat`, which a mod
-replaces only whole for now. Files in today's formats come later: textures by name at any size
-([#332](https://github.com/vdmkenny/openreliant/issues/332)) with material maps
+describes, but for the textures below. Files in today's formats come later: material maps
 ([#495](https://github.com/vdmkenny/openreliant/issues/495)), glTF models
 ([#359](https://github.com/vdmkenny/openreliant/issues/359)), sounds, music, speech and movies
 ([#496](https://github.com/vdmkenny/openreliant/issues/496)), and pictures of the interface at any
 size ([#499](https://github.com/vdmkenny/openreliant/issues/499)).
+
+## Textures
+
+The textures of the models and the effects come from the texture cache, `tcachehw.dat`
+([Texture caches](../formats/tcache.md)), each by a name without an extension, such as `yank_2`, the
+Coyote's hull. A mod replaces one with a PNG picture of its name, `yank_2.png`, at any size, with
+alpha of its own where it needs it. `sltool tcache ls tcachehw.dat` lists the names.
+
+- A picture is made for the model's own texture coordinates, which the cache's texture shows: the
+  same layout at more pixels.
+- OpenReliant makes its mipmaps as it loads it, each level half the last down to a pixel, in linear
+  light and weighted by alpha, so that a picture needs none of its own.
+- A side longer than 8192 pixels is halved until it fits, since every GPU takes that much.
+- A 4096x4096 picture takes about 85 MB of the GPU's memory with its mipmaps, and as much of the
+  computer's; 2048x2048 suits a fighter.
+
+**Improvement:** the original reads the cache's images alone, at most 256x256.
 
 ## The order of the mods
 

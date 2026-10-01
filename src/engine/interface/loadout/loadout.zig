@@ -580,6 +580,7 @@ pub const Loadout = struct {
         loadout.sounds = .read(gpa, resources, sounds_name);
         loadout.textures = .init(gpa, context.cache, loadout.palette);
         const textures = &loadout.textures.?;
+        textures.files = resources.mods.textures();
 
         // The ships the tier or the rank offers (`loadout_ships_create`, `0x00444760`), each an
         // object of the interface whose tooltip is its name (`0x00441E43` on), reached by the green

@@ -20,9 +20,11 @@ const Io = std.Io;
 
 const checksums = @import("../../../formats/checksums.zig");
 const hog = @import("../../../formats/hog.zig");
+const tcache = @import("../../../formats/tcache.zig");
 const refpack = @import("../../../formats/refpack.zig");
 const files = @import("../../files.zig");
 const profile = @import("../../profile.zig");
+const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
 
 const log = std.log.scoped(.mods);
@@ -431,6 +433,23 @@ pub const Mods = struct {
         return files.readFile(io, gpa, dir, path, limit);
     }
 
+    /// The mods' files as the texture table takes them (`srtexture.Files`): a picture of a
+    /// texture's name, which stands in for the texture cache's image.
+    pub fn textures(mods: *const Mods) srtexture.Files {
+        return .{ .context = mods, .readFn = readTexture };
+    }
+
+    fn readTexture(context: *const anyopaque, gpa: Allocator, name: []const u8) Allocator.Error!?[]u8 {
+        const mods: *const Mods = @ptrCast(@alignCast(context));
+        return mods.readFile(gpa, name) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => {
+                log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+                return null;
+            },
+        };
+    }
+
     fn place(mods: *const Mods, name: []const u8) ?Place {
         var buffer: [files.max_path]u8 = undefined;
         return mods.index.get(lowered(&buffer, name) orelse return null);
@@ -470,8 +489,9 @@ pub const Mods = struct {
             while (names.next()) |name| {
                 if (lastHolder(mods.list[0..at], name)) |earlier| {
                     log.info("{s} replaces {s}'s {s}", .{ mod.name, earlier.name, name });
-                } else if (own.has(name)) {
-                    log.info("{s} replaces {s}", .{ mod.name, name });
+                } else if (own.kindOf(name)) |kind| switch (kind) {
+                    .file => log.info("{s} replaces {s}", .{ mod.name, name }),
+                    .texture => log.info("{s} replaces the texture {s}", .{ mod.name, name[0 .. name.len - srtexture.picture_extension.len] }),
                 } else {
                     log.info("{s} adds {s}", .{ mod.name, name });
                 }
@@ -491,9 +511,12 @@ fn lastHolder(list: []const Mod, name: []const u8) ?*const Mod {
 }
 
 /// The names of the game's own files, in lower case: the members of each archive in its folder and
-/// its loose files, those of the `mods` folder left out.
+/// its loose files, those of the `mods` folder left out, and the pictures that stand in for the
+/// texture cache's images (`srtexture.Files`).
 const GameFiles = struct {
-    names: std.StringHashMapUnmanaged(void) = .empty,
+    names: std.StringHashMapUnmanaged(Kind) = .empty,
+
+    const Kind = enum { file, texture };
 
     fn gather(gpa: Allocator, io: Io, game: Io.Dir) Allocator.Error!GameFiles {
         var gathered: GameFiles = .{};
@@ -515,15 +538,36 @@ const GameFiles = struct {
                         else => continue,
                     };
                     defer archive.close(gpa);
-                    for (archive.entries) |member| try gathered.add(gpa, member.name);
-                } else try gathered.add(gpa, entry.basename),
+                    for (archive.entries) |member| try gathered.add(gpa, member.name, .file);
+                } else try gathered.add(gpa, entry.basename, .file),
                 else => {},
             }
         }
+        try gathered.addTextures(gpa, io, game);
         return gathered;
     }
 
-    fn add(gathered: *GameFiles, gpa: Allocator, name: []const u8) Allocator.Error!void {
+    /// The pictures that stand in for the images of the texture cache, `tcachehw.dat`, read from
+    /// its directory alone.
+    fn addTextures(gathered: *GameFiles, gpa: Allocator, io: Io, game: Io.Dir) Allocator.Error!void {
+        var found: [files.max_path]u8 = undefined;
+        const path = files.find(io, game, tcache.hardware_name, &found) orelse return;
+        const file = game.openFile(io, path, .{}) catch return;
+        defer file.close(io);
+        const bytes = try gpa.alloc(u8, tcache.data_start);
+        defer gpa.free(bytes);
+        const read = file.readPositionalAll(io, bytes, 0) catch return;
+        const entries = tcache.Cache.directory(bytes[0..read]) catch return;
+        for (entries) |*entry| {
+            if (entry.image.flags.transient) continue;
+            var named: [files.max_path]u8 = undefined;
+            const picture = std.fmt.bufPrint(&named, "{s}" ++ srtexture.picture_extension, .{entry.name()}) catch continue;
+            try gathered.add(gpa, picture, .texture);
+        }
+    }
+
+    /// Adds `name` as a file of `kind`, where it is none already.
+    fn add(gathered: *GameFiles, gpa: Allocator, name: []const u8, kind: Kind) Allocator.Error!void {
         var buffer: [files.max_path]u8 = undefined;
         const slot = try gathered.names.getOrPut(gpa, lowered(&buffer, name) orelse return);
         if (slot.found_existing) return;
@@ -531,15 +575,17 @@ const GameFiles = struct {
             gathered.names.removeByPtr(slot.key_ptr);
             return err;
         };
+        slot.value_ptr.* = kind;
     }
 
-    fn has(gathered: GameFiles, name: []const u8) bool {
+    /// What the game's file of the name `name` is, whatever its case; null where it has none.
+    fn kindOf(gathered: GameFiles, name: []const u8) ?Kind {
         var buffer: [files.max_path]u8 = undefined;
-        return gathered.names.contains(lowered(&buffer, name) orelse return false);
+        return gathered.names.get(lowered(&buffer, name) orelse return null);
     }
 
     fn deinit(gathered: *GameFiles, gpa: Allocator) void {
-        freeIndex(void, &gathered.names, gpa);
+        freeIndex(Kind, &gathered.names, gpa);
     }
 };
 

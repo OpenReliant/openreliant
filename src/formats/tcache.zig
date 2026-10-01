@@ -301,11 +301,8 @@ pub const Cache = struct {
     textures: []const Texture,
 
     pub fn parse(gpa: Allocator, bytes: []const u8) (Error || Allocator.Error)!Cache {
-        if (bytes.len < data_start) return error.Truncated;
+        const entries = try directory(bytes);
         const header = try layout.view(Header, bytes);
-        if (header.version != version) return error.NotACache;
-        if (header.count > capacity) return error.TooManyEntries;
-        const entries = try layout.array(Entry, bytes[header_size..], header.count);
 
         var textures: std.ArrayList(Texture) = try .initCapacity(gpa, entries.len);
         errdefer textures.deinit(gpa);
@@ -318,6 +315,16 @@ pub const Cache = struct {
 
     pub fn deinit(cache: Cache, gpa: Allocator) void {
         gpa.free(cache.textures);
+    }
+
+    /// The entries in use, from the cache's header and directory alone: its first `data_start`
+    /// bytes.
+    pub fn directory(bytes: []const u8) Error![]align(1) const Entry {
+        if (bytes.len < data_start) return error.Truncated;
+        const header = try layout.view(Header, bytes);
+        if (header.version != version) return error.NotACache;
+        if (header.count > capacity) return error.TooManyEntries;
+        return layout.array(Entry, bytes[header_size..], header.count);
     }
 
     /// The texture the engine finds for `path` (`texture_find`, `0x004C9E20`): the first entry whose

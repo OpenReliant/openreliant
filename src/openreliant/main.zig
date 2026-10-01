@@ -188,7 +188,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     const cache_bytes = try readGameFile(io, arena, directory, &mods, tcache.hardware_name);
     const cache: tcache.Cache = try .parse(arena, cache_bytes);
     const palette = try tga.palette(try resources.readFile(arena, "palette.tga"));
-    var textures: srtexture.Table = .init(arena, cache, palette);
+    // The textures, the mods' pictures in place of the cache's images, made in `gpa`, since a large
+    // picture's reading leaves much behind.
+    var textures: srtexture.Table = .init(gpa, cache, palette);
+    defer textures.deinit();
+    textures.files = mods.textures();
     // The flight and combat stats `stats_load_ships` reads; every gun type's figures, which
     // `stats_load_guns` reads; every missile type's, which `stats_load_missiles` reads; and the
     // pilots'.
