@@ -113,7 +113,6 @@ fn extract(ctx: Context, sprite: spr.Sprite, source: []const u8, out_path: []con
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
 
-    const stem = std.fs.path.stem(std.fs.path.basename(source));
     const greyscale = png.greys(std.math.maxInt(u8));
 
     var written: usize = 0;
@@ -134,8 +133,8 @@ fn extract(ctx: Context, sprite: spr.Sprite, source: []const u8, out_path: []con
             without_palette += 1;
         }
 
-        const name = try std.fmt.allocPrint(ctx.arena, "{s}_{d:0>3}.png", .{ stem, i });
-        defer ctx.arena.free(name);
+        var named: [std.fs.max_name_bytes]u8 = undefined;
+        const name = try spr.pictureName(&named, source, i);
 
         const file = try out_dir.createFile(io, name, .{});
         defer file.close(io);

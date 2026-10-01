@@ -3,9 +3,9 @@
 //! archives, `resource.hog`, the speech's, the pilots' films' and the discs', and its loose files,
 //! such as its music, its movies, its missions and its tables. So a mod replaces a model, a
 //! picture of the interface, a sound, a piece of music, a line of speech or a movie alike, with a
-//! file of the name of the one it replaces, and adds a file under a name of its own. Through the
-//! texture table (`Mods.textures`), a picture of a texture's name stands in for the texture
-//! cache's image, with its material maps.
+//! file of the name of the one it replaces, and adds a file under a name of its own. Its PNG
+//! pictures (`Mods.pictures`) stand in for the game's images at any size: for a texture of the
+//! texture cache, with its material maps, a shape of a sprite set, and a TGA picture.
 //!
 //! A mod is an archive of the game's own format, a `.hog`, or a folder of files, as for a mod while
 //! it is being made, read as the archive `sltool hog pack` makes of the folder reads. Its names are
@@ -22,7 +22,9 @@ const Io = std.Io;
 
 const checksums = @import("../../../formats/checksums.zig");
 const hog = @import("../../../formats/hog.zig");
+const spr = @import("../../../formats/spr.zig");
 const tcache = @import("../../../formats/tcache.zig");
+const tga = @import("../../../formats/tga.zig");
 const refpack = @import("../../../formats/refpack.zig");
 const files = @import("../../files.zig");
 const profile = @import("../../profile.zig");
@@ -435,13 +437,13 @@ pub const Mods = struct {
         return files.readFile(io, gpa, dir, path, limit);
     }
 
-    /// The mods' files as the texture table takes them (`srtexture.Files`): a picture of a
-    /// texture's name, which stands in for the texture cache's image.
-    pub fn textures(mods: *const Mods) srtexture.Files {
-        return .{ .context = mods, .readFn = readTexture };
+    /// The mods' files as the pictures that stand in for the game's images are read from
+    /// (`srtexture.Files`): the texture cache's, and the interface's shapes and pictures.
+    pub fn pictures(mods: *const Mods) srtexture.Files {
+        return .{ .context = mods, .readFn = readPicture };
     }
 
-    fn readTexture(context: *const anyopaque, gpa: Allocator, name: []const u8) Allocator.Error!?[]u8 {
+    fn readPicture(context: *const anyopaque, gpa: Allocator, name: []const u8) Allocator.Error!?[]u8 {
         const mods: *const Mods = @ptrCast(@alignCast(context));
         return mods.readFile(gpa, name) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
@@ -493,6 +495,8 @@ pub const Mods = struct {
                 .file => log.info("{s} replaces {s}", .{ mod.name, name }),
                 .texture => |texture| log.info("{s} replaces the texture {s}", .{ mod.name, texture }),
                 .map => |map| log.info("{s} gives the texture {s} its {s}", .{ mod.name, map.texture, map.kind.label() }),
+                .shape => |shape| log.info("{s} replaces shape {d} of the sprite set {s}", .{ mod.name, shape.index, shape.set }),
+                .picture => |picture| log.info("{s} replaces the picture {s}", .{ mod.name, picture }),
                 .added => log.info("{s} adds {s}", .{ mod.name, name }),
             };
         }
@@ -510,6 +514,11 @@ const Effect = union(enum) {
     texture: []const u8,
     /// It gives a texture of the cache one of its material maps.
     map: GameFiles.Map,
+    /// It stands in for a shape of one of the game's sprite sets (`spr.pictureName`).
+    shape: GameFiles.Shape,
+    /// It stands in for the game's TGA picture of its name, which it names less the picture's
+    /// extension (`game.matmanager.pictureName`).
+    picture: []const u8,
     /// It is a file of the mod's own.
     added,
 };
@@ -520,9 +529,11 @@ fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effe
     if (lastHolder(list[0..at], name)) |earlier| return .{ .over = earlier };
     if (own.kindOf(name)) |kind| return switch (kind) {
         .file => .file,
-        .texture => .{ .texture = name[0 .. name.len - srtexture.picture_extension.len] },
+        .texture => .{ .texture = GameFiles.pictureStem(name) orelse name },
     };
     if (own.mapOf(name)) |map| return .{ .map = map };
+    if (own.shapeOf(name)) |shape| return .{ .shape = shape };
+    if (own.pictureOf(name)) |picture| return .{ .picture = picture };
     return .added;
 }
 
@@ -610,8 +621,7 @@ const GameFiles = struct {
     /// The texture of the cache the file `name` is a material map of, `<texture>_<map>.png`, and
     /// which map; null where it is none.
     fn mapOf(gathered: GameFiles, name: []const u8) ?Map {
-        if (!std.ascii.endsWithIgnoreCase(name, srtexture.picture_extension)) return null;
-        const stem = name[0 .. name.len - srtexture.picture_extension.len];
+        const stem = pictureStem(name) orelse return null;
         for (std.enums.values(srtexture.MapFile)) |kind| {
             const suffix = kind.suffix();
             if (stem.len <= suffix.len or !std.ascii.endsWithIgnoreCase(stem, suffix)) continue;
@@ -621,6 +631,41 @@ const GameFiles = struct {
             if (gathered.kindOf(picture) == .texture) return .{ .texture = texture, .kind = kind };
         }
         return null;
+    }
+
+    /// A shape of one of the game's sprite sets: the set, as a picture's name gives it, less its
+    /// extension, and the shape's place in it.
+    const Shape = struct { set: []const u8, index: usize };
+
+    /// The shape of one of the game's sprite sets the file `name` stands in for, named as the
+    /// interface looks it up (`spr.pictureName`); null where it is none.
+    fn shapeOf(gathered: GameFiles, name: []const u8) ?Shape {
+        const stem = pictureStem(name) orelse return null;
+        const mark = std.mem.lastIndexOfScalar(u8, stem, '_') orelse return null;
+        const set = stem[0..mark];
+        const index = std.fmt.parseUnsigned(usize, stem[mark + 1 ..], 10) catch return null;
+        var buffer: [files.max_path]u8 = undefined;
+        const looked_up = spr.pictureName(&buffer, set, index) catch return null;
+        if (!std.ascii.eqlIgnoreCase(looked_up, name)) return null;
+        const set_file = std.fmt.bufPrint(&buffer, "{s}" ++ spr.extension, .{set}) catch return null;
+        if (gathered.kindOf(set_file) != .file) return null;
+        return .{ .set = set, .index = index };
+    }
+
+    /// The game's TGA picture the file `name` stands in for, `<picture>.png`, named less its
+    /// extension; null where it is none.
+    fn pictureOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
+        const stem = pictureStem(name) orelse return null;
+        var buffer: [files.max_path]u8 = undefined;
+        const picture = std.fmt.bufPrint(&buffer, "{s}" ++ tga.extension, .{stem}) catch return null;
+        if (gathered.kindOf(picture) != .file) return null;
+        return stem;
+    }
+
+    /// The file `name` less the picture extension; null where it has another.
+    fn pictureStem(name: []const u8) ?[]const u8 {
+        if (!std.ascii.endsWithIgnoreCase(name, srtexture.picture_extension)) return null;
+        return name[0 .. name.len - srtexture.picture_extension.len];
     }
 
     /// What the game's file of the name `name` is, whatever its case; null where it has none.
@@ -810,9 +855,13 @@ test GameFiles {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    // An archive's member, a loose file in a folder, the texture cache's image, and a mod's file,
+    // An archive's members, a loose file in a folder, the texture cache's image, and a mod's file,
     // which is none of the game's.
-    try hog.testing.write(gpa, io, tmp.dir, "resource.hog", &.{.{ .name = "Ship.SHP", .data = "ship" }});
+    try hog.testing.write(gpa, io, tmp.dir, "resource.hog", &.{
+        .{ .name = "Ship.SHP", .data = "ship" },
+        .{ .name = "HUDHARD.SPR", .data = "shapes" },
+        .{ .name = "Back.TGA", .data = "picture" },
+    });
     try tmp.dir.createDirPath(io, "music");
     try tmp.dir.writeFile(io, .{ .sub_path = "music/theme.wav", .data = "theme" });
     const cache = try tcache.testing.build(gpa, &.{.{ .name = "yank_2", .encoding = .index8, .width = 2, .height = 2 }});
@@ -831,6 +880,16 @@ test GameFiles {
     try std.testing.expectEqualStrings("yank_2", map.texture);
     try std.testing.expectEqual(.roughness, map.kind);
     try std.testing.expectEqual(null, own.mapOf("hull_normal.png"));
+    // A sprite set's shape, by its picture's name as the interface looks it up, and a picture.
+    const shape = own.shapeOf("hudhard_021.PNG").?;
+    try std.testing.expectEqualStrings("hudhard", shape.set);
+    try std.testing.expectEqual(21, shape.index);
+    try std.testing.expectEqual(1234, own.shapeOf("HUDHARD_1234.png").?.index);
+    try std.testing.expectEqual(null, own.shapeOf("hudhard_21.png"));
+    try std.testing.expectEqual(null, own.shapeOf("ship_001.png"));
+    try std.testing.expectEqualStrings("BACK", own.pictureOf("BACK.png").?);
+    try std.testing.expectEqual(null, own.pictureOf("ship.png"));
+    try std.testing.expectEqual(null, own.pictureOf("back.tga"));
 }
 
 test effectOf {
@@ -841,7 +900,7 @@ test effectOf {
     // Two mods: `a` and `b`, which comes after it.
     try tmp.dir.createDirPath(io, "mods/a");
     try tmp.dir.createDirPath(io, "mods/b");
-    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/logo.tga" }) |path| {
+    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga" }) |path| {
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = path });
     }
     var mods: Mods = try .open(gpa, io, tmp.dir);
@@ -850,12 +909,17 @@ test effectOf {
     defer own.deinit(gpa);
     try own.add(gpa, "ship.shp", .file);
     try own.add(gpa, "yank_2.png", .texture);
+    try own.add(gpa, "hudhard.spr", .file);
+    try own.add(gpa, "back.tga", .file);
 
-    // An earlier mod's file, the game's own, a texture and one of its maps, and a file of its own.
+    // An earlier mod's file, the game's own, a texture and one of its maps, a sprite set's shape, a
+    // picture, and a file of its own.
     try std.testing.expectEqual(&mods.list[0], effectOf(mods.list, 1, own, "hull.tga").over);
     try std.testing.expectEqual(.file, effectOf(mods.list, 1, own, "ship.shp"));
     try std.testing.expectEqualStrings("yank_2", effectOf(mods.list, 1, own, "yank_2.png").texture);
     try std.testing.expectEqual(.normal, effectOf(mods.list, 1, own, "yank_2_normal.png").map.kind);
+    try std.testing.expectEqual(21, effectOf(mods.list, 1, own, "hudhard_021.png").shape.index);
+    try std.testing.expectEqualStrings("back", effectOf(mods.list, 1, own, "back.png").picture);
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "logo.tga"));
     // The first mod replaces no mod's file.
     try std.testing.expectEqual(.added, effectOf(mods.list, 0, own, "hull.tga"));

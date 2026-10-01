@@ -140,8 +140,9 @@ fn wrap(i: i64, size: u32) usize {
     return @intCast(@mod(i, @as(i64, size)));
 }
 
-/// OpenReliant's: files that stand in for the cache's images, such as the mods'
-/// (`game.bigfile.Mods.textures`), by a texture's name and a picture format's extension.
+/// OpenReliant's: files whose pictures stand in for the game's images, such as the mods'
+/// (`game.bigfile.Mods.pictures`): the cache's, by a texture's name, and the interface's shapes
+/// and pictures (`game.hud.Art`, `game.matmanager`), each by a name of its own.
 pub const Files = struct {
     context: *const anyopaque,
     readFn: *const fn (context: *const anyopaque, gpa: Allocator, name: []const u8) Allocator.Error!?[]u8,
@@ -150,10 +151,24 @@ pub const Files = struct {
     pub fn read(files: Files, gpa: Allocator, name: []const u8) Allocator.Error!?[]u8 {
         return files.readFn(files.context, gpa, name);
     }
+
+    /// The picture `name`, decoded; null where there is none, or it can't be read, which the log
+    /// says.
+    pub fn picture(files: Files, gpa: Allocator, name: []const u8) Allocator.Error!?png.Picture {
+        const bytes = try files.read(gpa, name) orelse return null;
+        defer gpa.free(bytes);
+        return png.read(gpa, bytes) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.NotAPng, error.Corrupt, error.Unsupported, error.BadSize => {
+                log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+                return null;
+            },
+        };
+    }
 };
 
-/// The extension of the pictures that stand in for the cache's images.
-pub const picture_extension = ".png";
+/// The extension of the pictures that stand in for the game's images.
+pub const picture_extension = png.extension;
 
 /// The material maps a picture may come with, by what their names add to its name.
 pub const MapFile = enum {
@@ -297,20 +312,11 @@ pub const Table = struct {
         return null;
     }
 
-    /// The picture `files` give as `name`, `suffix` and the picture extension; null where they
-    /// give none, or it can't be read, which the log says.
+    /// The picture `files` give as `name`, `suffix` and the picture extension (`Files.picture`).
     fn readPicture(table: *Table, files: Files, name: []const u8, suffix: []const u8) Allocator.Error!?png.Picture {
         const file_name = try std.fmt.allocPrint(table.gpa, "{s}{s}" ++ picture_extension, .{ name, suffix });
         defer table.gpa.free(file_name);
-        const bytes = try files.read(table.gpa, file_name) orelse return null;
-        defer table.gpa.free(bytes);
-        return png.read(table.gpa, bytes) catch |err| switch (err) {
-            error.OutOfMemory => |e| return e,
-            error.NotAPng, error.Corrupt, error.Unsupported, error.BadSize => {
-                log.warn("{s} is left out: {s}", .{ file_name, @errorName(err) });
-                return null;
-            },
-        };
+        return files.picture(table.gpa, file_name);
     }
 };
 
@@ -495,21 +501,14 @@ test "pictures stand in for the cache's images" {
     var written: std.Io.Writer.Allocating = .init(gpa);
     defer written.deinit();
     try png.writeRgba(gpa, &written.writer, 4, 2, &(@as([32]u8, @splat(0xFF))));
-    const Pictures = struct {
-        kiev: []const u8,
-
-        fn read(context: *const anyopaque, allocator: Allocator, name: []const u8) Allocator.Error!?[]u8 {
-            const pictures: *const @This() = @ptrCast(@alignCast(context));
-            if (std.ascii.eqlIgnoreCase(name, "kiev_1.png")) return try allocator.dupe(u8, pictures.kiev);
-            if (std.ascii.eqlIgnoreCase(name, "hull.png")) return try allocator.dupe(u8, "no picture");
-            return null;
-        }
-    };
-    const pictures: Pictures = .{ .kiev = written.written() };
+    const pictures: testing.Pictures = .{ .held = &.{
+        .{ .name = "kiev_1.png", .bytes = written.written() },
+        .{ .name = "hull.png", .bytes = "no picture" },
+    } };
 
     var table: Table = .init(gpa, cache, std.mem.zeroes(tga.Palette));
     defer table.deinit();
-    table.files = .{ .context = &pictures, .readFn = Pictures.read };
+    table.files = pictures.files();
     // The picture, whatever the case of the name asked for, with its levels down to a pixel.
     const kiev = (try table.find("KIEV_1")).?;
     try std.testing.expectEqual(4, kiev.width());
@@ -616,6 +615,25 @@ test mipmapped {
 
 /// Fixtures for the tests here and in the modules that draw with textures.
 pub const testing = struct {
+    /// Files of their names and contents, found whatever their case, as a mod's pictures are.
+    pub const Pictures = struct {
+        held: []const File,
+
+        pub const File = struct { name: []const u8, bytes: []const u8 };
+
+        pub fn files(pictures: *const Pictures) Files {
+            return .{ .context = pictures, .readFn = read };
+        }
+
+        fn read(context: *const anyopaque, gpa: Allocator, name: []const u8) Allocator.Error!?[]u8 {
+            const pictures: *const Pictures = @ptrCast(@alignCast(context));
+            for (pictures.held) |file| {
+                if (std.ascii.eqlIgnoreCase(file.name, name)) return try gpa.dupe(u8, file.bytes);
+            }
+            return null;
+        }
+    };
+
     /// A table of small textures, one under each name it is made with.
     pub const Textures = struct {
         bytes: []u8,

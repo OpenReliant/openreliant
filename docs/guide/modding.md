@@ -57,21 +57,26 @@ out. Names are flat, so a mod gives the files it adds a prefix of its own, which
 from another mod's.
 
 A mod's files are in the game's own formats, which the [developer documentation](../README.md)
-describes, but for the textures below. Files in today's formats come later: material maps
-([#495](https://github.com/vdmkenny/openreliant/issues/495)), glTF models
+describes, but for the pictures below: textures and the interface's pictures, in PNG at any size.
+Files in today's formats come later: glTF models
 ([#359](https://github.com/vdmkenny/openreliant/issues/359)), sounds, music, speech and movies
-([#496](https://github.com/vdmkenny/openreliant/issues/496)), and pictures of the interface at any
-size ([#499](https://github.com/vdmkenny/openreliant/issues/499)).
+([#496](https://github.com/vdmkenny/openreliant/issues/496)), and fonts
+([#508](https://github.com/vdmkenny/openreliant/issues/508)).
 
 ## Textures
 
 The textures of the models and the effects come from the texture cache, `tcachehw.dat`
 ([Texture caches](../formats/tcache.md)), each by a name without an extension, such as `yank_2`, the
 Coyote's hull. A mod replaces one with a PNG picture of its name, `yank_2.png`, at any size, with
-alpha of its own where it needs it. `sltool tcache ls tcachehw.dat` lists the names.
+alpha of its own where it needs it. `sltool tcache ls tcachehw.dat` lists the names and sizes, and
+`sltool tcache extract tcachehw.dat palette.tga textures yank_2` writes a texture out as a PNG
+picture of its own size and name, the template for its replacement.
 
 - A picture is made for the model's own texture coordinates, which the cache's texture shows: the
-  same layout at more pixels.
+  same layout at more pixels. The whole picture covers what the whole texture covers, so its art
+  stays where the template has it.
+- Keep the template's proportions, at a whole multiple of its size: a 256x128 texture takes 1024x512
+  or 2048x1024. A picture of other proportions is stretched over the model alike, its art with it.
 - OpenReliant makes its mipmaps as it loads it, each level half the last down to a pixel, in linear
   light and weighted by alpha, so that a picture needs none of its own.
 - A side longer than 8192 pixels is halved until it fits, since every GPU takes that much.
@@ -115,6 +120,86 @@ colour.
 
 **Improvement:** the original lights every surface alike, with its highlight pass on top.
 
+## The interface
+
+The interface draws its shapes from sprite sets ([`.SPR` sprites](../formats/spr.md)): the flight
+display's from `HUDHARD.SPR`, each screen's from a set of its own, and each ship's schematic, which
+the display shows of the player's ship and of the target, from a set such as `ARCHSCEM.SPR`. Behind
+the screens it shows TGA pictures. A mod replaces either with a PNG picture at any size.
+
+### Shapes
+
+A mod replaces a shape with a PNG picture named as `sltool spr extract` names the shape's: the set's
+name, `_`, the shape's place in the set in three digits at least, and `.png`, such as
+`HUDHARD_127.png`, the targeting cluster's arc. The extracted picture is the template for its
+replacement:
+
+```bash
+sltool hog extract resource.hog files           # the sprite sets, among the rest
+sltool spr ls files/HUDHARD.SPR                 # each shape's place in the set and its size
+sltool spr extract files/HUDHARD.SPR shapes     # each shape as a picture of its own size and name
+```
+
+- **Size and proportions.** A picture is drawn over the rectangle the template covers, whatever its
+  own size. Keep the template's proportions, at a whole multiple of its size: the 68x141 arc takes
+  a 272x564 picture at four times. A picture of other proportions is stretched to the rectangle.
+- **Layout.** The game places a shape by that rectangle, so the art stays where the template has
+  it: art moved within the picture moves on the screen, and art past the template's edges is
+  squeezed into them, so the template's margins are all the room there is. Shapes drawn over one
+  another keep their layouts together: a ship's schematic, shape 0, and the hits on its four
+  quadrants, shapes 1 to 4, which flash over it; a gauge's unlit shape and the lit one drawn over
+  it as far as its level, such as the speed's, `HUDHARD_185.png` and `HUDHARD_184.png`.
+- **One picture, several places.** The game draws some shapes mirrored, such as the targeting
+  cluster's right arc, which is the left one turned about, and others at several places; one picture
+  serves them all. A shape it draws in several colours is a shape for each colour, each with its own
+  picture.
+- **Alpha and colour.** The template is clear around the shape, and a picture keeps its own alpha,
+  soft edges included. It is drawn in its own colours, dimmed where the game dims the shape, such as
+  a menu item that can't be used.
+- **How large.** The flight display and the pause menu are drawn for a 1024x768 window, and the
+  front end's screens, the briefing's, the ITAC's and the loadout's for 640x480, each grown to the
+  window by whichever side has less room, as the table shows. A picture as many times the
+  template's size as the window draws it is sharp: four times suits the flight display up to
+  3840x2160 and the screens up to 2560x1440. A larger one gains nothing, and costs memory and the
+  time to read it, which the first frame to draw its shape waits for.
+
+| Window | The flight display and the pause menu | The front end's screens |
+|---|---|---|
+| 1920x1080 | 1.4 times | 2.25 times |
+| 2560x1440 | 1.9 times | 3 times |
+| 3840x2160 | 2.8 times | 4.5 times |
+
+### Pictures
+
+The pictures behind the screens, the ITAC's, the briefing's door and the loading screens are TGA
+files, as is the loadout's backdrop. A mod replaces one with a PNG picture of its name,
+`sl_splash2.png` for `interface\sl_splash2.tga`, at any size.
+
+- **Size and proportions.** A picture is drawn as high as the screen, keeping its proportions, and
+  centred across it. The game's are 4:3, 640x480 but for the loading screens' larger copies, and a
+  4:3 picture, such as 1280x960, 2560x1920 or 2880x2160, covers the screen as they do.
+- **Widescreen.** A wider picture reaches past the screen's sides into a wider window: a 16:9
+  picture, such as 1920x1080 or 3840x2160, fills a 16:9 window, where the game's leave bars at the
+  sides. Its middle 4:3, 1440x1080 of 1920x1080, stands behind the screen, whose shapes, buttons
+  and text stay where the game lays them out, so the art they sit on belongs in the middle; the
+  sides are for the scenery around it. A narrower window cuts the sides off, and a wider one than
+  the picture shows bars beyond it.
+- **Opaque.** A picture is drawn opaque, its alpha left out, as the game's own are.
+
+A few TGA pictures are read for their pixels, at their own size. A PNG stands in for one of these at
+that size alone, and one of another size is left out, which the log says
+([#509](https://github.com/vdmkenny/openreliant/issues/509)):
+
+| Picture | Size | What it is |
+|---|---|---|
+| `fpanels.tga` | 256x256 | The loadout's panels |
+| `powerball.tga` | 256x256 | The flight display's power ball |
+| `space.tga` | 360x360 | The star map |
+| `starref12.tga` | 256x256 | The colours of the sky |
+
+**Improvement:** the original draws its interface from its own pictures, at their own size, and
+stretches its backgrounds over the screen.
+
 ## The order of the mods
 
 The mods are read in the order of their names, whatever their case, and a later mod's file stands in
@@ -152,8 +237,8 @@ Url=https://example.com/coyote-hd
 ```
 
 Each key is optional, and found whatever its case. `Url` is the mod's page on the web, where a
-player finds it and its updates. The game asks for no file of this name, so the archive stays one the original
-reads, and the manifest stands in for none of the game's files.
+player finds it and its updates. The game asks for no file of this name, so the archive stays one
+the original reads, and the manifest stands in for none of the game's files.
 
 ## The thumbnail
 
@@ -173,8 +258,8 @@ one the file gives, since the archive is then damaged or not the one the checksu
 ## What OpenReliant says
 
 As it starts, `openreliant` lists each mod it plays with, in its order, by its manifest's name
-where it has one, then each of its files: the game's file or the earlier mod's it replaces, or the
-file it adds.
+where it has one, then each of its files: what it replaces, the game's file, texture, shape or
+picture or an earlier mod's file, or the file it adds.
 
 ```text
 info(mods): music.hog matches music.hog.sha256

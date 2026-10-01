@@ -27,15 +27,18 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const fnt = @import("../../formats/fnt.zig");
+const png = @import("../../formats/png.zig");
 const math = @import("../surrender/math.zig");
 const spr = @import("../../formats/spr.zig");
 const tga = @import("../../formats/tga.zig");
 const bigfile = @import("bigfile.zig");
+const files = @import("../files.zig");
 const camera = @import("camera.zig");
 const gameobj = @import("gameobj.zig");
 const hog_snd = @import("hog_snd.zig");
 const input = @import("../input.zig");
 const language = @import("language.zig");
+const matmanager = @import("matmanager.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const srd3d = @import("../surrender/srd3d/srd3d.zig");
 const device = @import("../surrender/srd3d/device.zig");
@@ -413,17 +416,37 @@ test globalPalette {
 /// A set of the display's shapes, with an image made of each as it is first drawn. Every entry of
 /// a shipped set names no palette, so VFX draws each shape with its global palette, which
 /// `hud_draw` makes of the display's own set; a set given none takes the nearest palette at or
-/// before a shape, as the tools show them.
+/// before a shape, as the tools show them. A mod's picture stands in for a shape where it gives
+/// one (`Pictures`).
 pub const Art = struct {
     set: spr.Sprite,
     images: []?srtexture.Image,
     /// The palette every shape is drawn with: VFX's global palette.
     global: ?*const [spr.palette_size]u8 = null,
+    /// OpenReliant's: where the pictures that stand in for the shapes are read from; the shapes
+    /// alone without.
+    pictures: ?Pictures = null,
 
-    pub fn init(gpa: Allocator, set: spr.Sprite, global: ?*const [spr.palette_size]u8) Allocator.Error!Art {
+    /// OpenReliant's: the files whose pictures stand in for a set's shapes, such as the mods'
+    /// (`bigfile.Mods.pictures`), each named for its shape (`spr.pictureName`). A picture of any
+    /// size is drawn over the shape's place, as large as the shape (`drawImageAs`).
+    ///
+    /// **Improvement:** the original draws the set's shapes alone, at 640x480.
+    pub const Pictures = struct {
+        files: srtexture.Files,
+        /// The set's file name, which the pictures' names start from, and which outlives them.
+        set: []const u8,
+
+        /// The pictures `mods` give the shapes of the set `set`.
+        pub fn of(mods: *const bigfile.Mods, set: []const u8) Pictures {
+            return .{ .files = mods.pictures(), .set = set };
+        }
+    };
+
+    pub fn init(gpa: Allocator, set: spr.Sprite, global: ?*const [spr.palette_size]u8, pictures: ?Pictures) Allocator.Error!Art {
         const images = try gpa.alloc(?srtexture.Image, set.count());
         @memset(images, null);
-        return .{ .set = set, .images = images, .global = global };
+        return .{ .set = set, .images = images, .global = global, .pictures = pictures };
     }
 
     pub fn deinit(art: *Art, gpa: Allocator) void {
@@ -450,12 +473,17 @@ pub const Art = struct {
         };
     }
 
-    /// The image of the shape at `index`, made the first time it is drawn. Index 0 of a shape is
-    /// clear, as it is wherever the sprites are drawn.
+    /// The image of the shape at `index`, made the first time it is drawn: the picture in its place
+    /// where there is one (`picture`), else the shape's own, whose index 0 is clear, as it is
+    /// wherever the sprites are drawn.
     fn image(art: *Art, gpa: Allocator, index: usize) (spr.Error || Allocator.Error)!?*srtexture.Image {
         if (index >= art.images.len) return null;
         if (art.images[index]) |*made| return made;
         const found = art.shape(index) orelse return null;
+        if (try art.picture(gpa, index)) |made| {
+            art.images[index] = made;
+            return &art.images[index].?;
+        }
         const palette = art.global orelse art.set.paletteFor(index) orelse return null;
         var expanded: [spr.palette_size]u8 = undefined;
         spr.expandPalette(palette, &expanded);
@@ -472,10 +500,21 @@ pub const Art = struct {
         art.images[index] = try srtexture.Image.single(gpa, found.width(), found.height(), rgba);
         return &art.images[index].?;
     }
+
+    /// The picture that stands in for the shape at `index` (`Pictures`), with its levels made; null
+    /// where there is none.
+    fn picture(art: Art, gpa: Allocator, index: usize) Allocator.Error!?srtexture.Image {
+        const pictures = art.pictures orelse return null;
+        var buffer: [files.max_path]u8 = undefined;
+        const name = spr.pictureName(&buffer, pictures.set, index) catch return null;
+        const read = try pictures.files.picture(gpa, name) orelse return null;
+        return try srtexture.mipmapped(gpa, read);
+    }
 };
 
 /// Draws the shape at `index` with its anchor at `at`, `scale` times its own size. A shape's
-/// bounds are in a frame whose origin is that anchor, so they say where it hangs from the point.
+/// bounds are in a frame whose origin is that anchor, so they say where it hangs from the point. A
+/// picture in its place covers the same (`Art.Pictures`).
 pub fn drawShape(
     art: *Art,
     gpa: Allocator,
@@ -644,15 +683,26 @@ pub fn drawShapeWith(
         @as(f32, @floatFromInt(at[0])) + @as(f32, @floatFromInt(found.header.x1)) * scale,
         @as(f32, @floatFromInt(at[1])) + @as(f32, @floatFromInt(found.header.y1)) * scale,
     };
-    drawImage(target, image, corner, colour, scale, how);
+    drawImageAs(target, image, .{ found.width(), found.height() }, corner, colour, scale, how);
+}
+
+/// Draws `image` whole over the rectangle `edges` of the screen.
+pub fn drawImageOver(target: device.Device, image: *srtexture.Image, edges: Clip, colour: [4]f32) void {
+    drawPart(target, image, edges, .{ 0, 1 }, .{ 0, 1 }, device.pack(colour), null);
 }
 
 /// Draws `image` with its top left corner at `corner` on the screen, `scale` times its own size,
-/// mirrored, clipped or shaken as `how` says: shaken, a row at a time, each moved right by the
-/// shake's `Shake.row`.
+/// mirrored, clipped or shaken as `how` says (`drawImageAs`).
 pub fn drawImage(target: device.Device, image: *srtexture.Image, corner: [2]f32, colour: [4]f32, scale: f32, how: Draw) void {
-    const width = @as(f32, @floatFromInt(image.width())) * scale;
-    const height = @as(f32, @floatFromInt(image.height())) * scale;
+    drawImageAs(target, image, .{ image.width(), image.height() }, corner, colour, scale, how);
+}
+
+/// Draws `image` as `drawImage` does, as though it were `size` pixels across and down, as a picture
+/// in a shape's place covers the shape's: shaken, a row of `size` at a time, each moved right by
+/// the shake's `Shake.row`.
+pub fn drawImageAs(target: device.Device, image: *srtexture.Image, size: [2]u32, corner: [2]f32, colour: [4]f32, scale: f32, how: Draw) void {
+    const width = @as(f32, @floatFromInt(size[0])) * scale;
+    const height = @as(f32, @floatFromInt(size[1])) * scale;
     const u: [2]f32 = if (how.mirror.across) .{ 1, 0 } else .{ 0, 1 };
     const v: [2]f32 = if (how.mirror.down) .{ 1, 0 } else .{ 0, 1 };
     const tint = device.pack(colour);
@@ -660,7 +710,7 @@ pub fn drawImage(target: device.Device, image: *srtexture.Image, corner: [2]f32,
         drawPart(target, image, .{ .left = corner[0], .top = corner[1], .right = corner[0] + width, .bottom = corner[1] + height }, u, v, tint, how.clip);
         return;
     };
-    const rows = image.height();
+    const rows = size[1];
     const per_row = (v[1] - v[0]) / @as(f32, @floatFromInt(rows));
     for (0..rows) |row| {
         const down: f32 = @floatFromInt(row);
@@ -1442,18 +1492,19 @@ pub const Resources = struct {
     pub const font_name = "BLUFONT.FNT";
 
     /// Loads what the display draws with from the resources' archive: `shapes`, the display's
-    /// set, with its global palette; the fonts, which `0x004A2AF0` opens; and the power ball,
-    /// which `hud_init` works out.
+    /// set (`hardware_shapes`), with its global palette and the pictures the archive's mods give in
+    /// its shapes' place; the fonts, which `0x004A2AF0` opens; and the power ball, which `hud_init`
+    /// works out.
     pub fn load(gpa: Allocator, archive: bigfile.Hog, shapes: spr.Sprite) !Resources {
         const global = globalPalette(shapes);
         return .{
-            .art = try .init(gpa, shapes, global),
+            .art = try .init(gpa, shapes, global, .of(archive.mods, hardware_shapes)),
             .font = try openFont(gpa, archive, font_name, global),
             .target_fonts = .{
                 .small = try openFont(gpa, archive, TargetFonts.small_name, global),
                 .new = try openFont(gpa, archive, TargetFonts.new_name, global),
             },
-            .ball = try .create(gpa, try tga.decode(gpa, try archive.readFile(gpa, power.picture_name))),
+            .ball = try .create(gpa, try matmanager.readPixels(gpa, archive, power.picture_name)),
         };
     }
 
@@ -4606,7 +4657,7 @@ const TargetDrawing = struct {
         const font = try fnt.Font.parse(comptime fnt.testing.font(true));
         drawing.* = .{
             .recorder = .{ .gpa = gpa },
-            .art = try .init(gpa, try .parse(&empty), null),
+            .art = try .init(gpa, try .parse(&empty), null, null),
             .fonts = .{ .small = .open(font, null), .new = .open(font, null) },
         };
     }
@@ -4950,6 +5001,45 @@ test "a shaken image is drawn a row at a time" {
     const shake: Shake = .{ .hit_shake = 1, .interference = 0.3, .random = &random };
     drawImage(into, &image, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1, .{ .shake = shake });
     try std.testing.expectEqual(1 + 3, recorder.draws.items.len);
+}
+
+test "a mod's picture stands in for a shape, over the shape's place" {
+    const gpa = std.testing.allocator;
+    const bytes = try spr.testing.paletteAndShape(gpa);
+    defer gpa.free(bytes);
+    // A picture for the set's shape, block 1, four times as fine.
+    var written: std.Io.Writer.Allocating = .init(gpa);
+    defer written.deinit();
+    try png.writeRgba(gpa, &written.writer, 12, 8, &(@as([12 * 8 * 4]u8, @splat(0xFF))));
+    const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "set_001.png", .bytes = written.written() }} };
+    var art: Art = try .init(gpa, try .parse(bytes), null, .{ .files = pictures.files(), .set = "interface\\SET.SPR" });
+    defer art.deinit(gpa);
+    var own: Art = try .init(gpa, try .parse(bytes), null, null);
+    defer own.deinit(gpa);
+
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    const into = recorder.interface();
+    // Twice the size from (10, 20), the picture covers the shape's three pixels by two, one left
+    // of the point, as the shape's own does.
+    for ([_]*Art{ &art, &own }) |drawn| {
+        try drawShape(drawn, gpa, into, 1, .{ 10, 20 }, .{ 1, 1, 1, 1 }, 2);
+        const corners = recorder.last();
+        try std.testing.expectEqual(8, corners[0].x);
+        try std.testing.expectEqual(20, corners[0].y);
+        try std.testing.expectEqual(14, corners[2].x);
+        try std.testing.expectEqual(24, corners[2].y);
+    }
+    // The picture's pixels, with its levels made.
+    try std.testing.expectEqual(12, art.images[1].?.width());
+    try std.testing.expectEqual(4, art.images[1].?.levels.len);
+    try std.testing.expectEqual(3, own.images[1].?.width());
+
+    // Shaken, a row of the shape's at a time.
+    var random: libcmt.Rand = .{};
+    const before = recorder.draws.items.len;
+    try drawShapeWith(&art, gpa, into, 1, .{ 10, 20 }, .{ 1, 1, 1, 1 }, 2, .{ .shake = .{ .hit_shake = 1, .interference = 0, .random = &random } });
+    try std.testing.expectEqual(before + 2, recorder.draws.items.len);
 }
 
 test "an image cut to a clip keeps the part of it inside" {

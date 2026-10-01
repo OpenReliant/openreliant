@@ -76,7 +76,7 @@ pub const Disc = struct {
     /// on `cd_hog`), a mod's first; null where neither holds one.
     pub fn readFile(disc: Disc, gpa: Allocator, name: []const u8) bigfile.ReadError!?[]u8 {
         const hog = disc.hog orelse {
-            var buffer: [128]u8 = undefined;
+            var buffer: [bigfile.member_name_room]u8 = undefined;
             return disc.mods.readFile(gpa, bigfile.memberName(&buffer, name));
         };
         if (!hog.has(name)) return null;

@@ -242,12 +242,12 @@ pub const Driver = struct {
         if (context.background) |image| driver.drawBackground(image, context.projection.viewport);
     }
 
-    /// The background image over `viewport`, the screen's pixels left, top, right and bottom, from
-    /// the nearest texel, white, with neither depth nor blending (`0x10007843` on). The driver draws
-    /// it in squares of up to 256 texels, the most a texture of its time held; OpenReliant draws it
-    /// as one.
+    /// The background image over `viewport`, the screen's pixels left, top, right and bottom, as
+    /// `backgroundEdges` places it, from the nearest texel, white, with neither depth nor blending
+    /// (`0x10007843` on). The driver draws it in squares of up to 256 texels, the most a texture of
+    /// its time held; OpenReliant draws it as one.
     fn drawBackground(driver: *Driver, image: *srtexture.Image, viewport: [4]f32) void {
-        const left, const top, const right, const bottom = viewport;
+        const left, const top, const right, const bottom = backgroundEdges(image, viewport);
         const corners = [4]Vertex{
             .{ .x = left, .y = top, .z = background_depth, .rhw = 1, .diffuse = device.white, .u = 0, .v = 0 },
             .{ .x = right, .y = top, .z = background_depth, .rhw = 1, .diffuse = device.white, .u = 1, .v = 0 },
@@ -742,6 +742,30 @@ pub const Driver = struct {
         if (inner == 3) visibility.* = 0;
     }
 };
+
+/// Where a background image `image` is drawn for `viewport`, the screen's pixels left, top, right
+/// and bottom: as high as the viewport, keeping its proportions, and centred across it.
+///
+/// **Improvement:** the driver stretches the image over the viewport. OpenReliant keeps its
+/// proportions, which the game's own 4:3 pictures share with the 4:3 screens they are shown on, so
+/// that a mod's wider picture reaches past the viewport's sides into a wider window.
+pub fn backgroundEdges(image: *const srtexture.Image, viewport: [4]f32) [4]f32 {
+    const left, const top, const right, const bottom = viewport;
+    const across = (bottom - top) * @as(f32, @floatFromInt(image.width())) / @as(f32, @floatFromInt(image.height()));
+    const middle = (left + right) / 2;
+    return .{ middle - across / 2, top, middle + across / 2, bottom };
+}
+
+test backgroundEdges {
+    const texels = [_]u8{0} ** (16 * 9 * 4);
+    var level = [_]srtexture.Level{.{ .width = 4, .height = 3, .rgba = &texels }};
+    const picture: srtexture.Image = .{ .levels = &level };
+    // A 4:3 image covers a 4:3 viewport, whatever its size.
+    try std.testing.expectEqual([4]f32{ 160, 0, 1120, 720 }, backgroundEdges(&picture, .{ 160, 0, 1120, 720 }));
+    // A wider one reaches past its sides, as far either way.
+    level[0] = .{ .width = 16, .height = 9, .rgba = &texels };
+    try std.testing.expectEqual([4]f32{ 0, 0, 1280, 720 }, backgroundEdges(&picture, .{ 160, 0, 1120, 720 }));
+}
 
 test "a frame from the scene to the device" {
     const gpa = std.testing.allocator;

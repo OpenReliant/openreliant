@@ -20,6 +20,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 **Improvements**, each marked so in the code:
 
 - The game switches the display to 640 by 480 for the front end. OpenReliant keeps the window as it is, and draws the front end as large as fits in it, centred, so that it keeps its shape.
+- The picture behind a screen is drawn as high as the screen, keeping its proportions, and centred across it, where the device stretches it over the screen: the game's own, which are 4:3, cover it alike, and a mod's wider picture reaches past its sides to fill a wider window ([Modding](../guide/modding.md#pictures)).
 - The pointer is where the system's is over the window, rather than DirectInput's movements added up.
 - The mouse's wheel scrolls the lists, the saved games' and the controls', three rows a notch, as the system scrolls text by default; the game reads no wheel.
 - OpenReliant's version is written, dimmed, in the window's bottom right corner, as the pause menu writes it ([Pause menu](pause-menu.md)): on the front end's screens, the loading screens and the in-game options over the Reliant's rooms ([The Reliant's rooms](rooms.md)), though not in the rooms themselves.

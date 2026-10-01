@@ -14,6 +14,9 @@ const layout = @import("layout.zig");
 
 pub const header_size = @sizeOf(Header);
 
+/// The extension a TGA file's name ends with.
+pub const extension = ".tga";
+
 /// Colours in a palette.
 pub const palette_length = 256;
 

@@ -596,7 +596,7 @@ const Backdrop = struct {
     /// Draws the picture, and gives the shapes the screen draws with over it; null where they are
     /// left out.
     fn draw(backdrop: *Backdrop, target: canvas.Canvas) ?*game.hud.Art {
-        if (backdrop.background.image) |*shown| target.image(shown, .{ 0, 0 });
+        if (backdrop.background.image) |*shown| target.fill(shown);
         return if (backdrop.shapes) |*loaded| &loaded.art else null;
     }
 };

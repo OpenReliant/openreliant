@@ -797,7 +797,7 @@ pub const Rooms = struct {
         rooms.fish.fed_at = in.ticks;
         if (rooms.fish.shapes != null) return;
         const bytes = rooms.context.read(Fish.food) orelse return;
-        rooms.fish.shapes = .of(rooms.context.gpa, bytes, Fish.food);
+        rooms.fish.shapes = .of(rooms.context.gpa, bytes, Fish.food, .of(rooms.context.disc.mods, Fish.food));
     }
 
     /// The exit `exit` taken (`0x0043B40C` on): its way in's sound where it has one, then its way

@@ -130,11 +130,11 @@ pub const Resources = struct {
             .large = .ramp(try fnt.Font.parse(files.get(.large))),
             .small = .ramp(try fnt.Font.parse(files.get(.small))),
             .developer = .ramp(try fnt.Font.parse(files.get(.developer))),
-            .dialog = try .init(gpa, try spr.Sprite.parse(files.get(.dialog)), null),
+            .dialog = try .init(gpa, try spr.Sprite.parse(files.get(.dialog)), null, .of(archive.mods, names.get(.dialog))),
             .about = undefined,
         };
         errdefer resources.dialog.deinit(gpa);
-        resources.about = try .init(gpa, try spr.Sprite.parse(files.get(.about)), null);
+        resources.about = try .init(gpa, try spr.Sprite.parse(files.get(.about)), null, .of(archive.mods, names.get(.about)));
         errdefer resources.about.deinit(gpa);
         try resources.show(.main_menu);
         return resources;
@@ -148,7 +148,7 @@ pub const Resources = struct {
         const gpa = resources.gpa;
         const file = try resources.archive.readFile(gpa, shown.shapes);
         errdefer gpa.free(file);
-        var art: hud.Art = try .init(gpa, try spr.Sprite.parse(file), null);
+        var art: hud.Art = try .init(gpa, try spr.Sprite.parse(file), null, .of(resources.archive.mods, shown.shapes));
         errdefer art.deinit(gpa);
         try resources.background.set(gpa, resources.archive, shown.background);
         resources.dropShapes();
@@ -431,7 +431,7 @@ pub const Interface = struct {
             .strings = strings,
             .version = version,
         };
-        if (resources.background.image) |*picture| drawn.image(picture, .{ 0, 0 });
+        if (resources.background.image) |*picture| drawn.fill(picture);
         const art = if (resources.shapes) |*shapes| shapes else return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer),

@@ -8,6 +8,7 @@ const spr = @import("../../../formats/spr.zig");
 const bigfile = @import("../bigfile.zig");
 const device = @import("../../surrender/srd3d/device.zig");
 const srapi = @import("../../surrender/surrenderlib/srapi.zig");
+const srd3d = @import("../../surrender/srd3d/srd3d.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const input = @import("../../input.zig");
 const hud = @import("../hud.zig");
@@ -103,10 +104,16 @@ pub const Canvas = struct {
         return .{ .left = left, .top = top, .right = left + @as(f32, @floatFromInt(rect.width)) * s, .bottom = top + @as(f32, @floatFromInt(rect.height)) * s };
     }
 
-    /// Draws `picture` over the whole of the front end's screen, whatever its size.
+    /// Draws `picture` behind the front end's screen as the device draws a background
+    /// (`matmanager.Background`, `srd3d.backgroundEdges`): as high as the screen, keeping its
+    /// proportions, and centred across it. A 4:3 picture covers the screen, whatever its size, and
+    /// a wider one reaches past its sides into a wider window.
     pub fn fill(canvas: Canvas, picture: *srtexture.Image) void {
-        const across: f32 = @floatFromInt(picture.width());
-        hud.drawImage(canvas.target, picture, canvas.corner(), .{ 1, 1, 1, 1 }, canvas.scale() * @as(f32, @floatFromInt(size[0])) / across, .{});
+        const s = canvas.scale();
+        const from = canvas.corner();
+        const screen: [4]f32 = .{ from[0], from[1], from[0] + @as(f32, @floatFromInt(size[0])) * s, from[1] + @as(f32, @floatFromInt(size[1])) * s };
+        const left, const top, const right, const bottom = srd3d.backgroundEdges(picture, screen);
+        hud.drawImageOver(canvas.target, picture, .{ .left = left, .top = top, .right = right, .bottom = bottom }, .{ 1, 1, 1, 1 });
     }
 
     /// Draws a line in `colour` from the pixel at `from` to the pixel at `to`, both included
@@ -273,28 +280,29 @@ pub const Shapes = struct {
     art: hud.Art,
     bytes: []u8,
 
-    /// The shapes of `bytes`, the sprite set `name`, which they keep; null where it is not one,
-    /// the bytes then freed.
-    pub fn of(gpa: Allocator, bytes: []u8, name: []const u8) ?Shapes {
+    /// The shapes of `bytes`, the sprite set `name`, which they keep, with `pictures` in their
+    /// place; null where it is not one, the bytes then freed.
+    pub fn of(gpa: Allocator, bytes: []u8, name: []const u8, pictures: ?hud.Art.Pictures) ?Shapes {
         const set = spr.Sprite.parse(bytes) catch |err| {
             log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
             gpa.free(bytes);
             return null;
         };
-        const art = hud.Art.init(gpa, set, null) catch {
+        const art = hud.Art.init(gpa, set, null, pictures) catch {
             gpa.free(bytes);
             return null;
         };
         return .{ .art = art, .bytes = bytes };
     }
 
-    /// The sprite set `name` of `archive`; null where it is left out.
+    /// The sprite set `name` of `archive`, with the pictures its mods give in its shapes' place;
+    /// null where it is left out.
     pub fn read(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8) ?Shapes {
         const bytes = archive.readFile(gpa, name) catch |err| {
             log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
             return null;
         };
-        return of(gpa, bytes, name);
+        return of(gpa, bytes, name, .of(archive.mods, name));
     }
 
     /// Drawn with block `palette`'s palette as VFX's global one, as `palette_to_vfx`
@@ -520,6 +528,19 @@ test "Canvas.fill" {
     try std.testing.expectEqual(0, corners[0].y);
     try std.testing.expectEqual(1120, corners[2].x);
     try std.testing.expectEqual(720, corners[2].y);
+    // A 16:9 picture reaches past the screen's sides, and fills the window.
+    const wide_rgba = try gpa.alloc(u8, 16 * 9 * 4);
+    var wide = srtexture.Image.single(gpa, 16, 9, wide_rgba) catch |err| {
+        gpa.free(wide_rgba);
+        return err;
+    };
+    defer wide.deinit(gpa);
+    drawn.fill(&wide);
+    const filled = recorder.drawn(1);
+    try std.testing.expectEqual(0, filled[0].x);
+    try std.testing.expectEqual(0, filled[0].y);
+    try std.testing.expectEqual(1280, filled[2].x);
+    try std.testing.expectEqual(720, filled[2].y);
 }
 
 test Shapes {
@@ -529,7 +550,7 @@ test Shapes {
     var set: [at + spr.palette_size]u8 = @splat(0);
     set[0..@sizeOf(spr.Header)].* = @bitCast(spr.Header{ .version = spr.magic.*, .shape_count = 1 });
     set[@sizeOf(spr.Header)..at].* = @bitCast(spr.DirectoryEntry{ .offset = at, .reserved = 0 });
-    var shapes = Shapes.of(gpa, try gpa.dupe(u8, &set), "palette.spr").?;
+    var shapes = Shapes.of(gpa, try gpa.dupe(u8, &set), "palette.spr", null).?;
     defer shapes.deinit(gpa);
     try std.testing.expectEqual(1, shapes.art.set.count());
     // Its palette made the one every shape is drawn with; a block that is none leaves each its own.
@@ -538,7 +559,7 @@ test Shapes {
     shapes.usePalette(1);
     try std.testing.expectEqual(null, shapes.art.global);
     // Not a sprite set, it is left out, and its bytes let go.
-    try std.testing.expectEqual(null, Shapes.of(gpa, try gpa.dupe(u8, "x"), "x.spr"));
+    try std.testing.expectEqual(null, Shapes.of(gpa, try gpa.dupe(u8, "x"), "x.spr", null));
 }
 
 test hit {

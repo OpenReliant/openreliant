@@ -42,7 +42,7 @@ pub const Hog = struct {
 
     /// Whether a mod or the archive holds the member `name` names, as `readFile` looks it up.
     pub fn has(archive: Hog, name: []const u8) bool {
-        var buffer: [128]u8 = undefined;
+        var buffer: [member_name_room]u8 = undefined;
         const member = memberName(&buffer, name);
         return archive.mods.has(member) or archive.archive.find(member) != null;
     }
@@ -51,7 +51,7 @@ pub const Hog = struct {
     /// The game looks it up by `memberName`, ignoring case (`hog_seek`, `0x004C8370`), and takes
     /// it as packed when it starts `10 FB`. A mod's file of the name comes first (`Mods.readFile`).
     pub fn readFile(archive: Hog, gpa: Allocator, name: []const u8) ReadError![]u8 {
-        var buffer: [128]u8 = undefined;
+        var buffer: [member_name_room]u8 = undefined;
         const member = memberName(&buffer, name);
         if (try archive.mods.readFile(gpa, member)) |bytes| return bytes;
         const entry = archive.archive.find(member) orelse {
@@ -80,9 +80,13 @@ pub fn readMember(archive: hog.Archive, gpa: Allocator, entry: hog.Entry) ReadEr
     return refpack.decompressAlloc(gpa, raw);
 }
 
+/// The room `hog_read_file` (`0x004C7F60`) has for the name it looks a file up by, which a longer
+/// name is cut to.
+pub const member_name_room = 128;
+
 /// The name `hog_read_file` looks a file up by: `name` less an extension beginning `ut`, from its
-/// last `\` on. Longer names are cut to the game's buffer, 128 bytes.
-pub fn memberName(buffer: *[128]u8, name: []const u8) []const u8 {
+/// last `\` on, cut to `member_name_room`.
+pub fn memberName(buffer: *[member_name_room]u8, name: []const u8) []const u8 {
     const length = @min(name.len, buffer.len);
     @memcpy(buffer[0..length], name[0..length]);
     var copy: []const u8 = buffer[0..length];
@@ -94,7 +98,7 @@ pub fn memberName(buffer: *[128]u8, name: []const u8) []const u8 {
 }
 
 test memberName {
-    var buffer: [128]u8 = undefined;
+    var buffer: [member_name_room]u8 = undefined;
     try std.testing.expectEqualStrings("USLF_Prd.SHP", memberName(&buffer, "USLF_Prd.SHP"));
     try std.testing.expectEqualStrings("space.tga", memberName(&buffer, "nebula\\space.tga"));
     try std.testing.expectEqualStrings("intro", memberName(&buffer, "movies\\intro.utx"));

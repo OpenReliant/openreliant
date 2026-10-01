@@ -687,7 +687,7 @@ pub const Briefing = struct {
 
     /// `briefing_door_draw` (`0x00437D30`): the door, with AWAITING CLEARANCE across its foot.
     fn drawDoor(briefing: *Briefing, target: canvas.Canvas) Allocator.Error!void {
-        if (briefing.door.image) |*shown| target.image(shown, .{ 0, 0 });
+        if (briefing.door.image) |*shown| target.fill(shown);
         var buffer: [awaiting_size]u8 = undefined;
         const words = std.fmt.bufPrint(&buffer, "{s} {s}", .{
             target.strings.string(awaiting) orelse "",

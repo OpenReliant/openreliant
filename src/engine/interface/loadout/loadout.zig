@@ -580,7 +580,7 @@ pub const Loadout = struct {
         loadout.sounds = .read(gpa, resources, sounds_name);
         loadout.textures = .init(gpa, context.cache, loadout.palette);
         const textures = &loadout.textures.?;
-        textures.files = resources.mods.textures();
+        textures.files = resources.mods.pictures();
 
         // The ships the tier or the rank offers (`loadout_ships_create`, `0x00444760`), each an
         // object of the interface whose tooltip is its name (`0x00441E43` on), reached by the green
@@ -618,11 +618,10 @@ pub const Loadout = struct {
         }
 
         const backdrop_name = if (context.mission <= last_reliant_mission) reliant_backdrop else yamato_backdrop;
-        const backdrop = try tga.decode(arena, try resources.readFile(arena, backdrop_name));
-        loadout.backdrop = try matmanager.picture(arena, backdrop);
+        loadout.backdrop = try matmanager.readImage(arena, resources.*, backdrop_name);
         loadout.panels_art = try arena.create(panels.Image);
         loadout.panels_art.* = @splat(.{ 0, 0, 0, 0 });
-        const art = try tga.decode(arena, try resources.readFile(arena, panels_name));
+        const art = try matmanager.readPixels(arena, resources.*, panels_name);
         for (0..@min(art.height, panels.size)) |y| for (0..@min(art.width, panels.size)) |x| {
             loadout.panels_art[y * panels.size + x] = art.pixel(x, y) ++ .{hud.Pane.opaque_alpha};
         };

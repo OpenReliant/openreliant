@@ -18,6 +18,9 @@ const spr = @import("spr.zig");
 
 pub const signature = "\x89PNG\r\n\x1a\n";
 
+/// The extension a PNG file's name ends with.
+pub const extension = ".png";
+
 /// 256 RGB triples, 8 bits a channel: the size of a sprite set's palette.
 pub const Palette = [spr.palette_size]u8;
 

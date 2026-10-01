@@ -103,7 +103,7 @@ pub const TypeCache = struct {
                 log.warn("the schematic {s} is left out: {s}", .{ schematic, @errorName(err) });
                 break :found null;
             };
-            break :found try .init(gpa, try spr.Sprite.parse(bytes), cache.global_palette);
+            break :found try .init(gpa, try spr.Sprite.parse(bytes), cache.global_palette, .of(cache.resources.mods, schematic));
         } else null;
         var effects = cache.looks;
         effects.mounts = cached.mounted.mounts();

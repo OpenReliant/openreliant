@@ -63,6 +63,7 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 Deliberate differences from the original, each marked **Improvement** where it is made. The settings screen's GRAPHICS turns the GPU device's on and off as the game plays, but for 16-bit colour and linear light, which take effect at the next start ([Graphics](../engine/front-end.md#graphics)):
 
 - The view is unstretched on any screen: the factor across keeps pixels square, and a wider screen shows more at the sides ([Camera](../engine/camera.md#projection)).
+- The background image keeps its proportions, as high as the screen and centred across it, where the driver stretches it over the screen (`srd3d.backgroundEdges`): the game's own, which are 4:3, cover it alike, and a mod's wider picture fills a wider window ([Modding](../guide/modding.md#pictures)).
 - The driver tests a sorted polygon's triangles against the sun with the polygon's own corners, where the original uses indices left over from the last list it drew. Only a solid polygon hides the sun: what is blended, such as a canopy's glass, lets it through.
 - A vertex with no counterpart in the next level of detail morphs toward itself, where the original reads whatever lies before that level's vertices.
 - The finer levels of detail reach eight times as far as the original's (`srapi.Context.finer`), so that a ship keeps its finest mesh until it is far off. Its last level still ends where the original's does at the high detail setting, depths divided by 3 (`game.main.high_detail`), and the ship leaves sight there.

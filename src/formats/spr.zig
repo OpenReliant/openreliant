@@ -15,9 +15,13 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const layout = @import("layout.zig");
+const png = @import("png.zig");
 
 /// Every shipped file carries this version, stored as four raw bytes rather than a number.
 pub const magic = "1.40";
+
+/// The extension a sprite set's file name ends with.
+pub const extension = ".spr";
 
 pub const palette_size = 256 * 3;
 pub const remap_size = 256;
@@ -283,6 +287,21 @@ pub fn expandLevel(level: u8) u8 {
     return @as(u8, six) << 2 | six >> 4;
 }
 
+/// The name of the picture of shape `index` of the set `set_name`, as `sltool spr extract` names
+/// it and a mod's picture in the shape's place is named: the set's name without its folder or
+/// extension, `_`, the index in three digits at least, and the PNG extension.
+pub fn pictureName(buffer: []u8, set_name: []const u8, index: usize) error{NoSpaceLeft}![]u8 {
+    const stem = std.fs.path.stem(std.fs.path.basenameWindows(set_name));
+    return std.fmt.bufPrint(buffer, "{s}_{d:0>3}" ++ png.extension, .{ stem, index });
+}
+
+test pictureName {
+    var buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("HUDHARD_021.png", try pictureName(&buffer, "HUDHARD.SPR", 21));
+    try std.testing.expectEqualStrings("rbrief_1234.png", try pictureName(&buffer, "interface\\rbrief.spr", 1234));
+    try std.testing.expectError(error.NoSpaceLeft, pictureName(buffer[0..8], "HUDHARD.SPR", 21));
+}
+
 test expandLevel {
     try std.testing.expectEqual(0, expandLevel(0));
     try std.testing.expectEqual(0xFF, expandLevel(0x3F));
@@ -325,36 +344,44 @@ test expandPalette {
     try std.testing.expectEqual(@as(u8, 0x00), out[2]);
 }
 
+/// Fixtures for the tests here and in the modules that draw sprites.
+pub const testing = struct {
+    /// A set of a palette, whose index 1 is bright red, and a shape of three pixels by two hung one
+    /// left of its anchor: a run of three of index 1, then a pixel skipped and one of index 1.
+    pub fn paletteAndShape(gpa: Allocator) Allocator.Error![]u8 {
+        var file: std.ArrayList(u8) = .empty;
+        errdefer file.deinit(gpa);
+        try file.appendSlice(gpa, std.mem.asBytes(&Header{ .version = magic.*, .shape_count = 2 }));
+        const directory_at = file.items.len;
+        try file.appendNTimes(gpa, 0, 2 * @sizeOf(DirectoryEntry));
+
+        const palette_at = file.items.len;
+        try file.appendNTimes(gpa, 0, palette_size);
+        file.items[palette_at + 3] = 0x3F;
+
+        const shape_at = file.items.len;
+        var header: ShapeHeader = std.mem.zeroes(ShapeHeader);
+        header.x1 = -1;
+        header.y1 = 0;
+        header.x2 = 1;
+        header.y2 = 1;
+        try file.appendSlice(gpa, std.mem.asBytes(&header));
+        try file.appendSlice(gpa, &.{ 0x06, 1, 0x00 });
+        try file.appendSlice(gpa, &.{ 0x01, 2, 0x03, 1, 0x00 });
+
+        const directory = std.mem.bytesAsSlice(DirectoryEntry, file.items[directory_at..][0 .. 2 * @sizeOf(DirectoryEntry)]);
+        directory[0] = .{ .offset = @intCast(palette_at), .reserved = 0 };
+        directory[1] = .{ .offset = @intCast(shape_at), .reserved = 0 };
+        return file.toOwnedSlice(gpa);
+    }
+};
+
 test "parses a sprite with a palette and a shape" {
     const gpa = std.testing.allocator;
+    const file = try testing.paletteAndShape(gpa);
+    defer gpa.free(file);
 
-    var file: std.ArrayList(u8) = .empty;
-    defer file.deinit(gpa);
-    try file.appendSlice(gpa, std.mem.asBytes(&Header{ .version = magic.*, .shape_count = 2 }));
-    // Directory: a palette then a shape.
-    const directory_at = file.items.len;
-    try file.appendNTimes(gpa, 0, 2 * @sizeOf(DirectoryEntry));
-
-    const palette_at = file.items.len;
-    try file.appendNTimes(gpa, 0, palette_size);
-    file.items[palette_at + 3] = 0x3F; // index 1 is bright red
-
-    const shape_at = file.items.len;
-    var header: ShapeHeader = std.mem.zeroes(ShapeHeader);
-    header.x1 = -1;
-    header.y1 = 0;
-    header.x2 = 1;
-    header.y2 = 1;
-    try file.appendSlice(gpa, std.mem.asBytes(&header));
-    // Two rows of three pixels: a run of three, then a skip and a literal.
-    try file.appendSlice(gpa, &.{ 0x06, 1, 0x00 });
-    try file.appendSlice(gpa, &.{ 0x01, 2, 0x03, 1, 0x00 });
-
-    const directory = std.mem.bytesAsSlice(DirectoryEntry, file.items[directory_at..][0 .. 2 * @sizeOf(DirectoryEntry)]);
-    directory[0] = .{ .offset = @intCast(palette_at), .reserved = 0 };
-    directory[1] = .{ .offset = @intCast(shape_at), .reserved = 0 };
-
-    const sprite: Sprite = try .parse(file.items);
+    const sprite: Sprite = try .parse(file);
     try std.testing.expectEqual(@as(usize, 2), sprite.count());
     try std.testing.expect(sprite.block(0) == .palette);
     try std.testing.expect(sprite.block(1) == .shape);

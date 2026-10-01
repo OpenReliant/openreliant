@@ -192,7 +192,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // picture's reading leaves much behind.
     var textures: srtexture.Table = .init(gpa, cache, palette);
     defer textures.deinit();
-    textures.files = mods.textures();
+    textures.files = mods.pictures();
     // The flight and combat stats `stats_load_ships` reads; every gun type's figures, which
     // `stats_load_guns` reads; every missile type's, which `stats_load_missiles` reads; and the
     // pilots'.
@@ -310,8 +310,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     try loading.show(game.xtrabits.loading.startup_first);
     try loading.show(game.xtrabits.loading.startup_step);
     var rand: engine.libcmt.Rand = .{};
-    const space = try game.backdrop.Backdrop.create(arena, &textures, try tga.decode(arena, try resources.readFile(arena, game.backdrop.star_map_name)), &rand, context.projection.near, options.sun);
-    const sky = try game.nebula.Sky.create(arena, &textures, try tga.decode(arena, try resources.readFile(arena, game.nebula.dome_image_name)));
+    const space = try game.backdrop.Backdrop.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.backdrop.star_map_name), &rand, context.projection.near, options.sun);
+    const sky = try game.nebula.Sky.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.nebula.dome_image_name));
     try sky.select(&textures, game.nebula.default_nebula, &space.lights);
     // What the mission's script asks of its space: the nebula it shows, and the effects it turns
     // on.
