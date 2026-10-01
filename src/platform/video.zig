@@ -1,8 +1,9 @@
 //! The movies' packets, decoded by FFmpeg's Bink decoders (`deps/ffmpeg`) for the engine's
-//! stand-in for Bink ([`engine/bink.zig`](../engine/bink.zig)'s `Codec`). Each decoder is set up as
-//! FFmpeg's reader of the container, its Bink demuxer, sets it up: the video's with the file's
-//! signature as its tag and the header's flags as its extra data, an audio track's with its rate,
-//! its channels and the file's signature.
+//! stand-in for Bink ([`engine/bink.zig`](../engine/bink.zig)'s `Codec`), and the frames of MP3
+//! files by its MP3 decoder. Each Bink decoder is set up as FFmpeg's reader of the container, its
+//! Bink demuxer, sets it up: the video's with the file's signature as its tag and the header's
+//! flags as its extra data, an audio track's with its rate, its channels and the file's signature.
+//! The MP3 decoder reads all it needs from the frames' headers.
 //!
 //! FFmpeg is built without threads, so it is used from the thread the game runs on alone.
 
@@ -25,6 +26,7 @@ pub const Decoders = struct {
         return .{ .context = decoders, .vtable = &.{
             .openVideo = openVideo,
             .openAudio = openAudio,
+            .openMp3 = openMp3,
             .picture = picture,
             .samples = samples,
             .close = close,
@@ -51,38 +53,44 @@ fn openAudio(_: *anyopaque, audio: bink.Audio) bink.Error!bink.Stream {
     return open(.{ .audio = audio });
 }
 
+fn openMp3(_: *anyopaque) bink.Error!bink.Stream {
+    return open(.mp3);
+}
+
 /// What a stream's decoder is set up for.
 const Setup = union(enum) {
     video: bink.Video,
     audio: bink.Audio,
+    mp3,
 };
 
-/// A decoder set up for `setup`. Its 4 bytes of extra data hold the video's flags, or an audio
-/// track's movie's signature.
+/// A decoder set up for `setup`. A Bink decoder's 4 bytes of extra data hold the video's flags, or
+/// an audio track's movie's signature.
 fn open(setup: Setup) bink.Error!bink.Stream {
     const id: c.enum_AVCodecID = switch (setup) {
         .video => c.AV_CODEC_ID_BINKVIDEO,
         .audio => |audio| if (audio.dct) c.AV_CODEC_ID_BINKAUDIO_DCT else c.AV_CODEC_ID_BINKAUDIO_RDFT,
+        .mp3 => c.AV_CODEC_ID_MP3,
     };
     const decoder = c.avcodec_find_decoder(id) orelse return error.Decoding;
     var context: ?*c.AVCodecContext = c.avcodec_alloc_context3(decoder) orelse return error.OutOfMemory;
     errdefer c.avcodec_free_context(&context);
-    const extradata: [*]u8 = @ptrCast(c.av_mallocz(4 + c.AV_INPUT_BUFFER_PADDING_SIZE) orelse return error.OutOfMemory);
     const set_up = context.?;
-    set_up.extradata = extradata;
-    set_up.extradata_size = 4;
     switch (setup) {
         .video => |video| {
+            const extradata = try extraData(set_up);
             set_up.width = @intCast(video.width);
             set_up.height = @intCast(video.height);
             set_up.codec_tag = signature(video.revision);
             std.mem.writeInt(u32, extradata[0..4], @bitCast(video.flags), .little);
         },
         .audio => |audio| {
+            const extradata = try extraData(set_up);
             set_up.sample_rate = @intCast(audio.rate);
             c.av_channel_layout_default(&set_up.ch_layout, audio.channels);
             std.mem.writeInt(u32, extradata[0..4], signature(audio.revision), .little);
         },
+        .mp3 => {},
     }
     if (c.avcodec_open2(context, decoder, null) < 0) return error.Decoding;
     var packet: ?*c.AVPacket = c.av_packet_alloc() orelse return error.OutOfMemory;
@@ -92,6 +100,15 @@ fn open(setup: Setup) bink.Error!bink.Stream {
     const stream = try std.heap.c_allocator.create(Stream);
     stream.* = .{ .context = set_up, .packet = packet.?, .frame = frame.? };
     return stream;
+}
+
+/// Four bytes of extra data for a Bink decoder, padded as FFmpeg reads past them, which the context
+/// frees as it closes.
+fn extraData(context: *c.AVCodecContext) bink.Error![*]u8 {
+    const extradata: [*]u8 = @ptrCast(c.av_mallocz(4 + c.AV_INPUT_BUFFER_PADDING_SIZE) orelse return error.OutOfMemory);
+    context.extradata = extradata;
+    context.extradata_size = 4;
+    return extradata;
 }
 
 /// The Bink signature a movie of `revision` starts with, as a tag.
@@ -194,4 +211,19 @@ test "a damaged packet fails, and the decoder closes" {
     defer pcm.deinit(std.testing.allocator);
     try std.testing.expectError(error.Decoding, codec.samples(audio, &.{ 1, 2 }, std.testing.allocator, &pcm));
     codec.close(audio);
+}
+
+test "MP3 frames decode to their samples" {
+    var decoders: Decoders = .init();
+    const codec = decoders.codec();
+    const stream = try codec.openMp3();
+    defer codec.close(stream);
+    // Two frames of MPEG-2 Layer III at 22,050 Hz in joint stereo, nothing but their headers set:
+    // silence, 576 samples a channel each.
+    const frame = [_]u8{ 0xFF, 0xF3, 0x80, 0x7C } ++ [_]u8{0} ** 204;
+    var pcm: std.ArrayList(i16) = .empty;
+    defer pcm.deinit(std.testing.allocator);
+    for (0..2) |_| try codec.samples(stream, &frame, std.testing.allocator, &pcm);
+    try std.testing.expectEqual(2 * 576 * 2, pcm.items.len);
+    for (pcm.items) |sample| try std.testing.expectEqual(0, sample);
 }

@@ -193,6 +193,10 @@ and eased toward it past that by a hyperbolic tangent (`cbox.softClip`). **Impro
 ring in the cockpit's cabin, as Betty's warnings do, where the game plays them dry. `--original`
 cuts the peaks and plays the lines dry.
 
+The crew in the rooms speak their lines on voice 2, an MP3 file each, which Miles's MP3 decoder
+(`MP3DEC.ASI`) plays ([The crew](rooms.md#the-crew)). OpenReliant reads the frames
+([MP3 files](../formats/mp3.md)), and FFmpeg's MP3 decoder decodes them.
+
 ## Where the sounds come from
 
 - A shot the step hears (`guns.heard`) plays its gun type's sound following it, on a voice of the

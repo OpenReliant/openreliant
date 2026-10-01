@@ -14,9 +14,8 @@
 //! **Improvement:** the pointer is where the system's is over the window, as it is on the front
 //! end's screens (`canvas.Pointer`). The game adds up DirectInput's movements.
 //!
-//! Not ported: the crew the player passes on the way to the briefing room's door (`vr_crew_pick`,
-//! `0x00437DF0`), a sprite over the movie and a line of speech, which need the MP3 lines of the
-//! discs' archives ([#418](https://github.com/vdmkenny/openreliant/issues/418)).
+//! The crew the player passes on the way to the briefing room's door show over its movie, and
+//! speak (`crew`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -28,12 +27,14 @@ const bink = @import("../../bink.zig");
 const input = @import("../../input.zig");
 const bigfile = @import("../bigfile.zig");
 const cbox = @import("../cbox.zig");
+const gameflow = @import("../gameflow.zig");
 const hog_snd = @import("../hog_snd.zig");
 const videoreports = @import("../videoreports.zig");
 const movie = @import("../xtrabits/movie.zig");
 const canvas = @import("canvas.zig");
 const disc_module = @import("disc.zig");
 
+pub const crew = @import("rooms/crew.zig");
 pub const views = @import("rooms/views.zig");
 
 const log = std.log.scoped(.rooms);
@@ -414,6 +415,12 @@ pub const Context = struct {
     /// `speech_hog`, which holds Enriquez's words in the briefing (`videoreports.speech_archive`);
     /// null where the game's folder has none.
     lines: ?*const hog.Archive = null,
+    /// The campaign flown, whose mission before picks the crew the rooms show (`crew`); none
+    /// outside one.
+    campaign: ?*const gameflow.Campaign = null,
+    /// Which of the Yamato's second crew comes next, which outlasts the rooms; none to start from
+    /// the first each time.
+    second_crew: ?*crew.Turn = null,
 
     /// The file `name` of the disc's archive open, expanded; null where it is left out, which the
     /// log says.
@@ -431,6 +438,13 @@ pub const Context = struct {
     pub fn readBank(context: Context, name: []const u8) ?hog_snd.BankFile {
         const bytes = context.read(name) orelse return null;
         return .of(context.gpa, bytes, name);
+    }
+
+    /// The sprite set `name` of the disc's archive open, with the pictures the mods give in its
+    /// shapes' place; null where it is left out.
+    pub fn readShapes(context: Context, name: []const u8) ?canvas.Shapes {
+        const bytes = context.read(name) orelse return null;
+        return .of(context.gpa, bytes, name, .of(context.disc.mods, name));
     }
 
     /// The speech file `speech` of `speech_hog` (`hog_read_file`), a mod's first
@@ -669,6 +683,8 @@ pub const Rooms = struct {
     /// The news report, while it plays (`0x0051D454`), and the speech it plays through.
     news: ?News = null,
     speech: cbox.Player = .{},
+    /// The crew shown on the way to the briefing room's door, picked as the rooms open.
+    crew: crew.Crew = .{},
 
     /// The rooms before mission `mission` from `view`, its way in shown as it starts, at `now`.
     ///
@@ -682,6 +698,7 @@ pub const Rooms = struct {
         rooms.playHum();
         rooms.shapes = .read(context.gpa, context.resources, pointer_shapes);
         rooms.enter(views.views[view].movie, now, true);
+        rooms.pickCrew(now);
         return rooms;
     }
 
@@ -692,9 +709,23 @@ pub const Rooms = struct {
         rooms.fish.deinit(gpa);
         if (rooms.shapes) |*shapes| shapes.deinit(gpa);
         rooms.context.sound.endAll();
+        rooms.crew.deinit(gpa);
         if (rooms.hum) |file| file.deinit(gpa);
         if (rooms.steps) |file| file.deinit(gpa);
         rooms.* = undefined;
+    }
+
+    /// `vr_crew_pick` as the rooms open (`0x0043A2A8`), or a game loads into them, drawn from a
+    /// generator seeded with `now`.
+    fn pickCrew(rooms: *Rooms, now: u64) void {
+        var fresh: gameflow.Campaign = undefined;
+        const campaign = rooms.context.campaign orelse campaign: {
+            fresh = .begin();
+            break :campaign &fresh;
+        };
+        var prng: std.Random.DefaultPrng = .init(now);
+        var turn: crew.Turn = .{};
+        rooms.crew = .pick(rooms.context, rooms.mission, campaign, prng.random(), rooms.context.second_crew orelse &turn);
     }
 
     fn current(rooms: Rooms) View {
@@ -813,9 +844,7 @@ pub const Rooms = struct {
         rooms.fish.over_food = false;
         rooms.fish.feeding = 0;
         rooms.fish.fed_at = in.ticks;
-        if (rooms.fish.shapes != null) return;
-        const bytes = rooms.context.read(Fish.food) orelse return;
-        rooms.fish.shapes = .of(rooms.context.gpa, bytes, Fish.food, .of(rooms.context.disc.mods, Fish.food));
+        if (rooms.fish.shapes == null) rooms.fish.shapes = rooms.context.readShapes(Fish.food);
     }
 
     /// The exit `exit` taken (`0x0043B40C` on): its way in's sound where it has one, then its way
@@ -828,12 +857,13 @@ pub const Rooms = struct {
             if (rooms.hum) |hum| _ = rooms.context.sound.playInScene(hum.bank, sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         };
         rooms.view = exit;
-        if (next.movie == null) {
+        const way = next.movie orelse {
             rooms.arrived = true;
             rooms.phase = .way_in;
             return false;
-        }
-        rooms.enter(next.movie, in.now, false);
+        };
+        rooms.crew.take(rooms.context.sound, way);
+        rooms.enter(way, in.now, false);
         rooms.arrived = false;
         rooms.hover = null;
         rooms.phase = .way_in;
@@ -919,6 +949,9 @@ pub const Rooms = struct {
         rooms.enter(rooms.current().movie, now, false);
         rooms.arrived = false;
         rooms.phase = .way_in;
+        // The crew picked again for the game loaded (`0x0043A309` on).
+        rooms.crew.deinit(rooms.context.gpa);
+        rooms.pickCrew(now);
     }
 
     /// `news_report` (`0x0043BA40`), at `now`: the mission's report, its first part over the
@@ -1014,6 +1047,7 @@ pub const Rooms = struct {
     /// all on a fast machine. OpenReliant moves it on by the ticks since it last moved.
     pub fn draw(rooms: *Rooms, target: canvas.Canvas, ticks: u32) canvas.Error!void {
         rooms.film.draw(target);
+        if (rooms.news == null) if (rooms.film.frame()) |frame| try rooms.crew.draw(target, frame);
         const label: ?u32 = if (rooms.news != null)
             News.label
         else if (rooms.hover) |place|
@@ -1060,6 +1094,7 @@ pub const Rooms = struct {
 };
 
 test {
+    _ = crew;
     _ = views;
 }
 

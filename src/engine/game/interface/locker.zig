@@ -241,9 +241,7 @@ pub const Locker = struct {
     /// The set `name` from the disc's archive (`hog_read_file`, `0x00436738`), with the pictures the
     /// mods give in its shapes' place; null where it is left out.
     fn readSet(locker: Locker, name: []const u8) ?canvas_module.Shapes {
-        const context = locker.context.rooms;
-        const bytes = context.read(name) orelse return null;
-        var shapes = canvas_module.Shapes.of(context.gpa, bytes, name, .of(context.disc.mods, name)) orelse return null;
+        var shapes = locker.context.rooms.readShapes(name) orelse return null;
         shapes.usePalette(palette_block);
         return shapes;
     }

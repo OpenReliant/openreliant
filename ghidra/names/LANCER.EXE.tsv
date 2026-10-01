@@ -2212,7 +2212,7 @@ address	kind	name	type	comment
 004394d0	function	in_game_options	int (void)	The in-game options over the rooms, interface\ingameop.tga with interface\frntend7.spr: SAVE, LOAD, AUDIO, CONTROL DEVICES, VIDEO, BACK, MAIN MENU, QUIT and ABOUT STARLANCER. Returns 0 for BACK or Escape, 1 once a game is loaded, -1 for the main menu
 004398b0	function	in_game_options_draw	void (void)	in_game_options' render hook: the buttons and their labels, the item under the pointer lit, the panels' labels, ABOUT STARLANCER's box, the dialogs and the pointer
 0042a520	function	about_box	void (void)	ABOUT STARLANCER: reads interface\frntend2.spr and shows its box over in_game_options (about_open) until Escape or a click on OK, once the button comes up
-00437df0	function	vr_crew_pick	void (void)	Picks the crew the rooms show on the way to the briefing room's door, by the last mission's medal and whether it was won: a sprite set (%s.spr) and a line (%s.mp3) from the disc's archive, at random; on the Yamato a second from a list of three it goes round
+00437df0	function	vr_crew_pick	void (void)	Picks the crew the rooms show on the way to the briefing room's door by how mission_number less 1 went: its medal by medal_of_mission, or a promotion, picks the first table; a mission_success of 0, or a pickup, the second; else the third. One of the carrier's table at random (rand), its sprite set (%s.spr) and line (%s.mp3) from the disc's archive; on the Yamato a second from yamato_second_crew, which yamato_crew_next goes round
 00437dd0	function	vr_timer	void __stdcall (uint id, uint message, uint user, uint unused1, uint unused2)	The rooms' timer, 15 times a second (timer_start): counts vr_timer_ticks up
 00461d80	function	speech_play	int __fastcall (SpeechHeader *file, uint flags, int rate, int volume)	speech_start on the first stream free, or -1 for none: the news report's and the induction's scenes, and the briefing's words
 0043efc0	function	itac	void (void)	The ITAC, which Use ITAC opens in the rooms (itac.cpp): its screens from inter\itac\, its fonts, sounds and movies
@@ -2637,3 +2637,17 @@ address	kind	name	type	comment
 004e7b04	data	medal_display_yamato_ribbon_y	int[6]	Where the Yamato's locker shows each ribbon, down
 004e7b1c	data	medal_display_reliant_ribbon_x	int[6]	Where the Reliant's locker shows each ribbon, across
 004e7b34	data	medal_display_reliant_ribbon_y	int[6]	Where the Reliant's locker shows each ribbon, down
+0051da9c	data	crew_first	int	The frame of the way's movie the crew member shows from (vr_draw)
+0051daa0	data	crew_frames	int	For how many frames of the way's movie the crew member shows, after which crew_showing clears
+0051daac	data	crew_line_size	int	The size of crew_line in bytes (hog_file_size), which AIL_set_named_sample_file takes
+0051d49c	data	yamato_crew_first	int	The frame of the way's movie the Yamato's second crew member shows from
+0051d4a0	data	yamato_crew_frames	int	For how many frames the Yamato's second crew member shows
+004e7b4c	data	yamato_crew_counts	int[3]	How many crew each of the Yamato's three tables holds: 5, 5 and 3
+004e7dc8	data	reliant_crew_counts	int[3]	How many crew each of the Reliant's three tables holds: 4, 6 and 5
+004e7b58	data	yamato_crew_honoured	byte[5][48]	The Yamato's crew after a mission that awards a medal, or a promotion: each the sprite set's name (char[20]), the frame shown from and the frames shown (ints at +0x14 and +0x18), and the line's name (char[20] at +0x1C)
+004e7c48	data	yamato_crew_failed	byte[5][48]	The Yamato's crew after a failure, or a pickup, laid out as yamato_crew_honoured
+004e7d38	data	yamato_crew_won	byte[3][48]	The Yamato's crew after any other rating, laid out as yamato_crew_honoured
+004e7dd8	data	reliant_crew_honoured	byte[4][48]	The Reliant's crew after a mission that awards a medal, or a promotion, laid out as yamato_crew_honoured
+004e7e98	data	reliant_crew_failed	byte[6][48]	The Reliant's crew after a failure, or a pickup, laid out as yamato_crew_honoured
+004e7fb8	data	reliant_crew_won	byte[5][48]	The Reliant's crew after any other rating, laid out as yamato_crew_honoured
+004e80a8	data	yamato_second_crew	byte[3][48]	The Yamato's second crew, who come in turn (yamato_crew_next), laid out as yamato_crew_honoured, without lines

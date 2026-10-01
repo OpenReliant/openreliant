@@ -102,17 +102,24 @@ pub const Shape = struct {
 
     /// Expands the rows into one palette index per pixel, row-major. Index 0 is transparent.
     pub fn decode(shape: Shape, gpa: Allocator) (Error || Allocator.Error)![]u8 {
-        const w = shape.width();
-        const h = shape.height();
-        const pixels = try gpa.alloc(u8, @as(usize, w) * h);
+        const pixels = try gpa.alloc(u8, @as(usize, shape.width()) * shape.height());
         errdefer gpa.free(pixels);
-        @memset(pixels, 0);
-
-        var pos: usize = 0;
-        for (0..h) |row| {
-            pos = try decodeRow(shape.rows, pos, pixels[row * w ..][0..w]);
-        }
+        try shape.decodeInto(pixels, null);
         return pixels;
+    }
+
+    /// `decode` into `pixels`, one for each of the shape's, marking in `drawn`, where it is given,
+    /// each pixel a row draws, index 0 among them, as `VFX_shape_draw` writes them: what the rows
+    /// skip, or leave past their end, stays unmarked.
+    pub fn decodeInto(shape: Shape, pixels: []u8, drawn: ?[]bool) Error!void {
+        const w = shape.width();
+        @memset(pixels, 0);
+        if (drawn) |marks| @memset(marks, false);
+        var pos: usize = 0;
+        for (0..shape.height()) |row| {
+            const marks = if (drawn) |all| all[row * w ..][0..w] else null;
+            pos = try decodeRow(shape.rows, pos, pixels[row * w ..][0..w], marks);
+        }
     }
 };
 
@@ -229,7 +236,7 @@ fn readShape(data: []const u8, offset: usize, limit: usize) ?Shape {
     var pos: usize = 0;
     var scratch: [coordinate_limit]u8 = undefined;
     for (0..@intCast(h)) |_| {
-        pos = decodeRow(rows, pos, scratch[0..@intCast(w)]) catch return null;
+        pos = decodeRow(rows, pos, scratch[0..@intCast(w)], null) catch return null;
     }
     return .{ .header = header.*, .rows = rows };
 }
@@ -242,7 +249,7 @@ fn readShape(data: []const u8, offset: usize, limit: usize) ?Shape {
 ///   * even, count > 0     repeat the next byte `count` times
 ///   * odd, count > 0      copy the next `count` bytes
 ///   * `0x01`              skip the next byte's worth of pixels, leaving them transparent
-fn decodeRow(rows: []const u8, start: usize, dest: []u8) Error!usize {
+fn decodeRow(rows: []const u8, start: usize, dest: []u8, drawn: ?[]bool) Error!usize {
     var pos = start;
     var x: usize = 0;
 
@@ -259,6 +266,7 @@ fn decodeRow(rows: []const u8, start: usize, dest: []u8) Error!usize {
             pos += 1;
             const span = @min(count, dest.len -| x);
             @memset(dest[x..][0..span], color);
+            if (drawn) |marks| @memset(marks[x..][0..span], true);
             x += count;
         } else if (count == 0) {
             if (pos >= rows.len) return error.RowTruncated;
@@ -268,6 +276,7 @@ fn decodeRow(rows: []const u8, start: usize, dest: []u8) Error!usize {
             if (pos + count > rows.len) return error.RowTruncated;
             const span = @min(@as(usize, count), dest.len -| x);
             @memcpy(dest[x..][0..span], rows[pos..][0..span]);
+            if (drawn) |marks| @memset(marks[x..][0..span], true);
             pos += count;
             x += count;
         }
@@ -315,22 +324,28 @@ test decodeRow {
 
     // Repeat: 0x08 is even with count 4, so four copies of the colour follow.
     @memset(&row, 0);
-    _ = try decodeRow(&.{ 0x08, 0xAB, 0x00 }, 0, &row);
+    _ = try decodeRow(&.{ 0x08, 0xAB, 0x00 }, 0, &row, null);
     try std.testing.expectEqualSlices(u8, &.{ 0xAB, 0xAB, 0xAB, 0xAB, 0, 0, 0, 0 }, &row);
 
     // Literal: 0x07 is odd with count 3.
     @memset(&row, 0);
-    _ = try decodeRow(&.{ 0x07, 1, 2, 3, 0x00 }, 0, &row);
+    _ = try decodeRow(&.{ 0x07, 1, 2, 3, 0x00 }, 0, &row, null);
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 0, 0, 0, 0, 0 }, &row);
 
     // Skip: 0x01 leaves pixels transparent, then a literal lands after them.
     @memset(&row, 0);
-    _ = try decodeRow(&.{ 0x01, 5, 0x03, 9, 0x00 }, 0, &row);
+    _ = try decodeRow(&.{ 0x01, 5, 0x03, 9, 0x00 }, 0, &row, null);
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 9, 0, 0 }, &row);
 
+    // What the runs draw is marked, index 0 among it; what a skip passes over is not.
+    @memset(&row, 0);
+    var drawn: [8]bool = @splat(false);
+    _ = try decodeRow(&.{ 0x04, 0, 0x01, 2, 0x03, 0, 0x00 }, 0, &row, &drawn);
+    try std.testing.expectEqualSlices(bool, &.{ true, true, false, false, true, false, false, false }, &drawn);
+
     // A row that ends without its terminator is rejected rather than read past.
-    try std.testing.expectError(error.RowTruncated, decodeRow(&.{0x08}, 0, &row));
-    try std.testing.expectError(error.RowTruncated, decodeRow(&.{ 0x07, 1 }, 0, &row));
+    try std.testing.expectError(error.RowTruncated, decodeRow(&.{0x08}, 0, &row, null));
+    try std.testing.expectError(error.RowTruncated, decodeRow(&.{ 0x07, 1 }, 0, &row, null));
 }
 
 test expandPalette {

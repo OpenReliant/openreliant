@@ -68,7 +68,11 @@ whose low bit picks the kind and whose upper seven bits are a count:
 | Odd, count > 0 | Copy the next `count` bytes |
 | `0x01` | Skip the next byte's worth of pixels, leaving them transparent |
 
-Pixels are palette indices and **index 0 is transparent**.
+Pixels are palette indices. What a row skips, or leaves past its end, stays transparent. The game's
+`VFX_shape_draw` (`winvfx16.dll`, `0x10003596`) draws every pixel of a run in its palette colour,
+index 0 included. OpenReliant draws index 0 so only for the crew in the rooms, who show over a
+movie's frame ([The crew](../engine/rooms.md#the-crew)), and leaves it transparent everywhere else
+([#518](https://github.com/vdmkenny/openreliant/issues/518)).
 
 ## Palettes
 

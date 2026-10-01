@@ -426,6 +426,21 @@ pub const Art = struct {
     /// OpenReliant's: where the pictures that stand in for the shapes are read from; the shapes
     /// alone without.
     pictures: ?Pictures = null,
+    /// How the shapes' pixels of index 0 show.
+    index_zero: IndexZero = .clear,
+
+    /// How a set's pixels of index 0 show. What a row skips stays clear either way.
+    ///
+    /// Not ported: index 0 drawn wherever else the game shows it
+    /// ([#518](https://github.com/vdmkenny/openreliant/issues/518)).
+    pub const IndexZero = enum {
+        /// Left clear, as OpenReliant draws the sets.
+        clear,
+        /// Drawn in the palette's colour 0, as `VFX_shape_draw` (`winvfx16.dll`, `0x10003596`)
+        /// draws every pixel of a row's runs: for a shape over a movie's frame copied into the
+        /// frame drawn, as the rooms' crew are.
+        drawn,
+    };
 
     /// OpenReliant's: the files whose pictures stand in for a set's shapes, such as the mods'
     /// (`bigfile.Mods.pictures`), each named for its shape (`spr.pictureName`). A picture of any
@@ -474,8 +489,7 @@ pub const Art = struct {
     }
 
     /// The image of the shape at `index`, made the first time it is drawn: the picture in its place
-    /// where there is one (`picture`), else the shape's own, whose index 0 is clear, as it is
-    /// wherever the sprites are drawn.
+    /// where there is one (`picture`), else the shape's own, its index 0 as `index_zero` has it.
     fn image(art: *Art, gpa: Allocator, index: usize) (spr.Error || Allocator.Error)!?*srtexture.Image {
         if (index >= art.images.len) return null;
         if (art.images[index]) |*made| return made;
@@ -488,14 +502,22 @@ pub const Art = struct {
         var expanded: [spr.palette_size]u8 = undefined;
         spr.expandPalette(palette, &expanded);
 
-        const indices = try found.decode(gpa);
+        const count = @as(usize, found.width()) * found.height();
+        const indices = try gpa.alloc(u8, count);
         defer gpa.free(indices);
-        const rgba = try gpa.alloc(u8, indices.len * 4);
+        const drawn: ?[]bool = switch (art.index_zero) {
+            .clear => null,
+            .drawn => try gpa.alloc(bool, count),
+        };
+        defer if (drawn) |marks| gpa.free(marks);
+        try found.decodeInto(indices, drawn);
+        const rgba = try gpa.alloc(u8, count * 4);
         errdefer gpa.free(rgba);
         for (indices, 0..) |at, pixel| {
             const entry = expanded[@as(usize, at) * 3 ..][0..3];
             for (0..3) |channel| rgba[pixel * 4 + channel] = entry[channel];
-            rgba[pixel * 4 + 3] = if (at == 0) 0 else 255;
+            const shows = if (drawn) |marks| marks[pixel] else at != 0;
+            rgba[pixel * 4 + 3] = if (shows) 255 else 0;
         }
         art.images[index] = try srtexture.Image.single(gpa, found.width(), found.height(), rgba);
         return &art.images[index].?;
@@ -5040,6 +5062,23 @@ test "a mod's picture stands in for a shape, over the shape's place" {
     const before = recorder.draws.items.len;
     try drawShapeWith(&art, gpa, into, 1, .{ 10, 20 }, .{ 1, 1, 1, 1 }, 2, .{ .shake = .{ .hit_shake = 1, .interference = 0, .random = &random } });
     try std.testing.expectEqual(before + 2, recorder.draws.items.len);
+}
+
+test "a shape's pixels of index 0 show as the art has them" {
+    const gpa = std.testing.allocator;
+    const bytes = try spr.testing.paletteAndShape(gpa);
+    defer gpa.free(bytes);
+    // The shape's first row a run of index 0; its second skips two pixels and draws one.
+    bytes[bytes.len - 7] = 0;
+    const clear = [_]u8{ 0, 0, 0, 0, 0, 255 };
+    const drawn = [_]u8{ 255, 255, 255, 0, 0, 255 };
+    for ([_]Art.IndexZero{ .clear, .drawn }, [_][6]u8{ clear, drawn }) |index_zero, alphas| {
+        var art: Art = try .init(gpa, try .parse(bytes), null, null);
+        defer art.deinit(gpa);
+        art.index_zero = index_zero;
+        const image = (try art.image(gpa, 1)).?;
+        for (alphas, 0..) |alpha, pixel| try std.testing.expectEqual(alpha, image.levels[0].rgba[pixel * 4 + 3]);
+    }
 }
 
 test "an image cut to a clip keeps the part of it inside" {

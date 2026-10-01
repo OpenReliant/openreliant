@@ -300,6 +300,28 @@ pub fn nextMission(mission: u16) u16 {
     };
 }
 
+/// The mission the campaign comes to mission `mission` from (`nextMission`): 11 before 14, 16
+/// before 18 and 21 before 23, else the number before; none before the first.
+pub fn previousMission(mission: u16) ?u16 {
+    return switch (mission) {
+        0, first_mission => null,
+        14 => 11,
+        18 => 16,
+        23 => 21,
+        else => mission - 1,
+    };
+}
+
+test previousMission {
+    try std.testing.expectEqual(null, previousMission(first_mission));
+    // Each mission the campaign flies comes after the one before it.
+    for (first_mission + 1..last_mission + 1) |number| {
+        const mission: u16 = @intCast(number);
+        if (mission == 12 or mission == 13 or mission == 17 or mission == 22) continue;
+        try std.testing.expectEqual(mission, nextMission(previousMission(mission).?));
+    }
+}
+
 /// The number the player sees for mission `mission` (`mission_display_numbers`, `0x004E5C78`):
 /// the campaign's missions counted in the order they are flown, 1 to 24, which the autosaves'
 /// names and the saved games' list show.

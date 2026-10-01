@@ -484,6 +484,33 @@ pub const Sound = struct {
         sound.start(bank, index, volume, pitch, loops, pan, v);
     }
 
+    /// A line of speech, the WAVE file `file`, on voice `v`, which it holds so that no other sound
+    /// takes it over: what the voice played ended, once, in the middle, as the rooms play their
+    /// crew's lines (`0x0043B598` on). `file` outlives it. Not the game's: it rings in what
+    /// surrounds the camera, as the rooms' other sounds do (`inScene`).
+    ///
+    /// **Fix:** it plays at the speech volume, scaled by the master volume. The game sets the
+    /// sample to full volume itself, whatever the settings.
+    pub fn speakOn(sound: *Sound, v: u8, file: []const u8) void {
+        const driver = sound.driver orelse return;
+        if (v >= sound.voice_count) return;
+        if (driver.sampleStatus(sound.voices[v].sample) != .done) sound.endVoice(v);
+        const voice = &sound.voices[v];
+        voice.held = 1;
+        driver.initSample(voice.sample);
+        if (!driver.setSampleFile(voice.sample, file)) {
+            log.warn("a line of speech cannot be played", .{});
+            return;
+        }
+        driver.setSampleRoom(voice.sample, .scene);
+        driver.setSampleVolume(voice.sample, sound.speechVolume(loudest));
+        driver.setSampleLoopCount(voice.sample, once);
+        driver.setSamplePan(voice.sample, centre);
+        voice.fading = 0;
+        voice.volume = loudest;
+        driver.startSample(voice.sample);
+    }
+
     /// `sound_start` (`0x004826A0`): hands Miles the WAVE file at the entry's offset in the bank,
     /// at its rate moved by `pitch`, and at `volume` scaled by the effects volume and the master
     /// volume.
@@ -1042,6 +1069,24 @@ test "Sound.playInScene plays as play does" {
     const bank = try fat.Bank.parse(&bytes);
     try std.testing.expectEqual(1, sound.playInScene(bank, 0, loudest, once, centre, own_pitch));
     try std.testing.expect(sound.voicePlaying(1));
+}
+
+test "Sound.speakOn holds its voice" {
+    var mixer: mss.Mixer = .init(22050);
+    var sound: Sound = undefined;
+    sound.init(mixer.driver(), 3, null);
+    const bytes = comptime testing.bank(1);
+    const bank = try fat.Bank.parse(&bytes);
+    // What the voice played ends, and the line plays on it, held.
+    sound.playOn(2, bank, 0, loudest, forever, centre, own_pitch);
+    sound.speakOn(2, testing.sound_file);
+    try std.testing.expect(sound.voicePlaying(2));
+    try std.testing.expectEqual(1, sound.voices[2].held);
+    // No other sound takes it over.
+    for (0..3) |_| try std.testing.expect(sound.play(bank, 0, loudest, once, centre, own_pitch) != 2);
+    // Ended, it is let go.
+    sound.endVoice(2);
+    try std.testing.expectEqual(0, sound.voices[2].held);
 }
 
 test BankFile {

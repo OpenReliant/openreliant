@@ -25,7 +25,7 @@ pub const Error = container.Error || Allocator.Error || error{Decoding};
 /// A stream a `Codec` decodes: a movie's video, or one of its audio tracks.
 pub const Stream = *anyopaque;
 
-/// What decodes a movie's packets.
+/// What decodes a movie's packets, and an MP3 file's frames (`openMp3`).
 pub const Codec = struct {
     context: *anyopaque,
     vtable: *const VTable,
@@ -33,6 +33,9 @@ pub const Codec = struct {
     pub const VTable = struct {
         openVideo: *const fn (*anyopaque, Video) Error!Stream,
         openAudio: *const fn (*anyopaque, Audio) Error!Stream,
+        /// An MP3 file's audio, its frames (`formats/mp3.zig`) handed to `samples` in turn: the
+        /// lines of the rooms' crew, which Miles's MP3 decoder (`MP3DEC.ASI`) plays in the game.
+        openMp3: *const fn (*anyopaque) Error!Stream,
         /// The picture of the video's next packet, which holds until the next.
         picture: *const fn (*anyopaque, Stream, []const u8) Error!Picture,
         /// Appends the samples of the audio's next packet to `pcm`, 16-bit and interleaved.
@@ -45,6 +48,9 @@ pub const Codec = struct {
     }
     pub fn openAudio(codec: Codec, audio: Audio) Error!Stream {
         return codec.vtable.openAudio(codec.context, audio);
+    }
+    pub fn openMp3(codec: Codec) Error!Stream {
+        return codec.vtable.openMp3(codec.context);
     }
     pub fn picture(codec: Codec, stream: Stream, packet: []const u8) Error!Picture {
         return codec.vtable.picture(codec.context, stream, packet);
@@ -314,8 +320,8 @@ pub const Bink = struct {
 pub const testing = struct {
     /// A codec for the tests: each picture the movie's size, at most 8 by 6, and grey, its level
     /// of Y 16 more than 16 times the video packet's first byte (in `container.testing.movie`, its
-    /// frame's number); each audio packet's bytes past the size as samples. It counts the pictures
-    /// it makes, and the streams open.
+    /// frame's number); each audio packet's bytes past the size, or an MP3 frame's past its
+    /// header, as samples. It counts the pictures it makes, and the streams open.
     pub const Decoders = struct {
         width: u32 = 0,
         height: u32 = 0,
@@ -328,6 +334,7 @@ pub const testing = struct {
             return .{ .context = test_codec, .vtable = &.{
                 .openVideo = openVideo,
                 .openAudio = openAudio,
+                .openMp3 = openMp3,
                 .picture = pictureOf,
                 .samples = samples,
                 .close = close,
@@ -344,6 +351,10 @@ pub const testing = struct {
             return context;
         }
         fn openAudio(context: *anyopaque, _: Audio) Error!Stream {
+            of(context).streams += 1;
+            return context;
+        }
+        fn openMp3(context: *anyopaque) Error!Stream {
             of(context).streams += 1;
             return context;
         }

@@ -4,13 +4,12 @@ The hub a single-player campaign comes back to between missions: the Reliant's r
 
 ## In OpenReliant
 
-[`game/interface/rooms.zig`](../../src/engine/game/interface/rooms.zig) holds the rooms and the news report, and [`rooms/views.zig`](../../src/engine/game/interface/rooms/views.zig) their views, which `tablegen rooms` reads out of the executable (`make room-tables`). [`induction.zig`](../../src/engine/game/interface/induction.zig) holds the induction, [`in_game_options.zig`](../../src/engine/game/interface/in_game_options.zig) the in-game options, [`restart.zig`](../../src/engine/game/interface/restart.zig) the restart screen, [`game/winmain.zig`](../../src/engine/game/winmain.zig) what `WinMain` does as a campaign starts (`CampaignStart`) and after each mission (`afterMission`), and [`game/gameflow.zig`](../../src/engine/game/gameflow.zig) the campaign it carries from one mission to the next. The driver runs each in a loop of its own ([`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), and plays the movies between them as the game plays them ([Movies](movies.md)).
+[`game/interface/rooms.zig`](../../src/engine/game/interface/rooms.zig) holds the rooms and the news report, [`rooms/views.zig`](../../src/engine/game/interface/rooms/views.zig) their views, which `tablegen rooms` reads out of the executable (`make room-tables`), and [`rooms/crew.zig`](../../src/engine/game/interface/rooms/crew.zig) the crew ([The crew](#the-crew)). [`induction.zig`](../../src/engine/game/interface/induction.zig) holds the induction, [`in_game_options.zig`](../../src/engine/game/interface/in_game_options.zig) the in-game options, [`restart.zig`](../../src/engine/game/interface/restart.zig) the restart screen, [`game/winmain.zig`](../../src/engine/game/winmain.zig) what `WinMain` does as a campaign starts (`CampaignStart`) and after each mission (`afterMission`), and [`game/gameflow.zig`](../../src/engine/game/gameflow.zig) the campaign it carries from one mission to the next. The driver runs each in a loop of its own ([`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), and plays the movies between them as the game plays them ([Movies](movies.md)).
 
 The pilot roster's START GAME leads into the rooms, through the induction for mission 1; its LOAD GAME, into the rooms before the loaded game's mission, as START GAME would, through the induction where that is mission 1 ([Front end](front-end.md#the-saved-games)). The briefing room's door leads to the briefing ([Briefing](briefing.md)), and then to the mission, after the hangar's movie. Use ITAC opens the ITAC ([The ITAC](itac.md)), Enter Simulator Pod the pod ([The simulator pod](simulator-pod.md)), Open Locker the locker ([The locker](locker.md)), and Use CD player the CD player ([The CD player](cd-player.md)). The in-game options' MAIN MENU leads back to the main menu, and QUIT quits. After the mission the campaign goes on through the rooms to the next briefing, or through the restart screen to the same mission ([After a mission](#after-a-mission)). While the window is away, the rooms' loops pause the music and the voices, as the message pump does; the game's pump also waits for the window to come back, where the rooms go on.
 
 Not ported:
 
-- The crew the player passes on the way to the briefing room's door, a sprite over the movie and a line of speech ([#418](https://github.com/vdmkenny/openreliant/issues/418)).
 - The pilot's profile, which the rooms write with the call sign as they open (`profile_save`), and a mission's end writes with the pilot's records ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
 - The story's end after the last mission ([#416](https://github.com/vdmkenny/openreliant/issues/416)): OpenReliant goes back to the main menu.
 
@@ -27,7 +26,7 @@ Not ported:
 - OpenReliant's version is written in the window's corner of the in-game options, as on the front end's screens. The rooms, the news report and the induction don't show it.
 - The in-game options' ABOUT STARLANCER is ABOUT OPENRELIANT ([The in-game options](#the-in-game-options)).
 - The loudest peaks of Enriquez's scenes are rounded off, as the radio's lines' are ([Radio](radio.md)). `--original` cuts them flat.
-- The rooms' sounds, the hum, the steps and the doors, ring subtly in a small room of the ship, and Enriquez's scenes on the television and the monitors as the radio's voices do, in the cockpit's cabin, as over a speaker ([Sound](../port/sound.md#openal-soft)); the game plays them dry. `--no-reverb` and `--original` leave the rooms out.
+- The rooms' sounds, the hum, the steps, the doors and the crew's lines, ring subtly in a small room of the ship, and Enriquez's scenes on the television and the monitors as the radio's voices do, in the cockpit's cabin, as over a speaker ([Sound](../port/sound.md#openal-soft)); the game plays them dry. `--no-reverb` and `--original` leave the rooms out.
 
 ## A campaign's start
 
@@ -152,12 +151,33 @@ The report runs a loop of its own inside the rooms, which draws with the rooms' 
 
 **Fix:** the game takes the scene's name from the table on its stack by the mission's number, and outside missions 1 to 28 reads what lies either side of it. OpenReliant has no report there, and the rooms go on.
 
+## The crew
+
+As the rooms open, `vr_crew_pick` (`0x00437DF0`) picks the crew the player passes on the way to the briefing room's door, by how the mission before went (`0x00437E33` on): one kind after a mission that awards a medal by its table, whether or not the pilot won it, or a promotion at its end; another after a failure, or a pickup by a nanny ship; and a third after any other rating, the partial failure's among them. It draws one of the carrier's crew of that kind at random, each a sprite set from the disc's archive and a line, an MP3 file. It picks again as a game loads into the rooms, and as they open again after the briefing.
+
+| Carrier | A medal or a promotion | A failure or a pickup | Any other rating | From frame | Frames |
+|---|---|---|---|---|---|
+| The Reliant | `rovh`, `rovi`, `rovk`, `rovl` | `rovm` to `rovr` | `rovc` to `rovg` | 93 | 89 to 106 |
+| The Yamato | `yovg`, `yovh`, `yovj`, `yovk`, `yovl` | `yovm`, `yovn`, `yovp`, `yovq`, `yovr` | `yovb`, `yovc`, `yovf` | 2 | 64 to 116 |
+
+Each line is named for a mission and its kind, `p`, `n` or `g`: `rm06p.mp3` is `rovh`'s. On the Yamato a second crew member shows after the first, without a line: `yovs`, `yovt` and `yovu` in turn (`0x005202F4`), from frame 117. The tables of the crew lie from `0x004E7B58`, `0x30` bytes each: the set's name, the frame of the way's movie the crew member shows from and for how many frames, and the line's name.
+
+Taking the way to the briefing room's door, `rel_bunkroom2briefing_door.bik` on the Reliant and `bunk2wr.bik` on the Yamato, where the second shows too, starts the crew showing and plays the line (`0x0043B4EF` on), as does any way taken while they still show. The line plays on voice 2, which it holds so that no other sound takes it over, once, in the middle. The drawing shows each crew member over the way's movie from their first frame, a shape for each frame drawn at (1, 1), its pixels of index 0 drawn black ([Sprites](../formats/spr.md#rows)), until their frames run out.
+
+**Fixes:**
+
+- The mission before is the one the campaign came from. The game takes the number before the rooms' mission, so that after missions 11, 16 and 21, each of which awards a medal, it reads the records of missions 13, 17 and 22, which the campaign skips.
+- How the mission before was rated is what the campaign's records keep of it. The game reads the script's rating among the game's variables, which a saved game doesn't keep, so that after a game loads the crew are those of a failure. Before the first mission, both read the rating a campaign starts with, a partial failure.
+- The line plays at the speech volume, scaled by the master volume. The game sets voice 2 to full volume itself, whatever the settings.
+
+**Improvement:** the crew member is drawn from `std.Random`, where the game uses `rand()`.
+
 ## The drawing
 
 `vr_draw` (`0x0043C1C0`), the rooms' render hook:
 
 1. The movie's next frame, once due, copied to the screen. At its last: on the way in, the view is arrived in; settled, the loop goes back to its second frame, its first frame's pictures put back first (`0x0051D9D8`), or the fish tank's next movie opens; otherwise the last frame stays.
-2. The crew, where one shows ([#418](https://github.com/vdmkenny/openreliant/issues/418)).
+2. The crew, where they show ([The crew](#the-crew)).
 3. The label: the news report's, the exit's under the pointer, or the food's.
 4. The fish's food, while it falls.
 5. The pointer.

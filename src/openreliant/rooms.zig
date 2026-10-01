@@ -120,8 +120,10 @@ pub const Driver = struct {
     rooms_mission: u16 = 0,
     pod: ?simulator_pod.Pod = null,
     pod_kills: i32 = 0,
-    /// The CD player's volume, which lasts while the game runs.
+    /// The CD player's volume, and which of the Yamato's second crew comes next, which last while
+    /// the game runs.
     cd_volume: cd_player.Volume = cd_player.full_volume,
+    crew_turn: rooms.crew.Turn = .{},
 
     /// What `WinMain` does as a single-player campaign starts, or is loaded, before mission
     /// `mission` (`winmain.CampaignStart`), then the rooms. Null where the game quits meanwhile.
@@ -275,6 +277,8 @@ pub const Driver = struct {
             .sound = driver.sound,
             .speech = driver.speech,
             .lines = driver.lines,
+            .campaign = if (driver.campaign_flown.*) |*going| going else null,
+            .second_crew = &driver.crew_turn,
         };
     }
 

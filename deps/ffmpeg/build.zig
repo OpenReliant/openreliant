@@ -1,13 +1,15 @@
-//! Builds the part of FFmpeg that plays the game's movies as a static library: its Bink video and
-//! audio decoders (`libavcodec/bink.c`, `libavcodec/binkaudio.c`) and what of `libavcodec` and
-//! `libavutil` they need, in plain C, without FFmpeg's assembly or threads. OpenReliant reads the
-//! Bink container itself (`src/formats/bink.zig`), so none of `libavformat` is built. FFmpeg is
-//! LGPL-2.1 or later (the upstream's `LICENSE.md`), and none of its GPL parts is built.
+//! Builds the part of FFmpeg that plays the game's movies and its MP3 lines as a static library:
+//! its Bink video and audio decoders (`libavcodec/bink.c`, `libavcodec/binkaudio.c`), its MP3
+//! decoder (`libavcodec/mpegaudiodec_float.c`), and what of `libavcodec` and `libavutil` they need,
+//! in plain C, without FFmpeg's assembly or threads. OpenReliant reads the Bink container and the
+//! MP3 frames itself (`src/formats/bink.zig`, `src/formats/mp3.zig`), so none of `libavformat` is
+//! built. FFmpeg is LGPL-2.1 or later (the upstream's `LICENSE.md`), and none of its GPL parts is
+//! built.
 //!
 //! The files and the configuration are those FFmpeg's `configure` gives for `--disable-everything
-//! --disable-asm --disable-pthreads --enable-decoder=bink,binkaudio_rdft,binkaudio_dct`, less
-//! what nothing reaches from the decoding calls: the objects a program using them links, and the
-//! settings those files read. The one addition is `libavutil/sha.c`, which the random seed falls
+//! --disable-asm --disable-pthreads --enable-decoder=bink,binkaudio_rdft,binkaudio_dct,mp3float`,
+//! less what nothing reaches from the decoding calls: the objects a program using them links, and
+//! the settings those files read. The one addition is `libavutil/sha.c`, which the random seed falls
 //! back on where no system source of random numbers is set up, as none is here. The version is
 //! the manifest's, which names the upstream's release.
 //!
@@ -47,6 +49,7 @@ pub fn build(b: *std.Build) void {
         .CONFIG_BINK_DECODER = true,
         .CONFIG_BINKAUDIO_DCT_DECODER = true,
         .CONFIG_BINKAUDIO_RDFT_DECODER = true,
+        .CONFIG_MP3FLOAT_DECODER = true,
     });
     const avconfig = b.addConfigHeader(.{ .style = .blank, .include_path = "libavutil/avconfig.h" }, .{
         .AV_HAVE_BIGENDIAN = false,
@@ -64,6 +67,7 @@ pub fn build(b: *std.Build) void {
         \\    &ff_bink_decoder,
         \\    &ff_binkaudio_dct_decoder,
         \\    &ff_binkaudio_rdft_decoder,
+        \\    &ff_mp3float_decoder,
         \\    NULL };
         \\
     );
@@ -134,11 +138,23 @@ const sources = [_][]const u8{
     "libavcodec/bsf.c",
     "libavcodec/codec_desc.c",
     "libavcodec/codec_par.c",
+    "libavcodec/dct32_fixed.c",
+    "libavcodec/dct32_float.c",
     "libavcodec/decode.c",
     "libavcodec/encode.c",
     "libavcodec/exif.c",
     "libavcodec/get_buffer.c",
     "libavcodec/hpeldsp.c",
+    "libavcodec/mpegaudio.c",
+    "libavcodec/mpegaudiodata.c",
+    "libavcodec/mpegaudiodec_common.c",
+    "libavcodec/mpegaudiodec_float.c",
+    "libavcodec/mpegaudiodecheader.c",
+    "libavcodec/mpegaudiodsp.c",
+    "libavcodec/mpegaudiodsp_data.c",
+    "libavcodec/mpegaudiodsp_fixed.c",
+    "libavcodec/mpegaudiodsp_float.c",
+    "libavcodec/mpegaudiotabs.c",
     "libavcodec/options.c",
     "libavcodec/packet.c",
     "libavcodec/profiles.c",
@@ -155,11 +171,14 @@ const sources = [_][]const u8{
     "libavutil/channel_layout.c",
     "libavutil/container_fifo.c",
     "libavutil/cpu.c",
+    "libavutil/crc.c",
     "libavutil/dict.c",
     "libavutil/display.c",
     "libavutil/error.c",
     "libavutil/eval.c",
     "libavutil/fifo.c",
+    "libavutil/float_dsp.c",
+    "libavutil/float_scalarproduct.c",
     "libavutil/frame.c",
     "libavutil/hwcontext.c",
     "libavutil/imgutils.c",
