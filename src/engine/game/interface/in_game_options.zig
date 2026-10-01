@@ -51,8 +51,9 @@ pub const rects = std.EnumArray(Item, Rect).init(.{
 const Label = canvas_module.Label;
 const Button = canvas_module.Button;
 
-/// A panel's label, in the large font, centred under it, and its shape under the pointer.
-const Panel = struct { label: Label, lit_shape: u8, lit_at: [2]i32 };
+/// A panel's label, in the large font, centred under it, and its shape under the pointer, as GAME
+/// OPTIONS' icons have them too.
+pub const Panel = struct { label: Label, lit_shape: u8, lit_at: [2]i32 };
 
 /// The buttons' shapes, as they stand and lit.
 const button_shapes: Button.Pair = .{ .off = 0x1C, .lit = 0x1D };

@@ -40,11 +40,8 @@ pub const rects = std.EnumArray(Item, Rect).init(.{
     .about = .{ .x = 292, .y = 421, .width = 25, .height = 16 },
 });
 
-/// An icon's label, in the large font, centred under it, and its shape under the pointer
-/// (`0x0042B091` on).
-const Icon = struct { label: Label, lit_shape: u8, lit_at: [2]i32 };
-
-fn icon(item: Item) ?Icon {
+/// An icon's label and its shape under the pointer (`0x0042B091` on).
+fn icon(item: Item) ?in_game_options.Panel {
     return switch (item) {
         .audio => .{ .label = .of(0x109, .{ 133, 319 }, .centre), .lit_shape = 0x13, .lit_at = .{ 35, 155 } },
         .control_devices => .{ .label = .of(0x10A, .{ 320, 319 }, .centre), .lit_shape = 0x14, .lit_at = .{ 202, 160 } },
