@@ -57,6 +57,8 @@ pub const Field = enum {
     author,
     /// What it changes, in a line.
     description,
+    /// Its page on the web, where it comes from.
+    url,
 
     /// Its key, which the manifest gives in any case.
     pub fn key(field: Field) []const u8 {
@@ -65,6 +67,7 @@ pub const Field = enum {
             .version => "Version",
             .author => "Author",
             .description => "Description",
+            .url => "Url",
         };
     }
 };
@@ -600,7 +603,7 @@ test Mods {
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/Alpha/Ship.SHP", .data = "alpha's ship" });
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/Alpha/logo.tga", .data = "alpha's logo" });
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/Alpha/textures/hull.png", .data = "left out" });
-    try tmp.dir.writeFile(io, .{ .sub_path = "Mods/Alpha/MOD.INI", .data = "[Mod]\r\nName=Alpha\r\nVersion=1.2\r\nAuthor=Someone\r\nDescription=\r\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "Mods/Alpha/MOD.INI", .data = "[Mod]\r\nName=Alpha\r\nVersion=1.2\r\nAuthor=Someone\r\nDescription=\r\nURL=https://example.com/alpha\r\n" });
     const stream = try refpack.compressAlloc(gpa, "abcdabcdabcdabcdabcd");
     defer gpa.free(stream);
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/Alpha/packed.dat", .data = stream });
@@ -643,6 +646,7 @@ test Mods {
     try std.testing.expectEqualStrings("Alpha", alpha.about(.name).?);
     try std.testing.expectEqualStrings("1.2", alpha.about(.version).?);
     try std.testing.expectEqual(null, alpha.about(.description));
+    try std.testing.expectEqualStrings("https://example.com/alpha", alpha.about(.url).?);
     try std.testing.expect(!mods.has("mod.ini"));
     var buffer: [64]u8 = undefined;
     try std.testing.expectEqualStrings("Alpha 1.2, by Someone (Alpha)", try std.fmt.bufPrint(&buffer, "{f}", .{alpha}));

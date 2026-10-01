@@ -98,9 +98,11 @@ Name=Coyote HD
 Version=1.0
 Author=Someone
 Description=The Coyote, modelled again.
+Url=https://example.com/coyote-hd
 ```
 
-Each key is optional. The game asks for no file of this name, so the archive stays one the original
+Each key is optional, and found whatever its case. `Url` is the mod's page on the web, where a
+player finds it and its updates. The game asks for no file of this name, so the archive stays one the original
 reads, and the manifest stands in for none of the game's files.
 
 ## The thumbnail
