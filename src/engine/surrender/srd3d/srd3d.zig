@@ -321,6 +321,20 @@ pub const Driver = struct {
         return drawn.object.light_mask;
     }
 
+    /// Whether a surface's second pass is drawn: where its material has one, but for a highlight
+    /// pass over a texture whose material map the device shades, whose highlights stand in for it.
+    ///
+    /// **Improvement:** a material of a mod's lights its own highlights, as its maps describe them.
+    fn drawsSecond(driver: *const Driver, surface: *const srapiext.Surface) bool {
+        if (!surface.material.two_pass) return false;
+        if (surface.textures[1] != .highlight) return true;
+        const image = switch (surface.textures[0]) {
+            .image => |image| image,
+            .none, .highlight => return true,
+        };
+        return image.maps.orm == null or !driver.target.shadesMaterials();
+    }
+
     /// The render states for a pass (`set_material`, `0x10001B20`, and `set_depth`, `0x100018B0`).
     fn state(driver: *Driver, surface: *const srapiext.Surface, pass: u1, layer: Layer) device.State {
         const material = surface.material;
@@ -359,7 +373,7 @@ pub const Driver = struct {
             const visible = drawn.visible[at..][0..count];
             if (surface.material.blend[0] == .off) {
                 try driver.drawPass(drawn, visible, surface, 0, layer);
-                if (surface.material.two_pass) try driver.drawPass(drawn, visible, surface, 1, layer);
+                if (driver.drawsSecond(surface)) try driver.drawPass(drawn, visible, surface, 1, layer);
             } else {
                 for (visible) |v| try blended.add(polygonDeferred(drawn, surface, @intCast(index), v));
             }
@@ -493,7 +507,7 @@ pub const Driver = struct {
         const driver = from(ptr);
         for (list) |item| driver.drawDeferred(item, 0, layer);
         for (list) |item| {
-            if (item.surface.material.two_pass) driver.drawDeferred(item, 1, layer);
+            if (driver.drawsSecond(item.surface)) driver.drawDeferred(item, 1, layer);
         }
     }
 

@@ -492,6 +492,8 @@ pub const Mods = struct {
                 } else if (own.kindOf(name)) |kind| switch (kind) {
                     .file => log.info("{s} replaces {s}", .{ mod.name, name }),
                     .texture => log.info("{s} replaces the texture {s}", .{ mod.name, name[0 .. name.len - srtexture.picture_extension.len] }),
+                } else if (own.mapOf(name)) |map| {
+                    log.info("{s} gives the texture {s} its {s}", .{ mod.name, map.texture, map.kind.label() });
                 } else {
                     log.info("{s} adds {s}", .{ mod.name, name });
                 }
@@ -576,6 +578,25 @@ const GameFiles = struct {
             return err;
         };
         slot.value_ptr.* = kind;
+    }
+
+    /// A material map of one of the cache's textures (`srtexture.MapFile`).
+    const Map = struct { texture: []const u8, kind: srtexture.MapFile };
+
+    /// The texture of the cache the file `name` is a material map of, `<texture>_<map>.png`, and
+    /// which map; null where it is none.
+    fn mapOf(gathered: GameFiles, name: []const u8) ?Map {
+        if (!std.ascii.endsWithIgnoreCase(name, srtexture.picture_extension)) return null;
+        const stem = name[0 .. name.len - srtexture.picture_extension.len];
+        for (std.enums.values(srtexture.MapFile)) |kind| {
+            const suffix = kind.suffix();
+            if (stem.len <= suffix.len or !std.ascii.endsWithIgnoreCase(stem, suffix)) continue;
+            const texture = stem[0 .. stem.len - suffix.len];
+            var buffer: [files.max_path]u8 = undefined;
+            const picture = std.fmt.bufPrint(&buffer, "{s}" ++ srtexture.picture_extension, .{texture}) catch continue;
+            if (gathered.kindOf(picture) == .texture) return .{ .texture = texture, .kind = kind };
+        }
+        return null;
     }
 
     /// What the game's file of the name `name` is, whatever its case; null where it has none.

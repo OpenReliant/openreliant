@@ -214,6 +214,10 @@ pub const Device = struct {
         /// (`sr + 0x38` bit 0 clear), and the brightness can't be set. A screenshot keeps the frame
         /// as drawn, as the game's did, the ramp being the display's.
         gamma: ?*const fn (*anyopaque, f32) void = null,
+        /// OpenReliant's: whether it shades a texture's material maps (`srtexture.Image.Maps`),
+        /// whose highlights then stand in for the driver's highlight pass. A device without it
+        /// shades none.
+        materials: ?*const fn (*anyopaque) bool = null,
     };
 
     pub fn begin(device: Device) void {
@@ -260,6 +264,12 @@ pub const Device = struct {
     pub fn gamma(device: Device, brightness: f32) void {
         const set = device.vtable.gamma orelse return;
         set(device.ptr, brightness);
+    }
+
+    /// Whether the device shades material maps.
+    pub fn shadesMaterials(device: Device) bool {
+        const shades = device.vtable.materials orelse return false;
+        return shades(device.ptr);
     }
 };
 

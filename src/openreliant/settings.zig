@@ -60,6 +60,7 @@ const keys = [_]Key{
     .{ .name = dither_key, .takes = on_off, .read = onOff("settings.dither") },
     .{ .name = pixel_lighting_key, .takes = on_off, .read = onOff("settings.pixel_lighting") },
     .{ .name = linear_light_key, .takes = on_off, .read = onOff("settings.linear_light") },
+    .{ .name = materials_key, .takes = on_off, .read = onOff("settings.materials") },
     .{ .name = shadows_key, .takes = "off, low or high", .read = byOption(.@"--shadows") },
     .{ .name = cockpit_shadows_key, .takes = on_off, .read = onOff("settings.cockpit_shadows") },
     .{ .name = smooth_motion_key, .takes = on_off, .read = onOff("smooth_motion") },
@@ -82,6 +83,7 @@ const bloom_key = "Bloom";
 const dither_key = "Dither";
 const pixel_lighting_key = "PixelLighting";
 const linear_light_key = "LinearLight";
+const materials_key = "Materials";
 const shadows_key = "Shadows";
 const cockpit_shadows_key = "CockpitShadows";
 const smooth_motion_key = "SmoothMotion";
@@ -94,6 +96,7 @@ const compressor_key = "Compressor";
 const graphics_keys = [_]struct { field: []const u8, name: []const u8 }{
     .{ .field = "pixel_lighting", .name = pixel_lighting_key },
     .{ .field = "linear_light", .name = linear_light_key },
+    .{ .field = "materials", .name = materials_key },
     .{ .field = "shadows", .name = shadows_key },
     .{ .field = "cockpit_shadows", .name = cockpit_shadows_key },
     .{ .field = "shot_lights", .name = shot_lights_key },
@@ -264,6 +267,7 @@ pub const Own = struct {
         const gpu = display.gpu() orelse return;
         var wanted = gpu.settings;
         wanted.pixel_lighting = chosen.pixel_lighting;
+        wanted.materials = chosen.materials;
         wanted.shadows = sameTag(platform.gpu.Settings.Shadows, chosen.shadows);
         wanted.cockpit_shadows = chosen.cockpit_shadows;
         wanted.bloom = chosen.bloom;
@@ -410,6 +414,7 @@ pub fn graphicsOf(options: Options) screen.Own.Graphics {
         .chosen = .{
             .pixel_lighting = gpu.pixel_lighting,
             .linear_light = gpu.linear_light,
+            .materials = gpu.materials,
             .shadows = sameTag(screen.Own.Graphics.Shadows, gpu.shadows),
             .cockpit_shadows = gpu.cockpit_shadows,
             .shot_lights = options.shot_lights,

@@ -26,7 +26,8 @@ layout(location = 6) in uint lightMask;
 // none, 1 the world's cascades, 2 the cockpit's map (device.zig's Receives); in the next two bits,
 // how its texture is magnified, 0 by the settings' filter, 1 smoothly, 2 by FSR 1's edge-adaptive
 // upscale, 3 as a glyph's coverage (srtexture.zig's Magnify); in the one after, 1 for the key
-// lights to reach past its terminator, as a planet's atmosphere carries them.
+// lights to reach past its terminator, as a planet's atmosphere carries them; and in the two after
+// that, 1 where its texture's normal map and its material map are shaded.
 layout(location = 7) in uint shading;
 
 layout(set = 1, binding = 0) uniform Target {
@@ -67,6 +68,10 @@ layout(set = 2, binding = 0) uniform sampler2DArray images;
 // The shadows' maps, a layer for each cascade and the cockpit's last, compared with a pixel's depth
 // (gpu/shadows.zig).
 layout(set = 2, binding = 1) uniform sampler2DArrayShadow shadowMaps;
+// The array's normal maps and material maps, each at its texture's layer, in linear values
+// (srtexture.zig's Maps): read only where the shading says the texture has them.
+layout(set = 2, binding = 2) uniform sampler2DArray normalMaps;
+layout(set = 2, binding = 3) uniform sampler2DArray materialMaps;
 
 layout(set = 3, binding = 0) uniform Frame {
     // x: 1 to draw in 16-bit colour, dithered. y: 1 to magnify textures with a Catmull-Rom filter
@@ -176,16 +181,57 @@ float sunlit(vec3 n) {
     return 1.0;
 }
 
+// The surface a pixel shows the lights: its normal, a unit long or none, toward the eye, and, for a
+// material's, how much of the ambient light reaches it, how rough it is, how metallic, and the
+// share of light it reflects straight back.
+struct Surface {
+    vec3 normal;
+    vec3 toEye;
+    bool material;
+    float occlusion;
+    float roughness;
+    float metallic;
+    vec3 reflectance;
+};
+
+// The share of light a surface that is no metal reflects straight back: about 4 percent.
+const float dielectricReflectance = 0.04;
+// The least roughness a material takes, short of which its highlights shrink to points too fine for
+// the pixels.
+const float leastRoughness = 0.045;
+const float pi = 3.14159265358979323846;
+
+// What a light of unit strength along `l` adds as a highlight to a material's pixel, in the diffuse
+// light's units, which fold in pi as Lambert's does: GGX's microfacets, Smith's shadowing as
+// Schlick fits it to GGX, and Schlick's Fresnel, times the cosine.
+vec3 highlight(Surface s, vec3 l) {
+    float nl = dot(s.normal, l);
+    if (nl <= 0.0) return vec3(0.0);
+    vec3 h = normalize(l + s.toEye);
+    float nv = max(dot(s.normal, s.toEye), 1e-4);
+    float nh = max(dot(s.normal, h), 0.0);
+    float vh = max(dot(s.toEye, h), 0.0);
+    float a = s.roughness * s.roughness;
+    float a2 = a * a;
+    float d = nh * nh * (a2 - 1.0) + 1.0;
+    float microfacets = a2 / (pi * d * d);
+    float k = (s.roughness + 1.0) * (s.roughness + 1.0) / 8.0;
+    float shadowing = nl / (nl * (1.0 - k) + k) * (nv / (nv * (1.0 - k) + k));
+    vec3 fresnel = s.reflectance + (1.0 - s.reflectance) * pow(1.0 - vh, 5.0);
+    return pi * microfacets * shadowing * fresnel / (4.0 * nv);
+}
+
 // What the directional and point lights add to this pixel, as the pipeline adds them for each
 // vertex (srmesh.zig): nothing for a vertex that comes lit already, as every one does in the
 // original's look. A shadowed light is scaled by how much of the sun reaches the pixel, looked up
-// once, and only where such a light faces it.
+// once, and only where such a light faces it. On a material's pixel, the highlights each light
+// gives go to `highlights`.
 const float terminatorWrap = 0.25;
 
-vec3 lights() {
-    float length = length(facing);
-    if (mask == 0xFFFFFFFFu || length < 1e-6) return vec3(0.0);
-    vec3 n = facing / length;
+vec3 lights(Surface s, out vec3 highlights) {
+    highlights = vec3(0.0);
+    if (mask == 0xFFFFFFFFu || dot(s.normal, s.normal) < 0.5) return vec3(0.0);
+    vec3 n = s.normal;
     vec3 sum = vec3(0.0);
     bool shaded = receives() != 0u && shadows.enabled != 0u;
     float sun = -1.0;
@@ -194,10 +240,10 @@ vec3 lights() {
         if ((light.mask & mask) != 0u) continue;
         if (light.kind == 0u) {
             float amount = dot(n, light.vector.xyz);
+            float strength = sqrt(dot(light.vector.xyz, light.vector.xyz));
             // A planet's atmosphere carries the sun a little way past its terminator: the key
             // light's cosine is taken from -terminatorWrap rather than from 0.
             if ((shade & 0x400u) != 0u && light.shadowed != 0u) {
-                float strength = sqrt(dot(light.vector.xyz, light.vector.xyz));
                 amount = (amount / strength + terminatorWrap) / (1.0 + terminatorWrap) * strength;
             }
             if (amount <= 0.0) continue;
@@ -205,11 +251,13 @@ vec3 lights() {
             // glow, falls off as the original's did, which its colour and strength were chosen
             // for: otherwise the side of a ship away from the sun glows with it.
             if (frame.settings.w > 0.0 && light.shadowed == 0u) amount = decoded(vec3(amount)).x;
+            float reaching = 1.0;
             if (shaded && light.shadowed != 0u) {
                 if (sun < 0.0) sun = sunlit(n);
-                amount *= sun;
+                reaching = sun;
             }
-            sum += amount * light.colour.rgb;
+            sum += amount * reaching * light.colour.rgb;
+            if (s.material) highlights += highlight(s, light.vector.xyz / strength) * strength * reaching * light.colour.rgb;
             continue;
         }
         vec3 d = light.vector.xyz - place;
@@ -221,8 +269,66 @@ vec3 lights() {
         float r = sqrt(r2);
         // (1 - r / reach)^2 times the cosine, as the pipeline works it out.
         sum += (1.0 / r + r / (reach * reach) - 2.0 / reach) * along * light.colour.rgb;
+        if (s.material) {
+            float falloff = (1.0 - r / reach) * (1.0 - r / reach);
+            highlights += highlight(s, d / r) * falloff * light.colour.rgb;
+        }
     }
     return sum;
+}
+
+// The frame of the pixel's texture on its surface, of unit normal `n`: the directions in which its
+// coordinates' u and v grow, from how its place and its coordinates change across the screen, so
+// that the meshes need no tangents. A column of zeros where the coordinates don't change.
+mat3 textureFrame(vec3 n, vec3 p, vec2 at) {
+    vec3 dp1 = dFdx(p);
+    vec3 dp2 = dFdy(p);
+    vec2 duv1 = dFdx(at);
+    vec2 duv2 = dFdy(at);
+    float determinant = duv1.x * duv2.y - duv2.x * duv1.y;
+    if (abs(determinant) < 1e-12) return mat3(vec3(0.0), vec3(0.0), n);
+    vec3 t = (dp1 * duv2.y - dp2 * duv1.y) / determinant;
+    vec3 b = (dp2 * duv1.x - dp1 * duv2.x) / determinant;
+    // Onto the surface, a unit long each.
+    t -= n * dot(n, t);
+    b -= n * dot(n, b);
+    float tl = dot(t, t);
+    float bl = dot(b, b);
+    if (tl < 1e-20 || bl < 1e-20) return mat3(vec3(0.0), vec3(0.0), n);
+    return mat3(t * inversesqrt(tl), b * inversesqrt(bl), n);
+}
+
+// The surface the pixel shows the lights, of texel `texel`: its normal, bent by its texture's
+// normal map where it is shaded, through `onTexture` (`textureFrame`), and its material, where it
+// has one.
+Surface surfaceOf(vec4 texel, mat3 onTexture) {
+    Surface s;
+    float length = length(facing);
+    s.normal = length < 1e-6 ? vec3(0.0) : facing / length;
+    s.toEye = normalize(-place);
+    s.material = false;
+    s.occlusion = 1.0;
+    s.roughness = 1.0;
+    s.metallic = 0.0;
+    s.reflectance = vec3(dielectricReflectance);
+    if (image < 0 || length < 1e-6) return s;
+    if ((shade & 0x800u) != 0u && dot(onTexture[0], onTexture[0]) > 0.0) {
+        vec3 bent = texture(normalMaps, vec3(uv, image)).xyz * 2.0 - 1.0;
+        // OpenGL's normal maps point their y toward the texture's top, where its v grows down.
+        bent.y = -bent.y;
+        s.normal = normalize(onTexture * bent);
+    }
+    if ((shade & 0x1000u) != 0u) {
+        vec3 orm = texture(materialMaps, vec3(uv, image)).rgb;
+        s.material = true;
+        s.occlusion = orm.r;
+        s.roughness = max(orm.g, leastRoughness);
+        s.metallic = orm.b;
+        // A metal tints what it reflects with its own colour, which reaches it in linear light.
+        vec3 base = frame.settings.w > 0.0 ? texel.rgb : decoded(texel.rgb);
+        s.reflectance = mix(vec3(dielectricReflectance), base, s.metallic);
+    }
+    return s;
 }
 
 // A texture magnified with a Catmull-Rom filter, from nine bilinear taps: sharper than bilinear,
@@ -449,19 +555,28 @@ vec4 sampled(float texels) {
 void main() {
     // Worked out here, where every pixel of a quad reaches it, as a derivative needs.
     vec2 span = fwidth(uv) * vec2(textureSize(images, 0).xy);
+    vec3 unbent = dot(facing, facing) < 1e-12 ? vec3(0.0, 0.0, 1.0) : normalize(facing);
+    mat3 onTexture = textureFrame(unbent, place, uv);
     vec4 texel = image < 0 ? vec4(1.0) : sampled(max(span.x, span.y));
-    vec3 added = lights();
+    Surface s = surfaceOf(texel, onTexture);
+    vec3 highlights;
+    vec3 added = lights(s, highlights);
     vec4 c = vec4(0.0, 0.0, 0.0, texel.a * colour.a);
+    // What of the texture the lights reach: a metal's colour goes to its highlights alone.
+    vec3 diffuse = texel.rgb * (1.0 - s.metallic);
     if (frame.settings.w > 0.0) {
         // In linear light, from decoded textures: the lights times the texture, encoded again for
         // the frame, which blends encoded as the game's effects were made to; and the vertex's own
         // colour, its ambient and baked light, added as the original added it, whose neutral floor
-        // the lights' colours were chosen against.
-        c.rgb = min(encoded(texel.rgb * min(added, vec3(1.0))) + encoded(texel.rgb) * colour.rgb, vec3(1.0));
-    } else {
+        // the lights' colours were chosen against. A material adds its highlights to its lights,
+        // and its occlusion shades the ambient light.
+        c.rgb = min(encoded(diffuse * min(added, vec3(1.0)) + highlights) + encoded(texel.rgb) * colour.rgb * s.occlusion, vec3(1.0));
+    } else if (!s.material) {
         // Direct3D 7's stages: the texture times the colour, or the colour alone, the lights added
         // for the pixel and each channel held to 1.
         c.rgb = texel.rgb * min(colour.rgb + added, vec3(1.0));
+    } else {
+        c.rgb = min(texel.rgb * colour.rgb * s.occlusion + diffuse * added + highlights, vec3(1.0));
     }
     if (frame.settings.x > 0.0 || frame.settings.z > 0.0) {
         // To the levels the frame is kept in: five bits of red and blue and six of green in 16-bit

@@ -80,6 +80,33 @@ alpha of its own where it needs it. `sltool tcache ls tcachehw.dat` lists the na
 
 **Improvement:** the original reads the cache's images alone, at most 256x256.
 
+## Material maps
+
+A picture may come with the maps today's tools paint beside it, which light its surface as the
+material it is, a metal or a paint, rough or polished, in the metallic way glTF 2.0, Blender and
+most engines share:
+
+| File | Holds |
+|---|---|
+| `yank_2_normal.png` | The surface's normals, as OpenGL's normal maps hold them: green toward the picture's top |
+| `yank_2_orm.png` | Occlusion, roughness and metallic in red, green and blue, as glTF packs them |
+| `yank_2_occlusion.png`, `yank_2_roughness.png`, `yank_2_metallic.png` | Each alone, in grey, where no `_orm` map packs them |
+
+Each map is the size of its picture, and either may be missing: a normal map alone bends the light
+over the surface's details, and a material map alone gives it its highlights. Where a map lacks, the
+surface is flat, unshaded by occlusion, rough or not metallic. Maps are linear values, not colours,
+and their mipmaps are made as such: the normals' means a unit long again.
+
+Where each pixel is lit, OpenReliant then lights the surface as its maps describe: the normal map
+bends each pixel's normal, in the texture's own frame on the surface, worked out without tangents
+in the models; the material map gives the highlights each light makes, by how rough the surface is
+and how metallic, metal tinting them with its own colour, in place of the original's highlight
+pass; and occlusion shades the ambient light. The base picture should hold the surface's own
+colour, with no shading painted in, or the light shows twice. GRAPHICS' MATERIALS and
+`--no-materials` turn the maps off, as `--original` does.
+
+**Improvement:** the original lights every surface alike, with its highlight pass on top.
+
 ## The order of the mods
 
 The mods are read in the order of their names, whatever their case, and a later mod's file stands in

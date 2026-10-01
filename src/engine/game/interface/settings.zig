@@ -165,6 +165,8 @@ pub const Own = struct {
         pub const Chosen = struct {
             pixel_lighting: bool = true,
             linear_light: bool = true,
+            /// Whether the material maps of a mod's textures are shaded.
+            materials: bool = true,
             shadows: Shadows = .high,
             cockpit_shadows: bool = true,
             shot_lights: guns.ShotLights = .every_shot,

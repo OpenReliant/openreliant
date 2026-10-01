@@ -1,5 +1,5 @@
 //! The settings screen's graphics (`Graphics`): OpenReliant's own graphics options, a row each, laid
-//! out as the video's rows are (`settings.Line`), 29 apart from the video's first to its last. They
+//! out as the video's rows are (`settings.Line`), 26 apart from the video's first to its last. They
 //! change at once, as the driver applies them (`settings.Own`), and are written at once, but for
 //! LINEAR LIGHT and COLOR DEPTH, which change the GPU's formats and take effect at the next start:
 //! their rows say so once they differ from what the game runs with.
@@ -30,6 +30,7 @@ const Chosen = Own.Graphics.Chosen;
 pub const Row = enum {
     pixel_lighting,
     linear_light,
+    materials,
     shadows,
     cockpit_shadows,
     shot_lights,
@@ -39,7 +40,7 @@ pub const Row = enum {
     color_depth,
     smooth_motion,
 
-    /// Its line: 29 apart from y 129, so that the ten fill the video's eight rows' height.
+    /// Its line: 26 apart from y 129, so that the eleven fill the video's eight rows' height.
     fn line(row: Row) Line {
         return .{ .y = first_row + @as(i32, @intFromEnum(row)) * row_spacing };
     }
@@ -48,6 +49,7 @@ pub const Row = enum {
         return row.line().label(.{ .words = switch (row) {
             .pixel_lighting => "PER-PIXEL LIGHTING",
             .linear_light => "LINEAR LIGHT",
+            .materials => "MATERIALS",
             .shadows => "SHADOWS",
             .cockpit_shadows => "COCKPIT SHADOWS",
             .shot_lights => "SHOT LIGHTS",
@@ -64,13 +66,13 @@ pub const Row = enum {
         return switch (row) {
             .linear_light => graphics.chosen.linear_light != graphics.running.linear_light,
             .color_depth => graphics.chosen.sixteen_bit != graphics.running.sixteen_bit,
-            .pixel_lighting, .shadows, .cockpit_shadows, .shot_lights, .bloom, .dither, .filter, .smooth_motion => false,
+            .pixel_lighting, .materials, .shadows, .cockpit_shadows, .shot_lights, .bloom, .dither, .filter, .smooth_motion => false,
         };
     }
 };
 
 const first_row = 129;
-const row_spacing = 29;
+const row_spacing = 26;
 
 /// What a row that waits for the next start says beside its value, and where.
 const restart_note = "CHANGES APPLY AFTER RESTART";
@@ -80,6 +82,7 @@ const note_x = 420;
 pub const Check = enum {
     pixel_lighting,
     linear_light,
+    materials,
     cockpit_shadows,
     bloom,
     dither,
@@ -241,9 +244,11 @@ pub const Graphics = struct {
     }
 };
 
-test "the rows fill the video's rows' height" {
+test "the rows fill the video's rows' height, each clear of the next" {
     try std.testing.expectEqual(129, Row.pixel_lighting.line().y);
-    try std.testing.expectEqual(390, Row.smooth_motion.line().y);
+    try std.testing.expectEqual(389, Row.smooth_motion.line().y);
+    const first = Row.shadows.line().arrow(.back);
+    try std.testing.expect(first.y + first.height < Row.cockpit_shadows.line().arrow(.back).y);
 }
 
 test "the arrows and the boxes change the options, and the next start's say so" {

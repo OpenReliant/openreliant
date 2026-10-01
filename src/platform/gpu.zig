@@ -62,6 +62,10 @@ pub const Settings = struct {
     shadows: Shadows = .high,
     /// Shadows in the cockpit as well: the canopy's struts on the dashboard.
     cockpit_shadows: bool = true,
+    /// Shades the material maps of a mod's textures (`srtexture.Image.Maps`), where each pixel is
+    /// lit: the surface's normals, and the highlights its roughness and its metal give, in place of
+    /// the driver's highlight pass. The original had none.
+    materials: bool = true,
     /// The frames' size, a share of the window's own at the display's density, or a size in pixels
     /// whatever the window's, which shows them scaled to fit.
     size: device.FrameSize = .window,
@@ -87,6 +91,7 @@ pub const Settings = struct {
         .pixel_lighting = false,
         .linear_light = false,
         .shadows = .off,
+        .materials = false,
     };
 };
 
@@ -113,22 +118,33 @@ const Vertex = extern struct {
 };
 
 /// A draw's shading as the shader reads it from each vertex, one word: the shadows its pixels take
-/// in the low byte, how its texture is magnified in the next two bits, and whether the key lights
-/// reach past its terminator in the one after.
+/// in the low byte, how its texture is magnified in the next two bits, whether the key lights reach
+/// past its terminator in the one after, and whether its texture's normal map and material map are
+/// shaded in the two after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,
     soft_terminator: bool,
-    _unused: u21 = 0,
+    normal_map: bool = false,
+    material_map: bool = false,
+    _unused: u19 = 0,
 
-    fn of(state: device.State) Shading {
+    /// A draw's shading, its texture's maps shaded where `materials` (`Gpu.shadesMaterials`).
+    fn of(state: device.State, materials: bool) Shading {
+        const maps: srtexture.Image.Maps = if (state.texture) |image| (if (materials) image.maps else .{}) else .{};
         return .{
             .receives = state.receives,
             .magnify = if (state.texture) |image| image.magnify else .sharp,
             .soft_terminator = state.soft_terminator,
+            .normal_map = maps.normal != null,
+            .material_map = maps.orm != null,
         };
     }
 };
+
+/// The textures the device's fragment shader reads: the texture array, the shadows' maps, and the
+/// array's normal maps and material maps.
+const fragment_samplers = 4;
 
 /// The most lights the shader takes in a frame. The driver lights the vertices with the rest.
 const max_lights = 64;
@@ -268,7 +284,14 @@ const Array = struct {
     texture: *c.SDL_GPUTexture,
     capacity: u32,
     count: u32,
+    /// Its textures' normal maps and material maps, each at its texture's layer, in linear values
+    /// (`map_format`): made as the first texture with such a map goes up.
+    normals: ?*c.SDL_GPUTexture = null,
+    materials: ?*c.SDL_GPUTexture = null,
 };
+
+/// The format of the arrays of material maps, whose values are linear.
+const map_format = c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 
 /// Where a texture lies: its array and its layer. The device keeps it in the image's `device`, as
 /// the driver's `texture_upload` keeps the device texture it makes; an image never drawn holds 0.
@@ -295,8 +318,9 @@ const Run = struct {
     count: u32,
 };
 
-/// A texture placed in its layer this frame, to go up to the GPU before the frame is drawn.
-const Upload = struct { levels: []const srtexture.Level, slot: Slot };
+/// A texture placed in its layer this frame, with its maps, to go up to the GPU before the frame is
+/// drawn.
+const Upload = struct { levels: []const srtexture.Level, maps: srtexture.Image.Maps = .{}, slot: Slot };
 
 pub const Gpu = struct {
     gpa: Allocator,
@@ -347,6 +371,8 @@ pub const Gpu = struct {
     uploads: std.ArrayList(Upload) = .empty,
     /// A white texel, bound for runs with no texture.
     blank: Slot = undefined,
+    /// A texel bound for the maps of an array without them, which the shader never reads.
+    no_maps: *c.SDL_GPUTexture = undefined,
     vertices: std.ArrayList(Vertex) = .empty,
     indices: std.ArrayList(u32) = .empty,
     runs: std.ArrayList(Run) = .empty,
@@ -413,7 +439,7 @@ pub const Gpu = struct {
         }
         const vertex_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, if (spirv) shaders.vertex_spirv else shaders.vertex_msl, 0, 1);
         errdefer c.SDL_ReleaseGPUShader(handle, vertex_shader);
-        const fragment_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) shaders.fragment_spirv else shaders.fragment_msl, 2, 3);
+        const fragment_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) shaders.fragment_spirv else shaders.fragment_msl, fragment_samplers, 3);
         errdefer c.SDL_ReleaseGPUShader(handle, fragment_shader);
         // Shadows darken what each pixel is lit by, so they need each pixel lit.
         var shadows: shadow.Shadows = try .init(handle, spirv, if (settings.pixel_lighting) settings.shadows else .off);
@@ -472,7 +498,8 @@ pub const Gpu = struct {
             .edge_sampler = edge_sampler,
             .shadows = shadows,
         };
-        gpu.blank = try gpu.place(&blank_levels);
+        gpu.blank = try gpu.place(&blank_levels, .{});
+        gpu.no_maps = try gpu.arrayTexture(.{ .width = 1, .height = 1, .levels = 1 }, 1, map_format);
         if (settings.bloom or linear) try gpu.startScreen();
         gpu.prepare();
         return gpu;
@@ -562,6 +589,7 @@ pub const Gpu = struct {
         gpu.setSamples(wanted.samples);
         gpu.settings.dither = wanted.dither;
         gpu.settings.cockpit_shadows = wanted.cockpit_shadows;
+        gpu.settings.materials = wanted.materials;
         if (wanted.filter != gpu.settings.filter) gpu.setFilter(wanted.filter) catch |err| log.err("the texture filter is left as it was: {s}", .{@errorName(err)});
         if (wanted.bloom != gpu.settings.bloom) gpu.setBloom(wanted.bloom) catch |err| log.err("the bloom is left as it was: {s}", .{@errorName(err)});
         if (wanted.pixel_lighting != gpu.settings.pixel_lighting or wanted.shadows != gpu.settings.shadows) {
@@ -630,7 +658,12 @@ pub const Gpu = struct {
         var pipelines = gpu.pipelines.valueIterator();
         while (pipelines.next()) |made| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made.*);
         gpu.pipelines.deinit(gpu.gpa);
-        for (gpu.arrays.items) |array| c.SDL_ReleaseGPUTexture(gpu.handle, array.texture);
+        for (gpu.arrays.items) |array| {
+            for ([_]?*c.SDL_GPUTexture{ array.texture, array.normals, array.materials }) |texture| {
+                if (texture) |made| c.SDL_ReleaseGPUTexture(gpu.handle, made);
+            }
+        }
+        c.SDL_ReleaseGPUTexture(gpu.handle, gpu.no_maps);
         gpu.arrays.deinit(gpu.gpa);
         gpu.uploads.deinit(gpu.gpa);
         gpu.vertices.deinit(gpu.gpa);
@@ -768,6 +801,7 @@ pub const Gpu = struct {
         .shadow_settings = shadowSettings,
         .shadows = takeShadows,
         .gamma = setGamma,
+        .materials = materials,
     };
 
     /// The gamma ramp, which the frame goes to the screen through (`present`).
@@ -841,6 +875,7 @@ pub const Gpu = struct {
     /// list, run on from the last draw where the pipeline and the array allow.
     fn record(gpu: *Gpu, state: device.State, primitive: device.Primitive, vertices: []const device.Vertex, indices: ?[]const u16) Error!void {
         const slot: ?Slot = if (state.texture) |image| try gpu.slotOf(image) else null;
+        const shading: Shading = .of(state, gpu.shadesMaterials());
         const base: u32 = @intCast(gpu.vertices.items.len);
         try gpu.vertices.ensureUnusedCapacity(gpu.gpa, vertices.len);
         for (vertices) |v| gpu.vertices.appendAssumeCapacity(.{
@@ -851,7 +886,7 @@ pub const Gpu = struct {
             .view = v.view,
             .normal = v.normal,
             .light_mask = v.light_mask,
-            .shading = .of(state),
+            .shading = shading,
         });
         const first: u32 = @intCast(gpu.indices.items.len);
         try appendList(gpu.gpa, &gpu.indices, primitive, base, vertices.len, indices);
@@ -879,20 +914,20 @@ pub const Gpu = struct {
         if (image.levels.len == 0) return null;
         if (Slot.of(image.*)) |slot| {
             if (image.changed) {
-                try gpu.uploads.append(gpu.gpa, .{ .levels = image.levels, .slot = slot });
+                try gpu.uploads.append(gpu.gpa, .{ .levels = image.levels, .maps = image.maps, .slot = slot });
                 image.changed = false;
             }
             return slot;
         }
-        const slot = try gpu.place(image.levels);
+        const slot = try gpu.place(image.levels, image.maps);
         image.device = @as(u32, @bitCast(slot));
         image.changed = false;
         return slot;
     }
 
     /// Gives a texture a layer in an array of its shape with room, or in a new one, to go up to the
-    /// GPU with the frame.
-    fn place(gpu: *Gpu, levels: []const srtexture.Level) Error!Slot {
+    /// GPU with the frame with its maps.
+    fn place(gpu: *Gpu, levels: []const srtexture.Level, maps: srtexture.Image.Maps) Error!Slot {
         const shape: Shape = .{ .width = levels[0].width, .height = levels[0].height, .levels = @intCast(levels.len) };
         const index = for (gpu.arrays.items, 0..) |array, i| {
             if (std.meta.eql(array.shape, shape) and array.count < max_layers) break i;
@@ -900,21 +935,30 @@ pub const Gpu = struct {
             const index = std.math.cast(u15, gpu.arrays.items.len) orelse return error.OutOfMemory;
             try gpu.arrays.ensureUnusedCapacity(gpu.gpa, 1);
             const capacity = firstLayers(shape);
-            gpu.arrays.appendAssumeCapacity(.{ .shape = shape, .texture = try gpu.arrayTexture(shape, capacity), .capacity = capacity, .count = 0 });
+            gpu.arrays.appendAssumeCapacity(.{ .shape = shape, .texture = try gpu.arrayTexture(shape, capacity, gpu.texture_format), .capacity = capacity, .count = 0 });
             break :made index;
         };
         try gpu.uploads.ensureUnusedCapacity(gpu.gpa, 1);
         const array = &gpu.arrays.items[index];
         const slot: Slot = .{ .array = @intCast(index), .layer = @intCast(array.count) };
         array.count += 1;
-        gpu.uploads.appendAssumeCapacity(.{ .levels = levels, .slot = slot });
+        gpu.uploads.appendAssumeCapacity(.{ .levels = levels, .maps = maps, .slot = slot });
         return slot;
     }
 
-    fn arrayTexture(gpu: *Gpu, shape: Shape, layers: u32) sdl.Error!*c.SDL_GPUTexture {
+    /// Whether it shades material maps: with `Settings.materials`, where each pixel is lit.
+    fn shadesMaterials(gpu: *const Gpu) bool {
+        return gpu.settings.materials and gpu.settings.pixel_lighting;
+    }
+
+    fn materials(ptr: *anyopaque) bool {
+        return from(ptr).shadesMaterials();
+    }
+
+    fn arrayTexture(gpu: *Gpu, shape: Shape, layers: u32, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUTexture {
         var info = std.mem.zeroes(c.SDL_GPUTextureCreateInfo);
         info.type = c.SDL_GPU_TEXTURETYPE_2D_ARRAY;
-        info.format = gpu.texture_format;
+        info.format = format;
         info.usage = c.SDL_GPU_TEXTUREUSAGE_SAMPLER;
         info.width = shape.width;
         info.height = shape.height;
@@ -1067,7 +1111,13 @@ pub const Gpu = struct {
         for (runs) |run| {
             c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(run.key).?);
             const array = gpu.arrays.items[run.array orelse gpu.blank.array];
-            const bindings = [_]c.SDL_GPUTextureSamplerBinding{ .{ .texture = array.texture, .sampler = if (run.held) gpu.edge_sampler else sampler }, gpu.shadows.binding() };
+            const read = if (run.held) gpu.edge_sampler else sampler;
+            const bindings = [fragment_samplers]c.SDL_GPUTextureSamplerBinding{
+                .{ .texture = array.texture, .sampler = read },
+                gpu.shadows.binding(),
+                .{ .texture = array.normals orelse gpu.no_maps, .sampler = read },
+                .{ .texture = array.materials orelse gpu.no_maps, .sampler = read },
+            };
             c.SDL_BindGPUFragmentSamplers(pass, 0, &bindings, bindings.len);
             c.SDL_DrawGPUIndexedPrimitives(pass, run.count, 1, run.first, 0, 0);
         }
@@ -1098,35 +1148,28 @@ pub const Gpu = struct {
         try gpu.shadows.upload(gpu.handle, copy);
     }
 
-    /// Puts the textures placed this frame in their layers, every level, first making larger any
-    /// array that has run out of layers.
+    /// Puts the textures placed this frame in their layers, every level, with their maps, first
+    /// making larger any array that has run out of layers, and making the arrays of maps the first
+    /// maps of an array need.
     fn uploadTextures(gpu: *Gpu, copy: *c.SDL_GPUCopyPass) Error!void {
         if (gpu.uploads.items.len == 0) return;
         defer gpu.uploads.clearRetainingCapacity();
         for (gpu.arrays.items) |*array| {
             if (array.count <= array.capacity) continue;
             const capacity = @min(std.math.ceilPowerOfTwoAssert(u32, array.count), max_layers);
-            const larger = try gpu.arrayTexture(array.shape, capacity);
-            for (0..array.capacity) |layer| {
-                for (0..array.shape.levels) |level| {
-                    c.SDL_CopyGPUTextureToTexture(
-                        copy,
-                        &.{ .texture = array.texture, .mip_level = @intCast(level), .layer = @intCast(layer) },
-                        &.{ .texture = larger, .mip_level = @intCast(level), .layer = @intCast(layer) },
-                        @max(array.shape.width >> @intCast(level), 1),
-                        @max(array.shape.height >> @intCast(level), 1),
-                        1,
-                        false,
-                    );
-                }
-            }
-            c.SDL_ReleaseGPUTexture(gpu.handle, array.texture);
-            array.texture = larger;
+            array.texture = try gpu.grown(copy, array.*, array.texture, capacity, gpu.texture_format);
+            if (array.normals) |texture| array.normals = try gpu.grown(copy, array.*, texture, capacity, map_format);
+            if (array.materials) |texture| array.materials = try gpu.grown(copy, array.*, texture, capacity, map_format);
             array.capacity = capacity;
         }
         var bytes: usize = 0;
         for (gpu.uploads.items) |item| {
-            for (item.levels) |level| bytes += level.rgba.len;
+            const array = &gpu.arrays.items[item.slot.array];
+            if (item.maps.normal != null and array.normals == null) array.normals = try gpu.arrayTexture(array.shape, array.capacity, map_format);
+            if (item.maps.orm != null and array.materials == null) array.materials = try gpu.arrayTexture(array.shape, array.capacity, map_format);
+            for ([_]?[]const srtexture.Level{ item.levels, item.maps.normal, item.maps.orm }) |each| {
+                for (each orelse &.{}) |level| bytes += level.rgba.len;
+            }
         }
         const size = std.math.cast(u32, bytes) orelse return error.OutOfMemory;
         const transfer = c.SDL_CreateGPUTransferBuffer(gpu.handle, &.{ .usage = c.SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = size }) orelse return fail("SDL_CreateGPUTransferBuffer");
@@ -1135,18 +1178,32 @@ pub const Gpu = struct {
         var at: u32 = 0;
         for (gpu.uploads.items) |item| {
             const array = gpu.arrays.items[item.slot.array];
-            for (item.levels, 0..) |level, index| {
-                @memcpy(mapped[at..][0..level.rgba.len], level.rgba);
-                c.SDL_UploadToGPUTexture(
-                    copy,
-                    &.{ .transfer_buffer = transfer, .offset = at, .pixels_per_row = level.width, .rows_per_layer = level.height },
-                    &.{ .texture = array.texture, .mip_level = @intCast(index), .layer = item.slot.layer, .w = level.width, .h = level.height, .d = 1 },
-                    false,
-                );
-                at += @intCast(level.rgba.len);
-            }
+            uploadLevels(copy, transfer, mapped, &at, array.texture, item.slot.layer, item.levels);
+            if (item.maps.normal) |levels| if (array.normals) |texture| uploadLevels(copy, transfer, mapped, &at, texture, item.slot.layer, levels);
+            if (item.maps.orm) |levels| if (array.materials) |texture| uploadLevels(copy, transfer, mapped, &at, texture, item.slot.layer, levels);
         }
         c.SDL_UnmapGPUTransferBuffer(gpu.handle, transfer);
+    }
+
+    /// `texture`, an array of `array`'s shape and layers, made `capacity` layers long: a new one,
+    /// its layers copied over, the old let go.
+    fn grown(gpu: *Gpu, copy: *c.SDL_GPUCopyPass, array: Array, texture: *c.SDL_GPUTexture, capacity: u32, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUTexture {
+        const larger = try gpu.arrayTexture(array.shape, capacity, format);
+        for (0..array.capacity) |layer| {
+            for (0..array.shape.levels) |level| {
+                c.SDL_CopyGPUTextureToTexture(
+                    copy,
+                    &.{ .texture = texture, .mip_level = @intCast(level), .layer = @intCast(layer) },
+                    &.{ .texture = larger, .mip_level = @intCast(level), .layer = @intCast(layer) },
+                    @max(array.shape.width >> @intCast(level), 1),
+                    @max(array.shape.height >> @intCast(level), 1),
+                    1,
+                    false,
+                );
+            }
+        }
+        c.SDL_ReleaseGPUTexture(gpu.handle, texture);
+        return larger;
     }
 
     /// The frame's colour and depth targets for `size`, made again when it changes.
@@ -1383,6 +1440,21 @@ pub fn shader(handle: *c.SDL_GPUDevice, spirv: bool, stage: c.SDL_GPUShaderStage
     return c.SDL_CreateGPUShader(handle, &info) orelse fail("SDL_CreateGPUShader");
 }
 
+/// Copies `levels`, a texture's every level, through `transfer`, mapped at `mapped`, from `at` on,
+/// into layer `layer` of `texture`, and moves `at` past them.
+fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, mapped: [*]u8, at: *u32, texture: *c.SDL_GPUTexture, layer: u16, levels: []const srtexture.Level) void {
+    for (levels, 0..) |level, index| {
+        @memcpy(mapped[at.*..][0..level.rgba.len], level.rgba);
+        c.SDL_UploadToGPUTexture(
+            copy,
+            &.{ .transfer_buffer = transfer, .offset = at.*, .pixels_per_row = level.width, .rows_per_layer = level.height },
+            &.{ .texture = texture, .mip_level = @intCast(index), .layer = layer, .w = level.width, .h = level.height, .d = 1 },
+            false,
+        );
+        at.* += @intCast(level.rgba.len);
+    }
+}
+
 /// A colour's channel, sRGB-encoded, in linear light (`shaders/colour.glsl`'s `decoded`).
 fn decoded(channel: f32) f32 {
     return if (channel <= 0.04045) channel / 12.92 else std.math.pow(f32, (channel + 0.055) / 1.055, 2.4);
@@ -1395,16 +1467,24 @@ test Shading {
     // The shadows in the low byte and the magnification in the next two bits, as the shader reads
     // them.
     var image: srtexture.Image = .{ .levels = &.{}, .magnify = .smooth };
-    const smooth: u32 = @bitCast(Shading.of(.{ .texture = &image, .depth = undefined, .blend = null, .receives = .cockpit }));
+    const smooth: u32 = @bitCast(Shading.of(.{ .texture = &image, .depth = undefined, .blend = null, .receives = .cockpit }, false));
     try std.testing.expectEqual(0x102, smooth);
     image.magnify = .edge_adaptive;
-    const upscaled: u32 = @bitCast(Shading.of(.{ .texture = &image, .depth = undefined, .blend = null, .receives = .nothing }));
+    const upscaled: u32 = @bitCast(Shading.of(.{ .texture = &image, .depth = undefined, .blend = null, .receives = .nothing }, false));
     try std.testing.expectEqual(0x200, upscaled);
-    const plain: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .world }));
+    const plain: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .world }, false));
     try std.testing.expectEqual(0x001, plain);
     // A planet's soft terminator in the bit after.
-    const planet: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .world, .soft_terminator = true }));
+    const planet: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .world, .soft_terminator = true }, false));
     try std.testing.expectEqual(0x401, planet);
+    // A texture's normal map and material map in the two bits after, where materials are shaded.
+    const level = [1]srtexture.Level{.{ .width = 1, .height = 1, .rgba = &.{ 0, 0, 0, 0 } }};
+    var material: srtexture.Image = .{ .levels = &level, .maps = .{ .normal = &level, .orm = &level } };
+    const state: device.State = .{ .texture = &material, .depth = undefined, .blend = null, .receives = .world };
+    try std.testing.expectEqual(0x1801, @as(u32, @bitCast(Shading.of(state, true))));
+    try std.testing.expectEqual(0x001, @as(u32, @bitCast(Shading.of(state, false))));
+    material.maps.normal = null;
+    try std.testing.expectEqual(0x1001, @as(u32, @bitCast(Shading.of(state, true))));
 }
 
 test appendList {
