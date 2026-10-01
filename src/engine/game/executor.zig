@@ -889,8 +889,9 @@ fn setHostile(call: Call) u32 {
     return 1;
 }
 
-/// `cmd_SetHostile_ship` (`0x00459510`): the ship's side (`gameobj.GameObject.side`) becomes hostile
-/// where the command's second argument is set, and friendly where it is not, a neutral ship's too.
+/// `cmd_SetHostile_ship` (`0x00459510`): the ship's side (`gameobj.GameObject.side`) becomes
+/// hostile where the command's second argument is set, and friendly where it is not, a neutral
+/// ship's too.
 fn setHostileShip(call: Call, ship: u16) void {
     call.machine.game.?.world.objects.slots[ship].object.side = if (call.args[0] != 0) .hostile else .friendly;
 }
@@ -979,10 +980,10 @@ fn replenishWeapons(call: Call) u32 {
     return 1;
 }
 
-/// `cmd_DisableListing` (`0x0045A210`, command `0x5C`): the ship the first argument names, which
-/// unlike the flags' other commands is a ship alone, lurches no more as a torpedo strikes it while
-/// the second argument is set, and lurches again while it is not
-/// (`gameobj.GameObject.Flags.listing_disabled`).
+/// `cmd_DisableListing` (`0x0045A210`, command `0x5C`): unlike the flags' other commands, which set
+/// each ship of what their first argument names, it sets the one ship its first argument names. The
+/// ship no longer lurches as a torpedo strikes it while the second argument is set, and lurches
+/// again while it is not (`gameobj.GameObject.Flags.listing_disabled`).
 ///
 /// **Fix:** where the first argument names no ship, the game writes past the objects; OpenReliant
 /// sets nothing.

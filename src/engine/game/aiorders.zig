@@ -446,9 +446,9 @@ pub const ListState = extern struct {
     }
 };
 
-/// `order_make_capship_list_init` (`0x0040B1C0`): the init of Find Scoop Up (21) and of Make
-/// capship list left and right (115, 116), which a capital ship takes as a torpedo strikes it
-/// (`collision`): each from its first step (`findScoopUp`, `aigeneric.capshipList`).
+/// `order_first_step_init` (`0x0040B1C0`): the init of Find Scoop Up (21) and of Make capship list
+/// left and right (115, 116), which a capital ship takes as a torpedo strikes it (`collision`):
+/// each from its first step (`findScoopUp`, `aigeneric.capshipList`).
 pub fn firstStepInit(ctx: Context, index: u16) void {
     ctx.world.objects.slots[index].state.list.step = 0;
 }
@@ -542,12 +542,13 @@ pub const FindScoopStep = enum(i32) {
     _,
 };
 
-/// `order_find_scoop_up` (`0x0040B1E0`): the update of Find Scoop Up (21), which starts at its first
-/// step (`firstStepInit`). From the wait it goes on to the search; a multiplayer game waits there
-/// first for every player, unless the order names a ship (`ai_sequence_sync`). The search walks the
-/// ships the order's target names (`ai.eachShip`) for the nearest to where the ship will be next
-/// that it can aim at, ejected or not, and scoops it up, Scoop Up (107) pushed above it; with none
-/// it pops. Once Scoop Up is done, the order starts again from the wait, and searches again.
+/// `order_find_scoop_up` (`0x0040B1E0`): the update of Find Scoop Up (21), which starts at its
+/// first step (`firstStepInit`). From the wait it goes on to the search; a multiplayer game waits
+/// there first for every player, unless the order names a ship (`ai_sequence_sync`,
+/// `0x00401000`). The search walks the ships the order's target names (`ai.eachShip`) for the
+/// nearest to where the ship will be next that it can aim at, ejected or not, and scoops it up,
+/// Scoop Up (107) pushed above it; with none it pops. Once Scoop Up is done, the order starts again
+/// from the wait, and searches again.
 ///
 /// Not ported: the wait, and in a multiplayer game the Scoop Up sent to the other players where
 /// the order names no ship ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
@@ -574,9 +575,9 @@ pub fn findScoopUp(ctx: Context, index: u16) void {
     }
 }
 
-/// `0x0040B140`, Find Scoop Up's visitor: a ship the searcher can aim at, ejected or not
-/// (`ai.targetValid`), nearer to where the searcher will be next than the nearest so far, by
-/// where it will be next, becomes the nearest.
+/// `find_scoop_up_nearest` (`0x0040B140`), Find Scoop Up's visitor: a ship the searcher can aim at,
+/// ejected or not (`ai.targetValid`), nearer to where the searcher will be next than the nearest so
+/// far, by where it will be next, becomes the nearest.
 const Scooping = struct {
     ctx: Context,
     index: u16,
@@ -711,9 +712,9 @@ pub fn formationInit(ctx: Context, index: u16) void {
     slot.state.formation.place = .{ .x = out * formation_spacing, .y = 0, .z = 0 };
 }
 
-/// `order_formation` (`0x0040B8A0`): the update of Formation (27), which keeps the ship at its place
-/// by its target as the target will stand next, turned as the target will be (`ai.arrive`). It pops
-/// once the target can no longer be aimed at.
+/// `order_formation` (`0x0040B8A0`): the update of Formation (27), which keeps the ship at its
+/// place by its target as the target will stand next, turned as the target will be (`ai.arrive`).
+/// It pops once the target can no longer be aimed at.
 pub fn formation(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
@@ -728,7 +729,7 @@ pub fn formation(ctx: Context, index: u16) void {
     _ = ai.arrive(ctx.world, index, place, turn, formation_least_throttle);
 }
 
-/// The least throttle Formation comes to its place at.
+/// The least throttle Formation comes to its place at (`0x0040B911`).
 const formation_least_throttle: f32 = 0;
 
 /// `order_match_speed` (`0x0040B9E0`): the update of Match Speed (32), which holds the ship at its

@@ -714,8 +714,9 @@ fn torpedoStrikes(world: gameobj.World, torpedo: u16, hull: u16, struck: objects
 }
 
 /// A hull struck by a torpedo lurches away from it: one whose listing is not disabled
-/// (`GameObject.Flags.listing_disabled`), unless it is lurching already, jumping or warping, takes Make capship list left or right
-/// (`aigeneric.capshipList`), left where the torpedo came in heading to its left.
+/// (`GameObject.Flags.listing_disabled`), unless it is lurching already, jumping or warping, takes
+/// Make capship list left or right (`aigeneric.capshipList`), left where the torpedo came in
+/// heading to its left.
 fn lurch(ctx: aigeneric.Context, torpedo: u16, hull: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[hull];

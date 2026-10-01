@@ -245,7 +245,7 @@ from the catalogue.
 | `0x38` | `UpdateEnvironmentFXState` | Applies what the script asks of its space at once rather than at the next jump (`environment_update`), and aims the sun, the lights and the nebula again from the markers (`backdrop_place`) ([Backdrop](backdrop.md)) | Yes |
 | `0x39` | `SetPrimaryTarget` | The ship the argument names, or its component, becomes the mission's primary target, which PRIMARY TARGET makes the player's ([Display](hud.md#picking-a-target)) | Yes |
 | `0x3A` | `WaitForJumpOrLaunch` | The thread waits while any ship the argument names is jumping, going through a gate or launching | Yes |
-| `0x3B` | `DoNotDisturb` | Each ship the first argument names does not retaliate, come to another's help, rise to a taunt or take the wingmen's commands while the second is set (`do_not_disturb`, [Objects](objects.md)) | Yes |
+| `0x3B` | `DoNotDisturb` | Each ship the first argument names does not retaliate, come to another's help, rise to a taunt or take the wingmen's commands while the second is set (`do_not_disturb`, [Objects](objects.md#flags)) | Yes |
 | `0x3C` | `SetEnvironmentFXNebula` | Asks for the nebula the argument numbers (`nebula_requested`, `0x0058A6B8`) | Yes |
 | `0x3D` | `StartShipAnimationReverse` | As `StartShipAnimation`, backwards at -4 from where each part stands | Yes |
 | `0x3E` | `SnapToPoint` | The ship the first argument names, unless it is exploding, ejected or out of a multiplayer game, is put where the object the second names will stand next, turned as it will be, and stopped | Yes |
