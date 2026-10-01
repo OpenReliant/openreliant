@@ -281,8 +281,9 @@ fn soundTables(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldTy
 }
 
 fn controlTable(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType(Mode, "controls")) !u8 {
-    const bindings = try controls.read(arena, try loadBinary(init, arena, paths.binary));
-    try writeOutput(init, paths.output, controls.emit, .{bindings});
+    const binary = try loadBinary(init, arena, paths.binary);
+    const bindings = try controls.read(arena, binary);
+    try writeOutput(init, paths.output, controls.emit, .{ bindings, try controls.readKeys(arena, binary), try controls.readList(arena, binary) });
     std.debug.print("{d} actions -> {s}\n", .{ bindings.len, paths.output });
     return 0;
 }

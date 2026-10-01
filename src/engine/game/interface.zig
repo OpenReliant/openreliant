@@ -1,5 +1,6 @@
 //! `C:\lancer\game\interface.cpp`: the front end's screens and the settings they manage. Ported so
-//! far: loading the input settings and bindings from `starlancer.ini` (`load_key_config`), the main
+//! far: loading and saving the input settings and bindings in `starlancer.ini` (`load_key_config`,
+//! `save_key_config`), the main
 //! menu (`main_menu`) with its dialog (`dialog`), the pilot roster (`pilot_roster`) and the saved
 //! games (`saved_games`), on the front end's screen (`canvas`); opening the discs' archives
 //! (`disc`); and the Reliant's rooms
@@ -8,6 +9,7 @@
 //! (`restart`).
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 pub const briefing = @import("interface/briefing.zig");
 pub const canvas = @import("interface/canvas.zig");
@@ -109,25 +111,60 @@ pub fn loadKeyConfig(devices: *input.Devices, settings_file: Profile) void {
 /// percentage of each axis's travel from the center, 10 by default as in the original. Returned in
 /// hundredths of a percent, the unit DirectInput uses.
 pub fn deadZone(settings_file: Profile) u16 {
-    const percent: u16 = @min(settings_file.int(joy_section, "DeadZone", input.default_dead_zone / 100), 100);
-    return percent * 100;
+    const percent: u16 = @min(settings_file.int(joy_section, "DeadZone", input.default_dead_zone / dead_zone_unit), 100);
+    return percent * dead_zone_unit;
 }
 
+/// `save_key_config` (`0x0042C630`): writes the input settings to the `KeyConfig` section of
+/// `starlancer.ini`, then each action's key there, by the action's name, after the modifier's name
+/// (`keyValue`), and its button to `JoyConfig`, `JOY BUTTON ` and the button's number, or nothing for
+/// none. Added by OpenReliant: the joystick's dead zone, `DeadZone` in `JoyConfig` (`deadZone`).
+///
+/// **Fix:** for a key held with Alt, the game writes the address of the key's name, which loads as
+/// another key; OpenReliant writes the key's scan code, as it does with the other modifiers.
+pub fn saveKeyConfig(devices: *const input.Devices, settings_file: *profile.File) Allocator.Error!void {
+    const settings = devices.settings;
+    try settings_file.writeInt(key_section, "ForceFeedback", @intFromBool(settings.force_feedback));
+    try settings_file.writeInt(key_section, "JoystickInvert", @intFromBool(settings.joystick_invert));
+    try settings_file.writeInt(key_section, "HatEnable", @intFromBool(settings.hat_enabled));
+    try settings_file.writeInt(key_section, "TwistEnable", @intFromBool(settings.twist_enabled));
+    try settings_file.writeInt(key_section, "Controller", @intFromEnum(settings.control_mode));
+    try settings_file.writeInt(joy_section, "DeadZone", settings.dead_zone / dead_zone_unit);
+    for (devices.bindings.values) |binding| {
+        var key_buffer: [32]u8 = undefined;
+        var key: std.Io.Writer = .fixed(&key_buffer);
+        keyValue(&key, binding);
+        try settings_file.write(key_section, binding.name, key.buffered());
+        var button_buffer: [32]u8 = undefined;
+        var button: std.Io.Writer = .fixed(&button_buffer);
+        if (binding.button) |number| button.print(button_name ++ "{d}", .{number}) catch {};
+        try settings_file.write(joy_section, binding.name, button.buffered());
+    }
+}
+
+/// The hundredths of a percent the dead zone is kept in, to the percent `DeadZone` holds.
+const dead_zone_unit = 100;
+
 /// A binding formatted the way the game writes it, which is also the default when the file has no
-/// entry: `JOY BUTTON ` and the button, or the key's scan code after the modifier's name.
+/// entry: `JOY BUTTON ` and the button, or the key as `keyValue` writes it.
 fn defaultValue(buffer: *[32]u8, binding: controls.Binding) []const u8 {
     var writer: std.Io.Writer = .fixed(buffer);
     // The longest value, `CONTROL -32768`, fits the buffer with room to spare.
     if (binding.button) |button| {
         writer.print(button_name ++ "{d}", .{button}) catch {};
     } else {
-        const code: i16 = @bitCast(binding.key);
-        for (modifier_names) |named| {
-            if (named.modifier == binding.modifier) writer.print("{s} ", .{named.name}) catch {};
-        }
-        writer.print("{d}", .{code}) catch {};
+        keyValue(&writer, binding);
     }
     return writer.buffered();
+}
+
+/// A key as the game writes it to `KeyConfig`: its scan code, after the modifier's name.
+fn keyValue(writer: *std.Io.Writer, binding: controls.Binding) void {
+    const code: i16 = @bitCast(binding.key);
+    for (modifier_names) |named| {
+        if (named.modifier == binding.modifier) writer.print("{s} ", .{named.name}) catch {};
+    }
+    writer.print("{d}", .{code}) catch {};
 }
 
 /// Copies a value into the buffer with a terminator, as `GetPrivateProfileStringA` does. Bytes
@@ -216,6 +253,40 @@ test "an empty settings file keeps the game's defaults" {
         try std.testing.expectEqual(default.key, devices.bindings.get(action).key);
         try std.testing.expectEqual(default.modifier, devices.bindings.get(action).modifier);
         try std.testing.expectEqual(default.button, devices.bindings.get(action).button);
+    }
+}
+
+test saveKeyConfig {
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    var devices: input.Devices = .{};
+    loadKeyConfig(&devices, .empty);
+    devices.settings.joystick_invert = false;
+    devices.settings.dead_zone = 500;
+    devices.bindings.getPtr(.eject).* = .{ .name = "EJECT", .string = 0x36F, .key = 88, .modifier = .alt, .button = null };
+    devices.bindings.getPtr(.afterburners).button = 9;
+    var file: profile.File = .{ .arena = arena_state.allocator(), .profile = .empty };
+    try saveKeyConfig(&devices, &file);
+    const saved = file.profile;
+    // As the game writes them, but for Alt's key, which it writes as its name's address.
+    try std.testing.expectEqualStrings("0", saved.value(key_section, "JoystickInvert").?);
+    try std.testing.expectEqualStrings("ALT 88", saved.value(key_section, "EJECT").?);
+    try std.testing.expectEqualStrings("SHIFT 18", saved.value(key_section, "PREVIOUS ENEMY TARGET").?);
+    try std.testing.expectEqualStrings("JOY BUTTON 9", saved.value(joy_section, "AFTERBURNERS").?);
+    try std.testing.expectEqualStrings("", saved.value(joy_section, "EJECT").?);
+    try std.testing.expectEqualStrings("5", saved.value(joy_section, "DeadZone").?);
+    // And they load back as they were.
+    var again: input.Devices = .{};
+    loadKeyConfig(&again, saved);
+    try std.testing.expect(!again.settings.joystick_invert);
+    try std.testing.expectEqual(500, again.settings.dead_zone);
+    for (std.enums.values(controls.Action)) |action| {
+        const kept = devices.bindings.get(action);
+        const loaded = again.bindings.get(action);
+        try std.testing.expectEqual(kept.key, loaded.key);
+        try std.testing.expectEqual(kept.modifier, loaded.modifier);
+        try std.testing.expectEqual(kept.button, loaded.button);
     }
 }
 

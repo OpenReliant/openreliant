@@ -104,6 +104,7 @@ pub const exported = [_]Export{
     .{ "MouseState", engine.input.MouseState },
     .{ "ControlBinding", engine.input.ControlBinding },
     .{ "ControlModifier", engine.input.ControlBinding.Modifier },
+    .{ "KeyName", engine.input.KeyName },
     .{ "ControlAction", engine.input.controls.Action },
     .{ "ControlMode", engine.input.ControlMode },
     .{ "MissileRack", engine.game.gameobj.Rack },

@@ -279,8 +279,12 @@ pub const ControlBinding = extern struct {
     /// A DirectInput scan code (`DIK_*`), an index into `keyboard`.
     key: u16,
     modifier: Modifier,
-    /// The action's name.
-    name: [0x48]u8,
+    /// The action's name, which `starlancer.ini` keys its bindings by.
+    name: [0x28]u8,
+    /// The language string of the action's name as the controls screens show it.
+    string: u16,
+    /// The key's name, which the game copies in from `key_names` as it loads the bindings.
+    key_name: [0x1E]u8,
     /// A joystick button, or -1 for none.
     button: i16,
 
@@ -302,8 +306,21 @@ pub const ControlBinding = extern struct {
 
     comptime {
         assert(@offsetOf(ControlBinding, "name") == 0x4);
+        assert(@offsetOf(ControlBinding, "string") == 0x2C);
+        assert(@offsetOf(ControlBinding, "key_name") == 0x2E);
         assert(@offsetOf(ControlBinding, "button") == 0x4C);
         assert(@sizeOf(ControlBinding) == 0x4E);
+    }
+};
+
+/// A key an action can be bound to, an entry of `key_names` (`0x004E5CD0`): its DirectInput scan
+/// code and its name, which `WinMain` renames by the keyboard's own (`0x004BCF70`).
+pub const KeyName = extern struct {
+    code: u32,
+    name: [0x20]u8,
+
+    comptime {
+        assert(@sizeOf(KeyName) == 0x24);
     }
 };
 
