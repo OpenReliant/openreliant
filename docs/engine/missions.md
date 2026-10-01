@@ -124,6 +124,15 @@ player's ships for the object in the slot its record's address gives, and reads 
 in no flight group from past the groups. OpenReliant makes the first of its own kind, and takes the
 second for a ship of no wing.
 
+`PositionRelative` (`0x004584D0`, command `0x1D`) moves each ship its first argument names as far as
+the ship or point the second names stands from its place (`+0x1C`): the ship's run-time place
+(`+0x08`) moves by that much, and its object is put there (`object_place`, `0x004521E0`). The
+missions keep a flight group with a ship that has moved this way, or the marker a shot of the
+director's camera is taken from.
+
+**Fix:** where the second argument names no ship, the game reads it from address zero; OpenReliant
+moves nothing.
+
 ## The wings
 
 `mission_wings_build` (`0x0045AC60`) lists each flight group whose `+0x08` names a wing, 0 the

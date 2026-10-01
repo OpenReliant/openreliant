@@ -594,7 +594,7 @@ address	kind	name	type	comment
 0040ca00	function	order_refused	bool __fastcall (int slot, int order)	Whether the ship in slot refuses order: a player's ship refuses orders below 100 without the players flag
 0040cf50	function	orders_clear	void __fastcall (int slot)	Drops every order if the current one gives way, running only its exit
 0040cf80	function	orders_pop_all	void __fastcall (int slot)	Pops every order, running each exit
-0040b1c0	function	order_make_capship_list_init	ObjectRoutine	The init of orders 115 and 116, Make capship list left and right: the lurch from its first step
+0040b1c0	function	order_make_capship_list_init	ObjectRoutine	The init of orders 21, 115 and 116, Find Scoop Up and Make capship list left and right: each from its first step
 0040c3a0	function	capship_list	void __fastcall (int slot, char side)	The update of orders 115 and 116 through their thunks: for 200 ticks the ship rolls at 0.01 and yaws at 0.006 a tick toward side, -1 left or 1 right, over its flight's rates, then for 300 ticks at 0.006 and 0.0048 back, then stops rolling and pops
 0040c520	function	order_retaliate	void __fastcall (int slot)	Pushes Fight at the last attacker, of the other side, once the ship's recent_damage reaches 4.2 times its armor class; only between ships whose combat stats hold 1 at +0x28
 0040c9b0	function	ai_first_setup	void (void)	Once, while 0x005185B0 is clear: calls 0x00418A70 and puts the action sphere around slot 0 with a radius of 220000
@@ -2568,3 +2568,5 @@ address	kind	name	type	comment
 0051db38	data	saved_games_arrow	int	The saved games' list arrow under the pointer
 005202c4	data	saved_games_ok_under	short	Whether the pointer is over the saved games screen's OK while a name is typed
 0052026c	data	save_error_open	int	Set while save_error_dialog's box is up
+004521e0	function	object_place	void __thiscall (GameObject *object, float x, float y, float z)	Places an object at x, y, z: its root where it is and where it goes next, and the root's frame; object_set_position without the multiplayer game's copies
+0040b140	function	find_scoop_up_nearest	bool __fastcall (int slot, OrderEntry *entry)	Find Scoop Up's walk: a ship the searcher can aim at, ejected or not, nearer to where the searcher will be next than the nearest so far becomes the nearest; never ends the walk

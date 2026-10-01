@@ -75,7 +75,7 @@ A ship colliding with an object that lists components tests against that object'
 
 A torpedo that strikes a hull (`collision_test_hull`, `0x004656CF`) takes no damage of its own:
 
-- The hull lurches, unless it is unlisted, or its current order is already a lurch, a jump or a warp: it takes Make capship list left (115) where the torpedo came in heading to its left, and right (116) otherwise ([Orders](orders.md)).
+- The hull lurches, unless its listing is disabled (`DisableListing`), or its current order is already a lurch, a jump or a warp: it takes Make capship list left (115) where the torpedo came in heading to its left, and right (116) otherwise ([Orders](orders.md)).
 - The part struck takes 5001 as a crash (`component_damage`).
 - Where that part belongs to an assembly and starts with less than 1000 armour, the first hull part the hull's model shows takes 5001 as well, of kind 4: unless the part struck is itself a hull part or the Ulysses' fin (`0x004F7480`), or that hull part is of its own assembly. For a part of a model mounted on the hull, the hull's first hull part shown whatever the part.
 - The torpedo is destroyed (`object_destroyed`), and the pair is tested no more.

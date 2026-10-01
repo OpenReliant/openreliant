@@ -203,6 +203,9 @@ pub const State = extern union {
     fight: aifight.FightState,
     fly: aiorders.FlyState,
     mill: aiorders.MillState,
+    aimless: aiorders.AimlessState,
+    find_scoop_up: aiorders.FindScoopState,
+    formation: aiorders.FormationState,
     list: aiorders.ListState,
     escort: aiorders.EscortState,
     find_target: aiorders.FindTargetState,
@@ -554,7 +557,7 @@ const lurch_ticks = [2]i32{ 200, 300 };
 /// takes as a torpedo strikes it (`collision`): for `lurch_ticks[0]` it rolls and yaws toward `side`
 /// at its first step's turns, then for `lurch_ticks[1]` back at the second's, each over its own
 /// rates, then stops rolling and the order ends. **Unverified:** it lies before this file's known
-/// code, and its `init` with `aiorders.zig`'s orders (`aiorders.capshipListInit`).
+/// code, and its `init` with `aiorders.zig`'s orders (`aiorders.firstStepInit`).
 pub fn capshipList(ctx: Context, index: u16, side: Lurch) void {
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
@@ -587,6 +590,8 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
     switch (info.order) {
         .fly => aiorders.flyInit(ctx, index),
         .mill => aiorders.millInit(ctx, index),
+        .fly_aimlessly => aiorders.flyAimlesslyInit(ctx, index),
+        .formation => aiorders.formationInit(ctx, index),
         .escort => aiorders.escortInit(ctx, index),
         .object_attach => aiorders.attachInit(ctx, index),
         .random_spin_slow => aiorders.randomSpinInit(ctx, index, .slow),
@@ -600,7 +605,7 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .scoop_up => tractor.scoopUpInit(ctx, index),
         .fight => aifight.init(ctx, index),
         .torpedo => missiles.torpedoInit(ctx, index),
-        .make_capship_list_left, .make_capship_list_right => aiorders.capshipListInit(ctx, index),
+        .find_scoop_up, .make_capship_list_left, .make_capship_list_right => aiorders.firstStepInit(ctx, index),
         .disrupted => aiorders.disruptedInit(ctx, index),
         .launch => launch.init(ctx, index),
         .jump_in, .jump_in_40 => jump.inInit(ctx, index),
@@ -629,6 +634,9 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .do_nothing => aiorders.doNothing(ctx, index),
         .fly => aiorders.fly(ctx, index),
         .mill => aiorders.mill(ctx, index),
+        .fly_aimlessly => aiorders.flyAimlessly(ctx, index),
+        .find_scoop_up => aiorders.findScoopUp(ctx, index),
+        .formation => aiorders.formation(ctx, index),
         .escort => aiorders.escort(ctx, index),
         .find_new_target => aiorders.findNewTarget(ctx, index),
         .object_attach => aiorders.attach(ctx, index),

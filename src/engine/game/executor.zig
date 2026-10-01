@@ -90,11 +90,14 @@ const implementations = table: {
         .{ "StartShipAnimation", startShipAnimation },
         .{ "StartShipAnimationReverse", startShipAnimationReverse },
         .{ "DisableObject", disableObject },
+        .{ "PositionRelative", positionRelative },
         .{ "SetPlayerTarget", setPlayerTarget },
         .{ "SetTargetable", setTargetable },
         .{ "SetActionCentre", setActionCentre },
         .{ "DisableGuns", flagCommand("guns_disabled") },
         .{ "DisableEject", flagCommand("eject_disabled") },
+        .{ "SetHostile", setHostile },
+        .{ "DoNotDisturb", flagCommand("do_not_disturb") },
         .{ "SetEscortPoint", setEscortPoint },
         .{ "SetPrimaryTarget", setPrimaryTarget },
         .{ "SnapToPoint", snapToPoint },
@@ -115,6 +118,7 @@ const implementations = table: {
         .{ "TerminateMission", terminateMission },
         .{ "TurretSetTarget", turretSetTarget },
         .{ "ReplenishWeapons", replenishWeapons },
+        .{ "DisableListing", disableListing },
     }) |pair| table[commandIndex(pair[0])] = pair[1];
     break :table table;
 };
@@ -765,6 +769,37 @@ fn disableObjectShip(call: Call, ship: u16) void {
     }
 }
 
+/// `cmd_PositionRelative` (`0x004584D0`, command `0x1D`): each ship the first argument names moves
+/// as far as the ship the second names has moved from where the mission places it
+/// (`positionRelativeShip`). The missions keep a camera's marker or a flight group with a ship
+/// this way.
+fn positionRelative(call: Call) u32 {
+    vm.Machine.forEachShip(call, positionRelativeShip);
+    return 1;
+}
+
+/// `cmd_PositionRelative_ship` (`0x004584F0`): the ship's run-time place
+/// (`dte.Ship.runtime_position`) moves by how far the object of the ship the command's second
+/// argument names stands from where the mission places that ship (`dte.Ship.position`), and the
+/// ship's object is put there (`object_place`, `0x004521E0`, which places it as
+/// `objects.setPosition` does). The run-time place follows the object again each frame
+/// (`mission.syncShips`).
+///
+/// **Fix:** where the second argument names no ship, the game reads it from address zero;
+/// OpenReliant moves nothing.
+fn positionRelativeShip(call: Call, ship: u16) void {
+    const machine = call.machine;
+    const all = machine.game.?.world.objects;
+    const ships = machine.mission.ships() catch return;
+    const marker = shipSlot(machine, all, call.args[0]) orelse return;
+    if (marker >= ships.len) return;
+    const moved = gameobj.vector(all.slots[marker].object.root.position) - ships[marker].position;
+    const record = &ships[ship];
+    record.runtime_position = moved + record.runtime_position;
+    const slot = &all.slots[ship];
+    objects.setPosition(&slot.object, &slot.drawn, record.runtime_position);
+}
+
 /// `cmd_SetPlayerTarget` (`0x00458C80`, command `0x21`): where the first argument names the
 /// player's ship, the ship the second names, or its component (`push_component`), becomes the
 /// player's target, where it can be aimed at (`ai.targetValid`): the player's Player Control order
@@ -833,6 +868,7 @@ fn setActionCentre(call: Call) u32 {
 /// |---|---|
 /// | `cmd_DisableGuns` (`0x00459200`, command `0x2F`; `0x00459220`) | `guns_disabled`: its guns do not fire, and its turrets rest |
 /// | `cmd_DisableEject` (`0x00459450`, command `0x35`; `0x00459470`) | `eject_disabled`: the player cannot eject |
+/// | `cmd_DoNotDisturb` (`0x00459640`, command `0x3B`; `0x00459660`) | `do_not_disturb`: it does not retaliate, come to another's help, rise to a taunt or take the wingmen's commands |
 fn flagCommand(comptime flag: []const u8) vm.Implementation {
     return &struct {
         fn run(call: Call) u32 {
@@ -844,6 +880,19 @@ fn flagCommand(comptime flag: []const u8) vm.Implementation {
             @field(call.machine.game.?.world.objects.slots[ship].object.flags, flag) = call.args[0] != 0;
         }
     }.run;
+}
+
+/// `cmd_SetHostile` (`0x004594F0`, command `0x36`): each ship the first argument names becomes
+/// hostile, or friendly (`setHostileShip`).
+fn setHostile(call: Call) u32 {
+    vm.Machine.forEachShip(call, setHostileShip);
+    return 1;
+}
+
+/// `cmd_SetHostile_ship` (`0x00459510`): the ship's side (`gameobj.GameObject.side`) becomes hostile
+/// where the command's second argument is set, and friendly where it is not, a neutral ship's too.
+fn setHostileShip(call: Call, ship: u16) void {
+    call.machine.game.?.world.objects.slots[ship].object.side = if (call.args[0] != 0) .hostile else .friendly;
 }
 
 /// `cmd_DestroySubObject` (`0x00459750`, command `0x42`): the component the first argument names
@@ -927,6 +976,22 @@ fn replenishWeapons(call: Call) u32 {
     create.arm(all.gpa, slot, fit) catch |err| log.warn("mission ship {d} is not armed again: {s}", .{ ship, @errorName(err) });
     if (ship == all.player) if (world.display) |display| display.missiles.build(&slot.object);
     if (slot.combat) |combat| create.makeWhole(&slot.object, combat);
+    return 1;
+}
+
+/// `cmd_DisableListing` (`0x0045A210`, command `0x5C`): the ship the first argument names, which
+/// unlike the flags' other commands is a ship alone, lurches no more as a torpedo strikes it while
+/// the second argument is set, and lurches again while it is not
+/// (`gameobj.GameObject.Flags.listing_disabled`).
+///
+/// **Fix:** where the first argument names no ship, the game writes past the objects; OpenReliant
+/// sets nothing.
+fn disableListing(call: Call) u32 {
+    const machine = call.machine;
+    const game = machine.game orelse return 1;
+    const all = game.world.objects;
+    const ship = shipSlot(machine, all, call.args[0]) orelse return 1;
+    all.slots[ship].object.flags.listing_disabled = call.args[1] != 0;
     return 1;
 }
 
@@ -1577,6 +1642,82 @@ test "the commands mission 1 runs at the convoy" {
     // The player's ship, 30000 from the nav point, points back to it.
     input.nextNavPoint(game.world);
     try std.testing.expectEqual(gameobj.Slot.of(3), all.slots[0].object.nav_point);
+}
+
+test "the commands that move ships, change their sides and leave them be" {
+    const gpa = std.testing.allocator;
+    const Routine = vm.machine.testing.Routine;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    for ([_]u8{ 0, 1, 2 }) |group| {
+        try routine.op(.push_flight_group, &.{group});
+        try routine.command("CreateFlightGroup");
+    }
+    // The Grendel is put on the nav point, and the Sabres move as far as it has; a marker that is
+    // no ship moves nothing.
+    try routine.op(.push_ship, &.{1});
+    try routine.op(.push_ship, &.{4});
+    try routine.command("SnapToPoint");
+    try routine.op(.push_flight_group, &.{1});
+    try routine.op(.push_ship, &.{1});
+    try routine.command("PositionRelative");
+    try routine.op(.push_ship, &.{0});
+    try routine.op(.push_null, &.{});
+    try routine.command("PositionRelative");
+    // The Sabres turn hostile and are not to be disturbed, then the second friendly again and
+    // free to be; the Grendel lurches no more.
+    for ([_]dte.Opcode{ .push_flight_group, .push_ship }, [_]u8{ 1, 3 }, [_]u8{ 1, 0 }) |push, entity, set| {
+        try routine.op(push, &.{entity});
+        try routine.op(.push_byte, &.{set});
+        try routine.command("SetHostile");
+        try routine.op(push, &.{entity});
+        try routine.op(.push_byte, &.{set});
+        try routine.command("DoNotDisturb");
+    }
+    try routine.op(.push_ship, &.{1});
+    try routine.op(.push_byte, &.{1});
+    try routine.command("DisableListing");
+    try routine.op(.push_byte, &.{1});
+    try routine.op(.@"return", &.{});
+    const code = try routine.finish();
+    defer gpa.free(code);
+
+    var grendel = testShip(1, 0, @intFromEnum(gameobj.Type.grendel), 5);
+    grendel.position = .{ 100, 0, 0 };
+    var sabres = [2]dte.Ship{ testShip(2, 1, @intFromEnum(gameobj.Type.sabre), 42), testShip(3, 1, @intFromEnum(gameobj.Type.sabre), 42) };
+    sabres[0].position = .{ 0, 0, 1000 };
+    sabres[1].position = .{ 0, 0, 2000 };
+    var marker = testShip(4, 2, nav_point_kind, dte.Ship.no_pilot);
+    marker.position = .{ 0, 0, 30000 };
+    var fixture: vm.machine.testing.Fixture = undefined;
+    try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .ships = &.{ testShip(0, 0, @intFromEnum(gameobj.Type.predator), dte.Ship.no_pilot), grendel, sabres[0], sabres[1], marker },
+        .flight_groups = &.{ testGroup(5, 0), testGroup(6, dte.FlightGroup.no_wing), testGroup(7, dte.FlightGroup.no_wing) },
+    });
+    defer fixture.deinit();
+    var world: gameobj.testing.Mission = undefined;
+    try world.init(gpa);
+    defer world.deinit();
+    var game = world.orders();
+    game.world.spawn = .{ .tables = &world.tables, .types = create.testing.no_models };
+    fixture.machine.game = game;
+    try fixture.machine.start();
+
+    const all = world.objects;
+    const ships = try fixture.mission.ships();
+    // The Grendel stands 30000 ahead and 100 to the left of where the mission places it.
+    for ([_]u16{ 2, 3 }, [_]f32{ 31000, 32000 }) |sabre, z| {
+        const at: [3]f32 = .{ -100, 0, z };
+        try std.testing.expectEqual(at, ships[sabre].runtime_position);
+        try std.testing.expectEqual(at, gameobj.vector(all.slots[sabre].object.root.position));
+        try std.testing.expectEqual(at, gameobj.vector(all.slots[sabre].object.root.next_position));
+        try std.testing.expectEqual(at, all.slots[sabre].drawn.position);
+    }
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, gameobj.vector(all.slots[0].object.root.position));
+    try std.testing.expectEqual(.hostile, all.slots[2].object.side);
+    try std.testing.expectEqual(.friendly, all.slots[3].object.side);
+    try std.testing.expect(all.slots[2].object.flags.do_not_disturb and !all.slots[3].object.flags.do_not_disturb);
+    try std.testing.expect(all.slots[1].object.flags.listing_disabled and !all.slots[2].object.flags.listing_disabled);
 }
 
 test "the flyback markers and the Grendels go, and the action sphere takes its default" {

@@ -713,13 +713,13 @@ fn torpedoStrikes(world: gameobj.World, torpedo: u16, hull: u16, struck: objects
     ai.objectDestroyed(ctx, torpedo, false, false);
 }
 
-/// A hull struck by a torpedo lurches away from it: one not unlisted, unless it is lurching
-/// already, jumping or warping, takes Make capship list left or right
+/// A hull struck by a torpedo lurches away from it: one whose listing is not disabled
+/// (`GameObject.Flags.listing_disabled`), unless it is lurching already, jumping or warping, takes Make capship list left or right
 /// (`aigeneric.capshipList`), left where the torpedo came in heading to its left.
 fn lurch(ctx: aigeneric.Context, torpedo: u16, hull: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[hull];
-    if (!slot.object.flags.components or slot.object.flags.unlisted) return;
+    if (!slot.object.flags.components or slot.object.flags.listing_disabled) return;
     if (slot.current()) |entry| switch (entry.order) {
         .make_capship_list_left, .make_capship_list_right, .jump_out, .jump_in, .warp_out, .warp_in => return,
         else => {},

@@ -215,7 +215,7 @@ from the catalogue.
 | `0x1A` | `SetInvulnerability` | Each ship the first argument names takes the invulnerability the second gives, or the component `push_component` named for it does. Only ships past the players' slots are reached, save in missions 30 to 35 and in the Reliant's simulator's training ([Objects](objects.md)) | Yes |
 | `0x1B` | `MovingShipFollowCurve` | As `ShipFollowCurve`, the path carried by where the fourth argument's ship stands from where the mission placed it | Yes |
 | `0x1C` | `DisableObject` | Each ship the first argument names is disabled while the second is set, which leaves it out of the mission's work, or enabled again; for a component, which `push_component` or a squad's member names, its assembly shows its damaged model instead, or its own again | Yes |
-| `0x1D` | `PositionRelative` | Keeps the entity the first argument names placed relative to the movement of the ship or point the second names | No |
+| `0x1D` | `PositionRelative` | Each ship the first argument names moves as far as the ship or point the second names stands from where the mission places it, its record's run-time place with it ([Missions](missions.md#the-missions-ships)) | Yes |
 | `0x1E` | `WhenPlayerLastJumped` | How many seconds of the script's clock ago JUMP DRIVE last took a jump or a warp, at least 1 | Yes |
 | `0x1F` | `StartMissileCam` | The director's camera follows a missile the ship the argument names fires | No |
 | `0x20` | `StartChaseCam` | The camera follows the ship the argument names from behind | No |
@@ -240,12 +240,12 @@ from the catalogue.
 | `0x33` | `DisableMissiles` | Each ship the first argument names launches no missiles while the second is set | No |
 | `0x34` | `DisableEngines` | Each ship the first argument names has its engines off while the second is set | No |
 | `0x35` | `DisableEject` | The pilot of each ship the first argument names cannot eject while the second is set | Yes |
-| `0x36` | `SetHostile` | Each ship the first argument names turns hostile while the second is set, or friendly | No |
+| `0x36` | `SetHostile` | Each ship the first argument names turns hostile while the second is set, or friendly, a neutral one too | Yes |
 | `0x37` | `ResetToSpawnPositions` | In a deathmatch, puts the player at a spawn place at random | No |
 | `0x38` | `UpdateEnvironmentFXState` | Applies what the script asks of its space at once rather than at the next jump (`environment_update`), and aims the sun, the lights and the nebula again from the markers (`backdrop_place`) ([Backdrop](backdrop.md)) | Yes |
 | `0x39` | `SetPrimaryTarget` | The ship the argument names, or its component, becomes the mission's primary target, which PRIMARY TARGET makes the player's ([Display](hud.md#picking-a-target)) | Yes |
 | `0x3A` | `WaitForJumpOrLaunch` | The thread waits while any ship the argument names is jumping, going through a gate or launching | Yes |
-| `0x3B` | `DoNotDisturb` | Each ship the first argument names is not disturbed, and does not turn on its attacker, while the second is set | No |
+| `0x3B` | `DoNotDisturb` | Each ship the first argument names does not retaliate, come to another's help, rise to a taunt or take the wingmen's commands while the second is set (`do_not_disturb`, [Objects](objects.md)) | Yes |
 | `0x3C` | `SetEnvironmentFXNebula` | Asks for the nebula the argument numbers (`nebula_requested`, `0x0058A6B8`) | Yes |
 | `0x3D` | `StartShipAnimationReverse` | As `StartShipAnimation`, backwards at -4 from where each part stands | Yes |
 | `0x3E` | `SnapToPoint` | The ship the first argument names, unless it is exploding, ejected or out of a multiplayer game, is put where the object the second names will stand next, turned as it will be, and stopped | Yes |
@@ -278,7 +278,7 @@ from the catalogue.
 | `0x59` | `ReplenishWeapons` | The ship the argument names is armed again, a player's with the racks its loadout chose, or by loadout tier 0 in the simulator or where the briefing was skipped, and any other by its own tier; and made whole ([Missiles](missiles.md#the-loadout)) | Yes |
 | `0x5A` | `WillsBlag` | The mission's record of the ship the argument names is no longer destroyed, and its pilot neither ejects nor has | No |
 | `0x5B` | `ShowHudIcon` | Shows one of the display's icons, off, on or flashing | No |
-| `0x5C` | `DisableListing` | Leaves each ship the first argument names off the display's lists while the second is set | No |
+| `0x5C` | `DisableListing` | The ship the first argument names, a ship alone, does not lurch as a torpedo strikes it while the second is set (`listing_disabled`, [Collisions](loop.md#collisions)) | Yes |
 | `0x5D` | `DisableObjectAtNextJump` | Disables the object the first argument names, such as a planet, at the next jump or warp while the second is set, or enables it | No |
 | `0x5E` | `DarrensNaughtyBlag` | **Unknown.** It takes two ships, and its description names only its author | No |
 
@@ -490,8 +490,9 @@ the commands that act on the game: `CreateFlightGroup` ([Missions](missions.md#t
 `WaitForMovie`, `PlayMusic`, the display's `OpenInstrument`, `CloseInstrument` and `SetObjective`,
 the space's `SetEnvironmentFXNebula` and `UpdateEnvironmentFXState`, `MultiplayerScriptSync`,
 `WhenPlayerLastJumped`, and those of the ships and the player's targets: `DestroyFlightGroup`,
-`ClearAI`, `StartShipAnimation`, `StartShipAnimationReverse`, `DisableObject`, `SetPlayerTarget`,
-`SetTargetable`, `SetActionCentre`, `DisableGuns`, `SetEscortPoint`, `SetPrimaryTarget`,
+`ClearAI`, `StartShipAnimation`, `StartShipAnimationReverse`, `DisableObject`, `PositionRelative`,
+`SetPlayerTarget`, `SetTargetable`, `SetActionCentre`, `DisableGuns`, `SetHostile`, `DoNotDisturb`,
+`DisableListing`, `SetEscortPoint`, `SetPrimaryTarget`,
 `SnapToPoint`, `IsShipThisPlayer`, `SetFlybackMarker`, `ResetFlybackMarker` and `MatchSpeed`. They
 act on it through the world the mission's start and its frame give the machine, which the game
 reaches through its globals. A command not ported yet does nothing and gives 1, which lets the

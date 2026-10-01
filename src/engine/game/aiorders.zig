@@ -1,7 +1,8 @@
-//! The orders a ship flies by: Mill, Do Nothing, Escort, Fly, Run Away, Find New Target, Object
-//! Attach, Toggle Cloak, Slow Rotate, the Random Spins, Match Speed and Disrupted; the two that
-//! launch a missile; and the start of a capital ship's lurch as a torpedo strikes it. [`aigeneric.zig`](aigeneric.zig) runs them, [`ai.zig`](ai.zig) steers for them, and
-//! `docs/engine/orders.md` describes what each does.
+//! The orders a ship flies by: Mill, Do Nothing, Fly Aimlessly, Escort, Fly, Run Away, Find New
+//! Target, Find Scoop Up, Object Attach, Toggle Cloak, Slow Rotate, the Random Spins, Formation,
+//! Match Speed and Disrupted; the two that launch a missile; and the start of a capital ship's
+//! lurch as a torpedo strikes it. [`aigeneric.zig`](aigeneric.zig) runs them, [`ai.zig`](ai.zig)
+//! steers for them, and `docs/engine/orders.md` describes what each does.
 //!
 //! **Unknown:** its source file. The code lies after `aifight.cpp`'s and before `aifuncs.cpp`'s,
 //! and no string places it. The orders of the two files around it are their own.
@@ -126,6 +127,85 @@ pub fn mill(ctx: Context, index: u16) void {
 /// `order_do_nothing` (`0x0040A880`): the update of Do Nothing (0), which lets the ship coast.
 pub fn doNothing(ctx: Context, index: u16) void {
     ctx.world.objects.slots[index].object.letGo();
+}
+
+// --- Fly Aimlessly --------------------------------------------------------------------------
+
+/// What Fly Aimlessly keeps in `order_state`: its figure, from 1 to 3 (`flyAimlessly`); the point
+/// of the figure it flies for; where it began; and how the figure lies, turned as the ship was as
+/// it began, its X axis reversed about half the time.
+pub const AimlessState = extern struct {
+    figure: i32,
+    point: i32,
+    start: shp.Vec3,
+    orientation: math.Matrix,
+    _unknown_38: [0x90 - 0x38]u8,
+
+    comptime {
+        assert(@offsetOf(AimlessState, "point") == 0x04);
+        assert(@offsetOf(AimlessState, "start") == 0x08);
+        assert(@offsetOf(AimlessState, "orientation") == 0x14);
+        assert(@sizeOf(AimlessState) == 0x90);
+    }
+};
+
+/// How many figures Fly Aimlessly flies (`0x0040A8D9`).
+const aimless_figures = 3;
+
+/// The throttle Fly Aimlessly flies at, and how much more it may take at random (`0x004DC4DC`,
+/// `0x004DC4C0`).
+const aimless_throttle: f32 = 0.4;
+const aimless_throttle_spread: f32 = 0.3;
+
+/// How far round its figure each point comes (`0x004DC500`): a twentieth of a turn.
+const aimless_step: f32 = 0.05;
+
+/// How far to the side the figure reaches, at each end, for each of its number and one more; and
+/// how far ahead and behind it swings (`0x004DC4FC`, `0x004DC494`).
+const aimless_side: f32 = 25000;
+const aimless_ahead: f32 = 50000;
+
+/// How near a point the ship comes before it flies for the next (`0x004DC4F8` holds its square).
+const aimless_reach: f32 = 1000;
+
+/// `order_fly_aimlessly_init` (`0x0040A8C0`): the init of Fly Aimlessly (1). The ship takes its
+/// figure, 1 to 3, from its own random numbers (`xtrabits.objectRandom15`), and lays it where it
+/// will be next, turned as it will be, its X axis reversed where its next number is odd. It flies
+/// for the figure's first point, at `aimless_throttle` and up to `aimless_throttle_spread` more at
+/// random (`rand`).
+pub fn flyAimlesslyInit(ctx: Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    const object = &slot.object;
+    const state = &slot.state.aimless;
+    state.figure = @as(i32, xtrabits.objectRandom15(object) % aimless_figures) + 1;
+    state.start = object.root.next_position;
+    state.orientation = object.root.next_orientation;
+    state.point = 1;
+    if (xtrabits.objectRandom15(object) & 1 != 0) {
+        const turn = state.orientation;
+        state.orientation = math.fromAxes(-math.xAxis(turn), math.yAxis(turn), math.forward(turn));
+    }
+    object.throttle = ctx.world.random.fraction() * aimless_throttle_spread + aimless_throttle;
+}
+
+/// `order_fly_aimlessly` (`0x0040A980`): the update of Fly Aimlessly (1), which never ends. The
+/// ship flies, going round what is in its way, for the point of its figure it has come to, then
+/// for the next once within `aimless_reach` of it. Point `n` lies `t = n` twentieths of a turn
+/// round: `(cos t - 1)(figure + 1)` times `aimless_side` to the side of where the order began, and
+/// `sin(figure t)` times `aimless_ahead` ahead of it, as the figure lies. Figure 1 is a circle, and
+/// figures 2 and 3 are wider loops that swing ahead and back two and three times on the way round.
+///
+/// **Improvement:** the sine and cosine come from `std.math` rather than the engine's tables
+/// (`sr_sin`, `sr_cos`).
+pub fn flyAimlessly(ctx: Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    const state = &slot.state.aimless;
+    const turn = @as(f32, @floatFromInt(state.point)) * aimless_step * std.math.tau;
+    const figure: f32 = @floatFromInt(state.figure);
+    const local: Vector = .{ (@cos(turn) - 1) * (figure + 1) * aimless_side, 0, @sin(figure * turn) * aimless_ahead };
+    const point = math.transform(state.orientation, local) + gameobj.vector(state.start);
+    _ = ai.steer(ctx.world, index, point, ai.full_limit, ai.no_ease, .{ .avoid_near = true, .avoid_ahead = true });
+    if (math.distanceSquared(slot.object.nextPosition(), point) < aimless_reach * aimless_reach) state.point +%= 1;
 }
 
 // --- Escort ---------------------------------------------------------------------------------
@@ -366,9 +446,10 @@ pub const ListState = extern struct {
     }
 };
 
-/// `0x0040B1C0`: the init of Make capship list left and right (115, 116), which a capital ship takes
-/// as a torpedo strikes it (`collision`): the lurch from its first step (`aigeneric.capshipList`).
-pub fn capshipListInit(ctx: Context, index: u16) void {
+/// `order_make_capship_list_init` (`0x0040B1C0`): the init of Find Scoop Up (21) and of Make
+/// capship list left and right (115, 116), which a capital ship takes as a torpedo strikes it
+/// (`collision`): each from its first step (`findScoopUp`, `aigeneric.capshipList`).
+pub fn firstStepInit(ctx: Context, index: u16) void {
     ctx.world.objects.slots[index].state.list.step = 0;
 }
 
@@ -433,6 +514,87 @@ fn weighTarget(ctx: Context, index: u16, target: aigeneric.Target) void {
         state.mill_component = target.component;
     }
 }
+
+// --- Find Scoop Up --------------------------------------------------------------------------
+
+/// What Find Scoop Up keeps in `order_state`: its step, and as it walks its target's ships, the
+/// nearest it would scoop up, the component, and the square of how far it is; -1 for none, and the
+/// most a float holds for none yet.
+pub const FindScoopState = extern struct {
+    step: FindScoopStep,
+    ship: i32,
+    component: i32,
+    nearest: f32,
+    _unknown_10: [0x90 - 0x10]u8,
+
+    comptime {
+        assert(@offsetOf(FindScoopState, "ship") == 0x04);
+        assert(@offsetOf(FindScoopState, "nearest") == 0x0C);
+        assert(@offsetOf(FindScoopState, "step") == @offsetOf(ListState, "step"));
+        assert(@sizeOf(FindScoopState) == 0x90);
+    }
+};
+
+/// Find Scoop Up's steps: the wait for the other players, then the search.
+pub const FindScoopStep = enum(i32) {
+    wait = 0,
+    search = 1,
+    _,
+};
+
+/// `order_find_scoop_up` (`0x0040B1E0`): the update of Find Scoop Up (21), which starts at its first
+/// step (`firstStepInit`). From the wait it goes on to the search; a multiplayer game waits there
+/// first for every player, unless the order names a ship (`ai_sequence_sync`). The search walks the
+/// ships the order's target names (`ai.eachShip`) for the nearest to where the ship will be next
+/// that it can aim at, ejected or not, and scoops it up, Scoop Up (107) pushed above it; with none
+/// it pops. Once Scoop Up is done, the order starts again from the wait, and searches again.
+///
+/// Not ported: the wait, and in a multiplayer game the Scoop Up sent to the other players where
+/// the order names no ship ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+pub fn findScoopUp(ctx: Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    const state = &slot.state.find_scoop_up;
+    switch (state.step) {
+        .wait => state.step = .search,
+        .search => {
+            state.ship = -1;
+            state.component = -1;
+            state.nearest = std.math.floatMax(f32);
+            var scooping: Scooping = .{ .ctx = ctx, .index = index };
+            _ = ai.eachShip(ctx.world, slot.orders[0].target, &scooping);
+            if (state.ship < 0) {
+                _ = aigeneric.pop(ctx, index);
+                return;
+            }
+            _ = aigeneric.pushShip(ctx, index, .scoop_up, @intCast(state.ship), @intCast(state.component)) catch |err| {
+                log.warn("ship {d} takes no order {d}: {s}", .{ index, @intFromEnum(Order.scoop_up), @errorName(err) });
+            };
+        },
+        _ => {},
+    }
+}
+
+/// `0x0040B140`, Find Scoop Up's visitor: a ship the searcher can aim at, ejected or not
+/// (`ai.targetValid`), nearer to where the searcher will be next than the nearest so far, by
+/// where it will be next, becomes the nearest.
+const Scooping = struct {
+    ctx: Context,
+    index: u16,
+
+    pub fn visit(scooping: *Scooping, target: aigeneric.Target) bool {
+        const all = scooping.ctx.world.objects;
+        if (!ai.targetValid(all, target, .{ .ejected = true })) return false;
+        const slot = &all.slots[scooping.index];
+        const state = &slot.state.find_scoop_up;
+        const distance = math.distanceSquared(all.slots[@intCast(target.index)].object.nextPosition(), slot.object.nextPosition());
+        if (distance < state.nearest) {
+            state.ship = target.index;
+            state.component = target.component;
+            state.nearest = distance;
+        }
+        return false;
+    }
+};
 
 // --- Object Attach and Toggle Cloak ---------------------------------------------------------
 
@@ -522,6 +684,52 @@ pub fn randomSpinInit(ctx: Context, index: u16, spin: Spin) void {
     object.roll_input = xtrabits.objectRandom(object) * spread + spin_input;
     object.yaw_input = xtrabits.objectRandom(object) * spread + spin_input;
 }
+
+// --- Formation ------------------------------------------------------------------------------
+
+/// What Formation keeps in `order_state`: where the ship flies in its target's frame.
+pub const FormationState = extern struct {
+    place: shp.Vec3,
+    _unknown_0c: [0x90 - 0x0C]u8,
+
+    comptime {
+        assert(@sizeOf(FormationState) == 0x90);
+    }
+};
+
+/// How far apart Formation's ships fly abreast (`0x004DC508`).
+const formation_spacing: f32 = 3000;
+
+/// `order_formation_init` (`0x0040B850`): the init of Formation (27). The ships `SetAI` numbers fly
+/// abreast of their target, `formation_spacing` apart: the one numbered `n` flies `n / 2 + 1`
+/// places out, to the target's left where `n` is even and to its right where it is odd.
+pub fn formationInit(ctx: Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    const counted = @as(i32, slot.orders[0].sequence) + 2;
+    const side: i32 = if (counted & 1 != 0) 1 else -1;
+    const out: f32 = @floatFromInt(side * @divTrunc(counted, 2));
+    slot.state.formation.place = .{ .x = out * formation_spacing, .y = 0, .z = 0 };
+}
+
+/// `order_formation` (`0x0040B8A0`): the update of Formation (27), which keeps the ship at its place
+/// by its target as the target will stand next, turned as the target will be (`ai.arrive`). It pops
+/// once the target can no longer be aimed at.
+pub fn formation(ctx: Context, index: u16) void {
+    const all = ctx.world.objects;
+    const slot = &all.slots[index];
+    const target = slot.orders[0].target;
+    if (!ai.targetValid(all, target, .{})) {
+        _ = aigeneric.pop(ctx, index);
+        return;
+    }
+    const leader = &all.slots[@intCast(target.index)].object;
+    const turn = leader.root.next_orientation;
+    const place = math.transform(turn, gameobj.vector(slot.state.formation.place)) + leader.nextPosition();
+    _ = ai.arrive(ctx.world, index, place, turn, formation_least_throttle);
+}
+
+/// The least throttle Formation comes to its place at.
+const formation_least_throttle: f32 = 0;
 
 /// `order_match_speed` (`0x0040B9E0`): the update of Match Speed (32), which holds the ship at its
 /// target's speed. It pops once the target can no longer be aimed at.
@@ -943,6 +1151,42 @@ test "Find New Target fights what it may, mills round the rest, and pops with no
     try std.testing.expectEqual(0, game.slot(searcher).object.order_count);
 }
 
+test "Find Scoop Up scoops up the nearest it may, one after another, and pops with none" {
+    var mission: GroupMission = undefined;
+    try mission.init(5, 3);
+    defer mission.deinit();
+    const game = &mission.game;
+    const ctx = mission.orders();
+    // A ship at the origin, and the flight group of three ahead: the farthest, an ejected one
+    // nearer, and the nearest cloaked.
+    const searcher = try game.addOther(@splat(0));
+    const far = try game.add(.predator, .{ 0, 0, 20000 });
+    const ejected = try game.add(.predator, .{ 0, 0, 10000 });
+    const cloaked = try game.add(.predator, .{ 0, 0, 5000 });
+    for ([_]u16{ far, ejected, cloaked }) |index| game.slot(index).object.flags.targetable = true;
+    game.slot(ejected).object.flags.ejected = true;
+    game.slot(cloaked).object.flags.cloaked = true;
+
+    // Each time the order starts, its first update goes from the wait to the search, and the next
+    // scoops up the ejected one, then once that is gone the farthest.
+    _ = try aigeneric.push(ctx, searcher, .find_scoop_up, GroupMission.group);
+    const slot = game.slot(searcher);
+    for ([_]u16{ ejected, far }) |scooped| {
+        aigeneric.objectOrders(ctx, searcher);
+        try std.testing.expectEqual(Order.find_scoop_up, slot.orders[0].order);
+        try std.testing.expectEqual(.search, slot.state.find_scoop_up.step);
+        findScoopUp(ctx, searcher);
+        try std.testing.expectEqual(Order.scoop_up, slot.orders[0].order);
+        try std.testing.expectEqual(scooped, slot.orders[0].target.slot());
+        game.slot(scooped).object.flags.targetable = false;
+        _ = aigeneric.pop(ctx, searcher);
+    }
+    // With none left to aim at, it pops.
+    aigeneric.objectOrders(ctx, searcher);
+    findScoopUp(ctx, searcher);
+    try std.testing.expectEqual(0, slot.object.order_count);
+}
+
 test "Escort takes its place in the group, follows, and ends with its ship" {
     var mission: GroupMission = undefined;
     try mission.init(4, 2);
@@ -1001,6 +1245,63 @@ test "Mill circles its target for a while" {
     mission.clock.frame_start = mill_ticks + 1;
     aigeneric.objectOrders(ctx, ship);
     try std.testing.expectEqual(0, mission.slot(ship).object.order_count);
+}
+
+test "Fly Aimlessly flies its figure from where it began, a point at a time" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const ship = try mission.addOther(.{ 0, 0, 5000 });
+    _ = try aigeneric.push(ctx, ship, .fly_aimlessly, .none);
+    aigeneric.objectOrders(ctx, ship);
+    const slot = mission.slot(ship);
+    const state = &slot.state.aimless;
+    try std.testing.expect(state.figure >= 1 and state.figure <= aimless_figures);
+    try std.testing.expectEqual(Vector{ 0, 0, 5000 }, gameobj.vector(state.start));
+    try std.testing.expectEqual(1, state.point);
+    try std.testing.expect(slot.object.throttle >= aimless_throttle and slot.object.throttle <= aimless_throttle + aimless_throttle_spread);
+    // Half way round, each figure is at its widest, to the side its X axis lies; there the ship
+    // flies for the next point.
+    for (1..aimless_figures + 1) |figure| {
+        state.figure = @intCast(figure);
+        state.point = 10;
+        const widest = -2 * @as(f32, @floatFromInt(figure + 1)) * aimless_side;
+        slot.object.root.next_position = gameobj.vec3(math.xAxis(state.orientation) * @as(Vector, @splat(widest)) + gameobj.vector(state.start));
+        flyAimlessly(ctx, ship);
+        try std.testing.expectEqual(11, state.point);
+    }
+    // Away from that point, it flies on for it.
+    flyAimlessly(ctx, ship);
+    try std.testing.expectEqual(11, state.point);
+}
+
+test "Formation flies abreast of its target, on alternate sides, and ends with it" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const ship = try mission.addOther(@splat(0));
+    const leader = try mission.add(.predator, .{ 0, 0, 10000 });
+    mission.slot(leader).object.flags.targetable = true;
+    _ = try aigeneric.pushShip(ctx, ship, .formation, leader, aigeneric.Target.whole);
+    const slot = mission.slot(ship);
+    const state = &slot.state.formation;
+    // The ships numbered 0 to 3 fly one and two places out, left and right in turn.
+    for ([_]i16{ 0, 1, 2, 3 }, [_]f32{ -3000, 3000, -6000, 6000 }) |sequence, x| {
+        slot.orders[0].sequence = sequence;
+        formationInit(ctx, ship);
+        try std.testing.expectEqual(Vector{ x, 0, 0 }, gameobj.vector(state.place));
+    }
+    // At its place by the leader, it stops there.
+    slot.object.root.next_position = .{ .x = 6000, .y = 0, .z = 10000 };
+    slot.object.throttle = 1;
+    formation(ctx, ship);
+    try std.testing.expectEqual(formation_least_throttle, slot.object.throttle);
+    // Once the leader can no longer be aimed at, it pops.
+    mission.slot(leader).object.flags.targetable = false;
+    formation(ctx, ship);
+    try std.testing.expectEqual(0, slot.object.order_count);
 }
 
 test "Object Attach rides its target, where it stood in the target's frame" {

@@ -255,7 +255,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | Number | Order | What it does | Ported |
 |---|---|---|---|
 | 0 | Do Nothing | Zeroes the throttle and the turning inputs. | Yes |
-| 1 | Fly Aimlessly | Not read yet. | No |
+| 1 | Fly Aimlessly | On starting, takes a figure from 1 to 3 from the ship's own random numbers, keeps where the ship will be next and how it will be turned, its X axis reversed where its next number is odd, and sets the throttle to 0.4 and up to 0.3 more by `rand()`. Each update it steers with flags `0x3` for point `n` of its figure, from 1, and for the next once within 1000 of it. Point `n` lies `t = n` twentieths of a turn round, `(cos t - 1)(figure + 1)` times 25000 along the kept X axis and `sin(figure t)` times 50000 along the kept Z axis from where the order began: figure 1 is a circle, and figures 2 and 3 are wider loops that swing ahead and back two and three times on the way round. It never ends. | Yes |
 | 2 | Launch Missile | One-shot: launches a missile at the target from the first of the ship's racks with missiles left that is not a Jack Hammer's ([Missiles](missiles.md#the-ais-missiles)). | Yes |
 | 3 | (nameless) | One-shot: as Launch Missile, from the first rack of Jack Hammers. | Yes |
 | 4 | Warp In | A capital ship warps in through a tunnel of its own ([Gates](gates.md)). Not read in full yet. | No ([#30](https://github.com/vdmkenny/openreliant/issues/30)) |
@@ -275,11 +275,11 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 18 | Slow Rotate | Zero throttle, yaw input 0.1. | Yes |
 | 19, 40 | Jump In | The ship arrives beside its target, flying in from far behind it; 40 first holds its place in the formation a while ([Jumps](jump.md#jump-in)). | Yes |
 | 20, 41 | Jump Out | The ship turns to where it goes, charges and jumps: to its target, where Jump In of the matching number brings it in, or out of the mission where it names none; a ship jumping with the player's goes in formation behind it ([Jumps](jump.md#jump-out)). | Yes |
-| 21 | Find Scoop Up | Not read yet. | No |
+| 21 | Find Scoop Up | Starts at its first step, as 115 and 116 do (`0x0040B1C0`). The first goes on to the second, where a multiplayer game waits for every player unless the target is a ship (`ai_sequence_sync`, `0x00401000`). The second walks the ships its target names for the nearest to where the ship will be next that it can aim at, ejected or not (`0x0040B140`), and pushes Scoop Up (107) at it; with none it pops. Once Scoop Up is done, the order starts again from its first step. | Yes |
 | 22 to 24 | Random Spin Slow, Medium, Fast | On starting, zero throttle and each turning input 0.1 plus a random number times 0.3, 0.5 or 0.9. Its update does nothing. | Yes |
 | 25 | Fixed Gate Jump In | The ship comes in through the tunnel at the object its target names, out beyond its mouth, cut by its portal ([Gates](gates.md#jump-in)). | Partly: the Krasny's split in missions 16 and 66 is not ([#407](https://github.com/vdmkenny/openreliant/issues/407)) |
 | 26 | Fixed Gate Jump Out | The ship goes out through the nearest gate's tunnel, the player's riding the worm, then comes in through its target's (25) ([Gates](gates.md#jump-out)). | Yes |
-| 27 | Formation | Not read yet. | No |
+| 27 | Formation | On starting, keeps its place abreast of the target, 3000 apart: the ship `SetAI` numbers `n` flies `n / 2 + 1` places out, to the target's left where `n` is even and to its right where it is odd. Each update it pops once it can aim at the target no more; otherwise it arrives at its place in the frame the target will stand in next, turned as the target will be, at a least throttle of 0 ([Arriving](#arriving)). | Yes |
 | 28 | Fixed Gate Open | A tunnel grows open at the object ([Gates](gates.md#open-and-close)). | Yes |
 | 29 | Fixed Gate Close | The object's tunnel shrinks away and goes. | Yes |
 | 30 | Eject | The pilot leaves the ship in its cockpit, which becomes the pod, and the rest of the ship a new object; the pod clears the ship, and the player's waits to be picked up ([Ejection](ejection.md#the-pod)). | Yes |

@@ -982,8 +982,9 @@ pub const GameObject = extern struct {
         /// game sends the other players' ships off into Jump Out. It takes no orders while it is
         /// set.
         sent_off: bool = false,
-        /// `DisableListing`: "stop listing".
-        unlisted: bool = false,
+        /// `DisableListing`, "stop listing": a torpedo does not make the capital ship lurch
+        /// (`collision.lurch`).
+        listing_disabled: bool = false,
         _unknown_30: u2 = 0,
 
         /// What a slot holds until `create_object` fills it (`objects_reset`, `object_reset`), and
@@ -1089,7 +1090,7 @@ pub const GameObject = extern struct {
         assert(@bitOffsetOf(Flags, "attached") == 22);
         assert(@bitOffsetOf(Flags, "ecm") == 26);
         assert(@bitOffsetOf(Flags, "spectral_shields") == 27);
-        assert(@bitOffsetOf(Flags, "unlisted") == 29);
+        assert(@bitOffsetOf(Flags, "listing_disabled") == 29);
         assert(@offsetOf(GameObject, "combat") == 0x10);
         assert(@offsetOf(GameObject, "root") == 0x28);
         assert(@offsetOf(GameObject, "visibility") == 0x12C);
