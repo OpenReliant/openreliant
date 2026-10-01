@@ -36,67 +36,9 @@ zig build -Dtarget=aarch64-macos               # Apple silicon, from any Zig
 
 `openreliant [<game-directory>] [<option>...]` runs in the game's installed directory, or the one given, and reads `resource.hog` and `tcachehw.dat` from it as the original does ([`bigfile.zig`](../../src/engine/game/bigfile.zig)). It has no data of its own: without those files it reports what it needs and exits.
 
-`openreliant --help` lists the options in the groups below, the keys OpenReliant adds, and the commands; each command's `--help` shows its own. An invalid option or value is named in one line, and `openreliant` exits with status 2. The page comes from one table in [`options.zig`](../../src/openreliant/options.zig), which the compiler holds to having help for every option, and [`help.zig`](../../src/openreliant/help.zig) wraps it to 80 columns at compile time.
+`openreliant --help` lists the options, the keys OpenReliant adds, and the commands; each command's `--help` shows its own, and the guide describes them ([Configuration and options](../guide/configuration.md)). An invalid option or value is named in one line, and `openreliant` exits with status 2. The page comes from one table in [`options.zig`](../../src/openreliant/options.zig), which the compiler holds to having help for every option, and [`help.zig`](../../src/openreliant/help.zig) wraps it to 80 columns at compile time.
 
 OpenReliant's own options can also be kept in the game's `starlancer.ini`, in its `[OpenReliant]` section, which the original never reads ([`settings.zig`](../../src/openreliant/settings.zig)); the guide lists the keys ([OpenReliant's settings](../guide/configuration.md#openreliants-settings)). `Original` is read first, as `--original` comes first on a command line, and the other keys change what it set. The command line's options change them for the run, and `--screenshot` leaves them out, so that a screenshot comes out the same for everyone.
-
-**The original.** OpenReliant improves on the original's look and sound; `--original` turns the improvements off, and an option after it turns one back on.
-
-| Option | Does |
-|---|---|
-| `--original` | The original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, motion that moves on with the game's ticks, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings and particles as few and plain as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, the shields' bubbles as coarse as the original's, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the marker for a target out of sight placed as the original misplaces it, and sound mixed plainly in stereo with no master bus |
-
-**The mission.**
-
-| Option | Does |
-|---|---|
-| `--mission <number>` | The mission to play at once, by the number the game names its file by, rather than open the front end; 0 is OpenReliant's sandbox |
-| `--ship <type>` | The ship type to fly, by its number in `shipstats.bin`, in place of the loadout screen's choice; the mission's own by default |
-| `--view <0\|1\|2>` | The view it starts in, as the game's settings keep it: 0 the cockpit, the default; 1 the chase view; 2 no cockpit |
-| `--difficulty <easy\|medium\|hard>` | The game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with `--mission`, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it |
-| `--music <file>` | A piece of `music` to play from the start, until the mission's script plays its own; none by default |
-
-**Display.**
-
-| Option | Does |
-|---|---|
-| `--fullscreen` | Fills the display |
-| `--size <width>x<height>` | Draws frames of this size in pixels whatever the window's, which shows them scaled; for a screenshot larger than the display |
-| `--fps <rate>` | Frames a second at most; 0 for no limit |
-| `--no-vsync` | Draws without waiting for the display |
-
-**Graphics.**
-
-| Option | Does |
-|---|---|
-| `--software` | Draws on the software device, OpenReliant's reference, at the window's size in points |
-| `--16-bit` | 16-bit colour, dithered |
-| `--msaa <1\|2\|4\|8>` | Samples a pixel; 4 by default |
-| `--filter <original\|trilinear\|crisp>` | How textures are filtered; `crisp` by default |
-| `--no-bloom` | Draws without the bloom around bright things |
-| `--no-dither` | Draws without dithering 32-bit colour |
-| `--no-pixel-lighting` | Lights each vertex rather than each pixel, as the original does |
-| `--no-smooth-motion` | Moves what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame |
-| `--few-shot-lights` | Lights only the latest two of the player's shots and the latest two of everyone else's, as the original does |
-
-**Sound.**
-
-| Option | Does |
-|---|---|
-| `--hrtf` | Places the sounds for headphones, through a head-related transfer function, whatever the output; by default they are while the output is headphones |
-| `--no-hrtf` | Places the sounds for speakers, whatever the output |
-| `--no-reverb` | Plays the 3D sounds, the cockpit's warnings and the sounds of the Reliant's rooms and briefing without reverb |
-| `--no-compressor` | Leaves the master bus's compressor out, keeping its limiter |
-| `--no-sound` | Runs without sound |
-
-**Other.**
-
-| Option | Does |
-|---|---|
-| `--no-intro` | Starts without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
-| `--screenshot <file.png>` | Draws one frame, with the camera settled, to a PNG and quits; the controls and `[OpenReliant]` are not read, so that it comes out the same each time |
-| `--version` | Shows the version |
-| `-h`, `--help` | Shows the options |
 
 It opens the game's [front end](../engine/front-end.md), whose main menu starts a mission or a campaign through [the Reliant's rooms](../engine/rooms.md), or plays at once the mission `--mission` names ([Missions](../engine/missions.md)), read as the game reads it, drawn through the ported pipeline and driver with the GPU ([Renderer](renderer.md)). Mission 0, OpenReliant's sandbox, is a standard mission file, which the build writes from [`mission0.zig`](../../src/openreliant/mission0.zig) and installs as `missions/mission0.dte` beside `bin`, for `sltool` and the original, and which `openreliant` carries and plays where the game has no mission 0. Its scene: the Reliant at the origin, facing along Z, from whose first four tubes the player's ship and three wingmen, listed in the player's wing, launch ([Launches](../engine/launch.md)); ahead, a wing of four Sabres facing the Reliant, and beyond them the Badanov, the smallest of the Coalition's capital ships, turned across the way. Past the Badanov, outside the action's sphere, lies a little field of twelve rocks, the seven asteroids in turn, placed and turned from a fixed seed. Its script's start part makes the Reliant's flight group, then every other, sets the rocks tumbling in place under Random Spin Slow, plays the launch's music and starts the wing's launch, as mission 1 does. Meanwhile the Reliant and the Badanov hold their fire (`DisableGuns`): the Huge Guns lead a target up to a quarter of their shots' life away, which reaches well past the Badanov, and would fire over the launch beside the player's hangar. Once the wing is out, it frees their guns and gives the ships their orders ([Orders](../engine/orders.md)): the Reliant and the Badanov under Fly at a tenth of the Reliant's speed, the Sabres under Fight against the player and each wingman against a Sabre, the mission's music follows the launch's, and the script clears the player's ship to land, as mission 1's does once the Reliant jumps in, so that PERMISSION TO LAND brings it down on the Reliant ([Landing](../engine/orders.md#landing)), which ends the mission. The player's ship flies under Player Control, which reads the player's controls, once its launch ends. The Sabres' pilot is record 42 of `pilotstats.bin`, one of its weakest, where `create_object` gives a Sabre the sharp pilot of record 66, so the player's missiles mostly get past their countermeasures, and an ejected pilot fares each way as likely. The game's bindings drive the camera ([Controls](../engine/controls.md), [Camera](../engine/camera.md)): keys 1 to 8 pick the cockpit, left, right, rear, flyby, target, external and missile views, the cockpit key cycles the cockpit mode while in it, and in the target and external views the arrow keys orbit and Shift with up or down zooms. Added for OpenReliant ([`test_keys.zig`](../../src/openreliant/test_keys.zig)), in the sandbox alone: F2 and F3 start the mission again with the loadout's ship the previous or next ship type, passing over any whose files the game lacks, and F4 brings another wing of Sabres in front of the player. In any mission, Alt and Enter switch between the window and the full screen. Escape opens the game's [pause menu](../engine/pause-menu.md), whose RESTART starts the mission again. A mission the front end or the rooms start flies at once; LEAVE MISSION goes back to the front end, and so does the mission's end, the camera having watched the player's ship's [end](../engine/objects.md#destruction), the ship having landed, or the mission's script having ended it, where the game would go to its debriefing. A mission `--mission` names flies at once; its LEAVE MISSION quits, and at its end the pause menu opens over the last frame, where RESTART, or CONTINUE, flies it again in the same ship; `--no-pause-menu` and a screenshot start it again at once. A ship that does not launch is shown in view 0 in the cockpit mode the options' setting picks, or, in the chase mode where its radius is larger than the distance that view sits behind it, in the external view, which orbits at a distance worked out from its size, so that a capital ship or a station is seen whole.
 

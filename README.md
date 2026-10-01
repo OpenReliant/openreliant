@@ -28,94 +28,33 @@ OpenReliant is in active development. The first campaign mission is playable fro
 - **Controls**: Mouse and keyboard, flight sticks, HOTAS and gamepads, with force feedback played as rumble.
 - **Graphics**: Per-pixel shading with gamma-corrected lighting, and real-time shadows. Rendering runs at native resolution in 32-bit colour, with bloom, anti-aliasing, smooth motion at high frame rates, and more detailed explosions, shields and planets. `--original` restores the original graphics and sound.
 - **Audio**: 3D positional sound with reverb and headphone HRTF.
-- **Front End**: The main menu, the pilot roster and the Reliant's rooms, with a new pilot's induction, the news reports and the in-game options.
-- **In Development**: The rest of the front end (briefings, loadout, settings, the rooms' ITAC, simulator pod, locker and CD player), the remaining campaign missions, and multiplayer. See the [milestones](../../milestones) for the roadmap.
+- **Front End**: The main menu, the pilot roster, the saved games and the Reliant's rooms, with a new pilot's induction, the news reports, the in-game options, the briefings, the loadout and the ITAC's debriefings.
+- **In Development**: The settings screen, the rooms' simulator pod, locker and CD player, the remaining campaign missions, and multiplayer. See the [milestones](../../milestones) for the roadmap.
 
 ---
 
 ## Documentation
 
-The project documentation is organized into two distinct sections:
-
-- [**User Guide**](docs/guide/README.md):
-  - [Installation & Quickstart](docs/guide/installation.md): Requirements and installing from retail CDs or disc images.
-  - [Controllers & Input](docs/guide/controllers.md): Setting up flight sticks, HOTAS hardware, gamepads, and button bindings.
-  - [Configuration & Options](docs/guide/configuration.md): Command-line switches, graphics settings, audio modes, and `starlancer.ini`.
-- [**Developer & Technical Documentation**](docs/README.md):
-  - [Engine Architecture](docs/README.md#engine-architecture--subsystems): Runtime subsystems, physics, rendering pipeline, sound, and scripting VM.
-  - [Asset & File Formats](docs/README.md#file--asset-formats): Specifications for `.SHP` models, `.HOG` archives, textures, and mission formats.
-  - [Binary Reverse Engineering](docs/README.md#binary-reverse-engineering): Analysis of the retail binaries, C runtime, and decompilation.
-  - [Toolchain & Setup](docs/toolchain.md): Build instructions, Ghidra disassembly setup, and the `sltool` command-line utility.
+- [User guide](docs/guide/README.md): installing, configuring and playing OpenReliant.
+- [Developer and technical documentation](docs/README.md): the engine, the file formats, the reverse engineering and the toolchain.
 
 ---
 
 ## Quickstart
 
-### 1. Download OpenReliant
-Download the pre-compiled archive for your platform from the [latest release](../../releases/latest) and extract it.
-
-*(macOS users: run `xattr -d com.apple.quarantine openreliant` to clear the gatekeeper quarantine flag).*
-
-### 2. Install Game Files
-Insert StarLancer Disc 1 into your CD drive (or prepare `.bin`/`.iso` images) and run the built-in installer:
-
-```bash
-# Physical CD-ROM
-./openreliant install StarLancer
-
-# Or from disc image files
-./openreliant install --from "StarLancer Disc 1.bin" --from "StarLancer Disc 2.bin" StarLancer
-```
-
-*(On Windows, use `.\openreliant.exe`.)*
-
-### 3. Launch
-Open the main menu, where **Single Player** leads to the pilot roster, whose **Start Game** takes a new pilot round the Reliant's rooms before the first campaign mission:
-
-```bash
-./openreliant StarLancer
-```
-
-Or play a mission at once, such as the sandbox, mission 0, where you can fly any ship against Coalition wings:
-
-```bash
-./openreliant StarLancer --mission 0
-```
-
-In flight, number keys **1-8** change camera views, **C** opens the radio menu, whose number keys call your wingmen and the base, **0** saves a screenshot, and **Escape** opens the pause menu. In the sandbox, **F2** / **F3** restart it in another ship and **F4** brings in another enemy wing.
-
-For complete setup instructions, see the [Installation Guide](docs/guide/installation.md).
+Download the archive for your system from the [latest release](../../releases/latest) and extract it, then follow the [installation guide](docs/guide/installation.md): it installs the game's files from your StarLancer discs or disc images, and starts the game.
 
 ---
 
 ## Building from Source
 
-Building OpenReliant requires [Zig 0.16](https://ziglang.org). Dependencies (SDL3, OpenAL Soft, FFmpeg, libarchive) are fetched and built automatically:
-
-```bash
-# Build optimized release binary
-zig build -Doptimize=ReleaseFast
-
-# Run tests
-zig build test
-
-# Install and play
-zig-out/bin/openreliant install StarLancer
-zig-out/bin/openreliant StarLancer
-```
+Building OpenReliant needs [Zig 0.16](https://ziglang.org): see [Building from source](docs/guide/installation.md#building-from-source). [CONTRIBUTING](CONTRIBUTING.md) has the workflow for working on it.
 
 ---
 
 ## Reverse Engineering & Analysis Tools
 
-The repository includes tools used during reverse engineering:
-
-```bash
-make setup     # Download JDK and Ghidra, and build native decompilers
-make build     # Compile development tools into zig-out/bin
-make test      # Run unit test suite
-make doctor    # Verify installed prerequisites
-```
+The repository includes tools used during reverse engineering. `make help` lists the workflows, and [CONTRIBUTING](CONTRIBUTING.md#getting-started) and the [toolchain](docs/toolchain.md) describe them.
 
 The `sltool` utility inspects and exports game formats:
 

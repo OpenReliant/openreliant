@@ -83,14 +83,11 @@ While flying:
 - Escape opens the pause menu. In it, RESTART restarts the mission, and LEAVE MISSION leaves it for the restart screen, or from INSTANT ACTION for the main menu.
 - When a mission of the campaign ends, the ITAC opens with its debriefing, whose REPLAY MISSION flies it again; then the campaign goes on to the next mission's briefing. Where you were killed or captured, or left the mission, the restart screen replays it from its briefing or its launch, or goes back to the main menu. A total failure, or a third rescue by a nanny ship, ends your career. INSTANT ACTION goes back to the main menu.
 - A mission started with `--mission` starts flying at once. Its LEAVE MISSION quits, and when the mission ends the pause menu opens, where RESTART or CONTINUE flies it again.
-- Keys 1 to 8 switch camera views: 1 cockpit, 2 left, 3 right, 4 rear, 5 flyby, 6 target, 7 external, and 8 missile.
-- Press C for the radio menu, whose number keys call your wingmen and the base; F5 to F8 give orders to your wingmen and request landing.
-- Press 0 to save a screenshot, a PNG in the `screenshots` folder of the game directory. In the briefing, O does the same.
-- In the sandbox, press F2 or F3 to start it again in the previous or next ship, and F4 to bring in another enemy wing.
+- The keys are in [In-flight keys](configuration.md#in-flight-keys).
 
 ## Building from source
 
-To compile OpenReliant, install [Zig 0.16](https://ziglang.org). Dependencies (SDL3, OpenAL Soft, libarchive) build from source automatically:
+To compile OpenReliant, install [Zig 0.16](https://ziglang.org). Dependencies (SDL3, OpenAL Soft, FFmpeg, libarchive) build from source automatically:
 
 ```bash
 zig build -Doptimize=ReleaseFast

@@ -4,13 +4,7 @@ Reference notes on StarLancer (Digital Anvil / Microsoft, 2000; developed by War
 
 ## User guide
 
-Guides for installing, configuring and playing OpenReliant:
-
-| Path | Contents |
-|---|---|
-| [`guide/installation.md`](guide/installation.md) | Installing the game files from retail discs or disc images, and running OpenReliant. |
-| [`guide/controllers.md`](guide/controllers.md) | Joysticks and gamepads, default controls, button bindings, and controller settings. |
-| [`guide/configuration.md`](guide/configuration.md) | Command-line options, graphics and sound settings, and starlancer.ini. |
+The [user guide](guide/README.md) covers installing, configuring and playing OpenReliant.
 
 ## Reference documentation
 

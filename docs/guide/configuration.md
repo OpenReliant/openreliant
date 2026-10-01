@@ -14,7 +14,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 
 | Option | Description |
 |---|---|
-| `--original` | The original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, and the sound mixed plainly in stereo |
+| `--original` | The original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, and the sound mixed plainly in stereo |
 
 ## The mission
 
@@ -71,6 +71,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls and the `[OpenReliant]` settings are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--version` | Show the version |
+| `-h`, `--help` | Show the options |
 | `-h`, `--help` | Show the help page |
 
 ## Commands
@@ -95,45 +96,43 @@ It lists every mission, where each comes from (`loose` or `archive`), and what i
 
 ## In-flight keys
 
-The flight keys are the game's own, as `starlancer.ini` binds them. OpenReliant adds:
+The flight keys are the game's own, as `starlancer.ini` binds them. Among them:
+
+| Key | Action |
+|---|---|
+| Escape | Open the pause menu |
+| 1 to 8 | Camera views: 1 cockpit, 2 left, 3 right, 4 rear, 5 flyby, 6 target, 7 external, 8 missile |
+| C | Open the radio menu, whose number keys call your wingmen and the base |
+| F5 to F8 | Give orders to your wingmen, and request landing |
+| 0 | Save a screenshot, a PNG in the `screenshots` folder of the game directory; O does the same in the briefing |
+
+In the target view (6) and external view (7), arrow keys orbit around the object and Shift with Up or Down zooms.
+
+OpenReliant adds:
 
 | Key | Action |
 |---|---|
 | F2, F3 | In the sandbox, start it again in the previous or next ship type |
 | F4 | In the sandbox, bring in another wing |
 | Alt+Enter | Switch between windowed and fullscreen mode |
-| Escape | Open the pause menu, whose LEAVE MISSION leaves the mission and RESTART restarts it |
-| 1 to 8 | Camera views: 1 cockpit, 2 left, 3 right, 4 rear, 5 flyby, 6 target, 7 external, 8 missile |
-| 0 | Save a screenshot, a PNG in the `screenshots` folder of the game directory; O does the same in the briefing |
-
-In the target view (6) and external view (7), arrow keys orbit around the object and Shift with Up or Down zooms.
 
 ## Configuration file (starlancer.ini)
 
-Settings are read from `starlancer.ini` in the game directory:
+Settings are read from `starlancer.ini` in the game directory. The game keeps its volumes, its view and its brightness there:
 
 ```ini
-[KeyConfig]
-JoystickInvert=1
-TwistEnable=1
-HatEnable=1
-Controller=0
-
-[JoyConfig]
-DeadZone=5
-Joystick=Extreme 3D
-ThrottleAxis=3
-TwistAxis=2
-ThrottleInvert=0
+[Sound]
+Mastervolume=127
+Fxvolume=80
+Musicvolume=80
+Speechvolume=127
 
 [Device]
 View=0
-Gamma=100
+gamma=100
 ```
 
-`[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no
-cockpit) and the brightness in hundredths (`Gamma`), which the pause menu's graphics screen changes.
-See [Controllers and input](controllers.md) for detailed controller options.
+`[Sound]` keeps the four volumes, from 0 to 127, which the pause menu's sound screen changes. `[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no cockpit) and the brightness in hundredths (`gamma`), which the pause menu's graphics screen changes. The controller's settings and the bindings, in `[KeyConfig]` and `[JoyConfig]`, are in [Controllers and input](controllers.md#settings).
 
 ### OpenReliant's settings
 
