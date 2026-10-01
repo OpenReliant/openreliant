@@ -221,10 +221,10 @@ pub const Mod = struct {
     }
 };
 
-/// Whether the archive `name` of the `mods` folder `folder` may be read: where no checksum file lies
-/// beside it, the archive's name with `checksums.extension` added, found whatever its case, or where
-/// the file gives the archive's digest. Where it gives another, or can't be read, the archive is
-/// damaged or not the one the checksum was made for, and the log says so.
+/// Whether the archive `name` of the `mods` folder `folder` may be read: where no checksum file
+/// lies beside it, the archive's name with `checksums.extension` added, found whatever its case, or
+/// where the file gives the archive's digest. Where it gives another, or can't be read, the archive
+/// is damaged or not the one the checksum was made for, and the log says so.
 fn intact(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8) Allocator.Error!bool {
     var named: [files.max_path]u8 = undefined;
     const checksum_name = std.fmt.bufPrint(&named, "{s}" ++ checksums.extension, .{name}) catch return true;
