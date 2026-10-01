@@ -16,8 +16,8 @@
 //!
 //! Not ported: the crew the player passes on the way to the briefing room's door (`vr_crew_pick`,
 //! `0x00437DF0`), a sprite over the movie and a line of speech, which need the MP3 lines of the
-//! discs' archives ([#418](https://github.com/vdmkenny/openreliant/issues/418)); and the places'
-//! screens (`Place`).
+//! discs' archives ([#418](https://github.com/vdmkenny/openreliant/issues/418)); and the locker's
+//! screen (`Place`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -229,11 +229,11 @@ pub const Carrier = enum {
 
 /// The places with a screen of their own, which the rooms leave for and come back from: the news
 /// report, which plays within the rooms (`News`), and the screens of the ITAC (`game.itac`), the
-/// simulator pod (`interface.loadout.simulator_pod`), the locker and the CD player.
+/// simulator pod (`interface.loadout.simulator_pod`), the locker and the CD player
+/// (`interface.cd_player`).
 ///
-/// Not ported: the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)) and the CD
-/// player ([#422](https://github.com/vdmkenny/openreliant/issues/422)). OpenReliant goes on as
-/// though each had closed at once (`Rooms.leave`).
+/// Not ported: the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)). OpenReliant
+/// goes on as though it had closed at once (`Rooms.leave`).
 pub const Place = enum {
     news,
     itac,
@@ -260,6 +260,19 @@ pub const steps_bank = "wlksmp.fat";
 
 /// The hum's volume (`0x0043A050`).
 const hum_volume = 0x50;
+
+/// The rooms' steps and doors (`vr_steps_bank`, `0x0051D9FC`), which the rooms and the screens of
+/// their places sound from; none where the bank is left out.
+pub const Steps = struct {
+    file: ?*const hog_snd.BankFile = null,
+
+    /// Sound `index` at full volume, once, in the middle, ringing in the room as the rooms' sounds
+    /// do.
+    pub fn play(steps: Steps, sound: *hog_snd.Sound, index: usize) void {
+        const file = steps.file orelse return;
+        _ = sound.playInScene(file.bank, index, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+    }
+};
 
 /// The steps' sounds around the places (`0x0043A4B9` on).
 const StepSound = enum(u8) {
@@ -698,8 +711,12 @@ pub const Rooms = struct {
     }
 
     fn playStep(rooms: *Rooms, which: StepSound) void {
-        const steps = rooms.steps orelse return;
-        _ = rooms.context.sound.playInScene(steps.bank, @intFromEnum(which), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+        rooms.stepSounds().play(rooms.context.sound, @intFromEnum(which));
+    }
+
+    /// Its steps and doors, which the screens of its places sound from too.
+    pub fn stepSounds(rooms: *const Rooms) Steps {
+        return .{ .file = if (rooms.steps) |*file| file else null };
     }
 
     /// Into a view: its movie `name` opened, its first frame shown at `now` where `show` has it.
@@ -1126,6 +1143,7 @@ pub const testing = struct {
         }
 
         pub fn deinit(tested: *Tested) void {
+            tested.sound.closeMusic();
             tested.resources.close(std.testing.allocator);
             tested.disc.close();
             tested.tmp.cleanup();
@@ -1133,6 +1151,21 @@ pub const testing = struct {
 
         pub fn context(tested: *Tested) Context {
             return .{ .gpa = std.testing.allocator, .codec = tested.decoders.codec(), .look = .{}, .disc = &tested.disc, .resources = &tested.resources, .sound = &tested.sound, .speech = .{} };
+        }
+
+        /// The music at `paths` in the game's folder, paths of the game's, each in `music\`, which
+        /// the sound plays from.
+        pub fn giveMusic(tested: *Tested, paths: []const []const u8) !void {
+            const io = std.testing.io;
+            try tested.tmp.dir.createDirPath(io, "music");
+            for (paths) |path| {
+                var buffer: [64]u8 = undefined;
+                const sub_path = buffer[0..path.len];
+                @memcpy(sub_path, path);
+                std.mem.replaceScalar(u8, sub_path, '\\', '/');
+                try tested.tmp.dir.writeFile(io, .{ .sub_path = sub_path, .data = hog_snd.testing.sound_file });
+            }
+            tested.sound.files = .{ .gpa = std.testing.allocator, .io = io, .dir = tested.tmp.dir };
         }
     };
 };

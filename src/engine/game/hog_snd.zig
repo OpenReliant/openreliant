@@ -623,11 +623,24 @@ pub const Sound = struct {
     /// music's, each voice's still playing, and the speech sample's.
     pub fn applyVolumes(sound: *Sound) void {
         const driver = sound.driver orelse return;
-        if (sound.music.stream) |stream| driver.setStreamVolume(stream, sound.volumes.mastered(sound.volumes.music, sound.music.level, loudest));
+        sound.applyMusicVolume();
         for (0..sound.voice_count) |v| {
             if (driver.sampleStatus(sound.voices[v].sample) != .done) sound.setVoiceVolume(@intCast(v), sound.voices[v].volume);
         }
         if (sound.speech) |sample| driver.setSampleVolume(sample, sound.speechVolume(loudest));
+    }
+
+    /// The music's level, from 0 to 127, at once, as the CD player's volume turns it: the stream
+    /// heard at it, scaled by the music volume and the master volume as `applyVolumes` scales it.
+    pub fn setMusicLevel(sound: *Sound, level: i32) void {
+        sound.music.level = level;
+        sound.applyMusicVolume();
+    }
+
+    /// The music's stream at its level, scaled by the music volume and the master volume.
+    fn applyMusicVolume(sound: *Sound) void {
+        const driver = sound.driver orelse return;
+        if (sound.music.stream) |stream| driver.setStreamVolume(stream, sound.volumes.mastered(sound.volumes.music, sound.music.level, loudest));
     }
 
     /// `tick_timer`'s (`0x004827C0`) sound: every five ticks and more, the music's fade and each

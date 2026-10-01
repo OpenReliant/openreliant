@@ -4,14 +4,15 @@
 //! (`game_options`), the controls on OpenReliant's settings screen (`settings`), the pilot roster
 //! (`pilot_roster`) and the saved games (`saved_games`), on the front end's screen (`canvas`);
 //! opening the discs' archives (`disc`); and the Reliant's rooms (`rooms`), with a new pilot's
-//! induction (`induction`), the in-game options (`in_game_options`) and the briefing
-//! (`briefing`); and the restart screen after a mission lost (`restart`).
+//! induction (`induction`), the CD player (`cd_player`), the in-game options (`in_game_options`)
+//! and the briefing (`briefing`); and the restart screen after a mission lost (`restart`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 pub const briefing = @import("interface/briefing.zig");
 pub const canvas = @import("interface/canvas.zig");
+pub const cd_player = @import("interface/cd_player.zig");
 pub const dialog = @import("interface/dialog.zig");
 pub const disc = @import("interface/disc.zig");
 pub const game_options = @import("interface/game_options.zig");
@@ -485,6 +486,7 @@ test deadZone {
 test {
     _ = briefing;
     _ = canvas;
+    _ = cd_player;
     _ = dialog;
     _ = disc;
     _ = game_options;

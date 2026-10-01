@@ -23,6 +23,7 @@ const loadout = engine.interface.loadout;
 const interface = game.interface;
 const briefing = interface.briefing;
 const canvas = interface.canvas;
+const cd_player = interface.cd_player;
 const induction = interface.induction;
 const in_game_options = interface.in_game_options;
 const restart_screen = interface.restart;
@@ -118,6 +119,8 @@ pub const Driver = struct {
     rooms_mission: u16 = 0,
     pod: ?simulator_pod.Pod = null,
     pod_kills: i32 = 0,
+    /// The CD player's volume, which lasts while the game runs.
+    cd_volume: cd_player.Volume = cd_player.full_volume,
 
     /// What `WinMain` does as a single-player campaign starts, or is loaded, before mission
     /// `mission` (`winmain.CampaignStart`), then the rooms. Null where the game quits meanwhile.
@@ -413,22 +416,27 @@ pub const Driver = struct {
                     .quit => return null,
                     .loaded => return .loaded,
                 },
-                // Use ITAC and Enter Simulator Pod; the other places' screens are not ported yet
-                // (`rooms.Place`): the rooms go on as though each had closed at once.
+                // The places' screens. The rooms play the news report themselves, and the locker's
+                // screen is not ported yet (`rooms.Place`): the rooms go on as though it had closed
+                // at once.
                 .place => |place| switch (place) {
                     .itac => {
                         _ = try driver.itac(.rooms, mission) orelse return null;
                         inside.leave(place, platform.window.nanoseconds());
                     },
                     .simulator => {
-                        driver.pod = .open(.{ .rooms = driver.context(), .steps = if (inside.steps) |*bank| bank else null }, mission, driver.clock.game_ticks);
+                        driver.pod = .open(.{ .rooms = driver.context(), .steps = inside.stepSounds() }, mission, driver.clock.game_ticks);
                         if (driver.pod.?.opening()) |shown| _ = try driver.movies.play(shown.name, shown.kind) orelse return null;
                         switch (try driver.simulate() orelse return null) {
                             .fly => |flight| return .{ .simulator = flight },
                             .closed => inside.leave(place, platform.window.nanoseconds()),
                         }
                     },
-                    .news, .locker, .cd_player => {
+                    .cd_player => {
+                        if (!try driver.listen(mission)) return null;
+                        inside.leave(place, platform.window.nanoseconds());
+                    },
+                    .news, .locker => {
                         log.info("the rooms' {s} is not ported yet", .{@tagName(place)});
                         inside.leave(place, platform.window.nanoseconds());
                     },
@@ -470,6 +478,18 @@ pub const Driver = struct {
                     return .closed;
                 },
             }
+        }
+    }
+
+    /// The CD player (`cd_player`) before mission `mission`, in its loop, until it closes; false
+    /// where the game quits meanwhile. The music it plays goes on in the rooms.
+    fn listen(driver: *Driver, mission: u16) !bool {
+        var player: cd_player.CdPlayer = .open(.{ .rooms = driver.context(), .steps = driver.inside.?.stepSounds(), .volume = &driver.cd_volume }, mission, platform.window.nanoseconds());
+        defer player.deinit();
+        while (true) {
+            if (!try driver.pump()) return false;
+            if (!player.pass(.{ .keyboard = &driver.movies.devices.keyboard, .pointer = driver.pointer })) return true;
+            try driver.present(.{ .cd_player = &player });
         }
     }
 
@@ -695,8 +715,7 @@ const Backdrop = struct {
     fn read(driver: *Driver, background: []const u8, shapes: []const u8) Backdrop {
         const gpa = driver.movies.gpa;
         var backdrop: Backdrop = .{ .shapes = .read(gpa, driver.resources, shapes) };
-        backdrop.background.set(gpa, driver.resources.*, background) catch |err|
-            log.warn("{s} is left out: {s}", .{ background, @errorName(err) });
+        backdrop.background.show(gpa, driver.resources.*, background);
         return backdrop;
     }
 
@@ -788,6 +807,7 @@ const Shown = struct {
         restart: *Restarting,
         itac: *itac_module.Itac,
         pod: *simulator_pod.Pod,
+        cd_player: *cd_player.CdPlayer,
     };
 
     fn overlay(shown: *Shown) srcore.Overlay {
@@ -808,6 +828,7 @@ const Shown = struct {
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
             .itac => |terminal| try drawn(terminal.draw(target)),
             .pod => |pod| try drawn(pod.draw(target)),
+            .cd_player => |player| try drawn(player.draw(target)),
         }
     }
 };

@@ -173,7 +173,8 @@ the start. The stream's volume is `round(((Musicvolume × level) / 127) × Maste
 it is given, 5 here, off the level every five ticks from the tick it starts on, until the stream
 closes, and `music_update` (`0x00482C30`) then starts the piece waiting. `WinMain` fades the music
 out by 15 before the hangar's movie of a mission it flies ([Movies](movies.md#the-hangar)). Mission 1 plays `new_launch.wav` as its
-wing launches, and `new_searching mission 09.wav` once it is out.
+wing launches, and `new_searching mission 09.wav` once it is out. The CD player in the rooms plays
+the pieces of its lists, and turns their level ([The CD player](cd-player.md)).
 
 ## Speech
 

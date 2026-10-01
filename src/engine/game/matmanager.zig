@@ -51,6 +51,13 @@ pub const Background = struct {
         background.name_len = picture_name.len;
     }
 
+    /// `set`, as a screen shows its picture: one that can't be read is left out, which the log
+    /// says, and the picture shown stays.
+    pub fn show(background: *Background, gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8) void {
+        background.set(gpa, archive, picture_name) catch |err|
+            log.warn("{s} is left out: {s}", .{ picture_name, @errorName(err) });
+    }
+
     /// Shows nothing, the device's clear colour behind the frame.
     pub fn deinit(background: *Background, gpa: Allocator) void {
         if (background.image) |shown| shown.deinit(gpa);
@@ -116,16 +123,39 @@ pub fn pictureName(buffer: []u8, picture_name: []const u8) error{NoSpaceLeft}![]
     return std.fmt.bufPrint(buffer, "{s}" ++ srtexture.picture_extension, .{stem});
 }
 
+/// A picture of the game's in the tests, two pixels by one: blue, then green.
+const tested_tga = [_]u8{ 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 0, 24, 0 } ++ [_]u8{ 0xFF, 0, 0, 0, 0xFF, 0 };
+
+test Background {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try bigfile.testing.write(gpa, io, tmp.dir, bigfile.resource_name, &.{
+        .{ .name = "back.tga", .data = &tested_tga },
+        .{ .name = "broken.tga", .data = "x" },
+    });
+    var archive: bigfile.Hog = try .open(gpa, io, tmp.dir, bigfile.resource_name);
+    defer archive.close(gpa);
+    var background: Background = .{};
+    defer background.deinit(gpa);
+    background.show(gpa, archive, "interface\\back.tga");
+    try std.testing.expectEqualStrings("interface\\back.tga", background.name());
+    // A picture that can't be read is left out, and the one shown stays.
+    background.show(gpa, archive, "interface\\broken.tga");
+    try std.testing.expectEqualStrings("interface\\back.tga", background.name());
+    try std.testing.expectEqual(2, background.image.?.width());
+}
+
 test "a mod's picture stands in for one of the game's" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    // Two of the game's pictures, each two pixels by one: blue, then green.
-    const own = [_]u8{ 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 0, 24, 0 } ++ [_]u8{ 0xFF, 0, 0, 0, 0xFF, 0 };
+    // Two of the game's pictures.
     try bigfile.testing.write(gpa, io, tmp.dir, bigfile.resource_name, &.{
-        .{ .name = "back.tga", .data = &own },
-        .{ .name = "dome.tga", .data = &own },
+        .{ .name = "back.tga", .data = &tested_tga },
+        .{ .name = "dome.tga", .data = &tested_tga },
     });
     var archive: bigfile.Hog = try .open(gpa, io, tmp.dir, bigfile.resource_name);
     defer archive.close(gpa);

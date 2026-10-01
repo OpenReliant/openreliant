@@ -342,8 +342,7 @@ pub const Briefing = struct {
         context.sound.surround(.inside);
         const room = Room.of(.of(mission));
         var briefing: Briefing = .{ .context = context, .mission = mission, .room = room, .from_loadout = from_loadout, .hologram_context = hologram };
-        briefing.door.set(context.gpa, context.resources.*, room.door) catch |err|
-            log.warn("{s} is left out: {s}", .{ room.door, @errorName(err) });
+        briefing.door.show(context.gpa, context.resources.*, room.door);
         return briefing;
     }
 

@@ -33,8 +33,6 @@ const Rect = canvas_module.Rect;
 pub const debriefing = @import("itac/debriefing.zig");
 pub const tables = @import("itac/tables.zig");
 
-const log = std.log.scoped(.itac);
-
 /// The module the ITAC's strings come from (`itac_language_init`, `0x00440770`): the game asks for
 /// `itaclang.dll`; the disc's file is named in capitals, and Windows finds either.
 pub const strings_name = "ITACLANG.DLL";
@@ -726,9 +724,7 @@ pub const Itac = struct {
     }
 
     fn setPicture(itac: *Itac, name: []const u8) void {
-        itac.picture.set(itac.context.rooms.gpa, itac.context.rooms.resources.*, name) catch |err| {
-            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
-        };
+        itac.picture.show(itac.context.rooms.gpa, itac.context.rooms.resources.*, name);
     }
 
     /// A sound now and then, where one is due, and the next one's time (`0x0043F654`).

@@ -16,7 +16,6 @@ const std = @import("std");
 
 const create = @import("../../game/create.zig");
 const gameobj = @import("../../game/gameobj.zig");
-const hog_snd = @import("../../game/hog_snd.zig");
 const hud = @import("../../game/hud.zig");
 const input = @import("../../input.zig");
 const itac = @import("../../game/itac.zig");
@@ -27,8 +26,6 @@ const main_menu = @import("../../game/interface/main_menu.zig");
 const rooms = @import("../../game/interface/rooms.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
-
-const log = std.log.scoped(.simulator_pod);
 
 /// What the pod reads from `resource.hog` as it opens: the shapes that light its choices
 /// (`0x0044F411`), the ITAC's large font, which its title is written in (`0x0044F41D`), and the
@@ -168,8 +165,8 @@ pub fn itemAt(screen: Screen, at: [2]i32) ?usize {
 /// What the pod reads and plays with.
 pub const Context = struct {
     rooms: rooms.Context,
-    /// The rooms' steps and doors, which a choice taken sounds from; none where they are left out.
-    steps: ?*const hog_snd.BankFile = null,
+    /// The rooms' steps and doors, which a choice taken sounds from.
+    steps: rooms.Steps = .{},
 };
 
 /// A pass's input.
@@ -314,14 +311,12 @@ pub const Pod = struct {
 
     /// The sound of a choice taken.
     fn playChoice(pod: Pod) void {
-        const steps = pod.context.steps orelse return;
-        _ = pod.context.rooms.sound.playInScene(steps.bank, choice_sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+        pod.context.steps.play(pod.context.rooms.sound, choice_sound);
     }
 
     /// The picture `name` behind the screen (`background_set_tga`).
     fn show(pod: *Pod, name: []const u8) void {
-        pod.picture.set(pod.context.rooms.gpa, pod.context.rooms.resources.*, name) catch |err|
-            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+        pod.picture.show(pod.context.rooms.gpa, pod.context.rooms.resources.*, name);
     }
 };
 
