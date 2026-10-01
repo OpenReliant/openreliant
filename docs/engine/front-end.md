@@ -204,7 +204,7 @@ A knob held follows the pointer, 4 pixels to its left, from x 313 to 488, while 
 
 ### Controls
 
-The controls are `controls_screen` (`0x0042B690`), screen 16, which draws with `controls_screen_draw` (`0x0042CD30`). Opening, it reads the bindings again from `starlancer.ini` (`key_config_defaults`, `load_key_config`; [Controls](controls.md#bindings)), keeps the settings and the 74 bindings for CANCEL CHANGES, and shows the list from its top.
+The controls are `controls_screen` (`0x0042B690`), screen 16, which draws with `controls_screen_draw` (`0x0042CD30`). Opening, it reads the bindings again from `default.txt` and `starlancer.ini` over it (`key_config_defaults`, `load_key_config`; [Controls](controls.md#bindings)), keeps the settings and the 74 bindings for CANCEL CHANGES, and shows the list from its top.
 
 | What | Where | Drawn |
 |---|---|---|
@@ -224,7 +224,7 @@ A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (
 - A click on an action's row clears its binding, and the row waits: each pass, the first of the 89 keys of `key_names` pressed alone, with Shift or with Ctrl is taken, then the lowest joystick button down, which holds the screen until it comes up. Taking one doesn't end the wait: a row takes a key and a button, and a later key replaces the first. A key or a button another action holds asks first (`control_binding_find`, `0x0042C5F0`), with `"K"`, `"SHIFT + K"`, `"CONTROL + K"` or `"JOY n"`, then This Key is already assigned to (`0x5AF`) and the action, then Redefine Anyway? (`0x5B0`), a line each: YES takes it from that action, NO puts the waiting row's binding back, the row waiting on. Escape, Shift, Ctrl and Alt on their own, the lock keys, Pause and Print Screen are not among the keys, so none of them can be bound.
 - A click on another action's row, or on nothing, ends the wait, the old binding back where the row took nothing. A click on a divider puts the old binding back so, but leaves the row waiting; a click on a check box, a controller, a button or an arrow leaves it waiting as it is.
 - Escape asks Would you like to save your changes before leaving this screen? (`0x5AB`) where a binding has changed; NO reads the settings and the bindings again from the file. Escape, OK and MAIN MENU then write the bindings (`save_key_config`, `0x0042C630`).
-- RESET DEFAULTS sets the defaults (`key_config_defaults`) and writes them at once; CANCEL CHANGES puts back what the screen opened with.
+- RESET DEFAULTS sets the defaults, from `default.txt` (`key_config_defaults`; [Controls](controls.md#the-defaults)), and writes them at once; CANCEL CHANGES puts back what the screen opened with.
 
 **Fixes:**
 
@@ -240,7 +240,7 @@ A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (
 - Escape while a row waits only ends the wait, as a click on nothing does; the game leaves the screen.
 - Up and Down scroll the list as its arrows do while no row waits, and the mouse's wheel scrolls it; the game scrolls it by its arrows alone.
 
-Not ported: the defaults the game reads from `DEFAULT.TXT`, which RESET DEFAULTS sets ([#488](https://github.com/vdmkenny/openreliant/issues/488)); OpenReliant's are the executable's. The keys' names as the keyboard's layout gives them, which the game shows ([#489](https://github.com/vdmkenny/openreliant/issues/489)); OpenReliant shows the executable's.
+Not ported: the keys' names as the keyboard's layout gives them, which the game shows ([#489](https://github.com/vdmkenny/openreliant/issues/489)); OpenReliant shows the executable's.
 
 ### Video
 

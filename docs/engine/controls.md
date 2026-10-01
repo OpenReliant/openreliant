@@ -76,6 +76,42 @@ both sections:
 **Improvement:** OpenReliant fixes both: it checks the `JoyConfig` value from its start, and uses
 the button from `KeyConfig` as the `JoyConfig` default.
 
+### The defaults
+
+`key_config_defaults` (`0x0042CAA0`) sets the input settings and the bindings to the game's
+defaults, which `load_key_config` then changes from `starlancer.ini`. `hud_init` calls the two for
+each mission (`0x00483F06`), the controls screens as they open, and RESET DEFAULTS the first alone.
+The settings are those of the table above, but for `Controller`, which it makes 1 where no joystick
+is attached (`0x0042CAF2`), and the twist, whose setting it turns off (`twist_setting`,
+`0x51D458`) but not `twist_enabled`, which goes on rolling until `load_key_config` sets it from the
+setting.
+
+The bindings come from `default.txt` in the game's directory (`game_directory`), an ini file of the
+same two sections, which the game ships. It clears each action's button first, so that an action
+has a button only where the file gives it one, in either section. A `KeyConfig` value names a key by
+the executable's English name, as `key_names_english` (`0x004E6958`, a copy of `key_names`) holds
+it, after `SHIFT ` or `CONTROL `: `]`, `CURSOR UP` or `SHIFT E`. An action the file doesn't name
+keeps its key and its modifier, and a name the keys lack keeps the key. It compares four bytes of
+`ALT`, its terminator among them, so that only a value of `ALT` alone is read as Alt, and as no key.
+A `JoyConfig` value gives a button where a digit follows `JOY BUTTON `, looked for past
+`KeyConfig`'s modifier, as `load_key_config` looks.
+
+The shipped `default.txt` differs from the executable's table in three bindings, which are so the
+game's defaults: FULL THROTTLE is `]` rather than `\`, JOYSTICK ROLL `/` rather than Insert, and
+COUNTERMEASURES has joystick button 6 besides H.
+
+**Fixes:**
+
+- OpenReliant looks for `JOY BUTTON ` in a `JoyConfig` value from its start, as it does for
+  `load_key_config`.
+- It chooses the joystick, which steers once one is attached ([Porting](#porting)).
+- It turns the twist off with its setting, where the game leaves it rolling, its box shown off,
+  until the bindings load again.
+
+**Improvement:** where the game's directory has no `default.txt`, OpenReliant keeps the
+executable's table, its buttons too, where the game leaves every action without a button. A mod's
+`default.txt` stands in for the game's, and a gamepad keeps the buttons of its own layout.
+
 ## Whether an action is active
 
 `control_active` (`0x00412630`) takes an action and a flag, `once`. Without `once` an action counts
@@ -335,9 +371,8 @@ balance: `reach`, `shares`, `distribute`, `choose` for the power keys, `move` an
 `balanceShields`.
 `Camera.frameControls` ports the hat. `load_key_config` is ported in
 [`game/interface.zig`](../../src/engine/game/interface.zig), with the fixes above, and with it
-`save_key_config`, `control_binding_find` and `key_config_defaults`, but for the bindings it reads
-from `DEFAULT.TXT` ([#488](https://github.com/vdmkenny/openreliant/issues/488)); the controls
-screen that sets them is the settings screen ([Front end](front-end.md#controls));
+`save_key_config`, `control_binding_find` and `key_config_defaults`; the controls screen that sets
+them is the settings screen ([Front end](front-end.md#controls));
 [`profile.zig`](../../src/engine/profile.zig) reads the file as `GetPrivateProfileIntA` and
 `GetPrivateProfileStringA` do.
 

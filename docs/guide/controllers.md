@@ -53,9 +53,10 @@ Rumble can't push a stick the way the original's force-feedback joysticks did. F
 | Button 3 | Target nearest enemy |
 | Button 4 | Strafe right |
 | Button 5 | Next friendly target |
+| Button 6 | Countermeasures |
 | Button 7 | Strafe left |
 
-These are StarLancer's own defaults. Button numbers start at 0, as shown by `openreliant joysticks`, so the button your stick calls 1 is button 0 here. To roll with the stick instead of turning, hold the Insert key. If your stick has no throttle, use the keyboard throttle keys.
+These are StarLancer's own defaults, from `DEFAULT.TXT` in the game's folder. Button numbers start at 0, as shown by `openreliant joysticks`, so the button your stick calls 1 is button 0 here. To roll with the stick instead of turning, hold the `/` key. If your stick has no throttle, use the keyboard throttle keys.
 
 ## Checking your controller
 

@@ -8,6 +8,8 @@ const std = @import("std");
 const log = std.log.scoped(.input);
 const assert = std.debug.assert;
 
+const profile = @import("profile.zig");
+
 pub const controls = @import("input/controls.zig");
 pub const force = @import("input/force.zig");
 pub const power = @import("input/power.zig");
@@ -582,8 +584,9 @@ pub const Settings = struct {
 /// from the game's defaults, which `load_key_config` changes from `starlancer.ini`.
 pub const Bindings = std.EnumArray(controls.Action, controls.Binding);
 
-/// The default bindings for a controller of `kind`: the game's own for a joystick, and for a
-/// gamepad (added by OpenReliant) the same keys with `gamepad_buttons` as the buttons.
+/// The executable's bindings for a controller of `kind`, which `default.txt` changes
+/// (`game.interface.keyConfigDefaults`): the game's own table for a joystick, and for a gamepad
+/// (added by OpenReliant) the same keys with `gamepad_buttons` as the buttons.
 pub fn defaultBindings(kind: JoystickDevice.Kind) Bindings {
     var bindings: Bindings = undefined;
     for (std.enums.values(controls.Action)) |action| bindings.set(action, controls.binding(action));
@@ -749,6 +752,10 @@ pub const Devices = struct {
     mouse: Mouse = .{},
     bindings: Bindings = defaultBindings(.joystick),
     settings: Settings = .{},
+    /// `default.txt` in the game's folder, a mod's in its place, which the bindings start from
+    /// (`game.interface.keyConfigDefaults`); none where the folder has none, which leaves the
+    /// executable's own.
+    defaults_file: ?profile.Profile = null,
 
     /// What the player steers with: the controller chosen, but the keyboard while the joystick
     /// chosen is not attached, as `load_key_config` has it (`0x0042C8A5`).

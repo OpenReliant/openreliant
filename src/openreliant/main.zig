@@ -233,6 +233,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .budget = options.draw_budget.limit(),
     };
     var devices: engine.input.Devices = .{};
+    // `default.txt`, the bindings `key_config_defaults` starts from, a mod's in its place; without
+    // it, the executable's own.
+    devices.defaults_file = if (readGameFile(io, arena, directory, &mods, game.interface.defaults_name)) |text| .{ .text = text } else |err| none: {
+        std.log.warn("{s} is left out: {s}", .{ game.interface.defaults_name, @errorName(err) });
+        break :none null;
+    };
     // The characters typed into the window, which its procedure queues (`WM_CHAR`).
     var typed: game.winmain.Typed = .{};
     // Sound: Miles's calls, played by OpenAL Soft or OpenReliant's own mixer through SDL3's audio,

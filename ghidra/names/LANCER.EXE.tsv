@@ -1483,6 +1483,7 @@ address	kind	name	type	comment
 005d62c0	data	cd_current	int	The disc whose hog is open, 1 or 2 (cd_hog_open)
 005d60ec	data	cd_path	char[256]	Where the disc's hog is read from: the drive's game folder, or in a full install the current disc's folder
 005d6b38	data	install_directory	char[256]	The installation directory, with a backslash, which the game works in
+005d62d4	data	game_directory	char[260]	The game's directory, with a backslash, which starlancer.ini (settings_path) and default.txt (key_config_defaults) are read from
 005d6a28	data	cd1_folder	char[256]	In a full install, where cd1.hog is: the installation directory
 005d6928	data	cd2_folder	char[256]	In a full install, where cd2.hog is: the installation directory
 005202d4	data	cd_hog	void *	The open disc's cd%d.hog (cd_hog_open)

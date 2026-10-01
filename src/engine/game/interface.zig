@@ -97,23 +97,96 @@ pub fn saveSetting(held: input.Settings, settings_file: *profile.File, setting: 
     try settings_file.writeInt(key_section, setting.key(), setting.of(held));
 }
 
+/// The file the game reads its default bindings from, in its folder (`game_directory`, from
+/// `%sdefault.txt` at `0x004E8598`); a mod's of its name stands in for it.
+pub const defaults_name = "default.txt";
+
 /// `key_config_defaults` (`0x0042CAA0`), as the controls screen's RESET DEFAULTS calls it, and
 /// `load_key_config` starts from: the input settings at their defaults, force feedback on, pitch
 /// as the stick has it, the hat on, the twist not rolling, and the joystick steering; and the
-/// default bindings (`input.defaultBindings`), a gamepad's its own. The dead zone stays as it is.
+/// bindings `default.txt` gives (`input.Devices.defaults_file`), each action's by its name
+/// (`defaultBinding`). Every button is cleared first, so that an action has a button only where
+/// the file gives it one, and an action the file doesn't name keeps the executable's key
+/// (`input.defaultBindings`). A gamepad's buttons are its own. The dead zone stays as it is.
 ///
 /// **Fix:** the game chooses the joystick only where one is attached, and the keyboard where not
 /// (`0x0042CAF2`), which its controls screen then writes, so that a game started without the
 /// joystick steers with the keyboard ever after. OpenReliant chooses the joystick, which steers with
 /// the keyboard while none is attached (`input.Devices.controlMode`).
 ///
-/// Not ported: the game reads the bindings from `DEFAULT.TXT` in its folder, the executable's
-/// standing where it names none
-/// ([#488](https://github.com/vdmkenny/openreliant/issues/488)).
+/// **Fix:** the game turns off the twist's setting (`twist_setting`), which the check box shows,
+/// but leaves the twist rolling (`twist_enabled`) until the bindings load again. OpenReliant turns
+/// the twist off.
+///
+/// **Improvement:** where the game's folder has no `default.txt`, OpenReliant keeps the
+/// executable's bindings, buttons and all, where the game leaves every action without a button.
 pub fn keyConfigDefaults(devices: *input.Devices) void {
     devices.settings = .{ .dead_zone = devices.settings.dead_zone };
     devices.bindings = input.defaultBindings(devices.joystick.kind);
+    const file = devices.defaults_file orelse return;
+    for (&devices.bindings.values) |*binding| defaultBinding(binding, file, devices.joystick.kind);
 }
+
+/// An action's binding as `key_config_defaults` reads it from `default.txt` (`0x0042CB04` on): its
+/// button cleared, then its `KeyConfig` value, a button, or a key by its name in the executable's
+/// English (`controls.keys`, as `key_names_english` holds them) after `SHIFT ` or `CONTROL `; then
+/// its `JoyConfig` value over it, a button where a digit follows `JOY BUTTON `. An action the file
+/// doesn't name keeps its key and its modifier, and a name the keys lack keeps the key. A gamepad
+/// keeps the buttons of its own layout, which the file's joystick buttons don't number.
+///
+/// The game compares four bytes of `ALT`, its terminator among them (`0x0042CBF6`), so that only a
+/// value of `ALT` alone is read as Alt, and as no key.
+///
+/// **Fix:** as `load_key_config` does, the game looks for `JOY BUTTON ` in `JoyConfig`'s value
+/// past as many bytes as `KeyConfig`'s modifier took, so that an action with a modifier never takes
+/// a button from it. OpenReliant looks from the start.
+fn defaultBinding(binding: *controls.Binding, file: Profile, kind: input.JoystickDevice.Kind) void {
+    const joystick = kind == .joystick;
+    if (joystick) binding.button = null;
+    if (file.value(key_section, binding.name)) |value| {
+        const buffer = buffered(value);
+        if (isButton(&buffer)) {
+            if (joystick) binding.button = buttonNumber(read(buffer[button_name.len..]));
+        } else nameKey(binding, &buffer);
+    }
+    if (!joystick) return;
+    const buffer = buffered(file.value(joy_section, binding.name) orelse return);
+    if (isButton(&buffer) and std.ascii.isDigit(buffer[button_name.len])) binding.button = buttonNumber(read(buffer[button_name.len..]));
+}
+
+/// `value` as `GetPrivateProfileStringA` leaves it in the buffer, cut to fit.
+fn buffered(value: []const u8) Buffer {
+    var buffer: Buffer = @splat(0);
+    copy(&buffer, value[0..@min(value.len, buffer.len - 1)]);
+    return buffer;
+}
+
+/// The key a `default.txt` value names, after its modifier's name, into `binding`: a name the keys
+/// lack keeps the key.
+fn nameKey(binding: *controls.Binding, buffer: *const Buffer) void {
+    binding.modifier = .none;
+    var name: []const u8 = std.mem.sliceTo(buffer, 0);
+    for (default_modifiers) |named| {
+        if (!std.mem.eql(u8, buffer[0..named.prefix.len], named.prefix)) continue;
+        binding.modifier = named.modifier;
+        name = std.mem.sliceTo(buffer[named.skip..], 0);
+        break;
+    }
+    for (controls.keys) |key| {
+        if (!std.mem.eql(u8, key.name, name)) continue;
+        binding.key = key.code;
+        break;
+    }
+}
+
+/// The modifiers as `key_config_defaults` reads them: the bytes it compares (`0x004E8550`,
+/// `0x004E8548`, `0x004E8544`), `ALT`'s terminator among them, and how far the key's name starts
+/// past them.
+const default_modifiers = [_]struct { prefix: []const u8, skip: usize, modifier: Modifier }{
+    .{ .prefix = "SHIFT", .skip = "SHIFT ".len, .modifier = .shift },
+    .{ .prefix = "CONTROL", .skip = "CONTROL ".len, .modifier = .control },
+    .{ .prefix = "ALT\x00", .skip = "ALT ".len, .modifier = .alt },
+};
 
 /// `control_binding_find` (`0x0042C5F0`): the first action but `except` bound to `key` with
 /// `modifier`, among all 74, KEY CONFIG's included; null for none.
@@ -463,6 +536,64 @@ test keyConfigDefaults {
     // The joystick chosen, which steers once one is attached; the dead zone, OpenReliant's, stays.
     try std.testing.expectEqual(input.Settings{ .dead_zone = 400 }, devices.settings);
     try std.testing.expectEqual(controls.binding(.eject).key, devices.bindings.get(.eject).key);
+    // Without `default.txt`, the executable's buttons stay.
+    try std.testing.expectEqual(5, devices.bindings.get(.next_friendly_target).button);
+}
+
+test "the defaults come from default.txt" {
+    var devices: input.Devices = .{};
+    devices.defaults_file = .{ .text =
+        \\[KeyConfig]
+        \\FULL THROTTLE=]
+        \\JOYSTICK ROLL=/
+        \\PREVIOUS ENEMY TARGET=SHIFT E
+        \\SYNCHRONISE GUNS=CONTROL G
+        \\ACCELERATE==
+        \\SEND COMMS MESSAGE='
+        \\CLOAK SHIP=NOT A KEY
+        \\ECM=ALT
+        \\SPECTRAL SHIELDS=ALT X
+        \\HELP ME=JOY BUTTON 9
+        \\NEXT FRIENDLY TARGET=Q
+        \\[JoyConfig]
+        \\COUNTERMEASURES=JOY BUTTON 6
+        \\FIRE LASERS=JOY BUTTON 0
+        \\NEXT FRIENDLY TARGET=
+        \\STRAFE LEFT=JOY BUTTON x
+        \\
+    };
+    keyConfigDefaults(&devices);
+    const bindings = &devices.bindings;
+    // Keys by their names, with Shift and Ctrl: FULL THROTTLE's and JOYSTICK ROLL's differ from
+    // the executable's.
+    try std.testing.expectEqual(0x1B, bindings.get(.full_throttle).key);
+    try std.testing.expectEqual(0x35, bindings.get(.joystick_roll).key);
+    try std.testing.expectEqual(controls.Binding{ .name = "PREVIOUS ENEMY TARGET", .string = 0x339, .key = 0x12, .modifier = .shift, .button = null }, bindings.get(.previous_enemy_target));
+    try std.testing.expectEqual(Modifier.control, bindings.get(.synchronise_guns).modifier);
+    try std.testing.expectEqual(0x0D, bindings.get(.accelerate).key);
+    try std.testing.expectEqual(0x28, bindings.get(.send_comms_message).key);
+    // A name the keys lack keeps the key; `ALT` alone is Alt and no key, and `ALT X` no modifier.
+    try std.testing.expectEqual(controls.binding(.cloak_ship).key, bindings.get(.cloak_ship).key);
+    try std.testing.expectEqual(Modifier.alt, bindings.get(.ecm).modifier);
+    try std.testing.expectEqual(controls.binding(.ecm).key, bindings.get(.ecm).key);
+    try std.testing.expectEqual(Modifier.none, bindings.get(.spectral_shields).modifier);
+    // Buttons from either section; none but those the file gives, a digit after `JOY BUTTON`.
+    try std.testing.expectEqual(9, bindings.get(.help_me).button);
+    try std.testing.expectEqual(controls.binding(.help_me).key, bindings.get(.help_me).key);
+    try std.testing.expectEqual(6, bindings.get(.countermeasures).button);
+    try std.testing.expectEqual(0, bindings.get(.fire_lasers).button);
+    try std.testing.expectEqual(null, bindings.get(.next_friendly_target).button);
+    try std.testing.expectEqual(null, bindings.get(.strafe_left).button);
+    // An action the file doesn't name keeps the executable's key, without its button.
+    try std.testing.expectEqual(controls.binding(.afterburners).key, bindings.get(.afterburners).key);
+    try std.testing.expectEqual(null, bindings.get(.afterburners).button);
+
+    // A gamepad takes the keys, and keeps its own buttons.
+    devices.joystick.kind = .gamepad;
+    keyConfigDefaults(&devices);
+    try std.testing.expectEqual(0x1B, bindings.get(.full_throttle).key);
+    try std.testing.expectEqual(input.defaultBindings(.gamepad).get(.countermeasures).button, bindings.get(.countermeasures).button);
+    try std.testing.expectEqual(null, bindings.get(.help_me).button);
 }
 
 test bindingFind {
