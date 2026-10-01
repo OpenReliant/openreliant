@@ -13,13 +13,15 @@ const Allocator = std.mem.Allocator;
 const openreliant = @import("openreliant");
 const help = @import("help.zig");
 const mission0 = @import("mission0.zig");
+const Settings = @import("settings.zig").Settings;
 const engine = openreliant.engine;
 const game = engine.game;
 const files = engine.files;
 
 pub const usage =
     \\usage: openreliant missions [<game-directory>]
-    \\  <game-directory>  the folder StarLancer is installed in; the current directory by default
+    \\  <game-directory>  the folder StarLancer is installed in; by default the current directory
+    \\                    where it holds the game, else the one openreliant last played from
     \\  -h, --help        show this page
     \\
     \\Lists the missions in the game's missions folder and in resource.hog, and OpenReliant's own
@@ -45,7 +47,9 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
         std.debug.print("{s}", .{usage});
         return 2;
     }
-    const directory_name: []const u8 = if (args.len == 1) args[0] else ".";
+    var settings: Settings = .openUser(io, gpa);
+    defer settings.close();
+    const directory_name = settings.findGameFolder(if (args.len == 1) args[0] else null);
     var directory = Io.Dir.cwd().openDir(io, directory_name, .{ .iterate = true }) catch |err| {
         std.debug.print("openreliant: {s} can't be opened: {s}\n", .{ directory_name, @errorName(err) });
         return 1;

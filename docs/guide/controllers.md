@@ -95,7 +95,7 @@ The view updates in place as you move the controls. The first line shows the val
 
 ## Settings
 
-StarLancer stores its settings in `starlancer.ini` in the game folder, and OpenReliant reads the same file. If it does not exist, create it with a text editor:
+OpenReliant keeps StarLancer's settings in `starlancer.ini` in your own folder, which the first run starts from the one in the game folder ([Configuration file](configuration.md#configuration-file-starlancerini)). To set these by hand, edit it, or create it, with a text editor:
 
 ```ini
 [KeyConfig]

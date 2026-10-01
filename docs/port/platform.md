@@ -17,6 +17,42 @@ The `openreliant` executable runs the game on SDL3, which stands in for everythi
 
 SDL comes from the [castholm/SDL](https://github.com/castholm/SDL) package, which builds it from source for the target, so no SDL has to be installed. `build.zig` translates its header into the `sdl` module the platform layer imports. OpenAL Soft is built from source the same way, by [`deps/openal-soft`](../../deps/openal-soft/build.zig), into the `al` module, and FFmpeg by [`deps/ffmpeg`](../../deps/ffmpeg/build.zig), into the `av` module.
 
+## Settings
+
+The original keeps its settings in `starlancer.ini` in its own folder. OpenReliant keeps that file in each user's folder, which SDL names (`SDL_GetPrefPath`, [`folders.zig`](../../src/platform/folders.zig)): `~/Library/Application Support/OpenReliant` on macOS, `%APPDATA%\OpenReliant` on Windows, and `$XDG_DATA_HOME/OpenReliant`, or `~/.local/share/OpenReliant`, elsewhere ([`settings.zig`](../../src/openreliant/settings.zig)). The game's code reads and writes it as the original reads and writes its own. The first run starts it from the game folder's file, where there is one, which OpenReliant then leaves as it is. Where the system gives no folder for the user's files, the file stays in the game's folder, as the original keeps it.
+
+`[OpenReliant]`, a section the original never reads, holds OpenReliant's own settings. An option that turns on and off takes 1 or 0.
+
+| Key | Takes | On the command line |
+|---|---|---|
+| `GameDirectory` | The game's folder OpenReliant last played from, by its whole path, which it plays from where none is named and the current directory holds no game | `<game-directory>` |
+| `Original` | 1 for the original's look and sound, which the keys below then change | `--original` |
+| `Fullscreen` | 1 or 0 | `--fullscreen` |
+| `Size` | `<width>x<height>` | `--size` |
+| `FrameRate` | Frames a second at most; 0 for no limit | `--fps` |
+| `Vsync` | 1 or 0 | `--no-vsync` |
+| `Software` | 1 or 0 | `--software` |
+| `SixteenBit` | 1 or 0 | `--16-bit` |
+| `Samples` | 1, 2, 4 or 8 | `--msaa` |
+| `Filter` | `original`, `trilinear` or `crisp` | `--filter` |
+| `Bloom` | 1 or 0 | `--no-bloom` |
+| `Dither` | 1 or 0 | `--no-dither` |
+| `PixelLighting` | 1 or 0 | `--no-pixel-lighting` |
+| `LinearLight` | 1 or 0 | `--gamma-space` |
+| `Shadows` | `off`, `low` or `high` | `--shadows` |
+| `CockpitShadows` | 1 or 0 | `--no-cockpit-shadows` |
+| `SmoothMotion` | 1 or 0 | `--no-smooth-motion` |
+| `ShotLights` | 1 for every shot's light; 0 for the latest two of each side's | `--few-shot-lights` |
+| `Hrtf` | `auto`, `on` or `off` | `--hrtf`, `--no-hrtf` |
+| `Reverb` | 1 or 0 | `--no-reverb` |
+| `Compressor` | 1 or 0 | `--no-compressor` |
+
+`Original` is read first, as `--original` comes first on a command line, and the other keys change what it set: `Original=1` with `Bloom=1` is the original's look with the bloom. A key left out keeps the option's default, and a value a key does not take is logged and left out. The command line's options change these for the run, and are not kept. `--screenshot` leaves `[OpenReliant]` out, so that a screenshot comes out the same for everyone.
+
+`openreliant install` notes the folder it installs into as the game's, and `openreliant joysticks` and `openreliant missions` find the game's folder as `openreliant` does.
+
+**Improvement:** the settings are each user's own, where the system keeps a user's files. Not yet: the saved games and the screenshots, which stay in the game's folder ([#484](https://github.com/vdmkenny/openreliant/issues/484)).
+
 ## Movies
 
 The game's movies ([Movies](../engine/movies.md)) are decoded by [FFmpeg](https://ffmpeg.org)'s Bink decoders, in place of RAD's library. [`deps/ffmpeg`](../../deps/ffmpeg/build.zig) builds FFmpeg 9.0.2, pinned in its manifest by the release's tag and commit, as a static library of the Bink video and audio decoders and the part of `libavcodec` and `libavutil` they reach: the files a program using the decoding calls links, as FFmpeg's `configure --disable-everything --enable-decoder=bink,binkaudio_rdft,binkaudio_dct --disable-asm --disable-pthreads` builds them, and the settings those files read. It is plain C for any processor, without assembly or threads, and built optimized whatever the game is built as, as OpenAL Soft is. None of FFmpeg's GPL parts is built.
@@ -34,9 +70,9 @@ zig build -Dtarget=x86_64-linux-gnu
 zig build -Dtarget=aarch64-macos               # Apple silicon, from any Zig
 ```
 
-`openreliant [<game-directory>] [<option>...]` runs in the game's installed directory, or the one given, and reads `resource.hog` and `tcachehw.dat` from it as the original does ([`bigfile.zig`](../../src/engine/game/bigfile.zig)). It has no data of its own: without those files it reports what it needs and exits.
+`openreliant [<game-directory>] [<option>...]` plays from the game's folder the command line names; without one, from the current directory where it holds the game, else from the folder it last played from, which the settings note ([Settings](#settings)). It reads `resource.hog` and `tcachehw.dat` from it as the original does ([`bigfile.zig`](../../src/engine/game/bigfile.zig)). It has no data of its own: without those files it reports what it needs and exits.
 
-`openreliant --help` lists the options in the groups below, the keys OpenReliant adds, and the commands; each command's `--help` shows its own. An invalid option or value is named in one line, and `openreliant` exits with status 2. The page comes from one table in [`main.zig`](../../src/openreliant/main.zig), which the compiler holds to having help for every option, and [`help.zig`](../../src/openreliant/help.zig) wraps it to 80 columns at compile time.
+`openreliant --help` lists the options in the groups below, the keys OpenReliant adds, and the commands; each command's `--help` shows its own. An invalid option or value is named in one line, and `openreliant` exits with status 2. The page comes from one table in [`options.zig`](../../src/openreliant/options.zig), which the compiler holds to having help for every option, and [`help.zig`](../../src/openreliant/help.zig) wraps it to 80 columns at compile time.
 
 **The original.** OpenReliant improves on the original's look and sound; `--original` turns the improvements off, and an option after it turns one back on.
 
@@ -92,7 +128,7 @@ zig build -Dtarget=aarch64-macos               # Apple silicon, from any Zig
 | Option | Does |
 |---|---|
 | `--no-intro` | Starts without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
-| `--screenshot <file.png>` | Draws one frame, with the camera settled, to a PNG and quits |
+| `--screenshot <file.png>` | Draws one frame, with the camera settled, to a PNG and quits; the controls and `[OpenReliant]` are not read, so that it comes out the same each time |
 | `--version` | Shows the version |
 | `-h`, `--help` | Shows the options |
 

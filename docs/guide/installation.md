@@ -65,7 +65,13 @@ Please also open an issue on GitHub stating which release you have and the size 
 
 ### 4. Launch the game
 
-Run the executable with the installed folder:
+Run the executable. It plays from the folder `openreliant install` installed into, or from the current directory where that holds the game:
+
+```bash
+./openreliant
+```
+
+To play from another folder, name it, and OpenReliant plays from it from then on:
 
 ```bash
 ./openreliant StarLancer

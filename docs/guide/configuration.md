@@ -6,7 +6,7 @@ Pass options when running `openreliant`:
 ./openreliant [<game-directory>] [<option>...]
 ```
 
-If omitted, `game-directory` defaults to the current working directory `.`.
+Without a `game-directory`, OpenReliant plays from the current directory where it holds the game, else from the folder it last played from, which `openreliant install` also notes.
 
 ## The original
 
@@ -68,7 +68,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | Option | Description |
 |---|---|
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
-| `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit |
+| `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls and your `[OpenReliant]` settings are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--version` | Show the version |
 | `-h`, `--help` | Show the help page |
@@ -110,7 +110,17 @@ In the target view (6) and external view (7), arrow keys orbit around the object
 
 ## Configuration file (starlancer.ini)
 
-Settings are read from `starlancer.ini` in the game directory:
+OpenReliant keeps your settings in `starlancer.ini` in your own folder:
+
+| System | Folder |
+|---|---|
+| macOS | `~/Library/Application Support/OpenReliant` |
+| Windows | `%APPDATA%\OpenReliant` |
+| Linux | `~/.local/share/OpenReliant`, or `$XDG_DATA_HOME/OpenReliant` where that is set |
+
+The first time you play, it starts from the `starlancer.ini` in the game directory, if there is one. After that, the game directory's file is left as it is. The pause menu's screens and the pilot roster save to your own file.
+
+The game's own sections look like this:
 
 ```ini
 [KeyConfig]
@@ -134,3 +144,41 @@ Gamma=100
 `[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no
 cockpit) and the brightness in hundredths (`Gamma`), which the pause menu's graphics screen changes.
 See [Controllers and input](controllers.md) for detailed controller options.
+
+### OpenReliant's settings
+
+The `[OpenReliant]` section keeps OpenReliant's own settings, which the options above set for one run. Options on the command line change them for that run only.
+
+```ini
+[OpenReliant]
+GameDirectory=/Users/you/Games/StarLancer
+Original=1
+Bloom=1
+Samples=8
+```
+
+| Setting | Values | Option |
+|---|---|---|
+| `GameDirectory` | The game directory OpenReliant last played from, which it plays from when you don't name one | `<game-directory>` |
+| `Original` | 1 for the original's look and sound; the settings below then change it | `--original` |
+| `Fullscreen` | 1 or 0 | `--fullscreen` |
+| `Size` | `<width>x<height>` | `--size` |
+| `FrameRate` | Frames a second at most; 0 for no limit | `--fps` |
+| `Vsync` | 1 or 0 | `--no-vsync` |
+| `Software` | 1 or 0 | `--software` |
+| `SixteenBit` | 1 or 0 | `--16-bit` |
+| `Samples` | 1, 2, 4 or 8 | `--msaa` |
+| `Filter` | `original`, `trilinear` or `crisp` | `--filter` |
+| `Bloom` | 1 or 0 | `--no-bloom` |
+| `Dither` | 1 or 0 | `--no-dither` |
+| `PixelLighting` | 1 or 0 | `--no-pixel-lighting` |
+| `LinearLight` | 1 or 0 | `--gamma-space` |
+| `Shadows` | `off`, `low` or `high` | `--shadows` |
+| `CockpitShadows` | 1 or 0 | `--no-cockpit-shadows` |
+| `SmoothMotion` | 1 or 0 | `--no-smooth-motion` |
+| `ShotLights` | 1: every shot lights the ships it passes; 0: the latest two of each side's, as the original | `--few-shot-lights` |
+| `Hrtf` | `auto`, `on` or `off` | `--hrtf`, `--no-hrtf` |
+| `Reverb` | 1 or 0 | `--no-reverb` |
+| `Compressor` | 1 or 0 | `--no-compressor` |
+
+In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default. A screenshot taken with `--screenshot` leaves this section out, so that it comes out the same for everyone.
