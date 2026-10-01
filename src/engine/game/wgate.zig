@@ -10,10 +10,11 @@
 //! `0x0041DD6F`), which lie between `tractor.cpp`'s known code and this file's, and do this
 //! file's work.
 //!
-//! Not ported: the warps' tunnels (kind 0, `order_warp_out`, `order_warp_in`) and the Boridin's
-//! projection (kind 3, `order_start_warp_projection_from_boridin`), with their particles and
-//! beams ([#30](https://github.com/vdmkenny/openreliant/issues/30)); and the Krasny's split, as it
-//! jumps in through the gate collapsing behind it in missions 16 and 66 (`0x00422CA0`)
+//! Not ported: the warps' tunnels (kind 0, `order_warp_out`, `order_warp_in`), with their
+//! particles and beams ([#481](https://github.com/vdmkenny/openreliant/issues/481)); the Boridin's
+//! projection (kind 3, `order_start_warp_projection_from_boridin`)
+//! ([#30](https://github.com/vdmkenny/openreliant/issues/30)); and the Krasny's split, as it jumps
+//! in through the gate collapsing behind it in missions 16 and 66 (`0x00422CA0`)
 //! ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
 
 const std = @import("std");

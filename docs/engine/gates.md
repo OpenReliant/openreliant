@@ -12,10 +12,10 @@ shrinks a tunnel away, and Fixed Gate Collapse brings a gate down.
 worm and the five orders; `create.gateMade` sets the Coalition's gates up
 ([`game/create.zig`](../../src/engine/game/create.zig)). A mission's start lets every tunnel go.
 
-Not ported: the warps' tunnels (kind 0, Warp In and Warp Out, orders 4 and 5) and the Boridin's
-projection (kind 3, order 38), with their particles and beams
-([#30](https://github.com/vdmkenny/openreliant/issues/30)); and the Krasny's split in missions 16
-and 66 ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
+Not ported: the warps' tunnels (kind 0, Warp In and Warp Out, orders 4 and 5), with their
+particles and beams ([#481](https://github.com/vdmkenny/openreliant/issues/481)); the Boridin's
+projection (kind 3, order 38) ([#30](https://github.com/vdmkenny/openreliant/issues/30)); and the
+Krasny's split in missions 16 and 66 ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
 
 **Improvements**, which `--original` turns off:
 
