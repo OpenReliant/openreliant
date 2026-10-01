@@ -248,7 +248,7 @@ pub const Interface = struct {
     pub fn frame(front: *Interface, context: Context) ?Outcome {
         front.ticks +%= @intCast(@max(context.elapsed, 0));
         front.enterShown(context);
-        front.pointer.update(context.devices.mouse, context.window, context.elapsed);
+        front.pointer.update(&context.devices.mouse, context.window, context.elapsed);
         var pointer = front.pointer;
         pointer.down = front.press.pressed(front.pointer.down);
         switch (front.screen) {

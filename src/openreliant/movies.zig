@@ -58,11 +58,13 @@ pub const Movies = struct {
     }
 
     /// The window's messages since the last pass, as the message pump reads them: the keys, the
-    /// pointer and its buttons into the devices, and a controller connected or taken out noted.
-    /// Null where the window was closed, which quits the game (`game_exit`).
+    /// pointer, its buttons and its wheel into the devices, the wheel's notches no screen took
+    /// last pass let go, and a controller connected or taken out noted. Null where the window was
+    /// closed, which quits the game (`game_exit`).
     pub fn pump(movies: *Movies) ?Pumped {
         const devices = movies.devices;
         var pumped: Pumped = .{};
+        _ = devices.mouse.notches();
         while (movies.presenter.window.poll()) |event| switch (event) {
             .quit => return null,
             .key => |key| devices.keyboard.down[@intFromEnum(key.scan)] = key.down,
@@ -71,6 +73,7 @@ pub const Movies = struct {
                 .left => devices.mouse.buttons.left = button.down,
                 .right => devices.mouse.buttons.right = button.down,
             },
+            .wheel => |turned| devices.mouse.wheel += turned,
             .active => |active| pumped.active = active,
             .controllers => movies.controllers_changed = true,
             .typed => |character| movies.typed.push(game.language.fromUnicode(character)),

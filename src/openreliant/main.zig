@@ -561,6 +561,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             movies.controllers_changed = false;
             if (options.screenshot == null) connectController(arena, &devices, &controller, settings_file.profile);
         }
+        // The wheel's notches no screen took last pass are let go.
+        _ = devices.mouse.notches();
         while (window.poll()) |event| switch (event) {
             .quit => return,
             .key => |key| if (options.screenshot == null) {
@@ -578,6 +580,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             .button => |button| if (options.screenshot == null) switch (button.which) {
                 .left => devices.mouse.buttons.left = button.down,
                 .right => devices.mouse.buttons.right = button.down,
+            },
+            .wheel => |turned| if (options.screenshot == null) {
+                devices.mouse.wheel += turned;
             },
         };
         // While the window is inactive, the sound is paused, as the message pump pauses it, and a

@@ -79,6 +79,10 @@ const question_control_string = 0x17C;
 const assigned_string = 0x5AF;
 const anyway_string = 0x5B0;
 
+/// What a row waiting with nothing taken shows: the game's PRESS, which its training's prompts
+/// write (`0x5AE`).
+const press_string = 0x5AE;
+
 /// The list's arrows, and their shapes, lit under the pointer (`0x0042D8CA` on): one at the top
 /// right of the actions' pane, the other below it.
 const arrow_rects = std.EnumArray(Arrow, Rect).init(.{
@@ -200,14 +204,20 @@ pub const Controller = enum {
         };
     }
 
-    fn label(controller: Controller) Label {
-        const string: u32 = switch (controller) {
+    fn string(controller: Controller) u32 {
+        return switch (controller) {
             .joystick => 0x235,
             .mouse => 0x236,
             .keyboard => 0x237,
         };
-        return .of(string, .{ label_x, controller.y() }, .left);
     }
+
+    fn label(controller: Controller) Label {
+        return .of(controller.string(), .{ label_x, controller.y() }, .left);
+    }
+
+    /// How far JOYSTICK's label reaches at most: short of the check boxes.
+    const room = Check.box_x - 8 - label_x;
 
     fn mode(controller: Controller) input.ControlMode {
         return switch (controller) {
@@ -391,10 +401,7 @@ pub const Controls = struct {
                 try interface.saveSetting(devices.settings, settings_file, check.setting());
             },
             .arrow => |arrow| {
-                if (context.ticks > tab.scroll_at) {
-                    tab.list.scroll(arrow);
-                    tab.scroll_at = context.ticks + scroll_ticks;
-                }
+                tab.scrollHeld(arrow, context.ticks);
                 return true;
             },
             .row => |row| {
@@ -412,6 +419,26 @@ pub const Controls = struct {
             },
         }
         return false;
+    }
+
+    /// The list a row on or back, as an arrow held scrolls it: at once, then each `scroll_ticks`
+    /// while it is held (`0x0042BD09`).
+    fn scrollHeld(tab: *Controls, way: Arrow, ticks: u32) void {
+        if (ticks <= tab.scroll_at) return;
+        tab.list.scroll(way);
+        tab.scroll_at = ticks + scroll_ticks;
+    }
+
+    /// Up and Down, held while no row waits, which then binds them, scroll the list as its arrows
+    /// do, and the mouse's wheel scrolls it as it turns.
+    ///
+    /// **Improvement:** the game's screen scrolls by its arrows alone.
+    pub fn scrollKeys(tab: *Controls, context: Context) void {
+        tab.list.wheel(context.pointer.wheel);
+        if (tab.waiting != null) return;
+        const keyboard = &context.devices.keyboard;
+        if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) tab.scrollHeld(.up, context.ticks);
+        if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) tab.scrollHeld(.down, context.ticks);
     }
 
     /// Ends the wait, as a click on nothing does (`0x0042BFDE`), the waiting row's old binding back
@@ -508,7 +535,12 @@ pub const Controls = struct {
         for (panes) |pane| canvas.box(pane.at, pane.extent);
         for (headings) |heading| try heading.write(canvas, canvas.fonts.large, blue);
         try primary_controller.write(canvas, small, blue);
-        for (std.enums.values(Controller)) |controller| try controller.label().write(dimmedUnless(canvas, controller.usable(devices)), small, blue);
+        for (std.enums.values(Controller)) |controller| {
+            var label = controller.label();
+            var buffer: [96]u8 = undefined;
+            if (controller == .joystick) label.text = .{ .words = joystickLabel(&buffer, &devices.joystick, canvas.strings, small) };
+            try label.write(dimmedUnless(canvas, controller.usable(devices)), small, blue);
+        }
         for (std.enums.values(Check)) |check| try check.label().write(dimmedUnless(canvas, check.usable(devices)), small, blue);
         try tab.drawList(canvas, devices);
         for (std.enums.values(Check)) |check| try dimmedUnless(canvas, check.usable(devices)).shape(art, box_shape, .{ Check.box_x, check.y() });
@@ -535,6 +567,9 @@ pub const Controls = struct {
     /// The rows shown (`0x0042D171` on): a divider's two lines, or an action's name and its
     /// binding, white while the row waits, and ! NOT ASSIGNED ! in yellow for an action bound to
     /// nothing, but the waiting one's.
+    ///
+    /// **Improvement:** a row waiting with nothing taken shows PRESS, where the game leaves it
+    /// blank.
     fn drawList(tab: Controls, canvas: Canvas, devices: *const input.Devices) Allocator.Error!void {
         const small = canvas.fonts.small;
         for (tab.list.first..tab.list.end(), 0..) |entry, row| {
@@ -556,7 +591,9 @@ pub const Controls = struct {
             const shown = bindingText(&buffer, binding, canvas.strings);
             if (shown.len != 0) {
                 try canvas.text(small, .{ binding_x, y }, shown, colour, .left);
-            } else if (!waiting) {
+            } else if (waiting) {
+                try canvas.string(small, .{ binding_x, y }, press_string, colour, .left);
+            } else {
                 try canvas.string(small, .{ binding_x, y }, not_assigned, yellow, .left);
             }
         }
@@ -569,6 +606,38 @@ fn dimmedUnless(canvas: Canvas, usable: bool) Canvas {
     var shown = canvas;
     if (!usable) shown.brightness = dimmed;
     return shown;
+}
+
+/// JOYSTICK's label, followed by the joystick's name where there is one, in capitals, cut short
+/// with "..." where it would reach the check boxes.
+///
+/// **Improvement:** the game writes JOYSTICK alone.
+fn joystickLabel(buffer: []u8, joystick: *const input.Joystick, strings: *const language.Language, font: *hud.Opened) []const u8 {
+    const label = strings.string(Controller.joystick.string()) orelse "";
+    if (joystick.device == null) return label;
+    var name_buffer: [64]u8 = undefined;
+    const name = capitals(&name_buffer, joystick.name);
+    if (name.len == 0) return label;
+    var kept = name.len;
+    while (true) : (kept -= 1) {
+        const cut = if (kept < name.len) "..." else "";
+        const shown = std.fmt.bufPrint(buffer, "{s} ({s}{s})", .{ label, name[0..kept], cut }) catch return label;
+        if (kept == 0 or font.textWidth(shown) <= Controller.room) return shown;
+    }
+}
+
+/// `text`, UTF-8, in capitals, in the game's code page (`language.fromUnicode`), as much of it as
+/// `buffer` holds; empty where it isn't UTF-8.
+fn capitals(buffer: []u8, text: []const u8) []const u8 {
+    const view = std.unicode.Utf8View.init(text) catch return "";
+    var points = view.iterator();
+    var length: usize = 0;
+    while (points.nextCodepoint()) |point| {
+        if (length == buffer.len) break;
+        buffer[length] = std.ascii.toUpper(language.fromUnicode(point));
+        length += 1;
+    }
+    return buffer[0..length];
 }
 
 /// The name of the key of scan code `code`, as `key_names` gives it; null for none, and for a key
@@ -811,6 +880,48 @@ test "the arrows scroll a row each 5 ticks while held" {
     fixture.tab.list.first = @intCast(divider);
     _ = try fixture.tab.choose(.{ .row = 0 }, fixture.context(.{}));
     try std.testing.expectEqual(null, fixture.tab.waiting);
+}
+
+test "Up, Down and the wheel scroll the list while no row waits" {
+    var fixture: Fixture = .init();
+    defer fixture.deinit();
+    fixture.enter();
+    const keyboard = &fixture.devices.keyboard;
+    keyboard.down[@intFromEnum(input.Key.down)] = true;
+    fixture.ticks += 1;
+    fixture.tab.scrollKeys(fixture.context(.{}));
+    try std.testing.expectEqual(1, fixture.tab.list.first);
+    // A notch of the wheel down, three rows more.
+    fixture.tab.scrollKeys(fixture.context(.{ .wheel = -1 }));
+    try std.testing.expectEqual(4, fixture.tab.list.first);
+    // While a row waits, Down binds rather than scrolls.
+    _ = try fixture.tab.choose(.{ .row = 0 }, fixture.context(.{}));
+    fixture.ticks += 10;
+    fixture.tab.scrollKeys(fixture.context(.{}));
+    try std.testing.expectEqual(4, fixture.tab.list.first);
+}
+
+test joystickLabel {
+    const gpa = std.testing.allocator;
+    const fnt = @import("../../../../formats/fnt.zig");
+    var font: hud.Opened = .open(try fnt.Font.parse(comptime fnt.testing.font(true)), null);
+    defer font.deinit(gpa);
+    font.widths = @splat(6);
+    const string_list = [_][]const u8{""} ** (0x235 - 1) ++ [_][]const u8{"JOYSTICK"};
+    const strings: language.Language = .{ .strings = &string_list };
+    var buffer: [96]u8 = undefined;
+    var joystick: input.Joystick = .{};
+    // Without a joystick, JOYSTICK alone.
+    try std.testing.expectEqualStrings("JOYSTICK", joystickLabel(&buffer, &joystick, &strings, &font));
+    var stick = input.testing.stick();
+    joystick.open(stick.device(), input.default_dead_zone);
+    joystick.name = "Logitech Extreme 3D Pro";
+    try std.testing.expectEqualStrings("JOYSTICK (LOGITECH EXTREME 3D PRO)", joystickLabel(&buffer, &joystick, &strings, &font));
+    // A name too long for the room is cut short.
+    joystick.name = "Thrustmaster T.16000M FCS Hands On Throttle And Stick";
+    const shown = joystickLabel(&buffer, &joystick, &strings, &font);
+    try std.testing.expect(std.mem.endsWith(u8, shown, "...)"));
+    try std.testing.expect(font.textWidth(shown) <= Controller.room);
 }
 
 test bindingText {

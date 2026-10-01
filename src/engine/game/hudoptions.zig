@@ -277,7 +277,7 @@ pub const PauseMenu = struct {
         const controls = if (pause_menu.controls) |*shown| shown else return .{ .screen = .main };
         const elapsed = frame.timer -| controls.timer;
         controls.timer = frame.timer;
-        controls.pointer.update(frame.devices.mouse, frame.screen, std.math.lossyCast(i32, elapsed));
+        controls.pointer.update(&frame.devices.mouse, frame.screen, std.math.lossyCast(i32, elapsed));
         var pointer = controls.pointer;
         pointer.down = controls.press.pressed(pointer.down);
         const end = controls.screen.frame(controlsContext(frame, pointer));

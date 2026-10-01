@@ -27,6 +27,9 @@ pub const Event = union(enum) {
     pointer: struct { at: [2]f32, moved: [2]f32 },
     /// A mouse button went down or up: the left or the right one, which the game reads.
     button: struct { which: Button, down: bool },
+    /// The mouse's wheel turned: by notches, or parts of one, positive to scroll up, as the
+    /// system's setting has the scrolling go.
+    wheel: f32,
     /// A character typed while the window takes text (`takeText`), as `WM_CHAR` gives one: each
     /// character of what the system's text input makes, and a backspace, 8, at each press of the
     /// key and at each of its repeats.
@@ -150,6 +153,7 @@ pub const Window = struct {
                     };
                     return .{ .button = .{ .which = which, .down = event.button.down } };
                 },
+                c.SDL_EVENT_MOUSE_WHEEL => return .{ .wheel = event.wheel.y },
                 else => {},
             }
         }

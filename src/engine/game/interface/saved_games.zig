@@ -403,6 +403,8 @@ pub const SavedGames = struct {
         if (escaped) return screen.leave(context.saves, .back);
         if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) screen.scrolled.scroll(.down);
         if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) screen.scrolled.scroll(.up);
+        // **Improvement:** the mouse's wheel scrolls the list too.
+        screen.scrolled.wheel(context.pointer.wheel);
         defer if (screen.typing and screen.mode == .save) hud.typeInto(context.typed, &screen.name.bytes, &screen.name.len, null);
         if (screen.mode == .save and screen.typing) {
             if (context.ticks > screen.blink_at) {

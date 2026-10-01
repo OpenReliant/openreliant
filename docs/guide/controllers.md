@@ -95,7 +95,7 @@ The view updates in place as you move the controls. The first line shows the val
 
 ## The controls screen
 
-GAME OPTIONS' CONTROL DEVICES opens the controls, as do the in-game options' and the pause menu's, and F1 in flight. There you choose what you steer with, the joystick or gamepad, the mouse or the keyboard, turn force feedback, pitch inversion, the hat and the twist's roll on and off, and bind the actions. To bind an action, click its row and press a key, alone or with Shift or Ctrl, or a button on your controller; click anywhere else when you are done. A key or button another action has asks first whether to take it. CANCEL CHANGES undoes what you changed since the screen opened, and RESET DEFAULTS goes back to the defaults. The screen saves to `starlancer.ini` ([Settings](#settings)).
+GAME OPTIONS' CONTROL DEVICES opens the controls, as do the in-game options' and the pause menu's, and F1 in flight. There you choose what you steer with, the joystick or gamepad, the mouse or the keyboard, turn force feedback, pitch inversion, the hat and the twist's roll on and off, and bind the actions. To bind an action, click its row and press a key, alone or with Shift or Ctrl, or a button on your controller; click anywhere else when you are done, or press Escape to keep the old binding. A key or button another action has asks first whether to take it. The mouse wheel, or Up and Down, scroll the list. CANCEL CHANGES undoes what you changed since the screen opened, and RESET DEFAULTS goes back to the defaults. The screen saves to `starlancer.ini` ([Settings](#settings)).
 
 ## Settings
 

@@ -666,6 +666,18 @@ pub const FreshPress = struct {
     }
 };
 
+test "Mouse.notches" {
+    var mouse: Mouse = .{};
+    // A trackpad turns the wheel by parts of a notch, which count once they make a whole one.
+    mouse.wheel += 0.6;
+    try std.testing.expectEqual(0, mouse.notches());
+    mouse.wheel += 0.6;
+    try std.testing.expectEqual(1, mouse.notches());
+    mouse.wheel -= 2.5;
+    try std.testing.expectEqual(-2, mouse.notches());
+    try std.testing.expectApproxEqAbs(-0.3, mouse.wheel, 1e-5);
+}
+
 test FreshPress {
     var press: FreshPress = .{};
     // Held over from before, the press counts only once the button has come up.
@@ -689,6 +701,9 @@ pub const Mouse = struct {
     state: State = .{},
     /// Whether the stick has gathered the movement of the last read (`player_controls`).
     gathered: bool = false,
+    /// The notches the wheel has turned that no screen has taken (`notches`), positive to scroll
+    /// up. Added by OpenReliant, as the game reads no wheel.
+    wheel: f32 = 0,
 
     /// What `read_mouse` reads, the parts of `MouseState` the game uses: the movement since the
     /// read before, in whole counts, and the buttons down.
@@ -705,6 +720,14 @@ pub const Mouse = struct {
         mouse.state = .{ .moved = moved, .buttons = mouse.buttons };
         mouse.motion = @as(@Vector(2, f32), mouse.motion) - whole;
         mouse.gathered = false;
+    }
+
+    /// The wheel's whole notches turned since they were last taken, positive to scroll up; the part
+    /// of a notch left over waits for the next.
+    pub fn notches(mouse: *Mouse) i32 {
+        const whole = @trunc(mouse.wheel);
+        mouse.wheel -= whole;
+        return @intFromFloat(whole);
     }
 
     pub const Buttons = packed struct(u2) {

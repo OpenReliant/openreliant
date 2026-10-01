@@ -21,6 +21,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 
 - The game switches the display to 640 by 480 for the front end. OpenReliant keeps the window as it is, and draws the front end as large as fits in it, centred, so that it keeps its shape.
 - The pointer is where the system's is over the window, rather than DirectInput's movements added up.
+- The mouse's wheel scrolls the lists, the saved games' and the controls', three rows a notch, as the system scrolls text by default; the game reads no wheel.
 - OpenReliant's version is written, dimmed, in the window's bottom right corner, as the pause menu writes it ([Pause menu](pause-menu.md)): on the front end's screens, the loading screens and the in-game options over the Reliant's rooms ([The Reliant's rooms](rooms.md)), though not in the rooms themselves.
 
 ## The screens
@@ -210,7 +211,13 @@ A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (
 - A key taken without the question counts as a change, which Escape asks about, as a button and a key taken from another action do; the game asks only after those.
 - Leaving the screen, by Escape, OK or MAIN MENU, while a row waits having taken nothing puts its binding back; the game writes the action unbound.
 
-**Improvement:** PRIMARY CONTROLLER offers MOUSE, `Controller` 2, which steers by the mouse ([Controls](controls.md#steering)). The game has its case (`0x0042BF15`) and its string, but neither a place nor a label, so only the file sets it.
+**Improvements:**
+
+- PRIMARY CONTROLLER offers MOUSE, `Controller` 2, which steers by the mouse ([Controls](controls.md#steering)). The game has its case (`0x0042BF15`) and its string, but neither a place nor a label, so only the file sets it.
+- JOYSTICK is followed by the joystick's name, in capitals, cut short where it would reach the check boxes.
+- A row waiting with nothing taken shows PRESS (`0x5AE`, the string the game's training prompts write), where the game leaves it blank.
+- Escape while a row waits only ends the wait, as a click on nothing does; the game leaves the screen.
+- Up and Down scroll the list as its arrows do while no row waits, and the mouse's wheel scrolls it; the game scrolls it by its arrows alone.
 
 Not ported: the defaults the game reads from `DEFAULT.TXT`, which RESET DEFAULTS sets ([#488](https://github.com/vdmkenny/openreliant/issues/488)); OpenReliant's are the executable's. The keys' names as the keyboard's layout gives them, which the game shows ([#489](https://github.com/vdmkenny/openreliant/issues/489)); OpenReliant shows the executable's.
 

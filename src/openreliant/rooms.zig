@@ -522,7 +522,7 @@ pub const Driver = struct {
         const ticks = platform.window.ticks();
         const elapsed = std.math.cast(i32, ticks -| driver.ticks) orelse std.math.maxInt(i32);
         driver.ticks = ticks;
-        driver.pointer.update(devices.mouse, try movies.presenter.size(), elapsed);
+        driver.pointer.update(&devices.mouse, try movies.presenter.size(), elapsed);
         driver.clock.advanceTo(ticks);
         driver.sound.timerTick(driver.clock.game_ticks);
         return true;

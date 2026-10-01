@@ -169,7 +169,11 @@ pub const Settings = struct {
     /// The joystick read, as the screen's loop reads it (`0x0042BB17`); the questions up and the
     /// button taken take the pass. Then Escape, which asks first where a binding has changed, then
     /// the item under the pointer, chosen as the pointer's button goes down, and lit while it is
-    /// up; then the waiting row's keys and buttons.
+    /// up; then the keys and the wheel that scroll the list, and the waiting row's keys and
+    /// buttons.
+    ///
+    /// **Improvement:** Escape while a row waits only ends the wait, the old binding back where it
+    /// took nothing; the game leaves the screen.
     fn pass(screen: *Settings, context: Context) Allocator.Error!?End {
         const devices = context.devices;
         const tab = &screen.controls;
@@ -183,7 +187,10 @@ pub const Settings = struct {
         }
         if (tab.busy(context, escaped)) return null;
         if (escaped) {
-            tab.endWait(devices);
+            if (tab.waiting != null) {
+                tab.endWait(devices);
+                return null;
+            }
             if (tab.changed) {
                 screen.question = .{ .message = .{ .string = save_question } };
                 return null;
@@ -194,6 +201,7 @@ pub const Settings = struct {
         if (pointer.down and screen.held) pointer.down = false else screen.held = false;
         screen.lit = null;
         tab.arrow = null;
+        tab.scrollKeys(context);
         const under = itemAt(pointer.at) orelse {
             if (pointer.down) tab.endWait(devices);
             tab.wait(context);
@@ -292,12 +300,16 @@ test Settings {
     _ = screen.frame(at(&devices, &file, 100, 143, true));
     _ = screen.frame(at(&devices, &file, 10, 10, true));
     try std.testing.expect(screen.controls.waiting != null);
-    // A key taken counts as a change, which Escape asks about; NO reads the file again.
+    // A key taken counts as a change, which Escape asks about once the wait is over, the first
+    // Escape ending it; NO reads the file again.
     devices.keyboard.down[@intFromEnum(input.Key.f9)] = true;
     _ = screen.frame(at(&devices, &file, 10, 10, false));
     try std.testing.expectEqual(@intFromEnum(input.Key.f9), devices.bindings.get(.cockpit_camera).key);
     devices.keyboard.down[@intFromEnum(input.Key.f9)] = false;
     devices.keyboard.down[input.scan.escape] = true;
+    try std.testing.expectEqual(null, screen.frame(at(&devices, &file, 10, 10, false)));
+    try std.testing.expect(screen.controls.waiting == null and screen.question == null);
+    devices.keyboard.latched[input.scan.escape] = false;
     try std.testing.expectEqual(null, screen.frame(at(&devices, &file, 10, 10, false)));
     try std.testing.expect(screen.question != null);
     _ = screen.frame(at(&devices, &file, 340, 275, true));
