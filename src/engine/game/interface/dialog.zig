@@ -35,9 +35,9 @@ const message_lines: Canvas.Lines = .{ .width = 400, .height = 14, .most = 10 };
 
 /// The question up, and how it has been answered.
 pub const Confirm = struct {
-    /// The question's string (`dialog_message`). The game also asks one given as text, which the
-    /// controls screen's conflict writes (`dialog_text`); none of the ported screens does.
-    message: u32,
+    /// The question: a string (`dialog_message`), or words a screen puts together, as the controls
+    /// screen's conflict writes them into `dialog_text` and asks with `interface_confirm(-1)`.
+    message: canvas_module.Label.Text,
     /// The button under the pointer (`dialog_button`): 0 YES, 1 NO.
     under: ?usize = null,
     /// The answer given, which holds until the pointer's button comes up.
@@ -69,7 +69,11 @@ pub const Confirm = struct {
             try canvas.shape(art, shape, .{ button.x, button.y });
         }
         const font = canvas.fonts.large;
-        if (canvas.strings.string(confirm.message)) |question| try canvas.wrapped(font, message_at, question, canvas_module.blue, .centre, message_lines);
+        const question = switch (confirm.message) {
+            .string => |id| canvas.strings.string(id) orelse "",
+            .words => |words| words,
+        };
+        try canvas.wrapped(font, message_at, question, canvas_module.blue, .centre, message_lines);
         try canvas.string(font, yes_at, yes_string, canvas_module.blue, .right);
         try canvas.string(font, no_at, no_string, canvas_module.blue, .left);
     }
@@ -125,7 +129,7 @@ test SaveError {
 }
 
 test Confirm {
-    var confirm: Confirm = .{ .message = 0x374 };
+    var confirm: Confirm = .{ .message = .{ .string = 0x374 } };
     // Over nothing, nothing is answered.
     try std.testing.expectEqual(null, confirm.frame(.{ .at = .{ 10, 10 }, .down = true }, false));
     // A click on NO answers it once the button comes up.
@@ -134,10 +138,10 @@ test Confirm {
     try std.testing.expectEqual(null, confirm.frame(.{ .at = .{ 290, 275 }, .down = true }, false));
     try std.testing.expectEqual(false, confirm.frame(.{ .at = .{ 290, 275 } }, false));
     // YES, clicked, answers yes.
-    confirm = .{ .message = 0x374 };
+    confirm = .{ .message = .{ .string = 0x374 } };
     _ = confirm.frame(.{ .at = .{ 295, 275 }, .down = true }, false);
     try std.testing.expectEqual(true, confirm.frame(.{ .at = .{ 295, 275 } }, false));
     // Escape answers no.
-    confirm = .{ .message = 0x374 };
+    confirm = .{ .message = .{ .string = 0x374 } };
     try std.testing.expectEqual(false, confirm.frame(.{}, true));
 }

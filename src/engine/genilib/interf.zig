@@ -23,8 +23,10 @@ const matmanager = game.matmanager;
 const interface = game.interface;
 const canvas = interface.canvas;
 const main_menu = interface.main_menu;
+const game_options = interface.game_options;
 const pilot_roster = interface.pilot_roster;
 const saved_games = interface.saved_games;
+const settings = interface.settings;
 const movie = game.xtrabits.movie;
 const device = @import("../surrender/srd3d/device.zig");
 
@@ -82,9 +84,9 @@ pub const first_mission = 1;
 
 /// What the front end draws with, which it opens as it starts and frees as it ends: the fonts its
 /// start-up opens (`interface_init`, `0x004288E0`), the developers' font the display opens
-/// (`font_01`) and the dialog's shapes; and the shown screen's shapes (`interface_shapes`,
-/// `0x0051D60C`) and background, which a screen reads as it starts and frees as it leaves
-/// (`show`).
+/// (`font_01`), the dialog's shapes and ABOUT STARLANCER's box's, which `about_box` reads as it
+/// opens (`0x0042A556`); and the shown screen's shapes (`interface_shapes`, `0x0051D60C`) and
+/// background, which a screen reads as it starts and frees as it leaves (`show`).
 pub const Resources = struct {
     gpa: Allocator,
     archive: bigfile.Hog,
@@ -93,6 +95,7 @@ pub const Resources = struct {
     small: hud.Opened,
     developer: hud.Opened,
     dialog: hud.Art,
+    about: hud.Art,
     /// The screen whose shapes and background are read, its shapes, and the file they are read
     /// from.
     screen: ?Screen = null,
@@ -100,14 +103,15 @@ pub const Resources = struct {
     shapes_file: []u8 = &.{},
     background: matmanager.Background = .{},
 
-    /// The files it reads, which the fonts and the dialog's shapes are made of.
-    pub const File = enum { large, small, developer, dialog };
+    /// The files it reads, which the fonts and the dialogs' shapes are made of.
+    pub const File = enum { large, small, developer, dialog, about };
 
     const names = std.EnumArray(File, []const u8).init(.{
         .large = hud.large_menu_font,
         .small = hud.small_menu_font,
         .developer = main_menu.developer_font_name,
         .dialog = interface.dialog.shapes_name,
+        .about = interface.in_game_options.about_shapes_name,
     });
 
     /// Opens what the front end draws with, and the main menu's shapes and background.
@@ -127,8 +131,11 @@ pub const Resources = struct {
             .small = .ramp(try fnt.Font.parse(files.get(.small))),
             .developer = .ramp(try fnt.Font.parse(files.get(.developer))),
             .dialog = try .init(gpa, try spr.Sprite.parse(files.get(.dialog)), null),
+            .about = undefined,
         };
         errdefer resources.dialog.deinit(gpa);
+        resources.about = try .init(gpa, try spr.Sprite.parse(files.get(.about)), null);
+        errdefer resources.about.deinit(gpa);
         try resources.show(.main_menu);
         return resources;
     }
@@ -163,6 +170,7 @@ pub const Resources = struct {
         resources.background.deinit(gpa);
         resources.dropShapes();
         resources.dialog.deinit(gpa);
+        resources.about.deinit(gpa);
         inline for (.{ &resources.large, &resources.small, &resources.developer }) |font| font.deinit(gpa);
         for (resources.files.values) |file| gpa.free(file);
     }
@@ -172,6 +180,8 @@ pub const Resources = struct {
 fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const u8 } {
     return switch (screen) {
         .main_menu => .{ .shapes = main_menu.shapes_name, .background = main_menu.background_name },
+        .game_options => .{ .shapes = game_options.shapes_name, .background = game_options.background_name },
+        .controls => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .controls).?.background },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
         .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
         else => null,
@@ -193,7 +203,8 @@ pub const Context = struct {
     /// What the front end draws with, whose shown screen's shapes and background a screen reads
     /// as it is entered; none reads nothing.
     resources: ?*Resources = null,
-    /// `starlancer.ini`, which keeps the roster's call signs; none leaves them unsaved.
+    /// `starlancer.ini`, which keeps the roster's call signs and the settings; none leaves them
+    /// unsaved, and the settings screen shut.
     settings: ?*profile.File = null,
     /// The saved games LOAD GAME lists, and the game it loads into; none leaves LOAD GAME on the
     /// roster.
@@ -207,11 +218,14 @@ pub const Interface = struct {
     entered: ?Screen = null,
     pointer: canvas.Pointer = .{},
     main_menu: main_menu.MainMenu = .{},
+    game_options: game_options.GameOptions = .{},
+    settings: settings.Settings = .{},
     pilot_roster: pilot_roster.Roster = .{},
     saved_games: saved_games.SavedGames = .{},
     /// The pilot the roster sets, which every mission the front end starts is flown by.
     pilot: pilot_roster.Pilot = .{},
-    /// The timer's ticks since the front end began, which the saved games' cursor blinks by.
+    /// The timer's ticks since the front end began, which the saved games' cursor blinks by, and
+    /// the settings screen's list scrolls by.
     ticks: u32 = 0,
     /// The pointer's button, which the shown screen takes only once the press held as it was
     /// entered has come up.
@@ -224,9 +238,8 @@ pub const Interface = struct {
     /// pointer brought up to date (`interface_pointer_update`), then the screen's frame. Returns
     /// what the front end ends in, once it does.
     ///
-    /// Not ported: the screens besides the main menu and the pilot roster (#43 lists them). Until
-    /// they are, MULTI PLAYER, GAME OPTIONS and LOAD GAME stay on their screen, without their
-    /// movies.
+    /// Not ported: MULTI PLAYER's screens, and GAME OPTIONS' audio and video (#43 lists them).
+    /// Until they are, MULTI PLAYER and AUDIO and VIDEO stay on their screen, without their movies.
     ///
     /// **Fix:** a screen takes no press until the button held as it was entered comes up. The
     /// movie between two screens gives the press that chose the second time to end; where the
@@ -256,11 +269,44 @@ pub const Interface = struct {
                         return null;
                     },
                     .instant_action => .{ .fly = main_menu.instant_action },
-                    .connection, .game_options => {
-                        log.info("MULTI PLAYER and GAME OPTIONS are not ported yet", .{});
+                    .game_options => {
+                        front.screen = .game_options;
+                        front.movie = movie.main_to_options;
+                        return null;
+                    },
+                    .connection => {
+                        log.info("MULTI PLAYER is not ported yet", .{});
                         return null;
                     },
                 };
+            },
+            .game_options => {
+                const choice = front.game_options.frame(pointer, &context.devices.keyboard) orelse return null;
+                switch (choice) {
+                    .main_menu => {
+                        front.screen = .main_menu;
+                        front.movie = game_options.to_main_menu;
+                    },
+                    .quit => return .quit,
+                    .control_devices => if (context.settings != null) {
+                        front.screen = .controls;
+                        front.movie = settings.opening(.game_options, .controls).?.movie;
+                    },
+                }
+                return null;
+            },
+            .controls => {
+                const settings_file = context.settings orelse {
+                    front.screen = .game_options;
+                    return null;
+                };
+                const end = front.settings.frame(settingsContext(front, context, settings_file, pointer)) orelse return null;
+                front.movie = settings.leavingMovie(.game_options, end);
+                front.screen = switch (end) {
+                    .back, .continue_mission => .game_options,
+                    .main_menu => .main_menu,
+                };
+                return null;
             },
             .pilot_roster => {
                 const choice = front.pilot_roster.frame(.{
@@ -330,6 +376,8 @@ pub const Interface = struct {
         front.press = .{};
         switch (front.screen) {
             .main_menu => front.main_menu.enter(&front.pointer, context.sound),
+            .game_options => front.game_options = .{},
+            .controls => if (context.settings) |settings_file| front.settings.enter(.game_options, .controls, settingsContext(front, context, settings_file, front.pointer)),
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
             .saved_games => if (context.saves) |saves| front.saved_games.enter(.load, .roster, savesContext(front, context, saves, front.pointer)),
             else => {},
@@ -364,9 +412,9 @@ pub const Interface = struct {
     }
 
     /// The front end's frame as its render hook draws it (`sr + 0x88`): the background behind all,
-    /// then the shown screen, with OpenReliant's `version` in the window's corner where there is
-    /// one (`canvas.Canvas.drawVersion`).
-    pub fn draw(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language, version: ?[]const u8) canvas.Error!void {
+    /// then the shown screen, the settings screen's of `devices`, with OpenReliant's `version` in
+    /// the window's corner where there is one (`canvas.Canvas.drawVersion`).
+    pub fn draw(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language, devices: *const input.Devices, version: ?[]const u8) canvas.Error!void {
         const drawn: canvas.Canvas = .{
             .gpa = resources.gpa,
             .target = target,
@@ -379,12 +427,19 @@ pub const Interface = struct {
         const art = if (resources.shapes) |*shapes| shapes else return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer),
+            .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about, front.pointer),
+            .controls => try front.settings.draw(drawn, art, &resources.dialog, devices, front.pointer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
             .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
             else => {},
         }
     }
 };
+
+/// What a pass of the settings screen reads, with the pointer at `pointer`.
+fn settingsContext(front: *const Interface, context: Context, settings_file: *profile.File, pointer: canvas.Pointer) settings.Context {
+    return .{ .pointer = pointer, .devices = context.devices, .settings_file = settings_file, .ticks = front.ticks };
+}
 
 /// What a pass of the saved games reads, with the pointer at `pointer`.
 fn savesContext(front: *const Interface, context: Context, saves: saved_games.Saves, pointer: canvas.Pointer) saved_games.Context {
@@ -422,11 +477,22 @@ test "the front end's first choices" {
     try std.testing.expect(!typed.file_names);
     devices.mouse.buttons.left = false;
     _ = front.frame(context);
-    // GAME OPTIONS, not ported, stays on the main menu.
+    // GAME OPTIONS leads to its menu, after its movie.
     devices.mouse.at = .{ 500.0 / 640.0, 300.0 / 480.0 };
     devices.mouse.buttons.left = true;
     try std.testing.expectEqual(null, front.frame(context));
+    try std.testing.expectEqual(Screen.game_options, front.screen);
+    try std.testing.expectEqualStrings(movie.main_to_options, front.movie.?);
+    front.movie = null;
+    // Escape leads back.
+    devices.mouse.buttons.left = false;
+    devices.keyboard.down[input.scan.escape] = true;
+    _ = front.frame(context);
     try std.testing.expectEqual(Screen.main_menu, front.screen);
+    devices.keyboard.down[input.scan.escape] = false;
+    devices.keyboard.read();
+    _ = front.frame(context);
+    devices.mouse.buttons.left = true;
     // INSTANT ACTION flies mission 29 in the simulator.
     devices.mouse.at = .{ 310.0 / 640.0, 450.0 / 480.0 };
     try std.testing.expectEqual(main_menu.instant_action, front.frame(context).?.fly);

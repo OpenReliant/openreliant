@@ -453,7 +453,7 @@ pub const SavedGames = struct {
                     .save => screen.newSave(context),
                 },
                 .main_menu => return screen.leave(context.saves, .main_menu),
-                .quit => screen.confirm = .{ .message = quit_question },
+                .quit => screen.confirm = .{ .message = .{ .string = quit_question } },
             },
         }
         return null;

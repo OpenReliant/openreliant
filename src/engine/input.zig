@@ -849,7 +849,7 @@ const TestDevice = struct {
     unplugged: bool = false,
     motors: ?force.Motors = null,
 
-    fn device(test_device: *TestDevice) JoystickDevice {
+    pub fn device(test_device: *TestDevice) JoystickDevice {
         return .{ .context = test_device, .vtable = &.{
             .capabilities = capabilities_,
             .setRange = setRange,
@@ -884,6 +884,12 @@ const TestDevice = struct {
         if (test_device.unplugged) return error.Unplugged;
         state.* = test_device.state;
     }
+};
+
+/// What the tests elsewhere plug in: `testStick`'s device.
+pub const testing = struct {
+    pub const Device = TestDevice;
+    pub const stick = testStick;
 };
 
 /// A four-axis flight stick with twelve buttons and a hat, for the tests.

@@ -115,7 +115,7 @@ pub const About = struct {
 
     /// A pass of its loop: Escape closes it at once, a click on OK once the button comes up.
     /// Whether it has closed.
-    fn frame(about: *About, pointer: Pointer, escaped: bool) bool {
+    pub fn frame(about: *About, pointer: Pointer, escaped: bool) bool {
         if (about.closing) return !pointer.down;
         if (escaped) return true;
         about.under = ok.holds(pointer.at);
@@ -123,7 +123,7 @@ pub const About = struct {
         return false;
     }
 
-    fn draw(about: About, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
+    pub fn draw(about: About, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         if (art.shape(box_shape)) |shape| {
             const edge = shape.header;
             canvas.wipe(.{ box_at[0] + edge.x1, box_at[1] + edge.y1 }, .{ box_at[0] + edge.x2, box_at[1] + edge.y2 }, canvas_module.black);
@@ -239,7 +239,7 @@ pub const InGameOptions = struct {
             },
             .back => menu.leaving = true,
             .main_menu => return .main_menu,
-            .quit => menu.confirm = .{ .message = quit_question },
+            .quit => menu.confirm = .{ .message = .{ .string = quit_question } },
             .about => menu.about = .{},
         }
         return null;

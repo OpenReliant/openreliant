@@ -445,7 +445,7 @@ pub const Roster = struct {
                 roster.typing = true;
                 context.typed.clear();
             },
-            .quit => roster.confirm = .{ .message = main_menu.quit_question },
+            .quit => roster.confirm = .{ .message = .{ .string = main_menu.quit_question } },
             .list => if (!roster.list_turned) {
                 roster.list_open = !roster.list_open;
                 roster.list_turned = true;

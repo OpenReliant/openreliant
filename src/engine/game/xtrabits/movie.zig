@@ -43,9 +43,10 @@ pub const splash_to_menu = "splash to mm.bik";
 
 /// The transitions between the front end's screens ported (`0x004E8240`, `0x004E8680`): SINGLE
 /// PLAYER's from the main menu into the pilot roster, and the pilot roster's MAIN MENU's and
-/// Escape's back.
+/// Escape's back; and GAME OPTIONS' (`0x004E8210`) into its menu (`interface.game_options`).
 pub const main_to_single = "interface\\main2sin.bik";
 pub const single_to_main = "interface\\sin2main.bik";
+pub const main_to_options = "interface\\main2opt.bik";
 
 /// What plays a movie, which decides where it is read from, the rate it plays at, whether it plays
 /// at all, and what ends it.

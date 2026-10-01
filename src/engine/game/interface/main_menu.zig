@@ -194,7 +194,7 @@ pub const MainMenu = struct {
             return if (answer) .quit else null;
         }
         if (escaped) {
-            menu.confirm = .{ .message = quit_question };
+            menu.confirm = .{ .message = .{ .string = quit_question } };
             return null;
         }
         if (menu.typed < code.len and keyboard.pressed(@intFromEnum(code[menu.typed]), .control, true)) {
@@ -212,7 +212,7 @@ pub const MainMenu = struct {
             _ = sound.play(bank, click_sound, click_volume, 1, click_pan, 0);
         };
         if (hotspots.get(chosen).result == .quit) {
-            menu.confirm = .{ .message = quit_question };
+            menu.confirm = .{ .message = .{ .string = quit_question } };
             return null;
         }
         return switch (chosen) {

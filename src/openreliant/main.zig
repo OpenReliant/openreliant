@@ -786,7 +786,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             // The screen a transition's movie or a mission's end has just led to entered before
             // its first frame is drawn, as each of the game's screens enters before its loop.
             front.enterShown(front_context);
-            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings };
+            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .devices = &devices };
             scene.clear();
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
@@ -1182,6 +1182,8 @@ const FrontEndDisplay = struct {
     target: srd3d.device.Device,
     window: [2]u32,
     strings: *const game.language.Language,
+    /// The devices whose settings and bindings the settings screen shows.
+    devices: *const engine.input.Devices,
 
     fn overlay(shown: *FrontEndDisplay) srcore.Overlay {
         return .{ .context = shown, .draw = draw };
@@ -1189,7 +1191,7 @@ const FrontEndDisplay = struct {
 
     fn draw(context: *anyopaque) Allocator.Error!void {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
-        return drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, version.string));
+        return drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.devices, version.string));
     }
 };
 

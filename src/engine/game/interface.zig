@@ -15,6 +15,7 @@ pub const briefing = @import("interface/briefing.zig");
 pub const canvas = @import("interface/canvas.zig");
 pub const dialog = @import("interface/dialog.zig");
 pub const disc = @import("interface/disc.zig");
+pub const game_options = @import("interface/game_options.zig");
 pub const in_game_options = @import("interface/in_game_options.zig");
 pub const induction = @import("interface/induction.zig");
 pub const main_menu = @import("interface/main_menu.zig");
@@ -22,6 +23,7 @@ pub const pilot_roster = @import("interface/pilot_roster.zig");
 pub const restart = @import("interface/restart.zig");
 pub const rooms = @import("interface/rooms.zig");
 pub const saved_games = @import("interface/saved_games.zig");
+pub const settings = @import("interface/settings.zig");
 
 const input = @import("../input.zig");
 const controls = input.controls;
@@ -32,6 +34,87 @@ const Profile = profile.Profile;
 /// The `starlancer.ini` sections with the input settings and bindings.
 const key_section = "KeyConfig";
 pub const joy_section = "JoyConfig";
+
+/// The input settings `KeyConfig` holds, by the names the game reads and writes them under.
+pub const Setting = enum {
+    force_feedback,
+    joystick_invert,
+    hat_enable,
+    twist_enable,
+    controller,
+
+    /// Its key in `KeyConfig`.
+    pub fn key(setting: Setting) []const u8 {
+        return switch (setting) {
+            .force_feedback => "ForceFeedback",
+            .joystick_invert => "JoystickInvert",
+            .hat_enable => "HatEnable",
+            .twist_enable => "TwistEnable",
+            .controller => "Controller",
+        };
+    }
+
+    /// Its value in `held`, as the file holds it.
+    fn of(setting: Setting, held: input.Settings) u32 {
+        return switch (setting) {
+            .force_feedback => @intFromBool(held.force_feedback),
+            .joystick_invert => @intFromBool(held.joystick_invert),
+            .hat_enable => @intFromBool(held.hat_enabled),
+            .twist_enable => @intFromBool(held.twist_enabled),
+            .controller => @intFromEnum(held.control_mode),
+        };
+    }
+
+    /// Sets it in `held` from `value`, as the file holds it.
+    fn set(setting: Setting, held: *input.Settings, value: u32) void {
+        switch (setting) {
+            .force_feedback => held.force_feedback = value != 0,
+            .joystick_invert => held.joystick_invert = value != 0,
+            .hat_enable => held.hat_enabled = value != 0,
+            .twist_enable => held.twist_enabled = value != 0,
+            .controller => held.control_mode = @enumFromInt(value),
+        }
+    }
+};
+
+/// Writes `setting` of `held` to `KeyConfig`, as `save_key_config` writes each, and the controls
+/// screen each the moment it changes (`0x0042BBB4` to `0x0042BF8C`).
+pub fn saveSetting(held: input.Settings, settings_file: *profile.File, setting: Setting) Allocator.Error!void {
+    try settings_file.writeInt(key_section, setting.key(), setting.of(held));
+}
+
+/// `key_config_defaults` (`0x0042CAA0`), as the controls screen's RESET DEFAULTS calls it, and
+/// `load_key_config` starts from: the input settings at their defaults, force feedback on, pitch
+/// as the stick has it, the hat on, the twist not rolling, and the joystick steering where there is
+/// one, the keyboard where not; and the default bindings (`input.defaultBindings`). Added by
+/// OpenReliant: a gamepad's twist, its right stick, rolls; and the dead zone stays as it is.
+///
+/// Not ported: the game reads the bindings from `DEFAULT.TXT` in its folder, the executable's
+/// standing where it names none
+/// ([#488](https://github.com/vdmkenny/openreliant/issues/488)).
+pub fn keyConfigDefaults(devices: *input.Devices) void {
+    const joystick = devices.joystick;
+    devices.settings = .{
+        .force_feedback = true,
+        .joystick_invert = true,
+        .hat_enabled = true,
+        .twist_enabled = joystick.device != null and joystick.kind == .gamepad,
+        .control_mode = if (joystick.device != null) .joystick else .keyboard,
+        .dead_zone = devices.settings.dead_zone,
+    };
+    devices.bindings = input.defaultBindings(joystick.kind);
+}
+
+/// `control_binding_find` (`0x0042C5F0`): the first action but `except` bound to `key` with
+/// `modifier`, among all 74, KEY CONFIG's included; null for none.
+pub fn bindingFind(bindings: *const input.Bindings, except: ?controls.Action, key: u16, modifier: Modifier) ?controls.Action {
+    for (std.enums.values(controls.Action)) |action| {
+        if (action == except) continue;
+        const binding = bindings.get(action);
+        if (binding.key == key and binding.modifier == modifier) return action;
+    }
+    return null;
+}
 
 /// The buffer `load_key_config` reads each binding into: 128 bytes, including the terminator.
 const Buffer = [0x80]u8;
@@ -61,23 +144,17 @@ const modifier_names = [_]struct { name: []const u8, modifier: Modifier }{
 /// falls back to the action's previous button instead of the one `KeyConfig` just set; OpenReliant
 /// keeps the one from `KeyConfig`.
 ///
-/// Each call starts from `input.defaultBindings`, so OpenReliant can load the file again when a
-/// controller is connected or disconnected. Added by OpenReliant: gamepads get their own default
-/// bindings and `TwistEnable` defaults to 1 for them, so the right stick rolls; and `DeadZone` in
-/// `JoyConfig` sets the joystick's dead zone (`deadZone`).
+/// Each call starts from the defaults (`keyConfigDefaults`), as `hud_init` calls the two, so
+/// OpenReliant can load the file again when a controller is connected or disconnected. Added by
+/// OpenReliant: gamepads get their own default bindings and roll with their twist by default; and
+/// `DeadZone` in `JoyConfig` sets the joystick's dead zone (`deadZone`).
 pub fn loadKeyConfig(devices: *input.Devices, settings_file: Profile) void {
-    const joystick = devices.joystick;
-    const gamepad = joystick.device != null and joystick.kind == .gamepad;
-    const settings = &devices.settings;
-    settings.force_feedback = settings_file.int(key_section, "ForceFeedback", 1) != 0;
-    settings.joystick_invert = settings_file.int(key_section, "JoystickInvert", 1) != 0;
-    settings.hat_enabled = settings_file.int(key_section, "HatEnable", 1) != 0;
-    settings.twist_enabled = settings_file.int(key_section, "TwistEnable", @intFromBool(gamepad)) != 0;
-    settings.control_mode = @enumFromInt(settings_file.int(key_section, "Controller", 0));
-    if (settings.control_mode == .joystick and joystick.device == null) settings.control_mode = .keyboard;
-    settings.dead_zone = deadZone(settings_file);
+    keyConfigDefaults(devices);
+    const held = &devices.settings;
+    for (std.enums.values(Setting)) |setting| setting.set(held, settings_file.int(key_section, setting.key(), setting.of(held.*)));
+    if (held.control_mode == .joystick and devices.joystick.device == null) held.control_mode = .keyboard;
+    held.dead_zone = deadZone(settings_file);
 
-    devices.bindings = input.defaultBindings(joystick.kind);
     for (&devices.bindings.values) |*binding| {
         var default_buffer: [32]u8 = undefined;
         const default = defaultValue(&default_buffer, binding.*);
@@ -123,13 +200,9 @@ pub fn deadZone(settings_file: Profile) u16 {
 /// **Fix:** for a key held with Alt, the game writes the address of the key's name, which loads as
 /// another key; OpenReliant writes the key's scan code, as it does with the other modifiers.
 pub fn saveKeyConfig(devices: *const input.Devices, settings_file: *profile.File) Allocator.Error!void {
-    const settings = devices.settings;
-    try settings_file.writeInt(key_section, "ForceFeedback", @intFromBool(settings.force_feedback));
-    try settings_file.writeInt(key_section, "JoystickInvert", @intFromBool(settings.joystick_invert));
-    try settings_file.writeInt(key_section, "HatEnable", @intFromBool(settings.hat_enabled));
-    try settings_file.writeInt(key_section, "TwistEnable", @intFromBool(settings.twist_enabled));
-    try settings_file.writeInt(key_section, "Controller", @intFromEnum(settings.control_mode));
-    try settings_file.writeInt(joy_section, "DeadZone", settings.dead_zone / dead_zone_unit);
+    const held = devices.settings;
+    for (std.enums.values(Setting)) |setting| try saveSetting(held, settings_file, setting);
+    try settings_file.writeInt(joy_section, "DeadZone", held.dead_zone / dead_zone_unit);
     for (devices.bindings.values) |binding| {
         var key_buffer: [32]u8 = undefined;
         var key: std.Io.Writer = .fixed(&key_buffer);
@@ -206,11 +279,11 @@ test loadKeyConfig {
         \\
     };
     loadKeyConfig(&devices, settings_file);
-    const settings = devices.settings;
-    try std.testing.expect(!settings.joystick_invert and settings.twist_enabled and settings.hat_enabled);
+    const loaded = devices.settings;
+    try std.testing.expect(!loaded.joystick_invert and loaded.twist_enabled and loaded.hat_enabled);
     // Without a joystick, the keyboard is used.
-    try std.testing.expectEqual(input.ControlMode.keyboard, settings.control_mode);
-    try std.testing.expectEqual(400, settings.dead_zone);
+    try std.testing.expectEqual(input.ControlMode.keyboard, loaded.control_mode);
+    try std.testing.expectEqual(400, loaded.dead_zone);
 
     const bindings = devices.bindings;
     // A button in both sections, as the game writes them, keeps the action's key.
@@ -244,10 +317,10 @@ test loadKeyConfig {
 test "an empty settings file keeps the game's defaults" {
     var devices: input.Devices = .{};
     loadKeyConfig(&devices, .empty);
-    const settings = devices.settings;
-    try std.testing.expect(settings.joystick_invert and settings.hat_enabled and settings.force_feedback);
-    try std.testing.expect(!settings.twist_enabled);
-    try std.testing.expectEqual(input.default_dead_zone, settings.dead_zone);
+    const loaded = devices.settings;
+    try std.testing.expect(loaded.joystick_invert and loaded.hat_enabled and loaded.force_feedback);
+    try std.testing.expect(!loaded.twist_enabled);
+    try std.testing.expectEqual(input.default_dead_zone, loaded.dead_zone);
     for (std.enums.values(controls.Action)) |action| {
         const default = controls.binding(action);
         try std.testing.expectEqual(default.key, devices.bindings.get(action).key);
@@ -296,6 +369,30 @@ test read {
     try std.testing.expectEqual(-12, read("-12"));
 }
 
+test keyConfigDefaults {
+    var devices: input.Devices = .{};
+    devices.settings = .{ .joystick_invert = false, .twist_enabled = true, .control_mode = .mouse, .dead_zone = 400 };
+    devices.bindings.getPtr(.eject).key = 0;
+    keyConfigDefaults(&devices);
+    // Without a joystick, the keyboard steers; the dead zone, OpenReliant's, stays.
+    try std.testing.expectEqual(input.Settings{ .control_mode = .keyboard, .dead_zone = 400 }, devices.settings);
+    try std.testing.expectEqual(controls.binding(.eject).key, devices.bindings.get(.eject).key);
+}
+
+test bindingFind {
+    const bindings = input.defaultBindings(.joystick);
+    const e = controls.binding(.next_enemy_target).key;
+    // E alone, with Shift and with Ctrl are three actions.
+    try std.testing.expectEqual(.next_enemy_target, bindingFind(&bindings, null, e, .none).?);
+    try std.testing.expectEqual(.previous_enemy_target, bindingFind(&bindings, null, e, .shift).?);
+    try std.testing.expectEqual(.smart_target, bindingFind(&bindings, null, e, .control).?);
+    // The action left out isn't found, nor a key no action holds.
+    try std.testing.expectEqual(null, bindingFind(&bindings, .next_enemy_target, e, .none));
+    try std.testing.expectEqual(null, bindingFind(&bindings, null, e, .alt));
+    // KEY CONFIG's F1 is among them.
+    try std.testing.expectEqual(.key_config, bindingFind(&bindings, null, controls.binding(.key_config).key, .none).?);
+}
+
 test deadZone {
     try std.testing.expectEqual(1000, deadZone(.empty));
     try std.testing.expectEqual(0, deadZone(.{ .text = "[JoyConfig]\nDeadZone=0\n" }));
@@ -307,6 +404,7 @@ test {
     _ = canvas;
     _ = dialog;
     _ = disc;
+    _ = game_options;
     _ = in_game_options;
     _ = induction;
     _ = main_menu;
@@ -314,4 +412,5 @@ test {
     _ = restart;
     _ = rooms;
     _ = saved_games;
+    _ = settings;
 }
