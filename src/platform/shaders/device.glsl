@@ -257,7 +257,13 @@ vec3 lights(Surface s, out vec3 highlights) {
                 reaching = sun;
             }
             sum += amount * reaching * light.colour.rgb;
-            if (s.material) highlights += highlight(s, light.vector.xyz / strength) * strength * reaching * light.colour.rgb;
+            if (!s.material) continue;
+            // A fill light is no point of light but a glow over much of the sky, which a rough
+            // surface reflects much as it takes it in: it gives a material no highlight, but its
+            // reflectance's share of the light, so that metal takes the nebula's tint as paint
+            // does.
+            vec3 reflected = light.shadowed == 0u ? s.reflectance * amount : highlight(s, light.vector.xyz / strength) * strength;
+            highlights += reflected * reaching * light.colour.rgb;
             continue;
         }
         vec3 d = light.vector.xyz - place;
