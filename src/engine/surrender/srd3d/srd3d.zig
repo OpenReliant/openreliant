@@ -212,11 +212,17 @@ pub const Driver = struct {
         .end = end,
         .overlay = overlayMark,
         .shadows = shadows,
+        .reflections = reflections,
     };
 
     /// OpenReliant's: hands the device the frame's shadows.
     fn shadows(ptr: *anyopaque, frame: *const srshadow.Frame) void {
         from(ptr).target.shadows(frame);
+    }
+
+    /// OpenReliant's: sends the draws that follow to a face of the device's reflections' cube.
+    fn reflections(ptr: *anyopaque, face: ?u3) ?u32 {
+        return from(ptr).target.reflections(face);
     }
 
     fn from(ptr: *anyopaque) *Driver {

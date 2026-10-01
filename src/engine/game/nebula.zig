@@ -263,6 +263,9 @@ pub const Sky = struct {
         patch.position = context.camera.position;
         try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &sky.dome }, .background);
         if (context.hardware) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = patch }, .background);
+        // OpenReliant's: what a material's reflections show (`srcore.Scene.reflected`).
+        try scene.reflected.append(gpa, .{ .mesh = &sky.dome });
+        if (context.hardware) try scene.reflected.append(gpa, .{ .mesh = patch });
     }
 };
 

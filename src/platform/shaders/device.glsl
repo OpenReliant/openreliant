@@ -72,6 +72,9 @@ layout(set = 2, binding = 1) uniform sampler2DArrayShadow shadowMaps;
 // (srtexture.zig's Maps): read only where the shading says the texture has them.
 layout(set = 2, binding = 2) uniform sampler2DArray normalMaps;
 layout(set = 2, binding = 3) uniform sampler2DArray materialMaps;
+// The reflections' cube (srcore.zig's cube_faces): the surroundings, the sky dome and the nebula,
+// encoded as the frame is, in the camera's axes, its down axis turned up.
+layout(set = 2, binding = 4) uniform samplerCube reflections;
 
 layout(set = 3, binding = 0) uniform Frame {
     // x: 1 to draw in 16-bit colour, dithered. y: 1 to magnify textures with a Catmull-Rom filter
@@ -79,6 +82,8 @@ layout(set = 3, binding = 0) uniform Frame {
     // a dark gradient, such as the nebula or a light's falloff, from banding. w: 1 to light in
     // linear light: the colours are decoded, lit, and encoded again as they are written.
     vec4 settings;
+    // x: the reflections' levels, where they were drawn this frame, and 0 otherwise.
+    vec4 reflection;
 } frame;
 
 // The frame's directional and point lights, for lighting each pixel. A light's colour is its red,
@@ -261,8 +266,9 @@ vec3 lights(Surface s, out vec3 highlights) {
             // A fill light is no point of light but a glow over much of the sky, which a rough
             // surface reflects much as it takes it in: it gives a material no highlight, but its
             // reflectance's share of the light, so that metal takes the nebula's tint as paint
-            // does.
-            vec3 reflected = light.shadowed == 0u ? s.reflectance * amount : highlight(s, light.vector.xyz / strength) * strength;
+            // does; where the reflections show the nebula itself, nothing.
+            vec3 glow = frame.reflection.x > 0.0 ? vec3(0.0) : s.reflectance * amount;
+            vec3 reflected = light.shadowed == 0u ? glow : highlight(s, light.vector.xyz / strength) * strength;
             highlights += reflected * reaching * light.colour.rgb;
             continue;
         }
@@ -281,6 +287,31 @@ vec3 lights(Surface s, out vec3 highlights) {
         }
     }
     return sum;
+}
+
+// The share of the surroundings' light a material reflects toward the eye, by its reflectance, its
+// roughness and the cosine `nv` between its normal and the eye: Brian Karis's fit of the split
+// sum's second term ("Physically Based Shading on Mobile", 2014), Fresnel's rise at glancing angles
+// within it.
+vec3 reflectedShare(vec3 reflectance, float roughness, float nv) {
+    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = roughness * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * nv)) * r.x + r.y;
+    vec2 ab = vec2(-1.04, 1.04) * a004 + r.zw;
+    return reflectance * ab.x + ab.y;
+}
+
+// What a material's pixel reflects of its surroundings, in linear light: the reflections' cube read
+// along the eye's reflection off it, the rougher the blurrier, from its sharpest level for no
+// roughness to its last, a pixel a face, for the roughest, weighed by its share and shaded by its
+// occlusion.
+vec3 surroundings(Surface s) {
+    if (frame.reflection.x <= 0.0) return vec3(0.0);
+    vec3 r = reflect(-s.toEye, s.normal);
+    float nv = max(dot(s.normal, s.toEye), 1e-4);
+    vec3 seen = textureLod(reflections, vec3(r.x, -r.y, r.z), s.roughness * (frame.reflection.x - 1.0)).rgb;
+    return decoded(seen) * reflectedShare(s.reflectance, s.roughness, nv) * s.occlusion;
 }
 
 // The frame of the pixel's texture on its surface, of unit normal `n`: the directions in which its
@@ -567,6 +598,7 @@ void main() {
     Surface s = surfaceOf(texel, onTexture);
     vec3 highlights;
     vec3 added = lights(s, highlights);
+    if (s.material) highlights += surroundings(s);
     vec4 c = vec4(0.0, 0.0, 0.0, texel.a * colour.a);
     // What of the texture the lights reach: a metal's colour goes to its highlights alone.
     vec3 diffuse = texel.rgb * (1.0 - s.metallic);

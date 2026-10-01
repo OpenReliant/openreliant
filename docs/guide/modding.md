@@ -98,12 +98,20 @@ surface is flat, unshaded by occlusion, rough or not metallic. Maps are linear v
 and their mipmaps are made as such: the normals' means a unit long again.
 
 Where each pixel is lit, OpenReliant then lights the surface as its maps describe: the normal map
-bends each pixel's normal, in the texture's own frame on the surface, worked out without tangents
-in the models; the material map gives the highlights each light makes, by how rough the surface is
-and how metallic, metal tinting them with its own colour, in place of the original's highlight
-pass; and occlusion shades the ambient light. The base picture should hold the surface's own
-colour, with no shading painted in, or the light shows twice. GRAPHICS' MATERIALS and
-`--no-materials` turn the maps off, as `--original` does.
+bends each pixel's normal, in the texture's own frame on the surface, worked out without tangents in
+the models; the material map gives the highlights each light makes, by how rough the surface is and
+how metallic, metal tinting them with its own colour, in place of the original's highlight pass; it
+reflects what surrounds the ship, the sky and the nebula, blurred as rough as the surface is, so
+that smooth glass reflects the nebula clearly at glancing angles and polished metal shows it
+everywhere; and occlusion shades the ambient light and the reflections. The base picture should hold
+the surface's own colour, with no shading painted in, or the light shows twice. GRAPHICS' MATERIALS
+and `--no-materials` turn the maps off, as `--original` does.
+
+A metal's base colour is how much light it reflects, its highlights and its reflections tinted with
+it: real metals reflect half of the light and more, steel about 56 percent and aluminium about 91,
+which is about 180 to 255 in sRGB. A metal painted darker reflects too little to show; its dirt and
+wear go in the roughness map, or in a non-metal part of the metallic map, rather than in a darker
+colour.
 
 **Improvement:** the original lights every surface alike, with its highlight pass on top.
 

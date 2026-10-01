@@ -218,6 +218,11 @@ pub const Device = struct {
         /// whose highlights then stand in for the driver's highlight pass. A device without it
         /// shades none.
         materials: ?*const fn (*anyopaque) bool = null,
+        /// OpenReliant's: sends the draws that follow to the face `face` of its reflections' cube,
+        /// which the materials' pixels reflect (`srcore.cube_faces`), or back to the frame for
+        /// null. Gives the face's side in pixels, or null where it draws no reflections this frame.
+        /// A device without it draws none.
+        reflections: ?*const fn (*anyopaque, ?u3) ?u32 = null,
     };
 
     pub fn begin(device: Device) void {
@@ -270,6 +275,13 @@ pub const Device = struct {
     pub fn shadesMaterials(device: Device) bool {
         const shades = device.vtable.materials orelse return false;
         return shades(device.ptr);
+    }
+
+    /// Sends the draws that follow to a face of the device's reflections' cube, or back to the
+    /// frame; the face's side, or null where the device draws no reflections.
+    pub fn reflections(device: Device, face: ?u3) ?u32 {
+        const send = device.vtable.reflections orelse return null;
+        return send(device.ptr, face);
     }
 };
 

@@ -142,9 +142,9 @@ const Shading = packed struct(u32) {
     }
 };
 
-/// The textures the device's fragment shader reads: the texture array, the shadows' maps, and the
-/// array's normal maps and material maps.
-const fragment_samplers = 4;
+/// The textures the device's fragment shader reads: the texture array, the shadows' maps, the
+/// array's normal maps and material maps, and the reflections' cube.
+const fragment_samplers = 5;
 
 /// The most lights the shader takes in a frame. The driver lights the vertices with the rest.
 const max_lights = 64;
@@ -218,10 +218,14 @@ const PipelineKey = struct {
     topology: Topology,
     depth: srd3d.Depth,
     blend: ?srd3d.Factors,
-    /// Drawn into the frame, which takes several samples a pixel, rather than over the finished
-    /// one, which takes a single sample.
-    multisampled: bool = true,
+    into: Into = .scene,
 };
+
+/// What a pass of the device's shader draws into: the scene, in floats where the device lights in
+/// linear light, several samples a pixel and with a depth buffer; the finished frame, which the
+/// display is drawn over, of one sample and no depth; or a face of the reflections' cube, in the
+/// scene's format, of one sample and no depth.
+const Into = enum { scene, finished, reflections };
 
 /// The pipelines the device makes as it starts (`Gpu.prepare`): the scene's, for each layer and
 /// blend mode in each topology, and those that test no depth again for what is drawn over the
@@ -236,9 +240,9 @@ const prepared = keys: {
     for (layers) |layer| for (modes) |mode| for (topologies) |drawn| {
         const scene: PipelineKey = .{ .topology = drawn, .depth = srd3d.depth(layer, mode), .blend = srd3d.factors(mode) };
         var over = scene;
-        over.multisampled = false;
+        over.into = .finished;
         for ([_]PipelineKey{ scene, over }) |key| {
-            if (!key.multisampled and key.depth.testing) continue;
+            if (key.into != .scene and key.depth.testing) continue;
             const known = for (found[0..count]) |seen| {
                 if (std.meta.eql(seen, key)) break true;
             } else false;
@@ -293,6 +297,26 @@ const Array = struct {
 /// The format of the arrays of material maps, whose values are linear.
 const map_format = c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 
+/// The reflections' cube's side in pixels, and its mipmap levels, down to a pixel.
+const reflection_side = 256;
+const reflection_levels = std.math.log2_int(u32, reflection_side) + 1;
+
+/// A cube's faces.
+const cube_face_count = 6;
+
+/// The reflections' sampler: trilinear between the cube's levels, the faces' edges held.
+fn reflectionSampler(handle: *c.SDL_GPUDevice) sdl.Error!*c.SDL_GPUSampler {
+    var info = std.mem.zeroes(c.SDL_GPUSamplerCreateInfo);
+    info.min_filter = c.SDL_GPU_FILTER_LINEAR;
+    info.mag_filter = c.SDL_GPU_FILTER_LINEAR;
+    info.mipmap_mode = c.SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+    info.address_mode_u = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    info.address_mode_v = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    info.address_mode_w = c.SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    info.max_lod = reflection_levels;
+    return c.SDL_CreateGPUSampler(handle, &info) orelse fail("SDL_CreateGPUSampler");
+}
+
 /// Where a texture lies: its array and its layer. The device keeps it in the image's `device`, as
 /// the driver's `texture_upload` keeps the device texture it makes; an image never drawn holds 0.
 const Slot = packed struct(u32) {
@@ -309,6 +333,8 @@ const Slot = packed struct(u32) {
 /// A run of the frame's indices drawn with one pipeline and one array.
 const Run = struct {
     key: PipelineKey,
+    /// The face of the reflections' cube it is drawn into, or null for the frame.
+    face: ?u3 = null,
     /// Null while no vertex of the run has a texture.
     array: ?u15,
     /// Read held at its texture's edges (`edge_sampler`): a point-filtered draw's, which the
@@ -373,6 +399,21 @@ pub const Gpu = struct {
     blank: Slot = undefined,
     /// A texel bound for the maps of an array without them, which the shader never reads.
     no_maps: *c.SDL_GPUTexture = undefined,
+    /// OpenReliant's: the reflections' cube (`srcore.cube_faces`), what a material's pixels
+    /// reflect: the surroundings as the scene draws them, in its format. Made as it is first drawn.
+    reflections: ?*c.SDL_GPUTexture = null,
+    /// A cube bound in place of the reflections where there are none, which the shader never reads.
+    no_reflections: *c.SDL_GPUTexture = undefined,
+    /// The reflections' sampler: trilinear, the faces' edges held.
+    reflection_sampler: *c.SDL_GPUSampler = undefined,
+    /// The face of the reflections the draws go to, while they are drawn.
+    face: ?u3 = null,
+    /// Whether the reflections were drawn this frame.
+    reflected: bool = false,
+    /// Whether a texture with a material map has gone up: the reflections are drawn only then.
+    has_materials: bool = false,
+    /// Set where the reflections' cube can't be made, which leaves them out.
+    reflections_failed: bool = false,
     vertices: std.ArrayList(Vertex) = .empty,
     indices: std.ArrayList(u32) = .empty,
     runs: std.ArrayList(Run) = .empty,
@@ -500,6 +541,8 @@ pub const Gpu = struct {
         };
         gpu.blank = try gpu.place(&blank_levels, .{});
         gpu.no_maps = try gpu.arrayTexture(.{ .width = 1, .height = 1, .levels = 1 }, 1, map_format);
+        gpu.no_reflections = try gpu.cubeTexture(1, 1, c.SDL_GPU_TEXTUREUSAGE_SAMPLER);
+        gpu.reflection_sampler = try reflectionSampler(handle);
         if (settings.bloom or linear) try gpu.startScreen();
         gpu.prepare();
         return gpu;
@@ -664,6 +707,9 @@ pub const Gpu = struct {
             }
         }
         c.SDL_ReleaseGPUTexture(gpu.handle, gpu.no_maps);
+        if (gpu.reflections) |cube| c.SDL_ReleaseGPUTexture(gpu.handle, cube);
+        c.SDL_ReleaseGPUTexture(gpu.handle, gpu.no_reflections);
+        c.SDL_ReleaseGPUSampler(gpu.handle, gpu.reflection_sampler);
         gpu.arrays.deinit(gpu.gpa);
         gpu.uploads.deinit(gpu.gpa);
         gpu.vertices.deinit(gpu.gpa);
@@ -802,6 +848,7 @@ pub const Gpu = struct {
         .shadows = takeShadows,
         .gamma = setGamma,
         .materials = materials,
+        .reflections = reflectionsFace,
     };
 
     /// The gamma ramp, which the frame goes to the screen through (`present`).
@@ -860,6 +907,8 @@ pub const Gpu = struct {
         gpu.runs.clearRetainingCapacity();
         gpu.overlay_from = null;
         gpu.failed = false;
+        gpu.face = null;
+        gpu.reflected = false;
         gpu.shadows.clear();
     }
 
@@ -897,8 +946,9 @@ pub const Gpu = struct {
                 .topology = topology(primitive),
                 .depth = state.depth,
                 .blend = state.blend,
-                .multisampled = gpu.overlay_from == null,
+                .into = if (gpu.face != null) .reflections else if (gpu.overlay_from == null) .scene else .finished,
             },
+            .face = gpu.face,
             .array = if (slot) |s| s.array else null,
             .held = state.filter == .point,
             .first = first,
@@ -943,6 +993,7 @@ pub const Gpu = struct {
         const slot: Slot = .{ .array = @intCast(index), .layer = @intCast(array.count) };
         array.count += 1;
         gpu.uploads.appendAssumeCapacity(.{ .levels = levels, .maps = maps, .slot = slot });
+        if (maps.orm != null) gpu.has_materials = true;
         return slot;
     }
 
@@ -953,6 +1004,58 @@ pub const Gpu = struct {
 
     fn materials(ptr: *anyopaque) bool {
         return from(ptr).shadesMaterials();
+    }
+
+    /// Sends the draws that follow to the face `face` of the reflections' cube, or back to the
+    /// frame. The reflections are drawn where materials are shaded in linear light, once a texture
+    /// with a material map has gone up: in a frame of floats, as the scene is, so that what a
+    /// material reflects is lit as the frame is.
+    fn reflectionsFace(ptr: *anyopaque, face: ?u3) ?u32 {
+        const gpu = from(ptr);
+        gpu.face = null;
+        const chosen = face orelse return null;
+        if (!gpu.shadesMaterials() or !gpu.linear or !gpu.has_materials or gpu.reflections_failed) return null;
+        if (gpu.reflections == null) {
+            gpu.reflections = gpu.cubeTexture(reflection_side, reflection_levels, c.SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | c.SDL_GPU_TEXTUREUSAGE_SAMPLER) catch |err| {
+                log.err("the reflections are left out: {s}", .{@errorName(err)});
+                gpu.reflections_failed = true;
+                return null;
+            };
+        }
+        gpu.face = chosen;
+        gpu.reflected = true;
+        return reflection_side;
+    }
+
+    /// A cube texture of the scene's format, `side` pixels square, of `levels` mipmap levels.
+    fn cubeTexture(gpu: *Gpu, side: u32, levels: u32, usage: c.SDL_GPUTextureUsageFlags) sdl.Error!*c.SDL_GPUTexture {
+        var info = std.mem.zeroes(c.SDL_GPUTextureCreateInfo);
+        info.type = c.SDL_GPU_TEXTURETYPE_CUBE;
+        info.format = gpu.colour_format;
+        info.usage = usage;
+        info.width = side;
+        info.height = side;
+        info.layer_count_or_depth = cube_face_count;
+        info.num_levels = levels;
+        return c.SDL_CreateGPUTexture(gpu.handle, &info) orelse fail("SDL_CreateGPUTexture");
+    }
+
+    /// Draws the reflections' faces from their runs, and makes the cube's mipmaps, the blur a rough
+    /// surface reflects.
+    fn drawReflections(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer) Error!void {
+        const cube = gpu.reflections orelse return;
+        for (0..cube_face_count) |face| {
+            var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
+            colour.texture = cube;
+            colour.layer_or_depth_plane = @intCast(face);
+            colour.clear_color = .{ .r = 0, .g = 0, .b = 0, .a = 1 };
+            colour.load_op = c.SDL_GPU_LOADOP_CLEAR;
+            colour.store_op = c.SDL_GPU_STOREOP_STORE;
+            const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
+            gpu.drawRuns(commands, pass, .{ reflection_side, reflection_side }, gpu.runs.items, .reflections, @intCast(face));
+            c.SDL_EndGPURenderPass(pass);
+        }
+        c.SDL_GenerateMipmapsForGPUTexture(commands, cube);
     }
 
     fn arrayTexture(gpu: *Gpu, shape: Shape, layers: u32, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUTexture {
@@ -1054,8 +1157,9 @@ pub const Gpu = struct {
         try copied;
         try gpu.shadows.draw(commands);
 
-        // Every pipeline the frame needs, before the pass.
+        // Every pipeline the frame needs, before the passes.
         for (gpu.runs.items) |run| _ = try gpu.pipeline(run.key);
+        if (gpu.reflected) try gpu.drawReflections(commands);
 
         var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
         colour.texture = targets.colour;
@@ -1077,25 +1181,29 @@ pub const Gpu = struct {
         depth.stencil_store_op = c.SDL_GPU_STOREOP_DONT_CARE;
         const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, &depth) orelse return fail("SDL_BeginGPURenderPass");
         defer c.SDL_EndGPURenderPass(pass);
-        gpu.drawRuns(commands, pass, size, gpu.runs.items[0 .. gpu.overlay_from orelse gpu.runs.items.len], .scene);
+        gpu.drawRuns(commands, pass, size, gpu.runs.items[0 .. gpu.overlay_from orelse gpu.runs.items.len], .scene, null);
     }
 
-    /// What a pass of the device's shader draws into: the scene, in floats where the device lights
-    /// in linear light, or the finished frame, which the display is drawn over.
-    const Into = enum { scene, finished };
-
-    /// Draws `runs` in `pass`, into a frame `size` pixels across and down: each with its pipeline
-    /// and its texture array, the shadows' maps beside it.
-    fn drawRuns(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, pass: *c.SDL_GPURenderPass, size: [2]u32, runs: []const Run, into: Into) void {
+    /// Draws those of `runs` that go to `face`, a face of the reflections' cube or the frame for
+    /// null, in `pass`, into a target `size` pixels across and down: each with its pipeline and its
+    /// texture array, the shadows' maps, the array's maps and the reflections beside it.
+    fn drawRuns(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, pass: *c.SDL_GPURenderPass, size: [2]u32, runs: []const Run, into: Into, face: ?u3) void {
         const target_size = [4]f32{ @floatFromInt(size[0]), @floatFromInt(size[1]), 0, 0 };
         c.SDL_PushGPUVertexUniformData(commands, 0, &target_size, @sizeOf(@TypeOf(target_size)));
-        // A frame of floats is dithered once it is finished.
-        const floats = gpu.linear and into == .scene;
-        const frame_settings = [4]f32{
+        // A frame of floats is dithered once it is finished; the reflections, in floats too, never
+        // are.
+        const floats = gpu.linear and into != .finished;
+        // The scene's pixels read the reflections drawn this frame: their levels, or 0 for none.
+        const reflecting = into == .scene and gpu.reflected;
+        const frame_settings = [8]f32{
             @floatFromInt(@intFromBool(!floats and gpu.settings.sixteen_bit)),
             @floatFromInt(@intFromBool(gpu.settings.filter == .crisp)),
             @floatFromInt(@intFromBool(!floats and gpu.settings.dither)),
             @floatFromInt(@intFromBool(gpu.linear)),
+            if (reflecting) reflection_levels else 0,
+            0,
+            0,
+            0,
         };
         c.SDL_PushGPUFragmentUniformData(commands, 0, &frame_settings, @sizeOf(@TypeOf(frame_settings)));
         c.SDL_PushGPUFragmentUniformData(commands, 1, &gpu.lighting, @sizeOf(Lighting));
@@ -1105,10 +1213,12 @@ pub const Gpu = struct {
         // The scene's textures wrap; the images drawn over the finished frame are held at their
         // edges.
         const sampler = switch (into) {
-            .scene => gpu.sampler,
+            .scene, .reflections => gpu.sampler,
             .finished => gpu.edge_sampler,
         };
+        const around = if (reflecting) gpu.reflections orelse gpu.no_reflections else gpu.no_reflections;
         for (runs) |run| {
+            if (run.face != face) continue;
             c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(run.key).?);
             const array = gpu.arrays.items[run.array orelse gpu.blank.array];
             const read = if (run.held) gpu.edge_sampler else sampler;
@@ -1117,6 +1227,7 @@ pub const Gpu = struct {
                 gpu.shadows.binding(),
                 .{ .texture = array.normals orelse gpu.no_maps, .sampler = read },
                 .{ .texture = array.materials orelse gpu.no_maps, .sampler = read },
+                .{ .texture = around, .sampler = gpu.reflection_sampler },
             };
             c.SDL_BindGPUFragmentSamplers(pass, 0, &bindings, bindings.len);
             c.SDL_DrawGPUIndexedPrimitives(pass, run.count, 1, run.first, 0, 0);
@@ -1137,7 +1248,7 @@ pub const Gpu = struct {
         colour.store_op = c.SDL_GPU_STOREOP_STORE;
         const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
         defer c.SDL_EndGPURenderPass(pass);
-        gpu.drawRuns(commands, pass, .{ targets.width, targets.height }, runs, .finished);
+        gpu.drawRuns(commands, pass, .{ targets.width, targets.height }, runs, .finished, null);
     }
 
     /// Sends the frame's new textures, its vertices and indices, and the shadows' casters to the
@@ -1285,7 +1396,10 @@ pub const Gpu = struct {
         const buffer: c.SDL_GPUVertexBufferDescription = .{ .slot = 0, .pitch = @sizeOf(Vertex), .input_rate = c.SDL_GPU_VERTEXINPUTRATE_VERTEX };
         var colour = std.mem.zeroes(c.SDL_GPUColorTargetDescription);
         // What is drawn over the finished frame goes into its format.
-        colour.format = if (key.multisampled) gpu.colour_format else gpu.finish_format;
+        colour.format = switch (key.into) {
+            .scene, .reflections => gpu.colour_format,
+            .finished => gpu.finish_format,
+        };
         // The original's back buffer kept no alpha, and blending reads only the source's: alpha
         // stays as cleared, opaque.
         colour.blend_state.enable_color_write_mask = true;
@@ -1312,7 +1426,7 @@ pub const Gpu = struct {
         info.rasterizer_state.cull_mode = c.SDL_GPU_CULLMODE_NONE;
         // Direct3D 7 clipped transformed vertices to the screen but not in depth.
         info.rasterizer_state.enable_depth_clip = false;
-        info.multisample_state.sample_count = if (key.multisampled) gpu.samples else c.SDL_GPU_SAMPLECOUNT_1;
+        info.multisample_state.sample_count = if (key.into == .scene) gpu.samples else c.SDL_GPU_SAMPLECOUNT_1;
         info.depth_stencil_state.enable_depth_test = key.depth.testing;
         info.depth_stencil_state.enable_depth_write = key.depth.writing;
         info.depth_stencil_state.compare_op = c.SDL_GPU_COMPAREOP_GREATER_OR_EQUAL;
@@ -1320,8 +1434,9 @@ pub const Gpu = struct {
             .color_target_descriptions = &colour,
             .num_color_targets = 1,
             .depth_stencil_format = gpu.depth_format,
-            // What is drawn over the finished frame has no depth buffer to go with it.
-            .has_depth_stencil_target = key.multisampled,
+            // What is drawn over the finished frame, or into the reflections, has no depth buffer
+            // to go with it.
+            .has_depth_stencil_target = key.into == .scene,
         };
         const made = c.SDL_CreateGPUGraphicsPipeline(gpu.handle, &info) orelse return fail("SDL_CreateGPUGraphicsPipeline");
         gpu.pipelines.putAssumeCapacity(key, made);
@@ -1411,7 +1526,7 @@ fn appendList(gpa: Allocator, list: *std.ArrayList(u32), primitive: device.Primi
 /// Runs `next` on from `last` when both draw with the same pipeline and array: a run with no
 /// texture joins any.
 fn join(last: *Run, next: Run) bool {
-    if (!std.meta.eql(last.key, next.key) or last.held != next.held) return false;
+    if (!std.meta.eql(last.key, next.key) or last.held != next.held or last.face != next.face) return false;
     if (last.array != null and next.array != null and last.array.? != next.array.?) return false;
     if (last.first + last.count != next.first) return false;
     last.count += next.count;
@@ -1524,8 +1639,9 @@ test join {
     try std.testing.expectEqual(2, last.array.?);
     try std.testing.expect(join(&last, .{ .key = flat, .array = null, .first = 9, .count = 3 }));
     try std.testing.expect(!join(&last, .{ .key = flat, .array = 1, .first = 12, .count = 3 }));
-    // Other render states do not join.
+    // Other render states do not join, nor another face of the reflections.
     try std.testing.expect(!join(&last, .{ .key = added, .array = 2, .first = 12, .count = 3 }));
+    try std.testing.expect(!join(&last, .{ .key = flat, .face = 4, .array = 2, .first = 12, .count = 3 }));
     try std.testing.expectEqual(12, last.count);
 }
 
@@ -1535,12 +1651,12 @@ test prepared {
     try std.testing.expectEqual(45, prepared.len);
     for (prepared, 0..) |key, index| {
         // The finished frame has no depth to test.
-        try std.testing.expect(key.multisampled or !key.depth.testing);
+        try std.testing.expect(key.into == .scene or !key.depth.testing);
         for (prepared[index + 1 ..]) |other| try std.testing.expect(!std.meta.eql(key, other));
     }
     // Among them, a blended effect's in the world, and the display's over the finished frame.
     const effect: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.world, .premultiplied), .blend = srd3d.factors(.premultiplied) };
-    const display: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.overlay, .alpha), .blend = srd3d.factors(.alpha), .multisampled = false };
+    const display: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.overlay, .alpha), .blend = srd3d.factors(.alpha), .into = .finished };
     for ([_]PipelineKey{ effect, display }) |wanted| {
         const found = for (prepared) |key| {
             if (std.meta.eql(key, wanted)) break true;

@@ -75,12 +75,17 @@ pub const Scene = struct {
     casters: std.ArrayList(*srapiext.MeshObject) = .empty,
     /// The portals in the scene (list 4), which `render` puts in the camera's frame first.
     portals: std.ArrayList(*srapiext.Portal) = .empty,
+    /// OpenReliant's: what a material's reflections show, drawn into the reflections' cube
+    /// (`renderReflections`): the surroundings, the sky dome and the nebula, without the sun, whose
+    /// highlights the lights give.
+    reflected: std.ArrayList(Object) = .empty,
 
     pub fn deinit(scene: *Scene, gpa: Allocator) void {
         for (&scene.layers.values) |*list| list.deinit(gpa);
         scene.lights.deinit(gpa);
         scene.casters.deinit(gpa);
         scene.portals.deinit(gpa);
+        scene.reflected.deinit(gpa);
     }
 
     /// Empties the lists, as `mission_frame` does each frame.
@@ -89,6 +94,7 @@ pub const Scene = struct {
         scene.lights.clearRetainingCapacity();
         scene.casters.clearRetainingCapacity();
         scene.portals.clearRetainingCapacity();
+        scene.reflected.clearRetainingCapacity();
     }
 };
 
@@ -118,8 +124,86 @@ pub const Driver = struct {
         /// second passes.
         flush: *const fn (*anyopaque, []const Deferred, Layer) void,
         end: *const fn (*anyopaque) void,
+        /// OpenReliant's: sends the draws that follow to the face `face` of the reflections' cube
+        /// (`cube_faces`), or back to the frame for null. Gives the face's side in pixels, or null
+        /// where the device draws no reflections this frame.
+        reflections: ?*const fn (*anyopaque, ?u3) ?u32 = null,
     };
 };
+
+/// OpenReliant's: the faces of the reflections' cube, in the order of its layers: the camera turned
+/// toward its right, its left, up, down, forward and back. Each is an orientation in the camera's
+/// frame, whose columns are the face's right, down and forward, as the device reads the cube with
+/// a direction of the camera's frame, its down axis turned up, in the cube's own axes
+/// (`cubeDirection`).
+pub const cube_faces = [6]math.Matrix{
+    columns(.{ 0, 0, -1 }, .{ 0, 1, 0 }, .{ 1, 0, 0 }),
+    columns(.{ 0, 0, 1 }, .{ 0, 1, 0 }, .{ -1, 0, 0 }),
+    columns(.{ 1, 0, 0 }, .{ 0, 0, 1 }, .{ 0, -1, 0 }),
+    columns(.{ 1, 0, 0 }, .{ 0, 0, -1 }, .{ 0, 1, 0 }),
+    columns(.{ 1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, 0, 1 }),
+    columns(.{ -1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, 0, -1 }),
+};
+
+/// A matrix of the three columns.
+fn columns(right: math.Vector, down: math.Vector, forward: math.Vector) math.Matrix {
+    return .{ right[0], down[0], forward[0], right[1], down[1], forward[1], right[2], down[2], forward[2] };
+}
+
+/// A direction of the camera's frame as the device reads the reflections' cube with it: its down
+/// axis turned up, which the cube's axes need to be a rotation of the camera's.
+pub fn cubeDirection(direction: math.Vector) math.Vector {
+    return .{ direction[0], -direction[1], direction[2] };
+}
+
+/// OpenReliant's: draws what `scene` reflects (`Scene.reflected`) into the six faces of the
+/// reflections' cube, where the driver takes them, each with the camera turned toward the face
+/// (`cube_faces`) and a square view a right angle wide. The camera and the projection are put
+/// back after.
+fn renderReflections(arena: Allocator, context: *srapi.Context, scene: *const Scene, driver: Driver) Allocator.Error!void {
+    const toFace = driver.vtable.reflections orelse return;
+    if (scene.reflected.items.len == 0) return;
+    const camera = context.camera;
+    const projection = context.projection;
+    defer {
+        context.camera = camera;
+        context.projection = projection;
+        _ = toFace(driver.ptr, null);
+    }
+    for (cube_faces, 0..) |turn, face| {
+        const side = toFace(driver.ptr, @intCast(face)) orelse return;
+        context.projection = .init(side, side, .{ 0, 0, 1, 1 }, right_angle);
+        context.projection.depth_scale = projection.depth_scale;
+        context.camera.orientation = math.product(camera.orientation, turn);
+        var budget: srmesh.Budget = .{ .limit = context.budget };
+        var blended: Blended = .{ .arena = arena };
+        for (scene.reflected.items) |object| switch (object) {
+            .mesh => |mesh| {
+                if (mesh.flags.hidden or mesh.scale == 0) continue;
+                const drawn = try srmesh.pipe(arena, context, mesh, &.{}, &budget) orelse continue;
+                const stored = try arena.create(srmesh.Drawn);
+                stored.* = drawn;
+                try driver.vtable.mesh(driver.ptr, stored, .background, &blended);
+            },
+            .sprites => |sprites| {
+                if (sprites.flags.hidden or sprites.scale == 0) continue;
+                const drawn = try srbmo.project(arena, context, sprites) orelse continue;
+                try driver.vtable.sprites(driver.ptr, drawn, .background, &blended);
+            },
+            .stars => |field| {
+                if (field.flags.hidden) continue;
+                const drawn = try srstars.project(arena, context, field) orelse continue;
+                try driver.vtable.stars(driver.ptr, drawn, .background, &blended);
+            },
+        };
+        depthSort(blended.list.items);
+        driver.vtable.flush(driver.ptr, blended.list.items, .background);
+    }
+}
+
+/// The projection's factors that make a square view a right angle wide: its edges a view unit off
+/// its axis at a depth of one.
+const right_angle: [2]f32 = .{ 0.5, 0.5 };
 
 /// A layer's list of what the driver put aside.
 pub const Blended = struct {
@@ -150,6 +234,7 @@ pub fn render(arena: Allocator, context: *srapi.Context, scene: *Scene, driver: 
     std.mem.reverse(srlight.Light, lights);
     try driver.vtable.lights(driver.ptr, lights);
     try castShadows(arena, context.*, scene, lights, driver);
+    try renderReflections(arena, context, scene, driver);
 
     var budget: srmesh.Budget = .{ .limit = context.budget };
     for (std.enums.values(Layer)) |layer| {
@@ -198,6 +283,35 @@ fn castShadows(arena: Allocator, context: srapi.Context, scene: *const Scene, li
     const stored = try arena.create(srshadow.Frame);
     stored.* = frame;
     take(driver.ptr, stored);
+}
+
+test cube_faces {
+    // A direction through a point of a face's view is read back from that face at that point, as
+    // the cube's sampler chooses them: each face shows what is read from it, the right way up.
+    for (cube_faces, 0..) |turn, face| {
+        try std.testing.expectApproxEqAbs(1, math.determinant(turn), 1e-6);
+        for ([_][2]f32{ .{ -0.5, 0.25 }, .{ 0.3, -0.7 }, .{ 0, 0 } }) |at| {
+            const read = cubeRead(cubeDirection(math.transform(turn, .{ at[0], at[1], 1 })));
+            try std.testing.expectEqual(face, read.face);
+            try std.testing.expectApproxEqAbs((at[0] + 1) / 2, read.s, 1e-6);
+            try std.testing.expectApproxEqAbs((at[1] + 1) / 2, read.t, 1e-6);
+        }
+    }
+}
+
+/// The face, and the point of it across and down from its top left, that a cube map's sampler reads
+/// for `direction`, as Vulkan, Metal and Direct3D choose them: the face of the direction's longest
+/// axis, the other two over its length.
+fn cubeRead(direction: math.Vector) struct { face: usize, s: f32, t: f32 } {
+    const size = @abs(direction);
+    const x, const y, const z = .{ direction[0], direction[1], direction[2] };
+    const face: usize, const across: f32, const down: f32, const major: f32 = if (size[0] >= size[1] and size[0] >= size[2])
+        (if (x > 0) .{ 0, -z, -y, size[0] } else .{ 1, z, -y, size[0] })
+    else if (size[1] >= size[2])
+        (if (y > 0) .{ 2, x, z, size[1] } else .{ 3, x, -z, size[1] })
+    else
+        (if (z > 0) .{ 4, x, -y, size[2] } else .{ 5, -x, -y, size[2] });
+    return .{ .face = face, .s = (across / major + 1) / 2, .t = (down / major + 1) / 2 };
 }
 
 test key {
