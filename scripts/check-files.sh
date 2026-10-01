@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
-# usage: check-files.sh [--staged | --history]
+# usage: check-files.sh [--staged]
 #
 # Fails when a file from the game, or one that looks like it, is in the repository or about to
-# enter it. With no option it checks the files git tracks; with --staged, what the next commit
-# holds, as the pre-commit hook does; with --history, every file of every commit, as CI does.
+# enter it: the files git tracks, as `make check-files` and CI check them, or with --staged those
+# the next commit holds, as the pre-commit hook does. Each file is read where it lies.
 #
 # A file fails when it lies in one of the git-ignored directories for the game's files, has the
 # extension of one of the game's file types or of what the extractors write, starts with the
 # signature of an executable, archive, image, sound or document, holds binary data anywhere but
 # the compiled shaders, or is over 1 MiB.
 set -euo pipefail
+# Bytes as they are, which the signatures and the binary data are told by.
+export LC_ALL=C
 
 mode=${1:-}
 case $mode in
-    "" | --staged | --history) ;;
-    *) echo "usage: $0 [--staged | --history]" >&2; exit 2 ;;
+    "" | --staged) ;;
+    *) echo "usage: $0 [--staged]" >&2; exit 2 ;;
 esac
 cd "$(git rev-parse --show-toplevel)"
 
@@ -30,65 +32,61 @@ fail() { # fail <path> <reason>
     failed=1
 }
 
-# Every path to check, one a line.
+# Every file to check, one a line.
 paths() {
     case $mode in
         "") git ls-files ;;
         --staged) git diff --cached --name-only --diff-filter=ACMR ;;
-        --history) git log --all --name-only --format= | sort -u ;;
     esac
 }
 
-# Every file's content to check, as "<blob> <size> <path>" lines.
-blobs() {
-    case $mode in
-        "") git ls-files -s | while IFS=$'\t' read -r meta path; do
-                set -- $meta
-                printf '%s %s\n' "$2" "$path"
-            done ;;
-        --staged) git diff --cached --name-only --diff-filter=ACMR | while IFS= read -r path; do
-                git ls-files -s -- "$path" | while IFS=$'\t' read -r meta _; do
-                    set -- $meta
-                    printf '%s %s\n' "$2" "$path"
-                done
-            done ;;
-        --history) git rev-list --objects --all ;;
-    esac | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' |
-        awk '$1 == "blob" { print substr($0, 6) }'
-}
-
+# Each path first, by where it lies and its extension, whatever its case; then the files that lie
+# in the working tree, a tracked file taken out of it leaving nothing to read.
+files=()
 while IFS= read -r path; do
     [[ -n $path ]] || continue
-    lower=$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')
+    shopt -s nocasematch
     if [[ $path =~ $game_dirs ]]; then
         fail "$path" "lies in a directory kept for the game's files"
-    elif [[ $lower =~ \.($game_types)$ ]]; then
+    elif [[ $path =~ \.($game_types)$ ]]; then
         fail "$path" "has the extension of one of the game's files or of what the extractors write"
+    elif [[ -f $path ]]; then
+        files+=("$path")
     fi
+    shopt -u nocasematch
 done < <(paths)
 
-while read -r blob size path; do
-    if ((size > max_size)); then
+# Their sizes, in their order, from one count of them all, less its total.
+sizes=()
+if ((${#files[@]})); then
+    while read -r size _; do
+        sizes+=("$size")
+    done < <(wc -c -- "${files[@]}" | head -n "${#files[@]}")
+fi
+
+for ((at = 0; at < ${#files[@]}; at++)); do
+    path=${files[at]}
+    if ((sizes[at] > max_size)); then
         fail "$path" "is over 1 MiB"
         continue
     fi
-    # Only the first bytes: git stops on a broken pipe, which is no failure here.
-    signature=$(set +o pipefail; git cat-file blob "$blob" | head -c 4 | od -An -tx1 | tr -d ' \n')
-    case $signature in
-        4d5a*) fail "$path" "starts like a Windows executable" ;;
-        42494746) fail "$path" "starts like a BIGF archive" ;;
-        10fb*) fail "$path" "starts like RefPack-compressed data" ;;
-        52494646) fail "$path" "starts like a RIFF file, a sound or a video" ;;
-        42494b*) fail "$path" "starts like a Bink video" ;;
-        89504e47 | ffd8ff* | 47494638) fail "$path" "starts like an image" ;;
-        4f676753 | 494433*) fail "$path" "starts like a sound" ;;
-        504b0304 | 4d534346 | d0cf11e0 | 25504446) fail "$path" "starts like an archive or a document" ;;
-        *) if ! [[ $path =~ $allowed_binary ]] &&
-               (($(git cat-file blob "$blob" | tr -d '\000' | wc -c) != size)); then
+    # Its first four bytes, or as many as come before a NUL.
+    IFS= read -r -n 4 -d '' start <"$path" || true
+    case $start in
+        MZ*) fail "$path" "starts like a Windows executable" ;;
+        BIGF) fail "$path" "starts like a BIGF archive" ;;
+        $'\x10\xfb'*) fail "$path" "starts like RefPack-compressed data" ;;
+        RIFF) fail "$path" "starts like a RIFF file, a sound or a video" ;;
+        BIK*) fail "$path" "starts like a Bink video" ;;
+        $'\x89PNG' | $'\xff\xd8\xff'* | GIF8) fail "$path" "starts like an image" ;;
+        OggS | ID3*) fail "$path" "starts like a sound" ;;
+        $'PK\x03\x04' | MSCF | $'\xd0\xcf\x11\xe0' | %PDF) fail "$path" "starts like an archive or a document" ;;
+        # A NUL anywhere: reading up to one finds it before the end.
+        *) if ! [[ $path =~ $allowed_binary ]] && IFS= read -r -d '' _ <"$path"; then
                fail "$path" "holds binary data"
            fi ;;
     esac
-done < <(blobs)
+done
 
 if ((failed)); then
     echo "These look like the game's files, or work derived from them, which never go in the" >&2

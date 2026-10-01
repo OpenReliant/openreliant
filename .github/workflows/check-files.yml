@@ -1,9 +1,8 @@
-# Fails a push or pull request whose commits hold a file from the game, or one that looks like it.
+# Fails a pull request that holds a file from the game, or one that looks like it. `main` takes
+# changes through squash-merged pull requests alone, so what a pull request holds is what it brings.
 name: No game files
 
 on:
-  push:
-    branches: [main]
   pull_request:
 
 jobs:
@@ -11,6 +10,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - run: scripts/check-files.sh --history
+      - run: scripts/check-files.sh
