@@ -1,8 +1,7 @@
 //! `openreliant`: the engine, on SDL3 in place of Win32 and DirectX. It has no data of its own: it
-//! plays from the folder of an installed copy of StarLancer, the one given or the one it finds
-//! (`settings.zig`), and reads `resource.hog` and the texture cache from it as the game does, with
-//! the player's settings kept in their own folder. `openreliant install` installs the game's files
-//! from its discs; see `install.zig`.
+//! runs in the directory of an installed copy of StarLancer, or in the one given, and reads
+//! `resource.hog` and the texture cache from it as the game does. `openreliant install` installs
+//! the game's files from its discs; see `install.zig`.
 //!
 //! It plays a mission, which pauses into the game's menu as each attempt ends, to be flown again:
 //! by default mission 0, OpenReliant's own sandbox (`mission0.zig`), which it carries, or the
@@ -49,7 +48,6 @@ const version = @import("version.zig");
 const options_page = @import("options.zig");
 const Options = options_page.Options;
 const settings_module = @import("settings.zig");
-const Settings = settings_module.Settings;
 
 /// Writes `text` to standard output, for a command that only says something: 0, its exit status.
 fn say(io: Io, text: []const u8) !u8 {
@@ -76,39 +74,30 @@ pub fn main(init: std.process.Init) !u8 {
             return 2;
         },
     };
-    // The player's settings, in the user's folder, and the game's folder they play from, which the
-    // first run takes the settings from and each run notes.
-    var settings: Settings = .openUser(io, arena);
-    defer settings.close();
-    const folder = settings.findGameFolder(asked.directory);
-    const directory = switch (try install.openGame(io, .cwd(), folder)) {
+    const directory = switch (try install.openGame(io, .cwd(), asked.directory)) {
         .game => |opened| opened,
-        .no_folder => return missingGameFiles(folder, null),
-        .missing => |name| return missingGameFiles(folder, name),
+        .no_folder => return missingGameFiles(asked.directory, null),
+        .missing => |name| return missingGameFiles(asked.directory, name),
     };
     defer directory.close(io);
-    settings.useGameFolder(directory);
-    // OpenReliant's own options: those the settings keep, then the command line's. A screenshot
-    // leaves the settings' out, so that it comes out the same for everyone.
+    // The game's settings file, which `load_key_config` reads the input settings from and the pause
+    // menu's screens write to. If it's missing, every setting keeps its default.
+    var settings_file: engine.profile.File = .{ .arena = arena, .profile = .read(io, arena, directory) };
+    // OpenReliant's own options: those the settings file keeps, then the command line's. A
+    // screenshot leaves the file's out, so that it comes out the same for everyone.
     var kept: Options = .{};
-    if (asked.screenshot == null) settings.read(&kept);
+    if (asked.screenshot == null) settings_module.read(settings_file.profile, &kept);
     const options = switch (Options.parse(args[1..], kept)) {
         .play => |options| options,
         // Read the same way again, the command line asks for nothing else.
         .help, .version, .wrong => asked,
     };
-    run(io, init.gpa, arena, options, .{ .path = folder, .dir = directory }, &settings) catch |err| switch (err) {
+    run(io, init.gpa, arena, options, directory, &settings_file) catch |err| switch (err) {
         error.MissingMission => return 1,
         else => return err,
     };
     return 0;
 }
-
-/// The game's folder played from: its path, and the folder, open.
-const GameFolder = struct {
-    path: []const u8,
-    dir: Io.Dir,
-};
 
 /// Opens the controller the game should use, unless it is already open, and loads the input
 /// settings and bindings, which depend on the controller. The original does this once at startup in
@@ -185,10 +174,9 @@ fn readStats(io: Io, arena: Allocator, directory: Io.Dir, comptime table: stats.
     return @field(file, @tagName(table));
 }
 
-/// Plays from the game's folder `folder`, with the player's settings `settings`, which the game's
-/// settings screens write to.
-fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, folder: GameFolder, settings: *Settings) !void {
-    const directory = folder.dir;
+/// Plays from the game's folder `directory`, with its settings file `settings_file`, which the
+/// pause menu's screens write to.
+fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io.Dir, settings_file: *engine.profile.File) !void {
     // What `WinMain` opens at start-up, and the texture cache `renderer_start` opens.
     var resources: game.bigfile.Hog = try .open(arena, io, directory, game.bigfile.resource_name);
     defer resources.close(arena);
@@ -236,9 +224,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, folder: GameF
     var devices: engine.input.Devices = .{};
     // The characters typed into the window, which its procedure queues (`WM_CHAR`).
     var typed: game.winmain.Typed = .{};
-    // The game's settings, which `load_key_config` reads the input settings from and the pause
-    // menu's screens write to. Without them, every setting keeps its default.
-    const settings_file = &settings.file;
     // Sound: Miles's calls, played by OpenAL Soft or OpenReliant's own mixer through SDL3's audio,
     // with the voices `WinMain` asks `sound_init` for, the volumes of `[Sound]`, and the 3D
     // provider it opens; silent where there is no device, or with `--no-sound`.
@@ -349,7 +334,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, folder: GameF
     // whenever a controller is connected or disconnected.
     try platform.joystick.init(.game);
     defer platform.joystick.deinit();
-    _ = platform.joystick.addMappings(try std.fs.path.joinZ(arena, &.{ folder.path, platform.joystick.mappings_name }));
+    _ = platform.joystick.addMappings(try std.fs.path.joinZ(arena, &.{ options.directory, platform.joystick.mappings_name }));
     var controller: ?platform.joystick.Controller = null;
     defer if (controller) |*open| open.close();
     // A screenshot reads no controls, so that it comes out the same whatever is plugged in.
@@ -908,7 +893,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, folder: GameF
             window.holdMouse(hold) catch {};
         }
         // What the menu's screens saved goes to the file.
-        settings.save();
+        if (settings_file.changed) {
+            settings_file.changed = false;
+            directory.writeFile(io, .{ .sub_path = engine.profile.settings_name, .data = settings_file.profile.text }) catch |err|
+                std.log.warn("the settings can't be saved to {s}: {s}", .{ engine.profile.settings_name, @errorName(err) });
+        }
         if (screen.* == .software) try window.present(try screen.software.rgba(frame_arena.allocator()), size[0], size[1]);
         if (frames_left) |*left| {
             left.* -= 1;

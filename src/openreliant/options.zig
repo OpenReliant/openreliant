@@ -2,7 +2,6 @@
 //! how they are read.
 
 const std = @import("std");
-const builtin = @import("builtin");
 
 const openreliant = @import("openreliant");
 const platform = @import("platform");
@@ -131,8 +130,8 @@ pub const help_page = page: {
         \\       openreliant missions [<game-directory>]
         \\
         \\
-    ++ help.table(&.{.{ .typed = "<game-directory>", .text = "where StarLancer is installed, with resource.hog and tcachehw.dat; by default the current directory where it holds the game, else the one openreliant last played from" }}) ++
-        "\n" ++ help.paragraph("Your settings are kept in starlancer.ini in " ++ settings_folder ++ ", and OpenReliant's own in its [OpenReliant] section. The first run starts it from the game directory's starlancer.ini. The options below change the settings for the run.", 0);
+    ++ help.table(&.{.{ .typed = "<game-directory>", .text = "where StarLancer is installed, with resource.hog and tcachehw.dat; the current directory by default" }}) ++
+        "\n" ++ help.paragraph("The game keeps its settings in starlancer.ini in its directory, and OpenReliant its own in that file's [OpenReliant] section. The options below change them for the run.", 0);
     for (std.enums.values(Section)) |section| {
         out = out ++ "\n" ++ section.title() ++ ":\n";
         if (section == .original) out = out ++ help.paragraph("OpenReliant improves on the original's look and sound. --original turns the improvements off, and an option after it turns one back on.", 2);
@@ -159,13 +158,6 @@ pub const help_page = page: {
             .{ .typed = "joysticks", .text = "list the joysticks and gamepads, and which one the game uses" },
             .{ .typed = "missions", .text = "list the game's missions, its own and those added to its missions folder, and check that each loads" },
         }) ++ help.paragraph("Each command's --help shows its options.", 2);
-};
-
-/// The folder the help page says the settings are kept in (`platform.folders.user`).
-const settings_folder = switch (builtin.os.tag) {
-    .macos => "~/Library/Application Support/OpenReliant",
-    .windows => "%APPDATA%\\OpenReliant",
-    else => "~/.local/share/OpenReliant",
 };
 
 /// What the command line asks for.
@@ -195,9 +187,7 @@ pub const Problem = union(enum) {
 };
 
 pub const Options = struct {
-    /// The game's folder the command line names, or null to look for it
-    /// (`settings.Settings.findGameFolder`).
-    directory: ?[]const u8 = null,
+    directory: []const u8 = ".",
     /// The mission to play at once, by its number, or null to open the front end.
     mission: ?u16 = null,
     /// The ship the player flies, in place of the loadout screen's choice; null for the mission's
@@ -290,7 +280,7 @@ pub const Options = struct {
         return &sound.player.openal;
     }
 
-    /// What `args` ask for: to play with `base`, what the settings keep (`settings.Settings.read`),
+    /// What `args` ask for: to play with `base`, what the settings file keeps (`settings.read`),
     /// changed for the run by the options they give; the help page; the version; or what is wrong
     /// with them.
     pub fn parse(args: []const [:0]const u8, base: Options) Command {
@@ -461,9 +451,9 @@ pub const testing = struct {
 const parsed = testing.parsed;
 
 test Options {
-    try std.testing.expectEqual(null, (try parsed(&.{})).directory);
+    try std.testing.expectEqualStrings(".", (try parsed(&.{})).directory);
     const given = try parsed(&.{ "game/install", "--ship", "3" });
-    try std.testing.expectEqualStrings("game/install", given.directory.?);
+    try std.testing.expectEqualStrings("game/install", given.directory);
     try std.testing.expectEqual(3, given.ship);
     try std.testing.expectEqual(null, given.cockpit);
     try std.testing.expectEqual(camera.CockpitSetting.chase, (try parsed(&.{ "--view", "1" })).cockpit.?);

@@ -8,8 +8,7 @@
 //! the discs in the CD drives: on Windows the drives it reports as CD drives, on Linux the mounted
 //! ISO 9660 and UDF file systems, and on macOS the mounted volumes. Once disc 1 is done, it asks
 //! for disc 2. Disc images are read with the project's own readers, and the cabinet is unpacked
-//! with libarchive. The player's settings then note the folder as the game's, which `openreliant`
-//! plays from without one named (`settings.Settings.remember`).
+//! with libarchive.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -24,7 +23,6 @@ const tcache = openreliant.tcache;
 const game = openreliant.engine.game;
 const c = @import("archive");
 const help = @import("help.zig");
-const Settings = @import("settings.zig").Settings;
 
 pub const usage =
     \\usage: openreliant install [--from <disc>]... [--force] <directory>
@@ -657,7 +655,7 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
     };
     var in_buffer: [256]u8 = undefined;
     var in: Io.File.Reader = .initStreaming(.stdin(), io, &in_buffer);
-    const status = try run(io, arena, options, .{
+    return run(io, arena, options, .{
         .dir = .cwd(),
         .drives = .system,
         .out = &out.interface,
@@ -665,18 +663,6 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
         .terminal = try isTerminal(io, .stdout()),
         .player = if (try isTerminal(io, .stdin())) &in.interface else null,
     });
-    if (status == 0) remember(io, arena, options.directory);
-    return status;
-}
-
-/// Notes `path`, the folder the game is installed in, in the player's settings as the game's
-/// folder, which `openreliant` then plays from without one named.
-fn remember(io: Io, arena: Allocator, path: []const u8) void {
-    const folder = Io.Dir.cwd().openDir(io, path, .{}) catch return;
-    defer folder.close(io);
-    var settings: Settings = .openUser(io, arena);
-    defer settings.close();
-    settings.useGameFolder(folder);
 }
 
 /// Whether `file` is a terminal. On Windows, `GetConsoleMode` says so for a console, which Wine

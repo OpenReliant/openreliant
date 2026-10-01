@@ -1,159 +1,27 @@
-//! The player's settings, which OpenReliant keeps in `starlancer.ini` in each user's folder
-//! (`platform.folders.user`): the game's own sections, which the game's code reads as the game
-//! does, and OpenReliant's options in `[OpenReliant]` (`Settings.read`), which the command line's
-//! change for the run. The first run starts the file from the one in the game's folder, and the
-//! file names the game's folder OpenReliant last played from, which it then plays from by default.
-//!
-//! **Improvement:** the game reads and writes `starlancer.ini` in its own folder, which every user
-//! of the computer shares, and which a system may keep them from writing to.
+//! OpenReliant's own options in the game's settings file, `starlancer.ini` in the game's folder:
+//! its `[OpenReliant]` section, which the original never reads, a key for each (`read`). The
+//! command line's options change them for the run.
 
 const std = @import("std");
-const Io = std.Io;
-const Allocator = std.mem.Allocator;
 
 const openreliant = @import("openreliant");
 const platform = @import("platform");
-const engine = openreliant.engine;
-const profile = engine.profile;
-const install = @import("install.zig");
+const Profile = openreliant.engine.profile.Profile;
 const options_page = @import("options.zig");
 const Options = options_page.Options;
 
 const log = std.log.scoped(.settings);
 
-/// OpenReliant's section of the file, which the game never reads.
+/// OpenReliant's section of the file.
 const section = "OpenReliant";
 
-/// The key that names the game's folder OpenReliant last played from, by its whole path.
-const game_folder_key = "GameDirectory";
-
-/// The game's folder by default: the current directory.
-const current_folder = ".";
-
-pub const Settings = struct {
-    io: Io,
-    /// The folder the file is saved to: the user's, or the game's where there is none (`start`);
-    /// null until then, where there is none.
-    folder: ?Io.Dir,
-    file: profile.File,
-    /// Whether the user's folder held the file. Where it didn't, the file starts from the game's
-    /// (`start`).
-    found: bool,
-
-    /// The file in the user's folder, read into `arena`, which keeps every version of it, or an
-    /// empty one where there is none. Without the folder, which is logged, the file is the game
-    /// folder's (`start`).
-    pub fn openUser(io: Io, arena: Allocator) Settings {
-        const path = platform.folders.user(arena) catch |err| {
-            log.warn("the settings stay in the game's folder: there is no folder for the user's files: {s}", .{@errorName(err)});
-            return .open(io, arena, null);
-        };
-        const folder = Io.Dir.cwd().openDir(io, path, .{}) catch |err| {
-            log.warn("the settings stay in the game's folder: {s} can't be opened: {s}", .{ path, @errorName(err) });
-            return .open(io, arena, null);
-        };
-        return .open(io, arena, folder);
-    }
-
-    /// The file in the user's folder `folder`, read into `arena`, or an empty one where there is
-    /// none.
-    pub fn open(io: Io, arena: Allocator, folder: ?Io.Dir) Settings {
-        const found = if (folder) |dir| profile.Profile.find(io, arena, dir) else null;
-        return .{
-            .io = io,
-            .folder = folder,
-            .file = .{ .arena = arena, .profile = found orelse .empty },
-            .found = found != null,
-        };
-    }
-
-    /// The game's folder to play from: the one the command line names, `named`; else the current
-    /// directory, where it holds the game; else the one OpenReliant last played from, where the
-    /// file names one; else the current directory, which is then said to hold no game.
-    pub fn gameFolder(settings: Settings, named: ?[]const u8, current_holds_game: bool) []const u8 {
-        if (named) |folder| return folder;
-        if (current_holds_game) return current_folder;
-        return settings.lastGameFolder() orelse current_folder;
-    }
-
-    /// `gameFolder`, where the current directory is looked in for the game.
-    pub fn findGameFolder(settings: Settings, named: ?[]const u8) []const u8 {
-        return settings.gameFolder(named, holdsGame(settings.io, current_folder));
-    }
-
-    /// The game's folder OpenReliant last played from, as the file names it.
-    pub fn lastGameFolder(settings: Settings) ?[]const u8 {
-        const folder = settings.file.profile.value(section, game_folder_key) orelse return null;
-        return if (folder.len == 0) null else folder;
-    }
-
-    /// Where the user's folder held no file: the file the game's folder `game` holds starts it,
-    /// saved to the user's folder at once, so that it is taken from there once only. Without
-    /// either, every setting keeps its default. Without a folder of the user's, the file is the
-    /// game folder's, which it is saved to, as the original keeps it.
-    pub fn start(settings: *Settings, game: Io.Dir) void {
-        const own = settings.folder != null;
-        if (!own) settings.folder = game.openDir(settings.io, current_folder, .{}) catch null;
-        if (settings.found) return;
-        settings.found = true;
-        settings.file.profile = profile.Profile.find(settings.io, settings.file.arena, game) orelse return;
-        if (!own) return;
-        settings.file.changed = true;
-        settings.save();
-    }
-
-    /// Plays from the game's folder `game`: the settings start from its file on the first run
-    /// (`start`), note it as the folder last played from (`remember`), and are saved.
-    pub fn useGameFolder(settings: *Settings, game: Io.Dir) void {
-        settings.start(game);
-        settings.remember(game);
-        settings.save();
-    }
-
-    /// Notes the game's folder `game`, by its whole path, as the one OpenReliant last played from.
-    pub fn remember(settings: *Settings, game: Io.Dir) void {
-        const path = game.realPathFileAlloc(settings.io, current_folder, settings.file.arena) catch |err| {
-            log.warn("the game's folder is not noted: {s}", .{@errorName(err)});
-            return;
-        };
-        if (settings.lastGameFolder()) |last| if (std.mem.eql(u8, last, path)) return;
-        settings.file.write(section, game_folder_key, path) catch |err| log.warn("the game's folder is not noted: {s}", .{@errorName(err)});
-    }
-
-    /// Closes the folder the file is saved to.
-    pub fn close(settings: *Settings) void {
-        if (settings.folder) |folder| folder.close(settings.io);
-        settings.folder = null;
-    }
-
-    /// Saves the file to the user's folder, where it has changed since it was last saved.
-    pub fn save(settings: *Settings) void {
-        if (!settings.file.changed) return;
-        settings.file.changed = false;
-        const folder = settings.folder orelse return;
-        folder.writeFile(settings.io, .{ .sub_path = profile.settings_name, .data = settings.file.profile.text }) catch |err|
-            log.warn("the settings can't be saved to {s}: {s}", .{ profile.settings_name, @errorName(err) });
-    }
-
-    /// Reads OpenReliant's options from `[OpenReliant]` into `options`: `Original` first, as
-    /// `--original` does, then the others, each changing what it set, as an option after
-    /// `--original` does. A value a key does not take is left out, and logged.
-    pub fn read(settings: Settings, options: *Options) void {
-        for (keys) |key| {
-            const value = settings.file.profile.value(section, key.name) orelse continue;
-            key.read(options, value) catch log.warn("[{s}] {s}={s} is left out: it takes {s}", .{ section, key.name, value, key.takes });
-        }
-    }
-};
-
-/// Whether the folder `path` holds an installed copy of the game (`install.openGame`).
-fn holdsGame(io: Io, path: []const u8) bool {
-    switch (install.openGame(io, .cwd(), path) catch return false) {
-        .game => |folder| {
-            folder.close(io);
-            return true;
-        },
-        .no_folder, .missing => return false,
+/// Reads OpenReliant's options from the settings file's `[OpenReliant]` into `options`: `Original`
+/// first, as `--original` does, then the others, each changing what it set, as an option after
+/// `--original` does. A value a key does not take is left out, and logged.
+pub fn read(settings_file: Profile, options: *Options) void {
+    for (keys) |key| {
+        const value = settings_file.value(section, key.name) orelse continue;
+        key.read(options, value) catch log.warn("[{s}] {s}={s} is left out: it takes {s}", .{ section, key.name, value, key.takes });
     }
 }
 
@@ -265,18 +133,12 @@ fn compressor(options: *Options, value: []const u8) error{BadValue}!void {
 
 /// The options a settings file holding `text` plays with, before the command line's.
 fn optionsOf(text: []const u8) Options {
-    const settings: Settings = .{
-        .io = std.testing.io,
-        .folder = null,
-        .file = .{ .arena = std.testing.allocator, .profile = .{ .text = text } },
-        .found = true,
-    };
     var options: Options = .{};
-    settings.read(&options);
+    read(.{ .text = text }, &options);
     return options;
 }
 
-test "Settings.read" {
+test read {
     // Without the section, every option as it comes.
     const plain = optionsOf("[Sound]\nFxvolume=80\n");
     try std.testing.expectEqual(platform.gpu.Settings{}, plain.settings);
@@ -307,7 +169,8 @@ test "Settings.read" {
     const sound = chosen.sound.?;
     try std.testing.expectEqual(.on, sound.player.openal.hrtf);
     try std.testing.expectEqual(1, sound.master.?.ratio);
-    // A value of the wrong kind is left out too.
+    // A value of the wrong kind is left out too, and the names are read as the game reads its own,
+    // without regard to case.
     try std.testing.expect(optionsOf("[OpenReliant]\nBloom=yes\n").settings.bloom);
     try std.testing.expect(!optionsOf("[openreliant]\nbloom=0\n").settings.bloom);
 }
@@ -329,65 +192,8 @@ test "the command line changes the settings file's options" {
     try std.testing.expectEqual(.off, retro.settings.shadows);
 }
 
-test "Settings finds the game's folder, starts from its file, and notes it" {
-    const io = std.testing.io;
-    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    var user = std.testing.tmpDir(.{});
-    defer user.cleanup();
-    var game = std.testing.tmpDir(.{});
-    defer game.cleanup();
-    try game.dir.writeFile(io, .{ .sub_path = profile.settings_name, .data = "[Device]\r\nView=1\r\n" });
-
-    // The first run: no file in the user's folder, which the game's then starts.
-    var settings: Settings = .open(io, arena, user.dir);
-    try std.testing.expect(!settings.found);
-    try std.testing.expectEqualStrings("named", settings.gameFolder("named", true));
-    try std.testing.expectEqualStrings(current_folder, settings.gameFolder(null, true));
-    try std.testing.expectEqualStrings(current_folder, settings.gameFolder(null, false));
-    settings.start(game.dir);
-    try std.testing.expectEqual(1, settings.file.profile.int("Device", "View", 0));
-    settings.remember(game.dir);
-    settings.save();
-
-    // The next run finds the file, and the game's folder it names.
-    var again: Settings = .open(io, arena, user.dir);
-    try std.testing.expect(again.found);
-    try std.testing.expectEqual(1, again.file.profile.int("Device", "View", 0));
-    const path = try game.dir.realPathFileAlloc(io, current_folder, arena);
-    try std.testing.expectEqualStrings(path, again.gameFolder(null, false));
-    try std.testing.expectEqualStrings(current_folder, again.gameFolder(null, true));
-    // The game's file is taken once only, and the same folder is noted once.
-    try game.dir.writeFile(io, .{ .sub_path = profile.settings_name, .data = "[Device]\r\nView=2\r\n" });
-    again.start(game.dir);
-    again.remember(game.dir);
-    try std.testing.expect(!again.file.changed);
-    try std.testing.expectEqual(1, again.file.profile.int("Device", "View", 0));
-}
-
-test "Settings without a folder of the user's keeps the game folder's file" {
-    const io = std.testing.io;
-    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
-    defer arena_state.deinit();
-    var game = std.testing.tmpDir(.{});
-    defer game.cleanup();
-    try game.dir.writeFile(io, .{ .sub_path = profile.settings_name, .data = "[Device]\r\nView=1\r\n" });
-    var settings: Settings = .open(io, arena_state.allocator(), null);
-    defer settings.close();
-    settings.start(game.dir);
-    try std.testing.expectEqual(1, settings.file.profile.int("Device", "View", 0));
-    try std.testing.expect(!settings.file.changed);
-    // What changes is saved there.
-    try settings.file.writeInt("Device", "View", 2);
-    settings.save();
-    var text_buffer: [64]u8 = undefined;
-    const text = try game.dir.readFile(io, profile.settings_name, &text_buffer);
-    try std.testing.expectEqualStrings("[Device]\r\nView=2\r\n", text);
-}
-
 test keys {
-    // Each key once, and each takes what it says.
+    // Each key once, the first `Original`.
     for (keys, 0..) |key, index| {
         for (keys[0..index]) |before| try std.testing.expect(!std.ascii.eqlIgnoreCase(before.name, key.name));
     }

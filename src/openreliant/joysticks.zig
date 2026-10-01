@@ -12,25 +12,22 @@ const Allocator = std.mem.Allocator;
 const openreliant = @import("openreliant");
 const platform = @import("platform");
 const help = @import("help.zig");
-const Settings = @import("settings.zig").Settings;
 const joystick = platform.joystick;
 const input = openreliant.engine.input;
 const interface = openreliant.engine.game.interface;
+const Profile = openreliant.engine.profile.Profile;
 
 pub const usage =
     \\usage: openreliant joysticks [<game-directory>] [--watch]
-    \\  <game-directory>  the folder StarLancer is installed in, for the gamepad mappings in
-    \\                    it; by default the current directory where it holds the game,
-    \\                    else the one openreliant last played from
+    \\  <game-directory>  the folder StarLancer is installed in, for the settings in its
+    \\                    starlancer.ini; the current directory by default
     \\  --watch           show live input from the controller the game uses, until Ctrl+C
     \\  -h, --help        show this page
     \\
 ;
 
 pub const Options = struct {
-    /// The game's folder the command line names, or null to look for it
-    /// (`settings.Settings.findGameFolder`).
-    directory: ?[]const u8 = null,
+    directory: []const u8 = ".",
     watch: bool = false,
 
     pub fn parse(args: []const [:0]const u8) error{Usage}!Options {
@@ -45,7 +42,7 @@ pub const Options = struct {
                 directory = arg;
             }
         }
-        options.directory = directory;
+        if (directory) |given| options.directory = given;
         return options;
     }
 };
@@ -64,19 +61,16 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
         std.debug.print("{s}", .{usage});
         return 2;
     };
-    // The player's settings, which the game's folder starts on the first run, as playing does.
-    var settings: Settings = .openUser(io, arena);
-    defer settings.close();
-    const folder = settings.findGameFolder(options.directory);
-    if (Io.Dir.cwd().openDir(io, folder, .{})) |directory| {
+    const settings_file: Profile = settings: {
+        var directory = Io.Dir.cwd().openDir(io, options.directory, .{}) catch break :settings .empty;
         defer directory.close(io);
-        settings.start(directory);
-    } else |_| {}
-    const setup: joystick.Setup = .read(settings.file.profile);
+        break :settings .read(io, arena, directory);
+    };
+    const setup: joystick.Setup = .read(settings_file);
 
     try joystick.init(.tool);
     defer joystick.deinit();
-    const mappings = joystick.addMappings(try std.fs.path.joinZ(arena, &.{ folder, joystick.mappings_name }));
+    const mappings = joystick.addMappings(try std.fs.path.joinZ(arena, &.{ options.directory, joystick.mappings_name }));
     if (mappings > 0) try out.print("Read {d} gamepad {s} from {s}.\n", .{ mappings, if (mappings == 1) "mapping" else "mappings", joystick.mappings_name });
     joystick.update();
     const found = try joystick.attached(arena);
@@ -99,7 +93,7 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
     var controller = try joystick.Controller.open(chosen, setup);
     defer controller.close();
     var devices: input.Devices = .{};
-    devices.joystick.open(controller.device(), interface.deadZone(settings.file.profile));
+    devices.joystick.open(controller.device(), interface.deadZone(settings_file));
     // On a terminal each view is drawn over the last; otherwise, as into a file, it follows it.
     const in_place = if (Io.File.stdout().enableAnsiEscapeCodes(io)) |_| true else |err| switch (err) {
         error.Canceled => return error.Canceled,
@@ -342,9 +336,9 @@ fn buttonName(button: input.GamepadButton) []const u8 {
 }
 
 test Options {
-    try std.testing.expectEqual(null, (try Options.parse(&.{})).directory);
+    try std.testing.expectEqualStrings(".", (try Options.parse(&.{})).directory);
     const given = try Options.parse(&.{ "game", "--watch" });
-    try std.testing.expectEqualStrings("game", given.directory.?);
+    try std.testing.expectEqualStrings("game", given.directory);
     try std.testing.expect(given.watch);
     try std.testing.expectError(error.Usage, Options.parse(&.{"--bogus"}));
     try std.testing.expectError(error.Usage, Options.parse(&.{ "a", "b" }));

@@ -6,7 +6,7 @@ Pass options when running `openreliant`:
 ./openreliant [<game-directory>] [<option>...]
 ```
 
-Without a `game-directory`, OpenReliant plays from the current directory where it holds the game, else from the folder it last played from, which `openreliant install` also notes.
+If omitted, `game-directory` defaults to the current working directory `.`.
 
 ## The original
 
@@ -68,7 +68,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | Option | Description |
 |---|---|
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
-| `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls and your `[OpenReliant]` settings are not read, so that it comes out the same each time |
+| `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls and the `[OpenReliant]` settings are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--version` | Show the version |
 | `-h`, `--help` | Show the help page |
@@ -110,17 +110,7 @@ In the target view (6) and external view (7), arrow keys orbit around the object
 
 ## Configuration file (starlancer.ini)
 
-OpenReliant keeps your settings in `starlancer.ini` in your own folder:
-
-| System | Folder |
-|---|---|
-| macOS | `~/Library/Application Support/OpenReliant` |
-| Windows | `%APPDATA%\OpenReliant` |
-| Linux | `~/.local/share/OpenReliant`, or `$XDG_DATA_HOME/OpenReliant` where that is set |
-
-The first time you play, it starts from the `starlancer.ini` in the game directory, if there is one. After that, the game directory's file is left as it is. The pause menu's screens and the pilot roster save to your own file.
-
-The game's own sections look like this:
+Settings are read from `starlancer.ini` in the game directory:
 
 ```ini
 [KeyConfig]
@@ -147,11 +137,10 @@ See [Controllers and input](controllers.md) for detailed controller options.
 
 ### OpenReliant's settings
 
-The `[OpenReliant]` section keeps OpenReliant's own settings, which the options above set for one run. Options on the command line change them for that run only.
+OpenReliant keeps its own settings in the same file, in its `[OpenReliant]` section, which the original game never reads. They are the options above, kept from one run to the next. Options on the command line change them for that run only.
 
 ```ini
 [OpenReliant]
-GameDirectory=/Users/you/Games/StarLancer
 Original=1
 Bloom=1
 Samples=8
@@ -159,7 +148,6 @@ Samples=8
 
 | Setting | Values | Option |
 |---|---|---|
-| `GameDirectory` | The game directory OpenReliant last played from, which it plays from when you don't name one | `<game-directory>` |
 | `Original` | 1 for the original's look and sound; the settings below then change it | `--original` |
 | `Fullscreen` | 1 or 0 | `--fullscreen` |
 | `Size` | `<width>x<height>` | `--size` |
