@@ -452,13 +452,12 @@ fn settingsContext(front: *const Interface, context: Context, settings_file: *pr
     return .{ .pointer = pointer, .devices = context.devices, .settings_file = settings_file, .ticks = front.ticks, .sound = context.sound, .own = context.own, .video = context.video };
 }
 
-/// The screen of the settings screen's `tab`, the game's screen for it; the video's for the
-/// graphics, OpenReliant's, which the game has none of.
+/// The screen of the settings screen's `tab`, the game's screen for it.
 fn screenOf(tab: settings.Tab) Screen {
     return switch (tab) {
         .audio => .audio,
         .controls => .controls,
-        .video, .graphics => .video,
+        .video => .video,
     };
 }
 

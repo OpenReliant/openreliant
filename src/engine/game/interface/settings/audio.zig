@@ -18,15 +18,14 @@ const hud = @import("../../hud.zig");
 const hog_snd = @import("../../hog_snd.zig");
 const canvas_module = @import("../canvas.zig");
 const Canvas = canvas_module.Canvas;
-const Rect = canvas_module.Rect;
 const Label = canvas_module.Label;
 const settings = @import("../settings.zig");
 const Context = settings.Context;
 const Own = settings.Own;
-const Box = settings.Box;
-const Slider = settings.Slider;
-const Step = settings.Step;
-const steppedChoice = settings.steppedChoice;
+const widgets = @import("widgets.zig");
+const Slider = widgets.Slider;
+const Step = widgets.Step;
+const steppedChoice = widgets.steppedChoice;
 
 const Volumes = hog_snd.Volumes;
 const Volume = std.meta.FieldEnum(Volumes);
@@ -57,18 +56,10 @@ const saved = [_]Volume{ .effects, .music, .speech, .master };
 const test_sound = 14;
 
 /// 3D SOUND (`0x2F0`), its arrows and its choice (`0x0042E4E4` on): the label to the left of
-/// (291, 371), the arrows, shapes `0x13` and `0x14`, `0x15` and `0x16` under the pointer, at
-/// (300, 369) and (322, 369), each found 19 by 26, and the choice from (346, 371).
+/// (291, 371), the arrows at (300, 369) and (322, 369), and the choice from (346, 371).
 const sound_3d: Label = .of(0x2F0, .{ 291, 371 }, .right);
 const choice_at: [2]i32 = .{ 346, 371 };
-const step_rects = std.EnumArray(Step, Rect).init(.{
-    .back = .{ .x = 300, .y = 369, .width = 19, .height = 26 },
-    .on = .{ .x = 322, .y = 369, .width = 19, .height = 26 },
-});
-const step_shapes = std.EnumArray(Step, struct { off: usize, lit: usize }).init(.{
-    .back = .{ .off = 0x13, .lit = 0x15 },
-    .on = .{ .off = 0x14, .lit = 0x16 },
-});
+const step_arrows: widgets.StepArrows = .{ .at = .{ 300, 369 } };
 
 /// The words for 3D SOUND's choices, OpenReliant's own.
 fn renderedFor(hrtf: Own.Hrtf) []const u8 {
@@ -85,26 +76,18 @@ pub const Check = enum {
     reverb,
     compressor,
 
-    const box_x = 45;
-    const label_x = 67;
-
-    fn y(check: Check) i32 {
-        return switch (check) {
+    fn box(check: Check) widgets.Toggle {
+        return .{ .at = .{ 45, switch (check) {
             .reverb => 349,
             .compressor => 373,
-        };
+        } } };
     }
 
-    fn label(check: Check) Label {
-        const words = switch (check) {
+    fn words(check: Check) []const u8 {
+        return switch (check) {
             .reverb => "REVERB",
             .compressor => "COMPRESSOR",
         };
-        return .{ .text = .{ .words = words }, .at = .{ label_x, check.y() } };
-    }
-
-    fn rect(check: Check) Rect {
-        return .{ .x = box_x, .y = @intCast(check.y()), .width = Box.size, .height = Box.size };
     }
 
     fn on(check: Check, own: Own.Audio) bool {
@@ -133,8 +116,8 @@ pub const Item = union(enum) {
 
 /// The item the pointer is over: an arrow, a check box, or a knob at its volume's place.
 pub fn itemAt(context: Context, at: [2]i32) ?Item {
-    for (std.enums.values(Step)) |step| if (step_rects.get(step).holds(at)) return .{ .step = step };
-    for (std.enums.values(Check)) |check| if (check.rect().holds(at)) return .{ .check = check };
+    if (step_arrows.itemAt(at)) |step| return .{ .step = step };
+    for (std.enums.values(Check)) |check| if (check.box().rect().holds(at)) return .{ .check = check };
     return .{ .knob = knobAt(volumesOf(context), at) orelse return null };
 }
 
@@ -259,18 +242,11 @@ pub const Audio = struct {
         for (std.enums.values(Volume)) |volume| try sliderOf(volume).drawKnob(canvas, art, along(level(volumes, volume)));
         try sound_3d.write(canvas, small, blue);
         const dim_3d = canvas.dimmedUnless(tab.own.openal);
-        for (std.enums.values(Step)) |step| {
-            const rect = step_rects.get(step);
-            const shapes = step_shapes.get(step);
-            try dim_3d.shape(art, shapes.off, .{ rect.x, rect.y });
-            if (tab.arrow == step) try dim_3d.shape(art, shapes.lit, .{ rect.x, rect.y });
-        }
+        try step_arrows.draw(dim_3d, art, tab.arrow);
         try dim_3d.text(small, choice_at, renderedFor(tab.own.hrtf), blue, .left);
         for (std.enums.values(Check)) |check| {
             const usable = check.usable(tab.own);
-            const shown = canvas.dimmedUnless(usable);
-            try check.label().write(shown, small, blue);
-            try Box.draw(shown, art, .{ Check.box_x, check.y() }, usable and check.on(tab.own));
+            try check.box().draw(canvas, art, .{ .words = check.words() }, usable and check.on(tab.own), usable);
         }
     }
 };

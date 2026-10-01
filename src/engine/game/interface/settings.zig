@@ -6,9 +6,9 @@
 //! DEFAULTS and CANCEL CHANGES, which act on the tab shown.
 //!
 //! The tabs: the audio ([`settings/audio.zig`](settings/audio.zig)), the controls
-//! ([`settings/controls.zig`](settings/controls.zig)), the video
-//! ([`settings/video.zig`](settings/video.zig)), and OpenReliant's graphics options
-//! ([`settings/graphics.zig`](settings/graphics.zig)).
+//! ([`settings/controls.zig`](settings/controls.zig)), and the video
+//! ([`settings/video.zig`](settings/video.zig)), which holds OpenReliant's graphics options in a list
+//! of its own ([`settings/graphics.zig`](settings/graphics.zig)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -32,6 +32,7 @@ pub const audio = @import("settings/audio.zig");
 pub const controls = @import("settings/controls.zig");
 pub const video = @import("settings/video.zig");
 pub const graphics = @import("settings/graphics.zig");
+pub const widgets = @import("settings/widgets.zig");
 
 const log = std.log.scoped(.interface);
 
@@ -45,24 +46,21 @@ pub const Tab = enum {
     audio,
     controls,
     video,
-    graphics,
 
-    /// Its label, the one the menus' icon for it has, and GRAPHICS, OpenReliant's word, where the
-    /// game's screens write their titles (`0x0042CDA9`), spread across the screen.
+    /// Its label, the one the menus' icon for it has, where the game's screens write their titles
+    /// (`0x0042CDA9`), each above its icon's column in GAME OPTIONS (`0x0042B320` on).
     fn label(tab: Tab) Label {
         return switch (tab) {
-            .audio => .of(0x109, .{ 80, title_y }, .centre),
-            .controls => .of(0x10A, .{ 245, title_y }, .centre),
-            .video => .of(0x10B, .{ 410, title_y }, .centre),
-            .graphics => .{ .text = .{ .words = "GRAPHICS" }, .at = .{ 555, title_y }, .alignment = .centre },
+            .audio => .of(0x109, .{ 133, title_y }, .centre),
+            .controls => .of(0x10A, .{ 320, title_y }, .centre),
+            .video => .of(0x10B, .{ 511, title_y }, .centre),
         };
     }
 
     /// Where the pointer finds it: round its label, as wide as it is.
     fn rect(tab: Tab) Rect {
         const half_width: i16 = switch (tab) {
-            .audio, .video => 40,
-            .graphics => 55,
+            .audio, .video => 50,
             .controls => 80,
         };
         const centre: i16 = @intCast(tab.label().at[0]);
@@ -91,7 +89,7 @@ pub fn opening(from: From, tab: Tab) ?struct { movie: []const u8, background: []
     return switch (from) {
         .game_options => .{ .movie = "interface\\optfade.bik", .background = "interface\\optfade.tga" },
         .in_game_options => .{ .movie = "interface\\igofade.bik", .background = switch (tab) {
-            .audio, .video, .graphics => "interface\\igoptfad.tga",
+            .audio, .video => "interface\\igoptfad.tga",
             .controls => "interface\\igofade.tga",
         } },
         .pause_menu => null,
@@ -142,8 +140,6 @@ pub const Own = struct {
             frame_rate: ?f32 = null,
             /// Whether the display paces the frames.
             vsync: bool = true,
-            /// Samples a pixel, for smooth edges: 1, 2, 4 or 8.
-            samples: u8 = 4,
         };
 
         pub const Told = struct {
@@ -151,18 +147,21 @@ pub const Own = struct {
             window: [2]u32 = canvas_module.size,
             /// The display's refresh rate, where it is known.
             refresh_rate: ?f32 = null,
-            /// The most samples a pixel the GPU draws with.
-            most_samples: u8 = 8,
         };
     };
 
-    /// The graphics' options: what the screen chooses, and what the game runs with of those that
-    /// take effect at the next start, which choosing leaves as it is.
+    /// The graphics' options: what the screen chooses; what the game runs with of those that take
+    /// effect at the next start, which choosing leaves as it is; and the most samples a pixel the
+    /// GPU draws with.
     pub const Graphics = struct {
         chosen: Chosen = .{},
         running: Running = .{},
+        most_samples: u8 = 8,
 
         pub const Chosen = struct {
+            /// Whether the original's look and sound lie beneath the options, as `--original` gives
+            /// them: what the screen has no row for follows it.
+            original: bool = false,
             pixel_lighting: bool = true,
             linear_light: bool = true,
             /// Whether the material maps of a mod's textures are shaded.
@@ -173,17 +172,72 @@ pub const Own = struct {
             bloom: bool = true,
             dither: bool = true,
             filter: Filter = .crisp,
+            /// Samples a pixel, for smooth edges: 1, 2, 4 or 8.
+            samples: u8 = 4,
             sixteen_bit: bool = false,
             smooth_motion: bool = true,
+            /// Whether the interface's text is drawn from outline fonts.
+            outline_fonts: bool = true,
+
+            /// The preset they are, where they are one.
+            pub fn preset(chosen: Chosen) ?Preset {
+                for (std.enums.values(Preset)) |each| if (std.meta.eql(chosen, each.chosen())) return each;
+                return null;
+            }
         };
 
+        /// What the game runs with of the options that take effect at the next start: the base,
+        /// linear light and 16-bit colour, which change the GPU's formats, and the fonts.
         pub const Running = struct {
+            original: bool = false,
             linear_light: bool = true,
             sixteen_bit: bool = false,
+            outline_fonts: bool = true,
+
+            /// What a game started with `chosen` runs with.
+            pub fn of(chosen: Chosen) Running {
+                var running: Running = undefined;
+                inline for (@typeInfo(Running).@"struct".fields) |field| @field(running, field.name) = @field(chosen, field.name);
+                return running;
+            }
         };
 
         pub const Shadows = enum { off, low, high };
         pub const Filter = enum { original, trilinear, crisp };
+
+        /// The options at either end: the original's look, and OpenReliant's, every improvement on.
+        pub const Preset = enum {
+            original,
+            modern,
+
+            /// Its options: OpenReliant's defaults, or `--original`'s.
+            pub fn chosen(preset: Preset) Chosen {
+                return switch (preset) {
+                    .modern => .{},
+                    .original => .{
+                        .original = true,
+                        .pixel_lighting = false,
+                        .linear_light = false,
+                        .materials = false,
+                        .shadows = .off,
+                        .shot_lights = .latest_two,
+                        .bloom = false,
+                        .dither = false,
+                        .filter = .original,
+                        .samples = 1,
+                        .sixteen_bit = true,
+                        .smooth_motion = false,
+                        .outline_fonts = false,
+                    },
+                };
+            }
+        };
+
+        /// Whether an option that takes effect at the next start differs from what the game runs
+        /// with.
+        pub fn waits(options: Graphics) bool {
+            return !std.meta.eql(Running.of(options.chosen), options.running);
+        }
     };
 
     pub fn audio(own: Own) Audio {
@@ -223,142 +277,6 @@ pub const Video = struct {
     gamma: bool,
     /// Whether the movies between the front end's screens play (`transitions`, `0x005D5E80`).
     transitions: *bool,
-};
-
-/// An arrow, which steps a choice back or on.
-pub const Step = enum { back, on };
-
-/// The choice a step from the one at `at` of `count`, round from the last to the first; from one
-/// not among them, on to the first or back to the last.
-pub fn steppedIndex(at: ?usize, count: usize, step: Step) usize {
-    return switch (step) {
-        .on => if (at) |index| (index + 1) % count else 0,
-        .back => if (at) |index| (index + count - 1) % count else count - 1,
-    };
-}
-
-/// The choice of `E` a step from `current`, in its order, round from the last to the first.
-pub fn steppedChoice(comptime E: type, current: E, step: Step) E {
-    const choices = comptime std.enums.values(E);
-    return choices[steppedIndex(std.mem.indexOfScalar(E, choices, current), choices.len, step)];
-}
-
-/// A row of the video's and the graphics' tabs, as the game's video screen lays one out
-/// (`video_screen_draw`, `0x0042F440`): its label to the left of x 280; an arrows' box, shape
-/// `0x2E`, a pixel above it at x 301 (`0x0042F903` on), whose halves the pointer finds 12 by 23 from
-/// x 301 and 318 (`video_items`, `0x004E76F0`) and which light under the pointer with `0x2F` and
-/// `0x30` (`0x0042FD3D` on), or a check box two pixels below it at x 311 (`0x0042FC89` on); and its
-/// value from x 352 (`0x0042F744` on).
-pub const Line = struct {
-    /// Where its label's text stands, from the top.
-    y: i32,
-
-    const label_x = 280;
-    const value_x = 352;
-    const arrows_shape = 0x2E;
-    const arrows_x = 301;
-    const arrow_on_x = 318;
-    const arrows_raise = 1;
-    const arrow_size: [2]i16 = .{ 12, 23 };
-    const box_x = 311;
-    const box_drop = 2;
-
-    pub fn label(line: Line, text: Label.Text) Label {
-        return .{ .text = text, .at = .{ label_x, line.y }, .alignment = .right };
-    }
-
-    pub fn value(line: Line, text: Label.Text) Label {
-        return .{ .text = text, .at = .{ value_x, line.y } };
-    }
-
-    /// Where the pointer finds its arrow `step`.
-    pub fn arrow(line: Line, step: Step) Rect {
-        const x: i16 = switch (step) {
-            .back => arrows_x,
-            .on => arrow_on_x,
-        };
-        return .{ .x = x, .y = @intCast(line.y - arrows_raise), .width = arrow_size[0], .height = arrow_size[1] };
-    }
-
-    /// Where its check box stands.
-    pub fn box(line: Line) [2]i32 {
-        return .{ box_x, line.y + box_drop };
-    }
-
-    /// Where the pointer finds its check box.
-    pub fn boxRect(line: Line) Rect {
-        const corner = line.box();
-        return .{ .x = @intCast(corner[0]), .y = @intCast(corner[1]), .width = Box.size, .height = Box.size };
-    }
-
-    pub fn drawArrows(line: Line, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
-        try canvas.shape(art, arrows_shape, .{ arrows_x, line.y - arrows_raise });
-    }
-
-    /// Its arrow `step` lit, as under the pointer.
-    pub fn drawLit(line: Line, canvas: Canvas, art: *hud.Art, step: Step) canvas_module.Error!void {
-        const rect = line.arrow(step);
-        const shape: usize = switch (step) {
-            .back => 0x2F,
-            .on => 0x30,
-        };
-        try canvas.shape(art, shape, .{ rect.x, rect.y });
-    }
-};
-
-/// A check box or a radio button of the screen's shapes: the box, shape `0x1A`, and the tick in the
-/// one set, `0x1B`, three pixels in (`0x0042D75E` on, `0x0042D96C` on).
-pub const Box = struct {
-    /// Its size, where the pointer finds it.
-    pub const size = 16;
-    const shape = 0x1A;
-    const tick = 0x1B;
-    const tick_offset = 3;
-
-    pub fn draw(canvas: Canvas, art: *hud.Art, at: [2]i32, ticked: bool) canvas_module.Error!void {
-        try canvas.shape(art, shape, at);
-        if (ticked) try canvas.shape(art, tick, .{ at[0] + tick_offset, at[1] + tick_offset });
-    }
-};
-
-/// A slider of the screen's shapes, as the audio's volumes and the video's brightness have it: a
-/// knob, shape `0x2C`, 15 by 27, which slides `travel` to the right of where it starts, and a
-/// track, shape `0x2D`, 10 below the knob's top, every 45 from where the knob starts until `end`
-/// (`0x0042E5E3` on, `0x0042FA39` on). The pointer holds the knob 4 pixels to the right of its left
-/// edge (`0x0042DEB3`, `0x0042EB27`).
-pub const Slider = struct {
-    /// Where the knob's corner stands at the slider's start.
-    from: [2]i32,
-    /// Where the track's marks end.
-    end: i32,
-
-    pub const travel = 175;
-    const knob_shape = 0x2C;
-    const track_shape = 0x2D;
-    const knob_size: [2]i16 = .{ 15, 27 };
-    const track_drop = 10;
-    const track_step = 45;
-    const grip = 4;
-
-    /// The knob `along` its travel from the start, where the pointer finds it.
-    pub fn knob(slider: Slider, along: i32) Rect {
-        return .{ .x = @intCast(slider.from[0] + along), .y = @intCast(slider.from[1]), .width = knob_size[0], .height = knob_size[1] };
-    }
-
-    /// How far along its travel the knob held stands, for the pointer at `x`.
-    pub fn held(slider: Slider, x: i32) i32 {
-        return std.math.clamp(x - grip - slider.from[0], 0, travel);
-    }
-
-    pub fn drawTrack(slider: Slider, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
-        var x = slider.from[0];
-        while (x < slider.end) : (x += track_step) try canvas.shape(art, track_shape, .{ x, slider.from[1] + track_drop });
-    }
-
-    pub fn drawKnob(slider: Slider, canvas: Canvas, art: *hud.Art, along: i32) canvas_module.Error!void {
-        const rect = slider.knob(along);
-        try canvas.shape(art, knob_shape, .{ rect.x, rect.y });
-    }
 };
 
 /// The movie played as the screen, opened from `from`, ends by `end`: back, the icons fade in again
@@ -443,7 +361,6 @@ const Item = union(enum) {
     audio: audio.Item,
     controls: controls.Item,
     video: video.Item,
-    graphics: graphics.Item,
 };
 
 /// The screen's state.
@@ -453,7 +370,6 @@ pub const Settings = struct {
     audio: audio.Audio = .{},
     controls: controls.Controls = .{},
     video: video.Video = .{},
-    graphics: graphics.Graphics = .{},
     /// The tab's label under the pointer, gold.
     lit_tab: ?Tab = null,
     /// The button under the pointer, lit (`0x0051DB44`).
@@ -470,7 +386,6 @@ pub const Settings = struct {
         screen.audio.enter(context);
         screen.controls.enter(context);
         screen.video.enter(context);
-        screen.graphics.enter(context);
     }
 
     /// A pass of the screen's loop (`controls_screen`, `0x0042BB08` on); how it ends, once it
@@ -484,9 +399,9 @@ pub const Settings = struct {
 
     /// The joystick read, as the controls screen's loop reads it (`0x0042BB17`); the questions up
     /// and the button taken take the pass. Then Escape, which asks first where a binding has
-    /// changed; the audio's knobs, the keys and the wheel that scroll the controls' list, and the
-    /// video's knob; then the item under the pointer, chosen as the pointer's button goes down, and
-    /// lit while it is up; then the waiting row's keys and buttons.
+    /// changed; the audio's knobs, the keys and the wheel that scroll the lists, and the video's
+    /// knob; then the item under the pointer, chosen as the pointer's button goes down, and lit
+    /// while it is up; then the waiting row's keys and buttons.
     ///
     /// **Improvement:** Escape while a row waits only ends the wait, the old binding back where it
     /// took nothing; the game leaves the screen.
@@ -518,14 +433,12 @@ pub const Settings = struct {
         screen.lit = null;
         screen.lit_tab = null;
         screen.audio.arrow = null;
-        screen.video.arrow = null;
-        screen.graphics.arrow = null;
+        screen.video.unlight();
         bindings.arrow = null;
         switch (screen.tab) {
             .audio => screen.audio.slide(context),
             .controls => bindings.scrollKeys(context),
             .video => screen.video.slide(context),
-            .graphics => {},
         }
         const under = screen.itemAt(context, pointer.at) orelse {
             if (pointer.down) bindings.endWait(devices);
@@ -539,7 +452,6 @@ pub const Settings = struct {
                 .audio => |item| screen.audio.hover(item),
                 .controls => |item| bindings.hover(item),
                 .video => |item| screen.video.hover(item),
-                .graphics => |item| screen.graphics.hover(item),
             }
         } else {
             screen.held = true;
@@ -555,18 +467,17 @@ pub const Settings = struct {
                         .audio => try screen.audio.reset(context),
                         .controls => try bindings.reset(devices, context.settings_file),
                         .video => try screen.video.reset(context),
-                        .graphics => screen.graphics.reset(context),
                     },
                     .cancel_changes => switch (screen.tab) {
                         .audio => screen.audio.cancel(context),
                         .controls => bindings.cancel(devices),
                         .video => try screen.video.cancel(context),
-                        .graphics => screen.graphics.cancel(context),
                     },
                 },
                 .audio => |item| screen.audio.choose(item, context),
-                .video => |item| try screen.video.choose(item, context),
-                .graphics => |item| screen.graphics.choose(item, context),
+                .video => |item| if (try screen.video.choose(item, context)) {
+                    screen.held = false;
+                },
                 .controls => |item| if (try bindings.choose(item, context)) {
                     screen.held = false;
                 },
@@ -597,15 +508,14 @@ pub const Settings = struct {
         return switch (screen.tab) {
             .audio => .{ .audio = audio.itemAt(context, at) orelse return null },
             .controls => .{ .controls = controls.Controls.itemAt(at) orelse return null },
-            .video => .{ .video = video.itemAt(context, at) orelse return null },
-            .graphics => .{ .graphics = graphics.itemAt(at) orelse return null },
+            .video => .{ .video = screen.video.itemAt(context, at) orelse return null },
         };
     }
 
     /// The screen's drawing (`controls_screen_draw`, `0x0042CD30`, `audio_screen_draw`,
-    /// `0x0042E2E0`, `video_screen_draw`, `0x0042F440`): the tabs' labels, the shown one white and one under the pointer gold, the
-    /// tab, the buttons, the one under the pointer lit, Escape's question where it is up,
-    /// OpenReliant's version, then the pointer.
+    /// `0x0042E2E0`, `video_screen_draw`, `0x0042F440`): the tabs' labels, the shown one white and
+    /// one under the pointer gold, the tab, the buttons, the one under the pointer lit, Escape's
+    /// question where it is up, OpenReliant's version, then the pointer.
     pub fn draw(screen: Settings, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, shown: Shown, pointer: Pointer) canvas_module.Error!void {
         for (std.enums.values(Tab)) |tab| {
             const colour = if (tab == screen.tab) canvas_module.white else if (screen.lit_tab == tab) canvas_module.gold else canvas_module.blue;
@@ -616,7 +526,6 @@ pub const Settings = struct {
             .audio => try screen.audio.draw(canvas, art, shown.sound),
             .controls => try screen.controls.draw(canvas, art, dialog_art, shown.devices),
             .video => try screen.video.draw(canvas, art, shown.video),
-            .graphics => try screen.graphics.draw(canvas, art),
         }
         if (screen.question) |question| try question.draw(canvas, dialog_art);
         try canvas.drawVersion();
@@ -761,7 +670,7 @@ test "the tabs' labels switch the tab" {
     clicked.pointer = .{ .at = .{ 100, 143 }, .down = true };
     _ = screen.frame(clicked);
     try std.testing.expect(screen.controls.waiting != null);
-    clicked.pointer = .{ .at = .{ 80, 100 } };
+    clicked.pointer = .{ .at = .{ 133, 100 } };
     _ = screen.frame(clicked);
     try std.testing.expectEqual(Tab.audio, screen.lit_tab.?);
     clicked.pointer.down = true;
@@ -776,4 +685,5 @@ test {
     _ = controls;
     _ = video;
     _ = graphics;
+    _ = widgets;
 }

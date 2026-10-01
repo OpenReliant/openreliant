@@ -61,7 +61,7 @@ Any other number returns 3. **Unknown:** what selects screen 8: `WinMain` plays 
 
 The front end writes with `hud_text` and `hud_text_wrapped` through `interface_text_remap`, ramped by `interface_palette_ramp` (`0x004287C0`), the front end's copy of `hud_palette_ramp` ([Pause menu](pause-menu.md)): entries 1 to 15 of VFX's global palette, a ramp of a `0xRRGGBB` colour at `palette_ramp_brightness`. Level 16, which a few glyphs of the fonts use in their first column, reads past the table into the low byte of `dialog_button` (`0x00520294`): -1, clear, while no dialog's button is under the pointer, and otherwise palette entry 0 or 1. **Fix:** OpenReliant leaves it clear.
 
-**Improvement:** the menus' text is drawn from outline fonts at the window's resolution, over the fonts' own layout: Newtown, built in, or a mod's ([Outline fonts](../formats/fnt.md#outline-fonts)). `--bitmap-fonts` and `--original` draw the bitmap fonts.
+**Improvement:** the menus' text is drawn from outline fonts at the window's resolution, over the fonts' own layout: Newtown, built in, or a mod's ([Outline fonts](../formats/fnt.md#outline-fonts)). `--bitmap-fonts`, `--original` and the settings screen's OUTLINE FONTS ([Video](#video)) draw the bitmap fonts.
 
 **Improvement:** with the crisp filter, the default, a bitmap font's text is drawn from its glyphs' coverage at the window's size: each of a glyph's pixels a square of its own coverage, eased into the next over a pixel of the frame, so that the letters keep the fonts' own shapes and greys, crisp, at any size, where a glyph magnified as it stands comes out soft ([Renderer](../port/renderer.md)). `--original` draws them as they stand, bilinearly.
 
@@ -169,7 +169,7 @@ Its drawing (`game_options_draw`, `0x0042AFB0`), the render hook:
 
 ## The settings screen
 
-OpenReliant shows one settings screen where the game has a screen for each setting's kind: GAME OPTIONS' and the in-game options' AUDIO, CONTROL DEVICES and VIDEO (screens 3, 16 and 15), and the pause menu's audio, controls and video ([Pause menu](pause-menu.md#screens)). It is laid out on the front end's screen as the game's are, with their buttons and their shapes: `interface\frntend5.spr`, the audio and video screens' set, which holds the controls screen's widgets too, its buttons in a smoother palette than screen 16's own. A tab for each kind stands in place of their titles, with GRAPHICS for OpenReliant's own options, in `interface_font_large`: AUDIO (`0x109`) centred on (80, 95), CONTROL DEVICES (`0x10A`) on (245, 95), VIDEO (`0x10B`) on (410, 95) and GRAPHICS on (555, 95), the shown tab's white, the one under the pointer gold, the others blue. A click on a label shows its tab; leaving the controls ends a row's wait. Each menu's AUDIO, CONTROL DEVICES and VIDEO open the screen on that tab, as F1 does in flight on the controls.
+OpenReliant shows one settings screen where the game has a screen for each setting's kind: GAME OPTIONS' and the in-game options' AUDIO, CONTROL DEVICES and VIDEO (screens 3, 16 and 15), and the pause menu's audio, controls and video ([Pause menu](pause-menu.md#screens)). It is laid out on the front end's screen as the game's are, with their buttons and their shapes: `interface\frntend5.spr`, the audio and video screens' set, which holds the controls screen's widgets too, its buttons in a smoother palette than screen 16's own. A tab for each kind stands in place of their titles, in `interface_font_large`, each above its icon's column in GAME OPTIONS: AUDIO (`0x109`) centred on (133, 95), CONTROL DEVICES (`0x10A`) on (320, 95) and VIDEO (`0x10B`) on (511, 95), the shown tab's white, the one under the pointer gold, the others blue. A click on a label shows its tab; leaving the controls ends a row's wait. Each menu's AUDIO, CONTROL DEVICES and VIDEO open the screen on that tab, as F1 does in flight on the controls.
 
 | Opened from | Movie in | Behind | OK, Escape | MAIN MENU |
 |---|---|---|---|---|
@@ -243,20 +243,20 @@ A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (
 
 ### Video
 
-The video is `video_screen` (`0x0042E9B0`), screen 15, which draws with `video_screen_draw` (`0x0042F440`). Opening, it keeps what CANCEL CHANGES puts back: the display's mode, the device, the details, the light maps, the view and the transitions (`0x0042EA41` on), and the brightness. Its eight rows stand 37 apart from y 129, each label to the left of x 280 and its value from x 352, in `interface_font_small`, blue. OpenReliant keeps the game's RESOLUTION, DEFAULT VIEW, BRIGHTNESS and VR TRANSITIONS in their rows, and puts its own in the rows of those it leaves out:
+The video is `video_screen` (`0x0042E9B0`), screen 15, which draws with `video_screen_draw` (`0x0042F440`). Opening, it keeps what CANCEL CHANGES puts back: the display's mode, the device, the details, the light maps, the view and the transitions (`0x0042EA41` on), and the brightness. Its eight rows stand 37 apart from y 129, each label to the left of x 280 and its value from x 352, in `interface_font_small`, blue:
 
-| Row | The game's | OpenReliant's |
-|---|---|---|
-| 129 | RESOLUTION (`0x10E`): the device's display modes, written `%dx%d` (`0x004E8638`) | RESOLUTION: the size the frames are drawn at |
-| 166 | 3D RENDER MODE (`0x10F`): the 3D device, by its name | FULL SCREEN |
-| 203 | TEXTURE DETAIL (`0x110`): LOW (`0x11D`) or HIGH (`0x11B`) | VSYNC |
-| 240 | GRAPHIC DETAIL (`0x111`): LOW, MEDIUM (`0x11C`) or HIGH | FRAME RATE LIMIT |
-| 277 | DEFAULT VIEW (`0x28A`): COCKPIT VIEW (`0x28B`), CHASE VIEW (`0x28C`) or NO COCKPIT VIEW (`0x57F`) | The same |
-| 314 | BRIGHTNESS (`0x113`), where the device has a gamma ramp | The same |
-| 351 | LIGHT MAPS (`0x114`) | ANTI-ALIASING |
-| 388 | VR TRANSITIONS (`0x2D4`) | The same |
+| Row | What |
+|---|---|
+| 129 | RESOLUTION (`0x10E`): the device's display modes, written `%dx%d` (`0x004E8638`) |
+| 166 | 3D RENDER MODE (`0x10F`): the 3D device, by its name |
+| 203 | TEXTURE DETAIL (`0x110`): LOW (`0x11D`) or HIGH (`0x11B`) |
+| 240 | GRAPHIC DETAIL (`0x111`): LOW, MEDIUM (`0x11C`) or HIGH |
+| 277 | DEFAULT VIEW (`0x28A`): COCKPIT VIEW (`0x28B`), CHASE VIEW (`0x28C`) or NO COCKPIT VIEW (`0x57F`) |
+| 314 | BRIGHTNESS (`0x113`), where the device has a gamma ramp |
+| 351 | LIGHT MAPS (`0x114`) |
+| 388 | VR TRANSITIONS (`0x2D4`) |
 
-A row with choices has the arrows' box, shape `0x2E`, a pixel above it at x 301; the pointer finds its halves 12 by 23 from x 301 and 318 (`video_items`, `0x004E76F0`), lit under the pointer with `0x2F` and `0x30`. A row that is on or off has a box, shape `0x1A`, two pixels below it at x 311, ticked with `0x1B`. The brightness's knob, shape `0x2C`, slides from x 347 at 0.5 to 522 at 2 (`video_brightness_knob`, `0x004E7778`), over its track, shape `0x2D`, every 45 from x 347 until 572, 10 below the knob's top. The buttons are the controls screen's.
+A row with choices has the arrows' box, shape `0x2E`, 33 by 26, a pixel above it at x 301; the pointer finds its halves 12 by 23 from x 301 and 318 (`video_items`, `0x004E76F0`), lit under the pointer with `0x2F` and `0x30`. A row that is on or off has a box, shape `0x1A`, two pixels below it at x 311, ticked with `0x1B`. The brightness's knob, shape `0x2C`, slides from x 347 at 0.5 to 522 at 2 (`video_brightness_knob`, `0x004E7778`), over its track, shape `0x2D`, every 45 from x 347 until 572, 10 below the knob's top. The buttons are the controls screen's.
 
 - An arrow steps its row's choice back or on, round from the last to the first. A view the game doesn't know steps on to the first, and back by one.
 - DEFAULT VIEW and VR TRANSITIONS take effect at once, and are written to `[Device] View` and `Transitions` at once (`0x0042EE3F`, `0x0042EFC9` on).
@@ -265,7 +265,24 @@ A row with choices has the arrows' box, shape `0x2E`, a pixel above it at x 301;
 - RESET TO DEFAULT (`0x112`) sets the defaults at `0x004E5BF4`: the first mode of the second device, the details LOW, the light maps off, the view from the cockpit and the transitions on, and the brightness's knob in the middle of its track.
 - DEFAULT VIEW sets the camera's cockpit mode too, as the pause menu's video screen does ([Pause menu](pause-menu.md#video-4)).
 
-OpenReliant's rows change at once, as the driver applies them, and are written to `[OpenReliant]` ([Configuration](../guide/configuration.md#openreliants-settings)): RESOLUTION steps through NATIVE, the window's own size, and 75, 50 and 25 percent of it, each as tall as the front end's 480 rows or more; FULL SCREEN fills the display, as Alt and Enter do; VSYNC waits for the display; FRAME RATE LIMIT steps through DISPLAY, the display's rate where vsync is off, 30, 60, 120, 144 and 240 frames a second, and NONE; ANTI-ALIASING steps through OFF and 2, 4 and 8 samples a pixel, as many as the GPU offers.
+OpenReliant's VIDEO tab holds OpenReliant's graphics options above the game's rows. Its rows keep the game's columns 20 to the right, each label to the left of x 300, its arrows' box at x 321 and its value from x 372, and stand 30 apart, their arrows' boxes 4 apart. The tab keeps 9 pixels between the tabs' labels, GRAPHICS, the pane and the rows below it:
+
+| What | Where |
+|---|---|
+| GRAPHICS | A row at y 121: ORIGINAL, MODERN or CUSTOM; RESTART TO APPLY, in gold, to the left of x 565 while an option waits for the next start |
+| The graphics' pane | From (45, 155), 520 by 127, framed as the controls' panes are, its rows 30 apart from y 162, four at a time; its arrows at (570, 155) and (570, 175), as the controls' list has them |
+| RESOLUTION, FRAME RATE LIMIT, DEFAULT VIEW, BRIGHTNESS | Rows from y 292; the brightness's knob from x 367, its track until 592 |
+| FULL SCREEN, VSYNC, VR TRANSITIONS | Boxes at (45, 292), (45, 322) and (45, 352), beside the first three rows, their labels from x 67, where the controls have their controllers |
+
+GRAPHICS sets every graphics option at once: its arrows flip between ORIGINAL, the original's look as `--original` gives it, and MODERN, OpenReliant's, every improvement on. It shows CUSTOM once an option differs from both, and from CUSTOM its arrow on sets ORIGINAL and its arrow back MODERN. ORIGINAL also brings back, from the next start, the original's way with everything the tab has no row for, as `--original` does, but for the sound, which stays as the AUDIO tab has it ([Configuration](../guide/configuration.md#openreliants-settings)).
+
+The pane holds the options, a row each: PER-PIXEL LIGHTING, LINEAR LIGHT, MATERIALS, SHADOWS (OFF, LOW or HIGH), COCKPIT SHADOWS, SHOT LIGHTS (EVERY SHOT or LATEST TWO), BLOOM, DITHER, TEXTURE FILTER (ORIGINAL, TRILINEAR or CRISP), ANTI-ALIASING (OFF, or 2, 4 or 8 SAMPLES a pixel, as many as the GPU offers), COLOR DEPTH (32-BIT or 16-BIT), SMOOTH MOTION and OUTLINE FONTS. Its arrows scroll it a row, and again each 5 ticks while one is held, and Up, Down and the mouse's wheel scroll it as they scroll the controls' list. A row is dimmed, and can't be changed, where its option has no effect: SHADOWS and MATERIALS without PER-PIXEL LIGHTING, COCKPIT SHADOWS without the shadows, and LINEAR LIGHT in 16-bit colour.
+
+The options change the picture at once and are written to `[OpenReliant]` at once, but for ORIGINAL's base, LINEAR LIGHT and COLOR DEPTH, which change the GPU's formats, and OUTLINE FONTS, which take effect at the next start: while one of them differs from what the game runs with, RESTART TO APPLY stands beside GRAPHICS.
+
+OpenReliant's own rows below change at once, as the driver applies them, and are written to `[OpenReliant]` ([Configuration](../guide/configuration.md#openreliants-settings)): RESOLUTION steps through NATIVE, the window's own size, and 75, 50 and 25 percent of it, each as tall as the front end's 480 rows or more; FULL SCREEN fills the display, as Alt and Enter do; VSYNC waits for the display; FRAME RATE LIMIT steps through DISPLAY, the display's rate where vsync is off, 30, 60, 120, 144 and 240 frames a second, and NONE.
+
+RESET DEFAULTS sets the game's defaults and OpenReliant's, MODERN among them, and CANCEL CHANGES puts back what the tab opened with.
 
 **Fixes:**
 
@@ -274,17 +291,11 @@ OpenReliant's rows change at once, as the driver applies them, and are written t
 
 **Improvements:**
 
-- RESOLUTION chooses the size the frames are drawn at, which the window shows scaled, where the game's chooses the display's mode. FULL SCREEN, VSYNC, FRAME RATE LIMIT and ANTI-ALIASING are OpenReliant's own.
+- RESOLUTION chooses the size the frames are drawn at, which the window shows scaled, where the game's chooses the display's mode. FULL SCREEN, VSYNC and FRAME RATE LIMIT are OpenReliant's own, and so are GRAPHICS, its presets and the options in the pane: the game has none of them.
 - The brightness is the knob's place over its travel exactly, where the game multiplies by a rounded reciprocal (`0x004DC6A4`).
 - The settings change at once, where the game starts its renderer again to change the mode.
 
 Not ported: 3D RENDER MODE, which OpenReliant has no Direct3D devices for; and TEXTURE DETAIL, GRAPHIC DETAIL and LIGHT MAPS, at whose highest OpenReliant draws ([#493](https://github.com/vdmkenny/openreliant/issues/493)).
-
-### Graphics
-
-The graphics are OpenReliant's own options ([Configuration](../guide/configuration.md#openreliants-settings)), a row each, laid out as the video's rows are, 26 apart from y 129 to 389: PER-PIXEL LIGHTING, LINEAR LIGHT, MATERIALS, SHADOWS (OFF, LOW or HIGH), COCKPIT SHADOWS, SHOT LIGHTS (EVERY SHOT or LATEST TWO), BLOOM, DITHER, TEXTURE FILTER (ORIGINAL, TRILINEAR or CRISP), COLOR DEPTH (32-BIT or 16-BIT) and SMOOTH MOTION. An arrow steps its row's choice round, and a check box turns its option on or off; each change is written to `[OpenReliant]` at once. The picture changes at once, but for LINEAR LIGHT and COLOR DEPTH, which change the GPU's formats and take effect at the next start: once either differs from what the game runs with, its row says CHANGES APPLY AFTER RESTART, in gold, from x 420. RESET DEFAULTS sets OpenReliant's defaults, every improvement on, and CANCEL CHANGES puts back what the tab opened with.
-
-**Improvement:** the tab is OpenReliant's own, with its own words; the game has none of these options.
 
 ## The dialogs
 

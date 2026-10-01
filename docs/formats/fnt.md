@@ -63,8 +63,8 @@ FreeType draws the glyphs ([Platform](../port/platform.md#fonts)).
   on the window's, so that the text is as sharp as the window is fine. FreeType's light hinting fits
   the glyphs' heights to the pixels.
 
-**Improvement:** the original draws its text in its bitmap fonts at 640 by 480. `--bitmap-fonts` and
-`--original` draw the bitmap fonts, magnified.
+**Improvement:** the original draws its text in its bitmap fonts at 640 by 480. `--bitmap-fonts`,
+`--original` and the settings screen's OUTLINE FONTS draw the bitmap fonts, magnified.
 
 ## Prior art
 

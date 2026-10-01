@@ -151,26 +151,29 @@ Samples=8
 
 | Setting | Values | Option |
 |---|---|---|
-| `Original` | 1 for the original's look and sound; the settings below then change it | `--original` |
+| `Original` | 1 for the original's look and sound; the settings below then change it. VIDEO's GRAPHICS writes it: ORIGINAL as 1, MODERN by taking it out | `--original` |
 | `Fullscreen` | 1 or 0, which VIDEO's FULL SCREEN sets | `--fullscreen` |
 | `Size` | `<width>x<height>`, or a share of the window's own such as `50%`, which VIDEO's RESOLUTION sets | `--size` |
 | `FrameRate` | Frames a second at most, which VIDEO's FRAME RATE LIMIT sets; 0 for no limit, and without it, the display's rate where vsync is off | `--fps` |
 | `Vsync` | 1 or 0, which VIDEO's VSYNC sets | `--no-vsync` |
 | `Software` | 1 or 0 | `--software` |
-| `SixteenBit` | 1 or 0, which GRAPHICS' COLOR DEPTH sets: 16-BIT or 32-BIT | `--16-bit` |
+| `SixteenBit` | 1 or 0, which VIDEO's COLOR DEPTH sets: 16-BIT or 32-BIT | `--16-bit` |
 | `Samples` | 1, 2, 4 or 8, which VIDEO's ANTI-ALIASING sets | `--msaa` |
-| `Filter` | `original`, `trilinear` or `crisp`, which GRAPHICS' TEXTURE FILTER sets | `--filter` |
-| `Bloom` | 1 or 0, which GRAPHICS' BLOOM sets | `--no-bloom` |
-| `Dither` | 1 or 0, which GRAPHICS' DITHER sets | `--no-dither` |
-| `PixelLighting` | 1 or 0, which GRAPHICS' PER-PIXEL LIGHTING sets | `--no-pixel-lighting` |
-| `LinearLight` | 1 or 0, which GRAPHICS' LINEAR LIGHT sets | `--gamma-space` |
-| `Materials` | 1 or 0, which GRAPHICS' MATERIALS sets | `--no-materials` |
-| `Shadows` | `off`, `low` or `high`, which GRAPHICS' SHADOWS sets | `--shadows` |
-| `CockpitShadows` | 1 or 0, which GRAPHICS' COCKPIT SHADOWS sets | `--no-cockpit-shadows` |
-| `SmoothMotion` | 1 or 0, which GRAPHICS' SMOOTH MOTION sets | `--no-smooth-motion` |
-| `ShotLights` | 1: every shot lights the ships it passes; 0: the latest two of each side's, as the original; which GRAPHICS' SHOT LIGHTS sets | `--few-shot-lights` |
+| `Filter` | `original`, `trilinear` or `crisp`, which VIDEO's TEXTURE FILTER sets | `--filter` |
+| `Bloom` | 1 or 0, which VIDEO's BLOOM sets | `--no-bloom` |
+| `Dither` | 1 or 0, which VIDEO's DITHER sets | `--no-dither` |
+| `PixelLighting` | 1 or 0, which VIDEO's PER-PIXEL LIGHTING sets | `--no-pixel-lighting` |
+| `LinearLight` | 1 or 0, which VIDEO's LINEAR LIGHT sets | `--gamma-space` |
+| `Materials` | 1 or 0, which VIDEO's MATERIALS sets | `--no-materials` |
+| `Shadows` | `off`, `low` or `high`, which VIDEO's SHADOWS sets | `--shadows` |
+| `CockpitShadows` | 1 or 0, which VIDEO's COCKPIT SHADOWS sets | `--no-cockpit-shadows` |
+| `SmoothMotion` | 1 or 0, which VIDEO's SMOOTH MOTION sets | `--no-smooth-motion` |
+| `ShotLights` | 1: every shot lights the ships it passes; 0: the latest two of each side's, as the original; which VIDEO's SHOT LIGHTS sets | `--few-shot-lights` |
+| `OutlineFonts` | 1 or 0, which VIDEO's OUTLINE FONTS sets: the interface's text drawn from outline fonts, or in the game's bitmap fonts | `--bitmap-fonts` |
 | `Hrtf` | `auto`, `on` or `off`, which AUDIO's 3D SOUND sets: AUTOMATIC, HEADPHONES or SPEAKERS | `--hrtf`, `--no-hrtf` |
 | `Reverb` | 1 or 0, which AUDIO's REVERB sets | `--no-reverb` |
 | `Compressor` | 1 or 0, which AUDIO's COMPRESSOR sets | `--no-compressor` |
 
-In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default. A screenshot taken with `--screenshot` leaves this section out, so that it comes out the same for everyone.
+In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default, or `Original`'s where it is 1.
+
+The settings screen keeps the graphics' settings so: a preset chosen with VIDEO's GRAPHICS is written as `Original` alone, and a graphics option changed after it is written only where it differs from what `Original` gives, and taken out where it is the same. As `Original` plays the original's mixer, ORIGINAL writes `Hrtf`, `Reverb` and `Compressor` beside it while OpenAL Soft plays the sound, so that the sound stays as AUDIO has it. A screenshot taken with `--screenshot` leaves this section out, so that it comes out the same for everyone.

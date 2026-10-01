@@ -1,13 +1,15 @@
 //! The settings screen's video (`Video`): the original's graphics configuration, screen 15 of the
 //! front end (`video_screen`, `0x0042E9B0`), with its drawing (`video_screen_draw`, `0x0042F440`),
-//! laid out as the original lays it out on the front end's screen. DEFAULT VIEW and VR TRANSITIONS
-//! change at once, and are written at once; the brightness changes the device's gamma ramp at once,
-//! and is written as the screen is left (`save`).
+//! and OpenReliant's graphics options. At the top, GRAPHICS and its presets, with the graphics
+//! options in a pane below it (`graphics.Graphics`); below that, rows laid out as the original's
+//! are: RESOLUTION, DEFAULT VIEW and BRIGHTNESS, and FRAME RATE LIMIT, with the check boxes FULL
+//! SCREEN, VSYNC and VR TRANSITIONS left of them, where the controls have their controllers. DEFAULT
+//! VIEW and VR TRANSITIONS change at once, and are written at once; the brightness changes the
+//! device's gamma ramp at once, and is written as the screen is left (`save`).
 //!
 //! **Improvement:** RESOLUTION chooses the size OpenReliant draws its frames at, a share of the
-//! window's own, where the game's chooses the display's mode. FULL SCREEN, VSYNC, FRAME RATE LIMIT
-//! and ANTI-ALIASING, OpenReliant's own, stand in the rows of those it leaves out. They change at
-//! once, as the driver applies them (`settings.Own`).
+//! window's own, where the game's chooses the display's mode. FULL SCREEN, VSYNC and FRAME RATE
+//! LIMIT are OpenReliant's own. They change at once, as the driver applies them (`settings.Own`).
 //!
 //! Not ported: 3D RENDER MODE, which chooses the game's Direct3D device; and TEXTURE DETAIL, GRAPHIC
 //! DETAIL and LIGHT MAPS, at whose highest OpenReliant draws
@@ -25,17 +27,17 @@ const CockpitSetting = camera.CockpitSetting;
 const hud = @import("../../hud.zig");
 const canvas_module = @import("../canvas.zig");
 const Canvas = canvas_module.Canvas;
-const Rect = canvas_module.Rect;
 const Label = canvas_module.Label;
 const settings = @import("../settings.zig");
 const Context = settings.Context;
-const Own = settings.Own;
-const Box = settings.Box;
-const Slider = settings.Slider;
-const Step = settings.Step;
-const Line = settings.Line;
-const steppedIndex = settings.steppedIndex;
-const Display = Own.Display;
+const Display = settings.Own.Display;
+const graphics = @import("graphics.zig");
+const widgets = @import("widgets.zig");
+const Slider = widgets.Slider;
+const Step = widgets.Step;
+const Line = widgets.Line;
+const Toggle = widgets.Toggle;
+const steppedIndex = widgets.steppedIndex;
 
 /// `[Device]`, where the video settings are kept (`0x004E8628`), and the keys the screen writes:
 /// the view (`0x004E8630`), the brightness (`0x004E8614`) and the transitions (`0x004E861C`).
@@ -46,66 +48,50 @@ pub const transitions_key = "Transitions";
 /// The file keeps the brightness in hundredths (`0x004DC440`).
 pub const gamma_scale = 100;
 
-/// The rows, from the top, in the game's eight, 37 apart from y 129 (`0x0042F4FC` on): its
-/// RESOLUTION, DEFAULT VIEW, BRIGHTNESS and VR TRANSITIONS in their own, and OpenReliant's in those
-/// of 3D RENDER MODE, TEXTURE DETAIL, GRAPHIC DETAIL and LIGHT MAPS: FULL SCREEN, VSYNC and FRAME
-/// RATE LIMIT after RESOLUTION, and ANTI-ALIASING after BRIGHTNESS.
+/// The rows below the graphics, from the top, laid out as the game's are (`widgets.Line`), with
+/// the graphics' columns and spacing: the game's RESOLUTION, DEFAULT VIEW and BRIGHTNESS, in the
+/// game's order, with OpenReliant's FRAME RATE LIMIT after RESOLUTION.
 pub const Row = enum {
     resolution,
-    fullscreen,
-    vsync,
     frame_rate,
     default_view,
     brightness,
-    anti_aliasing,
-    transitions,
 
     fn line(row: Row) Line {
-        return .{ .y = first_row + @as(i32, @intFromEnum(row)) * row_spacing };
+        return .{ .y = first_row + @as(i32, @intFromEnum(row)) * graphics.row_spacing, .edge = graphics.edge };
     }
 
     fn label(row: Row) Label {
         return row.line().label(switch (row) {
             .resolution => .{ .string = 0x10E },
-            .fullscreen => .{ .words = "FULL SCREEN" },
-            .vsync => .{ .words = "VSYNC" },
             .frame_rate => .{ .words = "FRAME RATE LIMIT" },
             .default_view => .{ .string = 0x28A },
             .brightness => .{ .string = 0x113 },
-            .anti_aliasing => .{ .words = "ANTI-ALIASING" },
-            .transitions => .{ .string = 0x2D4 },
         });
     }
 };
 
-const first_row = 129;
-const row_spacing = 37;
+/// The first row's arrows' box stands a gap below the graphics' pane.
+const first_row = graphics.pane_bottom + graphics.gap + 1;
 
 /// The rows an arrow box steps through their choices.
 pub const Choice = enum {
     resolution,
     frame_rate,
     default_view,
-    anti_aliasing,
 
     fn row(choice: Choice) Row {
         return switch (choice) {
-            .resolution => .resolution,
-            .frame_rate => .frame_rate,
-            .default_view => .default_view,
-            .anti_aliasing => .anti_aliasing,
+            inline else => |named| @field(Row, @tagName(named)),
         };
-    }
-
-    fn rect(choice: Choice, step: Step) Rect {
-        return choice.row().line().arrow(step);
     }
 };
 
 /// An arrow of a row's box.
 pub const Arrow = struct { choice: Choice, step: Step };
 
-/// The rows a check box turns on and off.
+/// The check boxes, left of the rows, where the controls have their controllers: FULL SCREEN beside
+/// RESOLUTION, VSYNC beside FRAME RATE LIMIT, and the game's VR TRANSITIONS beside DEFAULT VIEW.
 pub const Check = enum {
     fullscreen,
     vsync,
@@ -113,23 +99,41 @@ pub const Check = enum {
 
     fn row(check: Check) Row {
         return switch (check) {
-            .fullscreen => .fullscreen,
-            .vsync => .vsync,
-            .transitions => .transitions,
+            .fullscreen => .resolution,
+            .vsync => .frame_rate,
+            .transitions => .default_view,
         };
     }
 
-    fn rect(check: Check) Rect {
-        return check.row().line().boxRect();
+    fn toggle(check: Check) Toggle {
+        return .{ .at = .{ toggles_x, check.row().line().y } };
+    }
+
+    fn words(check: Check) Label.Text {
+        return switch (check) {
+            .fullscreen => .{ .words = "FULL SCREEN" },
+            .vsync => .{ .words = "VSYNC" },
+            .transitions => .{ .string = 0x2D4 },
+        };
     }
 };
 
-/// The brightness's slider (`0x0042FA39` on): its knob from x 347 at the least brightness to 522
-/// at the most (`0x004E7778`, where the pointer finds it), its track until 572.
-const brightness_slider: Slider = .{ .from = .{ 347, Row.brightness.line().y }, .end = 572 };
+/// Where the check boxes stand across: where the controls have their controllers' (`0x0042D9F8`).
+const toggles_x = 45;
+
+/// The brightness's slider, as the game places it beside its row (`0x0042FA39` on): its knob from
+/// 67 right of where the label ends, x 347, at the least brightness, to 175 further at the most
+/// (`0x004E7778`, where the pointer finds it), its track until 292 right of the label's end, 572.
+const brightness_slider: Slider = .{ .from = .{ graphics.edge + 67, Row.brightness.line().y }, .end = graphics.edge + 292 };
 /// The brightness's range (`0x004DC408`, `0x004DC480`).
 const least_brightness: f32 = 0.5;
 const most_brightness: f32 = 2;
+
+comptime {
+    // The rows stand below the graphics' pane, and the knob above the buttons.
+    std.debug.assert(Row.resolution.line().arrow(.back).y > graphics.pane_bottom);
+    std.debug.assert(brightness_slider.knob(0).y + brightness_slider.knob(0).height < 422);
+}
 
 /// The brightness of the knob `along` its travel.
 ///
@@ -230,45 +234,14 @@ fn rateText(rate: ?f32, refresh_rate: ?f32, buffer: []u8) []const u8 {
     return std.fmt.bufPrint(buffer, "{d}", .{hud.round(limit)}) catch "";
 }
 
-/// The samples a pixel ANTI-ALIASING steps through, as many as the GPU offers.
-const sample_counts = [_]u8{ 1, 2, 4, 8 };
-
-/// The samples a pixel the frames are drawn with: as many as chosen, up to the most the GPU offers.
-fn drawnSamples(display: Display) u8 {
-    return @min(display.chosen.samples, display.told.most_samples);
-}
-
-fn steppedSamples(display: Display, step: Step) u8 {
-    const most = std.mem.indexOfScalar(u8, &sample_counts, display.told.most_samples) orelse sample_counts.len - 1;
-    const offered = sample_counts[0 .. most + 1];
-    return offered[steppedIndex(std.mem.indexOfScalar(u8, offered, drawnSamples(display)), offered.len, step)];
-}
-
-/// ANTI-ALIASING's value: OFF for a sample a pixel, or the samples.
-fn samplesText(samples: u8, buffer: []u8) []const u8 {
-    if (samples <= 1) return "OFF";
-    return std.fmt.bufPrint(buffer, "{d} SAMPLES", .{samples}) catch "";
-}
-
 /// What the pointer finds on the tab.
 pub const Item = union(enum) {
     arrow: Arrow,
     check: Check,
     /// The brightness's knob.
     knob,
+    graphics: graphics.Item,
 };
-
-/// The item the pointer is over: an arrow, a check box, or the brightness's knob, where the device
-/// has a gamma ramp.
-pub fn itemAt(context: Context, at: [2]i32) ?Item {
-    for (std.enums.values(Choice)) |choice| for (std.enums.values(Step)) |step| {
-        if (choice.rect(step).holds(at)) return .{ .arrow = .{ .choice = choice, .step = step } };
-    };
-    for (std.enums.values(Check)) |check| if (check.rect().holds(at)) return .{ .check = check };
-    const video = context.video orelse return null;
-    if (video.gamma and brightness_slider.knob(knobAlong(video.surrender.brightness)).holds(at)) return .knob;
-    return null;
-}
 
 /// Sets the options' cockpit setting, and the camera's cockpit mode the setting stands for, as the
 /// pause menu's video screen sets them (`pause_screen_video`, `0x0048F260`); a mission's start sets
@@ -298,6 +271,8 @@ pub const Video = struct {
     held: bool = false,
     /// The arrow under the pointer, lit.
     arrow: ?Arrow = null,
+    /// OpenReliant's graphics options.
+    graphics: graphics.Graphics = .{},
 
     const Kept = struct {
         view: CockpitSetting = default_view,
@@ -310,16 +285,38 @@ pub const Video = struct {
     pub fn enter(tab: *Video, context: Context) void {
         const display: Display = if (context.own) |own| own.display() else .{};
         tab.* = .{ .display = display, .kept = .{ .display = display.chosen } };
+        tab.graphics.enter(context);
         const video = context.video orelse return;
         tab.kept.view = video.camera.setting;
         tab.kept.brightness = video.surrender.brightness;
         tab.kept.transitions = video.transitions.*;
     }
 
+    /// The item the pointer is over: the graphics', an arrow, a check box, or the brightness's
+    /// knob, where the device has a gamma ramp.
+    pub fn itemAt(tab: Video, context: Context, at: [2]i32) ?Item {
+        if (tab.graphics.itemAt(at)) |item| return .{ .graphics = item };
+        for (std.enums.values(Choice)) |choice| {
+            if (choice.row().line().arrowAt(at)) |step| return .{ .arrow = .{ .choice = choice, .step = step } };
+        }
+        for (std.enums.values(Check)) |check| if (check.toggle().rect().holds(at)) return .{ .check = check };
+        const video = context.video orelse return null;
+        if (video.gamma and brightness_slider.knob(knobAlong(video.surrender.brightness)).holds(at)) return .knob;
+        return null;
+    }
+
+    /// Nothing lit, as each pass starts.
+    pub fn unlight(tab: *Video) void {
+        tab.arrow = null;
+        tab.graphics.lit = null;
+        tab.graphics.lit_preset = null;
+    }
+
     /// The pointer over `item` with its button up: an arrow lights.
     pub fn hover(tab: *Video, item: Item) void {
         switch (item) {
             .arrow => |arrow| tab.arrow = arrow,
+            .graphics => |on_graphics| tab.graphics.hover(on_graphics),
             .check, .knob => {},
         }
     }
@@ -327,9 +324,11 @@ pub const Video = struct {
     /// A pass's knob, where the device has a gamma ramp (`0x0042EB15` on): the knob held follows
     /// the pointer, and the brightness changes with it at once; while the pointer's button is
     /// down, the knob under it is held. And OpenReliant's display options as they stand, which
-    /// Alt and Enter and the window's size change too.
+    /// Alt and Enter and the window's size change too, and the keys and the wheel that scroll the
+    /// graphics.
     pub fn slide(tab: *Video, context: Context) void {
         if (context.own) |own| tab.display = own.display();
+        tab.graphics.scroll(context);
         const video = context.video orelse return;
         if (!video.gamma) return;
         if (tab.held) video.surrender.brightness = brightnessAt(brightness_slider.held(context.pointer.at[0]));
@@ -338,11 +337,13 @@ pub const Video = struct {
 
     /// A click on `item` (`0x0042EC50`): an arrow steps its row's choice back or on, round from the
     /// last to the first; a check box turns its setting on or off. The view and the transitions are
-    /// written at once, and OpenReliant's options applied.
-    pub fn choose(tab: *Video, item: Item, context: Context) Allocator.Error!void {
+    /// written at once, and OpenReliant's options applied. The graphics' arrows that scroll their
+    /// pane scroll again while held, which it returns true for.
+    pub fn choose(tab: *Video, item: Item, context: Context) Allocator.Error!bool {
         const chosen = &tab.display.chosen;
         switch (item) {
             .knob => {},
+            .graphics => |on_graphics| return tab.graphics.choose(on_graphics, context),
             .arrow => |arrow| switch (arrow.choice) {
                 .resolution => {
                     chosen.size = steppedSize(tab.display, arrow.step);
@@ -350,10 +351,6 @@ pub const Video = struct {
                 },
                 .frame_rate => {
                     chosen.frame_rate = steppedRate(chosen.frame_rate, arrow.step);
-                    tab.applyDisplay(context);
-                },
-                .anti_aliasing => {
-                    chosen.samples = steppedSamples(tab.display, arrow.step);
                     tab.applyDisplay(context);
                 },
                 .default_view => if (context.video) |video| {
@@ -374,6 +371,7 @@ pub const Video = struct {
                 },
             },
         }
+        return false;
     }
 
     fn applyDisplay(tab: *Video, context: Context) void {
@@ -381,7 +379,8 @@ pub const Video = struct {
     }
 
     /// RESET DEFAULTS (`0x0042EEAA`): the view from the cockpit, the transitions on, and the
-    /// brightness 1 where the device has a gamma ramp; and OpenReliant's display options at theirs.
+    /// brightness 1 where the device has a gamma ramp; and OpenReliant's display options and
+    /// graphics options at theirs.
     ///
     /// **Fix:** the game shows the view and the transitions reset, but takes the view for itself
     /// only as OK or MAIN MENU start its renderer again, which they do only where the mode or the
@@ -398,6 +397,7 @@ pub const Video = struct {
         }
         tab.display.chosen = .{};
         tab.applyDisplay(context);
+        tab.graphics.reset(context);
     }
 
     /// CANCEL CHANGES (`0x0042F015`): the settings as the screen opened, the brightness where the
@@ -414,6 +414,7 @@ pub const Video = struct {
         }
         tab.display.chosen = tab.kept.display;
         tab.applyDisplay(context);
+        tab.graphics.cancel(context);
     }
 
     /// As the screen is left, by Escape, OK or MAIN MENU (`0x0042F2B3`, `0x0042F0AF`): the
@@ -423,10 +424,11 @@ pub const Video = struct {
         try context.settings_file.writeInt(section, gamma_key, hud.round(video.surrender.brightness * gamma_scale));
     }
 
-    /// `video_screen_draw`'s part (`0x0042F440`): the rows' labels, BRIGHTNESS's only where the
-    /// device has a gamma ramp, their values, the arrows' boxes, the brightness's track and knob,
-    /// the check boxes, and the arrow under the pointer lit.
+    /// The graphics, then `video_screen_draw`'s part (`0x0042F440`): the rows' labels,
+    /// BRIGHTNESS's only where the device has a gamma ramp, their values, the arrows' boxes, the
+    /// brightness's track and knob, the check boxes, and the arrow under the pointer lit.
     pub fn draw(tab: Video, canvas: Canvas, art: *hud.Art, shown: ?settings.Video) canvas_module.Error!void {
+        try tab.graphics.draw(canvas, art);
         const small = canvas.fonts.small;
         const blue = canvas_module.blue;
         const told = tab.display.told;
@@ -439,19 +441,17 @@ pub const Video = struct {
             const value: Label.Text = switch (choice) {
                 .resolution => .{ .words = sizeText(tab.display, &buffer) },
                 .frame_rate => .{ .words = rateText(chosen.frame_rate, told.refresh_rate, &buffer) },
-                .anti_aliasing => .{ .words = samplesText(drawnSamples(tab.display), &buffer) },
                 .default_view => if (shown) |video| .{ .string = viewName(video.camera.setting) } else continue,
             };
             try row.line().value(value).write(canvas, small, blue);
         }
         for (std.enums.values(Check)) |check| {
-            try check.row().label().write(canvas, small, blue);
             const on = switch (check) {
                 .fullscreen => chosen.fullscreen,
                 .vsync => chosen.vsync,
                 .transitions => if (shown) |video| video.transitions.* else default_transitions,
             };
-            try Box.draw(canvas, art, check.row().line().box(), on);
+            try check.toggle().draw(canvas, art, check.words(), on, true);
         }
         if (shown) |video| if (video.gamma) {
             try Row.brightness.label().write(canvas, small, blue);
@@ -473,11 +473,11 @@ const GameVideo = struct {
     }
 };
 
-test "the rows stand in the game's eight" {
-    try std.testing.expectEqual(129, Row.resolution.line().y);
-    try std.testing.expectEqual(277, Row.default_view.line().y);
-    try std.testing.expectEqual(314, Row.brightness.line().y);
-    try std.testing.expectEqual(388, Row.transitions.line().y);
+test "the rows stand below the graphics" {
+    try std.testing.expectEqual(292, Row.resolution.line().y);
+    try std.testing.expectEqual(352, Row.default_view.line().y);
+    try std.testing.expectEqual(382, Row.brightness.line().y);
+    try std.testing.expectEqual([2]i32{ 45, 352 }, Check.transitions.toggle().at);
 }
 
 test "the brightness's knob" {
@@ -520,7 +520,7 @@ test steppedSize {
     try std.testing.expectEqualStrings("1280x720", sizeText(display, &buffer));
 }
 
-test "the frame rate's and the samples' steps" {
+test "the frame rate's steps" {
     // The display's rate, the listed rates, then none, round again; a rate not listed goes on to
     // the display's.
     try std.testing.expectEqual(30, steppedRate(null, .on).?);
@@ -532,13 +532,6 @@ test "the frame rate's and the samples' steps" {
     try std.testing.expectEqualStrings("DISPLAY", rateText(null, null, &buffer));
     try std.testing.expectEqualStrings("NONE", rateText(0, 60, &buffer));
     try std.testing.expectEqualStrings("144", rateText(144, 60, &buffer));
-    // As many samples as the GPU offers: 8 asked of one that draws 4 is shown, and stepped, as 4.
-    const display: Display = .{ .chosen = .{ .samples = 8 }, .told = .{ .most_samples = 4 } };
-    try std.testing.expectEqual(4, drawnSamples(display));
-    try std.testing.expectEqual(1, steppedSamples(display, .on));
-    try std.testing.expectEqual(2, steppedSamples(display, .back));
-    try std.testing.expectEqualStrings("OFF", samplesText(1, &buffer));
-    try std.testing.expectEqualStrings("4 SAMPLES", samplesText(4, &buffer));
 }
 
 test "the arrows and the boxes change the video" {
@@ -552,32 +545,37 @@ test "the arrows and the boxes change the video" {
     var tab: Video = .{};
     tab.enter(context);
     // DEFAULT VIEW's arrow on, found at its row, changes the view and its mode, written at once.
-    const view_on = itemAt(context, .{ 322, 284 }).?;
+    const view_on = tab.itemAt(context, .{ 342, 357 }).?;
     try std.testing.expectEqual(Item{ .arrow = .{ .choice = .default_view, .step = .on } }, view_on);
-    try tab.choose(view_on, context);
+    _ = try tab.choose(view_on, context);
     try std.testing.expectEqual(CockpitSetting.chase, kept.view.setting);
     try std.testing.expectEqual(camera.CockpitMode.chase, kept.view.cockpit_mode);
     try std.testing.expectEqualStrings("1", file.profile.value(section, view_key).?);
-    // VR TRANSITIONS' box turns them off, written at once.
-    const transitions = itemAt(context, .{ 318, 396 }).?;
+    // VR TRANSITIONS' box, left of it, turns them off, written at once.
+    const transitions = tab.itemAt(context, .{ 50, 358 }).?;
     try std.testing.expectEqual(Item{ .check = .transitions }, transitions);
-    try tab.choose(transitions, context);
+    _ = try tab.choose(transitions, context);
     try std.testing.expect(!kept.transitions);
     try std.testing.expectEqualStrings("0", file.profile.value(section, transitions_key).?);
     // OpenReliant's options go to the driver.
-    try tab.choose(.{ .arrow = .{ .choice = .resolution, .step = .on } }, context);
+    _ = try tab.choose(.{ .arrow = .{ .choice = .resolution, .step = .on } }, context);
     try std.testing.expectEqual(FrameSize{ .share = 75 }, recorder.display.chosen.size);
-    try tab.choose(.{ .check = .fullscreen }, context);
-    try tab.choose(.{ .check = .vsync }, context);
-    try tab.choose(.{ .arrow = .{ .choice = .frame_rate, .step = .on } }, context);
-    try tab.choose(.{ .arrow = .{ .choice = .anti_aliasing, .step = .on } }, context);
-    try std.testing.expectEqual(Display.Chosen{ .size = .{ .share = 75 }, .fullscreen = true, .vsync = false, .frame_rate = 30, .samples = 8 }, recorder.display.chosen);
+    _ = try tab.choose(.{ .check = .fullscreen }, context);
+    _ = try tab.choose(.{ .check = .vsync }, context);
+    _ = try tab.choose(.{ .arrow = .{ .choice = .frame_rate, .step = .on } }, context);
+    try std.testing.expectEqual(Display.Chosen{ .size = .{ .share = 75 }, .fullscreen = true, .vsync = false, .frame_rate = 30 }, recorder.display.chosen);
+    // GRAPHICS' arrows, above, set the original's look.
+    const original = tab.itemAt(context, .{ 342, 127 }).?;
+    try std.testing.expectEqual(Item{ .graphics = .{ .preset = .on } }, original);
+    _ = try tab.choose(original, context);
+    try std.testing.expect(recorder.graphics.chosen.original);
     // CANCEL CHANGES puts all back, and writes the game's again.
     try tab.cancel(context);
     try std.testing.expectEqual(CockpitSetting.cockpit, kept.view.setting);
     try std.testing.expect(kept.transitions);
     try std.testing.expectEqualStrings("1", file.profile.value(section, transitions_key).?);
     try std.testing.expectEqual(Display.Chosen{}, recorder.display.chosen);
+    try std.testing.expect(!recorder.graphics.chosen.original);
 }
 
 test "the brightness's knob is dragged, and written as the screen is left" {
@@ -589,13 +587,13 @@ test "the brightness's knob is dragged, and written as the screen is left" {
     var context: Context = .{ .pointer = .{}, .devices = &devices, .settings_file = &file, .ticks = 0, .video = kept.video(true) };
     var tab: Video = .{};
     tab.enter(context);
-    // At 1, the knob stands from x 405, on BRIGHTNESS's row: held as the button goes down on it, it
+    // At 1, the knob stands from x 425, on BRIGHTNESS's row: held as the button goes down on it, it
     // follows the pointer from the next pass.
-    try std.testing.expectEqual(Item.knob, itemAt(context, .{ 410, 325 }).?);
-    context.pointer = .{ .at = .{ 410, 325 }, .down = true };
+    try std.testing.expectEqual(Item.knob, tab.itemAt(context, .{ 430, 393 }).?);
+    context.pointer = .{ .at = .{ 430, 393 }, .down = true };
     tab.slide(context);
     try std.testing.expect(tab.held);
-    context.pointer.at = .{ 600, 325 };
+    context.pointer.at = .{ 620, 393 };
     tab.slide(context);
     try std.testing.expectEqual(2, kept.surrender.brightness);
     // Let go, held no more; RESET DEFAULTS sets 1 again, and leaving writes it.
@@ -609,7 +607,7 @@ test "the brightness's knob is dragged, and written as the screen is left" {
     // Without a gamma ramp, there is no knob, and the brightness stays.
     context.video = kept.video(false);
     kept.surrender.brightness = 1.5;
-    try std.testing.expectEqual(null, itemAt(context, .{ 410, 325 }));
+    try std.testing.expectEqual(null, tab.itemAt(context, .{ 430, 393 }));
     try tab.reset(context);
     try std.testing.expectEqual(1.5, kept.surrender.brightness);
 }

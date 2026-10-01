@@ -108,7 +108,7 @@ how metallic, metal tinting them with its own colour, in place of the original's
 reflects what surrounds the ship, the sky and the nebula, blurred as rough as the surface is, so
 that smooth glass reflects the nebula clearly at glancing angles and polished metal shows it
 everywhere; and occlusion shades the ambient light and the reflections. The base picture should hold
-the surface's own colour, with no shading painted in, or the light shows twice. GRAPHICS' MATERIALS
+the surface's own colour, with no shading painted in, or the light shows twice. VIDEO's MATERIALS
 and `--no-materials` turn the maps off, as `--original` does.
 
 A metal's base colour is how much light it reflects, its highlights and its reflections tinted with

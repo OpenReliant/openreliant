@@ -60,7 +60,7 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 
 ## Improvements
 
-Deliberate differences from the original, each marked **Improvement** where it is made. The settings screen's GRAPHICS turns the GPU device's on and off as the game plays, but for 16-bit colour and linear light, which take effect at the next start ([Graphics](../engine/front-end.md#graphics)):
+Deliberate differences from the original, each marked **Improvement** where it is made. The settings screen's VIDEO turns the GPU device's on and off as the game plays, but for 16-bit colour and linear light, which take effect at the next start ([Video](../engine/front-end.md#video)):
 
 - The view is unstretched on any screen: the factor across keeps pixels square, and a wider screen shows more at the sides ([Camera](../engine/camera.md#projection)).
 - The background image keeps its proportions, as high as the screen and centred across it, where the driver stretches it over the screen (`srd3d.backgroundEdges`): the game's own, which are 4:3, cover it alike, and a mod's wider picture fills a wider window ([Modding](../guide/modding.md#pictures)).

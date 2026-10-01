@@ -28,17 +28,15 @@ const Arrow = canvas_module.Arrow;
 const dialog = @import("../dialog.zig");
 const settings = @import("../settings.zig");
 const Context = settings.Context;
-const Box = settings.Box;
+const widgets = @import("widgets.zig");
+const Toggle = widgets.Toggle;
 
 /// The rows the list shows at once (`0x0042B665`, `0x0042D177`).
 pub const rows = 12;
 
-/// The ticks a held arrow waits before the list scrolls another row (`0x0042BD2C`).
-const scroll_ticks = 5;
-
 /// The two panes, the actions' and their bindings', framed (`interface_box`, `0x0042CD72`,
 /// `0x0042CD90`).
-const panes = [_]struct { at: [2]i32, extent: [2]i32 }{
+const panes = [_]widgets.Frame{
     .{ .at = .{ 45, 136 }, .extent = .{ 324, 184 } },
     .{ .at = .{ 401, 136 }, .extent = .{ 195, 184 } },
 };
@@ -84,17 +82,9 @@ const anyway_string = 0x5B0;
 /// write (`0x5AE`).
 const press_string = 0x5AE;
 
-/// The list's arrows, and their shapes, lit under the pointer (`0x0042D8CA` on): one at the top
-/// right of the actions' pane, the other below it.
-const arrow_rects = std.EnumArray(Arrow, Rect).init(.{
-    .up = .{ .x = 370, .y = 136, .width = 28, .height = 16 },
-    .down = .{ .x = 370, .y = 156, .width = 28, .height = 16 },
-});
-const arrow_x = 374;
-const arrow_shapes = std.EnumArray(Arrow, struct { off: usize, lit: usize, y: i32 }).init(.{
-    .up = .{ .off = 0x1E, .lit = 0x20, .y = 136 },
-    .down = .{ .off = 0x1F, .lit = 0x21, .y = 156 },
-});
+/// The list's arrows (`0x0042D8CA` on): one at the top right of the actions' pane, the other
+/// below it.
+const arrows: widgets.ListArrows = .{ .at = .{ 374, 136 } };
 
 /// The check boxes, top to bottom: their box at x 349, their label at x 367.
 pub const Check = enum {
@@ -104,9 +94,12 @@ pub const Check = enum {
     joystick_roll,
 
     const box_x = 349;
-    const label_x = 367;
-    /// Where the pointer finds a box: from 4 pixels left of it (`0x0042B70D` on).
-    const hit_x = 345;
+
+    /// Its box and its label, the pointer finding the box from 4 pixels left of it (`0x0042B70D`
+    /// on).
+    fn box(check: Check) Toggle {
+        return .{ .at = .{ box_x, check.y() }, .gap = Toggle.check_gap, .reach = 4 };
+    }
 
     /// Its row (`0x0042B70D` on).
     fn y(check: Check) i32 {
@@ -118,14 +111,13 @@ pub const Check = enum {
         };
     }
 
-    fn label(check: Check) Label {
-        const string: u32 = switch (check) {
+    fn string(check: Check) u32 {
+        return switch (check) {
             .force_feedback => 0x17D,
             .invert_pitch => 0x17E,
             .hat_enable => 0x17F,
             .joystick_roll => 0x233,
         };
-        return .of(string, .{ label_x, check.y() }, .left);
     }
 
     /// The setting it changes.
@@ -165,17 +157,13 @@ pub const Check = enum {
         };
     }
 
-    fn toggle(check: Check, kept: *input.Settings) void {
+    fn flip(check: Check, kept: *input.Settings) void {
         switch (check) {
             .force_feedback => kept.force_feedback = !kept.force_feedback,
             .invert_pitch => kept.joystick_invert = !kept.joystick_invert,
             .hat_enable => kept.hat_enabled = !kept.hat_enabled,
             .joystick_roll => kept.twist_enabled = !kept.twist_enabled,
         }
-    }
-
-    fn rect(check: Check) Rect {
-        return .{ .x = hit_x, .y = @intCast(check.y()), .width = Box.size, .height = Box.size };
     }
 };
 
@@ -189,7 +177,12 @@ pub const Controller = enum {
     keyboard,
 
     const box_x = 45;
-    const label_x = 67;
+    const label_x = box_x + Toggle.controller_gap;
+
+    /// Its box and its label.
+    fn box(controller: Controller) Toggle {
+        return .{ .at = .{ box_x, controller.y() } };
+    }
 
     fn y(controller: Controller) i32 {
         return switch (controller) {
@@ -207,10 +200,6 @@ pub const Controller = enum {
         };
     }
 
-    fn label(controller: Controller) Label {
-        return .of(controller.string(), .{ label_x, controller.y() }, .left);
-    }
-
     /// How far JOYSTICK's label reaches at most: `margin` short of the check boxes.
     const room = Check.box_x - margin - label_x;
     const margin = 8;
@@ -226,10 +215,6 @@ pub const Controller = enum {
     /// Whether it can be chosen, else it is dimmed: JOYSTICK with a joystick (`0x0042BECF`).
     fn usable(controller: Controller, devices: *const input.Devices) bool {
         return controller != .joystick or devices.joystick.device != null;
-    }
-
-    fn rect(controller: Controller) Rect {
-        return .{ .x = box_x, .y = @intCast(controller.y()), .width = Box.size, .height = Box.size };
     }
 };
 
@@ -249,21 +234,21 @@ const items = items: {
     var placed: [3 + 2 + rows + 1 + 3]struct { rect: Rect, item: Item } = undefined;
     var at: usize = 0;
     for ([_]Check{ .force_feedback, .invert_pitch, .hat_enable }) |check| {
-        placed[at] = .{ .rect = check.rect(), .item = .{ .check = check } };
+        placed[at] = .{ .rect = check.box().rect(), .item = .{ .check = check } };
         at += 1;
     }
     for (std.enums.values(Arrow)) |arrow| {
-        placed[at] = .{ .rect = arrow_rects.get(arrow), .item = .{ .arrow = arrow } };
+        placed[at] = .{ .rect = arrows.rect(arrow), .item = .{ .arrow = arrow } };
         at += 1;
     }
     for (0..rows) |row| {
         placed[at] = .{ .rect = rowRect(row), .item = .{ .row = row } };
         at += 1;
     }
-    placed[at] = .{ .rect = Check.joystick_roll.rect(), .item = .{ .check = .joystick_roll } };
+    placed[at] = .{ .rect = Check.joystick_roll.box().rect(), .item = .{ .check = .joystick_roll } };
     at += 1;
     for (std.enums.values(Controller)) |controller| {
-        placed[at] = .{ .rect = controller.rect(), .item = .{ .controller = controller } };
+        placed[at] = .{ .rect = controller.box().rect(), .item = .{ .controller = controller } };
         at += 1;
     }
     if (at != placed.len) @compileError("every item placed once");
@@ -306,9 +291,7 @@ pub const Controls = struct {
     /// CHANGES puts back.
     kept: struct { settings: input.Settings, bindings: input.Bindings } = .{ .settings = .{}, .bindings = input.defaultBindings(.joystick) },
     /// The list: the 80 rows of `controls_list`, 12 shown from the first (`0x00520234`).
-    list: canvas_module.Scrolled(u8) = .{ .count = controls.list.len, .shown = rows },
-    /// The tick a held arrow next scrolls the list after.
-    scroll_at: u32 = 0,
+    list: widgets.List = .of(controls.list.len, rows, 0),
     /// The row waiting for a key or a button (`0x0051D528`).
     waiting: ?Waiting = null,
     /// Whether a binding has changed since the screen opened or its changes were cancelled, which
@@ -328,7 +311,7 @@ pub const Controls = struct {
         interface.loadKeyConfig(devices, context.settings_file.profile);
         tab.* = .{
             .kept = .{ .settings = devices.settings, .bindings = devices.bindings },
-            .scroll_at = context.ticks,
+            .list = .of(controls.list.len, rows, context.ticks),
         };
     }
 
@@ -394,16 +377,16 @@ pub const Controls = struct {
         const settings_file = context.settings_file;
         switch (item) {
             .check => |check| if (check.usable(devices)) {
-                check.toggle(&devices.settings);
+                check.flip(&devices.settings);
                 try interface.saveSetting(devices.settings, settings_file, check.setting());
             },
             .arrow => |arrow| {
-                tab.scrollHeld(arrow, context.ticks);
+                tab.list.scrollHeld(arrow, context.ticks);
                 return true;
             },
             .row => |row| {
                 tab.restore(devices);
-                const action = controls.list[tab.list.first + row] orelse return false;
+                const action = controls.list[tab.list.rows.first + row] orelse return false;
                 const binding = devices.bindings.getPtr(action);
                 tab.waiting = .{ .action = action, .old = binding.* };
                 binding.key = 0;
@@ -418,24 +401,12 @@ pub const Controls = struct {
         return false;
     }
 
-    /// The list a row on or back, as an arrow held scrolls it: at once, then each `scroll_ticks`
-    /// while it is held (`0x0042BD09`).
-    fn scrollHeld(tab: *Controls, way: Arrow, ticks: u32) void {
-        if (ticks <= tab.scroll_at) return;
-        tab.list.scroll(way);
-        tab.scroll_at = ticks + scroll_ticks;
-    }
-
-    /// Up and Down, held while no row waits, which then binds them, scroll the list as its arrows
-    /// do, and the mouse's wheel scrolls it as it turns.
-    ///
-    /// **Improvement:** the game's screen scrolls by its arrows alone.
+    /// The mouse's wheel scrolls the list as it turns, and Up and Down, held, as its arrows do
+    /// (`widgets.List.scrollBy`), while no row waits, which then binds them.
     pub fn scrollKeys(tab: *Controls, context: Context) void {
-        tab.list.wheel(context.pointer.wheel);
-        if (tab.waiting != null) return;
-        const keyboard = &context.devices.keyboard;
-        if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) tab.scrollHeld(.up, context.ticks);
-        if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) tab.scrollHeld(.down, context.ticks);
+        if (tab.waiting == null) {
+            tab.list.scrollBy(context.pointer.wheel, &context.devices.keyboard, context.ticks);
+        } else tab.list.rows.wheel(context.pointer.wheel);
     }
 
     /// Ends the wait, as a click on nothing does (`0x0042BFDE`), the waiting row's old binding back
@@ -536,28 +507,20 @@ pub const Controls = struct {
     pub fn draw(tab: Controls, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, devices: *const input.Devices) canvas_module.Error!void {
         const small = canvas.fonts.small;
         const blue = canvas_module.blue;
-        for (panes) |pane| canvas.box(pane.at, pane.extent);
-        for (headings) |heading| try heading.write(canvas, canvas.fonts.large, blue);
+        for (panes) |pane| pane.draw(canvas);
+        for (headings) |heading| try widgets.heading(canvas, heading);
         try primary_controller.write(canvas, small, blue);
         for (std.enums.values(Controller)) |controller| {
-            var label = controller.label();
             var buffer: [96]u8 = undefined;
-            if (controller == .joystick) label.text = .{ .words = joystickLabel(&buffer, &devices.joystick, canvas.strings, small) };
-            const shown = canvas.dimmedUnless(controller.usable(devices));
-            try label.write(shown, small, blue);
-            try Box.draw(shown, art, .{ Controller.box_x, controller.y() }, devices.controlMode() == controller.mode());
+            const text: Label.Text = if (controller == .joystick)
+                .{ .words = joystickLabel(&buffer, &devices.joystick, canvas.strings, small) }
+            else
+                .{ .string = controller.string() };
+            try controller.box().draw(canvas, art, text, devices.controlMode() == controller.mode(), controller.usable(devices));
         }
-        for (std.enums.values(Check)) |check| {
-            const shown = canvas.dimmedUnless(check.usable(devices));
-            try check.label().write(shown, small, blue);
-            try Box.draw(shown, art, .{ Check.box_x, check.y() }, check.ticked(devices));
-        }
+        for (std.enums.values(Check)) |check| try check.box().draw(canvas, art, .{ .string = check.string() }, check.ticked(devices), check.usable(devices));
         try tab.drawList(canvas, devices);
-        for (std.enums.values(Arrow)) |arrow| {
-            const shapes = arrow_shapes.get(arrow);
-            try canvas.shape(art, shapes.off, .{ arrow_x, shapes.y });
-            if (tab.arrow == arrow) try canvas.shape(art, shapes.lit, .{ arrow_x, shapes.y });
-        }
+        try arrows.draw(canvas, art, tab.arrow);
         if (tab.conflict) |conflict| {
             var buffer: [256]u8 = undefined;
             var asked = conflict.question;
@@ -574,7 +537,7 @@ pub const Controls = struct {
     /// blank.
     fn drawList(tab: Controls, canvas: Canvas, devices: *const input.Devices) Allocator.Error!void {
         const small = canvas.fonts.small;
-        for (tab.list.first..tab.list.end(), 0..) |entry, row| {
+        for (tab.list.rows.first..tab.list.rows.end(), 0..) |entry, row| {
             const y = first_row_y + @as(i32, @intCast(row)) * row_height;
             const action = controls.list[entry] orelse {
                 // Its two lines stand 6 and 7 below where a row's text starts.
@@ -795,7 +758,7 @@ test "a joystick button is taken once, and held, holds the screen" {
     const row = for (controls.list, 0..) |entry, at| {
         if (entry == .countermeasures) break at;
     } else unreachable;
-    fixture.tab.list.first = @intCast(row);
+    fixture.tab.list.rows.first = @intCast(row);
     _ = try fixture.tab.choose(.{ .row = 0 }, fixture.context(.{}));
     devices.joystick.state.buttons[6] = input.JoystickState.pressed;
     fixture.tab.wait(fixture.context(.{}));
@@ -855,23 +818,23 @@ test "the arrows scroll a row each 5 ticks while held" {
     try std.testing.expectEqual(Item{ .arrow = .up }, Controls.itemAt(.{ 380, 143 }).?);
     fixture.ticks += 1;
     try std.testing.expect(try fixture.tab.choose(.{ .arrow = .down }, fixture.context(.{})));
-    try std.testing.expectEqual(1, fixture.tab.list.first);
-    fixture.ticks += scroll_ticks;
+    try std.testing.expectEqual(1, fixture.tab.list.rows.first);
+    fixture.ticks += widgets.List.scroll_ticks;
     _ = try fixture.tab.choose(.{ .arrow = .down }, fixture.context(.{}));
-    try std.testing.expectEqual(1, fixture.tab.list.first);
+    try std.testing.expectEqual(1, fixture.tab.list.rows.first);
     fixture.ticks += 1;
     _ = try fixture.tab.choose(.{ .arrow = .down }, fixture.context(.{}));
-    try std.testing.expectEqual(2, fixture.tab.list.first);
+    try std.testing.expectEqual(2, fixture.tab.list.rows.first);
     // No further than the last row.
-    fixture.tab.list.first = controls.list.len - rows;
+    fixture.tab.list.rows.first = controls.list.len - rows;
     fixture.ticks += 10;
     _ = try fixture.tab.choose(.{ .arrow = .down }, fixture.context(.{}));
-    try std.testing.expectEqual(controls.list.len - rows, fixture.tab.list.first);
+    try std.testing.expectEqual(controls.list.len - rows, fixture.tab.list.rows.first);
     // A divider's row waits for nothing.
     const divider = for (controls.list, 0..) |entry, at| {
         if (entry == null) break at;
     } else unreachable;
-    fixture.tab.list.first = @intCast(divider);
+    fixture.tab.list.rows.first = @intCast(divider);
     _ = try fixture.tab.choose(.{ .row = 0 }, fixture.context(.{}));
     try std.testing.expectEqual(null, fixture.tab.waiting);
 }
@@ -884,15 +847,15 @@ test "Up, Down and the wheel scroll the list while no row waits" {
     keyboard.down[@intFromEnum(input.Key.down)] = true;
     fixture.ticks += 1;
     fixture.tab.scrollKeys(fixture.context(.{}));
-    try std.testing.expectEqual(1, fixture.tab.list.first);
+    try std.testing.expectEqual(1, fixture.tab.list.rows.first);
     // A notch of the wheel down, three rows more.
     fixture.tab.scrollKeys(fixture.context(.{ .wheel = -1 }));
-    try std.testing.expectEqual(4, fixture.tab.list.first);
+    try std.testing.expectEqual(4, fixture.tab.list.rows.first);
     // While a row waits, Down binds rather than scrolls.
     _ = try fixture.tab.choose(.{ .row = 0 }, fixture.context(.{}));
     fixture.ticks += 10;
     fixture.tab.scrollKeys(fixture.context(.{}));
-    try std.testing.expectEqual(4, fixture.tab.list.first);
+    try std.testing.expectEqual(4, fixture.tab.list.rows.first);
 }
 
 test joystickLabel {

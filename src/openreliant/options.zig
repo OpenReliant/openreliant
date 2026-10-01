@@ -215,6 +215,9 @@ pub const Options = struct {
     /// Whether the mods in the game's `mods` folder come before its own files
     /// (`game.bigfile.Mods`).
     mods: bool = true,
+    /// Whether the original's look and sound were taken (`--original`), which the options after it
+    /// change.
+    original: bool = false,
     fullscreen: bool = false,
     software: bool = false,
     settings: platform.gpu.Settings = .{},
@@ -326,6 +329,7 @@ pub const Options = struct {
     pub fn apply(options: *Options, arg: Arg, value: []const u8) error{BadValue}!void {
         switch (arg) {
             .@"--original" => {
+                options.original = true;
                 options.settings = .original;
                 options.smooth_motion = false;
                 options.riders = .in_turn;
@@ -517,6 +521,7 @@ test Options {
     try std.testing.expectEqual(platform.gpu.Settings{}, plain.settings);
     try std.testing.expectEqual(null, plain.fps);
     const retro = try parsed(&.{ "--original", "--msaa", "8", "--no-vsync", "--fps", "0" });
+    try std.testing.expect(retro.original and !plain.original);
     try std.testing.expect(retro.settings.sixteen_bit);
     try std.testing.expectEqual(.off, retro.settings.shadows);
     try std.testing.expectEqual(.low, (try parsed(&.{ "--shadows", "low" })).settings.shadows);
