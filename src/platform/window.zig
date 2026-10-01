@@ -20,6 +20,8 @@ pub const Event = union(enum) {
     key: struct { scan: keyboard.Key, down: bool },
     /// A joystick or gamepad was plugged in or out (`joystick`).
     controllers,
+    /// The keyboard's layout changed, which names the keys otherwise (`keyboard.nameKeys`).
+    keymap,
     /// The window became the active one, or stopped being it (`WM_ACTIVATEAPP`).
     active: bool,
     /// The pointer moved over the window, to a place given as fractions of its size, by a movement
@@ -132,6 +134,7 @@ pub const Window = struct {
                     if (window.nextTyped()) |character| return .{ .typed = character };
                 },
                 c.SDL_EVENT_JOYSTICK_ADDED, c.SDL_EVENT_JOYSTICK_REMOVED => return .controllers,
+                c.SDL_EVENT_KEYMAP_CHANGED => return .keymap,
                 c.SDL_EVENT_WINDOW_FOCUS_GAINED => return .{ .active = true },
                 c.SDL_EVENT_WINDOW_FOCUS_LOST => return .{ .active = false },
                 c.SDL_EVENT_MOUSE_MOTION => {

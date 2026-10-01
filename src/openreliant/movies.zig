@@ -77,6 +77,7 @@ pub const Movies = struct {
             .wheel => |turned| devices.mouse.wheel += turned,
             .active => |active| pumped.active = active,
             .controllers => movies.controllers_changed = true,
+            .keymap => platform.keyboard.nameKeys(&devices.key_names),
             .typed => |character| movies.typed.push(game.language.fromUnicode(character)),
         };
         return pumped;

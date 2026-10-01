@@ -327,7 +327,8 @@ All from `LANGUAGE.DLL`, `language_string(id)` being the resource id:
 | `0xA9`, `0x53E`, `0x55A`, `0x5F1`, `0xBC` | PAUSED, Player has paused the game, Game paused due to bad connection., Your session has been terminated due to a bad connection, QUIT |
 
 The actions' names are their string ids at `ControlBinding + 0x2C` (`0x330` COCKPIT CAMERA, for
-one). The key names are LANCER.EXE's own, in `key_names`, copied into `ControlBinding + 0x2E`.
+one). The key names are those the keyboard's layout gives the keys, which `WinMain` and the
+loaders copy into `key_names` and `ControlBinding + 0x2E` ([Key names](controls.md#key-names)).
 `ControlBinding`: `+0x04` name (40 bytes), `+0x2C` string id (i16), `+0x2E` key name (30 bytes),
 `+0x4C` button.
 

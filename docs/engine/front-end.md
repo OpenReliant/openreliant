@@ -221,6 +221,7 @@ A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (
 
 - A check box, or a controller, changes where it can be used, and its `KeyConfig` entry is written at once (`0x0042BBB4` to `0x0042BF8C`). JOYSTICK ROLL is `TwistEnable`.
 - An arrow scrolls the list a row, and again each 5 ticks while it is held (`0x0042BD09`).
+- The list and a conflict's question write the keys by the names the keyboard's layout gives them ([Key names](controls.md#key-names)).
 - A click on an action's row clears its binding, and the row waits: each pass, the first of the 89 keys of `key_names` pressed alone, with Shift or with Ctrl is taken, then the lowest joystick button down, which holds the screen until it comes up. Taking one doesn't end the wait: a row takes a key and a button, and a later key replaces the first. A key or a button another action holds asks first (`control_binding_find`, `0x0042C5F0`), with `"K"`, `"SHIFT + K"`, `"CONTROL + K"` or `"JOY n"`, then This Key is already assigned to (`0x5AF`) and the action, then Redefine Anyway? (`0x5B0`), a line each: YES takes it from that action, NO puts the waiting row's binding back, the row waiting on. Escape, Shift, Ctrl and Alt on their own, the lock keys, Pause and Print Screen are not among the keys, so none of them can be bound.
 - A click on another action's row, or on nothing, ends the wait, the old binding back where the row took nothing. A click on a divider puts the old binding back so, but leaves the row waiting; a click on a check box, a controller, a button or an arrow leaves it waiting as it is.
 - Escape asks Would you like to save your changes before leaving this screen? (`0x5AB`) where a binding has changed; NO reads the settings and the bindings again from the file. Escape, OK and MAIN MENU then write the bindings (`save_key_config`, `0x0042C630`).
@@ -239,8 +240,6 @@ A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (
 - A row waiting with nothing taken shows PRESS (`0x5AE`, the string the game's training prompts write), where the game leaves it blank.
 - Escape while a row waits only ends the wait, as a click on nothing does; the game leaves the screen.
 - Up and Down scroll the list as its arrows do while no row waits, and the mouse's wheel scrolls it; the game scrolls it by its arrows alone.
-
-Not ported: the keys' names as the keyboard's layout gives them, which the game shows ([#489](https://github.com/vdmkenny/openreliant/issues/489)); OpenReliant shows the executable's.
 
 ### Video
 

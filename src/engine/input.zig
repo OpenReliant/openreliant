@@ -9,6 +9,7 @@ const log = std.log.scoped(.input);
 const assert = std.debug.assert;
 
 const profile = @import("profile.zig");
+const language = @import("game/language.zig");
 
 pub const controls = @import("input/controls.zig");
 pub const force = @import("input/force.zig");
@@ -316,13 +317,66 @@ pub const ControlBinding = extern struct {
 };
 
 /// A key an action can be bound to, an entry of `key_names` (`0x004E5CD0`): its DirectInput scan
-/// code and its name, which `WinMain` renames by the keyboard's own (`0x004BCF70`).
+/// code and its name, which `WinMain` renames by the keyboard's own (`key_names_rename`,
+/// `0x004BCF70`; `KeyNames`).
 pub const KeyName = extern struct {
     code: u32,
     name: [0x20]u8,
 
     comptime {
         assert(@sizeOf(KeyName) == 0x24);
+    }
+};
+
+/// The keys' names as the controls screens show them, by scan code: the names the keyboard's
+/// layout gives them, which `WinMain` takes from Windows as it starts (`key_names_rename`,
+/// `0x004BCF70`) for every binding and every entry of `key_names`, and the loaders again for each
+/// binding they read (`0x0042CA26`, `0x0042CCB2`). The platform names them (`set`); until it does,
+/// they are the executable's own (`controls.keys`).
+pub const KeyNames = struct {
+    names: [256]Name = english,
+
+    /// A name in the game's code page, as long as `key_name_get` (`0x004BCFF0`) keeps one.
+    pub const Name = struct {
+        bytes: [room]u8 = undefined,
+        len: u8 = 0,
+
+        /// `text`, already in the game's code page, cut to the room.
+        fn of(text: []const u8) Name {
+            var name: Name = .{ .len = @intCast(@min(text.len, room)) };
+            @memcpy(name.bytes[0..name.len], text[0..name.len]);
+            return name;
+        }
+    };
+
+    /// The most bytes a name keeps: `key_name_get` tells `GetKeyNameTextA` one byte less than the
+    /// 0x1D `WinMain` gives each name, and the terminator takes another.
+    pub const room = 0x1D - 2;
+
+    /// What a key the layout has no name for is called (`0x0050E1B4`).
+    pub const unknown = "Unknown";
+
+    /// The executable's names, and `unknown` for every key it names none.
+    const english: [256]Name = names: {
+        var table: [256]Name = @splat(.of(unknown));
+        for (controls.keys) |key| table[key.code] = .of(key.name);
+        break :names table;
+    };
+
+    /// The name of the key of scan code `code`; `unknown` past the codes.
+    pub fn of(names: *const KeyNames, code: u16) []const u8 {
+        if (code >= names.names.len) return unknown;
+        const name = &names.names[code];
+        return name.bytes[0..name.len];
+    }
+
+    /// Names the key of scan code `code` `text`, UTF-8 as the platform gives a name, in the game's
+    /// code page (`language.encode`) and cut to the room; `unknown` for an empty name, as
+    /// `key_name_get` names a key Windows has no name for.
+    pub fn set(names: *KeyNames, code: u8, text: []const u8) void {
+        var buffer: [room]u8 = undefined;
+        const encoded = language.encode(&buffer, text);
+        names.names[code] = .of(if (encoded.len == 0) unknown else encoded);
     }
 };
 
@@ -756,6 +810,8 @@ pub const Devices = struct {
     /// (`game.interface.keyConfigDefaults`); none where the folder has none, which leaves the
     /// executable's own.
     defaults_file: ?profile.Profile = null,
+    /// The keys' names as the keyboard's layout gives them, which the controls screens show.
+    key_names: KeyNames = .{},
 
     /// What the player steers with: the controller chosen, but the keyboard while the joystick
     /// chosen is not attached, as `load_key_config` has it (`0x0042C8A5`).
@@ -1033,6 +1089,23 @@ test "Devices.active with the joystick's buttons" {
     devices.read();
     devices.keyboard.down[controls.binding(.fire_lasers).key] = true;
     try std.testing.expect(devices.active(.fire_lasers, false));
+}
+
+test KeyNames {
+    var names: KeyNames = .{};
+    // The executable's names until the platform's, and Unknown for a key it names none.
+    try std.testing.expectEqualStrings("SPACE", names.of(0x39));
+    try std.testing.expectEqualStrings(KeyNames.unknown, names.of(250));
+    try std.testing.expectEqualStrings(KeyNames.unknown, names.of(0x139));
+    // The layout's, in the game's code page and cut to the room; Unknown for none.
+    names.set(0x10, "A");
+    try std.testing.expectEqualStrings("A", names.of(0x10));
+    names.set(0x1A, "\u{DC}");
+    try std.testing.expectEqualStrings("\xDC", names.of(0x1A));
+    names.set(0x39, "");
+    try std.testing.expectEqualStrings(KeyNames.unknown, names.of(0x39));
+    names.set(0x1C, "Keypad Enter, the one on the right");
+    try std.testing.expectEqual(KeyNames.room, names.of(0x1C).len);
 }
 
 test defaultBindings {

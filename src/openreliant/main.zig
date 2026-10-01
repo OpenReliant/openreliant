@@ -233,6 +233,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .budget = options.draw_budget.limit(),
     };
     var devices: engine.input.Devices = .{};
+    // As `WinMain` starts, the keys named as the keyboard's layout names them (`key_names_rename`,
+    // `0x004A8F82`).
+    platform.keyboard.nameKeys(&devices.key_names);
     // `default.txt`, the bindings `key_config_defaults` starts from, a mod's in its place; without
     // it, the executable's own.
     devices.defaults_file = if (readGameFile(io, arena, directory, &mods, game.interface.defaults_name)) |text| .{ .text = text } else |err| none: {
@@ -612,6 +615,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             },
             .typed => |character| if (options.screenshot == null) typed.push(game.language.fromUnicode(character)),
             .controllers => if (options.screenshot == null) connectController(arena, &devices, &controller, settings_file.profile),
+            // **Improvement:** the keys named again as the layout changes, where the game names
+            // them once, as it starts.
+            .keymap => platform.keyboard.nameKeys(&devices.key_names),
             .active => |active| app.active = active or frames_left != null,
             .pointer => |pointer| if (options.screenshot == null) {
                 devices.mouse.at = pointer.at;

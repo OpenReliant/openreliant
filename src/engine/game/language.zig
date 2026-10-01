@@ -59,6 +59,20 @@ pub fn fromUnicode(character: u21) u8 {
     return codePage1252(std.math.cast(u16, character) orelse return '?');
 }
 
+/// `text`, UTF-8, in the game's code page, 1252 (`fromUnicode`), as much of it as `buffer` holds;
+/// empty where it isn't UTF-8.
+pub fn encode(buffer: []u8, text: []const u8) []u8 {
+    const view = std.unicode.Utf8View.init(text) catch return buffer[0..0];
+    var points = view.iterator();
+    var length: usize = 0;
+    while (points.nextCodepoint()) |point| {
+        if (length == buffer.len) break;
+        buffer[length] = fromUnicode(point);
+        length += 1;
+    }
+    return buffer[0..length];
+}
+
 /// The character the game's code page, 1252, holds at `byte` (`codePage1252`): `byte` itself below
 /// `0x80` and from `0xA0`, and the page's own between.
 pub fn toUnicode(byte: u8) u21 {
@@ -134,6 +148,14 @@ test fromUnicode {
     try std.testing.expectEqual(0xE9, fromUnicode(0xE9));
     try std.testing.expectEqual(0x80, fromUnicode(0x20AC));
     try std.testing.expectEqual('?', fromUnicode(0x1F600));
+}
+
+test encode {
+    var buffer: [4]u8 = undefined;
+    try std.testing.expectEqualStrings("A\xE9?", encode(&buffer, "A\u{E9}\u{416}"));
+    // Cut to the buffer, and nothing where it isn't UTF-8.
+    try std.testing.expectEqualStrings("Page", encode(&buffer, "Page Up"));
+    try std.testing.expectEqualStrings("", encode(&buffer, "\xFF"));
 }
 
 test toUnicode {

@@ -112,6 +112,34 @@ COUNTERMEASURES has joystick button 6 besides H.
 executable's table, its buttons too, where the game leaves every action without a button. A mod's
 `default.txt` stands in for the game's, and a gamepad keeps the buttons of its own layout.
 
+### Key names
+
+`key_names` (`0x004E5CD0`) holds the 89 keys the controls screens bind, each a scan code and a
+name, 0x24 bytes. The executable names them in English, in capitals, but the screens show the
+names the keyboard's layout gives them: as `WinMain` starts (`0x004A8F82`), `key_names_rename`
+(`0x004BCF70`) renames every binding and every entry of `key_names` through `key_name_get`
+(`0x004BCFF0`), and the loaders rename each binding they read a key for (`0x0042CA26`,
+`0x0042CCB2`). `key_name_get` asks Windows (`GetKeyNameTextA`) for the name of the scan code, set
+in bits 16 to 23 with the extended flag, bit 24, for a code past `0x80`, in 0x1D bytes, or 0x1E for
+`load_key_config`'s, terminator included, and names a key Windows has no name for `Unknown`. A
+binding without a key keeps no name (`0x0042CA2B`), and the controls screens write nothing for it.
+So the scan code `0x10` is Q on a US keyboard and A on a French one. `default.txt` names its keys
+by the executable's names all the same ([The defaults](#the-defaults)).
+
+`key_names_rename` also lowers each of `typing_characters` (`0x00501440`), the letters, the space,
+the period, the comma and the figures, to the first character of its key's name in the layout
+(`typing_scan_codes`, `0x00501418`), the space aside. Nothing else reads the table.
+
+OpenReliant names the keys through SDL ([`platform/keyboard.zig`](../../src/platform/keyboard.zig),
+`nameKeys`): for each scan code, the key SDL gives it in the layout (`SDL_GetKeyFromScancode`) and
+that key's name (`SDL_GetKeyName`), the character it types, in capitals, for a key that types one,
+and else the key's own English name, such as `Return`, `PageUp` or `Keypad 9`. A name is put in the
+game's code page and cut to 27 bytes (`input.KeyNames`). The controls list and a conflict's question
+write them.
+
+**Improvement:** OpenReliant names the keys again as the keyboard's layout changes. The game names
+them once, as it starts.
+
 ## Whether an action is active
 
 `control_active` (`0x00412630`) takes an action and a flag, `once`. Without `once` an action counts

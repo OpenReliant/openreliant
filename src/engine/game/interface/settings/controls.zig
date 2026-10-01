@@ -561,7 +561,7 @@ pub const Controls = struct {
         if (tab.conflict) |conflict| {
             var buffer: [256]u8 = undefined;
             var asked = conflict.question;
-            asked.message = .{ .words = question(&buffer, conflict, canvas.strings, &devices.bindings) };
+            asked.message = .{ .words = question(&buffer, conflict, canvas.strings, devices) };
             try asked.draw(canvas, dialog_art);
         }
     }
@@ -590,7 +590,7 @@ pub const Controls = struct {
             const binding = devices.bindings.get(action);
             try canvas.string(small, .{ name_x, y }, binding.string, colour, .left);
             var buffer: [96]u8 = undefined;
-            const shown = bindingText(&buffer, binding, canvas.strings);
+            const shown = bindingText(&buffer, binding, canvas.strings, &devices.key_names);
             if (shown.len != 0) {
                 try canvas.text(small, .{ binding_x, y }, shown, colour, .left);
             } else if (waiting) {
@@ -620,38 +620,21 @@ fn joystickLabel(buffer: []u8, joystick: *const input.Joystick, strings: *const 
     }
 }
 
-/// `text`, UTF-8, in capitals, in the game's code page (`language.fromUnicode`), as much of it as
+/// `text`, UTF-8, in capitals, in the game's code page (`language.encode`), as much of it as
 /// `buffer` holds; empty where it isn't UTF-8.
 fn capitals(buffer: []u8, text: []const u8) []const u8 {
-    const view = std.unicode.Utf8View.init(text) catch return "";
-    var points = view.iterator();
-    var length: usize = 0;
-    while (points.nextCodepoint()) |point| {
-        if (length == buffer.len) break;
-        buffer[length] = std.ascii.toUpper(language.fromUnicode(point));
-        length += 1;
-    }
-    return buffer[0..length];
+    const encoded = language.encode(buffer, text);
+    for (encoded) |*character| character.* = std.ascii.toUpper(character.*);
+    return encoded;
 }
 
-/// The name of the key of scan code `code`, as `key_names` gives it; null for none, and for a key
-/// it doesn't name, which only a file written by hand can bind.
-///
-/// Not ported: `WinMain` renames the keys by the names the keyboard's layout gives them
-/// (`0x004BCF70`), which the game shows
-/// ([#489](https://github.com/vdmkenny/openreliant/issues/489)).
-fn keyName(code: u16) ?[]const u8 {
-    for (controls.keys) |key| if (key.code == code) return key.name;
-    return null;
-}
-
-/// A binding as the list writes it (`0x0042D214` on): SHIFT + K, CONTROL + K or K, then AND JOY n
-/// for a button, n as the file numbers it; empty for none. Alt isn't written. A key `key_names`
-/// doesn't name is written by its scan code.
-fn bindingText(buffer: []u8, binding: Binding, strings: *const language.Language) []const u8 {
+/// A binding as the list writes it (`0x0042D214` on): SHIFT + K, CONTROL + K or K, the key by its
+/// name in `names`, then AND JOY n for a button, n as the file numbers it; empty for none. Alt
+/// isn't written. A binding without a key has no name, as the loaders leave it none
+/// (`0x0042CA2B`).
+fn bindingText(buffer: []u8, binding: Binding, strings: *const language.Language, names: *const input.KeyNames) []const u8 {
     var writer: std.Io.Writer = .fixed(buffer);
-    var key: [8]u8 = undefined;
-    const name = keyName(binding.key) orelse if (binding.key == 0) "" else std.fmt.bufPrint(&key, "{d}", .{binding.key}) catch "";
+    const name = if (binding.key == 0) "" else names.of(binding.key);
     const modifier: ?u32 = switch (binding.modifier) {
         .shift => shift_string,
         .control => control_string,
@@ -669,13 +652,14 @@ fn bindingText(buffer: []u8, binding: Binding, strings: *const language.Language
     return writer.buffered();
 }
 
-/// The conflict's question (`0x0042C143` on, `0x0042C3E0` on): what was taken, in quotes, then
-/// This Key is already assigned to, the action that holds it, and Redefine Anyway?, a line each.
-fn question(buffer: []u8, conflict: Conflict, strings: *const language.Language, bindings: *const input.Bindings) []const u8 {
+/// The conflict's question (`0x0042C143` on, `0x0042C3E0` on): what was taken, in quotes, the key
+/// by its name in `key_names`, then This Key is already assigned to, the action that holds it, and
+/// Redefine Anyway?, a line each.
+fn question(buffer: []u8, conflict: Conflict, strings: *const language.Language, devices: *const input.Devices) []const u8 {
     var writer: std.Io.Writer = .fixed(buffer);
     switch (conflict.taken) {
         .key => |key| {
-            const name = controls.keys[key.index].name;
+            const name = devices.key_names.of(controls.keys[key.index].code);
             const modifier: ?u32 = switch (key.modifier) {
                 .shift => shift_string,
                 .control => question_control_string,
@@ -689,7 +673,7 @@ fn question(buffer: []u8, conflict: Conflict, strings: *const language.Language,
         },
         .button => |button| writer.print("\"{s} {d}\"", .{ strings.string(joy_string) orelse "", button }) catch {},
     }
-    const holder = strings.string(bindings.get(conflict.holder).string) orelse "";
+    const holder = strings.string(devices.bindings.get(conflict.holder).string) orelse "";
     writer.print("\n{s} {s}\n{s}", .{ strings.string(assigned_string) orelse "", holder, strings.string(anyway_string) orelse "" }) catch {};
     return writer.buffered();
 }
@@ -779,7 +763,7 @@ test "a key another action holds asks, and YES takes it from that action" {
     // Its words: the key, whose action holds it, and the question.
     const strings: language.Language = .{ .strings = &.{} };
     var buffer: [128]u8 = undefined;
-    try std.testing.expectEqualStrings("\"K\"\n \n", question(&buffer, conflict, &strings, &devices.bindings));
+    try std.testing.expectEqualStrings("\"K\"\n \n", question(&buffer, conflict, &strings, devices));
     // The question takes the frames until it is answered: NO puts the old binding back.
     try std.testing.expect(fixture.tab.busy(fixture.context(.{ .at = .{ 340, 275 }, .down = true }), false));
     try std.testing.expect(fixture.tab.busy(fixture.context(.{ .at = .{ 340, 275 } }), false));
@@ -936,11 +920,15 @@ test joystickLabel {
 
 test bindingText {
     const strings: language.Language = .{ .strings = &.{} };
+    var names: input.KeyNames = .{};
     var buffer: [64]u8 = undefined;
     const fire = controls.binding(.fire_lasers);
     // Without the game's strings, the key's name, then the button.
-    try std.testing.expectEqualStrings("SPACE 0", bindingText(&buffer, fire, &strings));
-    try std.testing.expectEqualStrings(" + E", bindingText(&buffer, controls.binding(.previous_enemy_target), &strings));
-    try std.testing.expectEqualStrings("", bindingText(&buffer, .{ .name = "", .string = 0, .key = 0, .modifier = .none, .button = null }, &strings));
-    try std.testing.expectEqualStrings("250", bindingText(&buffer, .{ .name = "", .string = 0, .key = 250, .modifier = .none, .button = null }, &strings));
+    try std.testing.expectEqualStrings("SPACE 0", bindingText(&buffer, fire, &strings, &names));
+    try std.testing.expectEqualStrings(" + E", bindingText(&buffer, controls.binding(.previous_enemy_target), &strings, &names));
+    try std.testing.expectEqualStrings("", bindingText(&buffer, .{ .name = "", .string = 0, .key = 0, .modifier = .none, .button = null }, &strings, &names));
+    try std.testing.expectEqualStrings("Unknown", bindingText(&buffer, .{ .name = "", .string = 0, .key = 250, .modifier = .none, .button = null }, &strings, &names));
+    // A key by the name the keyboard's layout gives it.
+    names.set(0x39, "Leertaste");
+    try std.testing.expectEqualStrings("Leertaste 0", bindingText(&buffer, fire, &strings, &names));
 }

@@ -2241,6 +2241,10 @@ address	kind	name	type	comment
 0042a620	function	game_options	int (void)	Screen 1, GAME OPTIONS: AUDIO, CONTROL DEVICES and VIDEO by their icons, MAIN MENU, QUIT and ABOUT STARLANCER, over interface\main2opt.tga
 0042afb0	function	game_options_draw	void (void)	GAME OPTIONS' render hook: the buttons, the item under the pointer lit (roster_item), the title and the labels, ABOUT STARLANCER's box, the dialogs and the pointer
 004e6958	data	key_names_english	byte[3204]	key_config_defaults' copy of key_names, by the executable's English names, which default.txt names the keys by
+004bcf70	function	key_names_rename	void (void)	Renames every binding and every entry of key_names by the names the keyboard's layout gives them (key_name_get), and each of typing_characters but the space by what its key types; WinMain calls it as it starts
+004bcff0	function	key_name_get	bool __fastcall (int code, char *name, int size)	The name the keyboard's layout gives the key of DirectInput scan code code, by GetKeyNameTextA, its extended flag set past 0x80, in size bytes; Unknown and false where Windows has none
+00501418	data	typing_scan_codes	byte[39]	The scan codes of typing_characters' keys: A to Z, the space bar, the period, the comma and 1 to 0
+00501440	data	typing_characters	char[40]	abcdefghijklmnopqrstuvwxyz .,1234567890, which key_names_rename lowers to what each key types in the layout, the space aside; nothing else reads it
 0042e9b0	function	video_screen	int (void)	Screen 15, the video settings, which GAME OPTIONS and the in-game options' VIDEO open
 00431730	function	saved_games	int (void)	Screen 13, the saved games, which LOAD GAME and the in-game options' SAVE and LOAD open: to save to while 0x0051D5F4 is set, else to load from
 0051d478	data	vr_view	VrView *	The view the player is in, or on the way into
