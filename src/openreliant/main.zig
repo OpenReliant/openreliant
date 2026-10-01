@@ -236,6 +236,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory });
     defer sound.shutdown();
     sound.volumes = .read(settings_file.profile);
+    // OpenReliant's own options as the settings screen shows and changes them.
+    var own: settings_module.Own = .{ .settings_file = settings_file, .output = output, .sound = options.sound };
     // What `WinMain` reads from `[Device]`: the options' cockpit setting, the brightness, and
     // whether the transitions play.
     const device_settings: game.winmain.Device = .read(settings_file.profile);
@@ -451,6 +453,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             .stdsmp = stdsmp,
             .camera = &view,
             .brightness = &brightness,
+            .own = own.interface(),
         },
     };
     world.display = &display.state;
@@ -512,6 +515,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .sound = sound,
         .bank = stdsmp,
         .settings = settings_file,
+        .own = own.interface(),
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
     };
     // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
@@ -624,6 +628,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     .saves = saving.folder,
                     .local_time = localDate,
                     .settings_file = settings_file,
+                    .own = own.interface(),
                 };
             }
             front_context.resources = &front_resources.?;
@@ -792,7 +797,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             // The screen a transition's movie or a mission's end has just led to entered before
             // its first frame is drawn, as each of the game's screens enters before its loop.
             front.enterShown(front_context);
-            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .devices = &devices };
+            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound } };
             scene.clear();
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
@@ -1188,8 +1193,9 @@ const FrontEndDisplay = struct {
     target: srd3d.device.Device,
     window: [2]u32,
     strings: *const game.language.Language,
-    /// The devices whose settings and bindings the settings screen shows.
-    devices: *const engine.input.Devices,
+    /// What the settings screen shows the state of: the devices' settings and bindings, and the
+    /// sound's volumes.
+    settings: game.interface.settings.Shown,
 
     fn overlay(shown: *FrontEndDisplay) srcore.Overlay {
         return .{ .context = shown, .draw = draw };
@@ -1197,7 +1203,7 @@ const FrontEndDisplay = struct {
 
     fn draw(context: *anyopaque) Allocator.Error!void {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
-        return drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.devices, version.string));
+        return drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string));
     }
 };
 

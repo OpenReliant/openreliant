@@ -1,4 +1,4 @@
-//! The pause menu's screens: the main one, and the audio and video settings. Each is its items and
+//! The pause menu's screens: the main one, and the video settings. Each is its items and
 //! what choosing them does; a settings screen also keeps what it opened with for CANCEL CHANGES,
 //! and saves as it is left. [`pause-menu.md`](../../../../docs/engine/pause-menu.md#screens)
 //! describes them.
@@ -92,131 +92,6 @@ pub const Main = struct {
             };
         }
         return if (context.escaped) .{ .outcome = .continue_mission } else null;
-    }
-};
-
-/// Pause screen 3, `pause_screen_audio` (`0x0048EC70`): SOUND CONFIGURATION, the four volumes,
-/// each dragged along its slider.
-pub const Audio = struct {
-    /// The volumes as the screen opened, which CANCEL CHANGES puts back (`audio_saved_speech`,
-    /// `_effects`, `_music`, `_master`).
-    kept: Volumes = .{},
-    /// The knob the pointer holds (`drag_speech`, `_effects`, `_music`, `_master`).
-    held: ?Volume = null,
-    /// Whether it held the effects' knob in the last frame (`drag_effects_last`), whose letting go
-    /// tries the volume.
-    held_effects: bool = false,
-
-    const Volume = std.meta.FieldEnum(Volumes);
-
-    const sliders: std.EnumArray(Volume, Slider) = .init(.{
-        .effects = slider(-30, .sound_effects_volume),
-        .music = slider(30, .music_volume),
-        .speech = slider(-90, .speech_volume),
-        .master = slider(90, .master_volume),
-    });
-
-    fn slider(down: i32, label: menu.String) Slider {
-        return .{ .down = down, .label = label, .low = 0, .high = hog_snd.loudest };
-    }
-
-    /// The order `sound_settings_save` writes the volumes in.
-    const saved = [_]Volume{ .effects, .music, .speech, .master };
-
-    const Choice = enum {
-        ok,
-        restart,
-        continue_game,
-        reset_defaults,
-        effects_track,
-        effects_knob,
-        music_track,
-        music_knob,
-        speech_track,
-        speech_knob,
-        master_track,
-        master_knob,
-        cancel_changes,
-    };
-
-    /// The sound `stdsmp.fat` plays, once, in the middle, at its own pitch, to try the effects'
-    /// volume.
-    const test_sound = 14;
-
-    /// `pause_audio_enter` (`0x0048EC20`).
-    pub fn enter(audio: *Audio, settings: Settings) void {
-        audio.* = .{ .kept = settings.sound.volumes };
-    }
-
-    /// First the knob held follows the pointer, or, with no button down, is let go of; then the
-    /// items, and what was chosen. A knob chosen is held from the next frame. OK and Escape go
-    /// back to the main screen.
-    pub fn frame(audio: *Audio, context: Context) Error!?Next {
-        const sound = context.settings.sound;
-        const volumes = &sound.volumes;
-        if (!context.pointer.down) {
-            audio.held = null;
-            // **Fix.** The game tries it at what the pointer's place works out to, which is past
-            // the range with the pointer past the track's end; OpenReliant at the volume set.
-            if (audio.held_effects) _ = sound.play(context.settings.stdsmp, test_sound, volumes.effects, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
-        } else if (audio.held) |volume| {
-            level(volumes, volume).* = menu.round(sliders.get(volume).valueAt(context.ui, context.pointer.at[0]));
-            sound.applyVolumes();
-        }
-        audio.held_effects = audio.held == .effects;
-
-        const items: std.EnumArray(Choice, Item) = .init(.{
-            .ok = buttons.ok,
-            .restart = buttons.restart,
-            .continue_game = buttons.continue_game,
-            .reset_defaults = buttons.reset_defaults,
-            .effects_track = sliders.get(.effects).track(),
-            .effects_knob = knob(volumes, .effects),
-            .music_track = sliders.get(.music).track(),
-            .music_knob = knob(volumes, .music),
-            .speech_track = sliders.get(.speech).track(),
-            .speech_knob = knob(volumes, .speech),
-            .master_track = sliders.get(.master).track(),
-            .master_knob = knob(volumes, .master),
-            .cancel_changes = buttons.cancel_changes,
-        });
-        const chosen = try choose(Choice, &items, .sound_configuration, context);
-        if (chosen) |choice| {
-            if (Leave.of(choice)) |way| return way.next();
-            switch (choice) {
-                .reset_defaults => setVolumes(sound, .{}),
-                .cancel_changes => setVolumes(sound, audio.kept),
-                .effects_knob => audio.held = .effects,
-                .music_knob => audio.held = .music,
-                .speech_knob => audio.held = .speech,
-                .master_knob => audio.held = .master,
-                else => {},
-            }
-        }
-        return if (context.escaped) .{ .screen = .main } else null;
-    }
-
-    /// `sound_settings_save` (`0x0048F160`), as the screen is left: the volumes to `[Sound]`.
-    pub fn leave(_: *Audio, settings: Settings) Allocator.Error!void {
-        for (saved) |volume| {
-            try settings.file.writeInt(Volumes.section, Volumes.keys.get(volume), level(&settings.sound.volumes, volume).*);
-        }
-    }
-
-    /// The knob of `volume`'s slider, where the volume puts it.
-    fn knob(volumes: *Volumes, volume: Volume) Item {
-        return sliders.get(volume).knob(@floatFromInt(level(volumes, volume).*));
-    }
-
-    fn level(volumes: *Volumes, volume: Volume) *i32 {
-        return switch (volume) {
-            inline else => |named| &@field(volumes, @tagName(named)),
-        };
-    }
-
-    fn setVolumes(sound: *hog_snd.Sound, volumes: Volumes) void {
-        sound.volumes = volumes;
-        sound.applyVolumes();
     }
 };
 
@@ -356,11 +231,6 @@ test "the screens' items as the game's tables have them" {
     try std.testing.expectEqual([2]f32{ 0.25, 0.5 }, audio_icon.anchor);
     try std.testing.expectEqual(menu.Shape.speaker_lit, audio_icon.lit);
     try std.testing.expectEqual([2]i32{ 0, 65 }, audio_icon.text_offset);
-    // The audio screen's master volume row (`audio_menu_items`, `0x00502940`, items 10 and 11).
-    const master = Audio.sliders.get(.master);
-    try std.testing.expectEqual([2]i32{ 16, 90 }, master.track().offset);
-    try std.testing.expectEqual(menu.Place.Edge.start, master.track().place.across);
-    try std.testing.expectEqual([2]i32{ -32, -6 }, master.track().text_offset);
     // The video screen's arrows (`video_menu_items`, `0x00502BB0`, items 6 to 9).
     const arrows = Video.view.items(.chase_view);
     try std.testing.expectEqual([2]i32{ -33, 30 }, arrows.get(.back).offset);

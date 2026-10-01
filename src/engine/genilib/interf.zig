@@ -181,6 +181,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
     return switch (screen) {
         .main_menu => .{ .shapes = main_menu.shapes_name, .background = main_menu.background_name },
         .game_options => .{ .shapes = game_options.shapes_name, .background = game_options.background_name },
+        .audio => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .audio).?.background },
         .controls => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .controls).?.background },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
         .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
@@ -206,6 +207,8 @@ pub const Context = struct {
     /// `starlancer.ini`, which keeps the roster's call signs and the settings; none leaves them
     /// unsaved, and the settings screen shut.
     settings: ?*profile.File = null,
+    /// OpenReliant's own options, which the settings screen shows; none shows them as they come.
+    own: ?settings.Own = null,
     /// The saved games LOAD GAME lists, and the game it loads into; none leaves LOAD GAME on the
     /// roster.
     saves: ?saved_games.Saves = null,
@@ -238,8 +241,8 @@ pub const Interface = struct {
     /// pointer brought up to date (`interface_pointer_update`), then the screen's frame. Returns
     /// what the front end ends in, once it does.
     ///
-    /// Not ported: MULTI PLAYER's screens, and GAME OPTIONS' audio and video (#43 lists them).
-    /// Until they are, MULTI PLAYER, AUDIO and VIDEO stay on their screen, without their movies.
+    /// Not ported: MULTI PLAYER's screens, and GAME OPTIONS' video (#43 lists them). Until they
+    /// are, MULTI PLAYER and VIDEO stay on their screen, without their movies.
     ///
     /// **Fix:** a screen takes no press until the button held as it was entered comes up. The
     /// movie between two screens gives the press that chose the second time to end; where the
@@ -288,14 +291,15 @@ pub const Interface = struct {
                         front.movie = game_options.to_main_menu;
                     },
                     .quit => return .quit,
-                    .control_devices => if (context.settings != null) {
-                        front.screen = .controls;
-                        front.movie = settings.opening(.game_options, .controls).?.movie;
+                    inline .audio, .control_devices => |icon| if (context.settings != null) {
+                        const tab: settings.Tab = if (icon == .audio) .audio else .controls;
+                        front.screen = screenOf(tab);
+                        front.movie = settings.opening(.game_options, tab).?.movie;
                     },
                 }
                 return null;
             },
-            .controls => {
+            .audio, .controls => {
                 const settings_file = context.settings orelse {
                     front.screen = .game_options;
                     return null;
@@ -377,6 +381,7 @@ pub const Interface = struct {
         switch (front.screen) {
             .main_menu => front.main_menu.enter(&front.pointer, context.sound),
             .game_options => front.game_options = .{},
+            .audio => if (context.settings) |settings_file| front.settings.enter(.game_options, .audio, settingsContext(front, context, settings_file, front.pointer)),
             .controls => if (context.settings) |settings_file| front.settings.enter(.game_options, .controls, settingsContext(front, context, settings_file, front.pointer)),
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
             .saved_games => if (context.saves) |saves| front.saved_games.enter(.load, .roster, savesContext(front, context, saves, front.pointer)),
@@ -412,9 +417,9 @@ pub const Interface = struct {
     }
 
     /// The front end's frame as its render hook draws it (`sr + 0x88`): the background behind all,
-    /// then the shown screen, the settings screen's of `devices`, with OpenReliant's `version` in
-    /// the window's corner where there is one (`canvas.Canvas.drawVersion`).
-    pub fn draw(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language, devices: *const input.Devices, version: ?[]const u8) canvas.Error!void {
+    /// then the shown screen, the settings screen's of `shown`, with OpenReliant's `version` in the
+    /// window's corner where there is one (`canvas.Canvas.drawVersion`).
+    pub fn draw(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language, shown: settings.Shown, version: ?[]const u8) canvas.Error!void {
         const drawn: canvas.Canvas = .{
             .gpa = resources.gpa,
             .target = target,
@@ -423,12 +428,12 @@ pub const Interface = struct {
             .strings = strings,
             .version = version,
         };
-        if (resources.background.image) |*shown| drawn.image(shown, .{ 0, 0 });
+        if (resources.background.image) |*picture| drawn.image(picture, .{ 0, 0 });
         const art = if (resources.shapes) |*shapes| shapes else return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about, front.pointer),
-            .controls => try front.settings.draw(drawn, art, &resources.dialog, devices, front.pointer),
+            .audio, .controls => try front.settings.draw(drawn, art, &resources.dialog, shown, front.pointer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
             .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
             else => {},
@@ -438,7 +443,15 @@ pub const Interface = struct {
 
 /// What a pass of the settings screen reads, with the pointer at `pointer`.
 fn settingsContext(front: *const Interface, context: Context, settings_file: *profile.File, pointer: canvas.Pointer) settings.Context {
-    return .{ .pointer = pointer, .devices = context.devices, .settings_file = settings_file, .ticks = front.ticks };
+    return .{ .pointer = pointer, .devices = context.devices, .settings_file = settings_file, .ticks = front.ticks, .sound = context.sound, .own = context.own };
+}
+
+/// The screen of the settings screen's `tab`, the game's screen for it.
+fn screenOf(tab: settings.Tab) Screen {
+    return switch (tab) {
+        .audio => .audio,
+        .controls => .controls,
+    };
 }
 
 /// What a pass of the saved games reads, with the pointer at `pointer`.

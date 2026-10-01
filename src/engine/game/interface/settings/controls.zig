@@ -28,6 +28,7 @@ const Arrow = canvas_module.Arrow;
 const dialog = @import("../dialog.zig");
 const settings = @import("../settings.zig");
 const Context = settings.Context;
+const Box = settings.Box;
 
 /// The rows the list shows at once (`0x0042B665`, `0x0042D177`).
 pub const rows = 12;
@@ -94,16 +95,6 @@ const arrow_shapes = std.EnumArray(Arrow, struct { off: usize, lit: usize, y: i3
     .up = .{ .off = 0x1E, .lit = 0x20, .y = 136 },
     .down = .{ .off = 0x1F, .lit = 0x21, .y = 156 },
 });
-
-/// The boxes of the check boxes and the controllers, and the tick in the one set, three pixels in
-/// (`0x0042D75E` on, `0x0042D96C` on); and a box's size, where a click finds it.
-const box_shape = 0x1A;
-const tick_shape = 0x1B;
-const tick_offset = 3;
-const box_size = 16;
-
-/// What an item that can't be used is dimmed to, its label and its box (`0x0042CE4C`).
-const dimmed = 0.5;
 
 /// The check boxes, top to bottom: their box at x 349, their label at x 367.
 pub const Check = enum {
@@ -182,7 +173,7 @@ pub const Check = enum {
     }
 
     fn rect(check: Check) Rect {
-        return .{ .x = hit_x, .y = @intCast(check.y()), .width = box_size, .height = box_size };
+        return .{ .x = hit_x, .y = @intCast(check.y()), .width = Box.size, .height = Box.size };
     }
 };
 
@@ -236,7 +227,7 @@ pub const Controller = enum {
     }
 
     fn rect(controller: Controller) Rect {
-        return .{ .x = box_x, .y = @intCast(controller.y()), .width = box_size, .height = box_size };
+        return .{ .x = box_x, .y = @intCast(controller.y()), .width = Box.size, .height = Box.size };
     }
 };
 
@@ -543,22 +534,20 @@ pub const Controls = struct {
             var label = controller.label();
             var buffer: [96]u8 = undefined;
             if (controller == .joystick) label.text = .{ .words = joystickLabel(&buffer, &devices.joystick, canvas.strings, small) };
-            try label.write(dimmedUnless(canvas, controller.usable(devices)), small, blue);
+            const shown = canvas.dimmedUnless(controller.usable(devices));
+            try label.write(shown, small, blue);
+            try Box.draw(shown, art, .{ Controller.box_x, controller.y() }, devices.settings.control_mode == controller.mode());
         }
-        for (std.enums.values(Check)) |check| try check.label().write(dimmedUnless(canvas, check.usable(devices)), small, blue);
+        for (std.enums.values(Check)) |check| {
+            const shown = canvas.dimmedUnless(check.usable(devices));
+            try check.label().write(shown, small, blue);
+            try Box.draw(shown, art, .{ Check.box_x, check.y() }, check.ticked(devices));
+        }
         try tab.drawList(canvas, devices);
-        for (std.enums.values(Check)) |check| try dimmedUnless(canvas, check.usable(devices)).shape(art, box_shape, .{ Check.box_x, check.y() });
-        for (std.enums.values(Controller)) |controller| try dimmedUnless(canvas, controller.usable(devices)).shape(art, box_shape, .{ Controller.box_x, controller.y() });
         for (std.enums.values(Arrow)) |arrow| {
             const shapes = arrow_shapes.get(arrow);
             try canvas.shape(art, shapes.off, .{ arrow_x, shapes.y });
             if (tab.arrow == arrow) try canvas.shape(art, shapes.lit, .{ arrow_x, shapes.y });
-        }
-        for (std.enums.values(Check)) |check| {
-            if (check.ticked(devices)) try canvas.shape(art, tick_shape, .{ Check.box_x + tick_offset, check.y() + tick_offset });
-        }
-        for (std.enums.values(Controller)) |controller| {
-            if (devices.settings.control_mode == controller.mode()) try canvas.shape(art, tick_shape, .{ Controller.box_x + tick_offset, controller.y() + tick_offset });
         }
         if (tab.conflict) |conflict| {
             var buffer: [256]u8 = undefined;
@@ -603,14 +592,6 @@ pub const Controls = struct {
         }
     }
 };
-
-/// The canvas dimmed where `usable` is false, as the game dims what can't be used
-/// (`palette_ramp_brightness` 0.5).
-fn dimmedUnless(canvas: Canvas, usable: bool) Canvas {
-    var shown = canvas;
-    if (!usable) shown.brightness = dimmed;
-    return shown;
-}
 
 /// JOYSTICK's label, followed by the joystick's name where there is one, in capitals, cut short
 /// with "..." where it would reach the check boxes.

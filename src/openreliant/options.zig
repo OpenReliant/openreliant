@@ -397,12 +397,8 @@ pub const Options = struct {
             },
             .@"--no-compressor" => if (options.sound) |*sound| {
                 // The limiter stays.
-                const master = if (sound.master) |*master| master else master: {
-                    sound.master = .{};
-                    break :master &sound.master.?;
-                };
-                master.ratio = 1;
-                master.makeup = 0;
+                const bus: engine.mss.master.Settings = sound.master orelse .{};
+                sound.master = bus.withoutCompressor();
             },
             .@"--no-sound" => options.sound = null,
             .@"--screenshot" => options.screenshot = value,

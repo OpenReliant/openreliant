@@ -194,12 +194,23 @@ pub const Canvas = struct {
         try hud.drawVersion(canvas.fonts.small, canvas.gpa, canvas.target, canvas.window, shown);
     }
 
+    /// The canvas at half brightness where `usable` is false, as the front end dims what can't be
+    /// used (`palette_ramp_brightness` 0.5).
+    pub fn dimmedUnless(canvas: Canvas, usable: bool) Canvas {
+        var shown = canvas;
+        if (!usable) shown.brightness = dimmed;
+        return shown;
+    }
+
     /// Writes the string of `id` (`language_string`); one the game doesn't have writes nothing.
     pub fn string(canvas: Canvas, font: *hud.Opened, at: [2]i32, id: u32, colour: [3]f32, alignment: hud.Align) Allocator.Error!void {
         const words = canvas.strings.string(id) orelse return;
         try canvas.text(font, at, words, colour, alignment);
     }
 };
+
+/// The brightness what can't be used is dimmed to (`dimmedUnless`).
+pub const dimmed = 0.5;
 
 /// `interface_box`'s colours at a brightness of 1 (`0x004DC6D0`, `0x004DC6CC`; `0x004DC6C8`,
 /// `0x004DC6C4`; `0x004DC6C0`, `0x004DC6BC`), in 255ths: no red, and green and blue.

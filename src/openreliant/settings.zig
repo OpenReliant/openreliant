@@ -1,12 +1,16 @@
 //! OpenReliant's own options in the game's settings file, `starlancer.ini` in the game's folder:
 //! its `[OpenReliant]` section, which the original never reads, a key for each (`read`). The
-//! command line's options change them for the run.
+//! command line's options change them for the run. The settings screen shows them, and changes
+//! them as the game plays (`Own`).
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 const openreliant = @import("openreliant");
 const platform = @import("platform");
-const Profile = openreliant.engine.profile.Profile;
+const engine = openreliant.engine;
+const Profile = engine.profile.Profile;
+const screen = engine.game.interface.settings;
 const options_page = @import("options.zig");
 const Options = options_page.Options;
 
@@ -57,10 +61,15 @@ const keys = [_]Key{
     .{ .name = "CockpitShadows", .takes = on_off, .read = onOff("settings.cockpit_shadows") },
     .{ .name = "SmoothMotion", .takes = on_off, .read = onOff("smooth_motion") },
     .{ .name = "ShotLights", .takes = on_off, .read = shotLights },
-    .{ .name = "Hrtf", .takes = "auto, on or off", .read = hrtf },
-    .{ .name = "Reverb", .takes = on_off, .read = reverb },
-    .{ .name = "Compressor", .takes = on_off, .read = compressor },
+    .{ .name = hrtf_key, .takes = "auto, on or off", .read = hrtf },
+    .{ .name = reverb_key, .takes = on_off, .read = reverb },
+    .{ .name = compressor_key, .takes = on_off, .read = compressor },
 };
+
+/// The keys of the sound's options, which the settings screen writes (`Own`).
+const hrtf_key = "Hrtf";
+const reverb_key = "Reverb";
+const compressor_key = "Compressor";
 
 /// A whole number, nonzero for on.
 fn onOrOff(value: []const u8) error{BadValue}!bool {
@@ -124,11 +133,93 @@ fn reverb(options: *Options, value: []const u8) error{BadValue}!void {
 /// `Compressor`: with 1, the master bus's compressor and limiter as they come; with 0, the limiter
 /// alone (`--no-compressor`).
 fn compressor(options: *Options, value: []const u8) error{BadValue}!void {
-    if (try onOrOff(value)) {
-        if (options.sound) |*sound| sound.master = (platform.audio.Options{}).master;
-    } else {
-        try options.apply(.@"--no-compressor", "");
+    const compressing = try onOrOff(value);
+    if (options.sound) |*sound| sound.master = master(compressing);
+}
+
+/// OpenReliant's own options as the settings screen shows them (`interface.settings.Own`): the
+/// sound's, as the output plays them. A change is written to `[OpenReliant]`, as `read` reads it,
+/// and applied to the output at once.
+pub const Own = struct {
+    settings_file: *engine.profile.File,
+    output: ?*platform.audio.Output,
+    /// The sound's options as the output plays them; none without sound.
+    sound: ?platform.audio.Options,
+
+    pub fn interface(own: *Own) screen.Own {
+        return .{ .context = own, .vtable = &.{ .audio = audio, .setAudio = setAudio } };
     }
+
+    fn audio(context: *anyopaque) screen.Own.Audio {
+        const own: *const Own = @ptrCast(@alignCast(context));
+        return own.shown();
+    }
+
+    fn shown(own: Own) screen.Own.Audio {
+        const sound = own.sound orelse return .{ .hrtf = .off, .reverb = false, .compressor = false, .openal = false };
+        const compressing = if (sound.master) |bus| bus.compresses() else false;
+        return switch (sound.player) {
+            .openal => |openal| .{ .hrtf = shownHrtf(openal.hrtf), .reverb = openal.reverb, .compressor = compressing },
+            .software => .{ .hrtf = .off, .reverb = false, .compressor = compressing, .openal = false },
+        };
+    }
+
+    /// Writes what has changed, and applies it to the output. The HRTF and the reverb are OpenAL
+    /// Soft's, and change only while it plays: written with the software Miles playing, they would
+    /// have the next start play OpenAL Soft, as `--hrtf` after `--original` does.
+    fn setAudio(context: *anyopaque, chosen: screen.Own.Audio) void {
+        const own: *Own = @ptrCast(@alignCast(context));
+        own.change(chosen) catch |err| log.warn("the sound's options are not kept: {s}", .{@errorName(err)});
+    }
+
+    fn change(own: *Own, chosen: screen.Own.Audio) Allocator.Error!void {
+        const sound = &(own.sound orelse return);
+        const file = own.settings_file;
+        switch (sound.player) {
+            .openal => |*openal| {
+                const chosen_hrtf = playedHrtf(chosen.hrtf);
+                if (chosen_hrtf != openal.hrtf) {
+                    try file.write(section, hrtf_key, @tagName(chosen_hrtf));
+                    openal.hrtf = chosen_hrtf;
+                    if (own.output) |output| output.setHrtf(chosen_hrtf);
+                }
+                if (chosen.reverb != openal.reverb) {
+                    try file.writeInt(section, reverb_key, @intFromBool(chosen.reverb));
+                    openal.reverb = chosen.reverb;
+                    if (own.output) |output| output.setReverb(chosen.reverb);
+                }
+            },
+            .software => {},
+        }
+        if (chosen.compressor != own.shown().compressor) {
+            try file.writeInt(section, compressor_key, @intFromBool(chosen.compressor));
+            sound.master = master(chosen.compressor);
+            if (own.output) |output| output.setMaster(sound.master);
+        }
+    }
+};
+
+fn shownHrtf(played: platform.audio.openal.Hrtf) screen.Own.Hrtf {
+    return switch (played) {
+        .auto => .auto,
+        .on => .on,
+        .off => .off,
+    };
+}
+
+fn playedHrtf(chosen: screen.Own.Hrtf) platform.audio.openal.Hrtf {
+    return switch (chosen) {
+        .auto => .auto,
+        .on => .on,
+        .off => .off,
+    };
+}
+
+/// The master bus with the compressor, as it comes, or without it: its limiter alone, as
+/// `--no-compressor` leaves it.
+fn master(compressing: bool) engine.mss.master.Settings {
+    const bus: engine.mss.master.Settings = .{};
+    return if (compressing) bus else bus.withoutCompressor();
 }
 
 /// The options a settings file holding `text` plays with, before the command line's.
@@ -190,6 +281,30 @@ test "the command line changes the settings file's options" {
         else => return error.TestUnexpectedResult,
     };
     try std.testing.expectEqual(.off, retro.settings.shadows);
+}
+
+test Own {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var file: engine.profile.File = .{ .arena = arena.allocator(), .profile = .empty };
+    var own: Own = .{ .settings_file = &file, .output = null, .sound = .{} };
+    const shown = own.interface();
+    try std.testing.expectEqual(screen.Own.Audio{}, shown.audio());
+    // What changes is written, and kept; what doesn't, isn't.
+    shown.setAudio(.{ .hrtf = .on, .reverb = true, .compressor = false });
+    try std.testing.expectEqualStrings("on", file.profile.value(section, hrtf_key).?);
+    try std.testing.expectEqualStrings("0", file.profile.value(section, compressor_key).?);
+    try std.testing.expectEqual(null, file.profile.value(section, reverb_key));
+    try std.testing.expectEqual(screen.Own.Audio{ .hrtf = .on, .compressor = false }, shown.audio());
+    // Read back, they play the same.
+    const read_back = optionsOf(file.profile.text);
+    try std.testing.expectEqual(platform.audio.openal.Hrtf.on, read_back.sound.?.player.openal.hrtf);
+    try std.testing.expect(!read_back.sound.?.master.?.compresses());
+    // With the software Miles, the HRTF is not written, which would have OpenAL Soft play.
+    own.sound = .{ .player = .software, .master = null };
+    shown.setAudio(.{ .hrtf = .auto, .reverb = false, .compressor = true, .openal = false });
+    try std.testing.expectEqualStrings("on", file.profile.value(section, hrtf_key).?);
+    try std.testing.expectEqualStrings("1", file.profile.value(section, compressor_key).?);
 }
 
 test keys {

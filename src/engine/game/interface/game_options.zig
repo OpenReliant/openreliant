@@ -3,8 +3,8 @@
 //! ABOUT STARLANCER, which OpenReliant makes ABOUT OPENRELIANT (`in_game_options.About`). Its
 //! drawing (`game_options_draw`, `0x0042AFB0`) is the render hook it puts in `sr + 0x88`.
 //!
-//! CONTROL DEVICES opens the settings screen on its controls (`settings`). Not ported: AUDIO and
-//! VIDEO, its audio and video ([#206](https://github.com/vdmkenny/openreliant/issues/206));
+//! AUDIO and CONTROL DEVICES open the settings screen on its audio and its controls (`settings`).
+//! Not ported: VIDEO, its video ([#206](https://github.com/vdmkenny/openreliant/issues/206));
 //! OpenReliant stays on the menu.
 
 const std = @import("std");
@@ -79,7 +79,9 @@ pub const Choice = enum {
     main_menu,
     /// QUIT, answered YES.
     quit,
-    /// CONTROL DEVICES: the settings screen, on its controls (screen 16).
+    /// AUDIO and CONTROL DEVICES: the settings screen, on its audio (screen 3) or its controls
+    /// (screen 16).
+    audio,
     control_devices,
 };
 
@@ -93,8 +95,8 @@ pub const GameOptions = struct {
     /// Whether the press on an item not ported has been told of.
     told: bool = false,
 
-    /// A pass of the menu's loop (`0x0042A709` on): Escape and MAIN MENU go to the main menu,
-    /// CONTROL DEVICES to the settings screen, QUIT asks first, and ABOUT opens its box. While
+    /// A pass of the menu's loop (`0x0042A709` on): Escape and MAIN MENU go to the main menu, AUDIO
+    /// and CONTROL DEVICES to the settings screen, QUIT asks first, and ABOUT opens its box. While
     /// QUIT's question or ABOUT OPENRELIANT's box is up, it takes the pass.
     pub fn frame(menu: *GameOptions, pointer: Pointer, keyboard: *input.Keyboard) ?Choice {
         const escaped = keyboard.pressed(input.scan.escape, .none, true);
@@ -113,11 +115,12 @@ pub const GameOptions = struct {
         const chosen = menu.under orelse return null;
         if (!pointer.down) return null;
         switch (chosen) {
+            .audio => return .audio,
             .control_devices => return .control_devices,
             .main_menu => return .main_menu,
             .quit => menu.confirm = .{ .message = .{ .string = quit_question } },
             .about => menu.about = .{},
-            .audio, .video => if (!menu.told) {
+            .video => if (!menu.told) {
                 menu.told = true;
                 log.info("GAME OPTIONS' {s} is not ported yet", .{@tagName(chosen)});
             },
@@ -158,9 +161,10 @@ pub const GameOptions = struct {
 test GameOptions {
     var keyboard: input.Keyboard = .{};
     var menu: GameOptions = .{};
-    // CONTROL DEVICES leads to the settings screen; AUDIO, not ported, stays.
+    // AUDIO and CONTROL DEVICES lead to the settings screen; VIDEO, not ported, stays.
     try std.testing.expectEqual(.control_devices, menu.frame(.{ .at = .{ 300, 200 }, .down = true }, &keyboard).?);
-    try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 100, 200 }, .down = true }, &keyboard));
+    try std.testing.expectEqual(.audio, menu.frame(.{ .at = .{ 100, 200 }, .down = true }, &keyboard).?);
+    try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 500, 200 }, .down = true }, &keyboard));
     try std.testing.expect(menu.told);
     // MAIN MENU at once; QUIT asks first.
     try std.testing.expectEqual(.main_menu, menu.frame(.{ .at = .{ 300, 450 }, .down = true }, &keyboard).?);

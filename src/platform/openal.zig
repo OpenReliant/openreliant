@@ -369,10 +369,9 @@ pub const Renderer = struct {
         c.alListenerfv(c.AL_ORIENTATION, &orientation);
         c.alListenerf(c.AL_METERS_PER_UNIT, 1);
         renderer.resampler = findResampler();
-        if (settings.reverb) {
-            renderer.room = .reverb(Reverb.generic, settings.reverb_level);
-            renderer.cabin = .reverb(Reverb.race_car_cabin, settings.cabin_level);
-        }
+        // The reverbs are made either way, silent while off, so that they can be turned on.
+        renderer.room = .reverb(Reverb.generic, if (settings.reverb) settings.reverb_level else 0);
+        renderer.cabin = .reverb(Reverb.race_car_cabin, if (settings.reverb) settings.cabin_level else 0);
         if (renderer.channels >= 6) renderer.createLowFrequency();
 
         for (&renderer.samples) |*voice| c.alGenSources(1, &voice.source);
@@ -413,10 +412,36 @@ pub const Renderer = struct {
     /// With HRTF's `auto`, turns it on or off as the output changes between headphones and
     /// anything else. Nothing may render meanwhile.
     pub fn followOutput(renderer: *Renderer, headphones: bool) void {
-        if (renderer.settings.hrtf != .auto or renderer.channels != 2 or renderer.hrtf == headphones) return;
-        renderer.hrtf = headphones;
-        const attributes = deviceAttributes(c.ALC_STEREO_SOFT, renderer.rate, headphones);
+        if (renderer.settings.hrtf == .auto) renderer.useHrtf(headphones);
+    }
+
+    /// Sets when HRTF is used, `headphones` saying whether the output is, for `auto`. Nothing may
+    /// render meanwhile.
+    pub fn setHrtf(renderer: *Renderer, hrtf: Hrtf, headphones: bool) void {
+        renderer.settings.hrtf = hrtf;
+        renderer.useHrtf(switch (hrtf) {
+            .on => true,
+            .off => false,
+            .auto => headphones,
+        });
+    }
+
+    /// Turns HRTF on or off, on a stereo output, the device reset to it.
+    fn useHrtf(renderer: *Renderer, on: bool) void {
+        if (renderer.channels != 2 or renderer.hrtf == on) return;
+        renderer.hrtf = on;
+        const attributes = deviceAttributes(c.ALC_STEREO_SOFT, renderer.rate, on);
         if (c.alcResetDeviceSOFT(renderer.device, &attributes) == c.ALC_FALSE) log.warn("OpenAL Soft kept its output mode", .{});
+    }
+
+    /// Turns the reverbs on or off: the room's and the cabin's heard at their levels, or not at
+    /// all.
+    pub fn setReverb(renderer: *Renderer, on: bool) void {
+        renderer.settings.reverb = on;
+        for ([_]?Effect{ renderer.room, renderer.cabin }, [_]f32{ renderer.settings.reverb_level, renderer.settings.cabin_level }) |held, level| {
+            const effect = held orelse continue;
+            c.alAuxiliaryEffectSlotf(effect.slot, c.AL_EFFECTSLOT_GAIN, if (on) level else 0);
+        }
     }
 
     pub fn driver(renderer: *Renderer) mss.Driver {

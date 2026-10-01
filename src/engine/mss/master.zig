@@ -23,6 +23,19 @@ pub const Settings = struct {
     ceiling: f32 = -0.3,
     lookahead: f32 = 0.003,
     limiter_release: f32 = 0.080,
+
+    /// The compressor taken out and the limiter kept: compression of 1 to 1, nothing made up.
+    pub fn withoutCompressor(settings: Settings) Settings {
+        var limited = settings;
+        limited.ratio = 1;
+        limited.makeup = 0;
+        return limited;
+    }
+
+    /// Whether it compresses, as against holding the peaks alone.
+    pub fn compresses(settings: Settings) bool {
+        return settings.ratio > 1;
+    }
 };
 
 pub const Master = struct {

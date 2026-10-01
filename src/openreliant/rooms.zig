@@ -96,8 +96,10 @@ pub const Driver = struct {
     /// which the saved games show the dates of their files by.
     saves: save.Folder,
     local_time: ?*const fn (i96) ?saved_games.Date = null,
-    /// `starlancer.ini`, which the settings screen writes the settings to.
+    /// `starlancer.ini`, which the settings screen writes the settings to, and OpenReliant's own
+    /// options, which it shows.
     settings_file: *engine.profile.File,
+    own: ?settings.Own = null,
     /// The front end's pointer, which the rooms' follows, and the timer's count it last moved on
     /// at.
     pointer: canvas.Pointer = .{},
@@ -436,8 +438,8 @@ pub const Driver = struct {
                     menu.state = .{};
                     press = .{};
                 },
-                .control_devices => {
-                    const end = try driver.settingsScreen(.controls) orelse return null;
+                inline .audio, .control_devices => |icon| {
+                    const end = try driver.settingsScreen(if (icon == .audio) .audio else .controls) orelse return null;
                     if (settings.leavingMovie(.in_game_options, end)) |movie| _ = try driver.movies.play(movie, .over_screen) orelse return null;
                     if (end == .main_menu) return .main_menu;
                     menu.state = .{};
@@ -497,7 +499,7 @@ pub const Driver = struct {
 
     /// What a pass of the settings screen reads, with the pointer at `pointer`.
     fn settingsContext(driver: *Driver, pointer: canvas.Pointer) settings.Context {
-        return .{ .pointer = pointer, .devices = driver.movies.devices, .settings_file = driver.settings_file, .ticks = driver.clock.game_ticks };
+        return .{ .pointer = pointer, .devices = driver.movies.devices, .settings_file = driver.settings_file, .ticks = driver.clock.game_ticks, .sound = driver.sound, .own = driver.own };
     }
 
     /// What a pass of the saved games reads, with the pointer at `pointer`.
@@ -638,9 +640,9 @@ const SettingsScreen = struct {
         screen.backdrop.close(gpa);
     }
 
-    fn draw(screen: *SettingsScreen, target: canvas.Canvas, dialog: *game.hud.Art, devices: *const engine.input.Devices, pointer: canvas.Pointer) canvas.Error!void {
+    fn draw(screen: *SettingsScreen, target: canvas.Canvas, dialog: *game.hud.Art, shown: settings.Shown, pointer: canvas.Pointer) canvas.Error!void {
         const shapes = screen.backdrop.draw(target) orelse return;
-        try screen.state.draw(target, shapes, dialog, devices, pointer);
+        try screen.state.draw(target, shapes, dialog, shown, pointer);
     }
 };
 
@@ -685,7 +687,7 @@ const Shown = struct {
             .rooms => |inside| try drawn(inside.draw(target, driver.clock.game_ticks)),
             .options => |menu| try drawn(menu.draw(target, &driver.front.dialog, driver.pointer)),
             .saved_games => |screen| try drawn(screen.draw(target, &driver.front.dialog, driver.pointer, driver.pilot.call_sign.slice())),
-            .settings => |screen| try drawn(screen.draw(target, &driver.front.dialog, driver.movies.devices, driver.pointer)),
+            .settings => |screen| try drawn(screen.draw(target, &driver.front.dialog, .{ .devices = driver.movies.devices, .sound = driver.sound }, driver.pointer)),
             .briefing => |meeting| try drawn(meeting.draw(target)),
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
             .itac => |terminal| try drawn(terminal.draw(target)),

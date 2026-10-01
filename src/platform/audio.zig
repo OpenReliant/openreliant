@@ -114,6 +114,35 @@ pub const Output = struct {
         renderer.followOutput(on);
     }
 
+    /// Sets when OpenAL Soft renders for headphones, where it plays.
+    pub fn setHrtf(output: *Output, hrtf: openal.Hrtf) void {
+        const renderer = switch (output.source) {
+            .openal => |renderer| renderer,
+            .software => return,
+        };
+        _ = c.SDL_LockAudioStream(output.stream);
+        defer _ = c.SDL_UnlockAudioStream(output.stream);
+        renderer.setHrtf(hrtf, headphones());
+    }
+
+    /// Turns OpenAL Soft's reverbs on or off, where it plays.
+    pub fn setReverb(output: *Output, on: bool) void {
+        const renderer = switch (output.source) {
+            .openal => |renderer| renderer,
+            .software => return,
+        };
+        _ = c.SDL_LockAudioStream(output.stream);
+        defer _ = c.SDL_UnlockAudioStream(output.stream);
+        renderer.setReverb(on);
+    }
+
+    /// Sets the master bus to `settings`, or leaves it out.
+    pub fn setMaster(output: *Output, settings: ?mss.master.Settings) void {
+        _ = c.SDL_LockAudioStream(output.stream);
+        defer _ = c.SDL_UnlockAudioStream(output.stream);
+        output.master = if (settings) |chosen| .init(output.rate, output.channels, chosen) else null;
+    }
+
     /// What the game calls.
     pub fn driver(output: *Output) mss.Driver {
         return switch (output.source) {
