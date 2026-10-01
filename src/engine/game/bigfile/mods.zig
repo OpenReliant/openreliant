@@ -18,6 +18,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
+const checksums = @import("../../../formats/checksums.zig");
 const hog = @import("../../../formats/hog.zig");
 const refpack = @import("../../../formats/refpack.zig");
 const files = @import("../../files.zig");
@@ -39,6 +40,14 @@ pub const manifest_name = "mod.ini";
 
 /// The manifest's section that describes the mod.
 pub const manifest_section = "Mod";
+
+/// A picture of the mod, in its archive or its folder, which a mod manager shows
+/// ([#497](https://github.com/vdmkenny/openreliant/issues/497)): a PNG file. Like the manifest, it
+/// is the mod's own.
+pub const thumbnail_name = "mod.png";
+
+/// The files a mod keeps of its own, which stand in for none of the game's.
+const own_files = [_][]const u8{ manifest_name, thumbnail_name };
 
 /// What a mod's manifest says of it, each under its key in `manifest_section`.
 pub const Field = enum {
@@ -110,7 +119,13 @@ pub const Mod = struct {
         if (title != null) try writer.print(" ({s})", .{mod.name});
     }
 
-    /// The names of its files, in its order, its manifest left out.
+    /// Its thumbnail's bytes, as the file holds them; null where it has none.
+    pub fn thumbnail(mod: Mod, gpa: Allocator) bigfile.ReadError!?[]u8 {
+        const file = mod.find(thumbnail_name) orelse return null;
+        return try mod.read(gpa, file, .expanded);
+    }
+
+    /// The names of its files, in its order, its own left out (`own_files`).
     pub fn names(mod: *const Mod) Names {
         return .{ .mod = mod };
     }
@@ -123,13 +138,13 @@ pub const Mod = struct {
             while (listed.file < listed.mod.count()) {
                 const name = listed.mod.fileName(listed.file);
                 listed.file += 1;
-                if (!isManifest(name)) return name;
+                if (!isOwn(name)) return name;
             }
             return null;
         }
     };
 
-    /// How many files it holds, its manifest among them.
+    /// How many files it holds, its own among them.
     fn count(mod: Mod) usize {
         return switch (mod.source) {
             .archive => |archive| archive.entries.len,
@@ -168,8 +183,10 @@ pub const Mod = struct {
     }
 
     /// The mod `name` of the `mods` folder `folder` (`Source.open`), with its manifest where it has
-    /// one. Null where it is no mod, or can't be opened, which the log says.
+    /// one. Null where it is no mod, can't be opened, or is an archive that fails its checksum
+    /// (`intact`), which the log says.
     fn open(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8, kind: Io.File.Kind) Allocator.Error!?Mod {
+        if (kind == .file and isArchive(name) and !try intact(gpa, io, folder, name)) return null;
         var source = Source.open(gpa, io, folder, name, kind) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.NotAMod => {
@@ -200,6 +217,37 @@ pub const Mod = struct {
         gpa.free(mod.name);
     }
 };
+
+/// Whether the archive `name` of the `mods` folder `folder` may be read: where no checksum file lies
+/// beside it, the archive's name with `checksums.extension` added, found whatever its case, or where
+/// the file gives the archive's digest. Where it gives another, or can't be read, the archive is
+/// damaged or not the one the checksum was made for, and the log says so.
+fn intact(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8) Allocator.Error!bool {
+    var named: [files.max_path]u8 = undefined;
+    const checksum_name = std.fmt.bufPrint(&named, "{s}" ++ checksums.extension, .{name}) catch return true;
+    var found: [files.max_path]u8 = undefined;
+    const path = files.find(io, folder, checksum_name, &found) orelse return true;
+    const failure: []const u8 = failed: {
+        const text = files.readFile(io, gpa, folder, path, .limited(max_checksum_size)) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => break :failed @errorName(err),
+        } orelse break :failed "it can't be found";
+        defer gpa.free(text);
+        const wanted = (checksums.digestOf(text, name) catch break :failed "it is no checksum file") orelse
+            break :failed "it gives no checksum for the archive";
+        const file = folder.openFile(io, name, .{}) catch |err| break :failed @errorName(err);
+        defer file.close(io);
+        const digest = checksums.digestFile(io, file) catch |err| break :failed @errorName(err);
+        if (!std.mem.eql(u8, &digest, &wanted)) break :failed "the archive is damaged, or not the one it was made for";
+        log.info("{s} matches {s}", .{ name, path });
+        return true;
+    };
+    log.warn("the mod {s} is left out: it fails {s}: {s}", .{ name, path, failure });
+    return false;
+}
+
+/// The most of a checksum file `intact` reads, far past a line for each file of a mod.
+const max_checksum_size = 1 << 16;
 
 /// A mod's folder: each file in it one of the mod's, by its own name, as `sltool hog pack` packs
 /// them, and read as the member it packs would be.
@@ -302,7 +350,8 @@ pub const Mods = struct {
             log.warn("{s} can't be listed: {s}; no mod is read", .{ found, @errorName(err) });
             return .none;
         }) |entry| {
-            if (hidden(entry.name)) continue;
+            // A checksum file belongs to the archive it checks (`intact`).
+            if (hidden(entry.name) or isChecksum(entry.name)) continue;
             const kind = kindOf(io, folder, entry) orelse continue;
             const name = try gpa.dupe(u8, entry.name);
             errdefer gpa.free(name);
@@ -390,7 +439,7 @@ pub const Mods = struct {
         for (mods.list, 0..) |*mod, at| {
             for (0..mod.count()) |file| {
                 const name = mod.fileName(file);
-                if (isManifest(name)) continue;
+                if (isOwn(name)) continue;
                 var buffer: [files.max_path]u8 = undefined;
                 const key = try gpa.dupe(u8, lowered(&buffer, name) orelse continue);
                 const slot = mods.index.getOrPut(gpa, key) catch |err| {
@@ -504,9 +553,17 @@ fn freeIndex(comptime Value: type, index: *std.StringHashMapUnmanaged(Value), gp
     index.deinit(gpa);
 }
 
-/// Whether the file `name` is a mod's manifest, whatever its case.
-fn isManifest(name: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(name, manifest_name);
+/// Whether the file `name` is one a mod keeps of its own (`own_files`), whatever its case.
+fn isOwn(name: []const u8) bool {
+    for (own_files) |own| {
+        if (std.ascii.eqlIgnoreCase(name, own)) return true;
+    }
+    return false;
+}
+
+/// Whether `name` is a checksum file's, by its extension, whatever its case.
+fn isChecksum(name: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(std.fs.path.extension(name), checksums.extension);
 }
 
 /// Whether `name` is an archive's, by its extension, whatever its case.
@@ -612,4 +669,42 @@ test "no mods folder" {
     defer mods.close(gpa);
     try std.testing.expectEqual(0, mods.list.len);
     try std.testing.expect(!mods.has("ship.shp"));
+}
+
+test "an archive is read where it matches its checksum" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, folder_name);
+    const bytes = try hog.build(gpa, &.{
+        .{ .name = "ship.shp", .data = "a mod's ship" },
+        .{ .name = "Mod.PNG", .data = "a picture of the mod" },
+    });
+    defer gpa.free(bytes);
+    // `good.hog` matches its checksum; the checksum beside `bad.hog`, whatever its case, is
+    // another's; `plain.hog` has none.
+    for ([_][]const u8{ "mods/good.hog", "mods/bad.hog", "mods/plain.hog" }) |path| {
+        try tmp.dir.writeFile(io, .{ .sub_path = path, .data = bytes });
+    }
+    var buffer: [128]u8 = undefined;
+    var line: Io.Writer = .fixed(&buffer);
+    try checksums.writeLine(&line, checksums.digest(bytes), "good.hog");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/good.hog.sha256", .data = line.buffered() });
+    line = .fixed(&buffer);
+    try checksums.writeLine(&line, checksums.digest("another archive"), "bad.hog");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/BAD.HOG.SHA256", .data = line.buffered() });
+
+    var mods: Mods = try .open(gpa, io, tmp.dir);
+    defer mods.close(gpa);
+    try std.testing.expectEqual(2, mods.list.len);
+    try std.testing.expectEqualStrings("good.hog", mods.list[0].name);
+    try std.testing.expectEqualStrings("plain.hog", mods.list[1].name);
+
+    // The thumbnail is the mod's own, and stands in for none of the game's files.
+    const thumbnail = (try mods.list[0].thumbnail(gpa)).?;
+    defer gpa.free(thumbnail);
+    try std.testing.expectEqualStrings("a picture of the mod", thumbnail);
+    try std.testing.expect(!mods.has("mod.png"));
+    try std.testing.expect(mods.has("ship.shp"));
 }

@@ -30,6 +30,9 @@ pub const pe = @import("formats/pe.zig");
 /// Images the tools write.
 pub const png = @import("formats/png.zig");
 
+/// Checksum files, which check mods' archives.
+pub const checksums = @import("formats/checksums.zig");
+
 /// The payload, the game executable: its structures and tables, laid out as its source tree.
 pub const engine = @import("engine.zig");
 

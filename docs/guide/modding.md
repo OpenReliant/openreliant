@@ -22,8 +22,10 @@ StarLancer/
   mods/
     coyote/
       mod.ini
+      mod.png
       USA_Coyote.SHP
     music.hog
+    music.hog.sha256
 ```
 
 `--no-mods` plays the game's own files alone.
@@ -83,6 +85,7 @@ makes of the folder:
   are passed over.
 
 `sltool hog pack coyote coyote.hog` packs the folder into an archive, which stands in the same way.
+The manifest and the thumbnail go into it with the rest.
 
 ## The manifest
 
@@ -100,6 +103,21 @@ Description=The Coyote, modelled again.
 Each key is optional. The game asks for no file of this name, so the archive stays one the original
 reads, and the manifest stands in for none of the game's files.
 
+## The thumbnail
+
+A mod may carry a picture of itself, `mod.png`, in its archive or its folder, which a mod manager
+shows ([#497](https://github.com/vdmkenny/openreliant/issues/497)). It is a PNG file of any size; a
+4:3 picture, such as 320x240, suits the game's screens. Like the manifest, it is the mod's own.
+
+## Checksums
+
+An archive may come with a checksum file beside it, its name with `.sha256` added, as `sha256sum`
+writes one: the archive's SHA-256 digest in hexadecimal, two spaces and the archive's name. As the
+mod loads, OpenReliant reads the archive through and leaves the mod out where its digest is not the
+one the file gives, since the archive is then damaged or not the one the checksum was made for.
+`sltool hog pack <folder> <archive> --checksum` writes one beside the archive it packs, and
+`sha256sum -c music.hog.sha256` checks one by hand. A folder mod has none.
+
 ## What OpenReliant says
 
 As it starts, `openreliant` lists each mod it plays with, in its order, by its manifest's name
@@ -107,6 +125,7 @@ where it has one, then each of its files: the game's file or the earlier mod's i
 file it adds.
 
 ```text
+info(mods): music.hog matches music.hog.sha256
 info(mods): mod 1 of 2: Coyote HD 1.0, by Someone (coyote)
 info(mods): coyote replaces USA_Coyote.SHP
 info(mods): mod 2 of 2: music.hog
