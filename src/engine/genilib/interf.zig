@@ -239,7 +239,7 @@ pub const Interface = struct {
     /// what the front end ends in, once it does.
     ///
     /// Not ported: MULTI PLAYER's screens, and GAME OPTIONS' audio and video (#43 lists them).
-    /// Until they are, MULTI PLAYER and AUDIO and VIDEO stay on their screen, without their movies.
+    /// Until they are, MULTI PLAYER, AUDIO and VIDEO stay on their screen, without their movies.
     ///
     /// **Fix:** a screen takes no press until the button held as it was entered comes up. The
     /// movie between two screens gives the press that chose the second time to end; where the

@@ -1,12 +1,11 @@
 //! `C:\lancer\game\interface.cpp`: the front end's screens and the settings they manage. Ported so
 //! far: loading and saving the input settings and bindings in `starlancer.ini` (`load_key_config`,
-//! `save_key_config`), the main
-//! menu (`main_menu`) with its dialog (`dialog`), the pilot roster (`pilot_roster`) and the saved
-//! games (`saved_games`), on the front end's screen (`canvas`); opening the discs' archives
-//! (`disc`); and the Reliant's rooms
-//! (`rooms`), with a new pilot's induction (`induction`), the in-game options
-//! (`in_game_options`) and the briefing (`briefing`); and the restart screen after a mission lost
-//! (`restart`).
+//! `save_key_config`), the main menu (`main_menu`) with its dialog (`dialog`), GAME OPTIONS
+//! (`game_options`), the controls on OpenReliant's settings screen (`settings`), the pilot roster
+//! (`pilot_roster`) and the saved games (`saved_games`), on the front end's screen (`canvas`);
+//! opening the discs' archives (`disc`); and the Reliant's rooms (`rooms`), with a new pilot's
+//! induction (`induction`), the in-game options (`in_game_options`) and the briefing
+//! (`briefing`); and the restart screen after a mission lost (`restart`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -95,9 +94,6 @@ pub fn saveSetting(held: input.Settings, settings_file: *profile.File, setting: 
 pub fn keyConfigDefaults(devices: *input.Devices) void {
     const joystick = devices.joystick;
     devices.settings = .{
-        .force_feedback = true,
-        .joystick_invert = true,
-        .hat_enabled = true,
         .twist_enabled = joystick.device != null and joystick.kind == .gamepad,
         .control_mode = if (joystick.device != null) .joystick else .keyboard,
         .dead_zone = devices.settings.dead_zone,

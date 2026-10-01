@@ -411,12 +411,11 @@ pub const Driver = struct {
     /// comes up, as the front end's screens take none.
     fn options(driver: *Driver) !?in_game_options.End {
         const gpa = driver.movies.gpa;
-        var menu: Menu = .{};
+        var menu: Menu = .{
+            .backdrop = .read(driver, in_game_options.background_name, in_game_options.shapes_name),
+            .about_shapes = .read(gpa, driver.resources, in_game_options.about_shapes_name),
+        };
         defer menu.close(gpa);
-        menu.background.set(gpa, driver.resources.*, in_game_options.background_name) catch |err|
-            log.warn("{s} is left out: {s}", .{ in_game_options.background_name, @errorName(err) });
-        menu.shapes = .read(gpa, driver.resources, in_game_options.shapes_name);
-        menu.about_shapes = .read(gpa, driver.resources, in_game_options.about_shapes_name);
         var press: engine.input.FreshPress = .{ .held = false };
         while (true) {
             if (!try driver.pump()) return null;
@@ -461,10 +460,8 @@ pub const Driver = struct {
         const opening = saved_games.opening(.in_game_options);
         _ = try driver.movies.play(opening.movie, .over_screen) orelse return null;
         const saves: saved_games.Saves = .{ .gpa = gpa, .folder = driver.saves, .game = flown, .strings = driver.strings, .local_time = driver.local_time };
-        var screen: SavesScreen = .{ .shapes = .read(gpa, driver.resources, saved_games.shapes_name) };
+        var screen: SavesScreen = .{ .backdrop = .read(driver, opening.background, saved_games.shapes_name) };
         defer screen.close(gpa);
-        screen.background.set(gpa, driver.resources.*, opening.background) catch |err|
-            log.warn("{s} is left out: {s}", .{ opening.background, @errorName(err) });
         var press: engine.input.FreshPress = .{};
         screen.state.enter(mode, .in_game_options, driver.savesContext(saves, driver.pointer));
         const window = driver.movies.presenter.window;
@@ -485,10 +482,8 @@ pub const Driver = struct {
         const gpa = driver.movies.gpa;
         const opening = settings.opening(.in_game_options, tab).?;
         _ = try driver.movies.play(opening.movie, .over_screen) orelse return null;
-        var screen: SettingsScreen = .{ .shapes = .read(gpa, driver.resources, settings.shapes_name) };
+        var screen: SettingsScreen = .{ .backdrop = .read(driver, opening.background, settings.shapes_name) };
         defer screen.close(gpa);
-        screen.background.set(gpa, driver.resources.*, opening.background) catch |err|
-            log.warn("{s} is left out: {s}", .{ opening.background, @errorName(err) });
         var press: engine.input.FreshPress = .{};
         screen.state.enter(.in_game_options, tab, driver.settingsContext(driver.pointer));
         while (true) {
@@ -572,60 +567,79 @@ fn milliseconds() u32 {
     return @truncate(platform.window.nanoseconds() / std.time.ns_per_ms);
 }
 
-/// The in-game options, and what they draw with: their background and shapes, and ABOUT
-/// STARLANCER's.
-const Menu = struct {
-    state: in_game_options.InGameOptions = .{},
+/// What a screen over the rooms draws with: the picture behind it, and its shapes, which it reads
+/// as it opens.
+const Backdrop = struct {
     background: game.matmanager.Background = .{},
     shapes: ?canvas.Shapes = null,
-    about_shapes: ?canvas.Shapes = null,
+
+    /// The picture `background` and the shapes `shapes` of the driver's archive; a part that can't
+    /// be read is left out, and logged.
+    fn read(driver: *Driver, background: []const u8, shapes: []const u8) Backdrop {
+        const gpa = driver.movies.gpa;
+        var backdrop: Backdrop = .{ .shapes = .read(gpa, driver.resources, shapes) };
+        backdrop.background.set(gpa, driver.resources.*, background) catch |err|
+            log.warn("{s} is left out: {s}", .{ background, @errorName(err) });
+        return backdrop;
+    }
+
+    fn close(backdrop: *Backdrop, gpa: Allocator) void {
+        backdrop.background.deinit(gpa);
+        if (backdrop.shapes) |*shapes| shapes.deinit(gpa);
+    }
+
+    /// Draws the picture, and gives the shapes the screen draws with over it; null where they are
+    /// left out.
+    fn draw(backdrop: *Backdrop, target: canvas.Canvas) ?*game.hud.Art {
+        if (backdrop.background.image) |*shown| target.image(shown, .{ 0, 0 });
+        return if (backdrop.shapes) |*loaded| &loaded.art else null;
+    }
+};
+
+/// The in-game options, and what they draw with, ABOUT STARLANCER's shapes among it.
+const Menu = struct {
+    state: in_game_options.InGameOptions = .{},
+    backdrop: Backdrop,
+    about_shapes: ?canvas.Shapes,
 
     fn close(menu: *Menu, gpa: Allocator) void {
-        menu.background.deinit(gpa);
-        if (menu.shapes) |*shapes| shapes.deinit(gpa);
+        menu.backdrop.close(gpa);
         if (menu.about_shapes) |*shapes| shapes.deinit(gpa);
     }
 
     fn draw(menu: *Menu, target: canvas.Canvas, dialog: *game.hud.Art, pointer: canvas.Pointer) canvas.Error!void {
-        if (menu.background.image) |*shown| target.image(shown, .{ 0, 0 });
-        const shapes = if (menu.shapes) |*loaded| &loaded.art else return;
+        const shapes = menu.backdrop.draw(target) orelse return;
         const about = if (menu.about_shapes) |*loaded| &loaded.art else null;
         try menu.state.draw(target, shapes, dialog, about, pointer);
     }
 };
 
-/// The saved games, and what they draw with: their background and shapes.
+/// The saved games, and what they draw with.
 const SavesScreen = struct {
     state: saved_games.SavedGames = .{},
-    background: game.matmanager.Background = .{},
-    shapes: ?canvas.Shapes = null,
+    backdrop: Backdrop,
 
     fn close(screen: *SavesScreen, gpa: Allocator) void {
-        screen.background.deinit(gpa);
-        if (screen.shapes) |*shapes| shapes.deinit(gpa);
+        screen.backdrop.close(gpa);
     }
 
     fn draw(screen: *SavesScreen, target: canvas.Canvas, dialog: *game.hud.Art, pointer: canvas.Pointer, call_sign: []const u8) canvas.Error!void {
-        if (screen.background.image) |*shown| target.image(shown, .{ 0, 0 });
-        const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
+        const shapes = screen.backdrop.draw(target) orelse return;
         try screen.state.draw(target, shapes, dialog, pointer, call_sign);
     }
 };
 
-/// The settings screen, and what it draws with: its background and shapes.
+/// The settings screen, and what it draws with.
 const SettingsScreen = struct {
     state: settings.Settings = .{},
-    background: game.matmanager.Background = .{},
-    shapes: ?canvas.Shapes = null,
+    backdrop: Backdrop,
 
     fn close(screen: *SettingsScreen, gpa: Allocator) void {
-        screen.background.deinit(gpa);
-        if (screen.shapes) |*shapes| shapes.deinit(gpa);
+        screen.backdrop.close(gpa);
     }
 
     fn draw(screen: *SettingsScreen, target: canvas.Canvas, dialog: *game.hud.Art, devices: *const engine.input.Devices, pointer: canvas.Pointer) canvas.Error!void {
-        if (screen.background.image) |*shown| target.image(shown, .{ 0, 0 });
-        const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
+        const shapes = screen.backdrop.draw(target) orelse return;
         try screen.state.draw(target, shapes, dialog, devices, pointer);
     }
 };

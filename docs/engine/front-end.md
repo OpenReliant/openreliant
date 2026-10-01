@@ -177,7 +177,7 @@ OpenReliant shows one settings screen where the game has a screen for each setti
 
 The buttons are shape `0x28`, `0x29` under the pointer, with their labels in `interface_font_small`, blue, white under the pointer: OK (`0x316`) at (299, 422), to the left of (292, 421); MAIN MENU (`0xBB`) at (299, 443), to the left of (292, 442); RESET DEFAULTS (`0x183`) at (329, 422), from (357, 421); CANCEL CHANGES (`0x5A9`) at (329, 443), from (357, 442). The pointer finds OK and MAIN MENU 120 by 15 from x 199, and the other two 100 by 15 from x 329, each at its shape's height. RESET DEFAULTS and CANCEL CHANGES act on the tab shown. A click acts once, until the button comes up, but for the list's arrows.
 
-**Improvement:** the screen is OpenReliant's own design, built from the game's screens: one screen with tabs, the same from the front end, the Reliant's rooms and the pause menu, where the game has a screen for each kind, and the pause menu screens of its own.
+**Improvement:** the screen is OpenReliant's own design, built from the game's screens: one screen with tabs, the same from the front end, the Reliant's rooms and the pause menu, where the game has a screen for each kind, and the pause menu has screens of its own.
 
 Not ported: the audio and the video tabs ([#206](https://github.com/vdmkenny/openreliant/issues/206), [#209](https://github.com/vdmkenny/openreliant/issues/209)).
 
@@ -190,7 +190,7 @@ The controls are `controls_screen` (`0x0042B690`), screen 16, which draws with `
 | The panes | (45, 136), 324 by 184; (401, 136), 195 by 184 | `interface_box` |
 | Heads | FUNCTION (`0x17B`) from (50, 117), CONTROL (`0x17C`) from (405, 117) | `interface_font_large`, blue |
 | The list's rows, twelve | 15 apart from y 139: the action's name, its string at `ControlBinding + 0x2C`, from x 50; its binding from x 406. The pointer finds a row 550 by 10 from x 50 | Small, blue, the row waiting white; ! NOT ASSIGNED ! (`0x5B1`) in yellow for an action bound to nothing, but the one waiting |
-| A divider | Two lines at the row's height plus 6 and 7, from x 45 to 367 and from 401 to 594 | Blue |
+| A divider | Two lines, 6 and 7 below where a row's text starts, from x 45 to 367 and from 401 to 594 | Blue |
 | The arrows | (374, 136) and (374, 156); the pointer finds each 28 by 16 from x 370 | Shapes `0x1E` and `0x1F`, `0x20` and `0x21` under the pointer with its button up |
 | PRIMARY CONTROLLER (`0x234`) | From (45, 327) | Small, blue |
 | JOYSTICK (`0x235`), MOUSE (`0x236`), KEYBOARD ONLY (`0x237`) | Boxes at (45, 349), (45, 373) and (45, 397), labels from x 67 | Shape `0x1A`, the tick `0x1B` three pixels in for the controller steering; JOYSTICK dimmed without a joystick |
@@ -201,7 +201,7 @@ A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (
 - A check box, or a controller, changes where it can be used, and its `KeyConfig` entry is written at once (`0x0042BBB4` to `0x0042BF8C`). JOYSTICK ROLL is `TwistEnable`.
 - An arrow scrolls the list a row, and again each 5 ticks while it is held (`0x0042BD09`).
 - A click on an action's row clears its binding, and the row waits: each pass, the first of the 89 keys of `key_names` pressed alone, with Shift or with Ctrl is taken, then the lowest joystick button down, which holds the screen until it comes up. Taking one doesn't end the wait: a row takes a key and a button, and a later key replaces the first. A key or a button another action holds asks first (`control_binding_find`, `0x0042C5F0`), with `"K"`, `"SHIFT + K"`, `"CONTROL + K"` or `"JOY n"`, then This Key is already assigned to (`0x5AF`) and the action, then Redefine Anyway? (`0x5B0`), a line each: YES takes it from that action, NO puts the waiting row's binding back, the row waiting on. Escape, Shift, Ctrl and Alt on their own, the lock keys, Pause and Print Screen are not among the keys, so none of them can be bound.
-- A click on another action's row, or on nothing, ends the wait, the old binding back where the row took nothing; a click on a divider puts it back so, and leaves the row waiting, as a click on a check box, a controller, a button or an arrow does.
+- A click on another action's row, or on nothing, ends the wait, the old binding back where the row took nothing. A click on a divider puts the old binding back so, but leaves the row waiting; a click on a check box, a controller, a button or an arrow leaves it waiting as it is.
 - Escape asks Would you like to save your changes before leaving this screen? (`0x5AB`) where a binding has changed; NO reads the settings and the bindings again from the file. Escape, OK and MAIN MENU then write the bindings (`save_key_config`, `0x0042C630`).
 - RESET DEFAULTS sets the defaults (`key_config_defaults`) and writes them at once; CANCEL CHANGES puts back what the screen opened with.
 

@@ -114,6 +114,8 @@ pub const Check = enum {
 
     const box_x = 349;
     const label_x = 367;
+    /// Where the pointer finds a box: from 4 pixels left of it (`0x0042B70D` on).
+    const hit_x = 345;
 
     /// Its row (`0x0042B70D` on).
     fn y(check: Check) i32 {
@@ -180,7 +182,7 @@ pub const Check = enum {
     }
 
     fn rect(check: Check) Rect {
-        return .{ .x = 345, .y = @intCast(check.y()), .width = box_size, .height = box_size };
+        return .{ .x = hit_x, .y = @intCast(check.y()), .width = box_size, .height = box_size };
     }
 };
 
@@ -216,8 +218,9 @@ pub const Controller = enum {
         return .of(controller.string(), .{ label_x, controller.y() }, .left);
     }
 
-    /// How far JOYSTICK's label reaches at most: short of the check boxes.
-    const room = Check.box_x - 8 - label_x;
+    /// How far JOYSTICK's label reaches at most: `margin` short of the check boxes.
+    const room = Check.box_x - margin - label_x;
+    const margin = 8;
 
     fn mode(controller: Controller) input.ControlMode {
         return switch (controller) {
@@ -270,6 +273,7 @@ const items = items: {
         placed[at] = .{ .rect = controller.rect(), .item = .{ .controller = controller } };
         at += 1;
     }
+    if (at != placed.len) @compileError("every item placed once");
     break :items placed;
 };
 

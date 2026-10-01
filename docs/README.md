@@ -41,7 +41,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`engine/effects.md`](engine/effects.md) | Effects: the particles explosions send out. |
 | [`engine/sound.md`](engine/sound.md) | Sound: the banks' sounds on their voices, the 3D effects, the player's engine, the music and the speech. |
 | [`engine/loop.md`](engine/loop.md) | The game loop: the 100 Hz tick, the 25 Hz simulation step, collisions. |
-| [`engine/front-end.md`](engine/front-end.md) | The front end: its screens, the main menu, the pilot roster, the dialogs and the backgrounds. |
+| [`engine/front-end.md`](engine/front-end.md) | The front end: its screens, the main menu, GAME OPTIONS, the settings screen and its controls, the pilot roster, the dialogs and the backgrounds. |
 | [`engine/rooms.md`](engine/rooms.md) | The Reliant's rooms: their views and movies, the pointer, the fish tank, the news report, a new pilot's induction and the in-game options. |
 | [`engine/itac.md`](engine/itac.md) | The ITAC: its sections, their movies and pictures, the fades, the panes, and the debriefings. |
 | [`engine/briefing.md`](engine/briefing.md) | The briefing: the door, the way into the briefing room, Enriquez with the mission's movie, his last word, and the campaign's end. |

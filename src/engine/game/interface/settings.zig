@@ -34,7 +34,8 @@ pub const shapes_name = "interface\\frntend6.spr";
 pub const Tab = enum {
     controls,
 
-    /// Its label, the one the menus' icon for it has: CONTROL DEVICES.
+    /// Its label, the one the menus' icon for it has, CONTROL DEVICES, where the game's screen
+    /// writes its title (`0x0042CDA9`).
     fn label(tab: Tab) Label {
         return switch (tab) {
             .controls => .of(0x10A, .{ 320, 95 }, .centre),
