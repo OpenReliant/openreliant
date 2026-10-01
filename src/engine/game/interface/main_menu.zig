@@ -62,9 +62,9 @@ pub const hotspots = std.EnumArray(Item, Hotspot).init(.{
 /// A panel's two lines, in the large font, centred under it; QUIT and INSTANT ACTION have none.
 fn panelLabels(item: Item) ?[2]Label {
     return switch (item) {
-        .single_player => .{ .{ .string = 0xBD, .at = .{ 0x74, 0x154 } }, .{ .string = 0xBF, .at = .{ 0x74, 0x164 } } },
-        .multi_player => .{ .{ .string = 0x5B4, .at = .{ 0x140, 0x154 } }, .{ .string = 0x5B5, .at = .{ 0x140, 0x164 } } },
-        .game_options => .{ .{ .string = 0xC0, .at = .{ 0x20C, 0x154 } }, .{ .string = 0xC1, .at = .{ 0x20C, 0x164 } } },
+        .single_player => .{ .of(0xBD, .{ 0x74, 0x154 }, .centre), .of(0xBF, .{ 0x74, 0x164 }, .centre) },
+        .multi_player => .{ .of(0x5B4, .{ 0x140, 0x154 }, .centre), .of(0x5B5, .{ 0x140, 0x164 }, .centre) },
+        .game_options => .{ .of(0xC0, .{ 0x20C, 0x154 }, .centre), .of(0xC1, .{ 0x20C, 0x164 }, .centre) },
         .quit, .instant_action => null,
     };
 }
@@ -75,8 +75,8 @@ const button_shape = 0x1B;
 const lit_button_shape = 0x1C;
 const quit_button: [2]i32 = .{ 0x14C, 0x1B9 };
 const instant_action_button: [2]i32 = .{ 0x12C, 0x1B9 };
-const quit_label: Label = .{ .string = 0xBC, .at = .{ 0x168, 0x1B7 } };
-const instant_action_label: Label = .{ .string = 0x288, .at = .{ 0x128, 0x1B7 } };
+const quit_label: Label = .of(0xBC, .{ 0x168, 0x1B7 }, .left);
+const instant_action_label: Label = .of(0x288, .{ 0x128, 0x1B7 }, .right);
 
 /// The question QUIT asks (`0x00428EFF`): Do you really want to Quit?
 pub const quit_question = 0x374;
@@ -253,10 +253,10 @@ pub const MainMenu = struct {
         const large = canvas.fonts.large;
         const small = canvas.fonts.small;
         for (std.enums.values(Item)) |item| {
-            for (panelLabels(item) orelse continue) |label| try canvas.string(large, label.at, label.string, canvas_module.blue, .centre);
+            for (panelLabels(item) orelse continue) |label| try label.write(canvas, large, canvas_module.blue);
         }
-        try canvas.string(small, quit_label.at, quit_label.string, canvas_module.blue, .left);
-        try canvas.string(small, instant_action_label.at, instant_action_label.string, canvas_module.blue, .right);
+        try quit_label.write(canvas, small, canvas_module.blue);
+        try instant_action_label.write(canvas, small, canvas_module.blue);
         try canvas.shape(art, button_shape, quit_button);
         try canvas.shape(art, button_shape, instant_action_button);
         if (menu.under) |under| {
@@ -264,7 +264,7 @@ pub const MainMenu = struct {
                 .single_player, .multi_player, .game_options => {
                     const hotspot = hotspots.get(under);
                     try canvas.shape(art, @intCast(hotspot.shape), .{ hotspot.rect.x, hotspot.rect.y });
-                    for (panelLabels(under).?) |label| try canvas.string(large, label.at, label.string, canvas_module.gold, .centre);
+                    for (panelLabels(under).?) |label| try label.write(canvas, large, canvas_module.gold);
                 },
                 .quit => try canvas.shape(art, lit_button_shape, quit_button),
                 .instant_action => try canvas.shape(art, lit_button_shape, instant_action_button),

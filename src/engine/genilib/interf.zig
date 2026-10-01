@@ -469,7 +469,7 @@ test "LOAD GAME opens the saved games, where there are saves to list" {
     front.movie = null;
     front.enterShown(context);
     try std.testing.expectEqual(saved_games.Mode.load, front.saved_games.mode);
-    try std.testing.expectEqual(0, front.saved_games.count);
+    try std.testing.expectEqual(0, front.saved_games.scrolled.count);
     // BACK goes back to the roster, after its movie.
     try std.testing.expectEqual(null, click(&front, context, 300, 428));
     try std.testing.expectEqual(Screen.pilot_roster, front.screen);

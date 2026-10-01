@@ -106,23 +106,23 @@ pub const button_rects = std.EnumArray(Button, Rect).init(.{
     .main_menu = .{ .x = 292, .y = 441, .width = 25, .height = 16 },
     .quit = .{ .x = 324, .y = 441, .width = 25, .height = 16 },
 });
-const button_shape = 26;
-const lit_button_shape = 27;
+const button_shapes: canvas_module.Button.Pair = .{ .off = 26, .lit = 27 };
 
-/// A button's label: its string, where it stands, and how it lines up there.
-const Label = struct { string: u32, at: [2]i32, alignment: hud.Align };
+const Label = canvas_module.Label;
 
-fn label(button: Button, mode: Mode) Label {
-    return switch (button) {
-        .back => .{ .string = 0xF7, .at = .{ 288, 420 }, .alignment = .right },
-        .act => .{ .string = if (mode == .load) 0xBA else 0x177, .at = .{ 353, 420 }, .alignment = .left },
-        .main_menu => .{ .string = 0xBB, .at = .{ 288, 440 }, .alignment = .right },
-        .quit => .{ .string = 0xBC, .at = .{ 353, 440 }, .alignment = .left },
-    };
+/// A button as it is drawn: its shape at its rectangle's corner, and its label.
+fn shownButton(button: Button, mode: Mode) canvas_module.Button {
+    const rect = button_rects.get(button);
+    return .{ .at = .{ rect.x, rect.y }, .label = switch (button) {
+        .back => .of(0xF7, .{ 288, 420 }, .right),
+        .act => .of(if (mode == .load) 0xBA else 0x177, .{ 353, 420 }, .left),
+        .main_menu => .of(0xBB, .{ 288, 440 }, .right),
+        .quit => .of(0xBC, .{ 353, 440 }, .left),
+    } };
 }
 
 /// The list's arrows: one shape for both, lit up or down under the pointer.
-pub const Arrow = enum { up, down };
+pub const Arrow = canvas_module.Arrow;
 
 pub const arrow_rects = std.EnumArray(Arrow, Rect).init(.{
     .up = .{ .x = 579, .y = 250, .width = 26, .height = 16 },
@@ -145,7 +145,7 @@ pub const ok: Rect = .{ .x = 562, .y = 384, .width = 32, .height = 20 };
 const ok_shape = 22;
 const lit_ok_shape = 23;
 const ok_at: [2]i32 = .{ 566, 382 };
-const ok_label: Label = .{ .string = 0x54D, .at = .{ 562, 384 }, .alignment = .right };
+const ok_label: Label = .of(0x54D, .{ 562, 384 }, .right);
 
 /// The title: LOAD GAME FOR or SAVE GAME FOR, then the call sign in capitals (`0x004E8750`).
 const title_at: [2]i32 = .{ 320, 86 };
@@ -161,14 +161,14 @@ const details_box_size: [2]i32 = .{ 550, 38 };
 /// The labels always written, in the small font: the columns' heads, GAME INFORMATION and the
 /// details'.
 const labels = [_]Label{
-    .{ .string = 0xE3, .at = .{ 45, 107 }, .alignment = .left },
-    .{ .string = 0xE4, .at = .{ 320, 107 }, .alignment = .centre },
-    .{ .string = 0xE5, .at = .{ 575, 107 }, .alignment = .right },
-    .{ .string = 0xE6, .at = .{ 49, 302 }, .alignment = .left },
-    .{ .string = 0xE7, .at = .{ 49, 322 }, .alignment = .left },
-    .{ .string = 0xE8, .at = .{ 49, 339 }, .alignment = .left },
-    .{ .string = 0xE9, .at = .{ 290, 322 }, .alignment = .left },
-    .{ .string = 0xEB, .at = .{ 290, 339 }, .alignment = .left },
+    .of(0xE3, .{ 45, 107 }, .left),
+    .of(0xE4, .{ 320, 107 }, .centre),
+    .of(0xE5, .{ 575, 107 }, .right),
+    .of(0xE6, .{ 49, 302 }, .left),
+    .of(0xE7, .{ 49, 322 }, .left),
+    .of(0xE8, .{ 49, 339 }, .left),
+    .of(0xE9, .{ 290, 322 }, .left),
+    .of(0xEB, .{ 290, 339 }, .left),
 };
 
 /// Where the selected save's details stand: its pilot, rank and level, and the date its file was
@@ -274,12 +274,12 @@ pub const Context = struct {
 pub const SavedGames = struct {
     mode: Mode = .load,
     from: From = .roster,
-    /// The saves `saved_games_scan` found, and how many (`saved_games_count`, `0x00520248`).
+    /// The saves `saved_games_scan` found.
     list: [save.slots]Listed = @splat(.{}),
-    count: u8 = 0,
-    /// The save the list's first row shows (`saved_games_first`, `0x0051DA1C`), and the one
-    /// selected (`saved_games_selected`, `0x0051D9F8`).
-    first: u8 = 0,
+    /// How many there are (`saved_games_count`, `0x00520248`), and the save the list's first row
+    /// shows (`saved_games_first`, `0x0051DA1C`).
+    scrolled: canvas_module.Scrolled(u8) = .{ .shown = rows },
+    /// The save selected (`saved_games_selected`, `0x0051D9F8`).
     selected: ?u8 = null,
     /// The selected save's rank and level (`saved_games_rank`, `0x0051DA10`; `saved_games_tier`,
     /// `0x00520258`), and the date its file was last written (`saved_games_time_text`), where it
@@ -335,7 +335,7 @@ pub const SavedGames = struct {
     /// **Fix:** a file with no `SAVE` form is listed with no name, pilot or mission, where the
     /// game shows whatever its buffers held.
     fn scan(screen: *SavedGames, saves: Saves) void {
-        screen.count = 0;
+        screen.scrolled.count = 0;
         for (&screen.list, 0..) |*listed, slot| {
             const bytes = saves.folder.file(saves.gpa, saves.callSign(), @intCast(slot)) orelse break;
             defer saves.gpa.free(bytes);
@@ -343,7 +343,7 @@ pub const SavedGames = struct {
             _ = save.read(bytes, &found);
             listed.* = .{ .name = found.name, .mission = found.miss.missionNumber() };
             listed.pilot.set(std.mem.sliceTo(&found.miss.call_sign, 0));
-            screen.count += 1;
+            screen.scrolled.count += 1;
         }
     }
 
@@ -363,19 +363,6 @@ pub const SavedGames = struct {
         const local_time = saves.local_time orelse return;
         const written = saves.folder.modified(saves.callSign(), slot) orelse return;
         screen.time = if (local_time(written)) |date| .of(date) else null;
-    }
-
-    /// `saved_games_scroll_down` (`0x00431580`) and `saved_games_scroll_up` (`0x004315A0`): the
-    /// list a row on, or back, where it holds more than it shows and the last, or the first, is not
-    /// shown.
-    fn scroll(screen: *SavedGames, arrow: Arrow) void {
-        if (screen.count <= rows) return;
-        switch (arrow) {
-            .down => if (screen.first + rows < screen.count) {
-                screen.first += 1;
-            },
-            .up => screen.first -|= 1,
-        }
     }
 
     /// Starts typing the name, from `name`, the cursor shown.
@@ -414,8 +401,8 @@ pub const SavedGames = struct {
             return if (answer) screen.leave(context.saves, .quit) else null;
         }
         if (escaped) return screen.leave(context.saves, .back);
-        if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) screen.scroll(.down);
-        if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) screen.scroll(.up);
+        if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) screen.scrolled.scroll(.down);
+        if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) screen.scrolled.scroll(.up);
         defer if (screen.typing and screen.mode == .save) hud.typeInto(context.typed, &screen.name.bytes, &screen.name.len, null);
         if (screen.mode == .save and screen.typing) {
             if (context.ticks > screen.blink_at) {
@@ -439,7 +426,8 @@ pub const SavedGames = struct {
         screen.arrow = canvas_module.itemAt(Arrow, &arrow_rects, pointer.at);
         if (screen.arrow) |arrow| if (down) {
             screen.held = false;
-            screen.scroll(arrow);
+            // `saved_games_scroll_down` (`0x00431580`) and `saved_games_scroll_up` (`0x004315A0`).
+            screen.scrolled.scroll(arrow);
         };
         screen.under = if (canvas_module.hit(&rowRects(), pointer.at)) |row|
             .{ .row = @intCast(row) }
@@ -451,8 +439,8 @@ pub const SavedGames = struct {
         if (!down) return null;
         switch (under) {
             .row => |row| {
-                if (row >= @min(screen.count, rows)) return null;
-                return screen.choose(context, screen.first + row);
+                if (row >= @min(screen.scrolled.count, rows)) return null;
+                return screen.choose(context, screen.scrolled.first + row);
             },
             .button => |button| switch (button) {
                 .back => return screen.leave(context.saves, .back),
@@ -525,9 +513,9 @@ pub const SavedGames = struct {
     /// **Fix:** with every slot taken, NEW SAVE GAME does nothing, where the game saves over the
     /// restart point's file.
     fn newSave(screen: *SavedGames, context: Context) void {
-        if (screen.new_save != null or screen.count >= save.slots) return;
+        if (screen.new_save != null or screen.scrolled.count >= save.slots) return;
         const saves = context.saves;
-        const slot = screen.count;
+        const slot = screen.scrolled.count;
         const name = saves.strings.string(new_save_name) orelse "";
         const saved = saves.game.capture(name);
         saves.folder.store(saves.gpa, saves.callSign(), slot, &saved) catch |err| {
@@ -543,7 +531,7 @@ pub const SavedGames = struct {
         screen.tier = saves.game.tier.*;
         screen.rank = saves.game.player.rank;
         screen.readTime(saves, slot);
-        if (screen.count > rows) screen.first = screen.count - rows;
+        if (screen.scrolled.count > rows) screen.scrolled.first = screen.scrolled.count - rows;
         screen.startTyping(context, name);
     }
 
@@ -590,27 +578,20 @@ pub const SavedGames = struct {
                     try canvas.text(large, .{ name_at[0] + width, name_at[1] }, cursor, white, .left);
                 }
                 try canvas.shape(art, if (screen.ok_under) lit_ok_shape else ok_shape, ok_at);
-                try writeLabel(canvas, small, ok_label, blue);
+                try ok_label.write(canvas, small, blue);
             }
         }
-        for (labels) |each| try writeLabel(canvas, small, each, blue);
+        for (labels) |each| try each.write(canvas, small, blue);
         if (screen.time) |time| try canvas.text(small, time_at, time.slice(), blue, .left);
-        for (std.enums.values(Button)) |button| try writeLabel(canvas, small, label(button, screen.mode), blue);
         for (std.enums.values(Button)) |button| {
-            const rect = button_rects.get(button);
-            try canvas.shape(art, button_shape, .{ rect.x, rect.y });
+            const lit = if (screen.under) |under| switch (under) {
+                .button => |pointed| pointed == button,
+                .row => false,
+            } else false;
+            try shownButton(button, screen.mode).draw(canvas, art, button_shapes, lit);
         }
-        if (screen.under) |under| switch (under) {
-            .button => |button| {
-                try writeLabel(canvas, small, label(button, screen.mode), white);
-                const rect = button_rects.get(button);
-                try canvas.shape(art, lit_button_shape, .{ rect.x, rect.y });
-            },
-            .row => {},
-        };
-        const shown = @min(screen.count, screen.first + rows);
-        for (screen.first..shown) |slot| {
-            const y = rowRect(slot - screen.first).y;
+        for (screen.scrolled.first..screen.scrolled.end()) |slot| {
+            const y = rowRect(slot - screen.scrolled.first).y;
             const selected = if (screen.selected) |chosen| chosen == slot else false;
             const colour = if (selected) white else blue;
             if (selected) canvas.wipe(.{ bar_from[0], y + bar_from[1] }, .{ bar_to[0], y + bar_to[1] }, bar_colour);
@@ -622,7 +603,7 @@ pub const SavedGames = struct {
         }
         if (screen.selected) |slot| {
             try canvas.string(small, rank_at, gameflow.rank_names[screen.rank], blue, .left);
-            if (slot < screen.count) try canvas.text(small, pilot_at, screen.list[slot].pilot.slice(), blue, .left);
+            if (slot < screen.scrolled.count) try canvas.text(small, pilot_at, screen.list[slot].pilot.slice(), blue, .left);
             try canvas.string(small, tier_at, gameflow.tier_names[screen.tier], blue, .left);
         }
         try canvas.shape(art, arrows_shape, arrows_at);
@@ -642,10 +623,6 @@ fn rowRects() [rows]Rect {
     var all: [rows]Rect = undefined;
     for (&all, 0..) |*rect, row| rect.* = rowRect(row);
     return all;
-}
-
-fn writeLabel(canvas: Canvas, font: *hud.Opened, each: Label, colour: [3]f32) canvas_module.Error!void {
-    try canvas.string(font, each.at, each.string, colour, each.alignment);
 }
 
 test leavingMovie {
@@ -742,7 +719,7 @@ test "loading lists the saves up to the first missing, and a second click loads"
     fixture.campaign.mission = 1;
     fixture.screen.enter(.load, .roster, fixture.context(.{}));
     // The autosave is selected, and the list stops at the missing slot 2.
-    try std.testing.expectEqual(2, fixture.screen.count);
+    try std.testing.expectEqual(2, fixture.screen.scrolled.count);
     try std.testing.expectEqual(0, fixture.screen.selected);
     try std.testing.expectEqualStrings("Before the Ghost", fixture.screen.list[1].name.slice());
     try std.testing.expectEqualStrings("Ace", fixture.screen.list[1].pilot.slice());
@@ -782,12 +759,12 @@ test "NEW SAVE GAME saves in the next slot, and leaving without a name removes i
     try std.testing.expectEqual(null, fixture.click(rowAt(0)));
     try std.testing.expectEqual(null, fixture.screen.selected);
     try std.testing.expectEqual(null, fixture.click(buttonAt(.act)));
-    try std.testing.expectEqual(2, fixture.screen.count);
+    try std.testing.expectEqual(2, fixture.screen.scrolled.count);
     try std.testing.expectEqual(1, fixture.screen.selected);
     try std.testing.expect(fixture.screen.takesText());
     // Once a visit.
     try std.testing.expectEqual(null, fixture.click(buttonAt(.act)));
-    try std.testing.expectEqual(2, fixture.screen.count);
+    try std.testing.expectEqual(2, fixture.screen.scrolled.count);
     // BACK removes it.
     try std.testing.expectEqual(End.back, fixture.click(buttonAt(.back)).?);
     try std.testing.expectEqual(null, fixture.folder().file(std.testing.allocator, "Ace", 1));
@@ -826,13 +803,13 @@ test "the arrows scroll a row each pass they are held" {
     defer fixture.deinit();
     for (0..13) |slot| try fixture.store(@intCast(slot), "x", 2);
     fixture.screen.enter(.load, .roster, fixture.context(.{}));
-    try std.testing.expectEqual(13, fixture.screen.count);
+    try std.testing.expectEqual(13, fixture.screen.scrolled.count);
     const down: Pointer = .{ .at = .{ 585, 272 }, .down = true };
     for (0..5) |_| _ = fixture.frame(down);
     // Three rows are past the ten shown.
-    try std.testing.expectEqual(3, fixture.screen.first);
+    try std.testing.expectEqual(3, fixture.screen.scrolled.first);
     _ = fixture.frame(.{ .at = .{ 585, 255 }, .down = true });
-    try std.testing.expectEqual(2, fixture.screen.first);
+    try std.testing.expectEqual(2, fixture.screen.scrolled.first);
 }
 
 test "Escape leaves, and QUIT asks first" {

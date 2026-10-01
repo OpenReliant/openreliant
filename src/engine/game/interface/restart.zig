@@ -45,9 +45,9 @@ const lit_at = std.EnumArray(Choice, [2]i32).init(.{
     .main_menu = .{ 164, 427 },
 });
 const labels = std.EnumArray(Choice, Label).init(.{
-    .replay_from_briefing = .{ .string = 0x32D, .at = .{ 199, 374 } },
-    .replay_from_launch = .{ .string = 0x32E, .at = .{ 199, 402 } },
-    .main_menu = .{ .string = 0x32F, .at = .{ 199, 428 } },
+    .replay_from_briefing = .of(0x32D, .{ 199, 374 }, .left),
+    .replay_from_launch = .of(0x32E, .{ 199, 402 }, .left),
+    .main_menu = .of(0x32F, .{ 199, 428 }, .left),
 });
 
 /// The picture and the lit button (`0x0043EE37`, `0x0043EE71`), and where the picture stands
@@ -104,7 +104,7 @@ pub const Restart = struct {
         faded.brightness = screen.brightness;
         try faded.shape(art, picture_shape, picture_at);
         if (screen.under) |under| try faded.shape(art, lit_shape, lit_at.get(under));
-        for (labels.values) |label| try faded.string(faded.fonts.small, label.at, label.string, label_colour, .left);
+        for (labels.values) |label| try label.write(faded, faded.fonts.small, label_colour);
         if (screen.chosen == null) try faded.shape(art, pointer.shape(), pointer.at);
     }
 };

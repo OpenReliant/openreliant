@@ -299,8 +299,78 @@ pub const Shapes = struct {
     }
 };
 
-/// A line of a screen's text: the game's string, and where it stands.
-pub const Label = struct { string: u32, at: [2]i32 };
+/// A line of a screen's text: a string of the game's (`language_string`), or OpenReliant's words,
+/// where it stands, and how it lines up there.
+pub const Label = struct {
+    text: Text,
+    at: [2]i32,
+    alignment: hud.Align = .left,
+
+    pub const Text = union(enum) {
+        string: u32,
+        words: []const u8,
+    };
+
+    /// The game's string `id`, at `at`, lined up by `alignment`.
+    pub fn of(id: u32, at: [2]i32, alignment: hud.Align) Label {
+        return .{ .text = .{ .string = id }, .at = at, .alignment = alignment };
+    }
+
+    /// Writes it in `font`, ramped through `colour`.
+    pub fn write(label: Label, canvas: Canvas, font: *hud.Opened, colour: [3]f32) Allocator.Error!void {
+        switch (label.text) {
+            .string => |id| try canvas.string(font, label.at, id, colour, label.alignment),
+            .words => |words| try canvas.text(font, label.at, words, colour, label.alignment),
+        }
+    }
+};
+
+/// A button of the front end's screens: its shape, with its corner at `at`, and its label beside it
+/// in the small font, blue, or white over the lit shape while it is under the pointer.
+pub const Button = struct {
+    at: [2]i32,
+    label: Label,
+
+    /// The shapes of a screen's set a button is drawn with: as it stands, and lit.
+    pub const Pair = struct { off: usize, lit: usize };
+
+    pub fn draw(button: Button, canvas: Canvas, art: *hud.Art, shapes: Pair, lit: bool) Error!void {
+        try canvas.shape(art, if (lit) shapes.lit else shapes.off, button.at);
+        try button.label.write(canvas, canvas.fonts.small, if (lit) white else blue);
+    }
+};
+
+/// A list's arrows, which scroll it a row up or down.
+pub const Arrow = enum { up, down };
+
+/// A list that shows `shown` of its `count` rows, from `first` on, which its arrows scroll; counted
+/// in `Int`, as the screen keeps it.
+pub fn Scrolled(comptime Int: type) type {
+    return struct {
+        first: Int = 0,
+        count: Int = 0,
+        shown: Int,
+
+        const List = @This();
+
+        /// The list a row on, or back, where it holds more than it shows and the last, or the
+        /// first, is not shown.
+        pub fn scroll(list: *List, way: Arrow) void {
+            if (list.count <= list.shown) return;
+            switch (way) {
+                .down => if (list.first + list.shown < list.count) {
+                    list.first += 1;
+                },
+                .up => list.first -|= 1,
+            }
+        }
+
+        /// Where the rows shown end: at the list's end, or past the last shown.
+        pub fn end(list: List) Int {
+            return @min(list.count, list.first + list.shown);
+        }
+    };
+}
 
 /// A rectangle of the front end's screen, as its tables keep one: its corner and its size.
 pub const Rect = extern struct {
@@ -488,4 +558,21 @@ test Pointer {
     try std.testing.expectEqual(16, pointer.shape());
     pointer.update(.{}, .{ 640, 480 }, 1);
     try std.testing.expectEqual(0, pointer.ticks);
+}
+
+test Scrolled {
+    var list: Scrolled(u8) = .{ .count = 13, .shown = 10 };
+    list.scroll(.up);
+    try std.testing.expectEqual(0, list.first);
+    for (0..5) |_| list.scroll(.down);
+    // No further than the last row shown.
+    try std.testing.expectEqual(3, list.first);
+    try std.testing.expectEqual(13, list.end());
+    list.scroll(.up);
+    try std.testing.expectEqual(2, list.first);
+    // A list that holds no more than it shows does not scroll.
+    var short: Scrolled(usize) = .{ .count = 4, .shown = 10 };
+    short.scroll(.down);
+    try std.testing.expectEqual(0, short.first);
+    try std.testing.expectEqual(4, short.end());
 }

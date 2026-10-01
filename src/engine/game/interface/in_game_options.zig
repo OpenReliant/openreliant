@@ -47,52 +47,32 @@ pub const rects = std.EnumArray(Item, Rect).init(.{
     .about = .{ .x = 329, .y = 422, .width = 100, .height = 15 },
 });
 
-/// A line of text of the drawing: its text, where it stands and how it lines up there.
-const Label = struct {
-    text: Text,
-    at: [2]i32,
-    alignment: hud.Align,
-
-    /// A string of the game's (`language_string`), or OpenReliant's words.
-    const Text = union(enum) {
-        string: u32,
-        words: []const u8,
-    };
-
-    fn write(label: Label, canvas: Canvas, font: *hud.Opened, colour: [3]f32) canvas_module.Error!void {
-        switch (label.text) {
-            .string => |id| try canvas.string(font, label.at, id, colour, label.alignment),
-            .words => |words| try canvas.text(font, label.at, words, colour, label.alignment),
-        }
-    }
-};
+const Label = canvas_module.Label;
+const Button = canvas_module.Button;
 
 /// A panel's label, in the large font, centred under it, and its shape under the pointer.
 const Panel = struct { label: Label, lit_shape: u8, lit_at: [2]i32 };
 
-/// A button's label, in the small font beside it, its button's place, and its shape.
-const Button = struct { label: Label, at: [2]i32 };
-
-const button_shape = 0x1C;
-const lit_button_shape = 0x1D;
+/// The buttons' shapes, as they stand and lit.
+const button_shapes: Button.Pair = .{ .off = 0x1C, .lit = 0x1D };
 
 fn panel(item: Item) ?Panel {
     return switch (item) {
-        .save => .{ .label = .{ .text = .{ .string = 0x3B5 }, .at = .{ 0xD0, 0xE9 }, .alignment = .centre }, .lit_shape = 0x12, .lit_at = .{ 0x6B, 0x73 } },
-        .load => .{ .label = .{ .text = .{ .string = 0x149 }, .at = .{ 0x198, 0xE9 }, .alignment = .centre }, .lit_shape = 0x13, .lit_at = .{ 0x134, 0x72 } },
-        .audio => .{ .label = .{ .text = .{ .string = 0x109 }, .at = .{ 0x82, 0x181 }, .alignment = .centre }, .lit_shape = 0x14, .lit_at = .{ 0x23, 0xFA } },
-        .control_devices => .{ .label = .{ .text = .{ .string = 0x10A }, .at = .{ 0x142, 0x181 }, .alignment = .centre }, .lit_shape = 0x15, .lit_at = .{ 0xE6, 0xFF } },
-        .video => .{ .label = .{ .text = .{ .string = 0x10B }, .at = .{ 0x1FA, 0x181 }, .alignment = .centre }, .lit_shape = 0x16, .lit_at = .{ 0x196, 0xFC } },
+        .save => .{ .label = .of(0x3B5, .{ 0xD0, 0xE9 }, .centre), .lit_shape = 0x12, .lit_at = .{ 0x6B, 0x73 } },
+        .load => .{ .label = .of(0x149, .{ 0x198, 0xE9 }, .centre), .lit_shape = 0x13, .lit_at = .{ 0x134, 0x72 } },
+        .audio => .{ .label = .of(0x109, .{ 0x82, 0x181 }, .centre), .lit_shape = 0x14, .lit_at = .{ 0x23, 0xFA } },
+        .control_devices => .{ .label = .of(0x10A, .{ 0x142, 0x181 }, .centre), .lit_shape = 0x15, .lit_at = .{ 0xE6, 0xFF } },
+        .video => .{ .label = .of(0x10B, .{ 0x1FA, 0x181 }, .centre), .lit_shape = 0x16, .lit_at = .{ 0x196, 0xFC } },
         .back, .main_menu, .quit, .about => null,
     };
 }
 
 fn button(item: Item) ?Button {
     return switch (item) {
-        .back => .{ .label = .{ .text = .{ .string = 0xF7 }, .at = .{ 0x124, 0x1A7 }, .alignment = .right }, .at = .{ 0x12B, 0x1A6 } },
-        .main_menu => .{ .label = .{ .text = .{ .string = 0xBB }, .at = .{ 0x124, 0x1BC }, .alignment = .right }, .at = .{ 0x12B, 0x1BB } },
-        .quit => .{ .label = .{ .text = .{ .string = 0xBC }, .at = .{ 0x165, 0x1BC }, .alignment = .left }, .at = .{ 0x149, 0x1BB } },
-        .about => .{ .label = .{ .text = .{ .words = About.title }, .at = .{ 0x165, 0x1A7 }, .alignment = .left }, .at = .{ 0x149, 0x1A6 } },
+        .back => .{ .label = .of(0xF7, .{ 0x124, 0x1A7 }, .right), .at = .{ 0x12B, 0x1A6 } },
+        .main_menu => .{ .label = .of(0xBB, .{ 0x124, 0x1BC }, .right), .at = .{ 0x12B, 0x1BB } },
+        .quit => .{ .label = .of(0xBC, .{ 0x165, 0x1BC }, .left), .at = .{ 0x149, 0x1BB } },
+        .about => .{ .label = .{ .text = .{ .words = About.title }, .at = .{ 0x165, 0x1A7 } }, .at = .{ 0x149, 0x1A6 } },
         .save, .load, .audio, .control_devices, .video => null,
     };
 }
@@ -131,7 +111,7 @@ pub const About = struct {
     /// Where the lines start, the product ID's line in the game, and how they are laid out.
     const text_at: [2]i32 = .{ 0x140, 0xC2 };
     const lines: Canvas.Lines = .{ .width = 400, .height = 14, .most = 10 };
-    const ok_label: Label = .{ .text = .{ .string = 0x316 }, .at = .{ 0x134, 0x149 }, .alignment = .right };
+    const ok_label: Label = .of(0x316, .{ 0x134, 0x149 }, .right);
 
     /// A pass of its loop: Escape closes it at once, a click on OK once the button comes up.
     /// Whether it has closed.
@@ -269,22 +249,11 @@ pub const InGameOptions = struct {
     /// labels, the item under the pointer lit, the panels' labels, ABOUT OPENRELIANT's box or
     /// QUIT's question where either is up, OpenReliant's version, then the pointer.
     pub fn draw(menu: InGameOptions, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, about_art: ?*hud.Art, pointer: Pointer) canvas_module.Error!void {
-        const small = canvas.fonts.small;
         for (std.enums.values(Item)) |item| {
             const shown = button(item) orelse continue;
-            try canvas.shape(art, button_shape, shown.at);
+            try shown.draw(canvas, art, button_shapes, menu.under == item);
         }
-        for (std.enums.values(Item)) |item| {
-            const shown = button(item) orelse continue;
-            try shown.label.write(canvas, small, canvas_module.blue);
-        }
-        if (menu.under) |under| {
-            if (panel(under)) |lit| try canvas.shape(art, lit.lit_shape, lit.lit_at);
-            if (button(under)) |lit| {
-                try lit.label.write(canvas, small, canvas_module.white);
-                try canvas.shape(art, lit_button_shape, lit.at);
-            }
-        }
+        if (menu.under) |under| if (panel(under)) |lit| try canvas.shape(art, lit.lit_shape, lit.lit_at);
         for (std.enums.values(Item)) |item| {
             const shown = panel(item) orelse continue;
             try shown.label.write(canvas, canvas.fonts.large, canvas_module.blue);
