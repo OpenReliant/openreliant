@@ -44,6 +44,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`engine/front-end.md`](engine/front-end.md) | The front end: its screens, the main menu, GAME OPTIONS, the settings screen and its controls, the pilot roster, the dialogs and the backgrounds. |
 | [`engine/rooms.md`](engine/rooms.md) | The Reliant's rooms: their views and movies, the pointer, the fish tank, the news report, a new pilot's induction and the in-game options. |
 | [`engine/itac.md`](engine/itac.md) | The ITAC: its sections, their movies and pictures, the fades, the panes, and the debriefings. |
+| [`engine/simulator-pod.md`](engine/simulator-pod.md) | The simulator pod: its screens and choices, and the training missions and Instant Action it flies. |
 | [`engine/briefing.md`](engine/briefing.md) | The briefing: the door, the way into the briefing room, Enriquez with the mission's movie, his last word, and the campaign's end. |
 | [`engine/loadout.md`](engine/loadout.md) | The loadout: its hologram, GenILib's 3D interface, the ship page, choosing a ship, the missile page and the racks, the internal guns view, the exit, its panels and figures, and the ship and racks it leaves the mission. |
 | [`engine/movies.md`](engine/movies.md) | Movies: how the game plays them, the discs' archives, the intro, the transitions, the hangar's, the landing and the chapters' ends, and the stand-in for Bink. |

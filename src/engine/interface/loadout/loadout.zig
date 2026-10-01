@@ -52,6 +52,7 @@ pub const bars = @import("bars.zig");
 pub const panels = @import("panels.zig");
 pub const hologram = @import("hologram.zig");
 pub const racks = @import("racks.zig");
+pub const simulator_pod = @import("simulator_pod.zig");
 pub const tables = @import("tables.zig");
 
 const log = std.log.scoped(.loadout);
@@ -2651,6 +2652,7 @@ test {
     _ = panels;
     _ = hologram;
     _ = racks;
+    _ = simulator_pod;
     _ = tables;
 }
 

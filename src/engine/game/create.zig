@@ -704,13 +704,13 @@ pub const training_missions = [2]u16{ 30, 35 };
 pub const instant_action_mission = 29;
 
 /// The simulator the front end runs a mission in: `simulator_mode` (`0x00524FE4`), and `simulator`
-/// (`0x0057E044`), which the main menu's INSTANT ACTION sets as well. Out of the simulator, the
-/// wingmen hear their keys (`frame_controls`), and the player's ship takes the loadout screen's
-/// weapons (`create_object`, `cmd_ReplenishWeapons`).
+/// (`0x0057E044`), which Instant Action sets as well. Out of the simulator, the wingmen hear their
+/// keys (`frame_controls`), and the player's ship takes the loadout screen's weapons
+/// (`create_object`, `cmd_ReplenishWeapons`).
 pub const Simulator = struct {
     mode: Mode = .none,
-    /// Set while the main menu's INSTANT ACTION runs.
-    main_menu: bool = false,
+    /// `simulator`: set while Instant Action runs, from the main menu or the simulator pod.
+    instant_action: bool = false,
 
     /// What the simulator runs, as the loading screen names it (`0x004AD0A0`).
     pub const Mode = enum(u8) {
@@ -725,13 +725,13 @@ pub const Simulator = struct {
 
     /// Whether the mission is simulated.
     pub fn simulated(simulator: Simulator) bool {
-        return simulator.main_menu or simulator.mode != .none;
+        return simulator.instant_action or simulator.mode != .none;
     }
 };
 
 test Simulator {
     try std.testing.expect(!(Simulator{}).simulated());
-    try std.testing.expect((Simulator{ .mode = .instant_action, .main_menu = true }).simulated());
+    try std.testing.expect((Simulator{ .mode = .instant_action, .instant_action = true }).simulated());
     try std.testing.expect((Simulator{ .mode = .training }).simulated());
     var all: Objects = undefined;
     all.simulator = .{};

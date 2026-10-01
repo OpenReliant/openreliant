@@ -724,8 +724,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             objects.loadout_ships[objects.player] = if (flight.ship orelse options.ship) |ship| @enumFromInt(ship) else null;
             objects.loadout_racks[objects.player] = flight.racks;
             objects.simulator = flight.simulator;
+            // The simulator pod's missions run on the campaign's variables too, as the game's are
+            // the campaign's, but `WinMain` keeps no restart point for them.
             play.campaign = if (flow.campaign) |*going| going else null;
-            if (flow.campaign) |*going| flow.restart_point = saving.restartPoint(going);
+            if (flight.byWinMain()) if (flow.campaign) |*going| {
+                flow.restart_point = saving.restartPoint(going);
+            };
             // The pilot the front end has set flies it: the radio says the pilot's own lines in
             // the pilot's voice, and hits land by the game's difficulty.
             player.female = front.pilot.female;
@@ -780,7 +784,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 // The mission over, once the camera has watched the player's end or the pilot's pickup,
                 // once the player's ship has landed, or once its script ends it, the game settles how
                 // it ended and goes on from it (`missionEnded`): the campaign to its next mission or
-                // the restart screen, and INSTANT ACTION back to the main menu.
+                // the restart screen, INSTANT ACTION back to the main menu, and the simulator pod's
+                // missions back to the pod.
                 // One `--mission` named pauses into the menu over the last frame, where RESTART, and
                 // CONTINUE with nothing left to continue, fly it again; a screenshot, or a game told
                 // not to (`--no-pause-menu`), starts it again straight away.
@@ -898,7 +903,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     // `WinMain` loads the campaign's restart point (`0x004AA480`), and restarts
                     // mission 25 from its first part, which it reads again (`0x004AA47A`).
                     .restart => {
-                        if (flow.campaign) |*campaign| saving.restart(campaign, if (flow.restart_point) |*point| point else null);
+                        if (flow.flown.byWinMain()) if (flow.campaign) |*campaign| {
+                            saving.restart(campaign, if (flow.restart_point) |*point| point else null);
+                        };
                         if (objects.mission25_second_part) {
                             objects.mission25_second_part = false;
                             flow.next = .{ .flight = flow.flown, .hangar = false };
@@ -1080,11 +1087,26 @@ const Launch = struct {
     hangar: bool = true,
 };
 
-/// As a mission the front end or the campaign started ends, or is left: the campaign goes on
+/// As a mission the front end or the campaign started ends, or is left: a mission of the simulator
+/// pod's goes back into the pod (`Rooms.backFromSimulator`); the campaign goes on
 /// (`campaignGoesOn`), to the flight it leads to or to the main menu; outside it, the mission is
 /// let go, with the landing where it plays one, and the front end's main menu entered again. False
 /// where the game quits meanwhile.
 fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Play, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, saving: Saving, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !bool {
+    if (flow.flown.flier == .simulator_pod) {
+        // The pod's mission leaves the game's variables, which are the campaign's, as it ended
+        // them: the pod runs it on the game's own (`0x0044F6EF`).
+        if (flow.campaign) |*campaign| if (play.loaded) |loaded| {
+            campaign.variables = loaded.script.variables;
+        };
+        if (!try letGo(play, all, sound, null, movies, resources)) return false;
+        const flight = briefedFlight(try rooms.backFromSimulator() orelse return false, all, ship) orelse {
+            flow.toFrontEnd(front);
+            return true;
+        };
+        flow.next = .{ .flight = flight };
+        return true;
+    }
     if (flow.campaign) |*campaign| {
         const point = if (flow.restart_point) |*kept| kept else null;
         switch (try campaignGoesOn(play, campaign, rooms, all, player, saving, flow.flown, point, ship, sound, movies, resources) orelse return false) {
@@ -1111,13 +1133,14 @@ fn letGo(play: *Play, all: *game.create.Objects, sound: *game.hog_snd.Sound, lan
     return true;
 }
 
-/// The flight a briefing leads to as it `end`s: its mission, which a game loaded on the way may
-/// have changed, in the ship its loadout chose and its racks, but where `--ship` names a `ship`,
-/// which is then fitted by its tier; and the campaign's tier as the loadout raised it. Null where
-/// the briefing led to the main menu.
+/// The flight the rooms lead to as they `end`: a mission of the simulator pod's; or the mission
+/// the briefing leads to, which a game loaded on the way may have changed, in the ship its loadout
+/// chose and its racks, but where `--ship` names a `ship`, which is then fitted by its tier, and
+/// the campaign's tier as the loadout raised it. Null where they led to the main menu.
 fn briefedFlight(end: RoomsEnd, all: *game.create.Objects, ship: ?u8) ?game.interface.main_menu.Flight {
     const flown = switch (end) {
         .fly => |flown| flown,
+        .simulator => |flight| return flight,
         .main_menu => return null,
     };
     const mission = flown.mission;

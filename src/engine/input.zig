@@ -2238,7 +2238,7 @@ test "the wingmen's keys go unheard in the simulator" {
     const key = controls.binding(.attack_my_target).key;
     const keys: FrameKeys = .{ .display = &display, .player = world.player, .devices = &devices, .slot = &all.slots[all.player], .view = .cockpit, .game_ticks = 0, .multiplayer = false, .world = world, .all = all };
     const orders = wingman.object.order_count;
-    all.simulator = .{ .mode = .instant_action, .main_menu = true };
+    all.simulator = .{ .mode = .instant_action, .instant_action = true };
     devices.keyboard.down[key] = true;
     frameKeys(keys);
     try std.testing.expectEqual(orders, wingman.object.order_count);

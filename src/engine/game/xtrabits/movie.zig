@@ -48,6 +48,9 @@ pub const main_to_single = "interface\\main2sin.bik";
 pub const single_to_main = "interface\\sin2main.bik";
 pub const main_to_options = "interface\\main2opt.bik";
 
+/// A movie to play in a loop of its own: its name, and how it plays.
+pub const Named = struct { name: []const u8, kind: Kind };
+
 /// What plays a movie, which decides where it is read from, the rate it plays at, whether it plays
 /// at all, and what ends it.
 pub const Kind = enum {

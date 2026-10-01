@@ -121,7 +121,7 @@ pub const Choice = union(enum) {
 };
 
 /// A mission to fly: its number, the ship type the loadout gives the player, or null for the ship
-/// the mission gives, and the simulator it runs in.
+/// the mission gives, the simulator it runs in, and what flies it.
 pub const Flight = struct {
     mission: u16,
     ship: ?u8 = null,
@@ -130,12 +130,22 @@ pub const Flight = struct {
     /// (`skip_briefing`, `0x005883B4`).
     racks: ?create.Racks = null,
     simulator: create.Simulator = .{},
+    flier: Flier = .winmain,
 
-    /// Whether `WinMain` flies it, with the hangar's movie before it and the landing after
-    /// (`xtrabits.movie.Hangar`, `xtrabits.landing`): every flight but INSTANT ACTION's, which the
-    /// main menu flies itself.
+    /// What flies a mission, and so what follows it.
+    pub const Flier = enum {
+        /// `WinMain`, with the hangar's movie before it and the landing after
+        /// (`xtrabits.movie.Hangar`, `xtrabits.landing`).
+        winmain,
+        /// The main menu, INSTANT ACTION's, which comes back to itself.
+        main_menu,
+        /// The simulator pod, which comes back to itself (`interface.loadout.simulator_pod`).
+        simulator_pod,
+    };
+
+    /// Whether `WinMain` flies it.
     pub fn byWinMain(flight: Flight) bool {
-        return !flight.simulator.main_menu;
+        return flight.flier == .winmain;
     }
 };
 
@@ -145,7 +155,8 @@ pub const Flight = struct {
 pub const instant_action: Flight = .{
     .mission = create.instant_action_mission,
     .ship = @intFromEnum(gameobj.Type.grendel),
-    .simulator = .{ .mode = .instant_action, .main_menu = true },
+    .simulator = .{ .mode = .instant_action, .instant_action = true },
+    .flier = .main_menu,
 };
 
 /// What a frame of the menu reads and plays through.

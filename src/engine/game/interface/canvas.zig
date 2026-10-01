@@ -4,6 +4,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const fnt = @import("../../../formats/fnt.zig");
 const spr = @import("../../../formats/spr.zig");
 const bigfile = @import("../bigfile.zig");
 const device = @import("../../surrender/srd3d/device.zig");
@@ -318,6 +319,32 @@ pub const Shapes = struct {
     }
 };
 
+/// A font read whole, as `hog_load` reads one, and opened (`font_open`), its levels ramped
+/// through the colour it is drawn in (`hud.Opened.ramp`): the ITAC's and the simulator pod's.
+pub const FontFile = struct {
+    bytes: []u8,
+    font: hud.Opened,
+
+    /// The font `name` of `archive`; null where it is left out, which the log says.
+    pub fn read(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8) ?FontFile {
+        const bytes = archive.readFile(gpa, name) catch |err| {
+            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+            return null;
+        };
+        const parsed = fnt.Font.parse(bytes) catch |err| {
+            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+            gpa.free(bytes);
+            return null;
+        };
+        return .{ .bytes = bytes, .font = .ramp(parsed) };
+    }
+
+    pub fn deinit(file: *FontFile, gpa: Allocator) void {
+        file.font.deinit(gpa);
+        gpa.free(file.bytes);
+    }
+};
+
 /// A line of a screen's text: a string of the game's (`language_string`), or OpenReliant's words,
 /// where it stands, and how it lines up there.
 pub const Label = struct {
@@ -493,6 +520,33 @@ pub const Pointer = struct {
         return @intCast(@divTrunc(pointer.ticks, ticks_per_shape) + 1);
     }
 };
+
+/// The ticks of the pointer's animation in the ITAC and in the simulator pod (`pointer_clock`,
+/// `0x0051D7C8`): on by the game's ticks since the last pass, and back to 0 once they reach a
+/// wrap, less their last two bits.
+pub const PointerClock = struct {
+    ticks: u32 = 0,
+    /// The game's ticks at the last pass.
+    last: u32 = 0,
+
+    /// On to the game's `ticks`, round `wrap`.
+    pub fn advance(clock: *PointerClock, ticks: u32, wrap: u32) void {
+        clock.ticks +%= ticks -% clock.last;
+        clock.last = ticks;
+        if (clock.ticks & ~@as(u32, 3) >= wrap) clock.ticks = 0;
+    }
+};
+
+test PointerClock {
+    var clock: PointerClock = .{ .last = 100 };
+    clock.advance(130, 0x40);
+    try std.testing.expectEqual(30, clock.ticks);
+    // Once they reach the wrap, they start again.
+    clock.advance(163, 0x40);
+    try std.testing.expectEqual(63, clock.ticks);
+    clock.advance(164, 0x40);
+    try std.testing.expectEqual(0, clock.ticks);
+}
 
 test scaleFor {
     try std.testing.expectEqual(1, scaleFor(.{ 640, 480 }));

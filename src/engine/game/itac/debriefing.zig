@@ -285,7 +285,7 @@ pub const Debriefing = struct {
 
     /// How far the body can scroll, as it breaks into lines.
     fn reach(debriefing: *Debriefing, itac: *Itac) void {
-        const font = &(itac.small orelse return);
+        const font = &(itac.small orelse return).font;
         debriefing.box.reach(debriefing.box.lines().count(font, debriefing.bodyText()));
     }
 
@@ -296,7 +296,7 @@ pub const Debriefing = struct {
     /// The list's entries laid out from the first, as its drawing lays them out, each a hotspot.
     fn layOut(debriefing: *Debriefing, itac: *Itac) void {
         debriefing.listed_count = 0;
-        const font = &(itac.small orelse return);
+        const font = &(itac.small orelse return).font;
         if (itac.pilot.mission <= 1) return;
         const flown = std.math.sub(u8, placeOf(itac.pilot.mission + 1), 1) catch 0;
         var y: i32 = list_top;
@@ -319,7 +319,7 @@ pub const Debriefing = struct {
     /// `debrief_draw` (`0x00424930`), at `fade`: its panes, while no fade runs; the figures'
     /// labels, and their values faded; and REPLAY MISSION where it is offered.
     pub fn draw(debriefing: *Debriefing, itac: *Itac, canvas: Canvas, fade: f32) canvas_module.Error!void {
-        const small = &(itac.small orelse return);
+        const small = &(itac.small orelse return).font;
         if (itac.panesShow()) try debriefing.drawPanes(itac, canvas, small);
 
         const labels = [_][]const u8{

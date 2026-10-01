@@ -228,14 +228,12 @@ pub const Carrier = enum {
 };
 
 /// The places with a screen of their own, which the rooms leave for and come back from: the news
-/// report, which plays within the rooms (`News`), and the screens of the ITAC, the simulator pod,
-/// the locker and the CD player.
+/// report, which plays within the rooms (`News`), and the screens of the ITAC (`game.itac`), the
+/// simulator pod (`interface.loadout.simulator_pod`), the locker and the CD player.
 ///
-/// Not ported: the ITAC ([#419](https://github.com/vdmkenny/openreliant/issues/419)), the simulator
-/// pod ([#420](https://github.com/vdmkenny/openreliant/issues/420)), the locker
-/// ([#421](https://github.com/vdmkenny/openreliant/issues/421)) and the CD player
-/// ([#422](https://github.com/vdmkenny/openreliant/issues/422)). OpenReliant goes on as though each
-/// had closed at once (`Rooms.leave`).
+/// Not ported: the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)) and the CD
+/// player ([#422](https://github.com/vdmkenny/openreliant/issues/422)). OpenReliant goes on as
+/// though each had closed at once (`Rooms.leave`).
 pub const Place = enum {
     news,
     itac,
@@ -879,7 +877,11 @@ pub const Rooms = struct {
                 rooms.playStep(.news_after);
             },
             .itac => rooms.playHum(),
-            .simulator => rooms.playStep(.simulator_after),
+            .simulator => {
+                // The pod ended every sound as it closed, the hum among them.
+                rooms.hum_voice = null;
+                rooms.playStep(.simulator_after);
+            },
             .locker => rooms.playStep(.locker_after),
             .cd_player => {},
         }

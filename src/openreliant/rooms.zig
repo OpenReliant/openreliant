@@ -31,6 +31,7 @@ const saved_games = interface.saved_games;
 const settings = interface.settings;
 const save = game.gameflow.save;
 const itac_module = game.itac;
+const simulator_pod = loadout.simulator_pod;
 const Movies = @import("movies.zig").Movies;
 const drawn = @import("presenter.zig").drawn;
 const version = @import("version.zig");
@@ -38,10 +39,12 @@ const version = @import("version.zig");
 const log = std.log.scoped(.rooms);
 
 /// How the rooms end, where the game goes on: through the briefing room's door and the briefing,
-/// the mission flown, as its loadout left it where it ran; or to the main menu.
+/// the mission flown, as its loadout left it where it ran; to the main menu; or a mission of the
+/// simulator pod's, after which the rooms go back into the pod (`Driver.backFromSimulator`).
 pub const End = union(enum) {
     fly: Flown,
     main_menu,
+    simulator: interface.main_menu.Flight,
 
     /// The mission the briefing leads to, which a game loaded on the way may have changed, and
     /// what its loadout chose, where it ran.
@@ -108,6 +111,13 @@ pub const Driver = struct {
     ticks: u64 = 0,
     /// Whether the window is the active one.
     active: bool = true,
+    /// The rooms while they are open, before `rooms_mission`, and the simulator pod while it is:
+    /// both kept through a mission of the pod's, with the pilot's kills as it began, which the pod
+    /// puts back after it (`0x0044F6D5`, `0x0044F6FE`).
+    inside: ?rooms.Rooms = null,
+    rooms_mission: u16 = 0,
+    pod: ?simulator_pod.Pod = null,
+    pod_kills: i32 = 0,
 
     /// What `WinMain` does as a single-player campaign starts, or is loaded, before mission
     /// `mission` (`winmain.CampaignStart`), then the rooms. Null where the game quits meanwhile.
@@ -289,25 +299,82 @@ pub const Driver = struct {
     /// the briefing room's door, the briefing, which `vr_rooms` runs once it has let the rooms go:
     /// how they end, or null where the game quits meanwhile. A game loaded from the in-game options
     /// takes the rooms to its mission (`loadedStart`).
-    fn visit(driver: *Driver, first_mission: u16, first_view: u8) !?End {
-        var mission = first_mission;
-        var view = first_view;
+    fn visit(driver: *Driver, mission: u16, view: u8) !?End {
+        driver.openRooms(mission, view);
+        return driver.carryOn();
+    }
+
+    /// The rooms in their loop from where they stand, and what they lead to, as `visit`: the rooms
+    /// and the pod kept through a mission of the pod's.
+    fn carryOn(driver: *Driver) !?End {
+        errdefer driver.closeRooms();
         while (true) {
-            const briefed: Briefed = switch (try driver.walk(mission, view) orelse return null) {
-                .briefing => try driver.brief(mission, false) orelse return null,
-                .main_menu => return .main_menu,
-                .loaded => .loaded,
+            const mission = driver.rooms_mission;
+            const walked = try driver.walk() orelse {
+                driver.closeRooms();
+                return null;
+            };
+            const briefed: Briefed = switch (walked) {
+                // A mission of the simulator pod's: the rooms and the pod kept for after it.
+                .simulator => |flight| return .{ .simulator = flight },
+                .briefing => briefed: {
+                    driver.closeRooms();
+                    break :briefed try driver.brief(mission, false) orelse return null;
+                },
+                .main_menu => {
+                    driver.closeRooms();
+                    return .main_menu;
+                },
+                .loaded => loaded: {
+                    driver.closeRooms();
+                    break :loaded .loaded;
+                },
             };
             switch (briefed) {
                 .fly => |flown| return .{ .fly = flown },
                 .main_menu => return .main_menu,
                 .loaded => {
                     const start = driver.loadedStart() orelse return .main_menu;
-                    mission = start.mission;
-                    view = start.view;
+                    driver.openRooms(start.mission, start.view);
                 },
             }
         }
+    }
+
+    /// Back into the simulator pod as a mission of its own ends (`simulator_pod`, `0x0044F6FE`
+    /// on): the pilot's kills put back as the mission began, the pod's loop again, and on through
+    /// the rooms once it closes. How they end, or null where the game quits meanwhile.
+    pub fn backFromSimulator(driver: *Driver) !?End {
+        driver.player.kills.count = driver.pod_kills;
+        driver.startTimer();
+        errdefer driver.closeRooms();
+        const pod = &(driver.pod orelse return driver.carryOn());
+        pod.back();
+        switch (try driver.simulate() orelse {
+            driver.closeRooms();
+            return null;
+        }) {
+            .fly => |flight| return .{ .simulator = flight },
+            .closed => driver.inside.?.leave(.simulator, platform.window.nanoseconds()),
+        }
+        return driver.carryOn();
+    }
+
+    fn openRooms(driver: *Driver, mission: u16, view: u8) void {
+        driver.inside = .open(driver.context(), mission, view, platform.window.nanoseconds());
+        driver.rooms_mission = mission;
+    }
+
+    /// Lets go of the rooms and the pod, where they are open.
+    fn closeRooms(driver: *Driver) void {
+        driver.closePod();
+        if (driver.inside) |*inside| inside.close();
+        driver.inside = null;
+    }
+
+    fn closePod(driver: *Driver) void {
+        if (driver.pod) |*pod| pod.deinit();
+        driver.pod = null;
     }
 
     /// Where the rooms start again as the in-game options load a game (`0x0043A309` on): the disc
@@ -319,14 +386,14 @@ pub const Driver = struct {
         return .{ .mission = going.mission, .view = carrier.start() };
     }
 
-    /// How the rooms' loop ends: through the briefing room's door, to the main menu, or with a
-    /// game loaded.
-    const Walked = enum { briefing, main_menu, loaded };
+    /// How the rooms' loop ends: through the briefing room's door, to the main menu, with a game
+    /// loaded, or with a mission of the simulator pod's.
+    const Walked = union(enum) { briefing, main_menu, loaded, simulator: interface.main_menu.Flight };
 
-    /// The rooms' loop before mission `mission`, from `view`; null where the game quits meanwhile.
-    fn walk(driver: *Driver, mission: u16, view: u8) !?Walked {
-        var inside: rooms.Rooms = .open(driver.context(), mission, view, platform.window.nanoseconds());
-        defer inside.close();
+    /// The rooms' loop, from where they stand; null where the game quits meanwhile.
+    fn walk(driver: *Driver) !?Walked {
+        const inside = &driver.inside.?;
+        const mission = driver.rooms_mission;
         while (true) {
             if (!try driver.pump()) return null;
             const now = platform.window.nanoseconds();
@@ -346,18 +413,63 @@ pub const Driver = struct {
                     .quit => return null,
                     .loaded => return .loaded,
                 },
-                // Use ITAC; the other places' screens are not ported yet (`rooms.Place`): the
-                // rooms go on as though each had closed at once.
-                .place => |place| {
-                    if (place == .itac) {
+                // Use ITAC and Enter Simulator Pod; the other places' screens are not ported yet
+                // (`rooms.Place`): the rooms go on as though each had closed at once.
+                .place => |place| switch (place) {
+                    .itac => {
                         _ = try driver.itac(.rooms, mission) orelse return null;
-                    } else log.info("the rooms' {s} is not ported yet", .{@tagName(place)});
-                    inside.leave(place, platform.window.nanoseconds());
+                        inside.leave(place, platform.window.nanoseconds());
+                    },
+                    .simulator => {
+                        driver.pod = .open(.{ .rooms = driver.context(), .steps = if (inside.steps) |*bank| bank else null }, mission, driver.clock.game_ticks);
+                        if (driver.pod.?.opening()) |shown| _ = try driver.movies.play(shown.name, shown.kind) orelse return null;
+                        switch (try driver.simulate() orelse return null) {
+                            .fly => |flight| return .{ .simulator = flight },
+                            .closed => inside.leave(place, platform.window.nanoseconds()),
+                        }
+                    },
+                    .news, .locker, .cd_player => {
+                        log.info("the rooms' {s} is not ported yet", .{@tagName(place)});
+                        inside.leave(place, platform.window.nanoseconds());
+                    },
                 },
                 .briefing => return .briefing,
             };
             inside.advance(now);
-            try driver.present(.{ .rooms = &inside });
+            try driver.present(.{ .rooms = inside });
+        }
+    }
+
+    /// How the simulator pod's loop ends.
+    const Simulated = union(enum) { closed, fly: interface.main_menu.Flight };
+
+    /// The simulator pod (`simulator_pod`) in its loop, from where it stands: closed, its movie out
+    /// played and the pod let go; or with a mission of its own, the pod kept open and the pilot's
+    /// kills kept as the mission begins (`0x0044F6D5`). Null where the game quits meanwhile.
+    fn simulate(driver: *Driver) !?Simulated {
+        const pod = &driver.pod.?;
+        while (true) {
+            if (!try driver.pump()) return null;
+            const step = pod.pass(.{
+                .keyboard = &driver.movies.devices.keyboard,
+                .pointer = driver.pointer,
+                .ticks = driver.clock.game_ticks,
+            }) orelse {
+                try driver.present(.{ .pod = pod });
+                continue;
+            };
+            switch (step) {
+                .play => |shown| _ = try driver.movies.play(shown.name, shown.kind) orelse return null,
+                .fly => |flight| {
+                    driver.pod_kills = driver.player.kills.count;
+                    return .{ .fly = flight };
+                },
+                .closed => {
+                    if (pod.leave()) |shown| _ = try driver.movies.play(shown.name, shown.kind) orelse return null;
+                    driver.closePod();
+                    return .closed;
+                },
+            }
         }
     }
 
@@ -675,6 +787,7 @@ const Shown = struct {
         briefing: *briefing.Briefing,
         restart: *Restarting,
         itac: *itac_module.Itac,
+        pod: *simulator_pod.Pod,
     };
 
     fn overlay(shown: *Shown) srcore.Overlay {
@@ -694,6 +807,7 @@ const Shown = struct {
             .briefing => |meeting| try drawn(meeting.draw(target)),
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
             .itac => |terminal| try drawn(terminal.draw(target)),
+            .pod => |pod| try drawn(pod.draw(target)),
         }
     }
 };

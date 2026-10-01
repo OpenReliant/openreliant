@@ -11,7 +11,7 @@ The pilot roster's START GAME leads into the rooms, through the induction for mi
 Not ported:
 
 - The crew the player passes on the way to the briefing room's door, a sprite over the movie and a line of speech ([#418](https://github.com/vdmkenny/openreliant/issues/418)).
-- The screens of the simulator pod ([#420](https://github.com/vdmkenny/openreliant/issues/420)), the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)) and the CD player ([#422](https://github.com/vdmkenny/openreliant/issues/422)). The rooms go on as though each had closed at once, turned away from it. Use ITAC opens the ITAC ([The ITAC](itac.md)).
+- The screens of the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)) and the CD player ([#422](https://github.com/vdmkenny/openreliant/issues/422)). The rooms go on as though each had closed at once, turned away from it. Use ITAC opens the ITAC ([The ITAC](itac.md)), and Enter Simulator Pod the pod ([The simulator pod](simulator-pod.md)).
 - The pilot's profile, which the rooms write with the call sign as they open (`profile_save`), and a mission's end writes with the pilot's records ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
 - The story's end after the last mission ([#416](https://github.com/vdmkenny/openreliant/issues/416)): OpenReliant goes back to the main menu.
 
@@ -127,7 +127,7 @@ As the player goes into a place, the view's movie closes (`0x0043A48C`):
 |---|---|---|
 | The news report | Every voice ends; the music fades out by 15; step 2 of `wlksmp.fat` | The hum again; step 3 |
 | The ITAC | The music fades out by 15 | The hum again |
-| The simulator pod | The music fades out by 15; step 9 | Step `0xB` |
+| The simulator pod | The music fades out by 15; step 9 | Every voice ends as the pod closes, the hum among them; step `0xB` |
 | The locker | Step 7 | Step 6 |
 | The CD player | | Its way in's first frame shown at once |
 

@@ -20,8 +20,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const input = @import("../input.zig");
-const fnt = @import("../../formats/fnt.zig");
-const bigfile = @import("bigfile.zig");
 const hud = @import("hud.zig");
 const hog_snd = @import("hog_snd.zig");
 const gameflow = @import("gameflow.zig");
@@ -255,7 +253,7 @@ pub const Input = struct {
 /// What a pass asks of the loop.
 pub const Step = union(enum) {
     /// A movie to play in a loop of its own before the next pass.
-    play: struct { name: []const u8, kind: movie.Kind },
+    play: movie.Named,
     /// Nothing drawn this pass: the screen holds, as the game's does while its closing sound fades
     /// (`0x0043FB21`).
     hold,
@@ -440,11 +438,9 @@ pub const Itac = struct {
     context: Context,
     run: Run,
     pilot: Pilot,
-    /// The files its fonts, shapes and sounds are read from, and what is read from them.
-    large_file: ?[]u8 = null,
-    small_file: ?[]u8 = null,
-    large: ?hud.Opened = null,
-    small: ?hud.Opened = null,
+    /// Its fonts, shapes and sounds.
+    large: ?canvas_module.FontFile = null,
+    small: ?canvas_module.FontFile = null,
     shapes: ?canvas_module.Shapes = null,
     sounds: ?hog_snd.BankFile = null,
     /// The shown section's picture, which its text is written on.
@@ -471,10 +467,9 @@ pub const Itac = struct {
     /// The left button, down this pass and down on the last (`0x00520138`, `0x00520820`).
     left: bool = false,
     left_held: bool = false,
-    /// The pointer as the pass read it, and its animation's ticks (`pointer_clock`, `0x0051D7C8`).
+    /// The pointer as the pass read it, and its animation's ticks.
     pointer: canvas_module.Pointer = .{},
-    pointer_clock: u32 = 0,
-    last_ticks: u32 = 0,
+    pointer_clock: canvas_module.PointerClock = .{},
     hum: ?u8 = null,
     close_voice: ?u8 = null,
     /// The game tick the next sound now and then is due at.
@@ -495,13 +490,11 @@ pub const Itac = struct {
             .run = run,
             .pilot = pilot,
             .started = now,
-            .last_ticks = ticks,
+            .pointer_clock = .{ .last = ticks },
             .random = .init(now),
         };
-        itac.large_file = readFile(gpa, resources, large_font_name);
-        itac.small_file = readFile(gpa, resources, small_font_name);
-        itac.large = openFont(itac.large_file, large_font_name);
-        itac.small = openFont(itac.small_file, small_font_name);
+        itac.large = .read(gpa, resources, large_font_name);
+        itac.small = .read(gpa, resources, small_font_name);
         itac.shapes = .read(gpa, resources, shapes_name);
         itac.sounds = .read(gpa, resources, sounds_name);
         return itac;
@@ -514,8 +507,6 @@ pub const Itac = struct {
         itac.picture.deinit(gpa);
         if (itac.large) |*font| font.deinit(gpa);
         if (itac.small) |*font| font.deinit(gpa);
-        if (itac.large_file) |bytes| gpa.free(bytes);
-        if (itac.small_file) |bytes| gpa.free(bytes);
         if (itac.shapes) |*shapes| shapes.deinit(gpa);
         if (itac.sounds) |file| file.deinit(gpa);
         itac.* = undefined;
@@ -557,7 +548,7 @@ pub const Itac = struct {
                 if (escape) return itac.close();
                 itac.nowAndThen(in.ticks);
                 if (itac.left) if (canvas_module.itemAt(Section, &buttons, in.pointer.at)) |section| if (section != itac.section) itac.leave(section, in.now);
-                itac.movePointer(in.ticks, pointer_wrap);
+                itac.pointer_clock.advance(in.ticks, pointer_wrap);
                 if (itac.stage == .shown) {
                     itac.wipePanes();
                     itac.update();
@@ -630,7 +621,7 @@ pub const Itac = struct {
             .in => itac.fade = @min(itac.fade + fade_in_step, 1),
             .out => itac.fade = @max(itac.fade - fade_out_step, 0),
         };
-        itac.movePointer(in.ticks, movie_pointer_wrap);
+        itac.pointer_clock.advance(in.ticks, movie_pointer_wrap);
         const done = ended or escape or itac.film.player == null;
         if (done) itac.film.close();
         return done;
@@ -751,13 +742,6 @@ pub const Itac = struct {
         itac.play(if (random.boolean()) .now_and_then else .now_and_then_other, low_volume, 1);
     }
 
-    /// The pointer's animation on by the game ticks since the last pass, round `wrap`.
-    fn movePointer(itac: *Itac, ticks: u32, wrap: u32) void {
-        itac.pointer_clock +%= ticks -% itac.last_ticks;
-        itac.last_ticks = ticks;
-        if (itac.pointer_clock & ~@as(u32, 3) >= wrap) itac.pointer_clock = 0;
-    }
-
     /// Escape, or the last button's movie in played: the hum fading, the closing sound and on the
     /// Yamato the ITAC's movie out, then the sound fading, the screen held until it has
     /// (`0x0043FA70`, `0x0043FADB`). Escape leaves the shown section as it is, without its handler
@@ -775,7 +759,7 @@ pub const Itac = struct {
 
     /// The pointer's frame.
     fn pointerShape(itac: Itac) usize {
-        return first_pointer_shape + itac.pointer_clock / pointer_ticks;
+        return first_pointer_shape + itac.pointer_clock.ticks / pointer_ticks;
     }
 
     /// The frame: the movie playing, with the title and text of the section it fades over, or the
@@ -798,7 +782,7 @@ pub const Itac = struct {
     /// `fade`.
     fn drawSection(itac: *Itac, canvas: Canvas, fade: f32) canvas_module.Error!void {
         const section = itac.section orelse return;
-        if (itac.large) |*font| try canvas.text(font, title_at, itac.string(section.title(itac.side)), title_colour, .left);
+        if (itac.large) |*file| try canvas.text(&file.font, title_at, itac.string(section.title(itac.side)), title_colour, .left);
         switch (section) {
             .debriefings => try itac.debriefings.draw(itac, canvas, fade),
             .news_reports, .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
@@ -836,7 +820,7 @@ pub const Itac = struct {
 
     /// `itac_more_draw` (`0x00441090`): "(more)" at the foot of a box whose text runs past it.
     pub fn drawMore(itac: *Itac, canvas: Canvas, box: ScrollBox) canvas_module.Error!void {
-        const font = &(itac.small orelse return);
+        const font = &(itac.small orelse return).font;
         var text: [32]u8 = undefined;
         const more = std.fmt.bufPrint(&text, "({s})", .{itac.string(more_string)}) catch return;
         try canvas.text(font, .{ box.rect.x + box.rect.width, box.rect.y + box.rect.height + more_below }, more, text_colour, .right);
@@ -851,24 +835,6 @@ pub const Itac = struct {
         try canvas.shape(&shapes.art, itac.pointerShape(), itac.pointer.at);
     }
 };
-
-/// The file `name` of `archive`; null where it is left out, which the log says.
-fn readFile(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8) ?[]u8 {
-    return archive.readFile(gpa, name) catch |err| {
-        log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
-        return null;
-    };
-}
-
-/// The font of `bytes`; null where there are none or they are no font, which the log says.
-fn openFont(bytes: ?[]u8, name: []const u8) ?hud.Opened {
-    const file = bytes orelse return null;
-    const font = fnt.Font.parse(file) catch |err| {
-        log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
-        return null;
-    };
-    return .ramp(font);
-}
 
 test buttons {
     try std.testing.expectEqual(.debriefings, canvas_module.itemAt(Section, &buttons, .{ 40, 440 }).?);
