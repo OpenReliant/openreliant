@@ -215,10 +215,28 @@ pub const Canvas = struct {
         const words = canvas.strings.string(id) orelse return;
         try canvas.text(font, at, words, colour, alignment);
     }
+
+    /// Writes `words` where the rooms and the screens of their places name what lies under the
+    /// pointer (`label_at`), centred, in white, in the large font.
+    pub fn labelText(canvas: Canvas, words: []const u8) Allocator.Error!void {
+        try canvas.text(canvas.fonts.large, label_at, words, white, .centre);
+    }
+
+    /// `labelText` of the string of `id`; one the game doesn't have writes nothing.
+    pub fn label(canvas: Canvas, id: u32) Allocator.Error!void {
+        const words = canvas.strings.string(id) orelse return;
+        try canvas.labelText(words);
+    }
 };
 
 /// The brightness what can't be used is dimmed to (`dimmedUnless`).
 pub const dimmed = 0.5;
+
+/// Where the rooms and the screens of their places name what lies under the pointer, centred
+/// (`Canvas.label`): the rooms' exits (`0x0043C63C`), and the choices of the simulator pod
+/// (`0x0044F9B3`), the locker (`0x00436FAE`) and the CD player (`0x00438CD1`); and the briefing's
+/// AWAITING CLEARANCE (`0x00437D30`).
+pub const label_at: [2]i32 = .{ 0x140, 0x1B8 };
 
 /// `interface_box`'s colours at a brightness of 1 (`0x004DC6D0`, `0x004DC6CC`; `0x004DC6C8`,
 /// `0x004DC6C4`; `0x004DC6C0`, `0x004DC6BC`), in 255ths: no red, and green and blue.
@@ -304,6 +322,13 @@ pub const Shapes = struct {
             return null;
         };
         return of(gpa, bytes, name, .of(archive.mods, name));
+    }
+
+    /// `read`, drawn with block `palette`'s palette (`usePalette`).
+    pub fn readWith(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8, palette: usize) ?Shapes {
+        var shapes = read(gpa, archive, name) orelse return null;
+        shapes.usePalette(palette);
+        return shapes;
     }
 
     /// Drawn with block `palette`'s palette as VFX's global one, as `palette_to_vfx`

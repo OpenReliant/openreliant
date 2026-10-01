@@ -252,6 +252,16 @@ room-tables: ## Re-derive the views of the Reliant's rooms and the Yamato's, the
 	$(ROOT)/zig-out/bin/tablegen rooms $(PAYLOAD) $(ROOM_TABLES)
 	$(ZIG) fmt $(ROOM_TABLES)
 
+LOCKER_TABLES := $(ROOT)/src/engine/game/interface/locker/tables.zig
+
+.PHONY: locker-tables
+locker-tables: ## Re-derive where the locker shows each medal and ribbon, and its shape on each frame of the lid's movie, from the payload executable
+	@test -f $(PAYLOAD) || { echo "missing $(PAYLOAD), the game executable with its code readable" >&2; exit 1; }
+	$(ZIG) build tablegen
+	mkdir -p $(dir $(LOCKER_TABLES))
+	$(ROOT)/zig-out/bin/tablegen locker $(PAYLOAD) $(LOCKER_TABLES)
+	$(ZIG) fmt $(LOCKER_TABLES)
+
 VIEW_TABLES := $(ROOT)/src/engine/game/camera/views.zig
 
 .PHONY: view-tables

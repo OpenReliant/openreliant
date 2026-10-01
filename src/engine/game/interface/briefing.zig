@@ -101,7 +101,6 @@ const voices_fade_step = 4;
 const awaiting = 0x292;
 const clearance = 0x293;
 const awaiting_size = 80;
-const awaiting_at: [2]i32 = .{ 320, 440 };
 
 /// The blocks of the briefing's sprite sets: the room, the palette every shape is drawn with,
 /// which the briefing makes VFX's global palette (`palette_to_vfx`, `0x00437282`, `0x0043E771`),
@@ -113,9 +112,7 @@ const first_frame = 2;
 /// The briefing's sprite set `name` of `resource.hog`, drawn with the palette of its
 /// `palette_block`; null where it is left out.
 fn readShapes(context: rooms.Context, name: []const u8) ?canvas.Shapes {
-    var shapes = canvas.Shapes.read(context.gpa, context.resources, name) orelse return null;
-    shapes.usePalette(palette_block);
-    return shapes;
+    return .readWith(context.gpa, context.resources, name, palette_block);
 }
 
 /// The timer's ticks to Enriquez's first frame (`0x004373E8`), and between his frames, a
@@ -692,7 +689,7 @@ pub const Briefing = struct {
             target.strings.string(awaiting) orelse "",
             target.strings.string(clearance) orelse "",
         }) catch return;
-        try target.text(target.fonts.large, awaiting_at, words, canvas.white, .centre);
+        try target.labelText(words);
     }
 };
 

@@ -16,8 +16,7 @@
 //!
 //! Not ported: the crew the player passes on the way to the briefing room's door (`vr_crew_pick`,
 //! `0x00437DF0`), a sprite over the movie and a line of speech, which need the MP3 lines of the
-//! discs' archives ([#418](https://github.com/vdmkenny/openreliant/issues/418)); and the locker's
-//! screen (`Place`).
+//! discs' archives ([#418](https://github.com/vdmkenny/openreliant/issues/418)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -229,11 +228,8 @@ pub const Carrier = enum {
 
 /// The places with a screen of their own, which the rooms leave for and come back from: the news
 /// report, which plays within the rooms (`News`), and the screens of the ITAC (`game.itac`), the
-/// simulator pod (`interface.loadout.simulator_pod`), the locker and the CD player
-/// (`interface.cd_player`).
-///
-/// Not ported: the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)). OpenReliant
-/// goes on as though it had closed at once (`Rooms.leave`).
+/// simulator pod (`interface.loadout.simulator_pod`), the locker (`interface.locker`) and the CD
+/// player (`interface.cd_player`).
 pub const Place = enum {
     news,
     itac,
@@ -266,22 +262,31 @@ const hum_volume = 0x50;
 pub const Steps = struct {
     file: ?*const hog_snd.BankFile = null,
 
-    /// Sound `index` at full volume, once, in the middle, ringing in the room as the rooms' sounds
-    /// do.
-    pub fn play(steps: Steps, sound: *hog_snd.Sound, index: usize) void {
+    /// `which` at full volume, once, in the middle, ringing in the room as the rooms' sounds do.
+    pub fn play(steps: Steps, sound: *hog_snd.Sound, which: StepSound) void {
         const file = steps.file orelse return;
-        _ = sound.playInScene(file.bank, index, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+        _ = sound.playInScene(file.bank, @intFromEnum(which), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
     }
 };
 
-/// The steps' sounds around the places (`0x0043A4B9` on).
-const StepSound = enum(u8) {
+/// The sounds of the steps and doors, by what plays them.
+pub const StepSound = enum(u8) {
+    /// Into the news report and out of it (`0x0043A4B9` on).
     news_before = 2,
     news_after = 3,
+    /// The locker's lid going down and up (`0x0043691B`, `0x00436697`).
+    lid_down = 4,
+    lid_up = 5,
+    /// Out of the locker and into it.
     locker_after = 6,
     locker_before = 7,
+    /// A press over a button or a row of the CD player (`0x0043846A`).
+    cd_press = 8,
+    /// Into the simulator pod and out of it.
     simulator_before = 9,
     simulator_after = 0xB,
+    /// A choice taken in the simulator pod (`0x0044F5EC`).
+    pod_choice = 0xC,
 };
 
 /// The step the music fades by as the player goes into the briefing, the news, the ITAC and the
@@ -367,8 +372,8 @@ pub const Fish = struct {
     fed_at: u32 = 0,
 
     /// The fish's movies, one after another from the first as the view settles (`0x004E8138`,
-    /// `0x004E8F9C`), each `%s.bik`.
-    pub const movies = [_][]const u8{ "move_a_", "move_d_", "move_a_", "move_a_", "move_b_", "move_a_", "move_a_", "move_c_", "move_a_", "move_d_", "move_d_", "move_a_", "move_a_", "move_c_" };
+    /// `0x004E8F9C`, each `%s.bik` of its name).
+    pub const movies = [_][]const u8{ "move_a_.bik", "move_d_.bik", "move_a_.bik", "move_a_.bik", "move_b_.bik", "move_a_.bik", "move_a_.bik", "move_c_.bik", "move_a_.bik", "move_d_.bik", "move_d_.bik", "move_a_.bik", "move_a_.bik", "move_c_.bik" };
 
     /// The food's sprite set.
     pub const food = "fish.spr";
@@ -516,12 +521,10 @@ pub const Film = struct {
     }
 };
 
-/// One of Enriquez's scenes, `scene.box` from the disc, spoken through `speech` from a screen, the
-/// scene before ended (`say`). A scene left out is not spoken.
-pub fn speak(context: Context, speech: *cbox.Player, scene: []const u8) void {
+/// One of Enriquez's scenes, the file `box` from the disc, spoken through `speech` from a screen,
+/// the scene before ended (`say`). A scene left out is not spoken.
+pub fn speak(context: Context, speech: *cbox.Player, box: []const u8) void {
     speech.stop(context.gpa, context.sound);
-    var name: [16]u8 = undefined;
-    const box = std.fmt.bufPrint(&name, "{s}.box", .{scene}) catch unreachable;
     const bytes = context.read(box) orelse return;
     defer context.gpa.free(bytes);
     say(context, speech, bytes, box, .screen, null);
@@ -572,15 +575,16 @@ pub const News = struct {
     /// only one (`0x0043BB43`).
     part: u8,
 
-    /// Each mission's report, by its number from 1 (`0x0043BA60` on), each `%s.box`.
-    pub const scenes = [_][]const u8{ "0005a", "0015", "0025", "0035", "0045", "0055", "0065", "0075", "0085", "0095", "0105", "0115", "0125", "0135", "0145", "0155", "0165", "0175", "0185", "0195", "0205", "0215", "0225", "0235", "0245", "0255", "0265", "0275" };
+    /// Each mission's report, by its number from 1 (`0x0043BA60` on): Enriquez's scene, `%s.box`
+    /// of its name.
+    pub const scenes = [_][]const u8{ "0005a.box", "0015.box", "0025.box", "0035.box", "0045.box", "0055.box", "0065.box", "0075.box", "0085.box", "0095.box", "0105.box", "0115.box", "0125.box", "0135.box", "0145.box", "0155.box", "0165.box", "0175.box", "0185.box", "0195.box", "0205.box", "0215.box", "0225.box", "0235.box", "0245.box", "0255.box", "0265.box", "0275.box" };
 
     /// The television's movies, the Reliant's and the Yamato's (`0x004E9054`, `0x004E90C0`), and
     /// mission 1's second and last parts (`0x0043C00B` on).
     pub const reliant_television = "rel_tv_in_loop.bik";
     pub const yamato_television = "b_tv_news_.bik";
-    const second: Part = .{ .movie = "tv_cald.bik", .scene = "0005b" };
-    const last: Part = .{ .movie = reliant_television, .scene = "0005c" };
+    const second: Part = .{ .movie = "tv_cald.bik", .scene = "0005b.box" };
+    const last: Part = .{ .movie = reliant_television, .scene = "0005c.box" };
 
     const Part = struct { movie: []const u8, scene: []const u8 };
 
@@ -711,7 +715,7 @@ pub const Rooms = struct {
     }
 
     fn playStep(rooms: *Rooms, which: StepSound) void {
-        rooms.stepSounds().play(rooms.context.sound, @intFromEnum(which));
+        rooms.stepSounds().play(rooms.context.sound, which);
     }
 
     /// Its steps and doors, which the screens of its places sound from too.
@@ -795,8 +799,7 @@ pub const Rooms = struct {
     }
 
     fn enterFish(rooms: *Rooms, now: u64) void {
-        var name: [16]u8 = undefined;
-        rooms.enter(std.fmt.bufPrint(&name, "{s}.bik", .{Fish.movies[rooms.fish.movie]}) catch unreachable, now, true);
+        rooms.enter(Fish.movies[rooms.fish.movie], now, true);
         rooms.film.loops = true;
     }
 
@@ -1016,7 +1019,7 @@ pub const Rooms = struct {
         else if (rooms.hover) |place|
             views.views[rooms.current().exits[place]].label
         else if (rooms.fish.over_food) Fish.food_label else null;
-        if (label) |id| try target.string(target.fonts.large, label_at, id, canvas.white, .centre);
+        if (label) |id| try target.label(id);
         try rooms.drawFood(target, ticks);
         try rooms.drawPointer(target);
     }
@@ -1055,10 +1058,6 @@ pub const Rooms = struct {
         }
     }
 };
-
-/// Where the label of the exit under the pointer shows, centred, in the large font, in white, the
-/// ramp the game builds for it (`0x0043C63C`).
-const label_at: [2]i32 = .{ 320, 440 };
 
 test {
     _ = views;

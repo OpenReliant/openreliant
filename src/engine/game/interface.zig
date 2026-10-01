@@ -4,8 +4,9 @@
 //! (`game_options`), the controls on OpenReliant's settings screen (`settings`), the pilot roster
 //! (`pilot_roster`) and the saved games (`saved_games`), on the front end's screen (`canvas`);
 //! opening the discs' archives (`disc`); and the Reliant's rooms (`rooms`), with a new pilot's
-//! induction (`induction`), the CD player (`cd_player`), the in-game options (`in_game_options`)
-//! and the briefing (`briefing`); and the restart screen after a mission lost (`restart`).
+//! induction (`induction`), the locker (`locker`), the CD player (`cd_player`), the in-game options
+//! (`in_game_options`) and the briefing (`briefing`); and the restart screen after a mission lost
+//! (`restart`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -18,6 +19,7 @@ pub const disc = @import("interface/disc.zig");
 pub const game_options = @import("interface/game_options.zig");
 pub const in_game_options = @import("interface/in_game_options.zig");
 pub const induction = @import("interface/induction.zig");
+pub const locker = @import("interface/locker.zig");
 pub const main_menu = @import("interface/main_menu.zig");
 pub const pilot_roster = @import("interface/pilot_roster.zig");
 pub const restart = @import("interface/restart.zig");
@@ -492,6 +494,7 @@ test {
     _ = game_options;
     _ = in_game_options;
     _ = induction;
+    _ = locker;
     _ = main_menu;
     _ = pilot_roster;
     _ = restart;

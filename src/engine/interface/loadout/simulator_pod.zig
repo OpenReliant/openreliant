@@ -45,10 +45,6 @@ const training_movie = "inter\\simpod\\training.bik";
 const opening_movie = "inter\\simpod\\hud_controls_up_.bik";
 const closing_movie = "inter\\simpod\\hud_controls_down.bik";
 
-/// The sound a choice taken makes, from the rooms' steps (`vr_steps_bank`, `0x0051D9FC`), at full
-/// volume, once, in the middle (`0x0044F5EC`).
-const choice_sound = 0xC;
-
 /// The screen's title, in the ITAC's large font, from its left (`0x0044FA3A`): FLIGHT SIMULATOR
 /// in orange, and on the training missions' screen Training Missions in green.
 const title_at: [2]i32 = .{ 0x2A, 0x55 };
@@ -56,10 +52,6 @@ const simulator_title = 0x3C6;
 const simulator_title_colour = hud.rgb(0xC18415);
 const training_title = 0x101;
 const training_title_colour = hud.rgb(0x00E200);
-
-/// Where the name of the choice under the pointer is written, centred, in white, in the front
-/// end's large font (`0x0044F9B3`).
-const name_at: [2]i32 = .{ 0x140, 0x1B8 };
 
 /// The pointer's shapes in the front end's set, from the first, one for every `pointer_ticks` game
 /// ticks, round `pointer_wrap` (`0x0044FA65`, `0x0044F7D4`).
@@ -210,10 +202,8 @@ pub const Pod = struct {
         const gpa = context.rooms.gpa;
         const resources = context.rooms.resources;
         var pod: Pod = .{ .context = context, .mission = mission, .pointer_clock = .{ .last = ticks } };
-        pod.shapes = .read(gpa, resources, shapes_name);
-        if (pod.shapes) |*shapes| shapes.usePalette(palette_block);
-        pod.pointer_shapes = .read(gpa, resources, pointer_shapes_name);
-        if (pod.pointer_shapes) |*shapes| shapes.usePalette(palette_block);
+        pod.shapes = .readWith(gpa, resources, shapes_name, palette_block);
+        pod.pointer_shapes = .readWith(gpa, resources, pointer_shapes_name, palette_block);
         pod.title_font = .read(gpa, resources, title_font_name);
         pod.show(simulator_picture);
         return pod;
@@ -295,7 +285,7 @@ pub const Pod = struct {
         if (pod.under) |index| {
             const item = items.get(pod.screen)[index];
             if (pod.shapes) |*shapes| try canvas.shape(&shapes.art, item.lit, .{ item.rect.x + 1, item.rect.y + 1 });
-            try canvas.string(canvas.fonts.large, name_at, item.name, canvas_module.white, .centre);
+            try canvas.label(item.name);
         }
         if (pod.title_font) |*file| switch (pod.screen) {
             .simulator => try canvas.string(&file.font, title_at, simulator_title, simulator_title_colour, .left),
@@ -311,7 +301,7 @@ pub const Pod = struct {
 
     /// The sound of a choice taken.
     fn playChoice(pod: Pod) void {
-        pod.context.steps.play(pod.context.rooms.sound, choice_sound);
+        pod.context.steps.play(pod.context.rooms.sound, .pod_choice);
     }
 
     /// The picture `name` behind the screen (`background_set_tga`).

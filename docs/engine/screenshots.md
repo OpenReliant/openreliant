@@ -20,5 +20,3 @@ The game grabs the screen (`sr + 0x7C`), turns it into 32 bits a pixel unless it
 **Improvement:** each screenshot is a PNG, from `screenshot0000.png` on, in the `screenshots` folder of the game's directory. `--original` keeps them so: they change nothing of the game's look or sound.
 
 **Fix:** the numbers go on past the screenshots the folder already holds. The game counts from 0 each run, and writes over the last run's.
-
-Not ported: the locker's 0 key, which comes with the locker ([#421](https://github.com/vdmkenny/openreliant/issues/421)).

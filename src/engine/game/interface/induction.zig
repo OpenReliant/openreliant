@@ -36,8 +36,8 @@ pub const Place = enum(u8) {
 };
 
 /// What plays at a place: its movie, over and over, and Enriquez's scene there, `%s.bik` and
-/// `%s.box`; and the movies of the way on to the next place, or from the last to the room's
-/// middle.
+/// `%s.box` of their names; and the movies of the way on to the next place, or from the last to
+/// the room's middle.
 pub const Stop = struct {
     movie: []const u8,
     scene: []const u8,
@@ -47,12 +47,12 @@ pub const Stop = struct {
 /// Each place's (`0x004E8E0C`, `0x004E8D98`, then the tables at `0x00438D65` on; the ways,
 /// `0x00439093` on).
 pub const stops = std.EnumArray(Place, Stop).init(.{
-    .intro = .{ .movie = "rel_tv_enriq", .scene = "enr_intro", .way = &.{ "rel_tv_c.bik", "rel_c2lock.bik" } },
-    .locker = .{ .movie = "single_rel_c2lock", .scene = "enr_locker", .way = &.{ "rel_lock2c.bik", "rel_t2itac.bik", "rel_itac2pod.bik" } },
-    .simulator = .{ .movie = "rel_podmon_loop", .scene = "enr_simpod", .way = &.{"rel_pod2cd.bik"} },
-    .cd_player = .{ .movie = "rel_cdloop", .scene = "enr_cd", .way = &.{ "rel_cd2pod.bik", "rel_pod2itac.bik" } },
-    .itac = .{ .movie = "rel_itacloop", .scene = "enr_itac", .way = &.{ "rel_itac2t.bik", "rel_t2l.bik", "rel_c_tv.bik" } },
-    .outro = .{ .movie = "rel_tv_enriq", .scene = "enr_outro", .way = &.{"rel_tv_c.bik"} },
+    .intro = .{ .movie = "rel_tv_enriq.bik", .scene = "enr_intro.box", .way = &.{ "rel_tv_c.bik", "rel_c2lock.bik" } },
+    .locker = .{ .movie = "single_rel_c2lock.bik", .scene = "enr_locker.box", .way = &.{ "rel_lock2c.bik", "rel_t2itac.bik", "rel_itac2pod.bik" } },
+    .simulator = .{ .movie = "rel_podmon_loop.bik", .scene = "enr_simpod.box", .way = &.{"rel_pod2cd.bik"} },
+    .cd_player = .{ .movie = "rel_cdloop.bik", .scene = "enr_cd.box", .way = &.{ "rel_cd2pod.bik", "rel_pod2itac.bik" } },
+    .itac = .{ .movie = "rel_itacloop.bik", .scene = "enr_itac.box", .way = &.{ "rel_itac2t.bik", "rel_t2l.bik", "rel_c_tv.bik" } },
+    .outro = .{ .movie = "rel_tv_enriq.bik", .scene = "enr_outro.box", .way = &.{"rel_tv_c.bik"} },
 });
 
 /// Where the rooms open after the induction: the movies played from where it ended first, and the
@@ -120,8 +120,7 @@ pub const Induction = struct {
     /// The place's movie, its first frame shown and looping, and its scene spoken.
     fn show(induction: *Induction, now: u64) void {
         const stop = stops.get(induction.place);
-        var name: [24]u8 = undefined;
-        induction.film.open(induction.context, std.fmt.bufPrint(&name, "{s}.bik", .{stop.movie}) catch unreachable, .screen);
+        induction.film.open(induction.context, stop.movie, .screen);
         induction.film.show(now);
         induction.film.loops = true;
         rooms.speak(induction.context, &induction.speech, stop.scene);

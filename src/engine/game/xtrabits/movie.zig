@@ -78,9 +78,9 @@ pub const Kind = enum {
     /// landing's last frame. It plays and ends as the landing does.
     thread,
     /// The movies of a screen that plays them in its own loop, which decides what ends them and
-    /// what loops them: the rooms' (`vr_rooms`), a new pilot's induction's (`reliant_induction`)
-    /// and the news report's (`news_report`). From the disc's archive, at 15 frames a second,
-    /// whatever the settings.
+    /// what loops them: the rooms' (`vr_rooms`), a new pilot's induction's (`reliant_induction`),
+    /// the news report's (`news_report`) and the locker's (`medal_display`). From the disc's
+    /// archive, at 15 frames a second, whatever the settings.
     screen,
     /// The mission's movie, which the briefing plays on the briefing room's screen in its own loop
     /// (`interface_briefing`): from the disc's archive, at the movie's rate and full volume

@@ -18,6 +18,7 @@
 //!     tablegen speech <LANCER.EXE> <output.zig>
 //!     tablegen faces <LANCER.EXE> <output.zig>
 //!     tablegen rooms <LANCER.EXE> <output.zig>
+//!     tablegen locker <LANCER.EXE> <output.zig>
 //!     tablegen sources <LANCER.EXE> <disassembly.asm> <strings.tsv> <output.zig>
 //!
 //! `opcodes`: the VM dispatches on a byte through a table of handler addresses. Reading that table
@@ -64,6 +65,9 @@
 //! `faces`: the pilots' faces, the string that names each pilot, its side and the films of its
 //! face.
 //!
+//! `locker`: where the locker shows each medal and ribbon, on each carrier, and its shape on each
+//! frame of the lid's movie.
+//!
 //! `rooms`: the views of the Reliant's rooms and the Yamato's, with their hotspots, movies,
 //! labels, exits and actions.
 //!
@@ -90,6 +94,7 @@ const flight = @import("flight.zig");
 const gun_stats = @import("guns.zig");
 const sound_tables = @import("sounds.zig");
 const image = @import("image.zig");
+const locker = @import("locker.zig");
 const maneuvers = @import("maneuvers.zig");
 const models = @import("models.zig");
 const orders = @import("orders.zig");
@@ -134,6 +139,7 @@ const usage =
     \\       tablegen speech <LANCER.EXE> <output.zig>
     \\       tablegen faces <LANCER.EXE> <output.zig>
     \\       tablegen rooms <LANCER.EXE> <output.zig>
+    \\       tablegen locker <LANCER.EXE> <output.zig>
     \\       tablegen sources <LANCER.EXE> <disassembly.asm> <strings.tsv> <output.zig>
     \\
 ;
@@ -157,6 +163,7 @@ const Mode = union(enum) {
     speech: struct { binary: []const u8, output: []const u8 },
     faces: struct { binary: []const u8, output: []const u8 },
     rooms: struct { binary: []const u8, output: []const u8 },
+    locker: struct { binary: []const u8, output: []const u8 },
     sources: struct { binary: []const u8, listing: []const u8, strings: []const u8, output: []const u8 },
 
     /// The mode `args` names, then its paths in the order its fields list them.
@@ -226,6 +233,7 @@ pub fn main(init: std.process.Init) !u8 {
         .speech => |paths| speechTables(init, arena, paths),
         .faces => |paths| faceTable(init, arena, paths),
         .rooms => |paths| roomTable(init, arena, paths),
+        .locker => |paths| lockerTables(init, arena, paths),
         .sources => |paths| sourceMap(init, arena, paths),
     };
 }
@@ -340,6 +348,13 @@ fn roomTable(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType
     const found = try rooms.read(arena, try loadBinary(init, arena, paths.binary), &entries);
     try writeOutput(init, paths.output, rooms.emit, .{found});
     std.debug.print("{d} views of the rooms -> {s}\n", .{ found.len, paths.output });
+    return 0;
+}
+
+fn lockerTables(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType(Mode, "locker")) !u8 {
+    const tables = try locker.read(arena, try loadBinary(init, arena, paths.binary));
+    try writeOutput(init, paths.output, locker.emit, .{tables});
+    std.debug.print("{d} tables of the locker's medals and ribbons -> {s}\n", .{ tables.values.len, paths.output });
     return 0;
 }
 
@@ -526,6 +541,7 @@ test {
     _ = faces;
     _ = flight;
     _ = image;
+    _ = locker;
     _ = maneuvers;
     _ = models;
     _ = orders;

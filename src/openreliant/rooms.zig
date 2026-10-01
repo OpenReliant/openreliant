@@ -25,6 +25,7 @@ const briefing = interface.briefing;
 const canvas = interface.canvas;
 const cd_player = interface.cd_player;
 const induction = interface.induction;
+const locker = interface.locker;
 const in_game_options = interface.in_game_options;
 const restart_screen = interface.restart;
 const rooms = interface.rooms;
@@ -410,36 +411,36 @@ pub const Driver = struct {
                 .now = now,
                 .ticks = driver.clock.game_ticks,
             })) |step| switch (step) {
+                // A screen of its own ends the pass, as the game goes back to its loop's top after
+                // one (`0x0043A2FE`, `0x0043AD8C`): the next pass reads the clock again, which the
+                // movie the rooms go on with keeps its time from.
                 .options => switch (try driver.options() orelse return null) {
-                    .back => {},
+                    .back => continue,
                     .main_menu => return .main_menu,
                     .quit => return null,
                     .loaded => return .loaded,
                 },
-                // The places' screens. The rooms play the news report themselves, and the locker's
-                // screen is not ported yet (`rooms.Place`): the rooms go on as though it had closed
-                // at once.
-                .place => |place| switch (place) {
-                    .itac => {
-                        _ = try driver.itac(.rooms, mission) orelse return null;
-                        inside.leave(place, platform.window.nanoseconds());
-                    },
-                    .simulator => {
-                        driver.pod = .open(.{ .rooms = driver.context(), .steps = inside.stepSounds() }, mission, driver.clock.game_ticks);
-                        if (driver.pod.?.opening()) |shown| _ = try driver.movies.play(shown.name, shown.kind) orelse return null;
-                        switch (try driver.simulate() orelse return null) {
-                            .fly => |flight| return .{ .simulator = flight },
-                            .closed => inside.leave(place, platform.window.nanoseconds()),
-                        }
-                    },
-                    .cd_player => {
-                        if (!try driver.listen(mission)) return null;
-                        inside.leave(place, platform.window.nanoseconds());
-                    },
-                    .news, .locker => {
-                        log.info("the rooms' {s} is not ported yet", .{@tagName(place)});
-                        inside.leave(place, platform.window.nanoseconds());
-                    },
+                .place => |place| {
+                    // The places' screens; the rooms play the news report themselves
+                    // (`Rooms.pass`).
+                    switch (place) {
+                        .itac => {
+                            _ = try driver.itac(.rooms, mission) orelse return null;
+                        },
+                        .simulator => {
+                            driver.pod = .open(.{ .rooms = driver.context(), .steps = inside.stepSounds() }, mission, driver.clock.game_ticks);
+                            if (driver.pod.?.opening()) |shown| _ = try driver.movies.play(shown.name, shown.kind) orelse return null;
+                            switch (try driver.simulate() orelse return null) {
+                                .fly => |flight| return .{ .simulator = flight },
+                                .closed => {},
+                            }
+                        },
+                        .locker => if (!try driver.openLocker(mission, inside.stepSounds())) return null,
+                        .cd_player => if (!try driver.listen(mission, inside.stepSounds())) return null,
+                        .news => {},
+                    }
+                    inside.leave(place, platform.window.nanoseconds());
+                    continue;
                 },
                 .briefing => return .briefing,
             };
@@ -481,10 +482,27 @@ pub const Driver = struct {
         }
     }
 
-    /// The CD player (`cd_player`) before mission `mission`, in its loop, until it closes; false
-    /// where the game quits meanwhile. The music it plays goes on in the rooms.
-    fn listen(driver: *Driver, mission: u16) !bool {
-        var player: cd_player.CdPlayer = .open(.{ .rooms = driver.context(), .steps = driver.inside.?.stepSounds(), .volume = &driver.cd_volume }, mission, platform.window.nanoseconds());
+    /// The locker (`medal_display`) before mission `mission`, with the rooms' steps, the Yamato's
+    /// way to it played first, in its loop until it closes; false where the game quits meanwhile.
+    /// Its 0 saves the screen as it stands, before what the pass leads to.
+    fn openLocker(driver: *Driver, mission: u16, steps: rooms.Steps) !bool {
+        if (locker.Locker.zoom(.of(mission))) |name| _ = try driver.movies.play(name, .over_screen_from_disc) orelse return false;
+        const held: locker.Awards = .of(if (driver.campaign_flown.*) |*going| going else null);
+        var case: locker.Locker = .open(.{ .rooms = driver.context(), .steps = steps }, mission, held);
+        defer case.deinit();
+        while (true) {
+            if (!try driver.pump()) return false;
+            if (!case.pass(.{ .keyboard = &driver.movies.devices.keyboard, .pointer = driver.pointer, .now = platform.window.nanoseconds() })) return true;
+            if (case.screenshot) driver.saveScreenshot();
+            try driver.present(.{ .locker = &case });
+        }
+    }
+
+    /// The CD player (`cd_player`) before mission `mission`, with the rooms' steps, in its loop,
+    /// until it closes; false where the game quits meanwhile. The music it plays goes on in the
+    /// rooms.
+    fn listen(driver: *Driver, mission: u16, steps: rooms.Steps) !bool {
+        var player: cd_player.CdPlayer = .open(.{ .rooms = driver.context(), .steps = steps, .volume = &driver.cd_volume }, mission, platform.window.nanoseconds());
         defer player.deinit();
         while (true) {
             if (!try driver.pump()) return false;
@@ -514,7 +532,7 @@ pub const Driver = struct {
                 .hologram = .{ .now = milliseconds(), .mouse = .{ .at = pointer.at, .left = pointer.down, .right = pointer.right_down } },
             });
             // O saves the screen as it stands, before what the pass leads to.
-            if (meeting.screenshot) driver.movies.presenter.screen.saveScreenshot(driver.movies.gpa, driver.screenshots);
+            if (meeting.screenshot) driver.saveScreenshot();
             if (step) |next| switch (next) {
                 .movie => |name| {
                     _ = try driver.movies.play(name, .over_screen_from_disc) orelse return null;
@@ -670,6 +688,11 @@ pub const Driver = struct {
         if (active) driver.sound.resumeAll() else driver.sound.pauseAll();
     }
 
+    /// Saves the screen as it stands, the last frame drawn (`screenshot_save`).
+    fn saveScreenshot(driver: *Driver) void {
+        driver.movies.presenter.screen.saveScreenshot(driver.movies.gpa, driver.screenshots);
+    }
+
     /// Draws a frame of `screen` and puts it on the window, at the frame rate asked for: over the
     /// loadout's hologram where the briefing shows it.
     fn present(driver: *Driver, screen: Shown.Screen) !void {
@@ -807,6 +830,7 @@ const Shown = struct {
         restart: *Restarting,
         itac: *itac_module.Itac,
         pod: *simulator_pod.Pod,
+        locker: *locker.Locker,
         cd_player: *cd_player.CdPlayer,
     };
 
@@ -828,6 +852,7 @@ const Shown = struct {
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
             .itac => |terminal| try drawn(terminal.draw(target)),
             .pod => |pod| try drawn(pod.draw(target)),
+            .locker => |case| try drawn(case.draw(target)),
             .cd_player => |player| try drawn(player.draw(target)),
         }
     }

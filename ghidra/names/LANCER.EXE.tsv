@@ -2218,7 +2218,7 @@ address	kind	name	type	comment
 0043efc0	function	itac	void (void)	The ITAC, which Use ITAC opens in the rooms (itac.cpp): its screens from inter\itac\, its fonts, sounds and movies
 0044f3d0	function	simulator_pod	void (void)	The simulator pod, which Enter Simulator Pod opens in the rooms, in a loop of its own: FLIGHT SIMULATOR leads to the training missions' screen through training.bik, to Instant Action, mission 29, or out; the training missions' screen to missions 31, 30 and 32, Instant Action or out. It flies a mission itself, in a Grendel, its kills and mission_number put back after it, then shows its screen again, FLIGHT SIMULATOR after Instant Action. The Yamato's pod opens and closes with hud_controls_up_.bik and hud_controls_down.bik
 0044f840	function	simulator_pod_draw	void (void)	The simulator pod's render hook (sr + 0x88): with the pointer over a choice, its lit shape from simgfx.spr and its name centred at (320, 440) in white in optfnt.fnt; the screen's title at (42, 85) in itacbig.fnt, FLIGHT SIMULATOR in 0xC18415 or Training Missions in 0x00E200; and the pointer, shape pointer_clock / 4 + 1 of vr_frontend_shapes
-004362f0	function	medal_display	void (void)	The locker, which Open Locker opens in the rooms: the pilot's medals and ribbons, with the lid's movies
+004362f0	function	medal_display	void (void)	The locker, MedalDisplay by its assertions, which Open Locker opens in the rooms, in a loop of its own: on the Yamato lockzomi.bik first, then the lid going up (rel_locklup.bik, locklidup.bik), the medals and ribbons the pilot has coming into view frame by frame from (r)medal%d.spr and (r)bar%d.spr; once up, a button or Escape sends it down (rel_lockldo.bik, lokliddo.bik), and Escape or its end closes it. Three of the four lid movies open into bink_movie rather than vr_movie, which the drawing and the waits read
 00437fc0	function	cd_player	void (void)	The CD player, which Use CD player opens in the rooms, in a loop of its own over rel_bunk2cd.tga, or brd2cd.tga after mission 18: twelve pieces of music\%s.wav for each carrier, a row clicked to choose one and again to play it, and the buttons of cdplay.spr to play, pause, stop, step, repeat, play at random, turn the volume and leave. A piece that ends is followed by the next while it plays. PLAY SELECTED TRACK alone takes the Yamato's list after mission 18; the rest take the Reliant's
 0042dab0	function	audio_screen	int (void)	Screen 3, the audio settings, which GAME OPTIONS and the in-game options' AUDIO open
 0042e2e0	function	audio_screen_draw	void (void)	Screen 3's render hook: the sliders' labels, tracks and knobs (audio_knobs), 3D SOUND with its arrows, the one under the pointer lit (in_game_options_item), the provider's name, the buttons, the dialogs and the pointer
@@ -2617,3 +2617,23 @@ address	kind	name	type	comment
 005202c8	data	cd_player_shuffle	int	The CD player's RANDOM TRACK MODE: another piece at random follows the end of one
 0051d7ac	data	cd_player_playing	int	Set while the CD player plays, from PLAY SELECTED TRACK or a row clicked again until STOP THE CURRENT TRACK: the next piece follows the end of one
 004e5b88	data	cd_player_volume	int	The CD player's volume, 0 to 127, 127 as the game starts, which its buttons set the music stream to with AIL_set_stream_volume
+00436b20	function	medal_display_draw	void (void)	The locker's render hook (sr + 0x88): the lid's movie stepped when its next frame is due, medal_display_frame stepping with it but at the last, which sets vr_arrived; the awards the pilot has at their shapes for the frame; with the lid up and arrived, the name of the award under the pointer, or Close Locker, centred at (320, 440); and the front end's pointer
+00437de0	function	medal_display_timer	void __stdcall (uint id, uint message, uint user, uint unused1, uint unused2)	The locker's timer, 15 times a second (timer_start): counts medal_display_ticks up
+0051d45c	data	medal_display_medals	void *[6]	The sets of the medals' shapes the locker shows, (r)medal%d.spr for each the pilot has
+0051da34	data	medal_display_ribbons	void *[6]	The sets of the ribbons' shapes the locker shows, (r)bar%d.spr for each the pilot has
+005201ac	data	medal_display_frame	int	The frame of the locker's tables its awards are drawn at: up from -1 as the lid goes up, down from 0x15, or 0xE on the Yamato, as it goes down, a step for each frame of the lid's movie but its last
+0051db54	data	medal_display_lid_up	int	Set while the locker's lid goes up and stays up, clear as it goes down
+0051d494	data	medal_display_under	int	The award under the locker's pointer, as interface_hit finds it, or -1
+0051d474	data	medal_display_ticks	int	The ticks of the locker's timer, which only go to vr_timer_seen
+004e77c0	data	medal_display_reliant_medal_shapes	byte[6][64]	The shape of each of the Reliant's medal sets for each frame of the locker's lid, 0 for none
+004e7940	data	medal_display_yamato_medal_shapes	byte[6][16]	The shape of each of the Yamato's medal sets for each frame of the locker's lid, 0 for none
+004e79a0	data	medal_display_yamato_medal_x	int[6]	Where the Yamato's locker shows each medal, across
+004e79b8	data	medal_display_yamato_medal_y	int[6]	Where the Yamato's locker shows each medal, down
+004e79d0	data	medal_display_reliant_medal_x	int[6]	Where the Reliant's locker shows each medal, across
+004e79e8	data	medal_display_reliant_medal_y	int[6]	Where the Reliant's locker shows each medal, down
+004e7a00	data	medal_display_yamato_ribbon_shapes	byte[6][16]	The shape of each of the Yamato's ribbon sets for each frame of the locker's lid, 0 for none
+004e7a60	data	medal_display_reliant_ribbon_shapes	byte[6][23]	The shape of each of the Reliant's ribbon sets for each frame of the locker's lid, 0 for none
+004e7aec	data	medal_display_yamato_ribbon_x	int[6]	Where the Yamato's locker shows each ribbon, across
+004e7b04	data	medal_display_yamato_ribbon_y	int[6]	Where the Yamato's locker shows each ribbon, down
+004e7b1c	data	medal_display_reliant_ribbon_x	int[6]	Where the Reliant's locker shows each ribbon, across
+004e7b34	data	medal_display_reliant_ribbon_y	int[6]	Where the Reliant's locker shows each ribbon, down

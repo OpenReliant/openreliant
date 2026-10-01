@@ -38,10 +38,6 @@ const yamato_picture = "\\interface\\brd2cd.tga";
 pub const shapes_name = "cdplay.spr";
 const title_font_name = itac.large_font_name;
 
-/// The sound a press over a button or a row makes, from the rooms' steps (`vr_steps_bank`), at
-/// full volume, once, in the middle (`0x0043846A`).
-const press_sound = 8;
-
 /// The CD player's volume (`0x004E5B88`), from 0 to 127, which lasts while the game runs: full as
 /// it starts, and turned a step each pass its buttons are held.
 pub const Volume = u7;
@@ -188,10 +184,6 @@ const numbers = blk: {
     for (&all, 1..) |*number, n| number.* = std.fmt.comptimePrint("{d:0>2}", .{n});
     break :blk all;
 };
-
-/// Where the name of the button under the pointer is written, centred, in white, in the front
-/// end's large font (`0x00438CD1`).
-const name_at: [2]i32 = .{ 0x140, 0x1B8 };
 
 /// The pointer, shape 12 of `cdplay.spr` (`0x00438D1D`).
 const pointer_shape = 0xC;
@@ -365,7 +357,7 @@ pub const CdPlayer = struct {
 
     /// The sound of a press over a button or a row.
     fn playPress(player: CdPlayer) void {
-        player.context.steps.play(player.context.rooms.sound, press_sound);
+        player.context.steps.play(player.context.rooms.sound, .cd_press);
     }
 
     /// The frame (`0x00438890`): the picture; the button under the pointer lit, and REPEAT TRACK
@@ -387,7 +379,7 @@ pub const CdPlayer = struct {
             try canvas.text(canvas.fonts.small, .{ number_x, y }, number, colour, .left);
             try canvas.string(canvas.fonts.small, .{ name_x, y }, piece.name, colour, .left);
         }
-        if (button) |over| try canvas.string(canvas.fonts.large, name_at, buttons.get(over).name, canvas_module.white, .centre);
+        if (button) |over| try canvas.label(buttons.get(over).name);
         if (player.shapes) |*shapes| try canvas.shape(&shapes.art, pointer_shape, player.pointer.at);
     }
 
