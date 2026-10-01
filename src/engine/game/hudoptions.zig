@@ -7,8 +7,9 @@
 //! Ported so far: the menu's items, how they are drawn and found under the pointer, and the
 //! widgets the screens share ([`hudoptions/menu.zig`](hudoptions/menu.zig)); the pointer, the
 //! fonts and the screens' order (`pause_menu_draw`); and the main, audio and video screens
-//! ([`hudoptions/screens.zig`](hudoptions/screens.zig)). Not yet: the controls screen, and F1,
-//! which opens it (#210); the multiplayer screen (#211); and the two screens nothing reaches.
+//! ([`hudoptions/screens.zig`](hudoptions/screens.zig)). The controls screen, which F1 opens too,
+//! is OpenReliant's settings screen (`Controls`). Not yet: the multiplayer screen (#211); and the
+//! two screens nothing reaches.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -23,6 +24,9 @@ const camera = @import("camera.zig");
 const hog_snd = @import("hog_snd.zig");
 const hud = @import("hud.zig");
 const language = @import("language.zig");
+const interface = @import("interface.zig");
+const canvas = interface.canvas;
+const settings_screen = interface.settings;
 
 pub const menu = @import("hudoptions/menu.zig");
 pub const screens = @import("hudoptions/screens.zig");
@@ -32,8 +36,8 @@ test {
     _ = screens;
 }
 
-/// A screen of the menu: `pause_screen` 1, 3 and 4.
-pub const Screen = enum { main, audio, video };
+/// A screen of the menu: `pause_screen` 1 to 4.
+pub const Screen = enum { main, controls, audio, video };
 
 /// What a choice ends the pause in, which `mission_paused_frame` acts on: `pause_screen` 5, 6 and
 /// 7.
@@ -84,6 +88,34 @@ pub const Frame = struct {
     settings: Settings,
     /// **Improvement.** OpenReliant's version, written small in the menu's bottom right corner.
     version: ?[]const u8 = null,
+    /// The timer's ticks, which the settings screen's pointer and list run by.
+    timer: u64 = 0,
+};
+
+/// The controls, pause screen 2: OpenReliant's settings screen on its controls, drawn as the front
+/// end draws it, fitted to the window, over the mission, which it darkens; with the front end's
+/// shapes and its dialog's, read as it opens, and a pointer of its own, which moves over it.
+///
+/// **Improvement:** OpenReliant shows the front end's controls screen in place of the pause menu's
+/// own (`pause_screen_controls`, `0x0048FEF0`), as GAME OPTIONS and the in-game options show it,
+/// with CONTINUE where those have MAIN MENU.
+const Controls = struct {
+    screen: settings_screen.Settings = .{},
+    shapes: ?canvas.Shapes,
+    dialog: ?canvas.Shapes,
+    pointer: canvas.Pointer = .{},
+    /// The pointer's button, which the screen takes once the press that opened it has come up.
+    press: input.FreshPress = .{},
+    /// The timer's ticks as the last frame was drawn.
+    timer: u64,
+
+    /// How dark the mission stands behind the screen.
+    const shade: [4]f32 = .{ 0, 0, 0, 0.6 };
+
+    fn close(controls: *Controls, gpa: Allocator) void {
+        if (controls.shapes) |*shapes| shapes.deinit(gpa);
+        if (controls.dialog) |*shapes| shapes.deinit(gpa);
+    }
 };
 
 /// The pause menu's state, which the game keeps in `hudoptions.cpp`'s globals.
@@ -104,6 +136,10 @@ pub const PauseMenu = struct {
     /// `pause_view_setting` (`0x00582E88`), `main.cpp`'s: the cockpit setting as the game paused,
     /// which resuming compares.
     view_setting: camera.CockpitSetting = .cockpit,
+    /// The archive the fonts came from, which the controls' shapes are read from.
+    archive: ?bigfile.Hog = null,
+    /// The controls, while they are shown.
+    controls: ?Controls = null,
 
     /// `optfnt.fnt` and `smlfnt2.fnt`, as `hog_load` read them and `font_open` opened them
     /// (`menu_font_large`, `menu_font_small`), and what holds them and their glyphs' images.
@@ -137,11 +173,14 @@ pub const PauseMenu = struct {
         };
         pause_menu.at = .{ .screen = .main };
         pause_menu.entered = null;
+        pause_menu.archive = archive;
     }
 
     /// `pause_menu_close` (`0x004906D0`), as the game resumes: frees the fonts.
     pub fn close(pause_menu: *PauseMenu) void {
         const fonts = if (pause_menu.fonts) |*open_fonts| open_fonts else return;
+        if (pause_menu.controls) |*controls| controls.close(fonts.gpa);
+        pause_menu.controls = null;
         fonts.small.deinit(fonts.gpa);
         fonts.large.deinit(fonts.gpa);
         for (fonts.files) |file| fonts.gpa.free(file);
@@ -181,6 +220,7 @@ pub const PauseMenu = struct {
         };
         if (pause_menu.entered != screen) {
             switch (screen) {
+                .controls => pause_menu.enterControls(frame),
                 inline else => |entering| {
                     const state = &@field(pause_menu.screens, @tagName(entering));
                     if (@hasDecl(@TypeOf(state.*), "enter")) state.enter(frame.settings);
@@ -188,17 +228,21 @@ pub const PauseMenu = struct {
             }
             pause_menu.entered = screen;
         }
-        const context: Context = .{
-            .ui = ui,
-            .pointer = pause_menu.pointer,
-            .escaped = frame.devices.keyboard.pressed(input.scan.escape, .none, true),
-            .settings = frame.settings,
-        };
         const next = switch (screen) {
-            inline else => |shown| try @field(pause_menu.screens, @tagName(shown)).frame(context),
+            .controls => try pause_menu.controlsFrame(frame),
+            inline else => |shown| try @field(pause_menu.screens, @tagName(shown)).frame(.{
+                .ui = ui,
+                .pointer = pause_menu.pointer,
+                .escaped = frame.devices.keyboard.pressed(input.scan.escape, .none, true),
+                .settings = frame.settings,
+            }),
         };
         if (next) |going| if (!std.meta.eql(going, pause_menu.at)) {
             switch (screen) {
+                .controls => if (pause_menu.controls) |*controls| {
+                    controls.close(fonts.gpa);
+                    pause_menu.controls = null;
+                },
                 inline else => |leaving| {
                     const state = &@field(pause_menu.screens, @tagName(leaving));
                     if (@hasDecl(@TypeOf(state.*), "leave")) try state.leave(frame.settings);
@@ -206,8 +250,58 @@ pub const PauseMenu = struct {
             }
             pause_menu.at = going;
         };
+        if (screen == .controls) return;
         if (frame.version) |version| try hud.drawVersion(ui.fonts.small, ui.gpa, ui.target, ui.screen, version);
         try ui.drawPointer(pause_menu.pointer);
+    }
+
+    /// Opens the controls: the front end's shapes and its dialog's read, and the settings screen
+    /// entered on its controls.
+    fn enterControls(pause_menu: *PauseMenu, frame: Frame) void {
+        const fonts = &pause_menu.fonts.?;
+        if (pause_menu.controls) |*shown| shown.close(fonts.gpa);
+        const archive = if (pause_menu.archive) |*from| from else null;
+        pause_menu.controls = .{
+            .shapes = if (archive) |from| canvas.Shapes.read(fonts.gpa, from, settings_screen.shapes_name) else null,
+            .dialog = if (archive) |from| canvas.Shapes.read(fonts.gpa, from, interface.dialog.shapes_name) else null,
+            .timer = frame.timer,
+        };
+        const controls = &pause_menu.controls.?;
+        controls.screen.enter(.pause_menu, .controls, controlsContext(frame, controls.pointer));
+    }
+
+    /// A frame of the controls, the mission darkened behind them: where they lead, OK and Escape
+    /// back to the main screen, and CONTINUE out of the pause.
+    fn controlsFrame(pause_menu: *PauseMenu, frame: Frame) menu.Error!?Next {
+        const fonts = &pause_menu.fonts.?;
+        const controls = if (pause_menu.controls) |*shown| shown else return .{ .screen = .main };
+        const elapsed = frame.timer -| controls.timer;
+        controls.timer = frame.timer;
+        controls.pointer.update(frame.devices.mouse, frame.screen, std.math.lossyCast(i32, elapsed));
+        var pointer = controls.pointer;
+        pointer.down = controls.press.pressed(pointer.down);
+        const end = controls.screen.frame(controlsContext(frame, pointer));
+        hud.drawFilled(frame.target, .{ .left = 0, .top = 0, .right = @floatFromInt(frame.screen[0]), .bottom = @floatFromInt(frame.screen[1]) }, Controls.shade);
+        const shapes = if (controls.shapes) |*read| &read.art else return .{ .screen = .main };
+        const dialog_art = if (controls.dialog) |*read| &read.art else return .{ .screen = .main };
+        const drawn: canvas.Canvas = .{
+            .gpa = fonts.gpa,
+            .target = frame.target,
+            .window = frame.screen,
+            .fonts = .{ .large = &fonts.large, .small = &fonts.small },
+            .strings = frame.strings,
+            .version = frame.version,
+        };
+        try controls.screen.draw(drawn, shapes, dialog_art, frame.devices, controls.pointer);
+        return switch (end orelse return null) {
+            .back, .main_menu => .{ .screen = .main },
+            .continue_mission => .{ .outcome = .continue_mission },
+        };
+    }
+
+    /// What a pass of the controls reads, with the pointer at `pointer`.
+    fn controlsContext(frame: Frame, pointer: canvas.Pointer) settings_screen.Context {
+        return .{ .pointer = pointer, .devices = frame.devices, .settings_file = frame.settings.file, .ticks = @truncate(frame.timer) };
     }
 };
 

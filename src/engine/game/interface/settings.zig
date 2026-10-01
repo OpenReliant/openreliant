@@ -195,7 +195,7 @@ pub const Settings = struct {
         screen.lit = null;
         tab.arrow = null;
         const under = itemAt(pointer.at) orelse {
-            if (pointer.down) tab.clickNothing(devices);
+            if (pointer.down) tab.endWait(devices);
             tab.wait(context);
             return null;
         };

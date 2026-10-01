@@ -4,10 +4,11 @@
 //! drawing (`in_game_options_draw`, `0x004398B0`) is the render hook it puts in `sr + 0x88`.
 //!
 //! SAVE and LOAD open the saved games (`saved_games`) over the menu, after `igofade.bik`, which
-//! the driver runs (`afterSavedGames`).
+//! the driver runs (`afterSavedGames`); CONTROL DEVICES opens the settings screen on its controls
+//! (`settings`), after the same movie.
 //!
-//! Not ported: AUDIO, CONTROL DEVICES and VIDEO, the front end's settings screens
-//! ([#400](https://github.com/vdmkenny/openreliant/issues/400)). Each plays `igofade.bik` before
+//! Not ported: AUDIO and VIDEO, the settings screen's audio and video
+//! ([#206](https://github.com/vdmkenny/openreliant/issues/206)). Each plays `igofade.bik` before
 //! its screen; OpenReliant stays on the menu.
 
 const std = @import("std");
@@ -170,6 +171,8 @@ pub const Choice = enum {
     /// `0x004396E4`).
     save,
     load,
+    /// CONTROL DEVICES: the settings screen over the menu, on its controls (`0x00439770`).
+    control_devices,
 };
 
 /// How the in-game options end, with the saved games they open.
@@ -233,7 +236,8 @@ pub const InGameOptions = struct {
         switch (chosen) {
             .save => return .save,
             .load => return .load,
-            .audio, .control_devices, .video => if (!menu.told) {
+            .control_devices => return .control_devices,
+            .audio, .video => if (!menu.told) {
                 menu.told = true;
                 log.info("the in-game options' {s} is not ported yet", .{@tagName(chosen)});
             },
@@ -306,9 +310,11 @@ test InGameOptions {
     // MAIN MENU at once.
     menu = .{};
     try std.testing.expectEqual(.main_menu, menu.frame(.{ .at = .{ 250, 450 }, .down = true }, &keyboard).?);
-    // SAVE leads to the saved games; an item not ported stays on the menu.
+    // SAVE leads to the saved games, CONTROL DEVICES to the settings screen; an item not ported
+    // stays on the menu.
     menu = .{};
     try std.testing.expectEqual(.save, menu.frame(.{ .at = .{ 200, 180 }, .down = true }, &keyboard).?);
+    try std.testing.expectEqual(.control_devices, menu.frame(.{ .at = .{ 300, 300 }, .down = true }, &keyboard).?);
     try std.testing.expectEqual(null, menu.frame(.{ .at = .{ 500, 300 }, .down = true }, &keyboard));
     try std.testing.expect(menu.told);
     // QUIT asks first; YES quits.

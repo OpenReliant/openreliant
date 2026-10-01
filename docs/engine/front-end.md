@@ -6,13 +6,13 @@ The screens the game shows outside a mission: the main menu, the pilots, the set
 
 ## In OpenReliant
 
-[`genilib/interf.zig`](../../src/engine/genilib/interf.zig) runs the screens (`interface_run`) and opens what they draw with. [`game/interface/`](../../src/engine/game/interface) holds the screens: the front end's screen and pointer in [`canvas.zig`](../../src/engine/game/interface/canvas.zig), the main menu in [`main_menu.zig`](../../src/engine/game/interface/main_menu.zig), the pilot roster in [`pilot_roster.zig`](../../src/engine/game/interface/pilot_roster.zig), the saved games in [`saved_games.zig`](../../src/engine/game/interface/saved_games.zig), and the YES or NO dialog and the box saying a save failed in [`dialog.zig`](../../src/engine/game/interface/dialog.zig). The picture behind the screens is `matmanager.Background` ([`game/matmanager.zig`](../../src/engine/game/matmanager.zig)). The loading screens are in [`game/xtrabits/loading.zig`](../../src/engine/game/xtrabits/loading.zig).
+[`genilib/interf.zig`](../../src/engine/genilib/interf.zig) runs the screens (`interface_run`) and opens what they draw with. [`game/interface/`](../../src/engine/game/interface) holds the screens: the front end's screen and pointer in [`canvas.zig`](../../src/engine/game/interface/canvas.zig), the main menu in [`main_menu.zig`](../../src/engine/game/interface/main_menu.zig), GAME OPTIONS in [`game_options.zig`](../../src/engine/game/interface/game_options.zig), the settings screen in [`settings.zig`](../../src/engine/game/interface/settings.zig), the pilot roster in [`pilot_roster.zig`](../../src/engine/game/interface/pilot_roster.zig), the saved games in [`saved_games.zig`](../../src/engine/game/interface/saved_games.zig), and the YES or NO dialog and the box saying a save failed in [`dialog.zig`](../../src/engine/game/interface/dialog.zig). The picture behind the screens is `matmanager.Background` ([`game/matmanager.zig`](../../src/engine/game/matmanager.zig)). The loading screens are in [`game/xtrabits/loading.zig`](../../src/engine/game/xtrabits/loading.zig).
 
 OpenReliant opens in the front end unless `--mission` names a mission. The pilot roster's START GAME, or a game its LOAD GAME loads, leads into the Reliant's rooms ([The Reliant's rooms](rooms.md)). A mission the front end or the rooms start flies at once, after the music's fade and the hangar's movie but for INSTANT ACTION's. As a mission of the campaign ends, OpenReliant plays the landing or a chapter's end ([Movies](movies.md#around-a-mission)), and the campaign goes on to the next mission's briefing, or turns to the restart screen ([After a mission](rooms.md#after-a-mission)). INSTANT ACTION's goes back to the main menu.
 
-Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
+Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the controls, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER ([#404](https://github.com/vdmkenny/openreliant/issues/404)) and GAME OPTIONS ([#400](https://github.com/vdmkenny/openreliant/issues/400)) stay on the main menu.
+- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/vdmkenny/openreliant/issues/404)), and GAME OPTIONS' AUDIO and VIDEO on its menu ([#206](https://github.com/vdmkenny/openreliant/issues/206)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -30,7 +30,9 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, th
 | Screen | Function | Issue |
 |---|---|---|
 | 0, the main menu | `main_menu` (`0x00428B60`) | [#396](https://github.com/vdmkenny/openreliant/issues/396) |
-| 1, GAME OPTIONS; 3, audio; 15, video; 16, controls | `0x0042A620`, `0x0042DAB0`, `0x0042E9B0`, `0x0042B690` | [#400](https://github.com/vdmkenny/openreliant/issues/400) |
+| 1, GAME OPTIONS ([GAME OPTIONS](#game-options)) | `game_options` (`0x0042A620`) | |
+| 3, audio; 15, video | `0x0042DAB0`, `0x0042E9B0` | [#206](https://github.com/vdmkenny/openreliant/issues/206) |
+| 16, the controls ([Controls](#controls)) | `controls_screen` (`0x0042B690`) | |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
 | 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/vdmkenny/openreliant/issues/404) |
@@ -62,7 +64,8 @@ The front end writes with `hud_text` and `hud_text_wrapped` through `interface_t
 |---|---|
 | `0x40BCFF` | The main menu's labels, the pilot roster's, and the dialogs |
 | `0xFDB951` | A panel's labels under the pointer |
-| `0xFFFFFF` | On the pilot roster, the call sign while it is typed, the list's call signs, and a button's label under the pointer; in the in-game options, a button's label under the pointer |
+| `0xFFFFFF` | On the pilot roster, the call sign while it is typed, the list's call signs, and a button's label under the pointer; in the in-game options and on the controls screen, a button's label under the pointer; on the controls screen, the row waiting for a key |
+| `0xFFFF00` | On the controls screen, ! NOT ASSIGNED ! |
 | `0xFF0000` | The developers' text |
 
 ## The pointer
@@ -134,6 +137,82 @@ With `developer_mode` set:
 7. With `developer_mode` set, `M` and `mission_number` at (5, 5) in red, in `font_01.fnt`.
 
 The shapes take the palette of their block's set: the pointer's the first, the lit panels' block `0x11`, the buttons' block `0x16`.
+
+## GAME OPTIONS
+
+`game_options` (`0x0042A620`), screen 1, which the main menu's GAME OPTIONS opens after `interface\main2opt.bik`, shows `interface\main2opt.tga` behind itself, and reads `interface\frntend4.spr`. Its items, in the order `interface_hit` tries them:
+
+| Item | Corner | Size | Does |
+|---|---|---|---|
+| AUDIO | (30, 165) | 152 by 127 | `interface\optfade.bik` over `interface\optfade.tga`, then the audio screen (screen 3) |
+| CONTROL DEVICES | (219, 165) | 152 by 127 | The same, then the controls (screen 16, [Controls](#controls)) |
+| VIDEO | (408, 165) | 152 by 127 | The same, then the video screen (screen 15) |
+| MAIN MENU | (292, 441) | 25 by 16 | `interface\opt2main.bik`, then the main menu |
+| QUIT | (324, 441) | 25 by 16 | QUIT's dialog ([The dialogs](#the-dialogs)), whose YES quits the game |
+| ABOUT STARLANCER | (292, 421) | 25 by 16 | The about box ([The in-game options](rooms.md#the-in-game-options)) |
+
+An item acts while the left button is down over it. Escape leads to the main menu, as MAIN MENU does.
+
+Its drawing (`game_options_draw`, `0x0042AFB0`), the render hook:
+
+1. The buttons, shape `0x1B` at (292, 421), (292, 441) and (324, 441).
+2. The item under the pointer (`roster_item`, `0x00520130`): an icon's lit shape, `0x13` at (35, 155), `0x14` at (202, 160) or `0x15` at (392, 161), or shape `0x1C` on a button. Its label is written white, then in blue again with the others, so it stays blue.
+3. In blue, SELECT AN OPTION (`0x108`) centred on (320, 95), and the icons' labels, AUDIO (`0x109`), CONTROL DEVICES (`0x10A`) and VIDEO (`0x10B`), centred on (133, 319), (320, 319) and (511, 319), in `interface_font_large`; ABOUT STARLANCER (`0x10C`) to the left of (288, 420), MAIN MENU (`0xBB`) to the left of (288, 440) and QUIT (`0xBC`) from (353, 440), in `interface_font_small`.
+4. The about box, where it is up, the dialogs, then the pointer.
+
+**Improvement:** ABOUT STARLANCER is ABOUT OPENRELIANT, as in the in-game options.
+
+Not ported: AUDIO and VIDEO, which stay on the menu ([#206](https://github.com/vdmkenny/openreliant/issues/206)).
+
+## The settings screen
+
+OpenReliant shows one settings screen where the game has a screen for each setting's kind: GAME OPTIONS' and the in-game options' AUDIO, CONTROL DEVICES and VIDEO (screens 3, 16 and 15), and the pause menu's audio, controls and video ([Pause menu](pause-menu.md#screens)). It is laid out on the front end's screen as the game's are, with their shapes, `interface\frntend6.spr`, and their buttons, with a tab for each kind in place of their titles: CONTROL DEVICES (`0x10A`), white, centred on (320, 95) in `interface_font_large`. Each menu's CONTROL DEVICES opens it on the controls, as F1 does in flight.
+
+| Opened from | Movie in | Behind | OK, Escape | MAIN MENU |
+|---|---|---|---|---|
+| GAME OPTIONS | `interface\optfade.bik` | `interface\optfade.tga` | `interface\optfade2.bik`, then GAME OPTIONS | `interface\opfad2mm.bik`, then the main menu |
+| The in-game options | `interface\igofade.bik` | `interface\igofade.tga` | `interface\igofade2.bik`, then the in-game options | `interface\igof2mm.bik`, then the main menu |
+| The pause menu, and F1 | | The mission, darkened | The pause menu's main screen | CONTINUE (`0x180`) in its place, the mission again |
+
+The buttons are shape `0x28`, `0x29` under the pointer, with their labels in `interface_font_small`, blue, white under the pointer: OK (`0x316`) at (299, 422), to the left of (292, 421); MAIN MENU (`0xBB`) at (299, 443), to the left of (292, 442); RESET DEFAULTS (`0x183`) at (329, 422), from (357, 421); CANCEL CHANGES (`0x5A9`) at (329, 443), from (357, 442). The pointer finds OK and MAIN MENU 120 by 15 from x 199, and the other two 100 by 15 from x 329, each at its shape's height. RESET DEFAULTS and CANCEL CHANGES act on the tab shown. A click acts once, until the button comes up, but for the list's arrows.
+
+**Improvement:** the screen is OpenReliant's own design, built from the game's screens: one screen with tabs, the same from the front end, the Reliant's rooms and the pause menu, where the game has a screen for each kind, and the pause menu screens of its own.
+
+Not ported: the audio and the video tabs ([#206](https://github.com/vdmkenny/openreliant/issues/206), [#209](https://github.com/vdmkenny/openreliant/issues/209)).
+
+### Controls
+
+The controls are `controls_screen` (`0x0042B690`), screen 16, which draws with `controls_screen_draw` (`0x0042CD30`). Opening, it reads the bindings again from `starlancer.ini` (`key_config_defaults`, `load_key_config`; [Controls](controls.md#bindings)), keeps the settings and the 74 bindings for CANCEL CHANGES, and shows the list from its top.
+
+| What | Where | Drawn |
+|---|---|---|
+| The panes | (45, 136), 324 by 184; (401, 136), 195 by 184 | `interface_box` |
+| Heads | FUNCTION (`0x17B`) from (50, 117), CONTROL (`0x17C`) from (405, 117) | `interface_font_large`, blue |
+| The list's rows, twelve | 15 apart from y 139: the action's name, its string at `ControlBinding + 0x2C`, from x 50; its binding from x 406. The pointer finds a row 550 by 10 from x 50 | Small, blue, the row waiting white; ! NOT ASSIGNED ! (`0x5B1`) in yellow for an action bound to nothing, but the one waiting |
+| A divider | Two lines at the row's height plus 6 and 7, from x 45 to 367 and from 401 to 594 | Blue |
+| The arrows | (374, 136) and (374, 156); the pointer finds each 28 by 16 from x 370 | Shapes `0x1E` and `0x1F`, `0x20` and `0x21` under the pointer with its button up |
+| PRIMARY CONTROLLER (`0x234`) | From (45, 327) | Small, blue |
+| JOYSTICK (`0x235`), MOUSE (`0x236`), KEYBOARD ONLY (`0x237`) | Boxes at (45, 349), (45, 373) and (45, 397), labels from x 67 | Shape `0x1A`, the tick `0x1B` three pixels in for the controller steering; JOYSTICK dimmed without a joystick |
+| FORCE FEEDBACK (`0x17D`), INVERT PITCH (`0x17E`), HAT ENABLE (`0x17F`), JOYSTICK ROLL (`0x233`) | Boxes at (349, 325), (349, 349), (349, 373) and (349, 397), labels from x 367; the pointer finds a box 16 by 16 from x 345 | Shape `0x1A`, ticked with `0x1B` where it can be changed and is on |
+
+A binding is written SHIFT + K (`0x311`), CONTROL + K (`0x312`) or K, then AND (`0x545`) JOY n (`0x32C`) for a joystick button, numbered from 0 as the file numbers it. Alt is never written. What can't be used is dimmed to half: FORCE FEEDBACK but from a joystick that has it, steering, and HAT ENABLE and JOYSTICK ROLL but while the joystick steers. INVERT PITCH is ticked while pitch is as the stick has it, `JoystickInvert` 1.
+
+- A check box, or a controller, changes where it can be used, and its `KeyConfig` entry is written at once (`0x0042BBB4` to `0x0042BF8C`). JOYSTICK ROLL is `TwistEnable`.
+- An arrow scrolls the list a row, and again each 5 ticks while it is held (`0x0042BD09`).
+- A click on an action's row clears its binding, and the row waits: each pass, the first of the 89 keys of `key_names` pressed alone, with Shift or with Ctrl is taken, then the lowest joystick button down, which holds the screen until it comes up. Taking one doesn't end the wait: a row takes a key and a button, and a later key replaces the first. A key or a button another action holds asks first (`control_binding_find`, `0x0042C5F0`), with `"K"`, `"SHIFT + K"`, `"CONTROL + K"` or `"JOY n"`, then This Key is already assigned to (`0x5AF`) and the action, then Redefine Anyway? (`0x5B0`), a line each: YES takes it from that action, NO puts the waiting row's binding back, the row waiting on. Escape, Shift, Ctrl and Alt on their own, the lock keys, Pause and Print Screen are not among the keys, so none of them can be bound.
+- A click on another action's row, or on nothing, ends the wait, the old binding back where the row took nothing; a click on a divider puts it back so, and leaves the row waiting, as a click on a check box, a controller, a button or an arrow does.
+- Escape asks Would you like to save your changes before leaving this screen? (`0x5AB`) where a binding has changed; NO reads the settings and the bindings again from the file. Escape, OK and MAIN MENU then write the bindings (`save_key_config`, `0x0042C630`).
+- RESET DEFAULTS sets the defaults (`key_config_defaults`) and writes them at once; CANCEL CHANGES puts back what the screen opened with.
+
+**Fixes:**
+
+- The game leaves out of the search for a key's holder the action at the key's place in `key_names` (`0x0042C119`), where it means the waiting row's, so that pressing again the key a row has just taken asks whether to take it from the row itself, and YES leaves the row without it. OpenReliant leaves out the waiting row's action.
+- A key taken without the question counts as a change, which Escape asks about, as a button and a key taken from another action do; the game asks only after those.
+- Leaving the screen, by Escape, OK or MAIN MENU, while a row waits having taken nothing puts its binding back; the game writes the action unbound.
+
+**Improvement:** PRIMARY CONTROLLER offers MOUSE, `Controller` 2, which steers by the mouse ([Controls](controls.md#steering)). The game has its case (`0x0042BF15`) and its string, but neither a place nor a label, so only the file sets it.
+
+Not ported: the defaults the game reads from `DEFAULT.TXT`, which RESET DEFAULTS sets ([#488](https://github.com/vdmkenny/openreliant/issues/488)); OpenReliant's are the executable's. The keys' names as the keyboard's layout gives them, which the game shows ([#489](https://github.com/vdmkenny/openreliant/issues/489)); OpenReliant shows the executable's.
 
 ## The dialogs
 

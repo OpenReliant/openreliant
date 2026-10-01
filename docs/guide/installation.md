@@ -71,7 +71,7 @@ Run the executable with the installed folder:
 ./openreliant StarLancer
 ```
 
-The game opens in its main menu. SINGLE PLAYER leads to the pilot roster, where you type your call sign or pick one of the last ten, and choose your pilot. START GAME asks the game's difficulty, then starts a campaign: Enriquez shows a new pilot round the Reliant, and the Reliant's rooms open, walked through with the mouse. The door to the briefing room starts the first mission, and Escape opens the in-game options. QUIT leaves the game. The other screens are still to come.
+The game opens in its main menu. SINGLE PLAYER leads to the pilot roster, where you type your call sign or pick one of the last ten, and choose your pilot. START GAME asks the game's difficulty, then starts a campaign: Enriquez shows a new pilot round the Reliant, and the Reliant's rooms open, walked through with the mouse. The door to the briefing room starts the first mission, and Escape opens the in-game options. GAME OPTIONS' CONTROL DEVICES sets up your controls ([Controllers and input](controllers.md#the-controls-screen)). QUIT leaves the game. The other screens are still to come.
 
 To play a mission at once, give its number, such as 1 for the first campaign mission, or 0 for OpenReliant's sandbox:
 

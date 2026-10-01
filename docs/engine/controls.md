@@ -334,7 +334,10 @@ more slowly than in the game.
 balance: `reach`, `shares`, `distribute`, `choose` for the power keys, `move` and
 `balanceShields`.
 `Camera.frameControls` ports the hat. `load_key_config` is ported in
-[`game/interface.zig`](../../src/engine/game/interface.zig), with the fixes above;
+[`game/interface.zig`](../../src/engine/game/interface.zig), with the fixes above, and with it
+`save_key_config`, `control_binding_find` and `key_config_defaults`, but for the bindings it reads
+from `DEFAULT.TXT` ([#488](https://github.com/vdmkenny/openreliant/issues/488)); the controls
+screen that sets them is the settings screen ([Front end](front-end.md#controls));
 [`profile.zig`](../../src/engine/profile.zig) reads the file as `GetPrivateProfileIntA` and
 `GetPrivateProfileStringA` do.
 

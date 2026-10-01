@@ -101,6 +101,7 @@ The flight keys are the game's own, as `starlancer.ini` binds them. Among them:
 | Key | Action |
 |---|---|
 | Escape | Open the pause menu |
+| F1 | Open the controls ([Controllers and input](controllers.md#the-controls-screen)) |
 | 1 to 8 | Camera views: 1 cockpit, 2 left, 3 right, 4 rear, 5 flyby, 6 target, 7 external, 8 missile |
 | C | Open the radio menu, whose number keys call your wingmen and the base |
 | F5 to F8 | Give orders to your wingmen, and request landing |

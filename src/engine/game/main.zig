@@ -410,6 +410,43 @@ pub fn pause(pausing: Pausing, on: bool) !void {
     }
 }
 
+/// `mission_frame`'s pause keys, which it looks for before its work (`0x0049280B`, `0x00492845`):
+/// Escape pauses into the menu's main screen, and F1, KEY CONFIG's binding, straight into its
+/// controls (`pause_screen` 2). Whether the game paused.
+pub fn pauseKeys(pausing: Pausing, devices: *input.Devices) !bool {
+    if (pausing.clock.paused) return false;
+    if (devices.keyboard.pressed(input.scan.escape, .none, true)) {
+        try pause(pausing, true);
+        return true;
+    }
+    if (!devices.active(.key_config, true)) return false;
+    try pause(pausing, true);
+    pausing.menu.at = .{ .screen = .controls };
+    return true;
+}
+
+test pauseKeys {
+    const gpa = std.testing.allocator;
+    var archive = try hudoptions.testing.fontArchive(gpa);
+    defer archive.close(gpa);
+    var clock: Clock = .{};
+    var sound: hog_snd.Sound = .{};
+    var menu: hudoptions.PauseMenu = .{};
+    defer menu.close();
+    var view: camera.Camera = .{};
+    const player: u16 = 0;
+    const pausing: Pausing = .{ .gpa = gpa, .clock = &clock, .sound = &sound, .menu = &menu, .archive = archive.hog, .camera = &view, .player = &player };
+    var devices: input.Devices = .{};
+    try std.testing.expect(!try pauseKeys(pausing, &devices));
+    // F1 pauses straight into the controls; paused, the keys do nothing more.
+    devices.keyboard.down[devices.bindings.get(.key_config).key] = true;
+    try std.testing.expect(try pauseKeys(pausing, &devices));
+    try std.testing.expect(clock.paused);
+    try std.testing.expectEqual(hudoptions.Next{ .screen = .controls }, menu.at);
+    devices.keyboard.down[input.scan.escape] = true;
+    try std.testing.expect(!try pauseKeys(pausing, &devices));
+}
+
 /// `mission_paused_frame` (`0x00491FC0`)'s work before the frame is drawn, each frame while the
 /// game is paused: the keyboard and the joystick read, which lets go of the keys that are up, and
 /// the frame's sounds played and placed, the music playing on (`hog_snd.Sound.frame`), heard from

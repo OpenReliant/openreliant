@@ -29,7 +29,7 @@ const dialog = @import("../dialog.zig");
 const settings = @import("../settings.zig");
 const Context = settings.Context;
 
-/// The rows the list shows at once (`0x0042B665`, `0x0042D17A`).
+/// The rows the list shows at once (`0x0042B665`, `0x0042D177`).
 pub const rows = 12;
 
 /// The ticks a held arrow waits before the list scrolls another row (`0x0042BD2C`).
@@ -51,7 +51,7 @@ const headings = [_]Label{
 const primary_controller: Label = .of(0x234, .{ 45, 327 }, .left);
 
 /// Where the list's rows stand: a row's name and its binding, the first row's height, and the
-/// height from row to row (`0x0042D19D`, `0x0042D221`, `0x0042D3B0`); and where a click finds a row
+/// height from row to row (`0x0042D19D`, `0x0042D202`, `0x0042D35A`); and where a click finds a row
 /// (`0x0042B78B` on).
 const name_x = 50;
 const binding_x = 406;
@@ -98,7 +98,7 @@ const tick_shape = 0x1B;
 const tick_offset = 3;
 const box_size = 16;
 
-/// What an item that can't be used is dimmed to, its label and its box (`0x0042CE6E`).
+/// What an item that can't be used is dimmed to, its label and its box (`0x0042CE4C`).
 const dimmed = 0.5;
 
 /// The check boxes, top to bottom: their box at x 349, their label at x 367.
@@ -379,8 +379,9 @@ pub const Controls = struct {
 
     /// A click on `item` (`0x0042BBAD`): a check box that can be changed changes, and its setting
     /// is written; an arrow scrolls the list a row, and again each `scroll_ticks` while it is held,
-    /// which it returns true for; a row ends the wait, as a click on nothing does, and an action's
-    /// clears its binding and waits; a controller that can be chosen steers, and is written.
+    /// which it returns true for; a row puts the waiting row's old binding back where it took
+    /// nothing, and an action's row clears its binding and waits in its place, where a divider
+    /// leaves the waiting row waiting; a controller that can be chosen steers, and is written.
     pub fn choose(tab: *Controls, item: Item, context: Context) Allocator.Error!bool {
         const devices = context.devices;
         const settings_file = context.settings_file;
@@ -413,13 +414,8 @@ pub const Controls = struct {
         return false;
     }
 
-    /// A click on nothing: the wait ends, the old binding back where nothing was taken
-    /// (`0x0042BFDE`).
-    pub fn clickNothing(tab: *Controls, devices: *input.Devices) void {
-        tab.endWait(devices);
-    }
-
-    /// Ends the wait, the waiting row's old binding back where it has taken nothing.
+    /// Ends the wait, as a click on nothing does (`0x0042BFDE`), the waiting row's old binding back
+    /// where it has taken nothing.
     pub fn endWait(tab: *Controls, devices: *input.Devices) void {
         tab.restore(devices);
         tab.waiting = null;
@@ -536,7 +532,7 @@ pub const Controls = struct {
         }
     }
 
-    /// The rows shown (`0x0042D17A` on): a divider's two lines, or an action's name and its
+    /// The rows shown (`0x0042D171` on): a divider's two lines, or an action's name and its
     /// binding, white while the row waits, and ! NOT ASSIGNED ! in yellow for an action bound to
     /// nothing, but the waiting one's.
     fn drawList(tab: Controls, canvas: Canvas, devices: *const input.Devices) Allocator.Error!void {
@@ -544,7 +540,7 @@ pub const Controls = struct {
         for (tab.list.first..tab.list.end(), 0..) |entry, row| {
             const y = first_row_y + @as(i32, @intCast(row)) * row_height;
             const action = controls.list[entry] orelse {
-                // The lines stand at the row's height and the one above, 7 below the text's top.
+                // Its two lines stand 6 and 7 below where a row's text starts.
                 const line_y = y + 7;
                 for (divider_spans) |span| {
                     canvas.line(.{ span[0], line_y - 1 }, .{ span[1], line_y - 1 }, canvas_module.blue);
@@ -577,12 +573,16 @@ fn dimmedUnless(canvas: Canvas, usable: bool) Canvas {
 
 /// The name of the key of scan code `code`, as `key_names` gives it; null for none, and for a key
 /// it doesn't name, which only a file written by hand can bind.
+///
+/// Not ported: `WinMain` renames the keys by the names the keyboard's layout gives them
+/// (`0x004BCF70`), which the game shows
+/// ([#489](https://github.com/vdmkenny/openreliant/issues/489)).
 fn keyName(code: u16) ?[]const u8 {
     for (controls.keys) |key| if (key.code == code) return key.name;
     return null;
 }
 
-/// A binding as the list writes it (`0x0042D1F5` on): SHIFT + K, CONTROL + K or K, then AND JOY n
+/// A binding as the list writes it (`0x0042D214` on): SHIFT + K, CONTROL + K or K, then AND JOY n
 /// for a button, n as the file numbers it; empty for none. Alt isn't written. A key `key_names`
 /// doesn't name is written by its scan code.
 fn bindingText(buffer: []u8, binding: Binding, strings: *const language.Language) []const u8 {
@@ -606,7 +606,7 @@ fn bindingText(buffer: []u8, binding: Binding, strings: *const language.Language
     return writer.buffered();
 }
 
-/// The conflict's question (`0x0042C143` on, `0x0042C3E2` on): what was taken, in quotes, then
+/// The conflict's question (`0x0042C143` on, `0x0042C3E0` on): what was taken, in quotes, then
 /// This Key is already assigned to, the action that holds it, and Redefine Anyway?, a line each.
 fn question(buffer: []u8, conflict: Conflict, strings: *const language.Language, bindings: *const input.Bindings) []const u8 {
     var writer: std.Io.Writer = .fixed(buffer);
@@ -682,7 +682,7 @@ test "a row waits for a key, and a click on nothing ends the wait" {
     try std.testing.expectEqual(.cockpit_camera, fixture.tab.waiting.?.action);
     try std.testing.expectEqual(0, devices.bindings.get(.cockpit_camera).key);
     // A click on nothing with nothing taken puts the old binding back.
-    fixture.tab.clickNothing(devices);
+    fixture.tab.endWait(devices);
     try std.testing.expectEqual(null, fixture.tab.waiting);
     try std.testing.expectEqual(controls.binding(.cockpit_camera).key, devices.bindings.get(.cockpit_camera).key);
     // A key no other action holds is taken, Shift with it, and the row waits on.
@@ -699,7 +699,7 @@ test "a row waits for a key, and a click on nothing ends the wait" {
     fixture.press(k, .shift);
     try std.testing.expectEqual(null, fixture.tab.conflict);
     // A click on nothing ends the wait, keeping what was taken.
-    fixture.tab.clickNothing(devices);
+    fixture.tab.endWait(devices);
     try std.testing.expectEqual(k, devices.bindings.get(.cockpit_camera).key);
 }
 

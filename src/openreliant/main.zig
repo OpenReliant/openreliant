@@ -618,6 +618,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     .itac_strings = &itac_strings,
                     .saves = saving.folder,
                     .local_time = localDate,
+                    .settings_file = settings_file,
                 };
             }
             front_context.resources = &front_resources.?;
@@ -727,9 +728,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             devices.keyboard.numbers_taken = display.state.windows.status.get(.comms).phase == .open;
             while (clock.nextTick(&devices, world)) |_| {}
             clock.frameBegin();
-            // `mission_frame` looks for Escape before its work, and pausing into the menu leaves the
-            // work out.
-            if (!clock.paused and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) try game.main.pause(pausing, true);
+            // `mission_frame` looks for Escape and F1 before its work, and pausing into the menu
+            // leaves the work out.
+            _ = try game.main.pauseKeys(pausing, &devices);
             if (clock.paused) {
                 game.main.pausedFrame(&devices, hearing, world);
             } else {
@@ -1415,6 +1416,7 @@ const Display = struct {
             .devices = display.devices,
             .settings = display.settings,
             .version = version.string,
+            .timer = platform.window.ticks(),
         });
         try game.hud.draw(&display.state, &display.resources, .{
             .gpa = display.gpa,

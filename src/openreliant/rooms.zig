@@ -7,7 +7,8 @@
 //! campaign, or LOAD GAME loads one, `goOn` as the campaign goes on after a mission, and `restart`
 //! and `replayBriefing` as it turns back to a mission the pilot did not come through. The in-game
 //! options' SAVE and LOAD open the saved games (`game.interface.saved_games`); a game loaded takes
-//! the rooms to its mission.
+//! the rooms to its mission. Their CONTROL DEVICES opens the settings screen
+//! (`game.interface.settings`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -27,6 +28,7 @@ const in_game_options = interface.in_game_options;
 const restart_screen = interface.restart;
 const rooms = interface.rooms;
 const saved_games = interface.saved_games;
+const settings = interface.settings;
 const save = game.gameflow.save;
 const itac_module = game.itac;
 const Movies = @import("movies.zig").Movies;
@@ -94,6 +96,8 @@ pub const Driver = struct {
     /// which the saved games show the dates of their files by.
     saves: save.Folder,
     local_time: ?*const fn (i96) ?saved_games.Date = null,
+    /// `starlancer.ini`, which the settings screen writes the settings to.
+    settings_file: *engine.profile.File,
     /// The front end's pointer, which the rooms' follows, and the timer's count it last moved on
     /// at.
     pointer: canvas.Pointer = .{},
@@ -401,7 +405,7 @@ pub const Driver = struct {
 
     /// The in-game options in their loop, with what they draw with: where they lead, or null where
     /// the game quits meanwhile. MAIN MENU plays its movie first; SAVE and LOAD open the saved
-    /// games over the menu, while a campaign is flown.
+    /// games over the menu, while a campaign is flown; CONTROL DEVICES the settings screen.
     ///
     /// **Fix:** the menu takes no press until the button held as the saved games led back to it
     /// comes up, as the front end's screens take none.
@@ -430,6 +434,13 @@ pub const Driver = struct {
                     const end = try driver.savedGames(mode) orelse return null;
                     if (saved_games.leavingMovie(mode, .in_game_options, end)) |movie| _ = try driver.movies.play(movie, .over_screen) orelse return null;
                     if (in_game_options.afterSavedGames(mode, end)) |after| return after;
+                    menu.state = .{};
+                    press = .{};
+                },
+                .control_devices => {
+                    const end = try driver.settingsScreen(.controls) orelse return null;
+                    if (settings.leavingMovie(.in_game_options, end)) |movie| _ = try driver.movies.play(movie, .over_screen) orelse return null;
+                    if (end == .main_menu) return .main_menu;
                     menu.state = .{};
                     press = .{};
                 },
@@ -466,6 +477,32 @@ pub const Driver = struct {
             if (screen.state.frame(driver.savesContext(saves, pointer))) |end| return end;
             try driver.present(.{ .saved_games = &screen });
         }
+    }
+
+    /// The settings screen (`settings`) over the in-game options, on `tab`, after the movie that
+    /// leads to it, in its loop: how it ends, or null where the game quits meanwhile.
+    fn settingsScreen(driver: *Driver, tab: settings.Tab) !?settings.End {
+        const gpa = driver.movies.gpa;
+        const opening = settings.opening(.in_game_options, tab).?;
+        _ = try driver.movies.play(opening.movie, .over_screen) orelse return null;
+        var screen: SettingsScreen = .{ .shapes = .read(gpa, driver.resources, settings.shapes_name) };
+        defer screen.close(gpa);
+        screen.background.set(gpa, driver.resources.*, opening.background) catch |err|
+            log.warn("{s} is left out: {s}", .{ opening.background, @errorName(err) });
+        var press: engine.input.FreshPress = .{};
+        screen.state.enter(.in_game_options, tab, driver.settingsContext(driver.pointer));
+        while (true) {
+            if (!try driver.pump()) return null;
+            var pointer = driver.pointer;
+            pointer.down = press.pressed(pointer.down);
+            if (screen.state.frame(driver.settingsContext(pointer))) |end| return end;
+            try driver.present(.{ .settings = &screen });
+        }
+    }
+
+    /// What a pass of the settings screen reads, with the pointer at `pointer`.
+    fn settingsContext(driver: *Driver, pointer: canvas.Pointer) settings.Context {
+        return .{ .pointer = pointer, .devices = driver.movies.devices, .settings_file = driver.settings_file, .ticks = driver.clock.game_ticks };
     }
 
     /// What a pass of the saved games reads, with the pointer at `pointer`.
@@ -575,6 +612,24 @@ const SavesScreen = struct {
     }
 };
 
+/// The settings screen, and what it draws with: its background and shapes.
+const SettingsScreen = struct {
+    state: settings.Settings = .{},
+    background: game.matmanager.Background = .{},
+    shapes: ?canvas.Shapes = null,
+
+    fn close(screen: *SettingsScreen, gpa: Allocator) void {
+        screen.background.deinit(gpa);
+        if (screen.shapes) |*shapes| shapes.deinit(gpa);
+    }
+
+    fn draw(screen: *SettingsScreen, target: canvas.Canvas, dialog: *game.hud.Art, devices: *const engine.input.Devices, pointer: canvas.Pointer) canvas.Error!void {
+        if (screen.background.image) |*shown| target.image(shown, .{ 0, 0 });
+        const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
+        try screen.state.draw(target, shapes, dialog, devices, pointer);
+    }
+};
+
 /// The restart screen, and its shapes.
 const Restarting = struct {
     state: restart_screen.Restart = .{},
@@ -597,6 +652,7 @@ const Shown = struct {
         rooms: *rooms.Rooms,
         options: *Menu,
         saved_games: *SavesScreen,
+        settings: *SettingsScreen,
         briefing: *briefing.Briefing,
         restart: *Restarting,
         itac: *itac_module.Itac,
@@ -615,6 +671,7 @@ const Shown = struct {
             .rooms => |inside| try drawn(inside.draw(target, driver.clock.game_ticks)),
             .options => |menu| try drawn(menu.draw(target, &driver.front.dialog, driver.pointer)),
             .saved_games => |screen| try drawn(screen.draw(target, &driver.front.dialog, driver.pointer, driver.pilot.call_sign.slice())),
+            .settings => |screen| try drawn(screen.draw(target, &driver.front.dialog, driver.movies.devices, driver.pointer)),
             .briefing => |meeting| try drawn(meeting.draw(target)),
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
             .itac => |terminal| try drawn(terminal.draw(target)),

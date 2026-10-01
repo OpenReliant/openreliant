@@ -1553,8 +1553,8 @@ address	kind	name	type	comment
 0057c3c8	data	drag_effects_last	byte	drag_effects in the previous paused frame; its fall plays the test sound
 0057db9c	data	video_saved_view	int	cockpit_mode_setting as pause screen 4 opened
 0057db90	data	video_saved_brightness	float	sr + 0x15FA as pause screen 4 opened
-004e75e8	data	controls_list	short[80]	Pause screen 2's rows: -1 a divider, else an action, numbered in order by pause_controls_enter; actions 0 to 72
-004e5cd0	data	key_names	byte[3204]	The 89 keys pause screen 2 binds, 0x24 bytes each: a DirectInput scan code (u32) and its name
+004e75e8	data	controls_list	short[80]	The controls screens' rows, screen 16's and pause screen 2's: -1 a divider, else an action, numbered in order as either screen opens; actions 0 to 72
+004e5cd0	data	key_names	byte[3204]	The 89 keys the controls screens bind, 0x24 bytes each: a DirectInput scan code (u32) and its name, which WinMain renames by the keyboard's own
 0057c3d0	data	saved_control_bindings	ControlBinding[74]	control_bindings as pause screen 2 opened
 0057dacc	data	saved_joystick_invert	int	The joystick's pitch inversion as pause screen 2 opened
 0057dac0	data	saved_control_mode	ControlMode	control_mode as pause screen 2 opened
@@ -2221,6 +2221,16 @@ address	kind	name	type	comment
 00437fc0	function	cd_player	void (void)	The CD player, which Use CD player opens in the rooms: a choice of the game's music (music\%s.wav), with cdplay.spr
 0042dab0	function	audio_screen	int (void)	Screen 3, the audio settings, which GAME OPTIONS and the in-game options' AUDIO open
 0042b690	function	controls_screen	int (void)	Screen 16, the control devices, which GAME OPTIONS and the in-game options' CONTROL DEVICES open
+0042cd30	function	controls_screen_draw	void (void)	Screen 16's render hook: the panes, the labels, dimmed where they can't be used, the 12 rows of controls_list from controls_first, the buttons, the one under the pointer lit, the check boxes, the arrows, the ticks, the dialogs and the pointer
+0042b660	function	controls_scroll_down	void (void)	Screen 16's list a row down, while its last row is not shown
+0042b680	function	controls_scroll_up	void (void)	Screen 16's list a row up, while its first row is not shown
+00520234	data	controls_first	int	The row of controls_list that screen 16's list shows first
+0051d528	data	controls_waiting	int	The action whose row on screen 16 waits for a key or a joystick button, -1 for none
+0051da04	data	controls_arrow	int	Screen 16's list arrow under the pointer, lit: 0 up, 1 down, -1 none
+0051db44	data	interface_button_lit	int	The button under the pointer that screen 16 and a multiplayer screen (0x0043CA50) light, by its place in the screen's table; -1 for none
+0042a620	function	game_options	int (void)	Screen 1, GAME OPTIONS: AUDIO, CONTROL DEVICES and VIDEO by their icons, MAIN MENU, QUIT and ABOUT STARLANCER, over interface\main2opt.tga
+0042afb0	function	game_options_draw	void (void)	GAME OPTIONS' render hook: the buttons, the item under the pointer lit (roster_item), the title and the labels, ABOUT STARLANCER's box, the dialogs and the pointer
+004e6958	data	key_names_english	byte[3204]	key_config_defaults' copy of key_names, by the executable's English names, which default.txt names the keys by
 0042e9b0	function	video_screen	int (void)	Screen 15, the video settings, which GAME OPTIONS and the in-game options' VIDEO open
 00431730	function	saved_games	int (void)	Screen 13, the saved games, which LOAD GAME and the in-game options' SAVE and LOAD open: to save to while 0x0051D5F4 is set, else to load from
 0051d478	data	vr_view	VrView *	The view the player is in, or on the way into

@@ -80,13 +80,13 @@ pub const Main = struct {
         };
     }
 
-    /// Escape goes on with the mission. CONTROL DEVICES leads to the controls screen, not ported
-    /// yet.
+    /// Escape goes on with the mission.
     pub fn frame(_: *Main, context: Context) Error!?Next {
         if (try choose(Choice, &items, .select_an_option, context)) |choice| {
             if (Leave.of(choice)) |way| return way.next();
             return switch (choice) {
                 .audio => .{ .screen = .audio },
+                .controls => .{ .screen = .controls },
                 .video => .{ .screen = .video },
                 else => null,
             };
