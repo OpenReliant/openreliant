@@ -304,6 +304,13 @@ pub const Opened = struct {
     /// **Improvement:** the outline font that stands in for it, drawn at the window's resolution
     /// over its layout (`outline`); none for the bitmap's glyphs alone.
     outline: ?*outline.Outline = null,
+    /// For a font drawn through a palette that an outline font stands in for, the colour the
+    /// outline's glyphs are drawn in, its ink (`standIn`); none for one drawn as levels of one
+    /// colour, whose glyphs take the colour they are drawn in.
+    ink: ?[3]u8 = null,
+    /// The codes whose glyphs keep their bitmaps under an outline font, drawn in colours beside its
+    /// ink (`standIn`).
+    own_colours: std.StaticBitSet(cached_codes) = .initEmpty(),
 
     pub const Paint = enum {
         /// Through the font's palette, or else VFX's global one, as the display's text is.
@@ -342,6 +349,31 @@ pub const Opened = struct {
         return opened;
     }
 
+    /// **Improvement:** the outline of `outlines` that stands in for the font `name`, where one
+    /// does. A font drawn through a palette has its edges fade into black, so its outline is
+    /// fitted by how far each colour comes towards its ink, the brightest colour its digits and
+    /// letters are drawn in, and its glyphs drawn in that ink; a glyph in any colour its digits and
+    /// letters aren't keeps its bitmap, as the display's glyphs of their own colours do.
+    pub fn standIn(opened: *Opened, outlines: *outline.Outlines, name: []const u8) Allocator.Error!void {
+        const palette = opened.colours() orelse {
+            opened.outline = try outlines.of(name, opened.font, &outline.level_cover);
+            return;
+        };
+        const ink = Ink.of(opened.font, palette) orelse return;
+        opened.outline = try outlines.of(name, opened.font, &ink.cover) orelse return;
+        opened.ink = ink.colour;
+        opened.own_colours = ink.own_colours;
+    }
+
+    /// The palette its glyphs' bytes index: its own, else VFX's global one; none for a font drawn
+    /// as levels of one colour.
+    fn colours(opened: Opened) ?*const [spr.palette_size]u8 {
+        return switch (opened.paint) {
+            .palette => opened.font.palette orelse opened.global,
+            .ramp => null,
+        };
+    }
+
     /// Frees the glyphs the GPU was given.
     pub fn deinit(opened: *Opened, gpa: Allocator) void {
         for (&opened.images) |*image| if (image.*) |made| {
@@ -374,7 +406,7 @@ pub const FontFile = struct {
         const bytes = try archive.readFile(gpa, name);
         errdefer gpa.free(bytes);
         var font: Opened = .ramp(try fnt.Font.parse(bytes));
-        if (outlines) |made| font.outline = try made.of(name, font.font);
+        if (outlines) |made| try font.standIn(made, name);
         return .{ .bytes = bytes, .font = font };
     }
 
@@ -823,10 +855,8 @@ fn drawPart(into: device.Device, image: *srtexture.Image, edges: Clip, u_in: [2]
 fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtexture.Image {
     if (opened.images[code]) |*made| return made;
     const glyph = opened.font.glyph(code) orelse return null;
-    const palette = switch (opened.paint) {
-        .palette => opened.font.palette orelse opened.global orelse return null,
-        .ramp => null,
-    };
+    const palette = opened.colours();
+    if (opened.paint == .palette and palette == null) return null;
     if (glyph.width == 0 or opened.font.header.height == 0) return null;
 
     const rgba = try gpa.alloc(u8, glyph.pixels.len * 4);
@@ -834,8 +864,7 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
     for (glyph.pixels, 0..) |index, at| {
         const pixel = rgba[at * 4 ..][0..4];
         if (palette) |colours| {
-            // The palette holds 6-bit levels, as the sprites' does.
-            for (pixel[0..3], colours[@as(usize, index) * 3 ..][0..3]) |*channel, level| channel.* = spr.expandLevel(level);
+            pixel[0..3].* = paletteColour(colours, index);
             pixel[3] = if (index == 0) 0 else 255;
         } else {
             const grey = rampLevel(index);
@@ -848,6 +877,83 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
     if (opened.paint == .ramp) image.magnify = .coverage;
     opened.images[code] = image;
     return &opened.images[code].?;
+}
+
+/// What an outline font standing in for a font drawn through a palette is drawn by
+/// (`Opened.standIn`).
+const Ink = struct {
+    /// The brightest colour the font's digits and letters are drawn in.
+    colour: [3]u8,
+    /// How far each of the palette's colours comes towards it, as the bitmap's pixels cover.
+    cover: outline.Cover,
+    /// The codes drawn in colours its digits and letters aren't.
+    own_colours: std.StaticBitSet(cached_codes),
+
+    /// The ink of `font` drawn through `palette`; none where its digits and letters are all
+    /// black.
+    fn of(font: fnt.Font, palette: *const [spr.palette_size]u8) ?Ink {
+        var inks: std.StaticBitSet(256) = .initEmpty();
+        for (outline.letters_and_digits) |code| {
+            const glyph = font.glyph(code) orelse continue;
+            for (glyph.pixels) |index| if (index != 0) inks.set(index);
+        }
+        var colour: [3]u8 = @splat(0);
+        var used = inks.iterator(.{});
+        while (used.next()) |index| {
+            const shade = paletteColour(palette, index);
+            if (colourDot(shade, shade) > colourDot(colour, colour)) colour = shade;
+        }
+        const full = colourDot(colour, colour);
+        if (full == 0) return null;
+        var ink: Ink = .{ .colour = colour, .cover = @splat(0), .own_colours = .initEmpty() };
+        for (ink.cover[1..], 1..) |*share, index| {
+            share.* = std.math.clamp(colourDot(paletteColour(palette, index), colour) / full, 0, 1);
+        }
+        for (0..@min(font.header.count, cached_codes)) |code| {
+            const glyph = font.glyph(code) orelse continue;
+            for (glyph.pixels) |index| {
+                if (index == 0 or inks.isSet(index)) continue;
+                ink.own_colours.set(code);
+                break;
+            }
+        }
+        return ink;
+    }
+};
+
+test Ink {
+    // A and H drawn in entry 9, an orange, and `#` in entry 12, a green.
+    const palette = comptime palette: {
+        var colours: [spr.palette_size]u8 = @splat(0);
+        colours[9 * 3 ..][0..3].* = .{ 0x3F, 0x18, 0 };
+        colours[12 * 3 ..][0..3].* = .{ 0, 0x3F, 0 };
+        break :palette colours;
+    };
+    const font: fnt.Font = try .parse(comptime outline.testing.fontInked(.{ 12, 9, 9 }, palette));
+    const ink = Ink.of(font, font.palette.?).?;
+    try std.testing.expectEqual([3]u8{ 255, 97, 0 }, ink.colour);
+    try std.testing.expectEqual(1, ink.cover[9]);
+    try std.testing.expectEqual(0, ink.cover[0]);
+    // The green comes a third of the way towards the orange.
+    try std.testing.expectApproxEqAbs(0.33, ink.cover[12], 0.01);
+    try std.testing.expect(ink.own_colours.isSet('#') and !ink.own_colours.isSet('A'));
+    // A font drawn all in black has none.
+    try std.testing.expectEqual(null, Ink.of(font, &@as([spr.palette_size]u8, @splat(0))));
+}
+
+/// Entry `index` of a font's `palette`, its 6-bit levels, as the sprites' palette holds them, made
+/// 8-bit.
+fn paletteColour(palette: *const [spr.palette_size]u8, index: usize) [3]u8 {
+    var colour: [3]u8 = undefined;
+    for (&colour, palette[index * 3 ..][0..3]) |*channel, level| channel.* = spr.expandLevel(level);
+    return colour;
+}
+
+/// The sum of the products of two colours' channels.
+fn colourDot(a: [3]u8, b: [3]u8) f32 {
+    const p: @Vector(3, f32) = @floatFromInt(@as(@Vector(3, u8), a));
+    const q: @Vector(3, f32) = @floatFromInt(@as(@Vector(3, u8), b));
+    return @reduce(.Add, p * q);
 }
 
 /// Coverage `level` of a ramp font as a grey: 0 to 255 for the levels 0 to 15, and 0, clear, past
@@ -890,29 +996,100 @@ pub fn drawTextIn(
     clip: ?Clip,
 ) Allocator.Error!i32 {
     if (text.len == 0) return at[0];
-    var x: f32 = @floatFromInt(textLeft(opened.*, at[0], text, alignment, scale));
+    const left: f32 = @floatFromInt(textLeft(opened.*, at[0], text, alignment, scale));
     const top: f32 = @floatFromInt(at[1]);
     const height = @as(f32, @floatFromInt(opened.font.header.height)) * scale;
     const tint = device.pack(colour);
     // **Improvement:** the outline font that stands in for the font, its glyphs drawn at this size
-    // over the font's layout, the bitmap's where it has none (`outline`).
-    const outlined = if (opened.outline) |shown| try shown.at(gpa, scale) else null;
-    for (text) |code| {
-        if (code >= cached_codes) continue;
-        const width = @as(f32, @floatFromInt(opened.widths[code])) * scale;
-        defer x += width;
-        if (outlined) |glyphs| switch (glyphs.shown(code, x, top, scale)) {
+    // over the font's layout, in the font's ink where it is drawn through a palette, and the
+    // bitmap's where it has none or the bitmap's are of their own colours (`outline`).
+    const outlined = if (opened.outline) |shown| try shown.at(scale) else null;
+    const outline_tint = device.pack(if (opened.ink) |ink| inked(colour, ink) else colour);
+    // The edge its outline glyphs stand on, first, under every glyph of the line (`edge_width`).
+    if (outlined) |glyphs| {
+        const edge_tint = device.pack(.{ 0, 0, 0, colour[3] });
+        const reach = edge_width * scale;
+        var line: Line = .{ .opened = opened, .text = text, .scale = scale, .x = left };
+        while (line.next()) |glyph| {
+            if (opened.own_colours.isSet(glyph.code)) continue;
+            switch (glyphs.shown(glyph.code, glyph.left, top, scale)) {
+                .quad => |quad| for (edge_directions) |direction| {
+                    drawPart(into, quad.image, moved(quad.edges, direction, reach), quad.u, quad.v, edge_tint, clip);
+                },
+                .blank, .bitmap => {},
+            }
+        }
+    }
+    var line: Line = .{ .opened = opened, .text = text, .scale = scale, .x = left };
+    while (line.next()) |glyph| {
+        if (outlined) |glyphs| if (!opened.own_colours.isSet(glyph.code)) switch (glyphs.shown(glyph.code, glyph.left, top, scale)) {
             .blank => continue,
             .bitmap => {},
             .quad => |quad| {
-                drawPart(into, quad.image, quad.edges, quad.u, quad.v, tint, clip);
+                drawPart(into, quad.image, quad.edges, quad.u, quad.v, outline_tint, clip);
                 continue;
             },
         };
-        const image = try glyphImage(opened, gpa, code) orelse continue;
-        drawPart(into, image, .{ .left = x, .top = top, .right = x + width, .bottom = top + height }, .{ 0, 1 }, .{ 0, 1 }, tint, clip);
+        const image = try glyphImage(opened, gpa, glyph.code) orelse continue;
+        drawPart(into, image, .{ .left = glyph.left, .top = top, .right = glyph.left + glyph.width, .bottom = top + height }, .{ 0, 1 }, .{ 0, 1 }, tint, clip);
     }
-    return @intFromFloat(x);
+    return @intFromFloat(line.x);
+}
+
+/// The glyphs of a line of text in `opened`, `scale` times its size, from `x` across: each code and
+/// where it starts and how wide it is, one after another by their widths, as `VFX_string_draw` moves
+/// along by what each glyph returns. A code past those `font_open` caches is left out.
+const Line = struct {
+    opened: *const Opened,
+    text: []const u8,
+    scale: f32,
+    /// Where the next glyph starts, and once they have all gone by, where the line ends.
+    x: f32,
+    at: usize = 0,
+
+    fn next(line: *Line) ?struct { code: u8, left: f32, width: f32 } {
+        while (line.at < line.text.len) {
+            const code = line.text[line.at];
+            line.at += 1;
+            if (code >= cached_codes) continue;
+            const width = @as(f32, @floatFromInt(line.opened.widths[code])) * line.scale;
+            defer line.x += width;
+            return .{ .code = code, .left = line.x, .width = width };
+        }
+        return null;
+    }
+};
+
+/// How wide the black edge an outline font's glyphs stand on is, in the bitmap's pixels. VFX
+/// writes a bitmap glyph's pixels opaque to its faintest, each in its ink as far as the glyph
+/// covers it and black for the rest, as the font's palette or the menus' ramp darkens it, so that
+/// the game's text stands on a dark edge wherever what lies under it is lighter; an outline glyph
+/// is as clear as it is faint, so the edge stands in for theirs.
+const edge_width = 1;
+
+/// The directions the edge is drawn out to from each glyph: the eight of the compass.
+const edge_directions = [_][2]f32{
+    .{ 1, 0 },                                .{ -1, 0 },
+    .{ 0, 1 },                                .{ 0, -1 },
+    .{ std.math.sqrt1_2, std.math.sqrt1_2 },  .{ std.math.sqrt1_2, -std.math.sqrt1_2 },
+    .{ -std.math.sqrt1_2, std.math.sqrt1_2 }, .{ -std.math.sqrt1_2, -std.math.sqrt1_2 },
+};
+
+/// `edges` moved `reach` along `direction`.
+fn moved(edges: Clip, direction: [2]f32, reach: f32) Clip {
+    return .{
+        .left = edges.left + direction[0] * reach,
+        .right = edges.right + direction[0] * reach,
+        .top = edges.top + direction[1] * reach,
+        .bottom = edges.bottom + direction[1] * reach,
+    };
+}
+
+/// `colour` in `ink`, as a glyph of a palette font's ink is drawn in it.
+fn inked(colour: [4]f32, ink: [3]u8) [4]f32 {
+    var mixed = colour;
+    for (mixed[0..3], ink) |*channel, level| channel.* *= @as(f32, @floatFromInt(level)) / std.math.maxInt(u8);
+    return mixed;
 }
 
 /// **Improvement:** OpenReliant's name and `version`, written in `font`, the menus' small font
@@ -1515,19 +1692,26 @@ test "an outline font draws over the bitmap font's layout" {
     const face = rasterizer.open("face").?;
     var opened: Opened = .ramp(try fnt.Font.parse(outline.testing.font));
     defer opened.deinit(gpa);
-    var shown: outline.Outline = .{ .rasterizer = rasterizer, .face = face, .file = null, .fit = outline.Fit.of(rasterizer, face, opened.font).? };
-    defer shown.deinit(gpa);
+    var shown: outline.Outline = .{ .gpa = gpa, .rasterizer = rasterizer, .face = face, .file = null, .fit = (try outline.Fit.of(rasterizer, face, opened.font, &outline.level_cover, .bitmap, gpa)).? };
+    defer shown.deinit();
     opened.outline = &shown;
-    // H from the outline font's atlas, centred on the bitmap's glyph, then `#`, which it has no
-    // glyph for, from the bitmap's, in its own place six pixels on: the line ends as the bitmap
-    // font lays it out, whatever the outline's.
+    // First the black edge H stands on, its glyph eight times, a bitmap's pixel out each way; then
+    // H from the outline font's atlas, centred on the bitmap's glyph, then `#`,
+    // which it has no glyph for, from the bitmap's, in its own place six pixels on: the line ends
+    // as the bitmap font lays it out, whatever the outline's.
     const end = try drawText(&opened, gpa, recorder.interface(), .{ 30, 100 }, "H#", .{ 1, 1, 1, 1 }, .left, 3);
     try std.testing.expectEqual(30 + 2 * 6 * 3, end);
-    try std.testing.expectEqual(2, recorder.draws.items.len);
+    try std.testing.expectEqual(edge_directions.len + 2, recorder.draws.items.len);
     try std.testing.expectEqual(&shown.atlases[0].?.image, recorder.draws.items[0].state.texture.?);
-    try std.testing.expectEqual(33.5, recorder.drawn(0)[0].x);
-    try std.testing.expectEqual(&opened.images['#'].?, recorder.draws.items[1].state.texture.?);
-    try std.testing.expectEqual(48, recorder.drawn(1)[0].x);
+    try std.testing.expectEqual(32.5 + 3, recorder.drawn(0)[0].x);
+    try std.testing.expectEqual(32.5 - 3, recorder.drawn(1)[0].x);
+    try std.testing.expectEqual(device.pack(.{ 0, 0, 0, 1 }), recorder.drawn(0)[0].diffuse);
+    const glyph = edge_directions.len;
+    try std.testing.expectEqual(&shown.atlases[0].?.image, recorder.draws.items[glyph].state.texture.?);
+    try std.testing.expectEqual(32.5, recorder.drawn(glyph)[0].x);
+    try std.testing.expectEqual(device.pack(.{ 1, 1, 1, 1 }), recorder.drawn(glyph)[0].diffuse);
+    try std.testing.expectEqual(&opened.images['#'].?, recorder.draws.items[glyph + 1].state.texture.?);
+    try std.testing.expectEqual(48, recorder.drawn(glyph + 1)[0].x);
 }
 
 test drawText {
@@ -1579,7 +1763,8 @@ pub const Resources = struct {
     /// `blufont.fnt` (`0x00595490`), which every line of the display's own text is written in: the
     /// readouts, the clock, the cluster's figures, the view's name and the windows. `0x004A2AF0`
     /// opens it for the hardware renderers, and `soft_blufont.fnt`, the same letters, for the
-    /// software one; OpenReliant draws the hardware display.
+    /// software one; OpenReliant draws the hardware display. Newtown stands in for it
+    /// (`Opened.standIn`).
     font: Opened,
     /// The fonts the target's ranges are written in.
     target_fonts: TargetFonts,
@@ -1590,23 +1775,25 @@ pub const Resources = struct {
 
     /// Loads what the display draws with from the resources' archive: `shapes`, the display's
     /// set (`hardware_shapes`), with its global palette and the pictures the archive's mods give in
-    /// its shapes' place; the fonts, which `0x004A2AF0` opens; and the power ball, which `hud_init`
-    /// works out.
-    pub fn load(gpa: Allocator, archive: bigfile.Hog, shapes: spr.Sprite) !Resources {
+    /// its shapes' place; the fonts, which `0x004A2AF0` opens, the outline of `outlines` standing in
+    /// for its own; and the power ball, which `hud_init` works out.
+    pub fn load(gpa: Allocator, archive: bigfile.Hog, shapes: spr.Sprite, outlines: ?*outline.Outlines) !Resources {
         const global = globalPalette(shapes);
         return .{
             .art = try .init(gpa, shapes, global, .of(archive.mods, hardware_shapes)),
-            .font = try openFont(gpa, archive, font_name, global),
+            .font = try openFont(gpa, archive, font_name, global, outlines),
             .target_fonts = .{
-                .small = try openFont(gpa, archive, TargetFonts.small_name, global),
-                .new = try openFont(gpa, archive, TargetFonts.new_name, global),
+                .small = try openFont(gpa, archive, TargetFonts.small_name, global, null),
+                .new = try openFont(gpa, archive, TargetFonts.new_name, global, null),
             },
             .ball = try .create(gpa, try matmanager.readPixels(gpa, archive, power.picture_name)),
         };
     }
 
-    fn openFont(gpa: Allocator, archive: bigfile.Hog, name: []const u8, global: ?*const [spr.palette_size]u8) !Opened {
-        return .open(try fnt.Font.parse(try archive.readFile(gpa, name)), global);
+    fn openFont(gpa: Allocator, archive: bigfile.Hog, name: []const u8, global: ?*const [spr.palette_size]u8, outlines: ?*outline.Outlines) !Opened {
+        var opened: Opened = .open(try fnt.Font.parse(try archive.readFile(gpa, name)), global);
+        if (outlines) |made| try opened.standIn(made, name);
+        return opened;
     }
 };
 

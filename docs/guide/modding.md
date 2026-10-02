@@ -209,9 +209,9 @@ stretches its backgrounds over the screen.
 ### Fonts
 
 The interface writes its text in bitmap fonts made for the 640x480 screens
-([`.fnt` fonts](../formats/fnt.md)). A mod replaces one drawn in one colour with a TrueType or
-OpenType font of its name, `optfnt.ttf` or `optfnt.otf` for `interface\optfnt.fnt`, drawn at the
-window's resolution ([Outline fonts](../formats/fnt.md#outline-fonts)):
+([`.fnt` fonts](../formats/fnt.md)). A mod replaces one with a TrueType or OpenType font of its
+name, `optfnt.ttf` or `optfnt.otf` for `interface\optfnt.fnt`, drawn at the window's resolution
+([Outline fonts](../formats/fnt.md#outline-fonts)):
 
 | Font | What it writes |
 |---|---|
@@ -219,6 +219,8 @@ window's resolution ([Outline fonts](../formats/fnt.md#outline-fonts)):
 | `smlfnt2.fnt` | Their small text: the buttons, the lists and OpenReliant's version |
 | `itacbig.fnt` | The ITAC's large text, and the CD player's and the simulator pod's titles |
 | `itacsml.fnt` | The ITAC's small text |
+| `blufont.fnt` | The flight display's own text: its readouts, its clock, its windows and the objectives |
+| `ld_handel.fnt` | The loadout's tooltip |
 | `font_01.fnt` | The main menu's developers' text |
 
 - **Layout.** The game lays its text out by the bitmap font's widths, which stay. Each character of
@@ -227,12 +229,18 @@ window's resolution ([Outline fonts](../formats/fnt.md#outline-fonts)):
   still fits each screen.
 - **Characters.** The game's text is in Windows code page 1252. A character the font has no glyph
   for is drawn from the bitmap font.
-- **Built in.** OpenReliant draws the first four in Newtown, a public domain font in the style of
-  Handel Gothic, the original's face. A mod's font comes before Newtown, and a mod's own `.fnt`
-  before both.
+- **Colour.** The display's and the loadout's tooltip's fonts are drawn through palettes: a mod's
+  font for them is drawn in the colour the bitmap font's letters are, and a glyph of the bitmap
+  font's in colours of its own, such as a symbol, keeps its bitmap.
+- **Weight and edge.** A mod's font is drawn as heavy as it is. Each character stands on a black
+  edge, as the game's own text does.
+- **Built in.** OpenReliant draws all but the developers' text in Newtown, a public domain font
+  in the style of Handel Gothic, the original's face, its strokes as heavy as the bitmap font's. A
+  mod's font comes before Newtown, and a mod's own `.fnt` before both.
 - **Licence.** A font goes out with the mod, so its licence has to allow that.
 
-The fonts drawn through palettes, the loadout's and the flight display's, keep their glyphs
+The loadout's panels, which draw their text into their own pictures, and the flight display's
+small fonts, which write the target's ranges and the radio's menu, keep their glyphs
 ([#520](https://github.com/OpenReliant/openreliant/issues/520)).
 
 **Improvement:** the original draws its text in its bitmap fonts, at 640x480.
@@ -306,7 +314,7 @@ info(mods): coyote replaces USA_Coyote.SHP
 info(mods): mod 2 of 2: music.hog
 info(mods): music.hog replaces New_Pensive.wav
 info(mods): music.hog adds msc_theme.wav
-info(fonts): optfnt.fnt is drawn in Newtown
+info(fonts): optfnt.fnt is drawn in Newtown, its strokes 0.002 of an em wider
 ```
 
 `openreliant missions` lists and checks the missions the mods hold, `mod` in the file column, and

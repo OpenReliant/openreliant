@@ -2,8 +2,8 @@
 
 `Newtown.ttf` is Newtown Regular, a TrueType font by Roger White (1994) in the style of Handel
 Gothic, the face of the original's interface fonts. OpenReliant carries it built in, and draws the
-menus' and the ITAC's text in it at the window's resolution
-([Outline fonts](../../docs/formats/fnt.md#outline-fonts)).
+menus', the ITAC's, the flight display's and the loadout's tooltip's text in it at the window's
+resolution ([Outline fonts](../../docs/formats/fnt.md#outline-fonts)).
 
 ## Source
 

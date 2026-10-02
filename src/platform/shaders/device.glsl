@@ -571,32 +571,35 @@ vec4 easu(vec2 at, float layer) {
     return vec4(rgb, textureLod(images, vec3(at, layer), 0.0).a);
 }
 
-// The coverage of the texel at `at` of the glyph in `layer`, the grey its level is drawn in, none
-// outside the glyph.
-float coverageAt(ivec2 at, float layer, ivec2 size) {
-    if (any(lessThan(at, ivec2(0))) || any(greaterThanEqual(at, size))) return 0.0;
-    float level = texelFetch(images, ivec3(at, int(layer)), 0).r;
-    // In linear light the texture comes decoded, as a colour; the coverage is taken as stored,
-    // whatever the lighting.
-    return frame.settings.w > 0.0 ? encoded(vec3(level)).x : level;
+// The texel at `at` of the glyph in `layer`: the grey its level is drawn in, as stored whatever
+// the lighting, and 1 where it is inked at all, its level above 0; nothing outside the glyph.
+vec2 levelAt(ivec2 at, float layer, ivec2 size) {
+    if (any(lessThan(at, ivec2(0))) || any(greaterThanEqual(at, size))) return vec2(0.0);
+    vec4 texel = texelFetch(images, ivec3(at, int(layer)), 0);
+    // In linear light the texture comes decoded, as a colour.
+    float grey = frame.settings.w > 0.0 ? encoded(texel.rgb).x : texel.r;
+    return vec2(grey, texel.a);
 }
 
-// A glyph of the menus' fonts as the font draws it, each of its pixels a square of its own
-// coverage, the grey its level is drawn in: the step from one texel to the next eased over a pixel
-// of the frame rather than a texel, so that the letters keep the fonts' shapes and greys at any
-// size, without the nearest texel's uneven steps or a filter's blur. At a whole multiple of the
-// font's size, its pixels come out as they are. Its colour is the vertex's alone. texels is how
+// A glyph of the menus' fonts as VFX writes it: each of its pixels an opaque square in the grey of
+// its level, so that the faint ones at the letters' edges, which the menus' ramp darkens towards
+// black, stand them on a dark edge; the step from one texel to the next eased over a pixel of the
+// frame rather than a texel, so that the letters keep the fonts' shapes and greys at any size,
+// without the nearest texel's uneven steps or a filter's blur. At a whole multiple of the font's
+// size, its pixels come out as they are. Its colour is the vertex's times its grey. texels is how
 // many of the texture's texels a pixel of the frame spans.
 vec4 glyph(vec2 at, float layer, float texels) {
     ivec2 size = textureSize(images, 0).xy;
     vec2 position = at * vec2(size) - 0.5;
     ivec2 cell = ivec2(floor(position));
     vec2 f = clamp((position - vec2(cell) - 0.5) / texels + 0.5, 0.0, 1.0);
-    float coverage = mix(
-        mix(coverageAt(cell, layer, size), coverageAt(cell + ivec2(1, 0), layer, size), f.x),
-        mix(coverageAt(cell + ivec2(0, 1), layer, size), coverageAt(cell + ivec2(1, 1), layer, size), f.x),
+    vec2 eased = mix(
+        mix(levelAt(cell, layer, size), levelAt(cell + ivec2(1, 0), layer, size), f.x),
+        mix(levelAt(cell + ivec2(0, 1), layer, size), levelAt(cell + ivec2(1, 1), layer, size), f.x),
         f.y);
-    return vec4(1.0, 1.0, 1.0, coverage);
+    // The grey of the inked texels the pixel takes, as opaque as much of it as they cover.
+    float grey = eased.y > 0.0 ? eased.x / eased.y : 0.0;
+    return vec4(frame.settings.w > 0.0 ? decoded(vec3(grey)) : vec3(grey), eased.y);
 }
 
 // The texture at the fragment: magnified as the settings say, smoothly, by FSR 1 or as a glyph

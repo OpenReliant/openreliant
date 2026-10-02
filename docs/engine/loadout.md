@@ -172,6 +172,8 @@ Exit Loadout Computer's release (`0x004476F0`), once the interface is free, runs
 
 The loadout reads only Escape and O ([Briefing](briefing.md)). The pointer is GenILib's: the left button selects and presses, and a button pressed sinks 0.2 from the camera with sound 1 until it is released. While the interface is free, the render hook (`0x0044B200`) writes the tooltip of the object under the pointer, but the chosen ship's, centred at (320, 458) in `ld_handel.fnt` through the text remap: a ship's name, or a button's label.
 
+**Improvement:** the tooltip is drawn from Newtown, or a mod's font, at the window's resolution, in the green its letters are drawn in, on the black edge the game's text stands on ([Outline fonts](../formats/fnt.md#outline-fonts)). The panels, which draw their text into their own pictures, keep the font's glyphs ([#520](https://github.com/OpenReliant/openreliant/issues/520)).
+
 The sounds are `ldsmp.fat`'s, in the middle:
 
 | Sound | Volume | When |

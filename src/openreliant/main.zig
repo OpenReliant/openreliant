@@ -482,7 +482,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     defer pause_menu.close();
     // The head-up display: what it draws with, and what draws it over the finished scene.
     var display: Display = .{
-        .resources = try .load(arena, resources, shapes),
+        .resources = try .load(arena, resources, shapes, &outlines),
         .edge_line = options.edge_line,
         .gpa = arena,
         .device = undefined,

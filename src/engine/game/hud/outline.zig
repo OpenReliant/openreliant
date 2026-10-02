@@ -5,14 +5,15 @@
 //! every screen lays its text out as the game does, whatever the outline font. Over that layout,
 //! each character is drawn from the outline font at as many pixels to the em as stand its capitals
 //! as tall as the bitmap's, on the bitmap's baseline, and centred across where the bitmap's glyph
-//! has its ink (`Fit`). A code the outline font has no glyph for keeps the bitmap's. Each size a
+//! has its ink, Newtown's strokes made as heavy as the bitmap's (`Fit`). A code the outline font
+//! has no glyph for keeps the bitmap's. Each size a
 //! font is drawn at is rasterized into one picture (`Atlas`), each of whose pixels lands on one of
 //! the window's, so that the text is as sharp as the window is fine.
 //!
 //! A mod's font named for a bitmap font stands in for it, `optfnt.ttf` or `optfnt.otf` for
 //! `interface\optfnt.fnt` (`fnt.outlineName`). Without one, Newtown, which OpenReliant carries
-//! (`deps/newtown`), stands in for the game's own Handel Gothic fonts drawn in one colour, the
-//! menus' and the ITAC's (`handel_gothic`).
+//! (`deps/newtown`), stands in for the game's own Handel Gothic fonts: the menus', the ITAC's, the
+//! display's and the loadout's tooltip's (`handel_gothic`).
 //!
 //! **Improvement:** the original draws its text in its bitmap fonts, made for a screen 640 by 480,
 //! which OpenReliant magnifies to the window. `--bitmap-fonts` and `--original` draw them so.
@@ -24,7 +25,9 @@ const fnt = @import("../../../formats/fnt.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
 const hud = @import("../hud.zig");
+const itac = @import("../itac.zig");
 const language = @import("../language.zig");
+const loadout = @import("../../interface/loadout/loadout.zig");
 
 const log = std.log.scoped(.fonts);
 
@@ -32,13 +35,16 @@ const log = std.log.scoped(.fonts);
 /// OpenReliant carries (`deps/newtown/README.md`).
 pub const newtown = @embedFile("Newtown.ttf");
 
-/// The game's fonts Newtown stands in for where no mod's font does: its Handel Gothic fonts drawn
-/// in one colour, the menus' and the ITAC's (`itac.large_font_name`, `itac.small_font_name`).
+/// The game's fonts Newtown stands in for where no mod's font does, its Handel Gothic fonts: the
+/// menus' and the ITAC's, drawn in one colour, and the display's own and the loadout's tooltip's,
+/// drawn through palettes.
 pub const handel_gothic = [_][]const u8{
     hud.large_menu_font,
     hud.small_menu_font,
-    "inter\\itac\\itacbig.fnt",
-    "inter\\itac\\itacsml.fnt",
+    itac.large_font_name,
+    itac.small_font_name,
+    hud.Resources.font_name,
+    loadout.title_font_name,
 };
 
 /// Whether Newtown stands in for the game's font `name` (`handel_gothic`), its folders and its case
@@ -70,9 +76,10 @@ pub const Rasterizer = struct {
         /// How far above the baseline the outline of `character` reaches, in ems; null where the
         /// face has no glyph for it.
         top: *const fn (*anyopaque, Face, u21) ?f32,
-        /// `character` drawn at `em` pixels to the em, its coverage made in the allocator; null
-        /// where the face has no glyph for it.
-        draw: *const fn (*anyopaque, Face, u21, f32, Allocator) Error!?Bitmap,
+        /// `character` drawn at `em` pixels to the em, its strokes made the second `f32` of an em
+        /// wider, or narrower below 0, its left and its baseline kept, its coverage made in the
+        /// allocator; null where the face has no glyph for it.
+        draw: *const fn (*anyopaque, Face, u21, f32, f32, Allocator) Error!?Bitmap,
     };
 
     pub fn open(rasterizer: Rasterizer, bytes: []const u8) ?Face {
@@ -84,8 +91,8 @@ pub const Rasterizer = struct {
     pub fn top(rasterizer: Rasterizer, face: Face, character: u21) ?f32 {
         return rasterizer.vtable.top(rasterizer.context, face, character);
     }
-    pub fn draw(rasterizer: Rasterizer, face: Face, character: u21, em: f32, gpa: Allocator) Error!?Bitmap {
-        return rasterizer.vtable.draw(rasterizer.context, face, character, em, gpa);
+    pub fn draw(rasterizer: Rasterizer, face: Face, character: u21, em: f32, weight: f32, gpa: Allocator) Error!?Bitmap {
+        return rasterizer.vtable.draw(rasterizer.context, face, character, em, weight, gpa);
     }
 };
 
@@ -99,6 +106,13 @@ pub const Bitmap = struct {
 
     pub fn deinit(bitmap: Bitmap, gpa: Allocator) void {
         gpa.free(bitmap.coverage);
+    }
+
+    /// How much of the pixel `column` across and `row` down it covers, counting from a line of
+    /// clear pixels before its first, which reaches the clear pixels round it too.
+    fn coverAt(bitmap: Bitmap, column: usize, row: usize) f32 {
+        if (column == 0 or row == 0 or column > bitmap.width or row > bitmap.height) return 0;
+        return outline_cover[bitmap.coverage[(row - 1) * bitmap.width + column - 1]];
     }
 };
 
@@ -116,26 +130,36 @@ const largest_em = 512;
 /// How an outline font stands over the bitmap font it stands in for, in the bitmap's pixels.
 pub const Fit = struct {
     /// The outline's pixels to the em for each of the bitmap's pixels: as many as stand its
-    /// capitals as tall as the bitmap's.
+    /// capitals, made as heavy as `weight` says, as tall as the bitmap's.
     em: f32,
     /// How far below the top of the line the bitmap's baseline is.
     baseline: f32,
+    /// How much wider the outline's strokes are drawn than its own, in ems, narrower below 0: as
+    /// much as makes its letters and digits ink as much as the bitmap's (`weighed`), so that the
+    /// text is as heavy as the game's.
+    weight: f32,
     /// How far right of its glyph's left edge the middle of each code's ink is across, in the
     /// bitmap; null for a code without ink.
     middles: [codes]?f32,
 
-    /// The fit of `face` over `font`, by the height of the first of `references` both have, from
-    /// the bitmap's ink and the outline's; null where they have none of them in common.
-    pub fn of(rasterizer: Rasterizer, face: Face, font: fnt.Font) ?Fit {
+    /// The fit of `face` over `font`, whose bytes cover as `cover` says, by the height of the first
+    /// of `references` both have, from the bitmap's ink and the outline's, its strokes as heavy as
+    /// `heft` says; null where they have none of them in common.
+    pub fn of(rasterizer: Rasterizer, face: Face, font: fnt.Font, cover: *const Cover, heft: Heft, gpa: Allocator) Allocator.Error!?Fit {
         for (references) |letter| {
             const glyph = font.glyph(letter) orelse continue;
-            const rows = inkSpan(bitmapCover, glyph.pixels, glyph.width, .down) orelse continue;
+            const rows = inkSpan(cover, glyph.pixels, glyph.width, .down) orelse continue;
             const top = rasterizer.top(face, letter) orelse continue;
             if (!(top > 0)) continue;
-            var fit: Fit = .{ .em = (rows[1] - rows[0]) / top, .baseline = rows[1], .middles = @splat(null) };
+            const height = rows[1] - rows[0];
+            const weight = switch (heft) {
+                .own => 0,
+                .bitmap => try weighed(rasterizer, face, font, cover, height, top, gpa),
+            };
+            var fit: Fit = .{ .em = emFor(height, top, weight), .baseline = rows[1], .weight = weight, .middles = @splat(null) };
             for (&fit.middles, 0..) |*middle, code| {
                 const shown = font.glyph(code) orelse continue;
-                const across = inkSpan(bitmapCover, shown.pixels, shown.width, .across) orelse continue;
+                const across = inkSpan(cover, shown.pixels, shown.width, .across) orelse continue;
                 middle.* = (across[0] + across[1]) / 2;
             }
             return fit;
@@ -144,30 +168,113 @@ pub const Fit = struct {
     }
 
     /// The size the outline font is drawn at for the bitmap font drawn `scale` times its own: its
-    /// pixels to the em in 64ths, as FreeType takes a size.
+    /// pixels to the em in `sixty_fourths`.
     fn size(fit: Fit, scale: f32) u32 {
-        return @intFromFloat(std.math.clamp(@round(fit.em * scale * 64), 1, largest_em * 64));
+        return @intFromFloat(std.math.clamp(@round(fit.em * scale * sixty_fourths), 1, largest_em * sixty_fourths));
     }
 };
 
-/// How much of a pixel a level of a bitmap font covers, as its glyphs are drawn
-/// (`hud.Opened.Paint.ramp`).
-fn bitmapCover(level: u8) f32 {
-    return @as(f32, @floatFromInt(hud.rampLevel(level))) / 255;
+/// The parts of a pixel sizes are given in, as FreeType takes them.
+pub const sixty_fourths = 64;
+
+/// The letters and digits, which a font's weight and its ink are taken from.
+pub const letters_and_digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/// How many times the bitmap font's size an outline font's glyphs are drawn at to be weighed
+/// (`weighed`), so that their edges are measured finely.
+const weigh_scale = 8;
+
+/// The most an outline font's strokes are made wider or narrower, in ems.
+const largest_weight = 0.1;
+
+/// The most times a weight is put right (`weighed`), and how small a change ends it, in ems.
+const weigh_steps = 8;
+const weigh_settled = 1e-4;
+
+/// The outline's pixels to the em for each of the bitmap's, its strokes `weight` ems wider: as
+/// many as stand its capitals, which reach `top` ems up, as tall as the bitmap's `height`. A stroke
+/// made wider reaches that much higher.
+fn emFor(height: f32, top: f32, weight: f32) f32 {
+    return height / (top + weight);
 }
 
-/// How much of a pixel a level of a `Bitmap`'s coverage covers.
-fn outlineCover(level: u8) f32 {
-    return @as(f32, @floatFromInt(level)) / 255;
+/// How much wider the strokes of `face` must be, in ems, for its letters and digits, fitted to
+/// capitals `height` of the bitmap's pixels tall that reach `top` ems up, to ink as much as those
+/// of `font` do, its bytes covering as `cover` says. A stroke made wider takes in half of what it
+/// gains on each side, so the ink they lack over half the length of their edges is how much wider
+/// they must be; that is put right again from where it lands, the capitals kept as tall, until it
+/// settles. Nothing where they can't be drawn.
+fn weighed(rasterizer: Rasterizer, face: Face, font: fnt.Font, cover: *const Cover, height: f32, top: f32, gpa: Allocator) Allocator.Error!f32 {
+    var weight: f32 = 0;
+    for (0..weigh_steps) |_| {
+        const size = emFor(height, top, weight) * weigh_scale;
+        const ink = try inkOf(rasterizer, face, font, cover, size, weight, gpa) orelse return 0;
+        if (ink.edges == 0) return weight;
+        const change = 2 * ink.lacking / ink.edges / size;
+        weight = std.math.clamp(weight + change, -largest_weight, largest_weight);
+        if (@abs(change) < weigh_settled) break;
+    }
+    return weight;
 }
+
+/// The ink the letters and digits of `face`, drawn at `size` pixels to the em and `weight` ems
+/// heavier, lack beside those of `font` drawn `weigh_scale` times as large, its bytes covering as
+/// `cover` says, and the length of their edges, the sum of how steeply their coverage changes;
+/// null where they can't be drawn.
+fn inkOf(rasterizer: Rasterizer, face: Face, font: fnt.Font, cover: *const Cover, size: f32, weight: f32, gpa: Allocator) Allocator.Error!?struct { lacking: f32, edges: f32 } {
+    var wanted: f32 = 0;
+    var inked: f32 = 0;
+    var edges: f32 = 0;
+    for (letters_and_digits) |letter| {
+        const glyph = font.glyph(letter) orelse continue;
+        const drawn = rasterizer.draw(face, letter, size, weight, gpa) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.Rasterizing => return null,
+        } orelse continue;
+        defer drawn.deinit(gpa);
+        for (glyph.pixels) |byte| wanted += cover[byte];
+        // Over the glyph and a line of clear pixels round it, from each pixel to the next across
+        // and down.
+        for (0..drawn.height + 1) |row| for (0..drawn.width + 1) |column| {
+            const here = drawn.coverAt(column, row);
+            const across = drawn.coverAt(column + 1, row) - here;
+            const down = drawn.coverAt(column, row + 1) - here;
+            inked += here;
+            edges += @sqrt(across * across + down * down);
+        };
+    }
+    return .{ .lacking = wanted * weigh_scale * weigh_scale - inked, .edges = edges };
+}
+
+/// How heavy an outline font's strokes are drawn: as it draws them itself, as a mod's font is, or
+/// as heavy as the bitmap font's, as Newtown is, which stands in for the game's own.
+pub const Heft = enum { own, bitmap };
+
+/// How much of a pixel each byte of a glyph covers, from 0 for none to 1 for full.
+pub const Cover = [256]f32;
+
+/// How a font drawn as levels of one colour covers (`hud.Opened.Paint.ramp`), as its glyphs are
+/// drawn.
+pub const level_cover: Cover = covers: {
+    var cover: Cover = undefined;
+    for (&cover, 0..) |*share, level| share.* = @as(f32, @floatFromInt(hud.rampLevel(level))) / 255;
+    break :covers cover;
+};
+
+/// How a `Bitmap`'s coverage covers.
+const outline_cover: Cover = covers: {
+    var cover: Cover = undefined;
+    for (&cover, 0..) |*share, level| share.* = @as(f32, @floatFromInt(level)) / 255;
+    break :covers cover;
+};
 
 const Axis = enum { across, down };
 
-/// Where the ink of `pixels`, `width` to a row, starts and ends `axis`, levels covering as `cover`
+/// Where the ink of `pixels`, `width` to a row, starts and ends `axis`, bytes covering as `cover`
 /// says: from the first line of pixels with ink, as far into it as its fullest pixel falls short
 /// of full, to the last, as far into it as its fullest pixel reaches; null where there is none. An
 /// edge drawn half over a line of pixels so lies half way into it.
-fn inkSpan(comptime cover: fn (u8) f32, pixels: []const u8, width: usize, axis: Axis) ?[2]f32 {
+fn inkSpan(cover: *const Cover, pixels: []const u8, width: usize, axis: Axis) ?[2]f32 {
     if (width == 0) return null;
     const height = pixels.len / width;
     const lines, const along = switch (axis) {
@@ -182,7 +289,7 @@ fn inkSpan(comptime cover: fn (u8) f32, pixels: []const u8, width: usize, axis: 
                 .across => at * width + line,
                 .down => line * width + at,
             };
-            fullest = @max(fullest, cover(pixels[index]));
+            fullest = @max(fullest, cover[pixels[index]]);
         }
         if (fullest == 0) continue;
         const start: f32 = @floatFromInt(line);
@@ -248,6 +355,9 @@ const kept_sizes = 4;
 
 /// An outline font standing in for one bitmap font, and its glyphs at the sizes lately drawn.
 pub const Outline = struct {
+    /// What its atlases are made in, whoever draws from it: kept for the run by `Outlines`, it
+    /// outlives what any one screen draws with.
+    gpa: Allocator,
     rasterizer: Rasterizer,
     face: Face,
     /// The mod's font file `face` reads, which it keeps; none for Newtown, which is built in, and
@@ -263,7 +373,8 @@ pub const Outline = struct {
     /// Set once its glyphs can't be drawn, which leaves the bitmap's.
     failed: bool = false,
 
-    pub fn deinit(outline: *Outline, gpa: Allocator) void {
+    pub fn deinit(outline: *Outline) void {
+        const gpa = outline.gpa;
         for (&outline.atlases) |*held| if (held.*) |*atlas| atlas.deinit(gpa);
         for (outline.retired.items) |image| image.deinit(gpa);
         outline.retired.deinit(gpa);
@@ -276,7 +387,7 @@ pub const Outline = struct {
     /// Its glyphs for the bitmap font drawn `scale` times its size, drawn the first time they are
     /// asked for at that size, in place of those drawn least lately where it keeps as many sizes as
     /// it can; null once they can't be drawn, which the log says.
-    pub fn at(outline: *Outline, gpa: Allocator, scale: f32) Allocator.Error!?Sized {
+    pub fn at(outline: *Outline, scale: f32) Allocator.Error!?Sized {
         if (outline.failed) return null;
         outline.draws += 1;
         const size = outline.fit.size(scale);
@@ -293,7 +404,7 @@ pub const Outline = struct {
             };
             if (atlas.drawn < chosen.*.?.drawn) chosen = held;
         }
-        render(outline, chosen, gpa, size) catch |err| switch (err) {
+        render(outline, chosen, outline.gpa, size) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.Rasterizing => {
                 log.warn("an outline font's glyphs can't be drawn: the bitmap font's are", .{});
@@ -354,7 +465,7 @@ fn render(outline: *Outline, slot: *?Atlas, gpa: Allocator, size: u32) Error!voi
     const rasterizer = outline.rasterizer;
     const face = outline.face;
     const fit = &outline.fit;
-    const em = @as(f32, @floatFromInt(size)) / 64;
+    const em = @as(f32, @floatFromInt(size)) / sixty_fourths;
     var drawn: [codes]?Bitmap = @splat(null);
     defer for (drawn) |held| if (held) |bitmap| bitmap.deinit(gpa);
     var glyphs: [codes]Atlas.Glyph = @splat(.blank);
@@ -362,7 +473,7 @@ fn render(outline: *Outline, slot: *?Atlas, gpa: Allocator, size: u32) Error!voi
     var widest: u32 = 0;
     for (fit.middles, &drawn, &glyphs, 0..) |middle, *bitmap, *glyph, code| {
         if (middle == null) continue;
-        const made = try rasterizer.draw(face, language.toUnicode(@intCast(code)), em, gpa) orelse {
+        const made = try rasterizer.draw(face, language.toUnicode(@intCast(code)), em, fit.weight, gpa) orelse {
             glyph.* = .bitmap;
             continue;
         };
@@ -399,7 +510,7 @@ fn render(outline: *Outline, slot: *?Atlas, gpa: Allocator, size: u32) Error!voi
             const into = (@as(usize, place[1]) + row) * width + place[0];
             for (bitmap.coverage[row * bitmap.width ..][0..bitmap.width], 0..) |level, column| pixels[(into + column) * 4 + 3] = level;
         }
-        const ink = inkSpan(outlineCover, bitmap.coverage, bitmap.width, .across) orelse [2]f32{ 0, @floatFromInt(bitmap.width) };
+        const ink = inkSpan(&outline_cover, bitmap.coverage, bitmap.width, .across) orelse [2]f32{ 0, @floatFromInt(bitmap.width) };
         glyph.* = .{ .placed = .{ .at = place, .width = bitmap.width, .height = bitmap.height, .top = bitmap.top, .middle = (ink[0] + ink[1]) / 2 } };
     }
 
@@ -460,7 +571,7 @@ pub const Outlines = struct {
         const gpa = outlines.gpa;
         for (outlines.fonts.items) |font| {
             if (font.outline) |outline| {
-                outline.deinit(gpa);
+                outline.deinit();
                 gpa.destroy(outline);
             }
             gpa.free(font.name);
@@ -470,10 +581,10 @@ pub const Outlines = struct {
         outlines.* = undefined;
     }
 
-    /// The outline that stands in for the bitmap font `name`, read as `font`: a mod's font of its
-    /// name, else Newtown where it is one of the game's own Handel Gothic fonts; null where it
-    /// keeps its bitmap. The log says which stands in.
-    pub fn of(outlines: *Outlines, name: []const u8, font: fnt.Font) Allocator.Error!?*Outline {
+    /// The outline that stands in for the bitmap font `name`, read as `font`, whose bytes cover as
+    /// `cover` says: a mod's font of its name, else Newtown where it is one of the game's own
+    /// Handel Gothic fonts; null where it keeps its bitmap. The log says which stands in.
+    pub fn of(outlines: *Outlines, name: []const u8, font: fnt.Font, cover: *const Cover) Allocator.Error!?*Outline {
         var buffer: [bigfile.member_name_room]u8 = undefined;
         const member = bigfile.memberName(&buffer, name);
         for (outlines.fonts.items) |known| {
@@ -483,15 +594,15 @@ pub const Outlines = struct {
         try outlines.fonts.ensureUnusedCapacity(gpa, 1);
         const kept_name = try gpa.dupe(u8, member);
         errdefer gpa.free(kept_name);
-        const outline = try outlines.make(member, font);
+        const outline = try outlines.make(member, font, cover);
         outlines.fonts.appendAssumeCapacity(.{ .name = kept_name, .outline = outline });
         return outline;
     }
 
-    /// The outline that stands in for the bitmap font `member`, read as `font`: a mod's font of its
-    /// name, the first of `fnt.outline_extensions` that reads, else Newtown where it stands in for
-    /// the game's own font; null where none does.
-    fn make(outlines: *Outlines, member: []const u8, font: fnt.Font) Allocator.Error!?*Outline {
+    /// The outline that stands in for the bitmap font `member`, read as `font`, whose bytes cover
+    /// as `cover` says: a mod's font of its name, the first of `fnt.outline_extensions` that reads,
+    /// else Newtown where it stands in for the game's own font; null where none does.
+    fn make(outlines: *Outlines, member: []const u8, font: fnt.Font, cover: *const Cover) Allocator.Error!?*Outline {
         const rasterizer = outlines.rasterizer orelse return null;
         const gpa = outlines.gpa;
         for (fnt.outline_extensions) |extension| {
@@ -509,7 +620,7 @@ pub const Outlines = struct {
                 gpa.free(file);
                 continue;
             };
-            const made = outlines.fitted(rasterizer, face, file, font, name) catch |err| {
+            const made = outlines.fitted(rasterizer, face, file, font, cover, .own, name) catch |err| {
                 rasterizer.close(face);
                 gpa.free(file);
                 return err;
@@ -528,20 +639,20 @@ pub const Outlines = struct {
             return null;
         };
         outlines.built_in = face;
-        const outline = try outlines.fitted(rasterizer, face, null, font, "Newtown") orelse return null;
-        log.info("{s} is drawn in Newtown", .{member});
+        const outline = try outlines.fitted(rasterizer, face, null, font, cover, .bitmap, "Newtown") orelse return null;
+        log.info("{s} is drawn in Newtown, its strokes {d:.3} of an em {s}", .{ member, @abs(outline.fit.weight), if (outline.fit.weight < 0) "narrower" else "wider" });
         return outline;
     }
 
     /// The outline of `face`, which reads `file`, over the bitmap font `font`; null where they
     /// share none of the capitals it is fitted by, which the log says.
-    fn fitted(outlines: *Outlines, rasterizer: Rasterizer, face: Face, file: ?[]u8, font: fnt.Font, name: []const u8) Allocator.Error!?*Outline {
-        const fit = Fit.of(rasterizer, face, font) orelse {
+    fn fitted(outlines: *Outlines, rasterizer: Rasterizer, face: Face, file: ?[]u8, font: fnt.Font, cover: *const Cover, heft: Heft, name: []const u8) Allocator.Error!?*Outline {
+        const fit = try Fit.of(rasterizer, face, font, cover, heft, outlines.gpa) orelse {
             log.warn("{s} is left out: it and the bitmap font share none of the capitals {s}", .{ name, references });
             return null;
         };
         const outline = try outlines.gpa.create(Outline);
-        outline.* = .{ .rasterizer = rasterizer, .face = face, .file = file, .fit = fit };
+        outline.* = .{ .gpa = outlines.gpa, .rasterizer = rasterizer, .face = face, .file = file, .fit = fit };
         return outline;
     }
 };
@@ -549,11 +660,13 @@ pub const Outlines = struct {
 pub const testing = struct {
     /// A rasterizer for the tests, which draws boxes: it opens any file but one that starts `not`,
     /// the face being the file's first byte, and has a glyph for every character below `0x80` but
-    /// `#`, a box half an em wide and as tall as `capitals` of an em, fully covered, on the
-    /// baseline.
+    /// `#`, a box `wide` of an em wide and as tall as `capitals` of an em, fully covered, on the
+    /// baseline: by default as long across as `font`'s glyphs are for their height, so that it
+    /// weighs the same.
     pub const Boxes = struct {
         /// The faces open.
         open_faces: usize = 0,
+        wide: f32 = 0.6,
 
         pub const capitals = 0.75;
 
@@ -583,10 +696,11 @@ pub const testing = struct {
             return if (has(character)) capitals else null;
         }
 
-        fn draw(_: *anyopaque, _: Face, character: u21, em: f32, gpa: Allocator) Error!?Bitmap {
+        fn draw(context: *anyopaque, _: Face, character: u21, em: f32, weight: f32, gpa: Allocator) Error!?Bitmap {
             if (!has(character)) return null;
-            const width: u32 = @intFromFloat(@round(em / 2));
-            const height: u32 = @intFromFloat(@round(em * capitals));
+            // Made heavier, a box grows to the right and up, as FreeType's glyphs do.
+            const width: u32 = @intFromFloat(@max(0, @round(em * of(context).wide + weight * em)));
+            const height: u32 = @intFromFloat(@max(0, @round(em * capitals + weight * em)));
             const coverage = try gpa.alloc(u8, @as(usize, width) * height);
             @memset(coverage, 0xFF);
             return .{ .width = width, .height = height, .top = @intCast(height), .coverage = coverage };
@@ -596,29 +710,37 @@ pub const testing = struct {
     /// A bitmap font eight rows tall for the tests, its codes below `0x80`: `A`, `H` and `#` each a
     /// box six pixels wide, inked from column 1 to 4 and from row 2 to 6, and the space six pixels
     /// of nothing.
-    pub const font = font: {
+    pub const font = fontInked(.{ 15, 15, 15 }, null);
+
+    /// `font`, its boxes `#`, `A` and `H` inked with the bytes `inks`, and `palette` after them
+    /// where there is one.
+    pub fn fontInked(comptime inks: [3]u8, comptime palette: ?[fnt.palette_size]u8) []const u8 {
         const height = 8;
         const width = 6;
-        var box: [width * height]u8 = @splat(0);
-        for (2..7) |row| @memset(box[row * width + 1 ..][0..4], 15);
-        const glyph = std.mem.toBytes(@as(u32, width)) ++ box;
         const blank = std.mem.toBytes(@as(u32, width)) ++ @as([width * height]u8, @splat(0));
+        var glyphs: []const u8 = &.{};
+        for (inks) |ink| {
+            var box: [width * height]u8 = @splat(0);
+            for (2..7) |row| @memset(box[row * width + 1 ..][0..4], ink);
+            glyphs = glyphs ++ std.mem.toBytes(@as(u32, width)) ++ box;
+        }
         const count = 0x80;
         const first = fnt.header_size + count * 4;
         var table: [count]u32 = @splat(0);
         table[' '] = first;
-        for ("#AH", 0..) |code, at| table[code] = first + blank.len + at * glyph.len;
+        for ("#AH", 0..) |code, at| table[code] = first + blank.len + at * (4 + width * height);
         const header: fnt.Header = .{ .version = "2.\x00\x00".*, .count = count, .height = height, ._unknown_0c = 0 };
-        break :font std.mem.toBytes(header) ++ std.mem.sliceAsBytes(&table) ++ blank ++ glyph ++ glyph ++ glyph;
-    };
+        const bytes = std.mem.toBytes(header) ++ std.mem.sliceAsBytes(&table) ++ blank ++ glyphs;
+        return if (palette) |colours| bytes ++ colours else bytes;
+    }
 };
 
 test standsIn {
     try std.testing.expect(standsIn("interface\\optfnt.fnt"));
     try std.testing.expect(standsIn("SMLFNT2.FNT"));
     try std.testing.expect(standsIn("inter\\itac\\itacbig.fnt"));
+    try std.testing.expect(standsIn("blufont.fnt"));
     try std.testing.expect(!standsIn("font_01.fnt"));
-    try std.testing.expect(!standsIn("BLUFONT.FNT"));
 }
 
 test inkSpan {
@@ -629,31 +751,50 @@ test inkSpan {
         0, 0xFF, 0xFF, 0,
         0, 0xFF, 0xFF, 0,
     };
-    const down = inkSpan(outlineCover, &pixels, 4, .down).?;
+    const down = inkSpan(&outline_cover, &pixels, 4, .down).?;
     try std.testing.expectApproxEqAbs(1.498, down[0], 1e-3);
     try std.testing.expectEqual(4, down[1]);
-    try std.testing.expectEqual([2]f32{ 1, 3 }, inkSpan(outlineCover, &pixels, 4, .across).?);
-    try std.testing.expectEqual(null, inkSpan(outlineCover, &@as([4]u8, @splat(0)), 2, .down));
+    try std.testing.expectEqual([2]f32{ 1, 3 }, inkSpan(&outline_cover, &pixels, 4, .across).?);
+    try std.testing.expectEqual(null, inkSpan(&outline_cover, &@as([4]u8, @splat(0)), 2, .down));
     // A bitmap font's levels: 15 full, and past it clear.
-    try std.testing.expectEqual([2]f32{ 0, 1 }, inkSpan(bitmapCover, &.{ 15, 16 }, 2, .across).?);
+    try std.testing.expectEqual([2]f32{ 0, 1 }, inkSpan(&level_cover, &.{ 15, 16 }, 2, .across).?);
 }
 
 test Fit {
+    const gpa = std.testing.allocator;
     var boxes: testing.Boxes = .{};
     const rasterizer = boxes.rasterizer();
     const font: fnt.Font = try .parse(testing.font);
     // The H's ink stands five rows tall and the outline's capitals three quarters of an em: an em
     // of six and two thirds of the bitmap's pixels, on the bitmap's baseline, under row 6.
-    const fit = Fit.of(rasterizer, rasterizer.open("face").?, font).?;
+    const fit = (try Fit.of(rasterizer, rasterizer.open("face").?, font, &level_cover, .bitmap, gpa)).?;
     try std.testing.expectApproxEqAbs(5.0 / 0.75, fit.em, 1e-5);
+    // Its boxes ink as much as the bitmap's: they are drawn as heavy as they are.
+    try std.testing.expectApproxEqAbs(0, fit.weight, 1e-3);
     try std.testing.expectEqual(7, fit.baseline);
     try std.testing.expectEqual(3, fit.middles['H'].?);
     try std.testing.expectEqual(null, fit.middles[' ']);
     try std.testing.expectEqual(null, fit.middles['B']);
     // Three times the size, an em of twenty pixels, in 64ths.
-    try std.testing.expectEqual(20 * 64, fit.size(3));
+    try std.testing.expectEqual(20 * sixty_fourths, fit.size(3));
     // A font without any of the capitals it is fitted by has no fit.
-    try std.testing.expectEqual(null, Fit.of(rasterizer, rasterizer.open("face").?, try .parse(comptime fnt.testing.font(false))));
+    try std.testing.expectEqual(null, try Fit.of(rasterizer, rasterizer.open("face").?, try .parse(comptime fnt.testing.font(false)), &level_cover, .bitmap, gpa));
+}
+
+test weighed {
+    const gpa = std.testing.allocator;
+    // Boxes a hundredth of an em wider for their height than the bitmap's ink, which covers four
+    // by five of its pixels: drawn lighter, at eight times the size they ink as much as it does,
+    // their capitals as tall.
+    var boxes: testing.Boxes = .{ .wide = 0.61 };
+    const rasterizer = boxes.rasterizer();
+    const face = rasterizer.open("face").?;
+    const fit = (try Fit.of(rasterizer, face, try .parse(testing.font), &level_cover, .bitmap, gpa)).?;
+    try std.testing.expect(fit.weight < 0);
+    const drawn = (try rasterizer.draw(face, 'H', fit.em * weigh_scale, fit.weight, gpa)).?;
+    defer drawn.deinit(gpa);
+    try std.testing.expectEqual(4 * 5 * weigh_scale * weigh_scale, drawn.width * drawn.height);
+    try std.testing.expectEqual(5 * weigh_scale, drawn.height);
 }
 
 test Outline {
@@ -661,24 +802,24 @@ test Outline {
     var boxes: testing.Boxes = .{};
     const rasterizer = boxes.rasterizer();
     const font: fnt.Font = try .parse(testing.font);
-    var outline: Outline = .{ .rasterizer = rasterizer, .face = rasterizer.open("face").?, .file = null, .fit = Fit.of(rasterizer, rasterizer.open("face").?, font).? };
-    defer outline.deinit(gpa);
+    var outline: Outline = .{ .gpa = gpa, .rasterizer = rasterizer, .face = rasterizer.open("face").?, .file = null, .fit = (try Fit.of(rasterizer, rasterizer.open("face").?, font, &level_cover, .bitmap, gpa)).? };
+    defer outline.deinit();
 
-    // At three times the size, the outline's glyphs are boxes ten pixels wide and fifteen tall, A's
-    // and H's, in a picture 64 by 32.
-    const sized = (try outline.at(gpa, 3)).?;
+    // At three times the size, the outline's glyphs are boxes twelve pixels wide and fifteen tall,
+    // A's and H's, in a picture 64 by 32.
+    const sized = (try outline.at(3)).?;
     const atlas = sized.atlas;
     try std.testing.expectEqual([2]u32{ 64, 32 }, [2]u32{ atlas.image.width(), atlas.image.height() });
-    try std.testing.expectEqual(Atlas.Placed{ .at = .{ 12, 1 }, .width = 10, .height = 15, .top = 15, .middle = 5 }, atlas.glyphs['H'].placed);
-    try std.testing.expectEqual(0xFF, atlas.pixels[((1 + 7) * 64 + 12 + 4) * 4 + 3]);
-    try std.testing.expectEqual(0, atlas.pixels[((1 + 7) * 64 + 11) * 4 + 3]);
+    try std.testing.expectEqual(Atlas.Placed{ .at = .{ 14, 1 }, .width = 12, .height = 15, .top = 15, .middle = 6 }, atlas.glyphs['H'].placed);
+    try std.testing.expectEqual(0xFF, atlas.pixels[((1 + 7) * 64 + 14 + 4) * 4 + 3]);
+    try std.testing.expectEqual(0, atlas.pixels[((1 + 7) * 64 + 13) * 4 + 3]);
     // H, its place starting 30 across on a line whose top is 100 down: its ink centred on the
     // bitmap's, 9 into its place, and standing on the baseline, 21 down, each of its pixels on one
     // of the window's.
     const h = sized.shown('H', 30, 100, 3).quad;
     try std.testing.expectEqual(&atlas.image, h.image);
-    try std.testing.expectEqual(hud.Clip{ .left = 33.5, .top = 105.5, .right = 43.5, .bottom = 120.5 }, h.edges);
-    try std.testing.expectEqual([2]f32{ 12.0 / 64.0, 22.0 / 64.0 }, h.u);
+    try std.testing.expectEqual(hud.Clip{ .left = 32.5, .top = 105.5, .right = 44.5, .bottom = 120.5 }, h.edges);
+    try std.testing.expectEqual([2]f32{ 14.0 / 64.0, 26.0 / 64.0 }, h.u);
     try std.testing.expectEqual([2]f32{ 1.0 / 32.0, 16.0 / 32.0 }, h.v);
     // The space has no ink, the outline font no `#`, and the font no B.
     try std.testing.expectEqual(.blank, sized.shown(' ', 0, 0, 3));
@@ -686,17 +827,17 @@ test Outline {
     try std.testing.expectEqual(.blank, sized.shown('B', 0, 0, 3));
 
     // The same size draws from the same atlas, and others each from one of their own.
-    try std.testing.expectEqual(atlas, (try outline.at(gpa, 3)).?.atlas);
-    for ([_]f32{ 3.1, 3.2, 3.3 }) |scale| try std.testing.expect((try outline.at(gpa, scale)).?.atlas != atlas);
+    try std.testing.expectEqual(atlas, (try outline.at(3)).?.atlas);
+    for ([_]f32{ 3.1, 3.2, 3.3 }) |scale| try std.testing.expect((try outline.at(scale)).?.atlas != atlas);
     // A fifth size takes the place of the atlas drawn from least lately, in its picture where it
     // fits, which goes up to the GPU again.
     const pixels = atlas.pixels.ptr;
-    try std.testing.expectEqual(atlas, (try outline.at(gpa, 3.4)).?.atlas);
+    try std.testing.expectEqual(atlas, (try outline.at(3.4)).?.atlas);
     try std.testing.expectEqual(pixels, atlas.pixels.ptr);
     try std.testing.expect(atlas.image.changed);
     try std.testing.expectEqual(0, outline.retired.items.len);
     // One too large for it takes a new picture, the old one kept for the frame that drew from it.
-    const large = (try outline.at(gpa, 20)).?.atlas;
+    const large = (try outline.at(20)).?.atlas;
     try std.testing.expect(large.image.width() > 64);
     try std.testing.expectEqual(1, outline.retired.items.len);
 }
@@ -720,21 +861,26 @@ test Outlines {
         var outlines: Outlines = .init(gpa, boxes.rasterizer(), &mods);
         defer outlines.deinit();
         // The mod's font stands in for `optfnt.fnt`, once for every time it opens.
-        const optfnt = (try outlines.of(hud.large_menu_font, font)).?;
+        const optfnt = (try outlines.of(hud.large_menu_font, font, &level_cover)).?;
         try std.testing.expectEqualStrings("a's font", optfnt.file.?);
-        try std.testing.expectEqual(optfnt, (try outlines.of("OPTFNT.FNT", font)).?);
+        // A mod's font is drawn as heavy as it is.
+        try std.testing.expectEqual(0, optfnt.fit.weight);
+        try std.testing.expectEqual(optfnt, (try outlines.of("OPTFNT.FNT", font, &level_cover)).?);
         // The mod's own bitmap font keeps its bitmap; Newtown stands in for the game's ITAC font,
-        // the mod's that doesn't read left out; and nothing for a font that isn't Handel Gothic.
-        try std.testing.expectEqual(null, try outlines.of(hud.small_menu_font, font));
-        const itacbig = (try outlines.of("inter\\itac\\itacbig.fnt", font)).?;
+        // the mod's that doesn't read left out, and for the display's, from the face it opened
+        // once; and nothing for a font that isn't Handel Gothic.
+        try std.testing.expectEqual(null, try outlines.of(hud.small_menu_font, font, &level_cover));
+        const itacbig = (try outlines.of("inter\\itac\\itacbig.fnt", font, &level_cover)).?;
         try std.testing.expectEqual(null, itacbig.file);
         try std.testing.expectEqual(@as(Face, @ptrCast(@constCast(newtown.ptr))), itacbig.face);
-        try std.testing.expectEqual(null, try outlines.of("font_01.fnt", font));
+        const blufont = (try outlines.of(hud.Resources.font_name, font, &level_cover)).?;
+        try std.testing.expectEqual(itacbig.face, blufont.face);
+        try std.testing.expectEqual(null, try outlines.of("font_01.fnt", font, &level_cover));
         try std.testing.expectEqual(2, boxes.open_faces);
     }
     try std.testing.expectEqual(0, boxes.open_faces);
     // Without a rasterizer, every font keeps its bitmap.
     var bitmaps: Outlines = .init(gpa, null, &mods);
     defer bitmaps.deinit();
-    try std.testing.expectEqual(null, try bitmaps.of(hud.large_menu_font, font));
+    try std.testing.expectEqual(null, try bitmaps.of(hud.large_menu_font, font, &level_cover));
 }

@@ -15,8 +15,8 @@ const outline = openreliant.engine.game.hud.outline;
 
 const log = std.log.scoped(.fonts);
 
-/// How each glyph is loaded: drawn as it loads, with light hinting.
-const load_flags: c.FT_Int32 = c.FT_LOAD_RENDER | @as(c.FT_Int32, c.FT_RENDER_MODE_LIGHT & 15) << 16;
+/// How each glyph is loaded: with light hinting, and drawn once it is made heavier or lighter.
+const load_flags: c.FT_Int32 = @as(c.FT_Int32, c.FT_RENDER_MODE_LIGHT & 15) << 16;
 
 /// FreeType's library, which every face it opens needs while it is open.
 pub const FreeType = struct {
@@ -86,17 +86,24 @@ fn top(_: *anyopaque, face: outline.Face, character: u21) ?f32 {
     return bearing / @as(f32, @floatFromInt(shown.*.units_per_EM));
 }
 
-/// `character` drawn at `em` pixels to the em, as 256 levels of coverage; null where the face has
-/// no glyph for it, or one FreeType can't draw so.
-fn draw(_: *anyopaque, face: outline.Face, character: u21, em: f32, gpa: Allocator) outline.Error!?outline.Bitmap {
+/// `character` drawn at `em` pixels to the em, its strokes `weight` ems wider, or narrower below 0,
+/// as 256 levels of coverage; null where the face has no glyph for it, or one FreeType can't draw
+/// so. FreeType keeps a glyph's left and bottom where they are as it makes it heavier or lighter.
+fn draw(_: *anyopaque, face: outline.Face, character: u21, em: f32, weight: f32, gpa: Allocator) outline.Error!?outline.Bitmap {
     const shown = faceOf(face);
     const index = c.FT_Get_Char_Index(shown, character);
     if (index == 0) return null;
     // A size in 64ths of a point at 72 points to the inch: in 64ths of a pixel.
-    const size = std.math.lossyCast(c.FT_F26Dot6, @round(em * 64));
+    const size = std.math.lossyCast(c.FT_F26Dot6, @round(em * outline.sixty_fourths));
     if (c.FT_Set_Char_Size(shown, 0, size, 72, 72) != 0) return error.Rasterizing;
     if (c.FT_Load_Glyph(shown, index, load_flags) != 0) return null;
     const glyph = shown.*.glyph;
+    if (glyph.*.format != c.FT_GLYPH_FORMAT_OUTLINE) return null;
+    if (weight != 0) {
+        const strength = std.math.lossyCast(c.FT_Pos, @round(weight * em * outline.sixty_fourths));
+        if (c.FT_Outline_Embolden(&glyph.*.outline, strength) != 0) return error.Rasterizing;
+    }
+    if (c.FT_Render_Glyph(glyph, c.FT_RENDER_MODE_LIGHT) != 0) return null;
     const bitmap = glyph.*.bitmap;
     if (bitmap.pixel_mode != c.FT_PIXEL_MODE_GRAY or bitmap.pitch < 0) return null;
     const width: u32 = bitmap.width;
@@ -118,13 +125,20 @@ test FreeType {
     const capitals = rasterizer.top(face, 'H').?;
     try std.testing.expect(capitals > 0.6 and capitals < 0.8);
     // An H drawn at 100 pixels to the em stands on the baseline, as tall as its outline.
-    const h = (try rasterizer.draw(face, 'H', 100, gpa)).?;
+    const h = (try rasterizer.draw(face, 'H', 100, 0, gpa)).?;
     defer h.deinit(gpa);
     try std.testing.expectApproxEqAbs(capitals * 100, @as(f32, @floatFromInt(h.top)), 1);
     try std.testing.expectEqual(h.top, @as(i32, @intCast(h.height)));
     try std.testing.expect(std.mem.max(u8, h.coverage) == 0xFF);
     // A character it has no glyph for, and a file that holds no font.
-    try std.testing.expectEqual(null, try rasterizer.draw(face, 0x4E2D, 100, gpa));
+    // Five hundredths of an em lighter, it stands five pixels narrower and shorter on the same
+    // baseline.
+    const light = (try rasterizer.draw(face, 'H', 100, -0.05, gpa)).?;
+    defer light.deinit(gpa);
+    try std.testing.expectApproxEqAbs(@as(f32, @floatFromInt(h.width)) - 5, @as(f32, @floatFromInt(light.width)), 1);
+    try std.testing.expectApproxEqAbs(@as(f32, @floatFromInt(h.top)) - 5, @as(f32, @floatFromInt(light.top)), 1);
+    try std.testing.expectEqual(light.top, @as(i32, @intCast(light.height)));
+    try std.testing.expectEqual(null, try rasterizer.draw(face, 0x4E2D, 100, 0, gpa));
     try std.testing.expectEqual(null, rasterizer.top(face, 0x4E2D));
     try std.testing.expectEqual(null, rasterizer.open("not a font"));
 }

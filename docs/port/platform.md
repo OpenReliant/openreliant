@@ -28,7 +28,7 @@ The game's movies ([Movies](../engine/movies.md)) are decoded by [FFmpeg](https:
 
 The outline fonts that draw the interface's text at the window's resolution ([Outline fonts](../formats/fnt.md#outline-fonts)) are drawn by [FreeType](https://freetype.org). [`deps/freetype`](../../deps/freetype/build.zig) builds FreeType 2.14.3, pinned in its manifest by the release's tag and commit, as a static library of its TrueType and CFF drivers, which read TrueType and OpenType fonts, the modules they need, its auto-hinter and its anti-aliasing rasterizer, with the upstream's own options. It is built optimized whatever the game is built as, as FFmpeg is. OpenReliant takes FreeType under the FreeType License, whose credit the README gives.
 
-[`platform/fonts.zig`](../../src/platform/fonts.zig) opens each font from its file in memory, and draws a glyph at the size the engine asks for, in 64ths of a pixel to the em, anti-aliased, with FreeType's light hinting, which fits the glyphs' heights to the pixels and leaves their widths as the outlines have them. FreeType is called from the game's thread alone.
+[`platform/fonts.zig`](../../src/platform/fonts.zig) opens each font from its file in memory, and draws a glyph at the size the engine asks for, in 64ths of a pixel to the em, its strokes made as much wider or narrower as the engine asks (`FT_Outline_Embolden`), anti-aliased, with FreeType's light hinting, which fits the glyphs' heights to the pixels and leaves their widths as the outlines have them. FreeType is called from the game's thread alone.
 
 The font OpenReliant carries, Newtown, lies in [`deps/newtown`](../../deps/newtown/README.md), which gives its source and its licence, and the build puts it in the executable.
 

@@ -142,7 +142,11 @@ const palette_name = "palette3.tga";
 const reliant_backdrop = "rbackground.tga";
 const yamato_backdrop = "background.tga";
 const panels_name = "fpanels.tga";
-const title_font_name = "ld_handel.fnt";
+pub const title_font_name = "ld_handel.fnt";
+
+test "Newtown stands in for the tooltip's font" {
+    try std.testing.expect(hud.outline.standsIn(title_font_name));
+}
 const stats_font_name = "handels.fnt";
 const sounds_name = "ldsmp.fat";
 
@@ -767,7 +771,9 @@ pub const Loadout = struct {
     }
 
     /// Opens the loadout's two fonts (`font_open`), the title's taking VFX's palette through the
-    /// text remap for the tooltip, in 6-bit levels as a font's palette holds them.
+    /// text remap for the tooltip, in 6-bit levels as a font's palette holds them, and the outline
+    /// font that stands in for it where the tooltip is written over the screen; the panels'
+    /// textures keep its glyphs.
     fn openFonts(loadout: *Loadout) !void {
         const arena = loadout.arena.allocator();
         const resources = loadout.context.rooms.resources;
@@ -777,6 +783,7 @@ pub const Loadout = struct {
             for (loadout.tooltip_palette[level * 3 ..][0..3], colour) |*to, from| to.* = from >> 2;
         }
         loadout.title_font = .open(try .parse(try resources.readFile(arena, title_font_name)), &loadout.tooltip_palette);
+        if (loadout.context.rooms.outlines) |outlines| try loadout.title_font.standIn(outlines, title_font_name);
         loadout.stats_font = .open(try .parse(try resources.readFile(arena, stats_font_name)), null);
         loadout.fonts_open = true;
     }
