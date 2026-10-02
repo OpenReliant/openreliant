@@ -238,11 +238,11 @@ pub const Stream = struct {
 };
 
 /// `mission_frame`'s smoke, in its pass over the objects after the particles' frame and the
-/// camera's: an object with `_unknown_24` set has its smoke let go and its level reset. Then each
-/// object the pass does not leave out (`GameObject.Flags.outOfFrame`) has its smoke sent out
-/// (`Stream.send`), and one with stats, save the Ripper, has its level followed: when it changes,
-/// its smoke starts again for the new level from its model's first engine glow, and a model without
-/// one keeps what smoke it has.
+/// camera's: a ship a pilot has left (`GameObject.Flags.abandoned`) has its smoke let go and its
+/// level reset. Then each object the pass does not leave out (`GameObject.Flags.outOfFrame`) has
+/// its smoke sent out (`Stream.send`), and one with stats, save the Ripper, has its level followed:
+/// when it changes, its smoke starts again for the new level from its model's first engine glow,
+/// and a model without one keeps what smoke it has.
 ///
 /// OpenReliant reckons which particles are behind the camera by the camera's last frame, which it
 /// frames after this; the game frames the camera first.
@@ -252,7 +252,7 @@ pub fn frame(world: gameobj.World) void {
     while (walk.next()) |index| {
         const slot = &all.slots[index];
         const object = &slot.object;
-        if (object.flags._unknown_24) {
+        if (object.flags.abandoned) {
             slot.smoke = null;
             object.smoke_level = .none;
         }
@@ -329,7 +329,7 @@ test frame {
     glow[0].position = .{ .x = 0, .y = 0, .z = -50 };
     glow[0].orientation = math.identity;
     model.data[0].attachments = &glow;
-    const index = try create.createObject(mission.objects, &mission.tables, model.types(), null, .predator, 0, @splat(0), &mission.random);
+    const index = try mission.addWith(model.types(), .predator, @splat(0));
     const slot = mission.slot(index);
     @import("../main.zig").frameObjects(mission.objects, .{}, mission.clock.frame_start);
 
@@ -379,16 +379,16 @@ test frame {
     frame(world);
     try std.testing.expectEqual(Level.light, slot.object.smoke_level);
 
-    // Flag 24 lets its smoke go.
+    // A ship a pilot has left lets its smoke go.
     slot.object.type = .predator;
     slot.object.armor = .all(30);
-    slot.object.flags._unknown_24 = true;
+    slot.object.flags.abandoned = true;
     frame(world);
     try std.testing.expectEqual(Level.none, slot.object.smoke_level);
     try std.testing.expectEqual(null, slot.smoke);
 
     // With its engine glow's part taken out, as a pilot's pod has, it has nowhere to smoke from.
-    slot.object.flags._unknown_24 = false;
+    slot.object.flags.abandoned = false;
     slot.object.armor = .all(0);
     slot.model.?.parts[0].removed = true;
     frame(world);

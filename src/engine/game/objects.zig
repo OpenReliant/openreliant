@@ -174,6 +174,13 @@ pub const Node = extern struct {
         node.orientation = node.next_orientation;
         node.pose = node.next_pose;
         node.flags.next_pending = false;
+        node.markMoved();
+    }
+
+    /// Marks it moved: its place committed for the step, and its frame to be worked out again
+    /// (`committed`, `unframed`), as `commitNext` leaves it and as the orders and the missiles
+    /// that place an object themselves leave its root.
+    pub fn markMoved(node: *Node) void {
         node.flags.committed = true;
         node.flags.unframed = true;
     }
@@ -257,6 +264,24 @@ pub fn setOrientation(object: *GameObject, frame: *Model.Local, orientation: mat
     object.root.orientation = orientation;
 }
 
+/// `object_set_position` and `object_set_orientation` together: places the object's root at
+/// `place`, where it stands and how it is turned (`setPosition`, then `setOrientation`).
+pub fn setPlace(object: *GameObject, frame: *Model.Local, place: math.Place) void {
+    setPosition(object, frame, place.position);
+    setOrientation(object, frame, place.orientation);
+}
+
+test setPlace {
+    var object = gameobj.testing.object();
+    var frame: Model.Local = .{};
+    const place: math.Place = .{ .position = .{ 1, 2, 3 }, .orientation = math.rotation(.y, 0.5) };
+    setPlace(&object, &frame, place);
+    // The frame, and where it stands now and next, all at the place.
+    try std.testing.expectEqual(place, frame);
+    try std.testing.expectEqual(place, object.placeAt(.now));
+    try std.testing.expectEqual(place, object.placeAt(.next));
+}
+
 /// The file of a model made from none, as in a test.
 const no_source: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &.{}, .trailing_bytes = 0 };
 
@@ -307,11 +332,9 @@ pub const PartRef = struct {
         return &ref.model.parts[ref.index];
     }
 
-    /// Its part's record as the file holds it, with its collision tree; null for a model with no
-    /// file behind it, as in a test.
+    /// Its part's record as the file holds it, with its collision tree (`Model.partData`).
     pub fn data(ref: PartRef) ?shp.PartData {
-        const parts = ref.model.source.parts;
-        return if (ref.index < parts.len) parts[ref.index] else null;
+        return ref.model.partData(ref.index);
     }
 
     /// The root box of its part's collision tree, in the part's frame; null for a part with none.
@@ -939,7 +962,8 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
         part.spent = true;
         if (part.class == .engine) loseEngine(object);
         if (part.class == .shield_generator) {
-            if (object.flags.shield_generator) shieldsDown(world, part.drawn());
+            // A shield generator going down: `SHLDDOWN` from where it stands, facing its way.
+            if (object.flags.shield_generator) sound3d.playFrom(world, part.drawn(), .shlddown, .not_reserved);
             object.flags.shield_generator = false;
         } else if (explode.ComponentLoss.of(object.type)) |routine| {
             if (!explode.loseComponent(ctx, index, routine, part)) return;
@@ -964,11 +988,6 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
 /// One of `object`'s engines taken out, which takes its share off `engines_intact`.
 pub fn loseEngine(object: *gameobj.GameObject) void {
     object.engines_intact -= 1 / @as(f32, @floatFromInt(object.engines));
-}
-
-/// A shield generator going down: `SHLDDOWN` from where it stands, facing its way.
-fn shieldsDown(world: gameobj.World, at: math.Place) void {
-    sound3d.playIn(world, at.position, math.forward(at.orientation), -1, .shlddown, 1, .not_reserved);
 }
 
 /// `node_destroy` (`0x00499E30`) with `node_forget` (`0x00499BB0`): takes part `ref` out of the
@@ -1422,6 +1441,89 @@ pub const Model = struct {
         return &model.parts[child];
     }
 
+    /// The parts in the root's child list, in its order (`rootChild`): every part, whatever it is
+    /// linked to, but those taken out, which the game's walks of the list pass over as null.
+    pub fn rootChildren(model: *const Model) RootChildren {
+        return .{ .model = model };
+    }
+
+    /// A walk of the root's child list (`rootChildren`).
+    pub const RootChildren = struct {
+        model: *const Model,
+        child: usize = 0,
+
+        /// A part in the list, and its number.
+        pub const Child = struct { index: usize, part: *const Part };
+
+        pub fn next(children: *RootChildren) ?Child {
+            while (children.child < children.model.parts.len) {
+                const index = children.child;
+                children.child += 1;
+                if (children.model.rootChild(index)) |part| return .{ .index = index, .part = part };
+            }
+            return null;
+        }
+    };
+
+    /// Part `index`'s record as the file holds it, with its collision tree; null for a model with
+    /// no file behind it, as in a test.
+    pub fn partData(model: *const Model, index: usize) ?shp.PartData {
+        const parts = model.source.parts;
+        return if (index < parts.len) parts[index] else null;
+    }
+
+    /// The attachments of a model's parts that `passes`, part by part as the root's child list
+    /// holds them (`rootChild`), each part's attachments in order: the docking points, the launch
+    /// points and the missile hardpoints are each found so.
+    pub fn RootAttachments(comptime passes: fn (attachment: shp.Attachment, part: usize) bool) type {
+        return struct {
+            model: *const Model,
+            part: usize = 0,
+            attachment: usize = 0,
+
+            const Points = @This();
+
+            /// An attachment that passes, and the part that holds it.
+            pub const Point = struct {
+                part: usize,
+                /// Which of the part's attachments it is.
+                index: usize,
+                attachment: *const shp.Attachment,
+            };
+
+            pub fn of(model: *const Model) Points {
+                return .{ .model = model };
+            }
+
+            pub fn next(points: *Points) ?Point {
+                while (points.part < points.model.parts.len) : ({
+                    points.part += 1;
+                    points.attachment = 0;
+                }) {
+                    const part = points.model.rootChild(points.part) orelse continue;
+                    while (points.attachment < part.attachments.len) {
+                        const index = points.attachment;
+                        points.attachment += 1;
+                        const at = &part.attachments[index];
+                        if (passes(at.*, points.part)) return .{ .part = points.part, .index = index, .attachment = at };
+                    }
+                }
+                return null;
+            }
+
+            /// The `n`th, counting from 0.
+            pub fn nth(model: *const Model, n: usize) ?Point {
+                var points: Points = .of(model);
+                var left = n;
+                while (points.next()) |point| {
+                    if (left == 0) return point;
+                    left -= 1;
+                }
+                return null;
+            }
+        };
+    }
+
     /// The bounds of the level the part at `child` in the root's child list (`rootChild`) drew
     /// last, in its own frame; null where there is no such part, or it has no level.
     pub fn levelBounds(model: *const Model, child: usize) ?[2]Vector {
@@ -1674,6 +1776,17 @@ pub const Model = struct {
             if (!std.ascii.eqlIgnoreCase(track.clip.name(), name)) continue;
             return model.start(index, found, time, mode, speed);
         }
+    }
+
+    /// `node_play_named_tree` (`0x0049A400`) from the root: `playNamed` on every part in the root's
+    /// child list (`rootChildren`), each that has the track playing it. It doesn't go into the
+    /// models the parts carry.
+    ///
+    /// **Unverified:** that it is `objects.cpp`'s: it lies after the file's known code, before
+    /// `particles.cpp`'s.
+    pub fn playNamedTree(model: *Model, name: []const u8, time: f32, mode: ?Mode, speed: f32) void {
+        var children = model.rootChildren();
+        while (children.next()) |child| model.playNamed(child.index, name, time, mode, speed);
     }
 
     fn start(model: *Model, index: usize, track: usize, time: f32, mode: ?Mode, speed: f32) void {
@@ -1992,6 +2105,19 @@ pub const Model = struct {
         return stands;
     }
 
+    /// Hangs part `index` from the root where its frame stands in the model (`frameAt`), as
+    /// `eject_separate` re-hangs each part node: that place becomes its frame's, its node's and its
+    /// next, so it stays where it is, and nothing it hung from carries it any more.
+    pub fn hangFromRoot(model: *Model, index: usize) void {
+        const stands = model.frameAt(index, .{});
+        const part = &model.parts[index];
+        part.parent = null;
+        part.origin = stands.position;
+        part.turn = stands.orientation;
+        part.animation.now.place = stands;
+        part.animation.next.place = stands;
+    }
+
     /// Where part `index` of `held`, this model or one it carries however deep, stands in the world
     /// at `step`, with this model's root at `root` (`node_world_place`, `node_next_place`); null
     /// where it carries no such model.
@@ -2040,6 +2166,21 @@ pub const Model = struct {
             }
         }
         return null;
+    }
+
+    /// `node_show_named` (`0x004ADE80`): the first part named `name` (`partNamed`) is shown, where
+    /// there is one.
+    ///
+    /// **Unverified:** that it and `hideNamed` are `xtrabits.cpp`'s: they lie after the file's
+    /// known code, next to `node_find_named`.
+    pub fn showNamed(model: *Model, name: []const u8) void {
+        if (model.partNamed(name)) |ref| ref.part().hidden = false;
+    }
+
+    /// `node_hide_named` (`0x004ADE90`): the first part named `name` (`partNamed`) is hidden, where
+    /// there is one.
+    pub fn hideNamed(model: *Model, name: []const u8) void {
+        if (model.partNamed(name)) |ref| ref.part().hidden = true;
     }
 
     /// Whether `other` is this model or one it carries, however deep.
@@ -2520,14 +2661,95 @@ pub const testing = struct {
     /// A track's clip of `length`, played in `mode`, named `name`.
     pub const clip = testingClip;
 
-    /// Mounts that answer every attachment with `fixture`'s model.
-    pub fn mountsOf(fixture: *create.testing.Model) Mounts {
-        return .{ .context = fixture, .load = loadFixture };
+    const Slot = create.Slot;
+
+    /// A model of `count` parts with no mesh, each hanging from the root and standing unturned at
+    /// the model's origin, for the test to fill in before building it. It is set up where it
+    /// stays, since its records point into it.
+    pub fn Parts(comptime count: usize) type {
+        return struct {
+            data: [count]shp.PartData,
+            loaded_parts: [count]srofiles.LoadedPart,
+            source: shp.Model,
+            loaded: srofiles.Loaded,
+
+            /// The parts, each hanging from the root in no turret's slot.
+            pub fn init(parts: *@This()) void {
+                for (&parts.data, &parts.loaded_parts) |*data, *loaded| {
+                    data.* = testingPart();
+                    data.part.parent = -1;
+                    data.part.turret_slot = -1;
+                    loaded.* = .{ .flags = .{}, .levels = &.{}, .meshes = &.{} };
+                }
+                parts.source = .{ .header = std.mem.zeroes(shp.Header), .parts = &parts.data, .trailing_bytes = 0 };
+                parts.loaded = .{ .parts = &parts.loaded_parts };
+            }
+
+            /// Makes part `index` the turret of `kind` of the assembly `link`, in its `slot`.
+            pub fn turret(parts: *@This(), index: usize, class: shp.Part.Class, kind: shp.Part.TurretKind, link: u32, slot: i32) void {
+                parts.data[index].part.class = class;
+                parts.data[index].part.turret_kind = kind;
+                parts.member(index, link, slot);
+            }
+
+            /// Makes part `index` one of the assembly `link`, in `slot`.
+            pub fn member(parts: *@This(), index: usize, link: u32, slot: i32) void {
+                parts.data[index].part.link_id = link;
+                parts.data[index].part.turret_slot = slot;
+            }
+
+            /// Makes the parts `marked` components, and each other part the damaged model of the
+            /// component whose assembly it shares, each part of the assembly `links` gives it.
+            pub fn components(parts: *@This(), marked: [count]bool, links: [count]u32) void {
+                for (&parts.data, marked, links) |*data, component, link| {
+                    data.part.flags.component = component;
+                    data.part.flags.damaged = !component;
+                    data.part.link_id = link;
+                }
+            }
+
+            /// Its model, built with `effects`, its parts hanging from nothing yet.
+            pub fn model(parts: *const @This(), gpa: Allocator, effects: Effects) Allocator.Error!Model {
+                return .create(gpa, &parts.source, &parts.loaded, effects);
+            }
+
+            /// Its model, its parts linked as `create_object` links them.
+            pub fn create(parts: *const @This(), gpa: Allocator) Allocator.Error!Model {
+                var made = try parts.model(gpa, .{});
+                testingLink(&made);
+                return made;
+            }
+
+            /// Gives the object in `slot` its model, linked (`create`).
+            pub fn fit(parts: *const @This(), gpa: Allocator, slot: *Slot) Allocator.Error!void {
+                slot.model = try parts.create(gpa);
+            }
+        };
     }
 
-    fn loadFixture(context: *anyopaque, _: []const u8) ?Mounts.Mounted {
-        const fixture: *create.testing.Model = @ptrCast(@alignCast(context));
-        return .{ .model = &fixture.source, .loaded = &fixture.loaded };
+    /// A model of `count` named parts with no mesh hanging from the root (`Parts`), each with one
+    /// list of points where it has any, of the kind it is given. It is set up where it stays, since
+    /// its records point into it.
+    pub fn NamedParts(comptime count: usize) type {
+        return struct {
+            points: [count][max_points]shp.Point,
+            lists: [count][1]shp.PointList,
+            parts: Parts(count),
+
+            /// The most points a part's list holds.
+            pub const max_points = 4;
+
+            /// Part `n` is named `names[n]`, and lists `points[n]` as a list of `kinds[n]`.
+            pub fn init(model: *@This(), names: [count][]const u8, kinds: [count]shp.PointList.Kind, points: [count][]const Vector) void {
+                model.parts.init();
+                for (&model.parts.data, &model.lists, &model.points, names, kinds, points) |*data, *list, *held, name, kind, at| {
+                    @memcpy(data.part.name_bytes[0..name.len], name);
+                    for (held[0..at.len], at) |*point, position| point.* = .{ ._unknown_00 = 0, .vertex = 0, .position = gameobj.vec3(position) };
+                    list.* = .{.{ .kind = kind, .points = held[0..at.len] }};
+                    data.point_lists = if (at.len > 0) &list.* else &.{};
+                }
+            }
+        };
     }
 
     /// A model of one part with no mesh, hanging from the root, whose one attachment, a gun's at
@@ -2535,27 +2757,20 @@ pub const testing = struct {
     /// records point into it.
     pub const Carrier = struct {
         attachments: [1]shp.Attachment,
-        data: [1]shp.PartData,
-        source: shp.Model,
-        loaded_parts: [1]srofiles.LoadedPart,
-        loaded: srofiles.Loaded,
+        parts: Parts(1),
 
         pub fn init(carrier: *Carrier, at: Vector) void {
             carrier.attachments = .{std.mem.zeroes(shp.Attachment)};
             carrier.attachments[0].kind = .gun;
             carrier.attachments[0].position = gameobj.vec3(at);
             carrier.attachments[0].orientation = math.identity;
-            carrier.data = .{testingPart()};
-            carrier.data[0].part.parent = -1;
-            carrier.data[0].attachments = &carrier.attachments;
-            carrier.source = .{ .header = std.mem.zeroes(shp.Header), .parts = &carrier.data, .trailing_bytes = 0 };
-            carrier.loaded_parts = .{.{ .flags = .{}, .levels = &.{}, .meshes = &.{} }};
-            carrier.loaded = .{ .parts = &carrier.loaded_parts };
+            carrier.parts.init();
+            carrier.parts.data[0].attachments = &carrier.attachments;
         }
 
         /// Its model, its attachment mounting `gun`'s.
         pub fn build(carrier: *const Carrier, gpa: Allocator, gun: *create.testing.Model) Allocator.Error!Model {
-            return .create(gpa, &carrier.source, &carrier.loaded, .{ .mounts = mountsOf(gun) });
+            return carrier.parts.model(gpa, .{ .mounts = gun.mounts() });
         }
     };
 };
@@ -3325,7 +3540,7 @@ test "Model.placeFor" {
     // With no pose it stands at its origin in its parent, unturned.
     const rest = model.placeFor(1, .{});
     try std.testing.expect(math.length(rest.position - @as(Vector, .{ 0, 0, 100 })) < 1e-4);
-    for (rest.orientation, math.identity) |got, want| try std.testing.expectApproxEqAbs(want, got, 1e-6);
+    try math.testing.expectMatrixWithin(math.identity, rest.orientation, 1e-6);
     // Turned, it turns in its own frame, about its mount point, which stays where it is.
     const angles: Vector = .{ 0, 0.5, 0 };
     const turned = model.placeFor(1, .{ .angles = angles });
@@ -3394,6 +3609,30 @@ test "Model.partPlace" {
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 200 }), model.partPlace(2, .now).position);
 }
 
+test "Model.hangFromRoot" {
+    const gpa = std.testing.allocator;
+    const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
+    const mesh = try srmesh.testing.square(gpa);
+    defer mesh.deinit(gpa);
+    var animated: Animated = undefined;
+    animated.init(&mesh, &.{});
+    var model: Model = try .create(gpa, &animated.source, &animated.loaded, .{});
+    defer model.deinit(gpa);
+    testingLink(&model);
+
+    // The last part, its frame turned with the middle one's a quarter about Y, stands where it
+    // stood once it hangs from the root, now and next, and the middle one carries it no more.
+    model.parts[1].turn = math.rotation(.y, std.math.pi / 2.0);
+    const stood = model.frameAt(2, .{});
+    model.hangFromRoot(2);
+    try std.testing.expectEqual(null, model.parts[2].parent);
+    try std.testing.expectEqual(stood, model.frameAt(2, .{}));
+    try std.testing.expectEqual(stood, model.partPlace(2, .now));
+    try std.testing.expectEqual(stood, model.partPlace(2, .next));
+    model.parts[1].origin = @splat(0);
+    try std.testing.expectEqual(stood, model.frameAt(2, .{}));
+}
+
 test loseComponents {
     const gpa = std.testing.allocator;
     const guns = @import("guns.zig");
@@ -3405,7 +3644,7 @@ test loseComponents {
     try fixture.init(gpa);
     defer fixture.deinit(gpa);
     _ = try mission.add(.kamov, @splat(0));
-    const index = try create.createObject(mission.objects, &mission.tables, fixture.types(), null, .predator, 0, @splat(0), &mission.random);
+    const index = try mission.addWith(fixture.types(), .predator, @splat(0));
     const slot = &mission.objects.slots[index];
 
     // Its model, three parts hanging from the root: a comms transmitter; its damaged model, hidden;
@@ -3481,7 +3720,7 @@ test "a ship that lists components ends with its hull" {
     _ = try mission.add(.kamov, @splat(0));
 
     // Any ship: the hull is taken out with the rest of its assembly, and the ship ends.
-    const ship = try create.createObject(mission.objects, &mission.tables, fixture.types(), null, .predator, 0, @splat(0), &mission.random);
+    const ship = try mission.addWith(fixture.types(), .predator, @splat(0));
     const hull = &mission.objects.slots[ship].model.?;
     hull.parts[0].armor = -1;
     hull.destroyed = true;
@@ -3491,7 +3730,7 @@ test "a ship that lists components ends with its hull" {
 
     // A capital ship's routine ends it there instead, leaving the hull and its root's flag, and
     // it drifts on unpowered.
-    const capital = try create.createObject(mission.objects, &mission.tables, fixture.types(), null, .badanov, 0, .{ 0, 0, 5000 }, &mission.random);
+    const capital = try mission.addWith(fixture.types(), .badanov, .{ 0, 0, 5000 });
     const wreck = &mission.objects.slots[capital].model.?;
     wreck.parts[0].armor = -1;
     wreck.destroyed = true;
@@ -3544,7 +3783,7 @@ test "a segment strikes a part of a model mounted on another" {
     carrier.init(.{ 0, 0, 1000 });
     var built = try carrier.build(gpa, &gun);
     defer built.deinit(gpa);
-    gameobj.linkParts(&built, &carrier.source);
+    gameobj.linkParts(&built, &carrier.parts.source);
     // The carrier's box reaches the mount, as its object's does once its parts are summed.
     built.bounds = .{ .{ -200, -200, -200 }, .{ 200, 200, 1200 } };
 
@@ -3607,6 +3846,57 @@ test "Model.play" {
     try std.testing.expectEqual(0, a.track);
     model.play(1, .deploy, 0, .once, 2);
     try std.testing.expectEqual(Model.Mode.none, a.mode);
+}
+
+test "Model.playNamedTree" {
+    const gpa = std.testing.allocator;
+    var tracks = [_]shp.Track{
+        .{ .clip = testingClip(100, .none, "idle"), .keyframes = &.{}, .events = &.{} },
+        .{ .clip = testingClip(400, .loop, "cabin turn"), .keyframes = &.{}, .events = &.{} },
+    };
+    var parts: testing.Parts(4) = undefined;
+    parts.init();
+    parts.data[0].tracks = &tracks;
+    parts.data[2].tracks = tracks[1..];
+    parts.data[3].tracks = tracks[1..];
+    var model = try parts.create(gpa);
+    defer model.deinit(gpa);
+    model.parts[3].removed = true;
+    // Every part with the track plays it, from the time given, at the speed given; the one
+    // without it plays nothing, and nor does the one taken out, though it has it.
+    model.playNamedTree("Cabin Turn", 400, .once, -4.5);
+    for ([_]usize{ 0, 2 }, [_]usize{ 1, 0 }) |index, track| {
+        const a = &model.parts[index].animation;
+        try std.testing.expectEqual(track, a.track);
+        try std.testing.expectEqual(Model.Mode.once, a.mode);
+        try std.testing.expectEqual(400, a.time);
+        try std.testing.expectEqual(-4.5, a.speed);
+    }
+    for ([_]usize{ 1, 3 }) |index| try std.testing.expectEqual(Model.Mode.none, model.parts[index].animation.mode);
+    // A time below zero keeps each part's own.
+    model.parts[2].animation.time = 150;
+    model.playNamedTree("cabin turn", Model.keep_time, null, 4);
+    try std.testing.expectEqual(400, model.parts[0].animation.time);
+    try std.testing.expectEqual(150, model.parts[2].animation.time);
+    try std.testing.expectEqual(Model.Mode.loop, model.parts[2].animation.mode);
+}
+
+test "Model.showNamed" {
+    const gpa = std.testing.allocator;
+    var parts: testing.Parts(2) = undefined;
+    parts.init();
+    for (&parts.data, [_][]const u8{ "Cargo pod", "Cargo pod" }) |*data, name| @memcpy(data.part.name_bytes[0..name.len], name);
+    var model = try parts.create(gpa);
+    defer model.deinit(gpa);
+    // The first part of the name hides and shows again; the second is left as it is, and a name
+    // no part has changes nothing.
+    model.hideNamed("Cargo pod");
+    try std.testing.expect(model.parts[0].hidden and !model.parts[1].hidden);
+    model.parts[1].hidden = true;
+    model.showNamed("Cargo pod");
+    try std.testing.expect(!model.parts[0].hidden and model.parts[1].hidden);
+    model.hideNamed("Cabin");
+    try std.testing.expect(!model.parts[0].hidden);
 }
 
 /// Keeps the events a model's tracks set off.
@@ -3738,7 +4028,7 @@ test "Model.frame" {
     model.frame(0.5);
     const offset = (a.next.pose.offset - a.now.pose.offset) * @as(Vector, @splat(0.5)) + a.now.pose.offset;
     const short = model.placeFor(1, .{ .angles = .{ 0, -std.math.pi, 0 }, .offset = offset });
-    for (short.orientation, part.turn) |want, got| try std.testing.expectApproxEqAbs(want, got, 1e-5);
+    try math.testing.expectMatrixWithin(short.orientation, part.turn, 1e-5);
 
     // The part it is linked to hidden, it is framed still, a child of the root as every part is;
     // hidden itself, it keeps its frame.
@@ -3775,6 +4065,40 @@ test "Model.assembly" {
     try std.testing.expectEqual(null, each.next());
 }
 
+test "Model.RootAttachments" {
+    const gpa = std.testing.allocator;
+    // Three parts hanging from the root: a gun's and a missile's on the first, none on the second,
+    // and two missiles' on the third.
+    var attachments: [4]shp.Attachment = @splat(std.mem.zeroes(shp.Attachment));
+    for (&attachments, [_]shp.Attachment.Kind{ .gun, .missile, .missile, .missile }) |*attachment, kind| attachment.kind = kind;
+    var parts: testing.Parts(3) = undefined;
+    parts.init();
+    parts.data[0].attachments = attachments[0..2];
+    parts.data[2].attachments = attachments[2..4];
+    var model = try parts.create(gpa);
+    defer model.deinit(gpa);
+    const Missiles = Model.RootAttachments(struct {
+        fn passes(attachment: shp.Attachment, _: usize) bool {
+            return attachment.kind == .missile;
+        }
+    }.passes);
+
+    // Each that passes in turn, with its part and its place among the part's attachments.
+    var each: Missiles = .of(&model);
+    for ([_][2]usize{ .{ 0, 1 }, .{ 2, 0 }, .{ 2, 1 } }) |expected| {
+        const found = each.next().?;
+        try std.testing.expectEqual(expected, [2]usize{ found.part, found.index });
+        try std.testing.expectEqual(&model.parts[expected[0]].attachments[expected[1]], found.attachment);
+    }
+    try std.testing.expectEqual(null, each.next());
+    try std.testing.expectEqual(2, Missiles.nth(&model, 1).?.part);
+    try std.testing.expectEqual(null, Missiles.nth(&model, 3));
+    // A part taken out of its model holds none.
+    model.parts[0].removed = true;
+    try std.testing.expectEqual(Missiles.Point{ .part = 2, .index = 0, .attachment = &model.parts[2].attachments[0] }, Missiles.nth(&model, 0).?);
+    try std.testing.expectEqual(null, Missiles.nth(&model, 2));
+}
+
 test "Model.rootChild" {
     const gpa = std.testing.allocator;
     const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
@@ -3791,6 +4115,23 @@ test "Model.rootChild" {
     try std.testing.expectEqual(null, model.rootChild(3));
     model.parts[2].removed = true;
     try std.testing.expectEqual(null, model.rootChild(2));
+}
+
+test "Model.rootChildren" {
+    const gpa = std.testing.allocator;
+    var parts: testing.Parts(3) = undefined;
+    parts.init();
+    var model = try parts.create(gpa);
+    defer model.deinit(gpa);
+    model.parts[1].removed = true;
+    // Each part in the list in turn, with its number; none taken out.
+    var children = model.rootChildren();
+    for ([_]usize{ 0, 2 }) |index| {
+        const child = children.next().?;
+        try std.testing.expectEqual(index, child.index);
+        try std.testing.expectEqual(&model.parts[index], child.part);
+    }
+    try std.testing.expectEqual(null, children.next());
 }
 
 test partEntry {
@@ -3837,7 +4178,7 @@ test "Node.framePlace" {
     const quarter = root.framePlace(0.25).?;
     try std.testing.expectEqual(@as(Vector, .{ 50, 0, 0 }), quarter.position);
     const turned = math.rotation(.y, 0.5);
-    for (turned, quarter.orientation) |want, got| try std.testing.expectApproxEqAbs(want, got, 1e-5);
+    try math.testing.expectMatrixWithin(turned, quarter.orientation, 1e-5);
 }
 
 test stepFraction {

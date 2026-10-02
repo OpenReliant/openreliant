@@ -66,7 +66,7 @@ pub const Scene = struct {
 
     /// What the small form shows now. A cloaked hostile target closes it.
     pub fn small(scene: Scene) ?Small {
-        const index = scene.state.target orelse return null;
+        const index = (scene.state.target orelse return null).slot;
         const slot = &scene.all.slots[index];
         if (slot.object.flags.cloaked and slot.object.side == .hostile) {
             scene.state.windows.close(.target);
@@ -77,7 +77,7 @@ pub const Scene = struct {
 
     /// What the large form shows now.
     pub fn large(scene: Scene) ?Large {
-        const index = scene.state.target orelse return null;
+        const index = (scene.state.target orelse return null).slot;
         const slot = &scene.all.slots[index];
         const shown_subtarget = switch (slot.object.type) {
             .proximity_mine, .black_box => false,
@@ -342,7 +342,7 @@ test "the forms show the target" {
     const sabre = try mission.add(.sabre, .{ 0, 0, 3400 });
     const slot = mission.slot(sabre);
     slot.object.speed = 212.6;
-    var state: hud.State = .{ .target = sabre };
+    var state: hud.State = .{ .target = .{ .target = .at(sabre, null), .slot = sabre } };
     const scene: Scene = .{ .state = &state, .all = all };
 
     // Its type's name, its range in whole kilometres and its speed.
@@ -365,7 +365,7 @@ test "the forms show the target" {
     part.armor = 50;
     slot.components[0] = &part;
     slot.object.component_count = 1;
-    mission.slot(player).orders[0].target = .{ .kind = .ship, .index = @intCast(sabre), .component = 0 };
+    mission.slot(player).orders[0].target = .at(sabre, 0);
     const shown = scene.large().?.subtarget.?;
     try std.testing.expectEqual(named(.engine).?, shown.named);
     try std.testing.expectEqual(armor_bar.rows - 10, shown.unlit.?);

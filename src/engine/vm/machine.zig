@@ -1,15 +1,19 @@
 //! The script VM at run time: the VM's globals, its threads, the interpreter, the clock and the
-//! timers, and the commands that live beside them (the timers', `Wait`, `InterruptTriggerCode` and
-//! `KillAllScriptExecutionExecptMe`). [docs/engine/script-vm.md](../../../docs/engine/script-vm.md)
-//! describes the VM.
+//! timers, `for_each_ship`, and the commands that live beside them (the timers', `Wait`,
+//! `InterruptTriggerCode`, `KillAllScriptExecutionExecptMe`, `OpenInstrument` and
+//! `CloseInstrument`). [docs/engine/script-vm.md](../../../docs/engine/script-vm.md) describes the
+//! VM.
 //!
 //! Where the game holds an address on a thread's stack, OpenReliant holds where the place lies in
 //! the mission image, which holds the script, its strings and every record a script names: a
 //! ship's, a flight group's, a global's. The instruction pointer and a block's end are such places
-//! too, and a thread's frame is its place on the thread's own stack. Where the game would fault, or
-//! read past a table, OpenReliant ends the thread and logs why.
+//! too, and a thread's frame is its place on the thread's own stack. The bound mission finds a
+//! record by its place and reads the image (`bind.Mission.shipIndex`, `bind.Mission.byte` and the
+//! rest). Where the game would fault, or read past a table, OpenReliant ends the thread and logs
+//! why.
 //!
-//! Not ported: the script debugger that `vm_run` serves.
+//! Not ported: the script debugger that `vm_run` serves
+//! ([#539](https://github.com/vdmkenny/openreliant/issues/539)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -21,15 +25,43 @@ const libcmt = @import("../libcmt.zig");
 const math = @import("../surrender/math.zig");
 const vm = @import("../vm.zig");
 const executor = @import("../game/executor.zig");
-const bind = @import("../game/mission/bind.zig");
+const mission = @import("../game/mission.zig");
+const bind = mission.bind;
 const aigeneric = @import("../game/aigeneric.zig");
+const create = @import("../game/create.zig");
+const gameobj = @import("../game/gameobj.zig");
+const hud = @import("../game/hud.zig");
 
-/// The value `push_null` pushes: no object.
-pub const none: u32 = 0xFFFF_FFFF;
+/// The value `push_null` pushes: no object (`0x0045C4B5`), which the mission's lookups take for
+/// none (`bind.Mission.named`).
+pub const none: u32 = bind.Mission.null_place;
 
 /// A command as OpenReliant runs it. Its result is stored in the thread's result, and a zero result
-/// ends the thread's run, which a waiting command gives.
+/// ends the thread's run, which a waiting command gives: most give `run_on` or `yield`.
 pub const Implementation = *const fn (call: Call) u32;
+
+/// The work of a command that does nothing outside a game and always lets its thread run on
+/// (`run_on`): the command's call, and the game.
+pub const GameImplementation = *const fn (call: Call, game: aigeneric.Context) void;
+
+/// The result of a command that lets its thread run on, as the game's commands end (`MOV EAX,0x1`,
+/// such as `0x00458119` in `cmd_WaitForSpeech`).
+pub const run_on: u32 = 1;
+
+/// The result of a command that ends its thread's run until the thread runs next, as a command
+/// that waits ends (`XOR EAX,EAX`, such as `0x00458115` in `cmd_WaitForSpeech`).
+pub const yield: u32 = 0;
+
+/// The size of the `command` instruction: its opcode and its operand, the command's number.
+pub const command_size: u32 = size: {
+    const info = dte.Opcode.command.info() orelse @compileError("the VM has no command opcode");
+    break :size 1 + info.operands;
+};
+
+comptime {
+    // The game's commands that wait step back over themselves by 2 (`againItself`).
+    assert(command_size == 2);
+}
 
 /// What a command runs with.
 pub const Call = struct {
@@ -45,7 +77,14 @@ pub const Call = struct {
     pub fn again(call: Call, back: u32) u32 {
         const thread = &call.machine.threads[call.thread];
         if (thread.ip) |at| thread.ip = at -% back;
-        return 0;
+        return yield;
+    }
+
+    /// `again`, back over the command instruction alone (`command_size`), as `WaitForSpeech`,
+    /// `WaitForMovie` and `WaitForDirectorCam` run again (`ADD EAX,-0x2` at `0x00458110`,
+    /// `0x0045818B` and `0x00459C9C`).
+    pub fn againItself(call: Call) u32 {
+        return call.again(command_size);
     }
 };
 
@@ -84,6 +123,14 @@ pub const Running = struct {
     frame: ?u8 = null,
     /// The first free place of its stack (`Thread.stack_top`).
     top: u8 = 0,
+    /// The index of the trigger that started it in the trigger list, whole, where one did; the
+    /// record keeps its low byte (`Thread.trigger`).
+    trigger: ?usize = null,
+
+    /// Whether its slot is free (`ip`).
+    pub fn isFree(thread: *const Running) bool {
+        return thread.ip == null;
+    }
 
     fn push(thread: *Running, value: u32) Fault!void {
         if (thread.top >= thread.record.stack.len) return error.StackOverflow;
@@ -118,6 +165,41 @@ pub const Running = struct {
     }
 };
 
+/// A walk of a pool as the game walks its threads and its timers (`vm_threads_run`,
+/// `vm_run_timers`, `cmd_DestroyTimer`, `trigger_thread_running`): each entry that is not free
+/// (`isFree`) in turn, until as many have been given as were in use as the walk began (`count`).
+/// An entry is looked at as the walk reaches it, so one that comes into use in a later slot before
+/// then is given too, and the count the walk began with holds whatever its work does to the pool's.
+pub fn Live(comptime T: type, comptime isFree: fn (*const T) bool) type {
+    return struct {
+        /// The pool itself.
+        entries: []T,
+        /// How many more entries in use the walk gives.
+        left: usize,
+        /// The next entry to look at.
+        at: usize = 0,
+
+        const Walk = @This();
+
+        pub fn init(entries: []T, count: usize) Walk {
+            return .{ .entries = entries, .left = count };
+        }
+
+        /// The next entry in use, and its index in the pool.
+        pub fn next(walk: *Walk) ?struct { *T, usize } {
+            while (walk.left != 0 and walk.at < walk.entries.len) {
+                const index = walk.at;
+                walk.at += 1;
+                const entry = &walk.entries[index];
+                if (isFree(entry)) continue;
+                walk.left -= 1;
+                return .{ entry, index };
+            }
+            return null;
+        }
+    };
+}
+
 /// What the last `select_` opcode chose for `assign` and the compound stores (`vm_store_target`,
 /// `0x00537408`).
 pub const Store = union(enum) {
@@ -151,7 +233,7 @@ pub const Tags = struct {
         tags.count = 0;
     }
 
-    /// `0x0045D8E0`: the last tag taken off the list.
+    /// `vm_tag_pop` (`0x0045D8E0`): the last tag taken off the list.
     fn pop(tags: *Tags) void {
         if (tags.count > 0) tags.count -= 1;
     }
@@ -159,6 +241,14 @@ pub const Tags = struct {
 
 /// A free timer, as `mission_script_start` fills the table: every byte `0xFF`.
 const free_timer = std.mem.bytesToValue(vm.Timer, &([_]u8{0xFF} ** @sizeOf(vm.Timer)));
+
+comptime {
+    assert(free_timer.isFree());
+}
+
+/// What `_unknown_00537401` is set to as the script starts and before every command
+/// (`0x0045CC38`, `0x0045BEDF`).
+const unknown_00537401_reset: u8 = 0xFF;
 
 /// The value `push_percent` scales by (`0x004DC730`), a hundredth as a float rounds it.
 const percent: f32 = 0.01;
@@ -174,7 +264,7 @@ const catalogue_b = [_]struct { name: []const u8, arguments: u8 }{
 
 /// What `command_b` gives: the game calls a stub in place of the command's implementation, which
 /// returns 1 (`0x0045D800`).
-const stub_result = 1;
+const stub_result = run_on;
 
 pub const Machine = struct {
     gpa: Allocator,
@@ -189,27 +279,31 @@ pub const Machine = struct {
     thread_count: u8 = 0,
     /// `vm_finished` (`0x00537574`): set by a `return` at call depth zero.
     finished: bool = false,
-    /// `0x00537410`: set once the pool's first thread finishes.
+    /// `vm_first_finished` (`0x00537410`): set once the pool's first thread finishes.
     first_finished: bool = false,
     store: Store = .none,
     tags: Tags = .{},
     /// `vm_clock` (`0x00538C9C`): seconds of the mission.
     clock: u32 = 0,
-    /// `0x00537580`: set as the clock ticks, until the timers have run for the tick.
+    /// `vm_clock_ticked` (`0x00537580`): set as the clock ticks, until the timers have run for the
+    /// tick.
     ticked: bool = false,
-    /// `0x00537400`: whether the timers run, set as the script starts.
+    /// `vm_timers_running` (`0x00537400`): whether the timers run, set as the script starts.
     timers_running: bool = true,
     /// `vm_timer_table` (`0x00537470`).
     timers: [vm.max_timers]vm.Timer = @splat(free_timer),
     /// `vm_timer_count` (`0x00537468`).
     timer_count: u16 = 0,
     variables: vm.Variables = .{},
-    /// `vm_command_flag` (`0x00537584`): bit 0 of the running command's flags in section 24,
-    /// inverted.
-    command_flag: bool = false,
-    /// `0x00537401`: **Unknown.** Set to `0xFF` as the script starts and before every command.
-    _unknown_00537401: u8 = 0xFF,
-    /// `event_values`: the last events of the conditions that keep them, for each object.
+    /// `vm_command_flag` (`0x00537584`): whether `forEachShip` passes over the players' ships in a
+    /// flight group, as the running command's flags in section 24 have it
+    /// (`dte.CommandFlags.players`, inverted).
+    skips_players: bool = false,
+    /// `0x00537401`: **Unknown.** Set to `unknown_00537401_reset` as the script starts and before
+    /// every command.
+    _unknown_00537401: u8 = unknown_00537401_reset,
+    /// `event_values` (`0x00538CA0`): the last events of the conditions that keep them, for each
+    /// object.
     event_values: []vm.ObjectEvents = &.{},
     /// The commands not ported yet that have run, each logged the first time.
     logged: std.StaticBitSet(executor.commands.table.len) = .initEmpty(),
@@ -218,28 +312,30 @@ pub const Machine = struct {
     /// there is no game, as in a test of the script alone, and the commands that act on it then do
     /// nothing.
     game: ?aigeneric.Context = null,
-    /// `0x00537418`: the first ship the running `forEachShip` has run its command for, which each
-    /// later one's object names (`GameObject._unknown_698`); and `0x00537575`, how many it has.
+    /// `for_each_ship_first` (`0x00537418`): the first ship the running `forEachShip` has run its
+    /// command for, which each later one's object names (`GameObject._unknown_698`); and
+    /// `for_each_ship_count` (`0x00537575`), how many it has.
     walk_first: ?u16 = null,
     walk_count: u8 = 0,
-    /// `0x0052A1E0`: whether the ships `WaitForJumpOrLaunch` walks are still jumping or launching.
+    /// `wait_still_moving` (`0x0052A1E0`): whether the ships `WaitForJumpOrLaunch` walks are still
+    /// jumping or launching.
     still_moving: bool = false,
     /// `condition_verdict` (`0x00525F84`): the condition's handlers' verdict on the event being
     /// raised on a flight group or a squad (`vm.triggers.raiseOnGroups`). While it is false, only
     /// the triggers of the repeat mode the condition exempts answer. Each event raised sets it
     /// again, as the script's start does.
     verdict: bool = true,
-    /// `0x005373F4`: the script's clock when JUMP DRIVE last took a jump or a warp the mission had
-    /// ready, which `WhenPlayerLastJumped` counts from; `never_jumped` until then.
+    /// `vm_last_jump` (`0x005373F4`): the script's clock when JUMP DRIVE last took a jump or a warp
+    /// the mission had ready, which `WhenPlayerLastJumped` counts from; `never_jumped` until then.
     last_jumped: u32 = never_jumped,
     /// Whether a trigger's operand that names nothing has been logged.
     named_nothing: bool = false,
 
-    /// `last_jumped` as the script starts.
+    /// `last_jumped` as the script starts (`0x0045CC2E`).
     pub const never_jumped: u32 = 0xFFFF;
 
-    pub fn init(gpa: Allocator, mission: *bind.Mission, random: *libcmt.Rand) Machine {
-        return .{ .gpa = gpa, .mission = mission, .random = random };
+    pub fn init(gpa: Allocator, bound: *bind.Mission, random: *libcmt.Rand) Machine {
+        return .{ .gpa = gpa, .mission = bound, .random = random };
     }
 
     pub fn deinit(machine: *Machine) void {
@@ -250,15 +346,20 @@ pub const Machine = struct {
     /// events emptied, the clock, the timers, the threads and the tags reset, the handlers' verdict
     /// and the last jump's time too, and the timers set running. Then each start part runs, every
     /// object's triggers are armed, and each ship's Destroyed flag is cleared and its components
-    /// all intact; where a curve starts at the ship, the first such curve's ships are made where
-    /// the start part has not made them (`executor.createCurveShips`).
+    /// all intact. Where a curve starts at the ship, the first such curve's ships are made
+    /// (`0x0045CD71`): the ship it starts at, those its tangents are drawn to, and the ship it ends
+    /// at, each where its slot holds no object made yet, which the start part may have left
+    /// (`executor.createShip`).
+    ///
+    /// **Fix:** the game takes the object past its array for a curve that names no ship;
+    /// OpenReliant passes over it.
     pub fn start(machine: *Machine) !void {
         const file = machine.mission.file;
         machine.gpa.free(machine.event_values);
         machine.event_values = &.{};
         machine.event_values = try machine.gpa.alloc(vm.ObjectEvents, (try file.objects()).len);
         @memset(machine.event_values, std.mem.zeroes(vm.ObjectEvents));
-        machine._unknown_00537401 = 0xFF;
+        machine._unknown_00537401 = unknown_00537401_reset;
         machine.first_finished = false;
         machine.last_jumped = never_jumped;
         machine.verdict = true;
@@ -272,37 +373,38 @@ pub const Machine = struct {
         for (try file.parts()) |part| {
             if (part.flags.start and !part.isEmpty()) machine.runPart(part);
         }
-        const triggers: []align(1) dte.Trigger = @constCast(try file.triggers());
+        const triggers = try machine.mission.triggers();
         for (try file.objects()) |object| {
-            const first = @min(object.first, triggers.len);
-            for (triggers[first..@min(first + object.count, triggers.len)]) |*trigger| trigger.armed = 1;
+            for (vm.triggers.sliceOf(triggers, object).triggers) |*trigger| trigger.armed = 1;
         }
         const curves = try file.curves();
         for (try machine.mission.ships(), 0..) |*ship, index| {
             ship.flags = .{ .destroyed = false, ._unknown = 0 };
-            ship.intact_components = std.math.maxInt(u32);
+            ship.intact_components = dte.Ship.all_intact;
             const game = machine.game orelse continue;
-            const curve = executor.curves.starting(curves, @intCast(index)) orelse continue;
-            executor.createCurveShips(game, machine.mission, curves[curve]);
+            const curve = curves[executor.curves.starting(curves, @intCast(index)) orelse continue];
+            const all = game.world.objects;
+            for ([_]dte.Reference{ curve.start, curve.leaving_handle, curve.arriving_handle, curve.end }) |point| {
+                if (point.index >= all.slots.len or all.slots[point.index].object.created) continue;
+                executor.createShip(game, machine.mission, point.index);
+            }
         }
     }
 
     /// `part_run` (`0x0045BAA0`): runs a part's block at once, on a new thread.
     fn runPart(machine: *Machine, part: dte.Part) void {
-        const script = machine.mission.file.entry(.script);
-        if (part.isEmpty() or !script.isUsed()) return;
-        _ = machine.startThread(@intCast(script.offset + part.start()), null, false, null, null);
+        _ = machine.startThread(machine.mission.blockAt(.script, part.block()), null, false, null, null);
     }
 
     /// `vm_thread_start` (`0x0045B8D0`): starts a thread on `block`, the one at `into` or a free
-    /// one, which runs now unless `deferred`, for the trigger `trigger` where one starts it. None
-    /// starts while 31 run, or on no block.
+    /// one, which runs now unless `deferred`, for the trigger `trigger`, by its index in the
+    /// trigger list, where one starts it. None starts while 31 run, or on no block.
     /// **Fix:** the game takes a free thread past its pool where none is free.
-    pub fn startThread(machine: *Machine, block: ?u32, into: ?u8, deferred: bool, frame: ?u8, trigger: ?u8) ?u8 {
+    pub fn startThread(machine: *Machine, block: ?u32, into: ?u8, deferred: bool, frame: ?u8, trigger: ?usize) ?u8 {
         const at = block orelse return null;
         if (machine.thread_count + 1 >= vm.max_threads) return null;
         const index = into orelse machine.allocThread() orelse return null;
-        const length = machine.halfword(at) catch return null;
+        const length = machine.mission.halfword(at) catch return null;
         const thread = &machine.threads[index];
         thread.ip = at + @sizeOf(u16);
         thread.frame = frame;
@@ -311,15 +413,13 @@ pub const Machine = struct {
         thread.block_end = at + length;
         thread.record.call_depth = 0;
         thread.record.interrupted = false;
-        thread.record.trigger = trigger orelse no_trigger;
-        thread.record._unknown_ac = 0xFF;
+        thread.trigger = trigger;
+        thread.record.trigger = if (trigger) |started| @truncate(started) else vm.Thread.no_trigger;
+        thread.record._unknown_ac = vm.Thread.unknown_ac_start;
         machine.thread_count += 1;
         if (!deferred) machine.runThread(index);
         return index;
     }
-
-    /// The trigger of a thread no trigger started.
-    const no_trigger = 0xFF;
 
     /// `vm_thread_alloc` (`0x0045B960`): the first free thread, its stack emptied.
     pub fn allocThread(machine: *Machine) ?u8 {
@@ -329,6 +429,16 @@ pub const Machine = struct {
             return @intCast(index);
         }
         return null;
+    }
+
+    /// The threads running, from the pool's first (`Live`).
+    pub fn liveThreads(machine: *Machine) Live(Running, Running.isFree) {
+        return .init(&machine.threads, machine.thread_count);
+    }
+
+    /// The timers set, from the table's first (`Live`).
+    fn liveTimers(machine: *Machine) Live(vm.Timer, vm.Timer.isFree) {
+        return .init(&machine.timers, machine.timer_count);
     }
 
     /// `vm_threads_reset` (`0x0045B990`): frees every thread.
@@ -356,44 +466,23 @@ pub const Machine = struct {
     /// on. A thread the pass starts in a later slot runs in it too, while the pass has threads
     /// still to count.
     pub fn runThreads(machine: *Machine) void {
-        const count = machine.thread_count;
-        if (count == 0) return;
-        var counted: u8 = 0;
-        for (0..vm.max_threads) |index| {
-            if (machine.threads[index].ip != null) {
-                if (!machine.threads[index].record.interrupted) machine.runThread(@intCast(index));
-                counted += 1;
-            }
-            if (counted >= count) return;
+        var threads = machine.liveThreads();
+        while (threads.next()) |found| {
+            const thread, const index = found;
+            if (!thread.record.interrupted) machine.runThread(@intCast(index));
         }
-    }
-
-    /// `vm_clock_tick` (`0x00458910`): a second of the mission has passed. The game's timer calls it
-    /// once a second while the game is not paused.
-    ///
-    /// **Improvement:** OpenReliant ticks it from the game's own clock, once every
-    /// `main.ticks_per_second` ticks the pause does not hold, in the place of a timer of its own.
-    pub fn tick(machine: *Machine) void {
-        machine.ticked = true;
-        machine.clock +%= 1;
     }
 
     /// `vm_run_timers` (`0x0045D140`), once the clock has ticked (`process_mission`): each timer
     /// counts down once a clock value, and at zero starts its part on a new thread, then reloads
     /// its countdown, or after its last firing is destroyed.
     pub fn runTimers(machine: *Machine) void {
-        const count = machine.timer_count;
-        if (count == 0) return;
-        var counted: u16 = 0;
-        for (&machine.timers) |*timer| {
-            if (timer.part != -1) {
-                if (timer.last_tick != machine.clock) {
-                    timer.countdown -%= 1;
-                    if (timer.countdown == 0) machine.fire(timer);
-                }
-                counted += 1;
-            }
-            if (counted >= count) return;
+        var timers = machine.liveTimers();
+        while (timers.next()) |found| {
+            const timer = found[0];
+            if (timer.last_tick == machine.clock) continue;
+            timer.countdown -%= 1;
+            if (timer.countdown == 0) machine.fire(timer);
         }
     }
 
@@ -427,8 +516,8 @@ pub const Machine = struct {
         const id: u16 = @truncate(call.args[0]);
         machine.destroyTimers(id);
         const timer = for (&machine.timers) |*timer| {
-            if (timer.part == -1) break timer;
-        } else return 1;
+            if (timer.isFree()) break timer;
+        } else return run_on;
         machine.timer_count += 1;
         timer.id = id;
         timer.part = @bitCast(call.args[1]);
@@ -437,28 +526,23 @@ pub const Machine = struct {
         if (timer.period == 1) timer.countdown += 1;
         timer.last_tick = 0;
         timer.remaining = @truncate(call.args[3]);
-        return 1;
+        return run_on;
     }
 
     /// `cmd_DestroyTimer` (`0x0045D290`, command `0x02`): destroys every timer with an ID.
     pub fn destroyTimer(call: Call) u32 {
         call.machine.destroyTimers(@truncate(call.args[0]));
-        return 1;
+        return run_on;
     }
 
+    /// Every timer set with the ID `id` is freed.
     fn destroyTimers(machine: *Machine, id: u16) void {
-        const count = machine.timer_count;
-        if (count == 0) return;
-        var counted: u16 = 0;
-        for (&machine.timers) |*timer| {
-            if (timer.part != -1) {
-                if (timer.id == id) {
-                    timer.part = -1;
-                    machine.timer_count -= 1;
-                }
-                counted += 1;
-            }
-            if (counted >= count) return;
+        var timers = machine.liveTimers();
+        while (timers.next()) |found| {
+            const timer = found[0];
+            if (timer.id != id) continue;
+            timer.free();
+            machine.timer_count -= 1;
         }
     }
 
@@ -467,14 +551,14 @@ pub const Machine = struct {
     pub fn wait(call: Call) u32 {
         const machine = call.machine;
         machine.threads[call.thread].record.wake_time = call.args[0] +% machine.clock;
-        return 0;
+        return yield;
     }
 
     /// `cmd_InterruptTriggerCode` (`0x0045D450`, command `0x17`): the thread stops until its
     /// trigger fires again.
     pub fn interruptTriggerCode(call: Call) u32 {
         call.machine.threads[call.thread].record.interrupted = true;
-        return 0;
+        return yield;
     }
 
     /// `cmd_KillAllScriptExecutionExecptMe` (`0x0045D990`, command `0x51`): every thread but the
@@ -486,7 +570,42 @@ pub const Machine = struct {
             thread.ip = null;
             machine.thread_count -= 1;
         }
-        return 1;
+        return run_on;
+    }
+
+    /// The display, and its window a command's argument numbers, in a game with a display and
+    /// where the argument numbers one of its windows.
+    fn instrument(game: aigeneric.Context, value: u32) ?struct { *hud.State, hud.windows.Window } {
+        const display = game.world.display orelse return null;
+        const number = std.math.cast(u4, value) orelse return null;
+        return .{ display, std.enums.fromInt(hud.windows.Window, number) orelse return null };
+    }
+
+    /// `cmd_OpenInstrument` (`0x0045D9D0`, command `0x40`): the display's window the argument
+    /// numbers opens (`hud.windows.Windows.open`) and is held open until the script closes it. The
+    /// radio's menu, window 11, starts from its top (`videoreports.menu.Menu.start`), and opening
+    /// the objectives, window 10, closes the wing status window where it is up. **Unknown:** the
+    /// byte after the window's hold (`+0x25`), which the command clears. **Unverified:** it lies
+    /// among the interpreter's code, after `cmd_KillAllScriptExecutionExecptMe`, as
+    /// `CloseInstrument` does, rather than in the Executor's.
+    ///
+    /// **Fix:** the game opens a window past its fifteen from past its table; OpenReliant opens
+    /// none.
+    pub fn openInstrument(call: Call, game: aigeneric.Context) void {
+        const display, const window = instrument(game, call.args[0]) orelse return;
+        const windows = &display.windows;
+        _ = windows.open(window, false);
+        windows.status.getPtr(window).held = true;
+        if (window == .comms) game.world.player.menu.start(game);
+        if (window == .objectives and windows.up(.wing_status)) windows.close(.wing_status);
+    }
+
+    /// `cmd_CloseInstrument` (`0x0045DA30`, command `0x41`): the display's window the argument
+    /// numbers closes (`hud.windows.Windows.close`), held open no more.
+    pub fn closeInstrument(call: Call, game: aigeneric.Context) void {
+        const display, const window = instrument(game, call.args[0]) orelse return;
+        display.windows.close(window);
+        display.windows.status.getPtr(window).held = false;
     }
 
     /// `vm_argument_component` (`0x0045D950`): the component `push_component` named for the
@@ -499,9 +618,9 @@ pub const Machine = struct {
         return null;
     }
 
-    /// `0x0045D910`: whether `component` is one that `push_component` named for the running
-    /// command's arguments, any of them; or, where it names none of them, the object itself
-    /// (`dte.Trigger.whole_object`).
+    /// `vm_tag_matches` (`0x0045D910`): whether `component` is one that `push_component` named for
+    /// the running command's arguments, any of them; or, where it names none of them, the object
+    /// itself (`dte.Trigger.whole_object`).
     pub fn tagged(machine: *const Machine, component: u8) bool {
         for (machine.tags.tags[0..machine.tags.count]) |tag| {
             if (tag.component == component) return true;
@@ -509,173 +628,106 @@ pub const Machine = struct {
         return component == dte.Trigger.whole_object;
     }
 
-    // --- The mission's records, as the script names them ------------------------------------
-
-    /// `0x00453200`: the object ID of the ship, flight group or squad whose record lies at
-    /// `place`, which the record starts with. **Fix:** the game reads it wherever `place` points;
-    /// OpenReliant gives none for none, and for a place outside the image.
-    pub fn objectId(machine: *Machine, place: u32) ?u16 {
-        if (place == 0 or place == none or place == no_record) return null;
-        return machine.halfword(place) catch null;
-    }
-
-    /// `ship_index` (`0x004531C0`): the index among the mission's ships of the ship at `place`,
-    /// the value the script names it by; null for none, zero, `none` or `0xFFFF`, which the game
-    /// gives as `0xFFFF`. Like the game, it takes any other place for a ship's.
-    pub fn shipIndex(machine: *const Machine, place: u32) ?u16 {
-        return machine.recordIndex(.ships, place);
-    }
-
-    /// `flight_group_index` (`0x00452060`): the same for a flight group.
-    pub fn flightGroupIndex(machine: *const Machine, place: u32) ?u16 {
-        return machine.recordIndex(.flight_groups, place);
-    }
-
-    /// `squad_index` (`0x00453070`): the same for a squad.
-    pub fn squadIndex(machine: *const Machine, place: u32) ?u16 {
-        return machine.recordIndex(.squads, place);
-    }
-
-    /// `0x004524E0`: the same for a curve.
-    pub fn curveIndex(machine: *const Machine, place: u32) ?u16 {
-        return machine.recordIndex(.curves, place);
-    }
-
-    fn recordIndex(machine: *const Machine, section: dte.Section, place: u32) ?u16 {
-        if (place == 0 or place == none or place == no_record) return null;
-        const offset = machine.mission.file.entry(section).offset;
-        return @truncate((place -% offset) / section.stride().?);
-    }
-
-    /// The value the game gives a record index for none, and takes as none.
-    const no_record = 0xFFFF;
-
-    /// `record_kind` (`0x00453590`): whether `place` is a ship's, a flight group's or a squad's,
-    /// taking the place just past a section's last record for one of its own, as the game does;
-    /// null for anything else.
-    pub fn recordKind(machine: *const Machine, place: u32) ?dte.Object.Kind {
-        const file = machine.mission.file;
-        for ([_]struct { dte.Section, dte.Object.Kind }{
-            .{ .ships, .ship },
-            .{ .flight_groups, .flight_group },
-            .{ .squads, .squad },
-        }) |pair| {
-            const entry = file.entry(pair[0]);
-            if (place >= entry.offset and place <= entry.offset + @as(u32, entry.count) * pair[0].stride().?) return pair[1];
-        }
-        return null;
-    }
-
-    /// Whether `place` lies among the records section `section` holds.
-    fn holds(machine: *const Machine, section: dte.Section, place: u32) bool {
-        const entry = machine.mission.file.entry(section);
-        return entry.count != 0 and place >= entry.offset and place < entry.offset + @as(u32, entry.count) * section.stride().?;
-    }
-
     /// A command's work for each ship `forEachShip` runs it for: the command's call, with its
-    /// arguments after the first, and the ship by its index among the mission's ships.
-    pub const ShipImplementation = *const fn (call: Call, ship: u16) void;
+    /// arguments after the first, and the ship.
+    pub const ShipImplementation = *const fn (call: Call, ship: Ship) void;
+
+    /// A ship `forEachShip` runs a command for: the game, the ship by its index among the mission's
+    /// ships, and its object's slot.
+    pub const Ship = struct {
+        game: aigeneric.Context,
+        index: u16,
+        slot: *create.Slot,
+    };
 
     /// `for_each_ship` (`0x0045D460`): runs `each` for each ship of the ship, flight group or squad
     /// the command's first argument names, with its arguments after the first. A flight group's
     /// ships run in the mission's order, and a squad's members in theirs, a member that is a flight
     /// group or a squad for each of its ships, one that names a component of a ship with the
     /// component tagged on the first argument (`argumentComponent`). While the command's flag is
-    /// set (`command_flag`), the players' ships in a flight group are passed over. Each ship's
+    /// set (`skips_players`), the players' ships in a flight group are passed over. Each ship's
     /// object names the first ship the walk ran for (`GameObject._unknown_698`), or none for the
     /// first. Nothing runs without a game.
     pub fn forEachShip(call: Call, each: ShipImplementation) void {
         const machine = call.machine;
-        if (machine.game == null or call.args.len == 0) return;
+        const game = machine.game orelse return;
+        if (call.args.len == 0) return;
         machine.walk_first = null;
         machine.walk_count = 0;
         const rest: Call = .{ .machine = machine, .thread = call.thread, .args = call.args[1..] };
-        machine.walkEntity(rest, call.args[0], each, 0) catch |fault| {
+        machine.walkEntity(rest, game, call.args[0], each, 0) catch |fault| {
             log.warn("a command's ships are walked no further: {s}", .{@errorName(fault)});
         };
     }
 
-    /// `for_each_ship`'s walk of `entity` (`0x0045D480`), `depth` squads down.
+    /// `for_each_ship`'s walk of `entity` (`0x0045D480`), `depth` squads down, in `game`. A squad's
+    /// members run from the first its record at `entity` names (`bind.Mission.squadMembersFrom`).
     ///
     /// **Fix:** the game walks a squad that holds itself round for ever, and walks a member of the
     /// object table no record stands for from address zero; OpenReliant stops once the walk has
     /// gone down more squads than the mission has, and passes over the member.
-    fn walkEntity(machine: *Machine, call: Call, entity: u32, each: ShipImplementation, depth: usize) Fault!void {
-        if (entity == 0) return;
-        if (machine.holds(.ships, entity)) return machine.walkShip(call, entity, each);
-        if (machine.holds(.flight_groups, entity)) return machine.walkGroup(call, entity, each);
-        if (!machine.holds(.squads, entity)) return;
-        const squads = try machine.records(dte.Squad, .squads);
+    fn walkEntity(machine: *Machine, call: Call, game: aigeneric.Context, entity: u32, each: ShipImplementation, depth: usize) Fault!void {
+        if (entity == bind.Mission.no_place) return;
+        if (machine.mission.holds(.ships, entity)) return machine.walkShip(call, game, entity, each);
+        if (machine.mission.holds(.flight_groups, entity)) return machine.walkGroup(call, game, try machine.groupAt(entity), each);
+        if (!machine.mission.holds(.squads, entity)) return;
+        const squads = try machine.mission.recordsIn(dte.Squad, .squads);
         if (depth > squads.len) return error.SquadCycle;
-        // The game takes a squad whose first member's low byte is `0xFF` for one with none.
-        const first = try machine.halfword(entity + @offsetOf(dte.Squad, "first_member"));
-        if (first & 0xFF == 0xFF) return;
-        const own = machine.squadIndex(entity) orelse return;
-        const members = machine.mission.file.entry(.squad_members);
-        const objects = try machine.records(dte.Object, .objects);
-        const end = members.offset + @as(u32, members.count) * @sizeOf(dte.SquadMember);
-        var member = members.offset + @as(u32, first) * @sizeOf(dte.SquadMember);
-        while (member < end) : (member += @sizeOf(dte.SquadMember)) {
-            if (try machine.halfword(member + @offsetOf(dte.SquadMember, "squad")) != own) return;
-            const id = try machine.halfword(member + @offsetOf(dte.SquadMember, "object_id"));
-            if (id >= objects.len) continue;
-            const record = machine.mission.records[id] orelse continue;
-            switch (objects[id].kind) {
-                .ship => {
-                    const ship = switch (record) {
-                        .ship => |at| machine.recordPlace(.ships, at),
-                        else => continue,
-                    };
-                    const component = try machine.byte(member + @offsetOf(dte.SquadMember, "component"));
-                    const names_one = component != dte.Trigger.whole_object;
-                    if (names_one) machine.tags.add(component, machine.threads[call.thread].top);
-                    try machine.walkShip(call, ship, each);
-                    if (names_one) machine.tags.pop();
-                },
-                .flight_group => switch (record) {
-                    .flight_group => |at| try machine.walkGroup(call, machine.recordPlace(.flight_groups, at), each),
-                    else => {},
-                },
-                .squad => switch (record) {
-                    .squad => |at| try machine.walkEntity(call, machine.recordPlace(.squads, at), each, depth + 1),
-                    else => {},
-                },
-                _ => {},
-            }
+        // The game takes a squad whose first member's low byte is `no_member_low` for one with
+        // none.
+        const first_member = entity + @offsetOf(dte.Squad, "first_member");
+        if (try machine.mission.byte(first_member) == no_member_low) return;
+        const own = machine.mission.squadIndex(entity) orelse bind.Mission.no_record;
+        const first = try machine.mission.halfword(first_member);
+        var members = machine.mission.squadMembersFrom(own, first);
+        while (members.next()) |member| switch (member) {
+            .ship => |ship| {
+                if (ship.component) |component| machine.tags.add(component, machine.threads[call.thread].top);
+                try machine.walkShip(call, game, machine.mission.recordPlace(.ships, ship.index), each);
+                if (ship.component != null) machine.tags.pop();
+            },
+            .flight_group => |group| try machine.walkGroup(call, game, group, each),
+            .squad => |inner| try machine.walkEntity(call, game, machine.mission.recordPlace(.squads, inner), each, depth + 1),
+        };
+    }
+
+    /// The low byte of a squad's `first_member` that `for_each_ship` takes for a squad with no
+    /// members (`0x0045D594`).
+    const no_member_low: u8 = 0xFF;
+
+    /// The flight group at `place`, as far as `for_each_ship` reads it, wherever `place` lies among
+    /// the flight groups (`0x0045D4F8`): its count of ships and where the first lies in the list
+    /// binding the mission made.
+    fn groupAt(machine: *Machine, place: u32) Fault!dte.FlightGroup {
+        var group = std.mem.zeroes(dte.FlightGroup);
+        group.ship_count = try machine.mission.byte(place + @offsetOf(dte.FlightGroup, "ship_count"));
+        group.first_ship = try machine.mission.word(place + @offsetOf(dte.FlightGroup, "first_ship"));
+        return group;
+    }
+
+    /// Each ship of flight group `group`, as binding the mission listed them
+    /// (`bind.Mission.groupShips`), the players' ones passed over while the command's flag says
+    /// so (`skips_players`).
+    fn walkGroup(machine: *Machine, call: Call, game: aigeneric.Context, group: dte.FlightGroup, each: ShipImplementation) Fault!void {
+        const players = game.world.objects.players;
+        for (machine.mission.groupShips(group)) |ship| {
+            if (machine.skips_players and ship < players) continue;
+            try machine.walkShip(call, game, machine.mission.recordPlace(.ships, ship), each);
         }
     }
 
-    /// Each ship of the flight group at `group`, as binding the mission listed them, the players'
-    /// ones passed over while the command's flag is set.
-    ///
-    /// **Fix:** the game reads a group's list past the end where its first ship's place runs past
-    /// it; OpenReliant stops there.
-    fn walkGroup(machine: *Machine, call: Call, group: u32, each: ShipImplementation) Fault!void {
-        const count = try machine.byte(group + @offsetOf(dte.FlightGroup, "ship_count"));
-        const first = try machine.word(group + @offsetOf(dte.FlightGroup, "first_ship"));
-        const listed = machine.mission.group_ships;
-        const players = machine.game.?.world.objects.players;
-        for (0..count) |n| {
-            const at = @as(usize, first) + n;
-            if (at >= listed.len) return;
-            const ship = listed[at];
-            if (machine.command_flag and ship < players) continue;
-            try machine.walkShip(call, machine.recordPlace(.ships, ship), each);
-        }
-    }
-
-    /// `0x0045D700`, `for_each_ship`'s work for one ship: its object names the first ship of the
-    /// walk (`0x0045D720`), then the command runs for it. **Fix:** the game takes a ship past the
-    /// last object's slot for an object past its array; OpenReliant passes over it.
-    fn walkShip(machine: *Machine, call: Call, ship: u32, each: ShipImplementation) Fault!void {
-        const index = machine.shipIndex(ship) orelse return;
-        const all = machine.game.?.world.objects;
-        if (index >= all.slots.len) return;
-        const first: dte.Reference = .{ .index = machine.walk_first orelse dte.Reference.unset, .tag = .ship, ._unknown_24 = 0xFF };
-        all.slots[index].object._unknown_698 = @bitCast(first);
+    /// `for_each_ship_run` (`0x0045D700`), `for_each_ship`'s work for one ship: its object names
+    /// the first ship of the walk (`for_each_ship_note`, `0x0045D720`, `bind.recordReference`),
+    /// then the command runs for it, where the ship's object is one of the game's
+    /// (`mission.shipSlot`).
+    fn walkShip(machine: *Machine, call: Call, game: aigeneric.Context, ship: u32, each: ShipImplementation) Fault!void {
+        const all = game.world.objects;
+        const index = mission.shipSlot(machine.mission, all, ship) orelse return;
+        const slot = &all.slots[index];
+        slot.object._unknown_698 = bind.recordReference(.ship, machine.walk_first);
         if (machine.walk_first == null) machine.walk_first = index;
         machine.walk_count +%= 1;
-        each(call, index);
+        each(call, .{ .game = game, .index = index, .slot = slot });
     }
 
     /// `vm_run` (`0x0045C980`): runs the thread from its instruction pointer, an opcode at a time,
@@ -720,10 +772,10 @@ pub const Machine = struct {
                 const in = try machine.inSquad(values.b, values.a.*, dte.Trigger.whole_object, 0);
                 values.a.* = @intFromBool(in == (opcode == .in_squad));
             },
-            .assign, .add_assign, .sub_assign, .mul_assign, .div_assign, .add_assign_f, .sub_assign_f, .mul_assign_f, .div_assign_f => {
+            inline .assign, .add_assign, .sub_assign, .mul_assign, .div_assign, .add_assign_f, .sub_assign_f, .mul_assign_f, .div_assign_f => |store| {
                 const value = (try thread.below(1)).*;
                 const target = try machine.stored();
-                target.* = switch (opcode) {
+                target.* = switch (store) {
                     .assign => value,
                     .add_assign => target.* +% value,
                     .sub_assign => target.* -% value,
@@ -734,15 +786,15 @@ pub const Machine = struct {
                     .sub_assign_f => @bitCast(single(float(target.*) - unsigned(value))),
                     .mul_assign_f => @bitCast(single(unsigned(value) * float(target.*))),
                     .div_assign_f => @bitCast(single(float(target.*) / unsigned(value))),
-                    else => unreachable,
+                    else => comptime unreachable,
                 };
                 try thread.drop(2);
             },
-            .add, .sub, .mul, .div, .logical_and, .logical_or, .add_f, .sub_f, .mul_f, .div_f => {
+            inline .add, .sub, .mul, .div, .logical_and, .logical_or, .add_f, .sub_f, .mul_f, .div_f => |operation| {
                 const values = try thread.pair();
                 const a = values.a.*;
                 const b = values.b;
-                values.a.* = switch (opcode) {
+                values.a.* = switch (operation) {
                     .add => a +% b,
                     .sub => a -% b,
                     .mul => a *% b,
@@ -755,7 +807,7 @@ pub const Machine = struct {
                     .sub_f => whole(single(unsigned(a) - signed(b))),
                     .mul_f => whole(single(unsigned(b) * signed(a))),
                     .div_f => whole(single(unsigned(a) / signed(b))),
-                    else => unreachable,
+                    else => comptime unreachable,
                 };
             },
             .command => return machine.command(index, try machine.operand(thread)),
@@ -767,35 +819,35 @@ pub const Machine = struct {
             .branch_if_zero, .branch_if_zero_alt => {
                 const at = thread.ip.?;
                 const taken = try thread.pop() == 0;
-                thread.ip = if (taken) at +% try machine.big(at) else at + 2;
+                thread.ip = if (taken) at +% try machine.mission.big(at) else at + 2;
             },
             .jump => {
                 const at = thread.ip.?;
-                thread.ip = at +% try machine.big(at);
+                thread.ip = at +% try machine.mission.big(at);
             },
             .random_branch => try machine.randomBranch(thread),
             .@"return", .return_alt => return machine.returnFromPart(index),
             .push_array => try thread.push(machine.variables.slot(try machine.operand(thread)).*),
-            .push_global => try thread.push(try machine.word(try machine.globalPlace(try machine.operand(thread)))),
+            .push_global => try thread.push(try machine.mission.word(machine.mission.globalPlace(try machine.operand(thread)))),
             .push_constant => try thread.push(try machine.constant(thread, try machine.operand(thread))),
             .push_constant_wide => try thread.push(try machine.constant(thread, try machine.operandWide(thread))),
             .push_string, .push_string_alt => {
                 const at = thread.ip.?;
                 // The length byte counts itself.
-                const length = try machine.byte(at);
+                const length = try machine.mission.byte(at);
                 try thread.push(at + 1);
                 thread.ip = at +% length;
             },
-            .push_ship => try thread.push(machine.recordPlace(.ships, try machine.operand(thread))),
-            .push_ship_wide => try thread.push(machine.recordPlace(.ships, try machine.operandWide(thread))),
+            .push_ship => try thread.push(machine.mission.recordPlace(.ships, try machine.operand(thread))),
+            .push_ship_wide => try thread.push(machine.mission.recordPlace(.ships, try machine.operandWide(thread))),
             .push_component, .push_component_alt => {
-                try thread.push(machine.recordPlace(.ships, try machine.operand(thread)));
+                try thread.push(machine.mission.recordPlace(.ships, try machine.operand(thread)));
                 machine.tags.add(try machine.operand(thread), thread.top - 1);
             },
-            .push_flight_group => try thread.push(machine.recordPlace(.flight_groups, try machine.operand(thread))),
-            .push_squad => try thread.push(machine.recordPlace(.squads, try machine.operand(thread))),
-            .push_curve => try thread.push(machine.recordPlace(.curves, try machine.operand(thread))),
-            .push_section_19 => try thread.push(machine.recordPlace(.unused_19, try machine.operand(thread))),
+            .push_flight_group => try thread.push(machine.mission.recordPlace(.flight_groups, try machine.operand(thread))),
+            .push_squad => try thread.push(machine.mission.recordPlace(.squads, try machine.operand(thread))),
+            .push_curve => try thread.push(machine.mission.recordPlace(.curves, try machine.operand(thread))),
+            .push_section_19 => try thread.push(machine.mission.recordPlace(.unused_19, try machine.operand(thread))),
             .push_byte, .push_byte_alt => try thread.push(try machine.operand(thread)),
             .push_percent => {
                 const share = try machine.operand(thread);
@@ -818,9 +870,9 @@ pub const Machine = struct {
                 try thread.push(machine.variables.slot(variable).*);
             },
             .select_global => {
-                const place = try machine.globalPlace(try machine.operand(thread));
+                const place = machine.mission.globalPlace(try machine.operand(thread));
                 machine.store = .{ .image = place };
-                try thread.push(try machine.word(place));
+                try thread.push(try machine.mission.word(place));
             },
             .select_argument => {
                 const place = try argument(thread, try machine.operand(thread));
@@ -841,8 +893,8 @@ pub const Machine = struct {
         if (number >= executor.commands.table.len) return error.OutOfRange;
         const count: u8 = @intCast(executor.commands.table[number].params.len);
         try thread.drop(count);
-        machine._unknown_00537401 = 0xFF;
-        machine.command_flag = machine.commandFlags(.command_flags, number) & 1 == 0;
+        machine._unknown_00537401 = unknown_00537401_reset;
+        machine.skips_players = !machine.commandFlags(.command_flags, number).players;
         const call: Call = .{ .machine = machine, .thread = index, .args = thread.record.stack[thread.top..][0..count] };
         const result = if (executor.implementation(number)) |implementation| implementation(call) else machine.unported(number);
         return machine.commandResult(index, result);
@@ -854,7 +906,7 @@ pub const Machine = struct {
     fn commandB(machine: *Machine, index: u8, number: u8) Fault!u32 {
         if (number >= catalogue_b.len) return error.OutOfRange;
         try machine.threads[index].drop(catalogue_b[number].arguments);
-        machine.command_flag = machine.commandFlags(.command_flags_b, number) & 1 == 0;
+        machine.skips_players = !machine.commandFlags(.command_flags_b, number).players;
         return machine.commandResult(index, stub_result);
     }
 
@@ -876,14 +928,22 @@ pub const Machine = struct {
             machine.logged.set(number);
             log.info("the script command {s} is not ported yet: it does nothing", .{executor.commands.table[number].name});
         }
-        return 1;
+        return run_on;
     }
 
-    /// Command `number`'s flags in `section`, 24 for the catalogue and 25 for the second; none past
-    /// the section.
-    fn commandFlags(machine: *const Machine, section: dte.Section, number: u8) u16 {
-        const flags = machine.mission.file.records(u16, section) catch return 0;
-        return if (number < flags.len) flags[number] else 0;
+    /// Command `number`'s flags in `section`, 24 for the catalogue and 25 for the second, as
+    /// `vm_command` reads them (`0x0045BEDC`): the low byte of the word `number` places past the
+    /// section's offset (`dte.CommandFlags.fromLow`), whatever the section's count. A mission that
+    /// leaves the section unused, at `dte.DirectoryEntry.unused_offset`, gives whatever lies there:
+    /// in the shipped missions that do, the trigger operands of section 1.
+    ///
+    /// **Fix:** where that lies past the image, as for a section that starts at the file's end, the
+    /// game reads past its copy of the file (`mission_file_read` allocates the file's size);
+    /// OpenReliant takes none.
+    fn commandFlags(machine: *const Machine, section: dte.Section, number: u8) dte.CommandFlags {
+        const offset = machine.mission.file.entry(section).offset;
+        const at = std.math.add(u32, offset, @as(u32, number) * @sizeOf(u16)) catch return .{};
+        return .fromLow(machine.mission.byte(at) catch return .{});
     }
 
     /// `vm_call_part` (`0x0045BFA0`) and `vm_call_part_b` (`0x0045C110`): above the arguments the
@@ -893,7 +953,7 @@ pub const Machine = struct {
     fn callPart(machine: *Machine, index: u8, entry: vm.Part) Fault!void {
         const block = entry.block orelse return;
         const thread = &machine.threads[index];
-        const length = try machine.halfword(block);
+        const length = try machine.mission.halfword(block);
         try thread.push(entry.argument_count);
         try thread.push(thread.ip.?);
         try thread.push(if (thread.frame) |frame| frame else none);
@@ -940,79 +1000,81 @@ pub const Machine = struct {
         machine.threads[new].top = count;
     }
 
-    /// `vm_random_branch` (`0x0045C910`): a roll of the game's `rand`, below 100, against each
-    /// arm's threshold in turn; the first arm it falls below, where it names a target, is taken, or
-    /// else the default. The targets count from the opcode.
+    /// `vm_random_branch` (`0x0045C910`): a roll of the game's `rand`, below `roll_range`, against
+    /// each arm's threshold in turn; the first arm it falls below, where it names a target, is
+    /// taken, or else the default. The targets count from the opcode. The operands are an arm table
+    /// (`dte.ArmIterator`).
     fn randomBranch(machine: *Machine, thread: *Running) Fault!void {
+        const Header = dte.ArmIterator.Header;
+        const Arm = dte.ArmIterator.Arm;
         const at = thread.ip.?;
-        var arms = try machine.byte(at);
-        var arm = at + 3;
-        const roll: u8 = @intCast(@rem(machine.random.rand(), 100));
-        const target = while (arms != 0) : (arm += 4) {
+        var arms = try machine.mission.byte(at + @offsetOf(Header, "count"));
+        const default = at + @offsetOf(Header, "default");
+        var arm = at + @sizeOf(Header);
+        const roll: u8 = @intCast(@rem(machine.random.rand(), roll_range));
+        const target = while (arms != 0) : (arm += @sizeOf(Arm)) {
             arms -= 1;
-            if (roll < try machine.byte(arm + 2)) {
-                const taken = try machine.big(arm);
-                break if (taken != no_arm) taken else try machine.big(at + 1);
+            if (roll < try machine.mission.byte(arm + @offsetOf(Arm, "threshold"))) {
+                const taken = try machine.mission.big(arm + @offsetOf(Arm, "target"));
+                break if (taken != no_arm) taken else try machine.mission.big(default);
             }
-        } else try machine.big(at + 1);
+        } else try machine.mission.big(default);
         thread.ip = at +% target -% 1;
     }
 
-    /// The target of an arm that takes the default instead.
+    /// The rolls `random_branch` draws below (`0x0045C922`).
+    const roll_range = 100;
+
+    /// The target of an arm that takes the default instead (`0x0045C94A`).
     const no_arm: u16 = 0xFFFF;
 
     /// Where the store the last `select_` chose lies.
     fn stored(machine: *Machine) Fault!*align(1) u32 {
         return switch (machine.store) {
             .none => error.NoStore,
-            .image => |at| @ptrCast((try machine.bytes(at, @sizeOf(u32))).ptr),
+            .image => |at| @ptrCast((try machine.mission.bytes(at, @sizeOf(u32))).ptr),
             .stack => |slot| &machine.threads[slot.thread].record.stack[slot.place],
             .variable => |variable| machine.variables.slot(variable),
         };
     }
 
-    /// `ship_in_flight_group` (`0x0045CB20`): whether the ship at `ship` names the flight group at
-    /// `group` (`ship_flight_group`, `0x00452AA0`). It reads the flight group byte wherever `ship`
-    /// lies, as the game does.
+    /// `ship_in_flight_group` (`0x0045CB20`): whether the ship at `ship`, unless it is
+    /// `bind.Mission.no_place`, names the flight group at `group` (`bind.Mission.shipFlightGroup`).
+    /// It reads the ship's flight group wherever `ship` lies, as the game does; a place past the
+    /// address space, such as `none`, ends the thread where the game faults.
     fn inFlightGroup(machine: *Machine, ship: u32, group: u32) Fault!bool {
-        if (ship == 0) return false;
-        const named = try machine.byte(ship +% @offsetOf(dte.Ship, "flight_group"));
-        if (named == dte.Ship.no_flight_group) return group == 0;
-        return machine.recordPlace(.flight_groups, named) == group;
+        if (ship == bind.Mission.no_place) return false;
+        return try machine.mission.shipFlightGroup(ship) == group;
     }
 
     /// `object_in_squad` (`0x00452AC0`): whether the object at `object` is a member of the squad at
-    /// `squad`, as the component `tag`, or through a member that is a flight group or a squad.
+    /// `squad`, as the component `tag`, or through a member that is a flight group or a squad. The
+    /// members run from the squad's first, read wherever `squad` lies, while they are the squad's
+    /// own (`bind.Mission.squadIndex`), and the object is read only once a member is reached
+    /// (`0x00452B2A`). A place past the address space, such as `none`, ends the thread where the
+    /// game faults.
+    ///
+    /// **Fix:** the game reads a squad no record stands for from address zero, and a member past
+    /// the object table from past it; OpenReliant passes over both.
     pub fn inSquad(machine: *Machine, squad: u32, object: u32, tag: u8, depth: u8) Fault!bool {
-        const squads = machine.mission.file.entry(.squads);
-        if (depth > (try machine.records(dte.Squad, .squads)).len) return error.SquadCycle;
-        const first = try machine.halfword(squad +% @offsetOf(dte.Squad, "first_member"));
+        const bound = machine.mission;
+        if (depth > (try bound.recordsIn(dte.Squad, .squads)).len) return error.SquadCycle;
+        const first = try bound.halfword(try bind.Mission.fieldPlace(squad, @offsetOf(dte.Squad, "first_member")));
         if (first == dte.Squad.no_member) return false;
-        const members = try machine.records(dte.SquadMember, .squad_members);
-        const own = (squad -% squads.offset) / @sizeOf(dte.Squad);
-        const id = try machine.halfword(object);
-        const objects = try machine.records(dte.Object, .objects);
+        const own = bound.squadIndex(squad) orelse bind.Mission.no_record;
+        const members = try bound.recordsIn(dte.SquadMember, .squad_members);
+        const objects = try bound.recordsIn(dte.Object, .objects);
         for (members[@min(first, members.len)..]) |member| {
-            if (member.squad != @as(u16, @truncate(own))) break;
-            if (id == member.object_id and member.component == tag) return true;
-            if (member.object_id >= objects.len) continue;
-            const record = machine.mission.records[member.object_id];
-            switch (objects[member.object_id].kind) {
+            if (member.squad != own) break;
+            if (try bound.halfword(object) == member.object_id and member.component == tag) return true;
+            if (bound.recordOf(member.object_id)) |record| switch (record) {
+                .ship => {},
+                .flight_group => |at| if (try machine.inFlightGroup(object, bound.recordPlace(.flight_groups, at))) return true,
+                .squad => |at| if (try machine.inSquad(bound.recordPlace(.squads, at), object, tag, depth + 1)) return true,
+            } else if (member.object_id < objects.len and objects[member.object_id].kind == .flight_group) {
                 // A flight group the object table names with no record is a null group, which a
                 // ship of no group is in.
-                .flight_group => {
-                    const group = if (record) |found| switch (found) {
-                        .flight_group => |at| machine.recordPlace(.flight_groups, at),
-                        else => 0,
-                    } else 0;
-                    if (try machine.inFlightGroup(object, group)) return true;
-                },
-                // **Fix:** the game reads a squad with no record from address zero.
-                .squad => if (record) |found| switch (found) {
-                    .squad => |at| if (try machine.inSquad(machine.recordPlace(.squads, at), object, tag, depth + 1)) return true,
-                    else => {},
-                },
-                else => {},
+                if (try machine.inFlightGroup(object, bind.Mission.no_place)) return true;
             }
         }
         return false;
@@ -1024,39 +1086,22 @@ pub const Machine = struct {
         const condition = try machine.operand(thread);
         const value = try machine.operand(thread);
         const object = try machine.operand(thread);
-        if (condition >= vm.conditions.table.len or object >= machine.event_values.len) return error.OutOfRange;
-        const slot = vm.conditions.table[condition].slot orelse return error.OutOfRange;
-        const kept: *const [10]u32 = @ptrCast(&machine.event_values[object]);
-        const at = @as(usize, slot) * 5 + value;
+        const slot = (vm.conditions.find(condition) orelse return error.OutOfRange).slot orelse return error.OutOfRange;
+        if (object >= machine.event_values.len) return error.OutOfRange;
+        const kept = machine.event_values[object].flat();
+        const at = @as(usize, slot) * vm.max_event_values + value;
         return if (at < kept.len) kept[at] else error.OutOfRange;
-    }
-
-    /// The records of a section of the mission, which fault where they run past its image.
-    fn records(machine: *const Machine, comptime T: type, section: dte.Section) Fault![]align(1) const T {
-        return machine.mission.file.records(T, section) catch error.OutsideImage;
-    }
-
-    /// Where record `index` of a fixed-stride section lies, which the game pushes as the record's
-    /// address, whether or not the section holds it.
-    pub fn recordPlace(machine: *const Machine, section: dte.Section, index: usize) u32 {
-        const stride = section.stride().?;
-        return @truncate(machine.mission.file.entry(section).offset +% index * stride);
-    }
-
-    /// Where global `index`'s value lies.
-    fn globalPlace(machine: *const Machine, index: u8) Fault!u32 {
-        return machine.recordPlace(.globals, index) + @offsetOf(dte.Global, "value");
     }
 
     /// Constant `index` of the running block, from its end.
     fn constant(machine: *Machine, thread: *Running, index: u16) Fault!u32 {
-        return machine.word(thread.block_end +% @as(u32, index) * @sizeOf(u32));
+        return machine.mission.word(thread.block_end +% @as(u32, index) * @sizeOf(u32));
     }
 
     /// The next byte at the thread's instruction pointer, which it moves past.
     fn operand(machine: *Machine, thread: *Running) Fault!u8 {
         const at = thread.ip.?;
-        const value = try machine.byte(at);
+        const value = try machine.mission.byte(at);
         thread.ip = at + 1;
         return value;
     }
@@ -1064,40 +1109,9 @@ pub const Machine = struct {
     /// The next two bytes, big-endian, as the script's two-byte operands are.
     fn operandWide(machine: *Machine, thread: *Running) Fault!u16 {
         const at = thread.ip.?;
-        const value = try machine.big(at);
+        const value = try machine.mission.big(at);
         thread.ip = at + 2;
         return value;
-    }
-
-    /// The text a string argument points at in the mission's image (`push_string`), up to its
-    /// terminating zero.
-    pub fn text(machine: *const Machine, at: u32) Fault![]const u8 {
-        const image = machine.mission.image;
-        if (at >= image.len) return error.OutsideImage;
-        const rest = image[at..];
-        return rest[0 .. std.mem.indexOfScalar(u8, rest, 0) orelse return error.OutsideImage];
-    }
-
-    fn bytes(machine: *Machine, at: u32, count: u32) Fault![]u8 {
-        const image = machine.mission.image;
-        if (at > image.len or count > image.len - at) return error.OutsideImage;
-        return image[at..][0..count];
-    }
-
-    fn byte(machine: *Machine, at: u32) Fault!u8 {
-        return (try machine.bytes(at, 1))[0];
-    }
-
-    fn big(machine: *Machine, at: u32) Fault!u16 {
-        return std.mem.readInt(u16, (try machine.bytes(at, 2))[0..2], .big);
-    }
-
-    fn halfword(machine: *Machine, at: u32) Fault!u16 {
-        return std.mem.readInt(u16, (try machine.bytes(at, 2))[0..2], .little);
-    }
-
-    fn word(machine: *Machine, at: u32) Fault!u32 {
-        return std.mem.readInt(u32, (try machine.bytes(at, 4))[0..4], .little);
     }
 };
 
@@ -1154,6 +1168,39 @@ pub const testing = struct {
     const write = dte.write;
     pub const Routine = dte.assemble.Routine;
 
+    /// Ends a start part as the tests' scripts end it, its result 1 returned, and gives its bytes
+    /// (`Routine.finish`), which the caller frees.
+    pub fn finishPart(routine: *Routine) ![]u8 {
+        try finishPartOps(routine);
+        return routine.finish();
+    }
+
+    /// Assembles a routine with `build`, which the caller frees.
+    pub fn assemble(gpa: Allocator, comptime build: fn (routine: *Routine) anyerror!void) ![]u8 {
+        var routine: Routine = .init(gpa);
+        defer routine.deinit();
+        try build(&routine);
+        return routine.finish();
+    }
+
+    /// A block that adds one to global `global`, which the caller frees.
+    pub fn counting(gpa: Allocator, comptime global: u8) ![]u8 {
+        return assemble(gpa, struct {
+            fn build(r: *Routine) !void {
+                try r.op(.select_global, &.{global});
+                try r.op(.push_byte, &.{1});
+                try r.op(.add_assign, &.{});
+                try finishPartOps(r);
+            }
+        }.build);
+    }
+
+    /// The end of a start part as the tests' scripts end it: its result 1 returned.
+    fn finishPartOps(routine: *Routine) !void {
+        try routine.op(.push_byte, &.{1});
+        try routine.op(.@"return", &.{});
+    }
+
     /// A part: its routine's bytes, as `Routine.finish` gives them, and its arguments.
     pub const Part = struct { code: []const u8, arguments: u8 = 0, start: bool = false };
 
@@ -1168,6 +1215,9 @@ pub const testing = struct {
         /// Each trigger's block is a part's, as `link` names it (`Fixture.link`).
         triggers: []const dte.Trigger = &.{},
         curves: []const dte.Curve = &.{},
+        /// Section 24, a word for each command (`dte.CommandFlags`); none where it is empty, as
+        /// the words past the section lie in the file's zeros.
+        command_flags: []const dte.CommandFlags = &.{},
     };
 
     pub const Fixture = struct {
@@ -1195,11 +1245,7 @@ pub const testing = struct {
             defer gpa.free(globals);
             for (globals, records.globals) |*record, value| record.* = .{ .name = 0, ._unknown_02 = 0, .value = value, ._unknown_08 = 0 };
             var sections: write.Sections = @splat(.{});
-            const section = struct {
-                fn of(all: *write.Sections, which: dte.Section, count: usize, bytes: []const u8) void {
-                    all[@intFromEnum(which)] = .{ .count = @intCast(count), .bytes = bytes };
-                }
-            }.of;
+            const section = write.set;
             section(&sections, .script, script.items.len / @sizeOf(u16), script.items);
             section(&sections, .parts, descriptors.items.len, std.mem.sliceAsBytes(descriptors.items));
             section(&sections, .globals, globals.len, std.mem.sliceAsBytes(globals));
@@ -1210,6 +1256,7 @@ pub const testing = struct {
             section(&sections, .squad_members, records.squad_members.len, std.mem.sliceAsBytes(records.squad_members));
             section(&sections, .triggers, records.triggers.len, std.mem.sliceAsBytes(records.triggers));
             section(&sections, .curves, records.curves.len, std.mem.sliceAsBytes(records.curves));
+            section(&sections, .command_flags, records.command_flags.len, std.mem.sliceAsBytes(records.command_flags));
             const image = try write.write(gpa, &sections, .{});
             fixture.mission = try .bind(gpa, image);
             fixture.random = .{};
@@ -1231,13 +1278,13 @@ pub const testing = struct {
 
         /// Global `index`'s value.
         pub fn global(fixture: *Fixture, index: u8) u32 {
-            return fixture.machine.word(fixture.machine.globalPlace(index) catch unreachable) catch unreachable;
+            return fixture.mission.word(fixture.mission.globalPlace(index)) catch unreachable;
         }
 
         /// A second of the mission, as the game's frame goes through it: the clock ticks, the timers
         /// run for the tick, and the threads run on.
         pub fn second(fixture: *Fixture) void {
-            fixture.machine.tick();
+            executor.clockTick(&fixture.machine);
             fixture.machine.runThreads();
             if (fixture.machine.ticked and fixture.machine.timers_running) {
                 fixture.machine.runTimers();
@@ -1245,19 +1292,58 @@ pub const testing = struct {
             }
         }
     };
-};
 
-/// Assembles a routine with `build`, which the caller frees.
-fn assembled(gpa: Allocator, comptime build: fn (routine: *testing.Routine) anyerror!void) ![]u8 {
-    var routine: testing.Routine = .init(gpa);
-    defer routine.deinit();
-    try build(&routine);
-    return routine.finish();
-}
+    /// A game on a mission: the mission's script on a machine (`Fixture`), and a world of objects
+    /// whose orders read its records, the mission bound as the game binds it (`main.startMission`).
+    /// It stays where `init` fills it in, as the world points into it.
+    pub const Game = struct {
+        fixture: Fixture,
+        /// The objects, the stats they are made from, and what the world points at.
+        mission: gameobj.testing.Mission,
+
+        /// The mission of `parts` and `records` (`Fixture.init`), and the objects.
+        pub fn init(game: *Game, gpa: Allocator, parts: []const Part, records: Records) !void {
+            try game.fixture.init(gpa, parts, records);
+            errdefer game.fixture.deinit();
+            try game.mission.init(gpa);
+        }
+
+        pub fn deinit(game: *Game) void {
+            game.mission.deinit();
+            game.fixture.deinit();
+        }
+
+        /// The world, the mission bound.
+        pub fn world(game: *Game) gameobj.World {
+            var seen = game.mission.world();
+            seen.mission = &game.fixture.mission;
+            return seen;
+        }
+
+        /// What the objects' orders run against: the world and its clock.
+        pub fn orders(game: *Game) aigeneric.Context {
+            return .of(game.world());
+        }
+
+        /// `orders`, the world making its ships from the test stats with no models
+        /// (`gameobj.World.spawn`), as the commands that create a mission's ships need.
+        pub fn spawning(game: *Game) aigeneric.Context {
+            var on = game.orders();
+            on.world.spawn = game.mission.spawn(create.testing.no_models);
+            return on;
+        }
+
+        /// Starts the script, its commands acting on `on` (`Machine.game`).
+        pub fn start(game: *Game, on: aigeneric.Context) !void {
+            game.fixture.machine.game = on;
+            try game.fixture.machine.start();
+        }
+    };
+};
 
 test "the arithmetic, the compares and the stores" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             // Global 0 = 12, global 1 = 10 - 3.
             try r.op(.select_global, &.{0});
@@ -1304,7 +1390,7 @@ test "the arithmetic, the compares and the stores" {
 
 test "Wait holds a thread until the clock has passed its seconds" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.push_byte, &.{2});
             try r.command("Wait");
@@ -1331,7 +1417,7 @@ test "Wait holds a thread until the clock has passed its seconds" {
 
 test "a call passes its arguments and returns its value" {
     const gpa = std.testing.allocator;
-    const caller = try assembled(gpa, struct {
+    const caller = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.push_byte, &.{4});
             try r.op(.push_byte, &.{5});
@@ -1343,7 +1429,7 @@ test "a call passes its arguments and returns its value" {
         }
     }.build);
     defer gpa.free(caller);
-    const called = try assembled(gpa, struct {
+    const called = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.push_argument, &.{0});
             try r.op(.push_argument, &.{1});
@@ -1364,7 +1450,7 @@ test "a call passes its arguments and returns its value" {
 
 test "a spawned part takes its arguments to a thread of its own" {
     const gpa = std.testing.allocator;
-    const spawner = try assembled(gpa, struct {
+    const spawner = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.push_byte, &.{3});
             try r.op(.spawn_part, &.{1});
@@ -1372,7 +1458,7 @@ test "a spawned part takes its arguments to a thread of its own" {
         }
     }.build);
     defer gpa.free(spawner);
-    const spawned = try assembled(gpa, struct {
+    const spawned = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.select_global, &.{0});
             try r.op(.push_argument, &.{0});
@@ -1395,7 +1481,7 @@ test "a spawned part takes its arguments to a thread of its own" {
 
 test "a timer starts its part every so many seconds, so many times" {
     const gpa = std.testing.allocator;
-    const setter = try assembled(gpa, struct {
+    const setter = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             // CreateTimer(ID 1, part 1, every 2 seconds, twice).
             try r.op(.push_byte, &.{1});
@@ -1407,14 +1493,7 @@ test "a timer starts its part every so many seconds, so many times" {
         }
     }.build);
     defer gpa.free(setter);
-    const counter = try assembled(gpa, struct {
-        fn build(r: *testing.Routine) !void {
-            try r.op(.select_global, &.{0});
-            try r.op(.push_byte, &.{1});
-            try r.op(.add_assign, &.{});
-            try r.op(.@"return", &.{});
-        }
-    }.build);
+    const counter = try testing.counting(gpa, 0);
     defer gpa.free(counter);
     var fixture: testing.Fixture = undefined;
     try fixture.init(gpa, &.{ .{ .code = setter, .start = true }, .{ .code = counter } }, .{ .globals = &.{0} });
@@ -1434,7 +1513,7 @@ test "a timer starts its part every so many seconds, so many times" {
 
 test "a command not ported yet does nothing and lets the thread run on" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.push_ship, &.{0});
             try r.op(.push_byte, &.{2});
@@ -1456,7 +1535,7 @@ test "a command not ported yet does nothing and lets the thread run on" {
 
 test "command_b pops its arguments and gives 1" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             // Test_AI_Function's two arguments, and none for the record that ends the catalogue.
             try r.op(.push_byte, &.{7});
@@ -1490,7 +1569,7 @@ test "command_b pops its arguments and gives 1" {
 
 test "InterruptTriggerCode holds a thread until its trigger fires again" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.command("InterruptTriggerCode");
             try r.op(.select_global, &.{0});
@@ -1515,7 +1594,7 @@ test "InterruptTriggerCode holds a thread until its trigger fires again" {
 
 test "KillAllScriptExecutionExecptMe ends every other thread" {
     const gpa = std.testing.allocator;
-    const killer = try assembled(gpa, struct {
+    const killer = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.spawn_part, &.{1});
             try r.op(.spawn_part, &.{1});
@@ -1524,7 +1603,7 @@ test "KillAllScriptExecutionExecptMe ends every other thread" {
         }
     }.build);
     defer gpa.free(killer);
-    const idle = try assembled(gpa, struct {
+    const idle = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.@"return", &.{});
         }
@@ -1537,9 +1616,46 @@ test "KillAllScriptExecutionExecptMe ends every other thread" {
     try std.testing.expectEqual(0, fixture.machine.thread_count);
 }
 
+test "OpenInstrument holds a window of the display open until CloseInstrument" {
+    const gpa = std.testing.allocator;
+    const code = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            // The objectives open, which closes the wing status window; a window past the fifteen
+            // opens nothing.
+            try r.op(.push_byte, &.{@intFromEnum(hud.windows.Window.objectives)});
+            try r.command("OpenInstrument");
+            try r.op(.push_byte, &.{16});
+            try r.command("OpenInstrument");
+            // A second on, the objectives close.
+            try r.op(.push_byte, &.{1});
+            try r.command("Wait");
+            try r.op(.push_byte, &.{@intFromEnum(hud.windows.Window.objectives)});
+            try r.command("CloseInstrument");
+            try r.op(.push_byte, &.{1});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(code);
+    var game: testing.Game = undefined;
+    try game.init(gpa, &.{.{ .code = code, .start = true }}, .{});
+    defer game.deinit();
+    var display: hud.State = .{};
+    _ = display.windows.open(.wing_status, false);
+    var on = game.orders();
+    on.world.display = &display;
+    try game.start(on);
+
+    const windows = &display.windows;
+    try std.testing.expect(windows.up(.objectives) and windows.status.get(.objectives).held);
+    try std.testing.expect(!windows.up(.wing_status));
+    for (0..2) |_| game.fixture.second();
+    try std.testing.expect(!windows.up(.objectives) and !windows.status.get(.objectives).held);
+    try std.testing.expect(game.fixture.machine.finished);
+}
+
 test "random_branch takes the first arm its roll falls below" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             const low = try r.label();
             const high = try r.label();
@@ -1569,7 +1685,7 @@ test "random_branch takes the first arm its roll falls below" {
     try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{0} });
     defer fixture.deinit();
     var expected: libcmt.Rand = .{};
-    const roll = @rem(expected.rand(), 100);
+    const roll = @rem(expected.rand(), Machine.roll_range);
     try fixture.machine.start();
     // The roll picked an arm, whose value lies under the stores.
     try std.testing.expectEqual(@as(u32, if (roll < 50) 1 else 2), fixture.machine.threads[0].record.stack[0]);
@@ -1577,7 +1693,7 @@ test "random_branch takes the first arm its roll falls below" {
 
 test "push_string pushes where its text lies" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.select_global, &.{0});
             try r.pushString("hello");
@@ -1595,7 +1711,7 @@ test "push_string pushes where its text lies" {
 
 test "the float opcodes round as the FPU does at single precision" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             // 2^24 + 1 comes back 2^24.
             try r.op(.select_global, &.{0});
@@ -1629,7 +1745,7 @@ test "the float opcodes round as the FPU does at single precision" {
 
 test "a fault ends the thread" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.push_byte, &.{1});
             try r.op(.push_byte, &.{0});
@@ -1651,7 +1767,7 @@ test "a fault ends the thread" {
 
 test "in_flight_group and in_squad" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             // Ship 0 is in flight group 0, ship 1 is not.
             try r.op(.select_global, &.{0});
@@ -1679,34 +1795,18 @@ test "in_flight_group and in_squad" {
         }
     }.build);
     defer gpa.free(code);
-    var ships: [2]dte.Ship = @splat(std.mem.zeroes(dte.Ship));
-    ships[0].object_id = 0;
+    const records = dte.testing;
+    var ships = records.ships(2, 0);
     ships[0].flight_group = 0;
-    ships[1].object_id = 1;
-    ships[1].flight_group = dte.Ship.no_flight_group;
-    var group = std.mem.zeroes(dte.FlightGroup);
-    group.object_id = 2;
-    var squad = std.mem.zeroes(dte.Squad);
-    squad.object_id = 3;
-    squad.first_member = 0;
-    const members = [_]dte.SquadMember{
-        .{ .object_id = 1, ._unknown_02 = 0, .squad = 0, ._unknown_06 = 0, .component = dte.Trigger.whole_object, ._unknown_09 = @splat(0) },
-        .{ .object_id = 2, ._unknown_02 = 0, .squad = 0, ._unknown_06 = 0, .component = dte.Trigger.whole_object, ._unknown_09 = @splat(0) },
-    };
-    const objects = [_]dte.Object{
-        .{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 },
-        .{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 },
-        .{ .kind = .flight_group, .count = 0, .first = 0, ._unknown_04 = 0 },
-        .{ .kind = .squad, .count = 0, .first = 0, ._unknown_04 = 0 },
-    };
+    const whole_ship = dte.Trigger.whole_object;
     var fixture: testing.Fixture = undefined;
     try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .globals = &.{ 0, 0, 0, 0 },
         .ships = &ships,
-        .flight_groups = &.{group},
-        .objects = &objects,
-        .squads = &.{squad},
-        .squad_members = &members,
+        .flight_groups = &.{records.flightGroup(2, .player)},
+        .objects = &.{ records.object(.ship, 0, 0), records.object(.ship, 0, 0), records.object(.flight_group, 0, 0), records.object(.squad, 0, 0) },
+        .squads = &.{records.squad(3, 0)},
+        .squad_members = &.{ records.squadMember(1, 0, whole_ship), records.squadMember(2, 0, whole_ship) },
     });
     defer fixture.deinit();
     try fixture.machine.start();
@@ -1715,7 +1815,7 @@ test "in_flight_group and in_squad" {
 
 test "the branches and the logic" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             const skip = try r.label();
             const never = try r.label();
@@ -1757,7 +1857,7 @@ test "the branches and the logic" {
 
 test "the float opcodes take one value unsigned and the other signed" {
     const gpa = std.testing.allocator;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             // 5 less -3 is 8; 3 times -2 is -6; 7 over 2 is 3 once truncated; over zero, 0.
             try r.op(.select_global, &.{0});
@@ -1809,7 +1909,7 @@ test "the float opcodes take one value unsigned and the other signed" {
 
 test "a part stores into its argument" {
     const gpa = std.testing.allocator;
-    const caller = try assembled(gpa, struct {
+    const caller = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.push_byte, &.{1});
             try r.op(.call_part, &.{1});
@@ -1820,7 +1920,7 @@ test "a part stores into its argument" {
         }
     }.build);
     defer gpa.free(caller);
-    const called = try assembled(gpa, struct {
+    const called = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.select_argument, &.{0});
             try r.op(.push_byte, &.{7});
@@ -1842,7 +1942,7 @@ test "push_local and push_event_value read what the event brought" {
     const kept = comptime for (vm.conditions.table, 0..) |condition, index| {
         if (condition.slot == 1) break index;
     } else unreachable;
-    const code = try assembled(gpa, struct {
+    const code = try testing.assemble(gpa, struct {
         fn build(r: *testing.Routine) !void {
             try r.op(.select_global, &.{0});
             try r.op(.push_local, &.{2});
@@ -1855,9 +1955,8 @@ test "push_local and push_event_value read what the event brought" {
         }
     }.build);
     defer gpa.free(code);
-    const objects = [_]dte.Object{.{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 }};
     var fixture: testing.Fixture = undefined;
-    try fixture.init(gpa, &.{.{ .code = code }}, .{ .globals = &.{ 0, 0 }, .objects = &objects });
+    try fixture.init(gpa, &.{.{ .code = code }}, .{ .globals = &.{ 0, 0 }, .objects = &.{dte.testing.object(.ship, 0, 0)} });
     defer fixture.deinit();
     try fixture.machine.start();
     fixture.machine.event_values[0].destroyed[1] = 42;
@@ -1877,4 +1976,213 @@ test "argumentComponent finds a command's argument's component" {
     try std.testing.expectEqual(null, machine.argumentComponent(0, 0));
     machine.tags.clear();
     try std.testing.expectEqual(null, machine.argumentComponent(0, 1));
+}
+
+test "Tags.add keeps the first eight of more" {
+    var tags: Tags = .{};
+    for (0..vm.ComponentTag.max + 1) |n| tags.add(@intCast(n), @intCast(n));
+    try std.testing.expectEqual(vm.ComponentTag.max, tags.count);
+    try std.testing.expectEqual(vm.ComponentTag.max - 1, tags.tags[vm.ComponentTag.max - 1].component);
+}
+
+test "DestroyTimer destroys the timer before it fires" {
+    const gpa = std.testing.allocator;
+    const setter = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            // CreateTimer(ID 1, part 1, every second, for ever), then DestroyTimer(1).
+            try r.op(.push_byte, &.{1});
+            try r.op(.push_byte, &.{1});
+            try r.op(.push_byte, &.{1});
+            try r.op(.push_byte, &.{0});
+            try r.command("CreateTimer");
+            try r.op(.push_byte, &.{1});
+            try r.command("DestroyTimer");
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(setter);
+    const counter = try testing.counting(gpa, 0);
+    defer gpa.free(counter);
+    var fixture: testing.Fixture = undefined;
+    try fixture.init(gpa, &.{ .{ .code = setter, .start = true }, .{ .code = counter } }, .{ .globals = &.{0} });
+    defer fixture.deinit();
+    try fixture.machine.start();
+    try std.testing.expectEqual(0, fixture.machine.timer_count);
+    for (0..4) |_| {
+        fixture.second();
+        fixture.machine.runThreads();
+    }
+    try std.testing.expectEqual(0, fixture.global(0));
+    try std.testing.expect(fixture.machine.timers[0].isFree());
+}
+
+test "in_squad ends the thread on a squad that holds itself" {
+    const gpa = std.testing.allocator;
+    const code = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.select_global, &.{0});
+            try r.op(.push_ship, &.{0});
+            try r.op(.push_squad, &.{0});
+            try r.op(.in_squad, &.{});
+            try r.op(.assign, &.{});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(code);
+    const records = dte.testing;
+    var fixture: testing.Fixture = undefined;
+    // Squad 0, object 1, is its own only member.
+    try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .globals = &.{7},
+        .ships = &records.ships(1, 0),
+        .objects = &.{ records.object(.ship, 0, 0), records.object(.squad, 0, 0) },
+        .squads = &.{records.squad(1, 0)},
+        .squad_members = &.{records.squadMember(1, 0, dte.Trigger.whole_object)},
+    });
+    defer fixture.deinit();
+    try fixture.machine.start();
+    try std.testing.expectEqual(7, fixture.global(0));
+    try std.testing.expectEqual(0, fixture.machine.thread_count);
+}
+
+test "in_squad takes the members of the squad the place names as squad_index counts it" {
+    const gpa = std.testing.allocator;
+    const code = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            // Zero names no squad, which `squad_index` gives as `no_record`.
+            try r.op(.select_global, &.{0});
+            try r.op(.push_ship, &.{0});
+            try r.op(.push_byte, &.{0});
+            try r.op(.in_squad, &.{});
+            try r.op(.assign, &.{});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(code);
+    const records = dte.testing;
+    var fixture: testing.Fixture = undefined;
+    // The only member, ship 0, is of the squad `no_record` numbers.
+    try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .globals = &.{0},
+        .ships = &records.ships(1, 0),
+        .objects = &.{records.object(.ship, 0, 0)},
+        .squad_members = &.{records.squadMember(0, bind.Mission.no_record, dte.Trigger.whole_object)},
+    });
+    defer fixture.deinit();
+    // The squad's first member, read where zero places it, in the directory, is the first.
+    try std.testing.expectEqual(0, try fixture.mission.halfword(@offsetOf(dte.Squad, "first_member")));
+    try fixture.machine.start();
+    try std.testing.expectEqual(1, fixture.global(0));
+}
+
+test "in_flight_group and in_squad end the thread where the game faults on none" {
+    const gpa = std.testing.allocator;
+    const not_in_group = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.select_global, &.{0});
+            try r.op(.push_null, &.{});
+            try r.op(.push_flight_group, &.{0});
+            try r.op(.not_in_flight_group, &.{});
+            try r.op(.assign, &.{});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(not_in_group);
+    const not_in_squad = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.select_global, &.{1});
+            try r.op(.push_ship, &.{0});
+            try r.op(.push_null, &.{});
+            try r.op(.not_in_squad, &.{});
+            try r.op(.assign, &.{});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(not_in_squad);
+    // A squad whose first member lies past the members gives false without reading the object.
+    const past = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.select_global, &.{2});
+            try r.op(.push_null, &.{});
+            try r.op(.push_squad, &.{1});
+            try r.op(.in_squad, &.{});
+            try r.op(.assign, &.{});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(past);
+    const records = dte.testing;
+    var ships = records.ships(2, 0);
+    ships[0].flight_group = 0;
+    var fixture: testing.Fixture = undefined;
+    try fixture.init(gpa, &.{ .{ .code = not_in_group, .start = true }, .{ .code = not_in_squad, .start = true }, .{ .code = past, .start = true } }, .{
+        .globals = &.{ 0, 0, 7 },
+        .ships = &ships,
+        .flight_groups = &.{records.flightGroup(2, .player)},
+        .objects = &.{ records.object(.ship, 0, 0), records.object(.ship, 0, 0), records.object(.flight_group, 0, 0), records.object(.squad, 0, 0), records.object(.squad, 0, 0) },
+        .squads = &.{ records.squad(3, 0), records.squad(4, 1) },
+        .squad_members = &.{records.squadMember(0, 0, dte.Trigger.whole_object)},
+    });
+    defer fixture.deinit();
+    try fixture.machine.start();
+    try std.testing.expectEqual([3]u32{ 0, 0, 0 }, [3]u32{ fixture.global(0), fixture.global(1), fixture.global(2) });
+    try std.testing.expectEqual(0, fixture.machine.thread_count);
+}
+
+test "a command's flags are read where its number places them, whatever the section's count" {
+    const gpa = std.testing.allocator;
+    const code = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.push_byte, &.{9});
+            try r.command("DestroyTimer");
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(code);
+    const entry = @intFromEnum(dte.Section.command_flags) * @sizeOf(dte.DirectoryEntry);
+    for ([_]bool{ true, false }) |within| {
+        var fixture: testing.Fixture = undefined;
+        try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{1} });
+        defer fixture.deinit();
+        // Section 24 counts no words, and starts at the globals, where `DestroyTimer`'s word is
+        // the low half of global 0's value, 1; or at the image's end, past which there is none.
+        const image = fixture.mission.image;
+        const offset: u32 = if (within) fixture.mission.file.entry(.globals).offset else @intCast(image.len);
+        std.mem.writeInt(u16, image[entry..][0..2], 0, .little);
+        std.mem.writeInt(u32, image[entry + @offsetOf(dte.DirectoryEntry, "offset") ..][0..4], offset, .little);
+        try fixture.machine.start();
+        try std.testing.expectEqual(!within, fixture.machine.skips_players);
+    }
+}
+
+test "a walking command passes over the players' ships unless its flags take them in" {
+    const gpa = std.testing.allocator;
+    const code = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.push_flight_group, &.{0});
+            try r.op(.push_byte, &.{1});
+            try r.command("SetHostile");
+            try testing.finishPartOps(r);
+        }
+    }.build);
+    defer gpa.free(code);
+    var ships = dte.testing.ships(2, 0);
+    for (&ships) |*ship| ship.flight_group = 0;
+    var flags: [executor.commands.table.len]dte.CommandFlags = @splat(.{});
+    flags[executor.commandIndex("SetHostile")].players = true;
+    for ([_][]const dte.CommandFlags{ &.{}, &flags }) |command_flags| {
+        var game: testing.Game = undefined;
+        try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
+            .ships = &ships,
+            .flight_groups = &.{dte.testing.flightGroup(2, .player)},
+            .command_flags = command_flags,
+        });
+        defer game.deinit();
+        try game.start(game.orders());
+        const all = game.mission.objects;
+        try std.testing.expectEqual(1, all.players);
+        const players = command_flags.len != 0;
+        try std.testing.expectEqual(@as(gameobj.Side(i32), if (players) .hostile else .friendly), all.slots[0].object.side);
+        try std.testing.expectEqual(.hostile, all.slots[1].object.side);
+    }
 }

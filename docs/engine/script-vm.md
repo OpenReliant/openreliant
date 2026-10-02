@@ -19,7 +19,7 @@ Every block runs on a thread, a `0xB8`-byte context from the pool at `vm_thread_
 | `0xAC` | 1 | **Unknown.** `0xFF` when the thread starts |
 | `0xAD` | 1 | Call depth |
 | `0xAE` | 1 | Set by `InterruptTriggerCode`: the thread waits for its trigger to fire again, which clears it |
-| `0xAF` | 1 | Index of the trigger that started the thread; `0xFF` for none |
+| `0xAF` | 1 | The low byte of the index of the trigger that started the thread; `0xFF` for none |
 | `0xB0` | 4 | The last command's result, or the last part's return value, for `push_result` |
 | `0xB4` | 4 | **Unknown.** Zero when the thread starts |
 
@@ -73,7 +73,7 @@ array is the game's variables ([The game's variables](#the-games-variables)).
 
 The loop also serves a script debugger. With one attached, it can stop a thread at a byte that
 section 10, one flag per script byte, marks, and report the position. **Unknown:** the debugger's
-protocol.
+protocol. Not ported ([#539](https://github.com/vdmkenny/openreliant/issues/539)).
 
 ## The game's variables
 
@@ -152,7 +152,8 @@ A command pops as many arguments as the catalogue gives it, whatever the script 
 caller's block end for its first, and the part's `return` goes astray.
 
 Before each call, `command` sets `vm_command_flag` (`0x00537584`) to bit 0 of the command's word in
-section 24, inverted ([`.DTE` missions](../formats/dte.md)).
+section 24, inverted ([`.DTE` missions](../formats/dte.md)). It reads the low byte of the word
+`number` places past section 24's offset, whatever its count (`0x0045BEDC`).
 
 Many commands act on a ship, a flight group or a squad, which their first argument names by its
 record's address. They hand `for_each_ship` (`0x0045D460`) a routine of their own for one ship, with
@@ -163,11 +164,14 @@ their arguments after the first, and it walks the entity (`0x0045D480`):
   passing over the players' ships while `vm_command_flag` is set.
 - A squad runs it for each of its members in turn, from its first in `squad_members`, until a record
   of another squad: a member that is a ship for the ship, with the component the member names
-  tagged on the first argument (`vm_tag_component`) and untagged after (`0x0045D8E0`); a flight
-  group for each of its ships, as above; and a squad for each of its own, a squad down.
+  tagged on the first argument (`vm_tag_component`) and untagged after (`vm_tag_pop`,
+  `0x0045D8E0`); a flight group for each of its ships, as above; and a squad for each of its own, a
+  squad down.
 
 Before the routine runs for a ship, its object's `+0x698` becomes a reference (`dte.Reference`) to
-the first ship the walk ran for, none for the first (`0x0045D720`). **Unknown:** what reads it.
+the first ship the walk ran for, none for the first (`for_each_ship_note`, `0x0045D720`, through
+`record_reference`, `0x004513A0`, whose reference has its top byte `0xFF`). **Unknown:** what
+reads it.
 
 `SetAI` and `SetupLaunch` number the orders they give from 0 as they walk (`0x0040CBC0`,
 `0x0040CBE0`): each order pushed takes the next number (`0x005185A8`) while the byte at
@@ -175,9 +179,9 @@ the first ship the walk ran for, none for the first (`0x0045D720`). **Unknown:**
 read the number, a ship's place among its group's.
 
 A command that waits runs again when its thread runs next: it moves the thread's instruction pointer
-back over itself and returns zero. `WaitForMovie` and `WaitForSpeech` move it back 2 bytes, over the
-command alone; `WaitForJumpOrLaunch` 4, over the push of its argument too, which then pushes it
-afresh.
+back over itself and returns zero. `WaitForSpeech`, `WaitForMovie` and `WaitForDirectorCam` move it
+back 2 bytes, over the command alone; `WaitForJumpOrLaunch` 4, over the push of its argument too,
+which then pushes it afresh.
 
 Every command, by the number `command` takes, with what it does and whether OpenReliant runs it.
 One that OpenReliant does not run yet does nothing and lets the script go on
@@ -203,8 +207,8 @@ from the catalogue.
 | `0x0E` | `SetPilot` | The ship the first argument names is flown by the pilot the second names | No |
 | `0x0F` | `SetTriggerState` | Arms or disarms the trigger of the condition the second argument gives on the entity the first names ([Events](#events)) | Yes |
 | `0x10` | `StartDirectorCam` | The director's camera takes a shot along the mission's curves or at a ship, at once ([The director's camera](director.md#the-commands)) | Yes |
-| `0x11` | `StartShipAnimation` | Each part of the ship the first argument names plays its track the second names from its start, in the track's own mode, at 4 a step (`node_play_named`) | Yes |
-| `0x12` | `ShipFollowCurve` | Each ship the first argument names flies the path from the curve the second names over the seconds the third gives ([Following a path](orders.md#following-a-path)) | Yes |
+| `0x11` | `StartShipAnimation` | Each part of the ship the first argument names, but those taken out of its model, plays its track the second names from its start, in the track's own mode, at 4 a step (`node_play_named`) | Yes |
+| `0x12` | `ShipFollowCurve` | Each ship the first argument names flies the path from the curve the second names over the seconds the third gives ([Following a path](orders.md#following-a-path)). **Fix:** where a ship refuses the order, the game writes the path into the order on top of its stack; OpenReliant writes none | Yes |
 | `0x13` | `SetupLaunch` | Readies each ship the first argument names to launch from the ship the second names, through the gate the third gives ([Launches](launch.md)) | Yes |
 | `0x14` | `StartLaunch` | Launches each ship the argument names ([Launches](launch.md)) | Yes |
 | `0x15` | `DisplaySubTitle` | Writes the string the argument numbers as a subtitle | No |
@@ -221,12 +225,12 @@ from the catalogue.
 | `0x20` | `StartChaseCam` | The camera follows the ship the argument names from behind | No |
 | `0x21` | `SetPlayerTarget` | Where the first argument names the player's ship, the ship the second names, or its component, becomes the player's target, where the player can aim at it; the display follows, and MATCH SPEED stops ([Display](hud.md#the-target)) | Yes |
 | `0x22` | `SetTargetable` | Each ship the first argument names can be targeted, where its type allows, or not; for the component `push_component` named, whether it can be picked as a subtarget | Yes |
-| `0x23` | `PlayMusic` | Plays `music\` and the name the first argument points at, for ever at level 80, at once where the second is set, or once the music playing has faded out ([Sound](sound.md#music)) | Yes |
+| `0x23` | `PlayMusic` | Plays `music\` and the name the first argument points at, for ever at level 80, at once where the second is 1, or for any other value once the music playing has faded out ([Sound](sound.md#music)) | Yes |
 | `0x24` | `StopDirectorCam` | The camera goes back to the player's cockpit, forced | Yes |
 | `0x25` | `SetActionCentre` | The action sphere ([Maneuvers](maneuvers.md)) centres on the object the first argument names, its radius the second, or 220000 for none | Yes |
 | `0x26` | `Dock` | The ship the first argument names docks at the port the third gives of the ship the second names, or at the first free port of a flight group's or a squad's ships ([Docking](orders.md#docking)) | Yes |
 | `0x27` | `DisableTaunts` | Keeps the enemy's taunts on the radio (`0x00529CB4`) quiet while the argument is set; a mission's start clears it (`radio_reset`, [Radio](radio.md#remarks)) | Yes |
-| `0x28` | `Fly` | Each ship the first argument names flies to the point the second names, at the speed the third gives, or at full throttle for 0 (Fly, [Orders](orders.md#the-orders)) | Yes |
+| `0x28` | `Fly` | Each ship the first argument names flies to the point the second names, at the speed the third gives, or at full throttle for 0 (Fly, [Orders](orders.md#the-orders)). **Fix:** where a ship refuses Fly, the game writes the speed into the order on top of its stack, such as Player Control's mouse stick, which then turns the player's ship; OpenReliant writes none | Yes |
 | `0x29` | `CommsFromShipOnce` | As `CommsFromShip`, the film played once, then the dead channel's while the line goes on | Yes |
 | `0x2A` | `CommsFromPilotOnce` | As `CommsFromPilot`, the film played once | Yes |
 | `0x2B` | `DisableLights` | Puts out the lights of each ship the first argument names while the second is set | No |
@@ -285,8 +289,9 @@ from the catalogue.
 ## The clock and timers
 
 `vm_clock` (`0x538C9C`) counts the seconds of the mission: `vm_clock_start` (`0x00457C10`) zeroes it
-and starts a periodic multimedia timer at one second, whose callback (`0x00458910`) increments it
-unless the script debugger holds it or the game is [paused](loop.md).
+and starts a periodic multimedia timer at one second, whose callback, `vm_clock_tick`
+(`0x00458910`), increments it unless the script debugger holds it (`0x005373F8`) or the game is
+[paused](loop.md).
 
 `CreateTimer` fills one of the 16 timers at `vm_timer_table` (`0x537470`), first destroying any
 timer with the same ID:
@@ -319,10 +324,11 @@ of the ship's live object (`object_component_index`, `0x0045ADE0`), or `0xFF` fo
   squad's that holds the ship (`object_in_squad`, as the component the event concerns), in that
   order, each group only where its slice holds triggers.
 
-Whether a trigger would answer is the matcher's test (`0x0045B4E0`, below), whatever the trigger's
-thread; like the matcher, the test has the object keep the event, and gives the event's values to
-the first free thread's locals for each trigger that answers. With a thousand events waiting, the
-game lists them and stops with the assertion "Trigger List exceeded" (`0x0045B330`).
+Whether a trigger would answer is the matcher's test (`event_would_fire`, `0x0045B4E0`, below),
+whatever the trigger's thread; like the matcher, the test has the object keep the event, and gives
+the event's values to the first free thread's locals for each trigger that answers. With a thousand
+events waiting, the game lists them and stops with the assertion "Trigger List exceeded"
+(`0x0045B330`).
 
 `events_flush` (`0x0045B840`), which `mission_frame` calls once a frame before `process_mission`,
 raises each event in turn on its ship's object (`trigger_raise_event`, `0x0045CE70`) and, where it
@@ -332,7 +338,7 @@ event that a trigger's thread posts as it runs at once waits its turn in the sam
 | Condition | Posted by | Values |
 |---|---|---|
 | ShotAt | `event_shot_at` (`0x0045A9E0`), with the groups: last in `object_damage` and in `object_armor_damage`, unless `0x00545860` holds it back; and in `component_damage`, for the ship but for damage of kind 4, and for the component struck | The attacker's ship, the ship's damage value twice, the ship, -1 |
-| Destroyed | `event_destroyed` (`0x0045AA60`), with the groups: as a ship's Explode begins (`0x004086F0`), and the limpet car's (`explode_limpet_car_init`); as a pilot ejects (`order_eject_init`, `order_eject_spin_init`); as a ship's hull is lost (`object_hull_lost`); and for each component `node_draw` takes out | The ship of what struck it last (`last_attacker`), the ship |
+| Destroyed | `event_destroyed` (`0x0045AA60`), with the groups: as a ship's Explode begins (`explode_ship_init`), and the limpet car's (`explode_limpet_car_init`); as a pilot ejects (`order_eject_init`, `order_eject_spin_init`); as a ship's hull is lost (`object_hull_lost`); and for each component `node_draw` takes out | The ship of what struck it last (`last_attacker`), the ship |
 | Launched | `event_launched` (`0x0045A9B0`), with the groups, as each launch style ends ([Launches](launch.md)) | The ship |
 | JumpedIn | `event_jumped_in` (`0x0045B300`), with the groups, as Jump In ends ([Jumps](jump.md#jump-in)) | The ship |
 | ObjectScooped | `0x0045AAD0`, with the groups, as Scoop Up has the pod aboard ([Ejection](ejection.md)) | The pod's ship |
@@ -380,8 +386,10 @@ the event: armed, of the event's condition and qualifier, with a block to run, a
    check passes over the trigger, which stays armed.
 3. Unless a thread the trigger started is still running (`trigger_thread_running`, `0x0045D0D0`),
    it starts that thread on the trigger's block, at once where the trigger's `+0x16` is 0, otherwise
-   for the scheduler, the thread keeping the trigger's index in a byte. A thread of the trigger
-   that waits for it (`InterruptTriggerCode`) runs on again instead.
+   for the scheduler, the thread keeping the trigger's index in a byte (`0x0045B929`). A thread of
+   the trigger that waits for it (`InterruptTriggerCode`) runs on again instead. The test compares
+   the whole index against that byte (`0x0045D106`), so trigger 255 takes every thread no trigger
+   started for its own, and a trigger past 255 never finds its own threads.
 4. It disarms the trigger as its repeat mode says: `once` at once, `counted` once its count at
    `+0x19` has run down, `always` never.
 
@@ -389,15 +397,17 @@ the event: armed, of the event's condition and qualifier, with a block to run, a
 then on each squad that holds the ship, as the component the event concerns, each only where its
 slice holds triggers. A group's event concerns the group itself (qualifier `0xFF`). For each group,
 the condition's handlers, where it has them, count its members: a flight group's ships, whole, or a
-squad's members (`0x004533D0`), a ship as the component its membership names, each ship of a flight
-group whole, and a squad's own members in turn. Their verdict becomes `condition_verdict` for the
-group's triggers.
+squad's members (`condition_squad_add`, `0x004533D0`), a ship as the component its membership
+names, each ship of a flight group whole, and a squad's own members in turn. Their verdict becomes
+`condition_verdict` for the group's triggers.
 
-- **ShotAt** (`0x00452BB0`, `0x00452BD0`, `0x00452C00`): the handlers add up the members' damage
-  values twice over (`0x005294E6`, `0x0052950A`), and the group's event carries their average, over
-  the members counted, for both of its damage values; they never veto.
-- **Destroyed** (`0x00452C40`, `0x00452C50`, `0x00452CA0`): the verdict holds only once every
-  member is destroyed, or the component a squad names of it (`0x00525F7C`). Until then the event
+- **ShotAt** (`shot_at_group_begin`, `0x00452BB0`; `shot_at_group_add`, `0x00452BD0`;
+  `shot_at_group_verdict`, `0x00452C00`): the handlers add up the members' damage values twice over
+  (`shot_at_shield_total`, `0x005294E6`; `shot_at_hull_total`, `0x0052950A`), and the group's event
+  carries their average, over the members counted, for both of its damage values; they never veto.
+- **Destroyed** (`destroyed_group_begin`, `0x00452C40`; `destroyed_group_add`, `0x00452C50`;
+  `destroyed_group_verdict`, `0x00452CA0`): the verdict holds only once every member is destroyed,
+  or the component a squad names of it (`destroyed_group_all`, `0x00525F7C`). Until then the event
   fires only the group's triggers of repeat mode 1, which the condition exempts.
 - **Cloaked**, **Decloaked**: Destroyed's first and last handlers, with `cloak_group_add`
   (`0x0045D800`), which does nothing, for each member, so every event goes ahead. Both are posted for
@@ -406,7 +416,10 @@ group's triggers.
 A ship's damage value (`ship_damage_value`, `0x00452CB0`) is how much of its armour it has lost, in
 whole hundredths: its weakest quadrant's against the full armour of its type, six times its armour
 class ([Objects](objects.md)), or a component's own against what it starts with; 100 once any of it
-has run out, and for a component the ship lists no more.
+has run out, and for a component the ship lists no more. The full armour comes from the object's
+current type (`ship_combat_stats`, `0x004FC670`). For a stand-in, type 1001, such as a ship not made
+yet or one retired, the game reads past the table at `0x00508224`, in a 3D sound's name. That value
+makes the full armour a large negative number, so a stand-in's value is 100 as well.
 
 ### Watches
 
@@ -479,24 +492,18 @@ The catalogue is also generated into [`src/engine/vm/conditions.zig`](../../src/
 ## In OpenReliant
 
 [`vm/machine.zig`](../../src/engine/vm/machine.zig) runs the VM: the threads, the interpreter, the
-clock, the timers, `for_each_ship`, and the commands that lie beside the interpreter
-(`CreateTimer`, `DestroyTimer`, `Wait`, `InterruptTriggerCode` and
-`KillAllScriptExecutionExecptMe`). [`game/executor.zig`](../../src/engine/game/executor.zig) has
-the commands that act on the game: `CreateFlightGroup` ([Missions](missions.md#the-missions-ships)),
-`SetAI`, `Fly`, `SetRescueProbabilities`, the launch's `SetupLaunch`, `StartLaunch` and
-`WaitForJumpOrLaunch` ([Launches](launch.md#how-a-launch-is-given)), `SetInvulnerability`,
-`SetShipAvoidance`, the radio's `DisableTaunts`, `DisableGenericComms`, `CommsFromShip` and
-`CommsFromPilot` with their `Once` forms, `PlaySpeech`, `WaitForSpeech`, `PlayCommsMovie` and
-`WaitForMovie`, `PlayMusic`, the display's `OpenInstrument`, `CloseInstrument` and `SetObjective`,
-the space's `SetEnvironmentFXNebula` and `UpdateEnvironmentFXState`, `MultiplayerScriptSync`,
-`WhenPlayerLastJumped`, and those of the ships and the player's targets: `DestroyFlightGroup`,
-`ClearAI`, `StartShipAnimation`, `StartShipAnimationReverse`, `DisableObject`, `PositionRelative`,
-`SetPlayerTarget`, `SetTargetable`, `SetActionCentre`, `DisableGuns`, `SetHostile`, `DoNotDisturb`,
-`DisableListing`, `SetEscortPoint`, `SetPrimaryTarget`,
-`SnapToPoint`, `IsShipThisPlayer`, `SetFlybackMarker`, `ResetFlybackMarker` and `MatchSpeed`. They
-act on it through the world the mission's start and its frame give the machine, which the game
-reaches through its globals. A command not ported yet does nothing and gives 1, which lets the
-thread run on, and is logged the first time it runs
+clock, the timers, `for_each_ship`, and the commands that lie beside the interpreter (`CreateTimer`,
+`DestroyTimer`, `Wait`, `InterruptTriggerCode`, `KillAllScriptExecutionExecptMe`, and the display's
+`OpenInstrument` and `CloseInstrument`). The bound mission
+([`mission/bind.zig`](../../src/engine/game/mission/bind.zig)) finds the record a script names by
+its place (`ship_index`, `record_kind` and the rest) and reads the image where the script points
+([Missions](missions.md#the-records-as-the-script-names-them)).
+[`game/executor.zig`](../../src/engine/game/executor.zig) ticks the clock (`vm_clock_tick`) and
+holds the commands that act on the game: every command [the table above](#commands) marks as
+ported, other than those `vm/machine.zig` holds and `vm/triggers.zig`'s `SetTriggerState` and
+`SetAnyTriggerState`. They act on it through the world the mission's start and its frame give the
+machine, which the game reaches through its globals. A command not ported yet does nothing and gives
+1, which lets the thread run on, and is logged the first time it runs
 ([#281](https://github.com/vdmkenny/openreliant/issues/281)).
 
 [`vm/triggers.zig`](../../src/engine/vm/triggers.zig) matches the events to the triggers, raises
@@ -516,19 +523,30 @@ hold, in the place of a timer of its own.
 **Fix:** where the game faults or reads past a table, OpenReliant ends the thread and logs why: an
 integer division by zero, a stack that runs past its 32 places or below its first, an opcode with no
 handler, an instruction or a record past the image, an argument read with no frame, a store with no
-target, a local past the fifth, and squads that hold one another round in a circle. The entries of a
-part table past the mission's parts have no block, where the game leaves them as `malloc` gave them.
-`for_each_ship` stops at a squad that holds itself round, which the game walks for ever, and passes
-over a member no record stands for, and a ship past the last object's slot.
+target, a local past the fifth, and squads that hold one another round in a circle.
+`in_flight_group` and `in_squad` end the thread on a place past the address space, such as
+`push_null`'s, where the game faults. A command whose flags in section 24 lie past the image, as for
+a section that starts at the file's end, takes none, where the game reads past its copy of the file.
+The entries of a part table past the mission's parts have no block, where the game leaves them as
+`malloc` gave them. `for_each_ship` stops at a squad that holds itself round, which the game walks
+for ever, and passes over a member no record stands for, and a ship past the last object's slot.
+A ninth component tag is dropped, where the game writes past its list of eight. No thread starts
+where the pool has none free, and no timer is made where the table is full, where the game takes
+one past them. A call through the second part table to a part with no block does nothing, where
+the game runs from address zero. `in_squad` passes over a member squad no record stands for, where
+the game reads from address zero, and a member past the object table, where it reads past it.
 
 **Fix:** with a thousand events waiting, OpenReliant passes over the ones past them and logs it,
 where the game stops. An operand naming no ship, flight group or squad passes nothing, logged once,
-where the game stops. The matcher takes an object's slice of the trigger list as far as the object
-table and the list reach, where the game reads past them. The handlers' count of a squad passes over
-a member of a kind the game has no name for, where the game stops ("unknown ai group member"), and
-one no record stands for, and stops at a squad that holds itself round. Cloaking an object that
-stands for no mission's ship posts nothing, where the game faults. The watches' lists are as long as
-the mission needs, where the game writes them into tables of a fixed size without looking.
+where the game stops. A thread keeps the whole index of the trigger that started it beside its
+record, which the matcher compares, where the game compares the index against its low byte: trigger
+255 finds none of the threads no trigger started, and a trigger past 255 finds its own. The matcher
+takes an object's slice of the trigger list as far as the object table and the list reach, where the
+game reads past them. The handlers' count of a squad passes over a member of a kind the game has no
+name for, where the game stops ("unknown ai group member"), and one no record stands for, and stops
+at a squad that holds itself round. Cloaking an object that stands for no mission's ship posts
+nothing, where the game faults. The watches' lists are as long as the mission needs, where the game
+writes them into tables of a fixed size without looking.
 
 Not ported: the script debugger; and the events that code OpenReliant does not run yet posts, such
 as FixedGateJumpedIn from the gates' jumps

@@ -195,7 +195,7 @@ pub const Marker = struct {
     pub fn make(marker: *Marker, arena: Allocator, interface: *i3d.Interface, image: ?*srtexture.Image) Allocator.Error!void {
         const panel = &marker.panel;
         panel.mesh = try loadout.squareMesh(arena, false, marker_size[0], marker_size[1]);
-        panel.mesh.uv[0].?[0..6].* = .{ .{ 0, 1 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 0 }, .{ 0, 0 } };
+        loadout.spanWhole(&panel.mesh);
         @memset(panel.mesh.biases, marker_bias);
         panel.mesh.surfaces[0] = .{
             .polygons = 2,

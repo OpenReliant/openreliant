@@ -44,6 +44,12 @@ pub const Place = struct {
         return transformTransposed(place.orientation, at - place.position);
     }
 
+    /// The point `reach` along its nose (its forward axis) from where it stands, behind it for a
+    /// `reach` below 0.
+    pub fn ahead(place: Place, reach: f32) Vector {
+        return place.position + forward(place.orientation) * @as(Vector, @splat(reach));
+    }
+
     /// This place, standing in the world, as it stands in `parent`'s frame: the reverse of
     /// `within`.
     pub fn relativeTo(place: Place, parent: Place) Place {
@@ -124,6 +130,25 @@ pub fn transform(m: Matrix, v: Vector) Vector {
 /// (`mat3_forward`, `0x004C18A0`).
 pub fn forward(m: Matrix) Vector {
     return .{ m[2], m[5], m[8] };
+}
+
+/// The cosine of the angle between `toward` and `nose`, a unit direction: their dot product over
+/// the length of `toward`, as the Fight order and its maneuvers (`fight_choose_by_position`,
+/// `maneuver_steer_to_point`), the scanner (`mission_frame`, `0x004929D8`) and the homing missiles
+/// (`missile_home`) work it out.
+///
+/// `ai.noseCosine` normalizes first, which rounds differently, and some callers compare the dot
+/// product with the length times a cosine instead; each keeps the original's way.
+pub fn cosineOff(toward: Vector, nose: Vector) f32 {
+    return dot(toward, nose) / length(toward);
+}
+
+test cosineOff {
+    // Dead ahead, square across and straight behind.
+    try std.testing.expectEqual(1, cosineOff(.{ 0, 0, 20 }, .{ 0, 0, 1 }));
+    try std.testing.expectEqual(0, cosineOff(.{ 20, 0, 0 }, .{ 0, 0, 1 }));
+    try std.testing.expectEqual(-1, cosineOff(.{ 0, 0, -5 }, .{ 0, 0, 1 }));
+    try std.testing.expectApproxEqAbs(0.6, cosineOff(.{ 4, 0, 3 }, .{ 0, 0, 1 }), 1e-6);
 }
 
 /// The first column of `m`, which for an orientation is the axis its X points along: to its right.
@@ -359,11 +384,22 @@ pub fn lookAt(direction: Vector) Matrix {
 pub const testing = struct {
     /// Whether `actual` is `expected`, each of its axes within a hundred-thousandth.
     pub fn expectVector(expected: Vector, actual: Vector) !void {
-        inline for (0..3) |i| try std.testing.expectApproxEqAbs(expected[i], actual[i], 1e-5);
+        return expectVectorWithin(expected, actual, 1e-5);
+    }
+
+    /// Whether `actual` is `expected`, each of its axes within `tolerance`.
+    pub fn expectVectorWithin(expected: Vector, actual: Vector, tolerance: f32) !void {
+        inline for (0..3) |i| try std.testing.expectApproxEqAbs(expected[i], actual[i], tolerance);
+    }
+
+    /// Whether `actual` is `expected`, each of its entries within `tolerance`.
+    pub fn expectMatrixWithin(expected: Matrix, actual: Matrix, tolerance: f32) !void {
+        for (expected, actual) |want, got| try std.testing.expectApproxEqAbs(want, got, tolerance);
     }
 };
 
 const expectVector = testing.expectVector;
+const expectMatrixWithin = testing.expectMatrixWithin;
 
 test lookAt {
     for ([_]Vector{ .{ 0, 0, 1 }, .{ 1, -0.5, 0.2 }, .{ -1, 0.5, 0 }, .{ 0.2, 0.9, -0.3 } }) |d| {
@@ -381,7 +417,7 @@ test smallTurn {
     try expectVector(v + cross(a, v), transform(smallTurn(a), v));
     // To first order, the same as turning about each axis in turn.
     const turn = fromAngles(a[0], a[1], a[2]);
-    for (turn, smallTurn(a)) |e, found| try std.testing.expectApproxEqAbs(e, found, 1e-5);
+    try expectMatrixWithin(turn, smallTurn(a), 1e-5);
 }
 
 test round {
@@ -424,11 +460,17 @@ test Place {
     const world = place.point(local);
     try std.testing.expectEqual(Vector{ 1, 7, 3 }, world);
     try std.testing.expectEqual(local, place.inverse(world));
+    // Turned about Z, its nose still points along Z; turned a quarter about Y, along X; a reach
+    // below 0 lies behind it.
+    try std.testing.expectEqual(Vector{ 1, 2, 13 }, place.ahead(10));
+    const quarter: Place = .{ .position = .{ 1, 2, 3 }, .orientation = rotation(.y, std.math.pi / 2.0) };
+    try expectVector(.{ 11, 2, 3 }, quarter.ahead(10));
+    try expectVector(.{ -9, 2, 3 }, quarter.ahead(-10));
     // A place taken into another's frame and back out stands where it stood.
     const other: Place = .{ .position = .{ -4, 0, 9 }, .orientation = fromAngles(0.3, -1.2, 0.5) };
     const back = other.relativeTo(place).within(place);
     try expectVector(other.position, back.position);
-    for (other.orientation, back.orientation) |expected, actual| try std.testing.expectApproxEqAbs(expected, actual, 1e-6);
+    try expectMatrixWithin(other.orientation, back.orientation, 1e-6);
 }
 
 test halfTurn {
@@ -465,13 +507,13 @@ test turned {
     try expectVector(.{ 0, 1, 0 }, transform(rotation(.z, std.math.pi / 2.0), .{ 1, 0, 0 }));
     // `fromAngles` is the three turns in order.
     const m = turned(turned(turned(identity, .x, 0.3), .y, -0.7), .z, 0.2);
-    for (fromAngles(0.3, -0.7, 0.2), m) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-6);
+    try expectMatrixWithin(fromAngles(0.3, -0.7, 0.2), m, 1e-6);
 }
 
 test product {
     const m = fromAngles(0.3, -0.7, 0.2);
     const back = product(transpose(m), m);
-    for (identity, back) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-5);
+    try expectMatrixWithin(identity, back, 1e-5);
     try std.testing.expectEqual(@as(f32, 3), dot(.{ 1, 1, 1 }, .{ 1, 1, 1 }));
     try expectVector(.{ 0, 0, 1 }, cross(.{ 1, 0, 0 }, .{ 0, 1, 0 }));
 }

@@ -63,7 +63,7 @@ pub fn componentHit(world: gameobj.World, index: u16, crossing: objects.Crossing
         },
         .rock => {
             const drawn = crossing.part.part().drawn();
-            sound3d.playIn(world, crossing.inWorld(), @splat(0), -1, .coll02, 1, .not_reserved);
+            sound3d.playIn(world, crossing.inWorld(), @splat(0), null, .coll02, 1, .not_reserved);
             explode.throwChunk(world, crossing.point, math.transform(drawn.orientation, crossing.normal), .{ .from_part = drawn });
         },
         .hull, .grey => {},
@@ -137,7 +137,7 @@ pub fn hullHit(world: gameobj.World, index: u16, at: Vector) void {
     const now = world.clock.frame_start;
     const facing = math.normalize(hearing.camera.position - at);
     if (index != all.player) {
-        _ = sound3d.play(hearing.sound, hearing.scene(world), at, facing, -1, .armour01, 1, .not_reserved);
+        _ = sound3d.play(hearing.sound, hearing.scene(world), at, facing, null, .armour01, 1, .not_reserved);
         return;
     }
     if (now - hearing.sound.player_hit_at < player_hit_pause) return;
@@ -150,17 +150,15 @@ test {
 }
 
 test hullHit {
-    const mss = @import("../mss.zig");
     const hog_snd = @import("hog_snd.zig");
-    var mixer: mss.Mixer = .init(22050);
-    var sound: hog_snd.Sound = undefined;
-    sound.init(mixer.driver(), 2, null);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const view: @import("camera.zig").Place = .{ .position = @splat(0), .orientation = math.identity };
     var world = mission.world();
-    world.hearing = .{ .sound = &sound, .camera = &view, .clock = &mission.clock };
+    world.hearing = speaker.hearing(&mission.clock);
     const player = try mission.add(.predator, @splat(0));
     const other = try mission.add(.sabre, .{ 0, 0, 1000 });
 

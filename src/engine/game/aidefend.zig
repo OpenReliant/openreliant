@@ -184,16 +184,20 @@ pub const Instruction = extern union {
     }
 };
 
-/// The most lines a maneuver starts in one update. A script loop with no command that waits would
-/// run on for ever; none of the game's has one, and OpenReliant stops at this rather than hang.
+/// The most lines a maneuver starts in one update.
+///
+/// **Fix:** a script loop with no command that waits would hang the game; OpenReliant starts at
+/// most this many lines in one update. None of the game's scripts has one.
 const most_lines = 256;
 
 /// `maneuver_run` (`0x004069B0`): runs the Fight order's maneuver for an update. While no line
 /// waits it starts the next, each command running at once until one waits; then it runs the
 /// waiting one.
 ///
-/// A script that runs off its end would stop the game with a syntax error; OpenReliant ends the
-/// maneuver there instead, so Fight chooses another.
+/// **Fix:** a script that runs off its end stops the game with a syntax error; OpenReliant ends the
+/// maneuver there, so Fight chooses another.
+///
+/// **Fix:** a maneuver number past the table runs nothing, where the game reads past it.
 pub fn run(fighter: Fighter) void {
     const number = @intFromEnum(fighter.state.maneuver);
     if (number < maneuvers.compiled.len) runScript(fighter, maneuvers.compiled[number]);
@@ -213,6 +217,9 @@ fn runScript(fighter: Fighter, program: []const script.Instruction) void {
 }
 
 /// The start of an instruction (`maneuver_handlers`' first routines): true for one that waits.
+/// Each arm ports the routine the table gives its opcode as it starts (`maneuvers.handlers`, named
+/// `maneuver_<opcode>_start`), the timers of those that wait by `maneuver_start_timer`
+/// (`startTimer`) and the jumps of `Goto` and `Else` by `maneuver_jump` (`0x00405B70`).
 fn start(fighter: Fighter, instruction: script.Instruction) bool {
     const state = fighter.state;
     switch (instruction) {
@@ -266,7 +273,8 @@ fn start(fighter: Fighter, instruction: script.Instruction) bool {
 }
 
 /// Each update of an instruction that waits (`maneuver_handlers`' second routines): true while it
-/// still waits.
+/// still waits. Each arm ports the routine the table gives its opcode while it waits
+/// (`maneuvers.handlers`, named `maneuver_<opcode>_run`).
 fn update(fighter: Fighter, instruction: script.Instruction) bool {
     return switch (instruction) {
         .wait => fighter.now() < fighter.state.timer,
@@ -292,7 +300,8 @@ fn startTimer(fighter: Fighter, ticks: script.Ticks) void {
     fighter.state.timer = @as(i32, ticks.min) + fighter.now() + math.round(fighter.random() * spread);
 }
 
-/// Ends the maneuver, its end the tick before, so Fight chooses another.
+/// `maneuver_end_script_run` (`0x004069A0`): ends the maneuver, its end the tick before, so Fight
+/// chooses another.
 fn endManeuver(fighter: Fighter) void {
     fighter.state.maneuver_end = fighter.now() - 1;
 }
@@ -322,11 +331,12 @@ const Axis = enum {
     }
 };
 
-/// `maneuver_set_yaw_start` (`0x00405960`) and the pitch's and roll's: the input a random share of
-/// the range, times the pilot's turn limit, the other way about where the maneuver mirrors it.
+/// `maneuver_set_yaw_start` (`0x00405960`), `maneuver_set_pitch_start` (`0x004059E0`) and
+/// `maneuver_set_roll_start` (`0x00405A60`): the input a random share of the range, times the
+/// pilot's turn limit, the other way about where the maneuver mirrors it.
 ///
 /// The share is taken as `lerp` (`0x004C1050`) takes it, which the game writes out here and in
-/// `maneuver_set_speed_start`: the range's span times the share, plus its least.
+/// `maneuver_set_speed_start` (`0x00405AE0`): the range's span times the share, plus its least.
 fn setInput(fighter: Fighter, axis: Axis, range: script.Range) void {
     const value = math.lerp(range.min, range.max, fighter.random()) * fighter.pilot.turn_limit;
     axis.input(fighter.ship()).* = if (axis.mirrored(fighter.state.mirror)) -value else value;
@@ -354,10 +364,10 @@ fn steerToPoint(fighter: Fighter) void {
     const ship = fighter.ship();
     const point = gameobj.vector(state.point);
     if (ship.avoid_ahead.count >= 1 or ship.avoid_near.count != 0) {
-        _ = ai.steer(fighter.ctx.world, fighter.index, point, ai.full_limit, ai.no_ease, .{ .avoid_near = true, .avoid_ahead = true });
+        _ = ai.steer(fighter.ctx.world, fighter.index, point, ai.full_limit, ai.no_ease, .clear);
         return;
     }
-    const off = ai.cosineOff(point - fighter.position(), fighter.heading());
+    const off = math.cosineOff(point - fighter.position(), fighter.heading());
     ship.throttle = ai.full_throttle;
     if (state.weaving) {
         if (off < weave_end) state.weaving = false;
@@ -377,7 +387,7 @@ fn attack(fighter: Fighter) bool {
     if (timeUp(fighter)) return false;
     const ship = fighter.ship();
     const apart = math.distance(fighter.position(), fighter.enemyPosition());
-    fighter.steer(gameobj.vector(fighter.state.aim), .{ .avoid_near = true, .avoid_ahead = true });
+    fighter.steer(gameobj.vector(fighter.state.aim), .clear);
     const ahead = fighter.position() + gameobj.vector(ship.velocity) * @as(Vector, @splat(lookahead));
     const nose = math.forward(ship.root.orientation);
     if (math.dot(nose, fighter.enemyPosition() - ahead) >= 0) {
@@ -407,7 +417,7 @@ fn closeToPart(fighter: Fighter) bool {
 fn attackMassive(fighter: Fighter) bool {
     if (closeToPart(fighter)) return false;
     fighter.ship().throttle = ai.full_throttle;
-    fighter.steer(gameobj.vector(fighter.state.aim), .{ .avoid_near = true, .avoid_ahead = true });
+    fighter.steer(gameobj.vector(fighter.state.aim), .clear);
     return true;
 }
 
@@ -453,7 +463,7 @@ fn attackMediumFighter(fighter: Fighter) bool {
 /// at that is clear of the target's hull (`ai.escapeDirection`).
 fn startAttackRun(fighter: Fighter) void {
     const enemy = fighter.enemy();
-    if (arcWayOut(enemy, fighter.target().component)) |way| {
+    if (arcWayOut(enemy, fighter.target().part())) |way| {
         fighter.state.point = way;
         return;
     }
@@ -463,9 +473,9 @@ fn startAttackRun(fighter: Fighter) void {
 
 /// The way out the firing arc of component `component` of the ship in `slot` names, where its
 /// type's model gives the component one; the arcs follow the object's components, the model's own
-/// first.
-fn arcWayOut(slot: *const create.Slot, component: i16) ?shp.Vec3 {
-    const index = std.math.cast(usize, component) orelse return null;
+/// first. Null for the whole ship.
+fn arcWayOut(slot: *const create.Slot, component: ?u16) ?shp.Vec3 {
+    const index = component orelse return null;
     const arcs = (slot.type orelse return null).model.firing_arcs;
     return if (index < arcs.len) arcs[index].way_out else null;
 }
@@ -494,7 +504,7 @@ fn attackRun(fighter: Fighter, far: bool) bool {
         ship.fighting = .from(fighter.target().slot());
         return false;
     }
-    fighter.steer(staging, .{ .avoid_near = true, .avoid_ahead = true });
+    fighter.steer(staging, .clear);
     return true;
 }
 
@@ -524,7 +534,7 @@ fn friend(fighter: Fighter) *gameobj.GameObject {
 fn goingToCrash(fighter: Fighter) bool {
     if (fighter.enemy().object.flags.components) return closeToPart(fighter);
     const berth = crashBerth(fighter.pilot.skill()) orelse return false;
-    return ai.collisionCourse(fighter.ctx.world, fighter.index, fighter.enemyIndex(), crash_steps, berth);
+    return ai.collisionCourse(fighter.ctx.world, fighter.index, fighter.against.slot, crash_steps, berth);
 }
 
 /// The berth `If Goingtocrash` keeps from a target by the pilot's skill, which `maneuver_if_start`
@@ -544,7 +554,7 @@ fn crashBerth(skill: pilots.Pilot.Skill) ?f32 {
 const afterburner_limit: f32 = 2;
 const afterburner_reach: f32 = 50000;
 /// How far away `Runaway` flies, and how long after `Cloak` it cloaks (`maneuver_runaway_start`,
-/// `maneuver_cloak_start`, which hold them in their code).
+/// `0x00405E23`; `maneuver_cloak_start`, `0x004063EF`).
 const runaway_reach: f32 = 1000000;
 const cloak_delay = 500;
 /// The cosines of the angles off the nose at which a ship flying to a point starts weaving
@@ -552,11 +562,11 @@ const cloak_delay = 500;
 const weave_start: f32 = 0.9;
 const weave_end: f32 = 0.7;
 /// The throttle `Avoid` pitches away at, and `NewAttackRun` flies at with the way out against its
-/// course (`maneuver_avoid_run`, `maneuver_new_attack_run_run`, which hold it in their code).
+/// course (`maneuver_avoid_run`, `0x004063C1`; `maneuver_new_attack_run_run`, `0x00406702`).
 const half_throttle: f32 = 0.5;
-/// `Attack`'s look ahead, in updates of the ship's velocity (`maneuver_attack_run`, which holds it
-/// in its code); how close in, both sizes aside, it matches the aim point's speed (`0x004DC488`);
-/// and the least throttle it or `RunToShip` holds (`0x004DC408`).
+/// `Attack`'s look ahead, in updates of the ship's velocity (`maneuver_attack_run`,
+/// `0x00405EFD`); how close in, both sizes aside, it matches the aim point's speed
+/// (`0x004DC488`); and the least throttle it or `RunToShip` holds (`0x004DC408`).
 const lookahead: f32 = 20;
 const close_in: f32 = 12000;
 const least_throttle: f32 = 0.5;
@@ -564,8 +574,8 @@ const least_throttle: f32 = 0.5;
 const reach_steps: f32 = 50;
 /// `AttackMediumFighter`: the cosine of the cone off the nose the target must be within at close
 /// quarters (`aifight.close_quarters`, `0x004DC414`), and the share of the ship's own velocity the
-/// lead takes off and how far out it steers at (`maneuver_attack_medium_fighter_run`, which holds
-/// both in its code).
+/// lead takes off and how far out it steers at (`maneuver_attack_medium_fighter_run`:
+/// `0x00406518`, which pushes the share as -0.1, and `0x004064CF` and `0x00406576`).
 const medium_cone: f32 = 0.95;
 const own_share: f32 = 0.1;
 const medium_reach: f32 = 20000;
@@ -577,8 +587,8 @@ const run_done: f32 = 2000;
 /// unit past that adds (`0x004DC498`).
 const run_to_reach: f32 = 5000;
 const run_to_closing: f32 = 0.0002;
-/// `If Goingtocrash`: how many updates ahead a crash is looked for (`maneuver_if_start`, which holds
-/// it in its code).
+/// `If Goingtocrash`: how many updates ahead a crash is looked for (`maneuver_if_start`,
+/// `0x00406256`).
 const crash_steps: f32 = 100;
 
 test {
@@ -810,7 +820,7 @@ test goingToCrash {
     // Against a target with components, it is once close to the part it aims at, whatever its
     // course.
     objects.setOrientation(ship, &fighter.slot.drawn, math.identity);
-    ship.velocity = .{ .x = 0, .y = 0, .z = 0 };
+    ship.velocity = .zero;
     fighter.enemy().object.flags.components = true;
     try std.testing.expect(goingToCrash(fighter));
     // A pilot of a skill the game has no berth for never crashes.
@@ -829,12 +839,76 @@ test arcWayOut {
     var arcs = [_]shp.FiringArc{std.mem.zeroes(shp.FiringArc)};
     arcs[0].way_out = .{ .x = 0, .y = -1, .z = 0 };
     hull.source.firing_arcs = &arcs;
-    const index = try create.createObject(mission.objects, &mission.tables, hull.types(), null, .reaper, 0, @splat(0), &mission.random);
+    const index = try mission.addWith(hull.types(), .reaper, @splat(0));
     const slot = mission.slot(index);
 
     // A component the model gives an arc pulls out the way the arc names; the whole ship, or a
     // component past the arcs, has none.
     try std.testing.expectEqual(arcs[0].way_out, arcWayOut(slot, 0).?);
-    try std.testing.expectEqual(null, arcWayOut(slot, -1));
+    try std.testing.expectEqual(null, arcWayOut(slot, null));
     try std.testing.expectEqual(null, arcWayOut(slot, 1));
+}
+
+test start {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const fighter = try aifight.testing.fighter(&mission, 50000);
+    const state = fighter.state;
+    const ship = fighter.ship();
+
+    // Not on course to hit the player, the If goes on after its Endif, and the Wait there waits.
+    state.line = aifight.FightState.before_first;
+    runScript(fighter, &comptime script.compile(&.{ "If Goingtocrash", "Avoid(300)", "Endif", "Wait(10)" }));
+    try std.testing.expect(state.waiting);
+    try std.testing.expectEqual(3, state.line);
+
+    // Runaway flies straight for the point `runaway_reach` out, away from the player, weaving no
+    // more.
+    state.weaving = true;
+    try std.testing.expect(start(fighter, .{ .runaway = .{ .min = 10, .max = 10 } }));
+    try std.testing.expect(!state.weaving);
+    try std.testing.expectEqual(gameobj.vec3(.{ 0, 0, 50000 + runaway_reach }), state.point);
+    try std.testing.expectEqual(10, state.timer);
+
+    // NewAttackRun, told to, has the ship fight nothing until the run is over; otherwise it keeps
+    // its target.
+    ship.fighting = .of(0);
+    try std.testing.expect(start(fighter, .{ .new_attack_run = false }));
+    try std.testing.expectEqual(gameobj.Slot.of(0), ship.fighting);
+    try std.testing.expect(start(fighter, .{ .new_attack_run = true }));
+    try std.testing.expectEqual(gameobj.Slot.none, ship.fighting);
+}
+
+test startAttackRun {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const fighter = try aifight.testing.fighter(&mission, 50000);
+    var hull: create.testing.Model = undefined;
+    try hull.init(gpa);
+    defer hull.deinit(gpa);
+    hull.withHull();
+    var arcs = [_]shp.FiringArc{std.mem.zeroes(shp.FiringArc)};
+    arcs[0].way_out = .{ .x = 0, .y = -1, .z = 0 };
+    hull.source.firing_arcs = &arcs;
+    // The target is turned a quarter about Y, the box of its hull 5000 behind it.
+    hull.nodes[0].centre = .{ .x = 0, .y = 0, .z = -5000 };
+    const target = try mission.addWith(hull.types(), .reaper, .{ 0, 0, 100000 });
+    const slot = mission.slot(target);
+    objects.setOrientation(&slot.object, &slot.drawn, math.rotation(.y, std.math.pi / 2.0));
+    slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
+
+    // At a component its model gives a firing arc, the way out the arc names.
+    fighter.slot.orders[0].target = .at(target, 0);
+    startAttackRun(aifight.Fighter.unchecked(fighter.ctx, fighter.index).?);
+    try std.testing.expectEqual(arcs[0].way_out, fighter.state.point);
+    // At the whole ship, the way clear of its hull, in its own frame: ahead, away from the box
+    // behind it, however it is turned.
+    fighter.slot.orders[0].target = .at(target, null);
+    startAttackRun(aifight.Fighter.unchecked(fighter.ctx, fighter.index).?);
+    try std.testing.expectApproxEqAbs(0, fighter.state.point.x, 1e-5);
+    try std.testing.expectApproxEqAbs(0, fighter.state.point.y, 1e-5);
+    try std.testing.expectApproxEqAbs(1, fighter.state.point.z, 1e-5);
 }

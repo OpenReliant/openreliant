@@ -2,8 +2,10 @@
 //! (`0x00451D90`) do it: the file read from the game's `missions` folder or from `resource.hog`
 //! (`read`), each of its sections bound (`Mission.bind`), and the tables the rest of the mission
 //! reads made from them. [`docs/engine/missions.md`](../../../../docs/engine/missions.md)
-//! describes it. **Unverified:** these functions lie between `loadout.cpp`'s code and
-//! `Executor.cpp`'s; by what they do they are the mission's.
+//! describes it. Its records are found as the script names them, by where they lie in the image
+//! (`Mission.shipIndex` and the rest), and the image is read where the script points
+//! (`Mission.byte` and the rest). **Unverified:** these functions lie between `loadout.cpp`'s code
+//! and `Executor.cpp`'s; by what they do they are the mission's.
 //!
 //! Elsewhere: the script's clock and start (`vm.Machine.start`), the watches of the proximity
 //! conditions (`0x0045AE10`), which the mission's events make as it starts
@@ -25,6 +27,9 @@ pub const loose_limit = 0xFA000;
 
 /// Where a mission's file came from.
 pub const Source = enum { mod, loose, archive };
+
+/// What a read past the mission image gives, where the game would read past its buffer.
+pub const ReadError = error{OutsideImage};
 
 pub const File = struct {
     /// The file's bytes as the mission binds them, made in the allocator `read` is given.
@@ -115,8 +120,8 @@ pub const Mission = struct {
         for (file.directory) |entry| mission.formats = mission.formats.noting(entry.formats);
         resetShips(try mission.ships());
         // What `mission_bind_tables` (`0x00453050`) makes of the sections once they are bound.
-        mission.parts = try partTable(file, .parts, .script);
-        mission.parts_b = try partTable(file, .parts_b, .script_b);
+        mission.parts = try partTable(&mission, .parts, .script);
+        mission.parts_b = try partTable(&mission, .parts_b, .script_b);
         mission.waypoints = try listWaypoints(gpa, try mission.ships());
         errdefer gpa.free(mission.waypoints);
         mission.group_ships = try listGroupShips(gpa, try mission.flightGroups(), try mission.ships());
@@ -149,26 +154,291 @@ pub const Mission = struct {
         return @constCast(try mission.file.flightGroups());
     }
 
-    /// The ships of flight group `group`.
+    /// The trigger list, as the engine arms and disarms its triggers.
+    pub fn triggers(mission: Mission) dte.Error![]align(1) dte.Trigger {
+        return @constCast(try mission.file.triggers());
+    }
+
+    /// Where the block `offset` bytes into the code of section `code` lies in the image, as
+    /// `mission_fill_part` (`0x00452FD0`) and `trigger_match` (`0x0045CEA0`) take a part's and a
+    /// trigger's (`dte.Part.block`, `dte.Trigger.block`): null for none.
+    ///
+    /// **Fix:** the game takes the code of a section the mission leaves unused from the place
+    /// `dte.DirectoryEntry.unused_offset` gives, whatever lies there; OpenReliant gives no block.
+    pub fn blockAt(mission: *const Mission, code: dte.Section, offset: ?usize) ?u32 {
+        const entry = mission.file.entry(code);
+        if (!entry.isUsed()) return null;
+        return std.math.cast(u32, entry.offset + (offset orelse return null));
+    }
+
+    /// The mission's ship `index`, as the engine writes it: null past the ships, or where the
+    /// file's ships cannot be read.
+    pub fn ship(mission: Mission, index: usize) ?*align(1) dte.Ship {
+        const all = mission.ships() catch return null;
+        return if (index < all.len) &all[index] else null;
+    }
+
+    /// The mission's flight group `index`: null past the flight groups, or where the file's flight
+    /// groups cannot be read.
+    pub fn flightGroup(mission: Mission, index: usize) ?*align(1) dte.FlightGroup {
+        const all = mission.flightGroups() catch return null;
+        return if (index < all.len) &all[index] else null;
+    }
+
+    /// The ships of flight group `group`: as many as its count from its first in the list.
+    ///
+    /// **Fix:** the game reads a group's ships past the list's end where its first ship's place
+    /// and its count run past it; OpenReliant stops there.
     pub fn groupShips(mission: Mission, group: dte.FlightGroup) []const u16 {
         const first = @min(group.firstShip() orelse return &.{}, mission.group_ships.len);
         return mission.group_ships[first..][0..@min(group.ship_count, mission.group_ships.len - first)];
     }
+
+    /// The record object `id` of the object table stands for: null past the table, or where no
+    /// record stands for it.
+    pub fn recordOf(mission: Mission, id: usize) ?Record {
+        return if (id < mission.records.len) mission.records[id] else null;
+    }
+
+    // --- The records, as the script names them -----------------------------------------------
+
+    /// The place of no record: what a ship of no flight group names (`ship_flight_group`,
+    /// `0x00452AB9`), and one of the places the lookups take for none (`ship_index`, `0x004531C0`).
+    pub const no_place: u32 = 0;
+
+    /// The place of every bit set, which `push_null` pushes for no object, and which the lookups
+    /// take for none (`ship_index`, `0x004531C4`).
+    pub const null_place: u32 = 0xFFFF_FFFF;
+
+    /// The record index the lookups give for none (`ship_index`, `0x004531EC`), which they take
+    /// for none as a place too (`0x004531C9`).
+    pub const no_record: u16 = 0xFFFF;
+
+    /// The place `place` names a record at, as the lookups take it (`ship_index`'s compares,
+    /// `0x004531C0` to `0x004531CF`): null for `no_place`, `null_place` and `no_record`.
+    pub fn named(place: u32) ?u32 {
+        return switch (place) {
+            no_place, null_place, no_record => null,
+            else => place,
+        };
+    }
+
+    /// `record_object_id` (`0x00453200`): the object ID of the ship, flight group or squad whose
+    /// record lies at `place`, which the record starts with. **Fix:** the game reads it wherever
+    /// `place` points; OpenReliant gives none for a place that names none (`named`), and for one
+    /// outside the image.
+    pub fn objectId(mission: *const Mission, place: u32) ?u16 {
+        return mission.halfword(named(place) orelse return null) catch null;
+    }
+
+    /// `ship_index` (`0x004531C0`): the index among the mission's ships of the ship at `place`,
+    /// the value the script names it by; null for a place that names none (`named`), which the
+    /// game gives as `no_record`. Like the game, it takes any other place for a ship's.
+    pub fn shipIndex(mission: *const Mission, place: u32) ?u16 {
+        return mission.recordIndex(.ships, place);
+    }
+
+    /// `flight_group_index` (`0x00452060`): the same for a flight group.
+    pub fn flightGroupIndex(mission: *const Mission, place: u32) ?u16 {
+        return mission.recordIndex(.flight_groups, place);
+    }
+
+    /// `squad_index` (`0x00453070`): the same for a squad.
+    pub fn squadIndex(mission: *const Mission, place: u32) ?u16 {
+        return mission.recordIndex(.squads, place);
+    }
+
+    /// `curve_index` (`0x004524E0`): the same for a curve. **Fix:** the game counts a curve from
+    /// any place, those that name none too, which give whatever index their distance from the
+    /// curves comes to; OpenReliant gives none for them.
+    pub fn curveIndex(mission: *const Mission, place: u32) ?u16 {
+        return mission.recordIndex(.curves, place);
+    }
+
+    /// The index among section `section`'s records of the record at `place`: how many records
+    /// from the section's first it lies, as a halfword; null for a place that names none.
+    fn recordIndex(mission: *const Mission, comptime section: dte.Section, place: u32) ?u16 {
+        const stride = comptime section.stride().?;
+        const at = named(place) orelse return null;
+        return @truncate((at -% mission.file.entry(section).offset) / stride);
+    }
+
+    /// What `recordKind` tells a place for: a ship's, a flight group's or a squad's, numbered as
+    /// the object table's kinds are (`dte.Object.Kind`).
+    pub const RecordKind = std.meta.Tag(Record);
+
+    /// `record_kind` (`0x00453590`): whether `place` is a ship's, a flight group's or a squad's,
+    /// taking the place just past a section's last record for one of its own, as the game does;
+    /// null for anything else, which the game gives as `0xFFFF`.
+    pub fn recordKind(mission: *const Mission, place: u32) ?RecordKind {
+        inline for (.{ .{ dte.Section.ships, RecordKind.ship }, .{ dte.Section.flight_groups, RecordKind.flight_group }, .{ dte.Section.squads, RecordKind.squad } }) |pair| {
+            const entry = mission.file.entry(pair[0]);
+            const end = entry.offset +% @as(u32, entry.count) * comptime pair[0].stride().?;
+            if (place >= entry.offset and place <= end) return pair[1];
+        }
+        return null;
+    }
+
+    /// Whether `place` lies among the records section `section` holds.
+    pub fn holds(mission: *const Mission, comptime section: dte.Section, place: u32) bool {
+        const entry = mission.file.entry(section);
+        const end = entry.offset +% @as(u32, entry.count) * comptime section.stride().?;
+        return entry.count != 0 and place >= entry.offset and place < end;
+    }
+
+    /// Where record `index` of section `section` lies, which the game pushes as the record's
+    /// address, whether or not the section holds it.
+    pub fn recordPlace(mission: *const Mission, comptime section: dte.Section, index: usize) u32 {
+        const stride = comptime section.stride().?;
+        return @truncate(mission.file.entry(section).offset +% index * stride);
+    }
+
+    /// Where global `index`'s value lies.
+    pub fn globalPlace(mission: *const Mission, index: u8) u32 {
+        return mission.recordPlace(.globals, index) +% @offsetOf(dte.Global, "value");
+    }
+
+    /// Where the field `offset` bytes into the record at `place` lies: past the address space, as
+    /// for `null_place`, it faults, as the game's read there does.
+    pub fn fieldPlace(place: u32, offset: u32) ReadError!u32 {
+        return std.math.add(u32, place, offset) catch error.OutsideImage;
+    }
+
+    /// `ship_flight_group` (`0x00452AA0`): where the record of the flight group the ship at `place`
+    /// names lies, or `no_place` for a ship of no flight group. It reads the ship's flight group
+    /// wherever `place` lies, as the game does (`fieldPlace`).
+    pub fn shipFlightGroup(mission: *const Mission, place: u32) ReadError!u32 {
+        const group = try mission.byte(try fieldPlace(place, @offsetOf(dte.Ship, "flight_group")));
+        if (group == dte.Ship.no_flight_group) return no_place;
+        return mission.recordPlace(.flight_groups, group);
+    }
+
+    // --- The image, as the script reads it ---------------------------------------------------
+
+    /// The records of section `section`, which fault where they run past the image.
+    pub fn recordsIn(mission: *const Mission, comptime T: type, section: dte.Section) ReadError![]align(1) const T {
+        return mission.file.records(T, section) catch error.OutsideImage;
+    }
+
+    /// The `count` bytes of the image at `at`, as the engine writes them.
+    pub fn bytes(mission: *const Mission, at: u32, count: u32) ReadError![]u8 {
+        const image = mission.image;
+        if (at > image.len or count > image.len - at) return error.OutsideImage;
+        return image[at..][0..count];
+    }
+
+    pub fn byte(mission: *const Mission, at: u32) ReadError!u8 {
+        return (try mission.bytes(at, 1))[0];
+    }
+
+    /// The halfword at `at`, big-endian, as the script's two-byte operands are.
+    pub fn big(mission: *const Mission, at: u32) ReadError!u16 {
+        return std.mem.readInt(u16, (try mission.bytes(at, 2))[0..2], .big);
+    }
+
+    pub fn halfword(mission: *const Mission, at: u32) ReadError!u16 {
+        return std.mem.readInt(u16, (try mission.bytes(at, 2))[0..2], .little);
+    }
+
+    pub fn word(mission: *const Mission, at: u32) ReadError!u32 {
+        return std.mem.readInt(u32, (try mission.bytes(at, 4))[0..4], .little);
+    }
+
+    /// The text a string argument points at in the image (`push_string`), up to its terminating
+    /// zero.
+    pub fn text(mission: *const Mission, at: u32) ReadError![]const u8 {
+        const image = mission.image;
+        if (at >= image.len) return error.OutsideImage;
+        const rest = image[at..];
+        return rest[0 .. std.mem.indexOfScalar(u8, rest, 0) orelse return error.OutsideImage];
+    }
+
+    /// The members of squad `squad`, reached `depth` squads down a walk, as `squad_walk`
+    /// (`0x00401D80`) and a condition's count of a squad's members (`condition_squad_add`,
+    /// `0x004533D0`) take them, from the squad's first: none where the mission has no such squad.
+    ///
+    /// **Fix:** the game walks a squad that holds itself round for ever, reads a member no record
+    /// stands for from address zero, and stops with a fatal error at a member of a kind it does not
+    /// know ("oh disaster, biblical proportions" in `squad_walk`, "unknown ai group member" in
+    /// `condition_squad_add`); OpenReliant gives no members once a walk has gone down more squads
+    /// than the mission has, and passes over such a member (`SquadMembers`).
+    pub fn squadMembers(mission: *const Mission, squad: u16, depth: usize) SquadMembers {
+        const squads = mission.file.squads() catch &.{};
+        if (squad >= squads.len or depth > squads.len) return .{ .mission = mission, .squad = squad, .members = &.{} };
+        return mission.squadMembersFrom(squad, squads[squad].first_member);
+    }
+
+    /// The members of squad `squad` from member `first` of the squads' members on, as
+    /// `for_each_ship` (`0x0045D480`) takes them, reading where the squad's members start from the
+    /// place the script names it by: none from past the squads' members, or where the file's
+    /// members cannot be read.
+    pub fn squadMembersFrom(mission: *const Mission, squad: u16, first: usize) SquadMembers {
+        const members = mission.file.records(dte.SquadMember, .squad_members) catch &.{};
+        return .{ .mission = mission, .squad = squad, .members = members[@min(first, members.len)..] };
+    }
+
+    /// A squad's members in turn, from its first while they are its own, each as the record it
+    /// names: a ship as the component its membership names, a flight group, or a squad. It passes
+    /// over a member no record stands for, and a flight group past the mission's.
+    pub const SquadMembers = struct {
+        mission: *const Mission,
+        squad: u16,
+        /// The squads' members from the next one on.
+        members: []align(1) const dte.SquadMember,
+
+        pub const Member = union(enum) {
+            /// A ship by its index among the mission's ships, and its component, or null for the
+            /// whole ship.
+            ship: struct { index: u16, component: ?u8 },
+            flight_group: dte.FlightGroup,
+            /// A squad by its index among the mission's squads.
+            squad: u16,
+        };
+
+        pub fn next(each: *SquadMembers) ?Member {
+            while (each.members.len > 0) {
+                const member = each.members[0];
+                each.members = each.members[1..];
+                if (member.squad != each.squad) {
+                    each.members = &.{};
+                    return null;
+                }
+                const record = each.mission.recordOf(member.object_id) orelse continue;
+                return switch (record) {
+                    .ship => |index| .{ .ship = .{ .index = index, .component = member.part() } },
+                    .flight_group => |index| .{ .flight_group = (each.mission.flightGroup(index) orelse continue).* },
+                    .squad => |index| .{ .squad = index },
+                };
+            }
+            return null;
+        }
+    };
 };
 
 /// `mission_build_part_tables` (`0x00452F50`)'s filling of one part table from the part
 /// descriptors of section `descriptors`, each part's block in section `code` (`mission_fill_part`,
-/// `0x00452FD0`). **Fix:** the game fills the table from every descriptor, past its 256 entries.
-fn partTable(file: dte.Mission, descriptors: dte.Section, code: dte.Section) dte.Error!vm.Parts {
+/// `0x00452FD0`, `Mission.blockAt`). **Fix:** the game fills the table from every descriptor, past
+/// its 256 entries.
+fn partTable(mission: *const Mission, descriptors: dte.Section, code: dte.Section) dte.Error!vm.Parts {
     var table: vm.Parts = @splat(.{});
-    const found = try file.records(dte.Part, descriptors);
-    const script = file.entry(code);
+    const found = try mission.file.records(dte.Part, descriptors);
     const count = @min(found.len, table.len);
     for (table[0..count], found[0..count]) |*entry, part| entry.* = .{
-        .block = if (part.isEmpty() or !script.isUsed()) null else @intCast(script.offset + part.start()),
+        .block = mission.blockAt(code, part.block()),
         .argument_count = part.arguments,
     };
     return table;
+}
+
+/// The top byte of a reference `recordReference` makes (`0x004513D0`).
+const reference_high: u8 = 0xFF;
+
+/// `record_reference` (`0x004513A0`): the reference to the record of tag `tag` that is `index`
+/// among its section's, or to none (`dte.Reference.unset`), as `for_each_ship_note`
+/// (`0x0045D720`) has each ship's object name the first ship of a walk. The game counts the index
+/// from the record's address; its top byte is `reference_high`.
+pub fn recordReference(tag: dte.Reference.Tag, index: ?u16) dte.Reference {
+    return .{ .index = index orelse dte.Reference.unset, .tag = tag, ._unknown_24 = reference_high };
 }
 
 /// `mission_ships_reset` (`0x00452010`): each ship's run-time place and angles set to those it is
@@ -248,54 +518,35 @@ fn firstWithId(comptime T: type, records: []align(1) const T, id: usize) ?u16 {
     return null;
 }
 
-/// A mission image built by hand, for the tests: a directory whose sections lie one after another,
-/// each with the flags `formats`.
+/// A mission image for the tests, written as the shipped missions are laid out (`dte.write`), each
+/// section's entry with the flags `formats`.
 pub const testing = struct {
     pub const Sections = struct {
         ships: []const dte.Ship = &.{},
         flight_groups: []const dte.FlightGroup = &.{},
         objects: []const dte.Object = &.{},
         squads: []const dte.Squad = &.{},
+        squad_members: []const dte.SquadMember = &.{},
         formats: dte.DirectoryEntry.Formats = .all,
     };
 
-    pub fn image(gpa: Allocator, sections: Sections) Allocator.Error![]u8 {
-        const header = dte.section_count * @sizeOf(dte.DirectoryEntry);
-        const size = header + std.mem.sliceAsBytes(sections.ships).len + std.mem.sliceAsBytes(sections.flight_groups).len +
-            std.mem.sliceAsBytes(sections.objects).len + std.mem.sliceAsBytes(sections.squads).len;
-        const bytes = try gpa.alloc(u8, size);
-        const directory: []align(1) dte.DirectoryEntry = @alignCast(std.mem.bytesAsSlice(dte.DirectoryEntry, bytes[0..header]));
-        for (directory) |*entry| entry.* = .{ .count = 0, ._unused = 0, .formats = sections.formats, .offset = dte.DirectoryEntry.unused_offset };
-        var at: usize = header;
-        inline for (.{ .{ dte.Section.ships, sections.ships }, .{ dte.Section.flight_groups, sections.flight_groups }, .{ dte.Section.objects, sections.objects }, .{ dte.Section.squads, sections.squads } }) |pair| {
-            const records = std.mem.sliceAsBytes(pair[1]);
-            directory[@intFromEnum(pair[0])] = .{ .count = @intCast(pair[1].len), ._unused = 0, .formats = sections.formats, .offset = @intCast(at) };
-            @memcpy(bytes[at..][0..records.len], records);
-            at += records.len;
-        }
-        return bytes;
+    pub fn image(gpa: Allocator, sections: Sections) dte.write.Error![]u8 {
+        var written: dte.write.Sections = @splat(.{});
+        inline for (.{
+            .{ dte.Section.ships, sections.ships },
+            .{ dte.Section.flight_groups, sections.flight_groups },
+            .{ dte.Section.objects, sections.objects },
+            .{ dte.Section.squads, sections.squads },
+            .{ dte.Section.squad_members, sections.squad_members },
+        }) |pair| dte.write.set(&written, pair[0], pair[1].len, std.mem.sliceAsBytes(pair[1]));
+        return dte.write.write(gpa, &written, .{ .formats = sections.formats });
     }
 };
-
-fn testShip(object_id: u32, group: u8, kind: u16) dte.Ship {
-    var ship = std.mem.zeroes(dte.Ship);
-    ship.object_id = object_id;
-    ship.flight_group = group;
-    ship.kind = kind;
-    return ship;
-}
-
-fn testGroup(object_id: u16) dte.FlightGroup {
-    var group = std.mem.zeroes(dte.FlightGroup);
-    group.object_id = object_id;
-    group.wing = dte.FlightGroup.no_wing;
-    return group;
-}
 
 test "Mission.bind" {
     const gpa = std.testing.allocator;
     const waypoint = dte.Ship.waypoint_kind;
-    var placed = testShip(0, 0, 43);
+    var placed = dte.testing.ship(0, 0, 43);
     placed.position = .{ 100, 200, 300 };
     placed.yaw = 90;
     placed.pitch = 10;
@@ -303,25 +554,19 @@ test "Mission.bind" {
     const image = try testing.image(gpa, .{
         .ships = &.{
             placed,
-            testShip(1, 1, waypoint),
-            testShip(2, 2, waypoint),
-            testShip(3, 1, waypoint),
-            testShip(4, 0, 43),
-            testShip(5, dte.Ship.no_flight_group, waypoint),
+            dte.testing.ship(1, 1, waypoint),
+            dte.testing.ship(2, 2, waypoint),
+            dte.testing.ship(3, 1, waypoint),
+            dte.testing.ship(4, 0, 43),
+            dte.testing.ship(5, dte.Ship.no_flight_group, waypoint),
         },
-        .flight_groups = &.{ testGroup(6), testGroup(7), testGroup(8) },
-        .objects = &.{
-            .{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = .flight_group, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = .flight_group, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = .squad, .count = 0, .first = 0, ._unknown_04 = 0 },
-            .{ .kind = @enumFromInt(7), .count = 0, .first = 0, ._unknown_04 = 0 },
-        },
+        .flight_groups = &.{ dte.testing.flightGroup(6, .none), dte.testing.flightGroup(7, .none), dte.testing.flightGroup(8, .none) },
+        .objects = &(.{dte.testing.object(.ship, 0, 0)} ** 6 ++ .{
+            dte.testing.object(.flight_group, 0, 0),
+            dte.testing.object(.flight_group, 0, 0),
+            dte.testing.object(.squad, 0, 0),
+            dte.testing.object(@enumFromInt(7), 0, 0),
+        }),
         .formats = .{ .first = true, .second = true, .third = true },
     });
     var mission: Mission = try .bind(gpa, image);
@@ -351,6 +596,148 @@ test "Mission.bind" {
     try std.testing.expectEqual(Mission.Record{ .flight_group = 1 }, mission.records[7].?);
     try std.testing.expectEqual(null, mission.records[8]);
     try std.testing.expectEqual(null, mission.records[9]);
+    try std.testing.expectEqual(Mission.Record{ .flight_group = 1 }, mission.recordOf(7).?);
+    try std.testing.expectEqual(null, mission.recordOf(8));
+    try std.testing.expectEqual(null, mission.recordOf(10));
+
+    // A ship or a flight group by its index, the engine's to write; none past the last.
+    try std.testing.expectEqual(4, mission.ship(4).?.object_id);
+    mission.ship(4).?.runtime_yaw = 45;
+    try std.testing.expectEqual(45, ships[4].runtime_yaw);
+    try std.testing.expectEqual(null, mission.ship(6));
+    try std.testing.expectEqual(7, mission.flightGroup(1).?.object_id);
+    try std.testing.expectEqual(null, mission.flightGroup(3));
+}
+
+test "Mission.squadMembers" {
+    const gpa = std.testing.allocator;
+    const member = dte.testing.squadMember;
+    const object = dte.testing.object;
+    const whole = dte.Trigger.whole_object;
+    // Squad 0 holds ship 0's component 2, the flight group, an object no record stands for, ship 1
+    // whole and squad 1, which holds ship 0 whole. Squad 2 holds itself.
+    const image = try testing.image(gpa, .{
+        .ships = &.{ dte.testing.ship(0, 0, 43), dte.testing.ship(1, dte.Ship.no_flight_group, 43) },
+        .flight_groups = &.{dte.testing.flightGroup(2, .none)},
+        .objects = &.{ object(.ship, 0, 0), object(.ship, 0, 0), object(.flight_group, 0, 0), object(.squad, 0, 0), object(.squad, 0, 0), object(.squad, 0, 0), object(.squad, 0, 0) },
+        .squads = &.{ dte.testing.squad(3, 0), dte.testing.squad(4, 5), dte.testing.squad(6, 6) },
+        .squad_members = &.{ member(0, 0, 2), member(2, 0, whole), member(5, 0, whole), member(1, 0, whole), member(4, 0, whole), member(0, 1, whole), member(6, 2, whole) },
+    });
+    var mission: Mission = try .bind(gpa, image);
+    defer mission.deinit();
+
+    const Member = Mission.SquadMembers.Member;
+    var members = mission.squadMembers(0, 0);
+    try std.testing.expectEqual(Member{ .ship = .{ .index = 0, .component = 2 } }, members.next().?);
+    const group = members.next().?.flight_group;
+    try std.testing.expectEqual(2, group.object_id);
+    try std.testing.expectEqualSlices(u16, &.{0}, mission.groupShips(group));
+    try std.testing.expectEqual(Member{ .ship = .{ .index = 1, .component = null } }, members.next().?);
+    try std.testing.expectEqual(Member{ .squad = 1 }, members.next().?);
+    // The next member is another squad's, which ends the walk.
+    try std.testing.expectEqual(null, members.next());
+    try std.testing.expectEqual(null, members.next());
+    var inner = mission.squadMembers(1, 1);
+    try std.testing.expectEqual(Member{ .ship = .{ .index = 0, .component = null } }, inner.next().?);
+    try std.testing.expectEqual(null, inner.next());
+    // A squad the mission lacks has no members.
+    var missing = mission.squadMembers(3, 0);
+    try std.testing.expectEqual(null, missing.next());
+    // A squad that holds itself gives itself while the walk is no more squads down than the
+    // mission has, and nothing after, so a walk down it ends.
+    var depth: usize = 0;
+    while (true) : (depth += 1) {
+        var cycle = mission.squadMembers(2, depth);
+        const found = cycle.next() orelse break;
+        try std.testing.expectEqual(Member{ .squad = 2 }, found);
+    }
+    try std.testing.expectEqual(4, depth);
+    // From a member of the squad's on, and from past the members, none.
+    var from = mission.squadMembersFrom(0, 3);
+    try std.testing.expectEqual(Member{ .ship = .{ .index = 1, .component = null } }, from.next().?);
+    try std.testing.expectEqual(Member{ .squad = 1 }, from.next().?);
+    try std.testing.expectEqual(null, from.next());
+    var past = mission.squadMembersFrom(0, 7);
+    try std.testing.expectEqual(null, past.next());
+}
+
+test "the records, as the script names them" {
+    const gpa = std.testing.allocator;
+    var ships = dte.testing.ships(2, 43);
+    ships[1].flight_group = 1;
+    const groups = [_]dte.FlightGroup{ dte.testing.flightGroup(2, .none), dte.testing.flightGroup(3, .none) };
+    const squads = [_]dte.Squad{dte.testing.squad(4, 0)};
+    const curves = [_]dte.Curve{dte.testing.curve(0, 1, @splat(0), @splat(0))};
+    const globals = [_]dte.Global{.{ .name = 0, ._unknown_02 = 0, .value = 7, ._unknown_08 = 0 }};
+    var sections: dte.write.Sections = @splat(.{});
+    dte.write.set(&sections, .ships, ships.len, std.mem.sliceAsBytes(&ships));
+    dte.write.set(&sections, .flight_groups, groups.len, std.mem.sliceAsBytes(&groups));
+    dte.write.set(&sections, .squads, squads.len, std.mem.sliceAsBytes(&squads));
+    dte.write.set(&sections, .curves, curves.len, std.mem.sliceAsBytes(&curves));
+    dte.write.set(&sections, .globals, globals.len, std.mem.sliceAsBytes(&globals));
+    dte.write.set(&sections, .strings, 3, "Hi\x00");
+    var mission: Mission = try .bind(gpa, try dte.write.write(gpa, &sections, .{}));
+    defer mission.deinit();
+
+    // A place names nothing where it is zero, every bit set or `no_record`.
+    for ([_]u32{ Mission.no_place, Mission.null_place, Mission.no_record }) |nothing| {
+        try std.testing.expectEqual(null, Mission.named(nothing));
+        try std.testing.expectEqual(null, mission.objectId(nothing));
+        try std.testing.expectEqual(null, mission.shipIndex(nothing));
+        try std.testing.expectEqual(null, mission.curveIndex(nothing));
+    }
+    const ship = mission.recordPlace(.ships, 1);
+    try std.testing.expectEqual(ship, Mission.named(ship).?);
+    try std.testing.expectEqual(mission.file.entry(.ships).offset + @sizeOf(dte.Ship), ship);
+
+    // Each record by its place: its index, and the object ID it starts with.
+    try std.testing.expectEqual(1, mission.shipIndex(ship));
+    try std.testing.expectEqual(1, mission.flightGroupIndex(mission.recordPlace(.flight_groups, 1)));
+    try std.testing.expectEqual(0, mission.squadIndex(mission.recordPlace(.squads, 0)));
+    try std.testing.expectEqual(0, mission.curveIndex(mission.recordPlace(.curves, 0)));
+    try std.testing.expectEqual(3, mission.objectId(mission.recordPlace(.flight_groups, 1)));
+    try std.testing.expectEqual(null, mission.objectId(@intCast(mission.image.len)));
+
+    // Its kind, the place just past a section's last record one of its own, and none further.
+    const past = mission.recordPlace(.ships, ships.len);
+    try std.testing.expectEqual(.ship, mission.recordKind(ship).?);
+    try std.testing.expectEqual(.ship, mission.recordKind(past).?);
+    try std.testing.expectEqual(null, mission.recordKind(mission.recordPlace(.ships, ships.len + 1)));
+    try std.testing.expectEqual(.flight_group, mission.recordKind(mission.recordPlace(.flight_groups, 0)).?);
+    try std.testing.expectEqual(.squad, mission.recordKind(mission.recordPlace(.squads, 0)).?);
+    try std.testing.expect(mission.holds(.ships, ship) and !mission.holds(.ships, past));
+
+    // A ship's flight group, none for a ship of none; a ship at `null_place` faults.
+    try std.testing.expectEqual(mission.recordPlace(.flight_groups, 1), try mission.shipFlightGroup(ship));
+    try std.testing.expectEqual(Mission.no_place, try mission.shipFlightGroup(mission.recordPlace(.ships, 0)));
+    try std.testing.expectError(error.OutsideImage, mission.shipFlightGroup(Mission.null_place));
+
+    // A global's value, the text a place points at, and nothing past the image.
+    try std.testing.expectEqual(7, try mission.word(mission.globalPlace(0)));
+    try std.testing.expectEqualStrings("Hi", try mission.text(mission.file.entry(.strings).offset));
+    try std.testing.expectError(error.OutsideImage, mission.halfword(@intCast(mission.image.len - 1)));
+    try std.testing.expectError(error.OutsideImage, mission.text(@intCast(mission.image.len)));
+
+    // A block of the script, none for none.
+    try std.testing.expectEqual(mission.file.entry(.script).offset + 4, mission.blockAt(.script, 4).?);
+    try std.testing.expectEqual(null, mission.blockAt(.script, null));
+}
+
+test "Mission.blockAt" {
+    const gpa = std.testing.allocator;
+    // The mission leaves its script unused: no part, nor trigger, runs a block of it.
+    const image = try testing.image(gpa, .{});
+    const directory = std.mem.bytesAsSlice(dte.DirectoryEntry, image[0 .. dte.section_count * @sizeOf(dte.DirectoryEntry)]);
+    directory[@intFromEnum(dte.Section.script)].offset = dte.DirectoryEntry.unused_offset;
+    var mission: Mission = try .bind(gpa, image);
+    defer mission.deinit();
+    try std.testing.expect(!mission.file.entry(.script).isUsed());
+    try std.testing.expectEqual(null, mission.blockAt(.script, 0));
+}
+
+test recordReference {
+    try std.testing.expectEqual(@as(u32, 0xFF00_0003), @as(u32, @bitCast(recordReference(.ship, 3))));
+    try std.testing.expectEqual(@as(u32, 0xFF01_FFFF), @as(u32, @bitCast(recordReference(.flight_group, null))));
 }
 
 test read {

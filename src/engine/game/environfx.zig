@@ -533,9 +533,8 @@ pub const Exhaust = struct {
         const all = world.objects;
         if (!exhaust.listed) exhaust.list(all);
         exhaust.burning = false;
-        const flying = aigeneric.current(all, all.player) orelse return;
-        if (flying.order != .player_control) return;
         const player = &all.slots[all.player];
+        if (player.running(.player_control) == null) return;
         const at = player.drawn.position;
         for (exhaust.ships[0..exhaust.count]) |index| {
             const ship = &all.slots[index];
@@ -674,7 +673,7 @@ test IceField {
     const rock = drawn[0].mesh;
     const toward = math.normalize(camera.position - rock.position);
     const facing = math.forward(rock.orientation);
-    inline for (0..3) |axis| try std.testing.expectApproxEqAbs(toward[axis], facing[axis], 1e-4);
+    try math.testing.expectVectorWithin(toward, facing, 1e-4);
 
     // Filling the whole view, every rock ahead of the camera is drawn.
     field.reach = .whole_view;

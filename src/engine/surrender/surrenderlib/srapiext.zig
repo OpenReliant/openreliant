@@ -468,6 +468,22 @@ pub const MeshObject = struct {
 /// The face mask a mesh object starts with (`mesh_object_create`): every flag heeded.
 pub const default_face_mask: u8 = 0xFF;
 
+/// An opaque colour for a mesh object's own colours (`MeshObject.baked`): `rgb`, its alpha 1.
+pub fn solid(rgb: [3]f32) [4]f32 {
+    return .{ rgb[0], rgb[1], rgb[2], 1 };
+}
+
+/// An opaque grey for a mesh object's own colours, as bright as `level` on each of red, green and
+/// blue (`solid`).
+pub fn grey(level: f32) [4]f32 {
+    return solid(@splat(level));
+}
+
+test solid {
+    try std.testing.expectEqual([4]f32{ 0.25, 0.5, 0.75, 1 }, solid(.{ 0.25, 0.5, 0.75 }));
+    try std.testing.expectEqual([4]f32{ 0.5, 0.5, 0.5, 1 }, grey(0.5));
+}
+
 test MeshObject {
     var object: MeshObject = .{ .flags = .{}, .position = .{ 1, 2, 3 }, .radius = 1, .levels = &.{} };
     try std.testing.expectEqual(default_face_mask, object.face_mask);

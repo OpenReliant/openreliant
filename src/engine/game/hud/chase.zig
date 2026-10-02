@@ -84,7 +84,7 @@ const Square = struct {
         var mesh = try loadout.squareMesh(gpa, false, size, size);
         errdefer mesh.deinit(gpa);
         for (mesh.positions) |*corner| corner[1] -= drop;
-        mesh.uv[0].?[0..6].* = .{ .{ 0, 1 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 0 }, .{ 0, 0 } };
+        loadout.spanWhole(&mesh);
         mesh.surfaces[0] = .{
             .polygons = 2,
             .material = .onePass(.{ .coordinates = .mesh, .lit = own != null, .blend = .add }),

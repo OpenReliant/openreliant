@@ -4,6 +4,9 @@
 //! 0x004F0F50, 95 entries. Names, labels and descriptions are the developers' own. Do not
 //! edit by hand; run `make vm-commands`.
 
+const std = @import("std");
+const assert = std.debug.assert;
+
 /// What a parameter accepts: a mask of the kinds of value it takes. The bit names are read off
 /// the labels of the parameters that set them.
 pub const Kinds = packed struct(u32) {
@@ -1154,14 +1157,22 @@ pub const table = [_]Command{
     },
 };
 
+// Every command has a name, and no two share one, as `executor.commandIndex` takes the first
+// command of a name.
+comptime {
+    @setEvalBranchQuota(200_000);
+    for (table, 0..) |command, n| {
+        assert(command.name.len != 0);
+        for (table[0..n]) |earlier| assert(!std.mem.eql(u8, earlier.name, command.name));
+    }
+}
+
 /// Looks up the command `0x21 command` calls with `index`.
 pub fn find(index: u8) ?Command {
     return if (index < table.len) table[index] else null;
 }
 
 test find {
-    const std = @import("std");
     try std.testing.expect(find(0) != null);
     try std.testing.expect(find(table.len) == null);
-    for (table) |command| try std.testing.expect(command.name.len != 0);
 }

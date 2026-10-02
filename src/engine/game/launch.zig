@@ -26,16 +26,15 @@ const models = @import("create/models.zig");
 const events = @import("mission/events.zig");
 const gameobj = @import("gameobj.zig");
 const objects = @import("objects.zig");
-const srofiles = @import("srofiles.zig");
 const videoreports = @import("videoreports.zig");
 const xtrabits = @import("xtrabits.zig");
 
 pub const reliant = @import("launch/reliant.zig");
 pub const torpedo = @import("launch/torpedo.zig");
 
-/// How a ship launches (`launch_styles`, `0x004E3C98`): a record of two routines for each, the
-/// first placing the ship for its launch and naming the node it rides (`State.node`,
-/// `create.Slot.riding`), the second running its launch from step 2 on (`Step`).
+/// How a ship launches (`launch_styles`, `0x004E3C98`): a record of two routines for each
+/// (`Routines`), the first placing the ship for its launch and naming the node it rides
+/// (`State.node`, `create.Slot.riding`), the second running its launch from step 2 on (`Step`).
 pub const Style = enum(i32) {
     /// From a hangar bay (`0x0041A610`, `0x0041A9C0`): the Victorious's, the Endeavour's, the
     /// Mitchells', the Bremen's, the Ramases's, the Pukov's, the Kronstadt's, the Krasnaya's, the
@@ -83,11 +82,14 @@ pub const Style = enum(i32) {
         };
     }
 
-    /// Whether OpenReliant runs the style's routines.
-    pub fn ported(style: Style) bool {
+    /// The style's routines as `launch_styles` (`0x004E3C98`) holds them, which `order_launch_init`
+    /// and `order_launch` call by the style; null for a style OpenReliant does not run yet
+    /// ([#304](https://github.com/vdmkenny/openreliant/issues/304)).
+    pub fn routines(style: Style) ?Routines {
         return switch (style) {
-            .reliant, .torpedo => true,
-            else => false,
+            .reliant => .{ .init = &reliant.init, .run = &reliant.run },
+            .torpedo => .{ .init = &torpedo.init, .run = &torpedo.run },
+            .bay, .yamato, .badanov, .escape_pod, .stork, .other_escape_pod, .rogue_base, .zakov, _ => null,
         };
     }
 
@@ -99,7 +101,16 @@ pub const Style = enum(i32) {
     }
 };
 
-/// The rogue base's gates that launch in its own style; those after launch from a bay.
+/// A style's two routines (`launch_styles`, `0x004E3C98`, 24 bytes a style): the first places the
+/// ship in slot `index` for its launch from the carrier in slot `carrier` and names the node it
+/// rides, the second runs its launch an update at a time from step 2 on (`Step.styled`).
+pub const Routines = struct {
+    init: *const fn (ctx: aigeneric.Context, index: u16, carrier: u16) void,
+    run: *const fn (ctx: aigeneric.Context, index: u16) void,
+};
+
+/// The rogue base's gates that launch in its own style; those after launch from a bay
+/// (`0x00418F8A`).
 const rogue_base_gates = 6;
 
 /// A launch's steps as `order_launch` runs them: waiting for StartLaunch, then a moment more
@@ -109,14 +120,33 @@ pub const Step = enum(i32) {
     delaying = 1,
     _,
 
-    /// The first of the style's own steps.
+    /// The first of the style's own steps, which `order_launch` sets once the wait is over
+    /// (`0x0041928A`): each style's own step enum starts its steps there.
     pub const styled: Step = @enumFromInt(2);
 
     /// Whether the style's own steps have begun.
     pub fn isStyled(step: Step) bool {
         return @intFromEnum(step) >= @intFromEnum(styled);
     }
+
+    /// The step as a style's own steps, `Styled`, number it.
+    pub fn as(step: Step, comptime Styled: type) Styled {
+        comptime assert(@typeInfo(Styled).@"enum".tag_type == i32);
+        return @enumFromInt(@intFromEnum(step));
+    }
+
+    /// A style's own step as a launch's.
+    pub fn of(own: anytype) Step {
+        comptime assert(@typeInfo(@TypeOf(own)).@"enum".tag_type == i32);
+        return @enumFromInt(@intFromEnum(own));
+    }
 };
+
+comptime {
+    // Each style's own steps begin where the launch's leave off.
+    assert(Step.of(reliant.Step.start) == Step.styled);
+    assert(Step.of(torpedo.Step.fire) == Step.styled);
+}
 
 /// What Launch keeps in the object's order state.
 pub const State = extern struct {
@@ -193,7 +223,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     const slot = &all.slots[index];
     const entry = &slot.orders[0];
     const state = &slot.state.launch;
-    if (entry.target.kind != .ship or entry.target.component == aigeneric.Target.whole) {
+    if (entry.target.kind != .ship or entry.target.isWhole()) {
         state.carrier = 0;
         state.gate = 0;
         state.sequence = entry.sequence;
@@ -209,19 +239,21 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     state.style = style orelse .bay;
     state.step = .waiting;
     slot.riding = null;
-    if (style) |known| switch (known) {
-        .reliant => reliant.init(ctx, index, carrier),
-        .torpedo => torpedo.init(ctx, index, carrier),
-        else => log.debug("slot {d} launches in the {f} style, not ported yet: it goes where it stands", .{ index, known }),
-    } else log.warn("slot {d} can't launch from ship type {d}: it goes where it stands", .{ index, @intFromEnum(carrier_type) });
-    if (!state.style.ported()) slot.riding = .{ .object = carrier };
+    // A carrier no ship launches from leaves the first style, which has no routines.
+    if (state.style.routines()) |found| found.init(ctx, index, carrier) else {
+        if (style) |known|
+            log.debug("slot {d} launches in the {f} style, not ported yet: it goes where it stands", .{ index, known })
+        else
+            log.warn("slot {d} can't launch from {f}: it goes where it stands", .{ index, carrier_type });
+        slot.riding = .{ .object = carrier };
+    }
     if (if (slot.riding) |riding| riding.place(all) else null) |node| {
         const relative = slot.drawn.relativeTo(node);
         state.position = gameobj.vec3(relative.position);
         state.orientation = relative.orientation;
         state.attached = true;
     }
-    state.due = ctx.clock.frame_start + init_wait;
+    state.due = ctx.world.clock.frame_start + init_wait;
     slot.object.passes_through[0] = .of(carrier);
     ai.setTargetable(&slot.object, slot.combat, false);
 }
@@ -233,19 +265,20 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
 /// the ship's own numbers (`xtrabits.objectRandom15`), then its style runs it from step 2. As the
 /// player's launch goes, the radio has its words (`videoreports.launchLine`).
 ///
-/// **Fix:** the game reads the carrier of a Launch aimed at nothing from before its objects, with
-/// the assertion "Launch Crash Imminent"; OpenReliant lets the ship go (`letGo`).
+/// **Fix:** the game reads the carrier of a Launch aimed at nothing through the word before its
+/// objects (`0x00587CDC`, `mission25_second_part`): its check for one, the assertion "Launch Crash
+/// Imminent" (`0x004191E6`), compares the sign-extended index with 0xFFFF and never stops it.
+/// OpenReliant lets the ship go (`letGo`).
 pub fn update(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const entry = &slot.orders[0];
     const state = &slot.state.launch;
-    const now = ctx.clock.frame_start;
+    const now = ctx.world.clock.frame_start;
     if (!state.step.isStyled()) {
         const carrier = entry.target.slotIn(all) orelse return letGo(ctx, index);
         const from = &all.slots[carrier].object;
-        const gone = from.type == .stand_in or from.flags.exploding;
-        if (gone and !(from.type == .ulysses and slot.object.type == .escape_pod)) {
+        if (from.gone() and !(from.type == .ulysses and slot.object.type == .escape_pod)) {
             ai.objectDestroyed(ctx, index, false, false);
             return;
         }
@@ -255,16 +288,13 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
         }
         if (state.step == .delaying and state.due < now) state.step = Step.styled;
     }
-    switch (state.style) {
-        .reliant => reliant.run(ctx, index),
-        .torpedo => torpedo.run(ctx, index),
-        else => if (state.step.isStyled()) letGo(ctx, index),
-    }
+    if (state.style.routines()) |found| found.run(ctx, index) else if (state.step.isStyled()) letGo(ctx, index);
 }
 
-/// OpenReliant's end of a launch it does not run, wherever the ship stands: it stops passing
-/// through its carrier, as the Reliant's launch ends, and the launch ends (`finish`).
-fn letGo(ctx: aigeneric.Context, index: u16) void {
+/// The end of a launch that lets its ship go, as `launch_reliant_run`'s last step has it
+/// (`0x0041B639`): the ship passes through its carrier no more, and the launch ends (`finish`).
+/// OpenReliant ends a launch whose style it does not run so too, wherever the ship stands.
+pub fn letGo(ctx: aigeneric.Context, index: u16) void {
     ctx.world.objects.slots[index].object.passes_through[0] = .none;
     finish(ctx, index);
 }
@@ -274,7 +304,7 @@ fn letGo(ctx: aigeneric.Context, index: u16) void {
 pub fn finish(ctx: aigeneric.Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     slot.riding = null;
-    _ = aigeneric.pop(ctx, index);
+    aigeneric.end(ctx, index);
     ai.setTargetable(&slot.object, slot.combat, true);
     events.launched(ctx.world, index);
 }
@@ -282,13 +312,7 @@ pub fn finish(ctx: aigeneric.Context, index: u16) void {
 /// `launch_start` (`0x00418DB0`): the first Launch among the orders of the ship in slot `index`
 /// goes (`Data.go`), as StartLaunch has it; a ship with none is left as it is.
 pub fn start(all: *create.Objects, index: u16) void {
-    const slot = &all.slots[index];
-    const count: usize = @intCast(@max(slot.object.order_count, 0));
-    for (slot.orders[0..@min(count, slot.orders.len)]) |*entry| {
-        if (entry.order != .launch) continue;
-        entry.data.launch.go = true;
-        return;
-    }
+    if (all.slots[index].firstOrder(.launch)) |entry| entry.data.launch.go = true;
 }
 
 /// Whether the ship in slot `index` drops out of its carrier's bay, or is about to: its current
@@ -296,10 +320,9 @@ pub fn start(all: *create.Objects, index: u16) void {
 /// on), as `camera_frame` reads the step for the bay's view.
 pub fn dropping(all: *const create.Objects, index: u16) bool {
     const slot = &all.slots[index];
-    const entry = slot.current() orelse return false;
-    if (entry.order != .launch) return false;
+    if (slot.running(.launch) == null) return false;
     const state = slot.state.launch;
-    return state.style == .reliant and @intFromEnum(state.step) >= @intFromEnum(reliant.Step.drop);
+    return state.style == .reliant and @intFromEnum(state.step) >= @intFromEnum(Step.of(reliant.Step.drop));
 }
 
 /// `mission_frame`'s placing of a ship riding its node (`0x00492C14`), once a frame before the
@@ -308,27 +331,18 @@ pub fn dropping(all: *const create.Objects, index: u16) bool {
 /// node where its launch put it, turned as it was there. Whether it stood the ship there.
 pub fn hold(all: *create.Objects, index: u16) bool {
     const slot = &all.slots[index];
-    const entry = slot.current() orelse return false;
-    if (entry.order != .launch) return false;
+    const entry = slot.running(.launch) orelse return false;
     const carrier = entry.target.slotIn(all) orelse return false;
     if (all.slots[carrier].object.flags.exploding) return false;
     const state = &slot.state.launch;
     if (!state.attached) return false;
     const node = (slot.riding orelse return false).place(all) orelse return false;
     const riding: math.Place = .{ .position = gameobj.vector(state.position), .orientation = state.orientation };
-    const at = riding.within(node);
-    objects.setPosition(&slot.object, &slot.drawn, at.position);
-    objects.setOrientation(&slot.object, &slot.drawn, at.orientation);
+    objects.setPlace(&slot.object, &slot.drawn, riding.within(node));
     return true;
 }
 
 // --- Launch points ------------------------------------------------------------------------------
-
-/// A launch point, and the part that holds it.
-pub const Point = struct {
-    part: usize,
-    attachment: *const shp.Attachment,
-};
 
 /// The launch points of a model (`launch_find_gate`, `launch_attach`): part by part as the root's
 /// child list holds them, each part's attachments in order, of kind `launch_point`, or of kind
@@ -336,46 +350,26 @@ pub const Point = struct {
 ///
 /// **Quirk:** the game looks the pods up by the place of the part that holds the attachment,
 /// rather than by the attachment's id, which names the pod it mounts.
-pub const Points = struct {
-    model: *const objects.Model,
-    part: usize = 0,
-    attachment: usize = 0,
+pub const Points = objects.Model.RootAttachments(isPoint);
 
-    pub fn of(model: *const objects.Model) Points {
-        return .{ .model = model };
-    }
+/// A launch point, and the part that holds it.
+pub const Point = Points.Point;
 
-    pub fn next(points: *Points) ?Point {
-        while (points.part < points.model.parts.len) : ({
-            points.part += 1;
-            points.attachment = 0;
-        }) {
-            const part = points.model.rootChild(points.part) orelse continue;
-            while (points.attachment < part.attachments.len) {
-                const at = &part.attachments[points.attachment];
-                points.attachment += 1;
-                if (isPoint(at.*, points.part)) return .{ .part = points.part, .attachment = at };
-            }
-        }
-        return null;
-    }
+fn isPoint(attachment: shp.Attachment, part: usize) bool {
+    return switch (attachment.kind) {
+        .launch_point => true,
+        .pod => podless(part),
+        else => false,
+    };
+}
 
-    fn isPoint(attachment: shp.Attachment, part: usize) bool {
-        return switch (attachment.kind) {
-            .launch_point => true,
-            .pod => podless(part),
-            else => false,
-        };
-    }
-
-    /// Whether the pod table holds no model at `place` (`attachment_models`, kind 5), which past its
-    /// ids reads on into the next kinds', none of which holds one.
-    fn podless(place: usize) bool {
-        const id = std.math.cast(u32, place) orelse return true;
-        const entry = models.attachment(.pod, id) orelse return true;
-        return entry.model == null;
-    }
-};
+/// Whether the pod table holds no model at `place` (`attachment_models`, kind 5), which past its
+/// ids reads on into the next kinds', none of which holds one.
+fn podless(place: usize) bool {
+    const id = std.math.cast(u32, place) orelse return true;
+    const entry = models.attachment(.pod, id) orelse return true;
+    return entry.model == null;
+}
 
 /// `launch_find_gate` (`0x00418DF0`), the search for a gate that `init` runs over each ship its
 /// order's target names (`ai.eachShip`): each ship it visits becomes the carrier, its gate
@@ -402,31 +396,35 @@ const GateSearch = struct {
     }
 };
 
-/// `launch_attach` (`0x0041B9F0`): places the ship in slot `index` at the launch point of the
-/// object in slot `on` that its order's target names by its component, counting from 0 over the
-/// object's points (`Points`): its centre of mass stands at the point, and it is turned as the
-/// point is. The part holding the point becomes the node the ship rides (`State.node`,
-/// `create.Slot.riding`). Where the object has no such point, the ship stays where it is.
-pub fn attach(all: *create.Objects, index: u16, on: u16) void {
+/// `launch_attach` (`0x0041B9F0`): places the ship in slot `index` at launch point `gate` of the
+/// object in slot `on`, counting from 0 over the object's points (`Points`): its centre of mass
+/// stands at the point, and it is turned as the point is. The part holding the point becomes the
+/// node the ship rides (`State.node`, `create.Slot.riding`). Where the object has no such point,
+/// the ship stays where it is. The game reads the gate from the component of the ship's order's
+/// target, which `launch_reliant_init` overwrites with the hangar's point and restores after
+/// (`0x0041B15E`, `0x0041B174`, `0x0041B206`); OpenReliant passes it.
+pub fn attach(all: *create.Objects, index: u16, on: u16, gate: i16) void {
     const slot = &all.slots[index];
     const holder = &all.slots[on];
     const model = if (holder.model) |*held| held else return;
-    var skip: i32 = slot.orders[0].target.component;
-    var points: Points = .of(model);
-    const point = while (points.next()) |found| {
-        if (skip == 0) break found;
-        skip -= 1;
-    } else return;
+    const point = Points.nth(model, std.math.cast(usize, gate) orelse return) orelse return;
     slot.riding = .{ .object = on, .part = point.part };
     const frame = model.frameAt(point.part, holder.drawn);
     const standing: math.Place = .{ .position = gameobj.vector(point.attachment.position), .orientation = point.attachment.orientation };
     const at = standing.within(frame);
-    objects.setPosition(&slot.object, &slot.drawn, at.point(gameobj.vector(slot.object.centre)));
-    objects.setOrientation(&slot.object, &slot.drawn, at.orientation);
+    objects.setPlace(&slot.object, &slot.drawn, .{ .position = at.point(gameobj.vector(slot.object.centre)), .orientation = at.orientation });
 }
 
 test {
     std.testing.refAllDecls(@This());
+}
+
+test "Step.as" {
+    // A style's own step, as a launch's and back.
+    try std.testing.expectEqual(reliant.Step.drop, Step.of(reliant.Step.drop).as(reliant.Step));
+    try std.testing.expectEqual(torpedo.Step.boost, Step.of(torpedo.Step.boost).as(torpedo.Step));
+    try std.testing.expect(Step.of(torpedo.Step.fire).isStyled());
+    try std.testing.expect(!Step.delaying.isStyled());
 }
 
 test "Style.of" {
@@ -445,21 +443,20 @@ test "Style.of" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Style.reliant}));
     try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @enumFromInt(12))}));
+    // OpenReliant runs the Reliant's routines and the torpedoes' alone.
+    for (std.enums.values(Style)) |style| try std.testing.expectEqual(style == .reliant or style == .torpedo, style.routines() != null);
 }
 
 /// Fixtures for the launches' tests.
 pub const testing = struct {
     /// A carrier's model of three parts hanging from the root, 100 apart along X. The first holds
-    /// no launch point, only a missile's hardpoint; the second two, 10 and 20 along Z, turned half a
-    /// turn about Y, with a pod's between them, which the pod table has a model for at the second
+    /// no launch point, only a missile's hardpoint; the second two, 10 and 20 along Z, turned half
+    /// a turn about Y, with a pod's between them, which the pod table has a model for at the second
     /// part's place; the third a pod's, which the table has none for at the third's. Set it up
     /// where it stays, as its records point into it.
     pub const Carrier = struct {
         attachments: [5]shp.Attachment,
-        data: [3]shp.PartData,
-        loaded_parts: [3]srofiles.LoadedPart,
-        source: shp.Model,
-        loaded: srofiles.Loaded,
+        parts: objects.testing.Parts(3),
 
         pub fn init(carrier: *Carrier) void {
             const kinds = [_]shp.Attachment.Kind{ .missile, .launch_point, .pod, .launch_point, .pod };
@@ -470,37 +467,26 @@ pub const testing = struct {
                 attachment.position = .{ .x = 0, .y = 0, .z = z };
                 attachment.orientation = math.rotation(.y, std.math.pi);
             }
-            carrier.data = @splat(objects.testing.part());
-            for (&carrier.data, 0..) |*part, n| {
-                part.part.parent = -1;
-                part.part.position = .{ .x = @floatFromInt(100 * n), .y = 0, .z = 0 };
-            }
-            carrier.data[0].attachments = carrier.attachments[0..1];
-            carrier.data[1].attachments = carrier.attachments[1..4];
-            carrier.data[2].attachments = carrier.attachments[4..5];
-            carrier.loaded_parts = @splat(.{ .flags = .{}, .levels = &.{}, .meshes = &.{} });
-            carrier.source = .{ .header = std.mem.zeroes(shp.Header), .parts = &carrier.data, .trailing_bytes = 0 };
-            carrier.loaded = .{ .parts = &carrier.loaded_parts };
-        }
-
-        /// The carrier's model, its parts linked as `create_object` links them.
-        pub fn model(carrier: *const Carrier, gpa: std.mem.Allocator) std.mem.Allocator.Error!objects.Model {
-            var made: objects.Model = try .create(gpa, &carrier.source, &carrier.loaded, .{});
-            for (0..made.parts.len) |index| gameobj.linkPart(&made, index);
-            return made;
-        }
-
-        /// Gives the object in `slot` the carrier's model.
-        pub fn fit(carrier: *const Carrier, gpa: std.mem.Allocator, slot: *create.Slot) std.mem.Allocator.Error!void {
-            slot.model = try carrier.model(gpa);
+            carrier.parts.init();
+            for (&carrier.parts.data, 0..) |*part, n| part.part.position = .{ .x = @floatFromInt(100 * n), .y = 0, .z = 0 };
+            carrier.parts.data[0].attachments = carrier.attachments[0..1];
+            carrier.parts.data[1].attachments = carrier.attachments[1..4];
+            carrier.parts.data[2].attachments = carrier.attachments[4..5];
         }
     };
+
+    /// Moves the clock past the wait of the launch of the ship in slot `index`, and runs its
+    /// orders once.
+    pub fn pastDue(mission: *gameobj.testing.Mission, ctx: aigeneric.Context, index: u16) void {
+        mission.clock.frame_start = mission.slot(index).state.launch.due + 1;
+        aigeneric.objectOrders(ctx, index);
+    }
 };
 
 test Points {
     var carrier: testing.Carrier = undefined;
     carrier.init();
-    var model = try carrier.model(std.testing.allocator);
+    var model = try carrier.parts.create(std.testing.allocator);
     defer model.deinit(std.testing.allocator);
     // The second part's two points, not the pod between them, which has a model at its place, and
     // the third's pod, which has none: a quirk of the game's.
@@ -518,7 +504,7 @@ test Points {
     try std.testing.expectEqual(2, points.next().?.part);
 }
 
-test "a torpedo launches from its tube, riding it until it boosts away" {
+test "a launch stands its ship at its gate's point, riding it, until it starts" {
     const gpa = std.testing.allocator;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
@@ -527,7 +513,7 @@ test "a torpedo launches from its tube, riding it until it boosts away" {
     carrier_model.init();
     _ = try mission.add(.predator, @splat(0));
     const carrier = try mission.add(.kamov, .{ 1000, 0, 0 });
-    try carrier_model.fit(gpa, mission.slot(carrier));
+    try carrier_model.parts.fit(gpa, mission.slot(carrier));
     mission.slot(carrier).object.velocity = .{ .x = 0, .y = 0, .z = 5 };
     const torpedo_slot = try mission.add(.torpedo, @splat(0));
     const ctx = mission.orders();
@@ -560,25 +546,6 @@ test "a torpedo launches from its tube, riding it until it boosts away" {
     aigeneric.objectOrders(ctx, torpedo_slot);
     try std.testing.expectEqual(Step.delaying, state.step);
     try std.testing.expect(state.due >= 10 and state.due < 10 + most_delay);
-
-    // Past it, it leaves the tube, boosting at the carrier's velocity with nothing to ride.
-    mission.clock.frame_start = state.due + 1;
-    aigeneric.objectOrders(ctx, torpedo_slot);
-    try std.testing.expectEqual(@intFromEnum(torpedo.Step.boost), @intFromEnum(state.step));
-    try std.testing.expect(!state.attached);
-    try std.testing.expectEqual(.plain, slot.motion.?);
-    try std.testing.expectEqual(2, slot.object.throttle);
-    try std.testing.expectEqual(5, slot.object.velocity.z);
-
-    // Once the boost is done, it flies itself, collides and can be targeted, its launch over.
-    mission.clock.frame_start = state.due;
-    aigeneric.objectOrders(ctx, torpedo_slot);
-    try std.testing.expectEqual(0, slot.object.order_count);
-    try std.testing.expectEqual(.forward, slot.motion.?);
-    try std.testing.expect(!slot.object.flags.no_collisions);
-    try std.testing.expectEqual(null, slot.riding);
-    // It still passes through what launched it.
-    try std.testing.expectEqual(carrier, slot.object.passes_through[0].index());
 }
 
 test "a launch's search for a gate counts the launch points on" {
@@ -590,7 +557,7 @@ test "a launch's search for a gate counts the launch points on" {
     carrier_model.init();
     const first = try mission.add(.kamov, @splat(0));
     const second = try mission.add(.kamov, .{ 5000, 0, 0 });
-    for ([_]u16{ first, second }) |index| try carrier_model.fit(gpa, mission.slot(index));
+    for ([_]u16{ first, second }) |index| try carrier_model.parts.fit(gpa, mission.slot(index));
     var state = std.mem.zeroes(State);
     var search: GateSearch = .{ .all = mission.objects, .state = &state };
     // The third order a command gave takes the first carrier's third point.
@@ -626,8 +593,7 @@ test "a launch ends with its carrier, and a style not ported lets the ship go" {
     try std.testing.expectEqual(objects.NodeOf{ .object = yamato }, mission.slot(ship).riding.?);
     start(mission.objects, ship);
     aigeneric.objectOrders(ctx, ship);
-    mission.clock.frame_start = mission.slot(ship).state.launch.due + 1;
-    aigeneric.objectOrders(ctx, ship);
+    testing.pastDue(&mission, ctx, ship);
     try std.testing.expectEqual(0, mission.slot(ship).object.order_count);
     try std.testing.expectEqual(null, mission.slot(ship).object.passes_through[0].index());
 
@@ -646,8 +612,8 @@ test dropping {
     _ = try aigeneric.pushShip(mission.orders(), player, .launch, player, 0);
     const state = &mission.slot(player).state.launch;
     state.style = .reliant;
-    state.step = @enumFromInt(@intFromEnum(reliant.Step.open));
+    state.step = .of(reliant.Step.open);
     try std.testing.expect(!dropping(mission.objects, player));
-    state.step = @enumFromInt(@intFromEnum(reliant.Step.drop));
+    state.step = .of(reliant.Step.drop);
     try std.testing.expect(dropping(mission.objects, player));
 }

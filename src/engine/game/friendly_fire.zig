@@ -17,16 +17,19 @@ const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
 const collision = @import("collision.zig");
 const gameobj = @import("gameobj.zig");
+const input = @import("../input.zig");
 const videoreports = @import("videoreports.zig");
 
-/// What Moose's warnings keep (`0x00562CEC`, `0x00562CF0`, `0x00562CE8`), which `mission_run`
-/// clears as a mission starts (`0x00474B20`).
+/// What Moose's warnings keep, which `friendly_fire_reset` (`0x00474B20`) clears as `mission_run`
+/// starts a mission.
 pub const Warnings = struct {
-    /// The player's damage to friends since the last warning.
+    /// The player's damage to friends since the last warning (`friendly_fire_damage`,
+    /// `0x00562CEC`).
     damage: f32 = 0,
-    /// The warnings given, which the game holds at `held_count`.
+    /// The warnings given, which the game holds at `held_count` (`friendly_fire_count`,
+    /// `0x00562CF0`).
     count: u8 = 0,
-    /// The game's tick up to which no warning comes.
+    /// The game's tick up to which no warning comes (`friendly_fire_quiet_until`, `0x00562CE8`).
     quiet_until: u32 = 0,
 };
 
@@ -68,7 +71,7 @@ pub fn warn(world: gameobj.World, index: u16, attacker: u16, kind: collision.Kin
     kept.count = @min(kept.count + 1, held_count);
     kept.quiet_until = world.clock.game_ticks + warn_every;
     kept.damage = 0;
-    videoreports.mooseSays(world, videoreports.pick(world, &warnings), .queued, videoreports.no_expiry);
+    videoreports.mooseSaysOneOf(world, &warnings);
 }
 
 /// `player_friend_destroyed` (`0x00474E00`), as the player's blow destroys a friend (`onFriend`),
@@ -92,8 +95,8 @@ pub fn destroyedFriend(world: gameobj.World, index: u16, attacker: u16, kind: co
 /// `mission_frame`'s care of a player's ship to be sent home (`0x0049298C`), each frame after the
 /// orders, with `friendly_fire_send_home` (`0x00474B40`): where the player's ship is in the action
 /// and marked, the mission goes on and the ship's current order has no priority, the mission's
-/// ending becomes the friendly fire's, and the ship takes Friendly Fire aimed as its current order
-/// is, out of the action.
+/// ending becomes the friendly fire's, and the ship takes Friendly Fire aimed at its current
+/// order's index and component taken as a ship's (`order_push_ship`), out of the action.
 pub fn sendHome(ctx: aigeneric.Context) void {
     const world = ctx.world;
     const all = world.objects;
@@ -104,8 +107,7 @@ pub fn sendHome(ctx: aigeneric.Context) void {
     const current = slot.current() orelse return;
     if (aigeneric.prioritised(current.order)) return;
     world.player.ending = if (object.sent_home == ._unknown_3) ._unknown_7 else .friendly_fire;
-    const aimed: aigeneric.Target = .{ .kind = .ship, .index = current.target.index, .component = current.target.component };
-    _ = aigeneric.push(ctx, all.player, .friendly_fire, aimed) catch false;
+    _ = aigeneric.give(ctx, all.player, .friendly_fire, current.target.asShip());
     object.flags.sent_off = true;
 }
 
@@ -139,7 +141,7 @@ const speaking_ticks = 300;
 const steering_ticks = 700;
 
 /// Moose's words as the player is sent home (`0x00500850`); and the carrier's abort (`0x00500990`),
-/// said by pilot 27 for the Reliant and 28 for any other.
+/// said by pilot 27 for the Reliant (`0x00474F08`) and 28 for any other (`0x00474F15`).
 const home_lines = [_][]const u8{ "ff_013.ut", "ff_014.ut", "ff_015.ut", "ff_016.ut", "ff_017.ut", "ff_018.ut", "ff_019.ut", "ff_020.ut", "ff_021.ut", "ff_022.ut", "ff_023.ut" };
 const abort_line = "abrt_001.ut";
 const reliant_aborts: u16 = 0x1B;
@@ -155,14 +157,14 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
     slot.state.friendly_fire.stage = .speaking;
-    slot.state.friendly_fire.until = ctx.clock.frame_start + speaking_ticks;
+    slot.state.friendly_fire.until = ctx.world.clock.frame_start + speaking_ticks;
     switch (slot.object.sent_home) {
         .told, ._unknown_3 => {
             const reliant = if (world.player.carrier) |carrier| world.objects.slots[carrier].object.type == .reliant else false;
             const pilot = if (reliant) reliant_aborts else other_aborts;
             videoreports.pilotSays(world, pilot, .talking, abort_line, .queued, .looping, videoreports.no_expiry);
         },
-        else => videoreports.mooseSays(world, videoreports.pick(world, &home_lines), .queued, videoreports.no_expiry),
+        else => videoreports.mooseSaysOneOf(world, &home_lines),
     }
 }
 
@@ -175,7 +177,7 @@ const steering_share: f32 = 0.3;
 const jump_beyond: f32 = 1_000_000;
 
 /// `order_friendly_fire` (`0x00474F20`): while Moose speaks, the player flies on
-/// (`aigeneric.playerControl`); then for `steering_ticks` the ship is steered toward the carrier
+/// (`input.playerControlOrder`); then for `steering_ticks` the ship is steered toward the carrier
 /// the player launched from (`ai.steer`), the player's controls keeping `players_share` of the
 /// throttle and the turns; then the order ends, and the ship lands on the carrier, jumping out
 /// first where it is farther than `jump_beyond`, out of the action. The game also clears the
@@ -188,10 +190,10 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const state = &slot.state.friendly_fire;
-    const now = ctx.clock.frame_start;
+    const now = ctx.world.clock.frame_start;
     switch (state.stage) {
         .speaking => {
-            if (state.until >= now) return aigeneric.playerControl(ctx, index);
+            if (state.until >= now) return input.playerControlOrder(ctx, index);
             state.stage = .steering;
             state.until = now + steering_ticks;
         },
@@ -200,20 +202,20 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
                 state.stage = .landing;
                 return;
             }
-            aigeneric.playerControl(ctx, index);
+            input.playerControlOrder(ctx, index);
             const carrier = world.player.carrier orelse return;
-            steerHome(world, index, gameobj.vector(all.slots[carrier].object.root.next_position));
+            steerHome(world, index, all.slots[carrier].object.nextPosition());
         },
         .landing => {
             slot.object.flags.sent_off = false;
-            _ = aigeneric.pop(ctx, index);
+            aigeneric.end(ctx, index);
             const carrier = world.player.carrier orelse return;
             const home = &all.slots[carrier].object;
             home.flags.stand_in = false;
-            _ = aigeneric.pushShip(ctx, index, .land, carrier, aigeneric.Target.whole) catch false;
-            const from = gameobj.vector(slot.object.root.next_position);
-            if (math.distance(gameobj.vector(home.root.next_position), from) > jump_beyond) {
-                _ = aigeneric.pushShip(ctx, index, .jump_out, index, aigeneric.Target.whole) catch false;
+            _ = aigeneric.giveShip(ctx, index, .land, carrier, null);
+            const from = slot.object.nextPosition();
+            if (math.distance(home.nextPosition(), from) > jump_beyond) {
+                _ = aigeneric.giveShip(ctx, index, .jump_out, index, null);
             }
             slot.object.flags.sent_off = true;
         },
@@ -225,13 +227,21 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
 /// `players_share` of the throttle and the turns.
 fn steerHome(world: gameobj.World, index: u16, home: math.Vector) void {
     const object = &world.objects.slots[index].object;
-    const own: [4]f32 = .{ object.throttle, object.roll_input, object.pitch_input, object.yaw_input };
-    _ = ai.steer(world, index, home, 1, 0, .{});
+    const throttle = object.throttle;
+    const roll = object.roll_input;
+    const pitch = object.pitch_input;
+    const yaw = object.yaw_input;
+    _ = ai.steer(world, index, home, ai.full_limit, ai.no_ease, .{});
     // The game zeroes the throttle before it mixes, so the AI's share of it is nothing.
-    object.throttle = own[0] * players_share;
-    object.roll_input = object.roll_input * steering_share + own[1] * players_share;
-    object.pitch_input = object.pitch_input * steering_share + own[2] * players_share;
-    object.yaw_input = object.yaw_input * steering_share + own[3] * players_share;
+    object.throttle = throttle * players_share;
+    object.roll_input = mix(object.roll_input, roll);
+    object.pitch_input = mix(object.pitch_input, pitch);
+    object.yaw_input = mix(object.yaw_input, yaw);
+}
+
+/// A turn `steered` toward the carrier, mixed with the player's `own`.
+fn mix(steered: f32, own: f32) f32 {
+    return steered * steering_share + own * players_share;
 }
 
 test warn {
@@ -250,7 +260,7 @@ test warn {
     try std.testing.expectEqual(0, kept.damage);
     try std.testing.expectEqual(100 + warn_every, kept.quiet_until);
     // Within the quiet, the damage mounts unsaid; after it, the count holds at one.
-    heard.radio.reset(&heard.sound);
+    heard.radio.reset(&heard.speaker.sound);
     warn(world, heard.wingman, 0, .screamer, 900);
     try std.testing.expectEqual(0, heard.radio.count);
     heard.mission.clock.game_ticks = 101 + warn_every;
@@ -258,13 +268,18 @@ test warn {
     try std.testing.expectEqual(1, heard.radio.count);
     try std.testing.expectEqual(held_count, kept.count);
     // Nor an enemy's, a missile's, nor another's blow counts.
-    heard.radio.reset(&heard.sound);
+    heard.radio.reset(&heard.speaker.sound);
     heard.mission.clock.game_ticks += 2 * warn_every;
     warn(world, heard.enemy, 0, .bullet, 1000);
     warn(world, heard.wingman, 0, .missile, 1000);
     warn(world, heard.wingman, heard.enemy, .bullet, 1000);
     try std.testing.expectEqual(0, kept.damage);
     try std.testing.expectEqual(0, heard.radio.count);
+}
+
+test mix {
+    try std.testing.expectApproxEqAbs(steering_share + players_share * -0.5, mix(1, -0.5), 1e-6);
+    try std.testing.expectApproxEqAbs(players_share, mix(0, 1), 1e-6);
 }
 
 test destroyedFriend {
@@ -291,11 +306,11 @@ test "a player who destroys a friend is sent home, and lands" {
     defer heard.deinit();
     const world = heard.world();
     const all = heard.mission.objects;
-    const ctx: aigeneric.Context = .{ .world = world, .clock = &heard.mission.clock };
+    const ctx: aigeneric.Context = .of(world);
     const player = &all.slots[0];
     const reliant = try heard.mission.add(.reliant, .{ 0, 0, 5000 });
     heard.mission.player.carrier = reliant;
-    _ = try aigeneric.pushShip(ctx, 0, .player_control, heard.enemy, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(ctx, 0, .player_control, heard.enemy, null);
 
     // Unmarked, the ship flies on.
     sendHome(ctx);
@@ -316,7 +331,7 @@ test "a player who destroys a friend is sent home, and lands" {
     update(ctx, 0);
     try std.testing.expectEqual(.steering, player.state.friendly_fire.stage);
     // Steered toward the carrier, the player's throttle held to its share.
-    player.object.throttle = 1;
+    player.object.throttle = ai.full_throttle;
     update(ctx, 0);
     try std.testing.expectApproxEqAbs(players_share, player.object.throttle, 1e-6);
     heard.mission.clock.frame_start += steering_ticks + 1;

@@ -8,7 +8,6 @@ const Allocator = std.mem.Allocator;
 
 const dte = @import("../dte.zig");
 const Opcode = dte.Opcode;
-const opcodes = @import("../../engine/vm/opcodes.zig");
 const commands = @import("../../engine/game/executor/commands.zig");
 const executor = @import("../../engine/game/executor.zig");
 
@@ -77,7 +76,7 @@ pub const Routine = struct {
     /// An instruction of fixed operands: `opcode` and as many operand bytes as it takes, a wide
     /// index big-endian as the engine reads it.
     pub fn op(routine: *Routine, opcode: Opcode, operands: []const u8) Error!void {
-        const info = opcodes.find(@intFromEnum(opcode)) orelse return error.WrongOperands;
+        const info = opcode.info() orelse return error.WrongOperands;
         switch (info.form) {
             .sequential, .transfer => {},
             .branch, .inline_data => return error.WrongOperands,
@@ -90,7 +89,7 @@ pub const Routine = struct {
     /// `branch_if_zero` or `jump` to `target`, over a big-endian displacement counted from its own
     /// place.
     pub fn branch(routine: *Routine, opcode: Opcode, target: Label) Error!void {
-        const info = opcodes.find(@intFromEnum(opcode)) orelse return error.WrongOperands;
+        const info = opcode.info() orelse return error.WrongOperands;
         if (info.form != .branch) return error.WrongOperands;
         try routine.code.append(routine.gpa, @intFromEnum(opcode));
         const at = routine.code.items.len;
@@ -101,7 +100,7 @@ pub const Routine = struct {
     /// An instruction of inline data, such as `push_string`: a length byte that counts itself, then
     /// `data`.
     pub fn inlineData(routine: *Routine, opcode: Opcode, data: []const u8) Error!void {
-        const info = opcodes.find(@intFromEnum(opcode)) orelse return error.WrongOperands;
+        const info = opcode.info() orelse return error.WrongOperands;
         if (info.form != .inline_data) return error.WrongOperands;
         const length = std.math.cast(u8, data.len + 1) orelse return error.InlineTooLong;
         try routine.code.appendSlice(routine.gpa, &.{ @intFromEnum(opcode), length });

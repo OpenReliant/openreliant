@@ -53,15 +53,15 @@ pub fn sayIn(world: ?gameobj.World, line: Line) void {
 }
 
 test say {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: hog_snd.Sound = undefined;
-    sound.init(driver, 2, null);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
     // Without her bank, she says nothing.
-    try std.testing.expectEqual(null, say(&sound, .cloak_on));
+    try std.testing.expectEqual(null, say(sound, .cloak_on));
     // With it, her line plays on a voice, as loud as a sound plays.
     const bytes = comptime hog_snd.testing.bank(@intFromEnum(Line.cloak_on) + 1);
     sound.betty = try fat.Bank.parse(&bytes);
-    const voice = say(&sound, .cloak_on) orelse return error.TestUnexpectedResult;
+    const voice = say(sound, .cloak_on) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(mss.Status.playing, driver.sampleStatus(sound.voices[voice].sample));
 }

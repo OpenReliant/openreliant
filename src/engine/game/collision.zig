@@ -6,14 +6,13 @@
 //! between it and `Create.cpp`'s, which no string places.
 
 const std = @import("std");
-const log = std.log.scoped(.collision);
 
-const dte = @import("../../formats/dte.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const ai = @import("ai.zig");
 const events = @import("mission/events.zig");
 const aigeneric = @import("aigeneric.zig");
+const aifuncs = @import("aifuncs.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
 const main = @import("main.zig");
@@ -96,7 +95,7 @@ const mine_blow: f32 = 500;
 /// pilot.
 fn goOff(world: gameobj.World, from: u16, struck: u16, blow: f32, kind: Kind, no_eject: bool) void {
     damage(world, struck, .fore, blow, 1, struck, kind);
-    ai.objectDestroyed(.{ .world = world, .clock = world.clock }, from, false, no_eject);
+    ai.objectDestroyed(.of(world), from, false, no_eject);
 }
 
 /// The class of the ship type in a slot, or null for an object with no stats, which the game would
@@ -184,7 +183,7 @@ fn shoved(all: *const create.Objects, index: u16) bool {
     const slot = &all.slots[index];
     if (slot.object.flags.attached or slot.object.mass <= 0) return false;
     if (slot.object.type != .ripper) return true;
-    return slot.object.order_count == 0 or slot.orders[0].order != .ripper_grabs_target_object;
+    return slot.running(.ripper_grabs_target_object) == null;
 }
 
 /// Both objects shove each other, move again, and are then set apart along the line between them
@@ -239,7 +238,7 @@ pub const Quadrant = enum(u2) {
 /// `0x00463CA0`: the quadrant a hit falls in, from where it lies in the object's frame as a share
 /// of the object's bounds: whichever of along and across is the larger share decides.
 pub fn quadrant(object: *const gameobj.GameObject, at: Vector) Quadrant {
-    const across = at[0] / (object.bounds_max.x - object.bounds_min.x);
+    const across = at[0] / object.width();
     const along = at[2] / (object.bounds_max.z - object.bounds_min.z);
     if (@abs(across) <= @abs(along)) return if (along <= 0) .aft else .fore;
     return if (across > 0) .right else .left;
@@ -376,7 +375,7 @@ pub fn damage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, fa
 /// (`events.Events.shots_held`).
 fn shotAt(world: gameobj.World, index: u16, attacker: u16) void {
     if (world.events) |waiting| if (waiting.shots_held) return;
-    events.shotAt(world, index, attacker, dte.Trigger.whole_object);
+    events.shotAt(world, index, attacker, null);
 }
 
 /// Holds back the ShotAt of the blows a collision deals, or lets it go again (`0x00545860`).
@@ -436,7 +435,7 @@ pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f3
     const scaled = scaledBlow(world, index, struck, value, attacker, kind, false) orelse return;
     if (object.flags.exploding) return;
     friendly_fire.warn(world, index, attacker, kind, scaled);
-    if (kind == .bullet and object.flags.components) return events.shotAt(world, index, attacker, dte.Trigger.whole_object);
+    if (kind == .bullet and object.flags.components) return events.shotAt(world, index, attacker, null);
 
     const shielded = object.invulnerable.protects(attacker < all.players);
     const worn = byDifficulty(world, index, kind, scaled);
@@ -451,7 +450,7 @@ pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f3
     }
     object.last_attacker = .of(attacker);
     if (armor.* < 0) {
-        ai.objectDestroyed(.{ .world = world, .clock = world.clock }, index, true, taken > heavy_blow);
+        ai.objectDestroyed(.of(world), index, true, taken > heavy_blow);
         if (friendly_fire.destroyedFriend(world, index, attacker, kind)) friendly_fire.friendDestroyed(world);
     }
     const current = &all.slots[all.player].orders[0].target;
@@ -547,8 +546,9 @@ const shielded_hit: f32 = 1000;
 ///
 /// Last, whether or not the part took the hit, come the ShotAt events (`componentShotAt`).
 ///
-/// Not ported: the invulnerability a component may carry, the score a player's hit is worth, and
-/// what multiplayer makes of it.
+/// Not ported: the invulnerability a component may carry and the score a player's hit is worth
+/// ([#538](https://github.com/vdmkenny/openreliant/issues/538)), and what multiplayer makes of it
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
     const object = &world.objects.slots[index].object;
     if (object.flags.jumping or kind == .collision or struck_part.part().flags.damaged) return;
@@ -561,7 +561,7 @@ pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.Pa
 /// (`objects.Model.countedAgainst`), where the object lists it (`create.Slot.componentIndex`), both
 /// even while a collision's test against a hull runs again.
 fn componentShotAt(world: gameobj.World, index: u16, struck_part: objects.PartRef, attacker: u16, kind: Kind) void {
-    if (kind != ._unknown_4) events.shotAt(world, index, attacker, dte.Trigger.whole_object);
+    if (kind != ._unknown_4) events.shotAt(world, index, attacker, null);
     const against = struck_part.model.countedAgainst(struck_part.index);
     const component = world.objects.slots[index].componentIndex(against) orelse return;
     events.shotAt(world, index, attacker, component);
@@ -706,7 +706,7 @@ const ulysses_fin = "Ulysses Fin";
 /// hit passes on to (`passedTo`) takes it again, of kind `_unknown_4`. The torpedo is destroyed
 /// (`object_destroyed`), taking no damage of its own.
 fn torpedoStrikes(world: gameobj.World, torpedo: u16, hull: u16, struck: objects.PartRef) void {
-    const ctx: aigeneric.Context = .{ .world = world, .clock = world.clock };
+    const ctx: aigeneric.Context = .of(world);
     lurch(ctx, torpedo, hull);
     componentDamage(world, hull, struck, torpedo_blow, torpedo, .crash);
     if (passedTo(world.objects, hull, struck)) |part| componentDamage(world, hull, part, torpedo_blow, torpedo, ._unknown_4);
@@ -715,7 +715,7 @@ fn torpedoStrikes(world: gameobj.World, torpedo: u16, hull: u16, struck: objects
 
 /// A hull struck by a torpedo lurches away from it: one whose listing is not disabled
 /// (`GameObject.Flags.listing_disabled`), unless it is lurching already, jumping or warping, takes
-/// Make capship list left or right (`aigeneric.capshipList`), left where the torpedo came in
+/// Make capship list left or right (`aifuncs.capshipList`), left where the torpedo came in
 /// heading to its left.
 fn lurch(ctx: aigeneric.Context, torpedo: u16, hull: u16) void {
     const all = ctx.world.objects;
@@ -727,10 +727,8 @@ fn lurch(ctx: aigeneric.Context, torpedo: u16, hull: u16) void {
     };
     const heading = math.forward(all.slots[torpedo].object.placeAt(.now).orientation);
     const across = math.transformTransposed(slot.object.placeAt(.now).orientation, heading)[0];
-    const side: aigeneric.Lurch = if (across < 0) .left else .right;
-    _ = aigeneric.push(ctx, hull, side.order(), .none) catch |err| {
-        log.warn("object {d} does not lurch: {s}", .{ hull, @errorName(err) });
-    };
+    const side: aifuncs.Lurch = if (across < 0) .left else .right;
+    _ = aigeneric.give(ctx, hull, side.order(), .none);
 }
 
 /// The hull part a torpedo's hit on `struck` passes on to, where it passes on at all: for a part of
@@ -817,7 +815,7 @@ test "a collision shoves both ships" {
 
     // An object held to another takes no shove.
     all.slots[far].object.flags.attached = true;
-    all.slots[far].object.velocity = .{ .x = 0, .y = 0, .z = 0 };
+    all.slots[far].object.velocity = .zero;
     objects.setPosition(&all.slots[near].object, &all.slots[near].drawn, .{ -900, 0, 0 });
     objects.setPosition(&all.slots[far].object, &all.slots[far].drawn, .{ 900, 0, 0 });
     all.slots[near].object.velocity = .{ .x = 100, .y = 0, .z = 0 };
@@ -841,7 +839,7 @@ test "a ship that meets a hull is shoved off the face it hit" {
     // The inverse inertia of a body of this mass, about 6 / (mass * size squared), which is what
     // `recentre` works out from a model's parts.
     const hull_turn: math.Matrix = @splat(0);
-    const hull = try create.createObject(all, &mission.tables, model.types(), null, .predator, 0, @splat(0), &mission.random);
+    const hull = try mission.addWith(model.types(), .predator, @splat(0));
     all.slots[hull].object.flags.components = true;
     all.slots[hull].object.mass = 100000;
     all.slots[hull].object.angular_response = hull_turn;
@@ -868,7 +866,7 @@ test "a ship that meets a hull is shoved off the face it hit" {
 
     // A ship nowhere near the hull meets nothing.
     objects.setPosition(&all.slots[ship].object, &all.slots[ship].drawn, .{ 0, 0, -5000 });
-    all.slots[ship].object.velocity = .{ .x = 0, .y = 0, .z = 0 };
+    all.slots[ship].object.velocity = .zero;
     try std.testing.expect(!collide(world, ship, hull, 0));
 
     // Two hulls pass through each other.
@@ -893,7 +891,7 @@ test "a torpedo that strikes a hull is gone, and the hull lurches" {
     // The player's ship, then a hull of one square part, and a torpedo flying straight into its
     // face.
     _ = try mission.add(.kamov, .{ 0, 50000, 0 });
-    const hull = try create.createObject(all, &mission.tables, model.types(), null, .mammoth, 0, @splat(0), &mission.random);
+    const hull = try mission.addWith(model.types(), .mammoth, @splat(0));
     all.slots[hull].object.flags.components = true;
     all.slots[hull].object.mass = 100000;
     all.slots[hull].motion = null;
@@ -929,7 +927,7 @@ test passedTo {
     try model.init(gpa);
     defer model.deinit(gpa);
     _ = try mission.add(.kamov, @splat(0));
-    const hull = try create.createObject(mission.objects, &mission.tables, model.types(), null, .mammoth, 0, @splat(0), &mission.random);
+    const hull = try mission.addWith(model.types(), .mammoth, @splat(0));
     const live = &mission.objects.slots[hull].model.?;
     const struck: objects.PartRef = .{ .model = live, .index = 0 };
     // A part of no assembly, or of too much armour, passes nothing on.
@@ -1016,7 +1014,7 @@ test "smart targeting takes what the player's ship hits" {
     // The player's shot makes it the target, and brings up the target display.
     damage(world, index, .fore, 1, 1, player, .bullet);
     try std.testing.expectEqual(@as(i32, index), target.index);
-    try std.testing.expectEqual(index, display.target.?);
+    try std.testing.expectEqual(index, display.target.?.slot);
     try std.testing.expect(display.windows.up(.target));
 
     // Past its shields, a hit on the target marks the quadrant it wore, for the target display;
@@ -1153,7 +1151,7 @@ test componentDamage {
     // The player's ship, in the first slot, and another, which the difficulty leaves alone. The
     // player's is of another type, whose model the test's types don't give.
     _ = try mission.add(.kamov, @splat(0));
-    const index = try create.createObject(all, &mission.tables, model.types(), null, .predator, 0, @splat(0), &mission.random);
+    const index = try mission.addWith(model.types(), .predator, @splat(0));
     const part = &all.slots[index].model.?.parts[0];
     const struck: objects.PartRef = .{ .model = &all.slots[index].model.?, .index = 0 };
     try std.testing.expectEqual(100, part.armor);
@@ -1200,7 +1198,7 @@ test goOff {
     try std.testing.expect(collide(world, ship, torpedo, 0));
     try std.testing.expect(all.slots[ship].object.shields.fore < shielded);
     try std.testing.expectEqual(ship, all.slots[ship].object.last_attacker.index());
-    try std.testing.expectEqual(.explode, aigeneric.current(all, torpedo).?.order);
+    try std.testing.expectEqual(.explode, all.slots[torpedo].current().?.order);
 
     // A mine goes off against a fighter, which is not pushed.
     const mine = try testing.ship(&mission, .{ 0, 100, 0 }, 1000);
@@ -1210,7 +1208,7 @@ test goOff {
     all.slots[ship].object.shields.fore = 1000;
     try std.testing.expect(!collide(world, ship, mine, 0));
     try std.testing.expectApproxEqAbs(1000 - mine_blow, all.slots[ship].object.shields.fore, 1);
-    try std.testing.expectEqual(.explode, aigeneric.current(all, mine).?.order);
+    try std.testing.expectEqual(.explode, all.slots[mine].current().?.order);
     try std.testing.expectEqual(0, all.slots[ship].object.root.position.x);
 }
 

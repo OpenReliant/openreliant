@@ -129,7 +129,7 @@ pub const Shockwave = struct {
     /// A Havoc's or an Imp's shockwave passing the ships of other sides than its missile's, but
     /// torpedoes and the Ripper, each as `harms` allows, and shaking the player's view as it
     /// passes the player's ship. A Havoc's pushes each away from where it stands, into Disrupted
-    /// (`aiorders.disruptedInit`), unless its order ranks above that: hardest while the ring is
+    /// (`aifuncs.disruptedInit`), unless its order ranks above that: hardest while the ring is
     /// young, by the ship's mass times the ring's size over its life, and for as long as 500 ticks
     /// for a player's ship and 2000 for another's, both less as the ring grows past a third of its
     /// life. An Imp's flickers each one's shield bubble for a second and damages each quadrant by
@@ -169,12 +169,12 @@ pub const Shockwave = struct {
     fn disrupt(wave: *const Shockwave, world: gameobj.World, index: u16, done: f32) void {
         const all = world.objects;
         const slot = &all.slots[index];
-        if (slot.object.order_count > 0) {
-            const running = orders.info(slot.orders[0].order);
+        if (slot.current()) |entry| {
+            const running = orders.info(entry.order);
             if (running) |info| if (info.priority > orders.info(.disrupted).?.priority) return;
         }
-        const ctx: aigeneric.Context = .{ .world = world, .clock = world.clock };
-        const took = aigeneric.push(ctx, index, .disrupted, .none) catch false;
+        const ctx: aigeneric.Context = .of(world);
+        const took = aigeneric.give(ctx, index, .disrupted, .none);
         if (!took) return;
         const strength = @min(disrupt_strength * (1 - done), 1);
         const ticks: f32 = if (index < all.players) disrupt_player_ticks else disrupt_ticks;

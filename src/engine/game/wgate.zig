@@ -4,11 +4,9 @@
 //! (`Gates.draw`). A ship jumps out through the nearest tunnel (Fixed Gate Jump Out), the player's
 //! riding the worm between gates, and jumps in through its order's (Fixed Gate Jump In), a portal
 //! at the tunnel's throat cutting it as it passes. Fixed Gate Close shrinks a tunnel away, and
-//! Fixed Gate Collapse brings a gate down. [Gates](../../../docs/engine/gates.md) describes them.
-//!
-//! **Unverified:** the file of the tunnel's colours and the easings beside them (`0x0041D7D0` to
-//! `0x0041DD6F`), which lie between `tractor.cpp`'s known code and this file's, and do this
-//! file's work.
+//! Fixed Gate Collapse brings a gate down. The tunnels' meshes and the flashes' are in
+//! `wgate/tunnel.zig`, the worm's in `wgate/worm.zig`. [Gates](../../../docs/engine/gates.md)
+//! describes them.
 //!
 //! Not ported: the warps' tunnels (kind 0, `order_warp_out`, `order_warp_in`), with their
 //! particles and beams ([#481](https://github.com/vdmkenny/openreliant/issues/481)); the Boridin's
@@ -21,16 +19,15 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const engine = @import("../../engine.zig");
 const shp = @import("../../formats/shp.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
-const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const ease = @import("../genilib/interf/ease.zig");
 const libcmt = @import("../libcmt.zig");
-const loadout = @import("../interface/loadout/loadout.zig");
 const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
@@ -43,70 +40,19 @@ const objects = @import("objects.zig");
 const sound3d = @import("sound3d.zig");
 const xtrabits = @import("xtrabits.zig");
 
+pub const tunnel = @import("wgate/tunnel.zig");
+pub const worm = @import("wgate/worm.zig");
+pub const Kind = tunnel.Kind;
+pub const Tunnels = tunnel.Tunnels;
+const Grid = tunnel.Grid;
+const Tunnel = tunnel.Tunnel;
+const Square = tunnel.Square;
+const Worm = worm.Worm;
+
 const log = std.log.scoped(.wgate);
 
 /// The records the gates keep (`0x0051D1A4`, 32 of them), each flagged in use in `0x0051D224`.
 pub const max_records = 32;
-
-/// What a record's tunnel serves (`+0x00`).
-pub const Kind = enum(u32) {
-    /// A warp's (`order_warp_out`, `order_warp_in`), not ported.
-    warp = 0,
-    /// A fixed gate's, while no advanced gate is among the objects: blue.
-    proto = 1,
-    /// A fixed gate's, with an advanced gate among the objects: red.
-    advanced = 2,
-    /// The Boridin's projection's, not ported.
-    boridin = 3,
-};
-
-/// How many segments a tunnel has round (`0x004E3F50`) and how many rings along
-/// (`0x004E3F5C`), by the options' detail, which the gates' start takes (`0x0041E280`).
-pub const Grid = struct {
-    segments: usize,
-    rings: usize,
-
-    pub fn of(detail: Detail) Grid {
-        return switch (detail) {
-            .low => .{ .segments = 9, .rings = 6 },
-            .medium => .{ .segments = 12, .rings = 8 },
-            .high => .{ .segments = 16, .rings = 12 },
-        };
-    }
-
-    /// The vertices of a tunnel: a ring of `segments` for each of `rings + 1` rings, after the
-    /// centre.
-    pub fn vertices(grid: Grid) usize {
-        return (grid.rings + 1) * grid.segments + 1;
-    }
-
-    /// Its triangles: two for each segment between two rings.
-    pub fn polygons(grid: Grid) usize {
-        return grid.rings * grid.segments * 2;
-    }
-
-    /// The ring the portal and the jumps' flashes stand at, five short of the last (`0x0041FDF0`).
-    pub fn throat(grid: Grid) usize {
-        return grid.rings - throat_back;
-    }
-
-    const throat_back = 5;
-
-    /// The grid each of whose bands is split `split` ways round and along.
-    pub fn finer(grid: Grid, split: usize) Grid {
-        return .{ .segments = grid.segments * split, .rings = grid.rings * split };
-    }
-
-    /// The most vertices a grid of the game's has, at the high detail.
-    const most_vertices = of(.high).vertices();
-};
-
-comptime {
-    for (std.enums.values(Detail)) |detail| {
-        assert(Grid.of(detail).rings > Grid.throat_back);
-        assert(Grid.of(detail).vertices() <= Grid.most_vertices);
-    }
-}
 
 /// How the gates are shown.
 pub const Settings = struct {
@@ -116,28 +62,6 @@ pub const Settings = struct {
     /// The original's: tunnels on its grid, and a ride through the worm that may rumble each frame.
     pub const original: Settings = .{ .tunnels = .original, .rumbles = .original };
 };
-
-/// How finely a tunnel is built.
-pub const Tunnels = enum {
-    /// **Improvement:** each of the game's bands split `fine_split` ways round and along, its rings
-    /// a `fine_split`th as far apart so that the tunnel keeps its length. The rings' radii and
-    /// depths follow the game's curves between the game's rings, so that the tunnel is round and
-    /// its rings' wave smooth, and the sway and the colours run between the game's vertices', as
-    /// the game's are drawn between them (`Corners`).
-    fine,
-    /// On the game's grid, by the options' detail (`Grid`).
-    original,
-
-    /// How many ways each of the game's bands is split round and along.
-    fn split(tunnels: Tunnels) usize {
-        return switch (tunnels) {
-            .fine => fine_split,
-            .original => 1,
-        };
-    }
-};
-
-const fine_split = 4;
 
 /// How often the ride through the worm rumbles: the view shaking and flashing, and heard.
 pub const Rumbles = enum {
@@ -150,45 +74,6 @@ pub const Rumbles = enum {
     original,
 };
 
-/// The four vertices of the game's grid about a vertex of a tunnel drawn on a grid `split` times as
-/// fine (`Tunnels`), and how much each counts toward it: in a straight line between them, round and
-/// along, as the game's vertices' values are drawn between them.
-const Corners = struct {
-    vertices: [4]usize = @splat(0),
-    weights: [4]f32 = .{ 1, 0, 0, 0 },
-
-    /// The corners of drawn vertex `vertex`; the centre's is the game's centre.
-    fn of(grid: Grid, split: usize, vertex: usize) Corners {
-        if (vertex == 0) return .{};
-        const drawn = grid.finer(split);
-        const ring = (vertex - 1) / drawn.segments;
-        const segment = (vertex - 1) % drawn.segments;
-        const near = ring / split;
-        const far = @min(near + 1, grid.rings);
-        const first = segment / split;
-        const next = (first + 1) % grid.segments;
-        const along = @as(f32, @floatFromInt(ring % split)) / @as(f32, @floatFromInt(split));
-        const round = @as(f32, @floatFromInt(segment % split)) / @as(f32, @floatFromInt(split));
-        return .{
-            .vertices = .{ vertexOf(grid, near, first), vertexOf(grid, near, next), vertexOf(grid, far, first), vertexOf(grid, far, next) },
-            .weights = .{ (1 - along) * (1 - round), (1 - along) * round, along * (1 - round), along * round },
-        };
-    }
-
-    /// The sum of `values`' values at the corners, each by its weight, as a vector `V`.
-    fn blend(corners: Corners, comptime V: type, values: anytype) V {
-        var sum: V = @splat(0);
-        for (corners.vertices, corners.weights) |vertex, weight| sum += @as(V, values[vertex]) * @as(V, @splat(weight));
-        return sum;
-    }
-};
-
-/// How far along the game's rings drawn ring `ring` stands, where each of the game's bands is split
-/// `split` ways along.
-fn ringAlong(ring: usize, split: usize) f32 {
-    return @as(f32, @floatFromInt(ring)) / @as(f32, @floatFromInt(split));
-}
-
 /// The gates' state, `wgate.cpp`'s globals: the textures, the grid its tunnels are built on, its
 /// records, and the worm the player's ship rides between gates.
 pub const Gates = struct {
@@ -198,7 +83,7 @@ pub const Gates = struct {
     /// The jumps' flashes' texture (`warpin3`).
     flash: *srtexture.Image,
     /// Whether a hardware renderer draws them, which gives the tunnels their colours and their
-    /// highlight (`Tunnel.colour`).
+    /// highlight (`tunnel.Tunnel.build`).
     hardware: bool,
     /// The grid the options' detail gives the tunnels (`0x0051D198`, `0x0051D128`).
     grid: Grid,
@@ -219,8 +104,10 @@ pub const Gates = struct {
     /// The tick the ride's rumbles were last drawn for, in the steady style (`Rumbles`).
     rumbled_at: i32 = 0,
 
-    /// The gates' start (`0x0041E280`), without the warps' and the Boridin's textures and
-    /// particles: the tunnels' texture, the flashes', and the grid by `detail`.
+    /// The gates' start (`0x0041E280`), without the warps' textures and particles
+    /// ([#481](https://github.com/vdmkenny/openreliant/issues/481)) and the Boridin's
+    /// ([#30](https://github.com/vdmkenny/openreliant/issues/30)): the tunnels' texture, the
+    /// flashes', and the grid by `detail`.
     pub fn init(gpa: Allocator, textures: *srtexture.Table, detail: Detail, hardware: bool, settings: Settings) matmanager.Error!Gates {
         return .{
             .gpa = gpa,
@@ -239,7 +126,7 @@ pub const Gates = struct {
     /// last one go; OpenReliant lets it go with the rest.
     pub fn reset(gates: *Gates) void {
         for (0..max_records) |index| gates.free(index);
-        if (gates.worm) |worm| worm.destroy(gates.gpa);
+        if (gates.worm) |tube| tube.destroy(gates.gpa);
         gates.worm = null;
         gates.worm_shown = false;
         gates.exiting = false;
@@ -261,7 +148,8 @@ pub const Gates = struct {
 
     /// `0x0041FE60`: a record for a tunnel of `kind` at the object in slot `index`, in the first
     /// free place, standing at `at` in the object's frame and turned a half turn about its Y axis,
-    /// fully open; null where every place is taken, or for a kind not ported.
+    /// fully open, every vertex of it as much deeper as the object's type has it (`depthOf`); null
+    /// where every place is taken, or for a kind not ported.
     pub fn make(gates: *Gates, world: gameobj.World, index: u16, kind: Kind, at: Vector) Allocator.Error!?*Record {
         switch (kind) {
             .proto, .advanced => {},
@@ -281,11 +169,12 @@ pub const Gates = struct {
             .slot = index,
             .made_at = now,
             .drawn_at = now,
+            .deeper = depthOf(world.objects.slots[index].object.type),
             .at = at,
             .tunnel = undefined,
             .squares = undefined,
         };
-        try record.tunnel.build(gates, kind, tunnelSize(kind, world.objects.mission_number));
+        try record.tunnel.build(gates.gpa, gates.grid, gates.settings.tunnels.split(), gates.hardware, gates.warp, kind, tunnelSize(kind, world.objects.mission_number));
         errdefer record.tunnel.deinit(gates.gpa);
         try record.squares[0].build(gates.gpa, gates.flash);
         errdefer record.squares[0].deinit(gates.gpa);
@@ -326,40 +215,29 @@ pub const Gates = struct {
     }
 
     /// The gates' frame (`0x00420A00`), which `shield_bubbles_draw` runs before the bubbles, for
-    /// each record of a fixed gate in turn: its rings sway, each of the game's `ring_spacing`
-    /// deeper than the last, by `ring_sway` as its time since it was made goes by (`per_tick`), a
-    /// radian every 10 seconds, and its tunnel takes its shape from them (`Tunnel.shape`) and its
-    /// lighting and bounds from that. Its portal goes into the world's layer, and its tunnel too
-    /// unless the player's ship rides the worm. Before them go the flashes a ship jumping in shows
-    /// (`jumpIn`), and after them the worm while the player's ship rides it (`jumpOut`).
+    /// each record of a fixed gate in turn: its tunnel's rings sway by its time since it was made
+    /// (`recordTime`), a radian every 10 seconds, and the tunnel takes its shape, its lighting and
+    /// its bounds from them (`tunnel.Tunnel.reshape`). Its portal goes into the world's layer, and
+    /// its tunnel too unless the player's ship rides the worm. Before them go the flashes a ship
+    /// jumping in shows (`jumpIn`), and after them the worm while the player's ship rides it
+    /// (`jumpOut`).
     ///
     /// Where the game has the tunnel's frame hang from the object's and its portal's from the
     /// tunnel's, OpenReliant places them from where the object is drawn. The game scrolls the
-    /// tunnel's texture as it draws it (`0x00420950`), which OpenReliant does here.
-    ///
-    /// Not ported: the ships the game would have each dent the tunnel as it passes, a list at
-    /// `+0x80` that nothing fills (`0x00422540`).
+    /// tunnel's texture as it draws it (`0x00420950`), which OpenReliant does here
+    /// (`Record.scroll`). The game also has each ship in a list at `+0x80` dent the tunnel as it
+    /// passes (`wgate_tunnel_dent`, `0x00422540`), and nothing fills the list.
     pub fn draw(gates: *Gates, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, frame_start: i32) Allocator.Error!void {
         for (gates.records) |held| {
             const record = held orelse continue;
             record.drawn_at = frame_start;
-            const since = @as(f32, @floatFromInt(frame_start -% record.made_at)) * per_tick;
-            for (record.tunnel.depths, 0..) |*depth, ring| {
-                const along = ringAlong(ring, record.tunnel.split);
-                depth.* = along * ring_spacing + @sin(along + since) * ring_sway;
-            }
-            const tunnel = &record.tunnel;
-            tunnel.shape(record.kind, frame_start);
-            srapi.calcPolyNormals(&tunnel.mesh);
-            srapi.calcVertexNormals(&tunnel.mesh);
-            srapi.findBoundingBox(&tunnel.mesh);
-            tunnel.object.radius = tunnel.mesh.radius;
+            record.tunnel.reshape(record.kind, recordTime(record.made_at, frame_start), frame_start, record.deeper);
             const place = record.tunnelPlace(all);
-            tunnel.object.position = place.position;
-            tunnel.object.orientation = place.orientation;
+            record.tunnel.object.position = place.position;
+            record.tunnel.object.orientation = place.orientation;
             record.portal.position = place.point(record.portal_at);
             record.portal.orientation = place.orientation;
-            tunnel.scroll(&record.scrolled_at, frame_start);
+            record.scroll(frame_start);
             if (record.squares_shown) {
                 record.squares_shown = false;
                 for (&record.squares) |*square| {
@@ -369,11 +247,11 @@ pub const Gates = struct {
                 }
             }
             try xtrabits.sceneAdd(gpa, scene, .{ .portal = &record.portal }, .world);
-            if (!gates.riding) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &tunnel.object }, .world);
+            if (!gates.riding) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &record.tunnel.object }, .world);
         }
-        if (gates.worm_shown) if (gates.worm) |worm| {
+        if (gates.worm_shown) if (gates.worm) |tube| {
             gates.worm_shown = false;
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &worm.object }, .world);
+            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &tube.object }, .world);
         };
     }
 };
@@ -383,12 +261,21 @@ const warp_texture = "warp128";
 const software_warp_texture = "ddwarp128";
 const flash_texture = "warpin3";
 
-/// A tunnel's size, which scales its radii: the prototype's 70, the advanced gate's 40, and 70 again
-/// in mission 8 (`0x0041FE60`).
+/// The time from tick `from` to `now` as the gates count it (`gameobj.progress_per_tick`), the
+/// ticks taken unsigned as the game takes a record's (`0x00420A00`, `0x00420950`, `0x00421940`,
+/// `0x00421B80`).
+fn recordTime(from: i32, now: i32) f32 {
+    const ticks: u32 = @bitCast(now -% from);
+    return @as(f32, @floatFromInt(ticks)) * gameobj.progress_per_tick;
+}
+
+/// A tunnel's size, which scales its radii: the prototype's 70, the advanced gate's 40, and 70
+/// again in mission 8 (`0x0041FE60`). A warp's radius takes no size (`tunnel.ringRadius`), and
+/// `Gates.make` leaves the warps and the Boridin out.
 fn tunnelSize(kind: Kind, mission_number: u16) f32 {
     return switch (kind) {
         .advanced => if (mission_number == wide_advanced_mission) proto_size else advanced_size,
-        else => proto_size,
+        .proto, .warp, .boridin => proto_size,
     };
 }
 
@@ -396,14 +283,27 @@ const proto_size: f32 = 70;
 const advanced_size: f32 = 40;
 const wide_advanced_mission = 8;
 
-/// What the gates count their time in (`0x004DC418`): a thousandth for each tick of the timer,
-/// which makes a hundred to the second, so that a rate of 1 runs from 0 to 1 in 10 seconds.
-const per_tick: f32 = 0.001;
+/// `wgate_warp_size_table` (`0x004E3F38`): the types of object whose tunnels stand deeper, with
+/// how much deeper every vertex stands (`+0x1C`) and a warp's size (`+0x18`), which
+/// `wgate_create` (`0x0041FE60`) looks up for every kind (`wgate_warp_sizes`, `0x00423020`). Any
+/// other type's stand no deeper, and its warp's size is 2000. The size and the flag the game sets
+/// beside it (`+0x2C`) serve the warps alone
+/// ([#481](https://github.com/vdmkenny/openreliant/issues/481)).
+const warp_sizes = [_]WarpSize{
+    .{ .type = .badanov, .depth = 15000, .size = 10000 },
+    .{ .type = .yamato, .depth = 100000, .size = 50000 },
+};
 
-/// How far apart the rings stand, and how far each sways either way (`0x004DC4B8`,
-/// `0x004DC544`).
-const ring_spacing: f32 = 1500;
-const ring_sway: f32 = 300;
+const WarpSize = struct { type: gameobj.Type, depth: f32, size: f32 };
+
+/// `wgate_warp_sizes` (`0x00423020`) for the depth: how much deeper every vertex of a tunnel at an
+/// object of `object_type` stands (`warp_sizes`), 0 for a type not listed.
+fn depthOf(object_type: gameobj.Type) f32 {
+    for (warp_sizes) |entry| {
+        if (entry.type == object_type) return entry.depth;
+    }
+    return 0;
+}
 
 /// A record of the gates (`0x88` bytes): a tunnel at an object, its portal, and the two flashes a
 /// ship jumping in through it shows.
@@ -417,6 +317,9 @@ pub const Record = struct {
     drawn_at: i32,
     /// The tick of the last frame that scrolled its texture (`+0x10`), 0 until one has.
     scrolled_at: i32 = 0,
+    /// How much deeper than its ring every vertex of its tunnel stands, by its object's type
+    /// (`+0x1C`, `depthOf`).
+    deeper: f32 = 0,
     /// How far Open or Close has grown or shrunk it (`+0x20`).
     progress: f32 = 0,
     /// Where its tunnel stands in the object's frame.
@@ -439,607 +342,31 @@ pub const Record = struct {
     }
 
     /// `0x0041FDF0`: its portal faces along the tunnel's axis, at the throat's ring
-    /// (`Tunnel.throat`) as the tunnel stands now.
+    /// (`tunnel.Tunnel.throat`) as the tunnel stands now.
     fn portalSetUp(record: *Record) void {
         record.portal.normal = .{ 0, 0, 1 };
         record.portal_at = record.tunnel.throat();
+    }
+
+    /// `0x00420950`: its tunnel's texture scrolls by the time since it last did (`recordTime`,
+    /// `tunnel.Tunnel.scroll`), from `scrolled_at`, which moves on; the first time it only notes
+    /// the tick.
+    fn scroll(record: *Record, frame_start: i32) void {
+        if (record.scrolled_at != 0) record.tunnel.scroll(recordTime(record.scrolled_at, frame_start));
+        record.scrolled_at = frame_start;
     }
 };
 
 /// How a tunnel stands in its object's frame: a half turn about the Y axis (`0x0041FE60`).
 const tunnel_turn = math.fromAngles(0, std.math.pi, 0);
 
-/// A tunnel (`0x0041DD70`): a funnel of rings, `Grid.segments` round, the widest at the mouth,
-/// drawn with the gates' texture by coordinates of its own and colours of its own, and a second
-/// pass of a highlight texture by its normals. Its last band is drawn in one pass.
-pub const Tunnel = struct {
-    mesh: srapiext.Mesh,
-    level: [1]srapiext.Level,
-    object: srapiext.MeshObject,
-    /// The game's grid, and how many ways each of its bands is split round and along to draw the
-    /// tunnel (`Tunnels`).
-    grid: Grid,
-    split: usize,
-    /// Each of the game's vertices' colour (`+0x110`), and each drawn vertex's, laid out from them
-    /// (`lay`).
-    colours: [][4]f32,
-    drawn_colours: [][4]f32,
-    /// Each drawn ring's radius (the record's `+0x30`, for the game's rings) and its depth
-    /// (`+0x7C`).
-    radii: []f32,
-    depths: []f32,
-
-    fn build(tunnel: *Tunnel, gates: *const Gates, kind: Kind, size: f32) Allocator.Error!void {
-        const gpa = gates.gpa;
-        const grid = gates.grid;
-        const split = gates.settings.tunnels.split();
-        const drawn = grid.finer(split);
-        const polygons = drawn.polygons();
-        var mesh: srapiext.Mesh = try .create(gpa, .{ .polygons = polygons, .vertices = drawn.vertices(), .indices = polygons * 3, .surfaces = 2 });
-        errdefer mesh.deinit(gpa);
-        const radii = try gpa.alloc(f32, drawn.rings + 1);
-        errdefer gpa.free(radii);
-        const depths = try gpa.alloc(f32, drawn.rings + 1);
-        errdefer gpa.free(depths);
-        @memset(depths, 0);
-        const colours = try gpa.alloc([4]f32, grid.vertices());
-        errdefer gpa.free(colours);
-        @memset(colours, @splat(0));
-        const drawn_colours = try gpa.alloc([4]f32, drawn.vertices());
-        errdefer gpa.free(drawn_colours);
-        for (radii, 0..) |*radius, ring| radius.* = ringRadius(kind, grid.rings, ringAlong(ring, split), size);
-        for (0..drawn.rings + 1) |ring| {
-            for (0..drawn.segments) |segment| {
-                const turn = segmentTurn(segment, drawn.segments);
-                mesh.positions[vertexOf(drawn, ring, segment)] = .{ @sin(turn) * radii[ring], @cos(turn) * radii[ring], 0 };
-            }
-        }
-        const uv = try mesh.addCoordinates(gpa);
-        numberBands(&mesh, drawn.segments, drawn.rings);
-        for (mesh.indices, uv) |index, *pair| pair.* = coordinatesOf(grid, split, index);
-        // The game's last band, however finely it is split.
-        const last_band = 2 * drawn.segments * split;
-        mesh.surfaces[0] = .{
-            .polygons = @intCast(polygons - last_band),
-            .material = .{
-                .two_pass = gates.hardware,
-                ._unknown_01 = 0,
-                .coordinates = .{ .mesh, .generated },
-                .lit = .{ true, true },
-                .blend = .{ .add, .add },
-                .image = .{ .null, .null },
-            },
-            .textures = .{ .{ .image = gates.warp }, .{ .highlight = highlightOf(kind) } },
-        };
-        mesh.surfaces[1] = .{
-            .polygons = @intCast(last_band),
-            .material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .add }),
-            .textures = .{ .{ .image = gates.warp }, .none },
-        };
-        srapi.calcPolyNormals(&mesh);
-        srapi.calcVertexNormals(&mesh);
-        srapi.findBoundingBox(&mesh);
-        tunnel.* = .{
-            .mesh = mesh,
-            .level = undefined,
-            .object = undefined,
-            .grid = grid,
-            .split = split,
-            .colours = colours,
-            .drawn_colours = drawn_colours,
-            .radii = radii,
-            .depths = depths,
-        };
-        tunnel.level = .{.{ .mesh = &tunnel.mesh, .until = std.math.inf(f32) }};
-        tunnel.object = .{
-            .flags = .{ .normals_second = true, .not_culled = true, .unbounded = true, .owns_mesh = true, .baked_object = true },
-            .position = @splat(0),
-            .radius = mesh.radius,
-            .levels = &tunnel.level,
-            .baked = drawn_colours,
-        };
-        tunnel.colour(kind, gates.hardware);
-    }
-
-    fn deinit(tunnel: *Tunnel, gpa: Allocator) void {
-        tunnel.mesh.deinit(gpa);
-        gpa.free(tunnel.colours);
-        gpa.free(tunnel.drawn_colours);
-        gpa.free(tunnel.radii);
-        gpa.free(tunnel.depths);
-    }
-
-    /// The grid it is drawn on.
-    fn drawnGrid(tunnel: *const Tunnel) Grid {
-        return tunnel.grid.finer(tunnel.split);
-    }
-
-    /// Where the throat's ring (`Grid.throat`) meets the first segment, as the tunnel stands now
-    /// (`0x0041FDF0`).
-    fn throat(tunnel: *const Tunnel) Vector {
-        return tunnel.mesh.positions[vertexOf(tunnel.drawnGrid(), tunnel.grid.throat() * tunnel.split, 0)];
-    }
-
-    /// Each drawn vertex's colour from the game's vertices' about it (`Corners`).
-    fn lay(tunnel: *Tunnel) void {
-        for (tunnel.drawn_colours, 0..) |*shade, vertex| shade.* = Corners.of(tunnel.grid, tunnel.split, vertex).blend(@Vector(4, f32), tunnel.colours);
-    }
-
-    /// `0x0041D7D0`: each ring's colour on each of its vertices. The mouth's and the last ring are
-    /// black and clear, and the ring before the last is the tunnel's deep colour. Between them a
-    /// hardware renderer's tunnel runs from the mouth's colour to the middle's in a straight line
-    /// over the first `palette_turn` of the rings, then to the end's by the square root
-    /// (`Palette.at`): a proto gate's blue, an advanced gate's red. A software renderer's runs from
-    /// white down to black, and its ring before the last is a mid grey.
-    fn colour(tunnel: *Tunnel, kind: Kind, hardware: bool) void {
-        const grid = tunnel.grid;
-        const palette: Palette = if (kind == .advanced) .red else .blue;
-        for (0..grid.rings + 1) |ring| {
-            const shade: [4]f32 = if (ring == 0 or ring == grid.rings)
-                @splat(0)
-            else if (ring == grid.rings - 1)
-                (if (hardware) opaque_(palette.last) else software_last)
-            else if (hardware)
-                opaque_(palette.at(ringShare(ring, grid.rings)))
-            else
-                grey(ease.linear(1, 0, ringShare(ring, grid.rings)));
-            for (0..grid.segments) |segment| tunnel.colours[vertexOf(grid, ring, segment)] = shade;
-        }
-        tunnel.lay();
-    }
-
-    /// `0x0041FA50`: each vertex of each ring, `radii` from the axis at its segment's turn and at
-    /// its ring's depth, the game's last ring at the depth of the one before. At the high detail
-    /// the game's vertices each sway either way across the axis by `wobbleOf` times the segments,
-    /// each at its own pace, by the frame's tick; a drawn vertex between them sways as those about
-    /// it do (`Corners`).
-    ///
-    /// **Improvement:** the sines and cosines come from `std.math` rather than the engine's table.
-    fn shape(tunnel: *Tunnel, kind: Kind, frame_start: i32) void {
-        const grid = tunnel.grid;
-        const drawn = tunnel.drawnGrid();
-        const ticks: f32 = @floatFromInt(frame_start);
-        const reach = @as(f32, @floatFromInt(grid.segments)) * wobbleOf(kind);
-        var sways: [Grid.most_vertices]Vector = @splat(@splat(0));
-        if (grid.segments == Grid.of(.high).segments) {
-            for (sways[1..grid.vertices()], 1..) |*sway, vertex| sway.* = .{
-                @sin(ticks * wobble_rate[0] + @as(f32, @floatFromInt(vertex * wobble_step[0])) * wobble_spread[0]) * reach,
-                @sin(ticks * wobble_rate[1] + @as(f32, @floatFromInt(vertex * wobble_step[1])) * wobble_spread[1]) * reach,
-                0,
-            };
-        }
-        const last = (grid.rings - 1) * tunnel.split;
-        for (tunnel.mesh.positions[1..], 1..) |*position, vertex| {
-            const ring = (vertex - 1) / drawn.segments;
-            const turn = segmentTurn((vertex - 1) % drawn.segments, drawn.segments);
-            const across: Vector = .{ @sin(turn) * tunnel.radii[ring], @cos(turn) * tunnel.radii[ring], tunnel.depths[@min(ring, last)] };
-            position.* = across + Corners.of(grid, tunnel.split, vertex).blend(Vector, &sways);
-        }
-    }
-
-    /// `0x00422380`, as a gate collapses: the tunnel burns out, a flickering share of its vertices,
-    /// `(sin(at * burn_flicker) + 1) / 2`, taking the burning colours (`wipe`).
-    fn burnOut(tunnel: *Tunnel, at: f32) void {
-        tunnel.wipe((@sin(at * burn_flicker) + 1) * 0.5, .burning);
-    }
-
-    /// `0x004221E0`, as the collapse ends: the tunnel fades, `at` of its vertices taking the fading
-    /// colours (`wipe`).
-    fn fadeOut(tunnel: *Tunnel, at: f32) void {
-        tunnel.wipe(at, .fading);
-    }
-
-    /// The game's vertices, counted from the tunnel's centre, a vertex short of their rings' own as
-    /// the game counts them, up to `share` of them all, take `look`'s colours, brightest where the
-    /// share has just reached them (`Wipe.shade`): their rings' first and last black and clear.
-    fn wipe(tunnel: *Tunnel, share: f32, look: Wipe) void {
-        const grid = tunnel.grid;
-        const count: f32 = @floatFromInt(tunnel.colours.len);
-        const reach = count * share;
-        for (0..grid.rings + 1) |ring| {
-            for (0..grid.segments) |segment| {
-                const vertex = ring * grid.segments + segment;
-                const at: f32 = @floatFromInt(vertex);
-                if (!(at <= reach)) continue;
-                tunnel.colours[vertex] = if (ring == 0 or ring == grid.rings)
-                    @splat(0)
-                else
-                    look.shade((reach - at) * (1 / (count - reach)), ring == grid.rings - 1);
-            }
-        }
-        tunnel.lay();
-    }
-
-    /// `0x00420950`: scrolls the tunnel's texture across and along it by the time since it last
-    /// did (`per_tick`, `scroll_rate`), from the tick `last` holds, which it moves on; the first
-    /// time it only notes the tick.
-    fn scroll(tunnel: *Tunnel, last: *i32, frame_start: i32) void {
-        if (last.* == 0) {
-            last.* = frame_start;
-            return;
-        }
-        const time = @as(f32, @floatFromInt(frame_start -% last.*)) * per_tick;
-        last.* = frame_start;
-        for (tunnel.mesh.uv[0].?) |*pair| {
-            pair[0] -= time * scroll_rate[0];
-            pair[1] -= time * scroll_rate[1];
-        }
-    }
-};
-
-/// How fast the burning flickers (`0x004DC44C`).
-const burn_flicker: f32 = 1000;
-
-/// The colours a collapsing gate's tunnel wipes through: burning, then fading (`0x00422380`,
-/// `0x004221E0`).
-const Wipe = enum {
-    burning,
-    fading,
-
-    /// Its colours at their brightest, on most rings and on the ring before the last: burning, a
-    /// dull red and blue; fading, a pale grey and green.
-    fn colours(look: Wipe) [2][3]f32 {
-        return switch (look) {
-            .burning => .{ .{ 1, 0.3, 0.5 }, .{ 0, 0.5, 1 } },
-            .fading => .{ .{ 0.6, 0.7, 0.7 }, .{ 0.3, 1, 0.8 } },
-        };
-    }
-
-    /// The colour of a vertex `past` of the way behind the wipe, clamped to 0 to 1: bright where
-    /// the wipe has just reached it and dark well behind (`0x0041DCD0`, `ease.cosine`), and
-    /// `last_level` as bright on the ring before the last.
-    fn shade(look: Wipe, past: f32, last: bool) [4]f32 {
-        const through: f32 = if (!(past <= 1)) 1 else if (past < 0) 0 else past;
-        const level = ease.cosine(if (last) last_level else 1, 0, through);
-        const colour = look.colours()[@intFromBool(last)];
-        return .{ colour[0] * level, colour[1] * level, colour[2] * level, 1 };
-    }
-
-    const last_level: f32 = 0.5;
-};
-
-/// The sway of a gate's vertices at the high detail, across and down (`0x0041FA50`): its pace by
-/// the tick (`0x004DC610`, `0x004DC608`), and each vertex's own offset into it, its number times 8
-/// and 4 (the game rotates it), times `wobble_spread` (`0x004DC4C0`, `0x004DC4DC`); and its reach
-/// for each segment, a gate's (`0x004DC604`) or a warp's (`0x004DC60C`).
-const wobble_rate = [2]f32{ 0.04, 0.034 };
-const wobble_step = [2]usize{ 8, 4 };
-const wobble_spread = [2]f32{ 0.3, 0.4 };
-
-fn wobbleOf(kind: Kind) f32 {
-    return switch (kind) {
-        .proto, .advanced => 41.7,
-        .warp, .boridin => 5.83,
-    };
-}
-
-/// The driver's highlight texture a tunnel's second pass takes: 7, or 0 for an advanced gate's
-/// (`0x0041DF75`).
-fn highlightOf(kind: Kind) u3 {
-    return switch (kind) {
-        .advanced => 0,
-        .warp, .proto, .boridin => 7,
-    };
-}
-
-/// How fast a tunnel's texture scrolls across it and along it as the gates count time, 0.35 and
-/// 0.06 of it a second (`0x004DC600`, `0x004DC4B4`).
-const scroll_rate = [2]f32{ 3.5, 0.6 };
-
-/// The vertex of ring `ring` at segment `segment`, after the centre.
-fn vertexOf(grid: Grid, ring: usize, segment: usize) usize {
-    return 1 + ring * grid.segments + segment;
-}
-
-/// How far round the axis segment `segment` of `segments` stands, in radians (`0x004DC3EC`).
-fn segmentTurn(segment: usize, segments: usize) f32 {
-    return @as(f32, @floatFromInt(segment)) * std.math.tau / @as(f32, @floatFromInt(segments));
-}
-
-/// How far along the tunnel ring `ring` of `rings` stands, from 0 at the mouth to 1 at the last.
-fn ringShare(ring: usize, rings: usize) f32 {
-    return @as(f32, @floatFromInt(ring)) / @as(f32, @floatFromInt(rings));
-}
-
-/// The radius of a tunnel of `rings` at `ring` (`0x0041DD70`), which a fine tunnel takes between
-/// the game's rings too (`Tunnels`). A gate's shrinks by a sixth at each ring from the mouth,
-/// `size` times 344 or so there, whatever the rings; a warp's is 344 or so all along, whatever its
-/// size. The game works it out in double precision as `profile_base` to the `profile_rings` times
-/// `profile_rings`, over `profile_base` to the `rings` times `rings`; times `profile_base` to the
-/// `rings` times `rings` for a warp, or to the `rings - ring` times `rings` times `size` for a
-/// gate; times `radius_scale`.
-fn ringRadius(kind: Kind, rings: usize, ring: f32, size: f32) f32 {
-    const base: f64 = profile_base;
-    const count: f64 = @floatFromInt(rings);
-    const scale = std.math.pow(f64, base, profile_rings) * profile_rings / (std.math.pow(f64, base, count) * count);
-    const radius = switch (kind) {
-        .warp, .boridin => std.math.pow(f64, base, count) * scale * count,
-        .proto, .advanced => std.math.pow(f64, base, count - ring) * count * scale * size,
-    };
-    return @floatCast(radius * radius_scale);
-}
-
-/// The tunnel's profile (`0x004DC5D0`, `0x004DC5C8`, `0x004DC5C0`).
-const profile_base: f32 = 1.2;
-const profile_rings: f64 = 8;
-const radius_scale: f64 = 10;
-
-/// The coordinates of a gate's tunnel on `grid` at `index` of the grid `split` times as fine it is
-/// drawn on (`0x0041DD70`): how far along the game's rings it stands over `rings_per_u`, and its
-/// height across a warp's tunnel's radius (`ringRadius`) in thousandths, as the game copies them
-/// from a warp's tunnel 1000 across.
-fn coordinatesOf(grid: Grid, split: usize, index: u16) [2]f32 {
-    const vertex: usize = index;
-    if (vertex == 0) return .{ 0, 0 };
-    const drawn = grid.finer(split);
-    const along = ringAlong((vertex - 1) / drawn.segments, split);
-    const turn = segmentTurn((vertex - 1) % drawn.segments, drawn.segments);
-    const radius = ringRadius(.warp, grid.rings, along, uv_size);
-    return .{ along / rings_per_u, @cos(turn) * radius * uv_across };
-}
-
-/// The warp's tunnel the coordinates come from, its rings a unit of `u` apart for eight
-/// (`0x004DC5B8`), and its height's scale (`0x004DC49C`).
-const uv_size: f32 = 1000;
-const rings_per_u: f32 = 8;
-const uv_across: f32 = 0.001;
-
-/// Numbers a tube's triangles, two for each segment between ring `ring - 1` and ring `ring`, from
-/// the first ring on, and the indices of their corners: the near ring's corner and the far one's,
-/// then the near ring's next; the near ring's next, the far ring's corner and its next.
-fn numberBands(mesh: *srapiext.Mesh, segments: usize, rings: usize) void {
-    mesh.numberPolygons(3);
-    var at: usize = 0;
-    for (1..rings + 1) |ring| {
-        for (0..segments) |segment| {
-            const next = (segment + 1) % segments;
-            const near = 1 + (ring - 1) * segments;
-            const far = 1 + ring * segments;
-            const corners = [6]usize{ near + segment, far + segment, near + next, near + next, far + segment, far + next };
-            for (corners) |corner| {
-                mesh.indices[at] = @intCast(corner);
-                at += 1;
-            }
-        }
-    }
-}
-
-/// The colours a tunnel runs through, from its mouth to its end (`0x0041D7D0`, `0x00422AD0`): the
-/// mouth's, the middle's `palette_turn` of the way along, the end's, and the ring before the
-/// last's, in 256ths as the game writes them.
-const Palette = struct {
-    mouth: [3]f32,
-    middle: [3]f32,
-    end: [3]f32,
-    last: [3]f32,
-
-    const blue: Palette = .{
-        .mouth = .{ 0.921875, 0.921875, 0.6640625 },
-        .middle = .{ 0.19921875, 0.4296875, 0.76953125 },
-        .end = .{ 0.046875, 0, 0.3125 },
-        .last = .{ 0.1171875, 0.05859375, 0.625 },
-    };
-    const red: Palette = .{
-        .mouth = .{ 1, 1, 0.859375 },
-        .middle = .{ 0.76953125, 0.4296875, 0.19921875 },
-        .end = .{ 0.3125, 0, 0.046875 },
-        .last = .{ 0.625, 0.05859375, 0.1171875 },
-    };
-
-    /// The colour `share` of the way along: in a straight line from the mouth's to the middle's,
-    /// then from the middle's to the end's by the square root.
-    ///
-    /// **Improvement:** the game scales the share by 3.3333 and 1.4286; OpenReliant divides by the
-    /// spans those round.
-    fn at(palette: Palette, share: f32) [3]f32 {
-        var shade: [3]f32 = undefined;
-        for (&shade, palette.mouth, palette.middle, palette.end) |*channel, mouth, middle, end| {
-            channel.* = if (share < palette_turn)
-                ease.linear(mouth, middle, share / palette_turn)
-            else
-                ease.out(middle, end, (share - palette_turn) / (1 - palette_turn));
-        }
-        return shade;
-    }
-};
-
-/// How far along a tunnel its colours turn (`0x004DC4C0`).
-const palette_turn: f32 = 0.3;
-
-/// A software renderer's ring before the last (`0x0041D7D0`).
-const software_last: [4]f32 = .{ 0.5, 0.5, 0.5, 1 };
-
-fn opaque_(shade: [3]f32) [4]f32 {
-    return .{ shade[0], shade[1], shade[2], 1 };
-}
-
-fn grey(level: f32) [4]f32 {
-    return .{ level, level, level, 1 };
-}
-
-/// One of the two flashes a ship jumping in shows at the tunnel's throat (`+0x74`, `+0x78`): a
-/// square (`loadout.squareMesh`, 25000 across) over the whole of the flashes' texture, added to
-/// what is behind it by colours of its own.
-pub const Square = struct {
-    mesh: srapiext.Mesh,
-    level: [1]srapiext.Level,
-    object: srapiext.MeshObject,
-    colours: [4][4]f32 = @splat(@splat(0)),
-    /// How deep it stands in the tunnel's frame.
-    depth: f32 = 0,
-
-    fn build(square: *Square, gpa: Allocator, image: *srtexture.Image) Allocator.Error!void {
-        var mesh = try loadout.squareMesh(gpa, false, square_side, square_side);
-        errdefer mesh.deinit(gpa);
-        // The corners the loadout's square leaves `loadout.square_span` across reach the texture's
-        // far edge.
-        const uv = mesh.uv[0].?;
-        for ([_]usize{ 1, 3, 4 }) |index| uv[index][0] = 1;
-        mesh.surfaces[0] = .{
-            .polygons = 2,
-            .material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .add }),
-            .textures = .{ .{ .image = image }, .none },
-        };
-        square.* = .{ .mesh = mesh, .level = undefined, .object = undefined };
-        square.level = .{.{ .mesh = &square.mesh, .until = std.math.inf(f32) }};
-        square.object = .{
-            .flags = .{ .not_culled = true, .owns_mesh = true, .baked_object = true },
-            .position = @splat(0),
-            .radius = mesh.radius,
-            .levels = &square.level,
-            .baked = &square.colours,
-        };
-    }
-
-    fn deinit(square: *Square, gpa: Allocator) void {
-        square.mesh.deinit(gpa);
-    }
-
-    /// Sizes it `half` either way of its centre and colours it `shade` grey.
-    fn set(square: *Square, half: f32, shade: f32) void {
-        square.mesh.positions[0..4].* = .{ .{ -half, -half, 0 }, .{ half, -half, 0 }, .{ half, half, 0 }, .{ -half, half, 0 } };
-        square.colours = @splat(.{ shade, shade, shade, square.colours[0][3] });
-    }
-};
-
-const square_side: f32 = 25000;
-
-/// The worm (`0x00422700`), which the player's ship rides from one gate to the next: a tube of
-/// `worm_rings` rings, `worm_segments` round, `worm_radius` across and `worm_ring_spacing` apart,
-/// drawn solid with the gates' texture by coordinates of its own and colours of its own (`colour`),
-/// and a highlight added by its normals. Its last band is drawn in one pass.
-pub const Worm = struct {
-    mesh: srapiext.Mesh,
-    level: [1]srapiext.Level,
-    object: srapiext.MeshObject,
-    colours: [][4]f32,
-
-    const grid: Grid = .{ .segments = worm_segments, .rings = worm_rings - 1 };
-
-    fn create(gpa: Allocator, image: *srtexture.Image) Allocator.Error!*Worm {
-        const worm = try gpa.create(Worm);
-        errdefer gpa.destroy(worm);
-        const polygons = grid.polygons();
-        var mesh: srapiext.Mesh = try .create(gpa, .{ .polygons = polygons, .vertices = grid.vertices(), .indices = polygons * 3, .surfaces = 2 });
-        errdefer mesh.deinit(gpa);
-        for (0..worm_rings) |ring| {
-            for (0..worm_segments) |segment| {
-                const turn = segmentTurn(segment, worm_segments);
-                mesh.positions[vertexOf(grid, ring, segment)] = .{ @sin(turn) * worm_radius, @cos(turn) * worm_radius, @as(f32, @floatFromInt(ring)) * worm_ring_spacing };
-            }
-        }
-        numberBands(&mesh, worm_segments, grid.rings);
-        const uv = try mesh.addCoordinates(gpa);
-        for (mesh.indices, uv) |index, *pair| {
-            const at = mesh.positions[index];
-            pair.* = .{ at[2] * worm_uv_along, at[1] * worm_uv_across };
-        }
-        mesh.surfaces[0] = .{
-            .polygons = @intCast(polygons - 2 * worm_segments),
-            .material = .{
-                .two_pass = true,
-                ._unknown_01 = 0,
-                .coordinates = .{ .mesh, .generated },
-                .lit = .{ true, true },
-                .blend = .{ .off, .add },
-                .image = .{ .null, .null },
-            },
-            .textures = .{ .{ .image = image }, .{ .highlight = worm_highlight } },
-        };
-        mesh.surfaces[1] = .{
-            .polygons = @intCast(2 * worm_segments),
-            .material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .off }),
-            .textures = .{ .{ .image = image }, .none },
-        };
-        srapi.calcPolyNormals(&mesh);
-        srapi.calcVertexNormals(&mesh);
-        srapi.findBoundingBox(&mesh);
-        const colours = try gpa.alloc([4]f32, grid.vertices());
-        @memset(colours, @splat(0));
-        worm.* = .{ .mesh = mesh, .level = undefined, .object = undefined, .colours = colours };
-        worm.level = .{.{ .mesh = &worm.mesh, .until = std.math.inf(f32) }};
-        worm.object = .{
-            .flags = .{ .normals_second = true, .not_culled = true, .unbounded = true, .owns_mesh = true, .baked_object = true },
-            .position = @splat(0),
-            .radius = mesh.radius,
-            .levels = &worm.level,
-            .baked = colours,
-        };
-        worm.colour();
-        return worm;
-    }
-
-    fn destroy(worm: *Worm, gpa: Allocator) void {
-        worm.mesh.deinit(gpa);
-        gpa.free(worm.colours);
-        gpa.destroy(worm);
-    }
-
-    /// `0x00422AD0`: a proto gate's colours (`Palette.blue`) along its rings, its first and last
-    /// black and clear.
-    fn colour(worm: *Worm) void {
-        for (0..worm_rings) |ring| {
-            const shade: [4]f32 = if (ring == 0 or ring == grid.rings)
-                @splat(0)
-            else if (ring == grid.rings - 1)
-                opaque_(Palette.blue.last)
-            else
-                opaque_(Palette.blue.at(@as(f32, @floatFromInt(ring)) * worm_ring_share));
-            for (0..worm_segments) |segment| worm.colours[vertexOf(grid, ring, segment)] = shade;
-        }
-    }
-
-    /// `0x004229B0`: each vertex, the centre too, swaying across and down by up to `worm_sway`, at
-    /// its own pace by the frame's tick, about its place round the tube; the centre takes the place
-    /// of the last segment.
-    fn wobble(worm: *Worm, frame_start: i32) void {
-        const ticks: f32 = @floatFromInt(frame_start);
-        for (worm.mesh.positions, 0..) |*position, vertex| {
-            const segment = @mod(@as(i64, @intCast(vertex)) - 1, worm_segments);
-            const turn = segmentTurn(@intCast(segment), worm_segments);
-            position[0] = @sin(turn) * worm_radius + @sin(ticks * wobble_rate[0] + @as(f32, @floatFromInt(vertex * wobble_step[0])) * worm_spread[0]) * worm_sway;
-            position[1] = @cos(turn) * worm_radius + @sin(ticks * wobble_rate[1] + @as(f32, @floatFromInt(vertex * wobble_step[1])) * worm_spread[1]) * worm_sway;
-        }
-    }
-
-    /// Scrolls its texture along it and across it by `time`, as the gates count it
-    /// (`order_fixed_gate_jump_out`).
-    fn scroll(worm: *Worm, time: f32) void {
-        for (worm.mesh.uv[0].?) |*pair| {
-            pair[0] += time * worm_scroll[0];
-            pair[1] -= time * worm_scroll[1];
-        }
-    }
-};
-
-/// The worm's tube (`0x00422700`): its segments and rings, its radius (`0x004DC43C`), how far apart
-/// its rings stand (`0x004DC640`), and its coordinates' scale along it (`0x004DC63C` times
-/// `0x004DC638`) and across (`0x004DC4B0`).
-const worm_segments = 16;
-const worm_rings = 31;
-const worm_radius: f32 = 10000;
-const worm_ring_spacing: f32 = 200000;
-const worm_uv_along: f32 = 3.3333333e-6 * 1.6;
-const worm_uv_across: f32 = 1e-4;
-/// The driver's highlight texture its second pass takes (`0x00422809`).
-const worm_highlight = 0;
-/// How far along its colours each ring stands (`0x004DC64C`).
-const worm_ring_share: f32 = 1.0 / 30.0;
-/// How far its vertices sway (`0x004DC438`), and their offsets' spread (`0x004DC648`,
-/// `0x004DC644`).
-const worm_sway: f32 = 2000;
-const worm_spread = [2]f32{ 5.3, 4.4 };
-/// How fast its texture scrolls along it and across it as the gates count time, 1.05 and 0.05 of it
-/// a second (`0x004DC61C`, `0x004DC408`).
-const worm_scroll = [2]f32{ 10.5, 0.5 };
-
 // --- The orders ---------------------------------------------------------------------------
 
 /// What the gates' orders keep in the object's order state.
 pub const State = extern struct {
     _unknown_00: u32,
-    /// Its step (`+0x04`).
-    step: u32,
+    /// Its step (`+0x04`), the order's own.
+    step: Step,
     /// The frame's tick of its last update (`+0x08`), which `progress` counts from.
     updated: i32,
     /// How far through its step it is (`+0x0C`).
@@ -1056,20 +383,41 @@ pub const State = extern struct {
     /// mouth for Jump In and down the tunnel for Jump Out (`+0x28`).
     from: shp.Vec3,
     to: shp.Vec3,
-    /// The portal that cuts it (`+0x34`), which OpenReliant reaches through its record.
-    _unknown_34: u32,
+    /// The portal that cuts it (`+0x34`), its record's (`+0x70`). OpenReliant reaches the portal
+    /// through the record, as `jump.effect.Record` does its scene objects.
+    portal: engine.Pointer(anyopaque),
 
     comptime {
+        assert(@offsetOf(State, "step") == 0x04);
+        assert(@offsetOf(State, "updated") == 0x08);
         assert(@offsetOf(State, "progress") == 0x0C);
+        assert(@offsetOf(State, "let_go") == 0x10);
         assert(@offsetOf(State, "fireballs") == 0x14);
+        assert(@offsetOf(State, "linear") == 0x18);
         assert(@offsetOf(State, "from") == 0x1C);
         assert(@offsetOf(State, "to") == 0x28);
+        assert(@offsetOf(State, "portal") == 0x34);
         assert(@sizeOf(State) == 0x38);
+    }
+
+    /// Moves on to `step`, `progress` from nothing.
+    fn next(state: *State, step: Step) void {
+        state.step = step;
+        state.progress = 0;
     }
 };
 
+/// The step of a gate's order, in the word the game keeps it in: Jump In's, Jump Out's, the
+/// swing's of Open and Close, or Collapse's.
+pub const Step = extern union {
+    in: InStep,
+    out: OutStep,
+    swing: SwingStep,
+    collapse: CollapseStep,
+};
+
 /// The steps of Jump In.
-const InStep = enum(u32) {
+pub const InStep = enum(u32) {
     /// Waiting for the tunnel to be free.
     waiting = 0,
     coming = 1,
@@ -1078,7 +426,7 @@ const InStep = enum(u32) {
 };
 
 /// The steps of Jump Out.
-const OutStep = enum(u32) {
+pub const OutStep = enum(u32) {
     /// Waiting for the last ship to go through.
     waiting = 0,
     /// Drawn down the tunnel.
@@ -1091,33 +439,27 @@ const OutStep = enum(u32) {
     _,
 };
 
-/// The time since the order last updated, as the gates count it (`per_tick`), the tick moved on
-/// (`+0x08`).
-fn sinceUpdate(state: *State, frame_start: i32) f32 {
-    const since = frame_start -% state.updated;
-    state.updated = frame_start;
-    return @as(f32, @floatFromInt(since)) * per_tick;
-}
-
 /// Where `local`, in the tunnel's frame, stands in the world.
 fn inTunnel(record: *const Record, all: *const create.Objects, local: Vector) Vector {
     return record.tunnelPlace(all).point(local);
 }
 
-/// The record of the gate the current order of the ship in slot `index` names; null, logged, for
-/// none.
-fn aimedRecord(ctx: aigeneric.Context, index: u16) ?*Record {
-    const gates = ctx.world.gates orelse return null;
-    const slot = &ctx.world.objects.slots[index];
-    const target = slot.orders[0].target.slotIn(ctx.world.objects) orelse {
+/// The gate the current order of the ship in slot `index` names, and its record; null, logged,
+/// for none.
+fn aimed(gates: *const Gates, all: *const create.Objects, index: u16) ?Aimed {
+    const gate = all.slots[index].orders[0].target.slotIn(all) orelse {
         log.warn("Bug in script - in a \"set_ai\" with ai function \"fixedgate_jump_in\", the target is NULL.  Sort it out!", .{});
         return null;
     };
-    return gates.of(target) orelse {
-        log.warn("object {d} has no gate to jump through at object {d}", .{ index, target });
+    const record = gates.of(gate) orelse {
+        log.warn("object {d} has no gate to jump through at object {d}", .{ index, gate });
         return null;
     };
+    return .{ .gate = gate, .record = record };
 }
+
+/// The gate a ship's order names, in its slot, and the record of its tunnel.
+const Aimed = struct { gate: u16, record: *Record };
 
 /// `order_fixed_gate_jump_in_init` (`0x00420B80`): the ship in slot `index` comes in through the
 /// tunnel at the object its order names. The portal cuts it (`xtrabits.clipTree`), from where it
@@ -1137,7 +479,7 @@ pub fn jumpInInit(ctx: aigeneric.Context, index: u16) void {
     const gates = world.gates orelse return;
     const slot = &all.slots[index];
     const state = &slot.state.gate;
-    const record = aimedRecord(ctx, index) orelse return;
+    const record = (aimed(gates, all, index) orelse return).record;
     state.let_go = false;
     if (slot.model) |*model| xtrabits.clipTree(model, &record.portal);
     const player = index == all.player;
@@ -1165,7 +507,7 @@ pub fn jumpInInit(ctx: aigeneric.Context, index: u16) void {
     state.linear = true;
     record.portalSetUp();
     state.progress = 0;
-    state.updated = ctx.clock.frame_start;
+    state.updated = ctx.world.clock.frame_start;
 }
 
 /// Where a ship comes from in the tunnel's frame: the player's a little above the axis, the rest
@@ -1194,10 +536,11 @@ const krasny_missions = [2]u16{ 0x10, 0x42 };
 /// script asked of it (`environfx.Environment.update`). It goes to where it goes in 5 seconds
 /// (`in_rate`), in a straight line (or easing in and out), letting the tunnel go half way.
 /// Over the first `flash_share` of the way, while the player's ship is not riding the worm, the
-/// flashes show: the first shrinking from `square_most` as it brightens, the second growing to it
-/// as it dims, each by the square of how far through. Then it is powered, collides and can be
-/// targeted again, its lights' sprites show, the portal lets it go, and the order ends; the ship's
-/// FixedGateJumpedIn is posted, with the gate's (`events.fixedGateJumpedIn`).
+/// flashes show, `flash_pace` times as far through as the ship: the first shrinking from
+/// `square_most` as it brightens, the second growing to it as it dims, each by the square of how
+/// far through. Then it is powered, collides and can be targeted again, its lights' sprites show,
+/// the portal lets it go (`release`), and the order ends; the ship's FixedGateJumpedIn is posted,
+/// with the gate's (`events.fixedGateJumpedIn`).
 ///
 /// A Krasny in missions 16 and 66 goes at `krasny_rate` instead and shows no flashes.
 pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
@@ -1205,61 +548,47 @@ pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const state = &slot.state.gate;
-    const elapsed = sinceUpdate(state, ctx.clock.frame_start);
-    const target = slot.orders[0].target.slotIn(all);
-    const record = aimedRecord(ctx, index) orelse {
-        _ = aigeneric.pop(ctx, index);
-        return;
-    };
-    const gates = world.gates.?;
-    switch (@as(InStep, @enumFromInt(state.step))) {
+    const elapsed = gameobj.progressSince(&state.updated, world.clock.frame_start);
+    const gates = world.gates orelse return aigeneric.end(ctx, index);
+    const found = aimed(gates, all, index) orelse return aigeneric.end(ctx, index);
+    const record = found.record;
+    switch (state.step.in) {
         .waiting => {
             if (record.busy and index != all.player) return;
             record.busy = true;
             for (&record.squares) |*square| square.depth = record.tunnel.throat()[2];
-            state.progress = 0;
-            state.step = @intFromEnum(InStep.coming);
+            state.next(.{ .in = .coming });
             objects.setPosition(&slot.object, &slot.drawn, gameobj.vector(state.from));
             sound3d.playIn(world, null, null, index, .warpin, 1, .not_reserved);
             if (index == all.player) if (world.environment) |environment| environment.update();
         },
         .coming => {
             state.progress += elapsed * (if (krasnyRun(all, index)) krasny_rate else in_rate);
-            var at: Vector = undefined;
-            inline for (0..3) |axis| {
-                const from = gameobj.vector(state.from)[axis];
-                const to = gameobj.vector(state.to)[axis];
-                at[axis] = if (state.linear) ease.linear(from, to, state.progress) else ease.cosine(from, to, state.progress);
-            }
+            const from = gameobj.vector(state.from);
+            const to = gameobj.vector(state.to);
+            const at = if (state.linear) ease.linear(from, to, state.progress) else ease.cosine(from, to, state.progress);
             objects.setPosition(&slot.object, &slot.drawn, at);
-            slot.object.root.flags.committed = true;
-            slot.object.root.flags.unframed = true;
+            slot.object.root.markMoved();
             if (state.progress <= 1) {
                 if (state.progress > let_go_at and !state.let_go) {
                     record.busy = false;
                     state.let_go = true;
                 }
             } else {
-                state.progress = 0;
-                state.step = @intFromEnum(InStep.done);
+                state.next(.{ .in = .done });
             }
             if (gates.riding or !(state.progress < flash_share)) return;
-            const through = state.progress / flash_share;
+            const through = state.progress * flash_pace;
             record.squares[0].set(ease.in(square_most, square_least, through), through);
             record.squares[1].set(ease.in(square_least, square_most, through), 1 - through);
             if (!krasnyRun(all, index)) record.squares_shown = true;
         },
         .done => {
-            slot.object.flags.no_collisions = false;
-            slot.object.flags.unpowered = false;
-            slot.object.flags.frozen = false;
-            if (slot.model) |*model| {
-                showLightSprites(model, true);
-                xtrabits.clipTree(model, null);
-            }
+            release(slot);
+            if (slot.model) |*model| showLightSprites(model, true);
             ai.setTargetable(&slot.object, slot.combat, true);
-            _ = aigeneric.pop(ctx, index);
-            if (target) |gate| events.fixedGateJumpedIn(world, index, gate);
+            aigeneric.end(ctx, index);
+            events.fixedGateJumpedIn(world, index, found.gate);
         },
         _ => {},
     }
@@ -1267,14 +596,23 @@ pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
 
 /// How fast a ship comes through, twice the time passed (`0x004210C8`), and a Krasny in its
 /// missions (`0x004DC618`); how far through it lets the tunnel go (`0x004DC408`); over how
-/// much of the way the flashes show (`0x004DC3F8`), their pace through them (`0x004DC56C`), and
-/// their sizes (`0x00421258`).
+/// much of the way the flashes show (`0x004DC3F8`), how fast they run through them
+/// (`0x004DC56C`), and their sizes (`0x00421258`).
 const in_rate: f32 = 2;
 const krasny_rate: f32 = 0.13;
 const let_go_at: f32 = 0.5;
 const flash_share: f32 = 0.2;
+const flash_pace: f32 = 5;
 const square_most: f32 = 12500;
 const square_least: f32 = 0.001;
+
+/// Lets the ship in `slot` go at the end of a jump through a gate (`0x00420FD0`, `0x00421510`): it
+/// collides and moves again, and the portal no longer cuts it.
+fn release(slot: *create.Slot) void {
+    slot.object.flags.no_collisions = false;
+    slot.object.flags.thaw();
+    if (slot.model) |*model| xtrabits.clipTree(model, null);
+}
 
 /// `0x00423050`: hides the sprites of every light of `model` and of the models it carries
 /// (node kind 3), or shows them again.
@@ -1282,17 +620,15 @@ fn showLightSprites(model: *objects.Model, shown: bool) void {
     for (model.lights) |*light| {
         if (light.sprites) |*sprites| sprites.set.flags.hidden = !shown;
     }
-    for (0..model.parts.len) |index| {
-        var each = model.carriedBy(index);
-        while (each.next()) |mount| showLightSprites(&mount.model, shown);
-    }
+    var each = model.carried();
+    while (each.next()) |mount| showLightSprites(&mount.model, shown);
 }
 
 /// `order_fixed_gate_jump_out_init` (`0x00420DD0`): the ship in slot `index` goes out through the
 /// nearest gate's tunnel, whatever its order names: its inputs, its rates and its speed at nothing,
 /// colliding with nothing, frozen and unpowered, the portal cutting it, and where it goes
 /// `exit_player` or `exit_other` down the tunnel. The portal is set up (`Record.portalSetUp`), the
-/// player's ship's worm made (`Worm`), and it can no longer be targeted.
+/// player's ship's worm made (`worm.Worm`), and it can no longer be targeted.
 ///
 /// **Fix:** the game takes the record its order names for the portal that cuts the ship, and the
 /// record before the first where no gate has a tunnel; OpenReliant takes the nearest gate's for
@@ -1306,16 +642,11 @@ pub fn jumpOutInit(ctx: aigeneric.Context, index: u16) void {
     const state = &slot.state.gate;
     const record = nearest(gates, all, slot.drawn.position) orelse {
         log.warn("object {d} has no gate to jump out through", .{index});
-        state.step = @intFromEnum(OutStep.stranded);
+        state.step = .{ .out = .stranded };
         return;
     };
-    object.yaw_input = 0;
-    object.pitch_input = 0;
-    object.roll_input = 0;
+    object.holdStill();
     object.speed = 0;
-    object.yaw_rate = 0;
-    object.pitch_rate = 0;
-    object.roll_rate = 0;
     object.flags.no_collisions = true;
     object.flags.frozen = true;
     object.flags.unpowered = true;
@@ -1323,14 +654,14 @@ pub fn jumpOutInit(ctx: aigeneric.Context, index: u16) void {
     state.to = gameobj.vec3(inTunnel(record, all, .{ 0, 0, if (index == all.player) exit_player else exit_other }));
     record.portalSetUp();
     if (index == all.player) {
-        if (gates.worm) |worm| worm.destroy(gates.gpa);
-        gates.worm = Worm.create(gates.gpa, gates.warp) catch |err| worm: {
+        if (gates.worm) |tube| tube.destroy(gates.gpa);
+        gates.worm = Worm.create(gates.gpa, gates.warp) catch |err| made: {
             log.warn("the worm is left out: {s}", .{@errorName(err)});
-            break :worm null;
+            break :made null;
         };
     }
     state.progress = 0;
-    state.updated = ctx.clock.frame_start;
+    state.updated = ctx.world.clock.frame_start;
     ai.setTargetable(object, slot.combat, false);
 }
 
@@ -1360,11 +691,11 @@ fn nearest(gates: *const Gates, all: *const create.Objects, at: Vector) ?*Record
 /// as the gates count time, until it is within `arrived_within`: then it is gone to `slot` times
 /// `away_spacing` along X and `away_depth` along Z, and the player's ship rides the worm, which
 /// stands where the ship does, turned as it is, the screen flashing. While it rides, the worm sways
-/// (`Worm.wobble`) and its texture scrolls, and at random the view shakes and flashes and the ride
-/// rumbles (`Gates.rumbles`, `ride_sound`); whatever the ship, the ride lasts 4 seconds
+/// (`worm.Worm.wobble`) and its texture scrolls, and at random the view shakes and flashes and the
+/// ride rumbles (`Gates.rumbles`, `ride_sound`); whatever the ship, the ride lasts 4 seconds
 /// (`ride_rate`). Then the player's ship leaves the worm, flashing and shaking, the tunnels are
-/// free, the ship is powered and collides again, the portal lets it go, and its order gives way to
-/// Fixed Gate Jump In through the gate its order names.
+/// free, the ship is powered and collides again, the portal lets it go (`release`), and its order
+/// gives way to Fixed Gate Jump In through the gate its order names.
 ///
 /// **Fix:** the game turns the ship as it is drawn toward the angles of a matrix it never fills,
 /// whatever the stack holds there; OpenReliant leaves it turned as it is.
@@ -1374,42 +705,39 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
     const gates = world.gates orelse return;
     const slot = &all.slots[index];
     const state = &slot.state.gate;
-    const elapsed = sinceUpdate(state, ctx.clock.frame_start);
+    const elapsed = gameobj.progressSince(&state.updated, ctx.world.clock.frame_start);
     const player = index == all.player;
-    switch (@as(OutStep, @enumFromInt(state.step))) {
+    switch (state.step.out) {
         .waiting => {
             if (gates.exiting) return;
             gates.exiting = true;
-            state.progress = 0;
-            state.step = @intFromEnum(OutStep.entering);
+            state.next(.{ .out = .entering });
         },
         .entering => {
             const at = math.lerp(gameobj.vector(slot.object.root.position), gameobj.vector(state.to), state.progress);
             objects.setPosition(&slot.object, &slot.drawn, at);
-            slot.object.root.flags.committed = true;
-            slot.object.root.flags.unframed = true;
+            slot.object.root.markMoved();
             state.progress += elapsed * out_rate;
             if (!(math.distance(slot.drawn.position, gameobj.vector(state.to)) < arrived_within)) return;
-            state.progress = 0;
-            state.step = @intFromEnum(OutStep.riding);
+            state.next(.{ .out = .riding });
             objects.setPosition(&slot.object, &slot.drawn, .{ @as(f32, @floatFromInt(index)) * away_spacing, 0, away_depth });
             if (!player) return;
             gates.riding = true;
-            gates.rumbled_at = ctx.clock.frame_start;
-            if (gates.worm) |worm| {
-                worm.object.position = gameobj.vector(slot.object.root.position);
-                worm.object.orientation = slot.object.root.orientation;
+            gates.rumbled_at = ctx.world.clock.frame_start;
+            if (gates.worm) |tube| {
+                tube.object.position = gameobj.vector(slot.object.root.position);
+                tube.object.orientation = slot.object.root.orientation;
             }
             if (world.flash) |flash| flash.start();
         },
         .riding => {
             if (player) {
-                if (gates.worm) |worm| {
+                if (gates.worm) |tube| {
                     gates.worm_shown = true;
-                    worm.wobble(ctx.clock.frame_start);
-                    worm.scroll(elapsed);
+                    tube.wobble(ctx.world.clock.frame_start);
+                    tube.scroll(elapsed);
                 }
-                if (gates.rumbles(world.random, ctx.clock.frame_start)) {
+                if (gates.rumbles(world.random, ctx.world.clock.frame_start)) {
                     if (world.camera) |view| view.hit_shake = ride_shake;
                     if (world.flash) |flash| flash.start();
                     if (world.hearing) |hearing| hearing.sound.bufferAt(ride_sound, slot.drawn.position, hearing.camera.*, slot.object.radius * ride_loudness);
@@ -1417,8 +745,7 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
             }
             state.progress += elapsed * ride_rate;
             if (!(state.progress > 1)) return;
-            state.progress = 0;
-            state.step = @intFromEnum(OutStep.done);
+            state.next(.{ .out = .done });
         },
         .done => {
             if (player) {
@@ -1427,17 +754,12 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
                 gates.riding = false;
             }
             gates.exiting = false;
-            slot.object.flags.no_collisions = false;
-            slot.object.flags.frozen = false;
-            slot.object.flags.unpowered = false;
-            if (slot.model) |*model| xtrabits.clipTree(model, null);
+            release(slot);
             const gate = slot.orders[0].target;
-            _ = aigeneric.pop(ctx, index);
-            _ = aigeneric.pushShip(ctx, index, .fixed_gate_jump_in, gate.slot() orelse return, aigeneric.Target.whole) catch |err| {
-                log.warn("object {d} does not jump in: {s}", .{ index, @errorName(err) });
-            };
+            aigeneric.end(ctx, index);
+            _ = aigeneric.giveShip(ctx, index, .fixed_gate_jump_in, gate.slot() orelse return, null);
         },
-        .stranded => _ = aigeneric.pop(ctx, index),
+        .stranded => aigeneric.end(ctx, index),
         _ => {},
     }
 }
@@ -1480,7 +802,7 @@ pub fn closeInit(ctx: aigeneric.Context, index: u16) void {
 
 /// `order_fixed_gate_open` (`0x00421940`): the tunnel at the object in slot `index` grows, easing
 /// in and out from `closed_scale` to its full size over 1.1 seconds (`open_rate`) by the time since
-/// it was last drawn (`Record.drawn_at`); then the order ends.
+/// it was last drawn (`Record.drawn_at`, `recordTime`); then the order ends.
 ///
 /// **Fix:** the game reads the record before the first where the object has no tunnel;
 /// OpenReliant ends the order.
@@ -1499,7 +821,7 @@ pub fn close(ctx: aigeneric.Context, index: u16) void {
 const Swing = enum { opening, closing };
 
 /// The steps of Open and Close.
-const SwingStep = enum(u32) {
+pub const SwingStep = enum(u32) {
     swinging = 0,
     done = 1,
     _,
@@ -1510,25 +832,23 @@ fn swing(ctx: aigeneric.Context, index: u16, way: Swing) void {
     const state = &ctx.world.objects.slots[index].state.gate;
     const record = gates.of(index) orelse {
         log.warn("object {d} has no tunnel for {s}", .{ index, @tagName(way) });
-        _ = aigeneric.pop(ctx, index);
-        return;
+        return aigeneric.end(ctx, index);
     };
-    switch (@as(SwingStep, @enumFromInt(state.step))) {
+    switch (state.step.swing) {
         .swinging => {
-            const since: u32 = @bitCast(ctx.clock.frame_start -% record.drawn_at);
-            record.progress += @as(f32, @floatFromInt(since)) * per_tick * open_rate;
+            record.progress += recordTime(record.drawn_at, ctx.world.clock.frame_start) * open_rate;
             record.tunnel.object.scale = switch (way) {
                 .opening => ease.cosine(closed_scale, 1, record.progress),
                 .closing => ease.cosine(1, closed_scale, record.progress),
             };
             if (record.progress > 1) {
                 record.progress = 0;
-                state.step = @intFromEnum(SwingStep.done);
+                state.step = .{ .swing = .done };
             }
         },
         .done => {
             if (way == .closing) gates.freeRecord(record);
-            _ = aigeneric.pop(ctx, index);
+            aigeneric.end(ctx, index);
         },
         _ => {},
     }
@@ -1539,6 +859,31 @@ fn swing(ctx: aigeneric.Context, index: u16, way: Swing) void {
 const open_rate: f32 = 9;
 const closed_scale: f32 = 0.0001;
 
+/// What a collapse brings down, by the object's type: a prototype, an advanced gate, or any other
+/// object, as `order_fixed_gate_collapse` tells them apart.
+const Collapsing = enum {
+    proto,
+    advanced,
+    other,
+
+    fn of(object_type: gameobj.Type) Collapsing {
+        return switch (object_type) {
+            .proto_gate => .proto,
+            .advanced_gate => .advanced,
+            else => .other,
+        };
+    }
+
+    /// The part whose cut list its fireballs go off at: a prototype's `Protogate`, any other's
+    /// `OuterRing`.
+    fn hull(collapsing: Collapsing) []const u8 {
+        return switch (collapsing) {
+            .proto => proto_hull,
+            .advanced, .other => advanced_hull,
+        };
+    }
+};
+
 /// `order_fixed_gate_collapse_init` (`0x00421AC0`): the gate in slot `index` starts to collapse,
 /// logged; a proto gate's hull burns (`explode.burnPart`) with flickering rays alone, for a while,
 /// and the screen flashes.
@@ -1547,20 +892,25 @@ const closed_scale: f32 = 0.0001;
 /// ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
 pub fn collapseInit(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
-    log.info(">>>>>>Starting gate collapse at {d}", .{ctx.clock.frame_start});
+    log.info(">>>>>>Starting gate collapse at {d}", .{ctx.world.clock.frame_start});
     const state = &world.objects.slots[index].state.gate;
     state.progress = 0;
     state.fireballs = 0;
-    if (world.objects.slots[index].object.type == .proto_gate) explode.burnPart(world, index, proto_hull, .{ .forever = false, .flickers = true, .lights = false });
+    switch (Collapsing.of(world.objects.slots[index].object.type)) {
+        .proto => explode.burnPart(world, index, proto_hull, .{ .forever = false, .flickers = true, .lights = false }),
+        .advanced, .other => {},
+    }
     if (world.flash) |flash| flash.start();
 }
 
 /// The gates' parts the collapse works on (`0x004E4138`, `0x004E41B8`, `0x004E4198`, `0x004E41AC`,
-/// `0x004E41A4`, `0x004E4168`).
+/// `0x004E41A4`, `0x004E4168`): the hulls, a proto gate's ring, an advanced gate's inner ring and
+/// tube, and the force field.
 const proto_hull = "Protogate";
 const advanced_hull = "OuterRing";
 const proto_ring = "forcering";
-const advanced_rings = [2][]const u8{ "InnerRing", "Tube11" };
+const advanced_inner_ring = "InnerRing";
+const advanced_tube = "Tube11";
 const force_field = "forcefield";
 
 /// How fast the gates' rings turn: an advanced gate's inner ring at four times its track's pace
@@ -1570,26 +920,31 @@ pub const inner_ring_speed: f32 = 4;
 pub const ring_speed: f32 = 1;
 
 /// `order_fixed_gate_collapse` (`0x00421B80`): the collapse's update, a step at a time
-/// (`CollapseStep`), its time counted from the tunnel's last frame (`Record.drawn_at`), which it
-/// moves on.
+/// (`CollapseStep`), its time counted from the tunnel's last frame (`Record.drawn_at`,
+/// `recordTime`), which it moves on.
 ///
 /// 1. Fireballs go off, `collapse_fireballs` over its 10 seconds, at each point of the hull's cut
-///    list in turn (a proto gate's `Protogate`, any other's `OuterRing`), `collapse_large` across,
-///    a seventh of them heard (`explosion02`); each frame the hull's parts lose their second pass,
-///    at random, `pass_off_chance` of the time (`secondPasses`). After 10 seconds they lose it for
-///    good, and the screen flashes.
-/// 2. Over the first `ring_stop_share` its rings slow to a stop from their pace: a proto gate's
-///    `forcering` from `ring_speed`, an advanced gate's `InnerRing` from `inner_ring_speed` and
-///    `Tube11` from `ring_speed`. At random, `fireball_chance` of the frames, a fireball goes off at
-///    a random point of the cut list, `collapse_small` across. The tunnel burns out (`burnOut`),
-///    and the gate shakes, unpowered, by `shake` along each axis at random; a proto gate's step
-///    lasts 20 seconds, any other's 40, its tunnel burning out twice as fast.
-/// 3. The tunnel fades to black (`fadeOut`) over 1.7 seconds.
+///    list in turn (`Collapsing.hull`), `collapse_large` across, a seventh of them heard
+///    (`explosion02`); each frame the hull's parts lose their second pass, at random,
+///    `pass_off_chance` of the time (`secondPasses`). After 10 seconds they lose it for good, and
+///    the screen flashes.
+/// 2. Over the first `ring_stop_share`, `ring_stop_pace` times as far through, its rings slow to
+///    a stop from their pace: a proto gate's `forcering` from `ring_speed`, an advanced gate's
+///    `InnerRing` from `inner_ring_speed` and `Tube11` from `ring_speed`. At random,
+///    `fireball_chance` of the frames, a fireball goes off at a random point of the cut list,
+///    `collapse_small` across. The tunnel burns out (`tunnel.Tunnel.burnOut`), and the gate
+///    shakes, unpowered, by `shake` along each axis at random; a proto gate's step lasts 20
+///    seconds, any other's 40, its tunnel burning out twice as fast.
+/// 3. The tunnel fades to black (`tunnel.Tunnel.fadeOut`) over 1.7 seconds.
 /// 4. It is logged; any gate but a proto gate lets its tunnel go, an advanced gate losing its hull
 ///    (`ai.hullLost`); a gate's `forcefield` is hidden, and the order ends.
 ///
 /// **Fix:** the game logs where the gate has no tunnel and reads the record before the first;
 /// OpenReliant ends the order.
+///
+/// **Fix:** the game reads past the hull's cut list where a fireball's point lies beyond its end,
+/// as the advanced gate's 41 points do for its 55 fireballs; OpenReliant counts on from the
+/// list's start again (`cutIndex`).
 ///
 /// Not ported: the Krasny's split in missions 16 and 66, which holds the second step
 /// ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
@@ -1600,79 +955,87 @@ pub fn collapse(ctx: aigeneric.Context, index: u16) void {
     const slot = &all.slots[index];
     const state = &slot.state.gate;
     const record = gates.of(index) orelse {
-        log.info(">>>>>>>>>Can't find gate (index = -1) at {d}", .{ctx.clock.frame_start});
-        _ = aigeneric.pop(ctx, index);
-        return;
+        log.info(">>>>>>>>>Can't find gate (index = -1) at {d}", .{ctx.world.clock.frame_start});
+        return aigeneric.end(ctx, index);
     };
-    const frame_start = ctx.clock.frame_start;
-    const since: u32 = @bitCast(frame_start -% record.drawn_at);
+    const frame_start = ctx.world.clock.frame_start;
+    const elapsed = recordTime(record.drawn_at, frame_start);
     record.drawn_at = frame_start;
-    const elapsed = @as(f32, @floatFromInt(since)) * per_tick;
-    const proto = slot.object.type == .proto_gate;
-    switch (@as(CollapseStep, @enumFromInt(state.step))) {
+    const collapsing: Collapsing = .of(slot.object.type);
+    switch (state.step.collapse) {
         .fireballs => {
             state.progress += elapsed;
             if (math.round(state.progress * collapse_fireballs) > state.fireballs) {
-                if (cutPoint(slot, proto, std.math.cast(usize, state.fireballs) orelse 0)) |at| {
-                    explode.fireballAt(world, at, .{ .size = world.random.fraction() * collapse_large[1] + collapse_large[0], .life = fireball_life, .light = true });
+                if (cutPoint(slot, collapsing.hull(), std.math.cast(usize, state.fireballs) orelse 0)) |at| {
+                    collapseFireball(world, at, collapse_large);
                     state.fireballs += 1;
-                    if (@rem(state.fireballs, heard_every) == 0) sound3d.playIn(world, at, null, -1, .explosion02, 1, .not_reserved);
+                    if (@rem(state.fireballs, heard_every) == 0) sound3d.playIn(world, at, null, null, .explosion02, 1, .not_reserved);
                 } else state.fireballs += 1;
             }
             secondPasses(slot, !(world.random.fraction() < pass_off_chance));
             if (!(state.progress >= 1)) return;
             if (world.flash) |flash| flash.start();
             secondPasses(slot, false);
-            state.progress = 0;
-            state.step = @intFromEnum(CollapseStep.burning);
+            state.next(.{ .collapse = .burning });
         },
         .burning => {
             if (state.progress < ring_stop_share) if (slot.model) |*model| {
-                const share = state.progress / ring_stop_share;
-                if (proto) {
-                    setSpeed(model, proto_ring, ease.linear(ring_speed, 0, share));
-                } else if (slot.object.type == .advanced_gate) {
-                    setSpeed(model, advanced_rings[0], ease.linear(inner_ring_speed, 0, share));
-                    setSpeed(model, advanced_rings[1], ease.linear(ring_speed, 0, share));
+                const through = state.progress * ring_stop_pace;
+                switch (collapsing) {
+                    .proto => setSpeed(model, proto_ring, ease.linear(ring_speed, 0, through)),
+                    .advanced => {
+                        setSpeed(model, advanced_inner_ring, ease.linear(inner_ring_speed, 0, through));
+                        setSpeed(model, advanced_tube, ease.linear(ring_speed, 0, through));
+                    },
+                    .other => {},
                 }
             };
             if (world.random.fraction() < fireball_chance) {
                 const point = std.math.cast(usize, math.round(world.random.fraction() * collapse_fireballs)) orelse 0;
-                if (cutPoint(slot, proto, point)) |at| {
-                    explode.fireballAt(world, at, .{ .size = world.random.fraction() * collapse_small[1] + collapse_small[0], .life = fireball_life, .light = true });
-                }
+                if (cutPoint(slot, collapsing.hull(), point)) |at| collapseFireball(world, at, collapse_small);
             }
-            const rate: f32 = if (proto) proto_burn_rate else other_burn_rate;
-            record.tunnel.burnOut(if (proto) state.progress else state.progress + state.progress);
-            state.progress += elapsed * rate;
+            const burnt: f32, const burn_rate: f32 = switch (collapsing) {
+                .proto => .{ state.progress, proto_burn_rate },
+                .advanced, .other => .{ state.progress + state.progress, other_burn_rate },
+            };
+            record.tunnel.burnOut(burnt);
+            state.progress += elapsed * burn_rate;
             slot.object.flags.unpowered = true;
             var shaken = slot.drawn.position;
             inline for (0..3) |axis| shaken[axis] += if (world.random.centred() < 0) -shake else shake;
             objects.setPosition(&slot.object, &slot.drawn, shaken);
             if (!(state.progress >= 1)) return;
-            state.progress = 0;
-            state.step = @intFromEnum(CollapseStep.fading);
+            state.next(.{ .collapse = .fading });
         },
         .fading => {
             record.tunnel.fadeOut(state.progress);
             state.progress += elapsed * fade_rate;
-            if (state.progress >= 1) state.step = @intFromEnum(CollapseStep.fallen);
+            if (state.progress >= 1) state.step = .{ .collapse = .fallen };
         },
         .fallen => {
             log.info(">>>>>>Gate fully collapsed at {d}", .{frame_start});
-            if (!proto) gates.freeRecord(record);
-            if (slot.object.type == .advanced_gate) ai.hullLost(ctx, index);
-            if (proto or slot.object.type == .advanced_gate) if (slot.model) |*model| {
-                if (model.partNamed(force_field)) |ref| ref.part().hidden = true;
-            };
-            _ = aigeneric.pop(ctx, index);
+            switch (collapsing) {
+                .proto => {},
+                .advanced => {
+                    gates.freeRecord(record);
+                    ai.hullLost(ctx, index);
+                },
+                .other => gates.freeRecord(record),
+            }
+            // The game finds the part itself (`node_find_named`) and sets its hidden flag, as
+            // `node_hide_named` does.
+            switch (collapsing) {
+                .proto, .advanced => if (slot.model) |*model| model.hideNamed(force_field),
+                .other => {},
+            }
+            aigeneric.end(ctx, index);
         },
         _ => {},
     }
 }
 
 /// The steps of Collapse.
-const CollapseStep = enum(u32) {
+pub const CollapseStep = enum(u32) {
     /// The fireballs go off along the hull.
     fireballs = 0,
     /// The rings stop, and the tunnel burns out.
@@ -1683,19 +1046,21 @@ const CollapseStep = enum(u32) {
 };
 
 /// The collapse's fireballs: how many go off along the cut list over its first step (`0x004DC630`),
-/// how large they are, from the first to the first and second together (`0x004DC62C`,
-/// `0x004DC508`; `0x004DC628`, `0x004DC44C`), how long they last, how often one is heard, and how
-/// often one goes off at random in the second step (`0x004DC474`).
+/// how large they are (`0x004DC62C`, `0x004DC508`; `0x004DC628`, `0x004DC44C`), how long they
+/// last, how often one is heard, and how often one goes off at random in the second step
+/// (`0x004DC474`).
 const collapse_fireballs: f32 = 55;
-const collapse_large = [2]f32{ 5500, 3000 };
-const collapse_small = [2]f32{ 3500, 1000 };
+const collapse_large: FireballSize = .{ .least = 5500, .spread = 3000 };
+const collapse_small: FireballSize = .{ .least = 3500, .spread = 1000 };
 const fireball_life = 150;
 const heard_every = 7;
 const fireball_chance: f32 = 0.05;
 /// How often a frame of the first step drops the second passes (`0x004DC4C0`).
 const pass_off_chance: f32 = 0.3;
-/// How far through the second step the rings stop (`0x004DC3F8`).
+/// How far through the second step the rings stop (`0x004DC3F8`), and how fast they slow through
+/// it (`0x004DC56C`).
 const ring_stop_share: f32 = 0.2;
+const ring_stop_pace: f32 = 5;
 /// How fast the second step goes, as the gates count time, for a proto gate and for the rest
 /// (`0x004DC408`, `0x004DC3D4`); how far the gate shakes (`0x004DC624`); how fast the tunnel
 /// fades (`0x004DC400`).
@@ -1704,15 +1069,31 @@ const other_burn_rate: f32 = 0.25;
 const shake: f32 = 15;
 const fade_rate: f32 = 6;
 
-/// Point `point` of the cut list of the gate's hull, `Protogate` or `OuterRing`, in the world as
-/// the part is drawn; null where the gate has no such part or point.
-fn cutPoint(slot: *create.Slot, proto: bool, point: usize) ?Vector {
+/// How large a collapse's fireball is: at least `least` across, and up to `spread` more at random.
+const FireballSize = struct { least: f32, spread: f32 };
+
+/// A collapse's fireball at `at`, lit, as large as `size` gives it at random.
+fn collapseFireball(world: gameobj.World, at: Vector, size: FireballSize) void {
+    explode.fireballAt(world, at, .{ .size = world.random.fraction() * size.spread + size.least, .life = fireball_life, .light = true });
+}
+
+/// Point `point` of the cut list of the part of the gate in `slot` named `hull`, in the world as
+/// the part is drawn, counting on from the list's start again past its end (`cutIndex`); null
+/// where the gate has no such part or its list no points.
+fn cutPoint(slot: *create.Slot, hull: []const u8, point: usize) ?Vector {
     const model = if (slot.model) |*live| live else return null;
-    const ref = model.partNamed(if (proto) proto_hull else advanced_hull) orelse return null;
+    const ref = model.partNamed(hull) orelse return null;
     const data = ref.data() orelse return null;
     const cut = data.pointList(.cut) orelse return null;
-    if (point >= cut.points.len) return null;
-    return ref.part().drawn().point(gameobj.vector(cut.points[point].position));
+    const at = cutIndex(point, cut.points.len) orelse return null;
+    return ref.part().drawn().point(gameobj.vector(cut.points[at].position));
+}
+
+/// Point `point` of a list of `count`, counted on from its start again past its end; null for an
+/// empty list.
+fn cutIndex(point: usize, count: usize) ?usize {
+    if (count == 0) return null;
+    return point % count;
 }
 
 /// Sets the animation speed of the part of `model` named `name`, where it has one.
@@ -1726,7 +1107,7 @@ fn setSpeed(model: *objects.Model, name: []const u8, speed: f32) void {
 /// with it.
 ///
 /// Not ported: the parts of models the gate carries, which the game's walk of its nodes reaches
-/// too; no gate carries any.
+/// too; no shipped gate carries any ([#540](https://github.com/vdmkenny/openreliant/issues/540)).
 fn secondPasses(slot: *create.Slot, on: bool) void {
     const loaded = (slot.type orelse return).loaded;
     for (loaded.parts) |*part| {
@@ -1755,124 +1136,120 @@ pub const testing = struct {
             built.textures.deinit(gpa);
         }
     };
+
+    /// The gates and a mission with nothing in it but what a test puts there, which the gates'
+    /// orders run in. It stays where `init` fills it in, as the world points into it.
+    pub const Run = struct {
+        built: Built,
+        mission: gameobj.testing.Mission,
+
+        pub fn init(run: *Run, gpa: Allocator) !void {
+            try run.built.init(gpa);
+            errdefer run.built.deinit(gpa);
+            try run.mission.init(gpa);
+        }
+
+        pub fn deinit(run: *Run, gpa: Allocator) void {
+            run.mission.deinit();
+            run.built.deinit(gpa);
+        }
+
+        /// What the orders run against, the gates among it.
+        pub fn orders(run: *Run) aigeneric.Context {
+            var ctx = run.mission.orders();
+            ctx.world.gates = &run.built.gates;
+            return ctx;
+        }
+    };
 };
 
-test Grid {
-    const high: Grid = .of(.high);
-    try std.testing.expectEqual(16 * 13 + 1, high.vertices());
-    try std.testing.expectEqual(12 * 16 * 2, high.polygons());
-    try std.testing.expectEqual(7, high.throat());
-    try std.testing.expectEqual(1, Grid.of(.low).throat());
+test {
+    _ = tunnel;
+    _ = worm;
 }
 
-test ringRadius {
-    // A gate's mouth is 344 or so times its size, and each ring a sixth narrower than the last,
-    // whatever the rings.
-    const mouth = 80 * std.math.pow(f32, 1.2, 8);
-    try std.testing.expectApproxEqRel(mouth * 70, ringRadius(.proto, 12, 0, 70), 1e-5);
-    try std.testing.expectApproxEqRel(mouth * 70, ringRadius(.proto, 6, 0, 70), 1e-5);
-    try std.testing.expectApproxEqRel(ringRadius(.proto, 12, 3, 40) / 1.2, ringRadius(.proto, 12, 4, 40), 1e-5);
-    // A warp's is the same all along.
-    try std.testing.expectApproxEqRel(mouth / 10 * 10, ringRadius(.warp, 12, 7, 999), 1e-5);
+test recordTime {
+    // A thousandth for each tick.
+    try std.testing.expectEqual(0.25, recordTime(100, 350));
+    // The ticks taken unsigned, as the game takes a record's: a clock that ran back is a long time.
+    try std.testing.expect(recordTime(350, 100) > 4e6);
 }
 
-test Palette {
-    // The mouth's colour at the mouth, the middle's at the turn, the end's at the end.
-    try std.testing.expectEqual(Palette.blue.mouth, Palette.blue.at(0));
-    for (Palette.red.middle, Palette.red.at(palette_turn)) |expected, found| try std.testing.expectApproxEqAbs(expected, found, 1e-6);
-    for (Palette.red.end, Palette.red.at(1)) |expected, found| try std.testing.expectApproxEqAbs(expected, found, 1e-6);
+test tunnelSize {
+    try std.testing.expectEqual(proto_size, tunnelSize(.proto, 3));
+    try std.testing.expectEqual(advanced_size, tunnelSize(.advanced, 3));
+    // In mission 8 the advanced gate's is as wide as the prototype's.
+    try std.testing.expectEqual(proto_size, tunnelSize(.advanced, wide_advanced_mission));
+    try std.testing.expectEqual(proto_size, tunnelSize(.proto, wide_advanced_mission));
+    try std.testing.expectEqual(proto_size, tunnelSize(.warp, 3));
+    try std.testing.expectEqual(proto_size, tunnelSize(.boridin, 3));
 }
 
-test Tunnel {
+test depthOf {
+    try std.testing.expectEqual(15000, depthOf(.badanov));
+    try std.testing.expectEqual(100000, depthOf(.yamato));
+    try std.testing.expectEqual(0, depthOf(.proto_gate));
+}
+
+test cutIndex {
+    try std.testing.expectEqual(3, cutIndex(3, 56));
+    try std.testing.expectEqual(0, cutIndex(41, 41));
+    try std.testing.expectEqual(14, cutIndex(55, 41));
+    try std.testing.expectEqual(null, cutIndex(3, 0));
+}
+
+test krasnyRun {
     const gpa = std.testing.allocator;
-    var built: testing.Built = undefined;
-    try built.init(gpa);
-    defer built.deinit(gpa);
-    built.gates.settings = .original;
-    const grid = built.gates.grid;
-    var tunnel: Tunnel = undefined;
-    try tunnel.build(&built.gates, .proto, proto_size);
-    defer tunnel.deinit(gpa);
-
-    // A ring of vertices round the axis at each ring's radius, flat until it is shaped.
-    const first = tunnel.mesh.positions[vertexOf(grid, 0, 0)];
-    try std.testing.expectApproxEqRel(tunnel.radii[0], first[1], 1e-5);
-    try std.testing.expectEqual(0, first[2]);
-    // Each band two triangles a segment, the last band drawn in one pass.
-    try std.testing.expectEqualSlices(u16, &.{ 1, 17, 2, 2, 17, 18 }, tunnel.mesh.indices[0..6]);
-    try std.testing.expectEqual(grid.polygons() - 32, tunnel.mesh.surfaces[0].polygons);
-    try std.testing.expect(tunnel.mesh.surfaces[0].material.two_pass and !tunnel.mesh.surfaces[1].material.two_pass);
-    try std.testing.expectEqual(srapiext.Texture{ .highlight = 7 }, tunnel.mesh.surfaces[0].textures[1]);
-    // The coordinates run a unit along for eight rings.
-    try std.testing.expectEqual(1, coordinatesOf(grid, 1, @intCast(vertexOf(grid, 8, 0)))[0]);
-    // Black and clear at the mouth and at the end, the deep colour on the ring before it, and
-    // drawn so.
-    try std.testing.expectEqual([4]f32{ 0, 0, 0, 0 }, tunnel.colours[vertexOf(grid, 0, 3)]);
-    try std.testing.expectEqual(opaque_(Palette.blue.last), tunnel.colours[vertexOf(grid, grid.rings - 1, 3)]);
-    try std.testing.expectEqualSlices([4]f32, tunnel.colours, tunnel.drawn_colours);
-
-    // Shaped, each ring stands at its depth, the last at the one before's, and sways at the high
-    // detail.
-    for (tunnel.depths, 0..) |*depth, ring| depth.* = @floatFromInt(ring * 100);
-    tunnel.shape(.proto, 0);
-    try std.testing.expectEqual(500, tunnel.mesh.positions[vertexOf(grid, 5, 2)][2]);
-    try std.testing.expectEqual(1100, tunnel.mesh.positions[vertexOf(grid, grid.rings, 2)][2]);
-    try std.testing.expect(tunnel.mesh.positions[vertexOf(grid, 5, 2)][0] != @sin(segmentTurn(2, 16)) * tunnel.radii[5]);
-    try std.testing.expectEqual(tunnel.mesh.positions[vertexOf(grid, grid.throat(), 0)], tunnel.throat());
-
-    // The collapse's fade reaches its share of the vertices, from the centre on.
-    tunnel.fadeOut(0.5);
-    try std.testing.expect(tunnel.colours[vertexOf(grid, 2, 3)][3] == 1 and tunnel.colours[vertexOf(grid, 2, 3)][0] < 0.6);
-    try std.testing.expectEqual(opaque_(Palette.blue.last), tunnel.colours[vertexOf(grid, grid.rings - 1, 3)]);
-    try std.testing.expectEqualSlices([4]f32, tunnel.colours, tunnel.drawn_colours);
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const krasny = try mission.add(.krasny, @splat(0));
+    const other = try mission.add(.predator, @splat(0));
+    for ([_]u16{ 16, 66 }) |number| {
+        mission.objects.mission_number = number;
+        try std.testing.expect(krasnyRun(mission.objects, krasny));
+        try std.testing.expect(!krasnyRun(mission.objects, other));
+    }
+    mission.objects.mission_number = 15;
+    try std.testing.expect(!krasnyRun(mission.objects, krasny));
 }
 
-test "a fine tunnel passes through the game's vertices and follows its curves between them" {
+test "the gates keep 32 records, and make no more" {
     const gpa = std.testing.allocator;
-    var built: testing.Built = undefined;
-    try built.init(gpa);
-    defer built.deinit(gpa);
-    const grid = built.gates.grid;
-    var fine: Tunnel = undefined;
-    try fine.build(&built.gates, .advanced, advanced_size);
-    defer fine.deinit(gpa);
-    built.gates.settings = .original;
-    var game: Tunnel = undefined;
-    try game.build(&built.gates, .advanced, advanced_size);
-    defer game.deinit(gpa);
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const point = try run.mission.addOther(@splat(0));
+    const world = run.orders().world;
+    for (0..max_records) |_| try std.testing.expect(try run.built.gates.make(world, point, .proto, @splat(0)) != null);
+    try std.testing.expectEqual(null, try run.built.gates.make(world, point, .proto, @splat(0)));
+    // Nor any of a kind not ported.
+    run.built.gates.free(0);
+    try std.testing.expectEqual(null, try run.built.gates.make(world, point, .warp, @splat(0)));
+}
 
-    const split = fine_split;
-    const drawn = grid.finer(split);
-    try std.testing.expectEqual(drawn.vertices(), fine.mesh.positions.len);
-    // The game's last band is drawn in one pass, however finely it is split.
-    try std.testing.expectEqual(2 * drawn.segments * split, fine.mesh.surfaces[1].polygons);
-    try std.testing.expectEqual(drawn.polygons(), fine.mesh.surfaces[0].polygons + fine.mesh.surfaces[1].polygons);
+test "a tunnel at a Yamato stands deeper than one at a nav point" {
+    const gpa = std.testing.allocator;
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const point = try run.mission.addOther(@splat(0));
+    const yamato = try run.mission.add(.yamato, .{ 0, 0, 1e6 });
+    const world = run.orders().world;
+    const at_point = (try run.built.gates.make(world, point, .proto, @splat(0))).?;
+    const at_yamato = (try run.built.gates.make(world, yamato, .proto, @splat(0))).?;
+    try std.testing.expectEqual(depthOf(.yamato), at_yamato.deeper);
 
-    // Shaped at the same tick, with the game's spacing, it stands where the game's does at the
-    // game's vertices, sway and all, and is as long.
-    for (fine.depths, 0..) |*depth, ring| depth.* = ringAlong(ring, split) * ring_spacing;
-    for (game.depths, 0..) |*depth, ring| depth.* = ringAlong(ring, 1) * ring_spacing;
-    fine.shape(.advanced, 1234);
-    game.shape(.advanced, 1234);
-    for (0..grid.rings + 1) |ring| {
-        for (0..grid.segments) |segment| {
-            const expected = game.mesh.positions[vertexOf(grid, ring, segment)];
-            const found = fine.mesh.positions[vertexOf(drawn, ring * split, segment * split)];
-            inline for (0..3) |axis| try std.testing.expectApproxEqAbs(expected[axis], found[axis], 1e-2);
-        }
-    }
-    try std.testing.expectEqual(game.throat(), fine.throat());
-    // Between the game's rings, its radius follows the game's curve, a sixth narrower a ring.
-    try std.testing.expectApproxEqRel(fine.radii[0] / std.math.sqrt(1.2), fine.radii[split / 2], 1e-5);
-    // Its colours are the game's at the game's vertices, and between them as the game's are drawn.
-    try std.testing.expectEqual(game.drawn_colours[vertexOf(grid, 3, 5)], fine.drawn_colours[vertexOf(drawn, 3 * split, 5 * split)]);
-    const halfway = fine.drawn_colours[vertexOf(drawn, 3 * split + split / 2, 5 * split)];
-    for (halfway, game.colours[vertexOf(grid, 3, 5)], game.colours[vertexOf(grid, 4, 5)]) |found, near, far| {
-        try std.testing.expectApproxEqAbs((near + far) / 2, found, 1e-6);
-    }
-    // Its texture lies along it as the game's does, a unit for eight of the game's rings.
-    try std.testing.expectEqual(coordinatesOf(grid, 1, @intCast(vertexOf(grid, 8, 0))), coordinatesOf(grid, split, @intCast(vertexOf(drawn, 8 * split, 0))));
-    try std.testing.expectEqual(0.5, coordinatesOf(grid, split, @intCast(vertexOf(drawn, 4 * split, 0)))[0]);
+    // Drawn at the same tick, every vertex of the Yamato's stands 100000 deeper, its throat, its
+    // portal and the flashes there with it.
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    run.mission.clock.frame_start += 10;
+    try run.built.gates.draw(gpa, &scene, run.mission.objects, run.mission.clock.frame_start);
+    try std.testing.expectApproxEqAbs(100000, at_yamato.tunnel.throat()[2] - at_point.tunnel.throat()[2], 0.05);
+    at_point.portalSetUp();
+    at_yamato.portalSetUp();
+    try std.testing.expectApproxEqAbs(100000, at_yamato.portal_at[2] - at_point.portal_at[2], 0.05);
 }
 
 test "the ride through the worm draws its rumbles at the pace of the simulation's steps" {
@@ -1903,29 +1280,25 @@ test "the ride through the worm draws its rumbles at the pace of the simulation'
 
 test "a tunnel opens at an object and closes again" {
     const gpa = std.testing.allocator;
-    var built: testing.Built = undefined;
-    try built.init(gpa);
-    defer built.deinit(gpa);
-    var mission: gameobj.testing.Mission = undefined;
-    try mission.init(gpa);
-    defer mission.deinit();
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const mission = &run.mission;
     const point = try mission.addOther(@splat(0));
-    var ctx = mission.orders();
-    ctx.world.gates = &built.gates;
+    const ctx = run.orders();
 
     _ = try aigeneric.push(ctx, point, .fixed_gate_open, .none);
     aigeneric.objectOrders(ctx, point);
-    const record = built.gates.of(point).?;
+    const record = run.built.gates.of(point).?;
     try std.testing.expectEqual(Kind.proto, record.kind);
     // Over a ninth of a thousand ticks it grows to its full size, drawn each frame, and the order
     // ends.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     for (0..120) |_| {
-        mission.clock.frame_start += 1;
-        aigeneric.objectOrders(ctx, point);
+        mission.ordersAfter(ctx, point, 1);
         scene.clear();
-        try built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
+        try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
     }
     try std.testing.expectApproxEqAbs(1, record.tunnel.object.scale, 1e-3);
     try std.testing.expectEqual(0, mission.slot(point).object.order_count);
@@ -1935,30 +1308,26 @@ test "a tunnel opens at an object and closes again" {
 
     _ = try aigeneric.push(ctx, point, .fixed_gate_close, .none);
     for (0..120) |_| {
-        mission.clock.frame_start += 1;
-        aigeneric.objectOrders(ctx, point);
-        if (built.gates.of(point) != null) try built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
+        mission.ordersAfter(ctx, point, 1);
+        if (run.built.gates.of(point) != null) try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
     }
-    try std.testing.expectEqual(null, built.gates.of(point));
+    try std.testing.expectEqual(null, run.built.gates.of(point));
     try std.testing.expectEqual(0, mission.slot(point).object.order_count);
 }
 
 test "a ship comes in through a gate" {
     const gpa = std.testing.allocator;
-    var built: testing.Built = undefined;
-    try built.init(gpa);
-    defer built.deinit(gpa);
-    var mission: gameobj.testing.Mission = undefined;
-    try mission.init(gpa);
-    defer mission.deinit();
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const mission = &run.mission;
     _ = try mission.add(.predator, @splat(0));
     const ship = try mission.add(.predator, .{ 0, 0, -100000 });
     const gate = try mission.add(.proto_gate, @splat(0));
-    var ctx = mission.orders();
-    ctx.world.gates = &built.gates;
-    const record = (try built.gates.make(ctx.world, gate, .proto, @splat(0))).?;
+    const ctx = run.orders();
+    const record = (try run.built.gates.make(ctx.world, gate, .proto, @splat(0))).?;
 
-    _ = try aigeneric.pushShip(ctx, ship, .fixed_gate_jump_in, gate, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(ctx, ship, .fixed_gate_jump_in, gate, null);
     aigeneric.objectOrders(ctx, ship);
     const slot = mission.slot(ship);
     const object = &slot.object;
@@ -1970,22 +1339,17 @@ test "a ship comes in through a gate" {
     const to = gameobj.vector(slot.state.gate.to);
     try std.testing.expectApproxEqRel(53000, math.length(to), 1e-4);
     try std.testing.expect(to[2] > 0);
-    try std.testing.expectEqual(-1, built.gates.spread);
+    try std.testing.expectEqual(-1, run.built.gates.spread);
 
-    // Half way it lets the tunnel go; the flashes showed near the start.
-    mission.clock.frame_start += 50;
-    aigeneric.objectOrders(ctx, ship);
+    // Half way it lets the tunnel go; the flashes showed near the start, five times as far through
+    // as the ship.
+    mission.ordersAfter(ctx, ship, 50);
     try std.testing.expect(record.squares_shown);
-    for (0..25) |_| {
-        mission.clock.frame_start += 10;
-        aigeneric.objectOrders(ctx, ship);
-    }
+    try std.testing.expectEqual(slot.state.gate.progress * flash_pace, record.squares[0].colours[0][0]);
+    for (0..25) |_| mission.ordersAfter(ctx, ship, 10);
     try std.testing.expect(!record.busy);
     // Through, it is free, and the order ends.
-    for (0..30) |_| {
-        mission.clock.frame_start += 10;
-        aigeneric.objectOrders(ctx, ship);
-    }
+    for (0..30) |_| mission.ordersAfter(ctx, ship, 10);
     try std.testing.expectEqual(0, object.order_count);
     try std.testing.expect(!object.flags.frozen and !object.flags.unpowered and object.flags.targetable);
     // It overshoots by the last update's step past the end, as the game's ships do.
@@ -1994,47 +1358,168 @@ test "a ship comes in through a gate" {
 
 test "the player's ship goes out through the nearest gate and rides the worm" {
     const gpa = std.testing.allocator;
-    var built: testing.Built = undefined;
-    try built.init(gpa);
-    defer built.deinit(gpa);
-    var mission: gameobj.testing.Mission = undefined;
-    try mission.init(gpa);
-    defer mission.deinit();
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const mission = &run.mission;
+    const built = &run.built;
     const player = try mission.add(.predator, .{ 0, 0, 30000 });
     const near = try mission.add(.proto_gate, @splat(0));
     const far = try mission.add(.proto_gate, .{ 0, 0, 5e6 });
-    var ctx = mission.orders();
-    ctx.world.gates = &built.gates;
+    const ctx = run.orders();
     _ = (try built.gates.make(ctx.world, near, .proto, @splat(0))).?;
     _ = (try built.gates.make(ctx.world, far, .proto, @splat(0))).?;
 
-    _ = try aigeneric.pushShip(ctx, player, .fixed_gate_jump_out, far, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(ctx, player, .fixed_gate_jump_out, far, null);
     aigeneric.objectOrders(ctx, player);
     const slot = mission.slot(player);
     // It goes down the nearest tunnel, whatever its order names.
     try std.testing.expectApproxEqAbs(-12000, gameobj.vector(slot.state.gate.to)[2], 1e-2);
     try std.testing.expect(built.gates.exiting and built.gates.worm != null);
     var ticks: usize = 0;
-    while (!built.gates.riding and ticks < 1000) : (ticks += 1) {
-        mission.clock.frame_start += 1;
-        aigeneric.objectOrders(ctx, player);
-    }
+    while (!built.gates.riding and ticks < 1000) : (ticks += 1) mission.ordersAfter(ctx, player, 1);
     try std.testing.expect(built.gates.riding);
     try std.testing.expectEqual(math.Vector{ 0, 0, away_depth }, gameobj.vector(slot.object.root.position));
     // While it rides, the tunnels are left out of the scene and the worm is in it.
-    mission.clock.frame_start += 1;
-    aigeneric.objectOrders(ctx, player);
+    mission.ordersAfter(ctx, player, 1);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     try built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(2, scene.portals.items.len);
     // After the ride, it comes in through the gate its order names.
-    for (0..420) |_| {
-        mission.clock.frame_start += 1;
-        aigeneric.objectOrders(ctx, player);
-    }
+    for (0..420) |_| mission.ordersAfter(ctx, player, 1);
     try std.testing.expect(!built.gates.riding and !built.gates.exiting);
     try std.testing.expectEqual(@import("ai/orders.zig").Order.fixed_gate_jump_in, slot.orders[0].order);
     try std.testing.expectEqual(@as(i16, @intCast(far)), slot.orders[0].target.index);
+}
+
+/// Runs the collapse of the gate in slot `gate` a tick at a time to its end, and how many ticks
+/// each step took, the tunnel's colours checked on the way: burning, then fading.
+fn collapseSteps(run: *testing.Run, gate: u16) ![4]usize {
+    const ctx = run.orders();
+    const state = &run.mission.slot(gate).state.gate;
+    const tube = &run.built.gates.of(gate).?.tunnel;
+    const ring = tube.grid.vertex(2, 0);
+    const before = tube.colours[ring];
+    _ = try aigeneric.push(ctx, gate, .fixed_gate_collapse, .none);
+    var ticks: [4]usize = @splat(0);
+    var burnt = false;
+    var faded = false;
+    while (run.mission.slot(gate).object.order_count > 0) {
+        const step = state.step.collapse;
+        run.mission.ordersAfter(ctx, gate, 1);
+        switch (step) {
+            .fireballs => try std.testing.expectEqual(before, tube.colours[ring]),
+            // The burning colours are red, the fading ones grey.
+            .burning => burnt = burnt or tube.colours[ring][1] < tube.colours[ring][0] * 0.5,
+            .fading => faded = faded or tube.colours[ring][1] > tube.colours[ring][0],
+            .fallen => {},
+            _ => return error.TestUnexpectedResult,
+        }
+        ticks[@intFromEnum(step)] += 1;
+        if (ticks[@intFromEnum(step)] > 10000) return error.TestUnexpectedResult;
+    }
+    try std.testing.expect(burnt and faded);
+    return ticks;
+}
+
+test "an advanced gate collapses: its tunnel burns out and fades, and it loses its hull" {
+    const gpa = std.testing.allocator;
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    _ = try run.mission.add(.predator, @splat(0));
+    const gate = try run.mission.add(.advanced_gate, @splat(0));
+    _ = (try run.built.gates.make(run.orders().world, gate, .advanced, @splat(0))).?;
+
+    const ticks = try collapseSteps(&run, gate);
+    // Its fireballs go off over 10 seconds, its tunnel burns out over 40, and fades in 1.7.
+    try std.testing.expectApproxEqAbs(1000, @as(f32, @floatFromInt(ticks[0])), 2);
+    try std.testing.expectApproxEqAbs(4000, @as(f32, @floatFromInt(ticks[1])), 2);
+    try std.testing.expectApproxEqAbs(1000.0 / fade_rate, @as(f32, @floatFromInt(ticks[2])), 2);
+    const object = &run.mission.slot(gate).object;
+    try std.testing.expect(object.flags.unpowered and object.flags.exploding);
+    // Its tunnel is let go.
+    try std.testing.expectEqual(null, run.built.gates.of(gate));
+}
+
+test "a proto gate collapses, and keeps its tunnel" {
+    const gpa = std.testing.allocator;
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    _ = try run.mission.add(.predator, @splat(0));
+    const gate = try run.mission.add(.proto_gate, @splat(0));
+    _ = (try run.built.gates.make(run.orders().world, gate, .proto, @splat(0))).?;
+
+    const ticks = try collapseSteps(&run, gate);
+    // Its tunnel burns out over 20 seconds.
+    try std.testing.expectApproxEqAbs(2000, @as(f32, @floatFromInt(ticks[1])), 2);
+    const object = &run.mission.slot(gate).object;
+    try std.testing.expect(!object.flags.exploding);
+    try std.testing.expect(run.built.gates.of(gate) != null);
+}
+
+test showLightSprites {
+    const lit = struct {
+        fn light() objects.Model.Light {
+            return .{
+                .part = 0,
+                .origin = @splat(0),
+                .blink = .{},
+                .sprites = .{
+                    .colour = @splat(1),
+                    .lamp_colour = @splat(1),
+                    .size = 1,
+                    .set = .{ .sprites = &.{} },
+                    .sprite = @splat(.{}),
+                    .lamp = srapiext.Surface.glow(null),
+                },
+                .cast = null,
+            };
+        }
+    }.light;
+    var inner_lights = [1]objects.Model.Light{lit()};
+    var outer_lights = [1]objects.Model.Light{lit()};
+    var mounts = [1]objects.Model.Mount{.{
+        .part = 0,
+        .attachment = 0,
+        .origin = @splat(0),
+        .orientation = math.identity,
+        .model = .{ .parts = &.{}, .order = &.{}, .lights = &inner_lights, .glows = &.{}, .mounts = &.{} },
+    }};
+    var model: objects.Model = .{ .parts = &.{}, .order = &.{}, .lights = &outer_lights, .glows = &.{}, .mounts = &mounts };
+    // Its own lights' sprites and those of the models it carries hide, and show again.
+    showLightSprites(&model, false);
+    try std.testing.expect(outer_lights[0].sprites.?.set.flags.hidden and inner_lights[0].sprites.?.set.flags.hidden);
+    showLightSprites(&model, true);
+    try std.testing.expect(!outer_lights[0].sprites.?.set.flags.hidden and !inner_lights[0].sprites.?.set.flags.hidden);
+}
+
+test secondPasses {
+    const gpa = std.testing.allocator;
+    var meshes = [1]srapiext.Mesh{try .create(gpa, .{ .polygons = 0, .vertices = 0, .indices = 0, .surfaces = 2 })};
+    defer meshes[0].deinit(gpa);
+    meshes[0].surfaces[0].material.two_pass = true;
+    meshes[0].surfaces[0].textures[1] = .{ .highlight = 7 };
+    var parts = [1]@import("srofiles.zig").LoadedPart{.{ .flags = .{}, .meshes = &meshes, .levels = &.{} }};
+    const loaded: @import("srofiles.zig").Loaded = .{ .parts = &parts };
+    const source: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &.{}, .trailing_bytes = 0 };
+    const gate_type: create.Type = .{ .model = &source, .loaded = &loaded };
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const gate = mission.slot(try mission.add(.proto_gate, @splat(0)));
+    gate.type = &gate_type;
+    // Each surface with a second texture loses its second pass, and takes it again; the rest are
+    // left as they are.
+    secondPasses(gate, false);
+    try std.testing.expect(!meshes[0].surfaces[0].material.two_pass);
+    meshes[0].surfaces[1].material.two_pass = true;
+    secondPasses(gate, true);
+    try std.testing.expect(meshes[0].surfaces[0].material.two_pass and meshes[0].surfaces[1].material.two_pass);
+    secondPasses(gate, false);
+    try std.testing.expect(meshes[0].surfaces[1].material.two_pass);
+    gate.type = null;
 }

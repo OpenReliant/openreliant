@@ -2,16 +2,17 @@
 //! code lies between `mission.cpp`'s and `attach.cpp`'s. [`vm/opcodes.zig`](vm/opcodes.zig) and
 //! [`vm/conditions.zig`](vm/conditions.zig) transcribe its opcode and condition tables.
 //!
-//! A thread runs one block with a stack of its own. While it runs, the interpreter (`vm_run`) keeps
-//! its stack pointer and block end in globals (`vm_stack_top`, `vm_block_end`) and hands every
-//! opcode handler the addresses of the thread's instruction pointer and frame pointer.
+//! A thread runs one block with a stack of its own. While it runs, the interpreter (`vm_run`,
+//! `0x0045C980`) keeps its stack pointer and block end in globals (`vm_stack_top`, `0x00537570`;
+//! `vm_block_end`, `0x005373F0`) and hands every opcode handler the addresses of the thread's
+//! instruction pointer and frame pointer.
 
 const std = @import("std");
 const assert = std.debug.assert;
 
 const dte = @import("../formats/dte.zig");
+const layout = @import("../formats/layout.zig");
 const commands = @import("game/executor/commands.zig");
-const Command = @import("game/executor.zig").Command;
 const engine = @import("../engine.zig");
 const hud = @import("game/hud.zig");
 const Code = engine.Code;
@@ -23,17 +24,34 @@ pub const machine = @import("vm/machine.zig");
 pub const triggers = @import("vm/triggers.zig");
 pub const Machine = machine.Machine;
 pub const Implementation = machine.Implementation;
+pub const GameImplementation = machine.GameImplementation;
+pub const run_on = machine.run_on;
+pub const yield = machine.yield;
 
 /// An opcode handler, called through `vm_dispatch_table`. `ip` points at the thread's instruction
 /// pointer, already past the opcode, and `frame` at its frame pointer. `previous` is what the last
 /// handler returned. A handler returns it to carry on, or zero to end the loop.
 pub const Handler = Code("uint __fastcall (byte **ip, uint **frame, uint previous)");
 
-/// Threads the pool at `vm_threads` holds. `vm_thread_start` starts none while 31 are running.
+/// A command's implementation, which `command` calls through the catalogue. `args` points at its
+/// first argument on the stack. The result is stored in `Thread.result`, and a zero result also
+/// ends the handler loop.
+pub const Command = Code("uint __fastcall (byte **ip, uint *args)");
+
+/// What a command hands `for_each_ship` to run for each ship its first argument names: the ship,
+/// and the command's remaining arguments.
+pub const ShipCommand = Code("uint __fastcall (MissionShip *ship, uint *args)");
+
+/// Threads the pool at `vm_threads` holds. `vm_thread_start` (`0x0045B8D0`) starts none while 31
+/// are running.
 pub const max_threads = 32;
 
-/// Timers the table at `vm_timers` holds.
+/// Timers the table at `vm_timers` (`0x004F6344`) holds.
 pub const max_timers = 16;
+
+/// The values an event carries at most, which a thread's locals and each event an object keeps
+/// have room for.
+pub const max_event_values = 5;
 
 /// A script thread.
 pub const Thread = extern struct {
@@ -50,21 +68,27 @@ pub const Thread = extern struct {
     /// Block end at which the script debugger's step-over stops.
     step_block_end: Pointer(u8),
     /// The values of the event that started the thread, which `push_local` reads.
-    locals: [5]u32,
+    locals: [max_event_values]u32,
     stack: [32]u32,
-    /// **Unknown.** `0xFF` when the thread starts.
+    /// **Unknown.** `unknown_ac_start` when the thread starts.
     _unknown_ac: u8,
     /// Parts called and not yet returned from. A `return` at depth zero ends the thread.
     call_depth: u8,
     /// Set by `InterruptTriggerCode`: the thread waits for its trigger to fire again, which clears
     /// it, and the pass over the threads (`vm_threads_run`) leaves it alone until then.
     interrupted: bool,
-    /// Index of the trigger that started the thread, or `0xFF` for none.
+    /// The low byte of the index of the trigger that started the thread, or `no_trigger` for none.
     trigger: u8,
     /// The last command's result, or the value the last part returned: what `push_result` reads.
     result: u32,
     /// **Unknown.** Zero when the thread starts.
     _unknown_b4: u32,
+
+    /// The `trigger` of a thread no trigger started (`part_run`, `0x0045BAB5`).
+    pub const no_trigger: u8 = 0xFF;
+
+    /// The `_unknown_ac` of a thread as it starts (`vm_thread_start`, `0x0045B92F`).
+    pub const unknown_ac_start: u8 = 0xFF;
 
     comptime {
         assert(@offsetOf(Thread, "wake_time") == 0x0C);
@@ -129,7 +153,7 @@ pub const Function = extern struct {
 
 /// A timer that `CreateTimer` set.
 pub const Timer = extern struct {
-    /// The part to start, or -1 for a free entry.
+    /// The part to start, or `free_part` for a free entry.
     part: i32,
     /// Countdown to reload after each firing.
     period: u16,
@@ -141,6 +165,18 @@ pub const Timer = extern struct {
     id: u16,
     /// `vm_clock` when it last counted down, so that it counts once per tick.
     last_tick: u32,
+
+    /// The `part` of a free entry (`vm_run_timers`, `0x0045D162`).
+    pub const free_part: i32 = -1;
+
+    pub fn isFree(timer: *const Timer) bool {
+        return timer.part == free_part;
+    }
+
+    /// Frees the entry, as `DestroyTimer` does.
+    pub fn free(timer: *Timer) void {
+        timer.part = free_part;
+    }
 
     comptime {
         assert(@sizeOf(Timer) == 0x10);
@@ -234,14 +270,17 @@ pub const Variables = extern struct {
     spare: [26]u32 = @splat(0),
     /// Room for every number past the block that a byte names. In the game these are the globals
     /// after the block, which no shipped mission touches.
-    beyond: [192]u32 = @splat(0),
+    beyond: [count - block_size]u32 = @splat(0),
 
     /// How many variables the block holds, up to the next global.
     pub const block_size = 64;
 
+    /// How many variables the script can number: every number a byte names.
+    pub const count = std.math.maxInt(u8) + 1;
+
     /// Variable `index`, as the script numbers them.
     pub fn slot(variables: *Variables, index: u8) *u32 {
-        return &@as(*[256]u32, @ptrCast(variables))[index];
+        return &@as(*[count]u32, @ptrCast(variables))[index];
     }
 
     /// The number the scripts give the variable `name`.
@@ -262,6 +301,10 @@ pub const Variables = extern struct {
         /// "Success + Bonus".
         success_bonus = 4,
         _,
+
+        pub fn format(outcome: Outcome, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            return layout.formatTag(Outcome, outcome, writer);
+        }
     };
 
     comptime {
@@ -284,7 +327,7 @@ pub const Variables = extern struct {
         at("spare", 0x0052A488);
         at("beyond", 0x0052A4F0);
         assert(@offsetOf(Variables, "beyond") == block_size * @sizeOf(u32));
-        assert(@sizeOf(Variables) == 256 * @sizeOf(u32));
+        assert(@sizeOf(Variables) == count * @sizeOf(u32));
     }
 };
 
@@ -318,7 +361,7 @@ test Variables {
     try std.testing.expectEqual(30, Variables.number("ghost_alive"));
 }
 
-/// One condition of the catalogue at `condition_descriptors`.
+/// One condition of the catalogue at `condition_descriptors` (`0x004F6698`).
 pub const ConditionDescriptor = extern struct {
     /// The developers' `TT_*` name, without the prefix.
     name: Pointer(u8),
@@ -330,9 +373,9 @@ pub const ConditionDescriptor = extern struct {
     /// Null for none.
     values: Pointer(EventValue),
     /// Index into `ObjectEvents` under which the matcher keeps each object's last event, for
-    /// `push_event_value`. `0xFF` for none.
+    /// `push_event_value`. `none` for none.
     slot: u8,
-    /// Triggers with this repeat mode fire even when `verdict` vetoes the event.
+    /// Triggers with this repeat mode fire even when `verdict` vetoes the event; `none` for none.
     veto_exempt: dte.Trigger.Repeat,
     _unknown_0e: u16,
     /// Called before an event on a flight group or squad is counted.
@@ -341,6 +384,9 @@ pub const ConditionDescriptor = extern struct {
     add_member: Pointer(anyopaque),
     /// Returns whether the event goes ahead: the value of `condition_verdict`.
     verdict: Pointer(anyopaque),
+
+    /// What `slot` and `veto_exempt` hold for none.
+    pub const none: u8 = 0xFF;
 
     comptime {
         assert(@offsetOf(ConditionDescriptor, "subjects") == 0x06);
@@ -366,7 +412,7 @@ pub const EventValue = extern struct {
 };
 
 /// The component `push_component` named for a value it pushed. The list at `vm_component_tags`
-/// holds one per such value since the last command, up to a terminating slot of -1.
+/// (`0x004F6340`) holds one per such value since the last command, up to a terminating slot of -1.
 pub const ComponentTag = extern struct {
     /// The stack slot the value is in.
     slot: Pointer(u32),
@@ -381,8 +427,9 @@ pub const ComponentTag = extern struct {
     }
 };
 
-/// An event waiting in the queue at `event_queue` for `events_flush`, which raises it on the ship
-/// and, for `groups`, on its flight group and the squads that hold it.
+/// An event waiting in the queue at `event_queue` (`0x0052ABD8`) for `events_flush`
+/// (`0x0045B840`), which raises it on the ship and, for `groups`, on its flight group and the
+/// squads that hold it.
 pub const QueuedEvent = extern struct {
     groups: bool,
     _unknown_01: [3]u8,
@@ -390,13 +437,17 @@ pub const QueuedEvent = extern struct {
     condition: dte.Condition,
     value_count: u8,
     _unknown_0a: u16,
-    /// Room for eight; an event carries at most five.
-    values: [8]u32,
+    /// Room for `max_values`; an event carries at most `max_event_values`.
+    values: [max_values]u32,
     /// The component of the ship the event concerns, or `dte.Trigger.whole_object`.
     qualifier: u8,
     _unknown_2d: [3]u8,
 
+    /// The values a waiting event has room for.
+    pub const max_values = 8;
+
     comptime {
+        assert(max_values >= max_event_values);
         assert(@offsetOf(QueuedEvent, "ship") == 0x04);
         assert(@offsetOf(QueuedEvent, "values") == 0x0C);
         assert(@offsetOf(QueuedEvent, "qualifier") == 0x2C);
@@ -404,15 +455,39 @@ pub const QueuedEvent = extern struct {
     }
 };
 
-/// The last events of the conditions that have a `slot`, kept for each object at `event_values`.
+/// The last events of the conditions that have a `slot`, kept for each object at `event_values`
+/// (`0x00538CA0`).
 pub const ObjectEvents = extern struct {
-    shot_at: [5]u32,
-    destroyed: [5]u32,
+    shot_at: [max_event_values]u32,
+    destroyed: [max_event_values]u32,
+
+    /// The kept events' values one after another, slot after slot, as `push_event_value` numbers
+    /// them.
+    pub fn flat(events: *ObjectEvents) *[slots * max_event_values]u32 {
+        return @ptrCast(events);
+    }
+
+    /// The events kept, one for each `ConditionDescriptor.slot`.
+    pub const slots = 2;
 
     comptime {
         assert(@sizeOf(ObjectEvents) == 0x28);
+        assert(@sizeOf(ObjectEvents) == slots * max_event_values * @sizeOf(u32));
+        // Every condition that keeps its events keeps them in one of the slots.
+        for (conditions.table) |condition| {
+            if (condition.slot) |slot| assert(slot < slots);
+        }
     }
 };
+
+test ObjectEvents {
+    var events = std.mem.zeroes(ObjectEvents);
+    events.flat()[ObjectEvents.slots * max_event_values - 1] = 9;
+    events.flat()[max_event_values] = 7;
+    try std.testing.expectEqual(7, events.destroyed[0]);
+    try std.testing.expectEqual(9, events.destroyed[max_event_values - 1]);
+    try std.testing.expectEqual([_]u32{0} ** max_event_values, events.shot_at);
+}
 
 test {
     std.testing.refAllDecls(@This());

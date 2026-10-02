@@ -1,10 +1,12 @@
-//! The player's missile lock, in `C:\lancer\game\main.cpp`: its code lies after `language.cpp`'s
-//! and before `main.cpp`'s asserting code, `mission_frame` runs it, and `mission_run` sets it up.
-//! A lock builds on the target the player aims at while the armed missile can reach it
-//! (`possible`): three rings close in on the target over a second, turning, and once the missile's
-//! lock time has passed they turn white as one and a tone plays. Only a locked missile of a type
-//! that needs a lock launches at the target ([`input.zig`](../../input.zig)).
+//! The player's missile lock, in `C:\lancer\game\main.cpp`: `mission_frame` runs it, and
+//! `mission_run` sets it up. A lock builds on the target the player aims at while the armed missile
+//! can reach it (`possible`): three rings close in on the target over a second, turning, and once
+//! the missile's lock time has passed they turn white as one and a tone plays. Only a locked
+//! missile of a type that needs a lock launches at the target ([`input.zig`](../../input.zig)).
 //! [`missiles.md`](../../../../docs/engine/missiles.md#the-lock) describes it.
+//!
+//! **Unverified:** its code lies after `language.cpp`'s and before `main.cpp`'s asserting code; by
+//! what it does it is this file's.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -94,33 +96,38 @@ pub const Lock = struct {
     pub fn frame(lock: *Lock, world: gameobj.World, ring: *missile_display.Ring) void {
         const entry = ai.playerControlEntry(world.objects) orelse return;
         const elapsed = world.clock.frame_duration;
-        switch (lock.phase) {
-            .idle => {
+        // The target the lock holds on, which `same` keeps the one it began on.
+        const aimed: ai.ValidTarget = switch (lock.phase) {
+            .idle => held: {
                 lock.count = idle_count;
-                if (!possible(world, ring, entry.target)) return;
+                const valid = possible(world, ring, entry.target) orelse return;
                 lock.phase = .closing;
                 lock.target = entry.target;
                 lock.turn = 0;
                 lock.type = ring.armedEntry().type;
                 lock.ticks = -world.objects.missile_stats.of(lock.type).?.lock_time;
+                break :held valid;
             },
-            .closing => {
-                if (!lock.holds(world, ring, entry.target)) return lock.lose();
+            .closing => held: {
+                const valid = lock.holds(world, ring, entry.target) orelse return lock.lose();
                 lock.count -= elapsed;
                 lock.ticks += elapsed;
                 if (lock.count <= 0) {
                     lock.count = 0;
                     lock.phase = .waiting;
                 }
+                break :held valid;
             },
-            .waiting => {
-                if (!lock.holds(world, ring, entry.target)) return lock.lose();
+            .waiting => held: {
+                const valid = lock.holds(world, ring, entry.target) orelse return lock.lose();
                 lock.ticks += elapsed;
                 if (lock.ticks >= 0) lock.phase = .locked;
+                break :held valid;
             },
-            .locked => {
-                if (!lock.holds(world, ring, entry.target)) return lock.lose();
+            .locked => held: {
+                const valid = lock.holds(world, ring, entry.target) orelse return lock.lose();
                 lock.ticks += elapsed;
+                break :held valid;
             },
             ._unknown_4 => return lock.lose(),
             .lost => {
@@ -129,13 +136,14 @@ pub const Lock = struct {
                 if (lock.count >= idle_count) lock.phase = .idle;
                 return;
             },
-        }
-        if (lock.phase != .idle) lock.point = ai.aimedAt(world.objects, lock.target).position;
+        };
+        lock.point = ai.aimedAt(world.objects, aimed).position;
     }
 
-    /// Whether the lock may go on: still `possible`, and `same`.
-    fn holds(lock: *const Lock, world: gameobj.World, ring: *missile_display.Ring, target: aigeneric.Target) bool {
-        return possible(world, ring, target) and lock.same(ring, target);
+    /// The target, checked, where the lock may go on: still `possible`, and `same`.
+    fn holds(lock: *const Lock, world: gameobj.World, ring: *missile_display.Ring, target: aigeneric.Target) ?ai.ValidTarget {
+        const valid = possible(world, ring, target) orelse return null;
+        return if (lock.same(ring, target)) valid else null;
     }
 
     /// `missile_lock_same` (`0x004914D0`): whether the player's target, its component and the armed
@@ -163,8 +171,7 @@ pub const Lock = struct {
                 return;
             }
             if (!ahead) return;
-            const bank = player.stdsmp orelse return;
-            lock.tone = player.play(bank, tone_sample, hog_snd.loudest, tone_plays, hog_snd.centre, hog_snd.own_pitch);
+            lock.tone = player.playStandard(tone_sample, hog_snd.loudest, tone_plays, hog_snd.centre, hog_snd.own_pitch);
             if (lock.tone) |voice| player.voices[voice].held = 1;
         } else if (lock.tone) |voice| lock.endTone(player, voice);
     }
@@ -181,24 +188,24 @@ pub const Lock = struct {
 const tone_sample = 0x15;
 const tone_plays = 2;
 
-/// `missile_lock_possible` (`0x00491350`): whether the armed missile can lock on `target`: it has
-/// missiles left, or one the player launched still flies at a target; it is not a Solomon; the
-/// target can be aimed at; the player's missiles are not disabled; outside a multiplayer game the
-/// target is hostile and the missile not a Screamer; and the target's node lies within the type's
-/// lock range of where the ship goes next, within 0.7 of its nose.
-pub fn possible(world: gameobj.World, ring: *missile_display.Ring, target: aigeneric.Target) bool {
+/// `missile_lock_possible` (`0x00491350`): `target`, with its slot, where the armed missile can
+/// lock on it, and null otherwise. It can where it has missiles left, or one the player launched
+/// still flies at a target; it is not a Solomon; the target can be aimed at; the player's missiles
+/// are not disabled; outside a multiplayer game the target is hostile and the missile not a
+/// Screamer; and the target's node lies within the type's lock range of where the ship goes next,
+/// within 0.7 of its nose.
+pub fn possible(world: gameobj.World, ring: *missile_display.Ring, target: aigeneric.Target) ?ai.ValidTarget {
     const all = world.objects;
     const armed = ring.armedEntry();
-    if (armed.count < 1 and !guiding(all)) return false;
-    if (armed.type == .solomon) return false;
-    if (!ai.targetValid(all, target, .{})) return false;
+    if (armed.count < 1 and !guiding(all)) return null;
+    if (armed.type == .solomon) return null;
+    const aimed = ai.ValidTarget.of(all, target, .{}) orelse return null;
     const ship = &all.slots[all.player].object;
-    if (ship.flags.missiles_disabled) return false;
-    const aimed = target.slot() orelse return false;
-    if (all.slots[aimed].object.side != .hostile) return false;
-    if (armed.type == .screamer) return false;
-    const stats = all.missile_stats.of(armed.type) orelse return false;
-    return missiles.inLockReach(stats, ai.aimedAt(all, target).position - ship.nextPosition(), ship.nextHeading());
+    if (ship.flags.missiles_disabled) return null;
+    if (all.slots[aimed.slot].object.side != .hostile) return null;
+    if (armed.type == .screamer) return null;
+    const stats = all.missile_stats.of(armed.type) orelse return null;
+    return if (missiles.inLockReach(stats, ai.aimedAt(all, aimed).position - ship.nextPosition(), ship.nextHeading())) aimed else null;
 }
 
 /// `player_missile_guiding` (`0x004AF190`): whether a missile the player launched still flies at
@@ -355,7 +362,7 @@ const testing = struct {
         }
 
         fn target(stage: *const Stage) aigeneric.Target {
-            return .{ .kind = .ship, .index = @intCast(stage.enemy), .component = -1 };
+            return .at(stage.enemy, null);
         }
     };
 };
@@ -366,20 +373,20 @@ test possible {
     defer stage.deinit();
     const world = stage.armed.mission.world();
     try std.testing.expectEqual(missiles.Type.havoc, stage.ring.armedEntry().type);
-    try std.testing.expect(possible(world, &stage.ring, stage.target()));
+    try std.testing.expect(possible(world, &stage.ring, stage.target()) != null);
     // Not beyond the type's lock range, nor off to the side, nor on a friend.
     const enemy = stage.armed.mission.slot(stage.enemy);
     objects.setPosition(&enemy.object, &enemy.drawn, .{ 0, 0, 60000 });
-    try std.testing.expect(!possible(world, &stage.ring, stage.target()));
+    try std.testing.expectEqual(null, possible(world, &stage.ring, stage.target()));
     objects.setPosition(&enemy.object, &enemy.drawn, .{ 20000, 0, 1000 });
-    try std.testing.expect(!possible(world, &stage.ring, stage.target()));
+    try std.testing.expectEqual(null, possible(world, &stage.ring, stage.target()));
     objects.setPosition(&enemy.object, &enemy.drawn, .{ 0, 0, 20000 });
     enemy.object.side = .friendly;
-    try std.testing.expect(!possible(world, &stage.ring, stage.target()));
+    try std.testing.expectEqual(null, possible(world, &stage.ring, stage.target()));
     enemy.object.side = .hostile;
     // Nor with a Screamer or a Solomon armed.
     stage.ring.armedEntry().type = .solomon;
-    try std.testing.expect(!possible(world, &stage.ring, stage.target()));
+    try std.testing.expectEqual(null, possible(world, &stage.ring, stage.target()));
 }
 
 test "Lock.frame" {
@@ -422,36 +429,33 @@ test guiding {
 }
 
 test "Lock.sound" {
-    const mss = @import("../../mss.zig");
-    const fat = @import("../../../formats/fat.zig");
-    var mixer: mss.Mixer = .init(22050);
-    var player: hog_snd.Sound = undefined;
-    player.init(mixer.driver(), 2, null);
+    var speaker: hog_snd.testing.Speaker = undefined;
     const bytes = comptime hog_snd.testing.bank(tone_sample + 1);
-    player.stdsmp = try fat.Bank.parse(&bytes);
+    try speaker.init(2, &bytes);
+    const player = &speaker.sound;
     var lock: Lock = .{};
 
     // No tone before the lock, nor once locked in any view but the one ahead.
-    lock.sound(&player, .cockpit);
+    lock.sound(player, .cockpit);
     try std.testing.expectEqual(null, lock.tone);
     lock.phase = .locked;
-    lock.sound(&player, .cockpit_left);
+    lock.sound(player, .cockpit_left);
     try std.testing.expectEqual(null, lock.tone);
     // Locked, from the view ahead, it plays on a voice held for it, and only once.
-    lock.sound(&player, .cockpit);
+    lock.sound(player, .cockpit);
     const voice = lock.tone.?;
     try std.testing.expectEqual(1, player.voices[voice].held);
-    lock.sound(&player, .cockpit);
+    lock.sound(player, .cockpit);
     try std.testing.expectEqual(voice, lock.tone.?);
     // Out of that view, its voice is let go.
-    lock.sound(&player, .chase);
+    lock.sound(player, .chase);
     try std.testing.expectEqual(null, lock.tone);
     try std.testing.expectEqual(0, player.voices[voice].held);
     // And likewise once the lock is lost.
-    lock.sound(&player, .cockpit);
+    lock.sound(player, .cockpit);
     try std.testing.expect(lock.tone != null);
     lock.phase = .lost;
-    lock.sound(&player, .cockpit);
+    lock.sound(player, .cockpit);
     try std.testing.expectEqual(null, lock.tone);
 }
 

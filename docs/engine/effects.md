@@ -153,7 +153,8 @@ once its life is over.
 | A spin-out, each frame while fewer ticks are left than ten times its trail, from 50 | 1 | Backwards, from within 250 of the ship each way | 0.1 | 1 |
 | The Uber Explode, each frame from half way through | 12 to 24 | At the camera, from 10000 beyond it toward the blast and up to 2000 to each side | 0.1 | 1 |
 
-A ship with flag 24 set leaves only every other bit of its trail.
+A ship a pilot has left (object flag `abandoned`, `0x1000000`) leaves only every other bit of its
+trail.
 
 A stream's spark (`explosion_spark`, `0x00471B20`) is a bit as well: a piece picked the same way,
 at 0.1 of the size, flying at the velocity it is given, turning as a bit does, for -100 to 300
@@ -422,9 +423,9 @@ The game leaves unset when a ray last changed and how long it stays lit. OpenRel
 
 A damaged ship trails smoke from its engines, and a badly damaged one throws out small fireballs as
 well. `mission_frame` works it out in its pass over the objects, after the particles' frame and the
-camera's. An object with flag 24 has its smoke let go and its level set back to 0 first; then each
-one the pass draws, save stand-ins and disabled and jumping ones, sends its smoke out and has its
-level followed.
+camera's. A ship a pilot has left (object flag `abandoned`) has its smoke let go and its level set
+back to 0 first; then each one the pass draws, save stand-ins and disabled and jumping ones, sends
+its smoke out and has its level followed.
 
 **The level** (`+0x660`), for an object with stats other than the Ripper, goes by the weakest
 quadrant of its armour against six times its type's `armor_class`:

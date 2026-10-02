@@ -68,10 +68,10 @@ test followActivation {
     const mss = @import("../mss.zig");
     const fat = @import("../../formats/fat.zig");
     const gpa = std.testing.allocator;
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    sound.init(driver, 2, null);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
     const bytes = comptime hog_snd.testing.bank(2);
     const v = sound.play(try fat.Bank.parse(&bytes), 1, hog_snd.loudest, hog_snd.forever, hog_snd.centre, hog_snd.own_pitch).?;
     var archive = try hudoptions.testing.fontArchive(gpa);
@@ -85,7 +85,7 @@ test followActivation {
     const pausing: main.Pausing = .{
         .gpa = gpa,
         .clock = &clock,
-        .sound = &sound,
+        .sound = sound,
         .menu = &menu,
         .archive = archive.hog,
         .camera = &view,
@@ -291,14 +291,14 @@ test CampaignStart {
 test launchFade {
     const mss = @import("../mss.zig");
     const fat = @import("../../formats/fat.zig");
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    sound.init(driver, 2, null);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
     const bytes = comptime hog_snd.testing.bank(2);
     const v = sound.play(try fat.Bank.parse(&bytes), 1, hog_snd.loudest, hog_snd.forever, hog_snd.centre, hog_snd.own_pitch).?;
     // Without music, only the voices stop, where they are.
-    launchFade(&sound, 300);
+    launchFade(sound, 300);
     try std.testing.expect(!sound.music.fading);
     try std.testing.expect(sound.paused[v]);
     try std.testing.expectEqual(mss.Status.stopped, driver.sampleStatus(sound.voices[v].sample));

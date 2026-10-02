@@ -127,6 +127,10 @@ with the definition's loop count, cone and distances, at 22,050 Hz; the two expl
 `18050 + 7000 × rand() / 32767`. Miles's `y` points up where the camera's points down, so every
 place, direction and velocity goes over with `y` negated.
 
+**Fix:** a sound that follows a shot, a missile or an object is placed by the owner's record, which
+the game reads for an owner of -1 too, before the table. OpenReliant plays nothing without an
+owner, or with one past its table.
+
 Once a frame `sound_3d_update` (`0x00481BF0`) runs the engine's sound, then each voice playing. A
 voice past its sound's length, `length / 441` ticks of 16-bit sound at 22,050 Hz, is freed but for
 the engine's and the afterburner's. A shot's and a missile's stay where they started; the rest are
@@ -164,9 +168,10 @@ kept at `+0x67C`.
 
 ## Music
 
-`music_play` (`0x00482A80`) plays a file as a Miles stream at a level, a loop count and now, or
-once the music playing has faded out. The mission script's `PlayMusic` (`cmd_PlayMusic`) plays
-`music\` and the name it is given, for ever, at level 80. A piece the table at `0x005017A0` names
+`music_play` (`0x00482A80`) plays a file as a Miles stream at a level and a loop count, at once
+where its `now` is 1 (`0x00482A9D`), or for any other value once the music playing has faded out
+(`hog_snd.Sound.When.of`). The mission script's `PlayMusic` (`cmd_PlayMusic`) plays `music\` and
+the name it is given, for ever, at level 80, its second argument the `now`. A piece the table at `0x005017A0` names
 loops back to its own point, a byte offset into its data, once it has played through; the rest from
 the start. The stream's volume is `round(((Musicvolume × level) / 127) × Mastervolume / 127)`.
 `music_play` fades the music playing out with `music_fade_out` (`0x00482960`), which takes the step

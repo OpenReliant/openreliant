@@ -10,6 +10,7 @@ const Io = std.Io;
 
 const openreliant = @import("openreliant");
 const Repeat = openreliant.dte.Trigger.Repeat;
+const KindSet = openreliant.dte.Object.KindSet;
 const vm = openreliant.engine.vm;
 const Descriptor = vm.ConditionDescriptor;
 const EventValue = vm.EventValue;
@@ -25,7 +26,7 @@ const condition_table: u32 = 0x0052952C;
 const condition_count: u32 = 0x00525F8C;
 
 /// The values an event can carry: the five locals of a thread, and a trigger's five operands.
-pub const max_values = 5;
+pub const max_values = vm.max_event_values;
 
 /// `MOV dword ptr [address], value`, which installs the catalogue's address.
 const StoreDword = extern struct {
@@ -54,7 +55,7 @@ const StoreWord = extern struct {
 };
 
 /// What a descriptor's `slot` and `veto_exempt` hold for none.
-const none: u8 = 0xFF;
+const none = Descriptor.none;
 
 pub const Value = struct {
     label: []const u8,
@@ -72,7 +73,7 @@ pub const Handlers = struct {
 pub const Condition = struct {
     name: []const u8,
     unknown_04: u16,
-    subjects: u16,
+    subjects: KindSet,
     values: []const Value,
     slot: ?u8,
     veto_exempt: ?Repeat,
@@ -129,7 +130,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
         condition.* = .{
             .name = try reader.string(@intFromEnum(descriptor.name)),
             .unknown_04 = descriptor._unknown_04,
-            .subjects = @bitCast(descriptor.subjects),
+            .subjects = descriptor.subjects,
             .values = try values.toOwnedSlice(arena),
             .slot = if (descriptor.slot == none) null else descriptor.slot,
             .veto_exempt = if (@intFromEnum(descriptor.veto_exempt) == none) null else descriptor.veto_exempt,
@@ -192,10 +193,9 @@ pub fn emit(w: *Io.Writer, catalogue: Catalogue) !void {
     for (catalogue.conditions, 0..) |condition, index| {
         try w.print("    // 0x{X:0>2}\n    .{{\n", .{index});
         try w.print("        .name = \"{f}\",\n", .{std.zig.fmtString(condition.name)});
-        // A bit for each object kind: ship, flight group, squad.
         const subjects = condition.subjects;
         try w.print("        .subjects = .{{ .ship = {}, .flight_group = {}, .squad = {}, ._unused = {d} }},\n", .{
-            subjects & 1 != 0, subjects & 2 != 0, subjects & 4 != 0, subjects >> 3,
+            subjects.ship, subjects.flight_group, subjects.squad, subjects._unused,
         });
         if (condition.values.len == 0) {
             try w.writeAll("        .values = &.{},\n");
@@ -321,6 +321,10 @@ const TestPayload = struct {
     }
 };
 
+/// The tests' subjects: a ship or a flight group, and none.
+const ship_or_group: KindSet = .{ .ship = true, .flight_group = true, .squad = false, ._unused = 0 };
+const no_kinds: KindSet = .{ .ship = false, .flight_group = false, .squad = false, ._unused = 0 };
+
 test read {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
@@ -329,7 +333,7 @@ test read {
     payload.descriptor(0, "ShipDestroyed", struct {
         fn apply(record: *Descriptor) void {
             record._unknown_04 = 0x1234;
-            record.subjects = @bitCast(@as(u16, 0b011));
+            record.subjects = ship_or_group;
             record.values = @enumFromInt(TestPayload.lists);
             record.slot = 3;
             record.begin = @enumFromInt(0x0045E000);
@@ -347,7 +351,7 @@ test read {
     const destroyed = read_catalogue.conditions[0];
     try std.testing.expectEqualStrings("ShipDestroyed", destroyed.name);
     try std.testing.expectEqual(0x1234, destroyed.unknown_04);
-    try std.testing.expectEqual(0b011, destroyed.subjects);
+    try std.testing.expectEqual(ship_or_group, destroyed.subjects);
     try std.testing.expectEqual(2, destroyed.values.len);
     try std.testing.expectEqualStrings("Killer", destroyed.values[1].label);
     try std.testing.expectEqual(0x400, destroyed.values[1].kinds);
@@ -407,9 +411,9 @@ test "an event carries at most five values" {
 test "emit writes Zig that parses" {
     const values_listed = [_]Value{.{ .label = "Ship", .kinds = 0x400, .extra = 2, .checked = true }};
     const listed = [_]Condition{
-        .{ .name = "ShipDestroyed", .unknown_04 = 0, .subjects = 0b011, .values = &values_listed, .slot = 3, .veto_exempt = .once, .handlers = .{ .begin = 1, .add_member = 2, .verdict = 3 } },
-        .{ .name = "MissionStart", .unknown_04 = 0x10, .subjects = 0, .values = &.{}, .slot = null, .veto_exempt = null, .handlers = null },
-        .{ .name = "Odd", .unknown_04 = 0, .subjects = 0, .values = &.{}, .slot = null, .veto_exempt = @enumFromInt(0x7F), .handlers = null },
+        .{ .name = "ShipDestroyed", .unknown_04 = 0, .subjects = ship_or_group, .values = &values_listed, .slot = 3, .veto_exempt = .once, .handlers = .{ .begin = 1, .add_member = 2, .verdict = 3 } },
+        .{ .name = "MissionStart", .unknown_04 = 0x10, .subjects = no_kinds, .values = &.{}, .slot = null, .veto_exempt = null, .handlers = null },
+        .{ .name = "Odd", .unknown_04 = 0, .subjects = no_kinds, .values = &.{}, .slot = null, .veto_exempt = @enumFromInt(0x7F), .handlers = null },
     };
     var out: Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
@@ -419,4 +423,5 @@ test "emit writes Zig that parses" {
     try std.testing.expect(std.mem.indexOf(u8, out.written(), ".slot = 3,\n        .veto_exempt = .once,") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), ".veto_exempt = null,") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), ".veto_exempt = @enumFromInt(127),") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".subjects = .{ .ship = true, .flight_group = true, .squad = false, ._unused = 0 },") != null);
 }

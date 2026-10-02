@@ -187,6 +187,7 @@ commands and their like set; the names in quotes are the developers' labels for 
 | `0x100000` | `no_avoidance` | `SetShipAvoidance` with "Disable Avoidance code": the avoidance code passes it over. |
 | `0x200000` | `jumping` | Set during the jump orders, and on what lies in the way of the player's formation as it jumps out until the player's jump ends ([Jumps](jump.md#jump-out)). It cannot fire, the avoidance code passes it over, and so do the frame's passes over the objects. |
 | `0x400000` | `attached` | Set while the Dock and Ripper orders hold it to another object; their ends clear it. |
+| `0x1000000` | `abandoned` | Set on the ship a pilot has left ([Ejection](ejection.md)): its smoke goes, and its spin-out trails every other bit. |
 | `0x10000000` | `sent_off` | Set as the player's ship is sent home for its friendly fire, into Friendly Fire, and again as that order ends and lands it ([Friendly fire](orders.md#friendly-fire)); a multiplayer game sends the other players' ships off into Jump Out. It takes no orders while it is set. |
 | `0x20000000` | `listing_disabled` | `DisableListing`, "stop listing": a torpedo does not make the capital ship lurch ([Collisions](loop.md#collisions)). |
 
@@ -580,17 +581,17 @@ difficulty the pilot roster set, and one `--mission` names at medium; `--difficu
 - Otherwise the object explodes: its stack becomes the one order Explode (11), whatever it was
   doing, and it is flagged `exploding`.
 
-Explode's `init` (`0x00408610`) picks a mode by what the object is, with an `init` and an `update`
-for each in `explode_modes` (`0x004E1798`): a ship, a ship that lists components going as a whole,
-one of its components, an asteroid, and the limpet car. A ship (`0x004086F0`) is heard at once
-within 20000 of the camera, sound 11 on a sure voice, and goes in one of three styles, by
-`object_random15` over 3; the torpedoes always halt:
+Explode's `init` (`order_explode_init`, `0x00408610`) picks a mode by what the object is, with an
+`init` and an `update` for each in `explode_modes` (`0x004E1798`): a ship, a ship that lists
+components going as a whole, one of its components, an asteroid, and the limpet car. A ship
+(`explode_ship_init`, `0x004086F0`) is heard at once within 20000 of the camera, sound 11 on a sure
+voice, and goes in one of three styles, by `object_random15` over 3; the torpedoes always halt:
 
 | Style | Init | What it does |
 |---|---|---|
-| 0, spin out | `0x00408BC0` | Unpowered, it drifts on, turning by a random spin a step, up to ±0.025 about its first two axes and ±0.15 about its third, which shrinks to nothing as its end comes: 200 to 399 ticks on. Near its end it trails burning bits. A torpedo, or a ship that may not spin, stops dead instead and blows up at once. |
-| 1, burst | `0x004090F0` | Unpowered, no longer turning, it bursts at once. |
-| 2, halt | `0x00408D20` | It stops dead and blows up at once. A torpedo sets off a chain of fireballs and a shockwave that harms the player. |
+| 0, spin out | `explode_spin_out_init` (`0x00408BC0`) | Unpowered, it drifts on, turning by a random spin a step, up to ±0.025 about its first two axes and ±0.15 about its third, which shrinks to nothing as its end comes: 200 to 399 ticks on. Near its end it trails burning bits. A torpedo, or a ship that may not spin, stops dead instead and blows up at once. |
+| 1, burst | `explode_burst_init` (`0x004090F0`) | Unpowered, no longer turning, it bursts at once. |
+| 2, halt | `explode_halt_init` (`0x00408D20`) | It stops dead and blows up at once. A torpedo sets off a chain of fireballs about where it is drawn, and a shockwave that harms the player from where its next step takes it (`root.next_position`). |
 
 Having picked its style, a ship credits its end (`explode_kill_credit`, `0x00408500`): where the
 player's ship struck it last (`last_attacker`) and it is hostile, and a fighter by its type's class,
@@ -607,10 +608,10 @@ one and exploding, not targetable and with no orders, which nothing moves, draws
 The other modes:
 
 - A ship that lists components, going as a whole (`explode_hull_init`, `0x00409170`): each part of
-  its hull hanging from the model's root, but a part of a damaged model, is left with -1 armour, and
-  the root is flagged for the component losses to take it away ([Components](#components)). Its
-  update (`0x004091E0`) ends a disabled ship as its hull holding it together does
-  (`object_hull_lost`) and pops the order of any other.
+  its hull in the root's child list, whatever part it hangs from, but a part of a damaged model, is
+  left with -1 armour, and the root is flagged for the component losses to take it away
+  ([Components](#components)). Its update (`0x004091E0`) ends a disabled ship as its hull holding
+  it together does (`object_hull_lost`) and pops the order of any other.
 - One of its components, the one the order is aimed at (`explode_component_init`, `0x00409200`):
   where it is shown, it is left with -1 armour, and the root of the model holding it is flagged.
   Its update (`explode_component`, `0x00409260`) pops the order.
@@ -662,7 +663,9 @@ components, `object_collect_components` (`0x00468760`) lists them from the root 
 first its children that are components, then, child by child, theirs. So the model's own components
 come first, in part order, and then, part by part and mount by mount, those of the mounted models.
 A component's entry holds its node, the slot of the parent's child list that holds it, and at `+8`
-a halfword that is nonzero while the component is invulnerable.
+the invulnerability `SetInvulnerability` gives the component, a halfword that `component_damage`
+reads as it reads an object's: 2 keeps off every hit, and 1 every hit but a player's ship's.
+OpenReliant does not read it yet ([#538](https://github.com/vdmkenny/openreliant/issues/538)).
 
 A component's armour comes from its part's record (`0x104`), and `component_damage`
 (`0x004645C0`) wears it down: the damage goes to the first part of the component's assembly that

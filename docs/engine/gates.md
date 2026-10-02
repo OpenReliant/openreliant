@@ -8,14 +8,19 @@ shrinks a tunnel away, and Fixed Gate Collapse brings a gate down.
 
 ## In OpenReliant
 
-[`game/wgate.zig`](../../src/engine/game/wgate.zig) holds the gates' state, their tunnels, the
-worm and the five orders; `create.gateMade` sets the Coalition's gates up
-([`game/create.zig`](../../src/engine/game/create.zig)). A mission's start lets every tunnel go.
+[`game/wgate.zig`](../../src/engine/game/wgate.zig) holds the gates' state, their records and
+the five orders; [`game/wgate/tunnel.zig`](../../src/engine/game/wgate/tunnel.zig) builds, shapes
+and colours the tunnels and the jumps' flashes, and
+[`game/wgate/worm.zig`](../../src/engine/game/wgate/worm.zig) the worm. `create.gateMade` sets the
+Coalition's gates up ([`game/create.zig`](../../src/engine/game/create.zig)). A mission's start
+lets every tunnel go.
 
 Not ported: the warps' tunnels (kind 0, Warp In and Warp Out, orders 4 and 5), with their
 particles and beams ([#481](https://github.com/vdmkenny/openreliant/issues/481)); the Boridin's
-projection (kind 3, order 38) ([#30](https://github.com/vdmkenny/openreliant/issues/30)); and the
-Krasny's split in missions 16 and 66 ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
+projection (kind 3, order 38) ([#30](https://github.com/vdmkenny/openreliant/issues/30)); the
+Krasny's split in missions 16 and 66 ([#407](https://github.com/vdmkenny/openreliant/issues/407));
+and the collapse's second passes on the parts of models a gate carries, which the game's walk of
+its nodes reaches too ([#540](https://github.com/vdmkenny/openreliant/issues/540)). No shipped gate carries a model.
 
 **Improvements**, which `--original` turns off:
 
@@ -37,12 +42,23 @@ Krasny's split in missions 16 and 66 ([#407](https://github.com/vdmkenny/openrel
   whatever the stack holds there; OpenReliant leaves it turned as it is.
 - The game makes the worm anew for each of the player's jumps out and never lets the last go;
   OpenReliant lets it go.
+- The collapse's fireballs go off at the points of the hull's cut list by number, and the game reads
+  past the list's end where a number lies beyond it, as the advanced gate's `OuterRing` does for its
+  55 fireballs; OpenReliant counts on from the list's start again.
+- The collapse's burn and fade write each colour to the vertex before its own, lighting the last
+  vertex of the mouth's black rim and blacking out one of the ring before the last; OpenReliant
+  writes each vertex's own.
+
+**Improvement:** the sines and cosines come from `std.math` rather than the engine's tables, and a
+segment's turn round the axis from `std.math.tau` over the segments, where the game multiplies by
+6.2831855 (`0x004DC3EC`) and by one over the segments (`0x0051D130`).
 
 ## Time
 
 The gates count their time in thousandths of the timer's ticks (`0x004DC418`): a tick is a
 hundredth of a second, so that a rate of 1 runs from 0 to 1 in 10 seconds. Open and Close count
-from the tunnel's last frame (`+0x0C`), the jumps from the order's last update (`+0x08`).
+from the tunnel's last frame (`+0x0C`), the jumps from the order's last update (`+0x08`). The
+ticks since a record's tick are taken unsigned, those since an order's update signed.
 
 ## The records
 
@@ -56,7 +72,8 @@ from the tunnel's last frame (`+0x0C`), the jumps from the order's last update (
 | `0x0C` | The tick of the last frame that drew it |
 | `0x10` | The tick its texture last scrolled on, 0 until it has |
 | `0x14` | The object it stands at |
-| `0x18`, `0x1C` | A warp's sizes, by its ship's type (`0x004E3F38`): 2000 and 0 for a gate |
+| `0x18`, `0x1C` | A warp's size, and how much deeper every vertex of the tunnel stands, by the object's type for any kind (`0x00423020`, table `0x004E3F38`): a Badanov's 10000 and 15000, a Yamato's 50000 and 100000, and 2000 and 0 for any other type |
+| `0x2C` | Set where the object's type is in that table |
 | `0x20` | How far Open or Close has grown or shrunk it |
 | `0x30` | Each ring's radius |
 | `0x34` | The tunnel, whose frame hangs from its object's |
@@ -107,9 +124,9 @@ Each frame the gates' frame (`0x00420A00`), which `shield_bubbles_draw` runs bef
 works on each record of a fixed gate:
 
 1. Each ring stands `ring * 1500 + sin(ring + time) * 300` deep, its time since it was made.
-2. Each vertex stands at its ring's radius and depth, the last ring at the depth of the one before
-   (`0x0041FA50`). At the high detail each sways across and down by up to 41.7 times the segments,
-   at its own pace by the frame's tick.
+2. Each vertex stands at its ring's radius and depth, the last ring at the depth of the one before,
+   and the record's `0x1C` deeper (`0x0041FA50`). At the high detail each sways across and down by
+   up to 41.7 times the segments, at its own pace by the frame's tick.
 3. Its normals, its bounds and its radius follow.
 4. Its portal goes into the world's layer, and the tunnel too, unless the player's ship rides the
    worm.
@@ -198,11 +215,12 @@ Its update (`0x00421B80`), counting from the tunnel's last frame:
 
 1. Over 10 seconds, 55 fireballs go off at the points of the hull's cut list in turn (`Protogate`,
    or `OuterRing` for any other gate), each 5500 to 8500 across and lit, every seventh heard
-   (`explosion02`). Each frame the second passes of the gate's type's meshes go off at random, 0.3
+   (`explosion02`). Past the end of the list, OpenReliant counts on from its start again. Each frame the second passes of the gate's type's meshes go off at random, 0.3
    of the frames (`0x00422680`). Then they go off for good, and the screen flashes.
 2. Over the first fifth, its rings slow to a stop: a proto gate's `forcering` from 1, an advanced
    gate's `InnerRing` from 4 and `Tube11` from 1. One frame in 20 a fireball 3500 to 4500 across
-   goes off at a random point of the cut list. The tunnel burns out (`0x00422380`): a flickering
+   goes off at a random point among the first 56 of the cut list, counted on from its start again
+   past its end. The tunnel burns out (`0x00422380`): a flickering
    share of its vertices take a dull red, the ring before the last blue, brightest where the share
    has just reached them. The gate shakes by 15 along each axis at random, unpowered. A proto
    gate's step lasts 20 seconds, any other's 40, its tunnel burning twice as fast.
@@ -211,4 +229,5 @@ Its update (`0x00421B80`), counting from the tunnel's last frame:
 4. It is logged ">>>>>>Gate fully collapsed at %d"; any gate but a proto gate lets its tunnel go,
    an advanced gate losing its hull (`object_hull_lost`), and a gate's `forcefield` is hidden.
 
-The wipes count a vertex from the tunnel's centre, a vertex short of its ring's own.
+The wipes reach a share of the vertices counted from the tunnel's first ring. The game writes each
+colour to the vertex before its own; OpenReliant writes each vertex's own.

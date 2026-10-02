@@ -1,15 +1,23 @@
-//! The orders a ship flies by: Mill, Do Nothing, Fly Aimlessly, Escort, Fly, Run Away, Find New
-//! Target, Find Scoop Up, Object Attach, Toggle Cloak, Slow Rotate, the Random Spins, Formation,
-//! Match Speed and Disrupted; the two that launch a missile; and the start of a capital ship's
-//! lurch as a torpedo strikes it. [`aigeneric.zig`](aigeneric.zig) runs them, [`ai.zig`](ai.zig)
-//! steers for them, and `docs/engine/orders.md` describes what each does.
+//! `C:\lancer\game\aifuncs.cpp`: the orders a ship flies by: Mill, Do Nothing, Fly Aimlessly,
+//! Escort, Fly, Run Away, Find New Target, Find Scoop Up, Object Attach, Toggle Cloak, Slow Rotate,
+//! the Random Spins, Formation, Match Speed and Disrupted; the two that launch a missile; a capital
+//! ship's lurch as a torpedo strikes it (Make capship list left and right); and orders 44 and 45,
+//! which stop the ship dead and back it up. [`aigeneric.zig`](aigeneric.zig) runs them,
+//! [`ai.zig`](ai.zig) steers for them, and `docs/engine/orders.md` describes what each does.
 //!
-//! **Unknown:** its source file. The code lies after `aifight.cpp`'s and before `aifuncs.cpp`'s,
-//! and no string places it. The orders of the two files around it are their own.
+//! **Unverified:** only `order_make_boridin_section_break_away_init` (`0x0040BF60`) is placed in
+//! this file. The order routines from Mill's (`0x0040A6F0`) up to it lie between `aifight.cpp`'s
+//! known code and it, and those from Rotate Boridin breakaway warp projector's (`0x0040C100`) to
+//! order 45's (`0x0040C4E0`) between it and `aigeneric.cpp`'s; they go with it as order routines
+//! like it.
+//!
+//! Not ported ([#30](https://github.com/vdmkenny/openreliant/issues/30)): of the order routines
+//! here, those of Avoid Target (`0x0040B310`, `0x0040B330`), Dark Reign shoot (`0x0040BAD0`), Turns
+//! object lights on (`0x0040BBD0`, `0x0040BC20`) and off (`0x0040BE90`), Make Boridin section break
+//! away (`0x0040BF60`) and Rotate Boridin breakaway warp projector (`0x0040C100`).
 
 const std = @import("std");
 const assert = std.debug.assert;
-const log = std.log.scoped(.orders);
 
 const shp = @import("../../formats/shp.zig");
 const math = @import("../surrender/math.zig");
@@ -26,47 +34,6 @@ const missiles = @import("missiles.zig");
 const objects = @import("objects.zig");
 const xtrabits = @import("xtrabits.zig");
 
-/// What Fly keeps in `order_state`: the heading it started with, which it flies along while it has
-/// no target to fly to.
-pub const FlyState = extern struct {
-    _unknown_00: [2]f32,
-    heading: shp.Vec3,
-    _unknown_14: [0x7C]u8,
-
-    comptime {
-        assert(@offsetOf(FlyState, "heading") == 0x8);
-        assert(@sizeOf(FlyState) == 0x90);
-    }
-};
-
-/// How near its target Fly comes before it pops (`0x004DC490` holds its square).
-const fly_reach: f32 = 2000;
-
-/// How far along its heading Fly steers at while it has no target.
-const fly_ahead: f32 = 20000;
-
-/// How far past the target Run Away puts the point it steers away by.
-const run_away_ahead: f32 = 100000;
-
-/// The throttle Run Away flies at, and the ease it steers with (`order_run_away`).
-const run_away_throttle: f32 = 0.5;
-const run_away_ease: f32 = 0.1;
-
-/// What Fly and Run Away leave of the throttle while the ship is going round something
-/// (`0x004DC408`).
-const avoided_throttle: f32 = 0.5;
-
-/// How far a Fly order moves an object that has no flight stats, for each unit of speed and each
-/// tick of the frame (`0x004DC3D4`).
-const drift_per_tick: f32 = 0.25;
-
-/// The turn Slow Rotate yaws at, and what every Random Spin turns at before its own share
-/// (`0x004DC420`).
-pub const spin_input: f32 = 0.1;
-
-/// The throttle Fly Ship Backwards flies at, which is reverse thrust.
-pub const backwards_throttle: f32 = -0.5;
-
 // --- Mill -----------------------------------------------------------------------------------
 
 /// What Mill keeps in `order_state`: the frame's tick it began, and the circle it flies round its
@@ -82,9 +49,9 @@ pub const MillState = extern struct {
     }
 };
 
-/// How long Mill flies round its target, in ticks; how far from the target its circle runs
-/// (`0x004DC494`); and how far round it the point it steers for comes for each tick at the ship's
-/// cruise speed (`0x004DC4F4`).
+/// How long Mill flies round its target, in ticks (`0x0040A791`); how far from the target its
+/// circle runs (`0x004DC494`); and how far round it the point it steers for comes for each tick at
+/// the ship's cruise speed (`0x004DC4F4`).
 const mill_ticks = 500;
 const mill_radius: f32 = 50000;
 const mill_pace: f32 = 5e-6;
@@ -95,34 +62,35 @@ const mill_pace: f32 = 5e-6;
 pub fn millInit(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const target = slot.orders[0].target;
-    if (!ai.targetValid(all, target, .{ .cloaked = true })) return;
+    const target = ai.ValidTarget.of(all, slot.orders[0].target, .{ .cloaked = true }) orelse return;
     const state = &slot.state.mill;
-    state.started = ctx.clock.frame_start;
+    state.started = ctx.world.clock.frame_start;
     state.circle = math.lookAt(slot.object.nextPosition() - ai.aimedAt(all, target).position);
 }
 
 /// `order_mill` (`0x0040A750`): the update of Mill (120). It pops once the ship can no longer aim
-/// at its target or `mill_ticks` have passed. Otherwise the ship flies at full throttle, going round
-/// what is in its way, for a point on its circle round the target's node, `mill_radius` from it,
-/// which comes round from the ship's side by `mill_pace` of the cruise speed a tick.
+/// at its target or `mill_ticks` have passed. Otherwise the ship flies at full throttle, going
+/// round what is in its way, for a point on its circle round the target's node, `mill_radius` from
+/// it, which comes round from the ship's side by `mill_pace` of the cruise speed a tick.
+///
+/// **Improvement:** the sine and cosine come from `std.math` rather than the engine's tables
+/// (`sr_sin`, `sr_cos`).
 pub fn mill(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const target = slot.orders[0].target;
+    const target = ai.targetOrPop(ctx, index, .{ .cloaked = true }) orelse return;
     const state = &slot.state.mill;
-    const now = ctx.clock.frame_start;
-    if (!ai.targetValid(all, target, .{ .cloaked = true }) or state.started + mill_ticks < now) {
-        _ = aigeneric.pop(ctx, index);
-        return;
-    }
-    const flight = slot.flight orelse return;
-    const round: f32 = ai.cruiseSpeed(&slot.object, flight, ctx.world.view) * @as(f32, @floatFromInt(now - state.started)) * mill_pace;
+    const now = ctx.world.clock.frame_start;
+    if (state.started + mill_ticks < now) return aigeneric.end(ctx, index);
+    const cruise = ai.slotCruise(slot, ctx.world.view) orelse return;
+    const round: f32 = cruise * @as(f32, @floatFromInt(now - state.started)) * mill_pace;
     const across = math.xAxis(state.circle) * @as(Vector, @splat(@sin(round) * mill_radius));
     const along = math.forward(state.circle) * @as(Vector, @splat(@cos(round) * mill_radius));
-    _ = ai.steer(ctx.world, index, across + along + ai.aimedAt(all, target).position, ai.full_limit, ai.no_ease, .{ .avoid_near = true, .avoid_ahead = true });
+    _ = ai.steer(ctx.world, index, across + along + ai.aimedAt(all, target).position, ai.full_limit, ai.no_ease, .clear);
     slot.object.throttle = ai.full_throttle;
 }
+
+// --- Do Nothing -----------------------------------------------------------------------------
 
 /// `order_do_nothing` (`0x0040A880`): the update of Do Nothing (0), which lets the ship coast.
 pub fn doNothing(ctx: Context, index: u16) void {
@@ -204,7 +172,7 @@ pub fn flyAimlessly(ctx: Context, index: u16) void {
     const figure: f32 = @floatFromInt(state.figure);
     const local: Vector = .{ (@cos(turn) - 1) * (figure + 1) * aimless_side, 0, @sin(figure * turn) * aimless_ahead };
     const point = math.transform(state.orientation, local) + gameobj.vector(state.start);
-    _ = ai.steer(ctx.world, index, point, ai.full_limit, ai.no_ease, .{ .avoid_near = true, .avoid_ahead = true });
+    _ = ai.steer(ctx.world, index, point, ai.full_limit, ai.no_ease, .clear);
     if (math.distanceSquared(slot.object.nextPosition(), point) < aimless_reach * aimless_reach) state.point +%= 1;
 }
 
@@ -217,16 +185,22 @@ pub const EscortState = extern struct {
     escorted: i32,
     _unknown_08: [0x90 - 0x08]u8,
 
+    /// The slot of the ship it escorts, where that is one of `all`'s slots.
+    pub fn escortedIn(state: EscortState, all: *const create.Objects) ?u16 {
+        const escorted = std.math.cast(u16, state.escorted) orelse return null;
+        return if (escorted < all.slots.len) escorted else null;
+    }
+
     comptime {
         assert(@offsetOf(EscortState, "escorted") == 0x04);
         assert(@sizeOf(EscortState) == 0x90);
     }
 };
 
-/// How far ahead of the escorted ship the escort steers for (`order_escort`); within how far of it
-/// the escort steers gently, and by how much of its turn (`0x004DC504`, as its square); and how much
-/// faster than the escorted ship it flies for each unit it lies ahead of the escort along the
-/// escort's heading (`0x004DC4B0`).
+/// How far ahead of the escorted ship the escort steers for (`0x0040AB16`); within how far of it
+/// the escort steers gently (`0x004DC504`, as its square), and by how much of its turn
+/// (`0x0040AB89`); and how much faster than the escorted ship it flies for each unit it lies ahead
+/// of the escort along the escort's heading (`0x004DC4B0`).
 const escort_lead: f32 = 10000;
 const escort_near: f32 = 5000;
 const escort_near_limit: f32 = 0.5;
@@ -234,8 +208,8 @@ const escort_catch_up: f32 = 0.0001;
 
 /// `order_escort_init` (`0x0040AA80`): the init of Escort (9). The ship escorts the ship its order
 /// names; or for a flight group or a squad, the ship at the order's place among the group's ships
-/// (`aigeneric.Entry.sequence`), counting round them again past the last (`ai.eachShip`, the walk's
-/// visitor at `0x0040AA50`).
+/// (`aigeneric.Entry.sequence`), counting round them again past the last (`ai.eachShip`,
+/// `escort_count_place`).
 ///
 /// **Fix:** where the group has no ships, the game walks it again for ever; OpenReliant escorts
 /// none, which ends the order at its first update.
@@ -256,8 +230,8 @@ pub fn escortInit(ctx: Context, index: u16) void {
     }
 }
 
-/// The visitor of Escort's walk: each ship takes one off the place to go, and the one that takes it
-/// below nothing is the one to escort.
+/// `escort_count_place` (`0x0040AA50`), Escort's visitor: each ship takes one off the place to go,
+/// and the one that takes it below nothing is the one to escort.
 const EscortCount = struct {
     state: *EscortState,
     visited: bool = false,
@@ -273,29 +247,61 @@ const EscortCount = struct {
 
 /// `order_escort` (`0x0040AAD0`): the update of Escort (9). Once the escorted ship has gone, a
 /// stand-in in its slot, the order pops. Otherwise the ship steers for a point `escort_lead` ahead
-/// of it: within `escort_near` of it by `escort_near_limit` of its turn, rolling upright, and farther
-/// off at its full turn, going round what is in its way. It flies at the escorted ship's speed, and
-/// the faster the farther the escorted ship lies ahead along its own heading (`escort_catch_up`).
+/// of it: within `escort_near` of it by `escort_near_limit` of its turn, rolling upright, and
+/// farther off at its full turn, going round what is in its way. It flies at the escorted ship's
+/// speed, and the faster the farther the escorted ship lies ahead along its own heading
+/// (`escort_catch_up`).
 pub fn escort(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const escorted = std.math.cast(u16, slot.state.escort.escorted) orelse return escortLost(ctx, index);
-    if (escorted >= all.slots.len or all.slots[escorted].object.type == .stand_in) return escortLost(ctx, index);
+    const escorted = slot.state.escort.escortedIn(all) orelse return aigeneric.end(ctx, index);
     const other = &all.slots[escorted];
-    const lead = other.drawn.position + math.forward(other.drawn.orientation) * @as(Vector, @splat(escort_lead));
+    if (other.object.type == .stand_in) return aigeneric.end(ctx, index);
+    const lead = other.drawn.ahead(escort_lead);
     const to = other.drawn.position - slot.drawn.position;
     const near = math.lengthSquared(to) <= escort_near * escort_near;
     const limit = if (near) escort_near_limit else ai.full_limit;
-    const flags: ai.Steering = if (near) .{ .roll_upright = true } else .{ .avoid_near = true, .avoid_ahead = true };
+    const flags: ai.Steering = if (near) .{ .roll_upright = true } else .clear;
     _ = ai.steer(ctx.world, index, lead, limit, ai.no_ease, flags);
-    const flight = slot.flight orelse return;
-    const cruise = ai.cruiseSpeed(&slot.object, flight, ctx.world.view);
+    const cruise = ai.slotCruise(slot, ctx.world.view) orelse return;
     slot.object.throttle = math.dot(math.forward(slot.drawn.orientation), to) * escort_catch_up + other.object.speed / cruise;
 }
 
-fn escortLost(ctx: Context, index: u16) void {
-    _ = aigeneric.pop(ctx, index);
-}
+// --- Fly and Run Away -----------------------------------------------------------------------
+
+/// What Fly keeps in `order_state`: the heading it started with, which it flies along while it has
+/// no target to fly to.
+pub const FlyState = extern struct {
+    _unknown_00: [2]f32,
+    heading: shp.Vec3,
+    _unknown_14: [0x7C]u8,
+
+    comptime {
+        assert(@offsetOf(FlyState, "heading") == 0x8);
+        assert(@sizeOf(FlyState) == 0x90);
+    }
+};
+
+/// How near its target Fly comes before it pops (`0x004DC490` holds its square).
+const fly_reach: f32 = 2000;
+
+/// How far along its heading Fly steers at while it has no target (`0x0040AD7A`).
+const fly_ahead: f32 = 20000;
+
+/// What Fly leaves of the throttle while the ship is going round something (`0x004DC408`).
+const avoided_throttle: f32 = 0.5;
+
+/// How far a Fly order moves an object that has no flight stats, for each unit of speed and each
+/// tick of the frame (`0x004DC3D4`).
+const drift_per_tick: f32 = 0.25;
+
+/// How many times as far from the ship as its target the point Run Away steers for lies, on the
+/// ship's far side from the target (`0x0040AE2C`).
+const run_away_ahead: f32 = 100000;
+
+/// The ease Run Away steers with (`0x0040AE5F`), and the throttle it flies at (`0x0040AE76`).
+const run_away_ease: f32 = 0.1;
+const run_away_throttle: f32 = 0.5;
 
 /// `order_fly_init` (`0x0040AC00`): the init of Fly (6), which keeps the heading the ship starts
 /// on.
@@ -306,9 +312,13 @@ pub fn flyInit(ctx: Context, index: u16) void {
 
 /// `order_fly` (`0x0040AC20`): the update of Fly (6). It flies at the speed in the order's data, or
 /// at full throttle for none. With a target it flies to it and pops once it is within `fly_reach`;
-/// without one it holds the heading it started on, steering at a point `fly_ahead` along it. An
-/// object with no flight stats is moved along that heading instead of flown, so that a body which
-/// has no flight of its own still travels.
+/// without one it holds the heading it started on, steering at a point `fly_ahead` along it. It
+/// steers going round what is in its way and rolling upright, and keeps `avoided_throttle` of the
+/// throttle while it goes round something. An object with no flight stats is moved along that
+/// heading instead of flown, so that a body which has no flight of its own still travels.
+///
+/// **Improvement** (`main.frameObjects`): an object it moves without flight stats glides on between
+/// the ticks (`create.Slot.glide`); the game draws it where it is placed.
 pub fn fly(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
@@ -320,22 +330,20 @@ pub fn fly(ctx: Context, index: u16) void {
     } else if (ai.slotCruise(slot, ctx.world.view)) |cruise| {
         object.throttle = speed / cruise;
     } else {
-        const ticks: f32 = @floatFromInt(ctx.clock.frame_duration);
+        const ticks: f32 = @floatFromInt(ctx.world.clock.frame_duration);
         const per_tick = heading * @as(Vector, @splat(speed * drift_per_tick));
         objects.setPosition(object, &slot.drawn, object.nextPosition() + per_tick * @as(Vector, @splat(ticks)));
-        // Drawn on between the ticks (`create.Slot.glide`).
         slot.glide = per_tick;
         return;
     }
 
     // The game reads the target's index as a ship's slot, whatever its kind.
     const flags: ai.Steering = .{ .avoid_near = true, .avoid_ahead = true, .roll_upright = true };
-    const avoided = if (slot.orders[0].target.slot()) |target| steer: {
+    const avoided = if (slot.orders[0].target.slotIn(all)) |target| steer: {
         const to = all.slots[target].object.nextPosition();
         if (math.lengthSquared(to - object.nextPosition()) < fly_reach * fly_reach) {
             object.letGo();
-            _ = aigeneric.pop(ctx, index);
-            return;
+            return aigeneric.end(ctx, index);
         }
         if (slot.flight == null) return;
         break :steer ai.steer(ctx.world, index, to, ai.full_limit, ai.no_ease, flags);
@@ -347,46 +355,71 @@ pub fn fly(ctx: Context, index: u16) void {
 }
 
 /// `order_run_away` (`0x0040ADE0`): the update of Run Away (7), which flies away from its target at
-/// half throttle, steering at a point far beyond itself. It pops once the target's slot holds a
+/// half throttle. It steers at a point far beyond itself, which it first moves round what lies near
+/// (`ai.avoidNear`); the steering then goes round what lies near and ahead again (flags 0x3), so it
+/// keeps its ease unless that second pass moves the point. It pops once the target's slot holds a
 /// stand-in.
 pub fn runAway(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     // The game reads the target's index as a ship's slot, whatever its kind.
     const other = find: {
-        const target = slot.orders[0].target.slot() orelse break :find null;
+        const target = slot.orders[0].target.slotIn(all) orelse break :find null;
         const object = &all.slots[target].object;
         break :find if (object.type == .stand_in) null else object;
-    } orelse {
-        _ = aigeneric.pop(ctx, index);
-        return;
-    };
+    } orelse return aigeneric.end(ctx, index);
     const from = slot.object.nextPosition();
     const away = from - other.nextPosition();
-    const at = from + away * @as(Vector, @splat(run_away_ahead));
-    _ = ai.steer(ctx.world, index, at, ai.full_limit, run_away_ease, .{ .avoid_near = true, .avoid_ahead = true });
+    var at = from + away * @as(Vector, @splat(run_away_ahead));
+    _ = ai.avoidNear(ctx.world, index, &at);
+    _ = ai.steer(ctx.world, index, at, ai.full_limit, run_away_ease, .clear);
     slot.object.throttle = run_away_throttle;
 }
 
 // --- Find New Target ------------------------------------------------------------------------
 
+/// A ship Find New Target or Find Scoop Up keeps as it walks its target's ships
+/// (`find_target_weigh`, `find_scoop_up_nearest`): its slot and component, -1 for none and for the
+/// whole ship, and how heavily it weighs, the most a float holds for none yet. The lightest offered
+/// is kept.
+pub const Pick = extern struct {
+    ship: i32,
+    component: i32,
+    weight: f32,
+
+    /// None yet, as each walk starts.
+    pub const none: Pick = .{ .ship = -1, .component = -1, .weight = std.math.floatMax(f32) };
+
+    /// Keeps `offered` where it weighs less than the one kept.
+    pub fn offer(pick: *Pick, offered: aigeneric.Target, weight: f32) void {
+        if (weight < pick.weight) pick.* = .{ .ship = offered.index, .component = offered.component, .weight = weight };
+    }
+
+    /// The ship kept, where there is one, as the target the order pushes at it: the halfwords
+    /// `order_push` stores.
+    pub fn kept(pick: Pick) ?aigeneric.Target {
+        if (pick.ship < 0) return null;
+        return .{ .kind = .ship, .index = @truncate(pick.ship), .component = @truncate(pick.component) };
+    }
+
+    comptime {
+        assert(@offsetOf(Pick, "component") == 0x4);
+        assert(@offsetOf(Pick, "weight") == 0x8);
+        assert(@sizeOf(Pick) == 0xC);
+    }
+};
+
 /// What Find New Target keeps in `order_state` as it walks its target's ships: the one it would
-/// fight, the component, and how heavily it weighs, and the one it would mill round likewise; -1
-/// for none, and the most a float holds for no weight yet.
+/// fight, and the one it would mill round.
 pub const FindTargetState = extern struct {
     _unknown_00: u32,
-    fight: i32,
-    fight_component: i32,
-    fight_weight: f32,
-    mill: i32,
-    mill_component: i32,
-    mill_weight: f32,
+    fight: Pick,
+    mill: Pick,
     _unknown_1c: [0x90 - 0x1C]u8,
 
     comptime {
         assert(@offsetOf(FindTargetState, "fight") == 0x04);
         assert(@offsetOf(FindTargetState, "mill") == 0x10);
-        assert(@offsetOf(FindTargetState, "mill_weight") == 0x18);
         assert(@sizeOf(FindTargetState) == 0x90);
     }
 };
@@ -406,51 +439,21 @@ const most_fought = 3;
 pub fn findNewTarget(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.find_target;
-    state.fight = -1;
-    state.fight_component = -1;
-    state.fight_weight = std.math.floatMax(f32);
-    state.mill = -1;
-    state.mill_component = -1;
-    state.mill_weight = std.math.floatMax(f32);
+    state.fight = .none;
+    state.mill = .none;
     var weighing: Weighing = .{ .ctx = ctx, .index = index };
     _ = ai.eachShip(ctx.world, slot.orders[0].target, &weighing);
-    if (state.mill < 0) {
-        if (state.fight == -1) {
-            _ = aigeneric.pop(ctx, index);
-        } else {
-            slot.object.letGo();
-        }
+    const milled = state.mill.kept() orelse {
+        if (state.fight.kept() == null) return aigeneric.end(ctx, index);
+        slot.object.letGo();
         return;
-    }
-    const pushed: Order, const ship: i32, const component: i32 = if (state.fight < 0)
-        .{ .mill, state.mill, state.mill_component }
-    else if (slot.combat != null and slot.combat.?.class == .torpedo)
-        .{ .torpedo, state.fight, state.fight_component }
-    else
-        .{ .fight, state.fight, state.fight_component };
-    _ = aigeneric.pushShip(ctx, index, pushed, @intCast(ship), @intCast(component)) catch |err| {
-        log.warn("ship {d} takes no order {d}: {s}", .{ index, @intFromEnum(pushed), @errorName(err) });
     };
-}
-
-/// What Make capship list left and right (115, 116) keep (`0x0040C3A0`): the step the lurch has come
-/// to, and the tick its step ends.
-pub const ListState = extern struct {
-    step: i32,
-    until: i32,
-    _unknown_08: [0x90 - 0x08]u8,
-
-    comptime {
-        assert(@offsetOf(ListState, "until") == 0x04);
-        assert(@sizeOf(ListState) == 0x90);
-    }
-};
-
-/// `order_first_step_init` (`0x0040B1C0`): the init of Find Scoop Up (21) and of Make capship list
-/// left and right (115, 116), which a capital ship takes as a torpedo strikes it (`collision`):
-/// each from its first step (`findScoopUp`, `aigeneric.capshipList`).
-pub fn firstStepInit(ctx: Context, index: u16) void {
-    ctx.world.objects.slots[index].state.list.step = 0;
+    const fought = state.fight.kept() orelse {
+        _ = aigeneric.give(ctx, index, .mill, milled);
+        return;
+    };
+    const torpedo = if (slot.combat) |combat| combat.class == .torpedo else false;
+    _ = aigeneric.give(ctx, index, if (torpedo) .torpedo else .fight, fought);
 }
 
 /// The visitor of Find New Target's walk (`weighTarget`).
@@ -464,12 +467,12 @@ const Weighing = struct {
     }
 };
 
-/// `0x0040AE90`, Find New Target's visitor: a ship it can aim at, cloaked or not
-/// (`ai.targetValid`), weighs the square of its node's distance from where the searcher will be
+/// `find_target_weigh` (`0x0040AE90`), Find New Target's visitor: a ship it can aim at, cloaked or
+/// not (`ai.targetValid`), weighs the square of its node's distance from where the searcher will be
 /// next. As one to fight, times one more than the ships whose current order is Fight at it, this
 /// one component and all; as one to mill round, times that and one more than the ships whose
-/// current order is Mill round it. The lightest of each is kept, but to fight only one that is
-/// not cloaked, not the target the radio's menu has set aside for the searcher
+/// current order is Mill round it. The lightest of each is kept (`Pick.offer`), but to fight only
+/// one that is not cloaked, not the target the radio's menu has set aside for the searcher
 /// (`GameObject.set_aside`), and for a fighter one fewer than two others fight. Once the set-aside
 /// time is up, the target is set aside no more, though not until this walk is over.
 ///
@@ -479,57 +482,45 @@ const Weighing = struct {
 /// OpenReliant keeps the game's weights.
 fn weighTarget(ctx: Context, index: u16, target: aigeneric.Target) void {
     const all = ctx.world.objects;
-    if (!ai.targetValid(all, target, .{ .cloaked = true })) return;
+    const valid = ai.ValidTarget.of(all, target, .{ .cloaked = true }) orelse return;
+    const aimed = valid.slot;
     const slot = &all.slots[index];
     const state = &slot.state.find_target;
-    const distance = math.lengthSquared(ai.aimedAt(all, target).position - slot.object.nextPosition());
+    const distance = math.lengthSquared(ai.aimedAt(all, valid).position - slot.object.nextPosition());
     var fights: f32 = 1;
     var mills: f32 = 1;
     for (all.slots[0..all.count]) |*other| {
-        if (!other.object.type.hasStats() or other.object.order_count <= 0) continue;
-        const entry = other.orders[0];
+        if (!other.object.type.hasStats()) continue;
+        const entry = (other.current() orelse continue).*;
         if (entry.target.index != target.index or entry.target.component != target.component) continue;
         if (entry.order == .fight) fights += 1;
         if (entry.order == .mill) mills += 1;
     }
-    const aimed = @as(u16, @intCast(target.index));
     if (slot.object.set_aside.index() == aimed) {
-        if (slot.object.set_aside_until < ctx.clock.game_ticks) {
+        if (slot.object.set_aside_until < ctx.world.clock.game_ticks) {
             slot.object.set_aside = .none;
             slot.object.set_aside_until = 0;
         }
     } else {
-        const weight = fights * distance;
         const fighter = if (slot.combat) |combat| combat.class == .fighter else false;
-        if (weight < state.fight_weight and !all.slots[aimed].object.flags.cloaked and !(fighter and fights >= most_fought)) {
-            state.fight = target.index;
-            state.fight_weight = weight;
-            state.fight_component = target.component;
+        if (!all.slots[aimed].object.flags.cloaked and !(fighter and fights >= most_fought)) {
+            state.fight.offer(target, fights * distance);
         }
     }
-    const crowd = (fights + mills) * distance;
-    if (crowd < state.mill_weight) {
-        state.mill = target.index;
-        state.mill_weight = crowd;
-        state.mill_component = target.component;
-    }
+    state.mill.offer(target, (fights + mills) * distance);
 }
 
 // --- Find Scoop Up --------------------------------------------------------------------------
 
 /// What Find Scoop Up keeps in `order_state`: its step, and as it walks its target's ships, the
-/// nearest it would scoop up, the component, and the square of how far it is; -1 for none, and the
-/// most a float holds for none yet.
+/// nearest it would scoop up, weighed by the square of how far it is.
 pub const FindScoopState = extern struct {
     step: FindScoopStep,
-    ship: i32,
-    component: i32,
-    nearest: f32,
+    scoop: Pick,
     _unknown_10: [0x90 - 0x10]u8,
 
     comptime {
-        assert(@offsetOf(FindScoopState, "ship") == 0x04);
-        assert(@offsetOf(FindScoopState, "nearest") == 0x0C);
+        assert(@offsetOf(FindScoopState, "scoop") == 0x04);
         assert(@offsetOf(FindScoopState, "step") == @offsetOf(ListState, "step"));
         assert(@sizeOf(FindScoopState) == 0x90);
     }
@@ -541,6 +532,18 @@ pub const FindScoopStep = enum(i32) {
     search = 1,
     _,
 };
+
+/// `order_first_step_init` (`0x0040B1C0`): the init of Find Scoop Up (21) and of Make capship list
+/// left and right (115, 116), which a capital ship takes as a torpedo strikes it (`collision`):
+/// each from its first step (`findScoopUp`, `capshipList`).
+pub fn firstStepInit(ctx: Context, index: u16) void {
+    ctx.world.objects.slots[index].state.list.step = .first;
+}
+
+comptime {
+    // Find Scoop Up reads the same word as its own step.
+    assert(@intFromEnum(ListStep.first) == @intFromEnum(FindScoopStep.wait));
+}
 
 /// `order_find_scoop_up` (`0x0040B1E0`): the update of Find Scoop Up (21), which starts at its
 /// first step (`firstStepInit`). From the wait it goes on to the search; a multiplayer game waits
@@ -558,18 +561,11 @@ pub fn findScoopUp(ctx: Context, index: u16) void {
     switch (state.step) {
         .wait => state.step = .search,
         .search => {
-            state.ship = -1;
-            state.component = -1;
-            state.nearest = std.math.floatMax(f32);
+            state.scoop = .none;
             var scooping: Scooping = .{ .ctx = ctx, .index = index };
             _ = ai.eachShip(ctx.world, slot.orders[0].target, &scooping);
-            if (state.ship < 0) {
-                _ = aigeneric.pop(ctx, index);
-                return;
-            }
-            _ = aigeneric.pushShip(ctx, index, .scoop_up, @intCast(state.ship), @intCast(state.component)) catch |err| {
-                log.warn("ship {d} takes no order {d}: {s}", .{ index, @intFromEnum(Order.scoop_up), @errorName(err) });
-            };
+            const nearest = state.scoop.kept() orelse return aigeneric.end(ctx, index);
+            _ = aigeneric.give(ctx, index, .scoop_up, nearest);
         },
         _ => {},
     }
@@ -577,22 +573,17 @@ pub fn findScoopUp(ctx: Context, index: u16) void {
 
 /// `find_scoop_up_nearest` (`0x0040B140`), Find Scoop Up's visitor: a ship the searcher can aim at,
 /// ejected or not (`ai.targetValid`), nearer to where the searcher will be next than the nearest so
-/// far, by where it will be next, becomes the nearest.
+/// far, by where it will be next, becomes the nearest (`Pick.offer`).
 const Scooping = struct {
     ctx: Context,
     index: u16,
 
     pub fn visit(scooping: *Scooping, target: aigeneric.Target) bool {
         const all = scooping.ctx.world.objects;
-        if (!ai.targetValid(all, target, .{ .ejected = true })) return false;
+        const found = ai.ValidTarget.of(all, target, .{ .ejected = true }) orelse return false;
         const slot = &all.slots[scooping.index];
-        const state = &slot.state.find_scoop_up;
-        const distance = math.distanceSquared(all.slots[@intCast(target.index)].object.nextPosition(), slot.object.nextPosition());
-        if (distance < state.nearest) {
-            state.ship = target.index;
-            state.component = target.component;
-            state.nearest = distance;
-        }
+        const distance = math.distanceSquared(all.slots[found.slot].object.nextPosition(), slot.object.nextPosition());
+        slot.state.find_scoop_up.scoop.offer(target, distance);
         return false;
     }
 };
@@ -615,9 +606,7 @@ pub fn attachInit(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const target = slot.orders[0].target.slotIn(all) orelse return;
-    const to = all.slots[target].object.root;
-    const offset = math.transformTransposed(to.next_orientation, slot.object.nextPosition() - gameobj.vector(to.next_position));
-    slot.state.attach.offset = gameobj.vec3(offset);
+    slot.state.attach.offset = gameobj.vec3(all.slots[target].object.placeAt(.next).inverse(slot.object.nextPosition()));
 }
 
 /// `order_object_attach` (`0x0040B4F0`): the update of Object Attach (13). The ship rides its
@@ -629,10 +618,8 @@ pub fn attach(ctx: Context, index: u16) void {
     const slot = &all.slots[index];
     const target = slot.orders[0].target.slotIn(all) orelse return;
     const other = &all.slots[target].object;
-    const to = other.root;
-    const at = math.transform(to.next_orientation, gameobj.vector(slot.state.attach.offset)) + gameobj.vector(to.next_position);
-    objects.setPosition(&slot.object, &slot.drawn, at);
-    objects.setOrientation(&slot.object, &slot.drawn, to.next_orientation);
+    const next = other.placeAt(.next);
+    objects.setPlace(&slot.object, &slot.drawn, .{ .position = next.point(gameobj.vector(slot.state.attach.offset)), .orientation = next.orientation });
     const object = &slot.object;
     object.rotation = other.rotation;
     object.velocity = other.velocity;
@@ -642,13 +629,19 @@ pub fn attach(ctx: Context, index: u16) void {
     object.roll_rate = other.roll_rate;
 }
 
-/// `order_toggle_cloak` (`0x0040B640`): Toggle Cloak (16), which runs once. The ship cloaks where it
-/// is not cloaked, and uncloaks where it is (`cloak.set`): where its model can cloak, with the ships
-/// launching from it.
+/// `order_toggle_cloak` (`0x0040B640`): Toggle Cloak (16), which runs once. The ship cloaks where
+/// it is not cloaked, and uncloaks where it is (`cloak.set`): where its model can cloak, with the
+/// ships launching from it.
 pub fn toggleCloak(ctx: Context, index: u16) void {
     const object = &ctx.world.objects.slots[index].object;
     cloak.set(ctx.world, index, !object.flags.cloaked);
 }
+
+// --- Slow Rotate and the Random Spins -------------------------------------------------------
+
+/// The turn Slow Rotate yaws at, and what every Random Spin turns at before its own share
+/// (`0x004DC420`).
+pub const spin_input: f32 = 0.1;
 
 /// `order_slow_rotate` (`0x0040B660`): the update of Slow Rotate (18), which turns the ship on the
 /// spot.
@@ -659,7 +652,7 @@ pub fn slowRotate(ctx: Context, index: u16) void {
 }
 
 /// How fast a Random Spin tumbles: the share of the turn each input takes at random, on top of
-/// `spin_input` (`0x004DC4C0` and the words after it).
+/// `spin_input`: slow 0.3 (`0x004DC4C0`), medium 0.5 (`0x004DC408`), fast 0.9 (`0x004DC470`).
 pub const Spin = enum(u8) {
     slow = 0,
     medium = 1,
@@ -674,9 +667,10 @@ pub const Spin = enum(u8) {
     }
 };
 
-/// `order_random_spin_slow_init` (`0x0040B6A0`) and its two neighbours: the init of the Random
-/// Spins (22 to 24), which set the ship tumbling, each input at random. Their update does nothing,
-/// so the ship keeps the tumble.
+/// `order_random_spin_slow_init` (`0x0040B6A0`), `order_random_spin_medium_init` (`0x0040B730`)
+/// and `order_random_spin_fast_init` (`0x0040B7C0`): the inits of the Random Spins (22 to 24),
+/// which set the ship tumbling, each input at random. Their update does nothing, so the ship keeps
+/// the tumble.
 pub fn randomSpinInit(ctx: Context, index: u16, spin: Spin) void {
     const object = &ctx.world.objects.slots[index].object;
     const spread = spin.spread();
@@ -698,18 +692,17 @@ pub const FormationState = extern struct {
     }
 };
 
-/// How far apart Formation's ships fly abreast (`0x004DC508`).
-const formation_spacing: f32 = 3000;
+/// The least throttle Formation comes to its place at (`0x0040B911`).
+const formation_least_throttle: f32 = 0;
 
 /// `order_formation_init` (`0x0040B850`): the init of Formation (27). The ships `SetAI` numbers fly
-/// abreast of their target, `formation_spacing` apart: the one numbered `n` flies `n / 2 + 1`
-/// places out, to the target's left where `n` is even and to its right where it is odd.
+/// abreast of their target, `aigeneric.abreast_spacing` apart: the one numbered `n` flies `n / 2 +
+/// 1` places out, to the target's left where `n` is even and to its right where it is odd
+/// (`aigeneric.Entry.abreast`, counting from 2).
 pub fn formationInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
-    const counted = @as(i32, slot.orders[0].sequence) + 2;
-    const side: i32 = if (counted & 1 != 0) 1 else -1;
-    const out: f32 = @floatFromInt(side * @divTrunc(counted, 2));
-    slot.state.formation.place = .{ .x = out * formation_spacing, .y = 0, .z = 0 };
+    const out: f32 = @floatFromInt(slot.orders[0].abreast(2));
+    slot.state.formation.place = .{ .x = out * aigeneric.abreast_spacing, .y = 0, .z = 0 };
 }
 
 /// `order_formation` (`0x0040B8A0`): the update of Formation (27), which keeps the ship at its
@@ -718,33 +711,24 @@ pub fn formationInit(ctx: Context, index: u16) void {
 pub fn formation(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const target = slot.orders[0].target;
-    if (!ai.targetValid(all, target, .{})) {
-        _ = aigeneric.pop(ctx, index);
-        return;
-    }
-    const leader = &all.slots[@intCast(target.index)].object;
-    const turn = leader.root.next_orientation;
-    const place = math.transform(turn, gameobj.vector(slot.state.formation.place)) + leader.nextPosition();
-    _ = ai.arrive(ctx.world, index, place, turn, formation_least_throttle);
+    const target = ai.targetOrPop(ctx, index, .{}) orelse return;
+    const next = all.slots[target.slot].object.placeAt(.next);
+    _ = ai.arrive(ctx.world, index, next.point(gameobj.vector(slot.state.formation.place)), next.orientation, formation_least_throttle);
 }
 
-/// The least throttle Formation comes to its place at (`0x0040B911`).
-const formation_least_throttle: f32 = 0;
+// --- Match Speed ----------------------------------------------------------------------------
 
 /// `order_match_speed` (`0x0040B9E0`): the update of Match Speed (32), which holds the ship at its
 /// target's speed. It pops once the target can no longer be aimed at.
 pub fn matchSpeed(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const target = slot.orders[0].target;
-    if (!ai.targetValid(all, target, .{})) {
-        _ = aigeneric.pop(ctx, index);
-        return;
-    }
+    const target = ai.targetOrPop(ctx, index, .{}) orelse return;
     const cruise = ai.slotCruise(slot, ctx.world.view) orelse return;
-    slot.object.throttle = all.slots[@intCast(target.index)].object.speed / cruise;
+    slot.object.throttle = all.slots[target.slot].object.speed / cruise;
 }
+
+// --- Launch Missile and order 3 -------------------------------------------------------------
 
 /// `order_launch_missile` (`0x0040B940`): the update of Launch Missile (2), which runs once over
 /// the ship's order: a missile from the first of its racks with any left, but Jack Hammers, at the
@@ -769,6 +753,8 @@ fn launchFrom(ctx: Context, index: u16, jack_hammer: bool) void {
     }
 }
 
+// --- Disrupted ------------------------------------------------------------------------------
+
 /// What a Havoc's shockwave leaves in Disrupted's data (`shockwave.Shockwave.strike`): how many
 /// ticks the ship is disrupted for, and the push it takes.
 pub const DisruptedData = extern struct {
@@ -776,6 +762,8 @@ pub const DisruptedData = extern struct {
     push: [3]f32 align(2),
 
     comptime {
+        assert(@offsetOf(DisruptedData, "ticks") == 0x0);
+        assert(@offsetOf(DisruptedData, "push") == 0x4);
         assert(@sizeOf(DisruptedData) == @sizeOf(aigeneric.Entry.Data));
     }
 };
@@ -792,14 +780,22 @@ pub const DisruptedState = extern struct {
     }
 };
 
-/// How far either way each of a disrupted ship's rates is knocked, in radians a step.
+/// The spread of the knock to each of a disrupted ship's rates, centred on nothing: 0.05 either
+/// way, in radians a step (`0x004DC420`, the word `spin_input` reads).
 const disrupted_spin: f32 = 0.1;
 
-/// The electric rays over a disrupted ship: fifteen, each from its centre out to its radius at
-/// random, 90 either way, straying by up to 0.6 of its length, flickering and dimming as they go
-/// dark, and lasting as long as the order; white and blue in turn.
+/// How many electric rays play over a disrupted ship (`0x0040C356`).
 const disrupted_rays = 15;
-const disrupted_ray: erayfx.Spec = .{ .life = 0, .jitter = 0.6, .width = 90, .flags = .{ .flickers = true, .fades = true, .timed = true } };
+
+/// One of the rays over a disrupted ship (`0x0040C251` to `0x0040C25D`): 90 either way, straying
+/// by up to 0.6 of its length, flickering and dimming as it goes dark, and lasting `ticks`, as long
+/// as the order.
+fn disruptedRay(ticks: i32) erayfx.Spec {
+    return .{ .life = ticks, .jitter = 0.6, .width = 90, .flags = .{ .flickers = true, .fades = true, .timed = true } };
+}
+
+/// The colours of the rays over a disrupted ship, white and blue in turn (`0x0040C277` to
+/// `0x0040C28F`).
 const disrupted_colours = [2][3]f32{ .{ 0.8, 0.8, 1 }, .{ 0.3, 0.5, 1 } };
 
 /// `order_disrupted_init` (`0x0040C140`): the init of Disrupted (114). The ship is left unpowered
@@ -809,13 +805,14 @@ const disrupted_colours = [2][3]f32{ .{ 0.8, 0.8, 1 }, .{ 0.3, 0.5, 1 } };
 /// **Quirk:** the push is given in the world's frame and taken in the ship's own
 /// (`gameobj.knockLocal`), so the ship is thrown off at a turn from straight away from the blast.
 ///
-/// Fifteen electric rays play over it meanwhile (`disrupted_rays`).
+/// Fifteen electric rays play over it meanwhile (`disrupted_rays`), each from its centre out to
+/// its radius at random (`disruptedRay`, `disrupted_colours`).
 pub fn disruptedInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
     const data = slot.orders[0].data.disrupted;
     object.flags.unpowered = true;
-    slot.state.disrupted.end = data.ticks + ctx.clock.frame_start;
+    slot.state.disrupted.end = data.ticks + ctx.world.clock.frame_start;
     gameobj.knockLocal(object, data.push, @splat(0));
     const random = ctx.world.random;
     object.yaw_rate += random.centred() * disrupted_spin;
@@ -823,8 +820,7 @@ pub fn disruptedInit(ctx: Context, index: u16) void {
     object.roll_rate += random.centred() * disrupted_spin;
     object.rotation = math.fromAngles(object.pitch_rate, object.yaw_rate, object.roll_rate);
     const rays = ctx.world.rays orelse return;
-    var spec = disrupted_ray;
-    spec.life = data.ticks;
+    const spec = disruptedRay(data.ticks);
     for (0..disrupted_rays) |n| {
         const ray = rays.add(spec, random) catch return;
         ray.colour(0, disrupted_colours[n % 2]);
@@ -837,12 +833,120 @@ pub fn disruptedInit(ctx: Context, index: u16) void {
 
 /// `order_disrupted` (`0x0040C370`): the update of Disrupted, which pops past its end.
 pub fn disrupted(ctx: Context, index: u16) void {
-    if (ctx.world.objects.slots[index].state.disrupted.end < ctx.clock.frame_start) _ = aigeneric.pop(ctx, index);
+    if (ctx.world.objects.slots[index].state.disrupted.end < ctx.world.clock.frame_start) aigeneric.end(ctx, index);
 }
 
 /// `order_disrupted_exit` (`0x0040C390`): the exit of Disrupted, which powers the ship again.
 pub fn disruptedExit(ctx: Context, index: u16) void {
     ctx.world.objects.slots[index].object.flags.unpowered = false;
+}
+
+// --- Make capship list ----------------------------------------------------------------------
+
+/// Which way a capital ship struck by a torpedo lurches: Make capship list left (115) or right
+/// (116), whose updates `order_make_capship_list_left` (`0x0040C4B0`) and
+/// `order_make_capship_list_right` (`0x0040C4C0`) hand `capship_list` -1 or 1.
+pub const Lurch = enum(i8) {
+    left = -1,
+    right = 1,
+
+    pub fn order(lurch: Lurch) Order {
+        return switch (lurch) {
+            .left => .make_capship_list_left,
+            .right => .make_capship_list_right,
+        };
+    }
+};
+
+/// What Make capship list left and right (115, 116) keep (`capship_list`, `0x0040C3A0`): the step
+/// the lurch has come to, and the tick its step ends.
+pub const ListState = extern struct {
+    step: ListStep,
+    until: i32,
+    _unknown_08: [0x90 - 0x08]u8,
+
+    comptime {
+        assert(@offsetOf(ListState, "until") == 0x04);
+        assert(@sizeOf(ListState) == 0x90);
+    }
+};
+
+/// Make capship list's steps, from the first (`firstStepInit`).
+pub const ListStep = enum(i32) {
+    /// It turns by the first of `lurch_steps`.
+    first = 0,
+    /// Once the first is over, it turns back by the second.
+    second = 1,
+    /// It waits for the second to be over.
+    settling = 2,
+    /// It stops rolling, and the order ends.
+    done = 3,
+    _,
+};
+
+/// A step of a capital ship's lurch: the roll and the yaw it turns at, a tick, toward the side it
+/// lurches, and the ticks the step lasts.
+const LurchStep = struct { roll: f32, yaw: f32, ticks: i32 };
+
+/// How a capital ship lurches as a torpedo strikes it: its first step's roll and yaw
+/// (`0x004DC518`, `0x004DC514`), then its second's, back the other way (`0x004DC510`,
+/// `0x004DC50C`); the ticks are the code's own.
+const lurch_steps = [2]LurchStep{
+    .{ .roll = 0.01, .yaw = 0.006, .ticks = 200 },
+    .{ .roll = -0.006, .yaw = -0.0048, .ticks = 300 },
+};
+
+/// `capship_list` (`0x0040C3A0`), the update of Make capship list left and right (115, 116), which
+/// a capital ship takes as a torpedo strikes it (`collision`), a step at a time (`ListStep`): it
+/// rolls and yaws toward `side` by the first of `lurch_steps`, each over its own rates, for that
+/// step's ticks, then back by the second for its ticks, then stops rolling and the order ends.
+pub fn capshipList(ctx: Context, index: u16, side: Lurch) void {
+    const slot = &ctx.world.objects.slots[index];
+    const state = &slot.state.list;
+    const now = ctx.world.clock.frame_start;
+    const flight = slot.flight orelse return;
+    switch (state.step) {
+        .first => lurchBy(slot, flight, side, lurch_steps[0], .second, now),
+        .second => if (state.until <= now) lurchBy(slot, flight, side, lurch_steps[1], .settling, now),
+        .settling => if (state.until <= now) {
+            state.step = .done;
+        },
+        .done => {
+            slot.object.roll_input = 0;
+            aigeneric.end(ctx, index);
+        },
+        _ => {},
+    }
+}
+
+/// A step of the lurch, from `now`: the ship turns by `turn` toward `side`, each over its own
+/// rate, and its order goes on to `next` once the step's ticks are over.
+fn lurchBy(slot: *create.Slot, flight: *const create.FlightModel, side: Lurch, turn: LurchStep, next: ListStep, now: i32) void {
+    const way: f32 = @floatFromInt(@intFromEnum(side));
+    slot.object.roll_input = turn.roll * way / flight.roll_rate;
+    slot.object.yaw_input = turn.yaw * way / flight.yaw_rate;
+    slot.state.list.step = next;
+    slot.state.list.until = now + turn.ticks;
+}
+
+// --- Orders 44 and 45 -----------------------------------------------------------------------
+
+/// `order_immediately_set_ship_to_zero_velocity_and_rotation` (`0x0040C4D0`): the update of order
+/// 44, which stops the ship dead and pops.
+pub fn zeroVelocity(ctx: Context, index: u16) void {
+    ai.stop(&ctx.world.objects.slots[index].object);
+    aigeneric.end(ctx, index);
+}
+
+/// The throttle Fly Ship Backwards flies at, which is reverse thrust (`0x0040C510`).
+const backwards_throttle: f32 = -0.5;
+
+/// `order_fly_ship_backwards` (`0x0040C4E0`): the update of order 45, which backs the ship up
+/// without turning.
+pub fn flyBackwards(ctx: Context, index: u16) void {
+    const object = &ctx.world.objects.slots[index].object;
+    object.holdTurns();
+    object.throttle = backwards_throttle;
 }
 
 test disruptedInit {
@@ -874,6 +978,66 @@ test disruptedInit {
     try std.testing.expectEqual(null, rays.rays.slots[disrupted_rays]);
 }
 
+test disrupted {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const index = try mission.addOther(@splat(0));
+    const slot = mission.slot(index);
+    try std.testing.expect(try aigeneric.push(ctx, index, .disrupted, .none));
+    slot.orders[0].data = .{ .disrupted = .{ .ticks = 300, .push = @splat(0) } };
+
+    // Started at tick 50, it leaves the ship unpowered to tick 350, which it still holds at.
+    mission.clock.frame_start = 50;
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(350, slot.state.disrupted.end);
+    try std.testing.expect(slot.object.flags.unpowered);
+    mission.clock.frame_start = 350;
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(1, slot.object.order_count);
+    try std.testing.expect(slot.object.flags.unpowered);
+    // Past it, the order pops, and its exit powers the ship again.
+    mission.clock.frame_start = 351;
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(0, slot.object.order_count);
+    try std.testing.expect(!slot.object.flags.unpowered);
+}
+
+test capshipList {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    _ = try mission.add(.predator, @splat(0));
+    const ship = try mission.add(.mammoth, .{ 0, 0, 10000 });
+    const object = &mission.slot(ship).object;
+    const flight = mission.slot(ship).flight.?;
+    try std.testing.expect(try aigeneric.push(ctx, ship, Lurch.left.order(), .none));
+    const first = lurch_steps[0];
+    const second = lurch_steps[1];
+
+    // It rolls and yaws to the left for 200 ticks, then back for 300, then stops rolling and the
+    // order ends.
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual(-first.roll / flight.roll_rate, object.roll_input);
+    try std.testing.expectEqual(-first.yaw / flight.yaw_rate, object.yaw_input);
+    mission.clock.frame_start = first.ticks - 1;
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual(-first.roll / flight.roll_rate, object.roll_input);
+    mission.clock.frame_start = first.ticks;
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual(-second.roll / flight.roll_rate, object.roll_input);
+    try std.testing.expectEqual(-second.yaw / flight.yaw_rate, object.yaw_input);
+    mission.clock.frame_start = first.ticks + second.ticks;
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual(ListStep.done, mission.slot(ship).state.list.step);
+    try std.testing.expectEqual(1, object.order_count);
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual(0, object.roll_input);
+    try std.testing.expectEqual(0, object.order_count);
+}
+
 test doNothing {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
@@ -898,7 +1062,7 @@ test fly {
 
     const index = try mission.addOther(@splat(0));
     const other = try mission.addOther(.{ 0, 0, 30000 });
-    try std.testing.expect(try aigeneric.pushShip(ctx, index, .fly, other, aigeneric.Target.whole));
+    try std.testing.expect(try aigeneric.pushShip(ctx, index, .fly, other, null));
 
     // Starting it keeps the heading, and with no speed of its own it flies at full throttle.
     aigeneric.objectOrders(ctx, index);
@@ -917,6 +1081,13 @@ test fly {
     aigeneric.objectOrders(ctx, index);
     try std.testing.expectEqual(0, all.slots[index].object.throttle);
     try std.testing.expectEqual(0, all.slots[index].object.order_count);
+
+    // A target past the objects is none, so it holds the heading it started on.
+    try std.testing.expect(try aigeneric.push(ctx, index, .fly, .at(gameobj.max_objects, null)));
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(1, all.slots[index].object.order_count);
+    try std.testing.expectEqual(1, all.slots[index].object.throttle);
+    try std.testing.expectApproxEqAbs(0, all.slots[index].object.yaw_input, 1e-6);
 }
 
 test "Fly without a target holds the heading it started on" {
@@ -966,7 +1137,7 @@ test "a ship under a Fly order closes on its target and stops there" {
 
     const index = try mission.addOther(@splat(0));
     const target = try mission.addOther(.{ 8000, 0, 30000 });
-    try std.testing.expect(try aigeneric.pushShip(ctx, index, .fly, target, aigeneric.Target.whole));
+    try std.testing.expect(try aigeneric.pushShip(ctx, index, .fly, target, null));
     const slot = &all.slots[index];
     const to = all.slots[target].object.nextPosition();
     const start = math.distance(gameobj.vector(slot.object.root.position), to);
@@ -1002,7 +1173,7 @@ test matchSpeed {
     const other = try mission.addOther(.{ 0, 0, 5000 });
     all.slots[other].object.flags.targetable = true;
     all.slots[other].object.speed = 160;
-    try std.testing.expect(try aigeneric.pushShip(ctx, index, .match_speed, other, aigeneric.Target.whole));
+    try std.testing.expect(try aigeneric.pushShip(ctx, index, .match_speed, other, null));
 
     aigeneric.objectOrders(ctx, index);
     try std.testing.expectApproxEqAbs(0.5, all.slots[index].object.throttle, 1e-6);
@@ -1042,7 +1213,7 @@ test runAway {
 
     const index = try mission.addOther(@splat(0));
     const other = try mission.addOther(.{ 0, 0, 5000 });
-    try std.testing.expect(try aigeneric.pushShip(ctx, index, .run_away, other, aigeneric.Target.whole));
+    try std.testing.expect(try aigeneric.pushShip(ctx, index, .run_away, other, null));
 
     // The target lies ahead, so it turns away from it and flies at half throttle.
     aigeneric.objectOrders(ctx, index);
@@ -1053,6 +1224,44 @@ test runAway {
     all.resetSlot(other, &mission.random);
     aigeneric.objectOrders(ctx, index);
     try std.testing.expectEqual(0, all.slots[index].object.order_count);
+
+    // Nor is an index past the objects.
+    try std.testing.expect(try aigeneric.push(ctx, index, .run_away, .at(gameobj.max_objects, null)));
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(0, all.slots[index].object.order_count);
+}
+
+test "Run Away moves its point round what lies near before it steers" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const world = ctx.world;
+    // A ship at the origin, running from a target behind it toward a hull ahead, and turning.
+    const ship = try mission.addOther(@splat(0));
+    const target = try mission.addOther(.{ 0, 0, -5000 });
+    _ = try ai.testing.hullAhead(&mission, ship, .{ 0, 0, 5000 });
+    const slot = mission.slot(ship);
+    slot.object.pitch_rate = 0.02;
+    slot.object.yaw_rate = 0.005;
+
+    // The point far beyond the ship moves onto the hull's box, where the steering's own pass finds
+    // nothing more to go round, so the ship keeps its ease.
+    const from = slot.object.nextPosition();
+    var point = from + (from - mission.slot(target).object.nextPosition()) * @as(Vector, @splat(run_away_ahead));
+    try std.testing.expect(ai.avoidNear(world, ship, &point));
+    var again = point;
+    try std.testing.expect(!ai.avoidNear(world, ship, &again));
+    const saved = slot.*;
+    _ = ai.steer(world, ship, point, ai.full_limit, run_away_ease, .clear);
+    const steered: Vector = .{ slot.object.pitch_input, slot.object.yaw_input, slot.object.roll_input };
+    slot.* = saved;
+
+    // Run Away turns the ship as steering at that point does.
+    try std.testing.expect(try aigeneric.pushShip(ctx, ship, .run_away, target, null));
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual(steered, Vector{ slot.object.pitch_input, slot.object.yaw_input, slot.object.roll_input });
+    try std.testing.expectEqual(run_away_throttle, slot.object.throttle);
 }
 
 test launchMissile {
@@ -1072,49 +1281,58 @@ test launchMissile {
     try std.testing.expectEqual(1, armed.live());
 }
 
-/// A mission for the tests of the orders that walk a flight group: `count` ships, the first two
-/// outside any group, and the rest in flight group 0, which the world's mission binds.
+test Pick {
+    var pick: Pick = .none;
+    try std.testing.expectEqual(null, pick.kept());
+    // The lightest offered is kept: a component of a ship, or a ship whole.
+    pick.offer(.at(3, 2), 100);
+    try std.testing.expectEqual(aigeneric.Target.at(3, 2), pick.kept().?);
+    pick.offer(.at(5, null), 50);
+    try std.testing.expectEqual(aigeneric.Target.at(5, null), pick.kept().?);
+    // One that weighs as much or more is passed over.
+    pick.offer(.at(7, null), 50);
+    pick.offer(.at(8, 1), 60);
+    try std.testing.expectEqual(aigeneric.Target.at(5, null), pick.kept().?);
+}
+
+test EscortState {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var state = std.mem.zeroes(EscortState);
+    // None, a slot, and an index past the objects.
+    state.escorted = -1;
+    try std.testing.expectEqual(null, state.escortedIn(mission.objects));
+    state.escorted = 7;
+    try std.testing.expectEqual(7, state.escortedIn(mission.objects));
+    state.escorted = gameobj.max_objects;
+    try std.testing.expectEqual(null, state.escortedIn(mission.objects));
+}
+
+/// A mission for the tests of the orders that walk a flight group: `count` ships, the last
+/// `in_group` of them in flight group 0 and the rest in none, which the world's mission binds.
 const GroupMission = struct {
-    fixture: @import("../vm.zig").machine.testing.Fixture,
-    game: gameobj.testing.Mission,
+    game: @import("../vm.zig").machine.testing.Game,
 
     fn init(mission: *GroupMission, comptime count: usize, in_group: usize) !void {
-        const gpa = std.testing.allocator;
         const dte = @import("../../formats/dte.zig");
-        var ships: [count]dte.Ship = @splat(std.mem.zeroes(dte.Ship));
-        for (&ships, 0..) |*ship, n| {
-            ship.object_id = @intCast(n);
-            ship.flight_group = if (n >= count - in_group) 0 else dte.Ship.no_flight_group;
-        }
-        var flight_group = std.mem.zeroes(dte.FlightGroup);
-        flight_group.object_id = count;
-        var kinds: [count + 1]dte.Object = @splat(.{ .kind = .ship, .count = 0, .first = 0, ._unknown_04 = 0 });
+        const records = dte.testing;
+        var ships = records.ships(count, 0);
+        for (ships[count - in_group ..]) |*ship| ship.flight_group = 0;
+        var kinds: [count + 1]dte.Object = @splat(records.object(.ship, 0, 0));
         kinds[count].kind = .flight_group;
-        try mission.fixture.init(gpa, &.{}, .{ .ships = &ships, .flight_groups = &.{flight_group}, .objects = &kinds });
-        errdefer mission.fixture.deinit();
-        try mission.game.init(gpa);
+        try mission.game.init(std.testing.allocator, &.{}, .{ .ships = &ships, .flight_groups = &.{records.flightGroup(count, .player)}, .objects = &kinds });
     }
 
-    fn deinit(mission: *GroupMission) void {
-        mission.game.deinit();
-        mission.fixture.deinit();
-    }
-
-    fn orders(mission: *GroupMission) Context {
-        var ctx = mission.game.orders();
-        ctx.world.mission = &mission.fixture.mission;
-        return ctx;
-    }
-
-    const group: aigeneric.Target = .{ .kind = .flight_group, .index = 0, .component = aigeneric.Target.whole };
+    const group: aigeneric.Target = .group(.flight_group, 0);
 };
 
 test "Find New Target fights what it may, mills round the rest, and pops with none" {
     var mission: GroupMission = undefined;
     try mission.init(6, 3);
-    defer mission.deinit();
-    const game = &mission.game;
-    const ctx = mission.orders();
+    defer mission.game.deinit();
+    const game = &mission.game.mission;
+    const ctx = mission.game.orders();
     // A fighter at the origin, a Predator that fights, and the flight group of three ahead, the
     // nearest fought by two others already and the next cloaked.
     const searcher = try game.addOther(@splat(0));
@@ -1126,7 +1344,7 @@ test "Find New Target fights what it may, mills round the rest, and pops with no
     game.slot(cloaked).object.flags.cloaked = true;
     try std.testing.expectEqual(.fighter, game.slot(searcher).combat.?.class);
     for ([_]u16{ 0, other }) |index| {
-        _ = try aigeneric.pushShip(ctx, index, .fight, near, aigeneric.Target.whole);
+        _ = try aigeneric.pushShip(ctx, index, .fight, near, null);
     }
 
     // It fights the farthest, the one it may.
@@ -1155,9 +1373,9 @@ test "Find New Target fights what it may, mills round the rest, and pops with no
 test "Find Scoop Up scoops up the nearest it may, one after another, and pops with none" {
     var mission: GroupMission = undefined;
     try mission.init(5, 3);
-    defer mission.deinit();
-    const game = &mission.game;
-    const ctx = mission.orders();
+    defer mission.game.deinit();
+    const game = &mission.game.mission;
+    const ctx = mission.game.orders();
     // A ship at the origin, and the flight group of three ahead: the farthest, an ejected one
     // nearer, and the nearest cloaked.
     const searcher = try game.addOther(@splat(0));
@@ -1191,9 +1409,9 @@ test "Find Scoop Up scoops up the nearest it may, one after another, and pops wi
 test "Escort takes its place in the group, follows, and ends with its ship" {
     var mission: GroupMission = undefined;
     try mission.init(4, 2);
-    defer mission.deinit();
-    const game = &mission.game;
-    const ctx = mission.orders();
+    defer mission.game.deinit();
+    const game = &mission.game.mission;
+    const ctx = mission.game.orders();
     const escort_ship = try game.addOther(@splat(0));
     const first = try game.add(.predator, .{ 0, 0, 20000 });
     _ = try game.add(.predator, .{ 0, 0, 20000 });
@@ -1220,12 +1438,12 @@ test "Escort takes its place in the group, follows, and ends with its ship" {
 test "Escort of a group with no ships escorts none" {
     var mission: GroupMission = undefined;
     try mission.init(2, 0);
-    defer mission.deinit();
-    const ctx = mission.orders();
-    const escort_ship = try mission.game.addOther(@splat(0));
+    defer mission.game.deinit();
+    const ctx = mission.game.orders();
+    const escort_ship = try mission.game.mission.addOther(@splat(0));
     _ = try aigeneric.push(ctx, escort_ship, .escort, GroupMission.group);
     aigeneric.objectOrders(ctx, escort_ship);
-    try std.testing.expectEqual(0, mission.game.slot(escort_ship).object.order_count);
+    try std.testing.expectEqual(0, mission.game.mission.slot(escort_ship).object.order_count);
 }
 
 test "Mill circles its target for a while" {
@@ -1236,7 +1454,7 @@ test "Mill circles its target for a while" {
     const ship = try mission.addOther(@splat(0));
     const target = try mission.add(.predator, .{ 0, 0, 60000 });
     mission.slot(target).object.flags.targetable = true;
-    _ = try aigeneric.pushShip(ctx, ship, .mill, target, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(ctx, ship, .mill, target, null);
     aigeneric.objectOrders(ctx, ship);
     // Its circle faces from the target back to the ship, and it flies at full throttle.
     const state = &mission.slot(ship).state.mill;
@@ -1285,7 +1503,7 @@ test "Formation flies abreast of its target, on alternate sides, and ends with i
     const ship = try mission.addOther(@splat(0));
     const leader = try mission.add(.predator, .{ 0, 0, 10000 });
     mission.slot(leader).object.flags.targetable = true;
-    _ = try aigeneric.pushShip(ctx, ship, .formation, leader, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(ctx, ship, .formation, leader, null);
     const slot = mission.slot(ship);
     const state = &slot.state.formation;
     // The ships numbered 0 to 3 fly one and two places out, left and right in turn.
@@ -1315,7 +1533,7 @@ test "Object Attach rides its target, where it stood in the target's frame" {
     const carrier = mission.slot(ship);
     const quarter = math.rotation(.y, std.math.pi / 2.0);
     objects.setOrientation(&carrier.object, &carrier.drawn, quarter);
-    _ = try aigeneric.pushShip(ctx, pod, .object_attach, ship, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(ctx, pod, .object_attach, ship, null);
     aigeneric.objectOrders(ctx, pod);
     const offset = math.transformTransposed(quarter, .{ 100, 0, 0 });
     // Where it stood, turned as the ship is.
@@ -1330,7 +1548,7 @@ test "Object Attach rides its target, where it stood in the target's frame" {
     aigeneric.objectOrders(ctx, pod);
     const at = mission.slot(pod).drawn.position;
     const expected = offset + Vector{ 0, 0, 5000 };
-    inline for (0..3) |axis| try std.testing.expectApproxEqAbs(expected[axis], at[axis], 1e-3);
+    try math.testing.expectVectorWithin(expected, at, 1e-3);
     try std.testing.expectEqual(50, mission.slot(pod).object.velocity.z);
     try std.testing.expectEqual(50, mission.slot(pod).object.speed);
 }

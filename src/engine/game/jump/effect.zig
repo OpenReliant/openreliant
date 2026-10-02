@@ -95,6 +95,11 @@ pub const Shown = packed struct(u8) {
     burst: bool = false,
     flare: bool = false,
     _: u4 = 0,
+
+    /// What `shown` shows, and `more` too.
+    pub fn with(shown: Shown, more: Shown) Shown {
+        return @bitCast(@as(u8, @bitCast(shown)) | @as(u8, @bitCast(more)));
+    }
 };
 
 /// The meshes the records share, the lights' textures, and the records.
@@ -129,7 +134,7 @@ pub const Effects = struct {
         const light_going_image = try matmanager.textureRequire(textures, images.light_going);
         var flare_mesh = try loadout.squareMesh(gpa, false, flare_size[0], flare_size[1]);
         errdefer flare_mesh.deinit(gpa);
-        for ([_]usize{ 1, 3, 4 }) |corner| flare_mesh.uv[0].?[corner][0] = 1;
+        loadout.spanWhole(&flare_mesh);
         flare_mesh.surfaces[0] = .{
             .polygons = @intCast(flare_mesh.polygons.len),
             .material = .onePass(.{ .coordinates = .mesh, .lit = false, .blend = .add }),
@@ -310,7 +315,8 @@ pub const Effects = struct {
     }
 
     /// `jump_flare_object` (`0x00418120`): the flare, standing at `at` in the world, as wide as
-    /// `width`, which the jump's steps change.
+    /// `width`, which the jump's steps change. It keeps how it is turned (`Effect.flare_turn`),
+    /// as Jump In's placing does after it in the game; Jump Out never reads it.
     pub fn startFlare(effects: *Effects, effect: *Effect, at: math.Place, width: f32) void {
         effect.flare = .{ .width = width, .object = .{
             .flags = .{ .not_culled = true, .baked_object = true },
@@ -322,6 +328,19 @@ pub const Effects = struct {
         } };
         const flare = &effect.flare.?;
         flare.object.baked = &flare.colours;
+        effect.flare_turn = at.orientation;
+    }
+
+    /// Jump Out's lights as it charges, `progress` of the way (`Effect.chargeLights`), turning to
+    /// `lights\flare-lb` as they are swept along the hull.
+    pub fn chargeLights(effects: *const Effects, effect: *Effect, progress: f32) void {
+        effect.chargeLights(progress, effects.light_going_image);
+    }
+
+    /// Jump In's burst glowing as it flies in, `share` of the way still to go (`glowBurst`), as
+    /// the renderer draws it.
+    pub fn glow(effects: *const Effects, effect: *Effect, share: f32) void {
+        if (effect.burst) |*burst| glowBurst(burst, share, effects.hardware);
     }
 };
 
@@ -334,7 +353,8 @@ pub const Effect = struct {
     light_count: usize = 0,
     burst: ?Burst = null,
     flare: ?Flare = null,
-    /// How Jump In's flare is turned before it stretches (`+0x70`).
+    /// How Jump In's flare is turned before it stretches (`+0x70`), which `Effects.startFlare`
+    /// keeps.
     flare_turn: Matrix = math.identity,
     shown: Shown = .{},
 
@@ -371,7 +391,32 @@ pub const Effect = struct {
             light.sprite[0].colour = @splat(0);
         };
     }
+
+    /// Jump In's flare as the ship flies in, `progress` of the way: until `flare_squash` of it, at
+    /// full width, turned as it arrived (`flare_turn`) and scaled `1 + progress * flare_stretch`
+    /// across and from 1 down to `flare_thinnest` up, which stretches and flattens it in the
+    /// world's own X and Y, and as much of it shows as it is high. Whether it shows: not past
+    /// `flare_squash`, nor where there is no flare.
+    pub fn squashFlare(effect: *Effect, progress: f32) bool {
+        if (progress >= flare_squash) return false;
+        const flare = if (effect.flare) |*held| held else return false;
+        const height = 1 - progress / flare_squash + flare_thinnest;
+        flare.grow(1);
+        flare.share = height;
+        flare.object.orientation = math.product(effect.flare_turn, math.scaling(.{ 1 + progress * flare_stretch, height, 1 }));
+        return true;
+    }
 };
+
+/// How the flare stretches across and flattens as the ship flies in (`Effect.squashFlare`):
+/// `flare_stretch` times its width across for each of the flight's share (`0x004DC3D8`), gone flat
+/// at `flare_squash` of it (`0x004DC4C0`), and never quite nothing (`0x004DC568`).
+///
+/// **Improvement:** OpenReliant flattens it by the share over `flare_squash`, where the game
+/// multiplies by 3.3333333 (`0x004DC530`).
+const flare_stretch: f32 = 3;
+const flare_squash: f32 = 0.3;
+const flare_thinnest: f32 = 1e-6;
 
 /// How the ship's own lights are lit: from nothing to full as the charge reaches `1 / lights_rise`
 /// (`0x004DC570`), then from `lights_going` of it (`0x004DC410`) swept along the hull at
@@ -633,11 +678,6 @@ fn glowBurst(burst: *Burst, share: f32, hardware: bool) void {
     }
 }
 
-/// Jump In's burst glowing as it flies in, `share` of the way still to go.
-pub fn glow(effect: *Effect, share: f32, hardware: bool) void {
-    if (effect.burst) |*burst| glowBurst(burst, share, hardware);
-}
-
 test "the trail's mesh" {
     const gpa = std.testing.allocator;
     var image: srtexture.Image = .{ .levels = &.{} };
@@ -647,7 +687,7 @@ test "the trail's mesh" {
     try std.testing.expectEqual(Vector{ -100, -100, 0 }, mesh.positions[0]);
     try std.testing.expectEqual(Vector{ 0, -100, 0 }, mesh.positions[4]);
     try std.testing.expectEqual(Vector{ 0, 100, 20000 }, mesh.positions[6]);
-    for (@as([3]f32, mesh.positions[12]), [3]f32{ -86.60254, 50, 0 }) |a, e| try std.testing.expectApproxEqAbs(e, a, 1e-3);
+    try math.testing.expectVectorWithin(.{ -86.60254, 50, 0 }, mesh.positions[12], 1e-3);
     try std.testing.expectEqual(2, mesh.surfaces.len);
     try std.testing.expectEqual(3, mesh.surfaces[1].polygons);
     try std.testing.expectEqual([2]f32{ trail_far, trail_near }, mesh.uv[0].?[5]);
@@ -676,7 +716,7 @@ test "the burst's mesh" {
     // Jump In's first ring closes to a point; its last stands 900 back, 330 across, made twice as
     // wide.
     try std.testing.expectEqual(Vector{ 0, 0, 0 }, mesh.positions[ringPoint(0, 3)]);
-    for (@as([3]f32, mesh.positions[ringPoint(5, 0)]), [3]f32{ 0, 660, -900 }) |a, e| try std.testing.expectApproxEqAbs(e, a, 1e-2);
+    try math.testing.expectVectorWithin(.{ 0, 660, -900 }, mesh.positions[ringPoint(5, 0)], 1e-2);
     // A band's two triangles, from each ring to the next.
     try std.testing.expectEqualSlices(u16, &.{ 1, 13, 2, 2, 13, 14 }, mesh.indices[0..6]);
     // Its first triangle is spanned like the rest.
@@ -707,6 +747,28 @@ test "Effect.chargeLights" {
     try std.testing.expectEqual(@as([3]f32, @splat(0.5)), effect.lights[2].?.sprite[0].colour);
 }
 
+test "Shown.with" {
+    const trails: Shown = .{ .trails = true };
+    try std.testing.expectEqual(Shown{ .trails = true, .flare = true }, trails.with(.{ .flare = true }));
+    try std.testing.expectEqual(trails, trails.with(.{}));
+}
+
+test "Effect.squashFlare" {
+    var effect: Effect = .{ .owner = 0, .flare_turn = math.rotation(.y, std.math.pi / 2.0) };
+    // With no flare, nothing shows.
+    try std.testing.expect(!effect.squashFlare(0));
+    effect.flare = .{ .object = .{ .flags = .{}, .position = @splat(0), .radius = 1, .levels = &.{} }, .width = 50 };
+    // A sixth of the way, it shows at full width, half as high, stretched half as wide again
+    // across, turned as it arrived.
+    try std.testing.expect(effect.squashFlare(0.15));
+    const flare = &effect.flare.?;
+    try std.testing.expectEqual(50, flare.object.scale);
+    try std.testing.expectApproxEqAbs(0.5, flare.share, 1e-5);
+    try math.testing.expectMatrixWithin(math.product(effect.flare_turn, math.scaling(.{ 1.45, 0.5 + flare_thinnest, 1 })), flare.object.orientation, 1e-5);
+    // Past `flare_squash` of the way, it shows no more.
+    try std.testing.expect(!effect.squashFlare(flare_squash));
+}
+
 test "the flare lights what stands round it as it shows" {
     const gpa = std.testing.allocator;
     var mission: gameobj.testing.Mission = undefined;
@@ -731,7 +793,10 @@ test "the flare lights what stands round it as it shows" {
     const place = (try effects.alloc(ship)).?;
     defer effects.free(place);
     const record = effects.get(place).?;
-    effects.startFlare(record, .{ .position = .{ 0, 0, 100 } }, 50);
+    const turned = math.rotation(.y, std.math.pi / 2.0);
+    effects.startFlare(record, .{ .position = .{ 0, 0, 100 }, .orientation = turned }, 50);
+    // It keeps how it is turned, for Jump In's squash.
+    try std.testing.expectEqual(turned, record.flare_turn);
     record.flare.?.grow(0.5);
     record.shown = .{ .flare = true };
     var scene: srcore.Scene = .{};

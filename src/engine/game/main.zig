@@ -105,7 +105,24 @@ pub const Ending = enum(u8) {
     _unknown_7 = 7,
     ejecting = 8,
     _,
+
+    /// Whether the player's ship is being sent home for its friendly fire (`friendly_fire.zig`),
+    /// which lands it at once and plays no landing (`land_reliant_init`, `0x0040F5C0`).
+    pub fn sentHome(ending: Ending) bool {
+        return switch (ending) {
+            .friendly_fire, ._unknown_7 => true,
+            .playing, .destroyed, .rescued, .captured, .left, .total_failure, .ejecting, _ => false,
+        };
+    }
 };
+
+test "Ending.sentHome" {
+    try std.testing.expect(Ending.friendly_fire.sentHome());
+    try std.testing.expect(Ending._unknown_7.sentHome());
+    try std.testing.expect(!Ending.playing.sentHome());
+    try std.testing.expect(!Ending.ejecting.sentHome());
+    try std.testing.expect(!@as(Ending, @enumFromInt(9)).sentHome());
+}
 
 /// What the mission's scene shows (`0x00587CD4`), which a mission's start sets to `everything`.
 pub const Showing = enum(u8) {
@@ -496,7 +513,7 @@ pub const Controls = struct {
 /// (`input.force`).
 pub fn controlsFrame(controls: Controls) void {
     const world = controls.orders.world;
-    const clock = controls.orders.clock;
+    const clock = world.clock;
     const all = world.objects;
     const view = controls.camera;
     const devices = controls.devices;
@@ -596,8 +613,8 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
         const variables = &playing.script.variables;
         if (over) variables.mission_over = 1;
         if (variables.mission_over != 0) return true;
-        if (orders.clock.frame_duration != 0 and player.ending == .playing and player.showing != .landing) {
-            playing.tickClock(orders.clock.game_ticks);
+        if (orders.world.clock.frame_duration != 0 and player.ending == .playing and player.showing != .landing) {
+            playing.tickClock(orders.world.clock.game_ticks);
             playing.flush(orders);
             playing.process(orders);
         }
@@ -606,18 +623,18 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.jump_effects) |effects| effects.beginFrame();
     aigeneric.ordersUpdate(orders);
     friendly_fire.sendHome(orders);
-    player.scanner.frame(orders.world, orders.clock.frame_start);
-    frameObjects(orders.world.objects, timing, orders.clock.frame_start);
+    player.scanner.frame(orders.world, orders.world.clock.frame_start);
+    frameObjects(orders.world.objects, timing, orders.world.clock.frame_start);
     missiles.frame(orders.world, timing.fraction);
-    guns.bulletsFrame(orders.world, orders.clock, timing.fraction);
-    if (orders.world.sparks) |thrown| thrown.frame(orders.clock);
-    if (orders.world.particles) |pool| pool.frame(orders.clock);
-    if (orders.world.smoke) |pools| pools.frame(orders.clock);
-    if (orders.world.gun_particles) |pools| pools.frame(orders.clock);
+    guns.bulletsFrame(orders.world, orders.world.clock, timing.fraction);
+    if (orders.world.sparks) |thrown| thrown.frame(orders.world.clock);
+    if (orders.world.particles) |pool| pool.frame(orders.world.clock);
+    if (orders.world.smoke) |pools| pools.frame(orders.world.clock);
+    if (orders.world.gun_particles) |pools| pools.frame(orders.world.clock);
     smoke.frame(orders.world);
     objectsPass(orders);
     followCarrier(orders.world);
-    if (orders.world.forces) |forces| forces.pushFrame(orders.clock.frame_start);
+    if (orders.world.forces) |forces| forces.pushFrame(orders.world.clock.frame_start);
     orders.world.objects.exhaust.burn(orders.world);
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
@@ -722,9 +739,8 @@ fn objectsPass(orders: aigeneric.Context) void {
     while (walk.next()) |index| {
         const slot = &all.slots[index];
         if (slot.object.flags.outOfFrame()) continue;
-        if (slot.object.order_count > 0) {
-            const order = slot.orders[0];
-            if (order.order == .fight and order.target.slot() == all.player and slot.state.fight.missile_ready) enemy_lock = true;
+        if (slot.current()) |entry| {
+            if (entry.order == .fight and entry.target.slot() == all.player and slot.state.fight.missile_ready) enemy_lock = true;
         }
         objects.loseComponents(orders, index);
         avoidanceScan(world, index);
@@ -752,8 +768,9 @@ fn avoidanceScan(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const ship = &slot.object;
-    if (ship.flags.no_avoidance or ship.order_count == 0) return;
-    const info = ai.orders.info(slot.orders[0].order) orelse return;
+    if (ship.flags.no_avoidance) return;
+    const entry = slot.current() orelse return;
+    const info = ai.orders.info(entry.order) orelse return;
     if (!info.flags.avoidance) return;
     ship.avoid_near.count = 0;
     ship.avoid_ahead.count = 0;
@@ -1150,7 +1167,7 @@ test drawFrame {
     var model: create.testing.Model = undefined;
     try model.init(gpa);
     defer model.deinit(gpa);
-    const ship = try create.createObject(mission.objects, &mission.tables, model.types(), null, .predator, 0, .{ 0, 0, 1000 }, &mission.random);
+    const ship = try mission.addWith(model.types(), .predator, .{ 0, 0, 1000 });
     frameObjects(mission.objects, .{}, 0);
 
     // The backdrop, the sky, and the radar's backing, from textures of their own names.
@@ -1445,15 +1462,13 @@ const armor_warning_interval = 500;
 const armor_warning_share: f32 = 0.5;
 
 test armorWarning {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: hog_snd.Sound = undefined;
-    sound.init(driver, 2, null);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
     const bytes = comptime hog_snd.testing.bank(2);
     sound.betty = try @import("../../formats/fat.zig").Bank.parse(&bytes);
     var clock: Clock = .{ .frame_start = 1000 };
-    const view: camera.Place = .{ .position = @splat(0), .orientation = math.identity };
-    const hearing: hog_snd.Hearing = .{ .sound = &sound, .camera = &view, .clock = &clock };
+    const hearing = speaker.hearing(&clock);
     const combat = std.mem.zeroInit(create.ShipCombat, .{ .armor_class = 5 });
     var object = gameobj.testing.object();
     object.shields = .all(10);
@@ -1769,30 +1784,24 @@ test startMission {
     try routine.op(.@"return", &.{});
     const code = try routine.finish();
     defer gpa.free(code);
-    var ships: [2]dte.Ship = @splat(std.mem.zeroes(dte.Ship));
     // The player flies a torpedo, a type with a model but no schematic nor cockpit, and the other
     // is of a type the game names no model for.
     const torpedo: gameobj.Type = @enumFromInt(74);
     const modelless: gameobj.Type = @enumFromInt(14);
+    var ships: [2]dte.Ship = undefined;
     for (&ships, [_]gameobj.Type{ torpedo, modelless }, 0..) |*ship, kind, index| {
-        ship.object_id = @intCast(index);
-        ship.flight_group = @intCast(index);
-        ship.kind = @intCast(kind.number());
-        ship.pilot = dte.Ship.no_pilot;
-        ship.launch_gate = dte.Ship.no_launch;
+        ship.* = dte.testing.ship(@intCast(index), @intCast(index), @intCast(kind.number()));
         ship.position = .{ 0, 0, @floatFromInt(index * 5000) };
     }
-    var groups: [2]dte.FlightGroup = @splat(std.mem.zeroes(dte.FlightGroup));
-    groups[0].wing = 0;
-    groups[1].wing = dte.FlightGroup.no_wing;
+    const groups = [_]dte.FlightGroup{ dte.testing.flightGroup(0, .player), dte.testing.flightGroup(0, .none) };
     var part = std.mem.zeroes(dte.Part);
     part.flags.start = true;
     part.length = @intCast(code.len / @sizeOf(u16));
     var sections: dte.write.Sections = @splat(.{});
-    sections[@intFromEnum(dte.Section.ships)] = .{ .count = ships.len, .bytes = std.mem.sliceAsBytes(&ships) };
-    sections[@intFromEnum(dte.Section.flight_groups)] = .{ .count = groups.len, .bytes = std.mem.sliceAsBytes(&groups) };
-    sections[@intFromEnum(dte.Section.script)] = .{ .count = @intCast(code.len / @sizeOf(u16)), .bytes = code };
-    sections[@intFromEnum(dte.Section.parts)] = .{ .count = 1, .bytes = std.mem.asBytes(&part) };
+    dte.write.set(&sections, .ships, ships.len, std.mem.sliceAsBytes(&ships));
+    dte.write.set(&sections, .flight_groups, groups.len, std.mem.sliceAsBytes(&groups));
+    dte.write.set(&sections, .script, code.len / @sizeOf(u16), code);
+    dte.write.set(&sections, .parts, 1, std.mem.asBytes(&part));
     const image = try dte.write.write(gpa, &sections, .{});
 
     // The game's files: the torpedo's model alone.
@@ -1843,7 +1852,7 @@ test missionFrame {
     // The player's slot, then a ship that turns on the spot under an order of its own.
     for (0..2) |_| _ = try mission.add(.predator, @splat(0));
     const orders = mission.orders();
-    try std.testing.expect(try aigeneric.push(orders, 1, .slow_rotate, .{ .kind = .ship, .index = -1, .component = -1 }));
+    try std.testing.expect(try aigeneric.push(orders, 1, .slow_rotate, .none));
 
     _ = missionFrame(orders, .{}, null);
     // The frame ran the ship's order, and framed every object where it is drawn.
@@ -1852,11 +1861,12 @@ test missionFrame {
 }
 
 test "the simulation steps on every fourth tick" {
-    var clock: Clock = .{};
     var devices: input.Devices = .{};
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
+    // The world's clock is the one that ticks.
+    const clock = &mission.clock;
     // A second of the timer: 100 ticks, 100 game ticks, 25 steps.
     clock.advanceTimer(100);
     try std.testing.expectEqual(100, clock.game_ticks);
@@ -2044,7 +2054,7 @@ test avoidanceScan {
     try std.testing.expectEqual(0, mission.slot(ship).object.avoid_near.count);
     // Flying, the hull within its widened reach and the ship ahead it would meet are, but not the
     // far one.
-    _ = try aigeneric.pushShip(mission.orders(), ship, .fly, far, -1);
+    _ = try aigeneric.pushShip(mission.orders(), ship, .fly, far, null);
     avoidanceScan(world, ship);
     try std.testing.expectEqualSlices(i32, &.{hull}, mission.slot(ship).object.avoid_near.list());
     try std.testing.expectEqualSlices(i32, &.{ahead}, mission.slot(ship).object.avoid_ahead.list());

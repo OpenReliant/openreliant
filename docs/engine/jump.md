@@ -27,7 +27,7 @@ The two orders share a state (`JumpState`):
 | `+0x3C` | Where it stood then |
 | `+0x50` | The frame's tick of the last update |
 | `+0x54` | How far through its step it is, from 0 to past 1 |
-| `+0x58` | **Unknown.** The number of lights of its effect, which only the effect reads |
+| `+0x58` | How many lights its effect has (`jump_effect_start`), which the lights' sweep along the hull reads |
 | `+0x5C`, `+0x68` | Where Jump Out's motion takes it from and to |
 | `+0x74` | The motion it puts aside while it flies a jump's own |
 | `+0x78` | Its effect record ([What a jump shows](#what-a-jump-shows)) |
@@ -43,19 +43,19 @@ step's rate, and holds the ship's Nova Cannon's charge at nothing.
 player's ship the camera switches to view `0x27`, held ([Camera](camera.md#the-jumps-views)). The
 ship of a player uncloaks ([Cloak](cloak.md)).
 
-`0x004184F0` places it. Where the player's ship's current order is Jump Out and names the same
-target by its index, the ship goes with it, in formation: it collides with nothing, and the target,
-or 100000 ahead of the player's ship where the order names nothing or the player's ship, is where
-it goes. It is turned to face it from the player's ship, and stands in row `r` of the formation, `r`
-times 3000 behind the player's ship, which holds `r` ships abreast, 6000 apart and centred on the
-player's line; the order's number counts through the rows from the first, which holds one ship, up
-to nine rows. It is stopped, and set flying 150 ahead, its throttle what that is of its cruise speed.
-The player's ship takes its place so too, by its own number: the first, 3000 back from where it
-was. Each object
-the ship's way crosses within 500000 ahead of it (`segment_meets_box`), but those on the same jump,
-stand-ins and disabled and jumping ones, is marked jumping (`0x00418470`): so is every fuel pod
-(type `0xE1`), and every ship launching from the object or docking with it, and those in turn. A
-jumping object stays where it is, and the frame passes it over until the player's jump ends.
+`jump_out_place` (`0x004184F0`) places it. Where the player's ship's current order is Jump Out and
+names the same target by its index, the ship goes with it, in formation: it collides with nothing,
+and the target, or 100000 ahead of the player's ship where the order names nothing or the player's
+ship, is where it goes. It is turned to face it from the player's ship, and stands in row `r` of the
+formation, `r` times 3000 behind the player's ship, which holds `r` ships abreast, 6000 apart and
+centred on the player's line; the order's number counts through the rows from the first, which holds
+one ship, up to nine rows. It is stopped, and set flying 150 ahead, its throttle what that is of its
+cruise speed. The player's ship takes its place so too, by its own number: the first, 3000 back from
+where it was. Each object the ship's way crosses within 500000 ahead of it (`segment_meets_box`),
+but those on the same jump, stand-ins and disabled and jumping ones, is marked jumping (`jump_mark`,
+`0x00418470`): so is every fuel pod (type `0xE1`), and every ship launching from the object or
+docking with it, and those in turn. A jumping object stays where it is, and the frame passes it over
+until the player's jump ends.
 
 A ship that does not go with the player's goes to its target, where it stood last update, or 1e7
 ahead of itself where the order names nothing or the ship itself.
@@ -68,28 +68,31 @@ mission has ready (`jump_ready`, `0x0052A3F0`).
 | 0 | It steers to face where it goes (`ai_steer`, at most 0.8 of each turn, with no ease), until its rates of turn are within 0.05 and its steering inputs within 0.02; a ship of the player's wing goes on after 1000 ticks whatever. A ship in the player's formation holds its place 100 ticks instead. Then it sounds `jumpout` (sound `0x19`) |
 | 1 | It is held still: its steering inputs, its rates of turn, its turn and its speed nothing (the speed's figure alone: its velocity carries it on, slowing as its throttle has gone). The frame after, its effect begins, which keeps how it is turned and where it stands, and aims its motion 500000 along the way to where it goes |
 | 2 | It charges at 6 |
-| 3 | At full charge it goes: its motion is put aside for Jump Out's, it collides with nothing and draws at its finest (`0x00417DC0`), and its motion starts from where it stands. It fades at 4 for 250 ticks |
+| 3 | At full charge it goes: its motion is put aside for Jump Out's, it collides with nothing and draws at its finest (`model_show_finest`, `0x00417DC0`), and its motion starts from where it stands. It fades at 4 for 250 ticks |
 | 4 | It flies ahead again, jumping, while its flare fades at 10; then it collides again |
 | 5 | It is turned back as it was, powered and free to move, and flies its own motion again at its usual detail. The player's jump ends every object's jumping. An order that names another object gives way to Jump In at it, 19 for 20 and 40 for 41, at the same number; one that names nothing leaves the mission: the ship stops jumping, is disabled, but for a player's ship in a multiplayer game's way (object flag `0x10000000`), and is put 9.9e6 below where it went, its order done |
 
-In step 1 the Boridin's breakaway (`boridin_breakaway`) lets go of the sprite of its core.
+In step 1 the Boridin's breakaway (`boridin_breakaway`) lets go of the sprite of its core
+(`Bor brk away CORE`). Not ported: OpenReliant's Jump Out leaves the sprite be
+([#238](https://github.com/vdmkenny/openreliant/issues/238)).
 
-While the player's ship jumps out, `order_jump_out` counts `0x0051D0B4` down from 15 every 10 game
-ticks (`0x0051CFA0`), which nothing reads; `order_jump_out_init` sets it, with 1/15 at
-`0x0051D0A4`.
+While the player's ship jumps out (`jump_player_going`, `0x0051D0B0`), `order_jump_out` counts
+`jump_countdown` (`0x0051D0B4`) down from 15 every 10 game ticks (`jump_countdown_next`,
+`0x0051CFA0`), which nothing reads; `order_jump_out_init` sets it, with 1/15 at
+`jump_countdown_step` (`0x0051D0A4`). OpenReliant leaves the countdown out.
 
 ## Jump In
 
-`order_jump_in_init` has the ship collide with nothing and jump, and places it (`0x00418850`):
-abreast of its target, turned as the target is, where the target is drawn, the order's number `n`
-putting it `(n + 1) / 2` times 3000 to the target's right for even `n` and to its left for odd: the
-first at the target, the second to its left, the third to its right, and so on.
+`order_jump_in_init` has the ship collide with nothing and jump, and places it (`jump_in_place`,
+`0x00418850`): abreast of its target, turned as the target is, where the target is drawn, the
+order's number `n` putting it `(n + 1) / 2` times 3000 to the target's right for even `n` and to its
+left for odd: the first at the target, the second to its left, the third to its right, and so on.
 
 | Step | What it does |
 |---|---|
-| 0 | It is turned as its target is, set where it arrives, stopped, and moved back from there along its nose by 25000, or 100000 for a ship that lists components, to fly in from. It sounds `jumpin` (sound `0x1A`). For the player's ship, the camera switches to one of three views, held, picked from the C runtime's `rand`: twice its share of 32767, rounded, 0 for view `0x17`, 1 for `0x18` and 2 for `0x19` ([Camera](camera.md#the-jumps-views)); the mission's space takes on what its script asked of it (`environment_update`); and `0x005E82F0` is set, which cuts the space dust's streaks shorter ([Backdrop](backdrop.md#dust)) |
+| 0 | It is turned as its target is, set where it arrives, stopped, and moved back from there along its nose by 25000, or 100000 for a ship that lists components, to fly in from. It sounds `jumpin` (sound `0x1A`). For the player's ship, the camera switches to one of three views, held, picked from the C runtime's `rand`: twice its share of 32767, rounded, 0 for view `0x17`, 1 for `0x18` and 2 for `0x19` ([Camera](camera.md#the-jumps-views)); the mission's space takes on what its script asked of it (`environment_update`); and `jump_arriving` (`0x005E82F0`) is set, which cuts the space dust's streaks shorter ([Backdrop](backdrop.md#dust)) |
 | 1 | It flashes in at 50. Then its motion is put aside for Jump In's, and it no longer jumps |
-| 2 | It flies in at 3, the player's camera shaking by 1 less the progress (`hit_shake`). Then it flies its own motion again at full throttle, colliding, powered and free to move, and `0x005E82F0` is cleared |
+| 2 | It flies in at 3, the player's camera shaking by 1 less the progress (`hit_shake`). Then it flies its own motion again at full throttle, colliding, powered and free to move, and `jump_arriving` is cleared |
 | 3 | Its order ends: for the player's ship the camera goes back to view 0, free, the display's brightness to 1, its effect record is let go, and JumpedIn is posted (`event_jumped_in`, `0x0045B300`), with the groups ([Script VM](script-vm.md#events)). Order 40 first holds 200 ticks, its roll input `s * (n + 1) / 2` times 0.5 and its pitch input `(n + 1) / 2` times 0.5, with `s` 1 for even `n` and -1 for odd |
 
 In a multiplayer game, as the ship of the first player still flying jumps in, JumpedIn is posted
@@ -119,7 +122,7 @@ below; all but the flare hang from the ship's root frame.
 `jump_init` (`0x00416490`), as a mission loads, makes the flare's mesh (`jump_flare_mesh`,
 `0x0051D0A8`): a square 4 by 2 facing along Z (`mesh_build_square`, `0x0044F000`) over the whole of
 `jflare`, white and added. It loads the trails' texture, `trail3` (`0x0051D0AC`), and clears
-`0x005E82F0` and `0x0051D0B0`. `jump_free` (`0x00416510`) frees the mesh and the records as it ends.
+`jump_arriving` and `jump_player_going`. `jump_free` (`0x00416510`) frees the mesh and the records as it ends.
 
 `jump_effect_start` (`0x00417670`), as Jump Out's ship has been held still for a frame:
 
@@ -166,7 +169,8 @@ ship's model's width across (`+0x5AC` less `+0x5A0`).
 | Jump In 2 | The trails shaded and the burst glowing by 1 less the progress, and the trails and the burst. Until 0.3 of the flight the flare, full width, turned as it arrived times a scaling of `1 + 3 p` across and `1 - p / 0.3` up, which stretches and flattens it in the world's own X and Y |
 | Jump In 3 | Order 40's hold: the trails and the burst |
 
-`0x00417E20`, which Jump Out calls with the ship's root as it goes and as it ends, does nothing.
+`jump_idle` (`0x00417E20`), which Jump Out calls with the ship's root as it goes and as it ends,
+does nothing.
 
 **Improvement:** the flare casts a point light while it shows, in `jflare`'s own colour, as bright
 as the share of it that shows, reaching ten times the ship's width, two and a half times the

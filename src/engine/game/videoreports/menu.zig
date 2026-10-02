@@ -400,7 +400,7 @@ fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
         0, 1 => _ = world.random.rand(),
         else => {},
     }
-    _ = aigeneric.pushShip(ctx, index, .fight, all.player, aigeneric.Target.whole) catch false;
+    _ = aigeneric.giveShip(ctx, index, .fight, all.player, null);
     const own = (@as(Ace, @enumFromInt(object.pilot))).answers();
     const lines: videoreports.Lines = if (own) |named| .{ .named = named } else .{ .voiced = &taunt_answers };
     videoreports.reportShipIn(world, index, lines, videoreports.report_delay);
@@ -551,7 +551,7 @@ const TestMenu = struct {
         test_menu.display = .{};
         test_menu.devices = .{};
         world.display = &test_menu.display;
-        return .{ .world = world, .clock = world.clock, .devices = &test_menu.devices };
+        return .{ .world = world, .devices = &test_menu.devices };
     }
 
     fn deinit(test_menu: *TestMenu) void {
@@ -678,7 +678,7 @@ test "the wingman's status" {
     var menu: Menu = .{ .page = .status, .addressed = @intCast(heard.wingman) };
     menu.run(ctx);
     const report = heard.radio.reports[0] orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(ctx.clock.game_ticks + status_delay, report.due);
+    try std.testing.expectEqual(ctx.world.clock.game_ticks + status_delay, report.due);
     // Bandit has the fuller replies: whole, the last three of them.
     const speech = report.speech.slice();
     var found = false;

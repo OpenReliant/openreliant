@@ -555,7 +555,7 @@ test "a fighter moves by the first ship type's flight where the stats are at han
     const other = try mission.add(.sabre, .{ 0, 0, 5000 });
     mission.tables.combat[@intFromEnum(gameobj.Type.sabre)].class = .fighter;
     var world = mission.world();
-    world.spawn = .{ .tables = &mission.tables, .types = create.testing.no_models };
+    world.spawn = mission.spawn(create.testing.no_models);
     for ([_]u16{ fighter, other }) |index| {
         const slot = mission.slot(index);
         slot.motion = .downward;

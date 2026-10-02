@@ -226,11 +226,9 @@ test place {
     };
     place(&model, at, placed);
     const root = at.position + math.transform(at.orientation, .{ 0, 0, -300 });
-    const frame_at: [3]f32 = root + math.transform(at.orientation, .{ 0, 0, 100 });
-    for (frame_at, @as([3]f32, parts[frame].object.position)) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-3);
+    try math.testing.expectVectorWithin(root + math.transform(at.orientation, .{ 0, 0, 100 }), parts[frame].object.position, 1e-3);
     // The hands stand where the camera put them, not at their origin.
-    const hands_at: [3]f32 = root + math.transform(at.orientation, .{ 0, 10, 0 });
-    for (hands_at, @as([3]f32, parts[hands].object.position)) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-3);
+    try math.testing.expectVectorWithin(root + math.transform(at.orientation, .{ 0, 10, 0 }), parts[hands].object.position, 1e-3);
 }
 
 test lightEmergency {

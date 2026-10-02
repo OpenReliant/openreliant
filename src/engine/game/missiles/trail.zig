@@ -542,7 +542,7 @@ const Ribbon = struct {
             faces[@as(usize, cursor.*) * 3 + i].cap = true;
         }
         // The game adds the first texture coordinate of the quad before, which is always 0.
-        const width = object.bounds_max.x - object.bounds_min.x;
+        const width = object.width();
         const apart = math.distance(ribbon.mesh.positions[first], ribbon.mesh.positions[before]);
         if (moves and apart / width > ring_spacing) cursor.* = @intCast((cursor.* + 1) % rings);
     }

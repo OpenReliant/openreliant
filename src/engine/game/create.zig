@@ -35,6 +35,7 @@ const GameObject = gameobj.GameObject;
 const main = @import("main.zig");
 const motion = @import("motion.zig");
 const objects = @import("objects.zig");
+const Order = @import("ai/orders.zig").Order;
 const pilots = @import("pilots.zig");
 const shield = @import("shield.zig");
 const environfx = @import("environfx.zig");
@@ -407,14 +408,41 @@ pub const Slot = struct {
         cloak.drop(slot);
         if (slot.model) |model| model.deinit(gpa);
         slot.dropGuns(gpa);
-        if (slot.shield) |bubble| bubble.destroy(gpa);
-        slot.shield = null;
+        slot.dropShield(gpa);
     }
 
-    /// Its current order, the first of its stack, where it has one: as mutable as `slot` is.
+    /// Its current order, the first of its stack, where it has one (`stack`): as mutable as
+    /// `slot` is.
     pub fn current(slot: anytype) ?@TypeOf(&slot.orders[0]) {
-        if (slot.object.order_count == 0) return null;
+        if (slot.object.order_count <= 0) return null;
         return &slot.orders[0];
+    }
+
+    /// Its current order (`current`), where it is `order`: as mutable as `slot` is.
+    pub fn running(slot: anytype, order: Order) ?@TypeOf(&slot.orders[0]) {
+        const entry = slot.current() orelse return null;
+        return if (entry.order == order) entry else null;
+    }
+
+    /// Its stack of orders, the current one first: `GameObject.order_count` of them, none for a
+    /// count below 0 and no more than the stack holds: as mutable as `slot` is.
+    pub fn stack(slot: anytype) Entries(@TypeOf(slot)) {
+        const count = std.math.cast(usize, slot.object.order_count) orelse 0;
+        return slot.orders[0..@min(count, slot.orders.len)];
+    }
+
+    /// The entries of a stack, as mutable as the slot pointed at by `SlotPointer` is.
+    fn Entries(comptime SlotPointer: type) type {
+        return if (@typeInfo(SlotPointer).pointer.is_const) []const aigeneric.Entry else []aigeneric.Entry;
+    }
+
+    /// The first entry of its stack that is `order`, where there is one (`player_control_entry`,
+    /// `0x00402860`, and `launch_start`, `0x00418DB0`).
+    pub fn firstOrder(slot: *Slot, order: Order) ?*aigeneric.Entry {
+        for (slot.stack()) |*entry| {
+            if (entry.order == order) return entry;
+        }
+        return null;
     }
 
     /// The parts it lists as components, `GameObject.component_count` of them.
@@ -442,6 +470,12 @@ pub const Slot = struct {
         gpa.free(slot.guns);
         slot.guns = &.{};
         slot.object.gun_count = 0;
+    }
+
+    /// Lets its shield bubble go: it has none from now on.
+    pub fn dropShield(slot: *Slot, gpa: Allocator) void {
+        if (slot.shield) |bubble| bubble.destroy(gpa);
+        slot.shield = null;
     }
 
     /// How many groups of guns its type has (`ShipCombat.gun_groups`); none for a stand-in.
@@ -615,7 +649,7 @@ pub const Objects = struct {
 
     /// Whether the mission is one of the training missions (`training_missions`), in which the
     /// flight instructor clears the player's ship to land and `SetInvulnerability` reaches the
-    /// players' ships too.
+    /// players' ships too, as it does in the simulator's training (`Simulator.Mode.training`).
     pub fn training(all: *const Objects) bool {
         return all.mission_number >= training_missions[0] and all.mission_number <= training_missions[1];
     }
@@ -792,9 +826,7 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
 pub fn wreckMade(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
     const wreck = wreckOf(slot.object.type) orelse return;
-    if (wreck.shown) if (slot.model) |*model| if (model.partNamed(wreck.part)) |ref| {
-        ref.part().hidden = false;
-    };
+    if (wreck.shown) if (slot.model) |*model| model.showNamed(wreck.part);
     explode.burnPart(world, index, wreck.part, .{ .forever = true, .flickers = true, .lights = true });
 }
 
@@ -907,6 +939,14 @@ fn recentreMesh(mesh: *@import("../surrender/surrenderlib/srapiext.zig").Mesh) v
     srapi.findBoundingBox(mesh);
 }
 
+/// `create_object` as the running mission makes an object (`gameobj.World.spawn`): of
+/// `object_type`, in slot `wanted` or the next free, of tier 0 at the origin; null where the world
+/// makes none.
+pub fn make(world: gameobj.World, wanted: ?u16, object_type: gameobj.Type) Error!?u16 {
+    const spawn = world.spawn orelse return null;
+    return try createObject(world.objects, spawn.tables, spawn.types, wanted, object_type, 0, @splat(0), world.random);
+}
+
 /// `create_object` (`0x00466C10`): fills slot `wanted`, or the next where null, with an object of
 /// `ship_type` at `at`, facing along the world's Z axis, and returns the slot. Types above the
 /// last ship type are stand-ins for markers and nav points: `Flags.standing_in` and a sphere of
@@ -939,13 +979,8 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     object.root.flags._unknown_9 = true;
     // At rest, and steering nothing.
     object.speed = 0;
-    object.roll_rate = 0;
-    object.pitch_rate = 0;
-    object.yaw_rate = 0;
     object.throttle = 0;
-    object.roll_input = 0;
-    object.pitch_input = 0;
-    object.yaw_input = 0;
+    object.holdStill();
     object.wing = .none;
     object.random_seed = random.rand();
     object.invulnerable = .none;
@@ -954,8 +989,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     object.set_aside = .none;
     object.set_aside_until = 0;
     object.eject_roll = xtrabits.objectRandom15(object) % 100;
-    objects.setPosition(object, &slot.drawn, at);
-    objects.setOrientation(object, &slot.drawn, math.identity);
+    objects.setPlace(object, &slot.drawn, .{ .position = at, .orientation = math.identity });
     // No orders, and no attacker yet.
     object.order_count = 0;
     object.orders = .null;
@@ -1142,40 +1176,19 @@ pub fn settledTier(asked: i32, ship_type: gameobj.Type, campaign: u2) u2 {
 }
 
 /// A missile hardpoint: an attachment of kind `missile` on a part of the model.
-pub const Hardpoint = struct {
-    part: usize,
-    /// Which of the part's attachments it is.
-    index: usize,
-    attachment: *const shp.Attachment,
-};
+pub const Hardpoint = Hardpoints.Point;
 
 /// The missile hardpoints the loadout walks, in turn (`object_fit_missiles`): those of each part in
 /// the root's child list, every part in order whatever it is linked to, each part's in order.
 pub fn hardpoints(model: *const objects.Model) Hardpoints {
-    return .{ .parts = model.parts };
+    return .of(model);
 }
 
-pub const Hardpoints = struct {
-    parts: []const objects.Model.Part,
-    part: usize = 0,
-    attachment: usize = 0,
+pub const Hardpoints = objects.Model.RootAttachments(isHardpoint);
 
-    pub fn next(each: *Hardpoints) ?Hardpoint {
-        while (each.part < each.parts.len) : ({
-            each.part += 1;
-            each.attachment = 0;
-        }) {
-            const part = &each.parts[each.part];
-            if (part.removed) continue;
-            while (each.attachment < part.attachments.len) {
-                const attachment = &part.attachments[each.attachment];
-                each.attachment += 1;
-                if (attachment.kind == .missile) return .{ .part = each.part, .index = each.attachment - 1, .attachment = attachment };
-            }
-        }
-        return null;
-    }
-};
+fn isHardpoint(attachment: shp.Attachment, _: usize) bool {
+    return attachment.kind == .missile;
+}
 
 /// `object_loadout_by_tier` (`0x0045E500`): each missile hardpoint, in turn, takes a rack of the
 /// missile its attachment names for `tier`.
@@ -1475,6 +1488,12 @@ pub const testing = struct {
             model.data[0].node_faces = &model.node_faces;
         }
 
+        /// Lists the part as the model's one component.
+        pub fn withComponent(model: *Model) void {
+            model.source.header.flags.components = true;
+            model.data[0].part.flags.component = true;
+        }
+
         /// Lets the model cloak, its part shimmering with `image` (`srofiles.Cloaking`).
         pub fn withCloak(model: *Model, gpa: Allocator, image: *@import("../surrender/surrenderlib/srtexture.zig").Image) Allocator.Error!void {
             model.source.header.flags.cloak = true;
@@ -1488,7 +1507,12 @@ pub const testing = struct {
 
         /// Has every hardpoint hold the fixture's own part, as its pod or missile.
         pub fn hangsItself(model: *Model) void {
-            model.type.effects.mounts = .{ .context = model, .load = mounted };
+            model.type.effects.mounts = model.mounts();
+        }
+
+        /// Mounts that answer every attachment with the fixture's model.
+        pub fn mounts(model: *Model) objects.Mounts {
+            return .{ .context = model, .load = mounted };
         }
 
         fn mounted(context: *anyopaque, _: []const u8) ?objects.Mounts.Mounted {
@@ -1498,15 +1522,18 @@ pub const testing = struct {
 
         /// Answers every ship type with the one model.
         pub fn types(model: *Model) Types {
-            return .{ .context = model, .load = load };
-        }
-
-        fn load(context: *anyopaque, ship_type: u8) ?*const Type {
-            _ = ship_type;
-            const model: *Model = @ptrCast(@alignCast(context));
-            return &model.type;
+            return oneType(&model.type);
         }
     };
+
+    /// Types that answer every ship type with `kind`.
+    pub fn oneType(kind: *const Type) Types {
+        return .{ .context = @constCast(kind), .load = loadOne };
+    }
+
+    fn loadOne(context: *anyopaque, _: u8) ?*const Type {
+        return @ptrCast(@alignCast(context));
+    }
 
     /// Types with no model at all.
     pub const no_models: Types = .{ .context = @constCast(&{}), .load = noModel };
@@ -1548,6 +1575,42 @@ pub fn retire(ctx: aigeneric.Context, index: u16) void {
     aigeneric.popAll(ctx, index);
 }
 
+test "Slot.stack" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const ship = try mission.addOther(@splat(0));
+    const slot = mission.slot(ship);
+    const viewed: *const Slot = slot;
+    try std.testing.expectEqual(0, slot.stack().len);
+    try std.testing.expectEqual(null, slot.current());
+    try std.testing.expectEqual(null, slot.firstOrder(.do_nothing));
+    // The first of the stack that holds the order, from the current one down.
+    try std.testing.expect(try aigeneric.push(ctx, ship, .do_nothing, .none));
+    try std.testing.expect(try aigeneric.push(ctx, ship, .fly, .none));
+    try std.testing.expectEqual(2, slot.stack().len);
+    try std.testing.expectEqual(2, viewed.stack().len);
+    try std.testing.expectEqual(&slot.orders[0], slot.current().?);
+    try std.testing.expectEqual(&slot.orders[0], viewed.current().?);
+    try std.testing.expectEqual(&slot.orders[1], slot.firstOrder(.do_nothing).?);
+    try std.testing.expectEqual(&slot.orders[0], slot.firstOrder(.fly).?);
+    try std.testing.expectEqual(null, slot.firstOrder(.launch));
+    // Only the current order is running.
+    try std.testing.expectEqual(&slot.orders[0], slot.running(.fly).?);
+    try std.testing.expectEqual(&slot.orders[0], viewed.running(.fly).?);
+    try std.testing.expectEqual(null, slot.running(.do_nothing));
+    // A count past what the stack holds gives the whole stack.
+    slot.object.order_count = aigeneric.max_stack + 5;
+    try std.testing.expectEqual(aigeneric.max_stack, slot.stack().len);
+    // A count below 0 holds none.
+    slot.object.order_count = -1;
+    try std.testing.expectEqual(0, slot.stack().len);
+    try std.testing.expectEqual(null, slot.current());
+    try std.testing.expectEqual(null, slot.firstOrder(.fly));
+    try std.testing.expectEqual(null, slot.running(.fly));
+}
+
 test planetMade {
     const gpa = std.testing.allocator;
     var mission: gameobj.testing.Mission = undefined;
@@ -1562,12 +1625,12 @@ test planetMade {
     const all = mission.objects;
 
     // Only a planet is set up as one.
-    const ship = try createObject(all, &mission.tables, hull.types(), null, .predator, 0, @splat(0), &mission.random);
+    const ship = try mission.addWith(hull.types(), .predator, @splat(0));
     planetMade(all, ship);
     try std.testing.expect(!all.slots[ship].object.flags.no_collisions);
     try std.testing.expectEqual(50, hull.mesh.positions[0][2]);
 
-    const planet = try createObject(all, &mission.tables, hull.types(), null, @enumFromInt(0x60), 0, @splat(0), &mission.random);
+    const planet = try mission.addWith(hull.types(), @enumFromInt(0x60), @splat(0));
     const slot = &all.slots[planet];
     slot.model.?.parts[0].origin = .{ 0, 0, 7 };
     planetMade(all, planet);
@@ -1719,21 +1782,19 @@ test "the loops walk the slots handed out, then the cutaway slot" {
 test collectComponents {
     const gpa = std.testing.allocator;
     // Four parts: one plain at the root, one component at the root, and a component under each.
-    var data: [4]shp.PartData = @splat(objects.testing.part());
+    var parts: objects.testing.Parts(4) = undefined;
+    parts.init();
     const parents = [_]i32{ -1, -1, 1, 0 };
     const marked = [_]bool{ false, true, true, true };
-    for (&data, parents, marked) |*part, parent, is_component| {
+    for (&parts.data, parents, marked) |*part, parent, is_component| {
         part.part.parent = parent;
         part.part.flags.component = is_component;
     }
-    data[2].part.flags.targetable = true;
-    var loaded_parts: [4]srofiles.LoadedPart = @splat(.{ .flags = .{}, .levels = &.{}, .meshes = &.{} });
-    const source: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &data, .trailing_bytes = 0 };
-    const loaded: srofiles.Loaded = .{ .parts = &loaded_parts };
-    var kind: Type = .{ .model = &source, .loaded = &loaded };
+    parts.data[2].part.flags.targetable = true;
+    var kind: Type = .{ .model = &parts.source, .loaded = &parts.loaded };
 
     var slot: Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
-    slot.model = try objects.Model.create(gpa, &source, &loaded, .{});
+    slot.model = try parts.model(gpa, .{});
     defer slot.model.?.deinit(gpa);
     slot.type = &kind;
 
@@ -1752,17 +1813,12 @@ test collectComponents {
     try std.testing.expect(!slot.model.?.parts[1].targetable);
 
     // A model of nothing but components lists no more than the object holds.
-    var many: [gameobj.max_components + 4]shp.PartData = @splat(objects.testing.part());
-    var many_loaded: [gameobj.max_components + 4]srofiles.LoadedPart = @splat(.{ .flags = .{}, .levels = &.{}, .meshes = &.{} });
-    for (&many) |*part| {
-        part.part.parent = -1;
-        part.part.flags.component = true;
-    }
-    const crowded: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &many, .trailing_bytes = 0 };
-    const crowded_loaded: srofiles.Loaded = .{ .parts = &many_loaded };
-    var crowded_kind: Type = .{ .model = &crowded, .loaded = &crowded_loaded };
+    var crowded: objects.testing.Parts(gameobj.max_components + 4) = undefined;
+    crowded.init();
+    for (&crowded.data) |*part| part.part.flags.component = true;
+    var crowded_kind: Type = .{ .model = &crowded.source, .loaded = &crowded.loaded };
     slot.model.?.deinit(gpa);
-    slot.model = try objects.Model.create(gpa, &crowded, &crowded_loaded, .{});
+    slot.model = try crowded.model(gpa, .{});
     slot.type = &crowded_kind;
     collectComponents(&slot);
     try std.testing.expectEqual(gameobj.max_components, slot.object.component_count);
@@ -2001,6 +2057,24 @@ test createObject {
     _ = try createObject(all, &mission.tables, model.types(), player, .predator, 0, @splat(0), &mission.random);
 }
 
+test make {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var world = mission.world();
+
+    // A world that makes no objects makes none.
+    try std.testing.expectEqual(null, try make(world, null, .sabre));
+    try std.testing.expectEqual(0, mission.objects.count);
+
+    // One that does makes it of the type, in the slot wanted or the next.
+    world.spawn = mission.spawn(testing.no_models);
+    try std.testing.expectEqual(0, (try make(world, null, .sabre)).?);
+    try std.testing.expectEqual(5, (try make(world, 5, .predator)).?);
+    try std.testing.expectEqual(gameobj.Type.sabre, mission.objects.slots[0].object.type);
+    try std.testing.expectEqual(gameobj.Type.predator, mission.objects.slots[5].object.type);
+}
+
 test "an object is created with the guns its model holds" {
     const gpa = std.testing.allocator;
     var mission: gameobj.testing.Mission = undefined;
@@ -2019,7 +2093,7 @@ test "an object is created with the guns its model holds" {
     }
     model.data[0].attachments = &muzzles;
 
-    const index = try createObject(all, &mission.tables, model.types(), null, @enumFromInt(7), 0, @splat(0), &mission.random);
+    const index = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
     const slot = &all.slots[index];
     // The guns are fitted after the count is cleared, so the object holds them all.
     try std.testing.expectEqual(2, slot.object.gun_count);

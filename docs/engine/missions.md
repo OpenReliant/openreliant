@@ -78,6 +78,27 @@ The watches of the proximity conditions, which binding makes last (`0x0045AE10`)
 makes as the mission starts, before its script, once the players' slots are known
 ([Script VM](script-vm.md#watches)).
 
+## The records, as the script names them
+
+A script names a ship, a flight group, a squad or a curve by the address of its record, which
+functions beside the binding turn back into the record. **Unverified:** they lie with the binding,
+between `loadout.cpp`'s code and `Executor.cpp`'s.
+
+- `ship_index` (`0x004531C0`), `flight_group_index` (`0x00452060`) and `squad_index`
+  (`0x00453070`) give the record's index among its section's: how many records from the
+  section's first it lies, as a halfword. Zero, every bit set, which `push_null` pushes, and
+  `0xFFFF` name none, which they give as `0xFFFF`; they take any other place for a record of
+  theirs. `curve_index` (`0x004524E0`) counts a curve the same way, without testing for none.
+- `record_object_id` (`0x00453200`) reads the object ID the record starts with.
+- `record_kind` (`0x00453590`) tells a ship's, a flight group's or a squad's place by the section
+  it lies in, taking the place just past a section's last record for one of its own, and gives
+  `0xFFFF` for anything else.
+- `ship_flight_group` (`0x00452AA0`) gives the record of the flight group a ship names, or 0 for a
+  ship of none.
+- `record_reference` (`0x004513A0`) makes the reference to a record (`dte.Reference`) from its
+  address and its tag, `0xFFFF` for none and the top byte `0xFF`, which `for_each_ship` writes
+  into each ship's object ([Script VM](script-vm.md)).
+
 ## The mission's start
 
 Before each attempt at a mission, WinMain clears the game's variables that belong to the attempt
@@ -202,6 +223,15 @@ marker.
 
 The orders reach the mission's records through the world (`gameobj.World.mission`), for an order
 aimed at a flight group or a squad ([Orders](orders.md#targets-that-name-several-ships)).
+
+The bound mission (`bind.Mission`) finds the records as the script names them, each place being
+where its record lies in the mission image, and reads the image where the script points, a read past
+it ending the script's thread ([Script VM](script-vm.md#in-openreliant)). **Fix:**
+`record_object_id` and `curve_index` give none for a place that names none, where the game reads at
+the place or counts from it, and `record_object_id` none for a place past the image, where the game
+reads wherever the place points. A flight group's ships stop at the end of the groups' list, where
+the game reads past it. A part's or a trigger's block in a section the mission leaves unused is
+none, where the game takes the code from wherever the section's offset, `0xFFFF`, falls.
 
 Not ported: the rest of the loading and of `mission_start`: the renderer's and the textures'
 setting up and the loading screen, which are the front end's

@@ -437,14 +437,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     defer rays.deinit();
     var tractors: game.tractor.Tractors = try .init(gpa, &textures);
     defer tractors.deinit();
-    tractors.glow = options.beam_glow;
+    tractors.look.glow = options.beam_glow;
     var rippers: game.airipper.Rippers = try .init(gpa, &textures);
     defer rippers.deinit();
     var jump_effects: game.jump.effect.Effects = undefined;
     try jump_effects.init(gpa, &textures, context.hardware);
     defer jump_effects.deinit();
     jump_effects.lighting = options.jump_light;
-    rippers.glow = options.beam_glow;
+    rippers.look.glow = options.beam_glow;
     var atmospheres: game.create.atmosphere.Atmospheres = try .init(gpa, &textures);
     defer atmospheres.deinit();
     atmospheres.style = options.atmospheres;
@@ -520,7 +520,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     };
     defer play.end();
     display.play = &play;
-    if (options.mission != null) try play.start(.{ .world = world, .clock = &clock, .devices = &devices });
+    if (options.mission != null) try play.start(.{ .world = world, .devices = &devices });
     // The front end, where the game opens unless `--mission` names a mission, and what it draws
     // with; and where the game is between it and the missions.
     var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
@@ -771,7 +771,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             }
             sound.closeMusic();
             clock.start(platform.window.ticks());
-            try play.start(.{ .world = world, .clock = &clock, .devices = &devices });
+            try play.start(.{ .world = world, .devices = &devices });
             flow.in_front_end = false;
             flow.from_front_end = true;
         }
@@ -782,7 +782,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         }
         // The window takes text while the front end has a line to type into.
         window.takeText(flow.in_front_end and front.takesText());
-        const orders: game.aigeneric.Context = .{ .world = world, .clock = &clock, .devices = &devices };
+        const orders: game.aigeneric.Context = .{ .world = world, .devices = &devices };
         const slot = &objects.slots[objects.player];
         if (!flow.in_front_end) {
             // The timer's ticks since the last pass, then a game tick for each, as `mission_run` paces

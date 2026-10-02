@@ -147,14 +147,14 @@ pub const Beam = struct {
     ion: srapiext.MeshObject,
     ion_level: [1]srapiext.Level,
     ion_uv: [ion_corners][2]f32 = @splat(.{ 0, 0 }),
-    ion_colours: [ion_corners][4]f32 = @splat(grey(0)),
+    ion_colours: [ion_corners][4]f32 = @splat(srapiext.grey(0)),
     /// Its strands, which show after a full charge.
     strands: ?[strand_count]Strand,
 
     pub const Strand = struct {
         object: srapiext.MeshObject,
         level: [1]srapiext.Level,
-        colours: [strand_corners][4]f32 = @splat(grey(0)),
+        colours: [strand_corners][4]f32 = @splat(srapiext.grey(0)),
     };
 
     /// Whether it fired with the full charge.
@@ -199,8 +199,8 @@ pub const Beam = struct {
             const along = -@as(f32, @floatFromInt(now)) * @as(f32, @floatFromInt(blade)) * scroll_per_blade;
             const corners = blade * guns.blade_corners;
             beam.ion_uv[corners..][0..guns.blade_corners].* = guns.bladeCorners(.{ .{ 0, along + 1 }, .{ 1, along } });
-            const near = grey(bright);
-            const far = grey(0);
+            const near = srapiext.grey(bright);
+            const far = srapiext.grey(0);
             beam.ion_colours[corners..][0..guns.blade_corners].* = .{ near, far, far, near };
         }
         if (beam.strands) |*strands| strandsAt(strands, ship, 1 - left);
@@ -243,13 +243,8 @@ fn strandsAt(strands: *[strand_count]Beam.Strand, ship: math.Place, through: f32
         const length = math.distance(from, to);
         strand.object.position = from;
         strand.object.orientation = math.product(math.lookAt(to - from), math.scaling(.{ 1, 1, length }));
-        strand.colours[0..guns.blade_corners].* = @splat(grey(bright));
+        strand.colours[0..guns.blade_corners].* = @splat(srapiext.grey(bright));
     }
-}
-
-/// A colour as bright as `level` on each of red, green and blue, and opaque.
-fn grey(level: f32) [4]f32 {
-    return .{ level, level, level, 1 };
 }
 
 /// The beams showing.
@@ -400,10 +395,7 @@ test charge {
 }
 
 test charges {
-    var fitted = [_]guns.Fitted{
-        .{ .turret = .{ .fixed = .{ .muzzle = undefined, .type = .pulse_cannon } } },
-        .{ .turret = .{ .fixed = .{ .muzzle = undefined, .type = .nova_cannon } } },
-    };
+    var fitted = [_]guns.Fitted{ guns.testing.barrel(.pulse_cannon), guns.testing.barrel(.nova_cannon) };
     var groups = guns.no_groups;
     groups[0] = .{ .first = 0 };
     groups[1] = .{ .first = 1 };

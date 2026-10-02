@@ -1,7 +1,7 @@
 //! `C:\lancer\game\mission.cpp`: a mission in play. Its file bound (`bind`), its events raised on
 //! its script's triggers (`events`), its script run each frame (`Loaded.process`), its ships kept
-//! where their objects are (`syncShips`), and its flight groups listed in the wings
-//! (`buildWings`).
+//! where their objects are (`syncShips`), a ship's object found from its record (`shipSlot`), and
+//! its flight groups listed in the wings (`buildWings`).
 //!
 //! Not ported: the second and third wings' lists (`0x00515D7C`, `0x00515D94`), which nothing reads.
 
@@ -18,6 +18,7 @@ const math = @import("../surrender/math.zig");
 const vm = @import("../vm.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
+const executor = @import("executor.zig");
 const gameobj = @import("gameobj.zig");
 const ticks_per_second = @import("main.zig").ticks_per_second;
 
@@ -69,7 +70,7 @@ pub const Loaded = struct {
     /// the frame's work run once (`process`). The script acts on the game through `game`.
     pub fn start(loaded: *Loaded, game: aigeneric.Context) !void {
         try loaded.events.watch(game.world.objects.players);
-        loaded.clock_from = game.clock.game_ticks;
+        loaded.clock_from = game.world.clock.game_ticks;
         loaded.script.game = game;
         try loaded.script.start();
         const ships = try loaded.bound.ships();
@@ -94,7 +95,7 @@ pub const Loaded = struct {
     /// script acts on the game through `game`.
     ///
     /// Not ported: the script debugger's pause, which holds the threads, the timers and the
-    /// watches.
+    /// watches ([#539](https://github.com/vdmkenny/openreliant/issues/539)).
     pub fn process(loaded: *Loaded, game: aigeneric.Context) void {
         const script = &loaded.script;
         script.game = game;
@@ -107,14 +108,15 @@ pub const Loaded = struct {
         }
     }
 
-    /// `vm_clock_tick` (`0x00458910`), the script's clock ticking once a second of the mission
-    /// (`vm.Machine.tick`), for each second `game_ticks` has run past it since the clock started.
+    /// The script's clock ticking once a second of the mission (`executor.clockTick`), for each
+    /// second `game_ticks` has run past it since the clock started.
     ///
-    /// **Improvement:** the game ticks it from a timer of its own that the pause stops;
-    /// OpenReliant counts the game's ticks, which the pause stops too.
+    /// **Improvement:** the game ticks it from a timer of its own (`vm_clock_start`, `0x00457C10`)
+    /// that the pause stops; OpenReliant counts the game's ticks, `main.ticks_per_second` to the
+    /// second, which the pause stops too.
     pub fn tickClock(loaded: *Loaded, game_ticks: u32) void {
         const seconds = (game_ticks -% loaded.clock_from) / ticks_per_second;
-        while (loaded.script.clock < seconds) loaded.script.tick();
+        while (loaded.script.clock < seconds) executor.clockTick(&loaded.script);
     }
 };
 
@@ -163,6 +165,16 @@ fn heading(x: f32, y: f32) f32 {
     return if (turned < 0) turned + full_turn else turned;
 }
 
+/// `ship_object` (`0x0045AC30`): the slot of the live object of the mission's ship at `place`
+/// (`bind.Mission.shipIndex`), where it is one of `all`'s; the game takes any place for a ship's.
+///
+/// **Fix:** the game takes a ship past the last object's slot for an object past its array;
+/// OpenReliant gives none.
+pub fn shipSlot(bound: *const Mission, all: *const create.Objects, place: u32) ?u16 {
+    const ship = bound.shipIndex(place) orelse return null;
+    return if (ship < all.slots.len) ship else null;
+}
+
 /// `mission_wings_build` (`0x0045AC60`): each flight group the mission lists in a wing
 /// (`dte.FlightGroup.wing`) has its ships join the wing (`GameObject.wing`), in the mission's
 /// order, and a group in the player's wing lists them there (`listPlayerWing`), each group from the
@@ -175,10 +187,10 @@ pub fn buildWings(all: *create.Objects, mission: *const Mission) void {
     all.wing = @splat(null);
     for (mission.flightGroups() catch return) |group| {
         const wing: gameobj.Wing = switch (group.wing) {
-            0 => .player,
-            1 => .second,
-            2 => .third,
-            else => continue,
+            .player => .player,
+            .second => .second,
+            .third => .third,
+            .none, _ => continue,
         };
         const ships = mission.groupShips(group);
         if (wing == .player) listPlayerWing(all, ships);
@@ -236,6 +248,21 @@ test "Loaded.tickClock" {
     try std.testing.expect(loaded.script.ticked);
     loaded.tickClock(250 + 3 * ticks_per_second);
     try std.testing.expectEqual(3, loaded.script.clock);
+}
+
+test shipSlot {
+    const ships = dte.testing.ships(2, @intFromEnum(gameobj.Type.sabre));
+    var game: vm.machine.testing.Game = undefined;
+    try game.init(std.testing.allocator, &.{}, .{ .ships = &ships });
+    defer game.deinit();
+    const bound = &game.fixture.mission;
+    const all = game.mission.objects;
+    // None for zero, for `push_null`'s none, and for a ship past the last slot.
+    try std.testing.expectEqual(null, shipSlot(bound, all, 0));
+    try std.testing.expectEqual(null, shipSlot(bound, all, vm.machine.none));
+    try std.testing.expectEqual(null, shipSlot(bound, all, bound.recordPlace(.ships, all.slots.len)));
+    // The ship's own slot otherwise.
+    try std.testing.expectEqual(1, shipSlot(bound, all, bound.recordPlace(.ships, 1)));
 }
 
 test listPlayerWing {

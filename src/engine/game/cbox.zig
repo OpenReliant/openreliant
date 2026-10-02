@@ -369,20 +369,20 @@ test bringDown {
 
 test Player {
     const gpa = std.testing.allocator;
-    var mixer: mss.Mixer = .init(22050);
-    var sound: hog_snd.Sound = undefined;
-    sound.init(mixer.driver(), 2, null);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
     defer sound.shutdown();
     var player: Player = .{};
     defer player.deinit(gpa);
     const file = try testFile(gpa, 2000, 400);
     defer gpa.free(file);
     const speech = Speech.parse(file).?;
-    try std.testing.expect(!player.playing(&sound));
-    try std.testing.expect(player.start(gpa, &sound, speech, hog_snd.loudest, .{}, null));
-    try std.testing.expect(player.playing(&sound));
+    try std.testing.expect(!player.playing(sound));
+    try std.testing.expect(player.start(gpa, sound, speech, hog_snd.loudest, .{}, null));
+    try std.testing.expect(player.playing(sound));
     try std.testing.expect(player.file.len > 0);
-    player.stop(gpa, &sound);
-    try std.testing.expect(!player.playing(&sound));
+    player.stop(gpa, sound);
+    try std.testing.expect(!player.playing(sound));
     try std.testing.expectEqual(0, player.file.len);
 }

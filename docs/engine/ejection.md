@@ -35,24 +35,29 @@ but a player's ship.
 ## The pod
 
 `order_eject_init` (`0x00415BD0`) finds the first child of the ship's root that is a part of class
-2, the cockpit ([`shp.md`](../formats/shp.md#part-tag-0x01)), and `eject_separate` (`0x004156C0`)
-splits the ship there:
+2, the cockpit ([`shp.md`](../formats/shp.md#part-tag-0x01)). The root's children are every part,
+whatever part each is linked to ([Objects](objects.md#the-model-hierarchy)), so a cockpit linked to
+the body is found too. `eject_separate` (`0x004156C0`) splits the ship there:
 
-- A new object of the ship's type takes every other part of the root, and the ship's place, velocity
-  and rotation. It is marked ejected and flag `0x1000000`, which lets its smoke go, and nothing
-  else: neither targetable nor powered. It is neutral, passes through the pod, recharges no shields,
-  and drifts, keeping 0.99 of its velocity each update. Its rotation turns on by a pitch of 0.02 and
-  a yaw and a roll of up to 0.005 either way (`0x004158CB`), and `EJECT01` sounds from it, on the
-  guaranteed voices for the player. It takes the Eject order 106, whose `init` (`0x00416080`) gives
-  it 200 ticks before `object_destroyed` ends it (`0x004160A0`).
+- A new object takes every other part, and the ship's place, velocity and rotation. It is made as a
+  stand-in of type 1000 (`create_object`) and takes the ship's type, combat and flight stats, but
+  never the shields and armour a ship of the type has, so that any blow destroys it. It is marked
+  ejected and `abandoned` (flag `0x1000000`), which lets its smoke go, and nothing else: it is not
+  targetable. It is neutral, passes through the pod, recharges no shields, and drifts, keeping 0.99
+  of its velocity each update. Its rotation turns on by a pitch of 0.02 and a yaw and a roll of up
+  to 0.005 either way (`0x004158CB`), and `EJECT01` sounds from it, on the guaranteed voices for
+  the player. It takes the Eject order 106, whose `init` (`0x00416080`) gives it 200 ticks before
+  `object_destroyed` ends it (`0x004160A0`).
 - The pod keeps the ship's slot and its cockpit. Its smoke goes, and it is unpowered and ejected,
   passes through the new object and aims its order at it, and has no guns, racks, shields or armour,
   no shields recharging, no motion routine, and nothing able to harm it. Its invulnerability is kept
   for later.
 
-Each part at either object's root has bit 0 of its face mask cleared (`+0xD4`), so its cap faces
-show ([Rendering](rendering.md#culling)): the cockpit, open beneath on the ship, closes into the
-pod, and the ship closes where the cockpit left it.
+`eject_separate` re-hangs every part of either object from its object's root where it stands, its
+place in the world turned into one in the root's frame, so that no part carries another any more.
+Each has bit 0 of its face mask cleared (`+0xD4`), so its cap faces show
+([Rendering](rendering.md#culling)): the cockpit, open beneath on the ship, closes into the pod, and
+the ship closes where the cockpit left it.
 
 Both objects move their origin to their parts' centre (`object_recentre`). At the cockpit's last
 eject point (attachment kind 6), 100 puffs of `eject_flash_template` (`0x0051CF94`) burst out: 50 to
@@ -84,7 +89,9 @@ A roll of `rand`, over `rescue_odds_rescued`, `rescue_odds_captured` and `rescue
 (`0x0051CF98`, `0x0051CF90`, `0x0051CF9C`) together, settles the pilot's fate: below the first the
 pilot is rescued (`mission_ending` 2), below the first two captured (3), and past both killed (1). A
 mission starts with 100, 0 and 0, which its `SetRescueProbabilities` command sets
-(`cmd_SetRescueProbabilities`, `0x004598D0`).
+(`cmd_SetRescueProbabilities`, `0x004598D0`). The odds are whole signed numbers, summed with
+wrapping, and the roll's remainder over them comes from a signed division, so it is never below
+zero.
 
 The pod moves out of everything's way to (0, -10000000, 0) (`0x00415CFE`), turned to the world's
 axes, and the cutaway slot's ship is made:
@@ -108,11 +115,13 @@ loads and holds `laser2` for the beams (`tractor_texture`, `0x0051D120`), and `t
 (`0x0041BBC0`) frees those in use as it ends.
 
 `order_scoop_up_init` (`0x0041BBF0`) takes the first free tractor (`tractor_create`, `0x0041D090`)
-with its light, `Tractor Light`, green, reaching 10000, hanging from the pod; and the ship and the
-pod pass through each other. `order_scoop_up` (`0x0041BCC0`) keeps the tractor (`+0x00`), the stage
-(`+0x04`), when the stage began (`+0x08`), the pod (`+0x0C`), when it last ran (`+0x10`) and how far
-the second beam lags the first (`+0x14`). While the stage is below 4 it steers at the pod. Should
-the pod be gone first, a stand-in or exploding, the ship closes its doors and gives up.
+with its light, `Tractor Light`, green, reaching 10000, hanging from the pod; the ship and the pod
+pass through each other; and the ship is marked (network flag `0x4`) for the multiplayer code's
+round of updates (`0x004BBEF0`) to pass over. `order_scoop_up` (`0x0041BCC0`) keeps the tractor
+(`+0x00`), the stage (`+0x04`), when the stage began (`+0x08`), the pod (`+0x0C`), when it last ran
+(`+0x10`) and how far the second beam lags the first (`+0x14`). While the stage is below 4 it steers
+at the pod. Should the pod be gone first, a stand-in or exploding, the ship closes its doors and
+gives up.
 
 | Stage | Lasts (`0x004E3E1C`) | What happens |
 |---|---|---|
@@ -120,7 +129,7 @@ the pod be gone first, a stand-in or exploding, the ship closes its doors and gi
 | 1 | | Flies at the pod: full throttle beyond 20000, 0.4 beyond 10000, and none nearer. Near the pod, within six times its flight model's speed over its pitch rate, where its nose points less than 0.7 toward the pod, it stops. Once its inputs and throttle are within 0.025 and its rates of turn within 0.02, it moves on |
 | 2 | | Stops, makes its beams at the first two tractor points of its hull (point list kind 6 on the part named `Nanny` or `Antanov`) and a bubble 1.5 times the pod's radius, opens its doors and sounds `dooropen` from the root's second child, facing along it. The second beam lags by up to 0.2 of the time, from `rand` |
 | 3 | 100 | The first beam comes on over the time and the second after its lag; the bubble glows to its full by half the time. The light shines at its full throughout. Then the pod is frozen |
-| 4 | | Draws the pod toward 6300 out from the door point (point list kind 0 on the part named `nan_door3` or `Antanov`), along the part's Z axis: at 900 a second at the point, rising to 1800 at 3000 away and beyond. Within 500 it moves on |
+| 4 | | Marks the pod with network flag `0x4`, as the init marked the ship. Draws the pod toward 6300 out from the door point (point list kind 0 on the part named `nan_door3` or `Antanov`), along the part's Z axis: at 900 a second at the point, rising to 1800 at 3000 away and beyond. Within 500 it moves on |
 | 5 | | Draws it on to 3000 out from a nanny ship's door, 3400 from the Antanov's, at 900 a second. Within 300 it closes its doors and sounds `doorclos` |
 | 6 | 50 | The beams, the light's reach and the bubble go out, the bubble by half the time. The beams hang as they were last aimed |
 | 7 | 250 | Waits, showing nothing |
@@ -128,9 +137,10 @@ the pod be gone first, a stand-in or exploding, the ship closes its doors and gi
 
 The doors are the root's second child of a nanny ship, and its second and third of the Antanov:
 their `opendoor` track plays forward from its start to open them, and back from where it is to close
-them. In a multiplayer game the order waits for every player before making the beams and before the
-pod leaves. `order_scoop_up_exit` (`0x0041BC70`) clears the pod's flag `0x1000` and frees the
-tractor (`tractor_free`, `0x0041D1A0`).
+them. A ship of any other type takes the Antanov's parts and stow distance, and plays no doors. In
+a multiplayer game the order waits for every player before making the beams and before the pod
+leaves. `order_scoop_up_exit` (`0x0041BC70`) clears the pod's flag `0x1000`, whatever the order did,
+frees the tractor (`tractor_free`, `0x0041D1A0`), and clears the ship's network flag `0x4`.
 
 A beam (`tractor_beam_mesh`, `0x0041CBC0`, `TractorBeam_Mesh`) is a square 100 across at its emitter
 and three ribbons 100 across and 400 long crossing on its axis at a third of a half turn apart, over
@@ -177,9 +187,10 @@ too.
 ## In OpenReliant
 
 - OpenReliant moves the parts between the objects its own way: the new object takes the ship's model
-  as it stands, the pod a new model of the type, and each has the other's parts taken out of it
-  (`objects.destroyPart`). A part taken out counts toward neither its object's size nor its smoke's
-  engine glow.
+  as it stands, the pod a new model of the type, and each, its parts re-hung from its root, has the
+  other's parts taken out of it (`objects.destroyPart`). A part taken out counts toward neither its
+  object's size nor its smoke's engine glow. **Unverified:** that the new object, a stand-in, has no
+  racks, as OpenReliant leaves it.
 - OpenReliant adds the tractors' beams, bubble and light to the scene as it draws the frame, where
   the ship and the pod are drawn, rather than as Scoop Up runs; the beams are aimed there too.
 - **Improvement:** in the smooth shield style ([Shields](effects.md#shields)) the bubble is drawn
@@ -189,9 +200,17 @@ too.
 - **Improvement:** with smooth motion the pod glides on between the ticks as it is drawn in, as
   what flies does (`create.Slot.glide`); the game places it a tick at a time. Scoop Up measures from
   where it placed the pod, which the game's frame has it at.
-- **Fix:** `tractor_create` returns -1 with all five tractors in use, which Scoop Up then reads past
-  the five with; OpenReliant has the ship take the pod in without beams, bubble or light.
+- **Fix:** with all five tractors in use, `tractor_create` returns -1, which the game keeps and
+  indexes the tractors with. It takes the word before them (`0x0051D108`, the particle template of
+  the Yamato's launch that `launches_init` makes) for its tractor, writes its beams and bubble
+  through it, and frees it as the order ends. OpenReliant has the ship take the pod in without
+  beams, bubble or light.
+- **Fix:** `order_scoop_up_exit` clears the pod's flag `0x1000` whatever the order did, so a ship
+  that finds the pod claimed releases the other ship's claim as it gives up, and takes the pod in
+  too once Find Scoop Up picks it again. OpenReliant clears the flag only where the ship claimed it.
 - **Fix:** odds of nothing at all divide by zero in the game; OpenReliant has the pilot rescued.
+- **Fix:** where the cockpit has no eject point, the game bursts the flash and kicks the pod from
+  places it never set; OpenReliant does neither, and the pod still takes its 100 ticks to clear.
 - Mission 0, OpenReliant's sandbox, gives the three fates even odds, and `openreliant` starts a
   mission again once it is over.
 

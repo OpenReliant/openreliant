@@ -91,7 +91,7 @@ fn show(w: *Io.Writer, read: *const save.Save) Io.Writer.Error!void {
         const rating = miss.ratings[index];
         if (rating == -1 and miss.mission_kills[index] == 0 and miss.mission_pickups[index] == 0 and miss.promotions[index] == 0) continue;
         try w.print("  {d:>2}        rating ", .{index + 1});
-        if (rating == -1) try w.writeAll("none") else try layout.formatTag(Outcome, @enumFromInt(rating), w);
+        if (rating == -1) try w.writeAll("none") else try w.print("{f}", .{@as(Outcome, @enumFromInt(rating))});
         try w.print(", kills {d}, pickups {d}, promotion {d}\n", .{ miss.mission_kills[index], miss.mission_pickups[index], miss.promotions[index] });
     }
 

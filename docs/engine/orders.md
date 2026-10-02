@@ -2,11 +2,11 @@
 
 What each object is doing: flying in formation, escorting, docking, exploding, or following the player's controls. An object keeps a stack of orders, the current one on top, which the AI, the mission scripts and the player's controls push and pop, and `object_orders` runs the current one.
 
-[`aigeneric.zig`](../../src/engine/game/aigeneric.zig) holds the stack and runs the orders, [`ai.zig`](../../src/engine/game/ai.zig) the steering they turn by, [`aiorders.zig`](../../src/engine/game/aiorders.zig) the orders that fly a ship, [`aieject.zig`](../../src/engine/game/aieject.zig) and [`tractor.zig`](../../src/engine/game/tractor.zig) those of the [ejection](ejection.md), [`launch.zig`](../../src/engine/game/launch.zig) the [launches](launch.md) and [`jump.zig`](../../src/engine/game/jump.zig) the [jumps](jump.md), and [`ai/orders.zig`](../../src/engine/game/ai/orders.zig) lists every order with its flags, priorities and routines; `make order-tables` transcribes that table from the executable. The names below are those `make ghidra-annotate` gives the Ghidra project, which names each order's routines `order_` and the order's name, with `_init` and `_exit` for those two.
+[`aigeneric.zig`](../../src/engine/game/aigeneric.zig) holds the stack and runs the orders, [`ai.zig`](../../src/engine/game/ai.zig) the steering they turn by, [`aifuncs.zig`](../../src/engine/game/aifuncs.zig) the orders that fly a ship, a capital ship's lurch and orders 44 and 45, [`aieject.zig`](../../src/engine/game/aieject.zig) and [`tractor.zig`](../../src/engine/game/tractor.zig) those of the [ejection](ejection.md), [`launch.zig`](../../src/engine/game/launch.zig) the [launches](launch.md) and [`jump.zig`](../../src/engine/game/jump.zig) the [jumps](jump.md), and [`ai/orders.zig`](../../src/engine/game/ai/orders.zig) lists every order with its flags, priorities and routines; `make order-tables` transcribes that table from the executable. The names below are those `make ghidra-annotate` gives the Ghidra project, which names each order's routines `order_` and the order's name, with `_init` and `_exit` for those two.
 
 Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), what runs it (`object_orders`, `orders_update`, `order_retaliate`), the steering (`ai_steer`, `ai_roll_upright`) with its avoidance, and the orders Do Nothing, Fly, Run Away, Slow Rotate, the Random Spins, Match Speed, 44 and 45, Explode, the ejection's (Eject, 106, Scoop Up, Eject Spin, Eject Fighter Attack and Eject Player), Launch, the jumps (Jump In and Jump Out, each under both its numbers), Escort, Find New Target, Torpedo, Object Attach, Toggle Cloak, Mill, Make capship list left and right, and Fight with its [combat maneuvers](maneuvers.md), with Player Control being the player's [controls](controls.md). An order OpenReliant does not run yet still holds its place on the stack, and pushing it still pops and starts what it should ([#30](https://github.com/vdmkenny/openreliant/issues/30)). Not ported: the orders other players' machines queue ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 
-OpenReliant keeps each object's stack and order state in its slot rather than allocating them with its first order, and hands a fatal "Cannot set ai" back to its caller as an error.
+OpenReliant keeps each object's stack and order state in its slot rather than allocating them with its first order, and hands a fatal "Cannot set ai" back to its caller as an error. **Fix:** where the game stops with it, OpenReliant logs it in the game's words and the order is not taken (`aigeneric.give`).
 
 ## The order table
 
@@ -87,9 +87,9 @@ and each ship of a squad (`squad_walk`, `0x00401D80`): its members in turn from 
 they are its own, a ship as the member names its component, a flight group's ships whole, and a
 squad's own walk. Dock, Escort, the search for a new target, the search for a pod to scoop up, the
 Dark Reign's guns and [Launch](launch.md#the-order) walk their targets so. **Fix:** the game walks a
-squad that holds itself round for ever, takes a member no record stands for as the ship at address
-zero, and stops with a fatal error at a member of a kind it does not know; OpenReliant stops once
-the walk has gone down more squads than the mission has, and passes over the member.
+squad that holds itself round for ever, reads a member no record stands for from address zero, and
+stops with a fatal error at a member of a kind it does not know; OpenReliant gives a squad no
+members once the walk has gone down more squads than the mission has, and passes over such a member.
 
 ## Running orders
 
@@ -123,7 +123,8 @@ and once each simulation step.
 Damage of kinds 0, 1 and 5 adds to an object's `recent_damage` (`0x690`), which `orders_update`
 zeroes every 500 ticks, and each hit records the attacker's slot in `last_attacker` (`0x694`).
 While the current order has `retaliate`, `order_retaliate` (`0x0040C520`) pushes Fight (105),
-aimed at the attacker, once `recent_damage` reaches 4.2 times the ship's armor class. It does so
+aimed at the attacker, once `recent_damage` reaches 0.7 (`0x004DC484`) of the ship's full armor,
+six times its armor class. It does so
 only when the attacker is on the other side, is not already the current order's target, and both
 ships' combat stats hold 1 at `+0x28`, and not while the ship has `do_not_disturb`
 (`DoNotDisturb`).
@@ -145,17 +146,18 @@ order without pushing it while the object has not been created.
 
 Most orders that fly a ship steer with `ai_steer` (`0x00401380`), which takes a point to aim at,
 a limit, an ease and flags. It sets the pitch, yaw and roll inputs from the point's direction in
-the ship's frame, through `0x00401710`, or `0x00401690` when the word at `+0x24` of the ship's
-flight stats is nonzero. It takes `(1 - ease) * 6` times each turn rate off its input and
-multiplies the result by 11.46, which is a fifth of a degree's worth of radians, so an input fills
-at five degrees off; then it holds each input within the limit, at most 1. While frames take more
-than 10 ticks, turns of less than an eighth of a turn are halved first, along with the limit.
+the ship's frame, through `ai_steer_angles` (`0x00401710`), or `ai_steer_axes` (`0x00401690`) when
+the word at `+0x24` of the ship's flight stats is nonzero. It takes `(1 - ease) * 6` times each turn
+rate off its input and multiplies the result by 11.46, the degrees in a radian over five, so an
+input fills at five degrees off; then it holds each input within the limit, at most 1. While frames
+take more than 10 ticks, turns of less than a sixteenth of a turn (22.5 degrees) are halved first,
+along with the limit.
 
-`0x00401710` banks the ship round: within 18 degrees of the nose it simply yaws at the point,
+`ai_steer_angles` banks the ship round: within 18 degrees of the nose it simply yaws at the point,
 further off it rolls to bring the point overhead, and it pitches only once the roll is within 0.8
 radians of where it wants it. A ship flying backwards turns toward the other way about.
 
-`0x00401690` turns the ship flat: it pitches and yaws at the point together and never rolls, and
+`ai_steer_axes` turns the ship flat: it pitches and yaws at the point together and never rolls, and
 with the point behind it, it yaws hard to the side the point lies on. No file sets the word: the
 executable's `ship_flight_stats` (`0x004F9E70`) holds it for each ship type, and `stats_load_ships`
 leaves it. The capital ships and most other types turn flat; the fighters bank, as do some
@@ -174,12 +176,17 @@ When avoidance moves the point, `ai_steer` steers with a limit of 1, no ease and
 `0x8`, and returns true. The lists are what [`avoidance_scan`](#avoidance) builds, and a ship with
 `no_avoidance` avoids nothing.
 
+**Fix:** the game follows a null pointer for a ship with no flight stats, a stand-in, that steers,
+arrives or avoids what lies ahead, and for a collision course with such a ship on either side;
+OpenReliant leaves the ship's inputs as they are, counts it as not arrived, avoids nothing for it,
+and takes it for no collision course.
+
 ### Arriving
 
-`ai_arrive` (`0x00402140`, `0x00402160`) brings a ship to a point, turned as an orientation, at a
-least throttle: Follow Curve arrives so at a path's start, and Dock and Formation use it too. It
-goes by where the ship stands next. Within 2000 of the point it has arrived: its throttle is the
-least it was given and its turning inputs nothing. Otherwise:
+`ai_arrive` (`0x00402140`), through `ai_arrive_steer` (`0x00402160`), brings a ship to a point,
+turned as an orientation, at a least throttle: Follow Curve arrives so at a path's start, and Dock
+and Formation use it too. It goes by where the ship stands next. Within 2000 of the point it has
+arrived: its throttle is the least it was given and its turning inputs nothing. Otherwise:
 
 - Behind the point along the way the orientation faces, within 18 degrees of that line, and itself
   facing that way within 11, it steers at the point with `ai_steer`, flags `0x3`, and rolls to
@@ -214,11 +221,16 @@ their cruise speeds, with both radii and the margin. Against a target without co
 target must then lie ahead of the ship, and the ship close on it by its velocity less twice the
 target's, to within both radii and the margin. Against a target with components, the ship's next
 position must instead lie within the ship's cruise speed times the steps, and the margin, of a box
-of one of the target's parts: of the parts hanging from its root, shown and with a collision tree,
-each whose sphere, that reach wider, holds the position has each box of its tree tested, and the
-position is within reach of a box where it stands nearer to the box's centre, squared, than the
-box's half size and the reach, each squared, together. The game also hands back the part and the
-box, which no caller reads.
+of one of the target's parts: of the parts in its root's child list, every part whatever it is
+linked to, shown and with a collision tree, each whose sphere, that reach wider, holds the position
+has each box of its tree tested, and the position is within reach of a box where it stands nearer
+to the box's centre, squared, than the box's half size and the reach, each squared, together.
+
+**Fix:** the game also hands back the part and the box through two pointers it does not test, which
+every caller passes null. Avoid Target (`order_avoid_target`, `0x0040B330`) asks only that its
+target's type is below 0x100, not that it lacks components, so the game writes to address zero once
+the ship comes within reach of a box of a ship that lists components. OpenReliant hands back
+neither.
 
 `avoid_near` (`0x004028F0`) works the first list, from the line between where the ship goes next
 and the point it steers at. For each object not standing in, exploding or disabled, not farther
@@ -255,15 +267,15 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | Number | Order | What it does | Ported |
 |---|---|---|---|
 | 0 | Do Nothing | Zeroes the throttle and the turning inputs. | Yes |
-| 1 | Fly Aimlessly | On starting, takes a figure from 1 to 3 from the ship's own random numbers, keeps where the ship will be next and how it will be turned, its X axis reversed where its next number is odd, and sets the throttle to 0.4 and up to 0.3 more by `rand()`. Each update it steers with flags `0x3` for point `n` of its figure, from 1, and for the next once within 1000 of it. Point `n` lies `t = n` twentieths of a turn round, `(cos t - 1)(figure + 1)` times 25000 along the kept X axis and `sin(figure t)` times 50000 along the kept Z axis from where the order began: figure 1 is a circle, and figures 2 and 3 are wider loops that swing ahead and back two and three times on the way round. It never ends. | Yes |
+| 1 | Fly Aimlessly | On starting, takes a figure from 1 to 3 from the ship's own random numbers, keeps where the ship will be next and how it will be turned, its X axis reversed where its next number is odd, and sets the throttle to 0.4 and up to 0.3 more by `rand()`. Each update it steers with flags `0x3` for point `n` of its figure, from 1, and for the next once within 1000 of it. Point `n` lies `t = n` twentieths of a turn round, `(cos t - 1)(figure + 1)` times 25000 along the kept X axis and `sin(figure t)` times 50000 along the kept Z axis from where the order began: figure 1 is a circle, and figures 2 and 3 are wider loops that swing ahead and back two and three times on the way round. It never ends. **Improvement:** OpenReliant computes the sine and cosine rather than reading the engine's tables (`sr_sin`, `sr_cos`). | Yes |
 | 2 | Launch Missile | One-shot: launches a missile at the target from the first of the ship's racks with missiles left that is not a Jack Hammer's ([Missiles](missiles.md#the-ais-missiles)). | Yes |
 | 3 | (nameless) | One-shot: as Launch Missile, from the first rack of Jack Hammers. | Yes |
 | 4 | Warp In | A capital ship warps in through a tunnel of its own ([Gates](gates.md)). Not read in full yet. | No ([#481](https://github.com/vdmkenny/openreliant/issues/481)) |
 | 5 | Warp Out | A capital ship warps out through a tunnel of its own. Not read in full yet. | No ([#481](https://github.com/vdmkenny/openreliant/issues/481)) |
-| 6 | Fly | Flies at the speed in its data, or at full throttle for zero. With a target it flies to it and pops within 2000 units; otherwise it keeps the heading it had when it started, steering at a point 20000 units along it. It steers with flags `0x7` and halves the throttle while avoiding. An object without flight stats is moved along that heading instead. | Yes |
-| 7 | Run Away | Flies away from the target at half throttle, steering with flags `0x3`. Pops when the target's slot holds a stand-in. | Yes |
+| 6 | Fly | Flies at the speed in its data, or at full throttle for zero. With a target it flies to it and pops within 2000 units; otherwise it keeps the heading it had when it started, steering at a point 20000 units along it. It steers with flags `0x7` and halves the throttle while avoiding. An object without flight stats is moved along that heading instead; **Improvement:** OpenReliant draws it gliding on between the ticks ([The game loop](loop.md#porting)). | Yes |
+| 7 | Run Away | Flies away from the target at half throttle, for a point on the far side of the ship from the target, 100000 times as far from the ship as the target is. It moves the point round what is near (`avoid_near`), then steers at it with flags `0x3` and an ease of 0.1, which go round what is near and ahead again. Pops when the target's slot holds a stand-in. | Yes |
 | 8 | Land | The player's ship lands on its carrier, which ends the mission ([Landing](#landing)). | Partly: the Yamato's style is not ([#349](https://github.com/vdmkenny/openreliant/issues/349)) |
-| 9 | Escort | On starting, takes the ship its target names, or the ship at the order's number among a flight group's or a squad's ships, counting round them again past the last (the walk's visitor at `0x0040AA50`); OpenReliant takes none where the group has no ships, which the game walks for ever (**Fix**). Each update, it pops once that ship's slot holds a stand-in; otherwise it steers for a point 10000 ahead of the ship: within 5000 of it with half its turn and flags `0x4`, and farther off with its full turn and flags `0x3`. Its throttle is the escorted ship's speed over its own cruise speed, and 0.0001 more for each unit the escorted ship lies ahead along its own heading. | Yes |
+| 9 | Escort | On starting, takes the ship its target names, or the ship at the order's number among a flight group's or a squad's ships, counting round them again past the last (`escort_count_place`, `0x0040AA50`); OpenReliant takes none where the group has no ships, which the game walks for ever (**Fix**). Each update, it pops once that ship's slot holds a stand-in; otherwise it steers for a point 10000 ahead of the ship: within 5000 of it with half its turn and flags `0x4`, and farther off with its full turn and flags `0x3`. Its throttle is the escorted ship's speed over its own cruise speed, and 0.0001 more for each unit the escorted ship lies ahead along its own heading. | Yes |
 | 10 | Find New Target | Walks the ships its target names, weighing each it can aim at, cloaked or not, by the square of its node's distance from where the ship will be next ([Picking a fight](#picking-a-fight)). It fights the lightest to fight, pushing Fight, or Torpedo (103) for a ship of the torpedo class; with none, it mills round the lightest to mill round, pushing Mill (120); with neither it pops. | Yes |
 | 11 | Explode | A destroyed object's end, by what it is and in one of three styles ([Destruction](objects.md#destruction)). | Yes |
 | 12 | Ripper grabs target object | A Ripper carries its target off ([The Ripper](#the-ripper)). | Yes |
@@ -315,7 +327,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 117 | Friendly Fire | The carrier recalls the player's ship for destroying a friend, and it lands ([Friendly fire](#friendly-fire)). | Yes |
 | 118 | Eject Player | The player's ship drifts, unpowered, for 400 to 599 ticks, then explodes, unless the pilot ejects first ([Destruction](objects.md#destruction), [Ejection](ejection.md#ejecting)). | Yes |
 | 119 | Ship Follow Curve Backwards | Flies the path of Ship Follow Curve (17) backwards, from its end to its start. | Yes |
-| 120 | Mill | On starting, where it can aim at its target, cloaked or not, keeps the tick and a circle facing from the target's node to where the ship will be next. Each update it pops once it can aim at the target no more or 500 ticks have passed; otherwise it flies at full throttle, steering with flags `0x3` for a point on the circle 50000 from the node, which comes round from the ship's side by 0.000005 of its cruise speed a tick. | Yes |
+| 120 | Mill | On starting, where it can aim at its target, cloaked or not, keeps the tick and a circle facing from the target's node to where the ship will be next. Each update it pops once it can aim at the target no more or 500 ticks have passed; otherwise it flies at full throttle, steering with flags `0x3` for a point on the circle 50000 from the node, which comes round from the ship's side by 0.000005 of its cruise speed a tick. **Improvement:** OpenReliant computes the sine and cosine rather than reading the engine's tables (`sr_sin`, `sr_cos`). | Yes |
 | 121 | Deathmatch Respawn Effect | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/vdmkenny/openreliant/issues/55)) |
 | 122 | Deathmatch Dark Reign target | It has no routines: nothing to run. | Yes |
 | 200 | (nameless) | It has no routines: nothing to run. | Yes |
@@ -335,7 +347,7 @@ state:
 | `+0x04` | The fastest the ship moves, as a share of its top speed: 1 |
 | `+0x08` | The curve it flies now |
 | `+0x0C` | The step |
-| `+0x10` | The frame's tick the curve began |
+| `+0x10` | The mission's tick (`mission_ticks`) the curve began |
 | `+0x14` | The curve's share of the order's seconds, in ticks, as its length is to the path's |
 | `+0x18` | The path's length |
 | `+0x28` | Where the carrying ship stood as the order started |
@@ -344,23 +356,32 @@ state:
 | Step | What it does |
 |---|---|
 | 0 | It arrives (`ai_arrive`) at the path's start, turned toward the path's point 4 ticks on and at the throttle the path keeps between them over its cruise speed; the curve's clock holds at its start. The order backwards arrives at the path's end instead, turned toward its point 4 ticks back, its motion `motion_forward` |
-| 1 | In a multiplayer game it waits for the other players; in a game of one, it goes on |
+| 1 | In a multiplayer game it waits for the other players (`ai_sequence_sync`, `0x00401000`, not ported: [#55](https://github.com/vdmkenny/openreliant/issues/55)); in a game of one, it goes on |
 | 2 | It flies `motion_follow` along the path, or `motion_follow_backwards` where its motion was astern; backwards, `motion_follow`. The path moves it on to step 3 |
-| 3 | The order pops, and its `exit` gives the ship `motion_forward`, or `motion_backward` after `motion_follow_backwards` |
+| 3 | The order pops, in a multiplayer game once the other players are there too (not ported: [#55](https://github.com/vdmkenny/openreliant/issues/55)), and its `exit` gives the ship `motion_forward`, or `motion_backward` after `motion_follow_backwards` |
 
 The path's routine, each update of the motion, gives the curve's point as far along as its ticks
-have gone (`curve_point`), carried with the carrying ship. Forward, past a place a point marks, the
+have gone by `mission_ticks`, which runs on through a frame's simulation steps (`curve_point`),
+carried with the carrying ship. Forward, past a place a point marks, the
 point has ShipReached, with the ship (`event_post_ship_reached`, `0x0045AC10`), one place an update.
 At the curve's end the ship it ends at has ShipReached too, and the next curve begins; with none, the
 step moves on. Backwards, past the curve's start, the curve before it begins, found by walking the
 path again from the order's curve, or at that curve the step moves on.
 
-**Fix:** the game divides by nothing for a path of no length and for a curve given no ticks,
-follows a path that comes round on itself for ever as it walks it, and carries a path on from a
-curve that ends at no ship to one that starts or ends at none; OpenReliant gives such a curve all
-the order's ticks, takes it to its end, stops walking after as many curves as the mission has, and
-ends the path there. It holds a curve's ticks at 65535, where the game takes them round from
-nothing.
+**Fix:** the game divides by nothing for a path of no length and for a curve given no ticks, and
+follows a path that comes round on itself for ever as it walks it; OpenReliant gives a curve of a
+path of no length all the order's ticks, takes a curve given no ticks to its end going forward and
+past its start going backwards, as the game's endless share does, and stops measuring such a path,
+and walking it for the curve before one, after as many curves as the mission has
+([Curves](director.md#curves)). Flying forward, it still follows such a path for ever
+([#535](https://github.com/vdmkenny/openreliant/issues/535)). Walking the path backwards, the game
+takes a curve's end for a ship unless its whole reference, kind and all, is `0x0000FFFF`
+(`0x0040359E`), and so walks on from a curve that ends at no ship to one that starts or ends at
+none; OpenReliant stops at an end whose index is `0xFFFF`. It holds a curve's ticks at 65535, where
+the game takes them round from nothing. The game moves the step on, and forward posts the end's
+ShipReached, at every move past the path's end, so that a second move before the order's update, a
+collision's or that of a second step in the same pass, leaves the order running, to fly the path
+again once the step comes round; OpenReliant moves it on once.
 
 ### Docking
 
@@ -375,17 +396,29 @@ own (3); the limpet pod's (4); at a Nanny, the Nanny's (1); and otherwise the st
 data's first byte holds the style.
 
 The station's style finds the docking points (`0x00406C80`): the ship's own, its first, and the
-port, whose part plays its `deploy` track at 4 from its start. A ship or a station without them
-stops the game with "Docking information not defined on %s". The berth (`0x00406E70`) is where the
-ship's origin stands docked: the port, less the ship's own docking point turned by the port's
-orientation, in the frame the station's part is drawn at, and turned as the port is. Its state:
+port, whose part plays its `deploy` track at 4 from its start. The port is found by counting the
+component down at each docking point, so a component past the station's docking points, or a
+negative one other than -1, which the init's search leaves alone, names none. A ship without a
+docking point stops the game with "Docking information not defined on %s". The check of the
+station's port reads the ship's own node again (`0x00406E2A`, `+0x10` where the port's is
+`+0x20`), so a station without the port goes on to the berth with the port's node null, as
+`order_push` cleared the state, and faults there. The berth (`0x00406E70`) is where the ship's
+origin stands docked: the port, less the ship's own docking point turned by the port's
+orientation, in the frame the station's part is drawn at, and turned as the port is.
+
+**Fix:** the game takes the ship's own docking point in its part's own frame alone (the node's
+`+0x18` and `+0x3C`, `0x00406E97`), which berths a ship whose point is on a part hung from another
+part off by that part's place; OpenReliant carries it up the parts it hangs from. Every shipped
+model has its docking points on parts that hang from the root.
+
+The station style's state:
 
 | Offset | What it holds |
 |---|---|
 | `+0x00` | The routine `motion_follow` gets its point from as the ship slides in: `0x00406F20` |
 | `+0x04` | The fastest the ship slides, a share of its top speed: 0.5 |
 | `+0x08` | The step |
-| `+0x0C` | The frame's tick the slide ends at |
+| `+0x0C` | The mission's tick (`mission_ticks`) the slide ends at |
 | `+0x10`, `+0x14` | The ship's own docking point's node and place on it |
 | `+0x20`, `+0x24`, `+0x30` | The port's node, its place on it and its orientation |
 | `+0x54` | Whether the ship came from the port's right, which mirrors the way round |
@@ -415,8 +448,11 @@ while the point lies within 18 degrees of its nose or its tail.
 Its exit, the Nanny's too (`0x00407D10`), leaves the ship's first pass-through slot empty. The
 ship stays attached.
 
-**Fix:** where the ship or the station has no docking point, OpenReliant logs it and the order
-ends, where the game stops.
+**Fix:** where the ship has no docking point the game stops, and where the station has no port
+that the component names it faults. OpenReliant logs either, and the order ends.
+
+**Fix:** the game goes on reading the frames of a station that has gone; OpenReliant ends the
+order, and until then the slide in holds the ship where it is.
 
 Not ported: the Nanny's, the limpet car's and the limpet pod's styles
 ([#320](https://github.com/vdmkenny/openreliant/issues/320)).
@@ -470,7 +506,8 @@ comes to rest ahead of the tube's middle, tilted as it came.
 game's height to the ship's own as it nears the tube, eased in and out over the way it comes, so
 that it arrives level. It stops dead over the tube, and sinks straight down it, coming to rest
 level. Once its top is below the underside of the tube's upper door, the door closes over it, its
-opening played back at 2 a step, with the game's sound of a door closing (`0x36`, `doorclos`).
+opening played back as fast as the launch opens the tube's doors, 2 a step, with the game's sound
+of a door closing (`0x36`, `doorclos`).
 `--original` lands it as the game does, and leaves the door open.
 
 **Fix:** a landing on a ship that nothing lands on ends at once, where the game stops, and
@@ -485,13 +522,14 @@ Not ported: the Yamato's style, whose landing OpenReliant lets go of at once
 The player's hits on friends ([`friendly_fire.zig`](../../src/engine/game/friendly_fire.zig)):
 `object_damage` and `object_armor_damage` hand a blow of the player's ship on a friendly object, a
 shot's, a Screamer's or a collision's, to `friendly_fire_warning` (`0x00474C80`), the armour's only
-while the object is not exploding, as `component_damage` does a shot's or a Screamer's on a
-friend's component. The damage after the difficulty's scaling mounts (`0x00562CEC`), and once past
-800 (`0x004DC5EC`) and 3000 game ticks after the last (`0x00562CE8`), Moose warns the player on the
-radio, one of `ff_001` to `ff_004`, and the damage counts from nothing again. The count of warnings
-(`0x00562CF0`) would pick `ff_005` to `ff_008` for a second and `ff_009` to `ff_012` for a third,
-but the game takes a second back to the first, so those are never said. `mission_run` clears the
-three (`0x00474B20`).
+while the object is not exploding, as `component_damage` does a shot's or a Screamer's on a friend's
+component. The damage after the difficulty's scaling mounts (`friendly_fire_damage`, `0x00562CEC`),
+and once past 800 (`0x004DC5EC`) and 3000 game ticks after the last (`friendly_fire_quiet_until`,
+`0x00562CE8`), Moose warns the player on the radio, one of `ff_001` to `ff_004`, and the damage
+counts from nothing again. The count of warnings (`friendly_fire_count`, `0x00562CF0`) would pick
+`ff_005` to `ff_008` for a second and `ff_009` to `ff_012` for a third, but the game takes a second
+back to the first, so those are never said. `friendly_fire_reset` (`0x00474B20`) clears the three as
+`mission_run` starts a mission.
 
 Destroying a friend sends the player home: armour below zero from such a blow, but a collision with
 a pilot's pod that anything could harm, or a friend's component destroyed by a shot or a Screamer,
@@ -533,14 +571,19 @@ turn from `next_rippercargo` (`0x00518AFC`); what a Ripper carries is the first 
 four tractor beams (`tractor_beam_mesh`, over `laser2`), one from the first point of each pincer's
 first point list, the first two reaching for the middle of the pod's first pair of points and the
 last two for that of its second ([SHP](../formats/shp.md)). An order shows them as it runs
-(`0x00412200`), aimed and faded as a tractor's beams are.
+(`0x00412200`), aimed and faded as a tractor's beams are: each from its pincer's point in the
+pincer's frame, to the middle of its pair of the pod's points taken in the frame the pod's
+`Cargo pod` part hangs from (the frame's parent, `+0x10`), which for the shipped pods is the pod's
+own place, so the beams stay on a pod that is disabled and not framed.
 
 The Ripper's tracks play on every part of it that has them (`0x0049A400`): `ready to grab`, its
-forearms reaching out; `grab pod`, its pincers closing; and `cabin turn`. A step that waits for a
-track played backwards waits for the root's first child's track to be back at its start. Each
+forearms reaching out; `grab pod`, its pincers closing; and `cabin turn`. A step that waits for
+the forearms or the pincers played backwards waits for the root's first child's track to be back
+at its start; one that waits for the cabin to turn back waits for the `Ripper Cabin` part's. Each
 wait for the other players between the steps (`0x00401000`) passes at once in a single-player
 game. A Ripper comes to rest where its turning inputs and its throttle are within 0.025, and its
-rates of turn within 0.02.
+rates of turn within 0.02; Ripper end drop object's last turn needs its inputs and rates below
+those values.
 
 Ripper grabs target object (12) lifts its target aboard. Its init (`0x0040FD10`) makes the target
 invulnerable, takes the beams, flies the Ripper by `motion_plain`, held (`attached`), and has the two
@@ -566,15 +609,15 @@ Should the target go first, the Ripper takes back its motion and the order ends.
 Make ripper drop what it's carrying (39) (`0x00410B90`, `0x00410C00`) stops the Ripper, flies it by
 `motion_plain`, held. Where the order names a ship, the Ripper fits what it carries to it instead
 (order 112). Else, at rest (its speed and rates below 0.05, by their signs), it plays `grab pod` from
-350 at -10, is heard (sound `0x3C`), and lets go: what it carries stands where its own `Cargo pod`
-is, and shows in its place; the order ends, and Ripper end drop object (111) takes over. What it
-drops stays disabled.
+350 at -10, plays sound `0x3C` on no object (-1), and lets go: what it carries stands where its own
+`Cargo pod` is, and shows in its place; the order ends, and Ripper end drop object (111) takes
+over. What it drops stays disabled.
 
 Ripper end drop object (111) (`0x00410E60`, `0x00410E90`) lets the Ripper go; it plays `ready to
 grab` from 350 at -6, then backs away astern at 0.2 for 50 ticks, and plays `cabin turn` from 400 at
 -4.5. Once its cabin is round, it turns, still flying astern, to put its tail to a point 10000 ahead
-of it (limit 2), and flies on (`motion_forward`): neither it nor what it dropped passes through the
-other any more, it carries nothing, and it has its RipperDroppedObject.
+of it (limit 2) until at rest, and flies on (`motion_forward`): neither it nor what it dropped
+passes through the other any more, it carries nothing, and it has its RipperDroppedObject.
 
 Ripper attach cargo pod to Mammoth (112) (`0x00411200`, `0x00411420`) fits what the Ripper carries
 to the component its target names. The Ripper flies astern to 2500 above the component, in its
@@ -585,11 +628,11 @@ ticks the beams come on, and it is heard (sound `0x3D`), shown in place of the R
 enabled. Over 1000 ticks it eases onto the component, keeping its turn for the first 0.15 of the
 time, then turning, easing, until half of it, to the component's orientation turned a quarter back
 about its X on a Mammoth, a Sharov or a Boridin and about its Z on another. Heard as it arrives
-(sound `0x3C`), the Ripper plays `ready to grab` from 350 at -6, then
-`cabin turn` from 400 at -4.5, and turns to put its tail to a point 10000 behind it. Then the pod
+(sound `0x3C`), the Ripper plays `ready to grab` from 350 at -6, then `cabin turn` from 400 at
+-4.5, and once its cabin is round turns to put its tail to a point 10000 behind it. Then the pod
 is gone into the ship: disabled, no longer targetable and hidden, and the component shows; the
-Ripper flies on (`motion_forward`) and has its RipperDroppedObject. It still carries the pod: only
-Ripper end drop object ends that.
+Ripper flies on (`motion_forward`) and has its RipperDroppedObject, and it carries nothing from
+then on.
 
 A Mammoth's cargo slots stay hidden until the Ripper fills them because the mission's script
 hides them: it disables the components as it makes the ship (`DisableObject`), which hides each
@@ -602,6 +645,24 @@ error: Too many rippers doing their stuff at once."; where a Ripper carries noth
 and the Stalag lacks, it reads the grab point's height past the table's end. OpenReliant logs the
 first and takes the entry, ends the order for the second, and stands 2500 above the component for
 the third.
+
+**Fix:** Ripper attach cargo pod to Mammoth never clears the Ripper's `rippercargo` entry once the
+pod is fitted, so what the Ripper carries stays that pod: each later drop or fit by the same Ripper
+takes the pod it fitted first out of the ship again, while the pod last grabbed stays hidden where
+it was lifted, and RipperDroppedObject names the wrong pod. OpenReliant clears the entry, as Ripper
+end drop object does.
+
+**Fix:** as its cabin turns back, Ripper attach cargo pod to Mammoth waits for the root's first
+child, a forearm with no `cabin turn` track that the step before has already seen at rest, so the
+Ripper turns away while its cabin is still turning. OpenReliant waits for the `Ripper Cabin` part,
+as Ripper end drop object does.
+
+**Fix:** Make ripper drop what it's carrying takes a negative index other than -1 for a ship's
+slot, and its sound `0x3C`, which follows an object, plays on none; both read before the objects'
+table. OpenReliant takes such an index for none, and plays nothing.
+
+**Improvement:** the pod's turn as it fits divides the share past 0.15 by the span to 0.5, where
+the game multiplies it by its rounded reciprocal (`0x004DC540`).
 
 **Improvement:** the beams' orders place what they carry once a tick, and the game draws it there;
 OpenReliant draws it on between the ticks, as far as a tick of the step would take it

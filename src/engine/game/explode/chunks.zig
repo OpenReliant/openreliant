@@ -174,12 +174,12 @@ test throw {
     explosions.chunks.moved_at = 100;
     explosions.chunks.frame(world.clock);
     const moved = explosions.chunks.ring.slots[0].?.place.position;
-    inline for (0..3) |axis| try std.testing.expectApproxEqAbs(chunk.place.position[axis] + chunk.velocity[axis] * 10, moved[axis], 1e-3);
+    try math.testing.expectVectorWithin(chunk.place.position + chunk.velocity * @as(Vector, @splat(10)), moved, 1e-3);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     try explosions.chunks.draw(gpa, &scene, 0.5);
     const drawn = explosions.chunks.ring.slots[0].?.object.position;
-    inline for (0..3) |axis| try std.testing.expectApproxEqAbs(moved[axis] + chunk.velocity[axis] * 0.5, drawn[axis], 1e-3);
+    try math.testing.expectVectorWithin(moved + chunk.velocity * @as(Vector, @splat(0.5)), drawn, 1e-3);
 
     // It goes once its time is past.
     stage.mission.clock.frame_start = chunk.until + 1;

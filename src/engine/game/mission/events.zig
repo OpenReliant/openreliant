@@ -15,6 +15,7 @@ const dte = @import("../../../formats/dte.zig");
 const math = @import("../../surrender/math.zig");
 const vm = @import("../../vm.zig");
 const gameobj = @import("../gameobj.zig");
+const bind = @import("bind.zig");
 
 const triggers = vm.triggers;
 const Event = triggers.Event;
@@ -51,15 +52,15 @@ pub const Events = struct {
     /// `event_post` (`0x0045B7C0`): queues `event` on the mission's ship `ship`, where one of the
     /// ship's own triggers would answer it.
     pub fn post(events: *Events, ship: u16, event: Event) void {
-        if (!triggers.wouldFire(events.script, events.objectOf(ship), event)) return;
+        const object = events.objectOf(ship) orelse return;
+        if (!triggers.wouldFire(events.script, object, event)) return;
         events.take(false, ship, event);
     }
 
     /// `event_post_group` (`0x0045B690`): queues `event` on the mission's ship `ship`, to be raised
     /// on its flight group and on the squads that hold it too, where a trigger would answer it:
-    /// the ship's own, or its flight group's, or one of a squad's that holds it (`Machine.inSquad`,
-    /// as the component the event concerns), in that order, each group only where its slice holds
-    /// triggers. A group's triggers answer the event as one on the group itself.
+    /// the ship's own, or one of the groups' it goes on to (`vm.triggers.groupsOf`), in that
+    /// order. A group's triggers answer the event as one on the group itself (`Event.onGroup`).
     pub fn postGroup(events: *Events, ship: u16, event: Event) void {
         if (!events.anyWouldFire(ship, event)) return;
         events.take(true, ship, event);
@@ -67,24 +68,10 @@ pub const Events = struct {
 
     fn anyWouldFire(events: *Events, ship: u16, event: Event) bool {
         const machine = events.script;
-        if (triggers.wouldFire(machine, events.objectOf(ship), event)) return true;
-        const file = machine.mission.file;
-        const on_group: Event = .{ .condition = event.condition, .values = event.values };
-        const ships = file.ships() catch return false;
-        if (ship >= ships.len) return false;
-        if (ships[ship].flightGroup()) |index| {
-            const groups = file.flightGroups() catch return false;
-            if (index < groups.len) {
-                const group = groups[index].object_id;
-                if (triggers.holdsTriggers(machine, group) and triggers.wouldFire(machine, group, on_group)) return true;
-            }
-        }
-        const squads = file.squads() catch return false;
-        const place = machine.recordPlace(.ships, ship);
-        for (squads, 0..) |squad, index| {
-            if (!triggers.holdsTriggers(machine, squad.object_id)) continue;
-            const holds = machine.inSquad(machine.recordPlace(.squads, index), place, event.qualifier, 0) catch false;
-            if (holds and triggers.wouldFire(machine, squad.object_id, on_group)) return true;
+        if (events.objectOf(ship)) |object| if (triggers.wouldFire(machine, object, event)) return true;
+        var groups = triggers.groupsOf(machine, ship, event.qualifier);
+        while (groups.next()) |group| {
+            if (triggers.wouldFire(machine, group.object, event.onGroup())) return true;
         }
         return false;
     }
@@ -99,7 +86,7 @@ pub const Events = struct {
             events.overflowed = true;
             return;
         }
-        const count = @min(event.values.len, max_values);
+        const count = @min(event.values.len, vm.QueuedEvent.max_values);
         var queued: Queued = .{ .groups = groups, .ship = ship, .condition = event.condition, .qualifier = event.qualifier, .count = @intCast(count) };
         @memcpy(queued.values[0..count], event.values[0..count]);
         events.waiting[events.count] = queued;
@@ -116,8 +103,7 @@ pub const Events = struct {
         var at: usize = 0;
         while (at < events.count) : (at += 1) {
             const queued = &events.waiting[at];
-            const ships = machine.mission.ships() catch break;
-            if (queued.ship >= ships.len) continue;
+            if (machine.mission.ship(queued.ship) == null) continue;
             const event: Event = .{ .condition = queued.condition, .qualifier = queued.qualifier, .values = queued.values[0..queued.count] };
             triggers.raise(machine, events.objectOf(queued.ship), event);
             if (queued.groups) triggers.raiseOnGroups(machine, queued.ship, event);
@@ -125,25 +111,30 @@ pub const Events = struct {
         events.count = 0;
     }
 
-    /// The object ID of the mission's ship `ship`, which its triggers are held by.
-    fn objectOf(events: *const Events, ship: u16) u16 {
-        const ships = events.script.mission.ships() catch return triggers.no_object;
-        return if (ship < ships.len) @truncate(ships[ship].object_id) else triggers.no_object;
+    /// The object ID of the mission's ship `ship`, which its triggers are held by: none past the
+    /// mission's ships, or where the ID's low halfword is `no_object`.
+    fn objectOf(events: *const Events, ship: u16) ?u16 {
+        const record = events.script.mission.ship(ship) orelse return null;
+        const id: u16 = @truncate(record.object_id);
+        return if (id == no_object) null else id;
     }
+
+    /// The object ID that names no object, on which `trigger_raise_event` raises no event
+    /// (`0x0045CE70`).
+    const no_object: u16 = 0xFFFF;
 
     /// The mission's ship the object in slot `index` stands for (`object_ship`, `0x0045A970`): a
     /// mission's ship takes the slot of its index, so the ship of the slot's index, and none past
     /// the mission's ships.
     fn shipOf(events: *const Events, index: u16) ?u16 {
-        const ships = events.script.mission.ships() catch return null;
-        return if (index < ships.len) index else null;
+        return if (events.script.mission.ship(index) != null) index else null;
     }
 
     /// What an event names the object in slot `index` by: where the record of the mission's ship
-    /// it stands for lies, or 0 for none.
+    /// it stands for lies, or `bind.Mission.no_place` for none.
     fn value(events: *const Events, index: ?u16) u32 {
-        const ship = events.shipOf(index orelse return none) orelse return none;
-        return events.script.recordPlace(.ships, ship);
+        const ship = events.shipOf(index orelse return bind.Mission.no_place) orelse return bind.Mission.no_place;
+        return events.script.mission.recordPlace(.ships, ship);
     }
 
     /// `0x0045AE10`, as the mission's tables are made (`mission_bind_tables`): a watch for each
@@ -229,7 +220,7 @@ pub const Events = struct {
                         events.scan(world, @intCast(index), reach * reach, .proximity_general);
                     },
                     .reached => {
-                        if (ship.kind != dte.Ship.waypoint_kind and ship.kind != nav_point_kind) continue;
+                        if (ship.kind != dte.Ship.waypoint_kind and ship.kind != dte.Ship.nav_point_kind) continue;
                         if (firstArmed(list, id) == null) continue;
                         events.scan(world, @intCast(index), reached_reach * reached_reach, .ship_reached);
                     },
@@ -255,7 +246,7 @@ pub const Events = struct {
             const squared = apart * apart;
             const distance = squared[2] + squared[1] + squared[0];
             if (!(distance <= reach)) continue;
-            var values = [_]u32{ events.script.recordPlace(.ships, index), 0 };
+            var values = [_]u32{ events.script.mission.recordPlace(.ships, index), 0 };
             switch (condition) {
                 .ship_reached => events.post(subject, .{ .condition = condition, .values = values[0..1] }),
                 .proximity_close, .proximity_general => {
@@ -277,15 +268,9 @@ const Queued = struct {
     ship: u16,
     condition: dte.Condition,
     qualifier: u8,
-    values: [max_values]u32 = undefined,
+    values: [vm.QueuedEvent.max_values]u32 = undefined,
     count: u8,
 };
-
-/// The values a waiting event has room for (`vm.QueuedEvent.values`).
-const max_values = 8;
-
-/// What an event names no ship by.
-const none: u32 = 0;
 
 /// What the watches of each list watch for.
 pub const Watched = enum {
@@ -332,113 +317,106 @@ const reached_reach: f32 = 4000;
 /// The operand of a Proximity trigger that gives its distance, in the subject's radii.
 const proximity_operand = 1;
 
-/// The kind of a mission's nav points, which ShipReached's watches look from as from a waypoint.
-const nav_point_kind = 999;
-
 /// What an event names no weapon by: ShotAt's weapon is always so.
 const no_weapon: u32 = 0xFFFF_FFFF;
 
 /// `event_launched` (`0x0045A9B0`): the object in slot `index` has launched. Its ship's Launched,
 /// with the ship, goes on to its groups.
 pub fn launched(world: gameobj.World, index: u16) void {
-    postWithShip(world, index, .launched);
+    postNaming(world, index, .launched, index);
 }
 
 /// `event_jumped_in` (`0x0045B300`): the object in slot `index` has jumped in (`jump.inUpdate`).
 /// Its ship's JumpedIn, with the ship, goes on to its groups.
 pub fn jumpedIn(world: gameobj.World, index: u16) void {
-    postWithShip(world, index, .jumped_in);
+    postNaming(world, index, .jumped_in, index);
 }
 
 /// `event_fixed_gate_jumped_in` (`0x0045ABD0`): the object in slot `index` has come in through the
 /// fixed gate in slot `gate` (`wgate.jumpIn`). Its ship's FixedGateJumpedIn, with the gate's ship,
 /// goes on to its groups.
 pub fn fixedGateJumpedIn(world: gameobj.World, index: u16, gate: u16) void {
-    const events = world.events orelse return;
-    const ship = events.shipOf(index) orelse return;
-    var values = [_]u32{events.value(gate)};
-    events.postGroup(ship, .{ .condition = .fixed_gate_jumped_in, .values = &values });
+    postNaming(world, index, .fixed_gate_jumped_in, gate);
 }
 
-/// The ship of the object in slot `index` posts `condition` with itself as its value, which goes
-/// on to its groups, as `event_launched`, `event_jumped_in` and `event_post_explosion` do. An
-/// object that stands for no mission's ship posts nothing.
-fn postWithShip(world: gameobj.World, index: u16, condition: dte.Condition) void {
+/// The ship of the object in slot `index` posts `condition` with the ship of the object in slot
+/// `named` as its value, which goes on to its groups; an object that stands for no mission's ship
+/// posts nothing.
+fn postNaming(world: gameobj.World, index: u16, condition: dte.Condition, named: u16) void {
     const events = world.events orelse return;
     const ship = events.shipOf(index) orelse return;
-    var values = [_]u32{events.value(index)};
+    var values = [_]u32{events.value(named)};
     events.postGroup(ship, .{ .condition = condition, .values = &values });
 }
 
+/// The ship of the object in slot `index` posts `condition`, with no values, for its own triggers;
+/// an object that stands for no mission's ship posts nothing.
+fn postOwn(world: gameobj.World, index: u16, condition: dte.Condition) void {
+    const events = world.events orelse return;
+    const ship = events.shipOf(index) orelse return;
+    events.post(ship, .{ .condition = condition });
+}
+
 /// `event_shot_at` (`0x0045A9E0`): the object in slot `index` is hit by the one in slot
-/// `attacker`, on its component `component` or on itself (`dte.Trigger.whole_object`). Its ship's
-/// ShotAt goes on to its groups, with the attacker's ship, its own damage value for the shields
-/// and for the hull alike (`vm.triggers.damageValue`), the ship itself, and no weapon. A hit by
-/// what stands for no mission's ship posts nothing.
-pub fn shotAt(world: gameobj.World, index: u16, attacker: u16, component: u8) void {
+/// `attacker`, on its component `component`, or null for the object itself
+/// (`dte.Trigger.whole_object`). Its ship's ShotAt goes on to its groups, with the attacker's
+/// ship, its own damage value for the shields and for the hull alike (`vm.triggers.damageValue`),
+/// the ship itself, and no weapon. A hit by what stands for no mission's ship posts nothing.
+pub fn shotAt(world: gameobj.World, index: u16, attacker: u16, component: ?u8) void {
     const events = world.events orelse return;
     const ship = events.shipOf(index) orelse return;
     if (events.shipOf(attacker) == null) return;
-    const damage = triggers.damageValue(world, ship, component);
+    const qualifier = component orelse dte.Trigger.whole_object;
+    const damage = triggers.damageValue(world, ship, qualifier);
     var values = [_]u32{ events.value(attacker), damage, damage, events.value(index), no_weapon };
-    events.postGroup(ship, .{ .condition = .shot_at, .qualifier = component, .values = &values });
+    events.postGroup(ship, .{ .condition = .shot_at, .qualifier = qualifier, .values = &values });
 }
 
 /// `event_destroyed` (`0x0045AA60`): the object in slot `index` is destroyed, or its component
-/// `component`, which its ship's record notes: the ship's own Destroyed comes only once
-/// (`dte.Ship.Flags.destroyed`), and a component clears its bit (`dte.Ship.intact_components`).
-/// Its ship's Destroyed goes on to its groups, with the ship of what last struck it
-/// (`GameObject.last_attacker`) and the ship itself.
-pub fn destroyed(world: gameobj.World, index: u16, component: u8) void {
+/// `component`, or null for the object itself, which its ship's record notes: the ship's own
+/// Destroyed comes only once (`dte.Ship.Flags.destroyed`), and a component clears its bit
+/// (`dte.Ship.loseComponent`). Its ship's Destroyed goes on to its groups, with the ship of
+/// what last struck it (`GameObject.last_attacker`) and the ship itself.
+pub fn destroyed(world: gameobj.World, index: u16, component: ?u8) void {
     const events = world.events orelse return;
     const ship = events.shipOf(index) orelse return;
     if (index >= world.objects.slots.len) return;
-    const records = events.script.mission.ships() catch return;
-    const record = &records[ship];
+    const record = events.script.mission.ship(ship) orelse return;
     var values = [_]u32{ events.value(world.objects.slots[index].object.last_attacker.index()), events.value(index) };
-    if (component == dte.Trigger.whole_object) {
+    if (component) |part| {
+        record.loseComponent(part);
+    } else {
         if (record.flags.destroyed) return;
         record.flags.destroyed = true;
-    } else {
-        record.intact_components &= ~(@as(u32, 1) << @truncate(component));
     }
-    events.postGroup(ship, .{ .condition = .destroyed, .qualifier = component, .values = &values });
+    events.postGroup(ship, .{ .condition = .destroyed, .qualifier = component orelse dte.Trigger.whole_object, .values = &values });
 }
 
 /// `0x0045AAD0`: the object in slot `index` has taken the one in slot `object` aboard
 /// (`order_scoop_up`). Its ship's ObjectScooped, with the ship of what it took, goes on to its
 /// groups.
 pub fn scooped(world: gameobj.World, index: u16, object: u16) void {
-    const events = world.events orelse return;
-    const ship = events.shipOf(index) orelse return;
-    var values = [_]u32{events.value(object)};
-    events.postGroup(ship, .{ .condition = .object_scooped, .values = &values });
+    postNaming(world, index, .object_scooped, object);
 }
 
 /// `event_ripper_grabbed` (`0x0045AB10`): the Ripper in slot `index` has the object in slot
-/// `object` aboard (`airipper.grab`). Its ship's RipperGrabbedObject, with the ship of what it took,
-/// goes on to its groups.
+/// `object` aboard (`airipper.grab`). Its ship's RipperGrabbedObject, with the ship of what it
+/// took, goes on to its groups.
 pub fn ripperGrabbed(world: gameobj.World, index: u16, object: u16) void {
-    const events = world.events orelse return;
-    const ship = events.shipOf(index) orelse return;
-    var values = [_]u32{events.value(object)};
-    events.postGroup(ship, .{ .condition = .ripper_grabbed_object, .values = &values });
+    postNaming(world, index, .ripper_grabbed_object, object);
 }
 
 /// `event_ripper_dropped` (`0x0045AB90`): the Ripper in slot `index` has let go of the object in
 /// slot `object`, or fitted it to a ship (`airipper.endDrop`, `airipper.attach`). Its ship's
 /// RipperDroppedObject, with the ship of what it let go, goes on to its groups.
 pub fn ripperDropped(world: gameobj.World, index: u16, object: u16) void {
-    const events = world.events orelse return;
-    const ship = events.shipOf(index) orelse return;
-    var values = [_]u32{events.value(object)};
-    events.postGroup(ship, .{ .condition = .ripper_dropped_object, .values = &values });
+    postNaming(world, index, .ripper_dropped_object, object);
 }
 
 /// `event_post_explosion` (`0x0045AB50`): the explosion that the object in slot `index` set off is
 /// over. Its ship's ExplosionShip, with the ship, goes on to its groups.
 pub fn exploded(world: gameobj.World, index: u16) void {
-    postWithShip(world, index, .explosion_ship);
+    postNaming(world, index, .explosion_ship, index);
 }
 
 /// The object in slot `index` cloaks, or uncloaks (`object_cloak`, `object_uncloak`): its ship's
@@ -447,9 +425,7 @@ pub fn exploded(world: gameobj.World, index: u16) void {
 /// **Fix:** the game faults on an object that stands for no mission's ship; OpenReliant posts
 /// nothing.
 pub fn cloaked(world: gameobj.World, index: u16, on: bool) void {
-    const events = world.events orelse return;
-    const ship = events.shipOf(index) orelse return;
-    events.post(ship, .{ .condition = if (on) .cloaked else .decloaked });
+    postOwn(world, index, if (on) .cloaked else .decloaked);
 }
 
 /// `event_post_ship_reached` (`0x0045AC10`): the object in slot `index` has reached mission ship
@@ -464,9 +440,7 @@ pub fn shipReached(world: gameobj.World, ship: u16, index: u16) void {
 /// The object in slot `index` has docked (`order_dock`): its ship's Docked, with no values, for its
 /// own triggers.
 pub fn docked(world: gameobj.World, index: u16) void {
-    const events = world.events orelse return;
-    const ship = events.shipOf(index) orelse return;
-    events.post(ship, .{ .condition = .docked });
+    postOwn(world, index, .docked);
 }
 
 /// `event_camera_reached` (`0x00451180`): the director's camera has reached mission ship `ship`,
@@ -481,49 +455,40 @@ pub fn cameraReached(world: gameobj.World, ship: u16) void {
 /// the mission's first, has its PlayerReadyToJump or its PlayerReadyToWarp, with no values, for its
 /// own triggers.
 pub fn readyToJump(world: gameobj.World, warp: bool) void {
-    const events = world.events orelse return;
-    const player = events.shipOf(0) orelse return;
-    events.post(player, .{ .condition = if (warp) .player_ready_to_warp else .player_ready_to_jump });
+    postOwn(world, 0, if (warp) .player_ready_to_warp else .player_ready_to_jump);
 }
 
 /// REQUEST BACKUP brought the mission's backup (`comms_request_backup`, `0x004559D6`): the
 /// player's ship has its PlayerWantsBackup, with no values, for its own triggers.
 pub fn wantsBackup(world: gameobj.World) void {
-    const events = world.events orelse return;
-    const player = events.shipOf(world.objects.player) orelse return;
-    events.post(player, .{ .condition = .player_wants_backup });
+    postOwn(world, world.objects.player, .player_wants_backup);
 }
 
 /// A mission for the tests: a script with its events, and a world of objects that stand for its
 /// ships, one a slot, whose events the world posts.
 const TestMission = struct {
-    fixture: vm.machine.testing.Fixture,
-    game: gameobj.testing.Mission,
+    game: vm.machine.testing.Game,
     events: Events,
 
     /// `parts` and `records` make the script; an object of the ship's slot stands at each of `at`,
     /// with a radius of `test_radius`.
     fn init(mission: *TestMission, parts: []const vm.machine.testing.Part, records: vm.machine.testing.Records, at: []const math.Vector) !void {
         const gpa = std.testing.allocator;
-        try mission.fixture.init(gpa, parts, records);
-        errdefer mission.fixture.deinit();
-        try mission.game.init(gpa);
+        try mission.game.init(gpa, parts, records);
         errdefer mission.game.deinit();
         for (at) |place| {
-            const index = try mission.game.add(.predator, place);
-            mission.game.slot(index).object.radius = test_radius;
+            const index = try mission.game.mission.add(.predator, place);
+            mission.game.mission.slot(index).object.radius = test_radius;
         }
-        mission.events = .init(gpa, &mission.fixture.machine);
+        mission.events = .init(gpa, &mission.game.fixture.machine);
         errdefer mission.events.deinit();
         try mission.events.watch(1);
-        try mission.fixture.machine.start();
-        mission.fixture.machine.game = .{ .world = mission.world(), .clock = &mission.game.clock };
+        try mission.game.start(.of(mission.world()));
     }
 
     fn deinit(mission: *TestMission) void {
         mission.events.deinit();
         mission.game.deinit();
-        mission.fixture.deinit();
     }
 
     fn world(mission: *TestMission) gameobj.World {
@@ -535,23 +500,16 @@ const TestMission = struct {
     const test_radius: f32 = 100;
 };
 
-/// Ships of the test missions, each in no flight group, its object ID its index.
-fn testShips(comptime count: usize) [count]dte.Ship {
-    var ships: [count]dte.Ship = undefined;
-    for (&ships, 0..) |*ship, index| ship.* = std.mem.zeroInit(dte.Ship, .{ .object_id = @as(u32, @intCast(index)), .flight_group = dte.Ship.no_flight_group });
-    return ships;
-}
-
 test "an event waits where a trigger would answer it, and goes off with the frame" {
     const gpa = std.testing.allocator;
-    const code = try triggers.testing.counting(gpa, 0);
+    const code = try vm.machine.testing.counting(gpa, 0);
     defer gpa.free(code);
     const parts = [_]vm.machine.testing.Part{.{ .code = code }};
     var mission: TestMission = undefined;
     try mission.init(&parts, .{
         .globals = &.{0},
-        .ships = &testShips(2),
-        .objects = &.{ triggers.testing.object(.ship, 0, 1), triggers.testing.object(.ship, 1, 0) },
+        .ships = &dte.testing.ships(2, 0),
+        .objects = &.{ dte.testing.object(.ship, 0, 1), dte.testing.object(.ship, 1, 0) },
         .triggers = &.{triggers.testing.trigger(&parts, 0, .launched, .always)},
     }, &.{ @splat(0), .{ 1000, 0, 0 } });
     defer mission.deinit();
@@ -562,17 +520,45 @@ test "an event waits where a trigger would answer it, and goes off with the fram
     // Ship 0's waits for the frame.
     launched(mission.world(), 0);
     try std.testing.expectEqual(1, mission.events.count);
-    try std.testing.expectEqual(0, mission.fixture.global(0));
+    try std.testing.expectEqual(0, mission.game.fixture.global(0));
     mission.events.flush();
-    try std.testing.expectEqual(1, mission.fixture.global(0));
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
     try std.testing.expectEqual(0, mission.events.count);
+}
+
+test "an event waits where only its flight group's trigger would answer it" {
+    const gpa = std.testing.allocator;
+    const code = try vm.machine.testing.counting(gpa, 0);
+    defer gpa.free(code);
+    const parts = [_]vm.machine.testing.Part{.{ .code = code }};
+    // Ships 0 and 1 make flight group 0, whose object holds the one trigger.
+    const ships = [_]dte.Ship{ dte.testing.ship(0, 0, 0), dte.testing.ship(1, 0, 0) };
+    var mission: TestMission = undefined;
+    try mission.init(&parts, .{
+        .globals = &.{0},
+        .ships = &ships,
+        .flight_groups = &.{dte.testing.flightGroup(2, .player)},
+        .objects = &.{ dte.testing.object(.ship, 0, 0), dte.testing.object(.ship, 0, 0), dte.testing.object(.flight_group, 0, 1) },
+        .triggers = &.{triggers.testing.trigger(&parts, 0, .launched, .always)},
+    }, &.{ @splat(0), .{ 1000, 0, 0 } });
+    defer mission.deinit();
+
+    // Posted for the ship's own triggers alone, it waits for nothing.
+    var values = [_]u32{mission.game.fixture.machine.mission.recordPlace(.ships, 1)};
+    mission.events.post(1, .{ .condition = .launched, .values = &values });
+    try std.testing.expectEqual(0, mission.events.count);
+    // Posted for its groups too, it waits, and goes off on the flight group.
+    launched(mission.world(), 1);
+    try std.testing.expectEqual(1, mission.events.count);
+    mission.events.flush();
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
 }
 
 test "a ship's Destroyed comes once, and a component's clears its bit" {
     const gpa = std.testing.allocator;
-    const whole = try triggers.testing.counting(gpa, 0);
+    const whole = try vm.machine.testing.counting(gpa, 0);
     defer gpa.free(whole);
-    const part = try triggers.testing.counting(gpa, 1);
+    const part = try vm.machine.testing.counting(gpa, 1);
     defer gpa.free(part);
     const parts = [_]vm.machine.testing.Part{ .{ .code = whole }, .{ .code = part } };
     var on_component = triggers.testing.trigger(&parts, 1, .destroyed, .always);
@@ -580,44 +566,44 @@ test "a ship's Destroyed comes once, and a component's clears its bit" {
     var mission: TestMission = undefined;
     try mission.init(&parts, .{
         .globals = &.{ 0, 0 },
-        .ships = &testShips(2),
-        .objects = &.{ triggers.testing.object(.ship, 0, 2), triggers.testing.object(.ship, 2, 0) },
+        .ships = &dte.testing.ships(2, 0),
+        .objects = &.{ dte.testing.object(.ship, 0, 2), dte.testing.object(.ship, 2, 0) },
         .triggers = &.{ triggers.testing.trigger(&parts, 0, .destroyed, .always), on_component },
     }, &.{ @splat(0), .{ 1000, 0, 0 } });
     defer mission.deinit();
-    const machine = &mission.fixture.machine;
-    const records = try mission.fixture.mission.ships();
+    const machine = &mission.game.fixture.machine;
+    const records = try mission.game.fixture.mission.ships();
 
     // Ship 1 struck it last: the event names it the killer, and the ship keeps the event.
-    mission.game.slot(0).object.last_attacker = .of(1);
-    destroyed(mission.world(), 0, dte.Trigger.whole_object);
-    destroyed(mission.world(), 0, dte.Trigger.whole_object);
+    mission.game.mission.slot(0).object.last_attacker = .of(1);
+    destroyed(mission.world(), 0, null);
+    destroyed(mission.world(), 0, null);
     mission.events.flush();
-    try std.testing.expectEqual(1, mission.fixture.global(0));
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
     try std.testing.expect(records[0].flags.destroyed);
-    try std.testing.expectEqual(machine.recordPlace(.ships, 1), machine.event_values[0].destroyed[0]);
+    try std.testing.expectEqual(machine.mission.recordPlace(.ships, 1), machine.event_values[0].destroyed[0]);
     // Component 3's answers its own trigger alone.
     destroyed(mission.world(), 0, 3);
     mission.events.flush();
-    try std.testing.expectEqual(1, mission.fixture.global(0));
-    try std.testing.expectEqual(1, mission.fixture.global(1));
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
+    try std.testing.expectEqual(1, mission.game.fixture.global(1));
     try std.testing.expectEqual(~@as(u32, 1 << 3), records[0].intact_components);
 }
 
 test "JUMP DRIVE takes the jump the mission has ready" {
     const gpa = std.testing.allocator;
-    const code = try triggers.testing.counting(gpa, 0);
+    const code = try vm.machine.testing.counting(gpa, 0);
     defer gpa.free(code);
     const parts = [_]vm.machine.testing.Part{.{ .code = code }};
     var mission: TestMission = undefined;
     try mission.init(&parts, .{
         .globals = &.{0},
-        .ships = &testShips(1),
-        .objects = &.{triggers.testing.object(.ship, 0, 1)},
+        .ships = &dte.testing.ships(1, 0),
+        .objects = &.{dte.testing.object(.ship, 0, 1)},
         .triggers = &.{triggers.testing.trigger(&parts, 0, .player_ready_to_jump, .always)},
     }, &.{@splat(0)});
     defer mission.deinit();
-    const machine = &mission.fixture.machine;
+    const machine = &mission.game.fixture.machine;
     const input = @import("../../input.zig");
 
     // Nothing ready, nothing happens.
@@ -628,21 +614,21 @@ test "JUMP DRIVE takes the jump the mission has ready" {
     machine.clock = 7;
     input.playerJump(mission.world());
     mission.events.flush();
-    try std.testing.expectEqual(1, mission.fixture.global(0));
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
     try std.testing.expectEqual(.no, machine.variables.ready.jump);
     try std.testing.expectEqual(7, machine.last_jumped);
 }
 
 test "the director's camera reaching a ship" {
     const gpa = std.testing.allocator;
-    const code = try triggers.testing.counting(gpa, 0);
+    const code = try vm.machine.testing.counting(gpa, 0);
     defer gpa.free(code);
     const parts = [_]vm.machine.testing.Part{.{ .code = code }};
     var mission: TestMission = undefined;
     try mission.init(&parts, .{
         .globals = &.{0},
-        .ships = &testShips(2),
-        .objects = &.{ triggers.testing.object(.ship, 0, 0), triggers.testing.object(.ship, 0, 1) },
+        .ships = &dte.testing.ships(2, 0),
+        .objects = &.{ dte.testing.object(.ship, 0, 0), dte.testing.object(.ship, 0, 1) },
         .triggers = &.{triggers.testing.trigger(&parts, 0, .camera_reached, .always)},
     }, &.{ @splat(0), @splat(0) });
     defer mission.deinit();
@@ -652,26 +638,25 @@ test "the director's camera reaching a ship" {
     try std.testing.expectEqual(0, mission.events.count);
     cameraReached(mission.world(), 1);
     mission.events.flush();
-    try std.testing.expectEqual(1, mission.fixture.global(0));
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
 }
 
 test "the watches look for ships close by, while their triggers are armed" {
     const gpa = std.testing.allocator;
-    const near = try triggers.testing.counting(gpa, 0);
+    const near = try vm.machine.testing.counting(gpa, 0);
     defer gpa.free(near);
-    const close = try triggers.testing.counting(gpa, 1);
+    const close = try vm.machine.testing.counting(gpa, 1);
     defer gpa.free(close);
-    const disarm = disarm: {
-        var routine: vm.machine.testing.Routine = .init(gpa);
-        defer routine.deinit();
-        try routine.op(.push_ship, &.{1});
-        try routine.op(.push_byte, &.{@intFromEnum(dte.Condition.proximity_general)});
-        try routine.op(.push_byte, &.{0});
-        try routine.command("SetTriggerState");
-        try routine.op(.push_byte, &.{1});
-        try routine.op(.@"return", &.{});
-        break :disarm try routine.finish();
-    };
+    const disarm = try vm.machine.testing.assemble(gpa, struct {
+        fn build(r: *vm.machine.testing.Routine) !void {
+            try r.op(.push_ship, &.{1});
+            try r.op(.push_byte, &.{@intFromEnum(dte.Condition.proximity_general)});
+            try r.op(.push_byte, &.{0});
+            try r.command("SetTriggerState");
+            try r.op(.push_byte, &.{1});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
     defer gpa.free(disarm);
     const parts = [_]vm.machine.testing.Part{ .{ .code = near }, .{ .code = close }, .{ .code = disarm } };
     // Ship 1 watches for the player's ship within 15 of its radii, and for any ship within 20.
@@ -682,53 +667,53 @@ test "the watches look for ships close by, while their triggers are armed" {
     var mission: TestMission = undefined;
     try mission.init(&parts, .{
         .globals = &.{ 0, 0 },
-        .ships = &testShips(3),
-        .objects = &.{ triggers.testing.object(.ship, 0, 0), triggers.testing.object(.ship, 0, 2), triggers.testing.object(.ship, 2, 0) },
+        .ships = &dte.testing.ships(3, 0),
+        .objects = &.{ dte.testing.object(.ship, 0, 0), dte.testing.object(.ship, 0, 2), dte.testing.object(.ship, 2, 0) },
         .triggers = &.{ proximity, close_by },
     }, &.{ .{ 1000, 0, 0 }, @splat(0), .{ 0, 0, 1800 } });
     defer mission.deinit();
-    const machine = &mission.fixture.machine;
+    const machine = &mission.game.fixture.machine;
 
     // The player's ship, 10 radii off, answers both; ship 2, 18 off, the close watch alone.
     mission.events.checkProximity(mission.world());
     mission.events.flush();
-    try std.testing.expectEqual(1, mission.fixture.global(0));
-    try std.testing.expectEqual(2, mission.fixture.global(1));
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
+    try std.testing.expectEqual(2, mission.game.fixture.global(1));
     // Disarmed, the Proximity trigger's watch looks no more.
-    _ = machine.startThread(mission.fixture.mission.parts[2].block, null, false, null, null);
-    try std.testing.expectEqual(0, (try mission.fixture.mission.file.triggers())[0].armed);
+    _ = machine.startThread(mission.game.fixture.mission.parts[2].block, null, false, null, null);
+    try std.testing.expectEqual(0, (try mission.game.fixture.mission.file.triggers())[0].armed);
     try std.testing.expect(!mission.events.watches.get(.proximity)[0].armed);
     mission.events.checkProximity(mission.world());
     mission.events.flush();
-    try std.testing.expectEqual(1, mission.fixture.global(0));
-    try std.testing.expectEqual(4, mission.fixture.global(1));
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
+    try std.testing.expectEqual(4, mission.game.fixture.global(1));
 }
 
 test "REQUEST BACKUP brings the mission's backup once" {
     const gpa = std.testing.allocator;
-    const code = try triggers.testing.counting(gpa, 0);
+    const code = try vm.machine.testing.counting(gpa, 0);
     defer gpa.free(code);
     const parts = [_]vm.machine.testing.Part{.{ .code = code }};
     var mission: TestMission = undefined;
     try mission.init(&parts, .{
         .globals = &.{0},
-        .ships = &testShips(1),
-        .objects = &.{triggers.testing.object(.ship, 0, 1)},
+        .ships = &dte.testing.ships(1, 0),
+        .objects = &.{dte.testing.object(.ship, 0, 1)},
         .triggers = &.{triggers.testing.trigger(&parts, 0, .player_wants_backup, .always)},
     }, &.{@splat(0)});
     defer mission.deinit();
     const videoreports = @import("../videoreports.zig");
     var world = mission.world();
-    world.variables = &mission.fixture.machine.variables;
+    world.variables = &mission.game.fixture.machine.variables;
 
     // With no backup to send, the request brings none.
     videoreports.requestBackup(world);
     try std.testing.expectEqual(0, mission.events.count);
     // With backup to send, the first request brings it, and the next none.
-    mission.fixture.machine.variables.backup_available = 1;
+    mission.game.fixture.machine.variables.backup_available = 1;
     videoreports.requestBackup(world);
     videoreports.requestBackup(world);
     mission.events.flush();
-    try std.testing.expectEqual(1, mission.fixture.global(0));
-    try std.testing.expect(mission.game.player.remarks.backup_called);
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
+    try std.testing.expect(mission.game.mission.player.remarks.backup_called);
 }

@@ -58,8 +58,8 @@ const Group = enum(u8) {
     }
 
     /// The wing the group is listed in: the player's for the player's own.
-    fn wing(group: Group) u8 {
-        return if (group == .alpha) 0 else dte.FlightGroup.no_wing;
+    fn wing(group: Group) dte.FlightGroup.Wing {
+        return if (group == .alpha) .player else .none;
     }
 };
 
@@ -225,11 +225,7 @@ pub fn write(gpa: Allocator) ![]u8 {
     part.length = @intCast(code.len / @sizeOf(u16));
 
     var sections: dte.write.Sections = @splat(.{});
-    const section = struct {
-        fn set(all: *dte.write.Sections, which: dte.Section, count: usize, bytes: []const u8) void {
-            all[@intFromEnum(which)] = .{ .count = @intCast(count), .bytes = bytes };
-        }
-    }.set;
+    const section = dte.write.set;
     section(&sections, .strings, strings.items.len, strings.items);
     section(&sections, .ships, records.len, std.mem.sliceAsBytes(records));
     section(&sections, .flight_groups, group_records.len, std.mem.sliceAsBytes(group_records));
@@ -272,7 +268,7 @@ fn shipRecord(ship: Placed, id: u32, name_at: u16) dte.Ship {
     record.launch_gate = ship.gate orelse dte.Ship.no_launch;
     record.runtime_yaw = ship.yaw;
     record.yaw = ship.yaw;
-    record.intact_components = std.math.maxInt(u32);
+    record.intact_components = dte.Ship.all_intact;
     record.formation_point = dte.Ship.no_formation_point;
     record._unknown_36 = 0xFFFF;
     record.runtime_pitch = ship.pitch;
@@ -411,7 +407,7 @@ test write {
     // Each flight group lists its ships, the player's in the player's wing.
     const groups = try mission.flightGroups();
     try std.testing.expectEqualSlices(u16, &.{ 0, 1, 2, 3 }, mission.groupShips(groups[@intFromEnum(Group.alpha)]));
-    try std.testing.expectEqual(0, groups[@intFromEnum(Group.alpha)].wing);
+    try std.testing.expectEqual(.player, groups[@intFromEnum(Group.alpha)].wing);
     try std.testing.expectEqual(field_size, mission.groupShips(groups[@intFromEnum(Group.rocks)]).len);
     // One part, run at the start, which disassembles whole.
     const parts = try mission.file.parts();
@@ -436,7 +432,7 @@ test "the wing waits in the Reliant's tubes as the mission starts, its launch st
     try world.init(gpa);
     defer world.deinit();
     var orders = world.orders();
-    orders.world.spawn = .{ .tables = &world.tables, .types = game.create.testing.no_models };
+    orders.world.spawn = world.spawn(game.create.testing.no_models);
     const loaded = try game.mission.Loaded.create(gpa, try write(gpa), &world.random);
     defer loaded.destroy();
     orders.world.mission = &loaded.bound;

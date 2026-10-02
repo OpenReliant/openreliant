@@ -199,7 +199,7 @@ pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
 /// (`mission25_second_part`).
 ///
 /// Nothing plays after mission 25's second part or mission 27 where `last_missions_land` is clear, nor where
-/// the ship was sent home (`Ending.friendly_fire` and 7). A mission that ends a chapter, unless the
+/// the ship was sent home (`Ending.sentHome`). A mission that ends a chapter, unless the
 /// script rated it a total failure, ends in the chapter; any other in the landing, on the Yamato
 /// from mission 18 on and after mission 7, and after mission 8 where `mission8_on_reliant` is
 /// clear, and on the Reliant otherwise. Mission 7's and 8's landings on the Yamato take a failure's
@@ -209,10 +209,7 @@ pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.V
     const number = if (mission == winmain.second_part_number) winmain.second_part_mission else mission;
     const first_part = number == winmain.second_part_mission and !second_part;
     if (!first_part and lastWithoutLanding(number, variables)) return null;
-    switch (ending) {
-        .friendly_fire, ._unknown_7 => return null,
-        else => {},
-    }
+    if (ending.sentHome()) return null;
     const rating = variables.mission_success;
     if (rating != .total_failure) if (chapterOf(number)) |chapter| return .{ .chapter = .{
         .disc = if (onYamato(number)) .one else .two,

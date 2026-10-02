@@ -817,13 +817,8 @@ pub fn heard(world: gameobj.World, owner: u16, gun: *const Fitted) bool {
 test fire {
     var object = gameobj.testing.object();
     // The trigger reads nothing of where the guns stand.
-    const muzzle: Muzzle = .{ .model = undefined, .part = 0, .attachment = undefined };
-    var fitted = [_]Fitted{
-        .{ .turret = .{ .fixed = .{ .muzzle = muzzle, .type = .laser_cannon } }, .side = .first },
-        .{ .turret = .{ .fixed = .{ .muzzle = muzzle, .type = .laser_cannon } }, .side = .second },
-        .{ .turret = .{ .fixed = .{ .muzzle = muzzle, .type = .pulse_cannon } } },
-        .{ .turret = .{ .fixed = .{ .muzzle = muzzle, .type = charging_type } } },
-    };
+    var fitted = [_]Fitted{ testing.barrel(.laser_cannon), testing.barrel(.laser_cannon), testing.barrel(.pulse_cannon), testing.barrel(charging_type) };
+    fitted[1].side = .second;
     var groups: [max_groups]Group = @splat(.{});
     groups[0] = .{ .first = 0, .second = 1 };
     groups[1] = .{ .first = 2 };
@@ -853,9 +848,22 @@ test fire {
 
 /// A world with one ship of two guns, one either side of its nose, for the tests here. Its type
 /// costs 2 a shot and fires every 20 ticks.
-const testing = struct {
+pub const testing = struct {
     const gun_type: GunType = .laser_cannon;
     const ship_type: u32 = 7;
+
+    /// A fixed gun of `kind` whose muzzle nothing reads.
+    pub fn barrel(kind: GunType) Fitted {
+        return .{ .turret = .{ .fixed = .{ .muzzle = .{ .model = undefined, .part = 0, .attachment = undefined }, .type = kind } } };
+    }
+
+    /// Fits the object in `slot` with `fitted` in place of its guns, and counts them, as
+    /// `create_object` does.
+    pub fn fitTo(slot: *create.Slot, gpa: Allocator, fitted: []const Fitted) Allocator.Error!void {
+        slot.dropGuns(gpa);
+        slot.guns = try gpa.dupe(Fitted, fitted);
+        slot.object.gun_count = @intCast(slot.guns.len);
+    }
 
     const Ship = struct {
         mission: gameobj.testing.Mission,
@@ -901,8 +909,7 @@ const testing = struct {
 
         /// An object of type `of` at `at`, of the same model.
         fn add(ship: *Ship, of: gameobj.Type, at: Vector) !u16 {
-            const mission = &ship.mission;
-            return create.createObject(mission.objects, &mission.tables, ship.model.types(), null, of, 0, at, &mission.random);
+            return ship.mission.addWith(ship.model.types(), of, at);
         }
 
         fn world(ship: *Ship) gameobj.World {
@@ -1075,7 +1082,7 @@ test blindAim {
     shoot(world, &ship.mission.clock, ship.index, barrel, false);
     const aimed = pool[1];
     const toward = math.normalize(display.lead_point - aimed.at) * @as(Vector, @splat(speed));
-    inline for (0..3) |axis| try std.testing.expectApproxEqAbs(toward[axis], aimed.velocity[axis], 1e-3);
+    try math.testing.expectVectorWithin(toward, aimed.velocity, 1e-3);
 
     // The Nova Cannon and the turrets' guns fire along their muzzles, and so does another ship.
     try std.testing.expectEqual(null, blindAim(world, ship.index, .nova_cannon));
@@ -1953,10 +1960,9 @@ test "the Nova Cannon strikes a ship's components leaf by leaf" {
     try hull.init(gpa);
     defer hull.deinit(gpa);
     hull.withHull();
-    hull.source.header.flags.components = true;
-    hull.data[0].part.flags.component = true;
+    hull.withComponent();
     hull.data[0].part.component_armor = 100;
-    const target = try create.createObject(mission.objects, &mission.tables, hull.types(), null, .reaper, 0, .{ 0, 0, 500 }, &mission.random);
+    const target = try mission.addWith(hull.types(), .reaper, .{ 0, 0, 500 });
     const slot = &mission.objects.slots[target];
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
     const part = &slot.model.?.parts[0];
@@ -1979,11 +1985,10 @@ test "a shot strikes a component of a ship that lists them" {
     try hull.init(gpa);
     defer hull.deinit(gpa);
     hull.withHull();
-    hull.source.header.flags.components = true;
-    hull.data[0].part.flags.component = true;
+    hull.withComponent();
     hull.data[0].part.component_armor = 100;
     const mission = &ship.mission;
-    const target = try create.createObject(mission.objects, &mission.tables, hull.types(), null, .reaper, 0, .{ -50, 0, 500 }, &mission.random);
+    const target = try mission.addWith(hull.types(), .reaper, .{ -50, 0, 500 });
     const slot = &mission.objects.slots[target];
     try std.testing.expect(slot.object.flags.components);
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
@@ -2092,20 +2097,17 @@ test "the player's shifted shields take a hit before the quadrant does" {
 
 test "a heard shot sounds, following it" {
     const hog_snd = @import("hog_snd.zig");
-    const mss = @import("../mss.zig");
     const gpa = std.testing.allocator;
     var ship: testing.Ship = undefined;
     try ship.init(gpa);
     defer ship.deinit(gpa);
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: hog_snd.Sound = undefined;
-    sound.init(driver, 4, null);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(4, null);
+    const sound = &speaker.sound;
     const bank = comptime hog_snd.testing.bank(80);
     sound.open3D(try @import("../../formats/fat.zig").Bank.parse(&bank));
-    const listener: @import("camera.zig").Place = .{ .position = @splat(0), .orientation = math.identity };
     var world = ship.world();
-    world.hearing = .{ .sound = &sound, .camera = &listener, .clock = &ship.mission.clock };
+    world.hearing = speaker.hearing(&ship.mission.clock);
 
     // Unheard, nothing plays; heard, the gun type's sound follows the shot.
     shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
@@ -2482,6 +2484,15 @@ fn build(built: *Built, gpa: Allocator, recipe: Recipe, images: *const std.EnumA
 /// The corners of a star's blade, a quad.
 pub const blade_corners = 4;
 
+/// The corners of a blade at its far end, as `blade` lays them out.
+pub const blade_far = [_]usize{ 1, 2 };
+
+/// Whether corner `corner` of a mesh of blades, counted across them all, is at its blade's far end
+/// (`blade_far`).
+pub fn farCorner(corner: usize) bool {
+    return std.mem.indexOfScalar(usize, &blade_far, corner % blade_corners) != null;
+}
+
 /// The most blades a star is built with.
 const max_blades = max_corners / blade_corners;
 
@@ -2512,6 +2523,16 @@ pub fn blade(index: usize, blades: usize, radius: f32, along: [2]f32) [blade_cor
     const near: Vector = .{ 0, 0, along[0] };
     const far: Vector = .{ 0, 0, along[1] };
     return .{ near - across, far - across, far + across, near + across };
+}
+
+test blade {
+    // Its far corners are those `blade_far` names, the next blade's too.
+    const corners = blade(1, 3, 10, .{ 5, 400 });
+    for (corners, 0..) |corner, at| {
+        try std.testing.expectEqual(@as(f32, if (farCorner(at)) 400 else 5), corner[2]);
+        try std.testing.expectEqual(farCorner(at), farCorner(at + blade_corners));
+    }
+    try std.testing.expect(!farCorner(0) and farCorner(1) and farCorner(2) and !farCorner(3));
 }
 
 /// The texture coordinates of a star's blade's four corners (`starMesh`), for the texture's `span`

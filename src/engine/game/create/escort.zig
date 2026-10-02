@@ -228,7 +228,7 @@ test "Marker.create builds the rings and the chevrons" {
     try std.testing.expectEqual(Vector{ -640, -160, 960 }, mesh.positions[63]);
     // The first chevron, at the top, its point toward positive Z.
     for ([_]Vector{ .{ 0, 640, -540 }, .{ 86.60254, 640, -690 }, .{ -86.60254, 640, -690 } }, mesh.positions[64..67]) |expected, actual| {
-        for (@as([3]f32, expected), @as([3]f32, actual)) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-3);
+        try math.testing.expectVectorWithin(expected, actual, 1e-3);
     }
     // Each place's chevrons a quarter turn apart: the second stands out along X.
     try std.testing.expectApproxEqAbs(640, @abs(mesh.positions[67][0]), 1e-3);

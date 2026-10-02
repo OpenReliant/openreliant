@@ -295,7 +295,7 @@ pub const Blast = struct {
         const slot = &world.objects.slots[caught.index];
         const object = &slot.object;
         if (object.type == .stand_in) return;
-        if (aigeneric.current(world.objects, caught.index)) |entry| if (entry.order == .explode) return;
+        if (slot.running(.explode) != null) return;
         if (math.distance(slot.drawn.position, blast.place.position) > blast.ball.scale) return;
         const random = world.random;
         const centre = gameobj.vector(object.root.position);
@@ -307,9 +307,9 @@ pub const Blast = struct {
             const at = random.centredVector(@splat(object.radius)) + slot.drawn.position;
             explode.fireballAt(world, at, .{ .size = object.radius * fireball_share, .light = true, .delay = @intCast(n * fireball_gap) });
         }
-        const ctx: aigeneric.Context = .{ .world = world, .clock = world.clock };
+        const ctx: aigeneric.Context = .of(world);
         aigeneric.popAll(ctx, caught.index);
-        _ = aigeneric.push(ctx, caught.index, .do_nothing, .none) catch {};
+        _ = aigeneric.give(ctx, caught.index, .do_nothing, .none);
         caught.reached = true;
     }
 
@@ -455,7 +455,7 @@ pub const Uber = struct {
     /// Whether a blast of `size` at `at` lists the object in `slot`.
     fn catches(slot: *const Slot, at: Vector, size: f32) bool {
         const object = &slot.object;
-        if (object.flags.disabled or !object.created or object.order_count == 0) return false;
+        if (object.flags.disabled or !object.created or slot.current() == null) return false;
         const combat = slot.combat orelse return false;
         if (combat.side == .neutral) return false;
         switch (object.type) {
@@ -508,7 +508,7 @@ pub const Uber = struct {
         const blast = &uber.blast.?;
         defer uber.blast = null;
         sound3d.playIn(world, null, null, blast.owner, .capexp, 1, .player_fx);
-        const ctx: aigeneric.Context = .{ .world = world, .clock = world.clock };
+        const ctx: aigeneric.Context = .of(world);
         for (blast.listed()) |caught| {
             if (!caught.reached) continue;
             const object = &world.objects.slots[caught.index].object;
@@ -516,7 +516,7 @@ pub const Uber = struct {
             object.roll_rate = 0;
             object.pitch_rate = 0;
             object.yaw_rate = 0;
-            const entry = aigeneric.current(world.objects, caught.index) orelse continue;
+            const entry = world.objects.slots[caught.index].current() orelse continue;
             if (entry.order != .explode) ai.objectDestroyed(ctx, caught.index, false, true);
         }
         events.exploded(world, blast.owner);
@@ -670,7 +670,7 @@ test Uber {
     world.shockwaves = &built.waves;
     world.camera = &watching;
     const all = world.objects;
-    const ctx: aigeneric.Context = .{ .world = world, .clock = world.clock };
+    const ctx: aigeneric.Context = .of(world);
     const uber = stage.explosions.uber;
 
     // The player's ship, which it spares; a ship near; one out of reach; and a gate.
@@ -716,7 +716,7 @@ test Uber {
     try std.testing.expect(explode.testing.flying(&stage.explosions) >= bits_least);
     try std.testing.expect(blast.caught[0].reached);
     const struck = &all.slots[near].object;
-    try std.testing.expectEqual(.do_nothing, aigeneric.current(all, near).?.order);
+    try std.testing.expectEqual(.do_nothing, all.slots[near].current().?.order);
     try std.testing.expect(struck.knocks > 0);
     try std.testing.expect(stage.explosions.fireballs[0] != null);
     try std.testing.expect(world.shake.* > 0);
@@ -725,8 +725,8 @@ test Uber {
     stage.mission.clock.frame_start = 2001;
     uber.frame(world);
     try std.testing.expectEqual(null, uber.blast);
-    try std.testing.expectEqual(.explode, aigeneric.current(all, near).?.order);
-    try std.testing.expectEqual(.do_nothing, aigeneric.current(all, far).?.order);
+    try std.testing.expectEqual(.explode, all.slots[near].current().?.order);
+    try std.testing.expectEqual(.do_nothing, all.slots[far].current().?.order);
 }
 
 test "the fuller style" {

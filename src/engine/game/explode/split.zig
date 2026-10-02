@@ -224,7 +224,7 @@ pub const Split = struct {
         if (@mod(@as(i32, @intCast(split.step)), sound_every - skew) != 0) return;
         const which: sound3d.sounds.Sound = if (random.rand() % 2 == 0) .explosion01 else .explosion02;
         const volume = (random.fraction() + 1) * sound_volume;
-        sound3d.playIn(world, at, null, -1, which, volume, .not_reserved);
+        sound3d.playIn(world, at, null, null, which, volume, .not_reserved);
     }
 
     /// A step's bigger burst, one in `big_burst_odds`: halfway from the cut to the bow, a lit
@@ -576,9 +576,7 @@ pub fn start(world: gameobj.World, index: u16) void {
     object.flags.engines_disabled = true;
     stopTracks(model);
 
-    if (sequence.other_half) |half_type| if (world.spawn) |spawn| {
-        split.other = otherHalf(world, spawn, index, @enumFromInt(half_type), &split.portals[1]);
-    };
+    if (sequence.other_half) |half_type| split.other = otherHalf(world, index, @enumFromInt(half_type), &split.portals[1]);
 
     var damaged: usize = 0;
     for (model.parts, 0..) |*part, at| {
@@ -672,16 +670,15 @@ fn stopTracks(model: *objects.Model) void {
 /// turned as it is, its centre where the ship's own model has it; it turns as the ship turns,
 /// but still, unpowered and disabled; its first part shows, cut by `portal`. A wreck burns as it
 /// is made (`create.wreckMade`). Null where it can't be made.
-fn otherHalf(world: gameobj.World, spawn: gameobj.World.Spawn, index: u16, half_type: gameobj.Type, portal: *const srapiext.Portal) ?u16 {
+fn otherHalf(world: gameobj.World, index: u16, half_type: gameobj.Type, portal: *const srapiext.Portal) ?u16 {
     const all = world.objects;
-    const made = create.createObject(all, spawn.tables, spawn.types, null, half_type, 0, @splat(0), world.random) catch return null;
+    const made = create.make(world, null, half_type) catch null orelse return null;
     create.wreckMade(world, made);
     const main = &all.slots[index];
     const half = &all.slots[made];
     const root = main.drawn;
     const offset = gameobj.vector(half.object.centre) - gameobj.vector(main.object.centre);
-    objects.setOrientation(&half.object, &half.drawn, root.orientation);
-    objects.setPosition(&half.object, &half.drawn, root.point(offset));
+    objects.setPlace(&half.object, &half.drawn, .{ .position = root.point(offset), .orientation = root.orientation });
     const object = &half.object;
     object.throttle = 0;
     object.speed = 0;
@@ -723,9 +720,9 @@ test "a capital ship sweeps apart" {
     fixture.data[0].point_lists = &lists;
     const mission = &stage.mission;
     _ = try mission.add(.kamov, @splat(0));
-    const ship = try create.createObject(mission.objects, &mission.tables, fixture.types(), null, .badanov, 0, .{ 0, 0, 5000 }, &mission.random);
+    const ship = try mission.addWith(fixture.types(), .badanov, .{ 0, 0, 5000 });
     var world = stage.world();
-    world.spawn = .{ .tables = &mission.tables, .types = fixture.types() };
+    world.spawn = mission.spawn(fixture.types());
     var lit: @import("../main/flash.zig").Flash = .{};
     var watching: @import("../camera.zig").Camera = .{};
     watching.place.position = .{ 0, 0, 5000 };
@@ -780,7 +777,7 @@ test "a capital ship bursts apart" {
     fixture.data[0].point_lists = &lists;
     const mission = &stage.mission;
     _ = try mission.add(.kamov, @splat(0));
-    const ship = try create.createObject(mission.objects, &mission.tables, fixture.types(), null, .kurgan, 0, .{ 0, 0, 5000 }, &mission.random);
+    const ship = try mission.addWith(fixture.types(), .kurgan, .{ 0, 0, 5000 });
     const world = stage.world();
     const splits = &stage.explosions.splits;
 

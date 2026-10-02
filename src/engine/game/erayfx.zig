@@ -1,5 +1,5 @@
 //! `C:\lancer\game\erayfx.cpp`: electric rays, jagged strands of light between two points that
-//! crackle over a wreck (`explode.burnPart`) or a disrupted ship (`aiorders.disruptedInit`). The
+//! crackle over a wreck (`explode.burnPart`) or a disrupted ship (`aifuncs.disruptedInit`). The
 //! code after this file's known end, up to `0x0046AF40`, is the rays' too.
 //!
 //! Each strand runs through 17 points, its ends and 15 between, which stray at random each frame

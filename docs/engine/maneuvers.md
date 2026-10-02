@@ -144,8 +144,9 @@ maneuver's time is up.
 - Otherwise, `fight_choose_by_position` (`0x0040A000`):
   - Farther from the target than `pursue_distances` (`0x4E193C`), 300000, 200000 or 100000 units by
     the pilot's skill, times the target's speed over its top speed but at least a quarter:
-    "attack pursue". The table holds three; for any other skill the game reads past it, far enough
-    that the ship never pursues.
+    "attack pursue". **Fix:** the table holds three, and the game indexes it with the skill as a
+    signed word, reading past it or before it, so that some other skills never pursue and others
+    always do. OpenReliant never pursues by distance for a skill outside the table.
   - With the target behind the ship, one time in ten, "run to ship" toward the nearest friendly ship
     with components and combat class 2 or 3, unless the ship is already within 50000 units of one,
     its radius aside (`fight_find_ship_to_run_to`, `0x00409F00`).
@@ -182,11 +183,12 @@ chooses a new maneuver when the last one's time is up and starts one chosen, and
    past the life of its own shells; OpenReliant the flak's own. The aim point's velocity is a
    quarter of the target's, turned by the target's per-update turn half `aim_interval` times. Each
    update the aim point moves by that velocity times `frame_duration`.
-2. **Fires** (`fight_fire`, `0x004096B0`), unless the ship is cloaked. Once the pilot's `pause`
-   has passed since it last looked, it looks again: where the aim point is within `fire_spread`
-   times the target's radius (or its part's) of the line along the ship's nose, and the part is
-   within a quarter of a laser cannon's range (its speed times its lifetime), it fires for the
-   pilot's `burst` ticks. A friendly ship holds its fire while a player's ship is ahead of it
+2. **Fires** (`fight_fire`, `0x004096B0`), unless the ship is cloaked, or its target is cloaked
+   and stands within both radii and 10000 units of it (`cloak_target_far`, `0x00463BD0`), which
+   the order's target never is. Once the pilot's `pause` has passed since it last looked, it
+   looks again: where the aim point is within `fire_spread` times the target's radius (or its
+   part's) of the line along the ship's nose, and the part is within a quarter of a laser
+   cannon's range (its speed times its lifetime), it fires for the pilot's `burst` ticks. A friendly ship holds its fire while a player's ship is ahead of it
    within 50000 units and within a tenth of that distance, plus the player's radius and 500
    units, of the line along its nose. It then locks and launches its missiles, timed from the
    pilot's `missiles` range, and drops its countermeasures, timed from its `countermeasures`
@@ -221,6 +223,14 @@ The Fight order and its maneuvers read the ship's pilot, a record of `pilot_stat
 The Fight order and every command run as described, but for multiplayer, where the host chooses
 the maneuvers ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 
-Where the game would stop or hang, OpenReliant goes on: a script that runs off its end ends the
-maneuver, a loop that starts 256 lines in one update without one waiting is left for the next
-update, and a range with no span gives its least rather than divide by zero.
+Where the game would stop, hang or read past its tables, OpenReliant goes on:
+
+- **Fix:** a script that runs off its end ends the maneuver, so Fight chooses another, where the
+  game stops with a syntax error.
+- **Fix:** a loop that starts 256 lines in one update without one waiting is left for the next
+  update, where the game hangs.
+- **Fix:** a maneuver number past the table runs nothing, where the game reads past it.
+- **Fix:** a range with no span gives its least, where the game divides by zero.
+- **Fix:** Fight's init leaves a target past the objects for the update to pop, where the game
+  takes its index as a ship's slot whatever it holds, and fights with the pilot the ship's number
+  gives, where the game stops with "pilot not setup for %s" for a ship with no pilot record.

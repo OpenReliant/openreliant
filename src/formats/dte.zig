@@ -75,11 +75,13 @@ pub const Section = enum(u8) {
     openreliant_name = 21,
     operands_b = 22,
     unknown_23 = 23,
-    /// One `u16` of flags per Executor command, which `command` sets its flag by before each call:
-    /// with bit 0 clear, `for_each_ship` passes over the players' ships in a flight group or a
-    /// squad. In the missions of the writer's template each word has a bit for each of the
-    /// command's parameters, save six whose word is 0 (`write.template.command_flags`); the other
-    /// missions leave the section empty, which clears the bit for every command.
+    /// One word of flags per Executor command (`CommandFlags`), which `command` sets its flag by
+    /// before each call. It reads the word the command's number places past the section's offset,
+    /// whatever the section's count. In the missions of the writer's template each word has a bit
+    /// for each of the command's parameters, save six whose word is 0
+    /// (`write.template.command_flags`). The other missions either leave the section unused, at
+    /// `DirectoryEntry.unused_offset`, inside section 1, whose operands then serve as the flags, or
+    /// start it at the file's end, past which OpenReliant takes none.
     command_flags = 24,
     /// The same for the second, empty command catalogue.
     command_flags_b = 25,
@@ -199,8 +201,9 @@ pub const Ship = extern struct {
     runtime_yaw: i16,
     /// Whole degrees. The engine scales it by pi/180, which is what proves the unit.
     yaw: i16,
-    /// The ship's components that are still intact, a bit each. Set to all ones when the mission's
-    /// script starts; destroying component `n` clears bit `n & 31`.
+    /// The ship's components that are still intact, a bit each (`componentIntact`). Set to
+    /// `all_intact` when the mission's script starts; destroying component `n` clears bit `n & 31`
+    /// (`loseComponent`).
     intact_components: u32,
     /// The point of section `formation_points` that Formation Regroup flies the ship to
     /// (`order_formation_regroup_init`), or `no_formation_point`.
@@ -253,6 +256,23 @@ pub const Ship = extern struct {
         return if (ship.launch_gate == no_launch) null else ship.launch_gate;
     }
 
+    /// The `intact_components` of a ship whose components are all intact.
+    pub const all_intact: u32 = std.math.maxInt(u32);
+
+    /// Whether its component `component` is intact: bit `component & 31` of `intact_components`.
+    pub fn componentIntact(ship: Ship, component: u8) bool {
+        return ship.intact_components & componentBit(component) != 0;
+    }
+
+    /// Its component `component` is destroyed: bit `component & 31` of `intact_components` clears.
+    pub fn loseComponent(ship: *align(1) Ship, component: u8) void {
+        ship.intact_components &= ~componentBit(component);
+    }
+
+    fn componentBit(component: u8) u32 {
+        return @as(u32, 1) << @as(u5, @truncate(component));
+    }
+
     /// Whether it is a waypoint (`waypoint_kind`).
     pub fn isWaypoint(ship: Ship) bool {
         return ship.kind == waypoint_kind;
@@ -264,6 +284,20 @@ pub const Ship = extern struct {
 
     /// The `kind` of the points the curves run between, and of those their tangents are drawn to.
     pub const curve_point_kind: u16 = 0x3E4;
+
+    /// The `kind` of a mission's nav points (`mission_ship_create`, `0x00457CD9`), which
+    /// ShipReached's watches look from as from a waypoint (`0x0045B105`).
+    pub const nav_point_kind: u16 = 999;
+
+    /// Whether it is a nav point or one of the mission's markers, a waypoint or a point, which
+    /// `mission_ship_create` (`0x00457CD9` to `0x00457CF7`) makes a marker object of rather than a
+    /// ship.
+    pub fn isMarker(ship: Ship) bool {
+        return switch (ship.kind) {
+            nav_point_kind, waypoint_kind, curve_point_kind, point_kind => true,
+            else => false,
+        };
+    }
 
     /// The curve whose place it marks, where it is a point that marks one.
     pub fn markedCurve(ship: Ship) ?u16 {
@@ -318,6 +352,11 @@ pub const Curve = extern struct {
     leaving: [3]f32,
     arriving: [3]f32,
     _unknown_40: u32,
+
+    /// The ship it starts at, where it starts at one.
+    pub fn startShip(curve: Curve) ?u16 {
+        return if (curve.start.index == Reference.unset) null else curve.start.index;
+    }
 
     /// The ship it ends at, where it ends at one.
     pub fn endShip(curve: Curve) ?u16 {
@@ -382,6 +421,11 @@ pub const Part = extern struct {
     /// Byte offset of the part's entry block within the script section.
     pub fn start(part: Part) usize {
         return halfwords(part.offset);
+    }
+
+    /// The block it runs, as a byte offset into the script: null for an empty part (`isEmpty`).
+    pub fn block(part: Part) ?usize {
+        return if (part.isEmpty()) null else part.start();
     }
 
     /// Bytes the part spans.
@@ -528,6 +572,21 @@ pub const Trigger = extern struct {
     }
 };
 
+/// A command's word of flags in section 24 (`Section.command_flags`), or in section 25 for the
+/// second catalogue. `command` reads its low byte alone (`fromLow`). In the missions of the
+/// writer's template the word has a bit for each of the command's parameters, the first's bit 0.
+pub const CommandFlags = packed struct(u16) {
+    /// Whether `for_each_ship` walks the players' ships in a flight group, a squad's too, rather
+    /// than passing over them.
+    players: bool = false,
+    _unknown_1: u15 = 0,
+
+    /// The flags of a word whose low byte is `low`, all that `command` reads of it.
+    pub fn fromLow(low: u8) CommandFlags {
+        return @bitCast(@as(u16, low));
+    }
+};
+
 /// How a trigger operand names a ship, a flight group or a squad: an index into the section the tag
 /// selects. The matcher turns a reference into the address of the record (`FUN_004530A0`), which is
 /// how event values name them.
@@ -559,7 +618,11 @@ pub const Operand = union(enum) {
     number: u32,
     /// For a ship value: any of the players' ships matches.
     any_ship,
-    reference: Reference,
+    /// A ship, a flight group or a squad, by its index among the mission's records of its kind
+    /// (`Reference.Tag`).
+    ship: u16,
+    flight_group: u16,
+    squad: u16,
     /// A tag the matcher cannot resolve.
     other: u32,
 
@@ -569,7 +632,9 @@ pub const Operand = union(enum) {
         if (kinds.number) return .{ .number = raw };
         if (kinds.ship and reference.index & Reference.any_ship != 0) return .any_ship;
         return switch (reference.tag) {
-            .ship, .flight_group, .squad => .{ .reference = reference },
+            .ship => .{ .ship = reference.index },
+            .flight_group => .{ .flight_group = reference.index },
+            .squad => .{ .squad = reference.index },
             _ => .{ .other = raw },
         };
     }
@@ -582,9 +647,9 @@ test Operand {
     try std.testing.expectEqual(Operand.unset, Operand.read(0xFFFFFFFF, ship));
     try std.testing.expectEqual(Operand{ .number = 50 }, Operand.read(50, number));
     try std.testing.expectEqual(Operand.any_ship, Operand.read(0xFF002000, ship));
-    const reference = Operand.read(0x00010004, ship).reference;
-    try std.testing.expectEqual(Reference.Tag.flight_group, reference.tag);
-    try std.testing.expectEqual(@as(u16, 4), reference.index);
+    try std.testing.expectEqual(Operand{ .flight_group = 4 }, Operand.read(0x00010004, ship));
+    try std.testing.expectEqual(Operand{ .ship = 7 }, Operand.read(0xFF000007, ship));
+    try std.testing.expectEqual(Operand{ .squad = 2 }, Operand.read(0x00160002, ship));
     try std.testing.expectEqual(Operand{ .other = 0x000C0050 }, Operand.read(0x000C0050, @bitCast(@as(u32, 0x1000))));
 }
 
@@ -599,6 +664,13 @@ pub const Object = extern struct {
     /// Index of the first trigger in it.
     first: u16,
     _unknown_04: u32,
+
+    /// Where its slice starts and ends in a trigger list of `triggers` triggers, as far as the list
+    /// reaches.
+    pub fn triggerBounds(object: Object, triggers: usize) [2]usize {
+        const start = @min(object.first, triggers);
+        return .{ start, @min(start + object.count, triggers) };
+    }
 
     pub const Kind = enum(u8) {
         ship = 0,
@@ -676,9 +748,8 @@ pub const FlightGroup = extern struct {
     /// Byte offset into the string pool, such as `(FG)Reliant`.
     name: u16,
     _unknown_06: u16,
-    /// The wing the mission lists the group's ships in (`mission_wings_build`): 0 the player's, 1
-    /// and 2 two more, or `no_wing`.
-    wing: u8,
+    /// The wing the mission lists the group's ships in (`mission_wings_build`).
+    wing: Wing,
     /// How many of the mission's ships are in the group, and where the first stands in the list of
     /// the groups' ships, or `no_ship`: both worked out as the mission is bound
     /// (`mission_list_group_ships`, `0x00452EC0`), whatever the file holds.
@@ -687,8 +758,21 @@ pub const FlightGroup = extern struct {
     first_ship: u32,
     _unknown_10: u32,
 
-    pub const no_wing: u8 = 0xFF;
     pub const no_ship: u32 = 0xFFFFFFFF;
+
+    /// A flight group's wing, as a byte: the player's, which `mission_ship_create` tests for
+    /// (`0x00457D39`), two more, or none.
+    pub const Wing = enum(u8) {
+        player = 0,
+        second = 1,
+        third = 2,
+        none = 0xFF,
+        _,
+
+        pub fn format(wing: Wing, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            return layout.formatTag(Wing, wing, writer);
+        }
+    };
 
     /// Where its ships start in the flight groups' list, where it has any.
     pub fn firstShip(group: FlightGroup) ?u32 {
@@ -739,6 +823,11 @@ pub const SquadMember = extern struct {
     /// named here.
     component: u8,
     _unknown_09: [3]u8,
+
+    /// The component it names, or null for the whole object (`Trigger.whole_object`).
+    pub fn part(member: SquadMember) ?u8 {
+        return if (member.component == Trigger.whole_object) null else member.component;
+    }
 
     comptime {
         assert(@offsetOf(SquadMember, "squad") == 0x04);
@@ -961,9 +1050,15 @@ pub const Opcode = enum(u8) {
     nop = 0x53,
     _,
 
+    /// Its entry in the VM's opcode table (`opcodes.find`): null for an opcode the payload's
+    /// handler table does not implement.
+    pub fn info(opcode: Opcode) ?opcodes.Info {
+        return opcodes.find(@intFromEnum(opcode));
+    }
+
     /// Opcodes the payload's handler table implements.
     pub fn isImplemented(opcode: Opcode) bool {
-        return opcodes.find(@intFromEnum(opcode)) != null;
+        return opcode.info() != null;
     }
 
     pub fn format(opcode: Opcode, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -1419,9 +1514,7 @@ pub const Mission = struct {
         const owners = try allocator.alloc(?u16, all.len);
         @memset(owners, null);
         for (try mission.objects(), 0..) |object, id| {
-            const first: usize = object.first;
-            const end = @min(first + object.count, all.len);
-            if (first >= end) continue;
+            const first, const end = object.triggerBounds(all.len);
             for (owners[first..end]) |*owner| {
                 if (owner.* == null) owner.* = @intCast(id);
             }
@@ -1516,6 +1609,70 @@ pub const Mission = struct {
     }
 };
 
+/// A mission's records for the tests here and in the modules that bind or run missions, as a
+/// mission's file holds them.
+pub const testing = struct {
+    /// A ship's record: `object_id`, in `flight_group`, of `kind`, flown by no pilot, launching
+    /// from nothing, and fitted by the campaign's loadout tier.
+    pub fn ship(object_id: u32, flight_group: u8, kind: u16) Ship {
+        var made = std.mem.zeroes(Ship);
+        made.object_id = object_id;
+        made.flight_group = flight_group;
+        made.kind = kind;
+        made.pilot = Ship.no_pilot;
+        made.launch_gate = Ship.no_launch;
+        made.tier = campaign_tier;
+        return made;
+    }
+
+    /// The `tier` of a record fitted by the campaign's loadout tier (`Ship.tier`).
+    const campaign_tier = 0xFF;
+
+    /// `count` ship records of `kind`, each in no flight group, its object ID its index.
+    pub fn ships(comptime count: usize, kind: u16) [count]Ship {
+        var made: [count]Ship = undefined;
+        for (&made, 0..) |*record, index| record.* = ship(@intCast(index), Ship.no_flight_group, kind);
+        return made;
+    }
+
+    /// A flight group's record: `object_id`, in `wing`.
+    pub fn flightGroup(object_id: u16, wing: FlightGroup.Wing) FlightGroup {
+        var made = std.mem.zeroes(FlightGroup);
+        made.object_id = object_id;
+        made.wing = wing;
+        return made;
+    }
+
+    /// A squad's record: `object_id`, its members from `first_member`.
+    pub fn squad(object_id: u16, first_member: u16) Squad {
+        var made = std.mem.zeroes(Squad);
+        made.object_id = object_id;
+        made.first_member = first_member;
+        return made;
+    }
+
+    /// A squad's member: object `object_id`, of squad `squad_index`, as its component
+    /// `component`, or whole for `Trigger.whole_object`.
+    pub fn squadMember(object_id: u16, squad_index: u16, component: u8) SquadMember {
+        return .{ .object_id = object_id, ._unknown_02 = 0, .squad = squad_index, ._unknown_06 = 0, .component = component, ._unknown_09 = @splat(0) };
+    }
+
+    /// An entry of the object table: a record of `kind`, holding `count` triggers from `first`.
+    pub fn object(kind: Object.Kind, first: u16, count: u8) Object {
+        return .{ .kind = kind, .count = count, .first = first, ._unknown_04 = 0 };
+    }
+
+    /// A curve from ship `start` at `from` to ship `end` at `to`, with no tangents.
+    pub fn curve(start: u16, end: u16, from: [3]f32, to: [3]f32) Curve {
+        var made = std.mem.zeroes(Curve);
+        made.start = .{ .index = start, .tag = .ship, ._unknown_24 = 0xFF };
+        made.end = .{ .index = end, .tag = .ship, ._unknown_24 = 0xFF };
+        made.from = from;
+        made.to = to;
+        return made;
+    }
+};
+
 test "directory and records line up" {
     // A mission image with a string pool and one ship.
     var image: [0x400]u8 = @splat(0);
@@ -1549,7 +1706,7 @@ test "directory and records line up" {
     ship.object_id = 3;
     ship.name = 0;
     ship.pilot = Ship.no_pilot;
-    ship.kind = 999;
+    ship.kind = Ship.nav_point_kind;
     ship.yaw = 90;
     ship.roll = -1;
 
@@ -1557,7 +1714,7 @@ test "directory and records line up" {
     const list = try mission.ships();
     try std.testing.expectEqual(@as(usize, 1), list.len);
     try std.testing.expectEqualStrings("Player_Ship", mission.name(list[0].name));
-    try std.testing.expectEqual(@as(u16, 999), list[0].kind);
+    try std.testing.expectEqual(Ship.nav_point_kind, list[0].kind);
     try std.testing.expectEqual(@as(i16, 90), list[0].yaw);
 
     // The player's own record is the first.
@@ -1654,6 +1811,7 @@ test "the records' none values" {
     ship.launch_gate = Ship.no_launch;
     try std.testing.expectEqual(null, ship.flightGroup());
     try std.testing.expect(ship.isWaypoint());
+    try std.testing.expect(ship.isMarker());
     try std.testing.expectEqual(null, ship.pilotRecord());
     try std.testing.expectEqual(null, ship.launchGate());
     ship.flight_group = 3;
@@ -1678,6 +1836,49 @@ test "the records' none values" {
     try std.testing.expectEqual(null, trigger.component());
     trigger.qualifier = 2;
     try std.testing.expectEqual(2, trigger.component());
+
+    try std.testing.expectEqual(null, testing.squadMember(0, 0, Trigger.whole_object).part());
+    try std.testing.expectEqual(2, testing.squadMember(0, 0, 2).part());
+
+    const curve = testing.curve(Reference.unset, 3, @splat(0), @splat(0));
+    try std.testing.expectEqual(null, curve.startShip());
+    try std.testing.expectEqual(3, curve.endShip());
+    try std.testing.expectEqual(5, testing.curve(5, Reference.unset, @splat(0), @splat(0)).startShip());
+    try std.testing.expectEqual(null, testing.curve(5, Reference.unset, @splat(0), @splat(0)).endShip());
+}
+
+test "Ship.isMarker" {
+    var ship = testing.ship(0, Ship.no_flight_group, 2);
+    try std.testing.expect(!ship.isMarker());
+    for ([_]u16{ Ship.nav_point_kind, Ship.waypoint_kind, Ship.curve_point_kind, Ship.point_kind }) |kind| {
+        ship.kind = kind;
+        try std.testing.expect(ship.isMarker());
+    }
+    // The other kinds of the range the markers share are ships to it.
+    ship.kind = 0x3E6;
+    try std.testing.expect(!ship.isMarker());
+}
+
+test "Ship.componentIntact" {
+    var ship = testing.ship(0, Ship.no_flight_group, 2);
+    ship.intact_components = Ship.all_intact;
+    try std.testing.expect(ship.componentIntact(3));
+    ship.loseComponent(3);
+    try std.testing.expect(!ship.componentIntact(3));
+    try std.testing.expect(ship.componentIntact(4));
+    try std.testing.expectEqual(~@as(u32, 1 << 3), ship.intact_components);
+    // Component 35 shares component 3's bit.
+    try std.testing.expect(!ship.componentIntact(35));
+    ship.intact_components = Ship.all_intact;
+    ship.loseComponent(35);
+    try std.testing.expect(!ship.componentIntact(3));
+}
+
+test "FlightGroup.Wing" {
+    var buffer: [16]u8 = undefined;
+    try std.testing.expectEqualStrings("player", try std.fmt.bufPrint(&buffer, "{f}", .{FlightGroup.Wing.player}));
+    try std.testing.expectEqualStrings("7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(FlightGroup.Wing, @enumFromInt(7))}));
+    try std.testing.expectEqual(.none, testing.flightGroup(0, .none).wing);
 }
 
 test "DirectoryEntry.Formats" {
@@ -1813,7 +2014,7 @@ test "maps the script into trigger blocks and parts, with their constants" {
 
     const slices_at = 0x180;
     place(directory, .objects, 1, slices_at);
-    (try layout.viewMut(Object, image[slices_at..])).* = .{ .kind = .ship, .count = 1, .first = 0, ._unknown_04 = 0 };
+    (try layout.viewMut(Object, image[slices_at..])).* = testing.object(.ship, 0, 1);
 
     // One part, at byte 16, spanning its block and one 8-byte unit of constants.
     const parts_at = 0x1A0;

@@ -106,16 +106,20 @@ frame (`0x004DC5A8`), to the right for a gate of even number and to the left for
 it as the Reliant turns next. The ship rides the Reliant's root, its steering and its throttle
 nothing.
 
-For the player's ship, the Reliant becomes the ship the player launched from (`0x0057E05C`). The
-hangar (`reliant_hang.shp`, type `0xD6`) is made in the cutaway slot, colliding with nothing, its
-hull and its two doors reached by no light of the backdrop's but the first ambient (light mask
-`0x3B`), so that their baked colours and their own lights light them. The hangar has two launch
-points on its retainer, turned half a turn from each other: the ship stands at the first for a gate
-of odd number, and at the second, the hangar turned half a turn with it, for an even. The hangar is
-laid over the tube: the ship is placed at the point with the hangar at the origin, the hangar moves
-by the way from there to the tube, and the ship is placed at the point again, riding the retainer.
-The camera takes view 0 in the cockpit mode, held there, and the scene shows the launch's cutaway,
-which leaves the Reliant out (`mission_showing`, `0x00587CD4`, set to 2).
+For the player's ship, the Reliant becomes the ship the player launched from (`0x0057E05C`). When
+that ship explodes, the first Yamato among the objects takes its place (`mission_frame`,
+`0x004932D4`). The bridge's lines (`bridge_line`, `0x00453620`), PERMISSION TO LAND and REQUEST
+BACKUP ([The radio](radio.md)) and the friendly fire's sending home ([Friendly
+fire](orders.md#friendly-fire)) go by it. The hangar (`reliant_hang.shp`, type `0xD6`) is made in
+the cutaway slot, colliding with nothing, its hull and its two doors reached by no light of the
+backdrop's but the first ambient (light mask `0x3B`), so that their baked colours and their own
+lights light them. The hangar has two launch points on its retainer, turned half a turn from each
+other: the ship stands at the first for a gate of odd number, and at the second, the hangar turned
+half a turn with it, for an even. The hangar is laid over the tube: the ship is placed at the point
+with the hangar at the origin, the hangar moves by the way from there to the tube, and the ship is
+placed at the point again, riding the retainer. The camera takes view 0 in the cockpit mode, held
+there, and the scene shows the launch's cutaway, which leaves the Reliant out (`mission_showing`,
+`0x00587CD4`, set to 2).
 
 `launch_reliant_run` runs a step each time the wait the last set has passed:
 
@@ -172,8 +176,9 @@ OpenReliant keeps the node a ship rides as its object and its part (`create.Slot
 the game keeps the node's address.
 
 **Fix:** a carrier no ship launches from, which the game stops for, is taken as one whose style is
-not ported. A Launch aimed at nothing, which the game reads from before its objects with the
-assertion "Launch Crash Imminent", lets the ship go at once. A style that names no node, and a
+not ported. A Launch aimed at nothing, whose carrier the game reads through the word before its
+objects (`0x00587CDC`), lets the ship go at once: the game's assertion "Launch Crash Imminent"
+(`0x004191E6`) compares the sign-extended index with 0xFFFF and never fires. A style that names no node, and a
 Reliant whose model lacks a tube's door, leave the ship where it stands.
 
 **Improvement:** OpenReliant's shadows leave out a mesh that keeps the sun out by its light mask, so
@@ -201,6 +206,3 @@ Not ported:
 - The Kamov's LAUNCH MISSILE, which starts its torpedoes' launches
   ([#305](https://github.com/vdmkenny/openreliant/issues/305)), and a multiplayer game's
   ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
-- When the ship the player launched from explodes, the first Yamato among the objects takes its
-  place (`mission_frame`, `0x004932D4`), which OpenReliant does; what reads it, the radio's
-  speakers, is not ported.

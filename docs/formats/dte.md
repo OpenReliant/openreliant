@@ -57,7 +57,7 @@ the count says how much of the reserved room is filled, so most missions are exa
 | 18 | script_b | | A second bytecode section |
 | 21 | openreliant_name | 1 | **OpenReliant's own:** the mission's name, see [OpenReliant's mission name](#openreliants-mission-name) |
 | 22 | operands_b | 2 | |
-| 24 | command_flags | 2 | One `u16` per Executor command |
+| 24 | command_flags | 2 | One word of flags per Executor command (`dte.CommandFlags`): bit 0, `players`, has `for_each_ship` walk the players' ships |
 | 25 | command_flags_b | 2 | The same for the second command catalogue |
 | 26 | operands_c | 2 | A third operand table, beside sections 1 and 22: `0x004529D0` picks one of the three by a bank number |
 
@@ -65,16 +65,19 @@ Sections 17 to 21 and 25 are empty in all 44 missions. The engine reads nothing 
 21 and 23: the binder binds 21 into a local variable of its own, and the rest into globals nothing
 reads. Sections 9 and 23 hold records in some missions, likely the original editor's. Of the
 directory's 128 slots before the first section, at `0x400`, the binder reads the first 27. Slot 27
-holds the file's size in most missions and is unused in the rest, and slots 28 on are unused in
-all of them. Section 24, where a mission has it, holds one
-entry per command of the [catalogue](#commands): `command` passes bit 0 of the entry, inverted, to
-the engine before each call, and with the bit clear `for_each_ship` passes over the players' ships
-in a flight group or a squad ([Script VM](../engine/script-vm.md)). In the 36 missions of the
-template each entry has a bit for each of the command's parameters, save the entries of
+holds the file's size in most missions and is unused in the rest, and slots 28 on are unused in all
+of them. Section 24 holds one word per command of the [catalogue](#commands) (`dte.CommandFlags`):
+`command` passes bit 0 of the word, inverted, to the engine before each call, and with the bit clear
+`for_each_ship` passes over the players' ships in a flight group, a squad's too
+([Script VM](../engine/script-vm.md)). `command` reads the low byte of the word the command's number
+places past the section's offset, whatever the section's count. In the 36 missions of the template
+each word has a bit for each of the command's parameters, the first's bit 0, save the words of
 `ClearAI`, `SetPatrolRoute`, `SetTriggerState`, `SetAnyTriggerState`, `MovingShipFollowCurve` and
-`MovingShipBackupCurve`, which are 0. The other 8 missions leave the section empty, which clears
-the bit for every command. In every mission `script_flags` holds twice the count of section 6: one
-entry per script byte.
+`MovingShipBackupCurve`, which are 0. The other missions either leave the section unused, at
+`0xFFFF`, which lies inside section 1, so that its operands serve as the flags, or start it at the
+file's end, where the game reads past its copy of the file. **Fix:** OpenReliant takes no flags past
+the file. In every mission `script_flags` holds twice the count of section 6: one entry per script
+byte.
 
 ## OpenReliant's mission name
 
@@ -114,7 +117,7 @@ Stride `0x4C`, one per placed object, nav points included.
 | `0x14` | u8 | Flight group, or `0xFF` for none |
 | `0x15` | u8 | Pilot: the record of `pilotstats.bin` that flies the ship, or `0xFF` for none, as the player's own record, the nav points and the planets have |
 | `0x17` | u8 | Flags, the engine's own: bit 0 marks the ship destroyed. Zero in the files |
-| `0x18` | u16 | Kind: the ship's type below `0x100`; nav points and markers use 999 and `0x3E3` to `0x3E8`, waypoints `0x3E5` |
+| `0x18` | u16 | Kind: the ship's type below `0x100`; nav points and markers use 999 and `0x3E3` to `0x3E8`, waypoints `0x3E5`. The mission makes a marker of a nav point (999, `dte.Ship.nav_point_kind`), a waypoint, or a point of kind `0x3E3` or `0x3E4` (`dte.Ship.isMarker`, `0x00457CD9`) |
 | `0x1B` | u8 | Set for a waypoint once binding the mission has listed it |
 | `0x1C` | f32 x3 | Position as authored |
 | `0x28` | u16 | The kind of the ship it launches from, the first of the mission's ships of that kind |
@@ -142,7 +145,7 @@ Stride `0x14`.
 |---|---|---|
 | `0x00` | u16 | Object ID |
 | `0x04` | u16 | Name, as a string pool offset, such as `(FG)Reliant` |
-| `0x08` | u8 | The wing the mission lists the group's ships in: 0 the player's, 1 and 2 two more, `0xFF` none |
+| `0x08` | u8 | The wing the mission lists the group's ships in (`dte.FlightGroup.Wing`): 0 the player's, 1 and 2 two more, `0xFF` none |
 | `0x09` | u8 | How many of the mission's ships are in the group |
 | `0x0C` | u32 | Where the group's first ship stands in the list of the groups' ships, or -1 |
 

@@ -1,6 +1,11 @@
 //! `C:\lancer\game\aifight.cpp`: the Fight order, which runs one combat maneuver after another
 //! against its target, aiming and firing as it goes. [`aidefend.zig`](aidefend.zig) runs the
 //! maneuvers.
+//!
+//! **Unverified:** that the Fight order's routines outside this file's known code are the file's:
+//! `fight_fire` (`0x004096B0`) to `fight_choose_maneuver` (`0x0040A3A0`), which lie between
+//! `aidock.cpp`'s known code and this file's, and `order_fight` (`0x0040A5E0`), which lies just
+//! after it.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -137,11 +142,34 @@ pub const Fighter = struct {
     slot: *create.Slot,
     state: *FightState,
     pilot: *const pilots.Pilot,
+    /// Its order's target, and the target's slot: the game reads the index as a ship's, whatever
+    /// its kind.
+    against: ai.ValidTarget,
 
-    pub fn of(ctx: aigeneric.Context, index: u16) Fighter {
+    /// The ship in slot `index` under the Fight order, against its order's target, which the update
+    /// has found it can still aim at (`ai.targetOrPop`).
+    pub fn of(ctx: aigeneric.Context, index: u16, against: ai.ValidTarget) Fighter {
         const all = ctx.world.objects;
         const slot = &all.slots[index];
-        return .{ .ctx = ctx, .index = index, .slot = slot, .state = &slot.state.fight, .pilot = all.pilots.get(slot.object.pilot) };
+        return .{
+            .ctx = ctx,
+            .index = index,
+            .slot = slot,
+            .state = &slot.state.fight,
+            .pilot = all.pilots.get(slot.object.pilot),
+            .against = against,
+        };
+    }
+
+    /// The ship in slot `index` under the Fight order, against its order's target read on trust,
+    /// as `order_fight_init` reads it, where it names one of the slots
+    /// (`aigeneric.Target.slotIn`): the target may be one it can no longer aim at, which the
+    /// update then pops.
+    pub fn unchecked(ctx: aigeneric.Context, index: u16) ?Fighter {
+        const all = ctx.world.objects;
+        const read = all.slots[index].orders[0].target;
+        const slot = read.slotIn(all) orelse return null;
+        return .of(ctx, index, .{ .target = read, .slot = slot });
     }
 
     pub fn objects(fighter: Fighter) *create.Objects {
@@ -149,7 +177,7 @@ pub const Fighter = struct {
     }
 
     pub fn now(fighter: Fighter) i32 {
-        return fighter.ctx.clock.frame_start;
+        return fighter.ctx.world.clock.frame_start;
     }
 
     pub fn ship(fighter: Fighter) *gameobj.GameObject {
@@ -176,19 +204,12 @@ pub const Fighter = struct {
     }
 
     pub fn target(fighter: Fighter) aigeneric.Target {
-        return fighter.slot.orders[0].target;
+        return fighter.against.target;
     }
 
-    /// The target's slot number: the game reads its index as a ship's, whatever its kind. Every
-    /// routine but `init` runs only once `ai.targetValid` has passed the target, which it does only
-    /// for an index that names a slot.
-    pub fn enemyIndex(fighter: Fighter) u16 {
-        return @intCast(fighter.target().index);
-    }
-
-    /// The target's slot (`enemyIndex`).
+    /// The target's slot.
     pub fn enemy(fighter: Fighter) *create.Slot {
-        return &fighter.objects().slots[fighter.enemyIndex()];
+        return &fighter.objects().slots[fighter.against.slot];
     }
 
     pub fn enemyPosition(fighter: Fighter) Vector {
@@ -203,7 +224,7 @@ pub const Fighter = struct {
 
     /// The part of the target it aims at (`0x004018F0`).
     pub fn aimed(fighter: Fighter) ai.Aimed {
-        return ai.aimedAt(fighter.objects(), fighter.target());
+        return ai.aimedAt(fighter.objects(), fighter.against);
     }
 
     /// `object_cruise_speed` of the ship; nothing for one with no flight stats.
@@ -227,12 +248,19 @@ pub const Fighter = struct {
     }
 
     /// A number from `least` up to `most` as the game draws one: `least` plus the ship's random
-    /// number modulo the span. Where the span is nothing the game divides by zero; OpenReliant
-    /// takes `least`.
+    /// number modulo the span.
+    ///
+    /// **Fix:** where the span is nothing the game divides by zero; OpenReliant takes `least`.
     pub fn randomBetween(fighter: Fighter, least: i32, most: i32) i32 {
         const drawn: i32 = fighter.random15();
         const span = most - least;
         return if (span == 0) least else least + @rem(drawn, span);
+    }
+
+    /// The tick a wait drawn from `range` ends at: its least plus the ship's random number modulo
+    /// its span (`randomBetween`), from now.
+    pub fn waitFrom(fighter: Fighter, range: pilots.Pilot.Range) i32 {
+        return fighter.randomBetween(range.least, range.most) + fighter.now();
     }
 
     /// The players' ships still in the action (`GameObject.Flags.outOfAction`).
@@ -269,19 +297,20 @@ pub const Players = struct {
 /// wait for the first missile, marks the ship as fighting its target and the target as fought one
 /// more time, and forgets what the ship had lately taken.
 ///
+/// **Fix:** the game takes the target's index as a ship's slot whatever it holds, and stops with
+/// "pilot not setup for %s" (`0x004E1980`) for a ship with no pilot record, such as a stand-in.
+/// OpenReliant leaves a target past the objects for the update to pop, and fights with the pilot
+/// its number gives (`pilots.Table.get`).
+///
 /// Not ported: a multiplayer game's, where the host chooses the maneuvers and the ship starts on
 /// 200 ticks of the first ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 pub fn init(ctx: aigeneric.Context, index: u16) void {
-    const fighter: Fighter = .of(ctx, index);
-    const all = ctx.world.objects;
-    // The game takes the target as it comes, its index as a ship's slot whatever its kind;
-    // OpenReliant leaves one past the slots for the update to pop.
-    const target = fighter.target().slot() orelse return;
-    if (target >= all.count) return;
+    const fighter = Fighter.unchecked(ctx, index) orelse return;
+    if (fighter.against.slot >= ctx.world.objects.count) return;
     choose(fighter);
     drawMissileWait(fighter);
     const ship = fighter.ship();
-    ship.fighting = .of(target);
+    ship.fighting = .of(fighter.against.slot);
     fighter.enemy().object.fought_by += 1;
     ship.recent_damage = 0;
 }
@@ -294,11 +323,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
 /// Not ported: a multiplayer game's, where the host chooses the maneuvers
 /// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 pub fn update(ctx: aigeneric.Context, index: u16) void {
-    const fighter: Fighter = .of(ctx, index);
-    if (!ai.targetValid(ctx.world.objects, fighter.target(), .{})) {
-        _ = aigeneric.pop(ctx, index);
-        return;
-    }
+    const fighter: Fighter = .of(ctx, index, ai.targetOrPop(ctx, index, .{}) orelse return);
     if (fighter.now() > fighter.state.maneuver_end) choose(fighter);
     const data = &fighter.entry().data.fight;
     if (data.fresh) begin(fighter, data);
@@ -323,7 +348,8 @@ test updateCloak {
     try stage.init(gpa);
     defer stage.deinit(gpa);
     const slot = stage.slot();
-    const fighter: Fighter = .of(stage.mission.orders(), stage.index);
+    // The stage's zeroed order names slot 0.
+    const fighter = Fighter.unchecked(stage.mission.orders(), stage.index).?;
 
     // The maneuver's cloak comes on from `cloak_at`, not before.
     fighter.state.cloak = true;
@@ -422,8 +448,13 @@ fn outOfSphere(fighter: Fighter) ?Choice {
 const least_pace: f32 = 0.25;
 
 /// How far off a target a pilot pursues it, by skill, before the target's pace scales it
-/// (`pursue_distances`, `0x004E193C`). The table holds three; past it the game reads the next
-/// data, a string's bytes, as some 1.7e25, so a pilot of any other skill never pursues.
+/// (`pursue_distances`, `0x004E193C`).
+///
+/// **Fix:** the table holds three, and the game indexes it with the skill as a signed word
+/// (`0x0040A0D0`), reading whatever lies past it or before it. For 3 to 8 that is a string's
+/// bytes, so large that the ship never pursues. For others, such as 9, 16, 20 to 24 and 26 to 28,
+/// and every skill from -1 to -24, it is a number so small, or 0, that the ship always pursues.
+/// OpenReliant never pursues by distance for a skill outside the table.
 fn pursuit(skill: pilots.Pilot.Skill) f32 {
     return switch (skill) {
         .low => 300000,
@@ -443,7 +474,8 @@ const seen_behind_cosine: f32 = -0.1;
 /// `AttackMediumFighter` flies straight on (`aidefend`).
 pub const close_quarters: f32 = 10000;
 
-/// One in this many times a ship with its target behind looks for a friendly ship to run to.
+/// One in this many times a ship with its target behind looks for a friendly ship to run to
+/// (`0x0040A1A7`).
 const run_odds = 10;
 
 /// `fight_choose_by_position` (`0x0040A000`), between two ships without components: pursuit of a
@@ -460,8 +492,8 @@ fn byPosition(fighter: Fighter) Choice {
     const top = if (enemy.flight) |flight| flight.max_speed else 0;
     const pace = @max(enemy.object.speed / top, least_pace);
     if (apart > pace * pursuit(fighter.pilot.skill())) return .{ .maneuver = .attack_pursue };
-    const where = bearing(ai.cosineOff(toward, fighter.heading()), behind_cosine);
-    const seen = bearing(-ai.cosineOff(toward, enemy.object.nextHeading()), seen_behind_cosine);
+    const where = bearing(math.cosineOff(toward, fighter.heading()), behind_cosine);
+    const seen = bearing(-math.cosineOff(toward, enemy.object.nextHeading()), seen_behind_cosine);
     if (where == .behind and fighter.random15() % run_odds == 0) {
         if (shipToRunTo(fighter)) |friend| return .{ .maneuver = .run_to_ship, .ship = friend };
     }
@@ -480,11 +512,15 @@ fn bearing(cosine: f32, behind: f32) Bearing {
     return if (cosine <= behind) .behind else .abeam;
 }
 
-/// The nearest of the ships a search is offered, as the game's searches keep it: from further than
-/// anything is from anything (`9e10`, a square), each nearer one in turn.
+/// How far the nearest-ship searches start, a square further than anything is from anything
+/// (`0x00409DCA`, `0x00409F19`).
+const farthest: f32 = 9e10;
+
+/// The nearest of the ships a search is offered, as the game's searches keep it: from `farthest`,
+/// each nearer one in turn.
 const Nearest = struct {
     index: ?u16 = null,
-    apart: f32 = 9e10,
+    apart: f32 = farthest,
 
     fn offer(nearest: *Nearest, index: usize, apart: f32) void {
         if (apart < nearest.apart) nearest.take(index, apart);
@@ -517,7 +553,7 @@ fn shipToRunTo(fighter: Fighter) ?u16 {
     return nearest.index;
 }
 
-/// The share of the target's velocity the aim drifts by (`fight_aim`).
+/// The share of the target's velocity the aim drifts by (`fight_aim`, `0x00409C6D`).
 const aim_drift: f32 = 0.25;
 
 /// `fight_aim` (`0x00409BE0`): every `aim_interval` ticks the pilot aims afresh, ahead of the
@@ -529,7 +565,7 @@ fn aim(fighter: Fighter) void {
     const enemy = &fighter.enemy().object;
     if (state.next_aim < fighter.now()) {
         state.next_aim = @as(i32, fighter.pilot.aim_interval) + fighter.now();
-        if (ai.leadAim(fighter.objects(), fighter.index, fighter.target(), 1)) |led| {
+        if (ai.leadAim(fighter.objects(), fighter.index, fighter.against, 1)) |led| {
             state.aim = gameobj.vec3(led);
             state.led = true;
         } else {
@@ -541,7 +577,7 @@ fn aim(fighter: Fighter) void {
         while (turns > 0) : (turns -= 1) drift = math.transform(enemy.rotation, drift);
         state.aim_velocity = gameobj.vec3(drift);
     }
-    const step: f32 = @floatFromInt(fighter.ctx.clock.frame_duration);
+    const step: f32 = @floatFromInt(fighter.ctx.world.clock.frame_duration);
     state.aim = gameobj.vec3(gameobj.vector(state.aim) + gameobj.vector(state.aim_velocity) * @as(Vector, @splat(step)));
     fire(fighter);
 }
@@ -562,8 +598,10 @@ const in_line_margin: f32 = 500;
 /// friendly ship holds its fire while a player's ship is in the way. A cloaked ship doesn't fire.
 /// Then it times its missiles and countermeasures.
 ///
-/// A cloaked target is fired at only where the ship can see through the cloak (`0x00463BD0`), but
-/// the order doesn't keep a cloaked target (`ai.target_barred`), so that doesn't come up here.
+/// A cloaked target is fired at only where it stands further off than both radii and
+/// `close_quarters` (`cloak_target_far`, `0x00463BD0`); otherwise the ship skips its missiles and
+/// countermeasures too. The order doesn't keep a cloaked target (`ai.target_barred`), so that
+/// doesn't come up here.
 fn fire(fighter: Fighter) void {
     const ship = fighter.ship();
     if (ship.flags.cloaked) return;
@@ -596,7 +634,8 @@ const launch_odds: f32 = 0.2;
 /// the wait comes round the ship launches one time in five, and either way draws its wait again
 /// and locks again from the start.
 ///
-/// Not ported: a multiplayer game's client, which leaves the launch to the host.
+/// Not ported: a multiplayer game's client, which leaves the launch to the host
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn aimMissile(fighter: Fighter) void {
     const ship = fighter.ship();
     const all = fighter.objects();
@@ -621,6 +660,9 @@ fn aimMissile(fighter: Fighter) void {
 /// `fight_fire`'s countermeasures: with no missile homing on the ship, the wait for the next is
 /// held at the pilot's least; with one, once the wait has passed, the ship draws it again and
 /// drops a countermeasure.
+///
+/// Not ported: a multiplayer game's client, which leaves the countermeasure to the host
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn counterMissiles(fighter: Fighter) void {
     const ship = fighter.ship();
     const range = fighter.pilot.timings.countermeasures;
@@ -629,7 +671,7 @@ fn counterMissiles(fighter: Fighter) void {
         return;
     }
     if (ship.countermeasure_at >= fighter.now()) return;
-    ship.countermeasure_at = fighter.randomBetween(range.least, range.most) + fighter.now();
+    ship.countermeasure_at = fighter.waitFrom(range);
     if (fighter.ctx.world.countermeasures) |dropped| dropped.spend(fighter.ctx.world, fighter.index);
 }
 
@@ -649,8 +691,7 @@ fn playerInLine(fighter: Fighter) bool {
 
 /// Draws the wait for the ship's next missile from the pilot's range (`missile_at`).
 fn drawMissileWait(fighter: Fighter) void {
-    const range = fighter.pilot.timings.missiles;
-    fighter.ship().missile_at = fighter.randomBetween(range.least, range.most) + fighter.now();
+    fighter.ship().missile_at = fighter.waitFrom(fighter.pilot.timings.missiles);
 }
 
 /// The share of its armour class times six a ship must lately have taken from the player to call
@@ -674,7 +715,7 @@ fn callForHelp(fighter: Fighter) void {
     } else return;
     ship.recent_damage = 0;
     const helper = wingman(fighter) orelse return;
-    _ = aigeneric.pushShip(fighter.ctx, helper, .fight, all.player, aigeneric.Target.whole) catch return;
+    _ = aigeneric.giveShip(fighter.ctx, helper, .fight, all.player, null);
 }
 
 /// The wingman `callForHelp` calls: the nearest fighter on the ship's side, not the ship itself nor
@@ -713,8 +754,8 @@ pub const testing = struct {
         const ctx = mission.orders();
         const player = try mission.add(.predator, @splat(0));
         const index = try mission.add(.sabre, .{ 0, 0, apart });
-        try std.testing.expect(try aigeneric.pushShip(ctx, index, .fight, player, aigeneric.Target.whole));
-        return .of(ctx, index);
+        try std.testing.expect(try aigeneric.pushShip(ctx, index, .fight, player, null));
+        return Fighter.unchecked(ctx, index) orelse error.NoTarget;
     }
 };
 
@@ -801,6 +842,168 @@ test "Fighter.randomBetween" {
     }
     // No span, where the game would divide by zero.
     try std.testing.expectEqual(7, fighter.randomBetween(7, 7));
+    // A wait drawn from a range ends that far from now.
+    mission.clock.frame_start = 1000;
+    for (0..20) |_| {
+        const ends = fighter.waitFrom(.{ .least = 10, .most = 20 });
+        try std.testing.expect(ends >= 1010 and ends < 1020);
+    }
+}
+
+test pursuit {
+    try std.testing.expectEqual(300000, pursuit(.low));
+    try std.testing.expectEqual(200000, pursuit(.medium));
+    try std.testing.expectEqual(100000, pursuit(.high));
+    // Outside the table, never by distance.
+    try std.testing.expectEqual(std.math.inf(f32), pursuit(.other));
+}
+
+test outOfSphere {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const started = try testFight(&mission, 300000);
+    const player = &all.slots[0].object;
+    // The Sabre fights a ship near it, far out of a small sphere around the player.
+    const other = try mission.add(.sabre, .{ 0, 0, 310000 });
+    started.entry().target = .at(other, null);
+    const fighter = Fighter.unchecked(started.ctx, started.index).?;
+    all.action_sphere = .{ .centre = 0, .radius = 1000 };
+
+    // With no player's ship near it, it heads back to the sphere.
+    try std.testing.expectEqual(back_to_sphere, outOfSphere(fighter).?);
+    // It fights on where its target is far off but inside the sphere.
+    all.slots[other].object.root.next_position = .{ .x = 0, .y = 0, .z = 500 };
+    try std.testing.expectEqual(null, outOfSphere(fighter));
+    // And where a player's ship is near, its target outside the sphere.
+    all.slots[other].object.root.next_position = .{ .x = 0, .y = 0, .z = 310000 };
+    player.root.next_position = .{ .x = 0, .y = 0, .z = 250000 };
+    try std.testing.expectEqual(null, outOfSphere(fighter));
+    // A ship fighting a player's ship fights on wherever it is.
+    player.root.next_position = .{ .x = 0, .y = 0, .z = 0 };
+    started.entry().target = .at(0, null);
+    try std.testing.expectEqual(null, outOfSphere(Fighter.unchecked(started.ctx, started.index).?));
+}
+
+test shipToRunTo {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const fighter = try testFight(&mission, 20000);
+    mission.tables.combat[@intFromEnum(gameobj.Type.mammoth)].class = .capital;
+    const mammoth = try mission.add(.mammoth, .{ 0, 0, 200000 });
+    const friend = &mission.slot(mammoth).object;
+    friend.side = fighter.ship().side;
+    friend.radius = 1000;
+
+    // A capital ship on its side without components is passed over.
+    friend.flags.components = false;
+    try std.testing.expectEqual(null, shipToRunTo(fighter));
+    // With them, the ship runs to it.
+    friend.flags.components = true;
+    try std.testing.expectEqual(mammoth, shipToRunTo(fighter).?);
+    // On another side, it doesn't.
+    friend.side = if (fighter.ship().side == .friendly) .hostile else .friendly;
+    try std.testing.expectEqual(null, shipToRunTo(fighter));
+    // Within its radius and `run_to_berth` of it, the ship has run to it already.
+    friend.side = fighter.ship().side;
+    friend.root.next_position = .{ .x = 0, .y = 0, .z = 20000 + run_to_berth };
+    try std.testing.expectEqual(null, shipToRunTo(fighter));
+}
+
+test aim {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const fighter = try testFight(&mission, 20000);
+    const state = fighter.state;
+    const enemy = &fighter.enemy().object;
+    enemy.velocity = .{ .x = 0, .y = 0, .z = 8 };
+    enemy.rotation = math.identity;
+    mission.clock.frame_start = 100;
+    mission.clock.frame_duration = 4;
+
+    // Due, the pilot aims afresh, and again `aim_interval` ticks on; the aim drifts by a quarter
+    // of the target's velocity, turned as the target turns.
+    state.next_aim = 99;
+    aim(fighter);
+    try std.testing.expectEqual(@as(i32, fighter.pilot.aim_interval) + 100, state.next_aim);
+    try std.testing.expectEqual(Vec3{ .x = 0, .y = 0, .z = 2 }, state.aim_velocity);
+    // Between times the aim drifts on, by its velocity for each tick of the frame.
+    state.aim = .{ .x = 10, .y = 20, .z = 30 };
+    state.aim_velocity = .{ .x = 1, .y = 2, .z = 3 };
+    aim(fighter);
+    try std.testing.expectEqual(Vec3{ .x = 14, .y = 28, .z = 42 }, state.aim);
+    try std.testing.expectEqual(@as(i32, fighter.pilot.aim_interval) + 100, state.next_aim);
+}
+
+test fire {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const all = mission.objects;
+    const fighter = try testFight(&mission, 20000);
+    const ship = fighter.ship();
+    const timings = fighter.pilot.timings;
+    // The Sabre faces the player, its aim on it, with a Laser Cannon fitted whose range reaches it.
+    const turned = math.rotation(.y, std.math.pi);
+    fighter.slot.drawn.orientation = turned;
+    ship.root.next_orientation = turned;
+    fighter.state.aim = .{ .x = 0, .y = 0, .z = 0 };
+    all.slots[0].object.radius = 100;
+    const laser = &all.gun_stats.types[guns.GunType.laser_cannon.number()];
+    laser.lifetime = 100;
+    laser.speed = 1000;
+    try guns.testing.fitTo(fighter.slot, gpa, &.{guns.testing.barrel(.laser_cannon)});
+    ship.gun_mode.all = true;
+    const gun = &fighter.slot.guns[0];
+    mission.clock.frame_start = 100;
+
+    // A hostile ship fires for the pilot's burst once its pause has passed, and looks again a
+    // pause on.
+    ship.side = .hostile;
+    ship.fire_at = 99;
+    fire(fighter);
+    try std.testing.expectEqual(@as(i32, timings.burst) + 100, gun.firing_until);
+    try std.testing.expectEqual(@as(i32, timings.pause) + 100, ship.fire_at);
+    // Until then it doesn't look.
+    gun.firing_until = 0;
+    fire(fighter);
+    try std.testing.expectEqual(0, gun.firing_until);
+    // A friendly ship holds its fire with the player in the way, and looks again a pause on.
+    ship.side = .friendly;
+    ship.fire_at = 99;
+    fire(fighter);
+    try std.testing.expectEqual(0, gun.firing_until);
+    try std.testing.expectEqual(@as(i32, timings.pause) + 100, ship.fire_at);
+}
+
+test counterMissiles {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const fighter = try testFight(&mission, 20000);
+    const ship = fighter.ship();
+    const range = fighter.pilot.timings.countermeasures;
+    const least: i32 = range.least;
+    const most: i32 = range.most;
+    mission.clock.frame_start = 100;
+
+    // With no missile homing on the ship, the wait for the next is held at the pilot's least.
+    ship.missile_homing = 0;
+    counterMissiles(fighter);
+    try std.testing.expectEqual(least + 100, ship.countermeasure_at);
+    // With one, the ship waits that out, then draws the wait again from the pilot's range.
+    ship.missile_homing = 1;
+    mission.clock.frame_start = least + 100;
+    counterMissiles(fighter);
+    try std.testing.expectEqual(least + 100, ship.countermeasure_at);
+    mission.clock.frame_start += 1;
+    counterMissiles(fighter);
+    const now = mission.clock.frame_start;
+    try std.testing.expect(ship.countermeasure_at >= least + now and ship.countermeasure_at < most + now);
 }
 
 test playerInLine {

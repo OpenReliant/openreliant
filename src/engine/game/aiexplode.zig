@@ -4,8 +4,9 @@
 //! `aifight.cpp`'s, so this module is named for the order, as theirs are for theirs.
 //!
 //! `order_explode_init` (`0x00408610`) picks a mode by what the object is, and each mode has an
-//! `init` and an `update` in the table at `0x004E1798`. A ship's (`0x004086F0`, `0x00408A60`)
-//! picks one of three styles of going, each with its own `init` and `update`
+//! `init` and an `update` in `explode_modes` (`0x004E1798`). A ship's (`explode_ship_init`,
+//! `0x004086F0`, and `explode_ship`, `0x00408A60`) picks one of three styles of going, each with
+//! its own `init` and `update` in `explode_style_inits` and `explode_style_updates`
 //! (`0x004E1740`, `0x004E174C`), and ends in a blast ([`explode.zig`](explode.zig)), after which
 //! the ship is retired (`create.retire`).
 //!
@@ -29,7 +30,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const dte = @import("../../formats/dte.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const Vec3 = @import("../../formats/shp.zig").Vec3;
@@ -46,7 +46,6 @@ const objects = @import("objects.zig");
 const shockwave = @import("shockwave.zig");
 const GameObject = gameobj.GameObject;
 const libcmt = @import("../libcmt.zig");
-const main = @import("main.zig");
 const videoreports = @import("videoreports.zig");
 const xtrabits = @import("xtrabits.zig");
 
@@ -70,7 +69,7 @@ pub const Mode = enum(i16) {
                 .asteroid
             else if (!object.flags.components)
                 .ship
-            else if (target.component != aigeneric.Target.whole)
+            else if (!target.isWhole())
                 .component
             else
                 .hull,
@@ -125,7 +124,11 @@ pub const Data = extern struct {
     }
 };
 
-/// `order_explode_init` (`0x00408610`).
+/// `order_explode_init` (`0x00408610`) picks the mode by what the object is (`Mode.of`) and runs
+/// that mode's init (`explode_modes`).
+///
+/// Not ported: in a multiplayer game, a player's power-up is ended first (`0x004AF120`,
+/// [#55](https://github.com/vdmkenny/openreliant/issues/55)).
 pub fn init(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.explode;
@@ -139,13 +142,13 @@ pub fn init(ctx: Context, index: u16) void {
     }
 }
 
-/// `order_explode` (`0x004086A0`).
+/// `order_explode` (`0x004086A0`) runs the mode's update.
 pub fn update(ctx: Context, index: u16) void {
     switch (ctx.world.objects.slots[index].state.explode.mode) {
         .ship => shipUpdate(ctx, index),
         .hull => hullUpdate(ctx, index),
         // `explode_component` (`0x00409260`): the component is lost, and the order is done.
-        .component => _ = aigeneric.pop(ctx, index),
+        .component => aigeneric.end(ctx, index),
         .asteroid => asteroidUpdate(ctx, index),
         .limpet_car => limpetCarUpdate(ctx, index),
     }
@@ -161,20 +164,21 @@ const huge_duration = 1500;
 /// and pops.
 pub fn huge(ctx: Context, index: u16) void {
     explode.uberExplode(ctx.world, index, ctx.world.objects.slots[index].drawn, huge_size, huge_duration);
-    _ = aigeneric.pop(ctx, index);
+    aigeneric.end(ctx, index);
 }
 
 // --- A ship that lists components --------------------------------------------------------------
 
-/// `explode_hull_init` (`0x00409170`): each part of the hull hanging from the model's root, but a
-/// part of a damaged model, runs out of armour, for the component losses to take its assembly
-/// away (`objects.loseComponents`).
+/// `explode_hull_init` (`0x00409170`): each part of the hull in the root's child list, whatever it
+/// hangs from (`objects.Model.rootChildren`), but a part of a damaged model, runs out of armour,
+/// for the component losses to take its assembly away (`objects.loseComponents`).
 fn hullInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const model = if (slot.model) |*live| live else return;
-    for (model.parts) |*part| {
-        if (part.parent != null or part.flags.damaged or part.class != .hull) continue;
-        part.armor = spent_armor;
+    var children = model.rootChildren();
+    while (children.next()) |child| {
+        if (child.part.flags.damaged or child.part.class != .hull) continue;
+        model.parts[child.index].armor = spent_armor;
         model.destroyed = true;
     }
 }
@@ -183,7 +187,7 @@ fn hullInit(ctx: Context, index: u16) void {
 /// (`ai.hullLost`); any other's order is done, the hull left to the component losses.
 fn hullUpdate(ctx: Context, index: u16) void {
     if (ctx.world.objects.slots[index].object.flags.disabled) return ai.hullLost(ctx, index);
-    _ = aigeneric.pop(ctx, index);
+    aigeneric.end(ctx, index);
 }
 
 /// `explode_component_init` (`0x00409200`): the component the order is aimed at, where it is
@@ -197,7 +201,7 @@ fn componentInit(ctx: Context, index: u16) void {
     if (model.holding(part)) |holder| holder.destroyed = true;
 }
 
-/// The armour a part is left with to be lost.
+/// The armour a part is left with to be lost (`0x004091AA`, `0x00409226`).
 const spent_armor: f32 = -1;
 
 // --- An asteroid -------------------------------------------------------------------------------
@@ -205,7 +209,7 @@ const spent_armor: f32 = -1;
 /// `explode_asteroid_init` (`0x00409270`): it goes up the frame after, and moves no more.
 fn asteroidInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
-    slot.state.explode.end = ctx.clock.frame_start;
+    slot.state.explode.end = ctx.world.clock.frame_start;
     slot.object.flags.unpowered = true;
     slot.object.flags.frozen = true;
 }
@@ -220,10 +224,12 @@ fn asteroidInit(ctx: Context, index: u16) void {
 const rock_fireball: f32 = 1.5;
 const least_breaking: f32 = 0.16;
 const fragment_share: f32 = 0.4;
-const fragments = 3;
 const fragment_reach: f32 = 3;
 const fragment_turn: f32 = 0.6 * std.math.pi;
-/// The fragments are asteroids from the third of the seven, one of the four from it.
+/// How many fragments a breaking rock leaves (`0x0040935F`).
+const fragments = 3;
+/// The fragments are asteroids from the third of the seven, one of the four from it: types from
+/// `0x7B` (`0x0040937A`, `0x00409387`).
 const fragment_first = 2;
 const fragment_kinds = 4;
 
@@ -233,26 +239,24 @@ const fragment_kinds = 4;
 /// a further `fragment_turn` about the X axis and standing `fragment_reach` of its own radius along
 /// its nose from where the rock was, still and colliding with nothing.
 ///
-/// Not ported: the count of asteroids made, which the game keeps for its log alone.
+/// The game also counts the asteroids it makes, for its log alone.
 fn asteroidUpdate(ctx: Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
     const slot = &all.slots[index];
-    if (!(slot.state.explode.end < ctx.clock.frame_start)) return;
+    if (!(slot.state.explode.end < ctx.world.clock.frame_start)) return;
     const at = slot.drawn.position;
     const size = slot.object.visibility * fragment_share;
     explode.fireballAt(world, at, .{ .size = slot.object.radius * rock_fireball, .light = true });
     create.retire(ctx, index);
     if (size < least_breaking) return;
-    const spawn = world.spawn orelse return;
     var turn_count: usize = fragments;
     while (turn_count > 0) : (turn_count -= 1) {
         const kind = gameobj.Type.asteroid(fragment_first + @as(usize, world.random.rand() % fragment_kinds));
-        const fragment = create.createObject(all, spawn.tables, spawn.types, null, kind, 0, @splat(0), world.random) catch return;
+        const fragment = create.make(world, null, kind) catch null orelse return;
         const piece = &all.slots[fragment];
         const turn = math.fromAngles(@as(f32, @floatFromInt(turn_count)) * fragment_turn, 0, 0);
-        objects.setPosition(&piece.object, &piece.drawn, at + math.transform(turn, .{ 0, 0, piece.object.radius * fragment_reach }));
-        objects.setOrientation(&piece.object, &piece.drawn, turn);
+        objects.setPlace(&piece.object, &piece.drawn, .{ .position = at + math.transform(turn, .{ 0, 0, piece.object.radius * fragment_reach }), .orientation = turn });
         piece.object.throttle = 0;
         piece.object.flags.no_collisions = true;
         piece.shrink(size);
@@ -268,32 +272,21 @@ fn shownModel(slot: *create.Slot) ?*objects.Model {
     return model;
 }
 
-/// The bits the limpet car's trail has left.
-const limpet_trail = 50;
-
 /// `explode_limpet_car_init` (`0x004094D0`): the car's Destroyed event is posted
-/// (`events.destroyed`); the car stops dead, unpowered, with a random turn (`randomSpin`) and a
-/// trail to leave, which its update never reaches, and goes up in a fireball as wide as its
-/// radius.
+/// (`events.destroyed`), and the car halts as a halting ship does (`halt`), with a trail to leave
+/// which its update never reaches.
 fn limpetCarInit(ctx: Context, index: u16) void {
     const world = ctx.world;
-    events.destroyed(world, index, dte.Trigger.whole_object);
-    const slot = &world.objects.slots[index];
-    const object = &slot.object;
-    const state = &slot.state.explode;
-    state.trail = limpet_trail;
-    state.end = 0;
-    stop(object);
-    object.flags.unpowered = true;
-    state.spin = randomSpin(world.random);
-    explode.fireballAt(world, slot.drawn.position, .{ .size = object.radius });
+    events.destroyed(world, index, null);
+    halt(world, &world.objects.slots[index]);
 }
 
 /// `explode_limpet_car` (`0x004095F0`): where the car's first part still shows, it is hidden, the
 /// car blows up (`explode.blast`), and a limpet pod takes its slot, where that part was going;
 /// otherwise the car blows up and is retired.
 ///
-/// Not ported: the sounds `0x004B9C70` ends and plays.
+/// Not ported: the message that tells the other players of a network game of the car's end
+/// (`0x004B9C70`, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn limpetCarUpdate(ctx: Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -306,23 +299,25 @@ fn limpetCarUpdate(ctx: Context, index: u16) void {
     const place = model.partPlace(0, .next).within(slot.object.placeAt(.next));
     explode.blast(world, index);
     all.resetSlot(index, world.random);
-    const spawn = world.spawn orelse return;
-    const pod = create.createObject(all, spawn.tables, spawn.types, index, .limpet_pod, 0, @splat(0), world.random) catch return;
+    const pod = create.make(world, index, .limpet_pod) catch null orelse return;
     const replaced = &all.slots[pod];
-    objects.setPosition(&replaced.object, &replaced.drawn, place.position);
-    objects.setOrientation(&replaced.object, &replaced.drawn, place.orientation);
+    objects.setPlace(&replaced.object, &replaced.drawn, place);
 }
 
 /// A ship moving slower than this as it is destroyed is watched from behind, pulling away; one
 /// faster from where the camera was (`0x004DC440`).
 const slow: f32 = 100;
 
-/// `0x004086F0`: a ship's end begins. Close to the camera it is heard at once. It takes a style of
-/// going, the torpedoes always stopping dead; the player's credit for the kill is settled
-/// (`killCredit`), and the ship's Destroyed event posted (`events.destroyed`). The player's has the
-/// camera watch it, from a view by the style and how fast it was flying, and the mission end with
-/// it. At the end of the player's ejection (`main.Showing.ejection`) the player's pod stops dead
-/// instead, as the Sabre's view watches it, and its end ends nothing.
+/// `explode_ship_init` (`0x004086F0`): a ship's end begins. Close to the camera it is heard at
+/// once. It takes a style of going, the torpedoes always stopping dead; the player's credit for the
+/// kill is settled (`killCredit`), and the ship's Destroyed event posted (`events.destroyed`). The
+/// player's has the camera watch it, from a view by the style and how fast it was flying, and the
+/// mission end with it. At the end of the player's ejection (`main.Showing.ejection`) the player's
+/// pod stops dead instead, as the Sabre's view watches it, and its end ends nothing.
+///
+/// Not ported: a multiplayer game's end, in which a player's ship is made invulnerable and its kill
+/// announced to everyone, a proximity mine halts and is retired, and every other ship spins out
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn shipInit(ctx: Context, index: u16) void {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
@@ -333,20 +328,20 @@ fn shipInit(ctx: Context, index: u16) void {
     const state = &slot.state.explode;
     const players = index == world.objects.player;
     const cutaway = world.player.showing != .everything;
-    state.style = switch (object.type) {
-        .torpedo, .russian_torpedo => .halt,
-        else => if (players and cutaway) .halt else @enumFromInt(xtrabits.objectRandom15(object) % std.enums.values(Style).len),
-    };
+    state.style = if (object.type.isTorpedo() or (players and cutaway))
+        .halt
+    else
+        @enumFromInt(xtrabits.objectRandom15(object) % std.enums.values(Style).len);
     killCredit(world, index);
-    events.destroyed(world, index, dte.Trigger.whole_object);
+    events.destroyed(world, index, null);
 
     if (players and !cutaway) {
         const view: camera.View = switch (state.style) {
-            .spin_out => if (movingSlowly(object, slot.flight, world.view)) .pull_back else .watch,
+            .spin_out => if (movingSlowly(slot, world.view)) .pull_back else .watch,
             .burst => .watch_marker,
             .halt => .pull_back,
         };
-        if (world.camera) |watching| _ = watching.setView(view, index, true, true, ctx.clock.viewTime());
+        if (world.camera) |watching| _ = watching.setView(view, index, true, true, ctx.world.clock.viewTime());
         world.player.ending = .destroyed;
     }
 
@@ -366,7 +361,8 @@ fn shipInit(ctx: Context, index: u16) void {
 ///
 /// It does nothing while the radio's channels are closed (`videoreports.Remarks.kill_credit`).
 ///
-/// Not ported: the other players' kills in a multiplayer game.
+/// Not ported: the other players' kills in a multiplayer game
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 pub fn killCredit(world: gameobj.World, index: u16) void {
     if (!world.player.remarks.kill_credit) return;
     const all = world.objects;
@@ -392,17 +388,22 @@ fn credited(slot: *const create.Slot) bool {
     };
 }
 
-fn movingSlowly(object: *const GameObject, flight: ?*const create.FlightModel, view: camera.View) bool {
-    const model = flight orelse return true;
-    return ai.cruiseSpeed(object, model, view) * object.throttle < slow;
+/// Whether the ship in `slot` was flying slower than `slow` as its end began: its cruise speed
+/// (`ai.slotCruise`) times its throttle. A ship without flight stats counts as slow.
+fn movingSlowly(slot: *const create.Slot, view: camera.View) bool {
+    const cruise = ai.slotCruise(slot, view) orelse return true;
+    return cruise * slot.object.throttle < slow;
 }
 
-/// `0x00408A60`: until its end the ship goes on in its style; then it blows up, a burst in its own
-/// way and a torpedo not at all, having gone up as it stopped, and is retired.
+/// `explode_ship` (`0x00408A60`): until its end the ship goes on in its style; then it blows up, a
+/// burst in its own way and a torpedo not at all, having gone up as it stopped, and is retired.
+///
+/// Not ported: a multiplayer game, in which the order pops and a player's ship is readied to fly
+/// again rather than retired ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn shipUpdate(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.explode;
-    if (ctx.clock.frame_start <= state.end) {
+    if (ctx.world.clock.frame_start <= state.end) {
         switch (state.style) {
             .spin_out, .halt => spin(ctx.world, slot),
             .burst => {},
@@ -411,17 +412,15 @@ fn shipUpdate(ctx: Context, index: u16) void {
     }
     switch (state.style) {
         .burst => explode.burst(ctx.world, index),
-        else => switch (slot.object.type) {
-            .torpedo, .russian_torpedo => {},
-            else => explode.blast(ctx.world, index),
-        },
+        .spin_out, .halt => if (!slot.object.type.isTorpedo()) explode.blast(ctx.world, index),
     }
     create.retire(ctx, index);
 }
 
-/// The trail a spinning ship leaves: a small bit of debris a frame while it has less than
-/// `trail_ticks` a bit left, from within half of `trail_spread` of it on each axis, thrown out
-/// backwards (`0x004DC4A8`).
+/// The trail a spinning ship leaves: `trail_bits` bits (`0x00408BD4`, `0x00408D34`, `0x00409100`,
+/// `0x004094F3`), a small bit of debris a frame while it has less than `trail_ticks` a bit left
+/// (`0x00408F93`), from within half of `trail_spread` of it on each axis (`0x004DC4A8`), thrown out
+/// backwards as `trail_throw` (`0x00409070`, `0x00409075`).
 const trail_bits = 50;
 const trail_ticks = 10;
 const trail_spread: f32 = 500;
@@ -437,78 +436,76 @@ const spin_fade: f32 = 0.005;
 /// of it either way (`0x004DC474`, `0x004DC4C0`); the limpet car's too.
 const spin_range: Vector = .{ 0.05, 0.05, 0.3 };
 
-/// `0x00408BC0`: a spinning ship drifts on unpowered for two to four seconds; a torpedo, or a ship
-/// told not to spin, stops dead and blows up at once.
+/// `explode_spin_out_init` (`0x00408BC0`): a spinning ship drifts on unpowered for two to four
+/// seconds, and goes up (`goesUp`); a torpedo, or a ship told not to spin, halts instead (`halt`).
 fn spinOutInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
-    const object = &slot.object;
+    const torpedo = if (slot.combat) |combat| combat.class == .torpedo else false;
+    if (torpedo or !slot.orders[0].data.destroyed.may_spin) return halt(ctx.world, slot);
     const state = &slot.state.explode;
     state.trail = trail_bits;
-    const torpedo = if (slot.combat) |combat| combat.class == .torpedo else false;
-    if (torpedo or !slot.orders[0].data.destroyed.may_spin) {
-        stop(object);
-        state.end = 0;
-    } else {
-        state.end = ctx.clock.frame_start + @as(i32, @intFromFloat(ctx.world.random.fraction() * spin_ticks)) + spin_ticks;
-    }
-    object.flags.unpowered = true;
-    state.spin = randomSpin(ctx.world.random);
+    state.end = ctx.world.clock.frame_start + @as(i32, @intFromFloat(ctx.world.random.fraction() * spin_ticks)) + spin_ticks;
     goesUp(ctx.world, slot);
 }
 
-/// A bang of the ship's size where it is, which a spinning or halting ship sets off as it goes.
-fn goesUp(world: gameobj.World, slot: *const create.Slot) void {
+/// A ship stops dead (`stop`), with a trail to leave, and goes up (`goesUp`): how a halting ship,
+/// a ship that may not spin out and the limpet car go.
+fn halt(world: gameobj.World, slot: *create.Slot) void {
+    slot.state.explode.trail = trail_bits;
+    stop(slot);
+    goesUp(world, slot);
+}
+
+/// The ship goes unpowered with a random turn a step (`randomSpin`), and sets off a bang of its
+/// size where it is: how a spinning or halting ship, and the limpet car, begin to go.
+fn goesUp(world: gameobj.World, slot: *create.Slot) void {
+    slot.object.flags.unpowered = true;
+    slot.state.explode.spin = randomSpin(world.random);
     explode.fireballAt(world, slot.drawn.position, .{ .size = slot.object.radius });
 }
 
-/// `0x004090F0`: a bursting ship drifts on unpowered, no longer turning.
+/// `explode_burst_init` (`0x004090F0`): a bursting ship drifts on unpowered, no longer turning.
 fn burstInit(object: *GameObject, state: *State) void {
     state.trail = trail_bits;
     state.end = 0;
     object.flags.unpowered = true;
-    object.pitch_rate = 0;
-    object.pitch_input = 0;
-    object.roll_rate = 0;
-    object.roll_input = 0;
-    object.yaw_rate = 0;
-    object.yaw_input = 0;
+    object.holdStill();
 }
 
-/// `0x00408D20`: a halting ship stops dead and blows up at once; a torpedo sets off its chain of
-/// fireballs and a shockwave that harms the player it passes.
+/// `explode_halt_init` (`0x00408D20`): a halting ship stops dead and blows up at once (`halt`); a
+/// torpedo sets off its chain of fireballs where it is drawn, and a shockwave that harms the player
+/// it passes from where its next step takes it.
 fn haltInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
-    const state = &slot.state.explode;
-    state.trail = trail_bits;
-    stop(&slot.object);
-    state.end = 0;
-    slot.object.flags.unpowered = true;
-    state.spin = randomSpin(ctx.world.random);
-    goesUp(ctx.world, slot);
-    switch (slot.object.type) {
-        .torpedo, .russian_torpedo => {
-            chain(ctx.world, slot.drawn.position);
-            shockwave.setOff(ctx.world, slot.drawn, .{
-                .kind = .torpedo,
-                .size = torpedo_shockwave_size,
-                .life = torpedo_shockwave_life,
-                .velocity = gameobj.vector(slot.object.velocity),
-                .owner = index,
-            });
-        },
-        else => {},
-    }
+    halt(ctx.world, slot);
+    if (!slot.object.type.isTorpedo()) return;
+    chain(ctx.world, slot.drawn.position);
+    shockwave.setOff(ctx.world, slot.object.placeAt(.next), .{
+        .kind = .torpedo,
+        .size = torpedo_shockwave_size,
+        .life = torpedo_shockwave_life,
+        .velocity = gameobj.vector(slot.object.velocity),
+        .owner = index,
+    });
 }
 
 /// A halting torpedo's shockwave, which harms the player it passes: how far it spreads, over how
-/// many ticks.
+/// many ticks (`0x00408F4D`, `0x00408F4B`).
 const torpedo_shockwave_size: f32 = 6000;
 const torpedo_shockwave_life = 100;
 
-/// A torpedo's chain of lit fireballs, `chain_length` of them `chain_step` ticks apart, each less a
-/// share of `chain_lag`, so up to 19 ticks later; within half of `chain_spread` of it on each axis,
-/// and `chain_size` and up to `chain_size_range` more across (`0x004DC4B8`, `0x004DC4CC`,
-/// `0x004DC44C`, `0x004DC4A8`).
+/// A torpedo's chain of lit fireballs: `chain_length` of them `chain_step` ticks apart, in steps of
+/// 30 up to 150 ticks (`0x00408F27`, `0x00408F2A`), each less a share of `chain_lag`, so up to 19
+/// ticks later; within half of `chain_spread` of it on each axis, and `chain_size` and up to
+/// `chain_size_range` more across (`0x004DC4B8`, `0x004DC4CC`, `0x004DC44C`, `0x004DC4A8`).
+const chain_length = 5;
+const chain_step = 30;
+const chain_lag: f32 = -20;
+const chain_spread: f32 = 1500;
+const chain_size: f32 = 1000;
+const chain_size_range: f32 = 500;
+
+/// A torpedo's chain of lit fireballs about `at`, each a little later than the last.
 fn chain(world: gameobj.World, at: Vector) void {
     const random = world.random;
     for (0..chain_length) |n| {
@@ -519,18 +516,13 @@ fn chain(world: gameobj.World, at: Vector) void {
     }
 }
 
-const chain_length = 5;
-const chain_step = 30;
-const chain_lag: f32 = -20;
-const chain_spread: f32 = 1500;
-const chain_size: f32 = 1000;
-const chain_size_range: f32 = 500;
-
-/// Stops the ship dead, as the styles do: no velocity, speed or throttle.
-fn stop(object: *GameObject) void {
-    object.velocity = .{ .x = 0, .y = 0, .z = 0 };
-    object.speed = 0;
-    object.throttle = 0;
+/// Stops the ship dead, with the four stores each halting end makes: no velocity, speed or
+/// throttle, and its end at once.
+fn stop(slot: *create.Slot) void {
+    slot.object.velocity = .zero;
+    slot.object.speed = 0;
+    slot.object.throttle = 0;
+    slot.state.explode.end = 0;
 }
 
 /// A turn a step either way about each axis, within `spin_range`.
@@ -538,19 +530,20 @@ fn randomSpin(random: *libcmt.Rand) Vec3 {
     return gameobj.vec3(random.centredVector(spin_range));
 }
 
-/// `0x00408F70`, a spinning or halting ship's update: it leaves its trail, a ship with flag 24
-/// set only every other bit, and turns by its spin, less and less as its end comes.
+/// `explode_spin` (`0x00408F70`), a spinning or halting ship's update: it leaves its trail, a ship
+/// a pilot has left (`gameobj.GameObject.Flags.abandoned`) only every other bit, and turns by its
+/// spin, less and less as its end comes.
 fn spin(world: gameobj.World, slot: *create.Slot) void {
     const state = &slot.state.explode;
     const left = state.end - world.clock.frame_start;
     if (left < @as(i32, state.trail) * trail_ticks) {
         const at = world.random.centredVector(@splat(trail_spread)) + slot.drawn.position;
         const behind = -math.forward(slot.drawn.orientation);
-        if (!slot.object.flags._unknown_24 or @rem(state.trail, 2) == 0) explode.throwBit(world, at, behind, trail_throw);
+        if (!slot.object.flags.abandoned or @rem(state.trail, 2) == 0) explode.throwBit(world, at, behind, trail_throw);
         state.trail -= 1;
     }
     const share = @as(f32, @floatFromInt(left)) * spin_fade;
-    slot.object.rotation = math.fromAngles(state.spin.x * share, state.spin.y * share, state.spin.z * share);
+    slot.object.rotation = math.fromAngleVector(gameobj.vector(state.spin) * @as(Vector, @splat(share)));
 }
 
 test Mode {
@@ -562,7 +555,7 @@ test Mode {
     try std.testing.expectEqual(Mode.component, Mode.of(&object, .at(3, 2)));
     object.type = .troop_car;
     try std.testing.expectEqual(Mode.ship, Mode.of(&object, whole));
-    object.type = @enumFromInt(0x7B);
+    object.type = .asteroid(2);
     try std.testing.expectEqual(Mode.asteroid, Mode.of(&object, whole));
     object.type = .limpet_car;
     try std.testing.expectEqual(Mode.limpet_car, Mode.of(&object, whole));
@@ -621,7 +614,7 @@ test "an asteroid goes up, a large one leaving smaller ones" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     var ctx = mission.orders();
-    ctx.world.spawn = .{ .tables = &mission.tables, .types = create.testing.no_models };
+    ctx.world.spawn = mission.spawn(create.testing.no_models);
     const all = mission.objects;
     _ = try mission.add(.predator, @splat(0));
     const rock = try mission.add(.asteroid(0), .{ 0, 0, 5000 });
@@ -632,8 +625,7 @@ test "an asteroid goes up, a large one leaving smaller ones" {
     aigeneric.objectOrders(ctx, rock);
     try std.testing.expectEqual(Mode.asteroid, all.slots[rock].state.explode.mode);
     try std.testing.expect(all.slots[rock].object.flags.frozen);
-    mission.clock.frame_start += 1;
-    aigeneric.objectOrders(ctx, rock);
+    mission.ordersAfter(ctx, rock, 1);
     try std.testing.expectEqual(gameobj.Type.stand_in, all.slots[rock].object.type);
 
     // Three fragments of the next asteroids take its place, smaller, colliding with nothing.
@@ -647,15 +639,13 @@ test "an asteroid goes up, a large one leaving smaller ones" {
     const smaller = rock + 1;
     ai.objectDestroyed(ctx, smaller, true, false);
     aigeneric.objectOrders(ctx, smaller);
-    mission.clock.frame_start += 1;
-    aigeneric.objectOrders(ctx, smaller);
+    mission.ordersAfter(ctx, smaller, 1);
     const smallest: u16 = @intCast(all.count - 1);
     try std.testing.expectApproxEqAbs(fragment_share * fragment_share, all.slots[smallest].object.visibility, 1e-6);
     const count = all.count;
     ai.objectDestroyed(ctx, smallest, true, false);
     aigeneric.objectOrders(ctx, smallest);
-    mission.clock.frame_start += 1;
-    aigeneric.objectOrders(ctx, smallest);
+    mission.ordersAfter(ctx, smallest, 1);
     try std.testing.expectEqual(count, all.count);
 }
 
@@ -668,12 +658,11 @@ test "a ship listing components loses its hull, or a component" {
     var hull: create.testing.Model = undefined;
     try hull.init(gpa);
     defer hull.deinit(gpa);
-    hull.source.header.flags.components = true;
-    hull.data[0].part.flags.component = true;
+    hull.withComponent();
     hull.data[0].part.class = .hull;
     const all = mission.objects;
     _ = try mission.add(.predator, @splat(0));
-    const ship = try create.createObject(all, &mission.tables, hull.types(), null, .reaper, 0, .{ 0, 0, 1000 }, &mission.random);
+    const ship = try mission.addWith(hull.types(), .reaper, .{ 0, 0, 1000 });
     try std.testing.expect(all.slots[ship].object.flags.components);
     const model = &all.slots[ship].model.?;
 
@@ -700,6 +689,29 @@ test "a ship listing components loses its hull, or a component" {
     try std.testing.expect(all.slots[ship].object.flags.exploding);
 }
 
+test "a ship going as a whole loses each part of its hull, whatever it hangs from" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    var parts: objects.testing.Parts(2) = undefined;
+    parts.init();
+    parts.source.header.flags.components = true;
+    for (&parts.data) |*data| data.part.class = .hull;
+    parts.data[1].part.parent = 0;
+    const kind: create.Type = .{ .model = &parts.source, .loaded = &parts.loaded };
+    _ = try mission.add(.predator, @splat(0));
+    const ship = try mission.addWith(create.testing.oneType(&kind), .reaper, .{ 0, 0, 1000 });
+    const model = &mission.slot(ship).model.?;
+    try std.testing.expectEqual(0, model.parts[1].parent);
+
+    // The part hanging from the other runs out of armour too.
+    _ = try aigeneric.push(ctx, ship, .explode, .none);
+    aigeneric.objectOrders(ctx, ship);
+    for (model.parts) |part| try std.testing.expectEqual(spent_armor, part.armor);
+    try std.testing.expect(model.destroyed);
+}
+
 test "the limpet car leaves its pod" {
     const gpa = std.testing.allocator;
     var mission: gameobj.testing.Mission = undefined;
@@ -709,10 +721,10 @@ test "the limpet car leaves its pod" {
     var car: create.testing.Model = undefined;
     try car.init(gpa);
     defer car.deinit(gpa);
-    ctx.world.spawn = .{ .tables = &mission.tables, .types = car.types() };
+    ctx.world.spawn = mission.spawn(car.types());
     const all = mission.objects;
     _ = try mission.add(.predator, @splat(0));
-    const index = try create.createObject(all, &mission.tables, car.types(), null, .limpet_car, 0, .{ 0, 0, 2000 }, &mission.random);
+    const index = try mission.addWith(car.types(), .limpet_car, .{ 0, 0, 2000 });
 
     // It stops dead and, the same step as its order starts, blows up, and a limpet pod takes its
     // slot where it was.
@@ -726,7 +738,7 @@ test huge {
     var stage: explode.testing.Stage = undefined;
     try stage.init();
     defer stage.deinit();
-    const ctx: Context = .{ .world = stage.world(), .clock = &stage.mission.clock };
+    const ctx: Context = .of(stage.world());
     _ = try stage.mission.add(.predator, @splat(0));
     const ship = try stage.mission.add(.sabre, .{ 0, 0, 1000 });
     _ = try aigeneric.push(ctx, ship, .do_nothing, .none);
@@ -739,7 +751,7 @@ test huge {
     try std.testing.expectEqual(ship, blast.owner);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 1000 }), blast.place.position);
     try std.testing.expectEqual(huge_size, blast.size);
-    try std.testing.expectEqual(.do_nothing, aigeneric.current(stage.mission.objects, ship).?.order);
+    try std.testing.expectEqual(.do_nothing, stage.mission.objects.slots[ship].current().?.order);
 }
 
 test spin {
@@ -778,13 +790,18 @@ test "a halting torpedo's shockwave" {
     ctx.world.shockwaves = &built.waves;
     _ = try mission.add(.predator, @splat(0));
     const torpedo = try mission.add(.torpedo, .{ 0, 0, 1000 });
+    mission.slot(torpedo).object.root.next_position.z = 1100;
 
-    // It halts, and sets off a shockwave that harms the player it passes.
+    // It halts, and sets off a shockwave that harms the player it passes, from where its next
+    // step takes it.
     haltInit(ctx, torpedo);
     const wave = built.waves.waves[0].?;
     try std.testing.expectEqual(shockwave.Kind.torpedo, wave.kind);
     try std.testing.expectEqual(torpedo_shockwave_size, wave.size);
     try std.testing.expectEqual(torpedo, wave.owner);
+    try std.testing.expectEqual(1100, wave.at[2]);
+    try std.testing.expectEqual(0, mission.slot(torpedo).state.explode.end);
+    try std.testing.expect(mission.slot(torpedo).object.flags.unpowered);
 }
 
 test randomSpin {

@@ -4,6 +4,9 @@
 //! (`0x004929D8` to `0x00492B30`), quicker the nearer the object stands and the more nearly ahead
 //! of the player's ship. [`hud.md`](../../../../docs/engine/hud.md#the-jump-prompt-the-eject-marker-and-the-scanner)
 //! describes it.
+//!
+//! **Unverified:** `mission_frame`'s beep (`0x004929D8`) lies after `language.cpp`'s code and
+//! before `main.cpp`'s known code (`0x004934F0`); by what it does it is this file's.
 
 const std = @import("std");
 
@@ -85,7 +88,7 @@ const beep_sample = 7;
 /// `sr_round` turns the game's 0 over 0 into the least integer.
 pub fn interval(offset: Vector, heading: Vector) i32 {
     const distance = math.length(offset);
-    const cosine = math.dot(offset, heading) / distance;
+    const cosine = math.cosineOff(offset, heading);
     return std.math.clamp(math.round((bearing_base - cosine) * distance * ticks_per_unit), quickest, slowest);
 }
 
@@ -93,8 +96,7 @@ pub fn interval(offset: Vector, heading: Vector) i32 {
 /// heard.
 fn beep(sound: ?*hog_snd.Sound, loops: u32) ?u8 {
     const heard = sound orelse return null;
-    const bank = heard.stdsmp orelse return null;
-    return heard.play(bank, beep_sample, hog_snd.loudest, loops, hog_snd.centre, hog_snd.own_pitch);
+    return heard.playStandard(beep_sample, hog_snd.loudest, loops, hog_snd.centre, hog_snd.own_pitch);
 }
 
 test interval {
@@ -110,22 +112,18 @@ test interval {
 }
 
 test "the scanner beeps toward its object, looping at its quickest" {
-    const mss = @import("../../mss.zig");
-    const fat = @import("../../../formats/fat.zig");
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     _ = try mission.add(.predator, @splat(0));
     const sought = try mission.add(.sabre, .{ 0, 0, 4000 });
-    var mixer: mss.Mixer = .init(22050);
-    var sound: hog_snd.Sound = undefined;
-    sound.init(mixer.driver(), 4, null);
-    defer sound.shutdown();
+    var speaker: hog_snd.testing.Speaker = undefined;
     const bank = comptime hog_snd.testing.bank(beep_sample + 1);
-    sound.stdsmp = try fat.Bank.parse(&bank);
-    const place: @import("../camera.zig").Place = .{};
+    try speaker.init(4, &bank);
+    const sound = &speaker.sound;
+    defer sound.shutdown();
     var world = mission.world();
-    world.hearing = .{ .sound = &sound, .camera = &place, .clock = &mission.clock };
+    world.hearing = speaker.hearing(&mission.clock);
     var scanner: Scanner = .{};
 
     // Off, it is silent.

@@ -1302,9 +1302,27 @@ pub fn playerThrottleKeys(player: *Player, devices: *Devices, object: *gameobj.G
     if (!object.afterburner) object.throttle = player.throttle;
 }
 
-/// `player_controls` (`0x00413410`): the update of the Player Control order, which sets the ship's
-/// steering inputs, its throttle and its two burns from the controls. It runs once a frame with the
-/// ship's orders and once again in each simulation step, before the objects move.
+/// `player_controls` (`0x00413410`): the update of the Player Control order (100), the player's own
+/// controls, in three parts: the steering, the throttle and the burns (`playerControls`), the
+/// target's speed (`matchSpeed`), and the weapons and the ship's other actions (`playerWeapons`).
+/// The game reads MATCH SPEED among the keys after the throttle's and the strafe keys, and the
+/// weapons' keys among the rest; OpenReliant runs the parts in turn, since nothing between reads
+/// the throttle `matchSpeed` sets or what `playerWeapons` does. It needs the devices to read;
+/// without them the ship holds what it has.
+pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
+    const devices = ctx.devices orelse return;
+    const world = ctx.world;
+    const slot = &world.objects.slots[index];
+    const combat = slot.combat orelse return;
+    // The current order's data keeps the mouse's stick position.
+    playerControls(world.player, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view, world.clock.frame_duration);
+    matchSpeed(world, devices);
+    playerWeapons(world, devices, index);
+}
+
+/// What `player_controls` (`playerControlOrder`) does with the ship's steering inputs, its
+/// throttle and its two burns, from the controls. It runs once a frame with the ship's orders and
+/// once again in each simulation step, before the objects move.
 ///
 /// With the joystick (`control_mode` 0), X yaws and Y pitches; the roll keys roll, and holding
 /// JOYSTICK ROLL makes X roll instead of yaw. With `TwistEnable` and a twist axis, the twist rolls.
@@ -1360,9 +1378,7 @@ fn steer(player: *Player, devices: *Devices, object: *gameobj.GameObject, stick:
         .joystick => {
             const joystick = &devices.joystick;
             const state = joystick.state;
-            object.yaw_input = 0;
-            object.pitch_input = 0;
-            object.roll_input = 0;
+            object.holdTurns();
             const x = @as(f32, @floatFromInt(state.x)) * axis_scale;
             const y = @as(f32, @floatFromInt(state.y)) * axis_scale;
             if (devices.twistRolls() and joystick.axes.rz) {
@@ -1439,9 +1455,7 @@ fn steer(player: *Player, devices: *Devices, object: *gameobj.GameObject, stick:
 /// `mouse_range`, move the power (`power.move`) or, while SHIELD BALANCING is held, shift the
 /// shields (`power.balanceShields`).
 fn holdStick(player: *Player, devices: *Devices, object: *gameobj.GameObject, combat: *const create.ShipCombat, frame_duration: i32) void {
-    object.yaw_input = 0;
-    object.pitch_input = 0;
-    object.roll_input = 0;
+    object.holdTurns();
     var stick: [2]f32 = .{ 0, 0 };
     switch (devices.controlMode()) {
         .joystick => {
@@ -1622,7 +1636,7 @@ test nextNavPoint {
 /// takes the jump the mission has ready (`playerJump`); EJECT ejects the pilot (`eject`); the last,
 /// outside a mission's ending, drops a countermeasure, Betty warning as they run out: at 6, 4 and 2
 /// left, and with none.
-/// `aigeneric.playerControl` runs it after `matchSpeed`, since nothing between reads what it does.
+/// It runs last in `player_controls` (`playerControlOrder`).
 ///
 /// In the mouse's mode the left button fires as FIRE LASERS does, and the right launches as LAUNCH
 /// MISSILE does, once a press (`Player.mouse_launched`).
@@ -1694,7 +1708,7 @@ pub fn eject(world: gameobj.World, index: u16) void {
         else => return,
     }
     if (object.type == .kamov or object.flags.eject_disabled) return;
-    const flying = aigeneric.current(all, index) orelse return;
+    const flying = slot.current() orelse return;
     switch (flying.order) {
         .player_control, .eject_player => {},
         else => return,
@@ -1705,7 +1719,7 @@ pub fn eject(world: gameobj.World, index: u16) void {
         _ = watching.setCutaway(.eject, index, world.clock.viewTime(), seen, seen);
     }
     if (object.flags.cloaked) cloak.uncloak(world, index);
-    _ = aigeneric.push(.{ .world = world, .clock = world.clock }, index, .eject, .none) catch false;
+    _ = aigeneric.give(.of(world), index, .eject, .none);
 }
 
 /// The display's sound for a launch refused (`bank_stdsmp`).
@@ -1736,9 +1750,7 @@ pub fn launchMissile(world: gameobj.World, index: u16) void {
     const locked = display.lock.locked();
     const sound = if (world.hearing) |hearing| hearing.sound else null;
     if (armed.type.needsLock() and !locked) {
-        if (sound) |player| if (player.stdsmp) |bank| {
-            _ = player.play(bank, refused_sample, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
-        };
+        if (sound) |player| _ = player.playStandard(refused_sample, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         if (armed.count != 0 or world.clock.game_ticks <= ring.empty_warned_until) return;
         if (sound) |player| _ = betty.say(player, .missiles_gone);
         ring.empty_warned_until = world.clock.game_ticks + gone_pause;
@@ -1751,7 +1763,8 @@ pub fn launchMissile(world: gameobj.World, index: u16) void {
     };
     for (ship.fittedRacks(), 0..) |rack, at| {
         if (rack.type != armed.type or rack.count < 1) continue;
-        const target: aigeneric.Target = if (locked and ship.order_count > 0) all.slots[index].orders[0].target else .none;
+        const current = if (locked) all.slots[index].current() else null;
+        const target: aigeneric.Target = if (current) |entry| entry.target else .none;
         missiles.launch(world, index, at, target);
         armed.count -= 1;
         ring.left -= 1;
@@ -1789,9 +1802,7 @@ pub fn playerJump(world: gameobj.World) void {
 /// while `matching_speed` is set, it matches it (`matchTargetSpeed`); then MATCH SPEED, once for
 /// each press, flips it, putting back `throttle_before_match` as it turns off and matching at once
 /// as it turns on. The display sounds `off` as it turns off, and `on` as it turns on, or `refused`
-/// with no target the player can aim at. The game does this among the keys after the throttle's
-/// and the strafe keys; `aigeneric.playerControl` runs it after `playerControls`, since nothing
-/// between reads the throttle it sets.
+/// with no target the player can aim at. It runs after `playerControls` (`playerControlOrder`).
 pub fn matchSpeed(world: gameobj.World, devices: *Devices) void {
     const player = world.player;
     const all = world.objects;
@@ -1823,9 +1834,9 @@ pub fn matchTargetSpeed(player: *Player, all: *create.Objects, view: camera.View
         if (target.object.flags.cloaked) return;
         const within = math.distance(ship.drawn.position, target.drawn.position) <= hud.pick_range;
         if (within and !target.object.flags.exploding) {
-            if (ship.flight) |flight| {
+            if (ai.slotCruise(ship, view)) |cruise| {
                 player.throttle_before_match = ship.object.throttle;
-                ship.object.throttle = @min(target.object.speed / ai.cruiseSpeed(&ship.object, flight, view), 1);
+                ship.object.throttle = @min(target.object.speed / cruise, 1);
             }
             return;
         }
@@ -1876,7 +1887,7 @@ pub fn seekTarget(all: *const create.Objects, target: *aigeneric.Target, step: S
     const from = all.slots[all.player].drawn.position;
     for (0..all.count) |_| {
         target.index = step.from(target.index, count);
-        target.component = -1;
+        target.component = aigeneric.Target.whole;
         const slot = &all.slots[@intCast(target.index)];
         const object = &slot.object;
         if (!ai.targetValid(all, target.*, .{ .ejected = true, .cloaked = object.side == .friendly })) continue;
@@ -1988,7 +1999,7 @@ test cycleTarget {
     try std.testing.expectEqual(@as(i32, enemy), target.index);
     try std.testing.expect(cycleTarget(&display, all, .previous, .hostile, false));
     try std.testing.expectEqual(@as(i32, enemy), target.index);
-    try std.testing.expectEqual(enemy, display.target.?);
+    try std.testing.expectEqual(enemy, display.target.?.slot);
     // A friend is taken cloaked too; never the player's own ship.
     mission.slot(friend).object.flags.cloaked = true;
     try std.testing.expect(cycleTarget(&display, all, .next, .friendly, false));
@@ -2159,7 +2170,7 @@ pub fn frameKeys(keys: FrameKeys) void {
         switch (comms.phase) {
             .shut => {
                 if (windows.open(.comms, multiplayer)) comms.held = true;
-                if (keys.world) |world| player.menu.start(.{ .world = world, .clock = world.clock, .devices = devices });
+                if (keys.world) |world| player.menu.start(.{ .world = world, .devices = devices });
             },
             .open => {
                 comms.held = false;
@@ -2674,7 +2685,7 @@ test "the mouse's right button launches once a press, in its mode" {
     defer armed.deinit();
     const index = try armed.add(.friendly, @splat(0));
     const enemy = try armed.add(.hostile, .{ 0, 0, 20000 });
-    _ = try aigeneric.push(armed.mission.orders(), index, .player_control, .{ .kind = .ship, .index = @intCast(enemy), .component = -1 });
+    _ = try aigeneric.push(armed.mission.orders(), index, .player_control, .at(enemy, null));
     var display: hud.State = .{};
     display.missiles.build(&armed.mission.slot(index).object);
     display.lock.phase = .locked;
@@ -2840,7 +2851,7 @@ test launchMissile {
     defer armed.deinit();
     const player = try armed.add(.friendly, @splat(0));
     const enemy = try armed.add(.hostile, .{ 0, 0, 20000 });
-    const target: aigeneric.Target = .{ .kind = .ship, .index = @intCast(enemy), .component = -1 };
+    const target: aigeneric.Target = .at(enemy, null);
     _ = try aigeneric.push(armed.mission.orders(), player, .player_control, target);
     var display: hud.State = .{};
     display.missiles.build(&armed.mission.slot(player).object);

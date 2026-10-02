@@ -10,8 +10,11 @@
 //! What a jump shows, the trails, the lights, the burst and the flare of its effect record, is
 //! [`jump/effect.zig`](jump/effect.zig)'s.
 //!
-//! Not ported: a countdown Jump Out keeps while the player's ship jumps, which nothing reads
-//! (`0x0051D0B0`, `0x0051D0B4`, `0x0051CFA0`, `0x0051D0A4`); and a multiplayer game's jumps
+//! Left out: the countdown Jump Out keeps while the player's ship jumps, which nothing reads
+//! (`jump_player_going`, `0x0051D0B0`; `jump_countdown`, `0x0051D0B4`; `jump_countdown_next`,
+//! `0x0051CFA0`; `jump_countdown_step`, `0x0051D0A4`).
+//!
+//! Not ported: a multiplayer game's jumps
 //! ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 
 const std = @import("std");
@@ -29,7 +32,6 @@ const cloak = @import("cloak.zig");
 const create = @import("create.zig");
 const events = @import("mission/events.zig");
 const gameobj = @import("gameobj.zig");
-const GameObject = gameobj.GameObject;
 const objects = @import("objects.zig");
 const sound3d = @import("sound3d.zig");
 
@@ -40,8 +42,8 @@ const log = std.log.scoped(.jump);
 /// What a jump keeps in the object's order state.
 pub const State = extern struct {
     _unknown_00: u32,
-    /// Its step: `OutStep` for Jump Out, `InStep` for Jump In.
-    step: u32,
+    /// Its step: Jump Out's or Jump In's.
+    step: Step,
     /// The frame's tick its step began, from which the jump motions count.
     since: i32,
     /// Where it goes: Jump Out's destination, Jump In's arrival (`placeOut`, `placeIn`).
@@ -66,10 +68,11 @@ pub const State = extern struct {
     /// keeps as `create.Slot.motion_aside`.
     motion: engine.Pointer(gameobj.Routine),
     /// Its effect record (`jump_effects`, `0x0051CFA4`): its trails, lights, burst and flare.
-    /// OpenReliant keeps the record's place among them, from 1 (`effectOf`).
+    /// OpenReliant keeps the record's place among them, from 1 (`effectPlace`).
     effect: engine.Pointer(effect.Record),
     /// Whether it jumps out with the player's ship, in formation behind it (`placeOut`).
-    with_player: u32,
+    with_player: bool,
+    _unknown_7d: [3]u8,
     _unknown_80: [0x90 - 0x80]u8,
 
     comptime {
@@ -89,63 +92,77 @@ pub const State = extern struct {
         assert(@sizeOf(State) == 0x90);
     }
 
-    /// The time since its last update, in thousandths of the mission's ticks, as `progress` counts
-    /// it, and this update's tick kept for the next.
-    fn elapsed(state: *State, now: i32) f32 {
-        const ticks = now -% state.updated;
-        state.updated = now;
-        return @as(f32, @floatFromInt(ticks)) * time_scale;
+    /// Moves on to `step`, `progress` from nothing.
+    fn next(state: *State, step: Step) void {
+        state.step = step;
+        state.progress = 0;
     }
 
-    /// Moves on to step `next` at `now`, `progress` from nothing.
-    fn advance(state: *State, next: u32, now: i32) void {
-        state.step = next;
+    /// Moves on to `step` at `now`, `progress` from nothing.
+    fn advance(state: *State, step: Step, now: i32) void {
+        state.next(step);
         state.since = now;
-        state.progress = 0;
+    }
+
+    /// Its effect record's place among `jump_effects`, where it has one: `effect` counts from 1,
+    /// with 0 for none, which wraps past what a place can be.
+    fn effectPlace(state: *const State) ?u8 {
+        return std.math.cast(u8, @intFromEnum(state.effect) -% 1);
+    }
+
+    /// Keeps `place` as its effect record's, or none.
+    fn keepEffect(state: *State, place: ?u8) void {
+        state.effect = if (place) |kept| @enumFromInt(@as(u32, kept) + 1) else .null;
     }
 };
 
+/// A jump's effect record, with the records' shared meshes and textures that its steps start and
+/// shade it by.
+const Fx = struct {
+    effects: *effect.Effects,
+    record: *effect.Effect,
+};
+
 /// The jump's effect record, where it has one.
-fn effectOf(world: gameobj.World, state: *const State) ?*effect.Effect {
+fn effectOf(world: gameobj.World, state: *const State) ?Fx {
     const effects = world.jump_effects orelse return null;
-    const place = @intFromEnum(state.effect);
-    if (place == 0 or place > effect.max_records) return null;
-    return effects.get(@intCast(place - 1));
+    const record = effects.get(state.effectPlace() orelse return null) orelse return null;
+    return .{ .effects = effects, .record = record };
 }
 
-/// `jump_effect_alloc` for the jump of the ship in slot `index`.
+/// `jump_effect_alloc` (`0x00418900`) for the jump of the ship in slot `index`.
 ///
 /// **Fix:** the game stops with "Jump has overrun array." where all the records are taken;
 /// OpenReliant's jump goes on without one.
-fn takeEffect(world: gameobj.World, state: *State, index: u16) ?*effect.Effect {
-    state.effect = .null;
+fn takeEffect(world: gameobj.World, state: *State, index: u16) ?Fx {
+    state.keepEffect(null);
     const effects = world.jump_effects orelse return null;
     const place = effects.alloc(index) catch null orelse {
         log.warn("every jump's effect record is taken: this jump shows nothing", .{});
         return null;
     };
-    state.effect = @enumFromInt(@as(u32, place) + 1);
-    return effects.get(place);
+    state.keepEffect(place);
+    return .{ .effects = effects, .record = effects.get(place) orelse return null };
 }
 
-/// `jump_effect_free`, as the jump ends.
+/// `jump_effect_free` (`0x004189A0`), as the jump ends.
 fn freeEffect(world: gameobj.World, state: *State) void {
     const effects = world.jump_effects orelse return;
-    const place = @intFromEnum(state.effect);
-    if (place != 0 and place <= effect.max_records) effects.free(@intCast(place - 1));
-    state.effect = .null;
+    if (state.effectPlace()) |place| effects.free(place);
+    state.keepEffect(null);
 }
 
 /// What the jump's update adds to the scene this frame, on top of what it added already.
-fn show(record: ?*effect.Effect, what: effect.Shown) void {
-    const fx = record orelse return;
-    fx.shown = @bitCast(@as(u8, @bitCast(fx.shown)) | @as(u8, @bitCast(what)));
+fn show(fx: ?Fx, what: effect.Shown) void {
+    const held = fx orelse return;
+    held.record.shown = held.record.shown.with(what);
 }
 
-/// How wide the ship's model is across, which the flare is scaled by.
-fn width(object: *const GameObject) f32 {
-    return object.bounds_max.x - object.bounds_min.x;
-}
+/// A jump's step, in the word the game keeps it in: Jump Out's or Jump In's.
+pub const Step = extern union {
+    out: OutStep,
+    in: InStep,
+};
 
 /// Jump Out's steps.
 pub const OutStep = enum(u32) {
@@ -177,19 +194,15 @@ pub const InStep = enum(u32) {
     _,
 };
 
-/// A jump's `progress` for each of the mission's ticks, by the step's rate (`0x004DC418`).
-const time_scale: f32 = 0.001;
-
-/// How still a ship turning to face where it jumps must be before it goes: its rates and its
-/// steering inputs no more than these (`0x004DC474`, `0x004DC4AC`).
-const aligned_rate: f32 = 0.05;
-const aligned_input: f32 = 0.02;
+/// How still a ship turning to face where it jumps must be before it goes: its steering inputs
+/// (`0x004DC4AC`) and its rates (`0x004DC474`) within these, its throttle not counted.
+const aligned: ai.Stillness = .{ .inputs = 0.02, .rates = 0.05 };
 
 /// How hard it steers to face where it jumps (`0x004DC410`).
 const aligning_limit: f32 = 0.8;
 
 /// How long a ship of the player's wing turns to face its jump before it goes anyway, and how long
-/// a ship jumping with the player's holds its place, in ticks.
+/// a ship jumping with the player's holds its place, in ticks (`0x00416EE8`, `0x00416EBE`).
 const wing_patience = 1000;
 const formation_wait = 100;
 
@@ -205,38 +218,37 @@ pub const going_ticks = 250;
 /// How fast Jump Out's flare fades once the ship has gone (`0x004DC520`).
 const flare_rate: f32 = 10;
 
-/// How far along its way a ship goes as Jump Out's motion takes it off.
+/// How far along its way a ship goes as Jump Out's motion takes it off (`jump_effect_start`,
+/// `0x0041771F`).
 const going_reach: f32 = 500000;
 
 /// How far ahead a ship aims when its Jump Out names nothing, alone, and in the player's
-/// formation.
+/// formation (`0x00418820`, `0x004185BE`).
 const nowhere_reach: f32 = 1e7;
 const formation_reach: f32 = 100000;
 
-/// The player's formation (`placeOut`): rows `formation_spacing` apart behind the player's ship,
-/// each a ship wider than the last, at most `formation_rows`, flying `formation_speed` ahead
-/// (`0x004DC594`); and how far ahead of it a ship in its way is marked as jumping.
+/// The player's formation (`placeOut`): rows `formation_spacing` apart behind the player's ship
+/// (`0x0041866D`), each a ship wider than the last, at most `formation_rows` (`0x0041861A`), flying
+/// `formation_speed` ahead (`0x004186C8` for its velocity, `0x004DC594` for its throttle); and how
+/// far ahead of it a ship in its way is marked as jumping (`0x00418743`).
 const formation_spacing: f32 = 3000;
 const formation_rows = 10;
 const formation_speed: f32 = 150;
 const clearing_reach: f32 = 500000;
 
-/// The depth a ship that leaves the mission is put at, far below everything.
+/// The depth a ship that leaves the mission is put at, far below everything (`0x004175E1`).
 const gone_depth: f32 = -9.9e6;
 
 /// How far behind where it arrives a ship is placed to fly in from: one that lists components, and
-/// any other.
+/// any other (`0x00416668`, `0x0041666F`, where the game pushes their negatives).
 const arrival_distance_components: f32 = 100000;
 const arrival_distance: f32 = 25000;
-
-/// How far apart abreast the ships of a group arrive (`0x004DC508`).
-const arrival_spacing: f32 = 3000;
 
 /// How fast Jump In flashes, and flies in (`0x004DC48C`, `0x004DC3D8`).
 const flash_rate: f32 = 50;
 const fly_rate: f32 = 3;
 
-/// How long Jump In's second number holds its formation once in, in ticks.
+/// How long Jump In's second number holds its formation once in, in ticks (`0x00416C1D`).
 const settle_ticks = 200;
 
 /// The share of a steering input a ship of Jump In's second number rolls and pitches by for each
@@ -253,31 +265,26 @@ pub fn outInit(ctx: aigeneric.Context, index: u16) void {
     const slot = &all.slots[index];
     const state = &slot.state.jump;
     slot.object.throttle = 0;
-    state.step = @intFromEnum(OutStep.aligning);
-    state.since = ctx.clock.frame_start;
-    state.with_player = 0;
+    state.step = .{ .out = .aligning };
+    state.since = ctx.world.clock.frame_start;
+    state.with_player = false;
     placeOut(ctx, index);
-    sound3d.playIn(world, null, null, index, .jumponline, 1, soundClass(all, index));
+    sound3d.playIn(world, null, null, index, .jumponline, 1, sound3d.fxClass(all, index));
     if (index == all.player) if (world.camera) |view| {
-        _ = view.setJump(.jump_out, index, ctx.clock.viewTime(), .of(slot), .of(slot));
+        _ = view.setJump(.jump_out, index, ctx.world.clock.viewTime(), .of(slot), .of(slot));
     };
     if (index < all.players) cloak.set(world, index, false);
 }
 
-/// The class a jump's sounds take: the player's own effects for the player's ship.
-fn soundClass(all: *const create.Objects, index: u16) sound3d.Class {
-    return if (index == all.player) .player_fx else .not_reserved;
-}
-
-/// `order_jump_out` (`0x00416E00`): Jump Out's update, a step at a time (`OutStep`). Every update of
-/// the player's ship clears the jump the mission has ready (`jump_ready`).
+/// `order_jump_out` (`0x00416E00`): Jump Out's update, a step at a time (`OutStep`). Every update
+/// of the player's ship clears the jump the mission has ready (`jump_ready`).
 ///
 /// It turns to face where it goes, until its rates and inputs are still (`aligned`), a ship of the
 /// player's wing no longer than `wing_patience`; one jumping with the player's holds its place for
-/// `formation_wait` instead. Then it is heard (`jumpout`), and held still until the next frame, when
-/// its course is set (`beginCourse`). It charges, and at full charge goes: its motion takes it off,
-/// colliding with nothing, drawn at its finest (`showFinest`), for `going_ticks`. Then it flies
-/// ahead again, jumping, while its flare fades, and collides again.
+/// `formation_wait` instead. Then it is heard (`jumpout`), and held still until the next frame,
+/// when its course is set (`beginCourse`). It charges, and at full charge goes: its motion takes it
+/// off, colliding with nothing, drawn at its finest (`showFinest`), for `going_ticks`. Then it
+/// flies ahead again, jumping, while its flare fades, and collides again.
 ///
 /// What it shows (`effect`): held still, trails stream back from its engines and lights stand
 /// along its hull. As it charges the trails brighten and the lights come on, then are swept along
@@ -291,45 +298,40 @@ fn soundClass(all: *const create.Objects, index: u16) sound3d.Class {
 /// player's ship sent off (`GameObject.Flags.sent_off`), and is put far below where it went, its
 /// order done.
 ///
-/// Not ported: the Boridin's breakaway letting go of its core's sprite as it charges.
+/// Not ported: the Boridin's breakaway letting go of its core's sprite as it charges
+/// ([#238](https://github.com/vdmkenny/openreliant/issues/238)).
 pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
     const state = &slot.state.jump;
-    const now = ctx.clock.frame_start;
-    const dt = state.elapsed(now);
+    const now = ctx.world.clock.frame_start;
+    const dt = gameobj.progressSince(&state.updated, now);
     object.nova_charge = 0;
     if (index == all.player) if (world.events) |waiting| {
         waiting.script.variables.ready.jump = .no;
     };
-    switch (@as(OutStep, @enumFromInt(state.step))) {
+    switch (state.step.out) {
         .aligning => {
-            if (state.with_player == 0) {
+            if (!state.with_player) {
                 _ = ai.steer(world, index, gameobj.vector(state.destination), aligning_limit, ai.no_ease, .{});
                 const waited = now >= state.since + wing_patience and object.wing == .player;
-                if (!waited and !aligned(object)) return;
+                if (!waited and !aligned.holds(object, false)) return;
             } else if (now < state.since + formation_wait) return;
-            state.step = @intFromEnum(OutStep.stilling);
+            state.step = .{ .out = .stilling };
             state.since = now;
             _ = takeEffect(world, state, index);
-            sound3d.playIn(world, null, null, index, .jumpout, 1, soundClass(all, index));
+            sound3d.playIn(world, null, null, index, .jumpout, 1, sound3d.fxClass(all, index));
         },
         .stilling => {
-            object.yaw_input = 0;
-            object.pitch_input = 0;
-            object.roll_input = 0;
+            object.holdStill();
             object.speed = 0;
-            object.yaw_rate = 0;
-            object.pitch_rate = 0;
-            object.roll_rate = 0;
             object.rotation = math.identity;
             if (now <= state.since) return;
             beginCourse(slot);
-            if (effectOf(world, state)) |fx| state.lights = @intCast(world.jump_effects.?.start(fx, slot));
-            state.progress = 0;
-            state.step = @intFromEnum(OutStep.charging);
+            if (effectOf(world, state)) |held| state.lights = @intCast(held.effects.start(held.record, slot));
+            state.next(.{ .out = .charging });
         },
         .charging => {
             const fx = effectOf(world, state);
@@ -338,15 +340,15 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
                 slot.motion_aside = slot.motion;
                 slot.motion = .jump_out;
                 object.flags.no_collisions = true;
-                state.advance(@intFromEnum(OutStep.going), now);
+                state.advance(.{ .out = .going }, now);
                 if (slot.model) |*model| showFinest(model, true);
-                if (fx) |record| record.lightsOut();
+                if (fx) |held| held.record.lightsOut();
                 state.from = object.root.position;
                 return;
             }
-            if (fx) |record| {
-                record.shadeTrails(state.progress);
-                record.chargeLights(state.progress, world.jump_effects.?.light_going_image);
+            if (fx) |held| {
+                held.record.shadeTrails(state.progress);
+                held.effects.chargeLights(held.record, state.progress);
             }
             state.progress += dt * charge_rate;
         },
@@ -354,42 +356,28 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
             const fx = effectOf(world, state);
             defer show(fx, .{ .trails = true, .lights = true });
             if (state.since + going_ticks < now) {
-                if (fx) |record| world.jump_effects.?.startFlare(record, slot.drawn, width(object));
+                if (fx) |held| held.effects.startFlare(held.record, slot.drawn, object.width());
                 slot.motion = .forward;
                 object.flags.jumping = true;
-                state.progress = 0;
-                state.step = @intFromEnum(OutStep.gone);
+                state.next(.{ .out = .gone });
                 return;
             }
-            if (fx) |record| record.shadeTrails(1 - state.progress);
+            if (fx) |held| held.record.shadeTrails(1 - state.progress);
             state.progress += dt * going_rate;
         },
         .gone => {
             const fx = effectOf(world, state);
-            if (fx) |record| if (record.flare) |*flare| flare.grow(1 - state.progress);
+            if (fx) |held| if (held.record.flare) |*flare| flare.grow(1 - state.progress);
             state.progress += dt * flare_rate;
             show(fx, .{ .flare = true, .trails = true, .lights = true });
             if (state.progress >= 1) {
-                state.progress = 0;
-                state.step = @intFromEnum(OutStep.ending);
+                state.next(.{ .out = .ending });
                 object.flags.no_collisions = false;
             }
         },
         .ending => end(ctx, index),
         _ => {},
     }
-}
-
-/// Whether a ship turning to face where it jumps has come to rest: each of its rates within
-/// `aligned_rate`, and each of its steering inputs within `aligned_input`.
-fn aligned(object: *const GameObject) bool {
-    for ([_]f32{ object.yaw_rate, object.pitch_rate, object.roll_rate }) |rate| {
-        if (@abs(rate) > aligned_rate) return false;
-    }
-    for ([_]f32{ object.yaw_input, object.pitch_input, object.roll_input }) |input| {
-        if (@abs(input) > aligned_input) return false;
-    }
-    return true;
 }
 
 /// Jump Out's end, as `outUpdate` describes it.
@@ -399,8 +387,7 @@ fn end(ctx: aigeneric.Context, index: u16) void {
     const object = &slot.object;
     const state = &slot.state.jump;
     objects.setOrientation(object, &slot.drawn, state.orientation);
-    object.flags.unpowered = false;
-    object.flags.frozen = false;
+    object.flags.thaw();
     slot.motion = slot.motion_aside;
     const entry = slot.orders[0];
     if (index == all.player) {
@@ -410,8 +397,8 @@ fn end(ctx: aigeneric.Context, index: u16) void {
     if (slot.model) |*model| showFinest(model, false);
     if (entry.target.slotIn(all)) |target| if (target != index) {
         const next: Order = if (entry.order == .jump_out_41) .jump_in_40 else .jump_in;
-        _ = aigeneric.pop(ctx, index);
-        const pushed = aigeneric.pushShip(ctx, index, next, target, aigeneric.Target.whole) catch false;
+        aigeneric.end(ctx, index);
+        const pushed = aigeneric.giveShip(ctx, index, next, target, null);
         if (pushed) slot.orders[0].sequence = entry.sequence;
         return;
     };
@@ -419,12 +406,12 @@ fn end(ctx: aigeneric.Context, index: u16) void {
     if (index != all.player or !object.flags.sent_off) object.flags.disabled = true;
     state.destination.y = gone_depth;
     objects.setPosition(object, &slot.drawn, gameobj.vector(state.destination));
-    _ = aigeneric.pop(ctx, index);
+    aigeneric.end(ctx, index);
 }
 
-/// The first part of `0x00417670`, Jump Out's effect's start, which sets the ship's course: it
-/// keeps how it is turned and where it stands, and aims its motion `going_reach` along the way to
-/// its destination (`State.to`).
+/// The first part of `jump_effect_start` (`0x00417670`), Jump Out's effect's start, which sets the
+/// ship's course: it keeps how it is turned and where it stands, and aims its motion `going_reach`
+/// along the way to its destination (`State.to`).
 fn beginCourse(slot: *create.Slot) void {
     const object = &slot.object;
     const state = &slot.state.jump;
@@ -435,8 +422,8 @@ fn beginCourse(slot: *create.Slot) void {
     state.to = gameobj.vec3(way * @as(Vector, @splat(going_reach)) + here);
 }
 
-/// `0x00417DC0`: each part of `model`, and of each model mounted on it, drawn at its finest, or
-/// by its distance again (`srapiext.ObjectFlags.finest`).
+/// `model_show_finest` (`0x00417DC0`): each part of `model`, and of each model mounted on it,
+/// drawn at its finest, or by its distance again (`srapiext.ObjectFlags.finest`).
 fn showFinest(model: *objects.Model, finest: bool) void {
     for (model.parts, 0..) |*part, at| {
         part.object.flags.finest = finest;
@@ -445,17 +432,18 @@ fn showFinest(model: *objects.Model, finest: bool) void {
     }
 }
 
-/// `0x004184F0`: where the ship in slot `index` jumps out to. Where the player's ship jumps out
-/// at the same target, the ship goes with it: it collides with nothing and takes its place in a
-/// formation behind the player's ship, facing the target, or `formation_reach` ahead of the
-/// player's ship where the order names nothing or the player's ship itself. Row `n` of the
-/// formation stands `n` times `formation_spacing` behind, and holds `n` ships abreast, the
-/// order's place among its group's (`aigeneric.Entry.sequence`) picking the row and the place in
-/// it. The ship flies `formation_speed` ahead there, and each object in the way `clearing_reach`
-/// ahead of it, but those jumping with it, is marked jumping (`markJumping`). Otherwise the ship
-/// goes to its target, or `nowhere_reach` ahead of it where it names nothing or itself.
+/// `jump_out_place` (`0x004184F0`): where the ship in slot `index` jumps out to. Where the player's
+/// ship jumps out at the same target, the ship goes with it: it collides with nothing and takes its
+/// place in a formation behind the player's ship, facing the target, or `formation_reach` ahead of
+/// the player's ship where the order names nothing or the player's ship itself. Row `n` of the
+/// formation stands `n` times `formation_spacing` behind, and holds `n` ships abreast, the order's
+/// place among its group's (`aigeneric.Entry.sequence`) picking the row and the place in it. The
+/// ship flies `formation_speed` ahead there, and each object in the way `clearing_reach` ahead of
+/// it, but those jumping with it, is marked jumping (`markJumping`). Otherwise the ship goes to its
+/// target, or `nowhere_reach` ahead of it where it names nothing or itself.
 ///
-/// Not ported: in a multiplayer game, the formation of the player whose game it is.
+/// Not ported: in a multiplayer game, the formation of the player whose game it is
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn placeOut(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -463,24 +451,24 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
     const state = &slot.state.jump;
     const entry = slot.orders[0];
     const player = &all.slots[all.player];
-    const leading = player.object.order_count > 0 and player.orders[0].order == .jump_out and entry.target.index == player.orders[0].target.index;
+    const leading = jumpsOutAt(player, entry.target.index);
     const named = entry.target.slotIn(all);
     if (!leading) {
         if (named) |target| if (target != index) {
             state.destination = all.slots[target].object.root.next_position;
             return;
         };
-        state.destination = gameobj.vec3(ahead(slot.object, nowhere_reach));
+        state.destination = gameobj.vec3(slot.object.placeAt(.next).ahead(nowhere_reach));
         return;
     }
     slot.object.flags.no_collisions = true;
-    state.with_player = 1;
-    const from = gameobj.vector(player.object.root.next_position);
+    state.with_player = true;
+    const from = player.object.nextPosition();
     // The player's ship jumps at the same target.
     const to = if (named) |target| if (target != all.player)
-        gameobj.vector(all.slots[target].object.root.next_position)
+        all.slots[target].object.nextPosition()
     else
-        ahead(player.object, formation_reach) else ahead(player.object, formation_reach);
+        player.object.placeAt(.next).ahead(formation_reach) else player.object.placeAt(.next).ahead(formation_reach);
     const facing = math.lookAt(to - from);
     state.destination = gameobj.vec3(to);
     var row: i32 = 1;
@@ -490,42 +478,43 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
             const across = @as(f32, @floatFromInt(place)) - (@as(f32, @floatFromInt(row)) - 1) * 0.5;
             const offset: Vector = .{ across + across, 0, @floatFromInt(-row) };
             const at = math.transform(facing, offset * @as(Vector, @splat(formation_spacing))) + from;
-            objects.setOrientation(&slot.object, &slot.drawn, facing);
-            objects.setPosition(&slot.object, &slot.drawn, at);
+            objects.setPlace(&slot.object, &slot.drawn, .{ .position = at, .orientation = facing });
             ai.stop(&slot.object);
             slot.object.velocity = gameobj.vec3(math.transform(slot.object.root.next_orientation, .{ 0, 0, formation_speed }));
-            if (slot.flight) |flight| slot.object.throttle = formation_speed / ai.cruiseSpeed(&slot.object, flight, world.view);
+            if (ai.slotCruise(slot, world.view)) |cruise| slot.object.throttle = formation_speed / cruise;
             break;
         }
         place -= row;
     }
-    const start = gameobj.vector(slot.object.root.next_position);
-    const end_at = start + math.forward(slot.object.root.next_orientation) * @as(Vector, @splat(clearing_reach));
+    const next = slot.object.placeAt(.next);
+    const start = next.position;
+    const end_at = next.ahead(clearing_reach);
     for (all.slots[0..all.count], 0..) |*other, at| {
         if (other.object.flags.outOfFrame()) continue;
-        const going_too = other.object.order_count > 0 and other.orders[0].order == .jump_out and other.orders[0].target.index == entry.target.index;
-        if (going_too) continue;
+        if (jumpsOutAt(other, entry.target.index)) continue;
         const model = if (other.model) |*live| live else continue;
         if (objects.Box.ofBounds(model, other.drawn).meetsSegment(start, end_at)) markJumping(all, @intCast(at));
     }
 }
 
-/// A point `reach` ahead of `object`'s next place, along its next heading.
-fn ahead(object: GameObject, reach: f32) Vector {
-    return math.forward(object.root.next_orientation) * @as(Vector, @splat(reach)) + gameobj.vector(object.root.next_position);
+/// Whether the current order of the ship in `slot` is Jump Out at the target of index `target`, as
+/// `jump_out_place` asks of the player's ship and of those in the way.
+fn jumpsOutAt(slot: *const create.Slot, target: i16) bool {
+    const going = slot.running(.jump_out) orelse return false;
+    return going.target.index == target;
 }
 
-/// `0x00418470`: the object in slot `index`, in the way of a jump, is marked jumping, which holds
-/// it where it is and leaves it out of the frame until the player's jump ends; so is each fuel
-/// pod, and each ship launching from the object or docking with it, and those in turn.
+/// `jump_mark` (`0x00418470`): the object in slot `index`, in the way of a jump, is marked jumping,
+/// which holds it where it is and leaves it out of the frame until the player's jump ends; so is
+/// each fuel pod, and each ship launching from the object or docking with it, and those in turn.
 fn markJumping(all: *create.Objects, index: u16) void {
     all.slots[index].object.flags.jumping = true;
     for (all.slots[0..all.count], 0..) |*other, at| {
         if (other.object.flags.outOfFrame()) continue;
-        const follows = other.object.order_count > 0 and other.orders[0].target.slot() == index and switch (other.orders[0].order) {
+        const follows = if (other.current()) |running| running.target.slot() == index and switch (running.order) {
             .launch, .dock => true,
             else => false,
-        };
+        } else false;
         if (other.object.type == .fuel_pod or follows) markJumping(all, @intCast(at));
     }
 }
@@ -537,21 +526,19 @@ pub fn inInit(ctx: aigeneric.Context, index: u16) void {
     slot.object.flags.no_collisions = true;
     slot.object.flags.jumping = true;
     placeIn(ctx.world.objects, index);
-    slot.state.jump.step = @intFromEnum(InStep.placing);
+    slot.state.jump.step = .{ .in = .placing };
 }
 
-/// `0x00418850`: where the ship in slot `index` arrives: abreast of its target, turned as the
-/// target is, the order's place among its group's putting it `arrival_spacing` apart on either
-/// side in turn: the first at the target, the second to its left, the third to its right, and so
-/// on.
+/// `jump_in_place` (`0x00418850`): where the ship in slot `index` arrives: abreast of its target,
+/// turned as the target is, the order's place among its group's putting it
+/// `aigeneric.abreast_spacing` apart on either side in turn (`aigeneric.Entry.abreast`, counting
+/// from 1): the first at the target, the second to its left, the third to its right, and so on.
 fn placeIn(all: *create.Objects, index: u16) void {
     const slot = &all.slots[index];
     const target = slot.orders[0].target.slotIn(all) orelse return;
     const beside = &all.slots[target].drawn;
-    const n = @as(i32, slot.orders[0].sequence) + 1;
-    const side: i32 = if (@rem(n, 2) != 0) 1 else -1;
-    const across = @as(f32, @floatFromInt(side * @divTrunc(n, 2))) * arrival_spacing;
-    slot.state.jump.destination = gameobj.vec3(math.transform(beside.orientation, .{ across, 0, 0 }) + beside.position);
+    const across = @as(f32, @floatFromInt(slot.orders[0].abreast(1))) * aigeneric.abreast_spacing;
+    slot.state.jump.destination = gameobj.vec3(beside.point(.{ across, 0, 0 }));
 }
 
 /// `order_jump_in` (`0x00416570`): Jump In's update, a step at a time (`InStep`).
@@ -560,59 +547,57 @@ fn placeIn(all: *create.Objects, index: u16) void {
 /// `arrival_distance`, or `arrival_distance_components` for a ship that lists components. It is
 /// heard (`jumpin`); for the player's ship, the camera watches from one of the arrival's three
 /// views at random, the mission's space takes on what its script asked of it
-/// (`environfx.Environment.update`), and the stars streak shorter (`srstars`). From the same
-/// update it flashes in (`flash`), and then flies in by its motion, no longer jumping, the player's
-/// view shaking less and less, until
-/// it flies ahead again at full throttle, colliding again, powered and free to move. Then its
-/// order ends: for the player's ship the camera goes back to the cockpit, and its JumpedIn event
-/// is posted (`events.jumpedIn`). A ship of Jump In's second number first holds `settle_ticks` in
-/// its formation, rolling and pitching by its place in it.
+/// (`environfx.Environment.update`), and the stars streak shorter (`srstars`). From the same update
+/// it flashes in (`flash`), and then flies in by its motion, no longer jumping, the player's view
+/// shaking less and less, until it flies ahead again at full throttle, colliding again, powered and
+/// free to move. Then its order ends: for the player's ship the camera goes back to the cockpit,
+/// and its JumpedIn event is posted (`events.jumpedIn`). A ship of Jump In's second number first
+/// holds `settle_ticks` in its formation, rolling and pitching by its place in it.
 ///
 /// What it shows (`effect`): a flare where it appears, which grows to its width as it flashes in;
 /// a burst hanging ahead of it, and trails from its engines. As it flies in, the trails and the
-/// burst fade, and over the first `flare_squash` of the flight the flare stretches across and
-/// flattens.
+/// burst fade, and over the first part of the flight the flare stretches across and flattens
+/// (`effect.Effect.squashFlare`).
 ///
 /// Not ported: in a multiplayer game, the JumpedIn posted for the first player's ship too as the
-/// ship of the first player still flying jumps in.
+/// ship of the first player still flying jumps in
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
     const state = &slot.state.jump;
-    const now = ctx.clock.frame_start;
-    const dt = state.elapsed(now);
+    const now = ctx.world.clock.frame_start;
+    const dt = gameobj.progressSince(&state.updated, now);
     object.nova_charge = 0;
-    switch (@as(InStep, @enumFromInt(state.step))) {
+    switch (state.step.in) {
         .placing => {
             const target = slot.orders[0].target.slotIn(all) orelse return;
             const fx = takeEffect(world, state, index);
             state.orientation = all.slots[target].drawn.orientation;
             state.position = object.root.position;
-            objects.setOrientation(object, &slot.drawn, state.orientation);
-            objects.setPosition(object, &slot.drawn, gameobj.vector(state.destination));
+            const arrival: math.Place = .{ .position = gameobj.vector(state.destination), .orientation = state.orientation };
+            objects.setPlace(object, &slot.drawn, arrival);
             ai.stop(object);
             const back = if (object.flags.components) arrival_distance_components else arrival_distance;
-            const start = math.forward(state.orientation) * @as(Vector, @splat(-back)) + gameobj.vector(object.root.position);
+            const start = arrival.ahead(-back);
             objects.setPosition(object, &slot.drawn, start);
-            if (fx) |record| {
-                const effects = world.jump_effects.?;
-                effects.startFlare(record, .{ .position = start, .orientation = state.orientation }, width(object));
-                record.flare_turn = state.orientation;
-                effects.startBurst(record);
+            if (fx) |held| {
+                held.effects.startFlare(held.record, .{ .position = start, .orientation = state.orientation }, object.width());
+                held.effects.startBurst(held.record);
             }
-            state.advance(@intFromEnum(InStep.flashing), now);
-            sound3d.playIn(world, null, null, index, .jumpin, 1, soundClass(all, index));
+            state.advance(.{ .in = .flashing }, now);
+            sound3d.playIn(world, null, null, index, .jumpin, 1, sound3d.fxClass(all, index));
             if (index == all.player) {
                 if (world.camera) |view| {
-                    const pick = arrivalView(world.random.rand());
-                    _ = view.setJump(pick, index, ctx.clock.viewTime(), .of(slot), .of(&all.slots[all.player]));
+                    const pick = arrivalView(world.random.fraction());
+                    _ = view.setJump(pick, index, ctx.world.clock.viewTime(), .of(slot), .of(&all.slots[all.player]));
                 }
                 if (world.environment) |space| space.update();
                 world.player.jumping_in = true;
             }
-            if (fx) |record| world.jump_effects.?.startTrails(record, slot);
+            if (fx) |held| held.effects.startTrails(held.record, slot);
             // It flashes in from the same update, as if no time had passed (`0x0041679B`).
             flash(world, slot, 0);
         },
@@ -620,46 +605,35 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
         .flying => {
             const fx = effectOf(world, state);
             defer show(fx, .{ .trails = true, .burst = true });
-            if (fx) |record| {
-                record.shadeTrails(1 - state.progress);
-                effect.glow(record, 1 - state.progress, world.jump_effects.?.hardware);
+            if (fx) |held| {
+                held.record.shadeTrails(1 - state.progress);
+                held.effects.glow(held.record, 1 - state.progress);
             }
             if (index == all.player) world.shake.* = math.lerp(@as(f32, 1), 0, state.progress);
             state.progress += dt * fly_rate;
-            if (state.progress < flare_squash) if (fx) |record| if (record.flare) |*flare| {
-                const height = 1 - state.progress / flare_squash + flare_thinnest;
-                flare.grow(1);
-                flare.share = height;
-                const stretch: math.Matrix = .{ 1 + state.progress * flare_stretch, 0, 0, 0, height, 0, 0, 0, 1 };
-                flare.object.orientation = math.product(record.flare_turn, stretch);
-                show(fx, .{ .flare = true });
-            };
+            if (fx) |held| if (held.record.squashFlare(state.progress)) show(fx, .{ .flare = true });
             if (!(state.progress > 1)) return;
             slot.motion = slot.motion_aside;
-            object.throttle = 1;
-            state.progress = 0;
-            state.step = @intFromEnum(InStep.settling);
+            object.throttle = ai.full_throttle;
+            state.next(.{ .in = .settling });
             state.since = now + settle_ticks;
             world.player.jumping_in = false;
             object.flags.no_collisions = false;
-            object.flags.unpowered = false;
-            object.flags.frozen = false;
+            object.flags.thaw();
         },
         .settling => {
             const entry = slot.orders[0];
             if (entry.order != .jump_in_40 or state.since <= now) {
                 if (index == all.player) if (world.camera) |view| {
-                    _ = view.setView(.cockpit, index, false, true, ctx.clock.viewTime());
+                    _ = view.setView(.cockpit, index, false, true, ctx.world.clock.viewTime());
                 };
                 freeEffect(world, state);
-                _ = aigeneric.pop(ctx, index);
+                aigeneric.end(ctx, index);
                 events.jumpedIn(world, index);
                 return;
             }
-            const n = @as(i32, entry.sequence) + 1;
-            const side: i32 = if (@rem(n, 2) != 0) 1 else -1;
-            object.roll_input = @as(f32, @floatFromInt(side * @divTrunc(n, 2))) * settle_input;
-            object.pitch_input = @as(f32, @floatFromInt(@divTrunc(n, 2))) * settle_input;
+            object.roll_input = @as(f32, @floatFromInt(entry.abreast(1))) * settle_input;
+            object.pitch_input = @as(f32, @floatFromInt(entry.placesOut(1))) * settle_input;
             show(effectOf(world, state), .{ .trails = true, .burst = true });
         },
         _ => {},
@@ -673,42 +647,27 @@ fn flash(world: gameobj.World, slot: *create.Slot, dt: f32) void {
     const object = &slot.object;
     const state = &slot.state.jump;
     const fx = effectOf(world, state);
-    if (fx) |record| if (record.flare) |*flare| flare.grow(state.progress);
+    if (fx) |held| if (held.record.flare) |*flare| flare.grow(state.progress);
     show(fx, .{ .flare = true, .trails = true, .burst = true });
     state.progress += dt * flash_rate;
     if (state.progress > 1) {
-        state.progress = 0;
-        state.step = @intFromEnum(InStep.flying);
+        state.next(.{ .in = .flying });
         slot.motion_aside = slot.motion;
         slot.motion = .jump_in;
         object.flags.jumping = false;
     }
 }
 
-/// How the flare stretches across and flattens as the ship flies in: `flare_stretch` times its
-/// width across for each of the flight's share (`0x004DC3D8`), gone flat at `flare_squash` of it
-/// (`0x004DC4C0`), and never quite nothing (`0x004DC568`).
-///
-/// **Improvement:** OpenReliant flattens it by the share over `flare_squash`, where the game
-/// multiplies by 3.3333333 (`0x004DC530`).
-const flare_stretch: f32 = 3;
-const flare_squash: f32 = 0.3;
-const flare_thinnest: f32 = 1e-6;
-
-/// The view the player's arrival is watched from, by the C runtime's `rand` (`random`): twice its
-/// share of the most `rand` gives, rounded (`sr_round`), picks one of three, the middle one half
-/// the time.
-fn arrivalView(random: u15) camera.View {
-    const share = @as(f32, @floatFromInt(random)) * rand_scale;
+/// The view the player's arrival is watched from, by `share`, the C runtime's `rand` over the most
+/// it gives (`libcmt.Rand.fraction`): twice it, rounded (`sr_round`), picks one of three, the
+/// middle one half the time.
+fn arrivalView(share: f32) camera.View {
     return switch (math.round(share + share)) {
         0 => .jump_in_close,
         1 => .jump_in_ahead,
         else => .jump_in_aside,
     };
 }
-
-/// A share of the most the C runtime's `rand` gives (`0x004DC4C8`).
-const rand_scale: f32 = 1.0 / 32767.0;
 
 /// How long a test's frames are, in ticks.
 const test_frame = 10;
@@ -721,13 +680,9 @@ fn nextFrame(mission: *gameobj.testing.Mission, ctx: aigeneric.Context, index: u
     aigeneric.objectOrders(ctx, index);
 }
 
-/// The step the jump of the ship in `slot` is at.
-fn stepOf(comptime Step: type, slot: *const create.Slot) Step {
-    return @enumFromInt(slot.state.jump.step);
-}
-
+/// Whether `actual` is `expected`, each of its axes within a hundredth.
 fn expectVector(expected: Vector, actual: Vector) !void {
-    inline for (0..3) |i| try std.testing.expectApproxEqAbs(expected[i], actual[i], 1e-2);
+    return math.testing.expectVectorWithin(expected, actual, 1e-2);
 }
 
 test "a jump out that names nothing leaves the mission" {
@@ -745,14 +700,14 @@ test "a jump out that names nothing leaves the mission" {
     // It lets its throttle go and aims far ahead, which it faces already, so it holds still.
     try std.testing.expectEqual(0, slot.object.throttle);
     try expectVector(.{ 0, 0, 10000 + nowhere_reach }, gameobj.vector(slot.state.jump.destination));
-    try std.testing.expectEqual(OutStep.stilling, stepOf(OutStep, slot));
+    try std.testing.expectEqual(OutStep.stilling, slot.state.jump.step.out);
     // It charges, then goes by its own motion, colliding with nothing.
     while (slot.motion != .jump_out) nextFrame(&mission, ctx, ship);
     try std.testing.expectEqual(.forward, slot.motion_aside);
     try std.testing.expect(slot.object.flags.no_collisions);
     try expectVector(.{ 0, 0, 10000 + going_reach }, gameobj.vector(slot.state.jump.to));
     // Gone, it flies ahead, jumping, and then leaves the mission, far below.
-    while (stepOf(OutStep, slot) == .going) nextFrame(&mission, ctx, ship);
+    while (slot.state.jump.step.out == .going) nextFrame(&mission, ctx, ship);
     try std.testing.expectEqual(.forward, slot.motion);
     try std.testing.expect(slot.object.flags.jumping);
     while (slot.object.order_count > 0) nextFrame(&mission, ctx, ship);
@@ -774,7 +729,7 @@ test "a jump out that names a ship gives way to a jump in beside it" {
     const slot = mission.slot(ship);
     slot.motion = .forward;
     const ctx = mission.orders();
-    _ = try aigeneric.pushShip(ctx, ship, .jump_out_41, target, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(ctx, ship, .jump_out_41, target, null);
     slot.orders[0].sequence = 1;
     while (slot.orders[0].order == .jump_out_41) nextFrame(&mission, ctx, ship);
     // Jump In of the matching number takes over, at the same place in the group.
@@ -786,7 +741,7 @@ test "a jump out that names a ship gives way to a jump in beside it" {
     // It arrives to the target's left, turned as the target is, and is placed far behind that to
     // fly in from.
     nextFrame(&mission, ctx, ship);
-    const arrival = mission.slot(target).drawn.point(.{ -arrival_spacing, 0, 0 });
+    const arrival = mission.slot(target).drawn.point(.{ -aigeneric.abreast_spacing, 0, 0 });
     try expectVector(arrival, gameobj.vector(slot.state.jump.destination));
     try expectVector(arrival - math.forward(turned) * @as(Vector, @splat(arrival_distance)), slot.drawn.position);
     try std.testing.expectEqual(turned, slot.drawn.orientation);
@@ -797,9 +752,9 @@ test "a jump out that names a ship gives way to a jump in beside it" {
     try std.testing.expect(!slot.object.flags.jumping);
     // Once in, it flies ahead again at full throttle, colliding again, and holds its place in the
     // formation a while, rolling and pitching by it, before its order ends.
-    while (stepOf(InStep, slot) == .flying) nextFrame(&mission, ctx, ship);
+    while (slot.state.jump.step.in == .flying) nextFrame(&mission, ctx, ship);
     try std.testing.expectEqual(.forward, slot.motion);
-    try std.testing.expectEqual(1, slot.object.throttle);
+    try std.testing.expectEqual(ai.full_throttle, slot.object.throttle);
     try std.testing.expect(!slot.object.flags.no_collisions);
     nextFrame(&mission, ctx, ship);
     try std.testing.expectEqual(-settle_input, slot.object.roll_input);
@@ -820,7 +775,7 @@ test "the player's arrival is watched from a cutaway, and ends in the cockpit" {
     var view: camera.Camera = .{};
     var ctx = mission.orders();
     ctx.world.camera = &view;
-    _ = try aigeneric.pushShip(ctx, player, .jump_in, target, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(ctx, player, .jump_in, target, null);
     nextFrame(&mission, ctx, player);
     try std.testing.expect(switch (view.view) {
         .jump_in_close, .jump_in_ahead, .jump_in_aside => true,
@@ -829,7 +784,7 @@ test "the player's arrival is watched from a cutaway, and ends in the cockpit" {
     try std.testing.expect(view.locked);
     try std.testing.expect(mission.player.jumping_in);
     // As it flies in, the view shakes less and less.
-    while (stepOf(InStep, slot) != .flying) nextFrame(&mission, ctx, player);
+    while (slot.state.jump.step.in != .flying) nextFrame(&mission, ctx, player);
     nextFrame(&mission, ctx, player);
     try std.testing.expectEqual(1, mission.shake);
     nextFrame(&mission, ctx, player);
@@ -849,7 +804,7 @@ test "the ships that jump out with the player's form up behind it" {
     const wing = [_]u16{ try mission.add(.predator, .{ 5000, 0, 0 }), try mission.add(.predator, .{ -5000, 0, 0 }) };
     const ctx = mission.orders();
     for ([_]u16{ player, wing[0], wing[1] }, 0..) |index, sequence| {
-        _ = try aigeneric.pushShip(ctx, index, .jump_out, target, aigeneric.Target.whole);
+        _ = try aigeneric.pushShip(ctx, index, .jump_out, target, null);
         mission.slot(index).orders[0].sequence = @intCast(sequence);
     }
     mission.clock.frame_start = test_frame;
@@ -860,7 +815,7 @@ test "the ships that jump out with the player's form up behind it" {
     try expectVector(.{ formation_spacing, 0, -3 * formation_spacing }, mission.slot(wing[1]).drawn.position);
     for (wing) |index| {
         const slot = mission.slot(index);
-        try std.testing.expectEqual(1, slot.state.jump.with_player);
+        try std.testing.expect(slot.state.jump.with_player);
         try std.testing.expect(slot.object.flags.no_collisions);
         try std.testing.expectEqual(formation_speed, slot.object.velocity.z);
         try std.testing.expectEqual(formation_speed / gameobj.testing.flight.max_speed, slot.object.throttle);
@@ -868,9 +823,24 @@ test "the ships that jump out with the player's form up behind it" {
     }
     // They hold their places a while before they go.
     for (0..formation_wait / test_frame - 1) |_| nextFrame(&mission, ctx, wing[0]);
-    try std.testing.expectEqual(OutStep.aligning, stepOf(OutStep, mission.slot(wing[0])));
+    try std.testing.expectEqual(OutStep.aligning, mission.slot(wing[0]).state.jump.step.out);
     nextFrame(&mission, ctx, wing[0]);
-    try std.testing.expectEqual(OutStep.stilling, stepOf(OutStep, mission.slot(wing[0])));
+    try std.testing.expectEqual(OutStep.stilling, mission.slot(wing[0]).state.jump.step.out);
+}
+
+test "a ship that lists components flies in from farther behind" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    _ = try mission.add(.predator, @splat(0));
+    const target = try mission.add(.predator, .{ 0, 0, 80000 });
+    const ship = try mission.add(.predator, .{ 0, 0, 10000 });
+    const slot = mission.slot(ship);
+    slot.object.flags.components = true;
+    const ctx = mission.orders();
+    _ = try aigeneric.pushShip(ctx, ship, .jump_in, target, null);
+    nextFrame(&mission, ctx, ship);
+    try expectVector(.{ 0, 0, 80000 - arrival_distance_components }, slot.drawn.position);
 }
 
 test markJumping {
@@ -883,7 +853,7 @@ test markJumping {
     const pod = try mission.add(.predator, .{ 90000, 0, 0 });
     mission.slot(pod).object.type = .fuel_pod;
     const other = try mission.add(.predator, .{ 0, 0, 9000 });
-    _ = try aigeneric.pushShip(mission.orders(), launching, .launch, base, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(mission.orders(), launching, .launch, base, null);
     // What is in the way holds, with what launches from it, and every fuel pod.
     markJumping(mission.objects, base);
     for ([_]u16{ base, launching, pod }) |index| try std.testing.expect(mission.slot(index).object.flags.jumping);
@@ -891,12 +861,54 @@ test markJumping {
 }
 
 test arrivalView {
+    const libcmt = @import("../libcmt.zig");
+    const Draw = struct {
+        /// The share `rand` gives with `random`.
+        fn share(random: u15) f32 {
+            return @as(f32, @floatFromInt(random)) / libcmt.Rand.max;
+        }
+    };
     // A quarter of the time the close view, half the time the view ahead, and a quarter the view
     // aside.
-    try std.testing.expectEqual(camera.View.jump_in_close, arrivalView(0));
-    try std.testing.expectEqual(camera.View.jump_in_close, arrivalView(8191));
-    try std.testing.expectEqual(camera.View.jump_in_ahead, arrivalView(8192));
-    try std.testing.expectEqual(camera.View.jump_in_ahead, arrivalView(24575));
-    try std.testing.expectEqual(camera.View.jump_in_aside, arrivalView(24576));
-    try std.testing.expectEqual(camera.View.jump_in_aside, arrivalView(32767));
+    try std.testing.expectEqual(camera.View.jump_in_close, arrivalView(Draw.share(0)));
+    try std.testing.expectEqual(camera.View.jump_in_close, arrivalView(Draw.share(8191)));
+    try std.testing.expectEqual(camera.View.jump_in_ahead, arrivalView(Draw.share(8192)));
+    try std.testing.expectEqual(camera.View.jump_in_ahead, arrivalView(Draw.share(24575)));
+    try std.testing.expectEqual(camera.View.jump_in_aside, arrivalView(Draw.share(24576)));
+    try std.testing.expectEqual(camera.View.jump_in_aside, arrivalView(Draw.share(32767)));
+}
+
+test "State.effectPlace" {
+    // A zeroed state has no record; a record kept is found again, and let go is gone.
+    var state = std.mem.zeroes(State);
+    try std.testing.expectEqual(null, state.effectPlace());
+    state.keepEffect(0);
+    try std.testing.expectEqual(1, @intFromEnum(state.effect));
+    try std.testing.expectEqual(0, state.effectPlace());
+    state.keepEffect(effect.max_records - 1);
+    try std.testing.expectEqual(effect.max_records - 1, state.effectPlace());
+    state.keepEffect(null);
+    try std.testing.expectEqual(.null, state.effect);
+    try std.testing.expectEqual(null, state.effectPlace());
+}
+
+test showFinest {
+    const gpa = std.testing.allocator;
+    var gun: create.testing.Model = undefined;
+    try gun.init(gpa);
+    defer gun.deinit(gpa);
+    var carrier: objects.testing.Carrier = undefined;
+    carrier.init(.{ 0, 0, 1000 });
+    var model = try carrier.build(gpa, &gun);
+    defer model.deinit(gpa);
+    gameobj.linkParts(&model, &carrier.parts.source);
+    const mounted = &model.mounts[0].model;
+    // Each part, the model's own and those of the model mounted on it, is drawn at its finest, and
+    // then by its distance again.
+    showFinest(&model, true);
+    for (model.parts) |part| try std.testing.expect(part.object.flags.finest);
+    for (mounted.parts) |part| try std.testing.expect(part.object.flags.finest);
+    showFinest(&model, false);
+    for (model.parts) |part| try std.testing.expect(!part.object.flags.finest);
+    for (mounted.parts) |part| try std.testing.expect(!part.object.flags.finest);
 }

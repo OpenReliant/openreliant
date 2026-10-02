@@ -8,7 +8,7 @@
 //! `aidefend.cpp`'s, and does the orders' work, as `Ai.cpp`'s neighbours do.
 //!
 //! Not ported: a multiplayer game's wait for the other players before the path and after it
-//! (`0x00401000`).
+//! (`ai_sequence_sync`, `0x00401000`, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -19,10 +19,14 @@ const Vector = math.Vector;
 const ai = @import("../ai.zig");
 const aigeneric = @import("../aigeneric.zig");
 const Context = aigeneric.Context;
+const create = @import("../create.zig");
 const curves = @import("../executor/curves.zig");
 const events = @import("../mission/events.zig");
 const gameobj = @import("../gameobj.zig");
+const main = @import("../main.zig");
 const motion = @import("../motion.zig");
+const Order = @import("orders.zig").Order;
+const vm = @import("../../vm.zig");
 
 /// The order's data, as the command gives it (`aigeneric.Entry.data`).
 pub const Data = extern struct {
@@ -36,7 +40,19 @@ pub const Data = extern struct {
     /// where the mission placed it (`curves.ride`). The game holds its record's address, or null.
     offset: u32 align(2),
 
+    /// What `curve` holds where the command names no curve, and `offset` where it names no ship.
     pub const none: u32 = 0xFFFF_FFFF;
+
+    /// The order's data for a path from `curve` over `seconds`, carried by `offset`; `none` for a
+    /// null.
+    pub fn of(curve: ?u16, seconds: u32, offset: ?u16) Data {
+        return .{ .curve = curve orelse none, .seconds = seconds, .offset = offset orelse none };
+    }
+
+    /// The ship whose place carries the path, where there is one.
+    pub fn offsetShip(data: Data) ?u16 {
+        return if (data.offset == none) null else std.math.cast(u16, data.offset);
+    }
 
     comptime {
         assert(@offsetOf(Data, "seconds") == 0x4);
@@ -50,10 +66,10 @@ pub const State = extern struct {
     follower: motion.Follower,
     /// The curve the ship follows now, by its index; the game holds its record's address.
     curve: u32,
-    step: u8,
+    step: Step,
     _unknown_0d: [3]u8,
-    /// The frame's tick the curve began (`frame_start`).
-    since: u32,
+    /// The mission's tick the curve began (`mission_ticks`).
+    since: i32,
     /// The curve's share of the order's seconds, in ticks.
     ticks: u16,
     _unknown_16: [2]u8,
@@ -62,8 +78,15 @@ pub const State = extern struct {
     _unknown_1c: [12]u8,
     /// Where the order's offset ship stood as the order began.
     start: [3]f32,
-    /// The share of the way along the curve to the next place a point marks, 0 for none.
+    /// The share of the way along the curve to the next place a point marks, 0 for none
+    /// (`nextMarker`).
     next_marker: f32,
+
+    /// The share of the way along the curve to the next place a point marks, where there is one:
+    /// none at 0 or less, as `follow_curve_way` takes it (`0x0040326D`).
+    pub fn nextMarker(state: State) ?f32 {
+        return if (state.next_marker > 0) state.next_marker else null;
+    }
 
     comptime {
         assert(@offsetOf(State, "curve") == 0x08);
@@ -80,47 +103,49 @@ pub const State = extern struct {
 pub const Step = enum(u8) {
     /// It flies to where the path starts, turned along it (`ai.arrive`).
     arriving = 0,
-    /// It waits for the other players in a multiplayer game; in a game of one, it goes on at once.
+    /// It waits for the other players in a multiplayer game; in a game of one, it goes on at once
+    /// (not ported: the wait, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
     ready = 1,
     /// It follows the path, which moves on to `done` at its end.
     following = 2,
+    /// The order ends, once the other players are there too in a multiplayer game (not ported:
+    /// the wait, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
     done = 3,
     _,
 };
 
 /// How far along the path, in ticks, the ship looks from its start for the way to face as it
-/// arrives there: a simulation step (`0x004DC424`).
-const lead_ticks: f32 = 4;
+/// arrives there: a simulation step, which the game holds as a float (`0x004DC424`).
+const lead_ticks: f32 = gameobj.ticks_per_step;
 
-/// Game ticks to a second (`0x004DC440`).
-const ticks_per_second: f32 = 100;
+/// Game ticks to a second, which the game holds as a float (`0x004DC440`).
+const ticks_per_second: f32 = main.ticks_per_second;
 
-/// `order_ship_follow_curve_init` (`0x00403340`): the ship in slot `index` follows the path from its
-/// order's curve: its path is Ship Follow Curve's at its full speed, its length measured, where its
-/// offset ship stands noted, and the order's curve begun (`beginCurve`).
+/// `order_ship_follow_curve_init` (`0x00403340`): the ship in slot `index` follows the path from
+/// its order's curve: its path is Ship Follow Curve's at its full speed, its length measured, where
+/// its offset ship stands noted, and the order's curve begun (`beginCurve`).
 pub fn init(ctx: Context, index: u16) void {
-    start(ctx, index, .curve);
-    const data = entryData(ctx.world.objects, index);
-    beginCurve(ctx, index, data.curve);
+    start(ctx.world, index, .curve);
+    beginCurve(ctx.world, index, entryData(ctx.world.objects, index).curve);
 }
 
-/// `order_ship_follow_curve_backwards_init` (`0x004036C0`): `init` for the path backwards, which begins at the
-/// path's last curve (`lastCurve`).
+/// `order_ship_follow_curve_backwards_init` (`0x004036C0`): `init` for the path backwards, which
+/// begins at the path's last curve (`lastCurve`).
 pub fn backwardsInit(ctx: Context, index: u16) void {
-    start(ctx, index, .curve_backwards);
-    lastCurve(ctx, index, null);
+    start(ctx.world, index, .curve_backwards);
+    lastCurve(ctx.world, index, null);
 }
 
 /// What the two orders' `init`s share: the path to follow, the step, the path's length, and where
 /// the offset ship stands, as the object stands (`ship_object`).
-fn start(ctx: Context, index: u16, path: motion.Follower.Path) void {
-    const all = ctx.world.objects;
+fn start(world: gameobj.World, index: u16, path: motion.Follower.Path) void {
+    const all = world.objects;
     const state = &all.slots[index].state.follow;
     const data = entryData(all, index);
     state.follower = .{ .path = path, .limit = full_speed };
-    state.step = @intFromEnum(Step.arriving);
-    state.path_length = curves.pathLength(missionCurves(ctx.world), data.curve);
-    if (offsetShip(data)) |ship| if (ship < all.slots.len) {
+    state.step = .arriving;
+    state.path_length = curves.pathLength(world.missionCurves(), data.curve);
+    if (data.offsetShip()) |ship| if (ship < all.slots.len) {
         state.start = gameobj.vector(all.slots[ship].object.root.position);
     };
 }
@@ -128,93 +153,95 @@ fn start(ctx: Context, index: u16, path: motion.Follower.Path) void {
 /// The limit a path gives `motion_follow`: the ship's top speed (`0x004DC404`).
 const full_speed: f32 = 1;
 
-/// `follow_curve_begin` (`0x004031A0`): the ship in slot `index` begins curve `curve` of its path,
-/// now, for the curve's share of the order's seconds, as its length is to the path's, and looks for
-/// the first place a point marks on it.
+/// `follow_curve_begin` (`0x004031A0`): the ship in slot `index` begins curve `curve` of its path
+/// (`startCurve`), and looks for the first place a point marks on it.
+fn beginCurve(world: gameobj.World, index: u16, curve: u32) void {
+    startCurve(world, index, curve);
+    const state = &world.objects.slots[index].state.follow;
+    const marker = if (std.math.cast(u16, curve)) |at| curves.nextMarker(world.missionShips(), at, 0).at else null;
+    state.next_marker = marker orelse 0;
+}
+
+/// What `follow_curve_begin` and `follow_back_curve` share: the ship in slot `index` begins curve
+/// `curve` of its path, now (`mission_ticks`), for the curve's share of the order's seconds, as its
+/// length is to the path's (`curves.pathShare`).
 ///
-/// **Fix:** the game divides by nothing for a path of no length, and takes a curve's ticks past
-/// 65535 round from nothing; OpenReliant gives a curve of a path of no length all the order's
-/// ticks, and holds them at 65535.
-fn beginCurve(ctx: Context, index: u16, curve: u32) void {
-    const all = ctx.world.objects;
+/// **Fix:** the game takes a curve's ticks past 65535 round from nothing; OpenReliant holds them at
+/// 65535.
+fn startCurve(world: gameobj.World, index: u16, curve: u32) void {
+    const all = world.objects;
     const state = &all.slots[index].state.follow;
-    const data = entryData(all, index);
     state.curve = curve;
-    state.since = @bitCast(ctx.clock.frame_start);
-    state.ticks = curveTicks(ctx.world, state.*, data, curve);
-    state.next_marker = if (std.math.cast(u16, curve)) |at| curves.nextMarker(missionShips(ctx.world), at, 0).at else 0;
+    state.since = world.clock.mission_ticks;
+    state.ticks = curveTicks(world, state.*, entryData(all, index), curve);
 }
 
 /// Curve `curve`'s share of `data`'s seconds, in ticks, for a path of `state.path_length`.
 fn curveTicks(world: gameobj.World, state: State, data: Data, curve: u32) u16 {
-    const list = missionCurves(world);
-    const length = if (curve < list.len) curves.length(list[curve]) else 0;
     const seconds: f32 = @floatFromInt(data.seconds);
-    const part = if (state.path_length == 0) 1 else length / state.path_length;
+    const list = world.missionCurves();
+    const part = curves.pathShare(list, curveIn(list, curve), state.path_length);
     return std.math.lossyCast(u16, part * seconds * ticks_per_second);
 }
 
 /// `follow_back_curve` (`0x00403580`): the ship in slot `index` begins the curve before `before` on
-/// its path backwards, or the path's last where `before` is null: from the order's curve, each that
-/// carries the path on from where the last ends (`curves.next`), up to one that ends at no ship, or
-/// the one before `before`. Its share of the ticks is as `beginCurve` gives it; it looks for no
-/// place a point marks.
+/// its path backwards, or the path's last where `before` is null (`startCurve`): from the order's
+/// curve, each that carries the path on from where the last ends (`curves.following`, whose
+/// **Fix** ends a path that comes round on itself), up to one that ends at no ship, or the one
+/// before `before`. It looks for no place a point marks.
 ///
-/// **Fix:** the game follows a path that comes round to a curve it has taken for ever; OpenReliant
-/// stops once it has taken as many curves as the mission has.
-fn lastCurve(ctx: Context, index: u16, before: ?u32) void {
-    const all = ctx.world.objects;
-    const state = &all.slots[index].state.follow;
-    const data = entryData(all, index);
-    const list = missionCurves(ctx.world);
-    var at = data.curve;
-    for (0..list.len) |_| {
-        if (at >= list.len) break;
-        const end = list[at].endShip() orelse break;
-        const following = curves.next(list, at, end, false) orelse break;
-        if (before) |stop| if (following == stop) break;
-        at = @intCast(following);
+/// **Fix:** the game takes a curve's end for a ship unless its whole reference, kind and all, is
+/// `0x0000FFFF` (`0x0040359E`), and so walks on from a curve that ends at no ship to one that
+/// starts or ends at none; OpenReliant stops at an end whose index is `dte.Reference.unset`, as
+/// `curves.pathLength` does.
+fn lastCurve(world: gameobj.World, index: u16, before: ?u32) void {
+    const list = world.missionCurves();
+    var at = entryData(world.objects, index).curve;
+    if (curveIn(list, at)) |first| {
+        var last: usize = first;
+        var taken: usize = 1;
+        while (curves.following(list, last, taken)) |following| : (taken += 1) {
+            if (before) |stop| if (following == stop) break;
+            last = following;
+        }
+        at = @intCast(last);
     }
-    state.curve = at;
-    state.since = @bitCast(ctx.clock.frame_start);
-    state.ticks = curveTicks(ctx.world, state.*, data, at);
+    startCurve(world, index, at);
 }
 
-/// `order_ship_follow_curve` (`0x004033A0`), a step at a time (`Step`). Arriving, the ship flies to the
-/// path's start, turned toward its point a step on, at the pace the path keeps there (`ai.arrive`),
-/// the curve's clock held at its start. Following, it flies `motion_follow`, or
+/// `order_ship_follow_curve` (`0x004033A0`), a step at a time (`steps`). Arriving, the ship flies
+/// to the path's start, turned toward its point a step on. Following, it flies `motion_follow`, or
 /// `motion_follow_backwards` where it was flying tail first, and once the path is over the order
 /// ends.
 pub fn update(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
-    const state = &slot.state.follow;
-    switch (@as(Step, @enumFromInt(state.step))) {
-        .arriving => {
-            if (arriveAt(ctx, index, 0, lead_ticks)) state.step = @intFromEnum(Step.ready);
-            state.since = @bitCast(ctx.clock.frame_start);
-        },
-        .ready => state.step = @intFromEnum(Step.following),
-        .following => slot.motion = if (slot.motion == .backward or slot.motion == .follow_backwards) .follow_backwards else .follow,
-        .done => _ = aigeneric.pop(ctx, index),
-        _ => {},
-    }
+    const following: motion.Motion = if (slot.motion == .backward or slot.motion == .follow_backwards) .follow_backwards else .follow;
+    steps(ctx, index, 0, lead_ticks, null, following);
 }
 
-/// `order_ship_follow_curve_backwards` (`0x00403720`): `update` for the path backwards. Arriving, the ship
-/// flies its own motion ahead (`motion_forward`) to the curve's end, turned toward its point a step
-/// back; following, it flies `motion_follow`.
+/// `order_ship_follow_curve_backwards` (`0x00403720`): `update` for the path backwards, a step at a
+/// time (`steps`). Arriving, the ship flies its own motion ahead (`motion_forward`) to the curve's
+/// end, turned toward its point a step back; following, it flies `motion_follow`.
 pub fn backwardsUpdate(ctx: Context, index: u16) void {
+    steps(ctx, index, 1, -lead_ticks, .forward, .follow);
+}
+
+/// The steps of the two orders' updates (`Step`). Arriving, the ship flies its motion `arriving`,
+/// where that is given, to the point `from` of the way along its curve, turned toward the point
+/// `lead` ticks on (`arriveAt`), the curve's clock held at its start; ready, it goes on; following,
+/// it flies its motion `following`; done, the order ends.
+fn steps(ctx: Context, index: u16, from: f32, lead: f32, arriving: ?motion.Motion, following: motion.Motion) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.follow;
-    switch (@as(Step, @enumFromInt(state.step))) {
+    switch (state.step) {
         .arriving => {
-            slot.motion = .forward;
-            if (arriveAt(ctx, index, 1, -lead_ticks)) state.step = @intFromEnum(Step.ready);
-            state.since = @bitCast(ctx.clock.frame_start);
+            if (arriving) |own| slot.motion = own;
+            if (arriveAt(ctx, index, from, lead)) state.step = .ready;
+            state.since = ctx.world.clock.mission_ticks;
         },
-        .ready => state.step = @intFromEnum(Step.following),
-        .following => slot.motion = .follow,
-        .done => _ = aigeneric.pop(ctx, index),
+        .ready => state.step = .following,
+        .following => slot.motion = following,
+        .done => aigeneric.end(ctx, index),
         _ => {},
     }
 }
@@ -222,69 +249,73 @@ pub fn backwardsUpdate(ctx: Context, index: u16) void {
 /// The ship in slot `index` flies to the point `from` of the way along its curve, turned toward the
 /// point `lead` ticks on from there, arriving at the pace the path keeps between the two: the way
 /// between them over the ship's cruise speed (`ai.arrive`). Whether it has arrived.
+///
+/// **Fix:** the game divides by nothing for a curve given no ticks, and turns the ship toward a
+/// point past the curve's end; OpenReliant turns it toward the curve's other end
+/// (`std.math.sign(lead)`).
 fn arriveAt(ctx: Context, index: u16, from: f32, lead: f32) bool {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
     const state = slot.state.follow;
-    const list = missionCurves(world);
-    if (state.curve >= list.len) return true;
-    const curve = list[state.curve];
+    const list = world.missionCurves();
+    const curve = list[curveIn(list, state.curve) orelse return true];
     const data = entryData(world.objects, index);
     const step = if (state.ticks == 0) std.math.sign(lead) else lead / @as(f32, @floatFromInt(state.ticks));
     const here = ride(world, data, state, curves.point(curve, from));
     const next = ride(world, data, state, curves.point(curve, from + step));
-    const flight = slot.flight orelse return true;
-    const pace = math.distance(here, next) / ai.cruiseSpeed(&slot.object, flight, world.view);
+    const cruise = ai.slotCruise(slot, world.view) orelse return true;
+    const pace = math.distance(here, next) / cruise;
     return ai.arrive(world, index, here, math.lookAt(next - here), pace);
 }
 
-/// `order_ship_follow_curve_exit` (`0x00403550`): the ship flies its own motion again, ahead, or astern
-/// where it followed the path tail first.
+/// `order_ship_follow_curve_exit` (`0x00403550`): the ship flies its own motion again, ahead, or
+/// astern where it followed the path tail first.
 pub fn exit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     slot.motion = if (slot.motion == .follow_backwards) .backward else .forward;
 }
 
-/// `order_ship_follow_curve_backwards_exit` (`0x004038C0`): the ship flies its own motion ahead again.
+/// `order_ship_follow_curve_backwards_exit` (`0x004038C0`): the ship flies its own motion ahead
+/// again.
 pub fn backwardsExit(ctx: Context, index: u16) void {
     ctx.world.objects.slots[index].motion = .forward;
 }
 
 /// `follow_curve_way` (`0x00403200`), which `motion_follow` calls for Ship Follow Curve: the point
 /// of the ship's curve as far along as the curve's ticks have gone, carried with the order's offset
-/// ship. Past a place a point marks, the point has the ship's ShipReached, one place an update. At
-/// the curve's end the ship it ends at has the ship's ShipReached, and the curve that carries the
-/// path on begins; with none, the path is over.
+/// ship. Past a place a point marks, the point has the ship's ShipReached, one place an update
+/// (`curves.passMarker`). At the curve's end the ship it ends at has the ship's ShipReached, and
+/// the curve that carries the path on begins; with none, the path is over.
 ///
-/// **Fix:** at a curve that ends at no ship, the game carries the path on to a curve that starts or
-/// ends at none; OpenReliant ends the path there, as its length has it (`curves.pathLength`).
+/// **Fix:** the game moves the step on, and posts the end's ShipReached, at every move past the
+/// path's end, so that a second move before the order's update, a collision's or that of a second
+/// step in the same pass, leaves the order running, to fly the path again once the step comes
+/// round; OpenReliant moves it on once.
+///
+/// Not ported: an end to a path that comes round on itself, which it flies for ever, where the
+/// path's length and its walk backwards stop at as many curves as the mission has
+/// (`curves.following`, [#535](https://github.com/vdmkenny/openreliant/issues/535)).
 pub fn curveWay(world: gameobj.World, index: u16) motion.Way {
-    const all = world.objects;
-    const slot = &all.slots[index];
+    const slot = &world.objects.slots[index];
     const state = &slot.state.follow;
-    const data = entryData(all, index);
-    const list = missionCurves(world);
-    if (state.curve >= list.len) {
-        state.step = @intFromEnum(Step.done);
-        return .{ .point = gameobj.vector(slot.object.root.position) };
-    }
-    const curve = list[state.curve];
+    const list = world.missionCurves();
+    const at = followed(state, list) orelse return .{ .point = gameobj.vector(slot.object.root.position) };
+    const curve = list[at];
     const t = share(world, state.*);
-    const point = ride(world, data, state.*, curves.point(curve, t));
-    if (state.next_marker > 0 and t > state.next_marker) {
-        const marker = curves.nextMarker(missionShips(world), @intCast(state.curve), state.next_marker);
-        state.next_marker = marker.at;
+    const point = ride(world, entryData(world.objects, index), state.*, curves.point(curve, t));
+    if (curves.passMarker(world.missionShips(), at, state.nextMarker(), t)) |marker| {
+        state.next_marker = marker.at orelse 0;
         if (marker.passed) |ship| events.shipReached(world, ship, index);
     }
-    if (t >= 1) {
+    if (t >= 1 and state.step == .following) {
         if (curve.endShip()) |end| {
             events.shipReached(world, end, index);
-            if (curves.next(list, state.curve, end, false)) |following| {
-                beginCurve(.{ .world = world, .clock = world.clock }, index, @intCast(following));
+            if (curves.next(list, at, end, false)) |following| {
+                beginCurve(world, index, @intCast(following));
                 return .{ .point = point };
             }
         }
-        state.step +%= 1;
+        state.step = .done;
     }
     return .{ .point = point };
 }
@@ -293,120 +324,152 @@ pub fn curveWay(world: gameobj.World, index: u16) motion.Way {
 /// the point of the ship's curve as far back from its end as the curve's ticks have gone, carried
 /// with the order's offset ship. Past the curve's start, the curve before it begins (`lastCurve`),
 /// or at the order's own curve the path is over.
+///
+/// **Fix:** the game moves the step on at every move past the path's start, so that a second move
+/// before the order's update, a collision's or that of a second step in the same pass, leaves the
+/// order running, to fly the path again once the step comes round; OpenReliant moves it on once.
+/// A curve given no ticks is past its start at once (`share`).
 pub fn backwardsWay(world: gameobj.World, index: u16) motion.Way {
-    const all = world.objects;
-    const slot = &all.slots[index];
+    const slot = &world.objects.slots[index];
     const state = &slot.state.follow;
-    const data = entryData(all, index);
-    const list = missionCurves(world);
-    if (state.curve >= list.len) {
-        state.step = @intFromEnum(Step.done);
-        return .{ .point = gameobj.vector(slot.object.root.position) };
-    }
+    const list = world.missionCurves();
+    const at = followed(state, list) orelse return .{ .point = gameobj.vector(slot.object.root.position) };
+    const data = entryData(world.objects, index);
     const t = 1 - share(world, state.*);
-    const point = ride(world, data, state.*, curves.point(list[state.curve], t));
-    if (t < 0) {
+    const point = ride(world, data, state.*, curves.point(list[at], t));
+    if ((t < 0 or state.ticks == 0) and state.step == .following) {
         if (state.curve == data.curve) {
-            state.step +%= 1;
+            state.step = .done;
         } else {
-            lastCurve(.{ .world = world, .clock = world.clock }, index, state.curve);
+            lastCurve(world, index, state.curve);
         }
     }
     return .{ .point = point };
 }
 
-/// How far along its curve the ship is: the ticks since the curve began over the curve's.
-///
-/// **Fix:** the game divides by nothing for a curve given no ticks; OpenReliant takes it to the
-/// curve's end.
+/// The curve the ship follows now, by its index (`curveIn`); where the mission lacks it, the path
+/// is over.
+fn followed(state: *State, list: []align(1) const dte.Curve) ?u16 {
+    const at = curveIn(list, state.curve);
+    if (at == null) state.step = .done;
+    return at;
+}
+
+/// Curve `curve` of `list`, by its index, where the list has it: not for `Data.none`.
+fn curveIn(list: []align(1) const dte.Curve, curve: u32) ?u16 {
+    const at = std.math.cast(u16, curve) orelse return null;
+    return if (at < list.len) at else null;
+}
+
+/// How far along its curve the ship is: the mission's ticks since the curve began over the curve's
+/// (`curves.along`, whose **Fix** takes a curve given no ticks to its end, and so past its start
+/// going backwards, as the game's endless share does).
 fn share(world: gameobj.World, state: State) f32 {
-    if (state.ticks == 0) return 1;
-    const since = world.clock.frame_start -% @as(i32, @bitCast(state.since));
-    return @as(f32, @floatFromInt(since)) / @as(f32, @floatFromInt(state.ticks));
+    return curves.along(@floatFromInt(world.clock.mission_ticks -% state.since), state.ticks);
 }
 
 /// `on`, a point of the path, carried with the order's offset ship where it has one: by how far the
 /// ship stood from where the mission placed it as the order began (`curves.ride`).
 fn ride(world: gameobj.World, data: Data, state: State, on: Vector) Vector {
-    const ship = offsetShip(data) orelse return on;
-    const ships = missionShips(world);
-    if (ship >= ships.len) return on;
-    return curves.ride(on, ships[ship].position, state.start, null);
+    return curves.ride(world.missionShips(), data.offsetShip(), on, state.start, null);
 }
 
-fn offsetShip(data: Data) ?u16 {
-    return if (data.offset == Data.none) null else std.math.cast(u16, data.offset);
-}
-
-fn entryData(all: anytype, index: u16) Data {
+/// The data of the order on top of the stack of the object in slot `index`.
+fn entryData(all: *const create.Objects, index: u16) Data {
     return all.slots[index].orders[0].data.follow;
 }
 
-fn missionCurves(world: gameobj.World) []align(1) const dte.Curve {
-    const bound = world.mission orelse return &.{};
-    return bound.file.curves() catch &.{};
-}
+/// The module, whose `init` the tests' `TestPath.init` hides.
+const follow = @This();
 
-fn missionShips(world: gameobj.World) []align(1) const dte.Ship {
-    const bound = world.mission orelse return &.{};
-    return bound.file.ships() catch &.{};
-}
-
-/// A mission of four ships: the player's, a Predator that follows the path, and the two points
-/// curve 0 runs between, 4000 apart along Z, each in the slot of its index.
+/// A mission of the ships `records` and the curves `list`, each ship's object in the slot of its
+/// index: the player's far above, the follower, a Predator, 100 short of where the paths start,
+/// and the rest where the paths start.
 const TestPath = struct {
-    fixture: @import("../../vm.zig").machine.testing.Fixture,
-    game: gameobj.testing.Mission,
+    game: vm.machine.testing.Game,
 
     /// The follower's slot.
     const follower = 1;
 
-    fn init(path: *TestPath) !void {
-        const gpa = std.testing.allocator;
-        var ships: [4]dte.Ship = @splat(std.mem.zeroes(dte.Ship));
-        for (&ships, 0..) |*ship, n| {
-            ship.object_id = @intCast(n);
-            ship.flight_group = dte.Ship.no_flight_group;
-            ship.kind = if (n < 2) @intFromEnum(gameobj.Type.predator) else dte.Ship.curve_point_kind;
-        }
-        try path.fixture.init(gpa, &.{}, .{ .ships = &ships, .curves = &.{curves.testCurve(2, 3, .{ 0, 0, 0 }, .{ 0, 0, 4000 })} });
-        errdefer path.fixture.deinit();
-        try path.game.init(gpa);
-        for ([_]Vector{ .{ 0, 50000, 0 }, .{ 0, 0, -100 }, .{ 0, 0, 0 }, .{ 0, 0, 4000 } }) |at| _ = try path.game.add(.predator, at);
+    /// Curve 0, from point 2 to point 3, 4000 apart along Z.
+    const straight = [_]dte.Curve{dte.testing.curve(2, 3, .{ 0, 0, 0 }, .{ 0, 0, 4000 })};
+
+    /// Curve 0, from point 2 to point 3, 1000 along Z, and curve 1, which carries the path on from
+    /// point 3 to point 4, 3000 more.
+    const two = [_]dte.Curve{
+        dte.testing.curve(2, 3, .{ 0, 0, 0 }, .{ 0, 0, 1000 }),
+        dte.testing.curve(3, 4, .{ 0, 0, 1000 }, .{ 0, 0, 4000 }),
+    };
+
+    /// The records of the player's ship, the follower, and `count - 2` curve points.
+    fn ships(comptime count: usize) [count]dte.Ship {
+        var made = dte.testing.ships(count, dte.Ship.curve_point_kind);
+        for (made[0..2]) |*ship| ship.kind = @intFromEnum(gameobj.Type.predator);
+        return made;
     }
 
-    fn deinit(path: *TestPath) void {
-        path.game.deinit();
-        path.fixture.deinit();
+    fn init(path: *TestPath, records: []const dte.Ship, list: []const dte.Curve) !void {
+        try path.game.init(std.testing.allocator, &.{}, .{ .ships = records, .curves = list });
+        errdefer path.game.deinit();
+        for (0..records.len) |n| _ = try path.game.mission.add(.predator, switch (n) {
+            0 => .{ 0, 50000, 0 },
+            1 => .{ 0, 0, -100 },
+            else => @splat(0),
+        });
     }
 
-    fn orders(path: *TestPath) Context {
-        var ctx = path.game.orders();
-        ctx.world.mission = &path.fixture.mission;
-        return ctx;
+    /// The mission's tick `at`, as a frame begins and through its steps.
+    fn tick(path: *TestPath, at: i32) void {
+        path.game.mission.clock.mission_ticks = at;
+        path.game.mission.clock.frame_start = at;
     }
 
     /// The follower's orders and its move, at the frame's tick `at`.
     fn frame(path: *TestPath, at: i32) void {
-        path.game.clock.frame_start = at;
-        aigeneric.objectOrders(path.orders(), follower);
-        motion.moveSlot(path.orders().world, follower);
+        path.tick(at);
+        aigeneric.objectOrders(path.game.orders(), follower);
+        motion.moveSlot(path.game.world(), follower);
     }
 
-    /// Gives the follower `order` along curve 0 for four seconds.
-    fn give(path: *TestPath, order: @import("orders.zig").Order) !*@import("../create.zig").Slot {
-        const slot = path.game.slot(follower);
+    /// Gives the follower `order` along the path from curve 0 for four seconds.
+    fn give(path: *TestPath, order: Order) !*create.Slot {
+        const slot = path.game.mission.slot(follower);
         slot.motion = .forward;
-        try std.testing.expect(try aigeneric.push(path.orders(), follower, order, .none));
-        slot.orders[0].data = .{ .follow = .{ .curve = 0, .seconds = 4, .offset = Data.none } };
+        try std.testing.expect(try aigeneric.push(path.game.orders(), follower, order, .none));
+        slot.orders[0].data = .{ .follow = .of(0, 4, null) };
         return slot;
+    }
+
+    /// The follower's state, its order `order` begun at tick 100 (`init` or `backwardsInit`), as
+    /// the order's first run begins it, and following its path.
+    fn following(path: *TestPath, order: Order) !*State {
+        const slot = try path.give(order);
+        path.tick(100);
+        switch (order) {
+            .ship_follow_curve => follow.init(path.game.orders(), follower),
+            else => backwardsInit(path.game.orders(), follower),
+        }
+        slot.object.order_starting = false;
+        slot.state.follow.step = .following;
+        return &slot.state.follow;
+    }
+
+    /// The follower's way along its path at tick `at`.
+    fn way(path: *TestPath, at: i32) motion.Way {
+        path.tick(at);
+        const slot = path.game.mission.slot(follower);
+        return switch (slot.state.follow.follower.path) {
+            .curve_backwards => backwardsWay(path.game.world(), follower),
+            else => curveWay(path.game.world(), follower),
+        };
     }
 };
 
 test "a ship follows the path from where it starts, for the order's seconds" {
     var path: TestPath = undefined;
-    try path.init();
-    defer path.deinit();
+    const records = TestPath.ships(4);
+    try path.init(&records, &TestPath.straight);
+    defer path.game.deinit();
     const slot = try path.give(.ship_follow_curve);
 
     // It stands within reach of the path's start, so it is there at once, and then follows.
@@ -414,9 +477,9 @@ test "a ship follows the path from where it starts, for the order's seconds" {
     const state = &slot.state.follow;
     try std.testing.expectEqual(400, state.ticks);
     try std.testing.expectEqual(4000, state.path_length);
-    try std.testing.expectEqual(@intFromEnum(Step.ready), state.step);
+    try std.testing.expectEqual(Step.ready, state.step);
     path.frame(100);
-    try std.testing.expectEqual(@intFromEnum(Step.following), state.step);
+    try std.testing.expectEqual(Step.following, state.step);
     path.frame(100);
     try std.testing.expectEqual(motion.Motion.follow, slot.motion.?);
     // Half way through the seconds, its way is the curve's middle, 2100 on: further than its top
@@ -426,7 +489,7 @@ test "a ship follows the path from where it starts, for the order's seconds" {
     try std.testing.expectEqual(1, slot.object.throttle);
     // At the curve's end, which carries the path on nowhere, the path is over, and so the order.
     path.frame(500);
-    try std.testing.expectEqual(@intFromEnum(Step.done), state.step);
+    try std.testing.expectEqual(Step.done, state.step);
     path.frame(500);
     try std.testing.expectEqual(0, slot.object.order_count);
     try std.testing.expectEqual(motion.Motion.forward, slot.motion.?);
@@ -434,29 +497,228 @@ test "a ship follows the path from where it starts, for the order's seconds" {
 
 test "a ship follows the path backwards, from its end" {
     var path: TestPath = undefined;
-    try path.init();
-    defer path.deinit();
+    const records = TestPath.ships(4);
+    try path.init(&records, &TestPath.straight);
+    defer path.game.deinit();
     const slot = try path.give(.ship_follow_curve_backwards);
 
     // It stands far from the path's end, so it flies there first, its own motion ahead.
     path.frame(100);
     const state = &slot.state.follow;
-    try std.testing.expectEqual(@intFromEnum(Step.arriving), state.step);
+    try std.testing.expectEqual(Step.arriving, state.step);
     try std.testing.expectEqual(motion.Motion.forward, slot.motion.?);
     try std.testing.expect(slot.object.throttle > 0);
     // Once there, it follows the path from its end back to its start.
     slot.object.root.next_position = .{ .x = 0, .y = 0, .z = 4000 };
     path.frame(100);
-    try std.testing.expectEqual(@intFromEnum(Step.ready), state.step);
+    try std.testing.expectEqual(Step.ready, state.step);
     path.frame(100);
     path.frame(100);
     try std.testing.expectEqual(motion.Motion.follow, slot.motion.?);
-    const world = path.orders().world;
-    try std.testing.expectApproxEqAbs(4000, backwardsWay(world, TestPath.follower).point[2], 1e-2);
-    path.game.clock.frame_start = 300;
-    try std.testing.expectApproxEqAbs(2000, backwardsWay(world, TestPath.follower).point[2], 1e-2);
+    try std.testing.expectApproxEqAbs(4000, path.way(100).point[2], 1e-2);
+    try std.testing.expectApproxEqAbs(2000, path.way(300).point[2], 1e-2);
     // Past the start of the path's first curve, it is over.
-    path.game.clock.frame_start = 501;
-    _ = backwardsWay(world, TestPath.follower);
-    try std.testing.expectEqual(@intFromEnum(Step.done), state.step);
+    _ = path.way(501);
+    try std.testing.expectEqual(Step.done, state.step);
+}
+
+test "the path runs on the mission's ticks through a frame's steps" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    try path.init(&records, &TestPath.straight);
+    defer path.game.deinit();
+    _ = try path.following(.ship_follow_curve);
+
+    // The frame began at 100, but the steps since have run the mission on to 300: half way.
+    path.game.mission.clock.mission_ticks = 300;
+    try std.testing.expectApproxEqAbs(2000, curveWay(path.game.world(), TestPath.follower).point[2], 1e-2);
+}
+
+test "a second move past the path's end ends the order once" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    try path.init(&records, &TestPath.straight);
+    defer path.game.deinit();
+
+    // Forward, two moves past the end before the order's update leave it done, and the update
+    // ends the order.
+    const state = try path.following(.ship_follow_curve);
+    _ = path.way(500);
+    _ = path.way(500);
+    try std.testing.expectEqual(Step.done, state.step);
+    aigeneric.objectOrders(path.game.orders(), TestPath.follower);
+    const slot = path.game.mission.slot(TestPath.follower);
+    try std.testing.expectEqual(0, slot.object.order_count);
+
+    // Backwards likewise, past the start of the order's own curve.
+    const back = try path.following(.ship_follow_curve_backwards);
+    _ = path.way(501);
+    _ = path.way(501);
+    try std.testing.expectEqual(Step.done, back.step);
+    aigeneric.objectOrders(path.game.orders(), TestPath.follower);
+    try std.testing.expectEqual(0, slot.object.order_count);
+}
+
+test "the path runs on through the curve that carries it" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(5);
+    try path.init(&records, &TestPath.two);
+    defer path.game.deinit();
+
+    // The first curve takes a quarter of the path, and so of its 400 ticks.
+    const state = try path.following(.ship_follow_curve);
+    try std.testing.expectApproxEqAbs(4000, state.path_length, 1e-1);
+    try std.testing.expectApproxEqAbs(100, @as(f32, @floatFromInt(state.ticks)), 1);
+    // At its end, the second begins, now, with the rest of the ticks.
+    const end = 100 + @as(i32, state.ticks);
+    _ = path.way(end);
+    try std.testing.expectEqual(1, state.curve);
+    try std.testing.expectEqual(end, state.since);
+    try std.testing.expectApproxEqAbs(300, @as(f32, @floatFromInt(state.ticks)), 1);
+    try std.testing.expectEqual(Step.following, state.step);
+}
+
+test "backwards, the path begins at its last curve and steps back to the one before" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(5);
+    try path.init(&records, &TestPath.two);
+    defer path.game.deinit();
+
+    const state = try path.following(.ship_follow_curve_backwards);
+    try std.testing.expectEqual(1, state.curve);
+    try std.testing.expectApproxEqAbs(300, @as(f32, @floatFromInt(state.ticks)), 1);
+    // Past its start, the curve before it begins, now.
+    _ = path.way(100 + @as(i32, state.ticks) + 1);
+    try std.testing.expectEqual(0, state.curve);
+    try std.testing.expectApproxEqAbs(100, @as(f32, @floatFromInt(state.ticks)), 1);
+    try std.testing.expectEqual(Step.following, state.step);
+}
+
+test "passing a place a point marks looks for the next" {
+    var path: TestPath = undefined;
+    var records = TestPath.ships(5);
+    records[4].kind = dte.Ship.point_kind;
+    records[4].marker_curve = 0;
+    records[4].marker_at = 0.5;
+    try path.init(&records, &TestPath.straight);
+    defer path.game.deinit();
+
+    const state = try path.following(.ship_follow_curve);
+    try std.testing.expectEqual(0.5, state.next_marker);
+    // Short of it, it waits; past it, there is none further.
+    _ = path.way(250);
+    try std.testing.expectEqual(0.5, state.next_marker);
+    _ = path.way(400);
+    try std.testing.expectEqual(0, state.next_marker);
+}
+
+test "the path stands off as far as its ship stood as the order began" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    try path.init(&records, &TestPath.straight);
+    defer path.game.deinit();
+    const slot = try path.give(.ship_follow_curve);
+    // The player's ship carries it, placed at the origin and standing 50000 above.
+    slot.orders[0].data.follow = .of(0, 4, 0);
+    path.tick(100);
+    init(path.game.orders(), TestPath.follower);
+    slot.state.follow.step = .following;
+    try std.testing.expectEqual([3]f32{ 0, 50000, 0 }, slot.state.follow.start);
+    // Where it goes since does not move the path.
+    path.game.mission.slot(0).object.root.position = .{ .x = 0, .y = 0, .z = 0 };
+    const at = path.way(300).point;
+    try std.testing.expectApproxEqAbs(50000, at[1], 1e-2);
+    try std.testing.expectApproxEqAbs(2000, at[2], 1e-2);
+}
+
+test "a path of no length gives its curve all the order's ticks" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    try path.init(&records, &.{dte.testing.curve(2, 3, .{ 0, 0, 0 }, .{ 0, 0, 0 })});
+    defer path.game.deinit();
+    const state = try path.following(.ship_follow_curve);
+    try std.testing.expectEqual(0, state.path_length);
+    try std.testing.expectEqual(400, state.ticks);
+}
+
+test "a curve's ticks hold at 65535" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    try path.init(&records, &TestPath.straight);
+    defer path.game.deinit();
+    const slot = try path.give(.ship_follow_curve);
+    slot.orders[0].data.follow.seconds = 1000;
+    init(path.game.orders(), TestPath.follower);
+    try std.testing.expectEqual(std.math.maxInt(u16), slot.state.follow.ticks);
+}
+
+test "a path that comes round on itself is walked no further than its curves" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    try path.init(&records, &.{
+        dte.testing.curve(2, 3, .{ 0, 0, 0 }, .{ 0, 0, 1000 }),
+        dte.testing.curve(3, 2, .{ 0, 0, 1000 }, .{ 0, 0, 0 }),
+    });
+    defer path.game.deinit();
+    // Backwards, the walk to the last curve takes each once, and ends at the second.
+    const state = try path.following(.ship_follow_curve_backwards);
+    try std.testing.expectEqual(1, state.curve);
+    // Past its start, the one before it, the order's own, ends the path.
+    _ = path.way(100 + @as(i32, state.ticks) + 1);
+    try std.testing.expectEqual(0, state.curve);
+    _ = path.way(100 + @as(i32, state.ticks) * 2 + 2);
+    try std.testing.expectEqual(Step.done, state.step);
+}
+
+test "the backward walk stops at a curve that ends at no ship" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    // Curve 0 ends at no ship, its reference's kind and its last byte set, and curve 1 starts at
+    // none.
+    try path.init(&records, &.{
+        dte.testing.curve(2, dte.Reference.unset, .{ 0, 0, 0 }, .{ 0, 0, 1000 }),
+        dte.testing.curve(dte.Reference.unset, 3, .{ 0, 0, 1000 }, .{ 0, 0, 2000 }),
+    });
+    defer path.game.deinit();
+    const state = try path.following(.ship_follow_curve_backwards);
+    try std.testing.expectEqual(0, state.curve);
+}
+
+test "a curve given no ticks ends the path, forward and backwards" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    try path.init(&records, &TestPath.straight);
+    defer path.game.deinit();
+
+    // Forward, it is at its end at once.
+    const state = try path.following(.ship_follow_curve);
+    state.ticks = 0;
+    _ = path.way(100);
+    try std.testing.expectEqual(Step.done, state.step);
+    aigeneric.objectOrders(path.game.orders(), TestPath.follower);
+
+    // Backwards, it is past its start at once, and the order ends.
+    const slot = try path.give(.ship_follow_curve_backwards);
+    slot.orders[0].data.follow.seconds = 0;
+    path.frame(100);
+    slot.object.root.next_position = .{ .x = 0, .y = 0, .z = 4000 };
+    path.frame(100);
+    try std.testing.expectEqual(Step.ready, slot.state.follow.step);
+    try std.testing.expectEqual(0, slot.state.follow.ticks);
+    path.frame(100);
+    try std.testing.expectEqual(Step.following, slot.state.follow.step);
+    path.frame(100);
+    try std.testing.expectEqual(Step.done, slot.state.follow.step);
+    path.frame(100);
+    try std.testing.expectEqual(0, slot.object.order_count);
+}
+
+test Data {
+    // A null takes the record's none, and comes back as none; an index comes back as itself.
+    const unset: Data = .of(null, 4, null);
+    try std.testing.expectEqual(Data{ .curve = Data.none, .seconds = 4, .offset = Data.none }, unset);
+    try std.testing.expectEqual(null, unset.offsetShip());
+    const carried: Data = .of(2, 4, 7);
+    try std.testing.expectEqual(Data{ .curve = 2, .seconds = 4, .offset = 7 }, carried);
+    try std.testing.expectEqual(7, carried.offsetShip());
 }

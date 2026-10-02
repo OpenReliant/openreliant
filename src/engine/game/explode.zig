@@ -814,7 +814,7 @@ pub fn soundClass(world: gameobj.World, at: Vector) ?sound3d.Class {
 
 /// Plays the first explosion's sound at `at`, on `class`.
 pub fn sound(world: gameobj.World, at: Vector, class: sound3d.Class) void {
-    sound3d.playIn(world, at, null, -1, .explosion01, 1, class);
+    sound3d.playIn(world, at, null, null, .explosion01, 1, class);
 }
 
 /// The flame a blast bursts into (`0x00553348`): five to six seconds of it, growing from nothing

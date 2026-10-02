@@ -854,7 +854,7 @@ test Cockpit {
     moving.rates = .{ 2, 0, 0 };
     const swayed = Cockpit.place(moving, &recoil, 0, null);
     try expectVector(.{ 0, 100, -250 }, swayed.root.position);
-    for (math.fromAngles(-0.1, 0, 0), swayed.root.orientation) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-6);
+    try math.testing.expectMatrixWithin(math.fromAngles(-0.1, 0, 0), swayed.root.orientation, 1e-6);
 
     // The guns' kick moves the hands back, and fades by a twentieth each frame.
     recoil = 1;
@@ -1445,8 +1445,9 @@ pub fn flyby(from: Vector, position: Vector, orientation: Matrix, radius: f32) P
     return lookingAt(at, position);
 }
 
+/// Whether `actual` is `expected`, each of its axes within a thousandth.
 fn expectVector(expected: Vector, actual: Vector) !void {
-    inline for (0..3) |i| try std.testing.expectApproxEqAbs(expected[i], actual[i], 1e-3);
+    return math.testing.expectVectorWithin(expected, actual, 1e-3);
 }
 
 test unstretched {

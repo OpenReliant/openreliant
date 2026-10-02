@@ -2586,16 +2586,14 @@ pub fn bandMesh(gpa: Allocator, segments: u16, radius: f32, depth: f32) Allocato
 /// `mesh_build_square` (`0x0044F000`): a rectangle facing along Z, `width` by `height` about its
 /// centre, its corners from the lower left round to the upper left, as two triangles, and where
 /// `two_sided` two more facing the other way. The texture spans it from its left edge to
-/// `square_span` of the way across, `v` 1 at the top; the callers set `u` to the whole of it. Its
-/// faces' planes, its vertex normals and its bounds are worked out; its one surface is left for the
-/// caller.
+/// `square_span` of the way across, `v` 1 at the top; the callers set `u` to the whole of it
+/// (`spanWhole`). Its faces' planes, its vertex normals and its bounds are worked out; its one
+/// surface is left for the caller.
 pub fn squareMesh(gpa: Allocator, two_sided: bool, width: f32, height: f32) Allocator.Error!srapiext.Mesh {
     const faces: usize = if (two_sided) 4 else 2;
     var mesh: srapiext.Mesh = try .create(gpa, .{ .polygons = faces, .vertices = 4, .indices = 3 * faces });
     errdefer mesh.deinit(gpa);
-    const w = width / 2;
-    const h = height / 2;
-    mesh.positions[0..4].* = .{ .{ -w, -h, 0 }, .{ w, -h, 0 }, .{ w, h, 0 }, .{ -w, h, 0 } };
+    mesh.positions[0..4].* = squareCorners(width, height);
     mesh.numberPolygons(3);
     const uv = try mesh.addCoordinates(gpa);
     mesh.indices[0..6].* = .{ 3, 2, 0, 2, 1, 0 };
@@ -2610,8 +2608,25 @@ pub fn squareMesh(gpa: Allocator, two_sided: bool, width: f32, height: f32) Allo
     return mesh;
 }
 
-/// How far across its texture `squareMesh` spans (`0x3F3F0000`).
+/// The corners of a rectangle facing along Z, `width` by `height` about its centre, from the lower
+/// left round to the upper left, as `squareMesh` lays them out.
+pub fn squareCorners(width: f32, height: f32) [4]Vector {
+    const w = width / 2;
+    const h = height / 2;
+    return .{ .{ -w, -h, 0 }, .{ w, -h, 0 }, .{ w, h, 0 }, .{ -w, h, 0 } };
+}
+
+/// Takes the texture of a one-sided square (`squareMesh`) to its far edge: `u` 1 where the square
+/// leaves it `square_span` across (`square_span_corners`).
+pub fn spanWhole(mesh: *srapiext.Mesh) void {
+    const uv = mesh.uv[0] orelse return;
+    for (square_span_corners) |corner| uv[corner][0] = 1;
+}
+
+/// How far across its texture `squareMesh` spans (`0x3F3F0000`), and the coordinates of its one
+/// side that span it.
 pub const square_span: f32 = 0.74609375;
+const square_span_corners = [_]usize{ 1, 3, 4 };
 
 test squareMesh {
     const gpa = std.testing.allocator;
@@ -2620,6 +2635,13 @@ test squareMesh {
     try std.testing.expectEqualSlices(Vector, &.{ .{ -2, -1, 0 }, .{ 2, -1, 0 }, .{ 2, 1, 0 }, .{ -2, 1, 0 } }, mesh.positions);
     try std.testing.expectEqualSlices(u16, &.{ 3, 2, 0, 2, 1, 0 }, mesh.indices);
     try std.testing.expectEqual([2]f32{ square_span, 0 }, mesh.uv[0].?[4]);
+    for (mesh.uv[0].?[0..6], 0..) |pair, corner| {
+        const spans = std.mem.indexOfScalar(usize, &square_span_corners, corner) != null;
+        try std.testing.expectEqual(if (spans) square_span else 0, pair[0]);
+    }
+    // Spanned whole, those reach the texture's far edge.
+    spanWhole(&mesh);
+    try std.testing.expectEqualSlices([2]f32, &.{ .{ 0, 1 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 0 }, .{ 0, 0 } }, mesh.uv[0].?[0..6]);
     // It faces along Z.
     for (mesh.planes) |plane| try std.testing.expectApproxEqAbs(1, @abs(plane.normal[2]), 1e-6);
     // Two-sided, the same corners again the other way round.

@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const dte = @import("../../formats/dte.zig");
 const shp = @import("../../formats/shp.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
@@ -207,7 +208,10 @@ pub const Component = extern struct {
     node: Pointer(Node),
     /// Where the node's parent lists it.
     slot: Pointer(Pointer(Node)),
-    /// Nonzero while the component is invulnerable: `SetInvulnerability` on the component.
+    /// The invulnerability `SetInvulnerability` gives the component: under 2 no hit harms it, and
+    /// under 1 only a hit a player's ship deals, as `Invulnerability.protects` reads an object's
+    /// (`component_damage`, `0x004645C0`); 0 for none. Nothing reads it yet
+    /// (`collision.componentDamage`, [#538](https://github.com/vdmkenny/openreliant/issues/538)).
     invulnerable: u16,
     _unknown_0a: u16,
 
@@ -243,9 +247,10 @@ pub const NetworkFlags = packed struct(u32) {
     /// Set by `object_move` when the object turns. The multiplayer code then sends its
     /// orientation.
     turned: bool,
-    /// Set while the Scoop Up order runs (`order_scoop_up_init`, `order_scoop_up`) and cleared
-    /// when it ends. The multiplayer code's round of updates (`0x004BBEF0`) skips the object.
-    _unknown_2: bool,
+    /// Set on a ship while it runs Scoop Up (`order_scoop_up_init`, cleared by
+    /// `order_scoop_up_exit`), and on its pod as Scoop Up draws it in (`order_scoop_up`). The
+    /// multiplayer code's round of updates (`0x004BBEF0`) skips the object.
+    scooping: bool,
     _unknown_3: u29,
 };
 
@@ -562,6 +567,15 @@ pub const Type = enum(u32) {
         return object_type.rock() == .asteroid;
     }
 
+    /// Whether it is one of the torpedoes, the Allies' or the Russians', by type (a ship's combat
+    /// class may also be `.torpedo`).
+    pub fn isTorpedo(object_type: Type) bool {
+        return switch (object_type) {
+            .torpedo, .russian_torpedo => true,
+            else => false,
+        };
+    }
+
     /// Asteroid `n`, from `ast_1.shp`, round and round the seven.
     pub fn asteroid(n: usize) Type {
         const range = rocks.get(.asteroid);
@@ -577,6 +591,13 @@ pub const Type = enum(u32) {
             .kronstadt => 0x11,
             .boridin => 0x13,
             else => null,
+        };
+    }
+
+    pub fn format(object_type: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        return switch (object_type) {
+            _ => writer.print("type {d}", .{@intFromEnum(object_type)}),
+            inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
 };
@@ -822,7 +843,9 @@ pub const GameObject = extern struct {
     recent_damage: f32,
     /// The slot of the object that last damaged it.
     last_attacker: Slot,
-    _unknown_698: u32,
+    /// The first ship of the last walk of a script command's ships that ran for it, or none where
+    /// it was the first (`for_each_ship_note`, `0x0045D720`). **Unknown:** what reads it.
+    _unknown_698: dte.Reference,
     /// Fight's timers: until when it holds its fire, until when it holds its missiles, and until
     /// when it holds its countermeasures, each from the pilot's `timings`.
     fire_at: i32,
@@ -967,9 +990,9 @@ pub const GameObject = extern struct {
         /// Set while the Dock and Ripper orders hold it to another object; their ends clear it.
         attached: bool = false,
         _unknown_23: bool = false,
-        /// **Unknown.** `mission_frame` lets the object's smoke go while it is set
-        /// (`smoke.frame`).
-        _unknown_24: bool = false,
+        /// The ship a pilot has left, set by `eject_separate`: its smoke goes (`smoke.frame`), and
+        /// a spin-out trails only every other bit (`aiexplode.spin`).
+        abandoned: bool = false,
         /// Set by `create_object` on an object whose model has an eject point
         /// (`shp.Attachment.Kind.eject_point`). **Unknown:** what reads it.
         eject_point: bool = false,
@@ -991,6 +1014,13 @@ pub const GameObject = extern struct {
         /// what an object of a type above 255 is given: it takes no part in collisions, never
         /// moves, and the loops over the objects pass it over.
         pub const standing_in: Flags = .{ .no_collisions = true, .unpowered = true, .frozen = true, .stand_in = true };
+
+        /// Lets the object move again: its motion routine runs, and `object_move` is run for it
+        /// (`unpowered` and `frozen` cleared together).
+        pub fn thaw(flags: *Flags) void {
+            flags.unpowered = false;
+            flags.frozen = false;
+        }
 
         /// Whether the object is out of the action: exploding, its pilot ejected, or being sent
         /// off (`sent_off`). It takes no orders then, and the AI passes over a player's ship
@@ -1054,6 +1084,21 @@ pub const GameObject = extern struct {
         object.holdTurns();
     }
 
+    /// Whether it has gone from the mission as the orders that work on it see it: a stand-in in
+    /// its slot, or exploding (`order_scoop_up`, `order_ripper_grabs_target_object`,
+    /// `order_launch`).
+    pub fn gone(object: *const GameObject) bool {
+        return object.type == .stand_in or object.flags.exploding;
+    }
+
+    /// Holds the turns and stops turning: no roll, pitch or yaw input, and no rate of turn.
+    pub fn holdStill(object: *GameObject) void {
+        object.holdTurns();
+        object.yaw_rate = 0;
+        object.pitch_rate = 0;
+        object.roll_rate = 0;
+    }
+
     /// Whether its sphere and `other`'s, their radii together `widen` wider, overlap where the
     /// next step has them: the collision sweep's test (`objects_update`, `objects_collide`), and
     /// `avoidance_scan`'s for an object that lists components.
@@ -1078,6 +1123,12 @@ pub const GameObject = extern struct {
     /// The way its nose will point at the next step.
     pub fn nextHeading(object: *const GameObject) Vector {
         return math.forward(object.root.next_orientation);
+    }
+
+    /// How wide its model is across, its bounds' X from least to most, which a jump's flare is
+    /// scaled by (`order_jump_out`, `order_jump_in`) and a missile's trail spaces its rings by.
+    pub fn width(object: *const GameObject) f32 {
+        return object.bounds_max.x - object.bounds_min.x;
     }
 
     comptime {
@@ -1209,6 +1260,10 @@ test "GameObject.Flags" {
     try std.testing.expect(flags.any());
     try std.testing.expect(!flags.within(.{ .frozen = true }).any());
     try std.testing.expect(flags.outOfSearch());
+    // A stand-in thawed moves again, and keeps its other flags.
+    var thawed = GameObject.Flags.standing_in;
+    thawed.thaw();
+    try std.testing.expectEqual(GameObject.Flags{ .no_collisions = true, .stand_in = true }, thawed);
 }
 
 test "GameObject.overlaps" {
@@ -1240,6 +1295,47 @@ test "GameObject.letGo" {
     try std.testing.expectEqual(0, object.roll_input);
 }
 
+test "GameObject.gone" {
+    var object = testing.object();
+    object.type = .predator;
+    try std.testing.expect(!object.gone());
+    object.flags.exploding = true;
+    try std.testing.expect(object.gone());
+    object.flags.exploding = false;
+    object.type = .stand_in;
+    try std.testing.expect(object.gone());
+}
+
+test "GameObject.holdStill" {
+    var object = testing.object();
+    object.throttle = 1;
+    object.yaw_input = 0.5;
+    object.pitch_input = -0.5;
+    object.roll_input = 0.25;
+    object.yaw_rate = 0.1;
+    object.pitch_rate = -0.2;
+    object.roll_rate = 0.3;
+    object.holdStill();
+    for ([_]f32{ object.yaw_input, object.pitch_input, object.roll_input, object.yaw_rate, object.pitch_rate, object.roll_rate }) |held| {
+        try std.testing.expectEqual(0, held);
+    }
+    // The throttle stays.
+    try std.testing.expectEqual(1, object.throttle);
+}
+
+test "GameObject.width" {
+    var object = testing.object();
+    object.bounds_min = .{ .x = -30, .y = -5, .z = -80 };
+    object.bounds_max = .{ .x = 20, .y = 5, .z = 90 };
+    try std.testing.expectEqual(50, object.width());
+}
+
+test "Type.format" {
+    var buffer: [16]u8 = undefined;
+    try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Type.reliant}));
+    try std.testing.expectEqualStrings("type 4096", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Type, @enumFromInt(0x1000))}));
+}
+
 test "Type.twin" {
     // The first twelve types have their twins from `player_twins_first`, which stand for them again.
     try std.testing.expectEqual(Type.t_phoenix, Type.phoenix.twin().?);
@@ -1258,6 +1354,12 @@ test "Type.rock" {
     try std.testing.expectEqual(0x79, Type.asteroid(0).number());
     try std.testing.expectEqual(0x7F, Type.asteroid(6).number());
     try std.testing.expectEqual(0x79, Type.asteroid(7).number());
+}
+
+test "Type.isTorpedo" {
+    try std.testing.expect(Type.torpedo.isTorpedo());
+    try std.testing.expect(Type.russian_torpedo.isTorpedo());
+    try std.testing.expect(!Type.sabre.isTorpedo());
 }
 
 test GunMode {
@@ -1474,6 +1576,45 @@ test stepsDue {
     try std.testing.expectEqual(0, stepsDue(&paced_at, 50));
 }
 
+/// What progress counts in: a thousandth for each tick (`0x004DC418`), as the jumps and the gates
+/// move theirs on. With a hundred ticks to the second, a rate of 1 runs from 0 to 1 in 10 seconds.
+pub const progress_per_tick: f32 = 0.001;
+
+/// The ticks from tick `updated` to `now`, which `updated` moves on to, wrapping across the limit
+/// of the ticks as the game's subtraction does.
+pub fn ticksSince(updated: *i32, now: i32) i32 {
+    defer updated.* = now;
+    return now -% updated.*;
+}
+
+/// The ticks since tick `updated`, which moves on to `now` (`ticksSince`), as progress counts them
+/// (`progress_per_tick`).
+pub fn progressSince(updated: *i32, now: i32) f32 {
+    return @as(f32, @floatFromInt(ticksSince(updated, now))) * progress_per_tick;
+}
+
+test ticksSince {
+    var updated: i32 = 100;
+    try std.testing.expectEqual(250, ticksSince(&updated, 350));
+    try std.testing.expectEqual(350, updated);
+    // Across the limit of the ticks it wraps.
+    updated = std.math.maxInt(i32) - 99;
+    try std.testing.expectEqual(250, ticksSince(&updated, std.math.minInt(i32) + 150));
+    try std.testing.expectEqual(std.math.minInt(i32) + 150, updated);
+}
+
+test progressSince {
+    var updated: i32 = 100;
+    // A thousandth for each tick, and the tick moves on.
+    try std.testing.expectEqual(0.25, progressSince(&updated, 350));
+    try std.testing.expectEqual(350, updated);
+    try std.testing.expectEqual(0, progressSince(&updated, 350));
+    // Across the limit of the ticks it wraps, as the game's subtraction does.
+    updated = std.math.maxInt(i32) - 99;
+    try std.testing.expectEqual(0.25, progressSince(&updated, std.math.minInt(i32) + 150));
+    try std.testing.expectEqual(std.math.minInt(i32) + 150, updated);
+}
+
 /// What a simulation step works on besides the clock and the devices, which the game keeps in
 /// globals: the live objects, the player's controls, and the camera's view and shake. The cruise
 /// speed reads the view (`object_cruise_speed`), and the player's speed raises the shake
@@ -1571,6 +1712,20 @@ pub const World = struct {
         const seen = world.camera orelse return null;
         return .{ .view = seen.place, .clock = world.clock, .random = world.random, .explosions = world.explosions };
     }
+
+    /// The bound mission's curves (section `curves`): none where no mission is bound, or where its
+    /// file's section cannot be read.
+    pub fn missionCurves(world: World) []align(1) const dte.Curve {
+        const bound = world.mission orelse return &.{};
+        return bound.file.curves() catch &.{};
+    }
+
+    /// The bound mission's ships (section `ships`), as its records place them: none where no
+    /// mission is bound, or where its file's section cannot be read.
+    pub fn missionShips(world: World) []align(1) const dte.Ship {
+        const bound = world.mission orelse return &.{};
+        return bound.file.ships() catch &.{};
+    }
 };
 
 /// `simulation_step` (`0x004774D0`): the work of every fourth tick, so 25 times a second, which
@@ -1611,8 +1766,8 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
     // The player's own order runs again here, before the objects move, so the controls tell on
     // every step rather than once a frame.
     const player = &all.slots[all.player];
-    if (player.object.order_count > 0 and player.orders[0].order == .player_control) {
-        aigeneric.objectOrders(.{ .world = world, .clock = clock, .devices = devices }, all.player);
+    if (player.running(.player_control) != null) {
+        aigeneric.objectOrders(.{ .world = world, .devices = devices }, all.player);
     }
     create.objectsUpdate(world);
     missiles.move(world.objects);
@@ -2065,12 +2220,30 @@ pub const testing = struct {
 
         /// What the objects' orders run against.
         pub fn orders(mission: *Mission) aigeneric.Context {
-            return .{ .world = mission.world(), .clock = &mission.clock };
+            return .of(mission.world());
         }
 
-        /// An object of `ship_type` at `at`, in the next slot.
+        /// The clock moves on `ticks`, and the orders of the object in slot `index` run against
+        /// `ctx` (`aigeneric.objectOrders`).
+        pub fn ordersAfter(mission: *Mission, ctx: aigeneric.Context, index: u16, ticks: i32) void {
+            mission.clock.frame_start += ticks;
+            aigeneric.objectOrders(ctx, index);
+        }
+
+        /// An object of `ship_type` at `at`, in the next slot, with no model.
         pub fn add(mission: *Mission, ship_type: Type, at: Vector) !u16 {
-            return create.createObject(mission.objects, &mission.tables, create.testing.no_models, null, ship_type, 0, at, &mission.random);
+            return mission.addWith(create.testing.no_models, ship_type, at);
+        }
+
+        /// An object of `ship_type` at `at`, in the next slot, of the model `types` gives it.
+        pub fn addWith(mission: *Mission, types: create.Types, ship_type: Type, at: Vector) !u16 {
+            return create.createObject(mission.objects, &mission.tables, types, null, ship_type, 0, at, &mission.random);
+        }
+
+        /// What the world makes its ships from: the mission's stats, and the models `types` gives
+        /// (`World.spawn`).
+        pub fn spawn(mission: *Mission, types: create.Types) World.Spawn {
+            return .{ .tables = &mission.tables, .types = types };
         }
 
         /// A ship that is nobody's, at `at`, which takes the orders the player's refuses: the
@@ -2085,6 +2258,22 @@ pub const testing = struct {
         }
     };
 };
+
+test "World.missionCurves and World.missionShips" {
+    const ships = dte.testing.ships(2, 0);
+    var game: @import("../vm.zig").machine.testing.Game = undefined;
+    try game.init(std.testing.allocator, &.{}, .{ .ships = &ships, .curves = &.{dte.testing.curve(0, 1, .{ 0, 0, 0 }, .{ 0, 0, 1000 })} });
+    defer game.deinit();
+    // With no mission bound, none.
+    try std.testing.expectEqual(0, game.mission.world().missionCurves().len);
+    try std.testing.expectEqual(0, game.mission.world().missionShips().len);
+    // Bound, its own.
+    const world = game.world();
+    try std.testing.expectEqual(1, world.missionCurves().len);
+    try std.testing.expectEqual(1, world.missionCurves()[0].end.index);
+    try std.testing.expectEqual(2, world.missionShips().len);
+    try std.testing.expectEqual(1, world.missionShips()[1].object_id);
+}
 
 test Quadrants {
     var shields: Quadrants = .all(5);
@@ -2248,7 +2437,7 @@ test recentreObject {
     var model: create.testing.Model = undefined;
     try model.init(gpa);
     defer model.deinit(gpa);
-    const index = try create.createObject(mission.objects, &mission.tables, model.types(), null, .predator, 0, .{ 0, 0, 100 }, &mission.random);
+    const index = try mission.addWith(model.types(), .predator, .{ 0, 0, 100 });
     const slot = mission.slot(index);
     try std.testing.expect(slot.object.radius > 0);
     // A part taken out of the model, as an ejection takes the ship off the pod, counts toward
@@ -2268,7 +2457,7 @@ test orthonormalizeTurn {
     orthonormalizeTurn(&root);
     const m = root.next_orientation;
     const back = math.product(math.transpose(m), m);
-    for (math.identity, back) |expected, found| try std.testing.expectApproxEqAbs(expected, found, 1e-6);
+    try math.testing.expectMatrixWithin(math.identity, back, 1e-6);
     try std.testing.expectEqual(0, m[2]);
     try std.testing.expectEqual(0, m[5]);
 }

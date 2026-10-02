@@ -319,10 +319,10 @@ test Atmospheres {
     const all = mission.objects;
     var planets: [capacity + 1]u16 = undefined;
     for (&planets, 0..) |*planet, n| {
-        planet.* = try create.createObject(all, &mission.tables, model.types(), null, .predator, 0, .{ @floatFromInt(n * 100000), 0, 0 }, &mission.random);
+        planet.* = try mission.addWith(model.types(), .predator, .{ @floatFromInt(n * 100000), 0, 0 });
         all.slots[planet.*].object.type = .neptune_hi;
     }
-    const ship = try create.createObject(all, &mission.tables, model.types(), null, .predator, 0, @splat(0), &mission.random);
+    const ship = try mission.addWith(model.types(), .predator, @splat(0));
 
     // A planet that has one gets its atmosphere; another object none, and a fifth planet none.
     atmospheres.made(all, ship);
@@ -337,7 +337,7 @@ test Atmospheres {
     const before = all.slots[planets[0]].drawn.orientation;
     try atmospheres.frame(gpa, &scene, all, .{ 0, 0, -5000 }, .{ 1, 0, 0 }, true, 0.5, 100);
     const turned = math.turned(before, .y, 100 * spin);
-    for (turned, all.slots[planets[0]].drawn.orientation) |want, got| try std.testing.expectApproxEqAbs(want, got, 1e-5);
+    try math.testing.expectMatrixWithin(turned, all.slots[planets[0]].drawn.orientation, 1e-5);
     try std.testing.expectEqual(capacity, scene.layers.get(.background).items.len);
     const ring = atmospheres.entries[0].ring;
     try std.testing.expectEqual(all.slots[planets[0]].drawn.position, ring.object.position);
@@ -375,7 +375,7 @@ test "an atmosphere round its planet, turning in place" {
     var atmospheres: Atmospheres = .{ .gpa = gpa, .image = &image };
     defer atmospheres.deinit();
     const all = mission.objects;
-    const planet = try create.createObject(all, &mission.tables, model.types(), null, .predator, 0, .{ 1000, 0, 0 }, &mission.random);
+    const planet = try mission.addWith(model.types(), .predator, .{ 1000, 0, 0 });
     all.slots[planet].object.type = .uranus_lo;
     atmospheres.made(all, planet);
     try std.testing.expectEqual(2 * round_segments, atmospheres.entries[0].ring.mesh.positions.len);
@@ -403,7 +403,7 @@ test "a haze, brighter toward the sun" {
     var atmospheres: Atmospheres = .{ .gpa = gpa, .image = &image };
     defer atmospheres.deinit();
     const all = mission.objects;
-    const planet = try create.createObject(all, &mission.tables, model.types(), null, .predator, 0, @splat(0), &mission.random);
+    const planet = try mission.addWith(model.types(), .predator, @splat(0));
     all.slots[planet].object.type = .jupiter_hi;
     all.slots[planet].model.?.parts[0].object.radius = 1000;
     atmospheres.made(all, planet);

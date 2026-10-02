@@ -111,8 +111,7 @@ pub const Beep = enum(u3) {
 /// only (`camera.View.fromCockpit`), `view` being this frame's.
 pub fn playBeep(sound: *hog_snd.Sound, view: camera.View, which: Beep) void {
     if (!view.fromCockpit()) return;
-    const bank = sound.stdsmp orelse return;
-    _ = sound.play(bank, Beep.first_sample + @as(usize, @intFromEnum(which)), Beep.volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+    _ = sound.playStandard(Beep.first_sample + @as(usize, @intFromEnum(which)), Beep.volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
 }
 
 /// `playBeep` in `world`, where there is one and anything is heard in it.
@@ -1849,11 +1848,7 @@ pub fn novaShown(slot: *const create.Slot) bool {
 }
 
 test "blind fire, and the charge arc for the Nova Cannon" {
-    const barrel = struct {
-        fn of(kind: guns.GunType) guns.Fitted {
-            return .{ .turret = .{ .fixed = .{ .muzzle = undefined, .type = kind } } };
-        }
-    }.of;
+    const barrel = guns.testing.barrel;
     var fitted = [_]guns.Fitted{ barrel(.pulse_cannon), barrel(.nova_cannon) };
     const table: [guns.max_groups]guns.Group = table: {
         var groups = guns.no_groups;
@@ -2627,9 +2622,9 @@ pub const State = struct {
     /// the target's index and component are set): the target of the player's Player Control
     /// order, which `followTarget` and `targetChanged` copy.
     shown: aigeneric.Target = .none,
-    /// The object the display draws as the target (`0x00569940`): the shown one, while the player
-    /// can aim at it.
-    target: ?u16 = null,
+    /// The object the display draws as the target (`0x00569940`): the shown one, with its slot,
+    /// while the player can aim at it.
+    target: ?ai.ValidTarget = null,
     /// What each form of the target display last showed, which it closes with.
     target_pictures: target_display.Pictures = .{},
     /// The quadrants of the player's ship, and of its target, whose armour hits have worn since
@@ -2713,14 +2708,14 @@ pub const State = struct {
     /// Control order's below the current one or else the current one's.
     pub fn followTarget(state: *State, all: *const create.Objects, multiplayer: bool) void {
         const slot = &all.slots[all.player];
-        const count: usize = @intCast(@max(slot.object.order_count, 1));
+        const stack = slot.stack();
         var entry = slot.orders[0];
-        for (slot.orders[1..count]) |deeper| {
+        if (stack.len > 1) for (stack[1..]) |deeper| {
             if (deeper.order == .player_control) {
                 entry = deeper;
                 break;
             }
-        }
+        };
         state.show(all, entry.target, multiplayer);
     }
 
@@ -2748,7 +2743,7 @@ pub const State = struct {
         const shown_ship = state.shown.slot();
         const friendly = if (shown_ship) |index| index < all.slots.len and all.slots[index].object.side == .friendly else false;
         const allowed: gameobj.GameObject.Flags = .{ .cloaked = friendly and !multiplayer };
-        state.target = if (ai.targetValid(all, state.shown, allowed)) shown_ship else null;
+        state.target = ai.ValidTarget.of(all, state.shown, allowed);
     }
 
     /// Opens `window`, one of the target display's forms, closing the other if it is up. Returns
@@ -3118,7 +3113,7 @@ pub fn targetKeys(state: *State, keys: Keys) void {
     const devices = keys.devices;
     state.under_reticle = if (keys.sight) |sight| underReticle(all, sight, keys.scale) else null;
     if (state.windows.status.get(.comms).phase == .open) if (keys.world) |world| {
-        keys.player.menu.run(.{ .world = world, .clock = world.clock, .devices = devices });
+        keys.player.menu.run(.{ .world = world, .devices = devices });
     };
 
     if (devices.active(.target_torpedo, true)) {
@@ -3356,7 +3351,7 @@ test "the display follows the player's target" {
 
     // A fighter comes up in the target display's small form, held open.
     input.setPlayerTarget(&t.state, all, @intCast(sabre), -1, false);
-    try std.testing.expectEqual(sabre, t.state.target.?);
+    try std.testing.expectEqual(sabre, t.state.target.?.slot);
     try std.testing.expectEqual(.opening, t.phase(.target));
     try std.testing.expect(t.state.windows.status.get(.target).held);
 
@@ -3368,7 +3363,7 @@ test "the display follows the player's target" {
     // A friendly ship cloaked is drawn, outside a multiplayer game.
     all.slots[reliant].object.flags.cloaked = true;
     t.state.followTarget(all, false);
-    try std.testing.expectEqual(reliant, t.state.target.?);
+    try std.testing.expectEqual(reliant, t.state.target.?.slot);
     t.state.followTarget(all, true);
     try std.testing.expectEqual(null, t.state.target);
 
@@ -4256,13 +4251,14 @@ pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetSce
             drawArrow(pen, sight, way, pen.art.paletteColour(nav_colour));
         }
     };
-    const index = state.target orelse return .none;
+    const aimed = state.target orelse return .none;
+    const index = aimed.slot;
     const struck = &all.slots[index];
     const hostile = struck.object.side == .hostile;
     var buffer: [16]u8 = undefined;
     const range = rangeText(&buffer, kilometres(all, index));
 
-    const part = ai.targetPart(all, state.shown);
+    const part = ai.targetPart(all, aimed);
     const node: math.Place = if (part) |found| found.drawn() else struck.drawn;
     const seen = sight.view(node.position);
     const on_screen = if (sight.pixel(seen)) |at| sight.onScreen(at) else false;
@@ -4289,7 +4285,7 @@ pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetSce
     }
 
     if (struck.object.flags.components or struck.object.side == .friendly) return .none;
-    const lead = ai.leadAim(all, all.player, state.shown, 1) orelse return .none;
+    const lead = ai.leadAim(all, all.player, aimed, 1) orelse return .none;
     state.lead_point = lead;
     const aim: Point = sight.projection.project(sight.view(lead));
     const cursor: Cursor = if (pixelOf(aim)) |at| .{ .at = at } else .beyond;
@@ -4785,7 +4781,7 @@ test "a hostile target ahead gets the lead cursor, whose point blind fire aims a
 
     const scene: TargetScene = .{ .sight = testSight(), .all = all, .mode = .cockpit };
     try std.testing.expect(try drawing.draw(gpa, &t.state, scene) == .at);
-    try std.testing.expectEqual(ai.leadAim(all, all.player, t.state.shown, 1).?, t.state.lead_point);
+    try std.testing.expectEqual(ai.leadAim(all, all.player, t.state.target.?, 1).?, t.state.lead_point);
 }
 
 test "a target whose box reaches behind the camera loses its range, not the game" {
@@ -4823,7 +4819,7 @@ test "the radar's contacts" {
     const friend = try mission.add(.predator, .{ 0, 0, -66000 });
     _ = try mission.add(.sabre, .{ 0, 0, 300000 });
     for ([_]u16{ target, hostile, friend, 4 }) |index| mission.slot(index).object.flags.targetable = true;
-    mission.slot(player).orders[0].target = .{ .kind = .ship, .index = @intCast(target), .component = -1 };
+    mission.slot(player).orders[0].target = .at(target, null);
 
     var contacts: Radar.Contacts = .of(all, 2, null);
     const ahead = contacts.next().?;
@@ -4954,27 +4950,8 @@ test "an object a hair in front of the camera's plane stands far from the reticl
     try std.testing.expectEqual(ahead, underReticle(all, testSight(), 1).?);
 }
 
-/// A sound player of `voices` voices, with `stdsmp` of `count` sounds.
-const TestSound = struct {
-    mixer: @import("../mss.zig").Mixer,
-    sound: hog_snd.Sound,
-
-    fn init(test_sound: *TestSound, voices: u8, stdsmp: []const u8) !void {
-        test_sound.mixer = .init(22050);
-        test_sound.sound.init(test_sound.mixer.driver(), voices, null);
-        test_sound.sound.stdsmp = try @import("../../formats/fat.zig").Bank.parse(stdsmp);
-    }
-
-    fn playing(test_sound: *TestSound) bool {
-        for (0..test_sound.sound.voice_count) |v| {
-            if (test_sound.sound.voicePlaying(@intCast(v))) return true;
-        }
-        return false;
-    }
-};
-
 test Beeps {
-    var heard: TestSound = undefined;
+    var heard: hog_snd.testing.Speaker = undefined;
     const bank = comptime hog_snd.testing.bank(Beep.first_sample + std.enums.values(Beep).len);
     try heard.init(4, &bank);
     var beeps: Beeps = .{};
@@ -4995,7 +4972,7 @@ test Beeps {
 }
 
 test "the enemy lock's warning" {
-    var heard: TestSound = undefined;
+    var heard: hog_snd.testing.Speaker = undefined;
     const bank = comptime hog_snd.testing.bank(1);
     try heard.init(2, &bank);
     const sound = &heard.sound;

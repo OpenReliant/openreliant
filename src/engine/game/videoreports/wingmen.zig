@@ -122,16 +122,16 @@ pub fn give(world: gameobj.World, command: Command, to: Addressee) void {
         },
     };
     drawForNothing(world, wingman);
-    const ctx: aigeneric.Context = .{ .world = world, .clock = world.clock };
+    const ctx: aigeneric.Context = .of(world);
     switch (command) {
-        .attack_my_target => _ = aigeneric.push(ctx, wingman, .fight, aim.target) catch false,
+        .attack_my_target => _ = aigeneric.give(ctx, wingman, .fight, aim.target),
         .back_off => {
             _ = aigeneric.pop(ctx, wingman);
             setAside(world, wingman);
         },
         .help_me => {
             const attacker = aim.attackers[world.random.rand() % aim.attackers.len];
-            _ = aigeneric.pushShip(ctx, wingman, .fight, attacker, aigeneric.Target.whole) catch false;
+            _ = aigeneric.giveShip(ctx, wingman, .fight, attacker, null);
         },
     }
     answer(world, wingman, command, .done);
@@ -185,11 +185,11 @@ fn pick(world: gameobj.World, command: Command, aim: Aim) ?u16 {
     const free = found[0..count];
     if (free.len == 0) return null;
     if (command == .back_off) return free[world.random.rand() % free.len];
-    const player = gameobj.vector(all.slots[all.player].object.root.next_position);
+    const player = all.slots[all.player].object.nextPosition();
     var reach: [mission.wing_size]f32 = undefined;
     var total: f32 = 0;
     for (free, reach[0..free.len]) |slot, *upto| {
-        total += math.distance(gameobj.vector(all.slots[slot].object.root.next_position), player);
+        total += math.distance(all.slots[slot].object.nextPosition(), player);
         upto.* = total;
     }
     const fall = world.random.fraction() * total;
@@ -232,7 +232,7 @@ fn attackers(all: *create.Objects, out: *[most_attackers]u16) ?[]const u16 {
     for (all.slots[0..all.count], 0..) |*slot, index| {
         const current = slot.current() orelse continue;
         if (current.order != .fight or current.target.index != all.player) continue;
-        const whole: aigeneric.Target = .{ .kind = .ship, .index = @intCast(index), .component = aigeneric.Target.whole };
+        const whole: aigeneric.Target = .at(@intCast(index), null);
         if (!ai.targetValid(all, whole, .{}) or slot.object.side != .hostile) continue;
         out[count] = @intCast(index);
         count += 1;
@@ -282,17 +282,17 @@ test "ATTACK MY TARGET" {
     try std.testing.expectEqual(heard.enemy, wingman.current().?.target.slotIn(all).?);
     try expectReply(&heard, replies.full.get(.attack_my_target).done);
     // Named again, it fights it already, and only says so.
-    heard.radio.reset(&heard.sound);
+    heard.radio.reset(&heard.speaker.sound);
     const orders = wingman.object.order_count;
     give(world, .attack_my_target, .{ .wingman = heard.wingman });
     try std.testing.expectEqual(orders, wingman.object.order_count);
     try expectReply(&heard, replies.full.get(.attack_my_target).done);
     // Not to be disturbed, it says it cannot; and the game picks none that are.
-    heard.radio.reset(&heard.sound);
+    heard.radio.reset(&heard.speaker.sound);
     wingman.object.flags.do_not_disturb = true;
     give(world, .attack_my_target, .{ .wingman = heard.wingman });
     try expectReply(&heard, replies.full.get(.attack_my_target).busy);
-    heard.radio.reset(&heard.sound);
+    heard.radio.reset(&heard.speaker.sound);
     give(world, .attack_my_target, .picked);
     try std.testing.expectEqual(null, heard.radio.reports[0]);
 }
@@ -306,14 +306,14 @@ test "BACK OFF" {
     heard.mission.clock.game_ticks = 100;
 
     // A wingman fighting the player's target stops, leaves it be a while, and says so.
-    _ = try aigeneric.pushShip(heard.mission.orders(), heard.wingman, .fight, heard.enemy, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(heard.mission.orders(), heard.wingman, .fight, heard.enemy, null);
     give(world, .back_off, .picked);
     try std.testing.expectEqual(0, wingman.object.order_count);
     try std.testing.expectEqual(heard.enemy, wingman.object.set_aside.index().?);
     try std.testing.expectEqual(100 + back_off_ticks, wingman.object.set_aside_until);
     try expectReply(&heard, replies.full.get(.back_off).done);
     // With none fighting it, the game picks nobody; one named leaves it be all the same.
-    heard.radio.reset(&heard.sound);
+    heard.radio.reset(&heard.speaker.sound);
     wingman.object.set_aside = .none;
     give(world, .back_off, .picked);
     try std.testing.expectEqual(null, heard.radio.reports[0]);
@@ -333,18 +333,18 @@ test "HELP ME" {
     const attacker = try heard.mission.add(.predator, .{ 0, 0, 3000 });
     all.slots[attacker].object.side = .hostile;
     all.slots[attacker].object.flags.targetable = true;
-    _ = try aigeneric.pushShip(heard.mission.orders(), attacker, .fight, 0, aigeneric.Target.whole);
+    _ = try aigeneric.pushShip(heard.mission.orders(), attacker, .fight, 0, null);
     give(world, .help_me, .picked);
     try std.testing.expectEqual(.fight, wingman.current().?.order);
     try std.testing.expectEqual(attacker, wingman.current().?.target.slotIn(all).?);
     try expectReply(&heard, replies.full.get(.help_me).done);
     // With no attacker, the player's hostile target is one; with neither, nothing is done.
-    heard.radio.reset(&heard.sound);
+    heard.radio.reset(&heard.speaker.sound);
     _ = aigeneric.pop(heard.mission.orders(), attacker);
     _ = aigeneric.pop(heard.mission.orders(), heard.wingman);
     give(world, .help_me, .picked);
     try std.testing.expectEqual(heard.enemy, wingman.current().?.target.slotIn(all).?);
-    heard.radio.reset(&heard.sound);
+    heard.radio.reset(&heard.speaker.sound);
     _ = aigeneric.pop(heard.mission.orders(), heard.wingman);
     all.slots[heard.enemy].object.side = .friendly;
     give(world, .help_me, .picked);

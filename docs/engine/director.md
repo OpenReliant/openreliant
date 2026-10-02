@@ -49,20 +49,27 @@ record holds it:
 p(t) = (2t³ - 3t² + 1) from + (3t² - 2t³) to + 10 (t³ - 2t² + t) leaving + 10 (t² - t³) arriving
 ```
 
-The four weights are `0x00457130`, `0x00457160`, `0x00457190` and `0x004571B0`. Past 1 the cubic
-runs on.
+`curve_axis` (`0x00457090`) works it out a component at a time, with the four weights
+`hermite_from` (`0x00457130`), `hermite_to` (`0x00457160`), `hermite_leaving` (`0x00457190`) and
+`hermite_arriving` (`0x004571B0`). Past 1 the cubic runs on.
 
 A curve's length (`curve_length`, `0x00457250`) is the sum of the chords between its points at each
-32nd of the way (`0x00457260`). The game takes those points from a table of the four weights at each
-32nd (`curve_weights`, `0x00529FC0`), which `mission_script_start` fills (`0x00456F00`); OpenReliant
-computes them, as the table holds them.
+32nd of the way (`curve_length_between`, `0x00457260`).
+
+**Improvement:** the game takes those points from a table of the four weights at each 32nd of the
+way (`curve_weights`, `0x00529FC0`), which `curve_weights_fill` (`0x00456F00`) fills as
+`mission_script_start` begins, through `curve_point_stepped` (`0x00456F70`); OpenReliant computes
+them.
 
 A path runs on from the ship a curve ends at through the curve that carries it on (`curve_next`,
 `0x00457200`): the first other curve that starts at that ship, or else ends at it. Its length
 (`curve_path_length`, `0x00457320`) is its curves', up to one that ends at no ship.
 
-**Fix:** the game measures a path that comes round on itself for ever; OpenReliant stops once it
-has taken as many curves as the mission has.
+**Fix:** the game walks a path that comes round on itself for ever, so that measuring it never
+ends. Two curves that end at the same ship are enough, as each carries the path on into the other.
+OpenReliant stops measuring and flying such a path once it has taken as many curves as the mission
+has, so that the shot ends. Ship Follow Curve still flies one for ever
+([#535](https://github.com/vdmkenny/openreliant/issues/535)).
 
 Ships follow the same paths by Ship Follow Curve and its backwards twin
 ([Following a path](orders.md#following-a-path)).
@@ -100,8 +107,9 @@ and with `t` their share of its own:
 nowhere; OpenReliant takes it to the curve's end. At a curve that ends at no ship, the game posts
 CameraReached on what lies past the mission's ships, reads the angles to turn to from there, and
 carries the path on to a curve that starts or ends at none; OpenReliant turns by the start's angles
-alone, and ends the path there, as its length has it. For a shot with neither curve nor ship, the
-game reads a ship at address zero; OpenReliant holds the camera where it is, level.
+alone, and ends the path there, as its length has it. It ends the path too once it has taken as many
+curves as the mission has ([Curves](#curves)). For a shot with neither curve nor ship, the game
+reads a ship at address zero; OpenReliant holds the camera where it is, level.
 
 **Improvement:** with smooth motion, the camera stands and turns as far on as the frame is drawn
 past its tick, and where the ships are drawn, so that it moves on every frame, as they do.

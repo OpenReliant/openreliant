@@ -69,7 +69,7 @@ pub const Flash = struct {
         const bounds = projection.bounds;
         flash.sprite[0].half_size = .{ (bounds[2] - bounds[0]) * distance, (bounds[3] - bounds[1]) * distance };
         flash.set.sprites = &flash.sprite;
-        flash.set.position = camera.position + math.forward(camera.orientation) * @as(Vector, @splat(distance));
+        flash.set.position = camera.ahead(distance);
         try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &flash.set }, .overlay);
     }
 };

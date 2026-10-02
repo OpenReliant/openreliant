@@ -172,7 +172,7 @@ pub const Audio = struct {
             setLevel(&sound.volumes, volume, @intFromFloat(@round(share * hog_snd.loudest)));
             sound.applyVolumes();
         } else if (tab.held_last == .effects) {
-            if (sound.stdsmp) |bank| _ = sound.play(bank, test_sound, sound.volumes.effects, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+            _ = sound.playStandard(test_sound, sound.volumes.effects, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         }
         tab.held_last = tab.held;
         tab.held = if (context.pointer.down) knobAt(sound.volumes, context.pointer.at) else null;

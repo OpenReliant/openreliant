@@ -14,7 +14,6 @@ const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const mss = @import("../mss.zig");
 const camera = @import("camera.zig");
-const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
 const hog_snd = @import("hog_snd.zig");
@@ -85,6 +84,13 @@ pub const Class = enum(u8) {
     flyby = 7,
     _,
 };
+
+/// The class an effect of the object in slot `index` takes, as its cloak or its jump: the player's
+/// own effects for the player's ship, and any voice for another's (the game's
+/// `(slot != player_index) - 1 & 2`).
+pub fn fxClass(all: *const create.Objects, index: u16) Class {
+    return if (index == all.player) .player_fx else .not_reserved;
+}
 
 /// A 3D sound's definition (`0x00507140`, `0x44` bytes each).
 pub const Definition = extern struct {
@@ -230,13 +236,18 @@ pub fn endAll(sound: *Sound) void {
 }
 
 /// `sound3d_play` (`0x0049D360`): plays a sound, placed by what its definition follows: `owner`'s
-/// shot or object, or `at` and `facing` for a point. `volume` is its share of the definition's
-/// volume. It is not started beyond its maximum distance, but for the engines' sounds. It takes a
-/// voice of `class`, else one not reserved, else borrows a free one of another class. Returns the
-/// voice, or null.
+/// shot or object, or `at` and `facing` for a point. `owner` is null for none, which the game
+/// passes, and keeps in the voice, as -1. `volume` is its share of the definition's volume. It is
+/// not started beyond its maximum distance, but for the engines' sounds. It takes a voice of
+/// `class`, else one not reserved, else borrows a free one of another class. Returns the voice, or
+/// null.
+///
+/// **Fix:** for a sound that follows a shot, a missile or an object, the game reads its table at
+/// `owner` as it is, before the table for none; OpenReliant plays nothing without an owner, or
+/// with one past its table.
 ///
 /// The game passes a fourth argument it never reads.
-pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: i32, which: sounds.Sound, volume: f32, class: Class) ?u8 {
+pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, volume: f32, class: Class) ?u8 {
     const driver = sound.driver orelse return null;
     if (!sound.effects.ready) return null;
     const bank = sound.effects.bank orelse return null;
@@ -251,8 +262,9 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: i3
     var min_distance = definition.min_distance;
     switch (definition.follows) {
         .shot => {
-            if (owner < 0 or owner >= scene.objects.bullets.pool.len) return null;
-            const shot = &scene.objects.bullets.pool[@intCast(owner)];
+            const fired = owner orelse return null;
+            if (fired >= scene.objects.bullets.pool.len) return null;
+            const shot = &scene.objects.bullets.pool[fired];
             position = shot.at;
             direction = math.normalize(shot.velocity);
         },
@@ -264,8 +276,7 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: i3
         // Where the missile goes next, facing the way it flies, still; or moving with it, and
         // its voice its own.
         .missile => {
-            if (owner < 0) return null;
-            const missile = scene.objects.missiles.get(@intCast(owner)) orelse return null;
+            const missile = scene.objects.missiles.get(owner orelse return null) orelse return null;
             position = missile.slot.object.nextPosition();
             direction = math.normalize(gameobj.vector(missile.slot.object.velocity));
             if (sound.missile_sound == .follows) {
@@ -276,10 +287,11 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: i3
         },
         .none, _ => return null,
         .object => {
-            if (owner < 0 or owner >= scene.objects.slots.len) return null;
-            const slot = &scene.objects.slots[@intCast(owner)];
+            const followed_at = owner orelse return null;
+            if (followed_at >= scene.objects.slots.len) return null;
+            const slot = &scene.objects.slots[followed_at];
             position = slot.object.nextPosition();
-            if (owner == scene.objects.player) position += math.transform(slot.drawn.orientation, player_sound_offset);
+            if (followed_at == scene.objects.player) position += math.transform(slot.drawn.orientation, player_sound_offset);
             velocity = gameobj.vector(slot.object.velocity);
             direction = math.forward(slot.drawn.orientation);
             if (slot.model) |model| radius = model.radius;
@@ -299,7 +311,7 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: i3
     }
     const file = bank.sound(definition.entry) orelse return null;
     voice.follows = definition.follows;
-    voice.owner = owner;
+    voice.owner = if (owner) |held| held else -1;
     voice.priority = @intCast(bank.entries[definition.entry].priority);
     voice.sound = @intFromEnum(which);
     voice.started = scene.clock.frame_start;
@@ -331,9 +343,15 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: i3
 }
 
 /// `play` where `world` is heard, in its scene; nothing where it is not.
-pub fn playIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: i32, which: sounds.Sound, volume: f32, class: Class) void {
+pub fn playIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, volume: f32, class: Class) void {
     const hearing = world.hearing orelse return;
     _ = play(hearing.sound, hearing.scene(world), at, facing, owner, which, volume, class);
+}
+
+/// `playIn` of `which` from where `at` stands, facing along its Z axis, owned by nothing, at its
+/// full volume: a door's sound, or a shield generator's.
+pub fn playFrom(world: gameobj.World, at: math.Place, which: sounds.Sound, class: Class) void {
+    playIn(world, at.position, math.forward(at.orientation), null, which, 1, class);
 }
 
 /// The engines' and the afterburner's sounds, which are started however far off they are.
@@ -432,7 +450,7 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             effects.engine = .burning;
             sound.end3D(burner);
             const class: Class = if (sound.burner_voice != null) .player_burners else .player_engines;
-            _ = play(sound, scene, null, null, @intCast(all.player), .burner01, 0, class);
+            _ = play(sound, scene, null, null, all.player, .burner01, 0, class);
         },
         .burning => if (burning) {
             const since: f32 = @floatFromInt(frame_start - effects.engine_changed_at);
@@ -442,7 +460,7 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             driver.set3DSamplePlaybackRate(sample, if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - math.ftol(grown * burner_pitch_step)));
         } else if (sound.burner_voice == null) {
             effects.engine_changed_at = -1;
-            _ = play(sound, scene, null, null, @intCast(all.player), engineSound(player.type), 0, .player_engines);
+            _ = play(sound, scene, null, null, all.player, engineSound(player.type), 0, .player_engines);
             effects.engine = .idle;
         } else {
             effects.engine = .cooling;
@@ -476,7 +494,7 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
 fn flybys(sound: *Sound, scene: Scene) void {
     const all = scene.objects;
     // The slot the player's order aims at, which the game takes for a ship's whatever its kind.
-    const aimed_at: ?u16 = if (aigeneric.current(all, all.player)) |entry| entry.target.slot() else null;
+    const aimed_at: ?u16 = if (all.slots[all.player].current()) |entry| entry.target.slot() else null;
     const looking = math.forward(scene.camera.orientation);
     for (all.slots[0..all.count], 0..) |*slot, index| {
         const combat = slot.combat orelse continue;
@@ -498,7 +516,7 @@ fn flybys(sound: *Sound, scene: Scene) void {
         if (cosine > (if (hostile) hostile_flyby_cosine else friendly_flyby_cosine)) continue;
         // In a multiplayer game every ship sounds as a friendly one; OpenReliant has none.
         const which: sounds.Sound = if (hostile) .pass01 else .pass02;
-        if (play(sound, scene, null, null, @intCast(index), which, 1, .flyby) != null) object.flyby_at = scene.clock.frame_start;
+        if (play(sound, scene, null, null, @as(u16, @intCast(index)), which, 1, .flyby) != null) object.flyby_at = scene.clock.frame_start;
     }
 }
 
@@ -521,9 +539,9 @@ const testing = struct {
     const bank_bytes = hog_snd.testing.bank(80);
 
     /// A sound on OpenReliant's Miles with its provider's 32 voices open, and the effects set up.
-    fn open(driver: mss.Driver, sound: *Sound) !void {
-        sound.init(driver, 4, null);
-        sound.open3D(try fat.Bank.parse(&bank_bytes));
+    fn open(speaker: *hog_snd.testing.Speaker) !void {
+        try speaker.init(4, null);
+        speaker.sound.open3D(try fat.Bank.parse(&bank_bytes));
     }
 
     fn scene(mission: *gameobj.testing.Mission) Scene {
@@ -538,10 +556,9 @@ const testing = struct {
 };
 
 test init {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    try testing.open(driver, &sound);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const sound = &speaker.sound;
     // OpenReliant's provider has 32 voices, so each takes its class from the third row.
     try std.testing.expectEqual(mss.max_3d_samples, sound.voice_3d_count);
     try std.testing.expectEqual(sounds.classes[2][0], sound.effects.classes[0]);
@@ -550,9 +567,9 @@ test init {
 }
 
 test "Sound.frame plays what the frame gathered" {
-    var mixer: mss.Mixer = .init(22050);
-    var sound: Sound = undefined;
-    try testing.open(mixer.driver(), &sound);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const sound = &speaker.sound;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
@@ -564,39 +581,73 @@ test "Sound.frame plays what the frame gathered" {
 }
 
 test play {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    try testing.open(driver, &sound);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const scene = testing.scene(&mission);
 
     // An explosion close by takes one of the explosions' voices and plays.
-    const v = play(&sound, scene, .{ 0, 0, 1000 }, null, -1, .explosion01, 1, .explosions).?;
+    const v = play(sound, scene, .{ 0, 0, 1000 }, null, null, .explosion01, 1, .explosions).?;
     try std.testing.expectEqual(Class.explosions, sound.effects.classes[v]);
     try std.testing.expectEqual(Follows.point, sound.voices_3d[v].follows);
     try std.testing.expectEqual(mss.Status.playing, driver.sample3DStatus(sound.voices_3d[v].sample));
     // Past its maximum distance it is not started.
-    try std.testing.expectEqual(null, play(&sound, scene, .{ 0, 0, 1e7 }, null, -1, .explosion01, 1, .explosions));
+    try std.testing.expectEqual(null, play(sound, scene, .{ 0, 0, 1e7 }, null, null, .explosion01, 1, .explosions));
 
     // Once the explosions' voices are all taken, one not reserved takes it, and then a free one of
     // another class, borrowed.
     for (sound.voices_3d[0..sound.voice_3d_count], sound.effects.classes[0..sound.voice_3d_count]) |*voice, class| {
         if (class == .explosions or class == .not_reserved) voice.owner = 0;
     }
-    const borrowed = play(&sound, scene, .{ 0, 0, 1000 }, null, -1, .explosion01, 1, .explosions).?;
+    const borrowed = play(sound, scene, .{ 0, 0, 1000 }, null, null, .explosion01, 1, .explosions).?;
     try std.testing.expect(sound.voices_3d[borrowed].borrowed);
     try std.testing.expect(sound.effects.classes[borrowed] != .guaranteed);
 }
 
+test playFrom {
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var world = mission.world();
+    const door: math.Place = .{ .position = .{ 0, 0, 1000 }, .orientation = math.rotation(.y, std.math.pi / 2.0) };
+    const voices = speaker.sound.voices_3d[0..speaker.sound.voice_3d_count];
+    const opening: i32 = @intFromEnum(sounds.Sound.dooropen);
+    // Where nothing is heard, it plays nothing.
+    playFrom(world, door, .dooropen, .not_reserved);
+    for (voices) |voice| try std.testing.expect(voice.sound != opening);
+    // Heard, it plays from the door, facing along it, owned by nothing.
+    world.hearing = speaker.hearing(&mission.clock);
+    playFrom(world, door, .dooropen, .not_reserved);
+    const voice = for (voices) |voice| {
+        if (voice.sound == opening) break voice;
+    } else return error.TestUnexpectedResult;
+    try std.testing.expectEqual(Follows.point_facing, voice.follows);
+    try std.testing.expectEqual(gameobj.vec3(door.position), voice.position);
+    try std.testing.expectApproxEqAbs(1, voice.direction.x, 1e-6);
+    try std.testing.expect(voice.isFree());
+}
+
+test fxClass {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const player = try mission.add(.predator, @splat(0));
+    const other = try mission.add(.predator, .{ 0, 0, 1000 });
+    try std.testing.expectEqual(Class.player_fx, fxClass(mission.objects, player));
+    try std.testing.expectEqual(Class.not_reserved, fxClass(mission.objects, other));
+}
+
 test MissileSound {
     const missiles = @import("missiles.zig");
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    try testing.open(driver, &sound);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const sound = &speaker.sound;
     var armed: missiles.testing.Armed = undefined;
     try armed.init(std.testing.allocator);
     defer armed.deinit();
@@ -612,25 +663,25 @@ test MissileSound {
     }.at;
 
     // Following, the voice is the missile's, carries farther, and moves with it.
-    const v = play(&sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
+    const v = play(sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
     try std.testing.expectEqual(v, missile.slot.object.sound_voice.index());
-    const reach = mixer.samples_3d[@intFromEnum(sound.voices_3d[v].sample)].state.placing.min_distance;
+    const reach = speaker.mixer.samples_3d[@intFromEnum(sound.voices_3d[v].sample)].state.placing.min_distance;
     try std.testing.expectApproxEqAbs(sounds.definitions[@intFromEnum(sounds.Sound.missile01)].min_distance * followed_missile_reach * hog_snd.distance_scale, reach, 1e-6);
     missile.slot.drawn.position = .{ 0, 0, 5000 };
     sound.update3D(scene);
-    try std.testing.expectApproxEqAbs(5000 * hog_snd.distance_scale, placed(&mixer, sound.voices_3d[v])[2], 1e-6);
+    try std.testing.expectApproxEqAbs(5000 * hog_snd.distance_scale, placed(&speaker.mixer, sound.voices_3d[v])[2], 1e-6);
     // Ended, the missile has no voice.
     sound.end3D(v);
     try std.testing.expectEqual(null, missile.slot.object.sound_voice.index());
 
     // Staying, the missile has no voice, and the sound keeps where it started.
     sound.missile_sound = .stays;
-    const still = play(&sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
+    const still = play(sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
     try std.testing.expectEqual(null, missile.slot.object.sound_voice.index());
-    const started = placed(&mixer, sound.voices_3d[still]);
+    const started = placed(&speaker.mixer, sound.voices_3d[still]);
     missile.slot.drawn.position = .{ 0, 0, 20000 };
     sound.update3D(scene);
-    try std.testing.expectEqual(started, placed(&mixer, sound.voices_3d[still]));
+    try std.testing.expectEqual(started, placed(&speaker.mixer, sound.voices_3d[still]));
 }
 
 test engineSound {
@@ -641,33 +692,32 @@ test engineSound {
 }
 
 test engineUpdate {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    try testing.open(driver, &sound);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const sound = &speaker.sound;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const player = try mission.add(.predator, .{ 0, 0, 0 });
     const scene = testing.scene(&mission);
-    try std.testing.expect(play(&sound, scene, null, null, player, engineSound(.predator), 0, .player_engines) != null);
+    try std.testing.expect(play(sound, scene, null, null, player, engineSound(.predator), 0, .player_engines) != null);
 
     // Idle, the throttle pitches the engine.
     const object = &mission.slot(player).object;
     object.throttle = 1;
-    engineUpdate(&sound, scene);
+    engineUpdate(sound, scene);
     try std.testing.expectEqual(EngineState.idle, sound.effects.engine);
     // The afterburner starts its own sound, which grows while it burns.
     object.afterburner = true;
-    engineUpdate(&sound, scene);
+    engineUpdate(sound, scene);
     try std.testing.expectEqual(EngineState.burning, sound.effects.engine);
     try std.testing.expectEqual(@intFromEnum(sounds.Sound.burner01), sound.voices_3d[sound.burner_voice.?].sound);
     // Let go, it fades over 25 ticks.
     object.afterburner = false;
-    engineUpdate(&sound, scene);
+    engineUpdate(sound, scene);
     try std.testing.expectEqual(EngineState.cooling, sound.effects.engine);
     mission.clock.frame_start += 26;
-    engineUpdate(&sound, scene);
+    engineUpdate(sound, scene);
     try std.testing.expectEqual(EngineState.idle, sound.effects.engine);
     try std.testing.expect(sound.voices_3d[sound.burner_voice.?].isFree());
 }
@@ -681,10 +731,9 @@ test hearsOwnFlyby {
 }
 
 test "a fighter flying past the camera is heard" {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    try testing.open(driver, &sound);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const sound = &speaker.sound;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
@@ -692,7 +741,7 @@ test "a fighter flying past the camera is heard" {
     const other = try mission.add(.predator, .{ 0, 0, 2000 });
     mission.slot(player).drawn.position = .{ 0, 0, -50000 };
     const scene = testing.scene(&mission);
-    try std.testing.expect(play(&sound, scene, null, null, player, engineSound(.predator), 0, .player_engines) != null);
+    try std.testing.expect(play(sound, scene, null, null, player, engineSound(.predator), 0, .player_engines) != null);
 
     // Close by, at speed, and going the other way from where the camera looks.
     const object = &mission.slot(other).object;
@@ -701,10 +750,10 @@ test "a fighter flying past the camera is heard" {
     object.velocity = .{ .x = 0, .y = 0, .z = -300 };
     object.side = .hostile;
     mission.clock.frame_start = 1000;
-    engineUpdate(&sound, scene);
+    engineUpdate(sound, scene);
     try std.testing.expectEqual(1000, object.flyby_at);
     // Not again for 500 ticks.
     object.flyby_at = 900;
-    engineUpdate(&sound, scene);
+    engineUpdate(sound, scene);
     try std.testing.expectEqual(900, object.flyby_at);
 }

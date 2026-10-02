@@ -68,6 +68,11 @@ pub const Contents = struct {
 
 pub const Sections = [dte.section_count]Contents;
 
+/// Has `sections` hold `bytes` in section `which`, counted as `count` records.
+pub fn set(sections: *Sections, which: Section, count: usize, bytes: []const u8) void {
+    sections[@intFromEnum(which)] = .{ .count = @intCast(count), .bytes = bytes };
+}
+
 pub const Options = struct {
     formats: DirectoryEntry.Formats = template.formats,
     /// OpenReliant's own name for the mission, which goes in section 21 (`dte.OpenReliantName`),

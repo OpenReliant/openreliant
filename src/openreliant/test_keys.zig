@@ -60,9 +60,7 @@ pub fn bringWing(orders: game.aigeneric.Context) void {
         const slot = &all.slots[index];
         game.objects.setOrientation(&slot.object, &slot.drawn, facing);
         game.pilots.setPilot(&slot.object, mission0.wing_pilot);
-        _ = game.aigeneric.pushShip(orders, index, .fight, all.player, -1) catch |err| {
-            log.warn("a Sabre won't fight: {s}", .{@errorName(err)});
-        };
+        _ = game.aigeneric.giveShip(orders, index, .fight, all.player, null);
     }
 }
 
@@ -80,7 +78,7 @@ test bringWing {
     defer world.deinit();
     const player = try world.add(.predator, @splat(0));
     var orders = world.orders();
-    orders.world.spawn = .{ .tables = &world.tables, .types = game.create.testing.no_models };
+    orders.world.spawn = world.spawn(game.create.testing.no_models);
     bringWing(orders);
     // Four Sabres ahead, facing the player, fighting it.
     const all = world.objects;

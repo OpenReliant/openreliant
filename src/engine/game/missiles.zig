@@ -385,8 +385,7 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     object.root.orientation = places.now.orientation;
     object.root.next_position = gameobj.vec3(places.next.position);
     object.root.next_orientation = places.next.orientation;
-    object.root.flags.committed = true;
-    object.root.flags.unframed = true;
+    object.root.markMoved();
     slot.drawn = places.drawn;
     return all.missiles.add(.{ .slot = slot, .launcher = launcher, .type = kind }) orelse {
         slot.release(all.gpa);
@@ -519,17 +518,22 @@ const steer_gain: f32 = 18.0 / std.math.pi;
 
 /// `missile_home` (`0x00496C90`): steers at the target, where it is still one to aim at, cloaked
 /// too for a Vagabond: at the point it aims at (`ai.aimedAt`), led along the target's nose by how
-/// far off it is times the target's speed over the missile's top speed; or, drawn away, at the
-/// countermeasure, which it catches within `caught_range`, ending both. Its throttle is the cosine
-/// of the angle off its aim, and its pitch and yaw inputs the angles off it, less four times its
-/// rates, times `steer_gain`, within 1 either way; with its aim behind it, full over toward its
-/// side. A target lost, or beyond `lost_range`, ends it, but a Solomon flies straight on.
+/// far off it is times the target's speed over the missile's top speed (`ai.intercept`); or, drawn
+/// away, at the countermeasure, which it catches within `caught_range`, ending both. Its throttle
+/// is the cosine of the angle off its aim (`math.cosineOff`), and its pitch and yaw inputs the
+/// angles off it, less four times its rates, times `steer_gain`, within 1 either way; with its aim
+/// behind it, full over toward its side. A target lost, or beyond `lost_range`, ends it, but a
+/// Solomon flies straight on.
+///
+/// The game multiplies how far off the target is by its speed before it divides by the missile's
+/// top speed (`0x00496D6F`, `0x00496D75`); OpenReliant divides first, as `ai_lead_aim_with_gun`
+/// does, which can round the last digit differently.
 fn home(world: gameobj.World, at: u8) void {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return;
     const object = missile.object();
     const allowed: GameObject.Flags = if (missile.type == .vagabond) .{ .cloaked = true } else .{};
-    if (ai.targetValid(all, missile.target, allowed)) {
+    if (ai.ValidTarget.of(all, missile.target, allowed)) |valid| {
         const from = missile.slot.drawn.position;
         const aim = if (decoyAt(world, missile)) |decoy| decoyed: {
             if (math.lengthSquared(decoy.place().position - from) < caught_range * caught_range) {
@@ -537,7 +541,7 @@ fn home(world: gameobj.World, at: u8) void {
                 return end(world, at);
             }
             break :decoyed decoy.place().position;
-        } else intercept(all, missile.target, from, missile.flight().max_speed).at;
+        } else ai.intercept(all, valid, from, missile.flight().max_speed, 1).at;
         const toward = aim - from;
         if (math.lengthSquared(toward) <= lost_range * lost_range) return steer(object, missile.slot.drawn.orientation, toward);
     }
@@ -546,49 +550,41 @@ fn home(world: gameobj.World, at: u8) void {
     end(world, at);
 }
 
-/// Where a shot flying at `max_speed` from `from` meets `target`: the point it aims at
-/// (`ai.aimedAt`), led along the target's nose by how far the target flies in the ticks the shot
-/// takes to reach that point, and those ticks (`missile_home`, `order_torpedo`).
-fn intercept(all: *const create.Objects, target: aigeneric.Target, from: Vector, max_speed: f32) struct { at: Vector, ticks: f32 } {
-    const aimed = ai.aimedAt(all, target).position;
-    const struck = &all.slots[@intCast(target.index)];
-    const ticks = math.distance(aimed, from) / max_speed;
-    return .{ .at = aimed + math.forward(struck.drawn.orientation) * @as(Vector, @splat(ticks * struck.object.speed)), .ticks = ticks };
-}
-
 /// How much of its time to the target a torpedo reckons its own drift over, the most ticks it
-/// reckons it over, and how hard it turns (`order_torpedo`: `0x004DC408`, `0x004DC7F0`, and the
-/// limit it steers with).
+/// reckons it over, and how hard it turns (`order_torpedo`: `0x004DC408`; `0x004DC7F0`, which the
+/// game compares with and then writes 25 at `0x0049705A`; and `0x0049708D`).
 const drift_share: f32 = 0.5;
 const most_drift: f32 = 25;
 const torpedo_turn_limit: f32 = 2;
 
 /// `order_torpedo_init` (`0x00496F70`): the init of Torpedo (103), which Find New Target pushes for
-/// a ship of the torpedo class (`aiorders.findNewTarget`): full throttle. **Unverified:** the order
-/// lies among the missiles' code, past the path's last assertion.
+/// a ship of the torpedo class (`aifuncs.findNewTarget`): full throttle (`0x00496F77`).
+/// **Unverified:** the order lies among the missiles' code, past the path's last assertion.
 pub fn torpedoInit(ctx: aigeneric.Context, index: u16) void {
-    ctx.world.objects.slots[index].object.throttle = 1;
+    ctx.world.objects.slots[index].object.throttle = ai.full_throttle;
 }
 
 /// `order_torpedo` (`0x00496F90`): the update of Torpedo (103). While its target is one to aim at
-/// (`ai.targetValid`), the torpedo steers (`ai.steer`, at `torpedo_turn_limit` and no ease) at where
-/// it meets the target (`intercept`), less how far its own velocity carries it over `drift_share`
-/// of the ticks that takes, `most_drift` at most; with none, the order ends. It goes off against
-/// what it meets (`collision`).
+/// (`ai.targetValid`), the torpedo steers (`ai.steer`, at `torpedo_turn_limit` and no ease) at
+/// where it meets the target, which the game works out here as `ai_lead_aim_with_gun` does
+/// (`ai.intercept`), less how far its own velocity carries it over `drift_share` of the ticks that
+/// takes, `most_drift` at most (`torpedoAim`); with none, the order ends. It goes off against what
+/// it meets (`collision`).
 pub fn torpedo(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
     const slot = &all.slots[index];
-    const target = slot.orders[0].target;
-    if (!ai.targetValid(all, target, .{})) {
-        _ = aigeneric.pop(ctx, index);
-        return;
-    }
+    const target = ai.targetOrPop(ctx, index, .{}) orelse return;
     const flight = slot.flight orelse return;
-    const met = intercept(all, target, slot.drawn.position, flight.max_speed);
+    const met = ai.intercept(all, target, slot.drawn.position, flight.max_speed, 1);
+    _ = ai.steer(world, index, torpedoAim(met, gameobj.vector(slot.object.velocity)), torpedo_turn_limit, ai.no_ease, .{});
+}
+
+/// Where a torpedo moving at `velocity` steers to meet its target where `met` has them meet: the
+/// meeting point less its drift over `drift_share` of the ticks, `most_drift` at most.
+fn torpedoAim(met: ai.Intercept, velocity: Vector) Vector {
     const drift = @min(met.ticks * drift_share, most_drift);
-    const aim = met.at - gameobj.vector(slot.object.velocity) * @as(Vector, @splat(drift));
-    _ = ai.steer(world, index, aim, torpedo_turn_limit, 0, .{});
+    return met.at - velocity * @as(Vector, @splat(drift));
 }
 
 /// The countermeasure that has drawn the missile away, where one has.
@@ -600,7 +596,7 @@ fn decoyAt(world: gameobj.World, missile: *const Missile) ?*cloak.Countermeasure
 
 /// Sets the missile's controls to fly at what lies `toward` it, turned by `orientation`.
 fn steer(object: *GameObject, orientation: math.Matrix, toward: Vector) void {
-    object.throttle = @max(math.dot(math.forward(orientation), toward) / math.length(toward), 0);
+    object.throttle = @max(math.cosineOff(toward, math.forward(orientation)), 0);
     const local = math.transformTransposed(orientation, toward);
     if (local[2] >= 0) {
         object.pitch_input = std.math.clamp((-std.math.atan2(local[1], local[2]) - object.pitch_rate * rate_damping) * steer_gain, -1, 1);
@@ -634,13 +630,12 @@ fn choose(all: *const create.Objects, missile: *const Missile) ?aigeneric.Target
         while (walk.next()) |index| {
             const slot = &all.slots[index];
             if (slot.object.side == missile.slot.object.side or slot.object.flags.components != components) continue;
-            const whole: aigeneric.Target = .{ .kind = .ship, .index = @intCast(index), .component = -1 };
+            const whole: aigeneric.Target = .at(index, null);
             if (!ai.targetValid(all, whole, .{})) continue;
             var any = false;
             for (0..@intCast(@max(slot.object.component_count, 0))) |component| {
-                const part: aigeneric.Target = .{ .kind = .ship, .index = @intCast(index), .component = @intCast(component) };
-                if (!ai.targetValid(all, part, .{})) continue;
-                choice.consider(part, ai.targetPart(all, part).?.object.position);
+                const part = ai.ValidTarget.of(all, .at(index, @intCast(component)), .{}) orelse continue;
+                choice.consider(part.target, ai.targetPart(all, part).?.object.position);
                 any = true;
             }
             if (!any) choice.consider(whole, slot.drawn.position);
@@ -702,8 +697,7 @@ pub fn move(all: *create.Objects) void {
         velocity += math.forward(root.next_orientation) * @as(Vector, @splat((1 - flight.inertia) * object.throttle * flight.max_speed));
         object.velocity = gameobj.vec3(velocity);
         root.next_position = gameobj.vec3(gameobj.vector(root.next_position) + velocity);
-        root.flags.committed = true;
-        root.flags.unframed = true;
+        root.markMoved();
     }
 }
 
@@ -948,7 +942,7 @@ pub const testing = struct {
                 point.orientation = math.identity;
             }
             armed.model.data[0].attachments = &armed.points;
-            armed.model.type.effects.mounts = objects.testing.mountsOf(&armed.model);
+            armed.model.hangsItself();
         }
 
         pub fn deinit(armed: *Armed) void {
@@ -958,7 +952,7 @@ pub const testing = struct {
 
         /// An armed ship of `side` at `at`, facing along Z, in the next slot.
         pub fn add(armed: *Armed, side: gameobj.Side(i32), at: Vector) !u16 {
-            const index = try create.createObject(armed.mission.objects, &armed.mission.tables, armed.model.types(), null, .predator, 0, at, &armed.mission.random);
+            const index = try armed.mission.addWith(armed.model.types(), .predator, at);
             armed.mission.slot(index).object.side = side;
             armed.mission.slot(index).object.flags.targetable = true;
             return index;
@@ -984,7 +978,7 @@ test launchFromTurret {
     const world = armed.mission.world();
     const ship = try armed.add(.hostile, .{ 0, 0, 500 });
     const enemy = try armed.add(.friendly, .{ 0, 0, 20000 });
-    const target: aigeneric.Target = .{ .kind = .ship, .index = @intCast(enemy), .component = -1 };
+    const target: aigeneric.Target = .at(enemy, null);
     const slot = armed.mission.slot(ship);
     slot.object.velocity = .{ .x = 0, .y = 0, .z = 30 };
     const model = &slot.model.?;
@@ -1018,7 +1012,7 @@ test launch {
     try std.testing.expectEqual(3, object.racks[0].count);
 
     // A pod launches a missile of its own, at the target, and keeps hanging.
-    const target: aigeneric.Target = .{ .kind = .ship, .index = @intCast(enemy), .component = -1 };
+    const target: aigeneric.Target = .at(enemy, null);
     launch(world, ship, 0, target);
     try std.testing.expectEqual(2, object.racks[0].count);
     try std.testing.expect(hung[0] != null);
@@ -1077,7 +1071,7 @@ test frame {
     const clock = &armed.mission.clock;
     const ship = try armed.add(.friendly, @splat(0));
     const enemy = try armed.add(.hostile, .{ 0, 0, 200000 });
-    const target: aigeneric.Target = .{ .kind = .ship, .index = @intCast(enemy), .component = -1 };
+    const target: aigeneric.Target = .at(enemy, null);
     launch(world, ship, 0, target);
     launch(world, ship, 0, .none);
 
@@ -1156,18 +1150,18 @@ test "a torpedo flies at where it meets its target, less its own drift" {
 
     // Told to find a target, a ship of the torpedo class takes Torpedo, which starts it at full
     // throttle and steers it at where it meets the target, led along the target's nose by the
-    // ticks it takes to get there, less its drift over half of them, 25 at most.
-    _ = try aigeneric.pushShip(ctx, fired, .find_new_target, mammoth, aigeneric.Target.whole);
-    @import("aiorders.zig").findNewTarget(ctx, fired);
+    // ticks it takes to get there, less its drift (`torpedoAim`).
+    _ = try aigeneric.pushShip(ctx, fired, .find_new_target, mammoth, null);
+    @import("aifuncs.zig").findNewTarget(ctx, fired);
     try std.testing.expectEqual(.torpedo, mission.slot(fired).orders[0].order);
     aigeneric.objectOrders(ctx, fired);
-    try std.testing.expectEqual(1, mission.slot(fired).object.throttle);
+    try std.testing.expectEqual(ai.full_throttle, mission.slot(fired).object.throttle);
     const flight = mission.slot(fired).flight.?;
-    const met = intercept(mission.objects, mission.slot(fired).orders[0].target, @splat(0), flight.max_speed);
+    const aimed = ai.ValidTarget.of(mission.objects, mission.slot(fired).orders[0].target, .{}).?;
+    const met = ai.intercept(mission.objects, aimed, @splat(0), flight.max_speed, 1);
     try std.testing.expectApproxEqRel(20000 / flight.max_speed, met.ticks, 1e-5);
     try std.testing.expectApproxEqAbs(met.ticks * 40, math.dot(met.at - Vector{ 0, 0, 20000 }, math.forward(target.drawn.orientation)), 1e-2);
-    const drift = @min(met.ticks * drift_share, most_drift);
-    _ = ai.steer(ctx.world, twin, met.at - velocity * @as(Vector, @splat(drift)), torpedo_turn_limit, 0, .{});
+    _ = ai.steer(ctx.world, twin, torpedoAim(met, velocity), torpedo_turn_limit, ai.no_ease, .{});
     try std.testing.expectEqual(mission.slot(twin).object.yaw_input, mission.slot(fired).object.yaw_input);
     try std.testing.expectEqual(mission.slot(twin).object.pitch_input, mission.slot(fired).object.pitch_input);
     try std.testing.expect(mission.slot(fired).object.yaw_input != 0);
@@ -1176,6 +1170,13 @@ test "a torpedo flies at where it meets its target, less its own drift" {
     target.object.flags.targetable = false;
     torpedo(ctx, fired);
     try std.testing.expectEqual(.find_new_target, mission.slot(fired).orders[0].order);
+}
+
+test torpedoAim {
+    // Forty ticks off, it reckons its drift over twenty of them.
+    try std.testing.expectEqual(Vector{ 0, -200, 19000 }, torpedoAim(.{ .at = .{ 0, 0, 20000 }, .ticks = 40 }, .{ 0, 10, 50 }));
+    // A hundred ticks off, it reckons it over 25 at most.
+    try std.testing.expectEqual(Vector{ 0, -250, 18750 }, torpedoAim(.{ .at = .{ 0, 0, 20000 }, .ticks = 100 }, .{ 0, 10, 50 }));
 }
 
 test choose {

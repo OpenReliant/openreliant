@@ -100,7 +100,7 @@ pub fn set(world: gameobj.World, index: u16, on: bool) void {
     };
     for (0..all.count) |at| {
         const other: u16 = @intCast(at);
-        const entry = aigeneric.current(all, other) orelse continue;
+        const entry = all.slots[other].current() orelse continue;
         if (entry.order == .launch and entry.target.slot() == index) set(world, other, on);
     }
 }
@@ -127,7 +127,7 @@ fn cloakOn(world: gameobj.World, index: u16) void {
     const model = if (slot.model) |*live| live else return;
     seeThrough(model, slot.object.type == .kafelnikof);
     shimmerOn(model, world.random);
-    sound3d.playIn(world, null, null, index, .cloak01, 1, soundClass(all, index));
+    sound3d.playIn(world, null, null, index, .cloak01, 1, sound3d.fxClass(all, index));
 }
 
 /// `object_uncloak` (`0x00463780`): the cloak of the object in slot `index`, where it has one,
@@ -140,12 +140,7 @@ pub fn uncloak(world: gameobj.World, index: u16) void {
     cloak.going = true;
     cloak.changing = true;
     cloak.going_at = world.clock.frame_start;
-    sound3d.playIn(world, null, null, index, .cloak01, 1, soundClass(world.objects, index));
-}
-
-/// The player's ship's cloak is heard on the player's own voices, and another's on any.
-fn soundClass(all: *const create.Objects, index: u16) sound3d.Class {
-    return if (index == all.player) .player_fx else .not_reserved;
+    sound3d.playIn(world, null, null, index, .cloak01, 1, sound3d.fxClass(world.objects, index));
 }
 
 /// `cloak_drop` (`0x00463420`): the object in `slot` has no cloak from now on, if it had one,
@@ -503,7 +498,7 @@ const TestStage = struct {
         stage.image = .{ .levels = &.{} };
         try stage.model.withCloak(gpa, &stage.image);
         const mission = &stage.mission;
-        stage.index = try create.createObject(mission.objects, &mission.tables, stage.model.types(), null, .predator, 0, @splat(0), &mission.random);
+        stage.index = try mission.addWith(stage.model.types(), .predator, @splat(0));
     }
 
     pub fn deinit(stage: *TestStage, gpa: Allocator) void {
@@ -931,7 +926,7 @@ test "Countermeasures.spend" {
     all.slots[player].object.velocity = .{ .x = 0, .y = 0, .z = 40 };
     // Two Raptors at the player, sure to be drawn away.
     all.missile_stats.stats[1].decoy_chance = 100;
-    const at_player: @import("aigeneric.zig").Target = .{ .kind = .ship, .index = @intCast(player), .component = -1 };
+    const at_player: aigeneric.Target = .at(player, null);
     missiles.launch(world, enemy, 0, at_player);
     missiles.launch(world, enemy, 0, at_player);
 
@@ -962,7 +957,7 @@ test "Countermeasures.frame" {
     const player = try stage.armed.add(.friendly, @splat(0));
     const enemy = try stage.armed.add(.hostile, .{ 0, 0, 20000 });
     all.missile_stats.stats[1].decoy_chance = 100;
-    missiles.launch(world, enemy, 0, .{ .kind = .ship, .index = @intCast(player), .component = -1 });
+    missiles.launch(world, enemy, 0, .at(player, null));
     stage.dropped.spend(world, player);
 
     // It drifts by its velocity a tick, turning about its Y axis.
@@ -988,7 +983,7 @@ test "a missile drawn away catches its countermeasure" {
     const player = try stage.armed.add(.friendly, @splat(0));
     const enemy = try stage.armed.add(.hostile, .{ 0, 0, 20000 });
     all.missile_stats.stats[1].decoy_chance = 100;
-    missiles.launch(world, enemy, 0, .{ .kind = .ship, .index = @intCast(player), .component = -1 });
+    missiles.launch(world, enemy, 0, .at(player, null));
     stage.dropped.spend(world, player);
     // Past its launch, it homes on the countermeasure and ends with it within 1000.
     const missile = stage.armed.missile(0);

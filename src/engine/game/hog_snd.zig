@@ -398,7 +398,8 @@ pub const Sound = struct {
     objects: ?*@import("create.zig").Objects = null,
     /// `betty.fat` (`bank_betty`, `0x0056654C`): the cockpit's warnings.
     betty: ?fat.Bank = null,
-    /// `bank_stdsmp`: the display's sounds and the frame's positional ones.
+    /// `bank_stdsmp` (`0x005D6CA0`): the display's sounds and the frame's positional ones
+    /// (`playStandard`).
     stdsmp: ?fat.Bank = null,
     /// When the player's armour last warned (`0x00588334`, `main.armorWarning`).
     armor_warned_at: i32 = 0,
@@ -473,6 +474,13 @@ pub const Sound = struct {
         };
         sound.start(bank, index, volume, pitch, loops, pan, @intCast(chosen));
         return @intCast(chosen);
+    }
+
+    /// `play` of sound `index` of `bank_stdsmp` (`0x005D6CA0`), as the game hands that global to
+    /// `sound_play`: the voice it plays on, or null, as where the bank is not loaded.
+    pub fn playStandard(sound: *Sound, index: usize, volume: i32, loops: u32, pan: i32, pitch: i32) ?u8 {
+        const bank = sound.stdsmp orelse return null;
+        return sound.play(bank, index, volume, loops, pan, pitch);
     }
 
     /// `sound_play_on_voice` (`0x004820C0`): plays it on voice `v`, ending what it was playing.
@@ -896,6 +904,16 @@ pub const Sound = struct {
         /// Once the music playing has faded out, which starts to fade at the timer's count given
         /// (`fadeMusic`).
         after_fade: u32,
+
+        /// The `now` that `music_play` plays a piece at once for (`0x00482A9D`); any other waits
+        /// for the music playing to fade out.
+        const play_now: u32 = 1;
+
+        /// When `music_play` plays a piece by its `now`, `game_ticks` the timer's count a fade
+        /// starts at.
+        pub fn of(now: u32, game_ticks: u32) When {
+            return if (now == play_now) .now else .{ .after_fade = game_ticks };
+        }
     };
 
     /// `music_play` (`0x00482A80`): plays the file at `path`, `loops` times (0 for ever) at
@@ -1059,22 +1077,66 @@ pub const testing = struct {
     }
 
     pub const sound_file = wave.testing.pcm(&std.mem.toBytes([4]i16{ 16384, 16384, 16384, 16384 }));
+
+    /// A sound player on a mixer of its own, heard from the origin. It stays where `init` fills it
+    /// in, as the sound holds the mixer.
+    pub const Speaker = struct {
+        mixer: mss.Mixer,
+        sound: Sound,
+        listener: camera.Place,
+
+        /// The mixer's frames a second, those of `sound_file`.
+        pub const rate = 22050;
+
+        /// `voices` voices, with `stdsmp` as the sounds' bank where given.
+        pub fn init(speaker: *Speaker, voices: u8, stdsmp: ?[]const u8) !void {
+            speaker.mixer = .init(rate);
+            speaker.listener = .{};
+            speaker.sound.init(speaker.mixer.driver(), voices, null);
+            if (stdsmp) |bytes| speaker.sound.stdsmp = try fat.Bank.parse(bytes);
+        }
+
+        /// How the world hears it, from the origin, on `clock`.
+        pub fn hearing(speaker: *Speaker, clock: *const Clock) Hearing {
+            return .{ .sound = &speaker.sound, .camera = &speaker.listener, .clock = clock };
+        }
+
+        /// Whether any of its voices plays.
+        pub fn playing(speaker: *Speaker) bool {
+            for (0..speaker.sound.voice_count) |v| {
+                if (speaker.sound.voicePlaying(@intCast(v))) return true;
+            }
+            return false;
+        }
+    };
 };
 
 test "Sound.playInScene plays as play does" {
-    var mixer: mss.Mixer = .init(22050);
-    var sound: Sound = undefined;
-    sound.init(mixer.driver(), 2, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
     const bytes = comptime testing.bank(1);
     const bank = try fat.Bank.parse(&bytes);
     try std.testing.expectEqual(1, sound.playInScene(bank, 0, loudest, once, centre, own_pitch));
     try std.testing.expect(sound.voicePlaying(1));
 }
 
+test "Sound.playStandard plays from the standard samples" {
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
+    // Without the bank, nothing plays.
+    try std.testing.expectEqual(null, sound.playStandard(0, loudest, once, centre, own_pitch));
+    const bytes = comptime testing.bank(1);
+    sound.stdsmp = try fat.Bank.parse(&bytes);
+    try std.testing.expectEqual(1, sound.playStandard(0, loudest, once, centre, own_pitch));
+    try std.testing.expect(sound.voicePlaying(1));
+}
+
 test "Sound.speakOn holds its voice" {
-    var mixer: mss.Mixer = .init(22050);
-    var sound: Sound = undefined;
-    sound.init(mixer.driver(), 3, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(3, null);
+    const sound = &speaker.sound;
     const bytes = comptime testing.bank(1);
     const bank = try fat.Bank.parse(&bytes);
     // What the voice played ends, and the line plays on it, held.
@@ -1106,15 +1168,21 @@ test "Volumes.read" {
     try std.testing.expectEqual(Volumes{}, Volumes.read(.empty));
 }
 
+test "Sound.When.of" {
+    // At once only for exactly 1; any other value fades the music playing out first.
+    try std.testing.expectEqual(Sound.When.now, Sound.When.of(1, 7));
+    for ([_]u32{ 0, 2, 0xFFFF_FFFF }) |now| try std.testing.expectEqual(Sound.When{ .after_fade = 7 }, Sound.When.of(now, 7));
+}
+
 test {
     std.testing.refAllDecls(@This());
 }
 
 test "Sound.play takes a free voice, else the lowest priority below its own" {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    sound.init(driver, 3, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(3, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
     const bytes = comptime testing.bank(4);
     const bank = try fat.Bank.parse(&bytes);
 
@@ -1136,10 +1204,10 @@ test "Sound.play takes a free voice, else the lowest priority below its own" {
 }
 
 test "Sound.timerTick steps the fades every five ticks" {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    sound.init(driver, 2, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
     const bytes = comptime testing.bank(2);
     const bank = try fat.Bank.parse(&bytes);
     const v = sound.play(bank, 1, loudest, forever, centre, own_pitch).?;
@@ -1157,10 +1225,10 @@ test "Sound.timerTick steps the fades every five ticks" {
 }
 
 test "Sound pauses and resumes its voices" {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    sound.init(driver, 2, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
     const bytes = comptime testing.bank(2);
     const bank = try fat.Bank.parse(&bytes);
     const v = sound.play(bank, 1, loudest, forever, centre, own_pitch).?;
@@ -1184,28 +1252,26 @@ test "Sound knows the cockpit's bank" {
 }
 
 test "Sound gathers positional sounds and plays them panned" {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    sound.init(driver, 4, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(4, null);
+    const sound = &speaker.sound;
     const bytes = comptime testing.bank(4);
     const bank = try fat.Bank.parse(&bytes);
-    const view: camera.Place = .{ .position = @splat(0), .orientation = math.identity };
     // Close by to the right: the right ear takes all of it, the left a little less.
-    sound.bufferAt(2, .{ 0.05, 0, 0.1 }, view, 1);
+    sound.bufferAt(2, .{ 0.05, 0, 0.1 }, speaker.listener, 1);
     try std.testing.expect(sound.buffered[2][1] > 0);
     try std.testing.expect(sound.buffered[2][0] <= sound.buffered[2][1]);
     // Past the eighteenth, nothing is gathered.
-    sound.bufferAt(20, .{ 1, 0, 0 }, view, 1);
+    sound.bufferAt(20, .{ 1, 0, 0 }, speaker.listener, 1);
     try std.testing.expectEqual([2]f32{ 0, 0 }, sound.buffered[20]);
     sound.playBuffered(bank);
     try std.testing.expectEqual([2]f32{ 0, 0 }, sound.buffered[2]);
 }
 
 test "Sound.playBuffered rounds as sr_round does" {
-    var mixer: mss.Mixer = .init(22050);
-    var sound: Sound = undefined;
-    sound.init(mixer.driver(), 4, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(4, null);
+    const sound = &speaker.sound;
     sound.volumes = .{ .master = loudest, .effects = 125 };
     const bytes = comptime testing.bank(4);
     const bank = try fat.Bank.parse(&bytes);
@@ -1220,10 +1286,9 @@ test "Sound.playBuffered rounds as sr_round does" {
 }
 
 test "Sound.fadeAll fades every voice that has not finished" {
-    var mixer: mss.Mixer = .init(22050);
-    const driver = mixer.driver();
-    var sound: Sound = undefined;
-    sound.init(driver, 3, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(3, null);
+    const sound = &speaker.sound;
     const bytes = comptime testing.bank(2);
     const bank = try fat.Bank.parse(&bytes);
     const v = sound.play(bank, 1, loudest, forever, centre, own_pitch).?;
@@ -1263,9 +1328,9 @@ test "Sound.reserved" {
 }
 
 test "the sound follows what surrounds the camera" {
-    var mixer: mss.Mixer = .init(22050);
-    var sound: Sound = undefined;
-    sound.init(mixer.driver(), 2, null);
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
     try std.testing.expectEqual(.space, sound.surroundings);
     sound.surround(.hangar);
     try std.testing.expectEqual(.hangar, sound.surroundings);
@@ -1281,9 +1346,10 @@ test "Sound.playMusic queues a piece until the music has stopped" {
     try tmp.dir.createDirPath(io, "music");
     try tmp.dir.writeFile(io, .{ .sub_path = "music/one.wav", .data = testing.sound_file });
     try tmp.dir.writeFile(io, .{ .sub_path = "music/two.wav", .data = testing.sound_file });
-    var mixer: mss.Mixer = .init(22050);
-    var sound: Sound = undefined;
-    sound.init(mixer.driver(), 2, .{ .gpa = gpa, .io = io, .dir = tmp.dir });
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
+    sound.files = .{ .gpa = gpa, .io = io, .dir = tmp.dir };
     defer sound.closeMusic();
 
     sound.playMusic("music\\one.wav", forever, loudest, .now);
@@ -1311,9 +1377,10 @@ test "Sound.fadeMusic fades the music out from where it starts" {
     defer tmp.cleanup();
     try tmp.dir.createDirPath(io, "music");
     try tmp.dir.writeFile(io, .{ .sub_path = "music/one.wav", .data = testing.sound_file });
-    var mixer: mss.Mixer = .init(22050);
-    var sound: Sound = undefined;
-    sound.init(mixer.driver(), 2, .{ .gpa = gpa, .io = io, .dir = tmp.dir });
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
+    sound.files = .{ .gpa = gpa, .io = io, .dir = tmp.dir };
     defer sound.closeMusic();
 
     sound.playMusic("music\\one.wav", forever, loudest, .now);

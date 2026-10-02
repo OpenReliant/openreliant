@@ -123,10 +123,7 @@ const gameobj = @import("../gameobj.zig");
 /// Gattling Lasers and the Nova Cannons.
 const testing = struct {
     const wire_frame: u16 = 0x112;
-
-    fn barrel(kind: guns.GunType) guns.Fitted {
-        return .{ .turret = .{ .fixed = .{ .muzzle = undefined, .type = kind } } };
-    }
+    const barrel = guns.testing.barrel;
 
     const fitted = [_]guns.Fitted{
         barrel(.pulse_cannon),    barrel(.pulse_cannon),

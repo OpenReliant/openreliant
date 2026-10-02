@@ -274,13 +274,12 @@ const fire_speed: f32 = 2;
 /// **Quirk:** the muzzle points along its own nose, from where the base stands.
 fn track(world: gameobj.World, index: u16, gun: *guns.Fitted, aimed: *Aimed) void {
     const all = world.objects;
-    const target = aimed.target.slot() orelse return drop(aimed);
-    if (!ai.targetValid(all, aimed.target, .{})) return drop(aimed);
-    const struck = &all.slots[target];
+    const valid = ai.ValidTarget.of(all, aimed.target, .{}) orelse return drop(aimed);
+    const struck = &all.slots[valid.slot];
     const lead: f32 = if (struck.object.flags.ecm) world.random.fraction() * ecm_lead_spread + ecm_lead_least else 1;
     const model = aimed.model;
     const base = &model.parts[aimed.base];
-    const aim = ai.leadAimWithGun(all, base.object.position, aimed.target, aimed.barrel.type, lead) orelse return drop(aimed);
+    const aim = ai.leadAimWithGun(all, base.object.position, valid, aimed.barrel.type, lead) orelse return drop(aimed);
     const angles = aimAngles(aimed, aim) orelse return drop(aimed);
     aimed.to_turn = .{
         .yaw = math.halfTurn(angles.yaw - base.animation.turret[0]),
@@ -431,8 +430,8 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
 /// Whether an aimed turret can lead its target, where it is valid, from `from`, and aim at where it
 /// leads it.
 fn reaches(all: *const create.Objects, aimed: *const Aimed, from: Vector) bool {
-    if (!ai.targetValid(all, aimed.target, .{})) return false;
-    const aim = ai.leadAimWithGun(all, from, aimed.target, aimed.barrel.type, 1) orelse return false;
+    const valid = ai.ValidTarget.of(all, aimed.target, .{}) orelse return false;
+    const aim = ai.leadAimWithGun(all, from, valid, aimed.barrel.type, 1) orelse return false;
     return aimAngles(aimed, aim) != null;
 }
 
@@ -610,49 +609,6 @@ test {
 
 /// Fixtures for the tests here and in the modules that step turrets.
 pub const testing = struct {
-    const srofiles = @import("../srofiles.zig");
-
-    /// A model of `count` parts, each standing unturned at the model's origin, with no mesh.
-    pub fn Parts(comptime count: usize) type {
-        return struct {
-            data: [count]shp.PartData,
-            loaded_parts: [count]srofiles.LoadedPart,
-            source: shp.Model,
-            loaded: srofiles.Loaded,
-
-            /// The parts, each hanging from the root, for the test to fill in before `create`.
-            pub fn init(parts: *@This()) void {
-                for (&parts.data, &parts.loaded_parts) |*data, *loaded| {
-                    data.* = objects.testing.part();
-                    data.part.parent = -1;
-                    data.part.turret_slot = -1;
-                    loaded.* = .{ .flags = .{}, .levels = &.{}, .meshes = &.{} };
-                }
-                parts.source = .{ .header = std.mem.zeroes(shp.Header), .parts = &parts.data, .trailing_bytes = 0 };
-                parts.loaded = .{ .parts = &parts.loaded_parts };
-            }
-
-            /// Makes part `index` the turret of `kind` of the assembly `link`, in its `slot`.
-            pub fn turret(parts: *@This(), index: usize, class: shp.Part.Class, kind: shp.Part.TurretKind, link: u32, slot: i32) void {
-                parts.data[index].part.class = class;
-                parts.data[index].part.turret_kind = kind;
-                parts.member(index, link, slot);
-            }
-
-            /// Makes part `index` one of the assembly `link`, in `slot`.
-            pub fn member(parts: *@This(), index: usize, link: u32, slot: i32) void {
-                parts.data[index].part.link_id = link;
-                parts.data[index].part.turret_slot = slot;
-            }
-
-            pub fn create(parts: *@This(), gpa: std.mem.Allocator) !objects.Model {
-                var model: objects.Model = try .create(gpa, &parts.source, &parts.loaded, .{});
-                for (0..model.parts.len) |index| @import("../gameobj.zig").linkPart(&model, index);
-                return model;
-            }
-        };
-    }
-
     /// A muzzle of gun type `gun_type`.
     pub fn muzzle(gun_type: u32) shp.Attachment {
         var attachment = std.mem.zeroes(shp.Attachment);
@@ -665,7 +621,7 @@ pub const testing = struct {
 
 test fit {
     const gpa = std.testing.allocator;
-    var parts: testing.Parts(9) = undefined;
+    var parts: objects.testing.Parts(9) = undefined;
     parts.init();
     // A hull with a muzzle of its own.
     var hull = [_]shp.Attachment{testing.muzzle(1)};
@@ -716,7 +672,7 @@ test fit {
 
 test "a turret on a component fires within the component's arc" {
     const gpa = std.testing.allocator;
-    var parts: testing.Parts(2) = undefined;
+    var parts: objects.testing.Parts(2) = undefined;
     parts.init();
     parts.turret(0, .turret, .aimed, 3, 0);
     parts.member(1, 3, 1);
@@ -741,7 +697,7 @@ test "a turret on a component fires within the component's arc" {
 /// for its turrets to aim at.
 const Stage = struct {
     mission: gameobj.testing.Mission,
-    parts: testing.Parts(4),
+    parts: objects.testing.Parts(4),
     ship: u16,
     target: u16,
     /// Each part's tracks: a `fire` track whose event fires its muzzles, and a `reload` track.

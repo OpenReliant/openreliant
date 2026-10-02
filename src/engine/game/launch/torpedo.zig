@@ -37,8 +37,9 @@ const trail_look: missiles.Type = .torpedo;
 /// (`launch.attach`), riding the part that holds it.
 pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const all = ctx.world.objects;
-    all.slots[index].object.flags.no_collisions = true;
-    launch.attach(all, index, carrier);
+    const slot = &all.slots[index];
+    slot.object.flags.no_collisions = true;
+    launch.attach(all, index, carrier, slot.orders[0].target.component);
 }
 
 /// `launch_torpedo_run` (`0x0041A390`): as its launch reaches step 2, the torpedo in slot `index`
@@ -51,21 +52,17 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const state = &slot.state.launch;
-    const now = ctx.clock.frame_start;
-    switch (@as(Step, @enumFromInt(@intFromEnum(state.step)))) {
+    const now = ctx.world.clock.frame_start;
+    switch (state.step.as(Step)) {
         .fire => {
-            state.advance(@enumFromInt(@intFromEnum(Step.boost)), now, boost_ticks);
+            state.advance(.of(Step.boost), now, boost_ticks);
             state.attached = false;
             sound3d.playIn(world, null, null, index, fire_sound, 1, .not_reserved);
             const object = &slot.object;
-            object.yaw_input = 0;
-            object.pitch_input = 0;
-            object.roll_input = 0;
+            object.holdTurns();
             object.throttle = boost_throttle;
             slot.motion = .plain;
-            if (slot.orders[0].target.slot()) |carrier| {
-                if (carrier < all.slots.len) object.velocity = all.slots[carrier].object.velocity;
-            }
+            if (slot.orders[0].target.slotIn(all)) |carrier| object.velocity = all.slots[carrier].object.velocity;
             if (world.trails) |trails| _ = trails.start(world, .{ .object = index }, trail_look) catch |err| {
                 log.warn("a torpedo's trail is left out: {s}", .{@errorName(err)});
             };
@@ -77,4 +74,44 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
         },
         _ => {},
     }
+}
+
+test run {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var carrier_model: launch.testing.Carrier = undefined;
+    carrier_model.init();
+    _ = try mission.add(.predator, @splat(0));
+    const carrier = try mission.add(.kamov, .{ 1000, 0, 0 });
+    try carrier_model.parts.fit(gpa, mission.slot(carrier));
+    mission.slot(carrier).object.velocity = .{ .x = 0, .y = 0, .z = 5 };
+    const torpedo = try mission.add(.torpedo, @splat(0));
+    const ctx = mission.orders();
+    _ = try aigeneric.pushShip(ctx, torpedo, .launch, carrier, 1);
+    aigeneric.objectOrders(ctx, torpedo);
+    launch.start(mission.objects, torpedo);
+    aigeneric.objectOrders(ctx, torpedo);
+    const slot = mission.slot(torpedo);
+    const state = &slot.state.launch;
+    try std.testing.expect(state.attached);
+
+    // Past its wait, it leaves the tube, boosting at the carrier's velocity with nothing to ride.
+    launch.testing.pastDue(&mission, ctx, torpedo);
+    try std.testing.expectEqual(Step.boost, state.step.as(Step));
+    try std.testing.expect(!state.attached);
+    try std.testing.expectEqual(.plain, slot.motion.?);
+    try std.testing.expectEqual(boost_throttle, slot.object.throttle);
+    try std.testing.expectEqual(5, slot.object.velocity.z);
+
+    // Once the boost is done, it flies itself, collides and can be targeted, its launch over.
+    mission.clock.frame_start = state.due;
+    aigeneric.objectOrders(ctx, torpedo);
+    try std.testing.expectEqual(0, slot.object.order_count);
+    try std.testing.expectEqual(.forward, slot.motion.?);
+    try std.testing.expect(!slot.object.flags.no_collisions);
+    try std.testing.expectEqual(null, slot.riding);
+    // It still passes through what launched it.
+    try std.testing.expectEqual(carrier, slot.object.passes_through[0].index());
 }

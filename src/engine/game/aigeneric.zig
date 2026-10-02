@@ -1,23 +1,25 @@
 //! `C:\lancer\game\aigeneric.cpp`: each object's stack of orders, the current one on top, which the
-//! AI, the mission scripts and the player's controls push and pop. [`ai.zig`](ai.zig) has the order
-//! table.
+//! AI, the mission scripts and the player's controls push and pop, and what runs the current one.
+//! [`ai/orders.zig`](ai/orders.zig) has the order table, and [`ai.zig`](ai.zig) its records.
+//!
+//! **Unverified:** the code from `order_retaliate` (`0x0040C520`) to `order_refused` lies before
+//! this file's known code, and `order_pop` onward after it; it does the stack's work.
 
 const std = @import("std");
 const assert = std.debug.assert;
 
-const engine = @import("../../engine.zig");
-const Pointer = engine.Pointer;
+const log = std.log.scoped(.orders);
+
 const dte = @import("../../formats/dte.zig");
 const ai = @import("ai.zig");
 const aieject = @import("aieject.zig");
 const aiexplode = @import("aiexplode.zig");
 const aifight = @import("aifight.zig");
-const aiorders = @import("aiorders.zig");
+const aifuncs = @import("aifuncs.zig");
 const aidock = @import("aidock.zig");
 const ailand = @import("ailand.zig");
 const airipper = @import("airipper.zig");
 const follow = @import("ai/follow.zig");
-const camera = @import("camera.zig");
 const friendly_fire = @import("friendly_fire.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
@@ -27,7 +29,6 @@ const jump = @import("jump.zig");
 const launch = @import("launch.zig");
 const missiles = @import("missiles.zig");
 const motion = @import("motion.zig");
-const Clock = @import("main.zig").Clock;
 const orders = @import("ai/orders.zig");
 const Order = orders.Order;
 const tractor = @import("tractor.zig");
@@ -52,9 +53,37 @@ pub const Target = extern struct {
     /// name.
     pub const none: Target = .{ .kind = .ship, .index = -1, .component = whole };
 
+    /// A target of `kind` whose slot or record is `record`, -1 for none, at `component` as the game
+    /// holds it, -1 for the whole.
+    pub fn of(kind: Kind, record: ?u16, component: i16) Target {
+        return .{ .kind = kind, .index = indexOf(record), .component = component };
+    }
+
     /// The ship in `ship_slot`, whole or, where `part_index` names one, one of its components.
     pub fn at(ship_slot: u16, part_index: ?u16) Target {
-        return .{ .kind = .ship, .index = @intCast(ship_slot), .component = if (part_index) |p| @intCast(p) else whole };
+        return .of(.ship, ship_slot, indexOf(part_index));
+    }
+
+    /// The flight group or the squad of `kind` whose index is `index`, whole; -1 for none.
+    pub fn group(kind: Kind, index: ?u16) Target {
+        return .of(kind, index, whole);
+    }
+
+    /// A slot's or a record's index as a target holds it: the halfword the game stores, -1 for
+    /// none.
+    pub fn indexOf(found: ?u16) i16 {
+        return if (found) |value| @bitCast(value) else -1;
+    }
+
+    /// The same index and component, as a ship's: what `order_push_ship` (`0x0040CBF0`) makes of a
+    /// target's halves.
+    pub fn asShip(target: Target) Target {
+        return .{ .kind = .ship, .index = target.index, .component = target.component };
+    }
+
+    /// Whether it aims where `other` does: the same kind, index and component.
+    pub fn eql(target: Target, other: Target) bool {
+        return target.kind == other.kind and target.index == other.index and target.component == other.component;
     }
 
     /// The slot of the ship it names, where it names one.
@@ -82,6 +111,11 @@ pub const Target = extern struct {
     /// The `component` of a target that names the whole ship.
     pub const whole: i16 = -1;
 
+    /// Whether it names a whole ship rather than one of its components (`component == -1`).
+    pub fn isWhole(target: Target) bool {
+        return target.component == whole;
+    }
+
     /// The kinds of the mission's object table, as a word.
     pub const Kind = enum(i16) {
         ship = 0,
@@ -100,37 +134,6 @@ pub const Target = extern struct {
     }
 };
 
-test capshipList {
-    var mission: gameobj.testing.Mission = undefined;
-    try mission.init(std.testing.allocator);
-    defer mission.deinit();
-    const ctx = mission.orders();
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.mammoth, .{ 0, 0, 10000 });
-    const object = &mission.slot(ship).object;
-    const flight = mission.slot(ship).flight.?;
-    try std.testing.expect(try push(ctx, ship, Lurch.left.order(), .none));
-
-    // It rolls and yaws to the left for 200 ticks, then back for 300, then stops rolling and the
-    // order ends.
-    objectOrders(ctx, ship);
-    try std.testing.expectEqual(-lurch_roll[0] / flight.roll_rate, object.roll_input);
-    try std.testing.expectEqual(-lurch_yaw[0] / flight.yaw_rate, object.yaw_input);
-    mission.clock.frame_start = lurch_ticks[0] - 1;
-    objectOrders(ctx, ship);
-    try std.testing.expectEqual(-lurch_roll[0] / flight.roll_rate, object.roll_input);
-    mission.clock.frame_start = lurch_ticks[0];
-    objectOrders(ctx, ship);
-    try std.testing.expectEqual(-lurch_roll[1] / flight.roll_rate, object.roll_input);
-    try std.testing.expectEqual(-lurch_yaw[1] / flight.yaw_rate, object.yaw_input);
-    mission.clock.frame_start = lurch_ticks[0] + lurch_ticks[1];
-    objectOrders(ctx, ship);
-    try std.testing.expectEqual(1, object.order_count);
-    objectOrders(ctx, ship);
-    try std.testing.expectEqual(0, object.roll_input);
-    try std.testing.expectEqual(0, object.order_count);
-}
-
 test Target {
     try std.testing.expectEqual(null, Target.none.ship());
     try std.testing.expectEqual(null, Target.none.part());
@@ -138,12 +141,32 @@ test Target {
     try std.testing.expectEqual(7, whole.ship());
     try std.testing.expectEqual(null, whole.part());
     try std.testing.expectEqual(2, Target.at(7, 2).part());
+    try std.testing.expect(whole.isWhole() and !Target.at(7, 2).isWhole());
     // A flight group names no ship, though its index reads as a slot.
     const group: Target = .{ .kind = .flight_group, .index = 1, .component = Target.whole };
     try std.testing.expectEqual(null, group.ship());
     try std.testing.expectEqual(1, group.slot());
     try std.testing.expectEqual(null, Target.none.slot());
+    try std.testing.expectEqual(group, Target.group(.flight_group, 1));
+    try std.testing.expectEqual(Target{ .kind = .squad, .index = -1, .component = Target.whole }, Target.group(.squad, null));
+    // An index takes its halfword, as the game stores it, and none is -1.
+    try std.testing.expectEqual(-1, Target.indexOf(null));
+    try std.testing.expectEqual(@as(i16, @bitCast(@as(u16, 40000))), Target.at(40000, null).index);
+    // As a ship's, a target keeps its halves.
+    try std.testing.expectEqual(Target{ .kind = .ship, .index = 1, .component = Target.whole }, group.asShip());
+    try std.testing.expectEqual(Target.none, Target.none.asShip());
+    // A command's raw component stays as it gives it.
+    try std.testing.expectEqual(Target{ .kind = .ship, .index = 3, .component = 5 }, Target.of(.ship, 3, 5));
+    try std.testing.expectEqual(Target.none, Target.of(.ship, null, Target.whole));
+    // Targets are equal only in every half.
+    try std.testing.expect(Target.at(7, 2).eql(.at(7, 2)));
+    try std.testing.expect(!Target.at(7, 2).eql(.at(7, null)));
+    try std.testing.expect(!Target.at(1, null).eql(group));
 }
+
+/// How far apart ships fly abreast, in the places `Entry.abreast` counts: Formation's and Jump In's
+/// (`0x004DC508`).
+pub const abreast_spacing: f32 = 3000;
 
 /// An order on an object's stack.
 pub const Entry = extern struct {
@@ -166,12 +189,27 @@ pub const Entry = extern struct {
         fly: i32 align(2),
         /// Explode's and Eject Spin's: what `object_destroyed` was told.
         destroyed: aiexplode.Data,
-        disrupted: aiorders.DisruptedData,
+        disrupted: aifuncs.DisruptedData,
         launch: launch.Data,
         /// Ship Follow Curve's and Ship Follow Curve Backwards'.
         follow: follow.Data,
         dock: aidock.Data,
     };
+
+    /// How many places out its order's place among its group's (`sequence`) puts its ship
+    /// abreast, counting from `first`: half the count, as Jump In's settling pitches by it
+    /// (`order_jump_in`).
+    pub fn placesOut(entry: Entry, first: i32) i32 {
+        return @divTrunc(@as(i32, entry.sequence) + first, 2);
+    }
+
+    /// Its place abreast (`placesOut`), signed: to the right for an odd count, to the left for an
+    /// even one (`order_formation_init`, `jump_in_place`, and Jump In's settling's roll).
+    pub fn abreast(entry: Entry, first: i32) i32 {
+        const counted = @as(i32, entry.sequence) + first;
+        const side: i32 = if (counted & 1 != 0) 1 else -1;
+        return side * @divTrunc(counted, 2);
+    }
 
     comptime {
         assert(@offsetOf(Entry, "target") == 0x2);
@@ -179,6 +217,24 @@ pub const Entry = extern struct {
         assert(@sizeOf(Entry) == 0x1A);
     }
 };
+
+test Entry {
+    var entry: Entry = std.mem.zeroes(Entry);
+    // Counted from 1, the first stands at the target, then one place to the left, one to the
+    // right, and two to the left.
+    for ([_]i32{ 0, -1, 1, -2 }, [_]i32{ 0, 1, 1, 2 }, 0..) |abreast, out, sequence| {
+        entry.sequence = @intCast(sequence);
+        try std.testing.expectEqual(abreast, entry.abreast(1));
+        try std.testing.expectEqual(out, entry.placesOut(1));
+    }
+    // Counted from 2, the first stands one place to the left, then one to the right, two to the
+    // left and two to the right.
+    for ([_]i32{ -1, 1, -2, 2 }, [_]i32{ 1, 1, 2, 2 }, 0..) |abreast, out, sequence| {
+        entry.sequence = @intCast(sequence);
+        try std.testing.expectEqual(abreast, entry.abreast(2));
+        try std.testing.expectEqual(out, entry.placesOut(2));
+    }
+}
 
 /// An order from another player in a multiplayer game, waiting for its frame: an entry of an
 /// object's queue.
@@ -201,20 +257,20 @@ pub const Queued = extern struct {
 pub const State = extern union {
     bytes: [0x90]u8,
     fight: aifight.FightState,
-    fly: aiorders.FlyState,
-    mill: aiorders.MillState,
-    aimless: aiorders.AimlessState,
-    find_scoop_up: aiorders.FindScoopState,
-    formation: aiorders.FormationState,
-    list: aiorders.ListState,
-    escort: aiorders.EscortState,
-    find_target: aiorders.FindTargetState,
-    attach: aiorders.AttachState,
+    fly: aifuncs.FlyState,
+    mill: aifuncs.MillState,
+    aimless: aifuncs.AimlessState,
+    find_scoop_up: aifuncs.FindScoopState,
+    formation: aifuncs.FormationState,
+    list: aifuncs.ListState,
+    escort: aifuncs.EscortState,
+    find_target: aifuncs.FindTargetState,
+    attach: aifuncs.AttachState,
     explode: aiexplode.State,
     eject_player: aieject.PlayerState,
     eject: aieject.State,
     scoop_up: tractor.State,
-    disrupted: aiorders.DisruptedState,
+    disrupted: aifuncs.DisruptedState,
     launch: launch.State,
     jump: jump.State,
     follow: follow.State,
@@ -235,18 +291,24 @@ pub const State = extern union {
 };
 
 /// What the order routines reach besides the object they run for, which `object_orders` reaches
-/// through globals: the world the mission runs in and its clock, with the devices the player's
+/// through globals: the world the mission runs in, its clock with it, and the devices the player's
 /// controls read.
 pub const Context = struct {
     world: gameobj.World,
-    clock: *const Clock,
     /// The keyboard and the joystick, which the Player Control order steers by; null where nothing
     /// reads them, as in a test.
     devices: ?*input.Devices = null,
+
+    /// What the orders run against in `world`, with no devices.
+    pub fn of(world: gameobj.World) Context {
+        return .{ .world = world };
+    }
 };
 
-/// The fatal error the game stops with as "Cannot set ai %s on ship %s: Still %s", which a port
-/// hands back to its caller instead.
+/// The fatal error the game stops with as "Cannot set ai %s on ship %s: Still %s".
+///
+/// **Fix:** the game stops with a fatal error; OpenReliant hands back `error.OrderConflict` to its
+/// caller, and `give` logs it.
 pub const Error = error{OrderConflict};
 
 /// The sphere the action keeps to (`action_sphere_center`, `0x00515D78`, and
@@ -257,12 +319,13 @@ pub const ActionSphere = struct {
     centre: u16,
     radius: f32,
 
-    /// Where the AI's setup (`0x0040C9B0`) puts it, around the first slot; `SetActionCentre` moves
-    /// it, and gives it this radius when given none.
+    /// Where the AI's setup (`ai_first_setup`, `0x0040C9B0`) puts it, around the first slot;
+    /// `SetActionCentre` moves it, and gives it this radius when given none.
     pub const default: ActionSphere = .{ .centre = 0, .radius = 220000 };
 };
 
-/// How often `ordersUpdate` clears what each object has lately taken (`recent_damage`), in ticks.
+/// How often `ordersUpdate` clears what each object has lately taken (`recent_damage`), in ticks
+/// (`0x0040C938`).
 pub const damage_window: u32 = 500;
 
 /// The first of the orders numbered 100 and up, the table's second group, every one of which a
@@ -291,17 +354,21 @@ pub fn refused(all: *const create.Objects, index: u16, order: Order) bool {
 /// and for a one-shot order, which runs over the top of whatever is there. A started order gives
 /// way to Explode, and to any order while its own priority is zero or the new order's is higher.
 /// Pushing anything else on it is the game's fatal error.
+///
+/// **Fix:** the game stops with a fatal error; OpenReliant hands back `error.OrderConflict`, which
+/// its callers log (`give`).
 pub fn giveWay(ctx: Context, index: u16, order: ?Order) Error!bool {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
     if (object.flags.outOfAction()) return false;
-    if (object.order_count == 0 or object.order_starting) return true;
+    const current = slot.current() orelse return true;
+    if (object.order_starting) return true;
     // Clearing reads the record before the table in the game, which is zero, so it is neither
     // one-shot nor of any priority.
     const pushed = if (order) |wanted| orders.info(wanted) else null;
     if (pushed) |info| if (info.flags.one_shot) return true;
-    const running = orders.info(slot.orders[0].order) orelse return true;
+    const running = orders.info(current.order) orelse return true;
     if (order == .explode or running.priority == 0) {
         runExit(ctx, index, running);
         return true;
@@ -332,23 +399,20 @@ pub fn push(ctx: Context, index: u16, order: Order, target: Target) Error!bool {
     const slot = &all.slots[index];
     const object = &slot.object;
     if (refused(all, index, order)) return false;
-    if (object.order_count > 0 and slot.orders[0].order == order and equalTargets(slot.orders[0].target, target)) return true;
+    if (slot.current()) |running| if (running.order == order and running.target.eql(target)) return true;
     if (!try giveWay(ctx, index, order)) return false;
 
     // The same order aimed the same way, deeper in the stack, is dropped rather than left to come
     // back once this one is done.
-    var deeper: u16 = 1;
-    while (deeper < object.order_count) : (deeper += 1) {
-        if (slot.orders[deeper].order != order or !equalTargets(slot.orders[deeper].target, target)) continue;
-        var from = deeper + 1;
-        while (from < object.order_count) : (from += 1) slot.orders[from - 1] = slot.orders[from];
-        object.order_count -= 1;
+    for (slot.stack(), 0..) |entry, deeper| {
+        if (deeper == 0 or entry.order != order or !entry.target.eql(target)) continue;
+        remove(slot, deeper);
         break;
     }
 
     if (object.order_count >= max_stack) return false;
-    var at: u16 = @intCast(object.order_count);
-    while (at > 0) : (at -= 1) slot.orders[at] = slot.orders[at - 1];
+    const count = slot.stack().len;
+    std.mem.copyBackwards(Entry, slot.orders[1 .. count + 1], slot.orders[0..count]);
     const sequence: i16 = if (all.order_number) |*next| numbered: {
         defer next.* +%= 1;
         break :numbered @truncate(next.*);
@@ -359,41 +423,71 @@ pub fn push(ctx: Context, index: u16, order: Order, target: Target) Error!bool {
     return true;
 }
 
-/// `0x0040CBC0`: the orders pushed from now on are numbered from 0 (`Entry.sequence`), as `SetAI`
-/// numbers the orders it gives a flight group's or a squad's ships.
+/// `orders_numbering_start` (`0x0040CBC0`): the orders pushed from now on are numbered from 0
+/// (`Entry.sequence`), as `SetAI` numbers the orders it gives a flight group's or a squad's ships.
 pub fn startNumbering(all: *create.Objects) void {
     all.order_number = 0;
 }
 
-/// `0x0040CBE0`: the orders pushed from now on take 0 again.
+/// `orders_numbering_stop` (`0x0040CBE0`): the orders pushed from now on take 0 again.
 pub fn stopNumbering(all: *create.Objects) void {
     all.order_number = null;
 }
 
-/// The order an object is running, which is the entry on top of its stack; null where it has none.
-/// Whoever pushes an order fills in its data through this, as the mission's commands do.
-pub fn current(all: *create.Objects, index: u16) ?*Entry {
-    return all.slots[index].current();
+/// `order_push_ship` (`0x0040CBF0`): `push`, aimed at the ship in slot `ship`: at its component
+/// `part`, or the whole ship where that is null (`Target.at`).
+pub fn pushShip(ctx: Context, index: u16, order: Order, ship: u16, part: ?u16) Error!bool {
+    return push(ctx, index, order, .at(ship, part));
 }
 
-/// `order_push_ship` (`0x0040CBF0`): `push`, aimed at the ship in a slot.
-pub fn pushShip(ctx: Context, index: u16, order: Order, ship: u16, component: i16) Error!bool {
-    return push(ctx, index, order, .{ .kind = .ship, .index = @intCast(ship), .component = component });
+/// `push`, where a conflict (`Error`) is logged in the game's words, "Cannot set ai %s on ship %s:
+/// Still %s", and the order is not taken: whether it took.
+///
+/// **Fix:** the game stops there, as a fatal error.
+pub fn give(ctx: Context, index: u16, order: Order, target: Target) bool {
+    return push(ctx, index, order, target) catch conflict(ctx.world.objects, index, order);
 }
+
+/// `give`, aimed at the ship in a slot, whole where `part` is null (`pushShip`).
+pub fn giveShip(ctx: Context, index: u16, order: Order, ship: u16, part: ?u16) bool {
+    return pushShip(ctx, index, order, ship, part) catch conflict(ctx.world.objects, index, order);
+}
+
+/// Logs the conflict `give` meets, the ship in slot `index` still running the order on top of its
+/// stack where `order` was pushed; false, the order not taken.
+fn conflict(all: *const create.Objects, index: u16, order: Order) bool {
+    const running: Named = .{ .order = all.slots[index].orders[0].order };
+    log.warn("Cannot set ai {f} on ship {d}: Still {f}", .{ Named{ .order = order }, index, running });
+    return false;
+}
+
+/// An order as `give` logs it: its developers' name where the table gives one, else as
+/// `Order.format` names it.
+const Named = struct {
+    order: Order,
+
+    pub fn format(named: Named, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (orders.info(named.order)) |info| if (info.name.len > 0) return writer.writeAll(info.name);
+        return writer.print("{f}", .{named.order});
+    }
+};
 
 /// `order_pop` (`0x0040CE70`): pops the current order, running its `exit` where it has started, and
 /// whether there was one. Unless the popped order was one-shot, the order below starts again.
 pub fn pop(ctx: Context, index: u16) bool {
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
-    if (object.order_count == 0) return false;
-    const popped = orders.info(slot.orders[0].order);
+    const running = slot.current() orelse return false;
+    const popped = orders.info(running.order);
     if (popped) |info| if (!object.order_starting) runExit(ctx, index, info);
-    var at: u16 = 1;
-    while (at < object.order_count) : (at += 1) slot.orders[at - 1] = slot.orders[at];
-    object.order_count -= 1;
+    remove(slot, 0);
     if (popped) |info| if (!info.flags.one_shot) start(slot);
     return true;
+}
+
+/// `order_pop` as an order's own routine ends itself: pops the order that runs (`pop`).
+pub fn end(ctx: Context, index: u16) void {
+    _ = pop(ctx, index);
 }
 
 /// `orders_clear` (`0x0040CF50`): drops every order where the current one gives way, running only
@@ -417,8 +511,13 @@ fn start(slot: *create.Slot) void {
     slot.state = .{ .bytes = @splat(0) };
 }
 
-fn equalTargets(a: Target, b: Target) bool {
-    return a.kind == b.kind and a.index == b.index and a.component == b.component;
+/// Removes entry `at` of the slot's stack, the entries below it moving up a place; nothing where
+/// the stack holds no such entry.
+fn remove(slot: *create.Slot, at: usize) void {
+    const live = slot.stack();
+    if (at >= live.len) return;
+    std.mem.copyForwards(Entry, live[at .. live.len - 1], live[at + 1 ..]);
+    slot.object.order_count -= 1;
 }
 
 /// `object_orders` (`0x0040C5F0`): runs an object's current order. A `retaliate` order lets the
@@ -477,9 +576,10 @@ pub fn objectOrders(ctx: Context, index: u16) void {
 /// taken, which is what the ships retaliate by.
 pub fn ordersUpdate(ctx: Context) void {
     const all = ctx.world.objects;
-    if (ctx.clock.game_ticks > all.damage_cleared_at) {
+    const clock = ctx.world.clock;
+    if (clock.game_ticks > all.damage_cleared_at) {
         for (all.slots[0..all.count]) |*slot| slot.object.recent_damage = 0;
-        all.damage_cleared_at = ctx.clock.game_ticks + damage_window;
+        all.damage_cleared_at = clock.game_ticks + damage_window;
     }
     var walk = all.walk();
     while (walk.next()) |index| {
@@ -489,9 +589,9 @@ pub fn ordersUpdate(ctx: Context) void {
     }
 }
 
-/// What a ship must take, as a share of its armour class, before it turns on its attacker
-/// (`0x004DC484` times the six the armour class is worth).
-const retaliation_damage: f32 = 6 * 0.7;
+/// The share of its full armour (`create.ShipCombat.fullArmor`) a ship must take before it turns on
+/// its attacker (`0x004DC484`).
+const retaliation_share: f32 = 0.7;
 
 /// `order_retaliate` (`0x0040C520`): while the current order lets the ship retaliate, enough damage
 /// sends it after whoever last hit it. Both ships must be of the fighter class, the attacker must
@@ -503,7 +603,7 @@ pub fn retaliate(ctx: Context, index: u16) void {
     const object = &slot.object;
     const combat = slot.combat orelse return;
     if (combat.class != .fighter) return;
-    if (@as(f32, @floatFromInt(combat.armor_class)) * retaliation_damage > object.recent_damage) return;
+    if (combat.fullArmor() * retaliation_share > object.recent_damage) return;
     if (object.flags.do_not_disturb) return;
 
     const attacking = object.last_attacker.index() orelse return;
@@ -514,89 +614,24 @@ pub fn retaliate(ctx: Context, index: u16) void {
     if (other.object.side == object.side) return;
     const other_combat = other.combat orelse return;
     if (other_combat.class != .fighter) return;
-    _ = pushShip(ctx, index, .fight, attacking, Target.whole) catch return;
+    _ = giveShip(ctx, index, .fight, attacking, null);
 }
 
-/// `order_immediately_set_ship_to_zero_velocity_and_rotation` (`0x0040C4D0`): the update of order
-/// 44, which stops the ship dead and pops. **Unverified:** it lies before this file's known code.
-pub fn zeroVelocity(ctx: Context, index: u16) void {
-    ai.stop(&ctx.world.objects.slots[index].object);
-    _ = pop(ctx, index);
-}
-
-/// `order_fly_ship_backwards` (`0x0040C4E0`): the update of order 45, which backs the ship up
-/// without turning. **Unverified:** it lies before this file's known code.
-pub fn flyBackwards(ctx: Context, index: u16) void {
-    const object = &ctx.world.objects.slots[index].object;
-    object.holdTurns();
-    object.throttle = aiorders.backwards_throttle;
-}
-
-/// Which way a capital ship struck by a torpedo lurches: Make capship list left (115) or right
-/// (116, `0x0040C4B0` and `0x0040C4C0`, which hand `capshipList` -1 or 1).
-pub const Lurch = enum(i8) {
-    left = -1,
-    right = 1,
-
-    pub fn order(lurch: Lurch) Order {
-        return switch (lurch) {
-            .left => .make_capship_list_left,
-            .right => .make_capship_list_right,
-        };
-    }
-};
-
-/// How a capital ship lurches as a torpedo strikes it: the roll and the yaw it turns at in its first
-/// step and in its second, a tick, and the ticks each lasts (`0x004DC518`, `0x004DC514`,
-/// `0x004DC510`, `0x004DC50C`).
-const lurch_roll = [2]f32{ 0.01, -0.006 };
-const lurch_yaw = [2]f32{ 0.006, -0.0048 };
-const lurch_ticks = [2]i32{ 200, 300 };
-
-/// `0x0040C3A0`, the update of Make capship list left and right (115, 116), which a capital ship
-/// takes as a torpedo strikes it (`collision`): for `lurch_ticks[0]` it rolls and yaws toward `side`
-/// at its first step's turns, then for `lurch_ticks[1]` back at the second's, each over its own
-/// rates, then stops rolling and the order ends. **Unverified:** it lies before this file's known
-/// code, and its `init` with `aiorders.zig`'s orders (`aiorders.firstStepInit`).
-pub fn capshipList(ctx: Context, index: u16, side: Lurch) void {
-    const slot = &ctx.world.objects.slots[index];
-    const object = &slot.object;
-    const state = &slot.state.list;
-    const now = ctx.clock.frame_start;
-    const flight = slot.flight orelse return;
-    const way: f32 = @floatFromInt(@intFromEnum(side));
-    switch (state.step) {
-        0, 1 => |step| {
-            if (step == 1 and state.until > now) return;
-            object.roll_input = lurch_roll[@intCast(step)] * way / flight.roll_rate;
-            object.yaw_input = lurch_yaw[@intCast(step)] * way / flight.yaw_rate;
-            state.step += 1;
-            state.until = now + lurch_ticks[@intCast(step)];
-        },
-        2 => if (state.until <= now) {
-            state.step = 3;
-        },
-        3 => {
-            object.roll_input = 0;
-            _ = pop(ctx, index);
-        },
-        else => {},
-    }
-}
-
-/// The `init` of the order, where OpenReliant runs it. The orders that aren't ported yet do nothing
-/// ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+/// The `init` of the order, where OpenReliant runs it. The orders whose `init` isn't ported yet do
+/// nothing ([#30](https://github.com/vdmkenny/openreliant/issues/30)), the warps' among them
+/// ([#481](https://github.com/vdmkenny/openreliant/issues/481)) and multiplayer's
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn runInit(ctx: Context, index: u16, info: orders.Info) void {
     switch (info.order) {
-        .fly => aiorders.flyInit(ctx, index),
-        .mill => aiorders.millInit(ctx, index),
-        .fly_aimlessly => aiorders.flyAimlesslyInit(ctx, index),
-        .formation => aiorders.formationInit(ctx, index),
-        .escort => aiorders.escortInit(ctx, index),
-        .object_attach => aiorders.attachInit(ctx, index),
-        .random_spin_slow => aiorders.randomSpinInit(ctx, index, .slow),
-        .random_spin_medium => aiorders.randomSpinInit(ctx, index, .medium),
-        .random_spin_fast => aiorders.randomSpinInit(ctx, index, .fast),
+        .fly => aifuncs.flyInit(ctx, index),
+        .mill => aifuncs.millInit(ctx, index),
+        .fly_aimlessly => aifuncs.flyAimlesslyInit(ctx, index),
+        .formation => aifuncs.formationInit(ctx, index),
+        .escort => aifuncs.escortInit(ctx, index),
+        .object_attach => aifuncs.attachInit(ctx, index),
+        .random_spin_slow => aifuncs.randomSpinInit(ctx, index, .slow),
+        .random_spin_medium => aifuncs.randomSpinInit(ctx, index, .medium),
+        .random_spin_fast => aifuncs.randomSpinInit(ctx, index, .fast),
         .explode => aiexplode.init(ctx, index),
         .eject_player => aieject.playerInit(ctx, index),
         .eject => aieject.init(ctx, index),
@@ -605,8 +640,8 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .scoop_up => tractor.scoopUpInit(ctx, index),
         .fight => aifight.init(ctx, index),
         .torpedo => missiles.torpedoInit(ctx, index),
-        .find_scoop_up, .make_capship_list_left, .make_capship_list_right => aiorders.firstStepInit(ctx, index),
-        .disrupted => aiorders.disruptedInit(ctx, index),
+        .find_scoop_up, .make_capship_list_left, .make_capship_list_right => aifuncs.firstStepInit(ctx, index),
+        .disrupted => aifuncs.disruptedInit(ctx, index),
         .launch => launch.init(ctx, index),
         .jump_in, .jump_in_40 => jump.inInit(ctx, index),
         .jump_out, .jump_out_41 => jump.outInit(ctx, index),
@@ -624,29 +659,68 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .fixed_gate_open => wgate.openInit(ctx, index),
         .fixed_gate_close => wgate.closeInit(ctx, index),
         .fixed_gate_collapse => wgate.collapseInit(ctx, index),
-        else => {},
+        // Not ported: the warps ([#481](https://github.com/vdmkenny/openreliant/issues/481)).
+        .warp_in, .warp_out => {},
+        // Not ported: multiplayer's ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+        .deathmatch_respawn_effect => {},
+        // Not ported ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+        .formation_regroup,
+        .patrol_route,
+        .turns_object_lights_on,
+        .make_boridin_section_break_away,
+        .rotate_boridin_breakaway_warp_projector,
+        .start_warp_projection_from_boridin,
+        .avoid_target,
+        .dark_reign_shoot_110,
+        => {},
+        // The table gives these no `init`, or only `noop` (`0x004983A0`).
+        .do_nothing,
+        .launch_missile,
+        .unnamed_3,
+        .run_away,
+        .find_new_target,
+        .toggle_cloak,
+        .slow_rotate,
+        .match_speed,
+        .dark_reign_shoot,
+        .move_to_spawn_pos,
+        .turns_object_lights_off,
+        .huuuuuuuge_explosion,
+        .immediately_set_ship_to_zero_velocity_and_rotation,
+        .fly_ship_backwards,
+        .player_control,
+        .multiplayer_control,
+        .eject_fighter_attack,
+        .deathmatch_dark_reign_target,
+        .unnamed_200,
+        => {},
+        // A number the table does not hold.
+        _ => {},
     }
 }
 
-/// The `update` of the order, where OpenReliant runs it.
+/// The `update` of the order, where OpenReliant runs it. The orders whose update isn't ported yet
+/// do nothing ([#30](https://github.com/vdmkenny/openreliant/issues/30)), the warps' among them
+/// ([#481](https://github.com/vdmkenny/openreliant/issues/481)) and multiplayer's
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
     switch (info.order) {
-        .do_nothing => aiorders.doNothing(ctx, index),
-        .fly => aiorders.fly(ctx, index),
-        .mill => aiorders.mill(ctx, index),
-        .fly_aimlessly => aiorders.flyAimlessly(ctx, index),
-        .find_scoop_up => aiorders.findScoopUp(ctx, index),
-        .formation => aiorders.formation(ctx, index),
-        .escort => aiorders.escort(ctx, index),
-        .find_new_target => aiorders.findNewTarget(ctx, index),
-        .object_attach => aiorders.attach(ctx, index),
-        .toggle_cloak => aiorders.toggleCloak(ctx, index),
-        .run_away => aiorders.runAway(ctx, index),
-        .slow_rotate => aiorders.slowRotate(ctx, index),
-        .match_speed => aiorders.matchSpeed(ctx, index),
-        .immediately_set_ship_to_zero_velocity_and_rotation => zeroVelocity(ctx, index),
-        .fly_ship_backwards => flyBackwards(ctx, index),
-        .player_control => playerControl(ctx, index),
+        .do_nothing => aifuncs.doNothing(ctx, index),
+        .fly => aifuncs.fly(ctx, index),
+        .mill => aifuncs.mill(ctx, index),
+        .fly_aimlessly => aifuncs.flyAimlessly(ctx, index),
+        .find_scoop_up => aifuncs.findScoopUp(ctx, index),
+        .formation => aifuncs.formation(ctx, index),
+        .escort => aifuncs.escort(ctx, index),
+        .find_new_target => aifuncs.findNewTarget(ctx, index),
+        .object_attach => aifuncs.attach(ctx, index),
+        .toggle_cloak => aifuncs.toggleCloak(ctx, index),
+        .run_away => aifuncs.runAway(ctx, index),
+        .slow_rotate => aifuncs.slowRotate(ctx, index),
+        .match_speed => aifuncs.matchSpeed(ctx, index),
+        .immediately_set_ship_to_zero_velocity_and_rotation => aifuncs.zeroVelocity(ctx, index),
+        .fly_ship_backwards => aifuncs.flyBackwards(ctx, index),
+        .player_control => input.playerControlOrder(ctx, index),
         .explode => aiexplode.update(ctx, index),
         .huuuuuuuge_explosion => aiexplode.huge(ctx, index),
         .eject_player => aieject.player(ctx, index),
@@ -657,11 +731,11 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .eject_fighter_attack => aieject.fighterAttack(ctx, index),
         .fight => aifight.update(ctx, index),
         .torpedo => missiles.torpedo(ctx, index),
-        .make_capship_list_left => capshipList(ctx, index, .left),
-        .make_capship_list_right => capshipList(ctx, index, .right),
-        .disrupted => aiorders.disrupted(ctx, index),
-        .launch_missile => aiorders.launchMissile(ctx, index),
-        .unnamed_3 => aiorders.launchJackHammer(ctx, index),
+        .make_capship_list_left => aifuncs.capshipList(ctx, index, .left),
+        .make_capship_list_right => aifuncs.capshipList(ctx, index, .right),
+        .disrupted => aifuncs.disrupted(ctx, index),
+        .launch_missile => aifuncs.launchMissile(ctx, index),
+        .unnamed_3 => aifuncs.launchJackHammer(ctx, index),
         .launch => launch.update(ctx, index),
         .jump_in, .jump_in_40 => jump.inUpdate(ctx, index),
         .jump_out, .jump_out_41 => jump.outUpdate(ctx, index),
@@ -679,33 +753,59 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .fixed_gate_open => wgate.open(ctx, index),
         .fixed_gate_close => wgate.close(ctx, index),
         .fixed_gate_collapse => wgate.collapse(ctx, index),
-        else => {},
+        // Not ported: the warps ([#481](https://github.com/vdmkenny/openreliant/issues/481)).
+        .warp_in, .warp_out => {},
+        // Not ported: multiplayer's ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+        .multiplayer_control, .deathmatch_respawn_effect => {},
+        // Not ported ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+        .formation_regroup,
+        .patrol_route,
+        .dark_reign_shoot,
+        .move_to_spawn_pos,
+        .turns_object_lights_on,
+        .turns_object_lights_off,
+        .start_warp_projection_from_boridin,
+        .avoid_target,
+        .dark_reign_shoot_110,
+        => {},
+        // The table gives these no update, or only `noop` (`0x004983A0`).
+        .random_spin_slow,
+        .random_spin_medium,
+        .random_spin_fast,
+        .make_boridin_section_break_away,
+        .rotate_boridin_breakaway_warp_projector,
+        .deathmatch_dark_reign_target,
+        .unnamed_200,
+        => {},
+        // A number the table does not hold.
+        _ => {},
     }
 }
 
-/// The `exit` of the order, where OpenReliant runs it.
+/// The `exit` of the order, where OpenReliant runs it. Dark reign shoot's isn't ported yet
+/// ([#30](https://github.com/vdmkenny/openreliant/issues/30)), nor multiplayer's
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 fn runExit(ctx: Context, index: u16, info: orders.Info) void {
     switch (info.order) {
         .scoop_up => tractor.scoopUpExit(ctx, index),
-        .disrupted => aiorders.disruptedExit(ctx, index),
+        .disrupted => aifuncs.disruptedExit(ctx, index),
         .ship_follow_curve => follow.exit(ctx, index),
         .ship_follow_curve_backwards => follow.backwardsExit(ctx, index),
         .dock => aidock.exit(ctx, index),
         .ripper_grabs_target_object => airipper.grabExit(ctx, index),
-        else => {},
+        // Not ported ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+        .dark_reign_shoot_110 => {},
+        // Not ported: multiplayer's ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+        .deathmatch_respawn_effect => {},
+        // The table gives the others no `exit`, which the build checks, so that one it gives
+        // needs its own arm.
+        inline else => |order| comptime {
+            @setEvalBranchQuota(orders.table.len * orders.table.len);
+            assert(orders.info(order).?.exit == null);
+        },
+        // A number the table does not hold.
+        _ => {},
     }
-}
-
-/// The update of Player Control (100), which is the player's own
-/// [controls](../input.zig). It needs the devices to read; without them the ship holds what it has.
-pub fn playerControl(ctx: Context, index: u16) void {
-    const devices = ctx.devices orelse return;
-    const slot = &ctx.world.objects.slots[index];
-    const combat = slot.combat orelse return;
-    // The current order's data keeps the mouse's stick position.
-    input.playerControls(ctx.world.player, devices, &slot.object, combat, slot.orders[0].data.words[0..2], ctx.world.view, ctx.clock.frame_duration);
-    input.matchSpeed(ctx.world, devices);
-    input.playerWeapons(ctx.world, devices, index);
 }
 
 test {
@@ -748,9 +848,38 @@ test push {
     try std.testing.expectEqual(Order.slow_rotate, slot.orders[0].order);
     try std.testing.expectEqual(Order.do_nothing, slot.orders[1].order);
 
+    // Deeper in the middle of the stack, it is taken out from between the others, which keep
+    // their order.
+    try std.testing.expect(try push(ctx, index, .mill, .none));
+    try std.testing.expectEqual(3, slot.object.order_count);
+    try std.testing.expect(try push(ctx, index, .slow_rotate, .none));
+    try std.testing.expectEqual(3, slot.object.order_count);
+    for ([_]Order{ .slow_rotate, .mill, .do_nothing }, slot.stack()) |order, entry| {
+        try std.testing.expectEqual(order, entry.order);
+    }
+
     // A full stack takes no more.
     slot.object.order_count = max_stack;
     try std.testing.expect(!try push(ctx, index, .fly, .none));
+}
+
+test remove {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const index = try mission.addOther(@splat(0));
+    const slot = mission.slot(index);
+    for ([_]Order{ .fly, .mill, .slow_rotate }) |order| try std.testing.expect(try push(ctx, index, order, .none));
+
+    // The middle entry goes, and the other two keep their order.
+    remove(slot, 1);
+    try std.testing.expectEqual(2, slot.object.order_count);
+    try std.testing.expectEqual(Order.slow_rotate, slot.orders[0].order);
+    try std.testing.expectEqual(Order.fly, slot.orders[1].order);
+    // An entry past the stack is none to remove.
+    remove(slot, 2);
+    try std.testing.expectEqual(2, slot.object.order_count);
 }
 
 test startNumbering {
@@ -818,6 +947,10 @@ test pop {
 
     popAll(ctx, index);
     try std.testing.expectEqual(0, slot.object.order_count);
+    // A count below 0 is no orders: nothing pops.
+    slot.object.order_count = -1;
+    try std.testing.expect(!pop(ctx, index));
+    try std.testing.expectEqual(-1, slot.object.order_count);
 }
 
 test giveWay {
@@ -838,9 +971,43 @@ test giveWay {
     // Explode, at 99, does.
     try std.testing.expect(try push(ctx, index, .explode, none));
 
+    // A count below 0 is no orders: the way is clear.
+    const count = slot.object.order_count;
+    slot.object.order_count = -1;
+    try std.testing.expect(try giveWay(ctx, index, .fly));
+    slot.object.order_count = count;
+
     // An object that is being taken apart takes no order at all.
     slot.object.flags.exploding = true;
     try std.testing.expect(!try push(ctx, index, .fly, none));
+}
+
+test give {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const index = try mission.addOther(@splat(0));
+    const slot = mission.slot(index);
+    try std.testing.expect(give(ctx, index, .do_nothing, .none));
+    // Eject has priority 98: once it has started, an ordinary order is not taken, and the stack
+    // stays as it was.
+    try std.testing.expect(give(ctx, index, .eject, .none));
+    slot.object.order_starting = false;
+    const before = slot.orders;
+    try std.testing.expect(!give(ctx, index, .fly, .none));
+    try std.testing.expect(!giveShip(ctx, index, .fight, index, null));
+    try std.testing.expectEqual(2, slot.object.order_count);
+    try std.testing.expectEqualSlices(u8, std.mem.asBytes(&before), std.mem.asBytes(&slot.orders));
+    try std.testing.expect(!slot.object.order_starting);
+}
+
+test "Named.format" {
+    var buffer: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("Eject", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = .eject }}));
+    // A nameless order goes by OpenReliant's name for it, and one the table lacks by its number.
+    try std.testing.expectEqualStrings("unnamed_3", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = .unnamed_3 }}));
+    try std.testing.expectEqualStrings("order 99", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = @enumFromInt(99) }}));
 }
 
 test objectOrders {
@@ -862,15 +1029,15 @@ test objectOrders {
     try std.testing.expectEqual(1, slot.object.order_count);
     try std.testing.expectEqual(0, slot.object.yaw_input);
     objectOrders(ctx, index);
-    try std.testing.expectEqual(aiorders.spin_input, slot.object.yaw_input);
+    try std.testing.expectEqual(aifuncs.spin_input, slot.object.yaw_input);
 
-    // A one-shot order runs, pops, and the order below runs in the same pass. Toggle Cloak's own
-    // update isn't ported, so nothing else comes of it.
+    // A one-shot order runs, pops, and the order below runs in the same pass. The ship's model
+    // cannot cloak, so Toggle Cloak changes nothing else.
     slot.object.yaw_input = 0;
     try std.testing.expect(try push(ctx, index, .toggle_cloak, none));
     objectOrders(ctx, index);
     try std.testing.expectEqual(1, slot.object.order_count);
-    try std.testing.expectEqual(aiorders.spin_input, slot.object.yaw_input);
+    try std.testing.expectEqual(aifuncs.spin_input, slot.object.yaw_input);
 
     // Both burns are cleared before the order runs, and neither lasts without fuel.
     slot.object.afterburner = true;
@@ -899,7 +1066,7 @@ test retaliate {
     mission.slot(attacker).object.flags.targetable = true;
     try std.testing.expect(try push(ctx, ship, .do_nothing, .none));
     slot.object.last_attacker = .of(attacker);
-    const enough = @as(f32, @floatFromInt(slot.combat.?.armor_class)) * retaliation_damage;
+    const enough = slot.combat.?.fullArmor() * retaliation_share;
 
     // Short of enough damage, or told not to be disturbed, it stays on its order.
     slot.object.recent_damage = enough - 1;
@@ -938,9 +1105,9 @@ test ordersUpdate {
     ordersUpdate(ctx);
 
     // Every object that is not disabled has run its order, and what they had taken is cleared.
-    try std.testing.expectEqual(aiorders.spin_input, all.slots[1].object.yaw_input);
+    try std.testing.expectEqual(aifuncs.spin_input, all.slots[1].object.yaw_input);
     try std.testing.expectEqual(0, all.slots[2].object.yaw_input);
-    try std.testing.expectEqual(aiorders.spin_input, all.slots[3].object.yaw_input);
+    try std.testing.expectEqual(aifuncs.spin_input, all.slots[3].object.yaw_input);
     try std.testing.expectEqual(0, all.slots[1].object.recent_damage);
     try std.testing.expectEqual(damage_window + 1, all.damage_cleared_at);
 

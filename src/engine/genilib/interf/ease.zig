@@ -8,16 +8,39 @@
 
 const std = @import("std");
 
-/// `ease_linear` (`0x004268A0`): from `from` to `to` in a straight line, `at` of the way.
-pub fn linear(from: f32, to: f32, at: f32) f32 {
-    return (to - from) * at + from;
+/// `ease_linear` (`0x004268A0`): from `from` to `to` in a straight line, `at` of the way. For
+/// vectors, each component alike, as the game eases a position an axis at a time.
+pub fn linear(from: anytype, to: anytype, at: f32) Eased(@TypeOf(from, to)) {
+    const T = Eased(@TypeOf(from, to));
+    const start: T = from;
+    const end: T = to;
+    return (end - start) * each(T, at) + start;
 }
 
 /// `cosine_ease` (`0x004268C0`): from `from` to `to` as `at` goes from 0 to 1, slow at each end.
+/// For vectors, each component alike, as the game eases a position or a set of angles an axis at
+/// a time.
 ///
 /// **Improvement:** the cosine comes from `std.math` rather than the engine's table (`sr_cos`).
-pub fn cosine(from: f32, to: f32, at: f32) f32 {
-    return from + (to - from) * (1 - @cos(at * std.math.pi)) / 2;
+pub fn cosine(from: anytype, to: anytype, at: f32) Eased(@TypeOf(from, to)) {
+    const T = Eased(@TypeOf(from, to));
+    const start: T = from;
+    const end: T = to;
+    return start + (end - start) * each(T, 1 - @cos(at * std.math.pi)) / each(T, 2);
+}
+
+/// What `linear` and `cosine` give for values of type `T`: a value of `T`, a float for a number
+/// literal.
+fn Eased(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .comptime_int, .comptime_float => f32,
+        else => T,
+    };
+}
+
+/// `value` for each component of a `T`, or `value` itself for a float.
+fn each(comptime T: type, value: f32) T {
+    return if (@typeInfo(T) == .vector) @splat(value) else value;
 }
 
 /// `ease_in` (`0x00426900`): from `from` to `to` by the square of `at`, slow at the start.
@@ -52,12 +75,22 @@ const half: f32 = 0.5;
 test linear {
     try std.testing.expectEqual(4, linear(2, 6, 0.5));
     try std.testing.expectEqual(6, linear(2, 6, 1));
+    // A vector goes the same share of the way in each component, as each would alone.
+    const from: @Vector(3, f32) = .{ 2, 0, -1 };
+    const to: @Vector(3, f32) = .{ 6, 0.1, 3 };
+    const eased = linear(from, to, 0.3);
+    inline for (0..3) |axis| try std.testing.expectEqual(linear(from[axis], to[axis], 0.3), eased[axis]);
 }
 
 test cosine {
     try std.testing.expectApproxEqAbs(2, cosine(2, 6, 0), 1e-6);
     try std.testing.expectApproxEqAbs(4, cosine(2, 6, 0.5), 1e-6);
     try std.testing.expectApproxEqAbs(6, cosine(2, 6, 1), 1e-6);
+    // A vector eases each component as it would alone.
+    const from: @Vector(3, f32) = .{ 2, 0, -1 };
+    const to: @Vector(3, f32) = .{ 6, 0.1, 3 };
+    const eased = cosine(from, to, 0.3);
+    inline for (0..3) |axis| try std.testing.expectEqual(cosine(from[axis], to[axis], 0.3), eased[axis]);
 }
 
 test in {

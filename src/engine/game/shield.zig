@@ -478,10 +478,37 @@ pub fn sphereMesh(gpa: Allocator, grid: Grid, image: *srtexture.Image) Allocator
     return mesh;
 }
 
+/// `shield_bubble_object` (`0x0049E370`, "Shield mesh"): a bubble's scene object, never culled,
+/// at a unit radius scaled by `scale`, its levels and colours set by its user.
+pub fn bubbleObject(scale: f32) srapiext.MeshObject {
+    return .{
+        .flags = .{ .not_culled = true, .baked_object = true, .own_first = true },
+        .position = @splat(0),
+        .scale = scale,
+        .radius = 1,
+        .levels = &.{},
+    };
+}
+
+/// The texture coordinates `shield_bubble_object` gives the vertex of a bubble's sphere at `at`:
+/// its `x` and `y`.
+pub fn bubbleUv(at: Vector) [2]f32 {
+    return .{ at[0], at[1] };
+}
+
+test bubbleObject {
+    const object = bubbleObject(150);
+    try std.testing.expect(object.flags.not_culled and object.flags.baked_object and object.flags.own_first);
+    try std.testing.expectEqual(150, object.scale);
+    try std.testing.expectEqual(1, object.radius);
+    try std.testing.expectEqual(0, object.levels.len);
+    try std.testing.expectEqual([2]f32{ 0.5, -0.25 }, bubbleUv(.{ 0.5, -0.25, 0.75 }));
+}
+
 /// A ship's shield bubble (`0x0049EF90`, 0x48 bytes), which `create_object` makes for a ship that
 /// lists no components and is not debris, and which hangs from the ship's frame.
 pub const Bubble = struct {
-    /// Its scene object (`+0x04`, `0x0049E370`), scaled to `bubble_scale` of the ship's radius.
+    /// Its scene object (`+0x04`, `bubbleObject`), scaled to `bubble_scale` of the ship's radius.
     object: srapiext.MeshObject,
     /// When a shot or a knock last struck it (`+0x0C`), or null for never.
     struck: ?i32 = null,
@@ -501,13 +528,7 @@ pub const Bubble = struct {
     pub fn create(gpa: Allocator, radius: f32, side: gameobj.Side(i16)) Allocator.Error!*Bubble {
         const bubble = try gpa.create(Bubble);
         bubble.* = .{
-            .object = .{
-                .flags = .{ .not_culled = true, .baked_object = true, .own_first = true },
-                .position = @splat(0),
-                .scale = radius * bubble_scale,
-                .radius = 1,
-                .levels = &.{},
-            },
+            .object = bubbleObject(radius * bubble_scale),
             .tint = if (side == .friendly) .friendly else .other,
         };
         return bubble;
@@ -593,10 +614,7 @@ pub const Kept = struct {
     const finest_uv = uv: {
         @setEvalBranchQuota(10_000);
         var uv: [max_vertices][2]f32 = undefined;
-        for (&uv, 0..) |*coordinates, index| {
-            const at = grids[0].vertex(index);
-            coordinates.* = .{ at[0], at[1] };
-        }
+        for (&uv, 0..) |*coordinates, index| coordinates.* = bubbleUv(grids[0].vertex(index));
         break :uv uv;
     };
 
