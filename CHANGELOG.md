@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/vdmkenny/openreliant/compare/v0.6.0...v0.6.1) (2026-10-02)
+
+
+### Fixes
+
+* the releases carry sltool, with its own version ([#549](https://github.com/vdmkenny/openreliant/issues/549)) ([a7c9efc](https://github.com/vdmkenny/openreliant/commit/a7c9efcca132773e52006d29ce0f073c0379e8f1))
+
 ## [0.6.0](https://github.com/vdmkenny/openreliant/compare/v0.5.0...v0.6.0) (2026-10-02)
 
 
