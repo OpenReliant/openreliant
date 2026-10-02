@@ -314,11 +314,11 @@ pub const Shapes = struct {
         return .{ .art = art, .bytes = bytes };
     }
 
-    /// The sprite set `name` of `archive`, with the pictures its mods give in its shapes' place;
-    /// null where it is left out.
+    /// The sprite set `name` from `archive`, with the mod pictures that replace its shapes; null if
+    /// it can't be read.
     pub fn read(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8) ?Shapes {
         const bytes = archive.readFile(gpa, name) catch |err| {
-            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+            log.warn("can't read {s}: {s}", .{ name, @errorName(err) });
             return null;
         };
         return of(gpa, bytes, name, .of(archive.mods, name));

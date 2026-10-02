@@ -395,7 +395,7 @@ fn attack(fighter: Fighter) bool {
             ai.full_throttle
         else
             math.dot(nose, gameobj.vector(fighter.state.aim_velocity)) / fighter.cruise();
-    } else if (fighter.pilot.skill() == .high) {
+    } else if (fighter.pilot.skill == .high) {
         ship.afterburner = true;
     } else {
         ship.throttle = ai.full_throttle;
@@ -533,7 +533,7 @@ fn friend(fighter: Fighter) *gameobj.GameObject {
 /// `ai.collisionCourse`); against one with components, close to the part it aims at.
 fn goingToCrash(fighter: Fighter) bool {
     if (fighter.enemy().object.flags.components) return closeToPart(fighter);
-    const berth = crashBerth(fighter.pilot.skill()) orelse return false;
+    const berth = crashBerth(fighter.pilot.skill) orelse return false;
     return ai.collisionCourse(fighter.ctx.world, fighter.index, fighter.against.slot, crash_steps, berth);
 }
 
@@ -544,7 +544,7 @@ fn crashBerth(skill: pilots.Pilot.Skill) ?f32 {
         .low => 5000,
         .medium => 3500,
         .high => 2000,
-        .other => null,
+        _ => null,
     };
 }
 
@@ -824,7 +824,7 @@ test goingToCrash {
     fighter.enemy().object.flags.components = true;
     try std.testing.expect(goingToCrash(fighter));
     // A pilot of a skill the game has no berth for never crashes.
-    try std.testing.expectEqual(null, crashBerth(.other));
+    try std.testing.expectEqual(null, crashBerth(@enumFromInt(3)));
     try std.testing.expectEqual(2000, crashBerth(.high));
 }
 

@@ -9,7 +9,7 @@ covered under [What sprites are not](#what-sprites-are-not).
 ```bash
 sltool spr info <sprite>                # what the set contains
 sltool spr ls <sprite>                  # every block, with kind and size
-sltool spr extract <sprite> <out-dir>   # every shape as an indexed PNG, as a mod names it
+sltool spr extract <sprite> <out-dir>   # every shape as an indexed PNG, with the name a mod uses
 make sprites                            # every shape into game/sprites
 ```
 

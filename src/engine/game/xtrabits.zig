@@ -26,13 +26,14 @@ const GameObject = @import("gameobj.zig").GameObject;
 const create = @import("create.zig");
 const objects = @import("objects.zig");
 
-/// The settings' texture detail (`Tdetail`, `texture_detail`, `0x00595D7C`), which
-/// `renderer_start` caps the longest side a texture keeps by (`0x004ACF9F`), lowering the device's
-/// own where it is larger: 128 at 0, 256 at 1 and 2048 at 2, the device's own for another value.
-/// The game's video screen steps between 0 and 1, which it calls LOW and HIGH.
+/// The texture detail setting (`Tdetail`, `texture_detail`, `0x00595D7C`), which `renderer_start`
+/// uses to limit a texture's longest side (`0x004ACF9F`), lowering the device's own limit if it's
+/// larger: 128 at 0, 256 at 1 and 2048 at 2, and the device's limit for any other value. The
+/// original video screen switches between 0 and 1, which it calls LOW and HIGH.
 ///
-/// **Improvement:** HIGH, 2, caps nothing, where the game caps at 2048, which none of its own
-/// textures reach: a mod's picture keeps its size. The settings screen calls 1 MEDIUM.
+/// **Improvement:** HIGH, 2, sets no limit, where the original limits textures to 2048, which none
+/// of the original textures reach, so a mod's picture keeps its full size. The settings screen
+/// calls 1 MEDIUM.
 pub const TextureDetail = enum(u32) {
     low = 0,
     medium = 1,

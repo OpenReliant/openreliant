@@ -20,6 +20,9 @@
         .freetype = .{
             .path = "deps/freetype",
         },
+        .luau = .{
+            .path = "deps/luau",
+        },
     },
     .paths = .{
         "build.zig",

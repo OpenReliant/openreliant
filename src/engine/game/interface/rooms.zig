@@ -422,37 +422,37 @@ pub const Context = struct {
     /// Which of the Yamato's second crew comes next, which outlasts the rooms; none to start from
     /// the first each time.
     second_crew: ?*crew.Turn = null,
-    /// The outline fonts that stand in for the fonts of the screens the rooms open, the ITAC's
-    /// among them (`hud.FontFile`); none for the bitmap fonts alone.
+    /// The outline fonts that replace the fonts of the screens the rooms open, including the ITAC's
+    /// (`hud.FontFile`); null to use only the bitmap fonts.
     outlines: ?*hud.outline.Outlines = null,
 
-    /// The file `name` of the disc's archive open, expanded; null where it is left out, which the
-    /// log says.
+    /// Reads the file `name` from the open CD archive, decompressed; null if it can't be read,
+    /// which the log says.
     pub fn read(context: Context, name: []const u8) ?[]u8 {
         return context.disc.readFile(context.gpa, name) catch |err| {
-            log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+            log.warn("can't read {s}: {s}", .{ name, @errorName(err) });
             return null;
         } orelse {
-            log.warn("{s} is left out: no disc's archive open holds it", .{name});
+            log.warn("{s} isn't in a mod or the open CD archive", .{name});
             return null;
         };
     }
 
-    /// The bank `name` of the disc's archive open; null where it is left out.
+    /// The sound bank `name` from the open CD archive; null if it can't be read.
     pub fn readBank(context: Context, name: []const u8) ?hog_snd.BankFile {
         const bytes = context.read(name) orelse return null;
         return .of(context.gpa, bytes, name);
     }
 
-    /// The sprite set `name` of the disc's archive open, with the pictures the mods give in its
-    /// shapes' place; null where it is left out.
+    /// The sprite set `name` from the open CD archive, with the mod pictures that replace its
+    /// shapes; null if it can't be read.
     pub fn readShapes(context: Context, name: []const u8) ?canvas.Shapes {
         const bytes = context.read(name) orelse return null;
         return .of(context.gpa, bytes, name, .of(context.disc.mods, name));
     }
 
-    /// The speech file `speech` of `speech_hog` (`hog_read_file`), a mod's first
-    /// (`videoreports.readLine`); null where it is left out.
+    /// Reads the speech file `speech` from `speech_hog` (`hog_read_file`), with a mod's file taking
+    /// priority (`videoreports.readLine`); null if it can't be read.
     pub fn readLine(context: Context, speech: []const u8) ?[]u8 {
         return videoreports.readLine(context.gpa, context.resources.mods, if (context.lines) |lines| lines.* else null, speech);
     }

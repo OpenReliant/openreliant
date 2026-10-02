@@ -146,15 +146,17 @@ its finest level averaged over blocks of the ratios, a part block at its edge le
 levels made again. Brightness and contrast apply when either is non-zero. The image is then
 converted to the device's format.
 
-OpenReliant fits each of the cache's images to the cap the first time it reads it, and a mod's
-picture loses its finest levels until it fits. Its settings screen calls the three LOW, MEDIUM and
-HIGH; HIGH caps nothing, and is the default ([Video](../engine/front-end.md#video)).
+OpenReliant shrinks each image in the cache to the limit the first time it reads it, and drops the
+finest mipmap levels of a mod's picture until it fits. Its settings screen calls the three values
+LOW, MEDIUM and HIGH. HIGH sets no limit, and is the default
+([Video](../engine/front-end.md#video)).
 
 The shipped game adds nothing to the file. The loadout screen draws its panels into transient
 32-bit textures, `fpanels`, `bpanels`, `finfo` and `binfo`, kept in memory.
 
-OpenReliant looks for a mod's picture of the texture's name, `<name>.png`, before the cache, and
-makes its mipmaps as it reads it ([Modding](../guide/modding.md#textures)).
+OpenReliant looks in the mods for a picture with the texture's name, `<name>.png`, before it reads
+the cache, and generates the picture's mipmaps when it loads it
+([Modding](../guide/modding.md#textures)).
 
 ## Contents
 

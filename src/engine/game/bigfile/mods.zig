@@ -1,22 +1,21 @@
-//! OpenReliant's mods: the archives and folders in the `mods` folder of the game's, whose files
-//! stand in for the game's own of the same names wherever the game keeps them: the members of its
-//! archives, `resource.hog`, the speech's, the pilots' films' and the discs', and its loose files,
-//! such as its music, its movies, its missions and its tables. So a mod replaces a model, a
-//! picture of the interface, a sound, a piece of music, a line of speech or a movie alike, with a
-//! file of the name of the one it replaces, and adds a file under a name of its own. Its PNG
-//! pictures (`Mods.pictures`) stand in for the game's images at any size: for a texture of the
-//! texture cache, with its material maps, a shape of a sprite set, and a TGA picture. Its TrueType
-//! and OpenType fonts stand in for the game's fonts, drawn at the window's resolution
-//! (`hud.outline`).
+//! OpenReliant's mods: archives and folders in the game's `mods` folder whose files replace or add
+//! to the game's files. A file in a mod replaces every game file with the same name, wherever the
+//! game keeps it: inside its archives (`resource.hog`, and the speech, pilot face and CD archives)
+//! or as a loose file, such as the music, movies, missions and stat tables. Files with new names
+//! are added. PNG pictures in a mod (`Mods.pictures`) replace the game's images at any size:
+//! textures from the texture cache, with their material maps, sprite shapes and TGA pictures.
+//! TrueType and OpenType fonts in a mod replace the game's fonts, and are drawn at the window's
+//! resolution (`hud.outline`).
 //!
-//! A mod is an archive of the game's own format, a `.hog`, or a folder of files, as for a mod while
-//! it is being made, read as the archive `sltool hog pack` makes of the folder reads. Its names are
-//! flat, as the archives' are, and the game keeps no two files of one name but as copies of one
-//! another. The mods come before the game's own files, the last in the order of their names
-//! first. Each may describe itself in a manifest, `mod.ini`.
-//! [docs/guide/modding.md](../../../../docs/guide/modding.md) is the modder's guide.
+//! A mod is an archive in the game's format (a `.hog` file) or a folder of files, which is handy
+//! while making a mod. A folder is read the same way as the archive `sltool hog pack` would make
+//! from it. Names have no folders, as in the archives, and where the game has several files with
+//! the same name, they are copies of each other. Mods take priority over the game's files, and a
+//! mod that loads later, in alphabetical order, over an earlier one. Each mod can describe itself
+//! in a manifest, `mod.ini`. [docs/guide/modding.md](../../../../docs/guide/modding.md) is the
+//! modding guide.
 //!
-//! **Improvement:** the original reads its own files alone.
+//! **Improvement:** the original can't load mods.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -36,40 +35,47 @@ const bigfile = @import("../bigfile.zig");
 
 const log = std.log.scoped(.mods);
 
-/// The folder of the game's that holds the mods, found whatever the case of its name.
+/// The folder in the game folder that holds the mods. Its name is matched ignoring case.
 pub const folder_name = "mods";
 
-/// The extension of a mod's archive, whatever its case.
+/// The file extension of a mod archive, matched ignoring case.
 pub const archive_extension = ".hog";
 
-/// The file a mod describes itself in, in its archive or its folder: an ini file whose
-/// `manifest_section` holds what `Field` names. The game asks for no file of the name, so that it
-/// stays the mod's own, and the archive one of the game's format.
+/// The mod's manifest, in its archive or folder: an ini file with the `Field` keys in
+/// `manifest_section`. The game never reads a file with this name, so the manifest doesn't replace
+/// a game file, and the archive still works with the original.
 pub const manifest_name = "mod.ini";
 
 /// The manifest's section that describes the mod.
 pub const manifest_section = "Mod";
 
-/// A picture of the mod, in its archive or its folder, which a mod manager shows
-/// ([#497](https://github.com/OpenReliant/openreliant/issues/497)): a PNG file. Like the manifest, it
-/// is the mod's own.
+/// A PNG picture of the mod, in its archive or folder, for a mod manager to show
+/// ([#497](https://github.com/OpenReliant/openreliant/issues/497)). Like the manifest, it doesn't
+/// replace a game file.
 pub const thumbnail_name = "mod.png";
 
-/// The files a mod keeps of its own, which stand in for none of the game's.
+/// The file extension of a mod's scripts (`src/scripting.zig`), matched ignoring case. Scripts
+/// don't replace game files.
+pub const script_extension = ".luau";
+
+/// Files that belong to the mod itself rather than replacing game files, besides its scripts.
 const own_files = [_][]const u8{ manifest_name, thumbnail_name };
 
-/// What a mod's manifest says of it, each under its key in `manifest_section`.
+/// The fields of a mod's manifest, each under its key in `manifest_section`.
 pub const Field = enum {
-    /// The name a player knows it by.
+    /// The mod's display name.
     name,
     version,
     author,
-    /// What it changes, in a line.
+    /// A one-line description of what it changes.
     description,
-    /// Its page on the web, where it comes from.
+    /// The mod's web page.
     url,
+    /// The OpenReliant version the mod needs, such as `0.7` or `0.7.1`. Mods that need a newer
+    /// version are skipped (`Mods.open`).
+    openreliant,
 
-    /// Its key, which the manifest gives in any case.
+    /// Its key in the manifest, matched ignoring case.
     pub fn key(field: Field) []const u8 {
         return switch (field) {
             .name => "Name",
@@ -77,28 +83,29 @@ pub const Field = enum {
             .author => "Author",
             .description => "Description",
             .url => "Url",
+            .openreliant => "OpenReliant",
         };
     }
 };
 
-/// How a file is read: as `hog_read_file` (`0x004C7F60`) reads a member, expanded where RefPack
-/// packed it, or as it is stored, as Bink reads a movie and the radio a face film where they lie.
+/// How a file is read: decompressed if it holds RefPack data, as `hog_read_file` (`0x004C7F60`)
+/// reads an archive member, or as stored, the way Bink reads a movie and the radio a face film.
 const Reading = enum { expanded, stored };
 
-/// A mod: its files, and what its manifest says of it.
+/// A mod: its files and its manifest.
 pub const Mod = struct {
-    /// Its archive's or its folder's name in the `mods` folder, as it is spelled there.
+    /// The name of its archive or folder in the `mods` folder, as spelled there.
     name: []const u8,
     source: Source,
-    /// Its manifest; empty where it has none.
+    /// Its manifest; empty if it has none.
     manifest: profile.Profile = .empty,
 
     pub const Source = union(enum) {
         archive: hog.Archive,
         folder: Folder,
 
-        /// The entry `name` of the `mods` folder `folder`, of the kind `kind`: an archive where it
-        /// is a `.hog` file, a folder of files where it is a folder, and `error.NotAMod` otherwise.
+        /// Opens the entry `name` of the `mods` folder `folder`, of kind `kind`: an archive if it's
+        /// a `.hog` file, a folder mod if it's a folder, and `error.NotAMod` otherwise.
         fn open(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8, kind: Io.File.Kind) !Source {
             return switch (kind) {
                 .directory => .{ .folder = try .open(gpa, io, folder, name) },
@@ -115,14 +122,14 @@ pub const Mod = struct {
         }
     };
 
-    /// What its manifest says of `field`; null where it says nothing.
+    /// The value of `field` in its manifest; null if it's missing or empty.
     pub fn about(mod: Mod, field: Field) ?[]const u8 {
         const text = mod.manifest.value(manifest_section, field.key()) orelse return null;
         return if (text.len > 0) text else null;
     }
 
-    /// It as the log names it: by the name, the version and the author its manifest gives, with
-    /// its name in the `mods` folder after them, or by that name alone.
+    /// Formats the mod for the log: the name, version and author from its manifest, followed by its
+    /// name in the `mods` folder, or just that name if the manifest gives no name.
     pub fn format(mod: Mod, writer: *Io.Writer) Io.Writer.Error!void {
         const title = mod.about(.name);
         try writer.writeAll(title orelse mod.name);
@@ -131,32 +138,58 @@ pub const Mod = struct {
         if (title != null) try writer.print(" ({s})", .{mod.name});
     }
 
-    /// Its thumbnail's bytes, as the file holds them; null where it has none.
+    /// The bytes of its thumbnail; null if it has none.
     pub fn thumbnail(mod: Mod, gpa: Allocator) bigfile.ReadError!?[]u8 {
         const file = mod.find(thumbnail_name) orelse return null;
         return try mod.read(gpa, file, .expanded);
     }
 
-    /// The names of its files, in its order, its own left out (`own_files`).
+    /// The names of the mod's files that replace or add game files, in order. Files that belong to
+    /// the mod itself, such as the manifest, are skipped (`isOwn`).
     pub fn names(mod: *const Mod) Names {
-        return .{ .mod = mod };
+        return .{ .mod = mod, .keeps = isGameFile };
+    }
+
+    /// The names of the mod's scripts (its `.luau` files), in order.
+    pub fn scripts(mod: *const Mod) Names {
+        return .{ .mod = mod, .keeps = isScript };
     }
 
     pub const Names = struct {
         mod: *const Mod,
+        /// Which files to list.
+        keeps: *const fn (name: []const u8) bool,
         file: usize = 0,
 
         pub fn next(listed: *Names) ?[]const u8 {
             while (listed.file < listed.mod.count()) {
                 const name = listed.mod.fileName(listed.file);
                 listed.file += 1;
-                if (!isOwn(name)) return name;
+                if (listed.keeps(name)) return name;
             }
             return null;
         }
     };
 
-    /// How many files it holds, its own among them.
+    /// Reads the mod's file `name`, ignoring case, and decompresses RefPack data. Returns
+    /// null if the mod doesn't have the file.
+    pub fn readFile(mod: Mod, gpa: Allocator, name: []const u8) bigfile.ReadError!?[]u8 {
+        const file = mod.find(name) orelse return null;
+        return try mod.read(gpa, file, .expanded);
+    }
+
+    /// The OpenReliant version the mod needs (`Field.openreliant`), if it's newer than `running`.
+    /// Returns null otherwise. An invalid version is logged and ignored.
+    fn needsLater(mod: Mod, running: std.SemanticVersion) ?std.SemanticVersion {
+        const text = mod.about(.openreliant) orelse return null;
+        const needed = parseVersion(text) orelse {
+            log.warn("{s}: {s}: ignoring {s}={s}, which is not a valid version", .{ mod.name, manifest_name, Field.openreliant.key(), text });
+            return null;
+        };
+        return if (needed.order(running) == .gt) needed else null;
+    }
+
+    /// The number of files in the mod, including its manifest, thumbnail and scripts.
     fn count(mod: Mod) usize {
         return switch (mod.source) {
             .archive => |archive| archive.entries.len,
@@ -164,7 +197,7 @@ pub const Mod = struct {
         };
     }
 
-    /// The name of its file `file`, as it is spelled.
+    /// The name of file number `file`, as spelled.
     fn fileName(mod: Mod, file: usize) []const u8 {
         return switch (mod.source) {
             .archive => |archive| archive.entries[file].name,
@@ -172,7 +205,7 @@ pub const Mod = struct {
         };
     }
 
-    /// Its first file of the name `name`, whatever its case; null where it holds none.
+    /// The first file named `name`, ignoring case; null if there's none.
     fn find(mod: Mod, name: []const u8) ?usize {
         for (0..mod.count()) |file| {
             if (std.ascii.eqlIgnoreCase(mod.fileName(file), name)) return file;
@@ -180,7 +213,7 @@ pub const Mod = struct {
         return null;
     }
 
-    /// Its file `file`, read as `reading` has it.
+    /// Reads file number `file` as `reading` says.
     fn read(mod: Mod, gpa: Allocator, file: usize, reading: Reading) bigfile.ReadError![]u8 {
         switch (mod.source) {
             .archive => |archive| {
@@ -194,19 +227,19 @@ pub const Mod = struct {
         }
     }
 
-    /// The mod `name` of the `mods` folder `folder` (`Source.open`), with its manifest where it has
-    /// one. Null where it is no mod, can't be opened, or is an archive that fails its checksum
-    /// (`intact`), which the log says.
+    /// Opens the mod `name` in the `mods` folder `folder` (`Source.open`), with its manifest if it
+    /// has one. Returns null, with a message in the log, if it isn't a mod, can't be opened, or is
+    /// an archive that fails its checksum (`intact`).
     fn open(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8, kind: Io.File.Kind) Allocator.Error!?Mod {
         if (kind == .file and isArchive(name) and !try intact(gpa, io, folder, name)) return null;
         var source = Source.open(gpa, io, folder, name, kind) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.NotAMod => {
-                log.warn("{s} is left out: a mod is an archive, {s}, or a folder", .{ name, archive_extension });
+                log.warn("skipping {s}: a mod must be a {s} archive or a folder", .{ name, archive_extension });
                 return null;
             },
             else => {
-                log.warn("the mod {s} is left out: {s}", .{ name, @errorName(err) });
+                log.warn("skipping the mod {s}: {s}", .{ name, @errorName(err) });
                 return null;
             },
         };
@@ -218,7 +251,7 @@ pub const Mod = struct {
             mod.manifest = .{ .text = text };
         } else |err| switch (err) {
             error.OutOfMemory => |e| return e,
-            else => log.warn("{s}'s {s} is left out: {s}", .{ name, manifest_name, @errorName(err) }),
+            else => log.warn("{s}: can't read {s}: {s}", .{ name, manifest_name, @errorName(err) }),
         }
         return mod;
     }
@@ -230,10 +263,10 @@ pub const Mod = struct {
     }
 };
 
-/// Whether the archive `name` of the `mods` folder `folder` may be read: where no checksum file
-/// lies beside it, the archive's name with `checksums.extension` added, found whatever its case, or
-/// where the file gives the archive's digest. Where it gives another, or can't be read, the archive
-/// is damaged or not the one the checksum was made for, and the log says so.
+/// Whether the archive `name` in the `mods` folder `folder` can be used: true if there's no
+/// checksum file next to it (the archive's name plus `checksums.extension`, matched ignoring case),
+/// or if the checksum matches. If it doesn't match or can't be read, the archive is damaged or
+/// isn't the one the checksum was made for, and the log says so.
 fn intact(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8) Allocator.Error!bool {
     var named: [files.max_path]u8 = undefined;
     const checksum_name = std.fmt.bufPrint(&named, "{s}" ++ checksums.extension, .{name}) catch return true;
@@ -245,34 +278,33 @@ fn intact(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8) Allocator.Er
             else => break :failed @errorName(err),
         } orelse break :failed "it can't be found";
         defer gpa.free(text);
-        const wanted = (checksums.digestOf(text, name) catch break :failed "it is no checksum file") orelse
-            break :failed "it gives no checksum for the archive";
+        const wanted = (checksums.digestOf(text, name) catch break :failed "it isn't a checksum file") orelse
+            break :failed "it has no checksum for the archive";
         const file = folder.openFile(io, name, .{}) catch |err| break :failed @errorName(err);
         defer file.close(io);
         const digest = checksums.digestFile(io, file) catch |err| break :failed @errorName(err);
-        if (!std.mem.eql(u8, &digest, &wanted)) break :failed "the archive is damaged, or not the one it was made for";
+        if (!std.mem.eql(u8, &digest, &wanted)) break :failed "the archive is damaged, or isn't the one it was made for";
         log.info("{s} matches {s}", .{ name, path });
         return true;
     };
-    log.warn("the mod {s} is left out: it fails {s}: {s}", .{ name, path, failure });
+    log.warn("skipping the mod {s}: checking {s} failed: {s}", .{ name, path, failure });
     return false;
 }
 
-/// The most of a checksum file `intact` reads, far past a line for each file of a mod.
+/// The largest checksum file `intact` reads, far more than a line for each file of a mod.
 const max_checksum_size = 1 << 16;
 
-/// A mod's folder: each file in it one of the mod's, by its own name, as `sltool hog pack` packs
-/// them, and read as the member it packs would be.
+/// A folder mod. Each file in the folder is one of the mod's files, as `sltool hog pack` would pack
+/// it, and is read the same way as the archive member it would become.
 pub const Folder = struct {
     io: Io,
     dir: Io.Dir,
-    /// Its files' names as they are spelled, in the order `sltool hog pack` packs them
-    /// (`hog.nameOrder`).
+    /// The file names as spelled, in the order `sltool hog pack` packs them (`hog.nameOrder`).
     names: []const []const u8,
 
-    /// The files of the folder `name` in `parent`. A folder in it, and a file of a name no
-    /// archive's member has (`hog.validName`), are left out, as `sltool hog pack` leaves them,
-    /// which the log says.
+    /// Opens the folder `name` in `parent`. Subfolders, and files whose names can't be archive
+    /// member names (`hog.validName`), are skipped with a message in the log, as `sltool hog pack`
+    /// skips them.
     pub fn open(gpa: Allocator, io: Io, parent: Io.Dir, name: []const u8) !Folder {
         var dir = try parent.openDir(io, name, .{ .iterate = true });
         errdefer dir.close(io);
@@ -285,13 +317,13 @@ pub const Folder = struct {
             switch (kindOf(io, dir, entry) orelse continue) {
                 .file => {},
                 .directory => {
-                    log.warn("{s}/{s} is left out: a mod's files lie in its folder itself", .{ name, entry.name });
+                    log.warn("skipping {s}/{s}: a mod's files must be directly in its folder", .{ name, entry.name });
                     continue;
                 },
                 else => continue,
             }
             if (!hog.validName(entry.name)) {
-                log.warn("{s}/{s} is left out: a file's name is printable ASCII, as an archive's members' are", .{ name, entry.name });
+                log.warn("skipping {s}/{s}: file names must be printable ASCII, like archive member names", .{ name, entry.name });
                 continue;
             }
             const owned = try gpa.dupe(u8, entry.name);
@@ -308,9 +340,9 @@ pub const Folder = struct {
         folder.dir.close(folder.io);
     }
 
-    /// Its file `name`, read as `reading` has it. Expanded, it reads as the member `hog.packMember`
-    /// makes of it would: a RefPack stream the game expands, as a member extracted as stored holds,
-    /// expanded, and any other file as it is.
+    /// Reads its file `name` as `reading` says. Decompressing reads it the same way as the member
+    /// `hog.packMember` would make of it: RefPack data that the game would decompress, such as a
+    /// member extracted with `--raw`, is decompressed, and any other file is read as it is.
     fn read(folder: Folder, gpa: Allocator, name: []const u8, reading: Reading) bigfile.ReadError![]u8 {
         const bytes = try folder.dir.readFileAlloc(folder.io, name, gpa, .limited(files.max_file_size));
         if (reading == .stored or !refpack.gameExpands(bytes)) return bytes;
@@ -324,29 +356,30 @@ pub const Folder = struct {
     }
 };
 
-/// The mods the game is played with, and where the file of each name is read from.
+/// The loaded mods, and which mod each file name is read from.
 pub const Mods = struct {
-    /// The mods, in their order.
+    /// The mods, in load order.
     list: []Mod = &.{},
-    /// Each file the mods hold, by its name in lower case: the last mod's of the name.
+    /// Every file in the mods, by its name in lower case, pointing to the last mod that has it.
     index: std.StringHashMapUnmanaged(Place) = .empty,
 
     /// No mods, as with `--no-mods`.
     pub const none: Mods = .{};
 
-    /// A file of a mod: the mod, by its place in the list, and the file, by its place in the mod.
+    /// A file in a mod: the mod's index in the list, and the file's index in the mod.
     const Place = struct { mod: usize, file: usize };
 
-    /// The mods in the game's folder `game`: each `.hog` in its `mods` folder an archive, and each
-    /// folder in it a folder of files, in the order of their names, whatever their case. Anything
-    /// else there, and a mod that can't be opened, is left out, which the log says; none where the
-    /// game's folder has no `mods` folder. The log lists each mod, and what each of its files
-    /// replaces or adds (`report`).
-    pub fn open(gpa: Allocator, io: Io, game: Io.Dir) Allocator.Error!Mods {
+    /// Opens the mods in the `mods` folder of the game folder `game`: each `.hog` file is an
+    /// archive and each folder a folder mod, sorted by name, ignoring case. Anything else, mods
+    /// that fail to open, and mods that need a newer OpenReliant than `running` are skipped and
+    /// logged. If `running` is null, the version check is skipped. Returns no mods if there's no
+    /// `mods` folder. The log lists each mod and what each of its files replaces or adds
+    /// (`report`).
+    pub fn open(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion) Allocator.Error!Mods {
         var path: [files.max_path]u8 = undefined;
         const found = files.find(io, game, folder_name, &path) orelse return .none;
         var folder = game.openDir(io, found, .{ .iterate = true }) catch |err| {
-            log.warn("{s} can't be opened: {s}; no mod is read", .{ found, @errorName(err) });
+            log.warn("can't open {s}: {s}; no mods are loaded", .{ found, @errorName(err) });
             return .none;
         };
         defer folder.close(io);
@@ -359,7 +392,7 @@ pub const Mods = struct {
         }
         var iterator = folder.iterate();
         while (iterator.next(io) catch |err| {
-            log.warn("{s} can't be listed: {s}; no mod is read", .{ found, @errorName(err) });
+            log.warn("can't list {s}: {s}; no mods are loaded", .{ found, @errorName(err) });
             return .none;
         }) |entry| {
             // A checksum file belongs to the archive it checks (`intact`).
@@ -380,6 +413,11 @@ pub const Mods = struct {
         errdefer for (list.items) |*mod| mod.close(gpa);
         for (entries.items) |entry| {
             var mod = try Mod.open(gpa, io, folder, entry.name, entry.kind) orelse continue;
+            if (running) |version| if (mod.needsLater(version)) |needed| {
+                log.warn("skipping the mod {f}: it needs OpenReliant {f}, and this is {f}", .{ mod, needed, version });
+                mod.close(gpa);
+                continue;
+            };
             list.append(gpa, mod) catch |err| {
                 mod.close(gpa);
                 return err;
@@ -399,49 +437,50 @@ pub const Mods = struct {
         mods.* = .none;
     }
 
-    /// Whether a mod holds the file `name`, whatever its case.
+    /// Whether a mod has the file `name`, ignoring case.
     pub fn has(mods: *const Mods, name: []const u8) bool {
         return mods.place(name) != null;
     }
 
-    /// The mod the file `name` is read from, whatever its case: the last that holds one; null where
-    /// none does.
+    /// The mod the file `name` is read from: the last mod that has it, ignoring case. Null if no
+    /// mod has it.
     pub fn holder(mods: *const Mods, name: []const u8) ?*const Mod {
         const found = mods.place(name) orelse return null;
         return &mods.list[found.mod];
     }
 
-    /// The file `name`, whatever its case, from the last mod that holds one, as `hog_read_file`
-    /// (`0x004C7F60`) reads a member: expanded where RefPack packed it. Null where no mod holds it.
+    /// Reads the file `name`, ignoring case, from the last mod that has it, decompressing RefPack
+    /// data as `hog_read_file` (`0x004C7F60`) does for an archive member. Null if no mod has it.
     pub fn readFile(mods: *const Mods, gpa: Allocator, name: []const u8) bigfile.ReadError!?[]u8 {
         const found = mods.place(name) orelse return null;
         return try mods.list[found.mod].read(gpa, found.file, .expanded);
     }
 
-    /// The file `name`, whatever its case, from the last mod that holds one, as it is stored, as
-    /// Bink reads a movie and the radio a face film where they lie. Null where no mod holds it.
+    /// Reads the file `name`, ignoring case, from the last mod that has it, as stored, the way Bink
+    /// reads a movie and the radio a face film. Null if no mod has it.
     pub fn readStored(mods: *const Mods, gpa: Allocator, name: []const u8) bigfile.ReadError!?[]u8 {
         const found = mods.place(name) orelse return null;
         return try mods.list[found.mod].read(gpa, found.file, .stored);
     }
 
-    /// The file that stands in for the game's loose file `path`: the file of its name, the part of
-    /// the path past its last `\` or `/`, from the last mod that holds one, as `readFile` reads it.
-    /// Null where no mod holds one.
+    /// Reads the mod file that replaces the game's loose file `path`: the file with the same name
+    /// (the part of the path after the last `\` or `/`) from the last mod that has it, as
+    /// `readFile` reads it. Null if no mod has it.
     pub fn readInPlaceOf(mods: *const Mods, gpa: Allocator, path: []const u8) bigfile.ReadError!?[]u8 {
         return mods.readFile(gpa, std.fs.path.basenameWindows(path));
     }
 
-    /// The game's loose file `path` under its folder `dir`: a mod's in its place
-    /// (`readInPlaceOf`), else the file itself, found as `files.readFile` finds it, of at most
-    /// `limit`. Null where there is neither.
+    /// Reads the game's loose file `path` under the game folder `dir`: a mod's replacement if there
+    /// is one (`readInPlaceOf`), otherwise the file itself, found by `files.readFile`, of at most
+    /// `limit` bytes. Null if neither exists.
     pub fn readLoose(mods: *const Mods, io: Io, gpa: Allocator, dir: Io.Dir, path: []const u8, limit: Io.Limit) bigfile.ReadError!?[]u8 {
         if (try mods.readInPlaceOf(gpa, path)) |bytes| return bytes;
         return files.readFile(io, gpa, dir, path, limit);
     }
 
-    /// The mods' files as the pictures that stand in for the game's images are read from
-    /// (`srtexture.Files`): the texture cache's, and the interface's shapes and pictures.
+    /// The mod files that the pictures replacing the game's images are read from
+    /// (`srtexture.Files`): textures from the texture cache, and the interface's shapes and
+    /// pictures.
     pub fn pictures(mods: *const Mods) srtexture.Files {
         return .{ .context = mods, .readFn = readPicture };
     }
@@ -451,7 +490,7 @@ pub const Mods = struct {
         return mods.readFile(gpa, name) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => {
-                log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+                log.warn("can't read {s}: {s}", .{ name, @errorName(err) });
                 return null;
             },
         };
@@ -462,8 +501,9 @@ pub const Mods = struct {
         return mods.index.get(lowered(&buffer, name) orelse return null);
     }
 
-    /// Indexes each file of the mods by its name: the first of a name in one mod, as an archive's
-    /// lookup takes the first, and a later mod's in place of an earlier's. Manifests are left out.
+    /// Indexes each mod file by its name. Within a mod, the first file with a name is used, as in
+    /// an archive lookup, and a later mod's file replaces an earlier mod's. Files that belong to
+    /// the mod itself, such as manifests, are skipped.
     fn makeIndex(mods: *Mods, gpa: Allocator) Allocator.Error!void {
         for (mods.list, 0..) |*mod, at| {
             for (0..mod.count()) |file| {
@@ -484,8 +524,8 @@ pub const Mods = struct {
         }
     }
 
-    /// Lists each mod in the log, in its order, and each of its files: in place of an earlier
-    /// mod's, in place of one of the game's own (`GameFiles`), or added.
+    /// Logs each mod, in load order, and what each of its files does: replaces an earlier mod's
+    /// file, replaces a game file (`GameFiles`), or adds a file.
     fn report(mods: *const Mods, gpa: Allocator, io: Io, game: Io.Dir) Allocator.Error!void {
         if (mods.list.len == 0) return;
         var own: GameFiles = try .gather(gpa, io, game);
@@ -497,7 +537,7 @@ pub const Mods = struct {
                 .over => |earlier| log.info("{s} replaces {s}'s {s}", .{ mod.name, earlier.name, name }),
                 .file => log.info("{s} replaces {s}", .{ mod.name, name }),
                 .texture => |texture| log.info("{s} replaces the texture {s}", .{ mod.name, texture }),
-                .map => |map| log.info("{s} gives the texture {s} its {s}", .{ mod.name, map.texture, map.kind.label() }),
+                .map => |map| log.info("{s} adds the {s} of the texture {s}", .{ mod.name, map.kind.label(), map.texture }),
                 .shape => |shape| log.info("{s} replaces shape {d} of the sprite set {s}", .{ mod.name, shape.index, shape.set }),
                 .picture => |picture| log.info("{s} replaces the picture {s}", .{ mod.name, picture }),
                 .font => |font| log.info("{s} replaces the font {s}", .{ mod.name, font }),
@@ -507,31 +547,31 @@ pub const Mods = struct {
     }
 };
 
-/// What a mod's file does, as the log says.
+/// What a mod's file does, for the log.
 const Effect = union(enum) {
-    /// It stands in for an earlier mod's file of its name.
+    /// It replaces an earlier mod's file with the same name.
     over: *const Mod,
-    /// It stands in for the game's own file of its name.
+    /// It replaces the game file with the same name.
     file,
-    /// It stands in for the image of the texture cache of its name (`srtexture.Files`), which it
-    /// names less the picture's extension.
+    /// It replaces the texture cache image with its name (`srtexture.Files`), given without the
+    /// picture extension.
     texture: []const u8,
-    /// It gives a texture of the cache one of its material maps.
+    /// It's one of the material maps of a texture in the cache.
     map: GameFiles.Map,
-    /// It stands in for a shape of one of the game's sprite sets (`spr.pictureName`).
+    /// It replaces a shape in one of the game's sprite sets (`spr.pictureName`).
     shape: GameFiles.Shape,
-    /// It stands in for the game's TGA picture of its name, which it names less the picture's
-    /// extension (`game.matmanager.pictureName`).
+    /// It replaces the game's TGA picture with its name, given without the extension
+    /// (`game.matmanager.pictureName`).
     picture: []const u8,
-    /// It is an outline font that stands in for one of the game's fonts (`fnt.outlineName`), which
-    /// it names less the font's extension.
+    /// It's an outline font that replaces one of the game's fonts (`fnt.outlineName`), given
+    /// without the extension.
     font: []const u8,
-    /// It is a file of the mod's own.
+    /// It adds a new file.
     added,
 };
 
-/// What the file `name` of the mod at `at` in `list` does: an earlier mod's file of its name comes
-/// first, then the game's own (`own`).
+/// What the file `name` of the mod at `at` in `list` does. An earlier mod's file with the same name
+/// is checked first, then the game's files (`own`).
 fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effect {
     if (lastHolder(list[0..at], name)) |earlier| return .{ .over = earlier };
     if (own.kindOf(name)) |kind| return switch (kind) {
@@ -545,7 +585,7 @@ fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effe
     return .added;
 }
 
-/// The last of `list` that holds the file `name`, whatever its case.
+/// The last mod in `list` that has the file `name`, ignoring case.
 fn lastHolder(list: []const Mod, name: []const u8) ?*const Mod {
     var at = list.len;
     while (at > 0) {
@@ -555,9 +595,9 @@ fn lastHolder(list: []const Mod, name: []const u8) ?*const Mod {
     return null;
 }
 
-/// The names of the game's own files, in lower case: the members of each archive in its folder and
-/// its loose files, those of the `mods` folder left out, and the pictures that stand in for the
-/// texture cache's images (`srtexture.Files`).
+/// The names of the game's files, in lower case: the members of each archive in the game folder,
+/// the loose files outside the `mods` folder, and the names of the pictures that replace texture
+/// cache images (`srtexture.Files`).
 const GameFiles = struct {
     names: std.StringHashMapUnmanaged(Kind) = .empty,
 
@@ -592,8 +632,8 @@ const GameFiles = struct {
         return gathered;
     }
 
-    /// The pictures that stand in for the images of the texture cache, `tcachehw.dat`, read from
-    /// its directory alone.
+    /// Adds the names of the pictures that replace the images in the texture cache,
+    /// `tcachehw.dat`. Only the cache's directory is read.
     fn addTextures(gathered: *GameFiles, gpa: Allocator, io: Io, game: Io.Dir) Allocator.Error!void {
         var found: [files.max_path]u8 = undefined;
         const path = files.find(io, game, tcache.hardware_name, &found) orelse return;
@@ -611,7 +651,7 @@ const GameFiles = struct {
         }
     }
 
-    /// Adds `name` as a file of `kind`, where it is none already.
+    /// Adds `name` as a file of `kind`, unless it's already there.
     fn add(gathered: *GameFiles, gpa: Allocator, name: []const u8, kind: Kind) Allocator.Error!void {
         var buffer: [files.max_path]u8 = undefined;
         const slot = try gathered.names.getOrPut(gpa, lowered(&buffer, name) orelse return);
@@ -626,8 +666,8 @@ const GameFiles = struct {
     /// A material map of one of the cache's textures (`srtexture.MapFile`).
     const Map = struct { texture: []const u8, kind: srtexture.MapFile };
 
-    /// The texture of the cache the file `name` is a material map of, `<texture>_<map>.png`, and
-    /// which map; null where it is none.
+    /// If the file `name` is a material map of a texture in the cache, `<texture>_<map>.png`, the
+    /// texture and which map it is; null otherwise.
     fn mapOf(gathered: GameFiles, name: []const u8) ?Map {
         const stem = pictureStem(name) orelse return null;
         for (std.enums.values(srtexture.MapFile)) |kind| {
@@ -641,12 +681,12 @@ const GameFiles = struct {
         return null;
     }
 
-    /// A shape of one of the game's sprite sets: the set, as a picture's name gives it, less its
-    /// extension, and the shape's place in it.
+    /// A shape in one of the game's sprite sets: the set's name from the picture name, without the
+    /// extension, and the shape's index in the set.
     const Shape = struct { set: []const u8, index: usize };
 
-    /// The shape of one of the game's sprite sets the file `name` stands in for, named as the
-    /// interface looks it up (`spr.pictureName`); null where it is none.
+    /// The sprite set shape that the file `name` replaces, using the name the interface looks up
+    /// (`spr.pictureName`); null if it doesn't replace one.
     fn shapeOf(gathered: GameFiles, name: []const u8) ?Shape {
         const stem = pictureStem(name) orelse return null;
         const mark = std.mem.lastIndexOfScalar(u8, stem, '_') orelse return null;
@@ -660,8 +700,8 @@ const GameFiles = struct {
         return .{ .set = set, .index = index };
     }
 
-    /// The game's TGA picture the file `name` stands in for, `<picture>.png`, named less its
-    /// extension; null where it is none.
+    /// The name, without the extension, of the game's TGA picture that the file `name`,
+    /// `<picture>.png`, replaces; null if it doesn't replace one.
     fn pictureOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
         const stem = pictureStem(name) orelse return null;
         var buffer: [files.max_path]u8 = undefined;
@@ -670,8 +710,9 @@ const GameFiles = struct {
         return stem;
     }
 
-    /// The game's font the outline font `name` stands in for, `<font>.ttf` or `<font>.otf`
-    /// (`fnt.outline_extensions`), named less its extension; null where it is none.
+    /// The name, without the extension, of the game's font that the outline font `name`,
+    /// `<font>.ttf` or `<font>.otf` (`fnt.outline_extensions`), replaces; null if it doesn't
+    /// replace one.
     fn fontOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
         for (fnt.outline_extensions) |extension| {
             if (!std.ascii.endsWithIgnoreCase(name, extension)) continue;
@@ -683,13 +724,13 @@ const GameFiles = struct {
         return null;
     }
 
-    /// The file `name` less the picture extension; null where it has another.
+    /// The file `name` without the picture extension; null if it has a different extension.
     fn pictureStem(name: []const u8) ?[]const u8 {
         if (!std.ascii.endsWithIgnoreCase(name, srtexture.picture_extension)) return null;
         return name[0 .. name.len - srtexture.picture_extension.len];
     }
 
-    /// What the game's file of the name `name` is, whatever its case; null where it has none.
+    /// The kind of the game file named `name`, ignoring case; null if there's no such file.
     fn kindOf(gathered: GameFiles, name: []const u8) ?Kind {
         var buffer: [files.max_path]u8 = undefined;
         return gathered.names.get(lowered(&buffer, name) orelse return null);
@@ -700,45 +741,68 @@ const GameFiles = struct {
     }
 };
 
-/// `name` in lower case, in `buffer`, as the indexes key it; null for a name longer than any path
-/// the game builds, which no index holds.
+/// `name` in lower case, written to `buffer`, as the indexes use it; null for a name longer than
+/// any path the game builds, which no index can contain.
 fn lowered(buffer: *[files.max_path]u8, name: []const u8) ?[]const u8 {
     return if (name.len <= buffer.len) std.ascii.lowerString(buffer, name) else null;
 }
 
-/// Lets an index of names go, with the names it made.
+/// Frees an index of names, including the names it allocated.
 fn freeIndex(comptime Value: type, index: *std.StringHashMapUnmanaged(Value), gpa: Allocator) void {
     var keys = index.keyIterator();
     while (keys.next()) |key| gpa.free(key.*);
     index.deinit(gpa);
 }
 
-/// Whether the file `name` is one a mod keeps of its own (`own_files`), whatever its case.
+/// Whether the file `name` belongs to the mod itself (`own_files` or a script), ignoring case.
 fn isOwn(name: []const u8) bool {
     for (own_files) |own| {
         if (std.ascii.eqlIgnoreCase(name, own)) return true;
     }
-    return false;
+    return isScript(name);
 }
 
-/// Whether `name` is a checksum file's, by its extension, whatever its case.
+/// Whether `name` is a file that replaces or adds a game file: anything except the manifest, the
+/// thumbnail and scripts.
+fn isGameFile(name: []const u8) bool {
+    return !isOwn(name);
+}
+
+/// Whether `name` has the script extension, ignoring case.
+fn isScript(name: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(std.fs.path.extension(name), script_extension);
+}
+
+/// Parses a version such as `0.7` or `0.7.1`. A missing patch number counts as 0. Returns null if
+/// `text` isn't a version.
+fn parseVersion(text: []const u8) ?std.SemanticVersion {
+    var buffer: [max_version]u8 = undefined;
+    const full = if (std.mem.count(u8, text, ".") == 1)
+        std.fmt.bufPrint(&buffer, "{s}.0", .{text}) catch return null
+    else
+        text;
+    return std.SemanticVersion.parse(full) catch null;
+}
+
+/// The longest version string `parseVersion` accepts.
+const max_version = 64;
+
+/// Whether `name` is a checksum file, by its extension, ignoring case.
 fn isChecksum(name: []const u8) bool {
     return std.ascii.eqlIgnoreCase(std.fs.path.extension(name), checksums.extension);
 }
 
-/// Whether `name` is an archive's, by its extension, whatever its case.
+/// Whether `name` is an archive, by its extension, ignoring case.
 fn isArchive(name: []const u8) bool {
     return std.ascii.eqlIgnoreCase(std.fs.path.extension(name), archive_extension);
 }
 
-/// Whether a file or folder is hidden by its name, as `.DS_Store` and `.git` are, which the mods
-/// pass over.
+/// Whether a file or folder name is hidden, such as `.DS_Store` or `.git`. Mods skip them.
 fn hidden(name: []const u8) bool {
     return std.mem.startsWith(u8, name, ".");
 }
 
-/// What the entry `entry` of `dir` is, a link taken as what it leads to; null where that can't be
-/// told.
+/// The kind of `entry` in `dir`, following symbolic links; null if it can't be determined.
 fn kindOf(io: Io, dir: Io.Dir, entry: Io.Dir.Entry) ?Io.File.Kind {
     return switch (entry.kind) {
         .sym_link, .unknown => (dir.statFile(io, entry.name, .{}) catch return null).kind,
@@ -752,10 +816,9 @@ test Mods {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    // Two mods, in the order of their names whatever their case: a folder, `Alpha`, and an archive,
-    // `beta.hog`, which comes after it, so that its files come first. The folder holds a manifest,
-    // a file extracted as stored, a RefPack stream, and a folder of its own, which is left out, as
-    // is what the mods folder holds that is no mod.
+    // Two mods, sorted by name ignoring case: a folder, `Alpha`, and an archive, `beta.hog`, which
+    // loads after it, so its files take priority. The folder has a manifest, a file with RefPack
+    // data and a subfolder, which is skipped, as is a file in the mods folder that isn't a mod.
     try tmp.dir.createDirPath(io, "Mods/Alpha/textures");
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/Alpha/Ship.SHP", .data = "alpha's ship" });
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/Alpha/logo.tga", .data = "alpha's logo" });
@@ -770,17 +833,18 @@ test Mods {
     });
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/readme.txt", .data = "no mod" });
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/.DS_Store", .data = "" });
-    // The game's own loose file, which a mod's of its name stands in for.
+    // A loose game file that no mod replaces.
     try tmp.dir.createDirPath(io, "music");
     try tmp.dir.writeFile(io, .{ .sub_path = "music/theme.wav", .data = "the game's theme" });
 
-    var mods: Mods = try .open(gpa, io, tmp.dir);
+    var mods: Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     try std.testing.expectEqual(2, mods.list.len);
     try std.testing.expectEqualStrings("Alpha", mods.list[0].name);
     try std.testing.expectEqualStrings("beta.hog", mods.list[1].name);
 
-    // The last mod's file of a name, whatever its case; an earlier mod's where no later has one.
+    // The last mod with a file wins, ignoring case; an earlier mod's file is used if no later mod
+    // has it.
     const ship = (try mods.readFile(gpa, "SHIP.shp")).?;
     defer gpa.free(ship);
     try std.testing.expectEqualStrings("beta's ship", ship);
@@ -790,7 +854,8 @@ test Mods {
     try std.testing.expectEqualStrings("alpha's logo", logo);
     try std.testing.expectEqual(null, try mods.readFile(gpa, "missing.tga"));
     try std.testing.expect(!mods.has("hull.png"));
-    // A stream reads expanded, as `hog_read_file` reads a member, and as it is when stored.
+    // RefPack data is decompressed, as `hog_read_file` does for a member, unless it's read as
+    // stored.
     const expanded = (try mods.readFile(gpa, "packed.dat")).?;
     defer gpa.free(expanded);
     try std.testing.expectEqualStrings("abcdabcdabcdabcdabcd", expanded);
@@ -798,7 +863,7 @@ test Mods {
     defer gpa.free(stored);
     try std.testing.expectEqualSlices(u8, stream, stored);
 
-    // The manifest describes its mod, and is none of the game's files.
+    // The manifest describes the mod, and doesn't replace a game file.
     const alpha = mods.list[0];
     try std.testing.expectEqualStrings("Alpha", alpha.about(.name).?);
     try std.testing.expectEqualStrings("1.2", alpha.about(.version).?);
@@ -812,8 +877,7 @@ test Mods {
     for ([_][]const u8{ "Ship.SHP", "logo.tga", "packed.dat" }) |name| try std.testing.expectEqualStrings(name, names.next().?);
     try std.testing.expectEqual(null, names.next());
 
-    // A loose file of the game's, from a mod where one holds its name, and from its folder
-    // otherwise.
+    // A loose game file comes from a mod if one has it, and from the game folder otherwise.
     const line = (try mods.readLoose(io, gpa, tmp.dir, "ms_speech\\abrt_001", .unlimited)).?;
     defer gpa.free(line);
     try std.testing.expectEqualStrings("beta's line", line);
@@ -822,17 +886,87 @@ test Mods {
     try std.testing.expectEqualStrings("the game's theme", theme);
 }
 
+test "scripts don't replace game files" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "mods/balance");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/balance/mod.ini", .data = "[Scripts]\nLoad=balance.luau\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/balance/balance.luau", .data = "return {}" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/balance/util.LUAU", .data = "return 1" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/balance/gunstats.bin", .data = "guns" });
+
+    var mods: Mods = try .open(gpa, io, tmp.dir, null);
+    defer mods.close(gpa);
+    const balance = mods.list[0];
+    // Scripts are found ignoring case, and aren't treated as replacement game files.
+    var scripts = balance.scripts();
+    try std.testing.expectEqualStrings("balance.luau", scripts.next().?);
+    try std.testing.expectEqualStrings("util.LUAU", scripts.next().?);
+    try std.testing.expectEqual(null, scripts.next());
+    try std.testing.expect(!mods.has("balance.luau"));
+    var names = balance.names();
+    try std.testing.expectEqualStrings("gunstats.bin", names.next().?);
+    try std.testing.expectEqual(null, names.next());
+    // Files are read by name, ignoring case.
+    const script = (try balance.readFile(gpa, "BALANCE.luau")).?;
+    defer gpa.free(script);
+    try std.testing.expectEqualStrings("return {}", script);
+    try std.testing.expectEqual(null, try balance.readFile(gpa, "missing.luau"));
+    try std.testing.expectEqualStrings("balance.luau", balance.manifest.value("Scripts", "Load").?);
+}
+
+test "a mod that needs a newer version is skipped" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    for ([_]struct { []const u8, []const u8 }{
+        .{ "later", "OpenReliant=0.8" },
+        .{ "same", "OpenReliant=0.7" },
+        .{ "earlier", "OpenReliant=0.6.2" },
+        .{ "unread", "OpenReliant=soon" },
+        .{ "any", "Name=Any" },
+    }) |mod| {
+        const folder = try std.fmt.allocPrint(gpa, "mods/{s}", .{mod[0]});
+        defer gpa.free(folder);
+        try tmp.dir.createDirPath(io, folder);
+        const manifest = try std.fmt.allocPrint(gpa, "{s}/mod.ini", .{folder});
+        defer gpa.free(manifest);
+        const text = try std.fmt.allocPrint(gpa, "[Mod]\n{s}\n", .{mod[1]});
+        defer gpa.free(text);
+        try tmp.dir.writeFile(io, .{ .sub_path = manifest, .data = text });
+    }
+
+    var played: Mods = try .open(gpa, io, tmp.dir, .{ .major = 0, .minor = 7, .patch = 1 });
+    defer played.close(gpa);
+    try std.testing.expectEqual(4, played.list.len);
+    for (played.list) |mod| try std.testing.expect(!std.mem.eql(u8, mod.name, "later"));
+    // Without a version, no mod is skipped.
+    var every: Mods = try .open(gpa, io, tmp.dir, null);
+    defer every.close(gpa);
+    try std.testing.expectEqual(5, every.list.len);
+}
+
+test parseVersion {
+    try std.testing.expectEqual(std.SemanticVersion{ .major = 0, .minor = 7, .patch = 0 }, parseVersion("0.7").?);
+    try std.testing.expectEqual(std.SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, parseVersion("1.2.3").?);
+    try std.testing.expectEqual(null, parseVersion("soon"));
+    try std.testing.expectEqual(null, parseVersion("1"));
+}
+
 test "no mods folder" {
     const gpa = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    var mods: Mods = try .open(gpa, std.testing.io, tmp.dir);
+    var mods: Mods = try .open(gpa, std.testing.io, tmp.dir, null);
     defer mods.close(gpa);
     try std.testing.expectEqual(0, mods.list.len);
     try std.testing.expect(!mods.has("ship.shp"));
 }
 
-test "an archive is read where it matches its checksum" {
+test "an archive is only loaded if it matches its checksum" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -843,8 +977,8 @@ test "an archive is read where it matches its checksum" {
         .{ .name = "Mod.PNG", .data = "a picture of the mod" },
     });
     defer gpa.free(bytes);
-    // `good.hog` matches its checksum; the checksum beside `bad.hog`, whatever its case, is
-    // another's; `plain.hog` has none.
+    // `good.hog` matches its checksum; the checksum file next to `bad.hog`, whose name differs in
+    // case, is for another archive; `plain.hog` has none.
     for ([_][]const u8{ "mods/good.hog", "mods/bad.hog", "mods/plain.hog" }) |path| {
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = bytes });
     }
@@ -856,13 +990,13 @@ test "an archive is read where it matches its checksum" {
     try checksums.writeLine(&line, checksums.digest("another archive"), "bad.hog");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/BAD.HOG.SHA256", .data = line.buffered() });
 
-    var mods: Mods = try .open(gpa, io, tmp.dir);
+    var mods: Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     try std.testing.expectEqual(2, mods.list.len);
     try std.testing.expectEqualStrings("good.hog", mods.list[0].name);
     try std.testing.expectEqualStrings("plain.hog", mods.list[1].name);
 
-    // The thumbnail is the mod's own, and stands in for none of the game's files.
+    // The thumbnail belongs to the mod and doesn't replace a game file.
     const thumbnail = (try mods.list[0].thumbnail(gpa)).?;
     defer gpa.free(thumbnail);
     try std.testing.expectEqualStrings("a picture of the mod", thumbnail);
@@ -876,8 +1010,8 @@ test GameFiles {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    // An archive's members, a loose file in a folder, the texture cache's image, and a mod's file,
-    // which is none of the game's.
+    // An archive's members, a loose file in a folder, a texture cache image, and a mod file, which
+    // isn't a game file.
     try hog.testing.write(gpa, io, tmp.dir, "resource.hog", &.{
         .{ .name = "Ship.SHP", .data = "ship" },
         .{ .name = "HUDHARD.SPR", .data = "shapes" },
@@ -901,7 +1035,7 @@ test GameFiles {
     try std.testing.expectEqualStrings("yank_2", map.texture);
     try std.testing.expectEqual(.roughness, map.kind);
     try std.testing.expectEqual(null, own.mapOf("hull_normal.png"));
-    // A sprite set's shape, by its picture's name as the interface looks it up, and a picture.
+    // A sprite set shape, by the picture name the interface looks up, and a picture.
     const shape = own.shapeOf("hudhard_021.PNG").?;
     try std.testing.expectEqualStrings("hudhard", shape.set);
     try std.testing.expectEqual(21, shape.index);
@@ -918,13 +1052,13 @@ test effectOf {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    // Two mods: `a` and `b`, which comes after it.
+    // Two mods: `a`, and `b`, which loads after it.
     try tmp.dir.createDirPath(io, "mods/a");
     try tmp.dir.createDirPath(io, "mods/b");
     for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf" }) |path| {
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = path });
     }
-    var mods: Mods = try .open(gpa, io, tmp.dir);
+    var mods: Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     var own: GameFiles = .{};
     defer own.deinit(gpa);
@@ -934,8 +1068,8 @@ test effectOf {
     try own.add(gpa, "back.tga", .file);
     try own.add(gpa, "optfnt.fnt", .file);
 
-    // An earlier mod's file, the game's own, a texture and one of its maps, a sprite set's shape, a
-    // picture, an outline font, and a file of its own.
+    // An earlier mod's file, a game file, a texture and one of its maps, a sprite set shape, a
+    // picture, an outline font, and new files.
     try std.testing.expectEqual(&mods.list[0], effectOf(mods.list, 1, own, "hull.tga").over);
     try std.testing.expectEqual(.file, effectOf(mods.list, 1, own, "ship.shp"));
     try std.testing.expectEqualStrings("yank_2", effectOf(mods.list, 1, own, "yank_2.png").texture);
@@ -945,6 +1079,6 @@ test effectOf {
     try std.testing.expectEqualStrings("OPTFNT", effectOf(mods.list, 1, own, "OPTFNT.ttf").font);
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "optfnt.woff"));
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "logo.tga"));
-    // The first mod replaces no mod's file.
+    // The first mod has no earlier mod's files to replace.
     try std.testing.expectEqual(.added, effectOf(mods.list, 0, own, "hull.tga"));
 }

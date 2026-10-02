@@ -160,12 +160,11 @@ pub fn fullReplies(all: *const create.Objects, index: u16) bool {
     return face.full_replies;
 }
 
-/// What the game does before a wingman takes a command: for a pilot whose third value
-/// (`pilots.Pilot.values`, `+0x20`) is 0, 1 or 2, it draws a number it does nothing with.
-/// **Unknown:** what the value is.
+/// Before a wingman takes a command, the game draws a random number it doesn't use if the pilot's
+/// `pilots.Pilot._unknown_20` is 0, 1 or 2. **Unknown:** what the value means.
 fn drawForNothing(world: gameobj.World, wingman: u16) void {
     const all = world.objects;
-    if (all.pilots.get(all.slots[wingman].object.pilot).values[2] <= 2) _ = world.random.rand();
+    if (all.pilots.get(all.slots[wingman].object.pilot)._unknown_20 <= 2) _ = world.random.rand();
 }
 
 /// The wingman the game picks for `command`, from the player's wing but the player, not exploding

@@ -171,7 +171,7 @@ pub const Own = struct {
             light_maps: bool = true,
             pixel_lighting: bool = true,
             linear_light: bool = true,
-            /// Whether the material maps of a mod's textures are shaded.
+            /// Whether the material maps of mod textures are used.
             materials: bool = true,
             shadows: Shadows = .high,
             cockpit_shadows: bool = true,

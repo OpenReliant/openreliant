@@ -70,8 +70,8 @@ The game opens the discs' archives one at a time, as it needs them (`cd_hog_open
 [Movies](../engine/movies.md#the-discs-archives)), and Bink reads a movie from one as it is
 stored (`hog_locate`).
 
-OpenReliant's mods, archives of this format and folders of files, stand in for the members of
-every one of these archives, and for the game's loose files, by their names
+OpenReliant's mods, which are archives in this format or folders of files, replace the files with
+the same names in any of these archives and among the game's loose files
 ([Modding](../guide/modding.md)).
 
 `resource.hog`'s members by extension: `.shp` models, `.spr` sprites, `.tga` images, `.dte`
@@ -105,9 +105,9 @@ name order. It stores each member as `hog.packMember` finds best:
 
 The `~N` suffix `extract` gives a repeated name stays in the member's name.
 
-With `--checksum`, `pack` writes a checksum file beside the archive, its name with `.sha256` added,
-as `sha256sum` writes one, which OpenReliant checks a mod's archive against as it loads
-([Modding](../guide/modding.md#checksums)).
+With `--checksum`, `pack` also writes a checksum file next to the archive, named after the archive
+plus `.sha256`, in the format `sha256sum` uses. OpenReliant checks a mod's archive against it when
+it loads the mod ([Modding](../guide/modding.md#checksums)).
 
 ## RefPack compression
 

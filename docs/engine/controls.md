@@ -108,9 +108,10 @@ COUNTERMEASURES has joystick button 6 besides H.
 - It turns the twist off with its setting, where the game leaves it rolling, its box shown off,
   until the bindings load again.
 
-**Improvement:** where the game's directory has no `default.txt`, OpenReliant keeps the
-executable's table, its buttons too, where the game leaves every action without a button. A mod's
-`default.txt` stands in for the game's, and a gamepad keeps the buttons of its own layout.
+**Improvement:** when the game folder has no `default.txt`, OpenReliant uses the executable's
+built-in table, including its buttons, where the original leaves every action without a button. A
+`default.txt` in a mod replaces the game's. Gamepads have their own default bindings and don't use
+it.
 
 ### Key names
 

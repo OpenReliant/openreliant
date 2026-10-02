@@ -460,7 +460,7 @@ fn pursuit(skill: pilots.Pilot.Skill) f32 {
         .low => 300000,
         .medium => 200000,
         .high => 100000,
-        .other => std.math.inf(f32),
+        _ => std.math.inf(f32),
     };
 }
 
@@ -491,7 +491,7 @@ fn byPosition(fighter: Fighter) Choice {
     const apart = math.length(toward);
     const top = if (enemy.flight) |flight| flight.max_speed else 0;
     const pace = @max(enemy.object.speed / top, least_pace);
-    if (apart > pace * pursuit(fighter.pilot.skill())) return .{ .maneuver = .attack_pursue };
+    if (apart > pace * pursuit(fighter.pilot.skill)) return .{ .maneuver = .attack_pursue };
     const where = bearing(math.cosineOff(toward, fighter.heading()), behind_cosine);
     const seen = bearing(-math.cosineOff(toward, enemy.object.nextHeading()), seen_behind_cosine);
     if (where == .behind and fighter.random15() % run_odds == 0) {
@@ -855,7 +855,7 @@ test pursuit {
     try std.testing.expectEqual(200000, pursuit(.medium));
     try std.testing.expectEqual(100000, pursuit(.high));
     // Outside the table, never by distance.
-    try std.testing.expectEqual(std.math.inf(f32), pursuit(.other));
+    try std.testing.expectEqual(std.math.inf(f32), pursuit(@enumFromInt(3)));
 }
 
 test outOfSphere {

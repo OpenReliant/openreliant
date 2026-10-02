@@ -37,17 +37,17 @@ pub const File = struct {
     source: Source,
 };
 
-/// `mission_file_read` (`0x0045A300`): the mission file `path`, a path of the game's under its
-/// directory `dir`. The loose file comes first, where there is one (`file_exists`,
-/// `0x004AD6E0`), found whatever the case of its names, as Windows finds it, and read as it is,
-/// no further than `loose_limit`; then the member of `resources` it names (`hog_load`),
-/// expanded where RefPack packed it. Null where there is neither, on which the archive's reader
-/// reports the member missing and the mission's start stops the game: "The mission number is
-/// invalid". OpenReliant leaves saying so to the caller.
+/// `mission_file_read` (`0x0045A300`): reads the mission file `path`, a game path under the game
+/// folder `dir`. The loose file is used if there is one (`file_exists`, `0x004AD6E0`), found
+/// ignoring case as Windows does, and read as it is, up to `loose_limit` bytes; otherwise the
+/// member of `resources` that the path names (`hog_load`), decompressing RefPack data. Returns
+/// null if there's neither. The game's archive reader then reports the member as missing, and
+/// starting the mission stops the game with "The mission number is invalid". OpenReliant leaves
+/// that message to the caller.
 ///
-/// **Improvement:** a mod's file of the mission's name comes first
-/// (`bigfile.Mods.readInPlaceOf`), before even the loose file, which the installation itself holds
-/// missions 18 and 25 as, so that a mod replaces any mission.
+/// **Improvement:** a mission file in a mod takes priority (`bigfile.Mods.readInPlaceOf`), even
+/// over the loose file, which is how the retail install ships missions 18 and 25, so a mod can
+/// replace any mission.
 pub fn read(io: Io, gpa: Allocator, dir: Io.Dir, resources: *const bigfile.Hog, path: []const u8) !?File {
     if (try resources.mods.readInPlaceOf(gpa, path)) |bytes| return .{ .image = bytes, .source = .mod };
     if (try files.readFile(io, gpa, dir, path, .limited(files.max_file_size))) |bytes| {
@@ -766,11 +766,12 @@ test read {
     // A mission in neither is none.
     try std.testing.expectEqual(null, try read(io, gpa, tmp.dir, &resources, ".\\missions\\mission3.dte"));
 
-    // A mod's comes before the loose file, and adds a mission the game lacks.
+    // A mod's mission takes priority over the loose file, and a mod can add a mission the game
+    // doesn't have.
     try tmp.dir.createDirPath(io, "mods/missions");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/missions/Mission1.dte", .data = "mod one" });
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/missions/mission3.dte", .data = "mod three" });
-    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir);
+    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     resources.mods = &mods;
     for ([_][]const u8{ "mod one", "archive two", "mod three" }, [_]Source{ .mod, .archive, .mod }, 1..) |image, source, number| {

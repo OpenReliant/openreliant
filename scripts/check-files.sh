@@ -6,9 +6,9 @@
 # the next commit holds, as the pre-commit hook does. Each file is read where it lies.
 #
 # A file fails when it lies in one of the git-ignored directories for the game's files, has the
-# extension of one of the game's file types or of what the extractors write, starts with the
-# signature of an executable, archive, image, sound or document, holds binary data anywhere but
-# the compiled shaders, or is over 1 MiB.
+# extension of one of the game's file types or of what the extractors write (except the example
+# mods' manifests, `mod.ini`), starts with the signature of an executable, archive, image, sound or
+# document, holds binary data anywhere but the compiled shaders, or is over 1 MiB.
 set -euo pipefail
 # Bytes as they are, which the signatures and the binary data are told by.
 export LC_ALL=C
@@ -25,6 +25,8 @@ cd "$(git rev-parse --show-toplevel)"
 allowed_binary='^(src/platform/shaders/[^/]+\.spv|deps/newtown/Newtown\.ttf)$'
 game_dirs='^(game|references|tools|ghidra/projects|ghidra/export)/'
 game_types='hog|shp|spr|dte|fat|fnt|frc|tga|bik|icd|exe|dll|m3d|asi|ccb|cab|bin|dat|iso|cue|mdf|mds|nrg|img|wav|mp3|ogg|png|jpg|jpeg|gif|bmp|pcx|ppm|obj|pdf|rtf|doc|ini|sav|zip'
+# Files of OpenReliant's own that share an extension with the game's: the example mods' manifests.
+own_files='^examples/mods/[^/]+/mod\.ini$'
 max_size=$((1024 * 1024))
 
 failed=0
@@ -49,7 +51,7 @@ while IFS= read -r path; do
     shopt -s nocasematch
     if [[ $path =~ $game_dirs ]]; then
         fail "$path" "lies in a directory kept for the game's files"
-    elif [[ $path =~ \.($game_types)$ ]]; then
+    elif [[ $path =~ \.($game_types)$ && ! $path =~ $own_files ]]; then
         fail "$path" "has the extension of one of the game's files or of what the extractors write"
     elif [[ -f $path ]]; then
         files+=("$path")

@@ -224,10 +224,10 @@ pub const Player = struct {
         return .{ .gpa = gpa, .kind = kind, .bink = movie, .picture = picture, .pixels = rgba };
     }
 
-    /// The movie `name`, read from where `kind` reads it, the game's folder or the disc's archive
-    /// open (`archive`, whose folder is the game's), a mod's file of its name first
-    /// (`bigfile.Mods`), and opened to play as `open` has it; null where it is left out, which the
-    /// log says.
+    /// Reads the movie `name` from where `kind` says, the game folder or the open CD archive
+    /// (`archive`, in the game folder), with a mod file of the same name taking priority
+    /// (`bigfile.Mods`), and opens it to play as `open` does; null if it can't be read or opened,
+    /// which the log says.
     pub fn load(gpa: Allocator, codec: bink.Codec, archive: *const disc.Disc, name: []const u8, kind: Kind, sound: ?mss.Driver, look: bink.Look) ?Player {
         const source = kind.source();
         const found = switch (source) {

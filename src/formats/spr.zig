@@ -296,9 +296,9 @@ pub fn expandLevel(level: u8) u8 {
     return @as(u8, six) << 2 | six >> 4;
 }
 
-/// The name of the picture of shape `index` of the set `set_name`, as `sltool spr extract` names
-/// it and a mod's picture in the shape's place is named: the set's name without its folder or
-/// extension, `_`, the index in three digits at least, and the PNG extension.
+/// The picture name for shape `index` of the set `set_name`, used by `sltool spr extract` and by
+/// the mod pictures that replace shapes: the set's name without its folder or extension, `_`, the
+/// index with at least three digits, and the PNG extension.
 pub fn pictureName(buffer: []u8, set_name: []const u8, index: usize) error{NoSpaceLeft}![]u8 {
     const stem = std.fs.path.stem(std.fs.path.basenameWindows(set_name));
     return std.fmt.bufPrint(buffer, "{s}_{d:0>3}" ++ png.extension, .{ stem, index });

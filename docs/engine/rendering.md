@@ -392,6 +392,5 @@ at the centre. For texel `(x, y)`, with `d` its distance from the centre in half
 - `v = 200 * I`, rounded; for indices 4 to 7, those of 0 to 3 times seven tenths;
 - grey `(v - 200) / 3`, alpha `3 * v / 2`, each clamped to 0 to 255.
 
-The highlight pass is added, so only the grey shows. OpenReliant leaves it out over a mod's texture
-whose material map it shades, whose highlights stand in for it
-([Renderer](../port/renderer.md#improvements)).
+The highlight pass is added, so only the grey shows. OpenReliant skips it for mod textures with a
+material map, since the map's highlights replace it ([Renderer](../port/renderer.md#improvements)).

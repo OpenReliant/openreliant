@@ -1,5 +1,5 @@
-//! PNG files: a minimal writer, enough to save the game's images, and a reader for the pictures
-//! mods bring, whatever their colour type, bit depth and interlacing.
+//! PNG files: a minimal writer, enough to save the game's images, and a reader for the pictures in
+//! mods, with any colour type, bit depth and interlacing.
 //!
 //! The game's sprites are 8-bit indexed with one colour reserved for transparency, which PNG
 //! represents directly as colour type 3 plus a `tRNS` chunk. Keeping the indices means the output

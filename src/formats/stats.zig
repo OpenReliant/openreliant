@@ -132,9 +132,9 @@ pub fn records(comptime T: type, bytes: []const u8) Error![]align(1) const T {
 /// The loadout screen shows seven of these fields, and its layout table pairs each with a label
 /// from `LANGUAGE.DLL`: six as ten-segment bars scaled to the spread across the listed ships, one
 /// as a number.
-/// Those labels are noted below. The flight-model names for `0x44` to `0x5C` come from mod diffs
-/// in Starlancer-OSS; the loader agrees with their grouping, copying the three rates together and
-/// the four inertias together.
+/// Those labels are noted below. The flight model names for `0x44` to `0x5C` come from
+/// Starlancer-OSS, which compared mods with the original files; the loader agrees with their
+/// grouping, copying the three rates together and the four inertias together.
 pub const Ship = extern struct {
     name: [name_size]u8,
     /// Shown as **Max Speed**.
@@ -157,13 +157,13 @@ pub const Ship = extern struct {
     afterburner_fuel: f32,
     /// Shown as **Shield Recharge**. The loader substitutes 10 for zero.
     shield_recharge: f32,
-    /// The most the guns' charge holds: `create_object` gives a new ship this much, the guns
-    /// recharge to it, and the display's right arc measures against it. Mods: GunEnergy.
+    /// The guns' maximum charge: `create_object` gives a new ship this much, the guns recharge up
+    /// to it, and the display's right arc shows the charge against it. Mods: GunEnergy.
     gun_energy: f32,
     /// The seconds the guns take to charge fully (`guns.step`). Mods: GunRecharge.
     gun_recharge: f32,
-    /// The rounds a new ship's guns have, truncated on load: what a shot of a gun of kind
-    /// `rounds` takes (`guns.step`).
+    /// The rounds a new ship's guns have, truncated on load. Each shot from a gun of kind `rounds`
+    /// uses one (`guns.step`).
     rounds: f32,
     _unread: [record_size - 0x7C]u8,
 
@@ -179,13 +179,13 @@ pub const Ship = extern struct {
     }
 };
 
-/// What a hit does to a shield, and to a hull.
+/// The damage a hit does to a shield and to a hull.
 pub const Damage = extern struct {
     shield: f32,
     hull: f32,
 
-    /// The share of what gets through a shield that the hull takes (`object_damage`): the hull's
-    /// damage over the shield's.
+    /// The factor that turns damage getting through a shield into hull damage (`object_damage`):
+    /// hull damage divided by shield damage.
     pub fn hullShare(damage: Damage) f32 {
         return damage.hull / damage.shield;
     }
@@ -195,18 +195,19 @@ pub const Damage = extern struct {
 /// no gun: the file's 15 records are the gun types 1 to 15 a muzzle can name.
 pub const Gun = extern struct {
     name: [name_size]u8,
-    /// The ticks a shot lives, truncated on load, which is what gives the gun its range.
+    /// How many ticks a shot lasts, truncated on load, which sets the gun's range.
     range: f32,
     /// How fast a shot flies.
     speed: f32,
-    /// What a hit does to a shield, and to a hull or a component. The shield's is also what the
-    /// engine weights nearby guns by when it picks the most dangerous gun type around the player.
+    /// The damage a hit does to a shield, and to a hull or a component. The engine also weights
+    /// nearby guns by the shield damage when it picks the most dangerous gun type around the
+    /// player.
     damage: Damage,
     /// Shots per unit time. The loader stores `100 / fire_rate`, truncated, which is the interval
     /// between shots.
     fire_rate: f32,
-    /// What a shot draws from the guns' charge, truncated on load, for a gun that draws energy
-    /// rather than rounds (`guns.Kind`). The guns that fire rounds have none.
+    /// The energy a shot takes from the guns' charge, truncated on load, for a gun that uses energy
+    /// rather than rounds (`guns.Kind`). Guns that fire rounds have none.
     shot_energy: f32,
     _unread: [record_size - 0x58]u8,
 
@@ -249,13 +250,13 @@ pub const Missile = extern struct {
     /// Shown as **Locking Time**, in hundredths of a second: the screen multiplies it by 0.01 and
     /// labels the result in seconds. Truncated to an integer on load.
     lock_time: f32,
-    /// In percent, the chance a countermeasure draws the missile off (`object_spend_countermeasure`).
-    /// Truncated to an integer on load.
+    /// In percent, the chance that a countermeasure decoys the missile
+    /// (`object_spend_countermeasure`). Truncated to an integer on load.
     decoy_chance: f32,
-    /// How far off a target the missile can be locked on to, by the player, the AI and the missile
-    /// turret.
+    /// The distance at which the missile can lock on to a target, for the player, the AI and
+    /// missile turrets.
     lock_range: f32,
-    /// What a hit does to a component of a ship that lists them.
+    /// The damage a hit does to a component, on ships that have components.
     component_damage: f32,
     _unread: [record_size - 0x64]u8,
 
@@ -286,8 +287,9 @@ pub const Missile = extern struct {
 /// One pilot. The record index is the pilot ID missions refer to.
 ///
 /// The loader first fills all 194 slots with defaults, then reads records until the end of the
-/// file. Three fields select one of three presets for a group of runtime values; the other four
-/// are copied through, using only their low 16 bits. The shipped data uses levels 1 and 2 only.
+/// file. Three fields select one of three presets for a group of runtime values. The four 32-bit
+/// words after them are copied with a 16-bit move, so only their low halves are used and the high
+/// halves are never read. The shipped data uses levels 1 and 2 only.
 pub const Pilot = extern struct {
     name: [name_size]u8,
     /// Selects six 16-bit values: `tier_a_presets`.
@@ -297,15 +299,30 @@ pub const Pilot = extern struct {
     /// Selects two floats and a 16-bit value: `tier_c_presets`. Level 2 also overrides the last
     /// two values `tier_a` set, because the loader applies this field after that one.
     tier_c: Tier,
-    /// Copied through.
-    values: [4]Value,
+    /// The pilot's skill, used by the Fight order's maneuvers (`pilots.Pilot.skill`).
+    skill: Skill,
+    _unread_4e: u16,
+    /// Copied to the pilot. The pilot answers the radio's What's your status? only if it's above 0
+    /// (`videoreports.menu`). **Unknown:** what else it does.
+    _unknown_50: u16,
+    _unread_52: u16,
+    /// Copied to the pilot. **Unknown:** what it does.
+    _unknown_54: u16,
+    _unread_56: u16,
+    /// Copied to the pilot. The radio checks it without any effect (`videoreports.wingmen`).
+    /// **Unknown:** what it does.
+    _unknown_58: u16,
+    _unread_5a: u16,
     _unread: [record_size - 0x5C]u8,
 
-    /// A value the loader copies through with a 16-bit move, so only the low half reaches the
-    /// engine. The high half is zero in every shipped record.
-    pub const Value = packed struct(u32) {
-        low: u16,
-        ignored: u16,
+    /// A pilot's skill. More skilled pilots pursue from closer, keep less distance from what they
+    /// might hit, and use the afterburner when attacking. Other values match none of the three
+    /// (`aifight`, `aidefend`).
+    pub const Skill = enum(u16) {
+        low = 0,
+        medium = 1,
+        high = 2,
+        _,
     };
 
     /// A preset level. Any other value leaves that group at its default.
@@ -326,7 +343,8 @@ pub const Pilot = extern struct {
     comptime {
         assert(@offsetOf(Pilot, "tier_a") == 0x40);
         assert(@offsetOf(Pilot, "tier_c") == 0x48);
-        assert(@offsetOf(Pilot, "values") == 0x4C);
+        assert(@offsetOf(Pilot, "skill") == 0x4C);
+        assert(@offsetOf(Pilot, "_unknown_58") == 0x58);
         assert(@offsetOf(Pilot, "_unread") == 0x5C);
         assert(@sizeOf(Pilot) == record_size);
     }
@@ -427,7 +445,7 @@ test Pilot {
     try std.testing.expectEqual(@as(?usize, 2), pilot.tier_a.index());
     try std.testing.expectEqual(@as(?usize, null), pilot.tier_b.index());
 
-    // The loader's 16-bit move sees only the low half.
-    pilot.values[0] = @bitCast(@as(u32, 0x0003_0002));
-    try std.testing.expectEqual(@as(u16, 2), pilot.values[0].low);
+    // The loader's 16-bit move only reads the low half of the word, the skill.
+    std.mem.writeInt(u32, std.mem.asBytes(&pilot)[@offsetOf(Pilot, "skill")..][0..4], 0x0003_0002, .little);
+    try std.testing.expectEqual(Pilot.Skill.high, pilot.skill);
 }

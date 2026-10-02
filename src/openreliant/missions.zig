@@ -1,16 +1,16 @@
-//! `openreliant missions`: lists the missions a game's folder holds, its mods', the loose files in
-//! its `missions` folder and those in `resource.hog`, and binds each as a mission's start does, to
-//! show that it loads, with OpenReliant's own mission 0 where the game has none. A mission of one's
-//! own, dropped into `missions` or a mod, is checked the same way. Each is
-//! shown by what its file holds, as the file holds it: its counts, its format flags, the ship
-//! type and name of the player's own record, and the name OpenReliant's own section gives it, where
-//! the file has one (`dte.OpenReliantName`).
+//! `openreliant missions`: lists the missions in a game folder (in its mods, as loose files in its
+//! `missions` folder, and in `resource.hog`) and binds each one as starting a mission does, to show
+//! that it loads. OpenReliant's mission 0 is included if the game has none. A custom mission, added
+//! to `missions` or a mod, is checked the same way. Each is shown with what its file contains: its
+//! counts, its format flags, the ship type and name of the player's record, and the name in
+//! OpenReliant's section, if the file has one (`dte.OpenReliantName`).
 
 const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 const openreliant = @import("openreliant");
+const version = @import("version");
 const help = @import("help.zig");
 const mission0 = @import("mission0.zig");
 const engine = openreliant.engine;
@@ -20,14 +20,14 @@ const files = engine.files;
 pub const usage =
     \\usage: openreliant missions [<game-directory>] [--no-mods]
     \\  <game-directory>  the folder StarLancer is installed in; the current directory by default
-    \\  --no-mods         the game's own missions alone, without the mods in its mods folder
+    \\  --no-mods         only the game's missions, without the mods in its mods folder
     \\  -h, --help        show this page
     \\
-    \\Lists the missions in the game's mods, its missions folder and resource.hog, and OpenReliant's
-    \\own mission 0, built in, where the game has none, and binds each as a mission's start does. A
-    \\mod's file stands in for the others, and a loose file for the archive's copy, as in the game.
-    \\Each is shown by what its file holds: its counts, its format flags, the ship type and name of
-    \\the player's own record, and the mission's name where the file carries OpenReliant's.
+    \\Lists the missions in the game's mods, its missions folder and resource.hog, plus OpenReliant's
+    \\built-in mission 0 if the game has none, and binds each one as starting a mission does. A
+    \\mod's file takes priority over the others, and a loose file over the archive's copy, as in the
+    \\game. Each is shown with what its file contains: its counts, its format flags, the ship type
+    \\and name of the player's record, and the mission's name if the file has OpenReliant's section.
     \\
 ;
 
@@ -65,7 +65,7 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
     };
     var resources: game.bigfile.Hog = try .open(gpa, io, directory, archive_name);
     defer resources.close(gpa);
-    var mods: game.bigfile.Mods = if (with_mods) try .open(gpa, io, directory) else .none;
+    var mods: game.bigfile.Mods = if (with_mods) try .open(gpa, io, directory, version.semantic) else .none;
     defer mods.close(gpa);
     resources.mods = &mods;
 
@@ -129,8 +129,8 @@ fn show(gpa: Allocator, image: []u8, source: []const u8, out: *Io.Writer) !void 
 const player_width = 22;
 const player_field = std.fmt.comptimePrint("{{s:<{d}}}", .{player_width});
 
-/// The numbers of the missions `directory` holds, in the mods, loose in its `missions` folder or in
-/// `resources`, in order, each once.
+/// The numbers of the missions in `directory`, in the mods, as loose files in its `missions`
+/// folder or in `resources`, in order and without duplicates.
 fn listed(io: Io, gpa: Allocator, directory: Io.Dir, resources: game.bigfile.Hog) ![]u16 {
     var numbers: std.ArrayList(u16) = .empty;
     errdefer numbers.deinit(gpa);

@@ -108,6 +108,40 @@ pub const Profile = struct {
         return location;
     }
 
+    /// `GetPrivateProfileStringA` with no key name, which lists a section's keys: iterates over the
+    /// key names in the first section called `section`, ignoring case.
+    pub fn keys(profile: Profile, section: []const u8) Keys {
+        return .{ .lines = std.mem.splitScalar(u8, profile.text, '\n'), .section = section };
+    }
+
+    pub const Keys = struct {
+        lines: std.mem.SplitIterator(u8, .scalar),
+        section: []const u8,
+        place: enum { before, inside, past } = .before,
+
+        pub fn next(listed: *Keys) ?[]const u8 {
+            while (listed.place != .past) {
+                const raw = listed.lines.next() orelse return null;
+                const line = std.mem.trim(u8, raw, " \t\r");
+                if (line.len == 0) continue;
+                if (line[0] == '[') {
+                    const close = std.mem.indexOfScalar(u8, line, ']') orelse continue;
+                    // Only the first section of the name counts.
+                    if (listed.place == .inside) {
+                        listed.place = .past;
+                        return null;
+                    }
+                    if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, line[1..close], " \t"), listed.section)) listed.place = .inside;
+                    continue;
+                }
+                if (listed.place != .inside) continue;
+                const equals = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+                return std.mem.trimEnd(u8, line[0..equals], " \t");
+            }
+            return null;
+        }
+    };
+
     /// `GetPrivateProfileStringA`: the value, or `default` if there is none, truncated to `size - 1`
     /// bytes to fit the game's buffer.
     pub fn string(profile: Profile, section: []const u8, key: []const u8, default: []const u8, size: usize) []const u8 {
@@ -255,6 +289,19 @@ test "Profile.write" {
     const written = try twice.write(gpa, "S", "b", "3");
     defer gpa.free(written);
     try std.testing.expectEqualStrings("[S]\na=1\nb=3\n[S]\nb=2\n", written);
+}
+
+test "Profile.keys" {
+    const profile: Profile = .{ .text = "[Mod]\r\nName=x\r\n[scripts]\r\n Load = a.luau\r\n; no key\r\nGlobal=b.luau\r\n\r\n[Scripts]\r\nPlayer=c.luau\r\n" };
+    var listed = profile.keys("Scripts");
+    // Only the first section with the name counts, ignoring case. Keys are trimmed, and lines
+    // without a key are skipped.
+    try std.testing.expectEqualStrings("Load", listed.next().?);
+    try std.testing.expectEqualStrings("Global", listed.next().?);
+    try std.testing.expectEqual(null, listed.next());
+    try std.testing.expectEqual(null, listed.next());
+    var none = profile.keys("Missions");
+    try std.testing.expectEqual(null, none.next());
 }
 
 test File {

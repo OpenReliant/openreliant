@@ -380,9 +380,8 @@ const ace_answers = struct {
 /// (`videoreports.playerSays`). Unless the ship is not to be disturbed, is not a fighter by its
 /// type's class, or its current order has a priority or aims at the player's ship already, it turns
 /// on the player's ship (Fight), and answers in `videoreports.report_delay` ticks: one of an ace's
-/// own lines (`Ace`), or one of `taunt_answers` in its pilot's voice. Before it turns, for a pilot
-/// whose third value (`pilots.Pilot.values`, `+0x20`) is 0 or 1, the game draws a number it does
-/// nothing with.
+/// own lines (`Ace`), or one of `taunt_answers` in its pilot's voice. Before it turns, the game
+/// draws a random number it doesn't use if the pilot's `pilots.Pilot._unknown_20` is 0 or 1.
 fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
     const world = ctx.world;
     videoreports.playerSays(world, taunt_lines[which]);
@@ -396,7 +395,7 @@ fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
     if (slot.current()) |current| {
         if (aigeneric.prioritised(current.order) or current.target.index == @as(i16, @intCast(all.player))) return;
     }
-    switch (all.pilots.get(object.pilot).values[2]) {
+    switch (all.pilots.get(object.pilot)._unknown_20) {
         0, 1 => _ = world.random.rand(),
         else => {},
     }
@@ -435,8 +434,8 @@ fn condition(armour: gameobj.Quadrants, class: i32) usize {
 }
 
 /// `0x00455720`: What's your status?, to the wingman `addressed` names. The pilot asks
-/// (`videoreports.playerSays`), and a wingman with a pilot whose second value
-/// (`pilots.Pilot.values`, `+0x1E`) is above 0 answers in `status_delay` ticks, by how whole its
+/// (`videoreports.playerSays`). A wingman whose pilot's `pilots.Pilot._unknown_1e` is above 0
+/// answers after `status_delay` ticks, by how whole its
 /// armour is (`condition`), from the fuller set of replies or the other
 /// (`pilots.Face.full_replies`), in its voice.
 ///
@@ -448,7 +447,7 @@ fn status(world: gameobj.World, addressed: i16) void {
     const index = std.math.cast(u16, addressed) orelse return;
     const slot = &all.slots[index];
     const face = pilots.faceOf(slot.object.pilot) orelse return;
-    if (@as(i16, @bitCast(all.pilots.get(slot.object.pilot).values[1])) <= 0) return;
+    if (@as(i16, @bitCast(all.pilots.get(slot.object.pilot)._unknown_1e)) <= 0) return;
     const combat = slot.combat orelse return;
     const level = condition(slot.object.armor, combat.armor_class);
     const set = if (face.full_replies) &status_answers.full else &status_answers.most;
@@ -674,7 +673,7 @@ test "the wingman's status" {
     const combat = &heard.mission.tables.combat[@intFromEnum(gameobj.Type.predator)];
     combat.armor_class = 10;
     all.slots[heard.wingman].object.armor = .all(armour_per_class * 10 - 1);
-    all.pilots.pilots[videoreports.testing.Heard.bandit].values[1] = 1;
+    all.pilots.pilots[videoreports.testing.Heard.bandit]._unknown_1e = 1;
     var menu: Menu = .{ .page = .status, .addressed = @intCast(heard.wingman) };
     menu.run(ctx);
     const report = heard.radio.reports[0] orelse return error.TestUnexpectedResult;
@@ -687,7 +686,7 @@ test "the wingman's status" {
 
     // A pilot whose second value is 0 does not answer.
     heard.radio.reports[0] = null;
-    all.pilots.pilots[videoreports.testing.Heard.bandit].values[1] = 0;
+    all.pilots.pilots[videoreports.testing.Heard.bandit]._unknown_1e = 0;
     menu.page = .status;
     menu.run(ctx);
     try std.testing.expectEqual(null, heard.radio.reports[0]);

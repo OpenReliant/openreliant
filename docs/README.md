@@ -63,6 +63,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`engine/maneuvers.md`](engine/maneuvers.md) | Combat maneuvers: the scripts Fight runs, their language, and how it chooses them. |
 | [`port/platform.md`](port/platform.md) | The platform: the `openreliant` executable on SDL3, how to build and run it on each system, the installer, and joysticks and gamepads. |
 | [`port/renderer.md`](port/renderer.md) | The renderer: Surrender's pipeline and Direct3D driver as ported, the software reference device, improvements and what is not yet ported. |
+| [`port/scripting.md`](port/scripting.md) | Scripting: mod scripts in Luau, the Luau state, the sandbox and limits, how scripts read and change the engine's values, and the records load scripts can change. |
 | [`port/sound.md`](port/sound.md) | Sound: the stand-in for the Miles Sound System, and its output through SDL3. |
 
 ## Conventions

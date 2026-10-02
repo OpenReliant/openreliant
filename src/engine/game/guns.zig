@@ -81,8 +81,8 @@ pub const GunType = enum(u4) {
         };
     }
 
-    /// Whether it is one of the turrets' own guns, the Turret Flak, the Turret Lasers and the Huge
-    /// Guns, rather than one of the fighters', the Laser Cannon to the Nova Cannon.
+    /// Whether this is a turret gun (the Turret Flak, the Turret Lasers or a Huge Gun) rather than
+    /// a fighter gun (the Laser Cannon to the Nova Cannon).
     pub fn onTurrets(gun_type: GunType) bool {
         return switch (gun_type) {
             .turret_flak, .turret_lasers, .allied_huge_gun, .coalition_huge_gun => true,
@@ -320,13 +320,14 @@ pub const max_groups = 20;
 /// A ship type with no guns in groups, which an object that has none points at.
 pub const no_groups: [max_groups]Group = @splat(.{});
 
-/// A ship type's gun group: a gun and the one nearest its mirror image across the ship, or one
-/// alone. Each is its place among the ship's guns, or -1 for none, as the game's table holds them.
+/// A ship type's gun group: a gun and the gun closest to its mirror image across the ship, or a
+/// single gun. Each field is the gun's index among the ship's guns, or -1 for none, as in the
+/// game's table.
 pub const Group = struct {
     first: i16 = -1,
     second: i16 = -1,
 
-    /// Its first gun's place, where it has one.
+    /// The index of its first gun, if it has one.
     pub fn lead(group: Group) ?usize {
         return place(group.first);
     }

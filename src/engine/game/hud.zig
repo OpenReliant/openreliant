@@ -482,11 +482,11 @@ test globalPalette {
     try std.testing.expectEqual(null, globalPalette(try .parse(&empty)));
 }
 
-/// A set of the display's shapes, with an image made of each as it is first drawn. Every entry of
-/// a shipped set names no palette, so VFX draws each shape with its global palette, which
-/// `hud_draw` makes of the display's own set; a set given none takes the nearest palette at or
-/// before a shape, as the tools show them. A mod's picture stands in for a shape where it gives
-/// one (`Pictures`).
+/// A set of the display's shapes, with an image made of each shape when it's first drawn. No entry
+/// in a shipped set names a palette, so VFX draws each shape with the global palette, which
+/// `hud_draw` takes from the display's set. Without a global palette, a shape uses the nearest
+/// palette at or before it in the set, as the tools show them. A mod's picture replaces a shape if
+/// the mod has one (`Pictures`).
 pub const Art = struct {
     set: spr.Sprite,
     images: []?srtexture.Image,
@@ -511,17 +511,17 @@ pub const Art = struct {
         drawn,
     };
 
-    /// OpenReliant's: the files whose pictures stand in for a set's shapes, such as the mods'
-    /// (`bigfile.Mods.pictures`), each named for its shape (`spr.pictureName`). A picture of any
-    /// size is drawn over the shape's place, as large as the shape (`drawImageAs`).
+    /// Added by OpenReliant: the files whose pictures replace a set's shapes, such as the mods'
+    /// files (`bigfile.Mods.pictures`), each named after its shape (`spr.pictureName`). A picture
+    /// of any size is drawn over the shape's rectangle, at the shape's size (`drawImageAs`).
     ///
-    /// **Improvement:** the original draws the set's shapes alone, at 640x480.
+    /// **Improvement:** the original only draws the set's shapes, at 640x480.
     pub const Pictures = struct {
         files: srtexture.Files,
         /// The set's file name, which the pictures' names start from, and which outlives them.
         set: []const u8,
 
-        /// The pictures `mods` give the shapes of the set `set`.
+        /// The pictures in `mods` that replace the shapes of the set `set`.
         pub fn of(mods: *const bigfile.Mods, set: []const u8) Pictures {
             return .{ .files = mods.pictures(), .set = set };
         }
@@ -1773,10 +1773,10 @@ pub const Resources = struct {
 
     pub const font_name = "BLUFONT.FNT";
 
-    /// Loads what the display draws with from the resources' archive: `shapes`, the display's
-    /// set (`hardware_shapes`), with its global palette and the pictures the archive's mods give in
-    /// its shapes' place; the fonts, which `0x004A2AF0` opens, the outline of `outlines` standing in
-    /// for its own; and the power ball, which `hud_init` works out.
+    /// Loads what the display draws with from the resource archive: `shapes`, the display's set
+    /// (`hardware_shapes`), with its global palette and the mod pictures that replace its shapes;
+    /// the fonts, which `0x004A2AF0` opens, with the outline fonts from `outlines` replacing them;
+    /// and the power ball, which `hud_init` works out.
     pub fn load(gpa: Allocator, archive: bigfile.Hog, shapes: spr.Sprite, outlines: ?*outline.Outlines) !Resources {
         const global = globalPalette(shapes);
         return .{
@@ -5225,11 +5225,11 @@ test "a shaken image is drawn a row at a time" {
     try std.testing.expectEqual(1 + 3, recorder.draws.items.len);
 }
 
-test "a mod's picture stands in for a shape, over the shape's place" {
+test "a mod's picture replaces a shape, drawn over the shape's rectangle" {
     const gpa = std.testing.allocator;
     const bytes = try spr.testing.paletteAndShape(gpa);
     defer gpa.free(bytes);
-    // A picture for the set's shape, block 1, four times as fine.
+    // A picture for the set's shape in block 1, at four times the resolution.
     var written: std.Io.Writer.Allocating = .init(gpa);
     defer written.deinit();
     try png.writeRgba(gpa, &written.writer, 12, 8, &(@as([12 * 8 * 4]u8, @splat(0xFF))));
@@ -5242,8 +5242,8 @@ test "a mod's picture stands in for a shape, over the shape's place" {
     var recorder: device.testing.Recorder = .{ .gpa = gpa };
     defer recorder.deinit();
     const into = recorder.interface();
-    // Twice the size from (10, 20), the picture covers the shape's three pixels by two, one left
-    // of the point, as the shape's own does.
+    // At twice the size from (10, 20), the picture covers the shape's three by two pixels,
+    // starting one pixel left of the point, like the shape itself.
     for ([_]*Art{ &art, &own }) |drawn| {
         try drawShape(drawn, gpa, into, 1, .{ 10, 20 }, .{ 1, 1, 1, 1 }, 2);
         const corners = recorder.last();
@@ -5252,12 +5252,12 @@ test "a mod's picture stands in for a shape, over the shape's place" {
         try std.testing.expectEqual(14, corners[2].x);
         try std.testing.expectEqual(24, corners[2].y);
     }
-    // The picture's pixels, with its levels made.
+    // The picture's pixels, with its mipmaps generated.
     try std.testing.expectEqual(12, art.images[1].?.width());
     try std.testing.expectEqual(4, art.images[1].?.levels.len);
     try std.testing.expectEqual(3, own.images[1].?.width());
 
-    // Shaken, a row of the shape's at a time.
+    // When the display shakes, the shape is drawn one row at a time.
     var random: libcmt.Rand = .{};
     const before = recorder.draws.items.len;
     try drawShapeWith(&art, gpa, into, 1, .{ 10, 20 }, .{ 1, 1, 1, 1 }, 2, .{ .shake = .{ .hit_shake = 1, .interference = 0, .random = &random } });

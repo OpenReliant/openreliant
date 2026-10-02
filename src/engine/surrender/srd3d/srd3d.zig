@@ -327,10 +327,11 @@ pub const Driver = struct {
         return drawn.object.light_mask;
     }
 
-    /// Whether a surface's second pass is drawn: where its material has one, but for a highlight
-    /// pass over a texture whose material map the device shades, whose highlights stand in for it.
+    /// Whether a surface's second pass is drawn: if its material has one, except for a highlight
+    /// pass over a texture whose material map the device shades, since the map's highlights replace
+    /// it.
     ///
-    /// **Improvement:** a material of a mod's lights its own highlights, as its maps describe them.
+    /// **Improvement:** a mod texture with a material map gets its highlights from its maps.
     fn drawsSecond(driver: *const Driver, surface: *const srapiext.Surface) bool {
         if (!surface.material.two_pass) return false;
         if (surface.textures[1] != .highlight) return true;
@@ -743,12 +744,13 @@ pub const Driver = struct {
     }
 };
 
-/// Where a background image `image` is drawn for `viewport`, the screen's pixels left, top, right
-/// and bottom: as high as the viewport, keeping its proportions, and centred across it.
+/// Where a background image `image` is drawn for `viewport`, as the left, top, right and bottom
+/// screen pixels: scaled to the viewport's height, keeping its proportions, and centred
+/// horizontally.
 ///
-/// **Improvement:** the driver stretches the image over the viewport. OpenReliant keeps its
-/// proportions, which the game's own 4:3 pictures share with the 4:3 screens they are shown on, so
-/// that a mod's wider picture reaches past the viewport's sides into a wider window.
+/// **Improvement:** the original driver stretches the image over the viewport. OpenReliant keeps
+/// its proportions. The original pictures are 4:3, like the screens they were made for, and a wider
+/// picture from a mod extends past the viewport's sides into a wider window.
 pub fn backgroundEdges(image: *const srtexture.Image, viewport: [4]f32) [4]f32 {
     const left, const top, const right, const bottom = viewport;
     const across = (bottom - top) * @as(f32, @floatFromInt(image.width())) / @as(f32, @floatFromInt(image.height()));

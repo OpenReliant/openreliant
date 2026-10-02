@@ -9,18 +9,18 @@ const srtexture = @import("srtexture.zig");
 const Image = srtexture.Image;
 const Level = srtexture.Level;
 
-/// `image_shrink` (`0x004C95F0`): `image` made `ratio` times smaller across and down, each ratio 1
-/// or more, as `srtexture.fit` gives them.
+/// `image_shrink` (`0x004C95F0`): makes `image` `ratio` times smaller horizontally and vertically,
+/// each ratio 1 or more, as `srtexture.fit` gives them.
 ///
-/// An image with levels of detail, made smaller by the same ratio both ways, gives up a level for
-/// each halving of the ratio, keeping one at least (`0x004C9614` on); for the game's textures, whose
-/// sides are powers of two, the level kept first is the one the ratio comes to. Otherwise its finest
-/// level becomes the mean of each block of `ratio` pixels, a part block at its right or bottom edge
-/// left out, each channel's mean rounded down (`0x004C96B0` on), and an image that had levels has
-/// them made again (`image_build_mipmaps`).
+/// An image with mipmap levels, shrunk by the same ratio both ways, drops a level for each halving
+/// of the ratio, keeping at least one (`0x004C9614` on); for the game's textures, whose sides are
+/// powers of two, the first level kept is the one that matches the ratio. Otherwise its finest
+/// level becomes the average of each block of `ratio` pixels, ignoring a partial block at the right
+/// or bottom edge and rounding each channel's average down (`0x004C96B0` on), and an image that had
+/// levels has them regenerated (`image_build_mipmaps`).
 ///
-/// **Improvement:** the levels made again are made as a mod's picture's are (`srtexture.mipmaps`),
-/// their means taken in linear light.
+/// **Improvement:** the regenerated levels are made the same way as a mod picture's mipmaps
+/// (`srtexture.mipmaps`), averaging in linear light.
 pub fn shrink(gpa: Allocator, image: *Image, ratio: [2]u32) Allocator.Error!void {
     const levels = image.levels;
     if (levels.len > 1 and ratio[0] == ratio[1]) {

@@ -91,6 +91,27 @@ pub fn build(b: *std.Build) void {
         addMacosSdk(b, openal_library.root_module, sdk);
         addMacosSdk(b, platform, sdk);
     }
+    // Mod scripts: OpenReliant's scripting module (`src/scripting.zig`) on Luau, which deps/luau
+    // builds from source for the target. Like FreeType, Luau is always built optimized so that
+    // scripts run fast in debug builds too. Only the game links it; the library the tools share
+    // doesn't.
+    const luau_library = b.dependency("luau", .{ .target = target, .optimize = .ReleaseFast }).artifact("luau");
+    const luau_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/scripting/luau.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    luau_c.addIncludePath(luau_library.getEmittedIncludeTree());
+    const scripting = b.createModule(.{
+        .root_source_file = b.path("src/scripting.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "openreliant", .module = lib },
+            .{ .name = "luau", .module = luau_c.createModule() },
+        },
+    });
+    scripting.linkLibrary(luau_library);
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
     const archive_library = b.dependency("libarchive", .{ .target = target, .optimize = optimize }).artifact("archive");
@@ -123,6 +144,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "openreliant", .module = lib },
                 .{ .name = "platform", .module = platform },
+                .{ .name = "scripting", .module = scripting },
                 .{ .name = "archive", .module = archive_c.createModule() },
                 .{ .name = "version", .module = version },
             },
@@ -224,6 +246,7 @@ pub fn build(b: *std.Build) void {
     const ghidragen_tests = b.addTest(.{ .root_module = ghidragen.root_module });
     const openreliant_tests = b.addTest(.{ .root_module = openreliant.root_module });
     const platform_tests = b.addTest(.{ .root_module = platform });
+    const scripting_tests = b.addTest(.{ .root_module = scripting });
     const version_tests = b.addTest(.{ .root_module = version });
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&b.addRunArtifact(lib_tests).step);
@@ -232,6 +255,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(ghidragen_tests).step);
     test_step.dependOn(&b.addRunArtifact(openreliant_tests).step);
     test_step.dependOn(&b.addRunArtifact(platform_tests).step);
+    test_step.dependOn(&b.addRunArtifact(scripting_tests).step);
     test_step.dependOn(&b.addRunArtifact(version_tests).step);
 }
 

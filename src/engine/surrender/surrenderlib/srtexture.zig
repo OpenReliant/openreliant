@@ -1,8 +1,8 @@
 //! `C:\lancer\surrender\surrenderlib\srTexture.cpp`: the texture table. `texture_find`
 //! (`0x004C9E20`) looks a name up in the texture cache and reads the pixels on first use; the
 //! driver makes its device texture when it first draws with it (`texture_upload`, `0x004C9C90`).
-//! OpenReliant keeps each image as 8-bit RGBA mip levels, and takes a mod's picture of a texture's
-//! name in place of the cache's (`Files`), with the material maps that come beside it
+//! OpenReliant keeps each image as 8-bit RGBA mip levels, and uses a mod's picture with a
+//! texture's name instead of the cache's image (`Files`), along with the material maps next to it
 //! (`Image.Maps`).
 
 const std = @import("std");
@@ -36,8 +36,8 @@ pub const Image = struct {
     changed: bool = false,
     /// OpenReliant's: how a device that filters its textures magnifies it.
     magnify: Magnify = .sharp,
-    /// OpenReliant's: the maps that make its surface a material, for physically based shading,
-    /// where a mod gives them (`Table.maps`).
+    /// Added by OpenReliant: the material maps for physically based shading, if a mod has them
+    /// (`Table.maps`).
     maps: Maps = .{},
 
     /// The maps of a material, each as many levels as its image and of its size, in linear values;
@@ -143,9 +143,9 @@ fn wrap(i: i64, size: u32) usize {
     return @intCast(@mod(i, @as(i64, size)));
 }
 
-/// OpenReliant's: files whose pictures stand in for the game's images, such as the mods'
-/// (`game.bigfile.Mods.pictures`): the cache's, by a texture's name, and the interface's shapes
-/// and pictures (`game.hud.Art`, `game.matmanager`), each by a name of its own.
+/// Added by OpenReliant: files whose pictures replace the game's images, such as the mods' files
+/// (`game.bigfile.Mods.pictures`): the cache's images, by texture name, and the interface's shapes
+/// and pictures (`game.hud.Art`, `game.matmanager`), each with its own naming scheme.
 pub const Files = struct {
     context: *const anyopaque,
     readFn: *const fn (context: *const anyopaque, gpa: Allocator, name: []const u8) Allocator.Error!?[]u8,
@@ -213,9 +213,9 @@ pub const Table = struct {
     files: ?Files = null,
     /// By lower-case file name; null for a name the cache lacks.
     images: std.StringHashMapUnmanaged(?*Image) = .empty,
-    /// The longest side a texture keeps, by the texture detail (`xtrabits.TextureDetail`); null
-    /// for any. The driver fits the cache's images to it as it makes their device textures
-    /// (`fit`), and a mod's picture loses its finest levels until it fits.
+    /// The longest side a texture can have, set by the texture detail (`xtrabits.TextureDetail`);
+    /// null for no limit. The driver shrinks the cache's images to fit when it makes their device
+    /// textures (`fit`), and drops a mod picture's finest mipmap levels until it fits.
     largest: ?u32 = null,
 
     pub fn init(gpa: Allocator, cache: tcache.Cache, palette: tga.Palette) Table {
@@ -262,7 +262,7 @@ pub const Table = struct {
         return image;
     }
 
-    /// The longest side a mod's picture keeps: the texture detail's, within `max_side`.
+    /// The longest side a mod's picture can have: the texture detail's limit, at most `max_side`.
     fn longest(table: Table) u32 {
         return @min(table.largest orelse max_side, max_side);
     }
@@ -686,7 +686,7 @@ test mipmapped {
 
 /// Fixtures for the tests here and in the modules that draw with textures.
 pub const testing = struct {
-    /// Files of their names and contents, found whatever their case, as a mod's pictures are.
+    /// Files with their names and contents, found ignoring case, like a mod's pictures.
     pub const Pictures = struct {
         held: []const File,
 

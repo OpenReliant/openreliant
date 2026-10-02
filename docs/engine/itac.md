@@ -44,8 +44,8 @@ REPORTS ([#462](https://github.com/OpenReliant/openreliant/issues/462)), the fig
 
 - The times of the sounds now and then, and which plays, are drawn from `std.Random`, where the
   game uses `rand`.
-- Its text, in `itacbig.fnt` and `itacsml.fnt`, is drawn from outline fonts at the window's
-  resolution, Newtown or a mod's ([Outline fonts](../formats/fnt.md#outline-fonts)).
+- Its text, in `itacbig.fnt` and `itacsml.fnt`, is drawn with outline fonts at the window's
+  resolution: Newtown, or a font from a mod ([Outline fonts](../formats/fnt.md#outline-fonts)).
 
 ## Opening and closing
 

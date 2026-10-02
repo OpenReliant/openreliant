@@ -28,10 +28,10 @@ pub const wave = @import("formats/wave.zig");
 /// Windows executables: the game binary and its libraries.
 pub const pe = @import("formats/pe.zig");
 
-/// Images: those the tools write, and the pictures mods bring.
+/// Images: the ones the tools write, and the pictures in mods.
 pub const png = @import("formats/png.zig");
 
-/// Checksum files, which check mods' archives.
+/// Checksum files, used to check mod archives.
 pub const checksums = @import("formats/checksums.zig");
 
 /// The payload, the game executable: its structures and tables, laid out as its source tree.

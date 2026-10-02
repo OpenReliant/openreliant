@@ -29,9 +29,9 @@ const xtrabits = @import("../xtrabits.zig");
 /// (`0x004DC888`).
 const charge_per_hold: f32 = 0.0025;
 
-/// The least charge a release fires; a release short of it loses the charge (`0x004DC408`). Past
-/// it the charge shakes the player's view at `charging_shake`, and at `full_charge` at
-/// `charged_shake`.
+/// The smallest charge that fires when the trigger is released; a smaller charge is lost
+/// (`0x004DC408`). Above it, charging shakes the player's view by `charging_shake`, and at
+/// `full_charge` by `charged_shake`.
 const least_charge: f32 = 0.5;
 const full_charge: f32 = 1;
 const charging_shake: f32 = 0.3;
@@ -278,14 +278,15 @@ pub const Beams = struct {
     }
 };
 
-/// `nova_release` (`0x0047B3D0`), as the player lets the trigger go with the cannon charged, on
-/// the frame `world.clock` has begun: where a beam is free, a release short of `least_charge` only
-/// loses the charge. Otherwise the blast sounds from the ship, the controller plays the Nova
-/// Cannon's effect, the beam strikes (`strike`) and shows for `beam_ticks`, and the charge is
-/// spent. With every beam showing, nothing happens, and the charge waits.
+/// `nova_release` (`0x0047B3D0`), called when the player releases the trigger with the cannon
+/// charged. If a beam slot is free and the charge is at least `least_charge`, the ship plays the
+/// blast sound, the controller plays the Nova Cannon's force feedback effect, the beam strikes
+/// (`strike`) and shows for `beam_ticks` from the start of the frame, and the charge is used up. A
+/// smaller charge is just lost. If every beam slot is in use, nothing happens and the charge is
+/// kept.
 ///
-/// Not ported: what a multiplayer game sends of it (`0x004BB9C0`), and the release it runs for
-/// another player's ship.
+/// Not ported: the message a multiplayer game sends about it (`0x004BB9C0`), and the release it
+/// runs for another player's ship.
 pub fn release(world: gameobj.World, index: u16) void {
     const now = world.clock.frame_start;
     const all = world.objects;
@@ -303,15 +304,17 @@ pub fn release(world: gameobj.World, index: u16) void {
     slot.* = .init(&looks.nova, index, now + beam_ticks, fired);
 }
 
-/// The beam's strike: every object but the ship itself, the stand-ins and the disabled ones, whose
-/// bounding box the beam meets, `beam_reach` straight ahead of the ship. One listing no components
-/// takes the cannon's shield damage times the ship's gun condition and the charge, on the quadrant
-/// the beam enters, its hull damage over that passing through, and its shields flare there
-/// unless it is cloaked. One listing components takes it part by part (`strikeParts`).
+/// Damages every object whose bounding box the beam crosses, up to `beam_reach` straight ahead of
+/// the ship, except the ship itself, stand-ins and disabled objects. An object without components
+/// takes the cannon's shield damage, times the ship's gun condition and the charge, on the quadrant
+/// where the beam enters, with the hull taking its share of what gets through, and its shield
+/// flares there unless it's cloaked. An object with components is damaged part by part
+/// (`strikeParts`).
 ///
-/// **Fix:** the game takes where the beam enters the box, in the object's own frame, for a point in
-/// the world's, for the quadrant struck and the flare alike, which then land wherever that puts
-/// them. OpenReliant takes the point where it enters.
+/// **Fix:** the game works out where the beam enters the bounding box in the object's local
+/// coordinates, then uses that point as a world position, both to pick the quadrant hit and to
+/// place the shield flare, so both end up in the wrong place. OpenReliant uses the actual entry
+/// point.
 ///
 /// Not ported: in a multiplayer mission, a quarter of the damage.
 fn strike(world: gameobj.World, owner: u16, fired: f32) void {
@@ -377,7 +380,7 @@ test charge {
     var object = std.mem.zeroes(gameobj.GameObject);
     object.gun_factor = 100;
     var shake: f32 = 0;
-    // A quarter of the way, the view holds still.
+    // At a quarter charge, the view doesn't shake.
     charge(&object, &shake);
     try std.testing.expectApproxEqAbs(0.25, object.nova_charge, 1e-6);
     try std.testing.expectEqual(0, shake);
@@ -389,7 +392,7 @@ test charge {
     charge(&object, &shake);
     try std.testing.expectEqual(1, object.nova_charge);
     try std.testing.expectEqual(charged_shake, shake);
-    // Another ship's shakes nothing.
+    // Another ship's cannon doesn't shake the view.
     charge(&object, null);
     try std.testing.expectEqual(1, object.nova_charge);
 }

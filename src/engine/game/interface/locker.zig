@@ -238,8 +238,8 @@ pub const Locker = struct {
         return cases.get(carrier).zoom;
     }
 
-    /// The set `name` from the disc's archive (`hog_read_file`, `0x00436738`), with the pictures the
-    /// mods give in its shapes' place; null where it is left out.
+    /// The sprite set `name` from the CD archive (`hog_read_file`, `0x00436738`), with the mod
+    /// pictures that replace its shapes; null if it can't be read.
     fn readSet(locker: Locker, name: []const u8) ?canvas_module.Shapes {
         var shapes = locker.context.rooms.readShapes(name) orelse return null;
         shapes.usePalette(palette_block);

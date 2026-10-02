@@ -29,8 +29,20 @@ pub const Pilot = extern struct {
     fire_spread: f32,
     /// How it times its guns, missiles and countermeasures (`Pilot.tier_a`).
     timings: Timings,
-    /// The low halves of the record's `values`, in the order 2, 1, 3, 0.
-    values: [4]u16,
+    /// The record's `_unknown_54`, copied through.
+    _unknown_1c: u16,
+    /// The record's `_unknown_50`. The pilot answers What's your status? only if it's above 0
+    /// (`videoreports.menu`).
+    _unknown_1e: u16,
+    /// The record's `_unknown_58`. The radio checks it without any effect (`videoreports.wingmen`).
+    _unknown_20: u16,
+    /// The pilot's skill, which the maneuvers use: how far away it starts pursuing, how much
+    /// distance it keeps from what it might hit, and whether it uses the afterburner when
+    /// attacking. **Unknown:** the original name for it.
+    skill: Skill,
+
+    /// A pilot's skill, as stored in its record.
+    pub const Skill = stats.Pilot.Skill;
 
     /// What the loader fills every slot with before it reads the records.
     pub const default: Pilot = .{
@@ -40,7 +52,10 @@ pub const Pilot = extern struct {
         ._unknown_0a = 0,
         .fire_spread = stats.tier_b_default,
         .timings = @bitCast(stats.tier_a_default),
-        .values = @splat(1),
+        ._unknown_1c = 1,
+        ._unknown_1e = 1,
+        ._unknown_20 = 1,
+        .skill = .medium,
     };
 
     /// The six values `Pilot.tier_a` sets, in ticks, which the game reads as signed words.
@@ -61,14 +76,15 @@ pub const Pilot = extern struct {
         most: i16,
     };
 
-    /// Which of a record's `values` each of the pilot's takes.
-    const value_order = [4]usize{ 2, 1, 3, 0 };
-
-    /// The pilot a record makes of the defaults: each tier a preset where it names one, and the
-    /// four values copied through. `tier_c`'s level 2 also writes over `tier_a`'s countermeasures.
+    /// The pilot a record makes, starting from the defaults: each tier field selects a preset if it
+    /// names one, and the four words after them are copied. Level 2 of `tier_c` also overrides
+    /// `tier_a`'s countermeasure timings.
     fn of(record: stats.Pilot) Pilot {
         var pilot: Pilot = .default;
-        for (&pilot.values, value_order) |*value, from| value.* = record.values[from].low;
+        pilot._unknown_1c = record._unknown_54;
+        pilot._unknown_1e = record._unknown_50;
+        pilot._unknown_20 = record._unknown_58;
+        pilot.skill = record.skill;
         if (record.tier_b.index()) |level| pilot.fire_spread = stats.tier_b_presets[level];
         if (record.tier_a.index()) |level| pilot.timings = @bitCast(stats.tier_a_presets[level]);
         if (record.tier_c.index()) |level| {
@@ -81,26 +97,13 @@ pub const Pilot = extern struct {
         return pilot;
     }
 
-    /// Its skill, the record's first value (`values[3]`), which the maneuvers read as 0, 1 or 2:
-    /// how far off it pursues, how wide a berth it gives what it could hit, whether it lights its
-    /// afterburner in an attack. **Unknown:** its name in the game.
-    pub fn skill(pilot: *const Pilot) Skill {
-        return switch (pilot.values[3]) {
-            0 => .low,
-            1 => .medium,
-            2 => .high,
-            else => .other,
-        };
-    }
-
-    pub const Skill = enum { low, medium, high, other };
-
     comptime {
         assert(@offsetOf(Pilot, "aim_interval") == 0x08);
         assert(@offsetOf(Pilot, "fire_spread") == 0x0C);
         assert(@offsetOf(Pilot, "timings") == 0x10);
         assert(@sizeOf(Timings) == @sizeOf(@TypeOf(stats.tier_a_default)));
-        assert(@offsetOf(Pilot, "values") == 0x1C);
+        assert(@offsetOf(Pilot, "_unknown_1c") == 0x1C);
+        assert(@offsetOf(Pilot, "skill") == 0x22);
         assert(@sizeOf(Pilot) == 0x24);
     }
 };
@@ -133,12 +136,16 @@ test Table {
     record.tier_a = .level_0;
     record.tier_b = @enumFromInt(9);
     record.tier_c = .level_2;
-    for (&record.values, 0..) |*value, n| value.* = .{ .low = @intCast(n + 10), .ignored = 0xFFFF };
+    record.skill = @enumFromInt(10);
+    record._unknown_50 = 11;
+    record._unknown_54 = 12;
+    record._unknown_58 = 13;
+    record._unread_4e = 0xFFFF;
     var table: Table = .{};
     table.load(&.{record});
 
-    // A preset for each tier named, the last two of tier A from tier C's level 2, tier B left at
-    // its default, and the values reordered.
+    // Each named tier selects its preset, tier C's level 2 overrides the last two values of tier A,
+    // tier B keeps its default, and the four words are copied.
     const pilot = table.get(0);
     try std.testing.expectEqual(Pilot.Timings{
         .burst = 10,
@@ -149,11 +156,11 @@ test Table {
     try std.testing.expectEqual(stats.tier_b_default, pilot.fire_spread);
     try std.testing.expectEqual(25, pilot.aim_interval);
     try std.testing.expectEqual(1, pilot.turn_limit);
-    try std.testing.expectEqual([4]u16{ 12, 11, 13, 10 }, pilot.values);
-    try std.testing.expectEqual(Pilot.Skill.other, pilot.skill());
+    try std.testing.expectEqual([3]u16{ 12, 11, 13 }, [3]u16{ pilot._unknown_1c, pilot._unknown_1e, pilot._unknown_20 });
+    try std.testing.expectEqual(@as(Pilot.Skill, @enumFromInt(10)), pilot.skill);
     // The rest keep the defaults.
     try std.testing.expectEqual(Pilot.default, table.get(1).*);
-    try std.testing.expectEqual(Pilot.Skill.medium, table.get(Table.count).skill());
+    try std.testing.expectEqual(Pilot.Skill.medium, table.get(Table.count).skill);
 }
 
 /// `object_set_pilot` (`0x0049CCE0`): gives the object pilot `pilot`, a record of `pilot_stats`.

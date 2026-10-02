@@ -1,7 +1,7 @@
-//! Checksum files as `sha256sum` writes them and `sha256sum -c` checks them: a line for each file,
-//! its SHA-256 digest in hexadecimal, a space, a space or a `*`, and the file's name. OpenReliant
-//! checks a mod's archive against the file of its name with `extension` added, beside it, as the
-//! mod loads, and `sltool hog pack --checksum` writes one.
+//! Checksum files in the format `sha256sum` writes and `sha256sum -c` checks: a line for each file,
+//! with its SHA-256 hash in hexadecimal, a space, a space or a `*`, and the file's name. When a mod
+//! loads, OpenReliant checks its archive against the checksum file next to it, named after the
+//! archive plus `extension`, and `sltool hog pack --checksum` writes one.
 
 const std = @import("std");
 const Io = std.Io;

@@ -91,7 +91,7 @@ const Doc = struct {
 /// Every option's help, which the compiler holds to having one for each.
 const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no material maps, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, the interface's text in the game's bitmap fonts, and the sound mixed plainly in stereo" },
-    .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "play this mission at once rather than open the main menu: the number the game names its file by, mission<number>.dte, from a mod, the game's missions folder or resource.hog; 0 is OpenReliant's sandbox, which openreliant carries where the game has no mission 0" },
+    .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "start this mission right away instead of opening the main menu. The number is the one in the mission's file name, mission<number>.dte, loaded from a mod, the game's missions folder or resource.hog. Mission 0 is OpenReliant's sandbox, which is built into openreliant for games without a mission 0" },
     .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
     .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes" },
     .@"--difficulty" = .{ .section = .mission, .value = "<easy|medium|hard>", .text = "the game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with --mission, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it" },
@@ -109,19 +109,19 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-dither" = .{ .section = .graphics, .text = "draw 32-bit colour without dithering" },
     .@"--no-pixel-lighting" = .{ .section = .graphics, .text = "light each vertex rather than each pixel, as the original does" },
     .@"--gamma-space" = .{ .section = .graphics, .text = "light, blend and filter the encoded colours, as the original does, rather than in linear light" },
-    .@"--no-materials" = .{ .section = .graphics, .text = "light the mods' textures without their material maps: no normal maps or reflections, and the original's highlights in place of the maps'" },
+    .@"--no-materials" = .{ .section = .graphics, .text = "ignore the material maps of mod textures: no normal maps or reflections, and the original highlights instead of the maps' highlights" },
     .@"--no-cockpit-shadows" = .{ .section = .graphics, .text = "leave the shadows out of the cockpit, keeping them on the ships" },
     .@"--shadows" = .{ .section = .graphics, .value = "<off|low|high>", .text = "shadows from the sun: low is soft and light on older GPUs, high sharp and smooth; high by default, and none without lighting each pixel" },
     .@"--no-smooth-motion" = .{ .section = .graphics, .text = "move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame" },
     .@"--few-shot-lights" = .{ .section = .graphics, .text = "light only the latest two of the player's shots and the latest two of everyone else's, as the original does" },
     .@"--baked-lights" = .{ .section = .graphics, .text = "bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near" },
-    .@"--bitmap-fonts" = .{ .section = .graphics, .text = "write the interface's text in the game's own bitmap fonts, magnified to the window, rather than in outline fonts drawn at its resolution: Newtown, built in, or a mod's" },
+    .@"--bitmap-fonts" = .{ .section = .graphics, .text = "draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod)" },
     .@"--hrtf" = .{ .section = .sound, .text = "place the sounds for headphones whatever the output; by default they are while the output is headphones" },
     .@"--no-hrtf" = .{ .section = .sound, .text = "place the sounds for speakers whatever the output" },
     .@"--no-reverb" = .{ .section = .sound, .text = "play the sounds around you, the cockpit's voice and the Reliant's rooms without reverb" },
     .@"--no-compressor" = .{ .section = .sound, .text = "leave the mix's loudness as it is, only keeping its peaks in check" },
     .@"--no-sound" = .{ .section = .sound, .text = "play without sound" },
-    .@"--no-mods" = .{ .section = .other, .text = "play the game's own files alone, without the mods in its mods folder" },
+    .@"--no-mods" = .{ .section = .other, .text = "start without the mods in the game's mods folder" },
     .@"--no-intro" = .{ .section = .other, .text = "start without the three movies the game plays as it starts, as --mission and --screenshot do" },
     .@"--screenshot" = .{ .section = .other, .value = "<file.png>", .text = "draw one frame, with the camera settled, to a PNG, and quit; the controls, the [OpenReliant] settings and the details in [Device] are not read, so that it comes out the same each time" },
     .@"--screenshot-ticks" = .{ .section = .other, .value = "<ticks>", .text = "with --screenshot, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default" },
@@ -214,8 +214,7 @@ pub const Options = struct {
     pause_menu: bool = true,
     /// Whether the game plays the movies of its start as it starts (`xtrabits.movie.intro`).
     intro: bool = true,
-    /// Whether the mods in the game's `mods` folder come before its own files
-    /// (`game.bigfile.Mods`).
+    /// Whether to load the mods in the game's `mods` folder (`game.bigfile.Mods`).
     mods: bool = true,
     /// Whether the original's look and sound were taken (`--original`), which the options after it
     /// change.
@@ -514,7 +513,7 @@ test Options {
     try std.testing.expectEqualStrings("shot.png", (try parsed(&.{ "--screenshot", "shot.png" })).screenshot.?);
     try std.testing.expect((try parsed(&.{})).intro);
     try std.testing.expect(!(try parsed(&.{"--no-intro"})).intro);
-    // The mods, but for `--no-mods`.
+    // Mods are loaded unless `--no-mods` is given.
     try std.testing.expect((try parsed(&.{})).mods);
     try std.testing.expect(!(try parsed(&.{"--no-mods"})).mods);
     // As the game has it unless told otherwise.

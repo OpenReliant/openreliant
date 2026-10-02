@@ -9,6 +9,10 @@ const build_options = @import("build_options");
 /// where the checkout has changes.
 pub const string = named(build_options.version, build_options.describe);
 
+/// `string` as a semantic version, to compare with the version a mod needs (`Mods.open`).
+pub const semantic: std.SemanticVersion = std.SemanticVersion.parse(string) catch
+    @compileError("the version " ++ string ++ " is no semantic version");
+
 /// `release`, with where `describe` says the checkout is past it as SemVer build metadata. What
 /// isn't `git describe --long --dirty`'s leaves `release` as it is.
 fn named(comptime release: []const u8, comptime describe: []const u8) []const u8 {

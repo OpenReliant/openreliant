@@ -1,0 +1,18 @@
+.{
+    .name = .luau,
+    // Luau's release 0.740: the tag 0.740, commit c0e346edd89066b44dca174c9f54ce84c746a540.
+    .version = "0.740.0",
+    .fingerprint = 0x5e07e249cf44ac0f,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .upstream = .{
+            .url = "git+https://github.com/luau-lang/luau.git?ref=0.740#c0e346edd89066b44dca174c9f54ce84c746a540",
+            .hash = "N-V-__8AAJStHwHBMyJpk0Co2z_LW7obT2wCMdyGdJZ6LYHH",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "LICENSE.txt",
+    },
+}

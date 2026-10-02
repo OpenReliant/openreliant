@@ -70,6 +70,8 @@ jobs:
           for file in README.md LICENSE CHANGELOG.md; do
             if [ -f "$file" ]; then cp "$file" "$name"/; fi
           done
+          # The licence of the libraries whose text has to go with every copy.
+          cp deps/luau/LICENSE.txt "$name"/LICENSE-luau.txt
           case "${{ matrix.target }}" in
             *windows*)
               cp zig-out/bin/openreliant.exe zig-out/bin/sltool.exe "$name"/

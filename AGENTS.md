@@ -16,5 +16,14 @@ add how the maintainer works with an agent.
   `Co-Authored-By` and "Generated with" footers.
 - **Gaps.** File an issue for each gap you leave, under its milestone, and name the issues in your
   reply.
-- **Replies.** Write replies in the same plain style and punctuation as the docs.
+- **Plain English.** Write docs, comments, log messages, issues, pull requests and replies in
+  plain, simple technical English, the way you would explain the code to a colleague: normal word
+  order, common words, short sentences. Older parts of the project use a stilted style that the
+  maintainer doesn't want, such as "a mod's file stands in for every file of the game's of the same
+  name" for "a file in a mod replaces every game file with the same name", or "each key is
+  optional, and found whatever its case" for "keys are optional and can be written in any case".
+  Never write in that style.
+- **Old text.** When you change code or docs written in that style, rewrite the related comments,
+  docs and messages plainly in the same change.
+- **Replies.** Use the docs' punctuation in replies too: no em or en dashes.
 - **Disk space.** `.zig-cache` grows by gigabytes; `make zig-clean` frees it when the disk fills.

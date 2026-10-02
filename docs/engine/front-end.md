@@ -20,7 +20,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 **Improvements**, each marked so in the code:
 
 - The game switches the display to 640 by 480 for the front end. OpenReliant keeps the window as it is, and draws the front end as large as fits in it, centred, so that it keeps its shape.
-- The picture behind a screen is drawn as high as the screen, keeping its proportions, and centred across it, where the device stretches it over the screen: the game's own, which are 4:3, cover it alike, and a mod's wider picture reaches past its sides to fill a wider window ([Modding](../guide/modding.md#pictures)).
+- A screen's background picture is scaled to the screen's height, keeping its proportions, and centred horizontally, where the original stretches it over the screen. The original pictures, which are 4:3, cover the screen the same way, and a wider picture from a mod extends past the sides to fill a wider window ([Modding](../guide/modding.md#pictures)).
 - The pointer is where the system's is over the window, rather than DirectInput's movements added up.
 - The mouse's wheel scrolls the lists, the saved games' and the controls', three rows a notch, as the system scrolls text by default; the game reads no wheel.
 - OpenReliant's version is written, dimmed, in the window's bottom right corner, as the pause menu writes it ([Pause menu](pause-menu.md)): on the front end's screens, the loading screens and the in-game options over the Reliant's rooms ([The Reliant's rooms](rooms.md)), though not in the rooms themselves.
@@ -61,7 +61,7 @@ Any other number returns 3. **Unknown:** what selects screen 8: `WinMain` plays 
 
 The front end writes with `hud_text` and `hud_text_wrapped` through `interface_text_remap`, ramped by `interface_palette_ramp` (`0x004287C0`), the front end's copy of `hud_palette_ramp` ([Pause menu](pause-menu.md)): entries 1 to 15 of VFX's global palette, a ramp of a `0xRRGGBB` colour at `palette_ramp_brightness`. Level 16, which a few glyphs of the fonts use in their first column, reads past the table into the low byte of `dialog_button` (`0x00520294`): -1, clear, while no dialog's button is under the pointer, and otherwise palette entry 0 or 1. **Fix:** OpenReliant leaves it clear.
 
-**Improvement:** the menus' text is drawn from outline fonts at the window's resolution, over the fonts' own layout, on the black edge the game's text stands on: Newtown, built in, or a mod's ([Outline fonts](../formats/fnt.md#outline-fonts)). `--bitmap-fonts`, `--original` and the settings screen's OUTLINE FONTS ([Video](#video)) draw the bitmap fonts.
+**Improvement:** the menu text is drawn with outline fonts at the window's resolution (the built-in Newtown, or a font from a mod), with the bitmap fonts' layout and a black outline like the original text ([Outline fonts](../formats/fnt.md#outline-fonts)). `--bitmap-fonts`, `--original` and the OUTLINE FONTS setting ([Video](#video)) draw the bitmap fonts instead.
 
 **Improvement:** with the crisp filter, the default, a bitmap font's text is drawn at the window's size as VFX writes it: each of a glyph's pixels an opaque square in the grey of its level, eased into the next over a pixel of the frame, so that the letters keep the fonts' own shapes and greys and the dark edge their faint pixels give them, crisp, at any size, where a glyph magnified as it stands comes out soft ([Renderer](../port/renderer.md)). `--original` draws them as they stand, bilinearly.
 
@@ -292,7 +292,7 @@ RESET DEFAULTS sets the game's defaults and OpenReliant's, MODERN among them, an
 **Improvements:**
 
 - RESOLUTION chooses the size the frames are drawn at, which the window shows scaled, where the game's chooses the display's mode. FULL SCREEN, VSYNC and FRAME RATE LIMIT are OpenReliant's own, and so are GRAPHICS, its presets and the options in the pane but the game's three details.
-- TEXTURE DETAIL steps through the file's three values, LOW, MEDIUM and HIGH, where the game's screen steps between the first two, which it calls LOW and HIGH, and shows the file's highest as LOW. HIGH caps nothing, where the game caps at 2048, which none of its own textures reach, so that a mod's picture keeps its size; and a file without `Tdetail` draws at HIGH, where the game takes 1.
+- TEXTURE DETAIL cycles through all three values in the file, LOW, MEDIUM and HIGH. The original screen only switches between the first two, which it calls LOW and HIGH, and shows the file's highest value as LOW. HIGH sets no size limit, where the original limits textures to 2048, which none of the original textures reach, so a mod's picture keeps its full size. A file without `Tdetail` uses HIGH, where the original uses 1.
 - The brightness is the knob's place over its travel exactly, where the game multiplies by a rounded reciprocal (`0x004DC6A4`).
 - The settings change at once, where the game starts its renderer again to change the mode.
 

@@ -29,7 +29,7 @@ Every change beyond a trivial one has an issue, and its pull request closes it.
    and link it from the code and the docs where the gap is:
 
    ```zig
-   /// Not ported: the shake the display's interference gives it (`hud_blit`,
+   /// Not ported: the display shaking from interference (`hud_blit`,
    /// [#236](https://github.com/OpenReliant/openreliant/issues/236)).
    ```
 
@@ -49,9 +49,9 @@ driver, and a platform replacement (SDL3 for Win32 and DirectX) has its own tree
 **Each ported function cites the original's name and address**, and says what it does:
 
 ```zig
-/// `nova_release` (`0x0047B3D0`), as the player lets the trigger go with the cannon charged, on
-/// the frame `world.clock` has begun: where a beam is free, a release short of `least_charge` only
-/// loses the charge. Otherwise the blast sounds from the ship, ...
+/// `nova_release` (`0x0047B3D0`), called when the player releases the trigger with the cannon
+/// charged. If a beam slot is free and the charge is at least `least_charge`, the ship plays the
+/// blast sound, ...
 pub fn release(world: gameobj.World, index: u16) void {
 ```
 
@@ -61,7 +61,7 @@ original's own name where an assert string gives one. `make ghidra-annotate` the
 failed.
 
 ```text
-0047b3d0	function	nova_release	void __thiscall (GameObject *object, char remote, float charge)	Lets a Phoenix's Nova Cannon go, ...
+0047b3d0	function	nova_release	void __thiscall (GameObject *object, char remote, float charge)	Fires a Phoenix's Nova Cannon when the trigger is released, ...
 ```
 
 ### Improvements and fixes
@@ -77,9 +77,10 @@ OpenReliant is faithful by default, and every difference is marked where it is m
 Both appear in the doc comment and in the docs where the behaviour is described:
 
 ```zig
-/// **Fix:** the game takes where the beam enters the box, in the object's own frame, for a point in
-/// the world's, for the quadrant struck and the flare alike, which then land wherever that puts
-/// them. OpenReliant takes the point where it enters.
+/// **Fix:** the game works out where the beam enters the bounding box in the object's local
+/// coordinates, then uses that point as a world position, both to pick the quadrant hit and to
+/// place the shield flare, so both end up in the wrong place. OpenReliant uses the actual entry
+/// point.
 ```
 
 A few kinds of improvement recur:
@@ -128,7 +129,8 @@ for an API.
 Give each value a named constant, with its address in the executable, and compare against the name:
 
 ```zig
-/// The least charge a release fires; a release short of it loses the charge (`0x004DC408`).
+/// The smallest charge that fires when the trigger is released; a smaller charge is lost
+/// (`0x004DC408`).
 const least_charge: f32 = 0.5;
 
 if (fired < least_charge) return;
@@ -139,8 +141,8 @@ if (fired < least_charge) return;
 Give an id space (types, orders, opcodes) an `enum`, and compare with its tags or `switch`:
 
 ```zig
-/// Whether it is one of the turrets' own guns, the Turret Flak, the Turret Lasers and the Huge
-/// Guns, rather than one of the fighters', the Laser Cannon to the Nova Cannon.
+/// Whether this is a turret gun (the Turret Flak, the Turret Lasers or a Huge Gun) rather than a
+/// fighter gun (the Laser Cannon to the Nova Cannon).
 pub fn onTurrets(gun_type: GunType) bool {
     return switch (gun_type) {
         .turret_flak, .turret_lasers, .allied_huge_gun, .coalition_huge_gun => true,
@@ -207,13 +209,13 @@ Give a record with a fixed layout an `extern struct`, pin its offsets with `comp
 read it in place (`formats/layout.zig`):
 
 ```zig
-/// What a hit does to a shield, and to a hull.
+/// The damage a hit does to a shield and to a hull.
 pub const Damage = extern struct {
     shield: f32,
     hull: f32,
 
-    /// The share of what gets through a shield that the hull takes (`object_damage`): the hull's
-    /// damage over the shield's.
+    /// The factor that turns damage getting through a shield into hull damage (`object_damage`):
+    /// hull damage divided by shield damage.
     pub fn hullShare(damage: Damage) f32 {
         return damage.hull / damage.shield;
     }
@@ -235,7 +237,7 @@ pub const Group = struct {
     first: i16 = -1,
     second: i16 = -1,
 
-    /// Its first gun's place, where it has one.
+    /// The index of its first gun, if it has one.
     pub fn lead(group: Group) ?usize {
         return place(group.first);
     }
@@ -275,7 +277,7 @@ test charge {
     var object = std.mem.zeroes(gameobj.GameObject);
     object.gun_factor = 100;
     var shake: f32 = 0;
-    // A quarter of the way, the view holds still.
+    // At a quarter charge, the view doesn't shake.
     charge(&object, &shake);
     try std.testing.expectApproxEqAbs(0.25, object.nova_charge, 1e-6);
     try std.testing.expectEqual(0, shake);

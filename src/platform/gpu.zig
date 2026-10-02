@@ -63,9 +63,9 @@ pub const Settings = struct {
     shadows: Shadows = .high,
     /// Shadows in the cockpit as well: the canopy's struts on the dashboard.
     cockpit_shadows: bool = true,
-    /// Shades the material maps of a mod's textures (`srtexture.Image.Maps`), where each pixel is
-    /// lit: the surface's normals, and the highlights its roughness and its metal give, in place of
-    /// the driver's highlight pass. The original had none.
+    /// Shades the material maps of mod textures (`srtexture.Image.Maps`) when lighting each pixel:
+    /// the surface normals, and the highlights from its roughness and metalness, instead of the
+    /// driver's highlight pass. The original has no material maps.
     materials: bool = true,
     /// The frames' size, a share of the window's own at the display's density, or a size in pixels
     /// whatever the window's, which shows them scaled to fit.
@@ -269,9 +269,9 @@ const first_layers = 16;
 /// The side of the cache's largest textures.
 const cache_side = 256;
 
-/// The layers a new array of `shape` starts with: as many as take the room `first_layers` of the
-/// cache's largest textures take, and at least one, so that a mod's large textures reserve no more
-/// than they fill.
+/// The number of layers a new array of `shape` starts with: as many as fit in the memory that
+/// `first_layers` of the cache's largest textures use, and at least one, so large mod textures
+/// don't reserve more memory than they use.
 fn firstLayers(shape: Shape) u32 {
     const room = first_layers * cache_side * cache_side;
     return std.math.clamp(room / (shape.width * shape.height), 1, first_layers);

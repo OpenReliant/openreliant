@@ -806,9 +806,9 @@ pub const Devices = struct {
     mouse: Mouse = .{},
     bindings: Bindings = defaultBindings(.joystick),
     settings: Settings = .{},
-    /// `default.txt` in the game's folder, a mod's in its place, which the bindings start from
-    /// (`game.interface.keyConfigDefaults`); none where the folder has none, which leaves the
-    /// executable's own.
+    /// `default.txt` from the game folder, or a mod's replacement for it, which the bindings start
+    /// from (`game.interface.keyConfigDefaults`); null if the folder doesn't have one, which leaves
+    /// the executable's built-in bindings.
     defaults_file: ?profile.Profile = null,
     /// The keys' names as the keyboard's layout gives them, which the controls screens show.
     key_names: KeyNames = .{},

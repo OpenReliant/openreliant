@@ -28,7 +28,7 @@ OpenReliant is in active development. The first campaign mission is playable fro
 - **Controls**: Mouse and keyboard, flight sticks, HOTAS and gamepads, with force feedback played as rumble, and the bindings set in the game's controls screen.
 - **Graphics**: Per-pixel shading with gamma-corrected lighting, and real-time shadows. Rendering runs at native resolution in 32-bit colour, with bloom, anti-aliasing, smooth motion at high frame rates, and more detailed explosions, shields and planets. `--original` restores the original graphics and sound.
 - **Audio**: 3D positional sound with reverb and headphone HRTF.
-- **Mods**: Archives and folders in the game's `mods` folder replace and add to any of the game's files, models, sounds, music, speech, movies and missions alike. PNG pictures at any size stand in for textures, with material maps for physically based shading (normal maps, highlights and reflections of the sky), and for the interface's shapes and backgrounds, widescreen ones included ([Modding](docs/guide/modding.md)).
+- **Mods**: Archives and folders in the game's `mods` folder can replace or add to any of the game's files: models, sounds, music, speech, movies and missions. PNG pictures of any size can replace textures, with material maps for physically based shading (normal maps, highlights and sky reflections), and the interface's shapes and backgrounds, including widescreen ones. Load scripts in Luau can change the ship, gun, missile and pilot stats and the game's text ([Modding](docs/guide/modding.md)).
 - **Front End**: The main menu, the settings screen with its audio, controls, video and graphics, the pilot roster, the saved games and the Reliant's rooms, with a new pilot's induction, the news reports, the in-game options, the briefings, the loadout and the ITAC's debriefings.
 - **In Development**: The rooms' simulator pod, locker and CD player, the remaining campaign missions, and multiplayer. See the [milestones](../../milestones) for the roadmap.
 
@@ -57,7 +57,7 @@ Building OpenReliant needs [Zig 0.16](https://ziglang.org): see [Building from s
 
 The repository includes tools used during reverse engineering. `make help` lists the workflows, and [CONTRIBUTING](CONTRIBUTING.md#getting-started) and the [toolchain](docs/toolchain.md) describe them.
 
-The `sltool` utility, which comes beside `openreliant` in each release, inspects, exports and packs game formats. It exits with 0 when it succeeds, 2 for a command it does not take, which it answers with its usage, and 1 for a failure, whose message goes to stderr, so that a mod's own workflow can run it:
+The `sltool` utility, included with `openreliant` in each release, inspects, exports and packs the game's file formats. It exits with 0 on success, 2 for an unknown command (after printing its usage) and 1 on failure (with the error on stderr), so a mod's build scripts can use it:
 
 | Command | Description | Documentation |
 |---|---|---|
@@ -95,6 +95,6 @@ Copyright 2026 the OpenReliant contributors.
 
 - Source code is licensed under the [Mozilla Public License 2.0](LICENSE).
 - Documentation under `docs/` is licensed under [Creative Commons Attribution-ShareAlike 4.0](docs/LICENSE).
-- Statically linked libraries: [OpenAL Soft](https://github.com/kcat/openal-soft) is licensed under the GNU LGPL 2.1, the part of [FFmpeg](https://ffmpeg.org) that decodes the movies under the GNU LGPL 2.1 or later, and [FreeType](https://freetype.org), which draws the outline fonts, under the FreeType License. Portions of this software are copyright © 2026 The FreeType Project (https://freetype.org). All rights reserved.
+- Statically linked libraries: [OpenAL Soft](https://github.com/kcat/openal-soft) is licensed under the GNU LGPL 2.1, the part of [FFmpeg](https://ffmpeg.org) that decodes the movies under the GNU LGPL 2.1 or later, [FreeType](https://freetype.org), which draws the outline fonts, under the FreeType License, and [Luau](https://luau.org), which runs mod scripts, under the MIT License. Portions of this software are copyright © 2026 The FreeType Project (https://freetype.org). All rights reserved. Luau is copyright (c) 2019-2025 Roblox Corporation and copyright (c) 1994-2019 Lua.org, PUC-Rio, under the MIT License; see `LICENSE-luau.txt`.
 - The interface's text is drawn in Newtown, by Roger White, from Roger's Fonts, in the public domain ([deps/newtown](deps/newtown/README.md)).
 - The movies' upscale is ported from [AMD FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR), under the MIT licence.

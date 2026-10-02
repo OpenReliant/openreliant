@@ -30,30 +30,30 @@ pub const Number = enum(u8) {
     }
 };
 
-/// The disc's archive open (`cd_hog`).
+/// The open CD archive (`cd_hog`).
 pub const Disc = struct {
     gpa: Allocator,
     io: Io,
-    /// The game's folder, which holds both archives as a full install's folder does.
+    /// The game folder, which has both CD archives in a full install.
     directory: Io.Dir,
     hog: ?bigfile.Hog = null,
-    /// OpenReliant's: the mods, which come before the archive (`bigfile.Mods`).
+    /// Added by OpenReliant: the mods, which take priority over the archive (`bigfile.Mods`).
     mods: *const bigfile.Mods = &bigfile.Mods.none,
 
-    /// `cd_hog_open` (`0x0042FE00`) in a full install: disc `number`'s archive, found in the
-    /// game's folder whatever the case of its name, opened in place of the one open
-    /// (`hog_close`). Where it cannot be opened, the game stops with `Can't open HOG resource file
-    /// %s`; OpenReliant goes on without it, and leaves out the movies it holds.
+    /// `cd_hog_open` (`0x0042FE00`) in a full install: opens the archive of disc `number`, found in
+    /// the game folder ignoring case, and closes the one that was open (`hog_close`). If it can't
+    /// be opened, the game stops with `Can't open HOG resource file %s`; OpenReliant carries on
+    /// without it, and skips the movies in it.
     pub fn open(disc: *Disc, number: Number) void {
         disc.close();
         const name = number.archiveName();
         var buffer: [files.max_path]u8 = undefined;
         const path = files.find(disc.io, disc.directory, name, &buffer) orelse {
-            log.warn("the game's folder has no {s}: the movies of disc {d} are left out", .{ name, @intFromEnum(number) });
+            log.warn("the game folder has no {s}; skipping the movies of disc {d}", .{ name, @intFromEnum(number) });
             return;
         };
         var opened = bigfile.Hog.open(disc.gpa, disc.io, disc.directory, path) catch |err| {
-            log.warn("{s} can't be opened: {s}; the movies of disc {d} are left out", .{ path, @errorName(err), @intFromEnum(number) });
+            log.warn("can't open {s}: {s}; skipping the movies of disc {d}", .{ path, @errorName(err), @intFromEnum(number) });
             return;
         };
         opened.mods = disc.mods;
@@ -65,15 +65,15 @@ pub const Disc = struct {
         disc.hog = null;
     }
 
-    /// The member `name` of the archive open, as it is stored (`bigfile.Hog.readStored`), a mod's
-    /// first; null where neither holds one.
+    /// Reads the member `name` of the open archive as stored (`bigfile.Hog.readStored`), with a
+    /// mod's file taking priority; null if neither has it.
     pub fn readStored(disc: Disc, gpa: Allocator, name: []const u8) bigfile.ReadError!?[]u8 {
         const hog = disc.hog orelse return disc.mods.readStored(gpa, name);
         return hog.readStored(gpa, name);
     }
 
-    /// The file `name` names in the archive open, expanded where RefPack packed it (`hog_read_file`
-    /// on `cd_hog`), a mod's first; null where neither holds one.
+    /// Reads the file that `name` names in the open archive, decompressing RefPack data
+    /// (`hog_read_file` on `cd_hog`), with a mod's file taking priority; null if neither has it.
     pub fn readFile(disc: Disc, gpa: Allocator, name: []const u8) bigfile.ReadError!?[]u8 {
         const hog = disc.hog orelse {
             var buffer: [bigfile.member_name_room]u8 = undefined;
@@ -116,7 +116,7 @@ test Disc {
     try std.testing.expectEqual(null, disc.hog);
 }
 
-test "a mod's movies stand in for the discs'" {
+test "a mod's movies replace the CD archives' movies" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -127,12 +127,12 @@ test "a mod's movies stand in for the discs'" {
     });
     try tmp.dir.createDirPath(io, "mods/hangar");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/hangar/R_H_TA.bik", .data = "a mod's" });
-    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir);
+    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
 
     var disc: Disc = .{ .gpa = gpa, .io = io, .directory = tmp.dir, .mods = &mods };
     defer disc.close();
-    // A mod's, even with no archive open; then the archive's where no mod has one.
+    // The mod's movie, even with no archive open, and the archive's when no mod has one.
     for ([_]?Number{ null, .two }) |number| {
         if (number) |opened| disc.open(opened);
         const movie = (try disc.readStored(gpa, "r_h_ta.bik")).?;

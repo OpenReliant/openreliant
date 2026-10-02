@@ -20,7 +20,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 
 | Option | Description |
 |---|---|
-| `--mission <number>` | Play this mission at once rather than open the main menu: the number the game names its file by, `mission<number>.dte`, from a mod, the game's `missions` folder or `resource.hog`; 0 is OpenReliant's sandbox, which `openreliant` carries where the game has no mission 0 |
+| `--mission <number>` | Start this mission right away instead of opening the main menu. The number is the one in the mission's file name, `mission<number>.dte`, loaded from a mod, the game's `missions` folder or `resource.hog`. Mission 0 is OpenReliant's sandbox, which is built into `openreliant` for games without a mission 0 |
 | `--ship <type>` | The ship type to fly, by its number in `shipstats.bin`, in place of the loadout screen's choice, with its default missiles; the mission's own by default, the Predator in mission 0 |
 | `--view <0\|1\|2>` | The view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes, or 0 without them |
 | `--difficulty <easy\|medium\|hard>` | The game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with `--mission`, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it |
@@ -48,13 +48,13 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--no-dither` | Draw 32-bit colour without dithering |
 | `--no-pixel-lighting` | Light each vertex rather than each pixel, as the original does |
 | `--gamma-space` | Light, blend and filter the encoded colours, as the original does, rather than in linear light |
-| `--no-materials` | Light the mods' textures without their material maps: no normal maps or reflections, and the original's highlights in place of the maps' ([Modding](modding.md#material-maps)) |
+| `--no-materials` | Ignore the material maps of mod textures: no normal maps or reflections, and the original highlights instead of the maps' highlights ([Modding](modding.md#material-maps)) |
 | `--shadows <off\|low\|high>` | Shadows from the sun: low is soft and light on older GPUs, high sharp and smooth; high by default, and none without lighting each pixel |
 | `--no-cockpit-shadows` | Leave the shadows out of the cockpit, keeping them on the ships |
 | `--no-smooth-motion` | Move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame |
 | `--few-shot-lights` | Light only the latest two of the player's shots and the latest two of everyone else's, as the original does |
 | `--baked-lights` | Bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near ([Rendering](../engine/rendering.md#static-lights)) |
-| `--bitmap-fonts` | Write the interface's text in the game's own bitmap fonts, magnified to the window, rather than in outline fonts drawn at its resolution: Newtown, built in, or a mod's ([Modding](modding.md#fonts)) |
+| `--bitmap-fonts` | Draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod) ([Modding](modding.md#fonts)) |
 
 ## Sound
 
@@ -70,7 +70,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 
 | Option | Description |
 |---|---|
-| `--no-mods` | Play the game's own files alone, without the mods in its `mods` folder ([Modding](modding.md)) |
+| `--no-mods` | Start without the mods in the game's `mods` folder ([Modding](modding.md)) |
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
 | `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls, the `[OpenReliant]` settings and the details in `[Device]` are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |

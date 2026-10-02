@@ -97,8 +97,8 @@ pub fn saveSetting(held: input.Settings, settings_file: *profile.File, setting: 
     try settings_file.writeInt(key_section, setting.key(), setting.of(held));
 }
 
-/// The file the game reads its default bindings from, in its folder (`game_directory`, from
-/// `%sdefault.txt` at `0x004E8598`); a mod's of its name stands in for it.
+/// The file the game reads its default bindings from, in the game folder (`game_directory`, from
+/// `%sdefault.txt` at `0x004E8598`). A mod file with the same name replaces it.
 pub const defaults_name = "default.txt";
 
 /// `key_config_defaults` (`0x0042CAA0`), as the controls screen's RESET DEFAULTS calls it, and

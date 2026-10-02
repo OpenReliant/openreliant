@@ -120,11 +120,11 @@ pub const Found = struct {
 /// The folder the effects' files are in (`0x0050E1D8`).
 const folder = "forces\\";
 
-/// `load_force_effects` (`0x004BD800`): each effect's file in `folder` under the game's folder
-/// `directory`, into `arena`, the folder and the files found whatever the case of their names, as
-/// Windows finds them, a mod's file of an effect's name first (`bigfile.Mods.readLoose`).
-/// OpenReliant reads the files the game never reads with its own (`Unread`), and reads them all
-/// whatever the controller.
+/// `load_force_effects` (`0x004BD800`): reads each effect's file in `folder` under the game folder
+/// `directory` into `arena`, finding the folder and files ignoring case as Windows does, with a mod
+/// file of the same name taking priority (`bigfile.Mods.readLoose`). OpenReliant also reads the
+/// effect files the game ships but never reads (`Unread`), and reads them all whatever the
+/// controller.
 pub fn load(io: Io, arena: Allocator, directory: Io.Dir, mods: *const bigfile.Mods) Found {
     var found: Found = .{};
     for (std.enums.values(Effect)) |effect| {

@@ -66,10 +66,11 @@ pub const Background = struct {
     }
 };
 
-/// The game's picture `picture_name` of `archive`, a TGA, as an opaque image (`picture`); or the
-/// picture a mod gives in its place (`pictureName`), of any size, opaque too, with its levels made.
+/// Reads the game's TGA picture `picture_name` from `archive` as an opaque image (`picture`), or
+/// the mod picture that replaces it (`pictureName`), at any size, also opaque, with its mipmaps
+/// generated.
 ///
-/// **Improvement:** the original reads the TGA alone.
+/// **Improvement:** the original only reads the TGA.
 pub fn readImage(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8) !srtexture.Image {
     if (try modPicture(gpa, archive, picture_name)) |read| {
         var alpha: usize = 3;
@@ -81,41 +82,42 @@ pub fn readImage(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8)
     return picture(gpa, decoded);
 }
 
-/// The game's picture `picture_name` of `archive`, a TGA, decoded for its pixels; or the picture a
-/// mod gives in its place (`pictureName`), of the same size, its alpha left out. One of another
-/// size is left out, which the log says.
+/// Reads and decodes the game's TGA picture `picture_name` from `archive` for its pixels, or the
+/// mod picture that replaces it (`pictureName`), without its alpha channel, if it has the same
+/// size. A mod picture of a different size is skipped, which the log says.
 ///
-/// **Improvement:** the original reads the TGA alone.
+/// **Improvement:** the original only reads the TGA.
 pub fn readPixels(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8) !tga.Image {
     const own = try readTga(gpa, archive, picture_name);
     errdefer own.deinit(gpa);
     const read = try modPicture(gpa, archive, picture_name) orelse return own;
     defer read.deinit(gpa);
     if (read.width != own.width or read.height != own.height) {
-        log.warn("the picture in place of {s} is left out: it is {d}x{d} and the game's {d}x{d}", .{ picture_name, read.width, read.height, own.width, own.height });
+        log.warn("skipping the picture that replaces {s}: it's {d}x{d}, and the original is {d}x{d}", .{ picture_name, read.width, read.height, own.width, own.height });
         return own;
     }
     for (0..@as(usize, own.width) * own.height) |at| own.rgb[at * 3 ..][0..3].* = read.rgba[at * 4 ..][0..3].*;
     return own;
 }
 
-/// The game's picture `picture_name` of `archive`, a TGA, decoded (`tga.decode`).
+/// Reads and decodes the game's TGA picture `picture_name` from `archive` (`tga.decode`).
 fn readTga(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8) !tga.Image {
     const bytes = try archive.readFile(gpa, picture_name);
     defer gpa.free(bytes);
     return tga.decode(gpa, bytes);
 }
 
-/// The picture `archive`'s mods give in place of the game's picture `picture_name`
-/// (`pictureName`); null where they give none.
+/// The mod picture that replaces the game's picture `picture_name` (`pictureName`), from
+/// `archive`'s mods; null if there's none.
 fn modPicture(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8) Allocator.Error!?png.Picture {
     var buffer: [files.max_path]u8 = undefined;
     const name = pictureName(&buffer, picture_name) catch return null;
     return archive.mods.pictures().picture(gpa, name);
 }
 
-/// The name of the picture that stands in for the game's picture `picture_name`: the name the
-/// archive looks it up by (`bigfile.memberName`) with the picture extension in place of its own.
+/// The name of the mod picture that replaces the game's picture `picture_name`: the name the
+/// archive looks it up by (`bigfile.memberName`), with the picture extension instead of the
+/// original one.
 pub fn pictureName(buffer: []u8, picture_name: []const u8) error{NoSpaceLeft}![]u8 {
     var looked_up: [bigfile.member_name_room]u8 = undefined;
     const member = bigfile.memberName(&looked_up, picture_name);
@@ -147,7 +149,7 @@ test Background {
     try std.testing.expectEqual(2, background.image.?.width());
 }
 
-test "a mod's picture stands in for one of the game's" {
+test "a mod's picture replaces one of the game's pictures" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -164,8 +166,8 @@ test "a mod's picture stands in for one of the game's" {
     try std.testing.expectEqual(2, shown.width());
     try std.testing.expectEqual(1, shown.levels.len);
 
-    // A mod's pictures in their place, whatever their names' case: one four pixels by two and half
-    // clear, the other red and white.
+    // Mod pictures to replace them, with names in a different case: one 4x2 and half transparent,
+    // the other red and white.
     var back: std.Io.Writer.Allocating = .init(gpa);
     defer back.deinit();
     try png.writeRgba(gpa, &back.writer, 4, 2, &(@as([4 * 2 * 4]u8, @splat(0x80))));
@@ -175,17 +177,17 @@ test "a mod's picture stands in for one of the game's" {
     try tmp.dir.createDirPath(io, "mods/pictures");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/pictures/BACK.png", .data = back.written() });
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/pictures/dome.png", .data = dome.written() });
-    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir);
+    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     archive.mods = &mods;
 
-    // As an image, of any size: opaque, as the game's pictures are, with its levels made.
+    // As an image, at any size: opaque, like the original pictures, with its mipmaps generated.
     const modded = try readImage(gpa, archive, "interface\\back.tga");
     defer modded.deinit(gpa);
     try std.testing.expectEqual(4, modded.width());
     try std.testing.expectEqual(3, modded.levels.len);
     try std.testing.expectEqual(std.math.maxInt(u8), modded.levels[0].rgba[3]);
-    // For its pixels, of the game's size alone.
+    // For its pixels, only at the original size.
     const colours = try readPixels(gpa, archive, "dome.tga");
     defer colours.deinit(gpa);
     try std.testing.expectEqualSlices(u8, &.{ 0xFF, 0, 0, 0xFF, 0xFF, 0xFF }, colours.rgb);

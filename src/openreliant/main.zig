@@ -17,6 +17,7 @@ const Allocator = std.mem.Allocator;
 
 const openreliant = @import("openreliant");
 const platform = @import("platform");
+const scripting = @import("scripting");
 const stats = openreliant.stats;
 const tcache = openreliant.tcache;
 const tga = openreliant.tga;
@@ -155,20 +156,20 @@ comptime {
     std.debug.assert(platform.window.tick_nanoseconds * game.main.ticks_per_second == std.time.ns_per_s);
 }
 
-/// One of the game's files in its folder `directory`, whole, into `arena`: a mod's file of its name
-/// first (`game.bigfile.Mods.readLoose`).
+/// Reads one of the game's files in the game folder `directory` into `arena`, with a mod's file of
+/// the same name taking priority (`game.bigfile.Mods.readLoose`).
 fn readGameFile(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigfile.Mods, name: []const u8) ![]u8 {
     return try mods.readLoose(io, arena, directory, name, .limited(engine.files.max_file_size)) orelse error.FileNotFound;
 }
 
-/// The strings of the module `name` in the game's folder `directory`, as `language_init` reads them
+/// Reads the strings of the module `name` in the game folder `directory`, as `language_init` does
 /// (`game.language.Language.load`).
 fn readStrings(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigfile.Mods, name: []const u8) !game.language.Language {
     return .load(arena, try .parse(try readGameFile(io, arena, directory, mods, name)));
 }
 
-/// The records of the stats table `table`, from its file in the game's folder `directory`, as its
-/// loader reads them (`stats_load_ships` and the others).
+/// Reads the records of the stats table `table` from its file in the game folder `directory`, as
+/// its loader does (`stats_load_ships` and the others).
 fn readStats(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigfile.Mods, comptime table: stats.Table) ![]align(1) const stats.Table.Record(table) {
     const file = try stats.File.parse(table, try readGameFile(io, arena, directory, mods, table.fileName()));
     return @field(file, @tagName(table));
@@ -177,9 +178,9 @@ fn readStats(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigf
 /// Plays from the game's folder `directory`, with its settings file `settings_file`, which the
 /// pause menu's screens write to.
 fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io.Dir, settings_file: *engine.profile.File) !void {
-    // OpenReliant's mods, whose files come before the game's own wherever it keeps them; none with
-    // `--no-mods`.
-    var mods: game.bigfile.Mods = if (options.mods) try .open(arena, io, directory) else .none;
+    // OpenReliant's mods, whose files take priority over the game's files wherever they are; none
+    // with `--no-mods`.
+    var mods: game.bigfile.Mods = if (options.mods) try .open(arena, io, directory, version.semantic) else .none;
     defer mods.close(arena);
     // What `WinMain` opens at start-up, and the texture cache `renderer_start` opens.
     var resources: game.bigfile.Hog = try .open(arena, io, directory, game.bigfile.resource_name);
@@ -197,26 +198,35 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // What the game's models are built with: the light maps, and the lights as `--original` has
     // them or as OpenReliant's.
     const models: game.srofiles.Settings = .{ .light_maps = details.light_maps, .real_lights = options.real_lights };
-    // The textures, the mods' pictures in place of the cache's images, made in `gpa`, since a large
-    // picture's reading leaves much behind, each fitted to the texture detail.
+    // The textures, with the mods' pictures replacing the cache's images. They're allocated in
+    // `gpa`, since reading a large picture allocates a lot of temporary memory, and each is fitted
+    // to the texture detail.
     var textures: srtexture.Table = .init(gpa, cache, palette);
     defer textures.deinit();
     textures.files = mods.pictures();
     textures.largest = details.texture.largest();
-    // The flight and combat stats `stats_load_ships` reads; every gun type's figures, which
-    // `stats_load_guns` reads; every missile type's, which `stats_load_missiles` reads; and the
-    // pilots'.
-    const ship_stats = try readStats(io, arena, directory, &mods, .ships);
-    const gun_stats = try readStats(io, arena, directory, &mods, .guns);
-    const missile_stats = try readStats(io, arena, directory, &mods, .missiles);
-    const pilot_stats = try readStats(io, arena, directory, &mods, .pilots);
-    // The strings `language_init` reads out of `language.dll` at start-up, and those the ITAC reads
-    // out of `itaclang.dll` as it opens, which without it writes nothing.
-    const strings = try readStrings(io, arena, directory, &mods, game.language.file_name);
-    const itac_strings = readStrings(io, arena, directory, &mods, game.itac.strings_name) catch |err| blank: {
-        std.log.warn("{s} is left out: {s}", .{ game.itac.strings_name, @errorName(err) });
-        break :blank game.language.Language{ .strings = &.{} };
-    };
+    // The records: the ship stats `stats_load_ships` reads, the gun stats `stats_load_guns` reads,
+    // the missile stats `stats_load_missiles` reads, the pilots, the strings `language_init` reads
+    // from `language.dll` at startup, and the ITAC's strings from `itaclang.dll` (without it the
+    // ITAC shows no text). The mods' load scripts can change them before the game uses them.
+    var records: scripting.Records = try .init(arena, .{
+        .ships = try readStats(io, arena, directory, &mods, .ships),
+        .guns = try readStats(io, arena, directory, &mods, .guns),
+        .missiles = try readStats(io, arena, directory, &mods, .missiles),
+        .pilots = try readStats(io, arena, directory, &mods, .pilots),
+        .text = (try readStrings(io, arena, directory, &mods, game.language.file_name)).strings,
+        .itac_text = if (readStrings(io, arena, directory, &mods, game.itac.strings_name)) |read| read.strings else |err| blank: {
+            std.log.warn("can't read {s}: {s}", .{ game.itac.strings_name, @errorName(err) });
+            break :blank &.{};
+        },
+    });
+    try scripting.load.run(gpa, io, mods.list, &records, version.string);
+    const ship_stats = records.ships;
+    const gun_stats = records.guns;
+    const missile_stats = records.missiles;
+    const pilot_stats = records.pilots;
+    const strings = records.language(.text);
+    const itac_strings = records.language(.itac_text);
 
     var window: platform.window.Window = try .open("OpenReliant", initial_size[0], initial_size[1], options.fullscreen);
     defer window.close();
@@ -246,10 +256,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // As `WinMain` starts, the keys named as the keyboard's layout names them (`key_names_rename`,
     // `0x004A8F82`).
     platform.keyboard.nameKeys(&devices.key_names);
-    // `default.txt`, the bindings `key_config_defaults` starts from, a mod's in its place; without
-    // it, the executable's own.
+    // `default.txt`, the bindings `key_config_defaults` starts from, or a mod's replacement for it;
+    // without it, the executable's built-in bindings.
     devices.defaults_file = if (readGameFile(io, arena, directory, &mods, game.interface.defaults_name)) |text| .{ .text = text } else |err| none: {
-        std.log.warn("{s} is left out: {s}", .{ game.interface.defaults_name, @errorName(err) });
+        std.log.warn("can't read {s}: {s}", .{ game.interface.defaults_name, @errorName(err) });
         break :none null;
     };
     // The characters typed into the window, which its procedure queues (`WM_CHAR`).
@@ -313,9 +323,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     if (options.intro and options.mission == null and options.screenshot == null) {
         for (game.xtrabits.movie.intro) |name| _ = try movies.play(name, .cleared) orelse return;
     }
-    // The outline fonts that draw the interface's text at the window's resolution, through
-    // FreeType: Newtown, built in, and the mods' fonts in their places. The bitmap fonts alone with
-    // `--bitmap-fonts`, or where FreeType doesn't start.
+    // The outline fonts that draw the interface text at the window's resolution, through FreeType:
+    // the built-in Newtown, and fonts from mods that replace the bitmap fonts. Only the bitmap
+    // fonts are used with `--bitmap-fonts`, or if FreeType doesn't start.
     var free_type: ?platform.fonts.FreeType = if (options.outline_fonts) platform.fonts.FreeType.init() catch null else null;
     defer if (free_type) |*library| library.deinit();
     var outlines: game.hud.outline.Outlines = .init(gpa, if (free_type) |*library| library.rasterizer() else null, &mods);
@@ -1433,15 +1443,15 @@ const Play = struct {
     }
 };
 
-/// The file of mission `number`, as the game reads it (`game.mission.bind.read`): from a mod, the
-/// game's `missions` folder, or `resource.hog`. Mission 0, OpenReliant's own, comes from the copy
-/// `openreliant` carries where the game has none.
+/// Reads the file of mission `number` as the game does (`game.mission.bind.read`): from a mod, the
+/// game's `missions` folder, or `resource.hog`. Mission 0, OpenReliant's sandbox, comes from the
+/// copy built into `openreliant` if the game has none.
 fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const game.bigfile.Hog, number: u16, second_part: bool) ![]const u8 {
     var path_buffer: [game.winmain.mission_path_size]u8 = undefined;
     const path = game.winmain.missionPath(&path_buffer, number, second_part, false);
     if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| return file.image;
     if (number == mission0.number) return @embedFile("mission0.dte");
-    std.debug.print("openreliant: the game has no mission {d}: neither its missions folder nor {s} holds {s}\n", .{ number, game.bigfile.resource_name, std.fs.path.basenameWindows(path) });
+    std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, std.fs.path.basenameWindows(path), game.bigfile.resource_name });
     return error.MissingMission;
 }
 

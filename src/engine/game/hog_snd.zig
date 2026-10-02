@@ -274,8 +274,8 @@ pub const BankFile = struct {
     }
 };
 
-/// Where the music comes from: files of their own in the game's directory, `music\` and the name,
-/// which Miles streamed from the disk (`AIL_open_stream`), and OpenReliant's mods before them.
+/// Where the music comes from: separate files in the game folder, `music\` plus the name, which
+/// Miles streamed from disk (`AIL_open_stream`), with OpenReliant's mods taking priority.
 pub const Files = struct {
     gpa: Allocator,
     io: Io,
@@ -1025,9 +1025,9 @@ pub fn musicLoopStart(path: []const u8) i32 {
     return 0;
 }
 
-/// Reads the music file at `path`, a path of the game's with backslashes, from the game's
-/// directory, found whatever the case of its names, as Windows finds it (`files.find`). A mod's
-/// file of its name comes first (`bigfile.Mods.readLoose`).
+/// Reads the music file at `path`, a game path with backslashes, from the game folder, ignoring
+/// case as Windows does (`files.find`). A mod file with the same name takes priority
+/// (`bigfile.Mods.readLoose`).
 fn readMusic(files: Files, path: []const u8) ![]u8 {
     return try files.mods.readLoose(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse error.FileNotFound;
 }

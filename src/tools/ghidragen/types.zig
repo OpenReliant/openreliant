@@ -87,6 +87,7 @@ pub const exported = [_]Export{
     .{ "PilotStats", engine.game.pilots.Pilot },
     .{ "PilotTimings", engine.game.pilots.Pilot.Timings },
     .{ "PilotRange", engine.game.pilots.Pilot.Range },
+    .{ "PilotSkill", engine.game.pilots.Pilot.Skill },
 
     // Sound.
     .{ "SoundVoice", engine.game.hog_snd.Voice },

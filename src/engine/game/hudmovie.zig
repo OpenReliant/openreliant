@@ -89,10 +89,11 @@ pub fn memberName(path: []const u8) []const u8 {
 /// The film the radio's window plays: `hudmovie.cpp`'s globals.
 pub const Movie = struct {
     gpa: Allocator,
-    /// `pilots_hog` (`0x0057C3B4`); null where it cannot be opened, which leaves the window
-    /// without films but for the mods'.
+    /// `pilots_hog` (`0x0057C3B4`); null if it can't be opened, which leaves the window without
+    /// films except those from mods.
     archive: ?hog.Archive = null,
-    /// OpenReliant's: the mods, whose films come before the archive's (`bigfile.Mods`).
+    /// Added by OpenReliant: the mods, whose films take priority over the archive's
+    /// (`bigfile.Mods`).
     mods: *const bigfile.Mods = &bigfile.Mods.none,
     /// The film playing, as `pilots.hog` holds it, its chunks unscrambled once as it starts, and
     /// which of them the timer decodes next; the game reads each from the archive as it comes
@@ -194,8 +195,8 @@ pub const Movie = struct {
         movie.chunks = chunks;
     }
 
-    /// The film at `path` as it is stored, a mod's of its name first (`bigfile.Mods.readStored`),
-    /// then the archive's (`hog_seek`).
+    /// Reads the film at `path` as stored, from a mod if one has a file with its name
+    /// (`bigfile.Mods.readStored`), otherwise from the archive (`hog_seek`).
     fn read(movie: *Movie, path: []const u8) ![]u8 {
         const name = memberName(path);
         if (try movie.mods.readStored(movie.gpa, name)) |bytes| return bytes;

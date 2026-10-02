@@ -73,9 +73,9 @@ fn list(ctx: Context, comptime table: stats.Table, all: []align(1) const table.R
     if (loaded < all.len) try ctx.stdout.writeAll("\n- marks a record the engine never loads\n");
 }
 
-/// The name has its own column, and the unread tail is zero throughout.
+/// The name has its own column, and what the engine never reads is zero throughout.
 fn isShown(comptime name: []const u8) bool {
-    return !std.mem.eql(u8, name, "name") and !std.mem.eql(u8, name, "_unread");
+    return !std.mem.eql(u8, name, "name") and !std.mem.startsWith(u8, name, "_unread");
 }
 
 fn printHeading(ctx: Context, comptime field: std.builtin.Type.StructField) !void {
