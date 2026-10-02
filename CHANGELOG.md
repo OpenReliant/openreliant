@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.3](https://github.com/OpenReliant/openreliant/compare/v0.6.2...v0.6.3) (2026-10-02)
+
+
+### Fixes
+
+* closing the ITAC no longer freezes the screen for seconds ([#575](https://github.com/OpenReliant/openreliant/issues/575)) ([d829cd2](https://github.com/OpenReliant/openreliant/commit/d829cd20bd0a413fd1f879dfbc40837602186ff3)), closes [#565](https://github.com/OpenReliant/openreliant/issues/565)
+* the menu music fades out as a new game's intro starts ([#571](https://github.com/OpenReliant/openreliant/issues/571)) ([e31eafc](https://github.com/OpenReliant/openreliant/commit/e31eafc7847281a5f6a17beb8b7d65ef89305dc2)), closes [#561](https://github.com/OpenReliant/openreliant/issues/561)
+* the small target display names the target's pilot ([#573](https://github.com/OpenReliant/openreliant/issues/573)) ([15daf12](https://github.com/OpenReliant/openreliant/commit/15daf1219f26776bc47c4c878d0ed7f57c63e16c)), closes [#564](https://github.com/OpenReliant/openreliant/issues/564) [#529](https://github.com/OpenReliant/openreliant/issues/529)
+* the steady lights no longer turn the launch bay all red ([#569](https://github.com/OpenReliant/openreliant/issues/569)) ([058eb1e](https://github.com/OpenReliant/openreliant/commit/058eb1e4ae42f02a2f6162aafadcefe19e2d9747)), closes [#567](https://github.com/OpenReliant/openreliant/issues/567)
+* the Zakov's fighters wait on its launch points and launch from them ([#576](https://github.com/OpenReliant/openreliant/issues/576)) ([464c2fa](https://github.com/OpenReliant/openreliant/commit/464c2faa9d4d0bbc9a62028294464995cde8c5b2))
+
+
+### Documentation
+
+* Enriquez is a woman in the docs and comments ([#572](https://github.com/OpenReliant/openreliant/issues/572)) ([ec32595](https://github.com/OpenReliant/openreliant/commit/ec32595782a2319ec9074787e3bb190e535d9c24))
+
 ## [0.6.2](https://github.com/OpenReliant/openreliant/compare/v0.6.1...v0.6.2) (2026-10-02)
 
 
