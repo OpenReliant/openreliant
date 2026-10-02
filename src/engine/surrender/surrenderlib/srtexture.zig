@@ -10,6 +10,7 @@ const Allocator = std.mem.Allocator;
 
 const png = @import("../../../formats/png.zig");
 const colour = @import("../colour.zig");
+const math = @import("../math.zig");
 const tcache = @import("../../../formats/tcache.zig");
 const tga = @import("../../../formats/tga.zig");
 const srimage = @import("srimage.zig");
@@ -44,7 +45,8 @@ pub const Image = struct {
     pub const Maps = struct {
         /// The surface's normal in the texture's own frame, as OpenGL's normal maps hold it: its
         /// x toward the texture's right, its y toward its top and its z out of the surface, each
-        /// from -1 to 1 in red, green and blue.
+        /// from -1 to 1 in red, green and blue; in alpha, how long the mean of the normals each
+        /// texel stands for is (`Content.normal`).
         normal: ?[]const Level = null,
         /// How much of the ambient light reaches the surface, how rough it is, and how metallic, in
         /// red, green and blue, as glTF packs them.
@@ -354,7 +356,10 @@ fn fitRatio(length: u32, largest: u32) u32 {
 pub const Content = enum {
     /// Colours, sRGB-encoded, with alpha: their means are taken in linear light, weighted by alpha.
     colour,
-    /// A normal map's vectors: their means are taken as vectors, made a unit long again.
+    /// A normal map's vectors: their means are taken as vectors at their lengths and made a unit
+    /// long again, the mean's own length kept in alpha, as Toksvig's method keeps it ("Mipmapping
+    /// Normal Maps", 2005): 1 at the finest level, whatever alpha the picture holds, and the
+    /// shorter the further the normals a texel stands for spread.
     normal,
     /// Linear values, such as occlusion, roughness and metallic: their plain means.
     data,
@@ -375,6 +380,10 @@ pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content, longest: 
         for (levels.items) |l| gpa.free(l.rgba);
         levels.deinit(gpa);
     }
+    // Each of a normal map's own normals stands for itself alone, at its full length.
+    if (content == .normal) for (std.mem.bytesAsSlice([4]u8, picture.rgba)) |*texel| {
+        texel[3] = std.math.maxInt(u8);
+    };
     var finest: Level = .{ .width = picture.width, .height = picture.height, .rgba = picture.rgba };
     {
         errdefer gpa.free(finest.rgba);
@@ -413,7 +422,7 @@ fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level 
             const texel = level.rgba[(row * level.width + column) * 4 ..][0..4];
             const value: Rgb = switch (content) {
                 .colour => .{ colour.light(texel[0]), colour.light(texel[1]), colour.light(texel[2]) },
-                .normal => Rgb{ unit(texel[0]), unit(texel[1]), unit(texel[2]) } * @as(Rgb, @splat(2)) - @as(Rgb, @splat(1)),
+                .normal => direction(Rgb{ unit(texel[0]), unit(texel[1]), unit(texel[2]) } * @as(Rgb, @splat(2)) - @as(Rgb, @splat(1))),
                 .data => .{ unit(texel[0]), unit(texel[1]), unit(texel[2]) },
             };
             const weight = unit(texel[3]);
@@ -431,12 +440,11 @@ fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level 
                 out.* = .{ colour.level(mean[0]), colour.level(mean[1]), colour.level(mean[2]), mean_alpha };
             },
             .normal => {
-                // The vectors' mean, a unit long again; straight out of the surface where they
-                // cancel.
-                const length = @sqrt(@reduce(.Add, sum * sum));
-                const direction: Rgb = if (length > 0) sum / @as(Rgb, @splat(length)) else .{ 0, 0, 1 };
-                const encoded = (direction + @as(Rgb, @splat(1))) / @as(Rgb, @splat(2));
-                out.* = .{ level8(encoded[0]), level8(encoded[1]), level8(encoded[2]), mean_alpha };
+                // The mean of the vectors at the lengths their alpha keeps: its direction, and its
+                // own length in alpha.
+                const mean = weighted / @as(Rgb, @splat(4));
+                const encoded = (direction(mean) + @as(Rgb, @splat(1))) / @as(Rgb, @splat(2));
+                out.* = .{ level8(encoded[0]), level8(encoded[1]), level8(encoded[2]), level8(math.length(mean)) };
             },
             .data => {
                 const mean = sum / @as(Rgb, @splat(4));
@@ -445,6 +453,12 @@ fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level 
         }
     };
     return .{ .width = width, .height = height, .rgba = rgba };
+}
+
+/// `normal` a unit long; straight out of the surface where it has no length.
+fn direction(normal: math.Vector) math.Vector {
+    const length = math.length(normal);
+    return if (length > 0) normal / @as(math.Vector, @splat(length)) else .{ 0, 0, 1 };
 }
 
 /// An 8-bit level as a value from 0 to 1.
@@ -629,11 +643,16 @@ test "material maps come beside a picture" {
 
 test "mipmaps of normals and of values" {
     const gpa = std.testing.allocator;
-    // Two normals leaning opposite ways along x mean one straight out of the surface.
-    const leaning = try gpa.dupe(u8, &.{ 218, 128, 218, 255, 38, 128, 218, 255 });
-    const normals = try mipmaps(gpa, .{ .width = 2, .height = 1, .rgba = leaning }, .normal, max_side);
+    // Normals leaning an eighth of a turn either way along x, by turns: the finest level keeps
+    // them at their full length, whatever alpha the picture gives them; the next means them one
+    // straight out of the surface, as long as the cosine of their lean, and the one after keeps
+    // that length.
+    const leaning = try gpa.dupe(u8, &.{ 218, 128, 218, 0, 38, 128, 218, 0, 218, 128, 218, 0, 38, 128, 218, 0 });
+    const normals = try mipmaps(gpa, .{ .width = 4, .height = 1, .rgba = leaning }, .normal, max_side);
     defer freeLevels(gpa, normals);
-    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 255 }, normals[1].rgba);
+    try std.testing.expectEqualSlices(u8, &.{ 218, 128, 218, 255 }, normals[0].rgba[0..4]);
+    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 181 }, normals[1].rgba[0..4]);
+    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 181 }, normals[2].rgba);
     // Values mean plainly, not in linear light as colours do.
     const values = try gpa.dupe(u8, &.{ 0, 0, 0, 255, 255, 255, 255, 255 });
     const data = try mipmaps(gpa, .{ .width = 2, .height = 1, .rgba = values }, .data, max_side);

@@ -186,12 +186,13 @@ float sunlit(vec3 n) {
     return 1.0;
 }
 
-// The surface a pixel shows the lights: its normal, a unit long or none, toward the eye, and, for a
-// material's, how much of the ambient light reaches it, how rough it is, how metallic, and the
-// share of light it reflects straight back.
+// The surface a pixel shows the lights: its normal, a unit long or none, toward the eye, how much of
+// the ambient light reaches it, and, for a material's, how much of its surroundings' light reaches
+// it, how rough it is, how metallic, and the share of light it reflects straight back.
 struct Surface {
     vec3 normal;
     vec3 toEye;
+    float ambient;
     bool material;
     float occlusion;
     float roughness;
@@ -205,6 +206,17 @@ const float dielectricReflectance = 0.04;
 // the pixels.
 const float leastRoughness = 0.045;
 const float pi = 3.14159265358979323846;
+
+// A material's roughness widened by how far the normals that a texel of its normal map stands for
+// spread, as Toksvig's method widens a highlight ("Mipmapping Normal Maps", 2005), so that details
+// of the map finer than a pixel make the surface look rougher rather than sparkle: from the length
+// `mean` of the normals' mean, their variance (1 - mean) / mean, added twice to GGX's alpha
+// squared, as a Gaussian's slopes add, and no rougher than 1.
+float widened(float roughness, float mean) {
+    float variance = (1.0 - mean) / max(mean, 1e-4);
+    float a = roughness * roughness;
+    return sqrt(sqrt(min(a * a + 2.0 * variance, 1.0)));
+}
 
 // What a light of unit strength along `l` adds as a highlight to a material's pixel, in the diffuse
 // light's units, which fold in pi as Lambert's does: GGX's microfacets, Smith's shadowing as
@@ -336,30 +348,41 @@ mat3 textureFrame(vec3 n, vec3 p, vec2 at) {
 }
 
 // The surface the pixel shows the lights, of texel `texel`: its normal, bent by its texture's
-// normal map where it is shaded, through `onTexture` (`textureFrame`), and its material, where it
-// has one.
+// normal map where it is shaded, through `onTexture` (`textureFrame`), which shades the ambient
+// light too, and its material, where it has one, its roughness widened by the map (`widened`).
 Surface surfaceOf(vec4 texel, mat3 onTexture) {
     Surface s;
     float length = length(facing);
     s.normal = length < 1e-6 ? vec3(0.0) : facing / length;
     s.toEye = normalize(-place);
+    s.ambient = 1.0;
     s.material = false;
     s.occlusion = 1.0;
     s.roughness = 1.0;
     s.metallic = 0.0;
     s.reflectance = vec3(dielectricReflectance);
     if (image < 0 || length < 1e-6) return s;
+    // How long the mean of the normals that the normal map's texel stands for is, which its alpha
+    // keeps (srtexture.zig): 1 at its finest level, and where there is none.
+    float mean = 1.0;
     if ((shade & 0x800u) != 0u && dot(onTexture[0], onTexture[0]) > 0.0) {
-        vec3 bent = texture(normalMaps, vec3(uv, image)).xyz * 2.0 - 1.0;
+        vec4 map = texture(normalMaps, vec3(uv, image));
+        vec3 bent = map.xyz * 2.0 - 1.0;
         // OpenGL's normal maps point their y toward the texture's top, where its v grows down.
         bent.y = -bent.y;
         s.normal = normalize(onTexture * bent);
+        // The ambient light, alike from every side, would light the map's details flat: it is
+        // shaded by the cosine of how far the map tilts the normal from the surface's own, so that
+        // the grooves and edges show in it as they do in the lights.
+        s.ambient = max(dot(s.normal, onTexture[2]), 0.0);
+        mean = map.a;
     }
     if ((shade & 0x1000u) != 0u) {
         vec3 orm = texture(materialMaps, vec3(uv, image)).rgb;
         s.material = true;
         s.occlusion = orm.r;
-        s.roughness = max(orm.g, leastRoughness);
+        s.ambient *= orm.r;
+        s.roughness = widened(max(orm.g, leastRoughness), mean);
         s.metallic = orm.b;
         // A metal tints what it reflects with its own colour, which reaches it in linear light.
         vec3 base = frame.settings.w > 0.0 ? texel.rgb : decoded(texel.rgb);
@@ -612,15 +635,15 @@ void main() {
         // In linear light, from decoded textures: the lights times the texture, encoded again for
         // the frame, which blends encoded as the game's effects were made to; and the vertex's own
         // colour, its ambient and baked light, added as the original added it, whose neutral floor
-        // the lights' colours were chosen against. A material adds its highlights to its lights,
-        // and its occlusion shades the ambient light.
-        c.rgb = min(encoded(diffuse * min(added, vec3(1.0)) + highlights) + encoded(texel.rgb) * colour.rgb * s.occlusion, vec3(1.0));
+        // the lights' colours were chosen against, as much of it as reaches the surface. A material
+        // adds its highlights to its lights.
+        c.rgb = min(encoded(diffuse * min(added, vec3(1.0)) + highlights) + encoded(texel.rgb) * colour.rgb * s.ambient, vec3(1.0));
     } else if (!s.material) {
         // Direct3D 7's stages: the texture times the colour, or the colour alone, the lights added
         // for the pixel and each channel held to 1.
-        c.rgb = texel.rgb * min(colour.rgb + added, vec3(1.0));
+        c.rgb = texel.rgb * min(colour.rgb * s.ambient + added, vec3(1.0));
     } else {
-        c.rgb = min(texel.rgb * colour.rgb * s.occlusion + diffuse * added + highlights, vec3(1.0));
+        c.rgb = min(texel.rgb * colour.rgb * s.ambient + diffuse * added + highlights, vec3(1.0));
     }
     if (frame.settings.x > 0.0 || frame.settings.z > 0.0) {
         // To the levels the frame is kept in: five bits of red and blue and six of green in 16-bit

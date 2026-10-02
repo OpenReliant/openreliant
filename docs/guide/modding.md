@@ -99,17 +99,21 @@ most engines share:
 Each map is the size of its picture, and either may be missing: a normal map alone bends the light
 over the surface's details, and a material map alone gives it its highlights. Where a map lacks, the
 surface is flat, unshaded by occlusion, rough or not metallic. Maps are linear values, not colours,
-and their mipmaps are made as such: the normals' means a unit long again.
+and their mipmaps are made as such: the normals' means a unit long again, each level keeping in
+alpha how far the normals it stands for spread, so a normal map's own alpha is not read.
 
 Where each pixel is lit, OpenReliant then lights the surface as its maps describe: the normal map
 bends each pixel's normal, in the texture's own frame on the surface, worked out without tangents in
-the models; the material map gives the highlights each light makes, by how rough the surface is and
-how metallic, metal tinting them with its own colour, in place of the original's highlight pass; it
-reflects what surrounds the ship, the sky and the nebula, blurred as rough as the surface is, so
-that smooth glass reflects the nebula clearly at glancing angles and polished metal shows it
-everywhere; and occlusion shades the ambient light and the reflections. The base picture should hold
-the surface's own colour, with no shading painted in, or the light shows twice. VIDEO's MATERIALS
-and `--no-materials` turn the maps off, as `--original` does.
+the models, and shades the ambient light the further it tilts the normal from the surface's own, so
+that its grooves and edges show on the side away from the lights too; the material map gives the
+highlights each light makes, by how rough the surface is and how metallic, metal tinting them with
+its own colour, in place of the original's highlight pass; it reflects what surrounds the ship, the
+sky and the nebula, blurred as rough as the surface is, so that smooth glass reflects the nebula
+clearly at glancing angles and polished metal shows it everywhere; and occlusion shades the ambient
+light and the reflections. Where the normal map's details are finer than a pixel, the surface looks
+rougher by as much as they spread, as Toksvig's method makes it, rather than its highlights
+sparkling. The base picture should hold the surface's own colour, with no shading painted in, or the
+light shows twice. VIDEO's MATERIALS and `--no-materials` turn the maps off, as `--original` does.
 
 A metal's base colour is how much light it reflects, its highlights and its reflections tinted with
 it: real metals reflect half of the light and more, steel about 56 percent and aluminium about 91,
