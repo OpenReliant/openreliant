@@ -1,5 +1,6 @@
-//! The version `openreliant` reports: the release Release Please keeps in `build.zig.zon`, and for
-//! a build past it, how many commits past and which, from `git describe` (`build.zig`).
+//! The version `openreliant` and `sltool` report: the release Release Please keeps in
+//! `build.zig.zon`, and for a build past it, how many commits past and which, from `git describe`
+//! (`build.zig`).
 
 const std = @import("std");
 const build_options = @import("build_options");

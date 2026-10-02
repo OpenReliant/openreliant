@@ -72,11 +72,11 @@ jobs:
           done
           case "${{ matrix.target }}" in
             *windows*)
-              cp zig-out/bin/openreliant.exe "$name"/
+              cp zig-out/bin/openreliant.exe zig-out/bin/sltool.exe "$name"/
               7z a -tzip "dist/$name.zip" "$name" > /dev/null
               ;;
             *)
-              cp zig-out/bin/openreliant "$name"/
+              cp zig-out/bin/openreliant zig-out/bin/sltool "$name"/
               tar -czf "dist/$name.tar.gz" "$name"
               ;;
           esac
@@ -105,7 +105,7 @@ jobs:
         run: |
           gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           changelog="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body | scripts/release-credits.sh)"
-          note="OpenReliant needs your own copy of StarLancer: see the README for where to point it. The macOS builds are not signed, so macOS blocks them at first; run \`xattr -d com.apple.quarantine openreliant\` once to allow it."
+          note="OpenReliant needs your own copy of StarLancer: see the README for where to point it. The macOS builds are not signed, so macOS blocks them at first; run \`xattr -d com.apple.quarantine openreliant sltool\` once to allow them."
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$note
 
           $changelog"

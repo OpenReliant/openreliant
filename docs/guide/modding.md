@@ -30,6 +30,9 @@ StarLancer/
 
 `--no-mods` plays the game's own files alone.
 
+`sltool`, which packs and unpacks the archives and reads the game's other files, comes beside
+`openreliant` in each release ([Builds and releases](../port/platform.md#builds-and-releases)).
+
 ## How a mod's file stands in
 
 A mod's file stands in for every file of the game's of the same name, wherever the game keeps it:

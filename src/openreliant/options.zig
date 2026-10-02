@@ -10,7 +10,7 @@ const game = engine.game;
 const camera = game.camera;
 const FrameSize = engine.surrender.srd3d.device.FrameSize;
 const help = @import("help.zig");
-const version = @import("version.zig");
+const version = @import("version");
 
 /// Everything `openreliant` takes on its command line, in the order the help page lists them.
 pub const Arg = enum {

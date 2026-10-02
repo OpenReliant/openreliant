@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     // The releases leave the debug information out of the game, which on Linux the executable
     // would otherwise carry, several times the size of its code.
-    const strip = b.option(bool, "strip", "Leave the debug information out of the game") orelse false;
+    const strip = b.option(bool, "strip", "Leave the debug information out of the game and sltool") orelse false;
 
     // The library: readers for the game's files and the port of the game itself, shared by the
     // game and every tool.
@@ -101,6 +101,18 @@ pub fn build(b: *std.Build) void {
     });
     archive_c.addIncludePath(archive_library.getEmittedIncludeTree());
     if (macos_sdk) |sdk| addMacosSdk(b, archive_library.root_module, sdk);
+    // The version Release Please keeps in build.zig.zon, and where the checkout is past its last
+    // release, for `openreliant --version` and `sltool --version` (`src/version.zig`).
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", @import("build.zig.zon").version);
+    build_options.addOption([]const u8, "describe", describe(b));
+    const version = b.createModule(.{
+        .root_source_file = b.path("src/version.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    version.addOptions("build_options", build_options);
+
     const openreliant = b.addExecutable(.{
         .name = "openreliant",
         .root_module = b.createModule(.{
@@ -112,16 +124,11 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "openreliant", .module = lib },
                 .{ .name = "platform", .module = platform },
                 .{ .name = "archive", .module = archive_c.createModule() },
+                .{ .name = "version", .module = version },
             },
         }),
     });
     openreliant.root_module.linkLibrary(archive_library);
-    // The version Release Please keeps in build.zig.zon, and where the checkout is past its last
-    // release, for `openreliant --version` (`src/openreliant/version.zig`).
-    const build_options = b.addOptions();
-    build_options.addOption([]const u8, "version", @import("build.zig.zon").version);
-    build_options.addOption([]const u8, "describe", describe(b));
-    openreliant.root_module.addOptions("build_options", build_options);
     b.installArtifact(openreliant);
 
     // Mission 0, OpenReliant's own: the sandbox as a standard mission file, which a tool built for
@@ -154,8 +161,10 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/tools/sltool/main.zig"),
             .target = target,
             .optimize = optimize,
+            .strip = strip,
             .imports = &.{
                 .{ .name = "openreliant", .module = lib },
+                .{ .name = "version", .module = version },
             },
         }),
     });
@@ -215,6 +224,7 @@ pub fn build(b: *std.Build) void {
     const ghidragen_tests = b.addTest(.{ .root_module = ghidragen.root_module });
     const openreliant_tests = b.addTest(.{ .root_module = openreliant.root_module });
     const platform_tests = b.addTest(.{ .root_module = platform });
+    const version_tests = b.addTest(.{ .root_module = version });
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&b.addRunArtifact(lib_tests).step);
     test_step.dependOn(&b.addRunArtifact(exe_tests).step);
@@ -222,6 +232,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(ghidragen_tests).step);
     test_step.dependOn(&b.addRunArtifact(openreliant_tests).step);
     test_step.dependOn(&b.addRunArtifact(platform_tests).step);
+    test_step.dependOn(&b.addRunArtifact(version_tests).step);
 }
 
 /// Gives `module` the macOS SDK's headers, frameworks and libraries at `sdk`, which a build for a

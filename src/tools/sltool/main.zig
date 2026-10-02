@@ -4,6 +4,7 @@ const std = @import("std");
 const Io = std.Io;
 
 const files = @import("openreliant").engine.files;
+const version = @import("version");
 
 const cd = @import("cd.zig");
 const dte = @import("dte.zig");
@@ -71,14 +72,19 @@ const Command = union(enum) {
     stats: stats.Command,
     tcache: tcache.Command,
     help,
+    @"--version",
 
-    const usage =
+    /// What `--version` shows, as `openreliant --version` shows its own.
+    const version_line = "sltool " ++ version.string ++ "\n";
+
+    const usage = "sltool " ++ version.string ++ " reads and writes StarLancer's files.\n\n" ++
         \\usage: sltool <command> ...
         \\
         \\commands:
         \\
     ++ cd.Command.usage ++ dte.Command.usage ++ fat.Command.usage ++ fm8.Command.usage ++ fnt.Command.usage ++ hog.Command.usage ++ render.Command.usage ++ save.Command.usage ++ shp.Command.usage ++ speech.Command.usage ++ spr.Command.usage ++ stats.Command.usage ++ tcache.Command.usage ++
         \\  help                            show this text
+        \\  --version                       show the version
         \\
     ;
 
@@ -86,6 +92,7 @@ const Command = union(enum) {
         const group, const rest = try verbOf(Command, args);
         return switch (group) {
             .help => .help,
+            .@"--version" => .@"--version",
             inline else => |tag| @unionInit(Command, @tagName(tag), try .parse(rest)),
         };
     }
@@ -93,6 +100,7 @@ const Command = union(enum) {
     fn run(command: Command, ctx: Context) !void {
         switch (command) {
             .help => try ctx.stdout.writeAll(usage),
+            .@"--version" => try ctx.stdout.writeAll(version_line),
             inline else => |group| try group.run(ctx),
         }
     }
@@ -128,6 +136,10 @@ fn run(command: Command, init: std.process.Init, arena: std.mem.Allocator, stdou
 
 test Command {
     try std.testing.expectEqual(Command.help, try Command.parse(&.{"help"}));
+    // The version, alone and at the top of the usage, the build's as openreliant's is.
+    try std.testing.expectEqual(Command.@"--version", try Command.parse(&.{"--version"}));
+    try std.testing.expectEqualStrings("sltool " ++ version.string ++ "\n", Command.version_line);
+    try std.testing.expect(std.mem.startsWith(u8, Command.usage, "sltool " ++ version.string ++ " reads"));
     try std.testing.expectError(error.Usage, Command.parse(&.{}));
     try std.testing.expectError(error.Usage, Command.parse(&.{"bogus"}));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "cd", "extract", "disc.bin" }));

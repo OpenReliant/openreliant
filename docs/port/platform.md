@@ -152,7 +152,7 @@ Changes go to `main` through pull requests. Each pull request, and each push to 
 
 Releases come from [release-please](https://github.com/googleapis/release-please) ([`release.yml`](../../.github/workflows/release.yml), [`release-please-config.json`](../../release-please-config.json)). Commit messages follow [Conventional Commits](https://www.conventionalcommits.org): `feat` for a new feature, `fix` for a bug fix, `docs` for documentation, and `build`, `ci`, `chore`, `perf`, `refactor` or `test` for the rest, with a `!` after the type for a breaking change. From these, release-please keeps a release pull request open with the next version and the changelog so far. Before 1.0, a feature raises the minor version, a fix the patch version, and a breaking change the minor version. A patch of an earlier version comes from a release branch cut from its tag, with the fix copied onto it, such as `release/0.5` from `v0.5.0` for 0.5.1: the workflow runs on the release branches too, and release-please keeps a release pull request for the branch.
 
-Merging the release pull request updates [`CHANGELOG.md`](../../CHANGELOG.md) and the version in `build.zig.zon`, tags the version, and publishes a GitHub release with that version's changelog as its notes. The workflow then builds `openreliant` for each system and attaches the archives:
+Merging the release pull request updates [`CHANGELOG.md`](../../CHANGELOG.md) and the version in `build.zig.zon`, tags the version, and publishes a GitHub release with that version's changelog as its notes. The workflow then builds `openreliant` and `sltool` for each system and attaches the archives, each named for the version and the system, such as `openreliant-v0.6.1-linux-x86_64.tar.gz`, so that another project's workflow can fetch the one it needs by version, as a mod's does to pack it with `sltool`:
 
 | Archive | Built on | Target |
 |---|---|---|
@@ -167,7 +167,7 @@ As it attaches them, the workflow credits the contributors in the release's note
 
 Run by hand from the Actions tab, the workflow builds all six and keeps the archives as the run's artifacts, but publishes nothing.
 
-The build gives `openreliant` its version ([`version.zig`](../../src/openreliant/version.zig)), which `--version` and the top of `--help` show. It is the version in `build.zig.zon`, followed by what `git describe` says of the checkout as SemVer build metadata when it is not exactly a release:
+The build gives `openreliant` and `sltool` their version ([`version.zig`](../../src/version.zig)), which `--version` and the top of `openreliant --help` and of `sltool help` show. It is the version in `build.zig.zon`, followed by what `git describe` says of the checkout as SemVer build metadata when it is not exactly a release:
 
 | Checkout | Version |
 |---|---|
@@ -176,7 +176,7 @@ The build gives `openreliant` its version ([`version.zig`](../../src/openreliant
 | With uncommitted changes | `0.2.0+12.gabc1234.dirty` |
 | No git or no tags, as in a source archive | `0.2.0` |
 
-Each archive holds the executable, the README, the license and the changelog, and no game files. Every build names its target explicitly, so it is built for its architecture's baseline processor and runs on any machine of that kind. The Linux builds need glibc 2.31 or newer, and SDL loads the display, sound and input libraries at run time. The macOS builds are not signed, so macOS blocks them until the quarantine flag is removed with `xattr -d com.apple.quarantine openreliant`.
+Each archive holds the executables, `openreliant` and `sltool`, the README, the license and the changelog, and no game files. Every build names its target explicitly, so it is built for its architecture's baseline processor and runs on any machine of that kind. The Linux builds need glibc 2.31 or newer, and SDL loads the display, sound and input libraries at run time. The macOS builds are not signed, so macOS blocks them until the quarantine flag is removed with `xattr -d com.apple.quarantine openreliant sltool`.
 
 release-please opens its pull request with the workflow's own token, which needs "Allow GitHub Actions to create and approve pull requests" turned on in the repository's Actions settings. GitHub does not run workflows for pull requests opened with that token, so the release pull request never gets its checks, and an admin merges it past the branch protection.
 

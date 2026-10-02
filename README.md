@@ -57,12 +57,12 @@ Building OpenReliant needs [Zig 0.16](https://ziglang.org): see [Building from s
 
 The repository includes tools used during reverse engineering. `make help` lists the workflows, and [CONTRIBUTING](CONTRIBUTING.md#getting-started) and the [toolchain](docs/toolchain.md) describe them.
 
-The `sltool` utility inspects and exports game formats:
+The `sltool` utility, which comes beside `openreliant` in each release, inspects, exports and packs game formats. It exits with 0 when it succeeds, 2 for a command it does not take, which it answers with its usage, and 1 for a failure, whose message goes to stderr, so that a mod's own workflow can run it:
 
 | Command | Description | Documentation |
 |---|---|---|
 | `sltool cd` | Inspect CD images and ISO 9660 filesystems | [disc-images](docs/formats/disc-images.md) |
-| `sltool hog` | Extract `.HOG` archives (`BIGF` container / RefPack) | [hog](docs/formats/hog.md), [refpack](docs/formats/refpack.md) |
+| `sltool hog` | Extract and pack `.HOG` archives (`BIGF` container / RefPack) | [hog](docs/formats/hog.md), [refpack](docs/formats/refpack.md) |
 | `sltool shp` | Inspect `.SHP` 3D models; export Wavefront OBJ | [shp](docs/formats/shp.md) |
 | `sltool spr` | Inspect `.SPR` 2D interface sprites; export PNG | [spr](docs/formats/spr.md) |
 | `sltool tcache` | Extract texture caches to PNG | [tcache](docs/formats/tcache.md) |

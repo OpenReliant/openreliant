@@ -36,7 +36,7 @@ const itac_module = game.itac;
 const simulator_pod = loadout.simulator_pod;
 const Movies = @import("movies.zig").Movies;
 const drawn = @import("presenter.zig").drawn;
-const version = @import("version.zig");
+const version = @import("version");
 
 const log = std.log.scoped(.rooms);
 
