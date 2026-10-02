@@ -1,8 +1,9 @@
 //! `C:\lancer\game\launch.cpp`: order 104, Launch, by which a ship leaves the ship it launches
 //! from, its carrier: `order_launch_init` (`0x00418EB0`) and `order_launch` (`0x004191C0`). A
 //! carrier launches its ships in a style of its own (`Style`), each a pair of routines in the
-//! table at `0x004E3C98`: the Reliant's ([`launch/reliant.zig`](launch/reliant.zig)) and the
-//! torpedoes' ([`launch/torpedo.zig`](launch/torpedo.zig)). **Unverified:** that the code around
+//! table at `0x004E3C98`: the Reliant's ([`launch/reliant.zig`](launch/reliant.zig)), the
+//! torpedoes' ([`launch/torpedo.zig`](launch/torpedo.zig)) and the Zakov's
+//! ([`launch/zakov.zig`](launch/zakov.zig)). **Unverified:** that the code around
 //! the file's known code is its own too: StartLaunch's start (`start`) and the search for a gate
 //! before it, and the styles' routines, the placing at a launch point (`attach`) among them,
 //! after it, before `tractor.cpp`'s. [Launches](../../../docs/engine/launch.md) describes them.
@@ -31,6 +32,7 @@ const xtrabits = @import("xtrabits.zig");
 
 pub const reliant = @import("launch/reliant.zig");
 pub const torpedo = @import("launch/torpedo.zig");
+pub const zakov = @import("launch/zakov.zig");
 
 /// How a ship launches (`launch_styles`, `0x004E3C98`): a record of two routines for each
 /// (`Routines`), the first placing the ship for its launch and naming the node it rides
@@ -89,7 +91,8 @@ pub const Style = enum(i32) {
         return switch (style) {
             .reliant => .{ .init = &reliant.init, .run = &reliant.run },
             .torpedo => .{ .init = &torpedo.init, .run = &torpedo.run },
-            .bay, .yamato, .badanov, .escape_pod, .stork, .other_escape_pod, .rogue_base, .zakov, _ => null,
+            .zakov => .{ .init = &zakov.init, .run = &zakov.run },
+            .bay, .yamato, .badanov, .escape_pod, .stork, .other_escape_pod, .rogue_base, _ => null,
         };
     }
 
@@ -146,6 +149,7 @@ comptime {
     // Each style's own steps begin where the launch's leave off.
     assert(Step.of(reliant.Step.start) == Step.styled);
     assert(Step.of(torpedo.Step.fire) == Step.styled);
+    assert(Step.of(zakov.Step.leave) == Step.styled);
 }
 
 /// What Launch keeps in the object's order state.
@@ -443,8 +447,8 @@ test "Style.of" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Style.reliant}));
     try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @enumFromInt(12))}));
-    // OpenReliant runs the Reliant's routines and the torpedoes' alone.
-    for (std.enums.values(Style)) |style| try std.testing.expectEqual(style == .reliant or style == .torpedo, style.routines() != null);
+    // OpenReliant runs the Reliant's, the torpedoes' and the Zakov's routines.
+    for (std.enums.values(Style)) |style| try std.testing.expectEqual(style == .reliant or style == .torpedo or style == .zakov, style.routines() != null);
 }
 
 /// Fixtures for the launches' tests.

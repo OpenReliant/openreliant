@@ -1685,6 +1685,8 @@ address	kind	name	type	comment
 00491320	function	lock_rings_free	void (void)	Frees the lock rings and their mesh
 00456a80	function	radio_missile_warning	void (void)	While a missile homes on the player's ship in action, at most every 1000 ticks of frame_start (0x005297E4), Moose says one of plck_001 to plck_008 unless the radio is busy or 0x00529538 is set, dropped after 500
 0041a390	function	launch_torpedo_run	void __fastcall (int slot)	A torpedo's launch: at step 2 it lets go of its tube, heard (sound 0x18), boosting at throttle 2 by motion_plain from the carrier's velocity with a torpedo's trail; 200 ticks on it flies itself, its order popped, targetable and colliding again, Launched posted
+0041b8b0	function	launch_zakov_init	void __fastcall (int slot)	A launch from the Zakov: places the ship at the Zakov's launch point its gate names (launch_attach), riding the part that holds it, then moves it forward along its nose by how far its bounds reach behind its centre (bounds_min)
+0041b940	function	launch_zakov_run	void __fastcall (int slot)	A launch from the Zakov: at step 2 the ship lets go and flies straight out at throttle 2 by motion_plain; past 100 ticks it flies itself by motion_forward, its throttle and yaw input zeroed, its order popped, targetable again, and Launched posted
 00461c40	function	camera_set_view_call	void __fastcall (int view, int object, bool force, bool unknown)	Calls camera_set_view
 00494e10	function	missiles_free	void (void)	Frees the missile and trail pools and clears missiles_initialised
 0057e020	data	missile_lock_target	OrderEntry	The target and component the lock began on, at +4 and +6, laid out as an order entry for ai_target_node
