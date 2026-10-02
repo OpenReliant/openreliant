@@ -44,6 +44,7 @@ const tractor = @import("tractor.zig");
 const airipper = @import("airipper.zig");
 const jump = @import("jump.zig");
 pub const flash = @import("main/flash.zig");
+pub const scanner = @import("main/scanner.zig");
 pub const cockpit = @import("main/cockpit.zig");
 const shockwave = @import("shockwave.zig");
 const sparks = @import("sparks.zig");
@@ -567,7 +568,8 @@ pub fn controlsFrame(controls: Controls) void {
 /// flyback marker it has strayed from (`input.nextNavPoint`), then the player's ship uncloaked where
 /// the display ran the cloak's charge dry last frame (`hud.State.uncloakSpent`), then every
 /// object's orders, which fly the ships and read the player's controls, then the player's ship sent
-/// home where it destroyed a friend (`friendly_fire.sendHome`), then the frames they are drawn at,
+/// home where it destroyed a friend (`friendly_fire.sendHome`), then the scanner's beep
+/// (`scanner.Scanner.frame`), then the frames they are drawn at,
 /// then the missiles (`missiles.frame`) and the shots in flight (`guns.bulletsFrame`),
 /// then the sparks (`sparks.Sparks.frame`) and the particles (`particles.Pool.frame`,
 /// `smoke.Pools.frame`, `guns.effects.Pools.frame`), which `particles_frame` runs together, the
@@ -604,6 +606,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.jump_effects) |effects| effects.beginFrame();
     aigeneric.ordersUpdate(orders);
     friendly_fire.sendHome(orders);
+    player.scanner.frame(orders.world, orders.clock.frame_start);
     frameObjects(orders.world.objects, timing, orders.clock.frame_start);
     missiles.frame(orders.world, timing.fraction);
     guns.bulletsFrame(orders.world, orders.clock, timing.fraction);
@@ -1672,6 +1675,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     world.player.jumping_in = false;
     world.player.flyback = .{};
     world.player.primary_target = null;
+    world.player.scanner = .{};
     if (world.camera) |view| {
         view.view = .cockpit;
         view.object = all.player;

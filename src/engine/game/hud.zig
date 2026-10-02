@@ -1746,8 +1746,6 @@ pub const Frame = struct {
     random: *libcmt.Rand,
     /// What the mission has ready for JUMP DRIVE.
     ready: *Readiness,
-    /// Whether the `Scanner` command has the player look for an object.
-    scanning: bool = false,
     edge_line: EdgeLine,
     multiplayer: bool = false,
     /// The view this frame (`camera_view`), and the sound the locked tone plays through; none
@@ -1802,7 +1800,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
             lead = try drawTarget(state, pen, &resources.target_fonts, scene, frame.edge_line);
         }
         try state.drawEjectMarker(pen, frame_duration);
-        try state.drawScanner(frame.scanning, frame.clock.game_ticks, pen);
+        try state.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, pen);
         const lit = state.lit(live, frame.player.matching_speed, frame.multiplayer, frame_duration);
         try state.drawLights(pen, lit, frame_duration);
         lock_lit = lit.enemy_lock;
@@ -2868,6 +2866,13 @@ pub const State = struct {
         live.blind_fire_aim = @intFromBool(aims);
         const time = clockTime(frame.all, frame.clock.play, frame.variables);
         try drawClock(pen, time[0], time[1]);
+    }
+
+    /// The scanner from its first frame, as the `Scanner` command starts it (`cmd_Scanner`,
+    /// `0x00459CD9`).
+    pub fn restartScanner(state: *State) void {
+        state.scanner_frame = 0;
+        state.scanner_next = 0;
     }
 
     /// The scanner's frame at `game_ticks`: the next, going round, once `game_ticks` is past the

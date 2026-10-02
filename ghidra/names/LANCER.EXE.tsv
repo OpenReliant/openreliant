@@ -942,6 +942,8 @@ address	kind	name	type	comment
 0057bf4c	data	ecm_state	int	0 when the ECM is off and 1 when on; the mission's start sets 0, so every ship carries one. -1 would be none
 0057e048	data	cockpit_frame	void *	The model of the cockpit's frame, which the mission's start loads by the player's ship type
 0057e060	data	scanner_object	int	The object the Scanner command has the player look for, or -1: hud_scanner draws while it names one, and mission_frame beeps at an interval of 10 to 200 ticks that it works out from the object's distance and bearing
+005883c4	data	scanner_voice	int	The voice the scanner's beep loops on while it comes at its quickest, every 10 ticks, or -1: mission_frame ends it once the beep slows or the scanner is off
+005883c8	data	scanner_beeped_at	int	The frame_start the scanner's beep last came at, which the Scanner command zeroes so that the next beep is due at once
 00587cd0	data	hud_interference_sounded_at	int	The tick hud_interference_start last played its sound at, which it plays again only once more than 15 ticks and a random share of 15 more have passed
 00588728	data	hud_interference_faded_at	int	The tick hud_interference_fade last lowered hud_interference at, which it lowers by 0.005 a tick since
 00588700	data	hud_interference	float	How much the display is shaken: while above 0, hud_draw draws its shapes with hud_blit. hud_interference_start sets 0.3 and hud_interference_fade lowers it

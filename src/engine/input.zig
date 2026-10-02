@@ -1205,6 +1205,9 @@ pub const Player = struct {
     /// (`SetPrimaryTarget`) and PRIMARY TARGET makes the player's target; none from the mission's
     /// start (`mission_start`, `0x004935C9`).
     primary_target: ?PrimaryTarget = null,
+    /// The scanner the mission's script sets off (`Scanner`), and its beep; off from a mission's
+    /// start.
+    scanner: @import("game/main.zig").scanner.Scanner = .{},
     /// What the radio's remarks keep, and what the mission's script has them leave unsaid, which a
     /// mission's start clears.
     remarks: videoreports.Remarks = .{},

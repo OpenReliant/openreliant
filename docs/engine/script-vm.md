@@ -269,9 +269,9 @@ from the catalogue.
 | `0x50` | `WaitForDirectorCam` | Waits while the camera shows the director's shots (view 13) | Yes |
 | `0x51` | `KillAllScriptExecutionExecptMe` | Ends every other thread | Yes |
 | `0x52` | `StackDirectorCam` | As `StartDirectorCam`, after the shots waiting ([The director's camera](director.md#the-commands)) | Yes |
-| `0x53` | `Scanner` | The scanner looks for the object the argument names, or stops for none | No |
+| `0x53` | `Scanner` | The scanner looks for the object the argument names, or stops for none ([Head-up display](hud.md#the-jump-prompt-the-eject-marker-and-the-scanner)) | Yes |
 | `0x54` | `ReplaceSubObject` | Replaces a ship's component with another object | No |
-| `0x55` | `Fire` | The ship the first argument names fires its guns for the seconds the second gives | No |
+| `0x55` | `Fire` | The ship the first argument names holds its guns' trigger for the ticks the second gives ([Guns](guns.md#the-trigger)) | Yes |
 | `0x56` | `MultiplayerScriptSync` | In a multiplayer game, holds the players' scripts in step; in a game of one, runs on | Yes |
 | `0x57` | `FriendlyFire` | The carrier sends the player's ship home as though it had destroyed a friend ([Friendly fire](orders.md#friendly-fire)) | Yes |
 | `0x58` | `Cloak` | Cloaks each ship the first argument names while the second is set, or uncloaks it | No |

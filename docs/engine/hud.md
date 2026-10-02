@@ -643,13 +643,21 @@ half of the way across and down:
   (`player_ejected`, `0x00579986`, which `order_eject_player_init` sets) or while icon 5 is lit,
   shape `0xC2`, the pilot rising out of the ship, flashes for 50 ticks of every 100.
 - `hud_scanner` (`0x00489250`), at `(-16, -100)`: while the `Scanner` mission command
-  (`cmd_Scanner`) has `scanner_object` (`0x0057E060`) name an object, shapes `0xD1` to `0xD5`, a
-  hand and the rings it sends out, in turn, moving on once `game_ticks` is past a tick 25 on from
-  the last move. `mission_frame` beeps meanwhile at an interval of 10 to 200 ticks that it works out
-  from the object's distance and bearing.
+  (`cmd_Scanner`, `0x00459CB0`) has `scanner_object` (`0x0057E060`) name an object, shapes `0xD1`
+  to `0xD5`, a hand and the rings it sends out, in turn, moving on once `game_ticks` is past a tick
+  25 on from the last move. The command starts them from the first.
 
-OpenReliant draws all three, the jump prompt by the mission script's variables (`vm.Variables`).
-Mission 0 readies no jump and scans nothing.
+Meanwhile `mission_frame` beeps toward the object (`0x004929D8`), in every view: `bank_stdsmp`'s
+sound 7 at full volume, in the middle. The beep comes again once a number of ticks has passed since
+the last (`scanner_beeped_at`, `0x005883C8`, which the command zeroes): a thousandth of the object's
+distance from the player's ship, times 2 less the cosine of its angle off the ship's nose, so three
+times as long behind as ahead, kept from 10 to 200. At 10 it loops on a voice of its own
+(`scanner_voice`, `0x005883C4`) until it slows or the scanner is off. The scanner turns off as the
+object explodes, and at a mission's start.
+
+OpenReliant draws all three, the jump prompt by the mission script's variables (`vm.Variables`), and
+beeps as the game does ([`main/scanner.zig`](../../src/engine/game/main/scanner.zig)). Mission 0
+readies no jump and scans nothing.
 
 ## Art
 

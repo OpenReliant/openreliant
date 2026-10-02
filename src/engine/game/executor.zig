@@ -18,6 +18,7 @@ const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
 const follow = @import("ai/follow.zig");
 const friendly_fire = @import("friendly_fire.zig");
+const guns = @import("guns.zig");
 const hud = @import("hud.zig");
 const hudmovie = @import("hudmovie.zig");
 const launch = @import("launch.zig");
@@ -119,6 +120,8 @@ const implementations = table: {
         .{ "TurretSetTarget", turretSetTarget },
         .{ "ReplenishWeapons", replenishWeapons },
         .{ "DisableListing", disableListing },
+        .{ "Scanner", scanner },
+        .{ "Fire", fire },
     }) |pair| table[commandIndex(pair[0])] = pair[1];
     break :table table;
 };
@@ -996,6 +999,37 @@ fn disableListing(call: Call) u32 {
     return 1;
 }
 
+/// `cmd_Scanner` (`0x00459CB0`, command `0x53`): the scanner looks for the ship the argument names,
+/// or is off where it names none (`main.scanner.Scanner.set`), and the display's scanner starts
+/// from its first frame (`hud.State.restartScanner`).
+fn scanner(call: Call) u32 {
+    const machine = call.machine;
+    const game = machine.game orelse return 1;
+    const world = game.world;
+    world.player.scanner.set(shipSlot(machine, world.objects, call.args[0]));
+    if (world.display) |display| display.restartScanner();
+    return 1;
+}
+
+/// `cmd_Fire` (`0x00459DD0`, command `0x55`): the ship the first argument names holds its guns'
+/// trigger for the ticks the second gives (`guns.fire`), the player's view shaking with the Nova
+/// Cannon's charge where it is the player's ship.
+///
+/// **Fix:** where the first argument names no ship, the game reads past the objects; OpenReliant
+/// fires nothing.
+fn fire(call: Call) u32 {
+    const machine = call.machine;
+    const game = machine.game orelse return 1;
+    const world = game.world;
+    const all = world.objects;
+    const ship = shipSlot(machine, all, call.args[0]) orelse return 1;
+    const slot = &all.slots[ship];
+    var trigger = slot.trigger(world.clock.frame_start);
+    if (ship == all.player) trigger.shake = world.shake;
+    guns.fire(&slot.object, trigger, @bitCast(call.args[1]));
+    return 1;
+}
+
 /// `cmd_SetEscortPoint` (`0x004592F0`, command `0x31`): each ship the first argument names takes
 /// the object the second names as its escort point (`setEscortPointShip`).
 fn setEscortPoint(call: Call) u32 {
@@ -1841,7 +1875,6 @@ test "the commands of Instant Action's bosses and its end" {
     const gpa = std.testing.allocator;
     const shp = @import("../../formats/shp.zig");
     const srofiles = @import("srofiles.zig");
-    const guns = @import("guns.zig");
     const Routine = vm.machine.testing.Routine;
     var routine: Routine = .init(gpa);
     defer routine.deinit();
@@ -1938,6 +1971,56 @@ test "the commands of Instant Action's bosses and its end" {
     try std.testing.expectEqual(gameobj.Quadrants.all(29), ship.armor);
     try std.testing.expect(environment.asked.ice_field and !environment.effects.ice_field);
     try std.testing.expectEqual(1, world.player.terminated);
+}
+
+test "Scanner looks for a ship, and Fire holds its trigger" {
+    const gpa = std.testing.allocator;
+    const Routine = vm.machine.testing.Routine;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    // The scanner looks for the Sabre, which fires for 500 ticks.
+    try routine.op(.push_ship, &.{1});
+    try routine.command("Scanner");
+    try routine.op(.push_ship, &.{1});
+    try routine.pushConstant(500);
+    try routine.command("Fire");
+    try routine.op(.push_byte, &.{1});
+    try routine.op(.@"return", &.{});
+    const code = try routine.finish();
+    defer gpa.free(code);
+
+    var fixture: vm.machine.testing.Fixture = undefined;
+    try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .ships = &.{
+            testShip(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.Type.predator), dte.Ship.no_pilot),
+            testShip(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.Type.sabre), dte.Ship.no_pilot),
+        },
+    });
+    defer fixture.deinit();
+    var world: gameobj.testing.Mission = undefined;
+    try world.init(gpa);
+    defer world.deinit();
+    _ = try world.add(.predator, @splat(0));
+    const sabre = try world.add(.sabre, .{ 0, 0, 5000 });
+    // The Sabre fires its one gun with every group.
+    const slot = world.slot(sabre);
+    const muzzle: guns.Muzzle = .{ .model = undefined, .part = 0, .attachment = undefined };
+    slot.dropGuns(gpa);
+    slot.guns = try gpa.dupe(guns.Fitted, &.{.{ .turret = .{ .fixed = .{ .muzzle = muzzle, .type = .laser_cannon } } }});
+    slot.object.gun_count = 1;
+    slot.object.gun_mode.all = true;
+    world.clock.frame_start = 700;
+    // The display's scanner stands at a later frame, which the command starts again.
+    var display: hud.State = .{ .scanner_frame = 3, .scanner_next = 900 };
+    var game = world.orders();
+    game.world.display = &display;
+    fixture.machine.game = game;
+    try fixture.machine.start();
+
+    try std.testing.expectEqual(sabre, world.player.scanner.object.?);
+    try std.testing.expectEqual(0, display.scanner_frame);
+    try std.testing.expectEqual(0, display.scanner_next);
+    try std.testing.expectEqual(1200, slot.guns[0].firing_until);
 }
 
 test shipType {
