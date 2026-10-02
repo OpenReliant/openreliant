@@ -48,7 +48,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`engine/simulator-pod.md`](engine/simulator-pod.md) | The simulator pod: its screens and choices, and the training missions and Instant Action it flies. |
 | [`engine/locker.md`](engine/locker.md) | The locker: the lid's movies, and the medals and ribbons that come into view with it. |
 | [`engine/cd-player.md`](engine/cd-player.md) | The CD player: its screen and buttons, each carrier's list of the game's music, and how it plays. |
-| [`engine/briefing.md`](engine/briefing.md) | The briefing: the door, the way into the briefing room, Enriquez with the mission's movie, his last word, and the campaign's end. |
+| [`engine/briefing.md`](engine/briefing.md) | The briefing: the door, the way into the briefing room, Enriquez with the mission's movie, her last word, and the campaign's end. |
 | [`engine/loadout.md`](engine/loadout.md) | The loadout: its hologram, GenILib's 3D interface, the ship page, choosing a ship, the missile page and the racks, the internal guns view, the exit, its panels and figures, and the ship and racks it leaves the mission. |
 | [`engine/movies.md`](engine/movies.md) | Movies: how the game plays them, the discs' archives, the intro, the transitions, the hangar's, the landing and the chapters' ends, and the stand-in for Bink. |
 | [`engine/controls.md`](engine/controls.md) | Player input: devices, bindings, settings, steering and throttle. |

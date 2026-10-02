@@ -184,7 +184,7 @@ Taking the way to the briefing room's door, `rel_bunkroom2briefing_door.bik` on 
 
 ## The induction
 
-`reliant_induction` (`0x00438D50`) shows a new pilot round the Reliant before mission 1's rooms. It plays the way from the bunk to the television, `rel_ladd_bunk.bik`, `rel_t2l.bik` and `rel_c_tv.bik`, over the screen, then at each place a movie over and over as Enriquez speaks his scene, from the disc, once, at full volume:
+`reliant_induction` (`0x00438D50`) shows a new pilot round the Reliant before mission 1's rooms. It plays the way from the bunk to the television, `rel_ladd_bunk.bik`, `rel_t2l.bik` and `rel_c_tv.bik`, over the screen, then at each place a movie over and over as Enriquez speaks her scene, from the disc, once, at full volume:
 
 | Place | Movie | Scene | The way on |
 |---|---|---|---|

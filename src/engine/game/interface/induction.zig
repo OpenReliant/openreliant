@@ -1,5 +1,5 @@
 //! A new pilot's induction (`reliant_induction`, `0x00438D50`), as a campaign starts from mission
-//! 1: Enriquez shows the pilot round the Reliant's rooms, a scene of his at each place, before the
+//! 1: Enriquez shows the pilot round the Reliant's rooms, a scene of hers at each place, before the
 //! rooms open. `WinMain` plays the new pilot's intro before it, and after it the way from where it
 //! ended into the rooms (`after`).
 //!
@@ -19,7 +19,7 @@ const rooms = @import("rooms.zig");
 /// bunk, and on to the television.
 pub const opening = [_][]const u8{ "rel_ladd_bunk.bik", "rel_t2l.bik", "rel_c_tv.bik" };
 
-/// The places Enriquez shows the pilot, in order, each named by his scene there: the television,
+/// The places Enriquez shows the pilot, in order, each named by her scene there: the television,
 /// the locker, the simulator pod, the CD player, the ITAC, and the television again. The number of
 /// each is the count of ways taken to it (the loop's `EBP`), which `reliant_induction` returns.
 pub const Place = enum(u8) {
@@ -191,7 +191,7 @@ test Induction {
         induction.advance(now);
     }
     try std.testing.expect(induction.film.player != null);
-    // As his scene ends, the way to the locker, then the locker, whose scene is left out.
+    // As her scene ends, the way to the locker, then the locker, whose scene is left out.
     var out: [512][2]f32 = undefined;
     tested.mixer.mix(&out);
     const way = induction.pass(.{ .keyboard = &keyboard, .right = false, .now = 0 }).?.way;
