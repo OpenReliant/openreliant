@@ -233,7 +233,7 @@ from the catalogue.
 | `0x28` | `Fly` | Each ship the first argument names flies to the point the second names, at the speed the third gives, or at full throttle for 0 (Fly, [Orders](orders.md#the-orders)). **Fix:** where a ship refuses Fly, the game writes the speed into the order on top of its stack, such as Player Control's mouse stick, which then turns the player's ship; OpenReliant writes none | Yes |
 | `0x29` | `CommsFromShipOnce` | As `CommsFromShip`, the film played once, then the dead channel's while the line goes on | Yes |
 | `0x2A` | `CommsFromPilotOnce` | As `CommsFromPilot`, the film played once | Yes |
-| `0x2B` | `DisableLights` | Puts out the lights of each ship the first argument names while the second is set | No |
+| `0x2B` | `DisableLights` | Puts out the lights of each ship the first argument names while the second is set, the static lights baked into its parts with them, and lights them again where it is not ([Static lights](rendering.md#static-lights)) | Yes |
 | `0x2C` | `SetEnvironmentFX` | Turns the environment effect the first argument numbers on while the second is set, or off: the ice field, and effect 2, which does nothing ([Environment effects](backdrop.md#environment-effects)) | Yes |
 | `0x2D` | `MultiPlayerSync` | **Unknown.** It takes no arguments, and its description names only its author | No |
 | `0x2E` | `DisableGenericComms` | Keeps the remarks the radio makes by itself (`0x00529538`) quiet while the argument is set; a mission's start clears it ([Radio](radio.md#remarks)) | Yes |
@@ -274,7 +274,7 @@ from the catalogue.
 | `0x51` | `KillAllScriptExecutionExecptMe` | Ends every other thread | Yes |
 | `0x52` | `StackDirectorCam` | As `StartDirectorCam`, after the shots waiting ([The director's camera](director.md#the-commands)) | Yes |
 | `0x53` | `Scanner` | The scanner looks for the object the argument names, or stops for none ([Head-up display](hud.md#the-jump-prompt-the-eject-marker-and-the-scanner)) | Yes |
-| `0x54` | `ReplaceSubObject` | Replaces a ship's component with another object | No |
+| `0x54` | `ReplaceSubObject` | The ship the second argument names takes the place of the component the first names: it stands where the component's frame stands, turned as it is, a cargo pod turned on as the Mammoth's and the Stalag's pods hang, and the component is hidden | Yes |
 | `0x55` | `Fire` | The ship the first argument names holds its guns' trigger for the ticks the second gives ([Guns](guns.md#the-trigger)) | Yes |
 | `0x56` | `MultiplayerScriptSync` | In a multiplayer game, holds the players' scripts in step; in a game of one, runs on | Yes |
 | `0x57` | `FriendlyFire` | The carrier sends the player's ship home as though it had destroyed a friend ([Friendly fire](orders.md#friendly-fire)) | Yes |

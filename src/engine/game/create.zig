@@ -456,6 +456,15 @@ pub const Slot = struct {
         return if (n < parts.len) parts[n] else null;
     }
 
+    /// Where `part`, one of its model's parts or of a model that model carries, stands in the
+    /// world, its frame brought up to date with those it hangs from (`SR_object_concate_parents`,
+    /// `0x004C3570`), the root at its drawn place; null for an object without a model, or a part of
+    /// neither.
+    pub fn partPlace(slot: *Slot, part: *const objects.Model.Part) ?math.Place {
+        const model = if (slot.model) |*live| live else return null;
+        return model.placeOf(slot.drawn, part, .now);
+    }
+
     /// `object_component_index` (`0x0045ADE0`): where it lists `part` among its components, by
     /// which the mission's events and its triggers name a component; null where it does not.
     pub fn componentIndex(slot: *const Slot, part: *const objects.Model.Part) ?u8 {

@@ -24,6 +24,7 @@ const launch = @import("launch.zig");
 const videoreports = @import("videoreports.zig");
 const mission = @import("mission.zig");
 const objects = @import("objects.zig");
+const math = @import("../surrender/math.zig");
 const pilots = @import("pilots.zig");
 const Order = @import("ai/orders.zig").Order;
 
@@ -128,6 +129,8 @@ const implementations = table: {
         .{ "WaitForDirectorCam", .{ .command = waitForDirectorCam } },
         .{ "FriendlyFire", .{ .in_game = friendlyFire } },
         .{ "DestroySubObject", .{ .in_game = destroySubObject } },
+        .{ "ReplaceSubObject", .{ .in_game = replaceSubObject } },
+        .{ "DisableLights", .{ .per_ship = disableLightsShip } },
         .{ "TerminateMission", .{ .in_game = terminateMission } },
         .{ "TurretSetTarget", .{ .per_ship = turretSetTargetShip } },
         .{ "ReplenishWeapons", .{ .in_game = replenishWeapons } },
@@ -828,6 +831,59 @@ fn destroySubObject(call: Call, game: aigeneric.Context) void {
             continue;
         }
         objects.destroyPart(slot, .{ .model = model, .index = at });
+    }
+}
+
+/// `cmd_ReplaceSubObject` (`0x00459CF0`, command `0x54`): the ship the second argument names takes
+/// the place of the component the first names (`push_component`): it stands where the component's
+/// frame stands in the world (`create.Slot.partPlace`), turned as it is, and the component is
+/// hidden. A cargo pod stands turned as the Mammoth's and the Stalag's pods hang from them
+/// (`pod_half_turn`, `pod_quarter_back`).
+///
+/// **Fix:** where the first argument names no component, or either argument no ship, the game
+/// reads past the object's components or past the objects; OpenReliant does nothing.
+fn replaceSubObject(call: Call, game: aigeneric.Context) void {
+    const machine = call.machine;
+    const all = game.world.objects;
+    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const slot = &all.slots[ship];
+    const component = slot.component(machine.argumentComponent(call.thread, 0) orelse return) orelse return;
+    const taking = mission.shipSlot(machine.mission, all, call.args[1]) orelse return;
+    const replacement = &all.slots[taking];
+    var place = slot.partPlace(component) orelse return;
+    if (replacement.object.type == .cargo_pod) {
+        place.orientation = math.turned(math.turned(place.orientation, .y, pod_half_turn), .x, pod_quarter_back);
+    }
+    objects.setPlace(&replacement.object, &replacement.drawn, place);
+    component.hidden = true;
+}
+
+/// How `ReplaceSubObject` turns a cargo pod from the frame of the component it replaces: half a turn
+/// about the pod's own `Y` (`0x00459D8F`), then a quarter turn back about its own `X`
+/// (`0x00459D9D`), the game's floats being these exactly.
+const pod_half_turn: f32 = std.math.pi;
+const pod_quarter_back: f32 = -std.math.pi / 2.0;
+
+/// `cmd_DisableLights_ship` (`0x00459100`), which `cmd_DisableLights` (`0x00459070`, command
+/// `0x2B`) runs for each ship its first argument names: while the second argument is set, the
+/// ship's lights go out (`gameobj.GameObject.Flags.lights_disabled`), with the static lights baked
+/// into its parts' meshes (`showStaticLights`); where it is not, they come on again.
+fn disableLightsShip(call: Call, ship: Ship) void {
+    const out = call.args[0] != 0;
+    ship.slot.object.flags.lights_disabled = out;
+    if (ship.slot.model) |*model| showStaticLights(model, !out);
+}
+
+/// `0x00459090`: the static lights baked into the meshes of each part of `model` that has them
+/// (`shp.Part.Flags.has_static_light`), and of the models it carries, shown or not
+/// (`srapiext.ObjectFlags.baked_mesh`). It walks the root's child list and each node's, which pass
+/// over a part taken out of the model and what it carries (`objects.Model.rootChild`).
+fn showStaticLights(model: *objects.Model, shown: bool) void {
+    for (model.parts, 0..) |*part, index| {
+        if (part.removed) continue;
+        if (part.flags.has_static_light) part.object.flags.baked_mesh = shown;
+        var each = model.carriedBy(index);
+        while (each.next()) |mount| showStaticLights(&mount.model, shown);
     }
 }
 
@@ -1754,6 +1810,127 @@ test "Scanner looks for a ship, and Fire holds its trigger" {
     try std.testing.expectEqual(0, display.scanner_frame);
     try std.testing.expectEqual(0, display.scanner_next);
     try std.testing.expectEqual(1200, slot.guns[0].firing_until);
+}
+
+test "DisableLights puts a ship's lights out, the static lights baked into its parts with them" {
+    const gpa = std.testing.allocator;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    try routine.op(.push_ship, &.{1});
+    try routine.op(.push_byte, &.{1});
+    try routine.command("DisableLights");
+    const code = try finishPart(&routine);
+    defer gpa.free(code);
+
+    var game: vm.machine.testing.Game = undefined;
+    try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .ships = &.{
+            shipRecord(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.Type.predator)),
+            shipRecord(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.Type.kurgan)),
+        },
+    });
+    defer game.deinit();
+    const world = &game.mission;
+    _ = try world.add(.predator, @splat(0));
+    const kurgan = try world.add(.kurgan, @splat(0));
+    // Parts 0 and 2 hold static lights, as the loader baked them; part 2 has been taken out.
+    var parts: objects.testing.Parts(3) = undefined;
+    parts.init();
+    for ([_]usize{ 0, 2 }) |index| {
+        parts.data[index].part.flags.has_static_light = true;
+        parts.loaded_parts[index].flags.baked_mesh = true;
+    }
+    const slot = world.slot(kurgan);
+    try parts.fit(gpa, slot);
+    const model = &slot.model.?;
+    model.parts[2].removed = true;
+    try game.start(game.orders());
+
+    try std.testing.expect(slot.object.flags.lights_disabled);
+    try std.testing.expect(!model.parts[0].object.flags.baked_mesh);
+    // A part without static lights is left alone, and so is a part taken out.
+    try std.testing.expect(!model.parts[1].object.flags.baked_mesh);
+    try std.testing.expect(model.parts[2].object.flags.baked_mesh);
+}
+
+test showStaticLights {
+    // A carrier of two parts, the first with static lights and carrying a model whose one part
+    // has them too.
+    var carried_parts = [_]objects.Model.Part{objects.testing.node()};
+    carried_parts[0].flags.has_static_light = true;
+    var mounts = [_]objects.Model.Mount{.{
+        .part = 0,
+        .attachment = 0,
+        .origin = @splat(0),
+        .orientation = math.identity,
+        .model = .{ .parts = &carried_parts, .order = &.{0}, .lights = &.{}, .glows = &.{}, .mounts = &.{} },
+    }};
+    var parts = [_]objects.Model.Part{ objects.testing.node(), objects.testing.node() };
+    parts[0].flags.has_static_light = true;
+    var model: objects.Model = .{ .parts = &parts, .order = &.{ 0, 1 }, .lights = &.{}, .glows = &.{}, .mounts = &mounts };
+    showStaticLights(&model, true);
+    try std.testing.expect(parts[0].object.flags.baked_mesh and !parts[1].object.flags.baked_mesh);
+    try std.testing.expect(carried_parts[0].object.flags.baked_mesh);
+    // Out again, the carried model's with them.
+    showStaticLights(&model, false);
+    try std.testing.expect(!parts[0].object.flags.baked_mesh and !carried_parts[0].object.flags.baked_mesh);
+    // A part taken out keeps what it had, and so does what it carries.
+    parts[0].removed = true;
+    showStaticLights(&model, true);
+    try std.testing.expect(!parts[0].object.flags.baked_mesh and !carried_parts[0].object.flags.baked_mesh);
+}
+
+test "ReplaceSubObject puts a ship in a component's place, a cargo pod turned as the pods hang" {
+    const gpa = std.testing.allocator;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    for ([_]u8{ 2, 3 }) |replacement| {
+        try routine.op(.push_component, &.{ 1, 0 });
+        try routine.op(.push_ship, &.{replacement});
+        try routine.command("ReplaceSubObject");
+    }
+    const code = try finishPart(&routine);
+    defer gpa.free(code);
+
+    var game: vm.machine.testing.Game = undefined;
+    try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .ships = &.{
+            shipRecord(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.Type.predator)),
+            shipRecord(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.Type.kurgan)),
+            shipRecord(2, dte.Ship.no_flight_group, @intFromEnum(gameobj.Type.sabre)),
+            shipRecord(3, dte.Ship.no_flight_group, @intFromEnum(gameobj.Type.cargo_pod)),
+        },
+    });
+    defer game.deinit();
+    const world = &game.mission;
+    _ = try world.add(.predator, @splat(0));
+    const kurgan = try world.add(.kurgan, .{ 1000, 0, 0 });
+    const sabre = try world.add(.sabre, @splat(0));
+    const pod = try world.add(.cargo_pod, @splat(0));
+    // The Kurgan's one component stands 100 along its Z, the Kurgan itself turned a quarter turn
+    // about Y.
+    var parts: objects.testing.Parts(1) = undefined;
+    parts.init();
+    parts.components(.{true}, .{1});
+    parts.data[0].part.position = .{ .x = 0, .y = 0, .z = 100 };
+    const slot = world.slot(kurgan);
+    try parts.fit(gpa, slot);
+    create.collectComponents(slot);
+    const turn = math.rotation(.y, std.math.pi / 2.0);
+    objects.setPlace(&slot.object, &slot.drawn, .{ .position = .{ 1000, 0, 0 }, .orientation = turn });
+    const frame = slot.partPlace(&slot.model.?.parts[0]).?;
+    try math.testing.expectVectorWithin(.{ 1100, 0, 0 }, frame.position, 1e-3);
+    try game.start(game.orders());
+
+    // The Sabre stands where the component's frame does, turned as it is; the component is hidden.
+    try std.testing.expect(slot.model.?.parts[0].hidden);
+    const placed = world.slot(sabre).object.placeAt(.now);
+    try math.testing.expectVectorWithin(frame.position, placed.position, 1e-3);
+    try math.testing.expectMatrixWithin(frame.orientation, placed.orientation, 1e-5);
+    // The pod is turned on from there, half a turn about its own Y, a quarter back about its X.
+    const turned = world.slot(pod).object.placeAt(.now);
+    try math.testing.expectVectorWithin(frame.position, turned.position, 1e-3);
+    try math.testing.expectMatrixWithin(math.turned(math.turned(frame.orientation, .y, std.math.pi), .x, -std.math.pi / 2.0), turned.orientation, 1e-5);
 }
 
 test shipType {

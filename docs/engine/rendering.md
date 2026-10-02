@@ -283,6 +283,13 @@ own class, so a component's damaged model is lit separately from its intact one.
 class that holds a light takes baked colours for all of its levels, which is what the part flag
 `has_static_light` marks (`static_lights_bake`, `0x004A4310`).
 
+A mission's `DisableLights` (`cmd_DisableLights`, `0x00459070`) puts a ship's lights out, or on
+again: it sets or clears the object's `lights_disabled`, which leaves its light nodes undrawn, and
+walks its nodes from the root (`0x00459090`), clearing or setting the renderer object's flag
+`0x40000` on each part whose record holds `has_static_light`, which shows the mesh's baked colours.
+The static lights go out and come back with the rest. Mission 4 lights its two satellites so
+(`Stork1Sat1`, `Stork1Sat2`).
+
 `mesh_light` takes an object's own colours (flag `0x80000`) in place of its mesh's baked colours, so
 a model that can cloak, whose parts have colours of their own for the [cloak](cloak.md), never shows
 its static lights: of the shipped models, the Basilisk's red light at its tail. **Fix:** OpenReliant

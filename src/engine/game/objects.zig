@@ -2658,6 +2658,12 @@ fn testingPart() shp.PartData {
 pub const testing = struct {
     /// A part with no mesh, no mass and no tracks, standing unturned at the model's origin.
     pub const part = testingPart;
+
+    /// A node of a model's part with no mesh, hanging from the root unturned at its origin, its
+    /// record's flags all clear, for a model built by hand.
+    pub fn node() Model.Part {
+        return .{ .hidden = false, .parent = null, .origin = @splat(0), .object = .{ .flags = .{}, .position = @splat(0), .radius = 0, .levels = &.{} } };
+    }
     /// A track's clip of `length`, played in `mode`, named `name`.
     pub const clip = testingClip;
 

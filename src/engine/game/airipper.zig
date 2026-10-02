@@ -637,19 +637,12 @@ fn cabinDone(slot: *create.Slot) bool {
     return cabin.part().animation.time == 0;
 }
 
-/// Where `part` of the object in `slot`, one of its model's or of a model it carries, stands in the
-/// world (`SR_object_concate_parents`).
-fn placeOf(slot: *create.Slot, part: *const objects.Model.Part) ?math.Place {
-    const model = if (slot.model) |*live| live else return null;
-    return model.placeOf(slot.drawn, part, .now);
-}
-
 /// Where the first part named `name` of the object in `slot` stands in the world
 /// (`node_find_named`).
 fn namedPlace(slot: *create.Slot, name: []const u8) ?math.Place {
     const model = if (slot.model) |*live| live else return null;
     const ref = model.partNamed(name) orelse return null;
-    return placeOf(slot, ref.part());
+    return slot.partPlace(ref.part());
 }
 
 /// The object in `slot` shows its part named `name`, or hides it (`objects.Model.showNamed`,
@@ -720,7 +713,7 @@ pub fn grabInit(ctx: Context, index: u16) void {
     state.below = false;
     const component = if (target.part()) |part| object.component(part) else null;
     if (component) |part| {
-        const place = placeOf(object, part) orelse object.drawn;
+        const place = object.partPlace(part) orelse object.drawn;
         state.at = place.point(grab_above);
     } else if (all.mission_number == below_mission) {
         state.at = object.drawn.point(grab_below);
@@ -1030,7 +1023,7 @@ fn portOf(all: *create.Objects, target: aigeneric.Target) ?Port {
     const ship = target.slotIn(all) orelse return null;
     const slot = &all.slots[ship];
     const part = slot.component(target.part() orelse return null) orelse return null;
-    return .{ .ship = ship, .part = part, .place = placeOf(slot, part) orelse return null };
+    return .{ .ship = ship, .part = part, .place = slot.partPlace(part) orelse return null };
 }
 
 /// How the pod is turned to fit a ship of `ship`: a quarter turn back about the component's X, on
