@@ -1234,6 +1234,26 @@ test "Sound.timerTick steps the fades every five ticks" {
     try std.testing.expectEqual(0, sound.voices[v].fading);
 }
 
+test "Sound.runTimer keeps fading after the clock starts again" {
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
+    const bytes = comptime testing.bank(2);
+    const bank = try fat.Bank.parse(&bytes);
+    var clock: Clock = .{};
+    clock.start(0);
+    sound.runTimer(&clock, 1_000);
+    // A loop starts the clocks again, as the ITAC does as it opens, and later a voice fades.
+    clock.start(50_000);
+    const v = sound.play(bank, 1, loudest, forever, centre, own_pitch).?;
+    const start = driver.sampleVolume(sound.voices[v].sample);
+    sound.fadeVoice(v, 30);
+    // The fade steps as soon as five ticks have passed.
+    sound.runTimer(&clock, 50_006);
+    try std.testing.expectEqual(start - 30, driver.sampleVolume(sound.voices[v].sample));
+}
+
 test "Sound pauses and resumes its voices" {
     var speaker: testing.Speaker = undefined;
     try speaker.init(2, null);

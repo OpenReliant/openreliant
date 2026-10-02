@@ -188,7 +188,7 @@ pub const Clock = struct {
     /// `timer_ticks` (`0x005DB8E8`): every tick of the timer, the paused ones included.
     timer_ticks: u32 = 0,
     /// `game_ticks` (`0x00565064`): the timer's ticks, the paused ones aside, since the sound's
-    /// start in the game (`sound_init`), and since the clock's in OpenReliant (`start`).
+    /// start (`sound_init`). Only the timer moves it on, and nothing zeroes it (`start`).
     game_ticks: u32 = 0,
     /// `mission_ticks` (`0x00587CC4`): ticks `game_tick` has run, the paused ones aside.
     mission_ticks: i32 = 0,
@@ -220,12 +220,16 @@ pub const Clock = struct {
         return @intCast(@max(clock.mission_ticks, 0));
     }
 
-    /// Zeroes the clocks and takes the platform's count of hundredths of a second as their start.
-    /// `mission_run` zeroes the mission's before it loops, `mission_ticks`, `frame_start`,
-    /// `frame_duration` and the play time; the timer's, `timer_ticks` and `game_ticks`, run on in
-    /// the game from the sound's start (`sound_init`).
+    /// Starts the clocks again from `now`, the platform's count of hundredths of a second. The
+    /// mission's clocks start from zero, as `mission_run` zeroes `mission_ticks`, `frame_start`,
+    /// `frame_duration` and the play time before it loops. The timer's own counts, `timer_ticks`
+    /// and `game_ticks`, keep running, as the original's do from the sound's start (`sound_init`),
+    /// so a fade the sound timed by them goes on (`hog_snd.Sound.timerTick`). The loop owes no
+    /// ticks yet (`nextTick`).
     pub fn start(clock: *Clock, now: u64) void {
-        clock.* = .{ .timer_at = now };
+        const timer_ticks = clock.timer_ticks;
+        const game_ticks = clock.game_ticks;
+        clock.* = .{ .timer_ticks = timer_ticks, .game_ticks = game_ticks, .ran_to = game_ticks, .timer_at = now };
     }
 
     /// Runs the timer on to `now`, the platform's count of hundredths of a second. The ticks come
@@ -1985,6 +1989,29 @@ test "the clocks keep to the platform's count however the frames fall" {
     try std.testing.expectEqual(elapsed / 4, steps);
     // Frames shorter than a tick neither run one nor lose one: the count rules.
     try std.testing.expectEqual(now, clock.timer_at);
+}
+
+test "starting the clocks again keeps the timer's counts running" {
+    var clock: Clock = .{};
+    var devices: input.Devices = .{};
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    clock.start(0);
+    clock.advanceTo(300);
+    _ = clock.runTicks(&devices, mission.world());
+    // A new loop starts the clocks again: the mission's from zero, the timer's running on, and the
+    // loop owing no ticks.
+    clock.start(5_000);
+    try std.testing.expectEqual(300, clock.timer_ticks);
+    try std.testing.expectEqual(300, clock.game_ticks);
+    try std.testing.expectEqual(0, clock.mission_ticks);
+    try std.testing.expectEqual(0, clock.runTicks(&devices, mission.world()));
+    // From there, the ticks count on from both.
+    clock.advanceTo(5_004);
+    _ = clock.runTicks(&devices, mission.world());
+    try std.testing.expectEqual(304, clock.game_ticks);
+    try std.testing.expectEqual(4, clock.mission_ticks);
 }
 
 test "the frame rate is decoupled from the tick rate" {
