@@ -41,6 +41,12 @@ pub const Movies = struct {
     controllers_changed: bool = false,
     /// The characters typed into the window, which a screen with a line to type into takes.
     typed: *game.winmain.Typed,
+    /// The game's clock and sound, whose timer keeps running while a movie plays, as the
+    /// original's does (`hog_snd.Sound.runTimer`), so a music fade continues over a movie; null
+    /// until the game has its clock.
+    timer: ?Timer = null,
+
+    pub const Timer = struct { clock: *game.main.Clock, sound: *hog_snd.Sound };
 
     /// Plays the movie `name` names as `kind` has it, until it ends or is skipped; null where the
     /// window was closed meanwhile, which quits the game, as it quits the game's loop
@@ -95,6 +101,7 @@ pub const Movies = struct {
             const pumped = movies.pump() orelse return null;
             // The message pump pauses the movie while the window is away (`BinkPause`).
             if (pumped.active) |active| player.bink.pause(!active, platform.window.nanoseconds());
+            if (movies.timer) |timer| timer.sound.runTimer(timer.clock, platform.window.ticks());
             devices.keyboard.read();
             const end = player.pass(&devices.keyboard, devices.mouse.buttons.right, platform.window.nanoseconds()) catch |err| end: {
                 std.log.warn("the movie {s} stops short: {s}", .{ name, @errorName(err) });

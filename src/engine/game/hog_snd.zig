@@ -678,6 +678,16 @@ pub const Sound = struct {
         if (sound.music.stream) |stream| driver.setStreamVolume(stream, sound.volumes.mastered(sound.volumes.music, sound.music.level, loudest));
     }
 
+    /// Runs the game's timer up to `now`, the platform's count of hundredths of a second: first
+    /// the clocks (`tickTimer`), then the sound's fades (`timerTick`). The original runs
+    /// `tick_timer` (`0x004827C0`) 100 times a second on its own multimedia timer (`timer_start`,
+    /// `0x004A70F0`, started by `sound_init`), so its fades continue while a movie plays.
+    /// OpenReliant calls this once a frame from each loop, including the movie loop.
+    pub fn runTimer(sound: *Sound, clock: *Clock, now: u64) void {
+        clock.advanceTo(now);
+        sound.timerTick(clock.game_ticks);
+    }
+
     /// `tick_timer`'s (`0x004827C0`) sound: every five ticks and more, the music's fade and each
     /// fading voice's step. OpenReliant runs it once a frame rather than on a timer of its own,
     /// which steps it the same while frames come faster than every five ticks.
@@ -1368,6 +1378,33 @@ test "Sound.playMusic queues a piece until the music has stopped" {
     try std.testing.expectEqual(null, sound.music.queued);
     try std.testing.expect(sound.musicPlaying() and !sound.music.fading);
     try std.testing.expectEqual(100, sound.music.level);
+}
+
+test "Sound.runTimer runs the clock on and steps the fades" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "music");
+    try tmp.dir.writeFile(io, .{ .sub_path = "music/one.wav", .data = testing.sound_file });
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
+    sound.files = .{ .gpa = gpa, .io = io, .dir = tmp.dir };
+    defer sound.closeMusic();
+
+    var clock: Clock = .{};
+    clock.start(1000);
+    sound.playMusic("music\\one.wav", forever, loudest, .now);
+    sound.fadeMusic(15, clock.game_ticks);
+    // A tenth of a second on, the clock has run ten ticks and the fade has taken a step.
+    sound.runTimer(&clock, 1010);
+    try std.testing.expectEqual(10, clock.game_ticks);
+    try std.testing.expectEqual(loudest - 15, sound.music.level);
+    // Run on a frame at a time, the music fades out within half a second.
+    var now: u64 = 1010;
+    while (sound.music.stream != null and now < 1060) : (now += 2) sound.runTimer(&clock, now);
+    try std.testing.expectEqual(null, sound.music.stream);
 }
 
 test "Sound.fadeMusic fades the music out from where it starts" {
