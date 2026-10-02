@@ -6,12 +6,12 @@
 //!    loads (`Stage.door`).
 //! 2. The way into the briefing room, in movies over the screen, with the door's sound and the
 //!    room's chatter (`Way`).
-//! 3. Enriquez at the room's screen, which plays the mission's movie (`movies`), going round his
+//! 3. Enriquez at the room's screen, which plays the mission's movie (`movies`), going round her
 //!    animation (`Segment`). Escape, the pointer's right button, or the movie's end ends it.
 //! 4. The loadout (`loadout.Loadout`), between the movies into its hologram and back
 //!    (`Room.hologram`), in the briefing's loop (`Stage.hologram`). Its Escape opens the in-game
 //!    options, which lead back to it or to the main menu (`Briefing.afterOptions`).
-//! 5. His last word, a line of `speech_hog` over an animation of its own, which ends at its last
+//! 5. Her last word, a line of `speech_hog` over an animation of its own, which ends at its last
 //!    frame, or on Escape or the right button (`Stage.tag`).
 //!
 //! The briefing room is the Reliant's up to mission 18, and the Yamato's after it (`Room`). A pass
@@ -19,7 +19,7 @@
 //! drawing (`briefing_draw`, `0x0043E730`) moves Enriquez and the movie on (`Briefing.advance`).
 //!
 //! After the campaign's last mission, `WinMain` runs the screen for mission 29, the campaign's end
-//! (`end_mission`): Enriquez speaks over the room, without a movie, until his speech ends, and no
+//! (`end_mission`): Enriquez speaks over the room, without a movie, until her speech ends, and no
 //! loadout or last word follows.
 //!
 //! In the briefing and the loadout, the O key saves a screenshot (`screenshot_key`). The in-game
@@ -115,7 +115,7 @@ fn readShapes(context: rooms.Context, name: []const u8) ?canvas.Shapes {
     return .readWith(context.gpa, context.resources, name, palette_block);
 }
 
-/// The timer's ticks to Enriquez's first frame (`0x004373E8`), and between his frames, a
+/// The timer's ticks to Enriquez's first frame (`0x004373E8`), and between her frames, a
 /// fifteenth of a second (`0x004DC6D4`): the drawing adds them to the timer's count, and the next
 /// frame is due once the count passes the sum, truncated (`__ftol`).
 const first_wait = 6;
@@ -134,7 +134,7 @@ pub const Segment = struct {
     last: u8,
 };
 
-/// The segments his animation goes round, from the first.
+/// The segments her animation goes round, from the first.
 pub const segment_count = 12;
 
 /// The segments of `starts` and `lasts`, two of the executable's tables.
@@ -169,7 +169,7 @@ pub const Room = struct {
     tag_shapes: []const u8,
     /// Where Enriquez's frames are drawn (`0x0043E7B9`, `0x0043E7DC`).
     enriquez_at: [2]i32,
-    /// The segments of his animation in the briefing.
+    /// The segments of her animation in the briefing.
     segments: [segment_count]Segment,
     /// Where the room's screen shows the movie (`0x0043E9BE`, `0x0043E9D8`), and the frame round
     /// it, drawn over it (`0x0043EA60` on).
@@ -242,7 +242,7 @@ pub const Stage = enum {
     hologram,
     /// The movie back from the hologram has played: the next pass starts the last word.
     from_hologram,
-    /// His last word (`briefing_state` 2).
+    /// Her last word (`briefing_state` 2).
     tag,
 };
 
@@ -294,8 +294,8 @@ pub const Briefing = struct {
     sounds: ?hog_snd.BankFile = null,
     /// The sprite set of the briefing, then of the last word (`0x00520254`).
     shapes: ?canvas.Shapes = null,
-    /// Enriquez's frame (`0x0051DA94`), the segment of his animation (`0x0051D488`) and its first
-    /// shape past `first_frame` (`0x0051D4D4`), the timer's count past which his next frame is due
+    /// Enriquez's frame (`0x0051DA94`), the segment of her animation (`0x0051D488`) and its first
+    /// shape past `first_frame` (`0x0051D4D4`), the timer's count past which her next frame is due
     /// (`0x0051D4D8`), and the shape the drawing shows (`advance`).
     frame: u16 = 0,
     segment: u8 = 0,
@@ -305,7 +305,7 @@ pub const Briefing = struct {
     /// The mission's movie on the room's screen, and whether it plays on (`0x0052027C`).
     film: rooms.Film = .{},
     playing: bool = false,
-    /// The loudness of the movie's sound, Enriquez's narration, in LUFS, which his last word is
+    /// The loudness of the movie's sound, Enriquez's narration, in LUFS, which her last word is
     /// matched to (`cbox.Style.Levels`); null for none.
     narration: ?f32 = null,
     /// The speech file of Enriquez's words (`0x0051D9F0`), whether the last word has been said
@@ -442,8 +442,8 @@ pub const Briefing = struct {
     }
 
     /// Into the room, at the timer's count `ticks` (`0x004373BB` on): the voices fade out, Enriquez
-    /// starts his animation, and the room's screen the mission's movie; or at the campaign's end,
-    /// he speaks.
+    /// starts her animation, and the room's screen the mission's movie; or at the campaign's end,
+    /// she speaks.
     fn begin(briefing: *Briefing, ticks: u32) void {
         briefing.context.sound.fadeAll(voices_fade_step);
         briefing.stage = .briefing;
@@ -574,7 +574,7 @@ pub const Briefing = struct {
     }
 
     /// After the loadout, Enriquez's last word, at the timer's count `ticks` (`0x00437B80` on):
-    /// its sprite set, his animation from its first frame, and his line read.
+    /// its sprite set, her animation from its first frame, and her line read.
     fn lastWord(briefing: *Briefing, ticks: u32) void {
         const context = briefing.context;
         briefing.shapes = readShapes(context, briefing.room.tag_shapes);
@@ -620,7 +620,7 @@ pub const Briefing = struct {
     }
 
     /// `briefing_draw`'s moves (`0x0043E730`), at `now` and the timer's count `ticks`: the shape
-    /// Enriquez shows, then, once his next frame is due, his animation on, round its segments in
+    /// Enriquez shows, then, once her next frame is due, her animation on, round its segments in
     /// the briefing and up to its end in the last word; and the movie's frame due shown, the movie
     /// over at its last.
     pub fn advance(briefing: *Briefing, now: u64, ticks: u32) void {
@@ -636,7 +636,7 @@ pub const Briefing = struct {
         if (briefing.playing and briefing.film.advance(now)) briefing.playing = false;
     }
 
-    /// Enriquez's next frame: in the briefing, round the segments of his animation; in the last
+    /// Enriquez's next frame: in the briefing, round the segments of her animation; in the last
     /// word, up to its end.
     fn step(briefing: *Briefing) void {
         switch (briefing.stage) {
@@ -762,7 +762,7 @@ test Briefing {
     try std.testing.expect(tested.sound.paused[1]);
     try std.testing.expect(tested.sound.voicePlaying(2) and tested.sound.voicePlaying(3));
 
-    // Into the room: the mission's movie plays on the room's screen as Enriquez goes round his
+    // Into the room: the mission's movie plays on the room's screen as Enriquez goes round her
     // animation, a frame every seventh tick.
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 1));
     try std.testing.expectEqual(Stage.briefing, briefing.stage);
@@ -772,7 +772,7 @@ test Briefing {
     while (briefing.playing) : (frame += 1) try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, frame));
     try std.testing.expect(briefing.frame > 0);
 
-    // The movie over, his last word: its line said at its seventeenth frame, and over at its end.
+    // The movie over, her last word: its line said at its seventeenth frame, and over at its end.
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, frame));
     try std.testing.expectEqual(Stage.tag, briefing.stage);
     try std.testing.expectEqual(0, briefing.frame);
@@ -800,7 +800,7 @@ test "Escape ends the briefing, and the right button the last word" {
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 2));
     try std.testing.expectEqual(Stage.tag, briefing.stage);
     try std.testing.expectEqual(null, briefing.film.player);
-    // Without the speech's archive, his line is left out.
+    // Without the speech's archive, her line is left out.
     try std.testing.expectEqual(0, briefing.line.len);
     // The right button, down as the last word begins, ends it once it has come up.
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, true, 3));
@@ -870,7 +870,7 @@ test "the Yamato's way in and the frames of Enriquez's animation" {
     try std.testing.expectEqual(null, briefing.pass(.{ .keyboard = &keyboard, .right = false, .ticks = 100 }));
     try std.testing.expectEqual(Stage.tag, briefing.stage);
 
-    // His animation goes round its segments, each played up to its last frame, then the next's
+    // Her animation goes round its segments, each played up to its last frame, then the next's
     // from its first shape.
     briefing.stage = .briefing;
     briefing.frame = Room.yamato.segments[0].last;
@@ -914,11 +914,11 @@ test "the campaign's end: Enriquez's speech, and no last word" {
     _ = passAt(&briefing, &keyboard, false, 0);
     _ = passAt(&briefing, &keyboard, false, 0);
     _ = passAt(&briefing, &keyboard, false, 1);
-    // He speaks without a movie.
+    // She speaks without a movie.
     try std.testing.expectEqual(Stage.briefing, briefing.stage);
     try std.testing.expect(briefing.speech.playing(&tested.sound));
     try std.testing.expect(!briefing.playing);
-    // His speech over, so is the briefing.
+    // Her speech over, so is the briefing.
     var out: [512][2]f32 = undefined;
     tested.mixer.mix(&out);
     try std.testing.expectEqual(Step.over, passAt(&briefing, &keyboard, false, 2).?);
