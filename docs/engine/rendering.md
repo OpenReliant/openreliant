@@ -290,14 +290,15 @@ walks its nodes from the root (`0x00459090`), clearing or setting the renderer o
 The static lights go out and come back with the rest. Mission 4 lights its two satellites so
 (`Stork1Sat1`, `Stork1Sat2`).
 
-**Improvement:** OpenReliant leaves the steady lights out of the bake, and has each shine as a real
-light, as a blinking light does (`objects.Model.Light.cast`): in the colour the bake gives it, none
-past red, out to the same reach and with the same falloff. It lights each pixel of a lit hull
-smoothly, a part that turns as well as one that stands still, and whatever stands near, another
-ship as much as either class of its own model's parts. The pipeline lights the vertices with any
-past the 64 nearest the camera that the GPU device lights per pixel. `--original`,
-`--baked-lights` and the settings' REAL LIGHTS bake them as the game does
-(`srofiles.Settings.real_lights`).
+**Improvement:** OpenReliant leaves the steady lights out of the bake, and makes each one shine as
+a real light, like a blinking light (`objects.Model.Light.cast`): in the colour the bake gives it
+(none past red), with the same reach and falloff. It lights every pixel of a hull smoothly, on
+moving parts as well as fixed ones, and lights whatever stands nearby, other ships as well as both
+classes of its own model's parts. The GPU device lights each pixel with the 64 lights nearest the
+camera, and the pipeline lights the vertices with any others. Steady lights keep their own reach:
+the longer reach and the thrown-back light of the launch hangar's beacons apply to blinking lights
+only ([Launches](launch.md#in-openreliant)). `--original`, `--baked-lights` and the REAL LIGHTS
+setting bake them as the original does (`srofiles.Settings.real_lights`).
 
 `mesh_light` takes an object's own colours (flag `0x80000`) in place of its mesh's baked colours, so
 a model that can cloak, whose parts have colours of their own for the [cloak](cloak.md), never shows

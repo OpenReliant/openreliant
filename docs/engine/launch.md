@@ -185,17 +185,19 @@ Reliant whose model lacks a tube's door, leave the ship where it stands.
 the hangar's walls cast none over the ship, which shows lit within them as in the original
 ([Renderer](../port/renderer.md#improvements)).
 
-The hangar's lights: two red beacons on its hull, which blink, 100 of their clock on and 800 off,
-and cast a light of brightness 2 and range 1000, reaching 2000; and four steady red lights, three on
-the hull and one on the retainer, which the loader bakes into the hangar's own colours and which
+The hangar's lights: two red beacons on its hull, which blink (100 of their clock on, 800 off) and
+cast a light of brightness 2 and range 1000, reaching 2000; and four steady red lights, three on
+the hull and one on the retainer, which the loader bakes into the hangar's vertex colours and which
 light nothing else ([Rendering](rendering.md#static-lights)). The beacons stand about 2550 from the
-ship on the retainer, so their light falls short of it, and they stand almost straight ahead of
-its nose, which the cutaways don't show. **Improvement:** OpenReliant has the beacons reach twice
-as far, and throws a tenth of their flash back off the red walls, while they shine, as an even
-light on what stands in the hangar, kept off the hangar's own parts by a light bit of its own
-(`0x40`), so that the ship and its cockpit flash red with them. That light has no place, so it
-ends as the ship drops out of the hangar (step 6), before it would reach the wing outside;
-`--original` keeps the beacons' own reach and throws nothing back.
+ship on the retainer, so their light falls short of it, and they stand almost straight ahead of its
+nose, which the cutaways don't show. **Improvement:** OpenReliant doubles the beacons' reach, and
+while they shine, throws a tenth of their flash back off the red walls as an even light on what
+stands in the hangar, so the ship and its cockpit flash red with them. A light bit of its own
+(`0x40`) keeps that light off the hangar's parts. The thrown-back light has no position, so it
+ends as the ship drops out of the hangar (step 6), before it would reach the wing outside. Only the
+blinking beacons get the longer reach and the thrown-back light: when the steady lights shine as
+real lights, they keep their own reach and throw nothing back. `--original` keeps the beacons'
+normal reach and throws nothing back.
 
 Not ported:
 
