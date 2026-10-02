@@ -715,7 +715,7 @@ event first ([Script VM](script-vm.md#events)).
 
 [`objects.zig`](../../src/engine/game/objects.zig) ports the pass as `loseComponents` and
 `node_destroy` as `destroyPart`. Not ported: the subtarget's red parts
-([#45](https://github.com/vdmkenny/openreliant/issues/45)), the types' own extras
+([#531](https://github.com/vdmkenny/openreliant/issues/531)), the types' own extras
 ([#238](https://github.com/vdmkenny/openreliant/issues/238)) and the Ulysses' routine
 ([#232](https://github.com/vdmkenny/openreliant/issues/232)).
 

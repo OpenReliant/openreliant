@@ -914,7 +914,7 @@ pub fn frameTree(root: *Node, model: ?*Model, drawn: *Model.Local, fraction: f32
 ///
 /// Not ported: the subtarget's parts picked out in red again where the object is the player's
 /// target (`hud_subtarget_clear`, `hud_subtarget`,
-/// [#45](https://github.com/vdmkenny/openreliant/issues/45)).
+/// [#531](https://github.com/vdmkenny/openreliant/issues/531)).
 pub fn loseComponents(ctx: aigeneric.Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const model = if (slot.model) |*live| live else return;

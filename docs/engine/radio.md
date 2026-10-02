@@ -261,8 +261,8 @@ pointer; OpenReliant names it by its call sign alone. It reads the armour class 
 type's stats through a null pointer for What's your status?, and the carrier for REQUEST BACKUP
 where the ship launched from none; OpenReliant makes no report.
 
-Not ported: a multiplayer game's pages and the chat line they type in (`0x00529FB8`)
-([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+Not ported: a multiplayer game's pages and the chat line they type in (`chat_typing`,
+`0x00529FB8`, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
 
 ## Remarks
 

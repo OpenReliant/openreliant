@@ -482,7 +482,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .resources = try .load(arena, resources, shapes),
         .edge_line = options.edge_line,
         .gpa = arena,
-        .target = undefined,
+        .device = undefined,
         .screen = .{ 0, 0 },
         .objects = objects,
         .play = undefined,
@@ -864,7 +864,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
             if (cockpit.shown) |*shown| if (view.cockpit_place) |placed| game.main.cockpit.place(&shown.model, view.place, placed);
             backing.place(context.projection, view.place, game.hud.scaleFor(size));
-            display.target = screen.interface();
+            display.device = screen.interface();
             display.screen = size;
             display.sight = .{ .place = view.place, .projection = context.projection };
             display.last_view = last_view;
@@ -1446,8 +1446,8 @@ fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const ga
 const Display = struct {
     resources: game.hud.Resources,
     gpa: Allocator,
-    /// Filled in each frame, before the scene is drawn.
-    target: srd3d.device.Device,
+    /// What it draws into, filled in each frame before the scene is drawn.
+    device: srd3d.device.Device,
     screen: [2]u32,
     /// Last frame's view, which is what `hud_draw` reads to know whether to draw the instruments.
     last_view: camera.View = .cockpit,
@@ -1495,7 +1495,7 @@ const Display = struct {
     /// (`pause_menu_draw`), and the display otherwise (`hud_draw`).
     fn drawOverlay(display: *Display) !void {
         if (display.pause_menu.isOpen()) return display.pause_menu.draw(.{
-            .target = display.target,
+            .target = display.device,
             .screen = display.screen,
             .art = &display.resources.art,
             .font = &display.resources.font,
@@ -1507,7 +1507,7 @@ const Display = struct {
         });
         try game.hud.draw(&display.state, &display.resources, .{
             .gpa = display.gpa,
-            .target = display.target,
+            .device = display.device,
             .screen = display.screen,
             .sight = display.sight,
             .all = display.objects,

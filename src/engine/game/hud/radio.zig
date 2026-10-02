@@ -97,10 +97,8 @@ test "the film keeps its shape at any window's size" {
         var recorder: device.testing.Recorder = .{ .gpa = gpa };
         defer recorder.deinit();
         const scale = hud.scaleFor(screen);
-        const canvas: windows.Canvas = .{
-            .pen = .{ .art = undefined, .font = undefined, .strings = undefined, .gpa = gpa, .target = recorder.interface(), .colour = @splat(1) },
-            .inside = .{ .at = .{ 0, 0 }, .size = scale, .clip = null },
-        };
+        const pen = hud.testing.pen(undefined, gpa, recorder.interface());
+        const canvas: windows.Canvas = .{ .pen = pen.sized(scale), .at = .{ 0, 0 }, .clip = null };
         canvas.imageShaken(&picture, picture_at, null);
         const quad = recorder.last();
         try std.testing.expectApproxEqRel(across * scale, quad[2].x - quad[0].x, 1e-5);

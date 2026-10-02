@@ -18,8 +18,9 @@
 //! with that.
 //!
 //! Not ported: the pilot's name under the type's, for a named pilot (`GameObject.pilot_record`),
-//! which a mission gives; and in a multiplayer game the players' names and one more line of the
-//! small form.
+//! which a mission gives ([#529](https://github.com/vdmkenny/openreliant/issues/529)); and in a
+//! multiplayer game the players' names and one more line of the small form
+//! ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -129,9 +130,8 @@ pub const Small = struct {
     pub const lines: Lines = .{ .name = .{ 0x37, -0x43 }, .range = .{ 0x37, -0x2B }, .speed = .{ 0x37, -0x1F }, .alignment = .left };
 
     fn draw(small: Small, context: Context) windows.Canvas.Error!void {
-        const pen = context.canvas.pen;
-        const inside = context.canvas.inside;
-        try hud.ShipStatus.draw(small.status, .target, pen.art, pen.gpa, pen.target, inside.place(status_at), inside.size, inside.clip, pen.colour, pen.shake);
+        const canvas = context.canvas;
+        try hud.ShipStatus.draw(small.status, .target, canvas.pen, canvas.place(status_at), canvas.clip);
         try context.name(small.facts, lines);
         try context.figures(small.facts, lines);
     }
@@ -150,11 +150,7 @@ pub const Large = struct {
     pub const lines: Lines = .{ .name = .{ -2, -0x9D }, .range = .{ -3, -0x1D }, .speed = .{ -3, -0x11 }, .alignment = .right };
 
     fn draw(shown: Large, context: Context) windows.Canvas.Error!void {
-        const pen = context.canvas.pen;
-        const inside = context.canvas.inside;
-        if (shown.picture) |picture| {
-            try hud.drawShapeWith(picture.art, picture.gpa, pen.target, 0, inside.place(picture_at), pen.colour, inside.size, .{ .clip = inside.clip, .shake = pen.shake });
-        }
+        if (shown.picture) |picture| try context.canvas.drawing(picture).shaky(0, picture_at);
         try context.name(shown.facts, lines);
         if (shown.subtarget) |part| try part.draw(context);
         if (shown.hull) |bar| try bar.draw(context, hull_bar);

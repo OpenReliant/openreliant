@@ -5,12 +5,12 @@
 //! Ported so far: `hud_draw`'s order (`draw`), where an element stands, its text, the readouts,
 //! the clock, the status lights with the devices' charges, the jump prompt, the player's target
 //! with the keys that pick it (`targetKeys`, `drawTarget`), the eject marker, the scanner, the
-//! ship status indicator in both its modes, the targeting cluster, the radar's rings and ranges,
-//! the windows, their frames and how they open and close ([`hud/windows.zig`](hud/windows.zig)),
-//! and what window 7, the power distribution ([`hud/power.zig`](hud/power.zig)), and windows 3
-//! and 8, the target display ([`hud/target_display.zig`](hud/target_display.zig)), show. Not yet:
-//! the rest of `hud_draw`, whose other elements [`hud.md`](../../../docs/engine/hud.md) lists, and
-//! what the other windows show.
+//! ship status indicator in both its modes, the targeting cluster, the radar's rings, ranges and
+//! contacts, and the windows and what they show ([`hud/windows.zig`](hud/windows.zig)). Not yet:
+//! the rest of `hud_draw`, whose other elements [`hud.md`](../../../docs/engine/hud.md) lists, what
+//! a multiplayer game adds ([#55](https://github.com/vdmkenny/openreliant/issues/55)), and the
+//! subtarget's parts picked out in red
+//! ([#531](https://github.com/vdmkenny/openreliant/issues/531)).
 //!
 //! **Improvement.** The game draws the display with the processor, whichever renderer is running:
 //! `hud_text` hands its line to `VFX_string_draw`, out of `vfx.dll`, which blits each glyph into a
@@ -528,7 +528,7 @@ pub const Art = struct {
 
     /// The image of the shape at `index`, made the first time it is drawn: the picture in its place
     /// where there is one (`picture`), else the shape's own, its index 0 as `index_zero` has it.
-    fn image(art: *Art, gpa: Allocator, index: usize) (spr.Error || Allocator.Error)!?*srtexture.Image {
+    fn image(art: *Art, gpa: Allocator, index: usize) Error!?*srtexture.Image {
         if (index >= art.images.len) return null;
         if (art.images[index]) |*made| return made;
         const found = art.shape(index) orelse return null;
@@ -572,19 +572,22 @@ pub const Art = struct {
     }
 };
 
+/// What drawing the display can fail with: a shape its sprite file can't give, and memory.
+pub const Error = spr.Error || Allocator.Error;
+
 /// Draws the shape at `index` with its anchor at `at`, `scale` times its own size. A shape's
 /// bounds are in a frame whose origin is that anchor, so they say where it hangs from the point. A
 /// picture in its place covers the same (`Art.Pictures`).
 pub fn drawShape(
     art: *Art,
     gpa: Allocator,
-    target: device.Device,
+    into: device.Device,
     index: usize,
     at: [2]i32,
     colour: [4]f32,
     scale: f32,
-) (spr.Error || Allocator.Error)!void {
-    return drawShapeWith(art, gpa, target, index, at, colour, scale, .{});
+) Error!void {
+    return drawShapeWith(art, gpa, into, index, at, colour, scale, .{});
 }
 
 /// How a shape is drawn besides as it stands.
@@ -730,44 +733,44 @@ test Clip {
 pub fn drawShapeWith(
     art: *Art,
     gpa: Allocator,
-    target: device.Device,
+    into: device.Device,
     index: usize,
     at: [2]i32,
     colour: [4]f32,
     scale: f32,
     how: Draw,
-) (spr.Error || Allocator.Error)!void {
+) Error!void {
     const found = art.shape(index) orelse return;
     const image = try art.image(gpa, index) orelse return;
     const corner: [2]f32 = .{
         @as(f32, @floatFromInt(at[0])) + @as(f32, @floatFromInt(found.header.x1)) * scale,
         @as(f32, @floatFromInt(at[1])) + @as(f32, @floatFromInt(found.header.y1)) * scale,
     };
-    drawImageAs(target, image, .{ found.width(), found.height() }, corner, colour, scale, how);
+    drawImageAs(into, image, .{ found.width(), found.height() }, corner, colour, scale, how);
 }
 
 /// Draws `image` whole over the rectangle `edges` of the screen.
-pub fn drawImageOver(target: device.Device, image: *srtexture.Image, edges: Clip, colour: [4]f32) void {
-    drawPart(target, image, edges, .{ 0, 1 }, .{ 0, 1 }, device.pack(colour), null);
+pub fn drawImageOver(into: device.Device, image: *srtexture.Image, edges: Clip, colour: [4]f32) void {
+    drawPart(into, image, edges, .{ 0, 1 }, .{ 0, 1 }, device.pack(colour), null);
 }
 
 /// Draws `image` with its top left corner at `corner` on the screen, `scale` times its own size,
 /// mirrored, clipped or shaken as `how` says (`drawImageAs`).
-pub fn drawImage(target: device.Device, image: *srtexture.Image, corner: [2]f32, colour: [4]f32, scale: f32, how: Draw) void {
-    drawImageAs(target, image, .{ image.width(), image.height() }, corner, colour, scale, how);
+pub fn drawImage(into: device.Device, image: *srtexture.Image, corner: [2]f32, colour: [4]f32, scale: f32, how: Draw) void {
+    drawImageAs(into, image, .{ image.width(), image.height() }, corner, colour, scale, how);
 }
 
 /// Draws `image` as `drawImage` does, as though it were `size` pixels across and down, as a picture
 /// in a shape's place covers the shape's: shaken, a row of `size` at a time, each moved right by
 /// the shake's `Shake.row`.
-pub fn drawImageAs(target: device.Device, image: *srtexture.Image, size: [2]u32, corner: [2]f32, colour: [4]f32, scale: f32, how: Draw) void {
+pub fn drawImageAs(into: device.Device, image: *srtexture.Image, size: [2]u32, corner: [2]f32, colour: [4]f32, scale: f32, how: Draw) void {
     const width = @as(f32, @floatFromInt(size[0])) * scale;
     const height = @as(f32, @floatFromInt(size[1])) * scale;
     const u: [2]f32 = if (how.mirror.across) .{ 1, 0 } else .{ 0, 1 };
     const v: [2]f32 = if (how.mirror.down) .{ 1, 0 } else .{ 0, 1 };
     const tint = device.pack(colour);
     const shake = how.shake orelse {
-        drawPart(target, image, .{ .left = corner[0], .top = corner[1], .right = corner[0] + width, .bottom = corner[1] + height }, u, v, tint, how.clip);
+        drawPart(into, image, .{ .left = corner[0], .top = corner[1], .right = corner[0] + width, .bottom = corner[1] + height }, u, v, tint, how.clip);
         return;
     };
     const rows = size[1];
@@ -777,7 +780,7 @@ pub fn drawImageAs(target: device.Device, image: *srtexture.Image, size: [2]u32,
         const left = corner[0] + @as(f32, @floatFromInt(shake.row(how.mirror))) * scale;
         const top = corner[1] + down * scale;
         const along: [2]f32 = .{ v[0] + per_row * down, v[0] + per_row * (down + 1) };
-        drawPart(target, image, .{ .left = left, .top = top, .right = left + width, .bottom = top + scale }, u, along, tint, how.clip);
+        drawPart(into, image, .{ .left = left, .top = top, .right = left + width, .bottom = top + scale }, u, along, tint, how.clip);
     }
 }
 
@@ -793,7 +796,7 @@ fn overlayState(texture: ?*srtexture.Image) device.State {
 
 /// Draws the part of `image` between texture coordinates `u` and `v` over the rectangle `edges`
 /// of the screen, cut to `clip`.
-fn drawPart(target: device.Device, image: *srtexture.Image, edges: Clip, u_in: [2]f32, v_in: [2]f32, tint: u32, clip: ?Clip) void {
+fn drawPart(into: device.Device, image: *srtexture.Image, edges: Clip, u_in: [2]f32, v_in: [2]f32, tint: u32, clip: ?Clip) void {
     var kept = edges;
     var u = u_in;
     var v = v_in;
@@ -812,7 +815,7 @@ fn drawPart(target: device.Device, image: *srtexture.Image, edges: Clip, u_in: [
         .{ .x = kept.right, .y = kept.bottom, .z = 1, .rhw = 1, .diffuse = tint, .u = u[1], .v = v[1] },
         .{ .x = kept.left, .y = kept.bottom, .z = 1, .rhw = 1, .diffuse = tint, .u = u[0], .v = v[1] },
     };
-    target.draw(overlayState(image), .fan, &corners, null);
+    into.draw(overlayState(image), .fan, &corners, null);
 }
 
 /// A glyph as the GPU draws it: the font's palette, or the global one, looked up for each of its
@@ -864,14 +867,14 @@ const ramp_top = 15;
 pub fn drawText(
     opened: *Opened,
     gpa: Allocator,
-    target: device.Device,
+    into: device.Device,
     at: [2]i32,
     text: []const u8,
     colour: [4]f32,
     alignment: Align,
     scale: f32,
 ) Allocator.Error!i32 {
-    return drawTextIn(opened, gpa, target, at, text, colour, alignment, scale, null);
+    return drawTextIn(opened, gpa, into, at, text, colour, alignment, scale, null);
 }
 
 /// `drawText`, only what falls inside `clip` where there is one, as a VFX pane clips what is
@@ -879,7 +882,7 @@ pub fn drawText(
 pub fn drawTextIn(
     opened: *Opened,
     gpa: Allocator,
-    target: device.Device,
+    into: device.Device,
     at: [2]i32,
     text: []const u8,
     colour: [4]f32,
@@ -903,12 +906,12 @@ pub fn drawTextIn(
             .blank => continue,
             .bitmap => {},
             .quad => |quad| {
-                drawPart(target, quad.image, quad.edges, quad.u, quad.v, tint, clip);
+                drawPart(into, quad.image, quad.edges, quad.u, quad.v, tint, clip);
                 continue;
             },
         };
         const image = try glyphImage(opened, gpa, code) orelse continue;
-        drawPart(target, image, .{ .left = x, .top = top, .right = x + width, .bottom = top + height }, .{ 0, 1 }, .{ 0, 1 }, tint, clip);
+        drawPart(into, image, .{ .left = x, .top = top, .right = x + width, .bottom = top + height }, .{ 0, 1 }, .{ 0, 1 }, tint, clip);
     }
     return @intFromFloat(x);
 }
@@ -918,7 +921,7 @@ pub fn drawTextIn(
 /// pixels in size, scaled as the display is (`scaleFor`). The menus show it (the front end's
 /// screens, the loading screens, the in-game options and the pause menu), but not the Reliant's
 /// rooms, which are gameplay.
-pub fn drawVersion(font: *Opened, gpa: Allocator, target: device.Device, screen: [2]u32, version: []const u8) Allocator.Error!void {
+pub fn drawVersion(font: *Opened, gpa: Allocator, into: device.Device, screen: [2]u32, version: []const u8) Allocator.Error!void {
     var buffer: [64]u8 = undefined;
     const text = std.fmt.bufPrint(&buffer, "OpenReliant {s}", .{version}) catch version;
     const scale = scaleFor(screen);
@@ -927,7 +930,7 @@ pub fn drawVersion(font: *Opened, gpa: Allocator, target: device.Device, screen:
         @as(i32, @intCast(screen[0])) - pixels(version_margin, scale),
         @as(i32, @intCast(screen[1])) - pixels(version_margin + height, scale),
     };
-    _ = try drawText(font, gpa, target, at, text, atBrightness(version_colour, version_brightness), .right, scale);
+    _ = try drawText(font, gpa, into, at, text, atBrightness(version_colour, version_brightness), .right, scale);
 }
 
 /// The version's distance from the window's edges, in the display's pixels, and its colour: the
@@ -1614,10 +1617,119 @@ pub const Schematic = struct {
     gpa: Allocator,
 };
 
+/// What the display draws with in a frame, which `draw` makes once and hands each of its elements:
+/// its shapes, its font and the strings, what its images and its text are made in, the device it
+/// draws into, the screen's size, the colour and the scale it is drawn at, and how it shakes. The
+/// windows draw with it too (`windows.Canvas`).
+pub const Pen = struct {
+    art: *Art,
+    font: *Opened,
+    strings: *const language.Language,
+    gpa: Allocator,
+    /// What the display draws into: Surrender's device.
+    device: device.Device,
+    /// The window's size (`place`).
+    screen: [2]u32,
+    colour: [4]f32,
+    /// How many of the screen's pixels each of the display's own spans (`scaleFor`).
+    scale: f32,
+    /// How the display shakes this frame (`Interference.shake`); null while it stands still.
+    shake: ?Shake = null,
+
+    /// The pen at `brightness` of its colour, as `hud_draw` makes the global palette that much
+    /// darker.
+    pub fn dimmed(pen: Pen, brightness: f32) Pen {
+        var other = pen;
+        for (other.colour[0..3]) |*channel| channel.* *= brightness;
+        return other;
+    }
+
+    /// The pen, drawing a ship's `schematic` in place of the display's shapes.
+    pub fn drawing(pen: Pen, schematic: Schematic) Pen {
+        var other = pen;
+        other.art = schematic.art;
+        other.gpa = schematic.gpa;
+        return other;
+    }
+
+    /// The pen, drawing `scale` times the display's own size, as a window draws at its own.
+    pub fn sized(pen: Pen, scale: f32) Pen {
+        var other = pen;
+        other.scale = scale;
+        return other;
+    }
+
+    /// Shape `index` of the display's shapes at `at`, drawn as `how` says.
+    pub fn shapeWith(pen: Pen, index: usize, at: [2]i32, how: Draw) Error!void {
+        try drawShapeWith(pen.art, pen.gpa, pen.device, index, at, pen.colour, pen.scale, how);
+    }
+
+    /// Shape `index` at `at`, drawn still.
+    pub fn shape(pen: Pen, index: usize, at: [2]i32) Error!void {
+        try pen.shapeWith(index, at, .{});
+    }
+
+    /// Shape `index` at `at`, shaken while the display shakes (`hud_blit`).
+    pub fn shaky(pen: Pen, index: usize, at: [2]i32) Error!void {
+        try pen.shapeWith(index, at, .{ .shake = pen.shake });
+    }
+
+    /// `words` in `font` at `at`, lined up by `alignment`; where the line ends (`drawText`).
+    pub fn textIn(pen: Pen, font: *Opened, at: [2]i32, words: []const u8, alignment: Align) Allocator.Error!i32 {
+        return drawText(font, pen.gpa, pen.device, at, words, pen.colour, alignment, pen.scale);
+    }
+
+    /// `words` in the display's font at `at`, lined up by `alignment`; where the line ends.
+    pub fn text(pen: Pen, at: [2]i32, words: []const u8, alignment: Align) Allocator.Error!i32 {
+        return pen.textIn(pen.font, at, words, alignment);
+    }
+
+    /// A line in `colour` from the pixel at `from` to the pixel at `to`, a pixel of the display's
+    /// own wide (`drawLine`).
+    pub fn line(pen: Pen, from: Point, to: Point, colour: [4]f32) void {
+        drawLine(pen.device, from, to, colour, pen.scale);
+    }
+
+    /// Where an element stands: `across` and `down` the screen, and `offset` of the display's own
+    /// pixels on (`place`).
+    pub fn placed(pen: Pen, offset: [2]i32, across: f32, down: f32) [2]i32 {
+        return place(pen.screen, offset, across, down, pen.scale);
+    }
+
+    /// `point` moved by `offset` of the display's own pixels (`scaled`).
+    pub fn moved(pen: Pen, point: [2]i32, offset: [2]i32) [2]i32 {
+        return scaled(point, offset, pen.scale);
+    }
+
+    /// `n` of the display's own pixels in the screen's (`pixels`).
+    pub fn span(pen: Pen, n: i32) i32 {
+        return pixels(n, pen.scale);
+    }
+
+    /// The middle of the screen.
+    pub fn middle(pen: Pen) [2]i32 {
+        return .{ @as(i32, @intCast(pen.screen[0])) >> 1, @as(i32, @intCast(pen.screen[1])) >> 1 };
+    }
+};
+
+/// The tint the display draws in: none, white, its shapes and its fonts in their own colours.
+const untinted: [4]f32 = @splat(1);
+
+pub const testing = struct {
+    /// A pen that draws `art`'s shapes into `into` at the display's own size, on a screen of 640 by
+    /// 480, with no strings and no font of its own.
+    pub fn pen(art: *Art, gpa: Allocator, into: device.Device) Pen {
+        return .{ .art = art, .font = undefined, .strings = &no_strings, .gpa = gpa, .device = into, .screen = .{ 640, 480 }, .colour = untinted, .scale = 1 };
+    }
+
+    const no_strings: language.Language = .{ .strings = &.{} };
+};
+
 /// What `hud_draw` reads of the game for a frame.
 pub const Frame = struct {
     gpa: Allocator,
-    target: device.Device,
+    /// What the display draws into: Surrender's device.
+    device: device.Device,
     screen: [2]u32,
     /// The scene as it is drawn this frame; null before the first.
     sight: ?Sight,
@@ -1657,40 +1769,48 @@ pub const Frame = struct {
 /// instruments: the readouts, the ship status indicator, the targeting cluster, the radar, the
 /// reticle and the clock. Last, in every view, the windows move on, and in the view ahead are
 /// drawn.
-pub fn draw(state: *State, resources: *Resources, frame: Frame) (spr.Error || Allocator.Error)!void {
+pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     const slot = &frame.all.slots[frame.all.player];
     const live = &slot.object;
     const frame_duration = frame.clock.frame_duration;
-    const scale = scaleFor(frame.screen);
-    const colour: [4]f32 = .{ 1, 1, 1, 1 };
-    const art = &resources.art;
     const ahead = instrumented(frame.last_view);
+    // What every element draws with, in the display's colour, and shaken as `hud_blit` shakes it.
+    const pen: Pen = .{
+        .art = &resources.art,
+        .font = &resources.font,
+        .strings = frame.strings,
+        .gpa = frame.gpa,
+        .device = frame.device,
+        .screen = frame.screen,
+        .colour = untinted,
+        .scale = scaleFor(frame.screen),
+        .shake = state.interference.shake(frame.hit_shake, frame.random),
+    };
     state.followTarget(frame.all, frame.multiplayer);
     if (frame.sound) |sound| state.lock.sound(sound, frame.view);
     state.runCharges(live, frame_duration, frame.multiplayer);
-    try state.caption.draw(&resources.font, frame.gpa, frame.target, frame.screen, frame.all.mission_number, frame.strings.*, frame.clock.game_ticks, colour, scale);
-    // Where the lead cursor stands, which the reticle closes on, whether the enemy lock's light
-    // shows, and how the display shakes (`hud_blit`).
+    try state.caption.draw(pen, frame.all.mission_number, frame.clock.game_ticks);
+    // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
+    // light shows.
     var lead: Cursor = .none;
     var lock_lit = false;
-    const shake = state.interference.shake(frame.hit_shake, frame.random);
     const speaker = if (frame.radio) |on_air| on_air.speakingShip(&state.windows, frame.all) else null;
     if (ahead) {
-        try state.drawJumpPrompt(frame.ready, art, frame.gpa, frame.target, frame.screen, frame_duration, colour, scale);
+        try state.drawJumpPrompt(frame.ready, pen, frame_duration);
         if (frame.sight) |sight| {
             const scene: TargetScene = .{ .sight = sight, .all = frame.all, .mode = frame.mode, .speaker = speaker };
-            lead = try drawTarget(state, art, &resources.target_fonts, frame.gpa, frame.target, scene, frame.edge_line, colour, scale);
+            lead = try drawTarget(state, pen, &resources.target_fonts, scene, frame.edge_line);
         }
-        try state.drawEjectMarker(art, frame.gpa, frame.target, frame.screen, frame_duration, colour, scale);
-        try state.drawScanner(frame.scanning, frame.clock.game_ticks, art, frame.gpa, frame.target, frame.screen, colour, scale);
+        try state.drawEjectMarker(pen, frame_duration);
+        try state.drawScanner(frame.scanning, frame.clock.game_ticks, pen);
         const lit = state.lit(live, frame.player.matching_speed, frame.multiplayer, frame_duration);
-        try state.drawLights(art, frame.gpa, frame.target, frame.screen, lit, frame_duration, colour, scale, shake);
+        try state.drawLights(pen, lit, frame_duration);
         lock_lit = lit.enemy_lock;
     }
     if (frame.sound) |sound| state.warnOfLock(sound, lock_lit, live.missile_homing != 0);
     if (frame.radio) |on_air| on_air.waitForWindow(frame.sound, frame_duration);
-    try drawViewName(&resources.font, frame.gpa, frame.target, frame.screen, frame.last_view, frame.strings.*, colour, scale);
-    if (ahead) try state.drawInstruments(resources, frame, lead, speaker, colour, scale);
+    try drawViewName(pen, frame.last_view);
+    if (ahead) try state.drawInstruments(pen, frame, lead, speaker);
     const contents: windows.Contents = .{
         .radio = if (frame.radio) |on_air| .{ .radio = on_air, .sound = frame.sound, .hit_shake = frame.hit_shake, .random = frame.random } else null,
         .gunnery = .{ .slot = slot, .wire_frame = state.wire_frame },
@@ -1702,8 +1822,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) (spr.Error || Al
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
     };
-    const pen: windows.Pen = .{ .art = art, .font = &resources.font, .strings = frame.strings, .gpa = frame.gpa, .target = frame.target, .colour = colour, .shake = shake };
-    try state.windows.frame(pen, frame.screen, frame.last_view, frame_duration, contents, frame.all.kamovPart(), scale);
+    try state.windows.frame(pen, frame.last_view, frame_duration, contents, frame.all.kamovPart());
     state.windows.beeps.play(frame.sound, frame.view);
 }
 
@@ -1809,26 +1928,15 @@ pub const Readout = enum {
         };
     }
 
-    /// Draws the readout for a window of `screen`, showing `value`.
-    pub fn draw(
-        readout: Readout,
-        art: *Art,
-        opened: *Opened,
-        gpa: Allocator,
-        target: device.Device,
-        screen: [2]u32,
-        value: i32,
-        colour: [4]f32,
-        scale: f32,
-        shake: ?Shake,
-    ) (spr.Error || Allocator.Error)!void {
+    /// Draws the readout, showing `value`: its shape shaken, its number still.
+    pub fn draw(readout: Readout, pen: Pen, value: i32) Error!void {
         const at = readout.spec();
-        const point = place(screen, at.offset, at.across, at.down, scale);
-        try drawShapeWith(art, gpa, target, at.shape, scaled(point, at.shape_offset, scale), colour, scale, .{ .shake = shake });
+        const point = pen.placed(at.offset, at.across, at.down);
+        try pen.shaky(at.shape, pen.moved(point, at.shape_offset));
 
         var buffer: [16]u8 = undefined;
         const text = std.fmt.bufPrint(&buffer, "{d}", .{value}) catch return;
-        _ = try drawText(opened, gpa, target, scaled(point, at.text_offset, scale), text, colour, .centre, scale);
+        _ = try pen.text(pen.moved(point, at.text_offset), text, .centre);
     }
 };
 
@@ -1875,23 +1983,13 @@ pub fn namesView(last_view: camera.View) bool {
     };
 }
 
-/// Draws the name of `last_view` where `hud_draw` does, the view table's string for it out of
-/// `strings`. A view past the table, or a string past `strings`, draws nothing; the game stops
-/// with a fatal error for either.
-pub fn drawViewName(
-    opened: *Opened,
-    gpa: Allocator,
-    target: device.Device,
-    screen: [2]u32,
-    last_view: camera.View,
-    strings: language.Language,
-    colour: [4]f32,
-    scale: f32,
-) Allocator.Error!void {
+/// Draws the name of `last_view` where `hud_draw` does, the view table's string for it out of the
+/// pen's strings. A view past the table, or a string past the strings, draws nothing; the game
+/// stops with a fatal error for either.
+pub fn drawViewName(pen: Pen, last_view: camera.View) Allocator.Error!void {
     if (!namesView(last_view)) return;
-    const text = strings.string(last_view.name() orelse return) orelse return;
-    const at: [2]i32 = .{ @intCast(screen[0] >> 1), pixels(view_name_down, scale) };
-    _ = try drawText(opened, gpa, target, at, text, colour, .centre, scale);
+    const text = pen.strings.string(last_view.name() orelse return) orelse return;
+    _ = try pen.text(.{ pen.middle()[0], pen.span(view_name_down) }, text, .centre);
 }
 
 /// The launch's caption (`hud_draw`, `0x00484601`): while it is on, the date of the mission being
@@ -1935,25 +2033,14 @@ pub const Caption = struct {
     }
 
     /// Draws the caption where `hud_draw` does, where it is on: the date of mission `mission` out of
-    /// `strings`, typed on at `game_ticks`.
-    pub fn draw(
-        caption: *Caption,
-        opened: *Opened,
-        gpa: Allocator,
-        target: device.Device,
-        screen: [2]u32,
-        mission: u16,
-        strings: language.Language,
-        game_ticks: u32,
-        colour: [4]f32,
-        scale: f32,
-    ) Allocator.Error!void {
+    /// the pen's strings, typed on at `game_ticks`.
+    pub fn draw(caption: *Caption, pen: Pen, mission: u16, game_ticks: u32) Allocator.Error!void {
         if (!caption.on) return;
-        const text = strings.string(date(mission) orelse return) orelse return;
+        const text = pen.strings.string(date(mission) orelse return) orelse return;
         const shows, const typing = caption.typed(text, game_ticks);
-        const at: [2]i32 = .{ pixels(left, scale), @as(i32, @intCast(screen[1])) - pixels(up, scale) };
-        const end = try drawText(opened, gpa, target, at, shows, colour, .left, scale);
-        if (typing) _ = try drawText(opened, gpa, target, .{ end, at[1] }, cursor, colour, .left, scale);
+        const at: [2]i32 = .{ pen.span(left), @as(i32, @intCast(pen.screen[1])) - pen.span(up) };
+        const end = try pen.text(at, shows, .left);
+        if (typing) _ = try pen.text(.{ end, at[1] }, cursor, .left);
     }
 
     /// The language string of mission `mission`'s date (`mission_dates`, `0x005023D6`): the table
@@ -2093,20 +2180,10 @@ pub fn clockTime(all: *const create.Objects, play: main.PlayTime, variables: ?*c
 
 /// Draws the mission's clock as `hud_draw` does: the minutes and the seconds, each of two figures,
 /// centred at its place.
-pub fn drawClock(
-    opened: *Opened,
-    gpa: Allocator,
-    target: device.Device,
-    screen: [2]u32,
-    minutes: u16,
-    seconds: u16,
-    colour: [4]f32,
-    scale: f32,
-) Allocator.Error!void {
+pub fn drawClock(pen: Pen, minutes: u16, seconds: u16) Allocator.Error!void {
     var buffer: [16]u8 = undefined;
     const text = std.fmt.bufPrint(&buffer, "{d:0>2}:{d:0>2}", .{ minutes, seconds }) catch return;
-    const at = place(screen, clock_offset, clock_across, clock_down, scale);
-    _ = try drawText(opened, gpa, target, at, text, colour, .centre, scale);
+    _ = try pen.text(pen.placed(clock_offset, clock_across, clock_down), text, .centre);
 }
 
 test clockTime {
@@ -2695,22 +2772,11 @@ pub const State = struct {
 
     /// Draws the lights `lit` has, each in the next place of the grid, the warnings flashing and
     /// the devices' charges as bars under their lights.
-    pub fn drawLights(
-        state: *State,
-        art: *Art,
-        gpa: Allocator,
-        target: device.Device,
-        screen: [2]u32,
-        shown: Lit,
-        frame_duration: i32,
-        colour: [4]f32,
-        scale: f32,
-        shake: ?Shake,
-    ) (spr.Error || Allocator.Error)!void {
+    pub fn drawLights(state: *State, pen: Pen, shown: Lit, frame_duration: i32) Error!void {
         var index: i32 = 0;
         inline for (comptime std.enums.values(Light)) |light| {
             if (@field(shown, @tagName(light))) {
-                const at = gridPlace(screen, index, scale);
+                const at = gridPlace(pen.screen, index, pen.scale);
                 index += 1;
                 const drawn = switch (light) {
                     .enemy_lock => Flash.slow.step(&state.warning_ticks, frame_duration),
@@ -2718,10 +2784,10 @@ pub const State = struct {
                     else => true,
                 };
                 // Every light shakes but reverse thrust's.
-                const how: Draw = .{ .shake = if (light == .reverse_thrust) null else shake };
-                if (drawn) try drawShapeWith(art, gpa, target, @intFromEnum(light), at, colour, scale, how);
+                const how: Draw = .{ .shake = if (light == .reverse_thrust) null else pen.shake };
+                if (drawn) try pen.shapeWith(@intFromEnum(light), at, how);
                 if (comptime light.charged()) |kind| {
-                    drawBar(target, at, kind.spec().bar_down, state.devices.get(kind).bar(kind), scale);
+                    drawBar(pen, at, kind.spec().bar_down, state.devices.get(kind).bar(kind));
                 }
             }
         }
@@ -2747,70 +2813,36 @@ pub const State = struct {
     }
 
     /// Draws the jump prompt, flashing above the middle of the screen.
-    pub fn drawJumpPrompt(
-        state: *State,
-        ready: *Readiness,
-        art: *Art,
-        gpa: Allocator,
-        target: device.Device,
-        screen: [2]u32,
-        frame_duration: i32,
-        colour: [4]f32,
-        scale: f32,
-    ) (spr.Error || Allocator.Error)!void {
+    pub fn drawJumpPrompt(state: *State, ready: *Readiness, pen: Pen, frame_duration: i32) Error!void {
         const shape = state.jumpPrompt(ready, frame_duration) orelse return;
-        try drawShape(art, gpa, target, shape, place(screen, JumpPrompt.offset, 0.5, 0.5, scale), colour, scale);
+        try pen.shape(shape, pen.placed(JumpPrompt.offset, 0.5, 0.5));
     }
 
     /// The eject marker (`hud_eject_marker`, `0x004830B0`): the pilot rising out of the ship,
     /// flashing under the middle of the screen once the player has ejected, or while its icon is
     /// lit.
-    pub fn drawEjectMarker(
-        state: *State,
-        art: *Art,
-        gpa: Allocator,
-        target: device.Device,
-        screen: [2]u32,
-        frame_duration: i32,
-        colour: [4]f32,
-        scale: f32,
-    ) (spr.Error || Allocator.Error)!void {
+    pub fn drawEjectMarker(state: *State, pen: Pen, frame_duration: i32) Error!void {
         if (!state.ejected and !state.icons.lit(.ejected, frame_duration)) return;
-        const at = scaled(place(screen, marker_offset, 0.5, 0.5, scale), eject_drop, scale);
-        if (Flash.slow.step(&state.eject_ticks, frame_duration)) {
-            try drawShape(art, gpa, target, eject_shape, at, colour, scale);
-        }
+        const at = pen.moved(pen.placed(marker_offset, 0.5, 0.5), eject_drop);
+        if (Flash.slow.step(&state.eject_ticks, frame_duration)) try pen.shape(eject_shape, at);
     }
 
     /// The scanner (`hud_scanner`, `0x00489250`): while the `Scanner` mission command has the
     /// player look for an object, a hand and the rings it sends out, drawn over the middle of the
     /// screen in five frames.
-    pub fn drawScanner(
-        state: *State,
-        scanning: bool,
-        game_ticks: u32,
-        art: *Art,
-        gpa: Allocator,
-        target: device.Device,
-        screen: [2]u32,
-        colour: [4]f32,
-        scale: f32,
-    ) (spr.Error || Allocator.Error)!void {
+    pub fn drawScanner(state: *State, scanning: bool, game_ticks: u32, pen: Pen) Error!void {
         if (!scanning) return;
-        const at = place(screen, marker_offset, 0.5, 0.5, scale);
-        try drawShape(art, gpa, target, scanner_shape + state.scannerFrame(game_ticks), at, colour, scale);
+        try pen.shape(scanner_shape + state.scannerFrame(game_ticks), pen.placed(marker_offset, 0.5, 0.5));
     }
 
     /// What `hud_draw` draws only in the view ahead from the cockpit, after the view's name, with
     /// the ship whose line the radio's window names, where it shows (`speaker`).
-    fn drawInstruments(state: *State, resources: *Resources, frame: Frame, lead: Cursor, speaker: ?u16, colour: [4]f32, scale: f32) (spr.Error || Allocator.Error)!void {
+    fn drawInstruments(state: *State, pen: Pen, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
         const frame_duration = frame.clock.frame_duration;
-        const shake = state.interference.shake(frame.hit_shake, frame.random);
         const slot = &frame.all.slots[frame.all.player];
         const live = &slot.object;
         const flight = slot.flight orelse return;
         const combat = slot.combat orelse return;
-        const art = &resources.art;
         for (std.enums.values(Readout)) |readout| {
             if (!state.shows(readout, frame_duration)) continue;
             const value: i32 = switch (readout) {
@@ -2818,24 +2850,24 @@ pub const State = struct {
                 .skull => frame.player.kills.count,
                 .coil => live.countermeasures,
             };
-            try readout.draw(art, &resources.font, frame.gpa, frame.target, frame.screen, value, colour, scale, shake);
+            try readout.draw(pen, value);
         }
         const status = ShipStatus.ofPlayer(slot, &state.ship_hits, frame.player.shield_reserves);
-        try ShipStatus.draw(status, .player, art, frame.gpa, frame.target, place(frame.screen, ShipStatus.offset, ShipStatus.across, ShipStatus.down, scale), scale, null, colour, shake);
-        try drawCluster(art, &resources.font, frame.gpa, frame.target, frame.screen, .{
+        try ShipStatus.draw(status, .player, pen, pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
+        try drawCluster(pen, .{
             .throttle = live.throttle,
             .speed = live.speed,
             .max_speed = flight.max_speed,
             .charge = live.gun_charge,
             .full_charge = combat.gun_energy,
             .nova = if (novaShown(slot)) live.nova_charge else null,
-        }, colour, scale, shake);
-        try drawRadar(art, frame.gpa, frame.target, frame.screen, state, frame.all, speaker, colour, scale, shake);
+        });
+        try drawRadar(pen, state, frame.all, speaker);
         stepRadarZoom(state, frame.clock.game_ticks);
-        const aims = try drawReticle(state, art, frame.gpa, frame.target, frame.screen, frame.mode, lead, blindFire(state, slot), frame_duration, colour, scale, shake);
+        const aims = try drawReticle(state, pen, frame.mode, lead, blindFire(state, slot), frame_duration);
         live.blind_fire_aim = @intFromBool(aims);
         const time = clockTime(frame.all, frame.clock.play, frame.variables);
-        try drawClock(&resources.font, frame.gpa, frame.target, frame.screen, time[0], time[1], colour, scale);
+        try drawClock(pen, time[0], time[1]);
     }
 
     /// The scanner's frame at `game_ticks`: the next, going round, once `game_ticks` is past the
@@ -2879,15 +2911,15 @@ fn distance(a: Point, b: Point) f32 {
 
 /// A charge's bar: a line of the display's pixels `down` below the light's point, from one right
 /// of it to `length` further.
-fn drawBar(target: device.Device, at: [2]i32, down: i32, length: i32, scale: f32) void {
-    const left = @as(f32, @floatFromInt(at[0])) + scale;
-    const top = @as(f32, @floatFromInt(at[1])) + @as(f32, @floatFromInt(down)) * scale;
-    drawLine(target, .{ left, top }, .{ left + @as(f32, @floatFromInt(length)) * scale, top }, bar_colour, scale);
+fn drawBar(pen: Pen, at: [2]i32, down: i32, length: i32) void {
+    const left = @as(f32, @floatFromInt(at[0])) + pen.scale;
+    const top = @as(f32, @floatFromInt(at[1])) + @as(f32, @floatFromInt(down)) * pen.scale;
+    pen.line(.{ left, top }, .{ left + @as(f32, @floatFromInt(length)) * pen.scale, top }, bar_colour);
 }
 
 /// Draws a line from the pixel at `from` to the pixel at `to`, both ends included, as
 /// `VFX_line_draw` draws one, its pixels `width` across for a display drawn larger.
-pub fn drawLine(target: device.Device, from: Point, to: Point, colour: [4]f32, width: f32) void {
+pub fn drawLine(into: device.Device, from: Point, to: Point, colour: [4]f32, width: f32) void {
     const half: Point = @splat(width / 2);
     // The line runs between the pixels' middles, and reaches half a pixel past each.
     const start = from + half;
@@ -2895,20 +2927,20 @@ pub fn drawLine(target: device.Device, from: Point, to: Point, colour: [4]f32, w
     const length = distance(start, end);
     const along: Point = if (length > 0) (end - start) / @as(Point, @splat(length)) * half else .{ half[0], 0 };
     const across: Point = .{ -along[1], along[0] };
-    fillQuad(target, .{ start - along - across, end + along - across, end + along + across, start - along + across }, colour);
+    fillQuad(into, .{ start - along - across, end + along - across, end + along + across, start - along + across }, colour);
 }
 
 /// Fills `edges` with `colour`, as `VFX_pane_wipe` fills a pane.
-pub fn drawFilled(target: device.Device, edges: Clip, colour: [4]f32) void {
-    fillQuad(target, .{ .{ edges.left, edges.top }, .{ edges.right, edges.top }, .{ edges.right, edges.bottom }, .{ edges.left, edges.bottom } }, colour);
+pub fn drawFilled(into: device.Device, edges: Clip, colour: [4]f32) void {
+    fillQuad(into, .{ .{ edges.left, edges.top }, .{ edges.right, edges.top }, .{ edges.right, edges.bottom }, .{ edges.left, edges.bottom } }, colour);
 }
 
 /// Fills the quad whose corners run round it in order with `colour`, over the frame.
-fn fillQuad(target: device.Device, corners: [4]Point, colour: [4]f32) void {
+fn fillQuad(into: device.Device, corners: [4]Point, colour: [4]f32) void {
     const tint = device.pack(colour);
     var vertices: [4]device.Vertex = undefined;
     for (&vertices, corners) |*vertex, at| vertex.* = .{ .x = at[0], .y = at[1], .z = 1, .rhw = 1, .diffuse = tint };
-    target.draw(overlayState(null), .fan, &vertices, null);
+    into.draw(overlayState(null), .fan, &vertices, null);
 }
 
 /// How far the object at `index` is from the player's ship, in whole kilometres of a thousand of
@@ -3074,7 +3106,8 @@ pub const Keys = struct {
 /// radio's menu runs (`videoreports.menu.Menu.run`).
 ///
 /// Not yet ported: what the game does while a multiplayer game's chat line is typed
-/// (`0x00529FB8`), which leaves out every key after the radio's menu.
+/// (`chat_typing`, `0x00529FB8`), which leaves out every key after the radio's menu
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
 pub fn targetKeys(state: *State, keys: Keys) void {
     const all = keys.all;
     const devices = keys.devices;
@@ -3666,7 +3699,8 @@ pub const ShipStatus = struct {
 
     /// Mode 0 for the player's ship of `slot`: its schematic, the hits taken out of `hits` for a
     /// type the target display shows in its small form, its rings, and what SHIELD BALANCING has
-    /// shifted. **Not ported:** in mission 25, a Kamov's schematic drawn mirrored.
+    /// shifted. **Not ported:** in mission 25, a Kamov's schematic drawn mirrored
+    /// ([#528](https://github.com/vdmkenny/openreliant/issues/528)).
     pub fn ofPlayer(slot: *const create.Slot, hits: *Hits, reserves: gameobj.ShieldReserves) Shown {
         var shown: Shown = .{ .rings = rings(slot) };
         if (slot.combat) |combat| if (shown.rings) |_| {
@@ -3698,48 +3732,38 @@ pub const ShipStatus = struct {
         return hits.*;
     }
 
-    /// Draws what `shown` holds in `mode`, from `point`, `size` times the display's own size and
-    /// cut to `clip`; the schematic and its hits shaken as `shake` says, the arcs still.
+    /// Draws what `shown` holds in `mode`, from `point`, at the pen's size and cut to `clip`; the
+    /// schematic and its hits shaken as the pen shakes, the arcs still.
     ///
     /// **Fix:** while shaken, the game draws the player's own schematic two pixels left and two
     /// down of where it draws it still, apart from its hits. OpenReliant keeps it in place.
-    pub fn draw(
-        shown: Shown,
-        mode: Mode,
-        art: *Art,
-        gpa: Allocator,
-        target: device.Device,
-        point: [2]i32,
-        size: f32,
-        clip: ?Clip,
-        colour: [4]f32,
-        shake: ?Shake,
-    ) (spr.Error || Allocator.Error)!void {
+    pub fn draw(shown: Shown, mode: Mode, pen: Pen, point: [2]i32, clip: ?Clip) Error!void {
         const layout = layouts.get(mode);
         if (shown.schematic) |schematic| {
-            const how: Draw = .{ .mirror = .{ .across = shown.mirrored }, .clip = clip, .shake = shake };
-            try drawShapeWith(schematic.art, schematic.gpa, target, 0, scaled(point, layout.schematic, size), colour, size, how);
+            const own = pen.drawing(schematic);
+            const how: Draw = .{ .mirror = .{ .across = shown.mirrored }, .clip = clip, .shake = pen.shake };
+            try own.shapeWith(0, pen.moved(point, layout.schematic), how);
             var hits = shown.hits.iterator();
             while (hits.next()) |quadrant| {
-                try drawShapeWith(schematic.art, schematic.gpa, target, @as(usize, @intFromEnum(quadrant)) + 1, scaled(point, layout.hits, size), colour, size, how);
+                try own.shapeWith(@as(usize, @intFromEnum(quadrant)) + 1, pen.moved(point, layout.hits), how);
             }
         }
         const found = shown.rings orelse return;
         const how: Draw = .{ .mirror = .{ .across = mode == .target }, .clip = clip };
-        for (layout.shields, found.shields) |arc, drawn| try drawArc(art, gpa, target, arc, drawn, point, colour, size, how);
+        for (layout.shields, found.shields) |arc, drawn| try drawArc(pen, arc, drawn, point, how);
         if (shown.reserves) |shifted| {
-            try drawArc(art, gpa, target, reserve_arcs.fore, shifted[0], point, colour, size, how);
-            try drawArc(art, gpa, target, reserve_arcs.aft, shifted[1], point, colour, size, how);
+            try drawArc(pen, reserve_arcs.fore, shifted[0], point, how);
+            try drawArc(pen, reserve_arcs.aft, shifted[1], point, how);
         }
-        for (layout.armor, found.armor) |arc, drawn| try drawArc(art, gpa, target, arc, drawn, point, colour, size, how);
+        for (layout.armor, found.armor) |arc, drawn| try drawArc(pen, arc, drawn, point, how);
     }
 
     /// An arc drawn `drawn` shapes from its base, if any of it is.
-    fn drawArc(art: *Art, gpa: Allocator, target: device.Device, arc: Arc, drawn: i32, point: [2]i32, colour: [4]f32, size: f32, how: Draw) (spr.Error || Allocator.Error)!void {
+    fn drawArc(pen: Pen, arc: Arc, drawn: i32, point: [2]i32, how: Draw) Error!void {
         if (drawn <= 0) return;
         const shape = @as(i32, arc.base) - drawn;
         if (shape < 0) return;
-        try drawShapeWith(art, gpa, target, @intCast(shape), scaled(point, arc.offset, size), colour, size, how);
+        try pen.shapeWith(@intCast(shape), pen.moved(point, arc.offset), how);
     }
 };
 
@@ -3925,78 +3949,58 @@ pub const Cluster = struct {
 
 /// Draws the targeting cluster's arcs and markers as `hud_draw` does, from its right arc to the
 /// charge's fill.
-pub fn drawCluster(
-    art: *Art,
-    opened: *Opened,
-    gpa: Allocator,
-    target: device.Device,
-    screen: [2]u32,
-    gauges: Cluster.Gauges,
-    colour: [4]f32,
-    scale: f32,
-    shake: ?Shake,
-) (spr.Error || Allocator.Error)!void {
-    const width: i32 = @intCast(screen[0]);
-    const height: i32 = @intCast(screen[1]);
-    const apart = Cluster.apart(width);
-    const top = (height >> 1) - pixels(Cluster.up, scale);
-    const left: [2]i32 = .{ (width >> 1) - apart, top };
-    const right: [2]i32 = .{ (width >> 1) + apart - pixels(Cluster.mirror_shift, scale), top };
-    try drawShapeWith(art, gpa, target, Cluster.arc_shape, right, colour, scale, .{ .mirror = .{ .across = true }, .shake = shake });
-    try drawShapeWith(art, gpa, target, Cluster.arc_shape, left, colour, scale, .{ .shake = shake });
+pub fn drawCluster(pen: Pen, gauges: Cluster.Gauges) Error!void {
+    const middle = pen.middle();
+    const apart = Cluster.apart(@intCast(pen.screen[0]));
+    const top = middle[1] - pen.span(Cluster.up);
+    const left: [2]i32 = .{ middle[0] - apart, top };
+    const right: [2]i32 = .{ middle[0] + apart - pen.span(Cluster.mirror_shift), top };
+    try pen.shapeWith(Cluster.arc_shape, right, .{ .mirror = .{ .across = true }, .shake = pen.shake });
+    try pen.shaky(Cluster.arc_shape, left);
 
-    const centre = scaled(left, Cluster.circle, scale);
+    const centre = pen.moved(left, Cluster.circle);
     const throttle, const speed = Cluster.shares(gauges);
     var buffer: [16]u8 = undefined;
 
-    // The throttle's marker, dimmed as it nears the speed: `hud_draw` makes the global palette
-    // that much darker for it.
+    // The throttle's marker, dimmed as it nears the speed.
     const brightness = @min(@abs(throttle - speed) * Cluster.throttle_fade, 1);
     if (brightness > Cluster.throttle_shown) {
-        const dim: [4]f32 = .{ colour[0] * brightness, colour[1] * brightness, colour[2] * brightness, colour[3] };
-        const marker = scaled(centre, Cluster.markerOffset(throttle), scale);
-        try drawShape(art, gpa, target, Cluster.marker_shape, marker, dim, scale);
+        const dim = pen.dimmed(brightness);
+        const marker = pen.moved(centre, Cluster.markerOffset(throttle));
+        try dim.shape(Cluster.marker_shape, marker);
         const asked = std.fmt.bufPrint(&buffer, "{d}", .{round(gauges.max_speed * gauges.throttle)}) catch return;
-        _ = try drawText(opened, gpa, target, scaled(marker, Cluster.figure_offset, scale), asked, dim, .right, scale);
+        _ = try dim.text(pen.moved(marker, Cluster.figure_offset), asked, .right);
     }
 
     const offset = Cluster.markerOffset(speed);
-    const marker = scaled(centre, offset, scale);
-    try drawShape(art, gpa, target, Cluster.marker_shape, marker, colour, scale);
+    const marker = pen.moved(centre, offset);
+    try pen.shape(Cluster.marker_shape, marker);
     const made = std.fmt.bufPrint(&buffer, "{d}", .{round(gauges.speed)}) catch return;
-    _ = try drawText(opened, gpa, target, scaled(marker, Cluster.figure_offset, scale), made, colour, .right, scale);
+    _ = try pen.text(pen.moved(marker, Cluster.figure_offset), made, .right);
 
     // The speed's fill is lit below its marker, the charge's below its level.
-    try drawFill(art, gpa, target, Cluster.speed_fill, left, offset[1] + Cluster.circle[1], colour, scale);
-    try drawFill(art, gpa, target, Cluster.charge_fill, right, gauges.unlit(), colour, scale);
+    try drawFill(pen, Cluster.speed_fill, left, offset[1] + Cluster.circle[1]);
+    try drawFill(pen, Cluster.charge_fill, right, gauges.unlit());
 }
 
 /// An arc's fill for `level` pixels down from the arcs' top: the lit shape into the pane from
 /// a pixel above the level to the foot, then the unlit one into the pane from a pixel above the
 /// top to the level, so the row they share is unlit.
-fn drawFill(
-    art: *Art,
-    gpa: Allocator,
-    target: device.Device,
-    fill: Cluster.Fill,
-    arc: [2]i32,
-    level: i32,
-    colour: [4]f32,
-    scale: f32,
-) (spr.Error || Allocator.Error)!void {
-    const at = scaled(arc, fill.offset, scale);
+fn drawFill(pen: Pen, fill: Cluster.Fill, arc: [2]i32, level: i32) Error!void {
+    const scale = pen.scale;
+    const at = pen.moved(arc, fill.offset);
     const x: f32 = @floatFromInt(at[0]);
     const y: f32 = @floatFromInt(at[1]);
     const edge = Clip.edge;
     const pane_left = x - scale;
     const pane_right = edge(x, Cluster.pane_width - 1, scale);
-    try drawShapeWith(art, gpa, target, fill.lit, at, colour, scale, .{ .clip = .{
+    try pen.shapeWith(fill.lit, at, .{ .clip = .{
         .left = pane_left,
         .top = edge(y, level - 1, scale),
         .right = pane_right,
         .bottom = edge(y, Cluster.pane_bottom, scale),
     } });
-    try drawShapeWith(art, gpa, target, fill.unlit, at, colour, scale, .{ .clip = .{
+    try pen.shapeWith(fill.unlit, at, .{ .clip = .{
         .left = pane_left,
         .top = y - scale,
         .right = pane_right,
@@ -4044,38 +4048,31 @@ pub const Cursor = union(enum) {
 /// chase view draws neither the reticle nor the sight.
 pub fn drawReticle(
     state: *State,
-    art: *Art,
-    gpa: Allocator,
-    target: device.Device,
-    screen: [2]u32,
+    pen: Pen,
     mode: camera.CockpitMode,
     target_at: Cursor,
     blind_fire: BlindFire,
     frame_duration: i32,
-    colour: [4]f32,
-    scale: f32,
-    shake: ?Shake,
-) (spr.Error || Allocator.Error)!bool {
-    const how: Draw = .{ .shake = shake };
-    const middle: [2]i32 = .{ @as(i32, @intCast(screen[0])) >> 1, @as(i32, @intCast(screen[1])) >> 1 };
+) Error!bool {
+    const middle = pen.middle();
     const drawn = mode != .chase;
-    if (drawn) try drawShapeWith(art, gpa, target, reticle_shape, middle, colour, scale, how);
+    if (drawn) try pen.shaky(reticle_shape, middle);
     const found: ?[2]i32 = switch (target_at) {
         .none => {
-            if (drawn) try drawShapeWith(art, gpa, target, reticle_shape, middle, colour, scale, how);
+            if (drawn) try pen.shaky(reticle_shape, middle);
             state.reticle_bright = false;
             return false;
         },
         .beyond => null,
         .at => |at| at,
     };
-    const near = pixels(under_reticle, scale);
+    const near = pen.span(under_reticle);
     var bright = if (found) |cursor|
         cursor[0] > middle[0] - near and cursor[0] < middle[0] + near and
             cursor[1] > middle[1] - near and cursor[1] < middle[1] + near
     else
         false;
-    const reach: [2]i32 = .{ pixels(blind_fire_reach[0], scale), pixels(blind_fire_reach[1], scale) };
+    const reach: [2]i32 = .{ pen.span(blind_fire_reach[0]), pen.span(blind_fire_reach[1]) };
     var at = middle;
     var aims = false;
     const taken: ?[2]i32 = if (found) |cursor|
@@ -4090,8 +4087,8 @@ pub fn drawReticle(
         bright = true;
     } else if (!(within and blind_fire == .excluded)) {
         var sight = state.sight orelse middle;
-        const rest = pixels(sight_rest, scale);
-        const glide = pixels(frame_duration, scale);
+        const rest = pen.span(sight_rest);
+        const glide = pen.span(frame_duration);
         for (0..2) |axis| {
             if (sight[axis] < middle[axis] - rest) {
                 sight[axis] += glide;
@@ -4103,7 +4100,7 @@ pub fn drawReticle(
         }
         state.sight = sight;
     }
-    if (drawn) try drawShapeWith(art, gpa, target, if (bright) sight_shape else reticle_shape, at, colour, scale, how);
+    if (drawn) try pen.shaky(if (bright) sight_shape else reticle_shape, at);
     state.reticle_bright = bright;
     return aims;
 }
@@ -4237,30 +4234,21 @@ pub fn pointerDirection(ship: math.Place, at: Vector) [2]f32 {
 /// Before all of it, the corners it marks on the ship whose line the radio's window names
 /// (`drawCommsMarker`).
 ///
-/// Not yet ported: the players' names over their ships in a multiplayer game.
-pub fn drawTarget(
-    state: *State,
-    art: *Art,
-    fonts: *TargetFonts,
-    gpa: Allocator,
-    target: device.Device,
-    scene: TargetScene,
-    edge_line: EdgeLine,
-    colour: [4]f32,
-    scale: f32,
-) (spr.Error || Allocator.Error)!Cursor {
+/// Not yet ported: the players' names over their ships in a multiplayer game
+/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetScene, edge_line: EdgeLine) Error!Cursor {
     state.chase_pointer = null;
     state.chase_nav_roll = null;
     const all = scene.all;
     const sight = scene.sight;
-    if (scene.speaker) |ship| try drawCommsMarker(art, gpa, target, sight, all, ship, colour, scale);
+    if (scene.speaker) |ship| try drawCommsMarker(pen, sight, all, ship);
     const ship = &all.slots[all.player];
     if (ship.object.nav_point.index()) |nav| if (nav < all.slots.len) {
         const way = pointerDirection(ship.drawn, all.slots[nav].drawn.position);
         if (scene.mode == .chase) {
             state.chase_nav_roll = chase.Pointer.rollToward(way);
         } else {
-            drawArrow(target, sight, way, art.paletteColour(nav_colour), scale);
+            drawArrow(pen, sight, way, pen.art.paletteColour(nav_colour));
         }
     };
     const index = state.target orelse return .none;
@@ -4276,26 +4264,23 @@ pub fn drawTarget(
     if (!on_screen or seen[2] < 0) {
         const way = pointerDirection(ship.drawn, node.position);
         if (scene.mode == .chase) state.chase_pointer = .toward(way, hostile);
-        try drawOffScreen(art, &fonts.small, gpa, target, sight, way, hostile, range, scene.mode, edge_line, colour, scale);
+        try drawOffScreen(pen, &fonts.small, sight, way, hostile, range, scene.mode, edge_line);
         return .none;
     }
     if (!(seen[2] > 0)) return .none;
 
     // The node's box, the component's for a subtarget, as the camera sees it.
     const box = if (part) |found| partBox(found) else objectBox(&struck.object);
-    const low, const high = screenBox(sight, node, box, scale);
+    const low, const high = screenBox(sight, node, box, pen.scale);
 
     // The brackets dim as a missile's lock builds, and go at a tenth.
     const brightness = @min(@as(f32, @floatFromInt(state.lock.count)) * lock_dimming, 1);
-    if (brightness > least_bright) {
-        const dim: [4]f32 = .{ colour[0] * brightness, colour[1] * brightness, colour[2] * brightness, colour[3] };
-        try drawCorners(art, gpa, target, brackets_shape.of(hostile), .{ low, high }, dim, scale);
-    }
+    if (brightness > least_bright) try drawCorners(pen.dimmed(brightness), brackets_shape.of(hostile), .{ low, high });
     // The range goes by the box's far corner, which a box reaching behind the camera throws
     // beyond the screen's reach, and the range with it.
-    const offset = pointOf(range_offset) * @as(Point, @splat(scale));
+    const offset = pointOf(range_offset) * @as(Point, @splat(pen.scale));
     if (pixelOf(high)) |corner| {
-        _ = try drawText(&fonts.new, gpa, target, .{ corner[0] + round(offset[0]), round(high[1] + offset[1]) }, range, colour, .right, scale);
+        _ = try pen.textIn(&fonts.new, .{ corner[0] + round(offset[0]), round(high[1] + offset[1]) }, range, .right);
     }
 
     if (struck.object.flags.components or struck.object.side == .friendly) return .none;
@@ -4303,10 +4288,10 @@ pub fn drawTarget(
     state.lead_point = lead;
     const aim: Point = sight.projection.project(sight.view(lead));
     const cursor: Cursor = if (pixelOf(aim)) |at| .{ .at = at } else .beyond;
-    if (cursor == .at) try drawShape(art, gpa, target, lead_shape, cursor.at, colour, scale);
+    if (cursor == .at) try pen.shape(lead_shape, cursor.at);
     const toward: Point = sight.projection.project(sight.view(struck.drawn.position));
-    if (leadLine(aim, toward, state.lock.count, scale)) |line| {
-        drawLine(target, whole(line[0]), whole(line[1]), art.paletteColour(line_colour.hostile), scale);
+    if (leadLine(aim, toward, state.lock.count, pen.scale)) |line| {
+        pen.line(whole(line[0]), whole(line[1]), pen.art.paletteColour(line_colour.hostile));
     }
     return cursor;
 }
@@ -4318,13 +4303,13 @@ pub const comms_corners: u16 = 0x12A;
 /// `hud_comms_marker` (`0x0048B0F0`), which `hud_target` runs first: where the middle of `ship`,
 /// whose line the radio's window names, is on the screen in front of the camera, a shape from
 /// `comms_corners` at each corner of its box as the camera sees it, in the display's colour.
-fn drawCommsMarker(art: *Art, gpa: Allocator, target: device.Device, sight: Sight, all: *const create.Objects, ship: u16, colour: [4]f32, scale: f32) (spr.Error || Allocator.Error)!void {
+fn drawCommsMarker(pen: Pen, sight: Sight, all: *const create.Objects, ship: u16) Error!void {
     const slot = &all.slots[ship];
     const seen = sight.view(slot.drawn.position);
     if (!(seen[2] > 0)) return;
     const at = sight.pixel(seen) orelse return;
     if (!sight.onScreen(at)) return;
-    try drawCorners(art, gpa, target, comms_corners, screenBox(sight, slot.drawn, objectBox(&slot.object), scale), colour, scale);
+    try drawCorners(pen, comms_corners, screenBox(sight, slot.drawn, objectBox(&slot.object), pen.scale));
 }
 
 /// An object's box, in its own frame.
@@ -4348,11 +4333,10 @@ fn screenBox(sight: Sight, node: math.Place, box: [2]Vector, scale: f32) [2]Poin
 
 /// Four shapes from `first` at the corners of `ends`, the least and the most of a box on the
 /// screen: at the top left, the top right, the bottom left and the bottom right.
-fn drawCorners(art: *Art, gpa: Allocator, target: device.Device, first: usize, ends: [2]Point, colour: [4]f32, scale: f32) (spr.Error || Allocator.Error)!void {
+fn drawCorners(pen: Pen, first: usize, ends: [2]Point) Error!void {
     for (0..4) |n| {
         const corner: math.Corner = .of(n);
-        const at: [2]i32 = .{ round(ends[corner.x][0]), round(ends[corner.y][1]) };
-        try drawShape(art, gpa, target, first + n, at, colour, scale);
+        try pen.shape(first + n, .{ round(ends[corner.x][0]), round(ends[corner.y][1]) });
     }
 }
 
@@ -4426,34 +4410,30 @@ const Arrow = struct {
 };
 
 /// Draws the arrow `toward` in `colour`: from its tip to each wing, and across the wings.
-fn drawArrow(target: device.Device, sight: Sight, toward: [2]f32, colour: [4]f32, scale: f32) void {
-    const arrow: Arrow = .toward(sight, toward, scale);
+fn drawArrow(pen: Pen, sight: Sight, toward: [2]f32, colour: [4]f32) void {
+    const arrow: Arrow = .toward(sight, toward, pen.scale);
     const tip = arrow.tip;
     const wings = arrow.wings;
     for ([3][2][2]i32{ .{ tip, wings[0] }, .{ tip, wings[1] }, .{ wings[1], wings[0] } }) |ends| {
-        drawLine(target, pointOf(ends[0]), pointOf(ends[1]), colour, scale);
+        pen.line(pointOf(ends[0]), pointOf(ends[1]), colour);
     }
 }
 
 /// The arrow and the marker at the screen's edge for a target out of sight, which lies `toward`
 /// from the player's ship. The chase view draws no arrow.
 fn drawOffScreen(
-    art: *Art,
+    pen: Pen,
     font: *Opened,
-    gpa: Allocator,
-    target: device.Device,
     sight: Sight,
     toward: [2]f32,
     hostile: bool,
     range: []const u8,
     mode: camera.CockpitMode,
     edge_line: EdgeLine,
-    colour: [4]f32,
-    scale: f32,
-) (spr.Error || Allocator.Error)!void {
-    if (mode != .chase) drawArrow(target, sight, toward, art.paletteColour(line_colour.of(hostile)), scale);
+) Error!void {
+    if (mode != .chase) drawArrow(pen, sight, toward, pen.art.paletteColour(line_colour.of(hostile)));
 
-    const arrow: Arrow = .toward(sight, toward, scale);
+    const arrow: Arrow = .toward(sight, toward, pen.scale);
     const last = sight.last();
     var from: [2]i32 = switch (edge_line) {
         .from_tip => arrow.tip,
@@ -4464,8 +4444,8 @@ fn drawOffScreen(
     _ = xtrabits.clipLine(last, &from, &to);
     const edge: Edge = .of(to, last);
     const spec = edge.spec();
-    try drawShape(art, gpa, target, Edge.shape.of(hostile) + @intFromEnum(edge), scaled(to, spec.shape, scale), colour, scale);
-    _ = try drawText(font, gpa, target, scaled(to, spec.text, scale), range, colour, spec.alignment, scale);
+    try pen.shape(Edge.shape.of(hostile) + @intFromEnum(edge), pen.moved(to, spec.shape));
+    _ = try pen.textIn(font, pen.moved(to, spec.text), range, spec.alignment);
 }
 
 /// The radar (`hud_radar`, `0x00488BD0`): its rings, the shape `hud_init` starts on and the
@@ -4644,51 +4624,30 @@ pub fn stepRadarZoom(state: *State, game_ticks: u32) void {
     if (state.radar_rings == zoom.to) state.radar_zoom = null;
 }
 
-/// Draws the radar's rings for a window of `screen`.
-pub fn drawRadar(
-    art: *Art,
-    gpa: Allocator,
-    target: device.Device,
-    screen: [2]u32,
-    state: *const State,
-    all: *const create.Objects,
-    speaker: ?u16,
-    colour: [4]f32,
-    scale: f32,
-    shake: ?Shake,
-) (spr.Error || Allocator.Error)!void {
-    const point = place(screen, Radar.offset, Radar.across, Radar.down, scale);
+/// Draws the radar: the contacts below the rings' plane, the rings, shaken, and the contacts above.
+pub fn drawRadar(pen: Pen, state: *const State, all: *const create.Objects, speaker: ?u16) Error!void {
+    const point = pen.placed(Radar.offset, Radar.across, Radar.down);
     const range = state.radar_range;
-    try drawContacts(art, gpa, target, screen, point, .of(all, range, speaker), .below, colour, scale);
-    try drawShapeWith(art, gpa, target, state.radar_rings, scaled(point, Radar.rings_offset, scale), colour, scale, .{ .shake = shake });
-    try drawContacts(art, gpa, target, screen, point, .of(all, range, speaker), .above, colour, scale);
+    try drawContacts(pen, point, .of(all, range, speaker), .below);
+    try pen.shaky(state.radar_rings, pen.moved(point, Radar.rings_offset));
+    try drawContacts(pen, point, .of(all, range, speaker), .above);
 }
 
 /// The contacts on one side of the rings' plane (`Radar.Contact.plane`): each line a pixel right
 /// of the dot, from the dot to the plane, and the dot's shape 2 right of it, the dot kept off the
 /// screen's last row; the nav point a cross of four pixels round its dot in the display's white.
-fn drawContacts(
-    art: *Art,
-    gpa: Allocator,
-    target: device.Device,
-    screen: [2]u32,
-    point: [2]i32,
-    contacts_in_range: Radar.Contacts,
-    plane: Radar.Plane,
-    colour: [4]f32,
-    scale: f32,
-) (spr.Error || Allocator.Error)!void {
-    const bottom = @as(i32, @intCast(screen[1])) - 2;
+fn drawContacts(pen: Pen, point: [2]i32, contacts_in_range: Radar.Contacts, plane: Radar.Plane) Error!void {
+    const bottom = @as(i32, @intCast(pen.screen[1])) - 2;
     var contacts = contacts_in_range;
     while (contacts.next()) |contact| {
         if (contact.plane() != plane) continue;
-        var dot = scaled(point, contact.at, scale);
+        var dot = pen.moved(point, contact.at);
         dot[1] = std.math.clamp(dot[1], 0, bottom);
         if (contact.look == .nav_point) {
-            const white: [4]f32 = .{ 1, 1, 1, colour[3] };
+            const white: [4]f32 = .{ 1, 1, 1, pen.colour[3] };
             for ([4][2]i32{ .{ 0, -1 }, .{ 0, 1 }, .{ -1, 0 }, .{ 1, 0 } }) |by| {
-                const pixel = pointOf(scaled(dot, by, scale));
-                drawLine(target, pixel, pixel, white, scale);
+                const pixel = pointOf(pen.moved(dot, by));
+                pen.line(pixel, pixel, white);
             }
             continue;
         }
@@ -4696,10 +4655,10 @@ fn drawContacts(
             // The line's far end, a pixel short of the plane.
             const toward: i32 = if (contact.height > 0) -1 else 1;
             const reach = -contact.height - toward;
-            const column = scaled(dot, .{ 1, 0 }, scale);
-            drawLine(target, pointOf(column), pointOf(scaled(column, .{ 0, reach }, scale)), art.paletteColour(contact.look.line()), scale);
+            const column = pen.moved(dot, .{ 1, 0 });
+            pen.line(pointOf(column), pointOf(pen.moved(column, .{ 0, reach })), pen.art.paletteColour(contact.look.line()));
         }
-        try drawShape(art, gpa, target, contact.look.shape(), scaled(dot, .{ 2, 0 }, scale), colour, scale);
+        try pen.shape(contact.look.shape(), pen.moved(dot, .{ 2, 0 }));
     }
 }
 
@@ -4766,7 +4725,7 @@ const TargetDrawing = struct {
 
     /// Draws `state`'s target in `scene`, and says where the lead cursor stands.
     fn draw(drawing: *TargetDrawing, gpa: Allocator, state: *State, scene: TargetScene) !Cursor {
-        return drawTarget(state, &drawing.art, &drawing.fonts, gpa, drawing.recorder.interface(), scene, .from_tip, .{ 1, 1, 1, 1 }, 1);
+        return drawTarget(state, testing.pen(&drawing.art, gpa, drawing.recorder.interface()), &drawing.fonts, scene, .from_tip);
     }
 
     /// How many lines it has drawn, which are what it draws untextured.
@@ -4947,24 +4906,23 @@ test "the arcs part as the screen widens" {
 
 test "the sight glides back to the middle" {
     var state: State = .{ .sight = .{ 300, 250 } };
-    const screen: [2]u32 = .{ 640, 480 };
     // With a target off the reach of blind fire, the sight moves a pixel a tick toward the
     // middle, and rests within two of it.
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
-    const target = recorder.interface();
     var art: Art = .{ .set = undefined, .images = &.{} };
-    const aims = try drawReticle(&state, &art, std.testing.allocator, target, screen, .chase, .{ .at = .{ 600, 400 } }, .on, 10, .{ 1, 1, 1, 1 }, 1, null);
+    const pen = testing.pen(&art, std.testing.allocator, recorder.interface());
+    const aims = try drawReticle(&state, pen, .chase, .{ .at = .{ 600, 400 } }, .on, 10);
     try std.testing.expect(!aims);
     try std.testing.expectEqual([2]i32{ 310, 240 }, state.sight.?);
     // Within its reach, blind fire takes the target.
-    try std.testing.expect(try drawReticle(&state, &art, std.testing.allocator, target, screen, .chase, .{ .at = .{ 350, 260 } }, .on, 10, .{ 1, 1, 1, 1 }, 1, null));
+    try std.testing.expect(try drawReticle(&state, pen, .chase, .{ .at = .{ 350, 260 } }, .on, 10));
     try std.testing.expectEqual([2]i32{ 350, 260 }, state.sight.?);
     // A gun it does not aim leaves the sight where it is.
-    _ = try drawReticle(&state, &art, std.testing.allocator, target, screen, .chase, .{ .at = .{ 350, 260 } }, .excluded, 10, .{ 1, 1, 1, 1 }, 1, null);
+    _ = try drawReticle(&state, pen, .chase, .{ .at = .{ 350, 260 } }, .excluded, 10);
     try std.testing.expectEqual([2]i32{ 350, 260 }, state.sight.?);
     // A cursor beyond the screen's reach is as far as can be: the sight glides back.
-    try std.testing.expect(!try drawReticle(&state, &art, std.testing.allocator, target, screen, .chase, .beyond, .on, 10, .{ 1, 1, 1, 1 }, 1, null));
+    try std.testing.expect(!try drawReticle(&state, pen, .chase, .beyond, .on, 10));
     try std.testing.expectEqual([2]i32{ 340, 250 }, state.sight.?);
     try std.testing.expect(!state.reticle_bright);
 }

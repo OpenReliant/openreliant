@@ -8,24 +8,22 @@
 //! into place as it opens, the reverse as it closes, and in place while it is open.
 //!
 //! Ported so far: the windows' phases and times, their frames, how they open and close with the
-//! display's sounds (`hud_beep` 1 and 2), and what windows 0, 1, 2, 3, 4, 7, 8, 10 and 13 show
+//! display's sounds (`hud_beep` 1 and 2), and what windows 0, 1, 2, 3, 4, 7, 8, 10, 11 and 13 show
 //! ([`radio.zig`](radio.zig), [`gunnery.zig`](gunnery.zig),
 //! [`missile_display.zig`](missile_display.zig), [`target_display.zig`](target_display.zig),
 //! [`damage.zig`](damage.zig), [`power.zig`](power.zig),
-//! [`objectives_window.zig`](objectives_window.zig), [`wing_status.zig`](wing_status.zig)).
-//! Not yet: what the other
-//! windows show, which [`hud.md`](../../../../docs/engine/hud.md) lists with the state each reads.
+//! [`objectives_window.zig`](objectives_window.zig), the radio's menu
+//! ([`videoreports/menu.zig`](../videoreports/menu.zig)), [`wing_status.zig`](wing_status.zig)).
+//! Not yet: what windows 5, 6, 9, 12 and 14 are for, and what window 14 shows
+//! ([#105](https://github.com/vdmkenny/openreliant/issues/105)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const camera = @import("../camera.zig");
-const device = @import("../../surrender/srd3d/device.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const hud = @import("../hud.zig");
-const language = @import("../language.zig");
 const math = @import("../../surrender/math.zig");
-const spr = @import("../../../formats/spr.zig");
 const videoreports = @import("../videoreports.zig");
 
 /// The windows, numbered as the game numbers their records.
@@ -269,21 +267,12 @@ pub const Windows = struct {
     /// draws that. The radio's window follows its line in every view (`hud.radio.frame`). In
     /// mission 25's first part (`kamov`), the windows the Kamov lacks stand still, unseen
     /// (`Window.kamovLacks`, `0x00486408`).
-    pub fn frame(
-        windows: *Windows,
-        pen: Pen,
-        screen: [2]u32,
-        last_view: camera.View,
-        frame_duration: i32,
-        contents: Contents,
-        kamov: bool,
-        scale: f32,
-    ) Canvas.Error!void {
+    pub fn frame(windows: *Windows, pen: hud.Pen, last_view: camera.View, frame_duration: i32, contents: Contents, kamov: bool) Canvas.Error!void {
         const ahead = hud.instrumented(last_view);
         for (std.enums.values(Window)) |window| {
             if (kamov and window.kamovLacks()) continue;
             const shown = windows.step(window, frame_duration) orelse continue;
-            try draw(windows, pen, screen, window, shown, ahead, contents, scale);
+            try draw(windows, pen, window, shown, ahead, contents);
         }
     }
 };
@@ -340,75 +329,63 @@ pub const Contents = struct {
     wing_status: ?hud.wing_status.Shown = null,
 };
 
-/// Where a window's contents are drawn: the window's place on the screen, how many times their
-/// own size, and what they are cut to while the window opens or closes.
-pub const Inside = struct {
+/// A window as its frame and what it shows are drawn: with the display's pen at the window's size,
+/// from the window's place on the screen, each offset in the display's own pixels, and cut to what
+/// the window is cut to while it opens or closes.
+pub const Canvas = struct {
+    pen: hud.Pen,
     at: [2]i32,
-    size: f32,
     clip: ?hud.Clip,
 
+    pub const Error = hud.Error;
+
+    /// The canvas, drawing a ship's `schematic` in place of the display's shapes.
+    pub fn drawing(canvas: Canvas, schematic: hud.Schematic) Canvas {
+        var other = canvas;
+        other.pen = canvas.pen.drawing(schematic);
+        return other;
+    }
+
     /// The point `offset` of the display's own pixels from the window's place.
-    pub fn place(inside: Inside, offset: [2]i32) [2]i32 {
-        return hud.scaled(inside.at, offset, inside.size);
+    pub fn place(canvas: Canvas, offset: [2]i32) [2]i32 {
+        return canvas.pen.moved(canvas.at, offset);
     }
 
     /// A VFX pane from the window's place, its left, top, right and bottom edges in the display's
     /// own pixels and inclusive, as the part of the screen it covers, cut to the window's own.
-    pub fn pane(inside: Inside, edges: [4]i32) hud.Clip {
+    pub fn pane(canvas: Canvas, edges: [4]i32) hud.Clip {
         const edge = hud.Clip.edge;
-        const x: f32 = @floatFromInt(inside.at[0]);
-        const y: f32 = @floatFromInt(inside.at[1]);
+        const size = canvas.pen.scale;
+        const x: f32 = @floatFromInt(canvas.at[0]);
+        const y: f32 = @floatFromInt(canvas.at[1]);
         const own: hud.Clip = .{
-            .left = edge(x, edges[0], inside.size),
-            .top = edge(y, edges[1], inside.size),
-            .right = edge(x, edges[2] + 1, inside.size),
-            .bottom = edge(y, edges[3] + 1, inside.size),
+            .left = edge(x, edges[0], size),
+            .top = edge(y, edges[1], size),
+            .right = edge(x, edges[2] + 1, size),
+            .bottom = edge(y, edges[3] + 1, size),
         };
-        const outer = inside.clip orelse return own;
+        const outer = canvas.clip orelse return own;
         return own.intersect(outer);
     }
-};
-
-/// What the windows draw with: the display's shapes, font and strings, onto `target`, in
-/// `colour`.
-pub const Pen = struct {
-    art: *hud.Art,
-    font: *hud.Opened,
-    strings: *const language.Language,
-    gpa: Allocator,
-    target: device.Device,
-    colour: [4]f32,
-    /// How the display shakes this frame; null while it stands still.
-    shake: ?hud.Shake = null,
-};
-
-/// A window as its frame and what it shows are drawn: with `pen`, from the window's place
-/// (`inside`), each offset in the display's own pixels.
-pub const Canvas = struct {
-    pen: Pen,
-    inside: Inside,
-
-    pub const Error = spr.Error || Allocator.Error;
 
     /// Shape `index` at `at`, drawn as `how` says.
     pub fn shapeWith(canvas: Canvas, index: usize, at: [2]i32, how: hud.Draw) Error!void {
-        const pen = canvas.pen;
-        try hud.drawShapeWith(pen.art, pen.gpa, pen.target, index, canvas.inside.place(at), pen.colour, canvas.inside.size, how);
+        try canvas.pen.shapeWith(index, canvas.place(at), how);
     }
 
     /// Shape `index` at `at`, cut to the window.
     pub fn shape(canvas: Canvas, index: usize, at: [2]i32) Error!void {
-        try canvas.shapeWith(index, at, .{ .clip = canvas.inside.clip });
+        try canvas.shapeWith(index, at, .{ .clip = canvas.clip });
     }
 
     /// Shape `index` at `at`, cut to the window, shaken while the display shakes (`hud_blit`).
     pub fn shaky(canvas: Canvas, index: usize, at: [2]i32) Error!void {
-        try canvas.shapeWith(index, at, .{ .clip = canvas.inside.clip, .shake = canvas.pen.shake });
+        try canvas.shapeWith(index, at, .{ .clip = canvas.clip, .shake = canvas.pen.shake });
     }
 
-    /// Shape `index` at `at`, cut to the VFX pane of `edges` (`Inside.pane`).
+    /// Shape `index` at `at`, cut to the VFX pane of `edges` (`pane`).
     pub fn shapeIn(canvas: Canvas, index: usize, at: [2]i32, edges: [4]i32) Error!void {
-        try canvas.shapeWith(index, at, .{ .clip = canvas.inside.pane(edges) });
+        try canvas.shapeWith(index, at, .{ .clip = canvas.pane(edges) });
     }
 
     /// `picture` with its top left corner at `at`, cut to the window.
@@ -419,8 +396,8 @@ pub const Canvas = struct {
     /// `picture` with its top left corner at `at`, cut to the window, each row moved as `shake`
     /// says where it shakes.
     pub fn imageShaken(canvas: Canvas, picture: *srtexture.Image, at: [2]i32, shake: ?hud.Shake) void {
-        const corner = canvas.inside.place(at);
-        hud.drawImage(canvas.pen.target, picture, .{ @floatFromInt(corner[0]), @floatFromInt(corner[1]) }, canvas.pen.colour, canvas.inside.size, .{ .clip = canvas.inside.clip, .shake = shake });
+        const corner = canvas.place(at);
+        hud.drawImage(canvas.pen.device, picture, .{ @floatFromInt(corner[0]), @floatFromInt(corner[1]) }, canvas.pen.colour, canvas.pen.scale, .{ .clip = canvas.clip, .shake = shake });
     }
 
     /// `words` at `at` in the display's font, aligned as `alignment` says.
@@ -430,8 +407,7 @@ pub const Canvas = struct {
 
     /// `words` at `at` in `font`, aligned as `alignment` says.
     pub fn textIn(canvas: Canvas, font: *hud.Opened, words: []const u8, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
-        const pen = canvas.pen;
-        _ = try hud.drawText(font, pen.gpa, pen.target, canvas.inside.place(at), words, pen.colour, alignment, canvas.inside.size);
+        _ = try canvas.pen.textIn(font, canvas.place(at), words, alignment);
     }
 
     /// The game's string `id`, where it has one.
@@ -477,11 +453,11 @@ test unlitRows {
 /// `hud_window_draw` (`0x00486830`): in the view ahead (`ahead`), each piece of the window's frame,
 /// from where its place stands, then what the window shows; the radio's window, which follows its
 /// line in every view, whatever the view.
-fn draw(windows: *Windows, pen: Pen, screen: [2]u32, window: Window, shown: Shown, ahead: bool, contents: Contents, scale: f32) Canvas.Error!void {
-    const at = anchor(screen, window, shown, scale);
-    const size = scale * shown.scale;
+fn draw(windows: *Windows, pen: hud.Pen, window: Window, shown: Shown, ahead: bool, contents: Contents) Canvas.Error!void {
+    const at = anchor(pen.screen, window, shown, pen.scale);
+    const size = pen.scale * shown.scale;
     const clip: ?hud.Clip = if (shown.buffered) bufferClip(window, at, size) else null;
-    const canvas: Canvas = .{ .pen = pen, .inside = .{ .at = at, .size = size, .clip = clip } };
+    const canvas: Canvas = .{ .pen = pen.sized(size), .at = at, .clip = clip };
     if (ahead) for (layouts.get(window).frame) |piece| {
         try canvas.shapeWith(piece.shape, piece.offset, .{ .mirror = piece.mirror, .clip = clip, .shake = pen.shake });
     };
@@ -597,14 +573,15 @@ test "a multiplayer game refuses three windows" {
     try std.testing.expect(!windows.up(.missiles));
 }
 
-test Inside {
-    const inside: Inside = .{ .at = .{ 100, 200 }, .size = 2, .clip = .{ .left = 0, .top = 0, .right = 150, .bottom = 1000 } };
-    try std.testing.expectEqual([2]i32{ 90, 220 }, inside.place(.{ -5, 10 }));
+test Canvas {
+    const pen = hud.testing.pen(undefined, std.testing.allocator, undefined);
+    const canvas: Canvas = .{ .pen = pen.sized(2), .at = .{ 100, 200 }, .clip = .{ .left = 0, .top = 0, .right = 150, .bottom = 1000 } };
+    try std.testing.expectEqual([2]i32{ 90, 220 }, canvas.place(.{ -5, 10 }));
     // A pane's right and bottom edges are its last pixel's, so it reaches one pixel past them, and
     // what the window is cut to cuts it too.
-    const pane = inside.pane(.{ -7, -10, -3, 20 });
+    const pane = canvas.pane(.{ -7, -10, -3, 20 });
     try std.testing.expectEqual(hud.Clip{ .left = 86, .top = 180, .right = 96, .bottom = 242 }, pane);
-    const cut = inside.pane(.{ 20, 0, 40, 1 });
+    const cut = canvas.pane(.{ 20, 0, 40, 1 });
     try std.testing.expectEqual(150, cut.right);
 }
 
