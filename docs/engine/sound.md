@@ -55,6 +55,11 @@ nothing. `sound_voice_fade` (`0x004824C0`) and `sound_fade_all` (`0x00482510`) s
 `sound_pause_all` (`0x004825D0`) and `sound_resume_all` (`0x00482630`) stop the playing voices and
 start them again.
 
+The timer is a multimedia timer of its own (`timer_start`, `0x004A70F0`), so the fades continue
+while a movie plays: the menu music, which starts fading out when a campaign starts, is gone half a
+second into the new pilot's intro. OpenReliant runs the timer once a frame from each of its loops,
+including the movie loop (`hog_snd.Sound.runTimer`).
+
 ### Positional sounds of a frame
 
 `sound_buffer_at` (`0x00482160`) gathers a sound of the first 18 slots at a place in the world: its

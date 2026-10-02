@@ -425,6 +425,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // The mission's clocks, which `mission_run` zeroes before it loops.
     var clock: game.main.Clock = .{};
     clock.start(platform.window.ticks());
+    movies.timer = .{ .clock = &clock, .sound = sound };
     const hearing: game.hog_snd.Hearing = .{ .sound = sound, .camera = &view.place, .clock = &clock };
     try loading.show(game.xtrabits.loading.startup_step);
     // What the explosions leave for the frames after them, and the particles they send out.
@@ -1044,8 +1045,7 @@ fn waitBeforeLaunch(clock: *game.main.Clock, sound: *game.hog_snd.Sound) void {
     var pacer: platform.window.Pacer = .{};
     while (platform.window.nanoseconds() - start < game.winmain.launch_wait) {
         pacer.wait(game.main.ticks_per_second);
-        clock.advanceTo(platform.window.ticks());
-        sound.timerTick(clock.game_ticks);
+        sound.runTimer(clock, platform.window.ticks());
     }
 }
 
