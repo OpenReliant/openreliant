@@ -1021,14 +1021,14 @@ pub fn lightMask(model_lists_components: bool) u32 {
     return if (model_lists_components) components_light_mask else whole_light_mask;
 }
 
-/// How far the launch's hangar's two beacons light what stands in it (`Model.reachFarther`,
+/// How far the launch hangar's two beacons light what stands inside it (`Model.reachFarther`,
 /// `Model.bounceLights`).
 pub const HangarBeacons = enum {
-    /// **Improvement:** twice their own reach, and a share of their flash thrown back off the red
-    /// walls, so that it lights the ship on the retainer and its cockpit: their own light falls
-    /// short of the ship by about a quarter, and on its nose, which the cutaways don't show.
+    /// **Improvement:** twice their normal reach, and a share of their flash thrown back off the
+    /// red walls, so they light the ship on the retainer and its cockpit. Their own light falls
+    /// about a quarter short of the ship, and only on its nose, which the cutaways don't show.
     to_the_ship,
-    /// Their own reach, as the original has it.
+    /// Their normal reach, as in the original.
     own,
 };
 
@@ -1099,13 +1099,15 @@ pub const Model = struct {
         blink: Blink,
         /// Its sprites (node kind 3), for an attachment with a width (`size[0]`).
         sprites: ?Sprites,
-        /// The point light it casts (node kind 5): its id's colour, its brightness and its range,
-        /// reaching every object that takes lights. Only a light that blinks, with a brightness,
-        /// casts one: the loader bakes a steady light into the meshes instead
-        /// (`static_lights_bake`). Its place is set as it is drawn.
+        /// The point light it casts (node kind 5), with its id's colour, its brightness and its
+        /// range, which reaches every object that takes lights; null for none. In the original,
+        /// only a blinking light with a brightness casts one, and the loader bakes the steady
+        /// lights into the meshes instead (`static_lights_bake`). With real lights, a steady light
+        /// casts one too (`createLights`). Its position is set when it's drawn.
         cast: ?srlight.Light,
-        /// OpenReliant's: what it throws back off the walls round it while it shines, lighting
-        /// evenly what stands there, as an ambient light (`Model.bounceLights`); null for none.
+        /// Added by OpenReliant: the light a blinking light throws back off the walls around it
+        /// while it shines, as an even ambient light on what stands there (`Model.bounceLights`);
+        /// null for none.
         bounce: ?srlight.Light = null,
 
         /// A light's sprites and what they are drawn with.
@@ -1159,6 +1161,11 @@ pub const Model = struct {
     pub const Blink = struct {
         times: [2]i32 = .{ 0, 0 },
         phase: i32 = 0,
+
+        /// Whether the light blinks. A light with no blink times is steady.
+        pub fn blinks(blink: Blink) bool {
+            return blink.times[0] +% blink.times[1] != 0;
+        }
 
         /// How bright the light stands in its blink at the object's own `tick`, the mission's clock
         /// plus its `blink_offset`: 1 while it is on, then falling away over `blink_fade` of its
@@ -1874,7 +1881,7 @@ pub const Model = struct {
                 sprites.sprite[Light.Sprites.flare].hidden = images.flare == null;
                 sprites.sprite[Light.Sprites.lamp_sprite].hidden = images.lamp == null;
             }
-            const blinks = attachment.blink[0] +% attachment.blink[1] != 0;
+            const blinks = light.blink.blinks();
             const colour = if (blinks) lightColour(attachment.light()) else steadyColour(attachment.light());
             const steady_shines = real_lights and @reduce(.Or, @as(Vector, colour) > @as(Vector, @splat(0)));
             if (attachment.light_brightness > 0 and (blinks or steady_shines)) {
@@ -1889,25 +1896,27 @@ pub const Model = struct {
         return lights;
     }
 
-    /// **Improvement:** the light the model's blinking lights cast reaches `reach` times as far as
-    /// their own (`Light.cast`). The launch's hangar's beacons reach the ship in it so
-    /// (`HangarBeacons`).
+    /// **Improvement:** multiplies the range of the light the model's blinking lights cast by
+    /// `reach` (`Light.cast`), so the launch hangar's beacons reach the ship inside it
+    /// (`HangarBeacons`). Steady lights, which cast a light only as real lights, keep their range.
     pub fn reachFarther(model: *Model, reach: f32) void {
-        for (model.lights) |*light| if (light.cast) |*cast| {
-            cast.kind.point.range *= reach;
-        };
+        for (model.lights) |*light| {
+            if (!light.blink.blinks()) continue;
+            if (light.cast) |*cast| cast.kind.point.range *= reach;
+        }
     }
 
-    /// **Improvement:** the model's blinking lights throw `share` of their light back off the
-    /// walls round them while they shine, lighting evenly what stands there, by `mask`, which the
-    /// model's parts keep out from then on, so that the walls take their light alone
-    /// (`Light.bounce`). The launch's hangar's beacons flash on the ship in it so
-    /// (`HangarBeacons`).
+    /// **Improvement:** while they shine, the model's blinking lights throw `share` of their light
+    /// back off the walls around them, as an even ambient light on what stands there
+    /// (`Light.bounce`). That light has the mask `mask`, which the model's parts then exclude, so
+    /// the walls only take the direct light. This makes the launch hangar's beacons flash on the
+    /// ship inside it (`HangarBeacons`). Steady lights throw nothing back.
     pub fn bounceLights(model: *Model, share: f32, mask: u32) void {
         for (model.parts) |*part| part.object.light_mask |= mask;
-        for (model.lights) |*light| if (light.cast) |cast| {
-            light.bounce = .{ .mask = mask, .intensity = cast.intensity * share, .colour = cast.colour, .kind = .ambient };
-        };
+        for (model.lights) |*light| {
+            if (!light.blink.blinks()) continue;
+            if (light.cast) |cast| light.bounce = .{ .mask = mask, .intensity = cast.intensity * share, .colour = cast.colour, .kind = .ambient };
+        }
     }
 
     /// The walls round the model throw back nothing more (`bounceLights`), as what stood among
@@ -3051,6 +3060,14 @@ test "a model's steady lights shine as real lights where it was loaded so" {
     scene.clear();
     try built.draw(gpa, &scene, .world, .{ .lights = false });
     try std.testing.expectEqual(0, scene.lights.items.len);
+    // Only the blinking one reaches farther and throws light back, as the launch hangar's beacons
+    // do; the steady one keeps its range and throws nothing back.
+    built.reachFarther(2);
+    built.bounceLights(0.25, 0x40);
+    try std.testing.expectEqual(50, built.lights[0].cast.?.kind.point.range);
+    try std.testing.expectEqual(null, built.lights[0].bounce);
+    try std.testing.expectEqual(100, built.lights[2].cast.?.kind.point.range);
+    try std.testing.expectEqual(0.25, built.lights[2].bounce.?.intensity);
 }
 
 test steadyColour {
