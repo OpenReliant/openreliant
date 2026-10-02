@@ -11,7 +11,7 @@
 //!
 //! Not ported: in a network session, the players' names and READY beside each one ready, which
 //! the mission's loading lists under its line (`loading_players_draw`, `0x004AB300`)
-//! ([#404](https://github.com/vdmkenny/openreliant/issues/404)).
+//! ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

@@ -937,7 +937,7 @@ pub fn frameTree(root: *Node, model: ?*Model, drawn: *Model.Local, fraction: f32
 ///
 /// Not ported: the subtarget's parts picked out in red again where the object is the player's
 /// target (`hud_subtarget_clear`, `hud_subtarget`,
-/// [#531](https://github.com/vdmkenny/openreliant/issues/531)).
+/// [#531](https://github.com/OpenReliant/openreliant/issues/531)).
 pub fn loseComponents(ctx: aigeneric.Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const model = if (slot.model) |*live| live else return;
@@ -1372,7 +1372,7 @@ pub const Model = struct {
         turret: Vector = @splat(0),
         /// A part of a turret whose muzzle faces back, which turns in its frame turned a half turn
         /// about X: its turret's angles about Y and Z count the other way. **Fix:** the game's
-        /// never fires ([#219](https://github.com/vdmkenny/openreliant/issues/219)).
+        /// never fires ([#219](https://github.com/OpenReliant/openreliant/issues/219)).
         reversed: bool = false,
         /// The place `node_place` worked out for the next step, and its pose (node `+0x5C` to
         /// `+0xA3`), and the ones `node_tree_update` committed from them (`+0x14` to `+0x5B`).

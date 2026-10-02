@@ -358,7 +358,7 @@ its strength, and envelopes and gains scale both. A file of several effects play
 sequence one member after the other and a superimposition all at once; the game starts only the
 first of the effects the SDK made of it. The platform sends the motors' speeds to SDL at most every
 40 ms. Rumble cannot show which way an effect or a push pushes, which a force-feedback joystick
-would ([#244](https://github.com/vdmkenny/openreliant/issues/244)).
+would ([#244](https://github.com/OpenReliant/openreliant/issues/244)).
 
 - **Improvement:** any controller that rumbles plays the effects, gamepads among them.
 - **Fix:** the Proton Cannon's shot plays `prc`.
@@ -390,7 +390,7 @@ keeps in globals: the device states, the bindings and the settings.
 routines above. `Player` holds `throttle_setting`, `matching_speed`, `afterburner_toggled`, the
 two held flags and the shield reserves. The engine runs them where `simulation_step` does, once
 per step, before the objects move. The game also runs `player_controls` once a frame from
-`orders_update`, which isn't ported yet ([#32](https://github.com/vdmkenny/openreliant/issues/32)),
+`orders_update`, which isn't ported yet ([#32](https://github.com/OpenReliant/openreliant/issues/32)),
 so for now the keyboard steers, the stick moves the power and SHIELD BALANCING shifts the shields
 more slowly than in the game.
 
@@ -418,7 +418,7 @@ OpenReliant keeps the joystick as the choice and steers with the keyboard while 
 (`input.Devices.controlMode`); and its settings screen writes the controls as it is left only
 where they are not what the file gives already ([Front end](front-end.md#controls)).
 
-Not yet ported: force feedback ([issue 83](https://github.com/vdmkenny/openreliant/issues/83)), the
+Not yet ported: force feedback ([issue 83](https://github.com/OpenReliant/openreliant/issues/83)), the
 weapons and other actions `player_controls` reads, and the special cases for the byte at `0x529FB8`,
 the player's deathmatch power-up and the flags at `0x51CEF8`, `0x51CEFC` and `0x51CF04`.
 `object_orders` clears the two burns before each order update and, after it, when the ship is out of

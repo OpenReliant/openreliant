@@ -532,7 +532,7 @@ fn remove(slot: *create.Slot, at: usize) void {
 /// starts and stops `Afterburn` on the controller (`input.force.Forces.afterburner`).
 ///
 /// Not ported: the orders other players' machines queue, which are multiplayer's
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn objectOrders(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
@@ -618,9 +618,9 @@ pub fn retaliate(ctx: Context, index: u16) void {
 }
 
 /// The `init` of the order, where OpenReliant runs it. The orders whose `init` isn't ported yet do
-/// nothing ([#30](https://github.com/vdmkenny/openreliant/issues/30)), the warps' among them
-/// ([#481](https://github.com/vdmkenny/openreliant/issues/481)) and multiplayer's
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// nothing ([#30](https://github.com/OpenReliant/openreliant/issues/30)), the warps' among them
+/// ([#481](https://github.com/OpenReliant/openreliant/issues/481)) and multiplayer's
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runInit(ctx: Context, index: u16, info: orders.Info) void {
     switch (info.order) {
         .fly => aifuncs.flyInit(ctx, index),
@@ -659,11 +659,11 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .fixed_gate_open => wgate.openInit(ctx, index),
         .fixed_gate_close => wgate.closeInit(ctx, index),
         .fixed_gate_collapse => wgate.collapseInit(ctx, index),
-        // Not ported: the warps ([#481](https://github.com/vdmkenny/openreliant/issues/481)).
+        // Not ported: the warps ([#481](https://github.com/OpenReliant/openreliant/issues/481)).
         .warp_in, .warp_out => {},
-        // Not ported: multiplayer's ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+        // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .deathmatch_respawn_effect => {},
-        // Not ported ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+        // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
         .turns_object_lights_on,
@@ -700,9 +700,9 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
 }
 
 /// The `update` of the order, where OpenReliant runs it. The orders whose update isn't ported yet
-/// do nothing ([#30](https://github.com/vdmkenny/openreliant/issues/30)), the warps' among them
-/// ([#481](https://github.com/vdmkenny/openreliant/issues/481)) and multiplayer's
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// do nothing ([#30](https://github.com/OpenReliant/openreliant/issues/30)), the warps' among them
+/// ([#481](https://github.com/OpenReliant/openreliant/issues/481)) and multiplayer's
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
     switch (info.order) {
         .do_nothing => aifuncs.doNothing(ctx, index),
@@ -753,11 +753,11 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .fixed_gate_open => wgate.open(ctx, index),
         .fixed_gate_close => wgate.close(ctx, index),
         .fixed_gate_collapse => wgate.collapse(ctx, index),
-        // Not ported: the warps ([#481](https://github.com/vdmkenny/openreliant/issues/481)).
+        // Not ported: the warps ([#481](https://github.com/OpenReliant/openreliant/issues/481)).
         .warp_in, .warp_out => {},
-        // Not ported: multiplayer's ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+        // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .multiplayer_control, .deathmatch_respawn_effect => {},
-        // Not ported ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+        // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
         .dark_reign_shoot,
@@ -783,8 +783,8 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
 }
 
 /// The `exit` of the order, where OpenReliant runs it. Dark reign shoot's isn't ported yet
-/// ([#30](https://github.com/vdmkenny/openreliant/issues/30)), nor multiplayer's
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), nor multiplayer's
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runExit(ctx: Context, index: u16, info: orders.Info) void {
     switch (info.order) {
         .scoop_up => tractor.scoopUpExit(ctx, index),
@@ -793,9 +793,9 @@ fn runExit(ctx: Context, index: u16, info: orders.Info) void {
         .ship_follow_curve_backwards => follow.backwardsExit(ctx, index),
         .dock => aidock.exit(ctx, index),
         .ripper_grabs_target_object => airipper.grabExit(ctx, index),
-        // Not ported ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+        // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .dark_reign_shoot_110 => {},
-        // Not ported: multiplayer's ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+        // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .deathmatch_respawn_effect => {},
         // The table gives the others no `exit`, which the build checks, so that one it gives
         // needs its own arm.

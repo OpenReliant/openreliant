@@ -9,11 +9,11 @@
 //! describes them.
 //!
 //! Not ported: the warps' tunnels (kind 0, `order_warp_out`, `order_warp_in`), with their
-//! particles and beams ([#481](https://github.com/vdmkenny/openreliant/issues/481)); the Boridin's
+//! particles and beams ([#481](https://github.com/OpenReliant/openreliant/issues/481)); the Boridin's
 //! projection (kind 3, `order_start_warp_projection_from_boridin`)
-//! ([#30](https://github.com/vdmkenny/openreliant/issues/30)); and the Krasny's split, as it jumps
+//! ([#30](https://github.com/OpenReliant/openreliant/issues/30)); and the Krasny's split, as it jumps
 //! in through the gate collapsing behind it in missions 16 and 66 (`0x00422CA0`)
-//! ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
+//! ([#407](https://github.com/OpenReliant/openreliant/issues/407)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -105,8 +105,8 @@ pub const Gates = struct {
     rumbled_at: i32 = 0,
 
     /// The gates' start (`0x0041E280`), without the warps' textures and particles
-    /// ([#481](https://github.com/vdmkenny/openreliant/issues/481)) and the Boridin's
-    /// ([#30](https://github.com/vdmkenny/openreliant/issues/30)): the tunnels' texture, the
+    /// ([#481](https://github.com/OpenReliant/openreliant/issues/481)) and the Boridin's
+    /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)): the tunnels' texture, the
     /// flashes', and the grid by `detail`.
     pub fn init(gpa: Allocator, textures: *srtexture.Table, detail: Detail, hardware: bool, settings: Settings) matmanager.Error!Gates {
         return .{
@@ -288,7 +288,7 @@ const wide_advanced_mission = 8;
 /// `wgate_create` (`0x0041FE60`) looks up for every kind (`wgate_warp_sizes`, `0x00423020`). Any
 /// other type's stand no deeper, and its warp's size is 2000. The size and the flag the game sets
 /// beside it (`+0x2C`) serve the warps alone
-/// ([#481](https://github.com/vdmkenny/openreliant/issues/481)).
+/// ([#481](https://github.com/OpenReliant/openreliant/issues/481)).
 const warp_sizes = [_]WarpSize{
     .{ .type = .badanov, .depth = 15000, .size = 10000 },
     .{ .type = .yamato, .depth = 100000, .size = 50000 },
@@ -889,7 +889,7 @@ const Collapsing = enum {
 /// and the screen flashes.
 ///
 /// Not ported: in missions 16 and 66, the Krasny's split where it is coming through the gate
-/// ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
+/// ([#407](https://github.com/OpenReliant/openreliant/issues/407)).
 pub fn collapseInit(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     log.info(">>>>>>Starting gate collapse at {d}", .{ctx.world.clock.frame_start});
@@ -947,7 +947,7 @@ pub const ring_speed: f32 = 1;
 /// list's start again (`cutIndex`).
 ///
 /// Not ported: the Krasny's split in missions 16 and 66, which holds the second step
-/// ([#407](https://github.com/vdmkenny/openreliant/issues/407)).
+/// ([#407](https://github.com/OpenReliant/openreliant/issues/407)).
 pub fn collapse(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -1107,7 +1107,7 @@ fn setSpeed(model: *objects.Model, name: []const u8, speed: f32) void {
 /// with it.
 ///
 /// Not ported: the parts of models the gate carries, which the game's walk of its nodes reaches
-/// too; no shipped gate carries any ([#540](https://github.com/vdmkenny/openreliant/issues/540)).
+/// too; no shipped gate carries any ([#540](https://github.com/OpenReliant/openreliant/issues/540)).
 fn secondPasses(slot: *create.Slot, on: bool) void {
     const loaded = (slot.type orelse return).loaded;
     for (loaded.parts) |*part| {

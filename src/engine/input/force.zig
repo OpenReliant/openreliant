@@ -10,7 +10,7 @@
 //! that moment, and the platform drives the controller's two motors by it. A waveform slower than
 //! `buzz_frequency` shakes the low motor as it swings; a faster one buzzes the high motor at its
 //! strength. The way an effect pushes, which a force-feedback joystick shows, rumble cannot
-//! ([#244](https://github.com/vdmkenny/openreliant/issues/244)).
+//! ([#244](https://github.com/OpenReliant/openreliant/issues/244)).
 //!
 //! **Improvement:** any controller that rumbles plays the effects, gamepads among them, where the
 //! game plays them on a DirectInput joystick with force feedback alone.

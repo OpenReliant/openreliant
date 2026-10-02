@@ -470,7 +470,7 @@ pub const Stage = enum(i32) {
 /// `order_scoop_up_init` (`0x0041BBF0`): the ship takes a tractor for the pod, its target, and
 /// neither collides with the other from now on. The ship is marked as scooping, which a
 /// multiplayer game's updates pass over
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 ///
 /// **Fix:** with all five tractors in use, `tractor_create` returns -1, which the game keeps and
 /// indexes the tractors with. It takes the word before them (`0x0051D108`, the particle template of
@@ -552,7 +552,7 @@ const bubble_turn: f32 = 0.5;
 /// its door, it marks the pod as scooped, which a multiplayer game's updates pass over.
 ///
 /// Not ported: a multiplayer game's wait for every player, as the beams are made and before the
-/// pod is gone ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// pod is gone ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn scoopUp(ctx: Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;

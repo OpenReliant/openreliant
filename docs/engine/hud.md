@@ -16,7 +16,7 @@ The display's elements as the game's manual names them, with where the code that
 | Missile lock ring | round the target | | a ring that closes in round the target and turns white once a missile has locked, with a tone | `hud_missile_lock` (`0x00491520`), whose count dims the target's brackets as a lock builds ([The lock](missiles.md#the-lock)) |
 | Jump icon | above the middle | J | the prompt to press JUMP DRIVE, once the mission has a jump ready | [The jump prompt](#the-jump-prompt-the-eject-marker-and-the-scanner) |
 | Target display | foot, right | | the target's image with its shields and armour in a ring, its name, its type, its range and its speed; a larger form for a big target, with its current subtarget and a bar for each | [Windows](#the-windows) 3 and 8, [The target display](#the-target-display) |
-| Subtarget | on the target's model | S, SHIFT+S | the parts of the subtarget picked out in red | `hud_subtarget` (`0x0048CC30`), which walks the target's assembly by `link_id`. Not ported ([#531](https://github.com/vdmkenny/openreliant/issues/531)) |
+| Subtarget | on the target's model | S, SHIFT+S | the parts of the subtarget picked out in red | `hud_subtarget` (`0x0048CC30`), which walks the target's assembly by `link_id`. Not ported ([#531](https://github.com/OpenReliant/openreliant/issues/531)) |
 | Radar | foot, middle | V | three rings with the ship at their middle and a wedge for its view ahead; each object a dot, red for hostile, green for friendly, blue for one calling on the radio, on a line up or down from the rings by its height. V narrows and widens its range, the middle ring filling the display at the narrowest | `hud_radar` (`0x00488BD0`), [The radar](#the-radar) |
 | Ship status | foot, left of middle | always shown | the ship's image in two rings of segments, forward, aft and the two sides: shields outside, armour inside. A shield dims as it wears; an armour segment goes as it is lost. Shifting power fore or aft doubles the shields there | `hud_ship_status` (`0x00489350`). For the player's own ship, what [SHIELD BALANCING](controls.md#the-shield-balance) shifted beyond the fore and aft shields shows as a second arc outside each: shapes `0xB2` less the level at `(-0x1A, -0x24)` from the point for the fore reserve, and `0xB7` less the level at `(-0x26, 0x1D)` for the aft one, the level worked out as for a shield. [The ship status indicator](#the-ship-status-indicator) |
 | Missile display | top, middle | M | the missile's name, the ship's missiles in a ring, how many of the chosen one are left, and the one armed at six o'clock. Comma and full stop turn the ring | [Window](#the-windows) 2: the ring (`hud_missile_ring`, `0x00501CC8`, ten entries of five halfwords), its keys and what it shows ([The ring](missiles.md#the-ring)). LAUNCH MISSILE and the ring's keys open it held |
@@ -373,7 +373,7 @@ Between the search under the reticle and its keys, while the radio's window is o
 
 Not ported: the players' names over their ships in a multiplayer game; and what `hud_target_keys`
 does while a multiplayer game's chat line is typed (`chat_typing`, `0x00529FB8`), which leaves out
-every key after the radio's menu ([#55](https://github.com/vdmkenny/openreliant/issues/55)). The
+every key after the radio's menu ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The
 keys' sounds are in [The display's sounds](#the-displays-sounds).
 
 ### The flyback markers
@@ -410,7 +410,7 @@ clears the mark.
 | 1 | the target, in the target display's small form: for a type of the small form, the schematic and the hits, mirrored across unless the type is hostile, where a comms relay or a deathmatch beacon leaves out the hits; the shields and the armour mirrored across, the left arcs the player's right ones and on the left | `(-4, -0x2C)` from window 3's place; the schematic at `(-0x1C, -0x1A)` and the hits at `(-0x1E, -0x1B)` from there |
 
 In mode 1 a stand-in target closes window 3. **Not ported:** in mission 25, a Kamov's schematic
-drawn mirrored in mode 0 ([#528](https://github.com/vdmkenny/openreliant/issues/528)).
+drawn mirrored in mode 0 ([#528](https://github.com/OpenReliant/openreliant/issues/528)).
 
 ## The target display
 
@@ -458,9 +458,9 @@ with the display's new target for the range, the name and the rest. OpenReliant 
 last showed and closes it with that.
 
 **Not ported:** the pilot's name, which a mission gives (`GameObject.pilot_record`,
-[#529](https://github.com/vdmkenny/openreliant/issues/529)); and in a multiplayer game the
+[#529](https://github.com/OpenReliant/openreliant/issues/529)); and in a multiplayer game the
 players' names and one more line of the small form
-([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## The radar
 
@@ -593,7 +593,7 @@ Ported: the charges, the fitting, SMART TARGET, TOGGLE BLINDFIRE, ECM, SPECTRAL 
 SHIP ([`input.zig`](../../src/engine/input.zig)), with their sounds ([The display's
 sounds](#the-displays-sounds)). OpenReliant uncloaks the ship a frame after the cloak runs dry ([In
 OpenReliant](cloak.md#in-openreliant)). Not yet: the tuning of the spectral shields
-([#530](https://github.com/vdmkenny/openreliant/issues/530)).
+([#530](https://github.com/OpenReliant/openreliant/issues/530)).
 
 ## The display's sounds
 
@@ -978,7 +978,7 @@ the instruments and the windows.
 
 - The names of the display's elements, which `hud_init` copies from `0x00515D70`.
 - What windows 5, 6, 9, 12 and 14 are for, which no key opens and a mission's script may, and
-  what window 14 shows ([#105](https://github.com/vdmkenny/openreliant/issues/105)).
+  what window 14 shows ([#105](https://github.com/OpenReliant/openreliant/issues/105)).
 - Why blind fire leaves the Nova Cannon alone.
 - What sets `0x0057BF34`, whose string view `0xD` shows.
 - What `hud_palette_ramp` (`0x0048D590`) colours, and whether the display's text takes its palette

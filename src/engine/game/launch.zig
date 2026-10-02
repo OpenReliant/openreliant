@@ -8,7 +8,7 @@
 //! after it, before `tractor.cpp`'s. [Launches](../../../docs/engine/launch.md) describes them.
 //!
 //! Not ported: the other styles
-//! ([#304](https://github.com/vdmkenny/openreliant/issues/304)). A ship that launches in one waits
+//! ([#304](https://github.com/OpenReliant/openreliant/issues/304)). A ship that launches in one waits
 //! for its launch riding its carrier, as every launching ship does, and is let go where it stands
 //! as its style's steps would begin (`letGo`).
 
@@ -84,7 +84,7 @@ pub const Style = enum(i32) {
 
     /// The style's routines as `launch_styles` (`0x004E3C98`) holds them, which `order_launch_init`
     /// and `order_launch` call by the style; null for a style OpenReliant does not run yet
-    /// ([#304](https://github.com/vdmkenny/openreliant/issues/304)).
+    /// ([#304](https://github.com/OpenReliant/openreliant/issues/304)).
     pub fn routines(style: Style) ?Routines {
         return switch (style) {
             .reliant => .{ .init = &reliant.init, .run = &reliant.run },

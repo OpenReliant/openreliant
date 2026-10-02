@@ -123,7 +123,7 @@ and plays:
 
 All but variable 34 are the campaign's flags, which a new campaign sets to 1 and a mission's
 script may clear; each attempt at a mission clears 34. What each stands for is not known
-([#381](https://github.com/vdmkenny/openreliant/issues/381)). The function has reports for mission
+([#381](https://github.com/OpenReliant/openreliant/issues/381)). The function has reports for mission
 16 too, `new_chapter3_thread1.bik`, `new_chapter3_thread2.bik` and `new_chapter2_thread3.bik`,
 which are never reached, as mission 16 ends no chapter.
 
@@ -234,8 +234,8 @@ a bank.
   ([Renderer](../port/renderer.md#improvements)).
 
 Not ported: the other movies, each with what plays it: the story's end
-([#416](https://github.com/vdmkenny/openreliant/issues/416)), those of the rooms' places
-([#419](https://github.com/vdmkenny/openreliant/issues/419) to
-[#422](https://github.com/vdmkenny/openreliant/issues/422)), and the transitions of the screens not
+([#416](https://github.com/OpenReliant/openreliant/issues/416)), those of the rooms' places
+([#419](https://github.com/OpenReliant/openreliant/issues/419) to
+[#422](https://github.com/OpenReliant/openreliant/issues/422)), and the transitions of the screens not
 yet ported, the in-game options' `igofade.bik` among them
-([#43](https://github.com/vdmkenny/openreliant/issues/43)).
+([#43](https://github.com/OpenReliant/openreliant/issues/43)).

@@ -13,7 +13,7 @@
 //!
 //! Not ported: 3D RENDER MODE, which chooses the game's Direct3D device; and TEXTURE DETAIL, GRAPHIC
 //! DETAIL and LIGHT MAPS, at whose highest OpenReliant draws
-//! ([#493](https://github.com/vdmkenny/openreliant/issues/493)).
+//! ([#493](https://github.com/OpenReliant/openreliant/issues/493)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

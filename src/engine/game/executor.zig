@@ -45,7 +45,7 @@ pub fn commandIndex(comptime name: []const u8) u8 {
 }
 
 /// The implementation of command `number`, or null for one not ported yet
-/// ([#281](https://github.com/vdmkenny/openreliant/issues/281)).
+/// ([#281](https://github.com/OpenReliant/openreliant/issues/281)).
 pub fn implementation(number: u8) ?vm.Implementation {
     return if (number < implementations.len) implementations[number] else null;
 }
@@ -419,7 +419,7 @@ fn startLaunchShip(call: Call, ship: Ship) void {
 /// (`0x00458BE0`), for each ship the first argument names (`perShip`): the ship takes the
 /// invulnerability the command's second argument gives, or where the first names one of its
 /// components (`push_component`), that component does, which its damage does not read yet
-/// (`gameobj.Component.invulnerable`, [#538](https://github.com/vdmkenny/openreliant/issues/538)).
+/// (`gameobj.Component.invulnerable`, [#538](https://github.com/OpenReliant/openreliant/issues/538)).
 /// A ship in the players' slots is reached only in the training missions
 /// (`create.Objects.training`) and in the Reliant's simulator's training (`simulator_mode` 1,
 /// `create.Simulator.Mode.training`).
@@ -605,7 +605,7 @@ fn setShipAvoidanceShip(call: Call, ship: Ship) void {
 /// runs on at once.
 ///
 /// Not ported: a multiplayer game's players' scripts kept in step
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn multiplayerScriptSync(call: Call) u32 {
     _ = call;
     return run_on;
@@ -739,7 +739,7 @@ fn positionRelativeShip(call: Call, ship: Ship) void {
 /// speeds (`input.Player.matching_speed`).
 ///
 /// Not ported: a ship past the players' slots aimed through its Multiplayer Control order, which no
-/// ship has outside a multiplayer game ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ship has outside a multiplayer game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn setPlayerTarget(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
     const world = game.world;
@@ -998,7 +998,7 @@ fn setPrimaryTarget(call: Call, game: aigeneric.Context) void {
 /// second names will stand next, turned as it will be, and stopped (`ai.stop`).
 ///
 /// Not ported: in a multiplayer game, the move told to the other players
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn snapToPoint(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
     const all = game.world.objects;

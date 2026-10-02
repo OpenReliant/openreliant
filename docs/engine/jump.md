@@ -6,7 +6,7 @@ update at a time. Jump In, orders 19 and 40, brings a ship in beside an object: 
 (`0x00416540`) and `order_jump_in` (`0x00416570`). [`jump.zig`](../../src/engine/game/jump.zig)
 holds the four. They are `jump.cpp`'s by the assertion `order_jump_in` makes with its path
 (`0x004165EC`), which [the source map](../binary/sources.md) misses, as it lies in a case of a switch
-([#310](https://github.com/vdmkenny/openreliant/issues/310)).
+([#310](https://github.com/OpenReliant/openreliant/issues/310)).
 
 A mission's script gives the jumps with `SetAI`, most often to a flight group or a squad, each ship
 numbered in turn among them ([Orders](orders.md#the-stack)): that number places it among the ships
@@ -74,7 +74,7 @@ mission has ready (`jump_ready`, `0x0052A3F0`).
 
 In step 1 the Boridin's breakaway (`boridin_breakaway`) lets go of the sprite of its core
 (`Bor brk away CORE`). Not ported: OpenReliant's Jump Out leaves the sprite be
-([#238](https://github.com/vdmkenny/openreliant/issues/238)).
+([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 While the player's ship jumps out (`jump_player_going`, `0x0051D0B0`), `order_jump_out` counts
 `jump_countdown` (`0x0051D0B4`) down from 15 every 10 game ticks (`jump_countdown_next`,

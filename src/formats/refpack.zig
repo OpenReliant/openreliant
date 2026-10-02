@@ -1077,7 +1077,7 @@ test "the largest literals-only payload the game loads in place" {
     // run when 4 or more are left over: a payload of N bytes takes
     // `5 + N / 112 + (N % 112 >= 4) + 1` more than its own size. That is the slack at
     // `testing.largest_in_place` bytes, and one over it a byte later
-    // ([#113](https://github.com/vdmkenny/openreliant/issues/113)).
+    // ([#113](https://github.com/OpenReliant/openreliant/issues/113)).
     const largest = testing.largest_in_place;
     for ([_]usize{ 1000, largest, largest + 1 }) |size| {
         const stream, const kept = try literalStream(gpa, size);

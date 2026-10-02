@@ -28,7 +28,7 @@ const campaign_flags = [_]u8{ 14, 16, 17, 18, 19, 20, 21, 5, 22, 23, 29, 30, 31,
 /// clears the first 32 of the game's variables, then sets the campaign's flags (`campaign_flags`).
 /// `Campaign.begin` sets up the rest of the campaign, mission 1 as the next and each mission's
 /// records, and `save.Game.clearPilot` the pilot's tallies. **Not ported:** the pilot's profile but
-/// for its call sign (`profileCallSign`) ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+/// for its call sign (`profileCallSign`) ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
 pub fn newCampaign(variables: *vm.Variables) void {
     for (0..cleared_variables) |index| variables.slot(@intCast(index)).* = 0;
     for (campaign_flags) |index| variables.slot(index).* = 1;
@@ -237,7 +237,7 @@ pub const Record = struct {
 /// `0x00475A40`).
 ///
 /// Not ported: the pilot's profile written
-/// ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+/// ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
 pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16, tier: u2, campaign: ?*Campaign) ?Record {
     if (!keepsKills(player.ending)) return null;
     const rating = variables.mission_success;

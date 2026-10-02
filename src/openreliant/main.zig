@@ -1211,7 +1211,7 @@ const CampaignNext = union(enum) {
 /// replay asked for, so that the next mission's briefing follows it without the rooms, from the
 /// game's variables as the second part began.
 ///
-/// Not ported: the story's end ([#416](https://github.com/vdmkenny/openreliant/issues/416)).
+/// Not ported: the story's end ([#416](https://github.com/OpenReliant/openreliant/issues/416)).
 fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, saving: Saving, flown: game.interface.main_menu.Flight, restart_point: ?*const save.Save, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !?CampaignNext {
     const loaded = play.loaded orelse return .main_menu;
     const variables = &loaded.script.variables;

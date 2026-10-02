@@ -3,7 +3,7 @@
 //! Ported: the sparks, and those a shot striking a hull throws (`guns.hullHit`), a component
 //! (`guns.componentHit`) or a shield (`shield.zig`). **Not ported:** those of the wall of a
 //! multiplayer mission's arena (`arena_wall_hit`, `0x004B02A0`), which is multiplayer's
-//! ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

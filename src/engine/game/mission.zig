@@ -95,7 +95,7 @@ pub const Loaded = struct {
     /// script acts on the game through `game`.
     ///
     /// Not ported: the script debugger's pause, which holds the threads, the timers and the
-    /// watches ([#539](https://github.com/vdmkenny/openreliant/issues/539)).
+    /// watches ([#539](https://github.com/OpenReliant/openreliant/issues/539)).
     pub fn process(loaded: *Loaded, game: aigeneric.Context) void {
         const script = &loaded.script;
         script.game = game;

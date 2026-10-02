@@ -301,7 +301,7 @@ When the time is up, the split ends once (`GameObject` `0x610` bit 1) and the po
 
 The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)).
 
-[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: the Dark Reign's hat, the Krasnaya's arms and the Boridin breakaway's core, which a split takes apart first ([#238](https://github.com/vdmkenny/openreliant/issues/238)). The Ulysses' own routine is [#232](https://github.com/vdmkenny/openreliant/issues/232).
+[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: the Dark Reign's hat, the Krasnaya's arms and the Boridin breakaway's core, which a split takes apart first ([#238](https://github.com/OpenReliant/openreliant/issues/238)). The Ulysses' own routine is [#232](https://github.com/OpenReliant/openreliant/issues/232).
 
 ### Burning wrecks
 
@@ -331,7 +331,7 @@ Each frame, `explosions_update` streams the smoke and fades the lights. A light 
 - The game keeps a burn light or a stream hanging from its part's frame after the wreck is gone. OpenReliant lets it go with the wreck.
 - The game stops with an assertion where the object has no part of the name. OpenReliant burns nothing.
 
-[`explode.zig`](../../src/engine/game/explode.zig) ports the burning as `burnPart`, and [`create.zig`](../../src/engine/game/create.zig) the wrecks' part of `create_object` as `wreckMade`. Not ported: the Protogate's power core, which burns with rays alone ([#233](https://github.com/vdmkenny/openreliant/issues/233)).
+[`explode.zig`](../../src/engine/game/explode.zig) ports the burning as `burnPart`, and [`create.zig`](../../src/engine/game/create.zig) the wrecks' part of `create_object` as `wreckMade`. Not ported: the Protogate's power core, which burns with rays alone ([#233](https://github.com/OpenReliant/openreliant/issues/233)).
 
 ## The Uber Explode
 
@@ -394,7 +394,7 @@ are. `--original` restores the game's.
 [`explode/uber.zig`](../../src/engine/game/explode/uber.zig) ports the Uber Explode, and
 [`aiexplode.zig`](../../src/engine/game/aiexplode.zig) the order. Its end posts its owner's
 ExplosionShip event ([Script VM](script-vm.md#events)). Not ported: the multiplayer part
-([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## Electric rays
 
@@ -696,7 +696,7 @@ A component's burst (kind 3, `shieldfx_create`, `0x004A0310`) is an emitter of t
 [`guns.zig`](../../src/engine/game/guns.zig) the hull's, and
 [`shield.zig`](../../src/engine/game/shield.zig) a shield's ([Shields](#shields)), and
 [`guns.zig`](../../src/engine/game/guns.zig) a component's. Not ported: the multiplayer arena's
-wall's ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+wall's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## Engine exhaust
 

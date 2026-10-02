@@ -12,7 +12,7 @@ OpenReliant opens in the front end unless `--mission` names a mission. The pilot
 
 Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- The other screens ([#43](https://github.com/vdmkenny/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/vdmkenny/openreliant/issues/404)).
+- The other screens ([#43](https://github.com/OpenReliant/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -31,18 +31,18 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 
 | Screen | Function | Issue |
 |---|---|---|
-| 0, the main menu | `main_menu` (`0x00428B60`) | [#396](https://github.com/vdmkenny/openreliant/issues/396) |
+| 0, the main menu | `main_menu` (`0x00428B60`) | [#396](https://github.com/OpenReliant/openreliant/issues/396) |
 | 1, GAME OPTIONS ([GAME OPTIONS](#game-options)) | `game_options` (`0x0042A620`) | |
 | 3, the audio ([Audio](#audio)) | `audio_screen` (`0x0042DAB0`) | |
 | 15, the video ([Video](#video)) | `video_screen` (`0x0042E9B0`) | |
 | 16, the controls ([Controls](#controls)) | `controls_screen` (`0x0042B690`) | |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
-| 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/vdmkenny/openreliant/issues/404) |
-| 12, the pilot roster | `0x00430490` | [#397](https://github.com/vdmkenny/openreliant/issues/397) |
+| 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
+| 12, the pilot roster | `0x00430490` | [#397](https://github.com/OpenReliant/openreliant/issues/397) |
 | 13, the saved games ([The saved games](#the-saved-games)) | `saved_games` (`0x00431730`) | |
-| 14, the multiplayer connection | `0x00432FC0` | [#404](https://github.com/vdmkenny/openreliant/issues/404) |
-| 17 and 18, a session's loadout | `0x0044B950`, with `0x0051D54C` set or clear | [#404](https://github.com/vdmkenny/openreliant/issues/404) |
+| 14, the multiplayer connection | `0x00432FC0` | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
+| 17 and 18, a session's loadout | `0x0044B950`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
 
 Any other number returns 3. **Unknown:** what selects screen 8: `WinMain` plays the landing itself. What `interface_run` returns tells WinMain what to do:
 
@@ -369,7 +369,7 @@ OpenReliant keeps what the roster sets in `Interface.pilot`, which flies every m
 
 Not ported:
 
-- Writing the pilot's profile, as the roster changes the call sign, as a campaign starts without one, and as each mission starts ([#74](https://github.com/vdmkenny/openreliant/issues/74), [#301](https://github.com/vdmkenny/openreliant/issues/301)). OpenReliant reads the call sign from the profile the game's folder has.
+- Writing the pilot's profile, as the roster changes the call sign, as a campaign starts without one, and as each mission starts ([#74](https://github.com/OpenReliant/openreliant/issues/74), [#301](https://github.com/OpenReliant/openreliant/issues/301)). OpenReliant reads the call sign from the profile the game's folder has.
 
 **Fixes:**
 
@@ -409,7 +409,7 @@ Each pass, Escape leaves, and Down and Up scroll the list a row while held, wher
 
 **Improvement:** the day's and the month's names in the date are English, where the game takes the system's language's.
 
-Not ported: what the multiplayer games do with the saved games: the co-op host's load, the multiplayer debriefing's save, and a load sent to the other players ([#475](https://github.com/vdmkenny/openreliant/issues/475)).
+Not ported: what the multiplayer games do with the saved games: the co-op host's load, the multiplayer debriefing's save, and a load sent to the other players ([#475](https://github.com/OpenReliant/openreliant/issues/475)).
 
 ## Backgrounds
 
@@ -445,7 +445,7 @@ parts it loads. It sets the renderer and the textures up once, as it starts, so 
 frames follow each other at once. Meanwhile the system's events wait for the loop.
 
 Not ported: the players' names in a network session
-([#404](https://github.com/vdmkenny/openreliant/issues/404)).
+([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 
 **Improvements:**
 

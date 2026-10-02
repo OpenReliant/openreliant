@@ -109,7 +109,7 @@ make it read that size as the expanded one, and has no path for bit 7 (4-byte si
 a member holds at most 16777215 bytes.
 
 The bound, its two shapes and the shipped streams' values are from a comment on
-[#113](https://github.com/vdmkenny/openreliant/issues/113) by the
+[#113](https://github.com/OpenReliant/openreliant/issues/113) by the
 [Starlancer-OSS](https://github.com/LordBlacksun/Starlancer-OSS) project (its documentation is
 licensed CC BY 4.0), which ran `refpack_expand` on generated streams under emulation: 1146211 bytes
 of literals load and 1146212 do not, and neither does 2000000 zero bytes followed by a tail of

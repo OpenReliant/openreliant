@@ -15,7 +15,7 @@
 //! [`objectives_window.zig`](objectives_window.zig), the radio's menu
 //! ([`videoreports/menu.zig`](../videoreports/menu.zig)), [`wing_status.zig`](wing_status.zig)).
 //! Not yet: what windows 5, 6, 9, 12 and 14 are for, and what window 14 shows
-//! ([#105](https://github.com/vdmkenny/openreliant/issues/105)).
+//! ([#105](https://github.com/OpenReliant/openreliant/issues/105)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

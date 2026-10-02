@@ -150,12 +150,12 @@ hostile, and 2 for the rest, which are neutral. Two objects on different sides a
 `Objects` is OpenReliant's GO array: each slot the object's record, and what OpenReliant keeps
 beside it where the record holds the original's pointers. Not ported yet: the tier, which chooses
 the guns; the guns and their groups, the loadout and its pods
-([#131](https://github.com/vdmkenny/openreliant/issues/131),
-[#38](https://github.com/vdmkenny/openreliant/issues/38),
-[#39](https://github.com/vdmkenny/openreliant/issues/39)); the shield's effect
-([#133](https://github.com/vdmkenny/openreliant/issues/133)); the special types but the wrecks and
+([#131](https://github.com/OpenReliant/openreliant/issues/131),
+[#38](https://github.com/OpenReliant/openreliant/issues/38),
+[#39](https://github.com/OpenReliant/openreliant/issues/39)); the shield's effect
+([#133](https://github.com/OpenReliant/openreliant/issues/133)); the special types but the wrecks and
 the planets, which `planetMade` sets up once the mission has made the planet and its atmosphere,
-and Titan's Planet Bombard ([#233](https://github.com/vdmkenny/openreliant/issues/233)); the ship a
+and Titan's Planet Bombard ([#233](https://github.com/OpenReliant/openreliant/issues/233)); the ship a
 player chose for the mission; and the multiplayer cases.
 
 ## Flags
@@ -516,7 +516,7 @@ object at the start of each step, after `gameobj.orthonormalizeTurn` on the obje
 (`gameobj.nextTurn`). `create.objectsUpdate` then moves them.
 
 Not yet ported: the inertia tensor that `object_recentre` inverts into `0x548`
-([#87](https://github.com/vdmkenny/openreliant/issues/87)), so knocks don't turn objects in
+([#87](https://github.com/OpenReliant/openreliant/issues/87)), so knocks don't turn objects in
 OpenReliant yet.
 
 ## Shields
@@ -647,10 +647,10 @@ A ship's end, and the limpet car's, posts its Destroyed event for the mission's 
 
 The blasts' break-up, particles, fireballs, burning bits and shockwaves are in
 [Effects](effects.md). Not ported: what a few types set off first
-([#238](https://github.com/vdmkenny/openreliant/issues/238)); the Ulysses' own end
-([#232](https://github.com/vdmkenny/openreliant/issues/232)); and the pilots' records the end keeps,
+([#238](https://github.com/OpenReliant/openreliant/issues/238)); the Ulysses' own end
+([#232](https://github.com/OpenReliant/openreliant/issues/232)); and the pilots' records the end keeps,
 its pilot taken off the wing's list (`0x0058A958`) and marked lost (`0x005047D0`)
-([#301](https://github.com/vdmkenny/openreliant/issues/301)).
+([#301](https://github.com/OpenReliant/openreliant/issues/301)).
 
 ## Components
 
@@ -665,7 +665,7 @@ come first, in part order, and then, part by part and mount by mount, those of t
 A component's entry holds its node, the slot of the parent's child list that holds it, and at `+8`
 the invulnerability `SetInvulnerability` gives the component, a halfword that `component_damage`
 reads as it reads an object's: 2 keeps off every hit, and 1 every hit but a player's ship's.
-OpenReliant does not read it yet ([#538](https://github.com/vdmkenny/openreliant/issues/538)).
+OpenReliant does not read it yet ([#538](https://github.com/OpenReliant/openreliant/issues/538)).
 
 A component's armour comes from its part's record (`0x104`), and `component_damage`
 (`0x004645C0`) wears it down: the damage goes to the first part of the component's assembly that
@@ -718,9 +718,9 @@ event first ([Script VM](script-vm.md#events)).
 
 [`objects.zig`](../../src/engine/game/objects.zig) ports the pass as `loseComponents` and
 `node_destroy` as `destroyPart`. Not ported: the subtarget's red parts
-([#531](https://github.com/vdmkenny/openreliant/issues/531)), the types' own extras
-([#238](https://github.com/vdmkenny/openreliant/issues/238)) and the Ulysses' routine
-([#232](https://github.com/vdmkenny/openreliant/issues/232)).
+([#531](https://github.com/OpenReliant/openreliant/issues/531)), the types' own extras
+([#238](https://github.com/OpenReliant/openreliant/issues/238)) and the Ulysses' routine
+([#232](https://github.com/OpenReliant/openreliant/issues/232)).
 
 OpenReliant lists them in [`create.zig`](../../src/engine/game/create.zig) as the parts themselves,
 since a mounted turret's parts are not the hull's, and marks each one as a component and, where the

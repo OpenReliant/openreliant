@@ -5,7 +5,7 @@
 //! The radio's menu (`videoreports.menu`) names the wingman, or the whole wing.
 //!
 //! Not ported: the command sent to another player of a multiplayer game (`0x004BA040`,
-//! `0x004BA080`, `0x004BA0C0`) ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! `0x004BA080`, `0x004BA0C0`) ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 

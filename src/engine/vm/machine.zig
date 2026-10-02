@@ -13,7 +13,7 @@
 //! why.
 //!
 //! Not ported: the script debugger that `vm_run` serves
-//! ([#539](https://github.com/vdmkenny/openreliant/issues/539)).
+//! ([#539](https://github.com/OpenReliant/openreliant/issues/539)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

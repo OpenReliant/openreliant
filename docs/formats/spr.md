@@ -72,7 +72,7 @@ Pixels are palette indices. What a row skips, or leaves past its end, stays tran
 `VFX_shape_draw` (`winvfx16.dll`, `0x10003596`) draws every pixel of a run in its palette colour,
 index 0 included. OpenReliant draws index 0 so only for the crew in the rooms, who show over a
 movie's frame ([The crew](../engine/rooms.md#the-crew)), and leaves it transparent everywhere else
-([#518](https://github.com/vdmkenny/openreliant/issues/518)).
+([#518](https://github.com/OpenReliant/openreliant/issues/518)).
 
 ## Palettes
 

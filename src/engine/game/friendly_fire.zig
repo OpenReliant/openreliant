@@ -7,7 +7,7 @@
 //!
 //! Not ported: a multiplayer game's side of it, in which a player told of an ejected pilot's
 //! destruction hears the carrier abort the mission, and the other players' ships jump out
-//! ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const assert = std.debug.assert;

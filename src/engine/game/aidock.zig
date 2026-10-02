@@ -5,7 +5,7 @@
 //! convoy docks at Fort Sherman by. `docs/engine/orders.md` describes it.
 //!
 //! Not ported: the Nanny's, the limpet car's, the limpet car's at the Czar and the limpet pod's
-//! styles ([#320](https://github.com/vdmkenny/openreliant/issues/320)), which leave the ship
+//! styles ([#320](https://github.com/OpenReliant/openreliant/issues/320)), which leave the ship
 //! doing nothing.
 
 const std = @import("std");
@@ -200,7 +200,7 @@ pub fn init(ctx: Context, index: u16) void {
     entry.data.dock.style = .of(all.slots[index].object.type, all.slots[target].object.type);
     switch (entry.data.dock.style) {
         .station => stationInit(ctx, index),
-        // Not ported ([#320](https://github.com/vdmkenny/openreliant/issues/320)).
+        // Not ported ([#320](https://github.com/OpenReliant/openreliant/issues/320)).
         .nanny, .limpet_car, .limpet_car_czar, .limpet_pod, _ => {},
     }
 }
@@ -251,7 +251,7 @@ fn isDockPoint(attachment: shp.Attachment, _: usize) bool {
 pub fn update(ctx: Context, index: u16) void {
     switch (ctx.world.objects.slots[index].orders[0].data.dock.style) {
         .station => stationUpdate(ctx, index),
-        // Not ported ([#320](https://github.com/vdmkenny/openreliant/issues/320)).
+        // Not ported ([#320](https://github.com/OpenReliant/openreliant/issues/320)).
         .nanny, .limpet_car, .limpet_car_czar, .limpet_pod, _ => {},
     }
 }
@@ -262,7 +262,7 @@ pub fn exit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     switch (slot.orders[0].data.dock.style) {
         .station, .nanny => slot.object.passes_through[0] = .none,
-        // Not ported ([#320](https://github.com/vdmkenny/openreliant/issues/320)).
+        // Not ported ([#320](https://github.com/OpenReliant/openreliant/issues/320)).
         .limpet_car, .limpet_car_czar, .limpet_pod, _ => {},
     }
 }

@@ -9,7 +9,7 @@ OpenReliant needs the assets from a legally obtained copy of StarLancer (discs o
   - Disc image files (.bin with .cue, or .iso), or
   - Extracted disc folders.
 - OpenReliant binary:
-  - Download the latest release from the [releases page](https://github.com/vdmkenny/openreliant/releases/latest), or
+  - Download the latest release from the [releases page](https://github.com/OpenReliant/openreliant/releases/latest), or
   - Build from source using Zig 0.16.
 
 ## Quickstart

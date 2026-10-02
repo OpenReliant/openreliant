@@ -51,7 +51,7 @@ pub const manifest_name = "mod.ini";
 pub const manifest_section = "Mod";
 
 /// A picture of the mod, in its archive or its folder, which a mod manager shows
-/// ([#497](https://github.com/vdmkenny/openreliant/issues/497)): a PNG file. Like the manifest, it
+/// ([#497](https://github.com/OpenReliant/openreliant/issues/497)): a PNG file. Like the manifest, it
 /// is the mod's own.
 pub const thumbnail_name = "mod.png";
 

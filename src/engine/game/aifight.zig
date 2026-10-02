@@ -303,7 +303,7 @@ pub const Players = struct {
 /// its number gives (`pilots.Table.get`).
 ///
 /// Not ported: a multiplayer game's, where the host chooses the maneuvers and the ship starts on
-/// 200 ticks of the first ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// 200 ticks of the first ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn init(ctx: aigeneric.Context, index: u16) void {
     const fighter = Fighter.unchecked(ctx, index) orelse return;
     if (fighter.against.slot >= ctx.world.objects.count) return;
@@ -321,7 +321,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
 /// (`updateCloak`) and runs the maneuver.
 ///
 /// Not ported: a multiplayer game's, where the host chooses the maneuvers
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn update(ctx: aigeneric.Context, index: u16) void {
     const fighter: Fighter = .of(ctx, index, ai.targetOrPop(ctx, index, .{}) orelse return);
     if (fighter.now() > fighter.state.maneuver_end) choose(fighter);
@@ -635,7 +635,7 @@ const launch_odds: f32 = 0.2;
 /// and locks again from the start.
 ///
 /// Not ported: a multiplayer game's client, which leaves the launch to the host
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn aimMissile(fighter: Fighter) void {
     const ship = fighter.ship();
     const all = fighter.objects();
@@ -662,7 +662,7 @@ fn aimMissile(fighter: Fighter) void {
 /// drops a countermeasure.
 ///
 /// Not ported: a multiplayer game's client, which leaves the countermeasure to the host
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn counterMissiles(fighter: Fighter) void {
     const ship = fighter.ship();
     const range = fighter.pilot.timings.countermeasures;

@@ -14,7 +14,7 @@
 //! 1.42857 a share, 0.19635 and 0.349066 radians); OpenReliant divides.
 //!
 //! Not ported: what a blast in a multiplayer game spares, counts and tells the players, which is
-//! multiplayer's ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

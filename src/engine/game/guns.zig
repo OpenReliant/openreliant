@@ -1294,8 +1294,8 @@ fn shotColour(player: bool, side: gameobj.Side(i32)) [3]f32 {
 /// A ship aiming blind turns the shot from its muzzle to fly at where it aims (`blindAim`).
 ///
 /// Not ported: how the other gun types' shots are drawn
-/// ([#154](https://github.com/vdmkenny/openreliant/issues/154)); its sound
-/// ([#47](https://github.com/vdmkenny/openreliant/issues/47)).
+/// ([#154](https://github.com/OpenReliant/openreliant/issues/154)); its sound
+/// ([#47](https://github.com/OpenReliant/openreliant/issues/47)).
 pub fn shoot(world: gameobj.World, clock: *const Clock, owner: u16, barrel: Barrel, is_heard: bool) void {
     const all = world.objects;
     const slot = &all.slots[owner];
@@ -1581,7 +1581,7 @@ pub fn moveBullets(world: gameobj.World) void {
 /// without striking anything bursts (`effects.flakBurst`).
 ///
 /// Not ported: how the shots are drawn, their colours fading with their life, and the lights they
-/// carry ([#154](https://github.com/vdmkenny/openreliant/issues/154)); what multiplayer makes of a
+/// carry ([#154](https://github.com/OpenReliant/openreliant/issues/154)); what multiplayer makes of a
 /// hit.
 pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) void {
     const bullets = &world.objects.bullets;

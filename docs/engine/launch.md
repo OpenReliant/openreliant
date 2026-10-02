@@ -199,10 +199,10 @@ ends as the ship drops out of the hangar (step 6), before it would reach the win
 
 Not ported:
 
-- The other styles ([#304](https://github.com/vdmkenny/openreliant/issues/304)). A ship that
+- The other styles ([#304](https://github.com/OpenReliant/openreliant/issues/304)). A ship that
   launches in one rides its carrier's root while it waits, as every launching ship does, and is let
   go where it stands as its style's steps would begin, passing through its carrier no more, its
   Launched event posted as the style's end would post it.
 - The Kamov's LAUNCH MISSILE, which starts its torpedoes' launches
-  ([#305](https://github.com/vdmkenny/openreliant/issues/305)), and a multiplayer game's
-  ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+  ([#305](https://github.com/OpenReliant/openreliant/issues/305)), and a multiplayer game's
+  ([#55](https://github.com/OpenReliant/openreliant/issues/55)).

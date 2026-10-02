@@ -76,7 +76,7 @@ As the window goes inactive, the message pump's part in [`game/winmain.zig`](../
 - **Improvement:** a missile's sound follows the missile, moving with it, so it can be told where it is and heard passing by, and ends with it (`sound3d.MissileSound.follows`). It keeps its full volume half as far again as its definition has it, so it carries a little as the missile flies off. The game leaves it where the missile was launched. `--original` leaves it there too.
 - OpenAL Soft's resampling, placing, moving listener, sizes, air absorption, subwoofer and reverbs, and the master bus, above.
 
-The landing's hangar takes the same room once the landing is ported ([#280](https://github.com/vdmkenny/openreliant/issues/280)).
+The landing's hangar takes the same room once the landing is ported ([#280](https://github.com/OpenReliant/openreliant/issues/280)).
 
 ## Not ported
 

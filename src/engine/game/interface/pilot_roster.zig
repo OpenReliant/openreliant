@@ -5,8 +5,8 @@
 //! leads to the saved games, and MAIN MENU and QUIT to what they name.
 //!
 //! Not ported: writing the pilot's profile, `profile.bin`, which the roster does as the call sign
-//! changes (`profile_save`, [#74](https://github.com/vdmkenny/openreliant/issues/74),
-//! [#301](https://github.com/vdmkenny/openreliant/issues/301)).
+//! changes (`profile_save`, [#74](https://github.com/OpenReliant/openreliant/issues/74),
+//! [#301](https://github.com/OpenReliant/openreliant/issues/301)).
 
 const std = @import("std");
 const assert = std.debug.assert;

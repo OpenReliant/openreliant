@@ -139,7 +139,7 @@ const Report = struct {
 /// variables are the game's, by number (`vm.Variables`): all but 34 are the campaign's flags, which
 /// a new campaign sets (`gameflow.newCampaign`) and a mission's script may clear, and each attempt
 /// at a mission clears 34 (`gameflow.resetVariables`). What each stands for is not known
-/// ([#381](https://github.com/vdmkenny/openreliant/issues/381)). Mission 16's are never reached, as
+/// ([#381](https://github.com/OpenReliant/openreliant/issues/381)). Mission 16's are never reached, as
 /// it ends no chapter.
 const news = [_]struct { mission: u16, reports: []const Report }{
     .{ .mission = 7, .reports = &.{

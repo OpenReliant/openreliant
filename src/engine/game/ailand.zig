@@ -8,7 +8,7 @@
 //! this file's. They lie after its known code, before `airipper.cpp`'s, and the style table
 //! (`land_styles`, `0x004E1FE8`), just before this file's path, ties them to Land.
 //!
-//! Not ported: the Yamato's style ([#349](https://github.com/vdmkenny/openreliant/issues/349)),
+//! Not ported: the Yamato's style ([#349](https://github.com/OpenReliant/openreliant/issues/349)),
 //! whose landing OpenReliant lets go of at once.
 
 const std = @import("std");

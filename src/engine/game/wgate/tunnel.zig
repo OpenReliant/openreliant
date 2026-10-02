@@ -28,14 +28,14 @@ const Detail = @import("../explode.zig").Detail;
 /// What a tunnel serves, its record's kind (`+0x00`).
 pub const Kind = enum(u32) {
     /// A warp's (`order_warp_out`, `order_warp_in`), not ported
-    /// ([#481](https://github.com/vdmkenny/openreliant/issues/481)).
+    /// ([#481](https://github.com/OpenReliant/openreliant/issues/481)).
     warp = 0,
     /// A fixed gate's, while no advanced gate is among the objects: blue.
     proto = 1,
     /// A fixed gate's, with an advanced gate among the objects: red.
     advanced = 2,
     /// The Boridin's projection's, not ported
-    /// ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+    /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
     boridin = 3,
 };
 

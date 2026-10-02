@@ -92,11 +92,11 @@ hardpoints of a part linked to another, as in `Jap_Sai.SHP` and `Chin_Han.SHP`, 
 
 **Fix:** a rack of no missile leaves its hardpoint bare and is taken out, the racks after it moving
 down, so that each hardpoint after it takes the rack the loadout fitted on it
-([#451](https://github.com/vdmkenny/openreliant/issues/451)). The game flies without the missiles
+([#451](https://github.com/OpenReliant/openreliant/issues/451)). The game flies without the missiles
 of every rack after an empty one, and without any where the first is empty.
 
 Not ported: the Nanny's re-arm (`order_dock`, `0x00407A5F`,
-[#320](https://github.com/vdmkenny/openreliant/issues/320)).
+[#320](https://github.com/OpenReliant/openreliant/issues/320)).
 
 ## Flight
 

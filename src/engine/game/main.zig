@@ -95,7 +95,7 @@ pub const Ending = enum(u8) {
     left = 4,
     /// The script rated the mission a total failure, which `mission_end_record` settles as the
     /// mission ends (`0x00475CE5`). **Not ported:** the mission's end
-    /// ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+    /// ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
     total_failure = 5,
     /// The player's ship sent home for destroying a friend (`0x00474B40`), which gives it Friendly
     /// Fire, order 117; its landing begins at once (`ailand`).
@@ -987,7 +987,7 @@ pub const DrawBudget = enum {
 ///
 /// Not ported yet: what else the pass draws for a few types, the protogate's power core
 /// pulsing, the Boridin breakaway's core and the Dark Reign's hat
-/// ([#238](https://github.com/vdmkenny/openreliant/issues/238)); the cutaway scenes' own rules, and
+/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)); the cutaway scenes' own rules, and
 /// the gate's tunnel, in which no object is drawn. The pass's smoke is `smoke.frame`.
 pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, attachments: objects.View, seat: ?u16, splits: ?*const explode.split.Splits, shown: Shown) Allocator.Error!void {
     var walk = all.walk();
@@ -1527,7 +1527,7 @@ pub const PlayerShip = struct {
 ///
 /// In mission 25's first part (`mission_number`, `mission25_second_part`), the start loads the
 /// Kamov's cockpit, `kamg_frm.shp`, whatever the ship, which OpenReliant does not yet
-/// ([#301](https://github.com/vdmkenny/openreliant/issues/301)).
+/// ([#301](https://github.com/OpenReliant/openreliant/issues/301)).
 pub const player_ships = [_]PlayerShip{
     .{ .cockpit = "preg_frm.shp", .wire_frame = 0x116, .wing_icon = 0xFC, .blind_fire = true },
     .{ .cockpit = "nagg_frm.shp", .wire_frame = 0x10E, .wing_icon = 0xFA, .spectral_shields = true },
@@ -1644,7 +1644,7 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 /// Not ported: the renderer's and the textures' setting up, which OpenReliant does once as it
 /// starts; the chat line and a multiplayer game; and what the start does for the campaign: the
 /// pilots it gives the player's wing, mission 25's first part's cockpit, and the pilot's profile
-/// ([#301](https://github.com/vdmkenny/openreliant/issues/301)).
+/// ([#301](https://github.com/OpenReliant/openreliant/issues/301)).
 pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Loaded {
     const types = start.types.types();
     var orders = start.orders;

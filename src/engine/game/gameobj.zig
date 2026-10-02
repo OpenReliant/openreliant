@@ -211,7 +211,7 @@ pub const Component = extern struct {
     /// The invulnerability `SetInvulnerability` gives the component: under 2 no hit harms it, and
     /// under 1 only a hit a player's ship deals, as `Invulnerability.protects` reads an object's
     /// (`component_damage`, `0x004645C0`); 0 for none. Nothing reads it yet
-    /// (`collision.componentDamage`, [#538](https://github.com/vdmkenny/openreliant/issues/538)).
+    /// (`collision.componentDamage`, [#538](https://github.com/OpenReliant/openreliant/issues/538)).
     invulnerable: u16,
     _unknown_0a: u16,
 

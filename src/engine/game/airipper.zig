@@ -11,7 +11,7 @@
 //! `0x00411420` to `0x004124D0`, after it, are the file's.
 //!
 //! Not ported: a multiplayer game's wait for the other players between the steps
-//! (`ai_sequence_sync`, `0x00401000`, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! (`ai_sequence_sync`, `0x00401000`, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const assert = std.debug.assert;

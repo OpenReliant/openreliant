@@ -19,14 +19,14 @@ after each mission of the campaign.
 Ported so far: the ITAC's loop, with its movies, its sections' pictures and titles, the fades of
 their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds; and
 DEBRIEFINGS with REPLAY MISSION. Not yet: the other sections, which show their pictures with nothing
-written on them: NEWS REPORTS ([#461](https://github.com/vdmkenny/openreliant/issues/461)), VIDEO
-REPORTS ([#462](https://github.com/vdmkenny/openreliant/issues/462)), the fighters
-([#463](https://github.com/vdmkenny/openreliant/issues/463)), the capital ships
-([#464](https://github.com/vdmkenny/openreliant/issues/464)), the squadrons
-([#465](https://github.com/vdmkenny/openreliant/issues/465)) and the personnel
-([#466](https://github.com/vdmkenny/openreliant/issues/466)) of either side, and the KILLBOARD
-([#467](https://github.com/vdmkenny/openreliant/issues/467)); and the buttons' tooltips
-([#468](https://github.com/vdmkenny/openreliant/issues/468)).
+written on them: NEWS REPORTS ([#461](https://github.com/OpenReliant/openreliant/issues/461)), VIDEO
+REPORTS ([#462](https://github.com/OpenReliant/openreliant/issues/462)), the fighters
+([#463](https://github.com/OpenReliant/openreliant/issues/463)), the capital ships
+([#464](https://github.com/OpenReliant/openreliant/issues/464)), the squadrons
+([#465](https://github.com/OpenReliant/openreliant/issues/465)) and the personnel
+([#466](https://github.com/OpenReliant/openreliant/issues/466)) of either side, and the KILLBOARD
+([#467](https://github.com/OpenReliant/openreliant/issues/467)); and the buttons' tooltips
+([#468](https://github.com/OpenReliant/openreliant/issues/468)).
 
 **Fixes:**
 

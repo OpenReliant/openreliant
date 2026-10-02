@@ -123,7 +123,7 @@ pub const View = enum(u8) {
     flyby = 0x24,
     /// **Unknown:** what it shows. The second of the two views the Yamato's landing picks from
     /// (`0x0040EBC0`), which OpenReliant has not ported
-    /// ([#349](https://github.com/vdmkenny/openreliant/issues/349)).
+    /// ([#349](https://github.com/OpenReliant/openreliant/issues/349)).
     _unknown_37 = 0x25,
     /// **Unknown:** in which the player's own ship is heard flying past no more than from the
     /// cockpit (`sound3d_engine_update`).

@@ -7,7 +7,7 @@
 //! Not ported: a multiplayer game's pages (`Page.multiplayer` to `Page.deny`), which list the other
 //! players, send them messages and the wingmen's commands, and answer another player's request,
 //! and the chat line they type in (`chat_typing`, `0x00529FB8`)
-//! ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

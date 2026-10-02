@@ -67,7 +67,7 @@ After moving objects, `objects_update` gathers colliding candidates: slot index,
 
 Before separation, the two objects apply an impulse shove (`0x00464E80`). The contact point on each sphere moves with the object between steps, so a turning ship strikes with its wingtip speed. The impulse is calculated from closing velocity over both masses and `angular_response`, doubled so the bounce preserves relative impact speed, and applied equally and oppositely via `object_knock`. Attached objects and the Ripper with a captured victim receive no shove.
 
-Two spheres collide along the line between their centers, applying no torque, so neither ship is set spinning. Hull faces do apply torque ([#143](https://github.com/vdmkenny/openreliant/issues/143)).
+Two spheres collide along the line between their centers, applying no torque, so neither ship is set spinning. Hull faces do apply torque ([#143](https://github.com/OpenReliant/openreliant/issues/143)).
 
 The pair is then separated along that line: each object is placed at 1.1 times its own radius from the midpoint between the two, preventing overlapping on the next step.
 
@@ -84,6 +84,6 @@ Impact damage is calculated from the collision impulse (`collision_damage`, `0x0
 
 Ported so far: the sweep, ignored pairs, shove impulse, object separation, hull collision tree tests, a torpedo's strike on a hull, and damage ([`collision.zig`](../../src/engine/game/collision.zig)). Collisions do not damage components but for a torpedo's strike.
 
-A destroyed torpedo or mine runs Explode ([Destruction](objects.md#destruction)), through `object_destroyed_net` (`0x00402100`), which first tells the other players where a network session runs a mission that is not multiplayer's. Not ported: that message, and a mine's 5000 in a multiplayer game, which credits the kill to its owner ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+A destroyed torpedo or mine runs Explode ([Destruction](objects.md#destruction)), through `object_destroyed_net` (`0x00402100`), which first tells the other players where a network session runs a mission that is not multiplayer's. Not ported: that message, and a mine's 5000 in a multiplayer game, which credits the kill to its owner ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 Difficulty scales collision damage ([Destruction](objects.md#destruction)).

@@ -14,7 +14,7 @@
 //! Stalag's, and a split's burning bits may be bodies.
 //!
 //! Not ported: the Dark Reign's hat, the Krasnaya's arms and the Boridin breakaway's core, which
-//! the split takes apart first ([#238](https://github.com/vdmkenny/openreliant/issues/238)).
+//! the split takes apart first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -554,7 +554,7 @@ fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
 ///
 /// Not ported: the special parts a few types take apart first, the Dark Reign's hat, the
 /// Krasnaya's arms and the Boridin breakaway's core
-/// ([#238](https://github.com/vdmkenny/openreliant/issues/238)).
+/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 pub fn start(world: gameobj.World, index: u16) void {
     const explosions = world.explosions orelse return;
     const all = world.objects;

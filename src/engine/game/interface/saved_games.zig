@@ -10,7 +10,7 @@
 //!
 //! Not ported: what the multiplayer games do with it: the co-op host's load, the multiplayer
 //! debriefing's save, and a load sent to the other players
-//! ([#475](https://github.com/vdmkenny/openreliant/issues/475)).
+//! ([#475](https://github.com/OpenReliant/openreliant/issues/475)).
 
 const std = @import("std");
 

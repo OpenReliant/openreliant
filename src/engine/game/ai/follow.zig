@@ -8,7 +8,7 @@
 //! `aidefend.cpp`'s, and does the orders' work, as `Ai.cpp`'s neighbours do.
 //!
 //! Not ported: a multiplayer game's wait for the other players before the path and after it
-//! (`ai_sequence_sync`, `0x00401000`, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! (`ai_sequence_sync`, `0x00401000`, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -104,12 +104,12 @@ pub const Step = enum(u8) {
     /// It flies to where the path starts, turned along it (`ai.arrive`).
     arriving = 0,
     /// It waits for the other players in a multiplayer game; in a game of one, it goes on at once
-    /// (not ported: the wait, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
+    /// (not ported: the wait, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
     ready = 1,
     /// It follows the path, which moves on to `done` at its end.
     following = 2,
     /// The order ends, once the other players are there too in a multiplayer game (not ported:
-    /// the wait, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
+    /// the wait, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
     done = 3,
     _,
 };
@@ -294,7 +294,7 @@ pub fn backwardsExit(ctx: Context, index: u16) void {
 ///
 /// Not ported: an end to a path that comes round on itself, which it flies for ever, where the
 /// path's length and its walk backwards stop at as many curves as the mission has
-/// (`curves.following`, [#535](https://github.com/vdmkenny/openreliant/issues/535)).
+/// (`curves.following`, [#535](https://github.com/OpenReliant/openreliant/issues/535)).
 pub fn curveWay(world: gameobj.World, index: u16) motion.Way {
     const slot = &world.objects.slots[index];
     const state = &slot.state.follow;

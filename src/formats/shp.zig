@@ -747,7 +747,7 @@ pub const Material = extern struct {
 };
 
 /// Tag `0x0F`. A trigger polygon, kept as the file holds it: its fields are not decoded yet
-/// ([#11](https://github.com/vdmkenny/openreliant/issues/11)).
+/// ([#11](https://github.com/OpenReliant/openreliant/issues/11)).
 pub const TriggerPolygon = extern struct {
     _unknown_00: [16]u8,
 

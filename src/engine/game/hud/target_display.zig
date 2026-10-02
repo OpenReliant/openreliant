@@ -18,9 +18,9 @@
 //! with that.
 //!
 //! Not ported: the pilot's name under the type's, for a named pilot (`GameObject.pilot_record`),
-//! which a mission gives ([#529](https://github.com/vdmkenny/openreliant/issues/529)); and in a
+//! which a mission gives ([#529](https://github.com/OpenReliant/openreliant/issues/529)); and in a
 //! multiplayer game the players' names and one more line of the small form
-//! ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

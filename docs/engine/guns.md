@@ -196,7 +196,7 @@ firing arcs are defined, the direction in root space indexes a 32-row by 16-colu
 requiring four adjacent bits set. The original game calculated angle from Y by dividing X by
 `sin(yaw)`, which divides by zero when pointing straight forward or backward. **Fix:** OpenReliant
 calculates the transverse length directly. Not ported: Stalag turrets firing in all directions while
-`0x005883F8` is set ([#220](https://github.com/vdmkenny/openreliant/issues/220)). **Improvement:**
+`0x005883F8` is set ([#220](https://github.com/OpenReliant/openreliant/issues/220)). **Improvement:**
 OpenReliant converts angles using exact mathematical constants rather than approximations
 (`57.2958`, `0.0174533`, `3.14159`, `6.28319`).
 
@@ -208,9 +208,9 @@ sub-components (excluding Kurgan, Antanov, Nanny, and Prowler). The original gam
 target validity during selection, causing cloaked, exploding, or untargetable entities to monopolize
 targeting queues. **Fix:** OpenReliant skips entities that tracking would drop. In multiplayer, it
 skips the player who last damaged the object (`+0x10`), which OpenReliant omits
-([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
-**Fix:** in the original game, rear fighter turrets (including the Predator tail gun) have rear-facing muzzles but base reference frames pointing forward with zero yaw and pitch, preventing them from aligning with targets or firing. OpenReliant rotates the reference frame 180 degrees around X for rear-facing muzzles, allowing them to aim and fire backwards properly ([#219](https://github.com/vdmkenny/openreliant/issues/219)).
+**Fix:** in the original game, rear fighter turrets (including the Predator tail gun) have rear-facing muzzles but base reference frames pointing forward with zero yaw and pitch, preventing them from aligning with targets or firing. OpenReliant rotates the reference frame 180 degrees around X for rear-facing muzzles, allowing them to aim and fire backwards properly ([#219](https://github.com/OpenReliant/openreliant/issues/219)).
 
 **Spinning, `turret_spin_step` (`0x0047C9B0`).** Barrels loop their `fire` track. While the trigger is held, barrels accelerate by 0.1 per tick up to a speed of 4, the gun track loops at matching speed, and protective flaps open at speed 4. When released, barrels decelerate by 0.02 per tick, the gun track stops at start, and flaps close. Weapons fire during the step regardless of spin speed.
 
@@ -228,7 +228,7 @@ Turrets start in state 0 with zero missiles, reloading immediately. Targets betw
 
 Destroying a turret base disables the weapon permanently: `node_forget` (`0x00499BB0`) sets its kind to -1 ([Objects](objects.md#a-components-destruction)).
 
-Not ported: script `TurretSetTarget` targeting commands ([#281](https://github.com/vdmkenny/openreliant/issues/281)), and multiplayer damage-induced re-targeting ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+Not ported: script `TurretSetTarget` targeting commands ([#281](https://github.com/OpenReliant/openreliant/issues/281)), and multiplayer damage-induced re-targeting ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 Gun groups exclude kinds 1 and 3, and `FULL GUNS` excludes kind 1 ([The trigger](#the-trigger)). The original game read into adjacent memory when assemblies lacked expected parts; OpenReliant checks for missing base, muzzle, or launcher parts, skipping invalid slots and trigger calls (**Fix**).
 

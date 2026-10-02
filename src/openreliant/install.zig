@@ -118,7 +118,7 @@ const releases = [_]Release{
 };
 
 /// Where to report a release the installer doesn't know.
-const issues_url = "https://github.com/vdmkenny/openreliant/issues";
+const issues_url = "https://github.com/OpenReliant/openreliant/issues";
 
 /// The installer's cabinet on disc 1, and the folder whose files it copies next to the cabinet's.
 const cabinet_path = "LANCER.CAB";

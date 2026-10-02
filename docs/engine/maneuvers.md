@@ -221,7 +221,7 @@ The Fight order and its maneuvers read the ship's pilot, a record of `pilot_stat
 ## In OpenReliant
 
 The Fight order and every command run as described, but for multiplayer, where the host chooses
-the maneuvers ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+the maneuvers ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 Where the game would stop, hang or read past its tables, OpenReliant goes on:
 

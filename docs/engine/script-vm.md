@@ -73,7 +73,7 @@ array is the game's variables ([The game's variables](#the-games-variables)).
 
 The loop also serves a script debugger. With one attached, it can stop a thread at a byte that
 section 10, one flag per script byte, marks, and report the position. **Unknown:** the debugger's
-protocol. Not ported ([#539](https://github.com/vdmkenny/openreliant/issues/539)).
+protocol. Not ported ([#539](https://github.com/OpenReliant/openreliant/issues/539)).
 
 ## The game's variables
 
@@ -111,7 +111,7 @@ that every attempt starts from the variables the first had. OpenReliant keeps a 
 variables in `gameflow.Campaign`: each attempt at a mission starts from those the last mission the
 pilot came through left, and a mission outside a campaign from a new campaign's
 (`gameflow.restartPoint`). **Unknown:** what the campaign's other flags stand for
-([#381](https://github.com/vdmkenny/openreliant/issues/381)).
+([#381](https://github.com/OpenReliant/openreliant/issues/381)).
 
 ## Calls
 
@@ -185,7 +185,7 @@ which then pushes it afresh.
 
 Every command, by the number `command` takes, with what it does and whether OpenReliant runs it.
 One that OpenReliant does not run yet does nothing and lets the script go on
-([#281](https://github.com/vdmkenny/openreliant/issues/281)); its description is the developers' own,
+([#281](https://github.com/OpenReliant/openreliant/issues/281)); its description is the developers' own,
 from the catalogue.
 
 | Number | Command | What it does | Ported |
@@ -504,7 +504,7 @@ ported, other than those `vm/machine.zig` holds and `vm/triggers.zig`'s `SetTrig
 `SetAnyTriggerState`. They act on it through the world the mission's start and its frame give the
 machine, which the game reaches through its globals. A command not ported yet does nothing and gives
 1, which lets the thread run on, and is logged the first time it runs
-([#281](https://github.com/vdmkenny/openreliant/issues/281)).
+([#281](https://github.com/OpenReliant/openreliant/issues/281)).
 
 [`vm/triggers.zig`](../../src/engine/vm/triggers.zig) matches the events to the triggers, raises
 them on the groups with the conditions' handlers, and holds `SetTriggerState` and
@@ -550,4 +550,4 @@ writes them into tables of a fixed size without looking.
 
 Not ported: the script debugger; and the events that code OpenReliant does not run yet posts, such
 as FixedGateJumpedIn from the gates' jumps
-([#307](https://github.com/vdmkenny/openreliant/issues/307)).
+([#307](https://github.com/OpenReliant/openreliant/issues/307)).

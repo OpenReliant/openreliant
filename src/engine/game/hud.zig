@@ -8,9 +8,9 @@
 //! ship status indicator in both its modes, the targeting cluster, the radar's rings, ranges and
 //! contacts, and the windows and what they show ([`hud/windows.zig`](hud/windows.zig)). Not yet:
 //! the rest of `hud_draw`, whose other elements [`hud.md`](../../../docs/engine/hud.md) lists, what
-//! a multiplayer game adds ([#55](https://github.com/vdmkenny/openreliant/issues/55)), and the
+//! a multiplayer game adds ([#55](https://github.com/OpenReliant/openreliant/issues/55)), and the
 //! subtarget's parts picked out in red
-//! ([#531](https://github.com/vdmkenny/openreliant/issues/531)).
+//! ([#531](https://github.com/OpenReliant/openreliant/issues/531)).
 //!
 //! **Improvement.** The game draws the display with the processor, whichever renderer is running:
 //! `hud_text` hands its line to `VFX_string_draw`, out of `vfx.dll`, which blits each glyph into a
@@ -469,7 +469,7 @@ pub const Art = struct {
     /// How a set's pixels of index 0 show. What a row skips stays clear either way.
     ///
     /// Not ported: index 0 drawn wherever else the game shows it
-    /// ([#518](https://github.com/vdmkenny/openreliant/issues/518)).
+    /// ([#518](https://github.com/OpenReliant/openreliant/issues/518)).
     pub const IndexZero = enum {
         /// Left clear, as OpenReliant draws the sets.
         clear,
@@ -3107,7 +3107,7 @@ pub const Keys = struct {
 ///
 /// Not yet ported: what the game does while a multiplayer game's chat line is typed
 /// (`chat_typing`, `0x00529FB8`), which leaves out every key after the radio's menu
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn targetKeys(state: *State, keys: Keys) void {
     const all = keys.all;
     const devices = keys.devices;
@@ -3700,7 +3700,7 @@ pub const ShipStatus = struct {
     /// Mode 0 for the player's ship of `slot`: its schematic, the hits taken out of `hits` for a
     /// type the target display shows in its small form, its rings, and what SHIELD BALANCING has
     /// shifted. **Not ported:** in mission 25, a Kamov's schematic drawn mirrored
-    /// ([#528](https://github.com/vdmkenny/openreliant/issues/528)).
+    /// ([#528](https://github.com/OpenReliant/openreliant/issues/528)).
     pub fn ofPlayer(slot: *const create.Slot, hits: *Hits, reserves: gameobj.ShieldReserves) Shown {
         var shown: Shown = .{ .rings = rings(slot) };
         if (slot.combat) |combat| if (shown.rings) |_| {
@@ -4235,7 +4235,7 @@ pub fn pointerDirection(ship: math.Place, at: Vector) [2]f32 {
 /// (`drawCommsMarker`).
 ///
 /// Not yet ported: the players' names over their ships in a multiplayer game
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetScene, edge_line: EdgeLine) Error!Cursor {
     state.chase_pointer = null;
     state.chase_nav_roll = null;

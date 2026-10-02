@@ -217,4 +217,4 @@ too.
 Eject and Eject Spin post the ship's Destroyed event as they begin, and Scoop Up the ship's
 ObjectScooped as it has the pod aboard ([Script VM](script-vm.md#events)).
 
-Not ported: a multiplayer game ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+Not ported: a multiplayer game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).

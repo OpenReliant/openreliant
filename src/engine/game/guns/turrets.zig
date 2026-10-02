@@ -46,7 +46,7 @@ pub const Aimed = struct {
     /// Its muzzle faces away from its aim of no yaw and no pitch (`facesBack`), as every fighter's
     /// rear turret's does. **Fix:** OpenReliant turns such a turret in its parts' frames turned a
     /// half turn about their X axis, so it aims along its muzzle; the game's never fires
-    /// ([#219](https://github.com/vdmkenny/openreliant/issues/219)).
+    /// ([#219](https://github.com/OpenReliant/openreliant/issues/219)).
     reversed: bool = false,
     /// The directions it may fire in (`+0x58`), where a part of its assembly is a component of the
     /// object with a firing arc.
@@ -168,7 +168,7 @@ pub fn fit(model: *objects.Model, index: usize, ship: Ship) ?guns.Turret {
 
 /// Whether an aimed turret's `muzzle` faces away from its aim of no yaw and no pitch, which lies
 /// along -Z of its base's frame (`aimAngles`): along the frame's +Z, as every fighter's rear
-/// turret's does ([#219](https://github.com/vdmkenny/openreliant/issues/219)).
+/// turret's does ([#219](https://github.com/OpenReliant/openreliant/issues/219)).
 fn facesBack(model: *const objects.Model, base: usize, muzzle: guns.Muzzle) bool {
     const aim = math.transform(model.parts[base].animation.orientation, .{ 0, 0, -1 });
     return math.dot(math.forward(muzzle.attachment.orientation), aim) < 0;
@@ -338,7 +338,7 @@ comptime {
 ///
 /// Not ported: the Stalag's turrets fire anywhere while the byte at `0x005883F8` is set, which the
 /// hull's triggers set, perhaps with the player inside it
-/// ([#220](https://github.com/vdmkenny/openreliant/issues/220)).
+/// ([#220](https://github.com/OpenReliant/openreliant/issues/220)).
 fn aimAngles(aimed: *const Aimed, aim: Vector) ?Angles {
     const model = aimed.model;
     const base = &model.parts[aimed.base];
@@ -396,7 +396,7 @@ fn aimAngles(aimed: *const Aimed, aim: Vector) ?Angles {
 /// (`ai.targetValid`).
 ///
 /// Not ported: in a multiplayer game, the player who last hurt the turret's object is passed over
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
     const all = world.objects;
     const own = &all.slots[index].object;
@@ -515,7 +515,7 @@ const reload_speed: f32 = 4;
 /// the lock range but beyond half of it is found and dropped in turn.
 ///
 /// Not ported: in a multiplayer game, the player who last hurt the turret's object is passed over
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn missileStep(world: gameobj.World, index: u16, launcher: *Launcher) void {
     const all = world.objects;
     const now = world.clock.frame_start;

@@ -39,7 +39,7 @@ after the call sign's terminator, which OpenReliant writes as zeros.
   checks the disk by writing `0x1400` bytes to `saves\test.bin` before each save, then writes the
   save without checking it; OpenReliant checks the save's own write.
 - Not ported: the wing's pilots and the pool of their replacements, which the saves keep
-  ([#301](https://github.com/vdmkenny/openreliant/issues/301)). OpenReliant keeps them as a save
+  ([#301](https://github.com/OpenReliant/openreliant/issues/301)). OpenReliant keeps them as a save
   holds them, and a new campaign's as `campaign_pilots_reset` (`0x0049CD20`) sets them.
 
 ## Layout

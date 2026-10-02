@@ -4,7 +4,7 @@ What each object is doing: flying in formation, escorting, docking, exploding, o
 
 [`aigeneric.zig`](../../src/engine/game/aigeneric.zig) holds the stack and runs the orders, [`ai.zig`](../../src/engine/game/ai.zig) the steering they turn by, [`aifuncs.zig`](../../src/engine/game/aifuncs.zig) the orders that fly a ship, a capital ship's lurch and orders 44 and 45, [`aieject.zig`](../../src/engine/game/aieject.zig) and [`tractor.zig`](../../src/engine/game/tractor.zig) those of the [ejection](ejection.md), [`launch.zig`](../../src/engine/game/launch.zig) the [launches](launch.md) and [`jump.zig`](../../src/engine/game/jump.zig) the [jumps](jump.md), and [`ai/orders.zig`](../../src/engine/game/ai/orders.zig) lists every order with its flags, priorities and routines; `make order-tables` transcribes that table from the executable. The names below are those `make ghidra-annotate` gives the Ghidra project, which names each order's routines `order_` and the order's name, with `_init` and `_exit` for those two.
 
-Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), what runs it (`object_orders`, `orders_update`, `order_retaliate`), the steering (`ai_steer`, `ai_roll_upright`) with its avoidance, and the orders Do Nothing, Fly, Run Away, Slow Rotate, the Random Spins, Match Speed, 44 and 45, Explode, the ejection's (Eject, 106, Scoop Up, Eject Spin, Eject Fighter Attack and Eject Player), Launch, the jumps (Jump In and Jump Out, each under both its numbers), Escort, Find New Target, Torpedo, Object Attach, Toggle Cloak, Mill, Make capship list left and right, and Fight with its [combat maneuvers](maneuvers.md), with Player Control being the player's [controls](controls.md). An order OpenReliant does not run yet still holds its place on the stack, and pushing it still pops and starts what it should ([#30](https://github.com/vdmkenny/openreliant/issues/30)). Not ported: the orders other players' machines queue ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), what runs it (`object_orders`, `orders_update`, `order_retaliate`), the steering (`ai_steer`, `ai_roll_upright`) with its avoidance, and the orders Do Nothing, Fly, Run Away, Slow Rotate, the Random Spins, Match Speed, 44 and 45, Explode, the ejection's (Eject, 106, Scoop Up, Eject Spin, Eject Fighter Attack and Eject Player), Launch, the jumps (Jump In and Jump Out, each under both its numbers), Escort, Find New Target, Torpedo, Object Attach, Toggle Cloak, Mill, Make capship list left and right, and Fight with its [combat maneuvers](maneuvers.md), with Player Control being the player's [controls](controls.md). An order OpenReliant does not run yet still holds its place on the stack, and pushing it still pops and starts what it should ([#30](https://github.com/OpenReliant/openreliant/issues/30)). Not ported: the orders other players' machines queue ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 OpenReliant keeps each object's stack and order state in its slot rather than allocating them with its first order, and hands a fatal "Cannot set ai" back to its caller as an error. **Fix:** where the game stops with it, OpenReliant logs it in the game's words and the order is not taken (`aigeneric.give`).
 
@@ -262,7 +262,7 @@ set from C's `rand()` when the object is created, that steps as `seed * 0x343FD 
 
 Every order, by its number, with what it does and whether OpenReliant runs it. An order
 OpenReliant does not run yet holds its place on the stack and does nothing
-([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+([#30](https://github.com/OpenReliant/openreliant/issues/30)).
 
 | Number | Order | What it does | Ported |
 |---|---|---|---|
@@ -270,11 +270,11 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 1 | Fly Aimlessly | On starting, takes a figure from 1 to 3 from the ship's own random numbers, keeps where the ship will be next and how it will be turned, its X axis reversed where its next number is odd, and sets the throttle to 0.4 and up to 0.3 more by `rand()`. Each update it steers with flags `0x3` for point `n` of its figure, from 1, and for the next once within 1000 of it. Point `n` lies `t = n` twentieths of a turn round, `(cos t - 1)(figure + 1)` times 25000 along the kept X axis and `sin(figure t)` times 50000 along the kept Z axis from where the order began: figure 1 is a circle, and figures 2 and 3 are wider loops that swing ahead and back two and three times on the way round. It never ends. **Improvement:** OpenReliant computes the sine and cosine rather than reading the engine's tables (`sr_sin`, `sr_cos`). | Yes |
 | 2 | Launch Missile | One-shot: launches a missile at the target from the first of the ship's racks with missiles left that is not a Jack Hammer's ([Missiles](missiles.md#the-ais-missiles)). | Yes |
 | 3 | (nameless) | One-shot: as Launch Missile, from the first rack of Jack Hammers. | Yes |
-| 4 | Warp In | A capital ship warps in through a tunnel of its own ([Gates](gates.md)). Not read in full yet. | No ([#481](https://github.com/vdmkenny/openreliant/issues/481)) |
-| 5 | Warp Out | A capital ship warps out through a tunnel of its own. Not read in full yet. | No ([#481](https://github.com/vdmkenny/openreliant/issues/481)) |
+| 4 | Warp In | A capital ship warps in through a tunnel of its own ([Gates](gates.md)). Not read in full yet. | No ([#481](https://github.com/OpenReliant/openreliant/issues/481)) |
+| 5 | Warp Out | A capital ship warps out through a tunnel of its own. Not read in full yet. | No ([#481](https://github.com/OpenReliant/openreliant/issues/481)) |
 | 6 | Fly | Flies at the speed in its data, or at full throttle for zero. With a target it flies to it and pops within 2000 units; otherwise it keeps the heading it had when it started, steering at a point 20000 units along it. It steers with flags `0x7` and halves the throttle while avoiding. An object without flight stats is moved along that heading instead; **Improvement:** OpenReliant draws it gliding on between the ticks ([The game loop](loop.md#porting)). | Yes |
 | 7 | Run Away | Flies away from the target at half throttle, for a point on the far side of the ship from the target, 100000 times as far from the ship as the target is. It moves the point round what is near (`avoid_near`), then steers at it with flags `0x3` and an ease of 0.1, which go round what is near and ahead again. Pops when the target's slot holds a stand-in. | Yes |
-| 8 | Land | The player's ship lands on its carrier, which ends the mission ([Landing](#landing)). | Partly: the Yamato's style is not ([#349](https://github.com/vdmkenny/openreliant/issues/349)) |
+| 8 | Land | The player's ship lands on its carrier, which ends the mission ([Landing](#landing)). | Partly: the Yamato's style is not ([#349](https://github.com/OpenReliant/openreliant/issues/349)) |
 | 9 | Escort | On starting, takes the ship its target names, or the ship at the order's number among a flight group's or a squad's ships, counting round them again past the last (`escort_count_place`, `0x0040AA50`); OpenReliant takes none where the group has no ships, which the game walks for ever (**Fix**). Each update, it pops once that ship's slot holds a stand-in; otherwise it steers for a point 10000 ahead of the ship: within 5000 of it with half its turn and flags `0x4`, and farther off with its full turn and flags `0x3`. Its throttle is the escorted ship's speed over its own cruise speed, and 0.0001 more for each unit the escorted ship lies ahead along its own heading. | Yes |
 | 10 | Find New Target | Walks the ships its target names, weighing each it can aim at, cloaked or not, by the square of its node's distance from where the ship will be next ([Picking a fight](#picking-a-fight)). It fights the lightest to fight, pushing Fight, or Torpedo (103) for a ship of the torpedo class; with none, it mills round the lightest to mill round, pushing Mill (120); with neither it pops. | Yes |
 | 11 | Explode | A destroyed object's end, by what it is and in one of three styles ([Destruction](objects.md#destruction)). | Yes |
@@ -289,35 +289,35 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 20, 41 | Jump Out | The ship turns to where it goes, charges and jumps: to its target, where Jump In of the matching number brings it in, or out of the mission where it names none; a ship jumping with the player's goes in formation behind it ([Jumps](jump.md#jump-out)). | Yes |
 | 21 | Find Scoop Up | Starts at its first step, as 115 and 116 do (`0x0040B1C0`). The first goes on to the second, where a multiplayer game waits for every player unless the target is a ship (`ai_sequence_sync`, `0x00401000`). The second walks the ships its target names for the nearest to where the ship will be next that it can aim at, ejected or not (`0x0040B140`), and pushes Scoop Up (107) at it; with none it pops. Once Scoop Up is done, the order starts again from its first step. | Yes |
 | 22 to 24 | Random Spin Slow, Medium, Fast | On starting, zero throttle and each turning input 0.1 plus a random number times 0.3, 0.5 or 0.9. Its update does nothing. | Yes |
-| 25 | Fixed Gate Jump In | The ship comes in through the tunnel at the object its target names, out beyond its mouth, cut by its portal ([Gates](gates.md#jump-in)). | Partly: the Krasny's split in missions 16 and 66 is not ([#407](https://github.com/vdmkenny/openreliant/issues/407)) |
+| 25 | Fixed Gate Jump In | The ship comes in through the tunnel at the object its target names, out beyond its mouth, cut by its portal ([Gates](gates.md#jump-in)). | Partly: the Krasny's split in missions 16 and 66 is not ([#407](https://github.com/OpenReliant/openreliant/issues/407)) |
 | 26 | Fixed Gate Jump Out | The ship goes out through the nearest gate's tunnel, the player's riding the worm, then comes in through its target's (25) ([Gates](gates.md#jump-out)). | Yes |
 | 27 | Formation | On starting, keeps its place abreast of the target, 3000 apart: the ship `SetAI` numbers `n` flies `n / 2 + 1` places out, to the target's left where `n` is even and to its right where it is odd. Each update it pops once it can aim at the target no more; otherwise it arrives at its place in the frame the target will stand in next, turned as the target will be, at a least throttle of 0 ([Arriving](#arriving)). | Yes |
 | 28 | Fixed Gate Open | A tunnel grows open at the object ([Gates](gates.md#open-and-close)). | Yes |
 | 29 | Fixed Gate Close | The object's tunnel shrinks away and goes. | Yes |
 | 30 | Eject | The pilot leaves the ship in its cockpit, which becomes the pod, and the rest of the ship a new object; the pod clears the ship, and the player's waits to be picked up ([Ejection](ejection.md#the-pod)). | Yes |
-| 31 | Fixed Gate Collapse | The gate comes down in fireballs, its tunnel burning out ([Gates](gates.md#collapse)). | Partly: the Krasny's split is not ([#407](https://github.com/vdmkenny/openreliant/issues/407)) |
+| 31 | Fixed Gate Collapse | The gate comes down in fireballs, its tunnel burning out ([Gates](gates.md#collapse)). | Partly: the Krasny's split is not ([#407](https://github.com/OpenReliant/openreliant/issues/407)) |
 | 32 | Match Speed | Sets the throttle to the target's speed over the ship's cruise speed. Pops when the target is no longer valid. | Yes |
 | 33 | Dark Reign shoot | Not read yet. | No |
-| 34 | Move to spawn pos | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/vdmkenny/openreliant/issues/55)) |
+| 34 | Move to spawn pos | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
 | 35 | Turns object lights on | Switches on the lights of the parts with the lightmap flag, with a sound, and pops. Ship type 165 instead switches on the first part's four lights one by one, then those of every lightmap part, a step each 100 ticks with a sound at each, and pops after 500 ticks. While the setting at `0x5D5618` is not 1 it pops at once. | No |
 | 36 | Make Boridin section break away | Not read yet. | No |
 | 37 | Rotate Boridin breakaway warp projector | Not read yet. | No |
-| 38 | Start warp projection from Boridin | The Boridin's warp projection, through a tunnel of its own ([Gates](gates.md)). Not read in full yet. | No ([#30](https://github.com/vdmkenny/openreliant/issues/30)) |
+| 38 | Start warp projection from Boridin | The Boridin's warp projection, through a tunnel of its own ([Gates](gates.md)). Not read in full yet. | No ([#30](https://github.com/OpenReliant/openreliant/issues/30)) |
 | 39 | Make ripper drop what it's carrying | A Ripper lets go of what it carries ([The Ripper](#the-ripper)). | Yes |
 | 42 | Turns object lights off | Switches off the lights order 35 switches on. | No |
 | 43 | Huuuuuuuge explosion | The Uber Explode at the object, of size 50000 over 1500 ticks ([Effects](effects.md#the-uber-explode)), then it pops. | Yes |
 | 44 | Immediately set ship to zero velocity and rotation | `object_stop` (`0x00403000`), then it pops. | Yes |
 | 45 | Fly ship backwards | Throttle -0.5, no turning. | Yes |
 | 100 | Player Control | The player's controls fly the ship ([Controls](controls.md)). | Yes |
-| 101 | Multiplayer Control | Disables the object once it has object flag `0x10000000`. | No ([#55](https://github.com/vdmkenny/openreliant/issues/55)) |
+| 101 | Multiplayer Control | Disables the object once it has object flag `0x10000000`. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
 | 102 | Avoid Target | Not read yet. | No |
 | 103 | Torpedo | Find New Target's for a ship of the torpedo class. On starting, full throttle. Each update it pops once it can aim at its target no more; otherwise it steers with a limit of 2 and no ease at the target's node, led along the target's nose by the target's speed times the ticks the torpedo takes to get there at its top speed, less its own velocity times half those ticks, 25 at most. It goes off against what it meets ([Collisions](loop.md#collisions)). | Yes |
-| 104 | Launch | The ship leaves its carrier, in the style the carrier's type picks ([Launches](launch.md)). | Partly: the other styles are not ([#304](https://github.com/vdmkenny/openreliant/issues/304)) |
+| 104 | Launch | The ship leaves its carrier, in the style the carrier's type picks ([Launches](launch.md)). | Partly: the other styles are not ([#304](https://github.com/OpenReliant/openreliant/issues/304)) |
 | 105 | Fight | Fights its target by running [combat maneuvers](maneuvers.md), one after another. | Yes |
 | 106 | Eject | The ship a pilot has left: destroyed 200 ticks on. | Yes |
 | 107 | Scoop Up | A nanny ship or the Antanov takes the player's pod aboard with its tractor beams ([Ejection](ejection.md#scoop-up)). | Yes |
 | 108 | Eject Spin | An AI pilot's ship spins, unpowered, for 200 ticks; then the pilot ejects (Eject). | Yes |
-| 109 | Dock | Docks at a port of its target ([Docking](#docking)). | Partly: the Nanny's, the limpet car's and the limpet pod's styles are not ([#320](https://github.com/vdmkenny/openreliant/issues/320)) |
+| 109 | Dock | Docks at a port of its target ([Docking](#docking)). | Partly: the Nanny's, the limpet car's and the limpet pod's styles are not ([#320](https://github.com/OpenReliant/openreliant/issues/320)) |
 | 110 | Dark reign shoot | The Dark Reign's ion cannon; `ion_cannons_hold_lock` keeps its target ([Script VM](script-vm.md#the-games-variables)). Not read in full yet. | No |
 | 111 | Ripper end drop object | A Ripper draws its forearms back once it has let go ([The Ripper](#the-ripper)). | Yes |
 | 112 | Ripper attach cargo pod to Mammoth | A Ripper fits a cargo pod onto a Mammoth ([The Ripper](#the-ripper)). | Yes |
@@ -328,7 +328,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 118 | Eject Player | The player's ship drifts, unpowered, for 400 to 599 ticks, then explodes, unless the pilot ejects first ([Destruction](objects.md#destruction), [Ejection](ejection.md#ejecting)). | Yes |
 | 119 | Ship Follow Curve Backwards | Flies the path of Ship Follow Curve (17) backwards, from its end to its start. | Yes |
 | 120 | Mill | On starting, where it can aim at its target, cloaked or not, keeps the tick and a circle facing from the target's node to where the ship will be next. Each update it pops once it can aim at the target no more or 500 ticks have passed; otherwise it flies at full throttle, steering with flags `0x3` for a point on the circle 50000 from the node, which comes round from the ship's side by 0.000005 of its cruise speed a tick. **Improvement:** OpenReliant computes the sine and cosine rather than reading the engine's tables (`sr_sin`, `sr_cos`). | Yes |
-| 121 | Deathmatch Respawn Effect | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/vdmkenny/openreliant/issues/55)) |
+| 121 | Deathmatch Respawn Effect | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
 | 122 | Deathmatch Dark Reign target | It has no routines: nothing to run. | Yes |
 | 200 | (nameless) | It has no routines: nothing to run. | Yes |
 
@@ -356,9 +356,9 @@ state:
 | Step | What it does |
 |---|---|
 | 0 | It arrives (`ai_arrive`) at the path's start, turned toward the path's point 4 ticks on and at the throttle the path keeps between them over its cruise speed; the curve's clock holds at its start. The order backwards arrives at the path's end instead, turned toward its point 4 ticks back, its motion `motion_forward` |
-| 1 | In a multiplayer game it waits for the other players (`ai_sequence_sync`, `0x00401000`, not ported: [#55](https://github.com/vdmkenny/openreliant/issues/55)); in a game of one, it goes on |
+| 1 | In a multiplayer game it waits for the other players (`ai_sequence_sync`, `0x00401000`, not ported: [#55](https://github.com/OpenReliant/openreliant/issues/55)); in a game of one, it goes on |
 | 2 | It flies `motion_follow` along the path, or `motion_follow_backwards` where its motion was astern; backwards, `motion_follow`. The path moves it on to step 3 |
-| 3 | The order pops, in a multiplayer game once the other players are there too (not ported: [#55](https://github.com/vdmkenny/openreliant/issues/55)), and its `exit` gives the ship `motion_forward`, or `motion_backward` after `motion_follow_backwards` |
+| 3 | The order pops, in a multiplayer game once the other players are there too (not ported: [#55](https://github.com/OpenReliant/openreliant/issues/55)), and its `exit` gives the ship `motion_forward`, or `motion_backward` after `motion_follow_backwards` |
 
 The path's routine, each update of the motion, gives the curve's point as far along as its ticks
 have gone by `mission_ticks`, which runs on through a frame's simulation steps (`curve_point`),
@@ -374,7 +374,7 @@ path of no length all the order's ticks, takes a curve given no ticks to its end
 past its start going backwards, as the game's endless share does, and stops measuring such a path,
 and walking it for the curve before one, after as many curves as the mission has
 ([Curves](director.md#curves)). Flying forward, it still follows such a path for ever
-([#535](https://github.com/vdmkenny/openreliant/issues/535)). Walking the path backwards, the game
+([#535](https://github.com/OpenReliant/openreliant/issues/535)). Walking the path backwards, the game
 takes a curve's end for a ship unless its whole reference, kind and all, is `0x0000FFFF`
 (`0x0040359E`), and so walks on from a curve that ends at no ship to one that starts or ends at
 none; OpenReliant stops at an end whose index is `0xFFFF`. It holds a curve's ticks at 65535, where
@@ -455,7 +455,7 @@ that the component names it faults. OpenReliant logs either, and the order ends.
 order, and until then the slide in holds the ship where it is.
 
 Not ported: the Nanny's, the limpet car's and the limpet pod's styles
-([#320](https://github.com/vdmkenny/openreliant/issues/320)).
+([#320](https://github.com/OpenReliant/openreliant/issues/320)).
 
 ### Landing
 
@@ -515,7 +515,7 @@ PERMISSION TO LAND does nothing where the player's ship launched from no carrier
 reads through a null pointer.
 
 Not ported: the Yamato's style, whose landing OpenReliant lets go of at once
-([#349](https://github.com/vdmkenny/openreliant/issues/349)).
+([#349](https://github.com/OpenReliant/openreliant/issues/349)).
 
 ### Friendly fire
 
@@ -552,7 +552,7 @@ Friendly Fire keeps its stage (`+0x00`) and the frame's tick it ends at (`+0x04`
 OpenReliant lets the ship fly on as the player has it, and then ends the order.
 
 Not ported: a multiplayer game's side of it
-([#55](https://github.com/vdmkenny/openreliant/issues/55)). There, destroying a pilot's pod only a
+([#55](https://github.com/OpenReliant/openreliant/issues/55)). There, destroying a pilot's pod only a
 player could harm marks the ship 2 and tells the others, whose carrier then aborts the mission
 (`abrt_001`, said by pilot 27 for the Reliant and 28 for any other); and another player's ship
 sent off jumps out.
@@ -683,5 +683,5 @@ is passed over as one to fight this walk still.
 
 **Quirk:** the game weighs the one to fight by 0.7 more (`0x004DC484`) where the count of objects it
 has just walked through equals the player's slot, which never happens; it looks meant to favour the
-player's ship ([#314](https://github.com/vdmkenny/openreliant/issues/314)). OpenReliant weighs as
+player's ship ([#314](https://github.com/OpenReliant/openreliant/issues/314)). OpenReliant weighs as
 the game does.

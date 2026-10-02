@@ -631,7 +631,7 @@ pub const Objects = struct {
     /// them. Its type's count of objects stays as it was.
     ///
     /// Not ported: the `exit` routines popping those orders would run, none of which is ported yet
-    /// ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+    /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
     pub fn resetSlot(all: *Objects, index: u16, random: *libcmt.Rand) void {
         const slot = &all.slots[index];
         slot.release(all.gpa);
@@ -688,7 +688,7 @@ pub const Objects = struct {
     /// part too (`createdRacks`).
     ///
     /// Not ported yet: the Nanny's re-arm (`order_dock`, `0x00407A5F`,
-    /// [#320](https://github.com/vdmkenny/openreliant/issues/320)).
+    /// [#320](https://github.com/OpenReliant/openreliant/issues/320)).
     pub fn loadoutRacks(all: *const Objects, index: u16) ?*const Racks {
         if (index >= all.players or index >= all.loadout_racks.len) return null;
         if (index == all.player and all.simulator.simulated()) return null;
@@ -831,7 +831,7 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
 /// port does it once the object is made, as the split makes the wreck (`explode.split`).
 ///
 /// Not ported: the rest of `create_object` for single types but the gates (`gateMade`)
-/// ([#233](https://github.com/vdmkenny/openreliant/issues/233)).
+/// ([#233](https://github.com/OpenReliant/openreliant/issues/233)).
 pub fn wreckMade(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
     const wreck = wreckOf(slot.object.type) orelse return;
@@ -909,7 +909,7 @@ const planet_light_mask: u32 = 0x37;
 ///
 /// **Unknown:** what bit 20 of the parts' flags does. Not ported: Titan's Planet Bombard, which
 /// the game hangs on its models' parts as it makes them (`0x0046841D`)
-/// ([#281](https://github.com/vdmkenny/openreliant/issues/281)).
+/// ([#281](https://github.com/OpenReliant/openreliant/issues/281)).
 pub fn planetMade(all: *Objects, index: u16) void {
     const slot = &all.slots[index];
     if (!isPlanet(slot.object.type)) return;
@@ -1224,7 +1224,7 @@ pub fn loadoutByTier(object: *GameObject, model: *const objects.Model, tier: u2)
 /// the loadout screen flies without the missiles of every rack after it, and without any where it
 /// is the first. OpenReliant leaves that hardpoint bare and takes the rack out, the racks after it
 /// moving down, so that each hardpoint after it takes the rack the loadout fitted on it
-/// ([#451](https://github.com/vdmkenny/openreliant/issues/451)). In every shipped model each tier
+/// ([#451](https://github.com/OpenReliant/openreliant/issues/451)). In every shipped model each tier
 /// names a missile for each missile hardpoint, so a ship fitted by its tier flies as in the game.
 pub fn fitRacks(gpa: Allocator, object: *GameObject, model: *objects.Model, effects: objects.Effects) Allocator.Error!void {
     if (model.hung.len == 0) {
@@ -1574,7 +1574,7 @@ pub const testing = struct {
 /// `object_reset`, before this file's known code.
 ///
 /// Not ported: the `exit` routines popping its orders would run, none of which is ported yet
-/// ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
 pub fn retire(ctx: aigeneric.Context, index: u16) void {
     const object = &ctx.world.objects.slots[index].object;
     object.type = .stand_in;

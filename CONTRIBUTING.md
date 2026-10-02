@@ -30,7 +30,7 @@ Every change beyond a trivial one has an issue, and its pull request closes it.
 
    ```zig
    /// Not ported: the shake the display's interference gives it (`hud_blit`,
-   /// [#236](https://github.com/vdmkenny/openreliant/issues/236)).
+   /// [#236](https://github.com/OpenReliant/openreliant/issues/236)).
    ```
 
 ## Following the original
@@ -88,7 +88,7 @@ A few kinds of improvement recur:
   lookup table or a rounded constant, so `3.14159` becomes `std.math.pi`. Design values such as
   `0.25` or 200 ticks stay as the game has them.
 - **Modern randomness.** Random numbers come from `std.Random` rather than the MSVC runtime's
-  `rand`; [#234](https://github.com/vdmkenny/openreliant/issues/234) moves the remaining code
+  `rand`; [#234](https://github.com/OpenReliant/openreliant/issues/234) moves the remaining code
   over.
 - **High settings.** A quality or detail setting defaults to the original's highest.
 - **Graceful limits.** An enhancement with a hard limit keeps the most important items on the

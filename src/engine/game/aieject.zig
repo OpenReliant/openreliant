@@ -84,7 +84,7 @@ pub const Stage = enum(i32) {
 /// its words on the radio (`videoreports.wingmanEjected`).
 ///
 /// Not ported: a multiplayer game, in which nobody ejects so
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn init(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
@@ -261,7 +261,7 @@ fn ejectPoint(pod: *const create.Slot, cockpit: usize) ?math.Place {
 /// (`pickUp`).
 ///
 /// Not ported: a multiplayer game, in which the order ends at once, and in which a player's pod is
-/// disabled once clear ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// disabled once clear ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn update(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];

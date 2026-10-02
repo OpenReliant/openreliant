@@ -408,7 +408,7 @@ pub fn hullLost(ctx: aigeneric.Context, index: u16) void {
 /// left for Explode's `init` to fill in. `may_spin` goes into the order's data.
 ///
 /// Not ported: multiplayer, where the player's ship explodes at once
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn objectDestroyed(ctx: aigeneric.Context, index: u16, may_spin: bool, no_eject: bool) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];

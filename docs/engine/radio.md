@@ -186,7 +186,7 @@ fuller set of replies (`0x004539A0`, by the table at `0x004539D0`):
 **Fix:** the game copies the reply of a pilot with no voice from nowhere, and stops; OpenReliant
 leaves it out.
 
-Not ported: a multiplayer game's commands ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+Not ported: a multiplayer game's commands ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## The menu
 
@@ -262,7 +262,7 @@ type's stats through a null pointer for What's your status?, and the carrier for
 where the ship launched from none; OpenReliant makes no report.
 
 Not ported: a multiplayer game's pages and the chat line they type in (`chat_typing`,
-`0x00529FB8`, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
+`0x00529FB8`, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## Remarks
 

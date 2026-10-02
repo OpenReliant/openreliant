@@ -56,7 +56,7 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 | `low` | 1024 texels across | 4, a texel apart | 1,500, 6,000, 20,000 and 60,000 |
 | `high`, the default | 4096 texels across | 16, 1.4 texels apart | 2,500, 10,000, 35,000 and 120,000 |
 
-`--shadows off`, `--original` and `--no-pixel-lighting` leave them out, and `--no-cockpit-shadows` the cockpit's alone. The software device draws none. Not yet: fitting the cascades to the objects in them, which space leaves mostly empty ([#196](https://github.com/vdmkenny/openreliant/issues/196)).
+`--shadows off`, `--original` and `--no-pixel-lighting` leave them out, and `--no-cockpit-shadows` the cockpit's alone. The software device draws none. Not yet: fitting the cascades to the objects in them, which space leaves mostly empty ([#196](https://github.com/OpenReliant/openreliant/issues/196)).
 
 ## Improvements
 

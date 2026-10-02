@@ -207,7 +207,7 @@ pub const Parts = [part_table_size]Part;
 /// which a new one sets (`gameflow.newCampaign`) and the pilot's saved game keeps. **Unknown:**
 /// what most of the campaign's stand for: flags a new campaign sets, which the scripts clear as
 /// the story's characters die and the flow between missions reads
-/// ([#381](https://github.com/vdmkenny/openreliant/issues/381)).
+/// ([#381](https://github.com/OpenReliant/openreliant/issues/381)).
 pub const Variables = extern struct {
     /// `jump_ready` and `warp_ready` (0 and 1): whether the mission has a jump or a warp ready for
     /// JUMP DRIVE, which the display's prompt reads (`hud.Readiness`).
@@ -246,7 +246,7 @@ pub const Variables = extern struct {
     /// 1's is once the ambushers are destroyed. The debriefing of a mission the ejected pilot was
     /// picked up in tells the pilot the mission was a success by it, and a failure without it
     /// (`0x00424ECE`, `0x0042545B`). **Not ported:** the debriefing
-    /// ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
+    /// ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
     objectives_met: u32 = 0,
     _unknown_29: u32 = 0,
     /// `ghost_alive` (30): whether Ghost, the ace mission 1 puts up against the player, lives: 1 in
@@ -264,7 +264,7 @@ pub const Variables = extern struct {
     /// (`aiioncan.cpp`, order 110): it loses it neither as the target flies into its cone or out of
     /// the angle it fires in, nor, in a multiplayer game, after a long search (`0x0040D40F`,
     /// `0x0040D7D9`). **Not ported:** the order
-    /// ([#30](https://github.com/vdmkenny/openreliant/issues/30)).
+    /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
     ion_cannons_hold_lock: u32 = 0,
     /// The rest of the block, which neither the engine nor the shipped missions use.
     spare: [26]u32 = @splat(0),

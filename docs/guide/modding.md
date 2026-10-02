@@ -62,8 +62,8 @@ from another mod's.
 A mod's files are in the game's own formats, which the [developer documentation](../README.md)
 describes, but for the pictures and fonts below: textures and the interface's pictures, in PNG at
 any size, and the interface's fonts, in TrueType or OpenType. Files in today's formats come later:
-glTF models ([#359](https://github.com/vdmkenny/openreliant/issues/359)), and sounds, music,
-speech and movies ([#496](https://github.com/vdmkenny/openreliant/issues/496)).
+glTF models ([#359](https://github.com/OpenReliant/openreliant/issues/359)), and sounds, music,
+speech and movies ([#496](https://github.com/OpenReliant/openreliant/issues/496)).
 
 ## Textures
 
@@ -194,7 +194,7 @@ files, as is the loadout's backdrop. A mod replaces one with a PNG picture of it
 
 A few TGA pictures are read for their pixels, at their own size. A PNG stands in for one of these at
 that size alone, and one of another size is left out, which the log says
-([#509](https://github.com/vdmkenny/openreliant/issues/509)):
+([#509](https://github.com/OpenReliant/openreliant/issues/509)):
 
 | Picture | Size | What it is |
 |---|---|---|
@@ -233,7 +233,7 @@ window's resolution ([Outline fonts](../formats/fnt.md#outline-fonts)):
 - **Licence.** A font goes out with the mod, so its licence has to allow that.
 
 The fonts drawn through palettes, the loadout's and the flight display's, keep their glyphs
-([#520](https://github.com/vdmkenny/openreliant/issues/520)).
+([#520](https://github.com/OpenReliant/openreliant/issues/520)).
 
 **Improvement:** the original draws its text in its bitmap fonts, at 640x480.
 
@@ -243,7 +243,7 @@ The mods are read in the order of their names, whatever their case, and a later 
 for an earlier mod's of the same name: names such as `10-ships` and `20-music` set the order. All of
 them come before the game's own files, its loose files among them, so that a mod's `mission18.dte`
 replaces the loose `missions\mission18.dte` a retail install carries. A mod manager that chooses and
-orders the mods in the game is [#497](https://github.com/vdmkenny/openreliant/issues/497).
+orders the mods in the game is [#497](https://github.com/OpenReliant/openreliant/issues/497).
 
 ## A folder's files
 
@@ -280,7 +280,7 @@ the original reads, and the manifest stands in for none of the game's files.
 ## The thumbnail
 
 A mod may carry a picture of itself, `mod.png`, in its archive or its folder, which a mod manager
-shows ([#497](https://github.com/vdmkenny/openreliant/issues/497)). It is a PNG file of any size; a
+shows ([#497](https://github.com/OpenReliant/openreliant/issues/497)). It is a PNG file of any size; a
 4:3 picture, such as 320x240, suits the game's screens. Like the manifest, it is the mod's own.
 
 ## Checksums
@@ -313,4 +313,4 @@ info(fonts): optfnt.fnt is drawn in Newtown
 takes `--no-mods` too.
 
 Mods that add to how the game plays, with scripts and new records as OpenMW's do, are
-[#498](https://github.com/vdmkenny/openreliant/issues/498).
+[#498](https://github.com/OpenReliant/openreliant/issues/498).

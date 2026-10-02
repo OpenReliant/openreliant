@@ -5,7 +5,7 @@
 //!
 //! The orders are this file's by the assertion `order_jump_in` makes with its path (`0x004165EC`),
 //! which the source map misses, as it lies in a case of a switch
-//! ([#310](https://github.com/vdmkenny/openreliant/issues/310)).
+//! ([#310](https://github.com/OpenReliant/openreliant/issues/310)).
 //!
 //! What a jump shows, the trails, the lights, the burst and the flare of its effect record, is
 //! [`jump/effect.zig`](jump/effect.zig)'s.
@@ -15,7 +15,7 @@
 //! `0x0051CFA0`; `jump_countdown_step`, `0x0051D0A4`).
 //!
 //! Not ported: a multiplayer game's jumps
-//! ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -299,7 +299,7 @@ pub fn outInit(ctx: aigeneric.Context, index: u16) void {
 /// order done.
 ///
 /// Not ported: the Boridin's breakaway letting go of its core's sprite as it charges
-/// ([#238](https://github.com/vdmkenny/openreliant/issues/238)).
+/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -443,7 +443,7 @@ fn showFinest(model: *objects.Model, finest: bool) void {
 /// target, or `nowhere_reach` ahead of it where it names nothing or itself.
 ///
 /// Not ported: in a multiplayer game, the formation of the player whose game it is
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn placeOut(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -561,7 +561,7 @@ fn placeIn(all: *create.Objects, index: u16) void {
 ///
 /// Not ported: in a multiplayer game, the JumpedIn posted for the first player's ship too as the
 /// ship of the first player still flying jumps in
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;

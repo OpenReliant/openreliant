@@ -36,7 +36,7 @@ const log = std.log.scoped(.environfx);
 /// nebula's colour (`nebula.Sky.select`), and the environment effects it turns on (`setEffect`).
 ///
 /// Not ported: the objects' flag `0x400`, which `environment_update` sets and clears as
-/// `DisableObjectAtNextJump` asks ([#281](https://github.com/vdmkenny/openreliant/issues/281)).
+/// `DisableObjectAtNextJump` asks ([#281](https://github.com/OpenReliant/openreliant/issues/281)).
 pub const Environment = struct {
     sky: *nebula.Sky,
     textures: *srtexture.Table,

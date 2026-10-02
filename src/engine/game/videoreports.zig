@@ -74,7 +74,7 @@ pub const permission_every: u32 = 500;
 ///
 /// Not ported: the debug line it writes naming the mission's rating, which nothing shows; a
 /// multiplayer game's side of it, in which a remote player's ship is cleared whatever the script
-/// says ([#55](https://github.com/vdmkenny/openreliant/issues/55)); and the game's mode
+/// says ([#55](https://github.com/OpenReliant/openreliant/issues/55)); and the game's mode
 /// `0x00524FE4` 1, in which the key works as in a training mission.
 pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
     const player = world.player;
@@ -230,7 +230,7 @@ fn bridgeLine(buffer: []u8, all: *const create.Objects, carrier: u16, suffix: []
 /// `0x004566C0` with `0x004536D0`: the pilot's own line ending in `line`, said at once without the
 /// window, in the male voice (`mp`) or the female one (`fp`) by the pilot's sex (`input.Player.female`),
 /// ending the line playing. Not ported: that a multiplayer mission says nothing
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn playerSays(world: gameobj.World, line: []const u8) void {
     const radio = world.radio orelse return;
     const hearing = world.hearing orelse return;

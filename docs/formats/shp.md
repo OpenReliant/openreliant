@@ -411,7 +411,7 @@ part's volume; the engine uses them as such
 
 **Unknown:** the interpretation of trigger polygons (`0x0F`). The reader keeps their records as the
 file holds them (`shp.TriggerPolygon`), and the writer writes them back, but their fields are not
-decoded here ([#11](https://github.com/vdmkenny/openreliant/issues/11)). One model carries two of
+decoded here ([#11](https://github.com/OpenReliant/openreliant/issues/11)). One model carries two of
 them; the engine tests the player's ship against them before it descends the collision tree.
 
 ## Prior art

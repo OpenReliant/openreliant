@@ -11,7 +11,7 @@
 //! order 45's (`0x0040C4E0`) between it and `aigeneric.cpp`'s; they go with it as order routines
 //! like it.
 //!
-//! Not ported ([#30](https://github.com/vdmkenny/openreliant/issues/30)): of the order routines
+//! Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)): of the order routines
 //! here, those of Avoid Target (`0x0040B310`, `0x0040B330`), Dark Reign shoot (`0x0040BAD0`), Turns
 //! object lights on (`0x0040BBD0`, `0x0040BC20`) and off (`0x0040BE90`), Make Boridin section break
 //! away (`0x0040BF60`) and Rotate Boridin breakaway warp projector (`0x0040C100`).
@@ -435,7 +435,7 @@ const most_fought = 3;
 /// above it. With neither it pops.
 ///
 /// Not ported: in a multiplayer game, a ship another machine flies, which pushes no Fight
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn findNewTarget(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.find_target;
@@ -478,7 +478,7 @@ const Weighing = struct {
 ///
 /// **Quirk:** the game weighs the one to fight by 0.7 more (`0x004DC484`) where the count of
 /// objects it has just walked equals the player's slot, which never happens; it looks meant to
-/// favour the player's ship ([#314](https://github.com/vdmkenny/openreliant/issues/314)).
+/// favour the player's ship ([#314](https://github.com/OpenReliant/openreliant/issues/314)).
 /// OpenReliant keeps the game's weights.
 fn weighTarget(ctx: Context, index: u16, target: aigeneric.Target) void {
     const all = ctx.world.objects;
@@ -554,7 +554,7 @@ comptime {
 /// from the wait, and searches again.
 ///
 /// Not ported: the wait, and in a multiplayer game the Scoop Up sent to the other players where
-/// the order names no ship ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// the order names no ship ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn findScoopUp(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.find_scoop_up;

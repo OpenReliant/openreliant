@@ -1096,7 +1096,7 @@ pub fn burst(world: gameobj.World, index: u16) void {
 /// together; and the root sends out a burst of flame and the explosion's sound.
 ///
 /// Not ported: what it sets off first for a few types
-/// ([#238](https://github.com/vdmkenny/openreliant/issues/238)).
+/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 pub fn componentLost(world: gameobj.World, index: u16, model: *const objects.Model, root: math.Place, link: u32) void {
     const slot = &world.objects.slots[index];
     var reach: f32 = 0;
@@ -1144,7 +1144,7 @@ pub const ComponentLoss = enum {
 /// (`shield.hideForceFields`), it splits in two (`split.start`), and is lost (`loseHull`). The
 /// Ulysses' stops it for every part.
 ///
-/// Not ported: all the Ulysses' does ([#232](https://github.com/vdmkenny/openreliant/issues/232)).
+/// Not ported: all the Ulysses' does ([#232](https://github.com/OpenReliant/openreliant/issues/232)).
 pub fn loseComponent(ctx: aigeneric.Context, index: u16, routine: ComponentLoss, part: *const objects.Model.Part) bool {
     switch (routine) {
         .capital_ship => {

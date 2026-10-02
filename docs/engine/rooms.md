@@ -10,8 +10,8 @@ The pilot roster's START GAME leads into the rooms, through the induction for mi
 
 Not ported:
 
-- The pilot's profile, which the rooms write with the call sign as they open (`profile_save`), and a mission's end writes with the pilot's records ([#74](https://github.com/vdmkenny/openreliant/issues/74)).
-- The story's end after the last mission ([#416](https://github.com/vdmkenny/openreliant/issues/416)): OpenReliant goes back to the main menu.
+- The pilot's profile, which the rooms write with the call sign as they open (`profile_save`), and a mission's end writes with the pilot's records ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
+- The story's end after the last mission ([#416](https://github.com/OpenReliant/openreliant/issues/416)): OpenReliant goes back to the main menu.
 
 **Fixes:**
 

@@ -166,7 +166,7 @@ launch tube the ship lands in, which the landing keeps, turned as the carrier is
 
 The display names view `0x23`, but not `0x26`. **Improvement:** from within the tube, the sound is
 heard as in a hangar ([Sound](../port/sound.md)). The Yamato's landing picks views `0x0E` and `0x25`,
-which OpenReliant has not ported ([#349](https://github.com/vdmkenny/openreliant/issues/349)).
+which OpenReliant has not ported ([#349](https://github.com/OpenReliant/openreliant/issues/349)).
 
 ## The director's view
 

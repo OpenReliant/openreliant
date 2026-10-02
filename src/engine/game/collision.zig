@@ -42,7 +42,7 @@ pub const push_apart: f32 = 1.1;
 ///
 /// Not ported: what a mine does in a multiplayer game, 5000 and the kill to its owner, and what the
 /// destruction tells the other players, which are multiplayer's
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn collide(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
     const all = world.objects;
     var near = first;
@@ -547,8 +547,8 @@ const shielded_hit: f32 = 1000;
 /// Last, whether or not the part took the hit, come the ShotAt events (`componentShotAt`).
 ///
 /// Not ported: the invulnerability a component may carry and the score a player's hit is worth
-/// ([#538](https://github.com/vdmkenny/openreliant/issues/538)), and what multiplayer makes of it
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#538](https://github.com/OpenReliant/openreliant/issues/538)), and what multiplayer makes of it
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
     const object = &world.objects.slots[index].object;
     if (object.flags.jumping or kind == .collision or struck_part.part().flags.damaged) return;
@@ -662,7 +662,7 @@ const reserve_drain: f32 = 1 / taken_share;
 /// that, as the game halves the damage only once it has drawn the reserve. A force field the ship
 /// hits glows whole (`shield.flareCapital`).
 ///
-/// Not ported: what the hit destroys ([#42](https://github.com/vdmkenny/openreliant/issues/42)).
+/// Not ported: what the hit destroys ([#42](https://github.com/OpenReliant/openreliant/issues/42)).
 /// The game also tests the player's ship against each part's trigger polygons first, which one
 /// shipped model carries.
 fn hullHit(world: gameobj.World, ship: u16, hull: u16, pass: u8) bool {

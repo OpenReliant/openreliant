@@ -176,7 +176,7 @@ If several controllers are connected, `Joystick` selects the first one whose nam
 - **Xbox, PlayStation, Nintendo Switch and most other gamepads**: work out of the box with the gamepad controls above.
 - **Sticks with a twist and a throttle**, such as the Logitech Extreme 3D Pro: work out of the box. Set `TwistEnable=1` if you want to roll with the twist.
 - **HOTAS sets with a single USB cable**, such as the Saitek/Logitech X52: work out of the box. Use `openreliant joysticks --watch` to check that the right axis is used as the throttle, and set `ThrottleAxis` if it is not.
-- **Stick and throttle with separate USB cables**: OpenReliant only reads the stick for now ([#114](https://github.com/vdmkenny/openreliant/issues/114)). Use the keyboard for the throttle, or bind ACCELERATE and DECELERATE to buttons on the stick.
+- **Stick and throttle with separate USB cables**: OpenReliant only reads the stick for now ([#114](https://github.com/OpenReliant/openreliant/issues/114)). Use the keyboard for the throttle, or bind ACCELERATE and DECELERATE to buttons on the stick.
 - **Old gameport sticks on a USB adapter**: steering and buttons work; use the keyboard for the throttle.
 - **Gamepads listed as a joystick**: SDL, the library OpenReliant uses for controllers, does not recognize the gamepad, so its right stick is treated as a throttle. Set `ThrottleAxis=-1` and `TwistAxis=2`. Alternatively, add a mapping for the gamepad to a `gamecontrollerdb.txt` file in the game folder to get the full gamepad controls. The [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) project has mappings for thousands of gamepads.
 

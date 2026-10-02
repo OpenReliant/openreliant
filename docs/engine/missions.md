@@ -235,7 +235,7 @@ none, where the game takes the code from wherever the section's offset, `0xFFFF`
 
 Not ported: the rest of the loading and of `mission_start`: the renderer's and the textures'
 setting up and the loading screen, which are the front end's
-([#43](https://github.com/vdmkenny/openreliant/issues/43)), the chat line, a multiplayer game, and
+([#43](https://github.com/OpenReliant/openreliant/issues/43)), the chat line, a multiplayer game, and
 what the start does for the campaign, the pilots it gives the player's wing, mission 25's first
 part's cockpit, the Kamov's, and the pilot's profile
-([#301](https://github.com/vdmkenny/openreliant/issues/301)).
+([#301](https://github.com/OpenReliant/openreliant/issues/301)).

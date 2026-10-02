@@ -1511,8 +1511,8 @@ pub fn setEcm(display: *hud.State, object: *gameobj.GameObject, on: bool) void {
 /// them on tunes them, into `spectral_gun_type`, to the gun type most dangerous near the ship: it
 /// counts the guns of every hostile ship within range, weights each type's count by its first
 /// damage value, and takes the highest, leaving out types 13 and 14. Not yet ported: the tuning,
-/// which needs the other ships' guns ([#530](https://github.com/vdmkenny/openreliant/issues/530)),
-/// and what it tells a multiplayer game ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// which needs the other ships' guns ([#530](https://github.com/OpenReliant/openreliant/issues/530)),
+/// and what it tells a multiplayer game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn setSpectralShields(display: *hud.State, object: *gameobj.GameObject, on: bool) void {
     const shields = display.devices.getPtr(.spectral_shields);
     if (shields.setting == .absent) return;
@@ -1738,7 +1738,7 @@ const gone_pause = 500;
 /// open, Betty says so where the armed type has run out, and the display counts one off.
 ///
 /// Not ported: the Kamov of mission 25 letting the craft it carries go instead
-/// ([#305](https://github.com/vdmkenny/openreliant/issues/305)), and uncloaking;
+/// ([#305](https://github.com/OpenReliant/openreliant/issues/305)), and uncloaking;
 /// and in a multiplayer game, the missile being a power-up, and launching from under the cloak.
 pub fn launchMissile(world: gameobj.World, index: u16) void {
     const all = world.objects;

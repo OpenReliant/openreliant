@@ -10,7 +10,7 @@ The front end's screen 7 (`interface_briefing`, `0x00437010`, named after its as
 
 The in-game options' SAVE and LOAD over the loadout open the saved games ([Front end](front-end.md#the-saved-games)); a game loaded leaves the loadout and ends the briefing for the rooms, from the first view of its mission's carrier.
 
-Not ported: the way to the campaign's end after mission 28 ([#74](https://github.com/vdmkenny/openreliant/issues/74)). The briefing's part in it is ported.
+Not ported: the way to the campaign's end after mission 28 ([#74](https://github.com/OpenReliant/openreliant/issues/74)). The briefing's part in it is ported.
 
 **Fixes:**
 
@@ -77,4 +77,4 @@ The room's screen plays `%s.bik` of a table the briefing builds on its stack, in
 
 ## The campaign's end
 
-As mission 28 is won, the campaign moves on to mission 29, and `WinMain` runs the briefing itself for it (`0x004AA027`, `0x004AA6F2`), before the story's end (`ending_movies_play`; [#416](https://github.com/vdmkenny/openreliant/issues/416)). Mission 29's briefing loads no loadout. In place of the movie, Enriquez speaks `enddebriefing.ut`, from `speech_hog`, over the Yamato's briefing room, until Escape, the right button or the end of his speech, and no loadout or last word follows.
+As mission 28 is won, the campaign moves on to mission 29, and `WinMain` runs the briefing itself for it (`0x004AA027`, `0x004AA6F2`), before the story's end (`ending_movies_play`; [#416](https://github.com/OpenReliant/openreliant/issues/416)). Mission 29's briefing loads no loadout. In place of the movie, Enriquez speaks `enddebriefing.ut`, from `speech_hog`, over the Yamato's briefing room, until Escape, the right button or the end of his speech, and no loadout or last word follows.

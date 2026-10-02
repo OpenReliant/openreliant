@@ -25,7 +25,7 @@
 //!
 //! **Not ported:** the pilots' records a ship's end keeps, its pilot taken off the wing's list
 //! (`0x0058A958`) and marked lost (`0x005047D0`), which are the campaign's
-//! ([#301](https://github.com/vdmkenny/openreliant/issues/301)).
+//! ([#301](https://github.com/OpenReliant/openreliant/issues/301)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -128,7 +128,7 @@ pub const Data = extern struct {
 /// that mode's init (`explode_modes`).
 ///
 /// Not ported: in a multiplayer game, a player's power-up is ended first (`0x004AF120`,
-/// [#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// [#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn init(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.explode;
@@ -286,7 +286,7 @@ fn limpetCarInit(ctx: Context, index: u16) void {
 /// otherwise the car blows up and is retired.
 ///
 /// Not ported: the message that tells the other players of a network game of the car's end
-/// (`0x004B9C70`, [#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// (`0x004B9C70`, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn limpetCarUpdate(ctx: Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -317,7 +317,7 @@ const slow: f32 = 100;
 ///
 /// Not ported: a multiplayer game's end, in which a player's ship is made invulnerable and its kill
 /// announced to everyone, a proximity mine halts and is retired, and every other ship spins out
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn shipInit(ctx: Context, index: u16) void {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
@@ -362,7 +362,7 @@ fn shipInit(ctx: Context, index: u16) void {
 /// It does nothing while the radio's channels are closed (`videoreports.Remarks.kill_credit`).
 ///
 /// Not ported: the other players' kills in a multiplayer game
-/// ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn killCredit(world: gameobj.World, index: u16) void {
     if (!world.player.remarks.kill_credit) return;
     const all = world.objects;
@@ -399,7 +399,7 @@ fn movingSlowly(slot: *const create.Slot, view: camera.View) bool {
 /// burst in its own way and a torpedo not at all, having gone up as it stopped, and is retired.
 ///
 /// Not ported: a multiplayer game, in which the order pops and a player's ship is readied to fly
-/// again rather than retired ([#55](https://github.com/vdmkenny/openreliant/issues/55)).
+/// again rather than retired ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn shipUpdate(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.explode;

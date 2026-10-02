@@ -16,11 +16,11 @@ Coalition's gates up ([`game/create.zig`](../../src/engine/game/create.zig)). A 
 lets every tunnel go.
 
 Not ported: the warps' tunnels (kind 0, Warp In and Warp Out, orders 4 and 5), with their
-particles and beams ([#481](https://github.com/vdmkenny/openreliant/issues/481)); the Boridin's
-projection (kind 3, order 38) ([#30](https://github.com/vdmkenny/openreliant/issues/30)); the
-Krasny's split in missions 16 and 66 ([#407](https://github.com/vdmkenny/openreliant/issues/407));
+particles and beams ([#481](https://github.com/OpenReliant/openreliant/issues/481)); the Boridin's
+projection (kind 3, order 38) ([#30](https://github.com/OpenReliant/openreliant/issues/30)); the
+Krasny's split in missions 16 and 66 ([#407](https://github.com/OpenReliant/openreliant/issues/407));
 and the collapse's second passes on the parts of models a gate carries, which the game's walk of
-its nodes reaches too ([#540](https://github.com/vdmkenny/openreliant/issues/540)). No shipped gate carries a model.
+its nodes reaches too ([#540](https://github.com/OpenReliant/openreliant/issues/540)). No shipped gate carries a model.
 
 **Improvements**, which `--original` turns off:
 
