@@ -1,0 +1,74 @@
+name: Bug report
+description: Something in OpenReliant doesn't work, or works differently from the original game.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! OpenReliant aims to play exactly like the original StarLancer, so the most useful reports say what OpenReliant does and, if you know it, what the original does at the same moment.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw or heard, and where in the game, such as the mission number, the screen or the cutscene.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How to make it happen again, step by step.
+      placeholder: |
+        1. Start a new game.
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+      description: What you expected instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: original
+    attributes:
+      label: Does the original game do the same?
+      options:
+        - No, the original game behaves differently
+        - Yes, the original game does the same
+        - I don't know
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OpenReliant version
+      description: What `openreliant --version` prints, or the release you downloaded.
+      placeholder: openreliant 0.6.3
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Your operating system, and your graphics card for a problem with what's drawn.
+      placeholder: Windows 11, NVIDIA GeForce RTX 3060
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Mods
+      description: The mods in your game's `mods` folder, if any, and whether it still happens when you start with `--no-mods`.
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Start OpenReliant from a terminal and paste what it prints around the time of the problem.
+      render: text
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Drag them in here. A screenshot or recording of the original game at the same moment helps too.
