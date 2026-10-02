@@ -425,7 +425,7 @@ All of their text is in the display's font.
 
 | Form | Draws, from the window's place |
 | --- | --- |
-| Small, window 3 | the target's ship status, mode 1, at `(-4, -0x2C)`; its type's name at `(0x37, -0x43)`; its pilot's name, for a named pilot, at `(0x37, -0x37)`; its range, `%dk`, at `(0x37, -0x2B)`; its speed, `%d kps`, at `(0x37, -0x1F)`; all left-aligned. A cloaked hostile target closes it |
+| Small, window 3 | the target's ship status, mode 1, at `(-4, -0x2C)`; its type's name at `(0x37, -0x43)`; its pilot's name at `(0x37, -0x37)`; its range, `%dk`, at `(0x37, -0x2B)`; its speed, `%d kps`, at `(0x37, -0x1F)`; all left-aligned. A cloaked hostile target closes it |
 | Large, window 8 | the type's own picture, its sprite's first shape, at `(-0xD0, -0x80)`; its name, right-aligned at `(-2, -0x9D)`; the subtarget; the hull's bar; the range and the speed, right-aligned at `(-3, -0x1D)` and `(-3, -0x11)` |
 
 The large form's subtarget is the component the player's current order names, for any type but
@@ -461,9 +461,13 @@ As a form closes, `hud_window_close` draws what it shows once more into `hud_win
 with the display's new target for the range, the name and the rest. OpenReliant keeps what each form
 last showed and closes it with that.
 
-**Not ported:** the pilot's name, which a mission gives (`GameObject.pilot_record`,
-[#529](https://github.com/OpenReliant/openreliant/issues/529)); and in a multiplayer game the
-players' names and one more line of the small form
+The pilot's name is the string the pilot's face names it by (`pilot_faces`, `0x005048D8`), which
+the small form reads through the object's `pilot_record`. Every ship but a stand-in has a pilot:
+`create_object` gives a hostile ship pilot 66, whose face reads SABERS, and any other ship pilot 0,
+Bandit, and a mission's ship record can name another (`mission_ship_create`). The large form shows
+no pilot.
+
+**Not ported:** in a multiplayer game, the players' names and one more line of the small form
 ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## The radar

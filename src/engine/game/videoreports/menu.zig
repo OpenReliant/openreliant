@@ -327,7 +327,7 @@ pub const Menu = struct {
             if (slot == all.player) continue;
             const object = &all.slots[slot].object;
             if (object.flags.exploding) continue;
-            const name = if (pilots.faceOf(object.pilot)) |face| face.name else null;
+            const name = pilots.nameOf(object.pilot);
             menu.add(.{ .pilot = .{ .name = name, .call_sign = call_sign } }, .ship, @intCast(slot));
         }
         if (menu.count > 1) menu.add(.{ .string = strings.whole_wing }, .wing, picked);

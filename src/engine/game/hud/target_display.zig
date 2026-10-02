@@ -4,10 +4,10 @@
 //! (`hud.State.targetChanged`).
 //!
 //! The small form shows the target's ship status, turned to face the player
-//! (`hud.ShipStatus`, mode 1), its type's name, its range in kilometres and its speed. The large
-//! form shows the type's own picture, its name, the subtarget with an icon for its part's class and
-//! a bar for the part's armour, a bar for the ship's hull, and the range and the speed. Every line
-//! is in the display's font.
+//! (`hud.ShipStatus`, mode 1), its type's name, its pilot's name, its range in kilometres and its
+//! speed. The large form shows the type's own picture, its name, the subtarget with an icon for its
+//! part's class and a bar for the part's armour, a bar for the ship's hull, and the range and the
+//! speed. Every line is in the display's font.
 //!
 //! As a form closes, `hud_window_close` draws what it shows once more into a picture
 //! (`hud_window_picture`, `0x00566600`), and the window closes with that.
@@ -17,9 +17,7 @@
 //! for the range, the name and the rest. OpenReliant keeps what each form last showed and closes it
 //! with that.
 //!
-//! Not ported: the pilot's name under the type's, for a named pilot (`GameObject.pilot_record`),
-//! which a mission gives ([#529](https://github.com/OpenReliant/openreliant/issues/529)); and in a
-//! multiplayer game the players' names and one more line of the small form
+//! Not ported: in a multiplayer game, the players' names and one more line of the small form
 //! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
@@ -28,6 +26,7 @@ const Allocator = std.mem.Allocator;
 const shp = @import("../../../formats/shp.zig");
 const create = @import("../create.zig");
 const hud = @import("../hud.zig");
+const pilots = @import("../pilots.zig");
 const windows = @import("windows.zig");
 
 /// The target display's two forms: window 3, the small one, and window 8, the large one.
@@ -72,7 +71,7 @@ pub const Scene = struct {
             scene.state.windows.close(.target);
             return null;
         }
-        return .{ .status = hud.ShipStatus.ofTarget(slot, &scene.state.target_hits), .facts = .of(scene.all, index) };
+        return .{ .status = hud.ShipStatus.ofTarget(slot, &scene.state.target_hits), .facts = .of(scene.all, index), .pilot = pilotName(slot) };
     }
 
     /// What the large form shows now.
@@ -124,18 +123,33 @@ pub const Lines = struct {
 pub const Small = struct {
     status: hud.ShipStatus.Shown,
     facts: Facts,
+    /// The name of the target's pilot, a string of the game's (`pilotName`); null for none.
+    pilot: ?u16 = null,
 
     /// Where the ship status stands from the window's place.
     pub const status_at: [2]i32 = .{ -4, -0x2C };
     pub const lines: Lines = .{ .name = .{ 0x37, -0x43 }, .range = .{ 0x37, -0x2B }, .speed = .{ 0x37, -0x1F }, .alignment = .left };
+    /// Where the pilot's name goes: under the type's name, at the same x (`0x00487D0F`).
+    pub const pilot_at: [2]i32 = .{ 0x37, -0x37 };
 
     fn draw(small: Small, context: Context) windows.Canvas.Error!void {
         const canvas = context.canvas;
         try hud.ShipStatus.draw(small.status, .target, canvas.pen, canvas.place(status_at), canvas.clip);
         try context.name(small.facts, lines);
+        if (small.pilot) |id| try canvas.string(id, pilot_at, lines.alignment);
         try context.figures(small.facts, lines);
     }
 };
+
+/// The name of the pilot flying the ship in `slot`, as the small form writes it (`0x00487C99` on):
+/// the string its pilot's face names it by (`pilots.nameOf`). The game reads the face through the
+/// object's `pilot_record`, which `create_object` sets for every ship but a stand-in, giving a
+/// hostile ship pilot 66 and any other pilot 0 until a mission names another
+/// (`mission_ship_create`). Null for a stand-in, which has no combat stats.
+fn pilotName(slot: *const create.Slot) ?u16 {
+    if (slot.combat == null) return null;
+    return pilots.nameOf(slot.object.pilot);
+}
 
 /// What the large form shows.
 pub const Large = struct {
@@ -350,6 +364,10 @@ test "the forms show the target" {
     try std.testing.expectEqual(slot.combat.?.name, facts.name.?);
     try std.testing.expectEqual(3, facts.range);
     try std.testing.expectEqual(213, facts.speed);
+    // Its pilot's name: the hostile default's, until a mission names another pilot.
+    try std.testing.expectEqual(pilots.nameOf(create.coalition_pilot).?, scene.small().?.pilot.?);
+    pilots.setPilot(&slot.object, 1);
+    try std.testing.expectEqual(pilots.nameOf(1).?, scene.small().?.pilot.?);
 
     // A cloaked hostile target closes the small form.
     _ = state.windows.open(.target, false);

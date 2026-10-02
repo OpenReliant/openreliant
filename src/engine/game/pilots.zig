@@ -288,6 +288,21 @@ pub fn faceOf(pilot: i32) ?*const Face {
     return &faces[@intCast(pilot)];
 }
 
+/// The string that names pilot `pilot` (`Face.name`), as the radio's window and the target display
+/// show it; null for a number past the table.
+pub fn nameOf(pilot: i32) ?u16 {
+    const face = faceOf(pilot) orelse return null;
+    return face.name;
+}
+
+test nameOf {
+    // Bandit and Diceman, the 45th Tigers' wing leaders, and SABERS, the hostile ships' default.
+    try std.testing.expectEqual(33, nameOf(0).?);
+    try std.testing.expectEqual(37, nameOf(1).?);
+    try std.testing.expectEqual(81, nameOf(66).?);
+    try std.testing.expectEqual(null, nameOf(-1));
+}
+
 test faceOf {
     // The first pilot of the table is the 45th Tigers' wing leader Bandit, with a film for each way
     // the face moves; a pilot past the table has none.

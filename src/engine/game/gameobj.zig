@@ -890,7 +890,9 @@ pub const GameObject = extern struct {
     shield_factor: f32,
     /// Its pilot: the record in `pilotstats.bin`, which `object_set_pilot` gives it.
     pilot: i32,
-    /// **Unknown.** A 24-byte record for the pilot, from a table at `0x5048D8`.
+    /// Its pilot's face (`pilot_faces`, `0x005048D8`), which `object_set_pilot` points it at; null
+    /// for a stand-in. OpenReliant leaves it null and looks the face up by `pilot`
+    /// (`pilots.faceOf`).
     pilot_record: Pointer(anyopaque),
     pilot_stats: Pointer(@import("pilots.zig").Pilot),
     /// The wing the mission lists it in (`mission.listPlayerWing`).

@@ -1088,7 +1088,7 @@ pub const Radio = struct {
                 if (report.object < 0 or report.object >= ctx.all.slots.len) continue;
                 const object = &ctx.all.slots[@intCast(report.object)].object;
                 if (object.flags.exploding) continue;
-                name = if (pilots.faceOf(object.pilot)) |face| face.name else null;
+                name = pilots.nameOf(object.pilot);
             }
             radio.say(ctx, .{
                 .film = report.film.slice(),
