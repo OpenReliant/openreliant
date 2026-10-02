@@ -2,10 +2,11 @@
 
 A ship leaves the ship it launches from, its carrier, under order 104, Launch (`launch.cpp`):
 `order_launch_init` (`0x00418EB0`) readies it, and `order_launch` (`0x004191C0`) runs it an update
-at a time. The carrier's type picks how the launch goes, its style. OpenReliant runs the Reliant's
-style and the torpedoes'; [`launch.zig`](../../src/engine/game/launch.zig) holds the order,
-[`launch/reliant.zig`](../../src/engine/game/launch/reliant.zig) and
-[`launch/torpedo.zig`](../../src/engine/game/launch/torpedo.zig) the two styles.
+at a time. The carrier's type picks how the launch goes, its style. OpenReliant runs three styles:
+the Reliant's, the torpedoes' and the Zakov's. [`launch.zig`](../../src/engine/game/launch.zig)
+holds the order, and [`launch/reliant.zig`](../../src/engine/game/launch/reliant.zig),
+[`launch/torpedo.zig`](../../src/engine/game/launch/torpedo.zig) and
+[`launch/zakov.zig`](../../src/engine/game/launch/zakov.zig) the styles.
 
 ## How a launch is given
 
@@ -169,6 +170,16 @@ sound `0x18`), and boosts away along its nose at throttle 2 (`motion_plain`), st
 its carrier's velocity, trailing smoke as a torpedo does. After 200 ticks it flies itself again, its
 order pops, it can be targeted and collides again, and its Launched event is queued; it still
 passes through the ship that launched it.
+
+## The Zakov's
+
+A ship launching from the Zakov (`launch_zakov_init`, `0x0041B8B0`) is placed at the launch point
+its gate names, riding the part that holds it, then moved forward along its nose by how far its
+bounding box reaches behind its centre (`bounds_min`). At step 2 (`launch_zakov_run`,
+`0x0041B940`) it lets go and flies straight out along its nose at throttle 2 (`motion_plain`).
+Once more than 100 ticks have passed, it flies itself (`motion_forward`) with its throttle and yaw
+input zeroed, its order pops, it can be targeted again, and its Launched event is queued; it still
+passes through the Zakov.
 
 ## In OpenReliant
 
