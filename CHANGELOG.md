@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/OpenReliant/openreliant/compare/v0.6.1...v0.6.2) (2026-10-02)
+
+
+### Fixes
+
+* the game's text stands on its dark edge, and the display writes in Newtown ([#552](https://github.com/OpenReliant/openreliant/issues/552)) ([5871df8](https://github.com/OpenReliant/openreliant/commit/5871df8640d53f4e22a93ac06201601f90ab3bc3))
+
 ## [0.6.1](https://github.com/vdmkenny/openreliant/compare/v0.6.0...v0.6.1) (2026-10-02)
 
 
