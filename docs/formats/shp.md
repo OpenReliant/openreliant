@@ -100,16 +100,13 @@ chunk of any other tag wherever it stands. No shipped model has one. The reader 
 whole (`shp.Model.unnamed_chunks`), each with how many chunks of named tags come before it, and the
 writer writes each after as many of its own, or before the terminator where it writes fewer.
 
-A file does not come back byte for byte where it holds what the reader does not keep, which no
-shipped model does: a chunk of a named tag the loader never asks for
-([#470](https://github.com/vdmkenny/openreliant/issues/470)), header records after the first
-([#471](https://github.com/vdmkenny/openreliant/issues/471)), bytes after the terminator
-([#472](https://github.com/vdmkenny/openreliant/issues/472)), bytes of a record past its type's
-size, other than an attachment's, where they are not zero
-([#473](https://github.com/vdmkenny/openreliant/issues/473)), chunks of one tag with two record
-sizes, which come back at the larger ([#477](https://github.com/vdmkenny/openreliant/issues/477)),
-or a terminator whose record size or count is missing or not 0, which comes back with both 0
-([#478](https://github.com/vdmkenny/openreliant/issues/478)).
+A file laid out as no shipped model is comes back as the loader reads it, which it reads the same,
+rather than byte for byte. It loses a chunk of a named tag the loader never asks for, header records
+after the first, bytes after the terminator, and bytes of a record past its type's size, other than
+an attachment's. Chunks of one tag with two record sizes come back at the larger, a terminator whose
+record size or count is not 0 comes back with both 0, and a chunk the file leaves out where the
+loader asks for one comes back empty. **Unverified:** that nothing after `model_load` reads a header
+record past the first.
 
 The writer fails rather than write a file the loader would misread: records of a tag the model's
 sizes leave out, a chunk of more records than its header can count (65535), or a part whose nodes

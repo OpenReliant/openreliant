@@ -817,9 +817,9 @@ pub const RecordSizes = struct {
     }
 
     /// Takes in a chunk of `tag` with records of `size`. A file that gives a tag two sizes, as no
-    /// shipped model does, is written again at the larger
-    /// ([#477](https://github.com/vdmkenny/openreliant/issues/477)). A tag the format does not name
-    /// has no size: the model keeps its chunks whole (`Model.unnamed_chunks`).
+    /// shipped model does, is written again at the larger, which the loader reads the same
+    /// (`records`). A tag the format does not name has no size: the model keeps its chunks whole
+    /// (`Model.unnamed_chunks`).
     fn note(sizes: *RecordSizes, tag: Tag, size: u16) void {
         switch (tag) {
             .end, _ => {},
@@ -1150,17 +1150,13 @@ pub const Model = struct {
     /// for them, each record cut short or filled out with zeros to the size `record_sizes` gives
     /// its tag, an attachment's with its tail after it, its unnamed chunks where they stood among
     /// the others, and the terminator. A tag the sizes leave out gets no chunk, and must have no
-    /// records. A model parsed from a file comes back byte for byte, as every shipped model does,
-    /// unless the file holds what `parse` does not keep: a chunk of a named tag the loader never
-    /// asks for ([#470](https://github.com/vdmkenny/openreliant/issues/470)), header records after
-    /// the first ([#471](https://github.com/vdmkenny/openreliant/issues/471)), bytes after the
-    /// terminator ([#472](https://github.com/vdmkenny/openreliant/issues/472)), bytes of a record
-    /// past its type's size, other than an attachment's, where they are not zero
-    /// ([#473](https://github.com/vdmkenny/openreliant/issues/473)), chunks of one tag with two
-    /// record sizes, which come back at the larger
-    /// ([#477](https://github.com/vdmkenny/openreliant/issues/477)), or a terminator whose record
-    /// size or count is missing or not 0, which comes back with both 0
-    /// ([#478](https://github.com/vdmkenny/openreliant/issues/478)).
+    /// records. A model parsed from a file comes back byte for byte, as every shipped model does.
+    /// A file laid out as no shipped model is comes back as the loader reads it, which it reads
+    /// the same, rather than byte for byte: without a chunk of a named tag the loader never asks
+    /// for, header records after the first, bytes after the terminator, or bytes of a record past
+    /// its type's size, other than an attachment's; with chunks of one tag at the larger of two
+    /// record sizes, a terminator of record size and count 0, and an empty chunk where the file
+    /// left one out that the loader asks for.
     pub fn write(model: Model, out: *std.Io.Writer) WriteError!void {
         var chunks: ChunkWriter = .{ .out = out, .sizes = model.record_sizes, .unnamed = model.unnamed_chunks };
         try chunks.put(.header, @as(*const [1]Header, &model.header), null);
@@ -1760,8 +1756,8 @@ test "a file that ends after the terminator's tag comes back with the terminator
     const data = buildTestModel(&buffer);
     const tag_only = data[0 .. data.len - @sizeOf(ChunkHeader) + @sizeOf(Tag)];
 
-    // The writer ends every model with a record size and count of 0
-    // ([#478](https://github.com/vdmkenny/openreliant/issues/478)), which follow the file's bytes.
+    // The writer ends every model with a record size and count of 0, which follow the file's
+    // bytes.
     var written: std.Io.Writer.Allocating = .init(arena);
     try (try Model.parse(arena, tag_only)).write(&written.writer);
     const back = written.written();
