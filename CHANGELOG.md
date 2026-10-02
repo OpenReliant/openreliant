@@ -1,5 +1,71 @@
 # Changelog
 
+## [0.6.0](https://github.com/vdmkenny/openreliant/compare/v0.5.0...v0.6.0) (2026-10-02)
+
+
+### Features
+
+* a subtle room between missions, and Enriquez's last word as loud as the narration ([#432](https://github.com/vdmkenny/openreliant/issues/432)) ([2a8b22b](https://github.com/vdmkenny/openreliant/commit/2a8b22b0373dcc2da41936f0bafb00e3cca39013)), closes [#425](https://github.com/vdmkenny/openreliant/issues/425) [#431](https://github.com/vdmkenny/openreliant/issues/431)
+* crisper menu text, drawn from the glyphs' coverage ([#424](https://github.com/vdmkenny/openreliant/issues/424)) ([0e2bc13](https://github.com/vdmkenny/openreliant/commit/0e2bc13db1db638764b29d9aaf6b8729e588f3fd)), closes [#410](https://github.com/vdmkenny/openreliant/issues/410)
+* four more of the scripts' commands, and three more orders ([#482](https://github.com/vdmkenny/openreliant/issues/482)) ([bb75b81](https://github.com/vdmkenny/openreliant/commit/bb75b814cf7afa321ebf6501627a12da17b2798b))
+* Instant Action, with the gates, the countdown and its bosses' commands ([#408](https://github.com/vdmkenny/openreliant/issues/408)) ([7f3525a](https://github.com/vdmkenny/openreliant/commit/7f3525a11f969b69bdeb04ea8bdb0bbaff603665)), closes [#399](https://github.com/vdmkenny/openreliant/issues/399) [#382](https://github.com/vdmkenny/openreliant/issues/382)
+* interface pictures from mods at any size, and widescreen backgrounds ([#510](https://github.com/vdmkenny/openreliant/issues/510)) ([547aee6](https://github.com/vdmkenny/openreliant/commit/547aee62ab8b33e88ac02579a0e5cf391c7ab4b3))
+* materials reflect the sky and the nebula around the ship ([#506](https://github.com/vdmkenny/openreliant/issues/506)) ([cb8301f](https://github.com/vdmkenny/openreliant/commit/cb8301ffb4723835332f76a544507001f3769263))
+* mods in the game's mods folder replace and add to its files ([#500](https://github.com/vdmkenny/openreliant/issues/500)) ([73f36c9](https://github.com/vdmkenny/openreliant/commit/73f36c94275c6550e639b0f594ee17e2e66271e5))
+* normal maps shade the ambient light, with specular anti-aliasing ([#548](https://github.com/vdmkenny/openreliant/issues/548)) ([6f2341e](https://github.com/vdmkenny/openreliant/commit/6f2341e2243851a9e9c6124763eaa78c88535b44))
+* OpenReliant's options kept in starlancer.ini ([#485](https://github.com/vdmkenny/openreliant/issues/485)) ([2c0d255](https://github.com/vdmkenny/openreliant/commit/2c0d255b1f9b63cdb142b96b475f0f553e41606c))
+* physically based materials from mods' normal and material maps ([#505](https://github.com/vdmkenny/openreliant/issues/505)) ([e9910c2](https://github.com/vdmkenny/openreliant/commit/e9910c2a04f6909275bd8cffd08246b89b4de403))
+* saving and loading the campaign, in the original's saved games ([#476](https://github.com/vdmkenny/openreliant/issues/476)) ([4edd6e4](https://github.com/vdmkenny/openreliant/commit/4edd6e42b32a2bdc76f1a03dd5eb06468e73c9ac))
+* sltool hog pack, with a RefPack encoder that keeps to the game's in-place expansion ([#429](https://github.com/vdmkenny/openreliant/issues/429)) ([d2553e5](https://github.com/vdmkenny/openreliant/commit/d2553e5bfaed5a2e068a6fb52567a54e7ff1fbc4))
+* textures from mods as PNG pictures at any size ([#504](https://github.com/vdmkenny/openreliant/issues/504)) ([cad93f8](https://github.com/vdmkenny/openreliant/commit/cad93f8c0156cae13c7f9c757d2bbee7b7a48c0d))
+* the 0 key saves a screenshot in flight, and O in the briefing, as PNG files ([#438](https://github.com/vdmkenny/openreliant/issues/438)) ([00a1489](https://github.com/vdmkenny/openreliant/commit/00a14897621319afcef7cd68d1eb3274c59450b5))
+* the briefing, from the briefing room's door to Enriquez's last word ([#426](https://github.com/vdmkenny/openreliant/issues/426)) ([bdebf75](https://github.com/vdmkenny/openreliant/commit/bdebf755f1e368ae64ac83e064d0f4e7c1b750e3))
+* the campaign goes on after a mission, and a lost one turns to the restart screen ([#458](https://github.com/vdmkenny/openreliant/issues/458)) ([b3b3fd6](https://github.com/vdmkenny/openreliant/commit/b3b3fd631620daedd7977cf2814269f01bc66e3a)), closes [#440](https://github.com/vdmkenny/openreliant/issues/440)
+* the CD player, with each carrier's list of the game's music ([#516](https://github.com/vdmkenny/openreliant/issues/516)) ([1e6783a](https://github.com/vdmkenny/openreliant/commit/1e6783acd06c02107617286cbcedb84a01d14760)), closes [#422](https://github.com/vdmkenny/openreliant/issues/422)
+* the crew in the rooms, with their lines ([#519](https://github.com/vdmkenny/openreliant/issues/519)) ([cd7487f](https://github.com/vdmkenny/openreliant/commit/cd7487f06c7ee7671c4c82a4a5a2102517b28c8f)), closes [#418](https://github.com/vdmkenny/openreliant/issues/418)
+* the default bindings from DEFAULT.TXT, as the original reads them ([#522](https://github.com/vdmkenny/openreliant/issues/522)) ([a1cdcaa](https://github.com/vdmkenny/openreliant/commit/a1cdcaa6a1c76d8c22f85e30e878a3e946de3539)), closes [#488](https://github.com/vdmkenny/openreliant/issues/488)
+* the game opens in the front end's main menu ([#405](https://github.com/vdmkenny/openreliant/issues/405)) ([bc2625f](https://github.com/vdmkenny/openreliant/commit/bc2625f8aa62e0a92bd35f9d37b7e49128f7a72c))
+* the graphics on the VIDEO tab, ORIGINAL or MODERN, with their options in a list ([#525](https://github.com/vdmkenny/openreliant/issues/525)) ([2672ace](https://github.com/vdmkenny/openreliant/commit/2672acebfd7d24409831355b64100f2b46bfe2ff))
+* the hangar, landing and chapter movies, from the discs' archives ([#417](https://github.com/vdmkenny/openreliant/issues/417)) ([414f1c0](https://github.com/vdmkenny/openreliant/commit/414f1c025699aa0631bd05d0aadbf3539f8c1d67))
+* the interface's text in outline fonts, drawn at the window's resolution ([#521](https://github.com/vdmkenny/openreliant/issues/521)) ([32c7cea](https://github.com/vdmkenny/openreliant/commit/32c7cea35617770110485810f8a8fa7c07fa957a)), closes [#508](https://github.com/vdmkenny/openreliant/issues/508)
+* the ITAC, with the debriefing after each mission of the campaign ([#469](https://github.com/vdmkenny/openreliant/issues/469)) ([1bd3ad4](https://github.com/vdmkenny/openreliant/commit/1bd3ad44dd68454263b2702b7a42a9ee737ef61b))
+* the keys named as the keyboard's layout names them ([#523](https://github.com/vdmkenny/openreliant/issues/523)) ([67cd20a](https://github.com/vdmkenny/openreliant/commit/67cd20a6697d47a6cc1174327b93f2f8ca24fe8f)), closes [#489](https://github.com/vdmkenny/openreliant/issues/489)
+* the last commands missions 4 and 5 run, and steady lights that shine as real lights ([#543](https://github.com/vdmkenny/openreliant/issues/543)) ([3b996f9](https://github.com/vdmkenny/openreliant/commit/3b996f92134ccc3b8aa40fbfa684271368a803d3))
+* the loading screens as the game starts and before each mission ([#409](https://github.com/vdmkenny/openreliant/issues/409)) ([617a1df](https://github.com/vdmkenny/openreliant/commit/617a1df11755057354e03776e30380184f7d1ef7)), closes [#402](https://github.com/vdmkenny/openreliant/issues/402)
+* the loadout offers the ships the pilot has earned, and the mission is flown in the one chosen ([#449](https://github.com/vdmkenny/openreliant/issues/449)) ([0d84409](https://github.com/vdmkenny/openreliant/commit/0d844098c2f0be6d012f3c64371cf15118f58507))
+* the loadout's internal guns view, the ship turning into its guns as a glowing plane sweeps across it ([#456](https://github.com/vdmkenny/openreliant/issues/456)) ([7b95d4e](https://github.com/vdmkenny/openreliant/commit/7b95d4e48dd08975927f088bceee0a7281e6cfa9)), closes [#448](https://github.com/vdmkenny/openreliant/issues/448) [#44](https://github.com/vdmkenny/openreliant/issues/44)
+* the loadout's missile page hangs missiles on the ship, and the mission is flown with them ([#450](https://github.com/vdmkenny/openreliant/issues/450)) ([30bffa7](https://github.com/vdmkenny/openreliant/commit/30bffa70137569a9de4bdab7d6d0e0e17a00eeb8)), closes [#447](https://github.com/vdmkenny/openreliant/issues/447)
+* the locker, with the pilot's medals and ribbons ([#517](https://github.com/vdmkenny/openreliant/issues/517)) ([fdbfc0c](https://github.com/vdmkenny/openreliant/commit/fdbfc0ce5c1a32f093ebf7e5d6d18637de12868f)), closes [#421](https://github.com/vdmkenny/openreliant/issues/421)
+* the movies, played by FFmpeg's Bink decoders ([#415](https://github.com/vdmkenny/openreliant/issues/415)) ([a0ff175](https://github.com/vdmkenny/openreliant/commit/a0ff175ea7edd648985bca64198db61b01d7fb54))
+* the original's texture detail, graphic detail and light maps, in the VIDEO tab's list ([#527](https://github.com/vdmkenny/openreliant/issues/527)) ([6fe8933](https://github.com/vdmkenny/openreliant/commit/6fe89333fb24ee11200264769429b75fce0c4fce))
+* the pilot roster, with its call signs and SET GAME DIFFICULTY ([#413](https://github.com/vdmkenny/openreliant/issues/413)) ([feed66d](https://github.com/vdmkenny/openreliant/commit/feed66d7706bcec2e345aa72e6755d3fb778dc9b)), closes [#397](https://github.com/vdmkenny/openreliant/issues/397)
+* the Reliant's rooms, with a new pilot's induction, the news and the in-game options ([#423](https://github.com/vdmkenny/openreliant/issues/423)) ([c5d958e](https://github.com/vdmkenny/openreliant/commit/c5d958eef6cb6289e25daa5b4b0ff3fbec2c7634)), closes [#398](https://github.com/vdmkenny/openreliant/issues/398)
+* the Scanner and Fire commands ([#534](https://github.com/vdmkenny/openreliant/issues/534)) ([22dc480](https://github.com/vdmkenny/openreliant/commit/22dc480ded3b641f098788f4e0989119bcdc11ac))
+* the settings screen with its controls, from GAME OPTIONS, the in-game options, the pause menu and F1 ([#490](https://github.com/vdmkenny/openreliant/issues/490)) ([eb37e7a](https://github.com/vdmkenny/openreliant/commit/eb37e7a6e9332876063fffcb3c859c5836016b45))
+* the settings screen's AUDIO tab, with OpenReliant's sound options ([#492](https://github.com/vdmkenny/openreliant/issues/492)) ([280db05](https://github.com/vdmkenny/openreliant/commit/280db056e7c5ac333b7e70768b009a69e511cf2b))
+* the settings screen's VIDEO and GRAPHICS tabs, and the brightness ([#494](https://github.com/vdmkenny/openreliant/issues/494)) ([898b73c](https://github.com/vdmkenny/openreliant/commit/898b73c45051e09bf9c07812e569c4f31f8768e2))
+* the simulator pod, with its training missions and Instant Action ([#513](https://github.com/vdmkenny/openreliant/issues/513)) ([ebbffff](https://github.com/vdmkenny/openreliant/commit/ebbfffff2e139f7317650e5b29f48f7ee49969b4))
+* the system's pointer hides in full screen, and once it rests over the window ([#439](https://github.com/vdmkenny/openreliant/issues/439)) ([1bf742e](https://github.com/vdmkenny/openreliant/commit/1bf742ede4b6ce2ca0b7740dabaa1eff752b15eb)), closes [#433](https://github.com/vdmkenny/openreliant/issues/433)
+* write SHP models, and check that each comes back the same ([#474](https://github.com/vdmkenny/openreliant/issues/474)) ([fd480a8](https://github.com/vdmkenny/openreliant/commit/fd480a8510c02be5809f09f0dca1431dd3ef3ebc))
+
+
+### Fixes
+
+* a front end screen is entered before its first frame is drawn, without a flash ([#457](https://github.com/vdmkenny/openreliant/issues/457)) ([ca4f1b7](https://github.com/vdmkenny/openreliant/commit/ca4f1b7bb1bb00af9a7603dc2bf5091a864d56ec)), closes [#453](https://github.com/vdmkenny/openreliant/issues/453)
+* a gamepad works with its own defaults, whatever the settings screen saved ([#515](https://github.com/vdmkenny/openreliant/issues/515)) ([84e2c90](https://github.com/vdmkenny/openreliant/commit/84e2c909ed3f0de3ac3c7907993c7dafacbcb061))
+* command_b pops its arguments and gives 1, as the game's stub does ([#460](https://github.com/vdmkenny/openreliant/issues/460)) ([a1a2fdd](https://github.com/vdmkenny/openreliant/commit/a1a2fdd7c3f95ad4c1ccc8eee4f046674ff57ce8)), closes [#428](https://github.com/vdmkenny/openreliant/issues/428)
+* every missile the loadout hangs is flown, whatever rack is left empty ([#452](https://github.com/vdmkenny/openreliant/issues/452)) ([3e6b9d9](https://github.com/vdmkenny/openreliant/commit/3e6b9d967f30162a9610015d235236f3263a6fb8)), closes [#451](https://github.com/vdmkenny/openreliant/issues/451)
+* SHP models end at the terminator's tag, as the original reads them ([#511](https://github.com/vdmkenny/openreliant/issues/511)) ([dbd747a](https://github.com/vdmkenny/openreliant/commit/dbd747a84e577b6c03e01b52e902a5abaa6d5d95))
+* the GPU's pipelines made as the game starts, so a new effect doesn't stall a fight ([#434](https://github.com/vdmkenny/openreliant/issues/434)) ([448fa8f](https://github.com/vdmkenny/openreliant/commit/448fa8fd042aaabf9516c0441a370a282d43f8c7)), closes [#430](https://github.com/vdmkenny/openreliant/issues/430)
+* the menus' and the display's images keep clean edges ([#445](https://github.com/vdmkenny/openreliant/issues/445)) ([9c69f05](https://github.com/vdmkenny/openreliant/commit/9c69f052c5a77e04a59c0190761340301073f924)), closes [#443](https://github.com/vdmkenny/openreliant/issues/443)
+* the menus' text keeps its fonts' own pixels and greys, without stray pixels ([#444](https://github.com/vdmkenny/openreliant/issues/444)) ([a046876](https://github.com/vdmkenny/openreliant/commit/a0468763c03613edf14e163fc2b4c42f184145f8)), closes [#427](https://github.com/vdmkenny/openreliant/issues/427)
+* the pause menu opens for the window's focus only with a mission loaded ([#455](https://github.com/vdmkenny/openreliant/issues/455)) ([7d7b21e](https://github.com/vdmkenny/openreliant/commit/7d7b21ece6b84018f61d73374e15f794d155a873)), closes [#454](https://github.com/vdmkenny/openreliant/issues/454)
+
+
+### Documentation
+
+* one copy of the options, the keys, the settings and the guide's index ([#487](https://github.com/vdmkenny/openreliant/issues/487)) ([3359402](https://github.com/vdmkenny/openreliant/commit/335940266e18bfc92faa7883c9232fd0603e8b53))
+
 ## [0.5.1](https://github.com/vdmkenny/openreliant/compare/v0.5.0...v0.5.1) (2026-09-29)
 
 
