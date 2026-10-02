@@ -121,7 +121,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-sound" = .{ .section = .sound, .text = "play without sound" },
     .@"--no-mods" = .{ .section = .other, .text = "play the game's own files alone, without the mods in its mods folder" },
     .@"--no-intro" = .{ .section = .other, .text = "start without the three movies the game plays as it starts, as --mission and --screenshot do" },
-    .@"--screenshot" = .{ .section = .other, .value = "<file.png>", .text = "draw one frame, with the camera settled, to a PNG, and quit; the controls and the [OpenReliant] settings are not read, so that it comes out the same each time" },
+    .@"--screenshot" = .{ .section = .other, .value = "<file.png>", .text = "draw one frame, with the camera settled, to a PNG, and quit; the controls, the [OpenReliant] settings and the details in [Device] are not read, so that it comes out the same each time" },
     .@"--screenshot-ticks" = .{ .section = .other, .value = "<ticks>", .text = "with --screenshot, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default" },
     .@"--version" = .{ .section = .other, .text = "show the version" },
     .@"--help" = .{ .section = .other, .alias = "-h", .text = "show this page" },

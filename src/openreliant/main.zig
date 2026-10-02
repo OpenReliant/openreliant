@@ -188,11 +188,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     const cache_bytes = try readGameFile(io, arena, directory, &mods, tcache.hardware_name);
     const cache: tcache.Cache = try .parse(arena, cache_bytes);
     const palette = try tga.palette(try resources.readFile(arena, "palette.tga"));
+    // What `WinMain` reads from `[Device]`: the options' cockpit setting, the brightness, which
+    // the renderer starts with, whether the transitions play, and the renderer's details, which a
+    // screenshot takes at their highest, so that it comes out the same for everyone.
+    var device_settings: game.winmain.Device = .read(settings_file.profile);
+    if (options.screenshot != null) device_settings.details = .{};
+    const details = device_settings.details;
     // The textures, the mods' pictures in place of the cache's images, made in `gpa`, since a large
-    // picture's reading leaves much behind.
+    // picture's reading leaves much behind, each fitted to the texture detail.
     var textures: srtexture.Table = .init(gpa, cache, palette);
     defer textures.deinit();
     textures.files = mods.pictures();
+    textures.largest = details.texture.largest();
     // The flight and combat stats `stats_load_ships` reads; every gun type's figures, which
     // `stats_load_guns` reads; every missile type's, which `stats_load_missiles` reads; and the
     // pilots'.
@@ -228,7 +235,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
 
     var context: srapi.Context = .{
         .projection = (camera.Camera{}).projection(initial_size[0], initial_size[1]),
-        .detail = game.main.high_detail,
+        .detail = game.main.detailDivisor(details.graphic),
         .finer = options.detail_reach.finer(),
         .budget = options.draw_budget.limit(),
     };
@@ -256,9 +263,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory, .mods = &mods });
     defer sound.shutdown();
     sound.volumes = .read(settings_file.profile);
-    // What `WinMain` reads from `[Device]`: the options' cockpit setting, the brightness, which
-    // the renderer starts with, and whether the transitions play.
-    const device_settings: game.winmain.Device = .read(settings_file.profile);
     context.brightness = device_settings.brightness;
     // What draws the frames outside the game's loop: the movies', and the loading screens'.
     var presenter: Presenter = .{ .window = &window, .screen = screen, .driver = &driver, .context = &context, .wanted = options.settings.size, .arena = arena };
@@ -273,7 +277,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .sound = options.sound,
         .pacing = &pacing,
         .display = .{ .window = &window, .presenter = &presenter },
-        .graphics = settings_module.graphicsOf(options),
+        .graphics = settings_module.graphicsOf(options, details),
         .smooth_motion = &smooth_motion,
     };
     // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
@@ -354,6 +358,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .gpa = gpa,
         .resources = &resources,
         .textures = &textures,
+        .light_maps = details.light_maps,
         .looks = .{ .light_sprites = try .load(&textures), .glows = &glows, .flashes = &flashes },
         .global_palette = global_palette,
     };
@@ -412,6 +417,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // What the explosions leave for the frames after them, and the particles they send out.
     var explosions: game.explode.Explosions = try .init(gpa, try .load(&textures));
     defer explosions.deinit();
+    explosions.settings.detail = details.graphic;
     explosions.settings.debris_lights = options.debris_lights;
     explosions.settings.bit_pool = options.bit_pool;
     explosions.settings.fireballs = options.fireballs;
@@ -444,7 +450,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     atmospheres.style = options.atmospheres;
     var flash: game.main.flash.Flash = .{};
     // The countermeasures' model, read once for the whole run, as `decoys_init` reads it.
-    var effects_models: game.create.library.MountCache = .{ .gpa = arena, .resources = &resources, .textures = &textures };
+    var effects_models: game.create.library.MountCache = .{ .gpa = arena, .resources = &resources, .textures = &textures, .light_maps = details.light_maps };
     var countermeasures: game.cloak.Countermeasures = .init(gpa, effects_models.mounts());
     defer countermeasures.reset();
     const lock_rings: *game.main.lock.Rings = try .create(gpa, &textures);
@@ -662,6 +668,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     .lines = if (radio.archive) |*archive| archive else null,
                     .screenshots = &screenshots,
                     .cache = cache,
+                    .details = details,
                     .saved = &saved_loadout,
                     .stats = tables,
                     .missile_stats = &objects.missile_stats,

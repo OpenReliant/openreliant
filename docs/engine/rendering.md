@@ -122,7 +122,8 @@ Other modes leave the material zero: untextured, unlit, opaque. A mode-1 face be
 each edge its edge mask leaves unset.
 
 The second passes need `Lmaps`, in the settings' `Device` section, to be 1, as it is by default
-(`light_maps`, `0x005D5618`):
+(`light_maps`, `0x005D5618`), which the settings screen's LIGHT MAPS sets
+([Video](front-end.md#video)):
 
 - **Light map**, on parts flagged `0x80` and on the hardware renderers only: the texture named `l`
   and the material's name, by the mesh's coordinates, unlit, added.

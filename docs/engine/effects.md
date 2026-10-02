@@ -132,8 +132,8 @@ and the torpedo's.
 ## Burning bits
 
 `explosion_bit` (`0x004717D0`) throws a small lit mesh out of an explosion into the next of
-`explosion_bits` (`0x005538C8`), in place of whatever flew there. The options' detail sets how many
-fly at once: 100, 300 or 500 at low, medium and high. OpenReliant starts at high.
+`explosion_bits` (`0x005538C8`), in place of whatever flew there. The graphic detail
+([Video](front-end.md#video)) sets how many fly at once: 100, 300 or 500 at low, medium and high.
 
 A bit is a piece of debris, one of the ten models of types `0x4E` to `0x57`, which
 `explosions_init` loads through `ship_type_first_levels` (`0x004AE190`) and draws 1.5 times as far
@@ -537,7 +537,7 @@ is behind it, and never culled. Its tint is the ship type's side: friendly, or a
 `shields_init` (`0x0049EF10`) builds six levels of the sphere (`sphere_mesh_create`,
 `0x0049E3D0`), finest first: 16 slices round by 14 bands down, then 12 by 10, 10 by 8, 8 by 6, 6 by
 4 and 4 by 4, each a fan round each pole and two triangles to a slice between. Each level is drawn
-out to a distance from the camera the options' detail gives:
+out to a distance from the camera the graphic detail gives:
 
 | Detail | Reaches |
 |---|---|

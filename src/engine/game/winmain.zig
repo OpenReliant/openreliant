@@ -28,6 +28,8 @@ const Ending = main.Ending;
 const gameflow = @import("gameflow.zig");
 const vm = @import("../vm.zig");
 const landing = @import("xtrabits/landing.zig");
+const xtrabits = @import("xtrabits.zig");
+const explode = @import("explode.zig");
 
 /// The window's activation, as the pump follows it.
 pub const App = struct {
@@ -121,18 +123,20 @@ test followActivation {
 
 /// What `WinMain` reads of the settings' `[Device]` as the game starts (`0x004A8FB3`) that
 /// OpenReliant goes by. **Not ported:** the rest it reads there for the renderer (`Device`, `Xres`,
-/// `Yres`, `Windowed`, `Tdetail`, `Gdetail` and `Lmaps`), where OpenReliant's options stand in.
+/// `Yres` and `Windowed`), where OpenReliant's options stand in.
 pub const Device = struct {
     /// The options' cockpit setting (`View`, `cockpit_mode_setting`, `0x005D5A78`), 0 where the
     /// file has none.
     view: camera.CockpitSetting,
     /// The brightness, which the file keeps in hundredths (`Gamma`, `device_gamma`, `0x005D6080`),
-    /// 100 where it has none: the renderer opens with it (`0x004A8600`), and the settings' video
-    /// changes it.
+    /// 100 where it has none: the renderer opens with it (`renderer_open`, `0x004A8600`), and the
+    /// settings' video changes it.
     brightness: f32,
     /// Whether the movies between the front end's screens play (`Transitions`, `0x005D5E80`), 1
     /// where the file has none (`0x004A9081`); the settings' video changes it.
     transitions: bool,
+    /// The renderer's details.
+    details: Details,
 
     const video = interface.settings.video;
     /// The key `WinMain` reads the brightness from (`0x00509948`); the video screen writes it as
@@ -145,6 +149,38 @@ pub const Device = struct {
             .view = @enumFromInt(settings.int(video.section, video.view_key, 0)),
             .brightness = @as(f32, @floatFromInt(settings.int(video.section, gamma_key, default_gamma))) / video.gamma_scale,
             .transitions = settings.int(video.section, video.transitions_key, 1) != 0,
+            .details = .read(settings),
+        };
+    }
+};
+
+/// The details `WinMain` reads for the renderer (`0x004A9035` on), which take effect as it starts:
+/// the texture detail (`Tdetail`, `texture_detail`, `0x00595D7C`), 1 where the file has none; the
+/// graphic detail (`Gdetail`, `graphic_detail`, `0x005D54E0`), 2; and whether the light maps are
+/// drawn (`Lmaps`, `light_maps`, `0x005D5618`), 1. The settings' video changes them, and
+/// `renderer_open` writes them as it starts the renderer again (`0x004A8716` on).
+///
+/// **Improvement:** the texture detail is 2, the highest, where the file has none, as the others
+/// are; the game's 1 caps the textures at 256, which none of its own pass.
+///
+/// **Fix:** a graphic detail past 2 counts as 2, where the game's uses of it disagree on one.
+pub const Details = struct {
+    texture: xtrabits.TextureDetail = .high,
+    graphic: explode.Detail = .high,
+    light_maps: bool = true,
+
+    /// The keys, in `[Device]` (`0x005095DC`, `0x005095D4`, `0x005095CC`).
+    pub const texture_key = "Tdetail";
+    pub const graphic_key = "Gdetail";
+    pub const light_maps_key = "Lmaps";
+
+    pub fn read(settings: Profile) Details {
+        const section = interface.settings.video.section;
+        const highest = @intFromEnum(explode.Detail.high);
+        return .{
+            .texture = @enumFromInt(settings.int(section, texture_key, @intFromEnum(xtrabits.TextureDetail.high))),
+            .graphic = @enumFromInt(@min(settings.int(section, graphic_key, highest), highest)),
+            .light_maps = settings.int(section, light_maps_key, 1) != 0,
         };
     }
 };
@@ -155,11 +191,15 @@ test "Device.read" {
     try std.testing.expectEqual(.cockpit, none.view);
     try std.testing.expectEqual(1, none.brightness);
     try std.testing.expect(none.transitions);
+    try std.testing.expectEqual(Details{}, none.details);
     // As the video screens write them.
-    const saved: Device = .read(.{ .text = "[Device]\nView=2\ngamma=150\nTransitions=0\n" });
+    const saved: Device = .read(.{ .text = "[Device]\nView=2\ngamma=150\nTransitions=0\nTdetail=0\nGdetail=1\nLmaps=0\n" });
     try std.testing.expectEqual(.none, saved.view);
     try std.testing.expectEqual(1.5, saved.brightness);
     try std.testing.expect(!saved.transitions);
+    try std.testing.expectEqual(Details{ .texture = .low, .graphic = .medium, .light_maps = false }, saved.details);
+    // A graphic detail past the highest counts as it.
+    try std.testing.expectEqual(.high, Details.read(.{ .text = "[Device]\nGdetail=7\n" }).graphic);
 }
 
 /// The longest name `missionPath` makes; the game's buffer is far larger.

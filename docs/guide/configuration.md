@@ -71,7 +71,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 |---|---|
 | `--no-mods` | Play the game's own files alone, without the mods in its `mods` folder ([Modding](modding.md)) |
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
-| `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls and the `[OpenReliant]` settings are not read, so that it comes out the same each time |
+| `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls, the `[OpenReliant]` settings and the details in `[Device]` are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--version` | Show the version |
 | `-h`, `--help` | Show the help page |
@@ -136,7 +136,7 @@ gamma=100
 Transitions=1
 ```
 
-`[Sound]` keeps the four volumes, from 0 to 127, which the settings screen's AUDIO changes. `[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no cockpit), the brightness in hundredths (`gamma`), and whether the movies between the front end's screens and into the Reliant's rooms play (`Transitions`, 1 or 0), which the settings screen's VIDEO changes. The controller's settings and the bindings, in `[KeyConfig]` and `[JoyConfig]`, are in [Controllers and input](controllers.md#settings).
+`[Sound]` keeps the four volumes, from 0 to 127, which the settings screen's AUDIO changes. `[Device]` keeps the view a mission starts in (`View`: 0 the cockpit, 1 the chase view, 2 no cockpit), the brightness in hundredths (`gamma`), whether the movies between the front end's screens and into the Reliant's rooms play (`Transitions`, 1 or 0), and the details, which take effect at the next start: the texture detail (`Tdetail`: 0 low, 1 medium, 2 high), the graphic detail (`Gdetail`, the same) and the light maps (`Lmaps`, 1 or 0). The settings screen's VIDEO changes them all. A screenshot taken with `--screenshot` draws at the highest details, whatever the file says. The controller's settings and the bindings, in `[KeyConfig]` and `[JoyConfig]`, are in [Controllers and input](controllers.md#settings).
 
 ### OpenReliant's settings
 

@@ -195,7 +195,7 @@ field of Instant Action's last wave among them; OpenReliant clears them as each 
 ### The ice field
 
 Effect 0: rocks of ice all about the camera, far off, each a triangle facing it and turning
-(`0x00469DF0`). There are 200, 500 or 800 of them by the options' detail, each a triangle a unit
+(`0x00469DF0`). There are 200, 500 or 800 of them by the graphic detail, each a triangle a unit
 across with its point at its place (`0x0046A250`), drawn with `farast2` by coordinates of its own,
 lit and added by a grey of its own:
 

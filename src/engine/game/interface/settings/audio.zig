@@ -76,8 +76,11 @@ pub const Check = enum {
     reverb,
     compressor,
 
+    const box_x = 45;
+
+    /// Its box and its label, on the controllers' rows.
     fn box(check: Check) widgets.Toggle {
-        return .{ .at = .{ 45, switch (check) {
+        return .{ .at = .{ box_x, switch (check) {
             .reverb => 349,
             .compressor => 373,
         } } };

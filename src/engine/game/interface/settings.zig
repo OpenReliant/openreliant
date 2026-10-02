@@ -18,7 +18,9 @@ const profile = @import("../../profile.zig");
 const device = @import("../../surrender/srd3d/device.zig");
 const srapi = @import("../../surrender/surrenderlib/srapi.zig");
 const camera = @import("../camera.zig");
+const explode = @import("../explode.zig");
 const guns = @import("../guns.zig");
+const xtrabits = @import("../xtrabits.zig");
 const hud = @import("../hud.zig");
 const hog_snd = @import("../hog_snd.zig");
 const canvas_module = @import("canvas.zig");
@@ -162,6 +164,11 @@ pub const Own = struct {
             /// Whether the original's look and sound lie beneath the options, as `--original` gives
             /// them: what the screen has no row for follows it.
             original: bool = false,
+            /// The game's own details (`winmain.Details`), which the presets leave at their
+            /// highest.
+            texture_detail: xtrabits.TextureDetail = .high,
+            graphic_detail: explode.Detail = .high,
+            light_maps: bool = true,
             pixel_lighting: bool = true,
             linear_light: bool = true,
             /// Whether the material maps of a mod's textures are shaded.
@@ -187,9 +194,13 @@ pub const Own = struct {
         };
 
         /// What the game runs with of the options that take effect at the next start: the base,
-        /// linear light and 16-bit colour, which change the GPU's formats, and the fonts.
+        /// the game's details, linear light and 16-bit colour, which change the GPU's formats, and
+        /// the fonts.
         pub const Running = struct {
             original: bool = false,
+            texture_detail: xtrabits.TextureDetail = .high,
+            graphic_detail: explode.Detail = .high,
+            light_maps: bool = true,
             linear_light: bool = true,
             sixteen_bit: bool = false,
             outline_fonts: bool = true,
@@ -308,7 +319,7 @@ pub const Button = enum {
 
     /// Where the pointer finds it (`0x0042B69A` on), and where its shape and its label stand
     /// (`0x0042D019` on).
-    fn rect(button: Button) Rect {
+    pub fn rect(button: Button) Rect {
         return switch (button) {
             .ok => .{ .x = 199, .y = 422, .width = 120, .height = 15 },
             .leave => .{ .x = 199, .y = 443, .width = 120, .height = 15 },

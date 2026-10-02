@@ -337,7 +337,7 @@ pub const Explosions = struct {
 
 /// How the explosions are shown, which a mission's restart keeps.
 pub const Settings = struct {
-    /// The options' detail (`0x005D54E0`), which OpenReliant starts at high.
+    /// The settings' graphic detail (`graphic_detail`, `0x005D54E0`).
     detail: Detail = .high,
     debris_lights: DebrisLights = .like_ships,
     fireballs: Fireballs = .fuller,
@@ -425,7 +425,9 @@ pub const DebrisLights = enum {
     }
 };
 
-/// The options' detail level, which sets how many bits the explosions keep flying.
+/// The settings' graphic detail (`Gdetail`, `graphic_detail`, `0x005D54E0`; `winmain.Details`),
+/// which sets how many bits the explosions keep flying, and the detail of the shields, the gates,
+/// the Ice Field, the loadout's ships and the levels of detail (`main.detailDivisor`).
 pub const Detail = enum(u2) {
     low = 0,
     medium = 1,

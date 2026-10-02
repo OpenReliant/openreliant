@@ -12,6 +12,7 @@ const png = @import("../../../formats/png.zig");
 const colour = @import("../colour.zig");
 const tcache = @import("../../../formats/tcache.zig");
 const tga = @import("../../../formats/tga.zig");
+const srimage = @import("srimage.zig");
 
 const log = std.log.scoped(.textures);
 
@@ -210,6 +211,10 @@ pub const Table = struct {
     files: ?Files = null,
     /// By lower-case file name; null for a name the cache lacks.
     images: std.StringHashMapUnmanaged(?*Image) = .empty,
+    /// The longest side a texture keeps, by the texture detail (`xtrabits.TextureDetail`); null
+    /// for any. The driver fits the cache's images to it as it makes their device textures
+    /// (`fit`), and a mod's picture loses its finest levels until it fits.
+    largest: ?u32 = null,
 
     pub fn init(gpa: Allocator, cache: tcache.Cache, palette: tga.Palette) Table {
         return .{ .gpa = gpa, .cache = cache, .palette = palette };
@@ -249,8 +254,15 @@ pub const Table = struct {
         const image = try table.gpa.create(Image);
         errdefer table.gpa.destroy(image);
         image.* = try decode(table.gpa, found, &table.palette);
+        errdefer image.deinit(table.gpa);
+        try fit(table.gpa, image, table.largest);
         entry.value_ptr.* = image;
         return image;
+    }
+
+    /// The longest side a mod's picture keeps: the texture detail's, within `max_side`.
+    fn longest(table: Table) u32 {
+        return @min(table.largest orelse max_side, max_side);
     }
 
     /// The picture `files` give the texture `name`, `<name>.png`, of any size, read as an image
@@ -260,7 +272,7 @@ pub const Table = struct {
         const files = table.files orelse return null;
         const read = try table.readPicture(files, name, "") orelse return null;
         const size = [2]u32{ read.width, read.height };
-        var made = try mipmapped(table.gpa, read);
+        var made: Image = .{ .levels = try mipmaps(table.gpa, read, .colour, table.longest()) };
         errdefer made.deinit(table.gpa);
         made.maps = try table.maps(files, name, size);
         const image = try table.gpa.create(Image);
@@ -274,9 +286,9 @@ pub const Table = struct {
     fn maps(table: *Table, files: Files, name: []const u8, size: [2]u32) Allocator.Error!Image.Maps {
         var found: Image.Maps = .{};
         errdefer found.deinit(table.gpa);
-        if (try table.map(files, name, .normal, size)) |normal| found.normal = try mipmaps(table.gpa, normal, .normal);
+        if (try table.map(files, name, .normal, size)) |normal| found.normal = try mipmaps(table.gpa, normal, .normal, table.longest());
         const orm = try table.map(files, name, .orm, size) orelse try table.packedMaps(files, name, size);
-        if (orm) |packed_orm| found.orm = try mipmaps(table.gpa, packed_orm, .data);
+        if (orm) |packed_orm| found.orm = try mipmaps(table.gpa, packed_orm, .data, table.longest());
         return found;
     }
 
@@ -324,6 +336,20 @@ pub const Table = struct {
 /// that every GPU takes it.
 pub const max_side = 8192;
 
+/// `texture_upload`'s fitting of an image to the device's longest side (`0x004C9D1D` on), which
+/// the texture detail lowers (`Table.largest`): where a side is longer, the image is made smaller by
+/// the whole ratio of that side to the longest, each side by its own (`srimage.shrink`).
+pub fn fit(gpa: Allocator, image: *Image, largest: ?u32) Allocator.Error!void {
+    const side = largest orelse return;
+    const ratio = [2]u32{ fitRatio(image.width(), side), fitRatio(image.height(), side) };
+    if (ratio[0] > 1 or ratio[1] > 1) try srimage.shrink(gpa, image, ratio);
+}
+
+/// The whole ratio of `length` to `largest`, rounded down, where it is longer; 1 where it isn't.
+fn fitRatio(length: u32, largest: u32) u32 {
+    return if (length > largest) length / largest else 1;
+}
+
 /// What a picture holds, which its mipmaps are made for.
 pub const Content = enum {
     /// Colours, sRGB-encoded, with alpha: their means are taken in linear light, weighted by alpha.
@@ -337,11 +363,13 @@ pub const Content = enum {
 /// An image of `picture`, which it takes, with its mipmap levels made down to a pixel, each half
 /// the last, rounding down (`halved`). A picture longer than `max_side` gives its finest levels up.
 pub fn mipmapped(gpa: Allocator, picture: png.Picture) Allocator.Error!Image {
-    return .{ .levels = try mipmaps(gpa, picture, .colour) };
+    return .{ .levels = try mipmaps(gpa, picture, .colour, max_side) };
 }
 
-/// The mipmap levels of `picture`, which it takes, made for `content`, as `mipmapped` makes them.
-pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content) Allocator.Error![]const Level {
+/// The mipmap levels of `picture`, which it takes, made for `content`, as `mipmapped` makes them,
+/// its finest levels given up while it is longer than `longest`. Where it fails, it lets the
+/// picture go.
+pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content, longest: u32) Allocator.Error![]const Level {
     var levels: std.ArrayList(Level) = .empty;
     errdefer {
         for (levels.items) |l| gpa.free(l.rgba);
@@ -350,7 +378,7 @@ pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content) Allocator
     var finest: Level = .{ .width = picture.width, .height = picture.height, .rgba = picture.rgba };
     {
         errdefer gpa.free(finest.rgba);
-        while (@max(finest.width, finest.height) > max_side) {
+        while (@max(finest.width, finest.height) > longest) {
             const smaller = try halved(gpa, finest, content);
             gpa.free(finest.rgba);
             finest = smaller;
@@ -487,6 +515,30 @@ test Table {
     try std.testing.expect((try table.find("lkiev_1")).? != kiev);
 }
 
+test "the texture detail fits the cache's images" {
+    const gpa = std.testing.allocator;
+    const bytes = try tcache.testing.build(gpa, &.{
+        .{ .name = "square", .encoding = .index8, .width = 8, .height = 8, .levels = 4, .flags = .{ .mipmaps = true } },
+        .{ .name = "wide", .encoding = .index8, .width = 8, .height = 4, .levels = 3, .flags = .{ .mipmaps = true } },
+        .{ .name = "small", .encoding = .index8, .width = 4, .height = 4, .levels = 3, .flags = .{ .mipmaps = true } },
+    });
+    defer gpa.free(bytes);
+    const cache: tcache.Cache = try .parse(gpa, bytes);
+    defer cache.deinit(gpa);
+    var table: Table = .init(gpa, cache, std.mem.zeroes(tga.Palette));
+    defer table.deinit();
+    table.largest = 4;
+    // Halved both ways, the square gives its finest level up; the wide one, halved across alone, is
+    // averaged down to 4 by 4; and one that fits is kept as it is.
+    const square = (try table.find("square")).?;
+    try std.testing.expectEqual([2]usize{ 4, 3 }, [2]usize{ square.width(), square.levels.len });
+    const wide = (try table.find("wide")).?;
+    try std.testing.expectEqual([2]u32{ 4, 4 }, [2]u32{ wide.width(), wide.height() });
+    try std.testing.expectEqual(3, (try table.find("small")).?.levels.len);
+    // A side under twice the longest is not shrunk: the ratio is a whole one.
+    try std.testing.expectEqual(1, fitRatio(7, 4));
+}
+
 test "pictures stand in for the cache's images" {
     const gpa = std.testing.allocator;
     const bytes = try tcache.testing.build(gpa, &.{
@@ -579,12 +631,12 @@ test "mipmaps of normals and of values" {
     const gpa = std.testing.allocator;
     // Two normals leaning opposite ways along x mean one straight out of the surface.
     const leaning = try gpa.dupe(u8, &.{ 218, 128, 218, 255, 38, 128, 218, 255 });
-    const normals = try mipmaps(gpa, .{ .width = 2, .height = 1, .rgba = leaning }, .normal);
+    const normals = try mipmaps(gpa, .{ .width = 2, .height = 1, .rgba = leaning }, .normal, max_side);
     defer freeLevels(gpa, normals);
     try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 255 }, normals[1].rgba);
     // Values mean plainly, not in linear light as colours do.
     const values = try gpa.dupe(u8, &.{ 0, 0, 0, 255, 255, 255, 255, 255 });
-    const data = try mipmaps(gpa, .{ .width = 2, .height = 1, .rgba = values }, .data);
+    const data = try mipmaps(gpa, .{ .width = 2, .height = 1, .rgba = values }, .data, max_side);
     defer freeLevels(gpa, data);
     try std.testing.expectEqualSlices(u8, &.{ 128, 128, 128, 255 }, data[1].rgba);
 }
@@ -662,6 +714,10 @@ pub const testing = struct {
         }
     };
 };
+
+test {
+    _ = srimage;
+}
 
 test "testing.Textures" {
     const gpa = std.testing.allocator;

@@ -170,7 +170,7 @@ pub const Context = struct {
     projection: Projection,
     /// Depths are divided by this before choosing a level of detail (`detail_divisor`,
     /// `0x005E829A`). `mission_frame` moves it with the frame time, within bounds the detail
-    /// setting sets (`game.main.high_detail`).
+    /// setting sets (`game.main.detailDivisor`).
     detail: f32 = 1,
     /// **Improvement:** how many times further than `detail` has them the finer levels of detail
     /// reach, so that an object keeps a finer mesh from further off; its last level still ends

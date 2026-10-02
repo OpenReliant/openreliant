@@ -61,13 +61,13 @@ pub const Row = enum {
         return .{ .y = first_row + @as(i32, @intFromEnum(row)) * graphics.row_spacing, .edge = graphics.edge };
     }
 
-    fn label(row: Row) Label {
-        return row.line().label(switch (row) {
+    fn text(row: Row) Label.Text {
+        return switch (row) {
             .resolution => .{ .string = 0x10E },
             .frame_rate => .{ .words = "FRAME RATE LIMIT" },
             .default_view => .{ .string = 0x28A },
             .brightness => .{ .string = 0x113 },
-        });
+        };
     }
 };
 
@@ -105,7 +105,8 @@ pub const Check = enum {
         };
     }
 
-    fn toggle(check: Check) Toggle {
+    /// Its box and its label.
+    fn box(check: Check) Toggle {
         return .{ .at = .{ toggles_x, check.row().line().y } };
     }
 
@@ -122,9 +123,15 @@ pub const Check = enum {
 const toggles_x = 45;
 
 /// The brightness's slider, as the game places it beside its row (`0x0042FA39` on): its knob from
-/// 67 right of where the label ends, x 347, at the least brightness, to 175 further at the most
-/// (`0x004E7778`, where the pointer finds it), its track until 292 right of the label's end, 572.
-const brightness_slider: Slider = .{ .from = .{ graphics.edge + 67, Row.brightness.line().y }, .end = graphics.edge + 292 };
+/// x 347 at the least brightness to 175 further at the most (`0x004E7778`, where the pointer finds
+/// it), its track until 572, moved as far right as the tab's rows are.
+const brightness_slider: Slider = .{
+    .from = .{ 347 + rows_moved, Row.brightness.line().y },
+    .end = 572 + rows_moved,
+};
+
+/// How far right of the game's the tab's rows stand (`graphics.edge`).
+const rows_moved = graphics.edge - Line.original_edge;
 /// The brightness's range (`0x004DC408`, `0x004DC480`).
 const least_brightness: f32 = 0.5;
 const most_brightness: f32 = 2;
@@ -132,7 +139,7 @@ const most_brightness: f32 = 2;
 comptime {
     // The rows stand below the graphics' pane, and the knob above the buttons.
     std.debug.assert(Row.resolution.line().arrow(.back).y > graphics.pane_bottom);
-    std.debug.assert(brightness_slider.knob(0).y + brightness_slider.knob(0).height < 422);
+    std.debug.assert(brightness_slider.knob(0).y + brightness_slider.knob(0).height < settings.Button.ok.rect().y);
 }
 
 /// The brightness of the knob `along` its travel.
@@ -299,7 +306,7 @@ pub const Video = struct {
         for (std.enums.values(Choice)) |choice| {
             if (choice.row().line().arrowAt(at)) |step| return .{ .arrow = .{ .choice = choice, .step = step } };
         }
-        for (std.enums.values(Check)) |check| if (check.toggle().rect().holds(at)) return .{ .check = check };
+        for (std.enums.values(Check)) |check| if (check.box().rect().holds(at)) return .{ .check = check };
         const video = context.video orelse return null;
         if (video.gamma and brightness_slider.knob(knobAlong(video.surrender.brightness)).holds(at)) return .knob;
         return null;
@@ -424,26 +431,21 @@ pub const Video = struct {
         try context.settings_file.writeInt(section, gamma_key, hud.round(video.surrender.brightness * gamma_scale));
     }
 
-    /// The graphics, then `video_screen_draw`'s part (`0x0042F440`): the rows' labels,
-    /// BRIGHTNESS's only where the device has a gamma ramp, their values, the arrows' boxes, the
-    /// brightness's track and knob, the check boxes, and the arrow under the pointer lit.
+    /// The graphics, then `video_screen_draw`'s part (`0x0042F440`): the rows with their arrows
+    /// and values, the check boxes, BRIGHTNESS's label, track and knob only where the device has a
+    /// gamma ramp, and the arrow under the pointer lit.
     pub fn draw(tab: Video, canvas: Canvas, art: *hud.Art, shown: ?settings.Video) canvas_module.Error!void {
         try tab.graphics.draw(canvas, art);
-        const small = canvas.fonts.small;
-        const blue = canvas_module.blue;
         const told = tab.display.told;
         const chosen = tab.display.chosen;
         var buffer: [40]u8 = undefined;
         for (std.enums.values(Choice)) |choice| {
-            const row = choice.row();
-            try row.label().write(canvas, small, blue);
-            try row.line().drawArrows(canvas, art);
             const value: Label.Text = switch (choice) {
                 .resolution => .{ .words = sizeText(tab.display, &buffer) },
                 .frame_rate => .{ .words = rateText(chosen.frame_rate, told.refresh_rate, &buffer) },
-                .default_view => if (shown) |video| .{ .string = viewName(video.camera.setting) } else continue,
+                .default_view => .{ .string = viewName(if (shown) |video| video.camera.setting else default_view) },
             };
-            try row.line().value(value).write(canvas, small, blue);
+            try choice.row().line().draw(canvas, art, .{ .label = choice.row().text(), .control = .{ .choice = value } });
         }
         for (std.enums.values(Check)) |check| {
             const on = switch (check) {
@@ -451,10 +453,11 @@ pub const Video = struct {
                 .vsync => chosen.vsync,
                 .transitions => if (shown) |video| video.transitions.* else default_transitions,
             };
-            try check.toggle().draw(canvas, art, check.words(), on, true);
+            try check.box().draw(canvas, art, check.words(), on, true);
         }
         if (shown) |video| if (video.gamma) {
-            try Row.brightness.label().write(canvas, small, blue);
+            const brightness = Row.brightness.line();
+            try brightness.label(Row.brightness.text()).write(canvas, canvas.fonts.small, canvas_module.blue);
             try brightness_slider.drawTrack(canvas, art);
             try brightness_slider.drawKnob(canvas, art, knobAlong(video.surrender.brightness));
         };
@@ -477,7 +480,7 @@ test "the rows stand below the graphics" {
     try std.testing.expectEqual(292, Row.resolution.line().y);
     try std.testing.expectEqual(352, Row.default_view.line().y);
     try std.testing.expectEqual(382, Row.brightness.line().y);
-    try std.testing.expectEqual([2]i32{ 45, 352 }, Check.transitions.toggle().at);
+    try std.testing.expectEqual([2]i32{ 45, 352 }, Check.transitions.box().at);
 }
 
 test "the brightness's knob" {

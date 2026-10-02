@@ -5,6 +5,9 @@
 //! are this file's: the third lies between the message pump and the first code the file's
 //! assertions place, the last after the last code they place.
 //!
+//! `renderer_start` (`0x004ACBE0`) caps the textures' sides by the texture detail
+//! (`TextureDetail`).
+//!
 //! The loading screens the game shows as it starts and before each attempt at a mission are in
 //! [`xtrabits/loading.zig`](xtrabits/loading.zig), the movies it plays in a loop of their own in
 //! [`xtrabits/movie.zig`](xtrabits/movie.zig), what it plays as the pilot comes back from a
@@ -22,6 +25,39 @@ const libcmt = @import("../libcmt.zig");
 const GameObject = @import("gameobj.zig").GameObject;
 const create = @import("create.zig");
 const objects = @import("objects.zig");
+
+/// The settings' texture detail (`Tdetail`, `texture_detail`, `0x00595D7C`), which
+/// `renderer_start` caps the longest side a texture keeps by (`0x004ACF9F`), lowering the device's
+/// own where it is larger: 128 at 0, 256 at 1 and 2048 at 2, the device's own for another value.
+/// The game's video screen steps between 0 and 1, which it calls LOW and HIGH.
+///
+/// **Improvement:** HIGH, 2, caps nothing, where the game caps at 2048, which none of its own
+/// textures reach: a mod's picture keeps its size. The settings screen calls 1 MEDIUM.
+pub const TextureDetail = enum(u32) {
+    low = 0,
+    medium = 1,
+    high = 2,
+    _,
+
+    /// The longest side a texture keeps, null for any.
+    pub fn largest(detail: TextureDetail) ?u32 {
+        return switch (detail) {
+            .low => low_side,
+            .medium => medium_side,
+            .high, _ => null,
+        };
+    }
+
+    const low_side = 128;
+    const medium_side = 256;
+
+    pub fn format(detail: TextureDetail, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        return switch (detail) {
+            _ => writer.print("texture detail {d}", .{@intFromEnum(detail)}),
+            inline else => |named| writer.writeAll(@tagName(named)),
+        };
+    }
+};
 
 pub const landing = @import("xtrabits/landing.zig");
 pub const loading = @import("xtrabits/loading.zig");
@@ -234,6 +270,16 @@ test clipLine {
     to = .{ -20, 50 };
     try std.testing.expect(!clipLine(last, &from, &to));
     try std.testing.expectEqual([2]i32{ -20, 50 }, to);
+}
+
+test TextureDetail {
+    try std.testing.expectEqual(128, TextureDetail.low.largest().?);
+    try std.testing.expectEqual(256, TextureDetail.medium.largest().?);
+    try std.testing.expectEqual(null, TextureDetail.high.largest());
+    try std.testing.expectEqual(null, @as(TextureDetail, @enumFromInt(7)).largest());
+    var buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("medium", try std.fmt.bufPrint(&buffer, "{f}", .{TextureDetail.medium}));
+    try std.testing.expectEqualStrings("texture detail 7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(TextureDetail, @enumFromInt(7))}));
 }
 
 test {

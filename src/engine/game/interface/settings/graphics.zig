@@ -1,23 +1,25 @@
-//! The VIDEO tab's graphics (`Graphics`): OpenReliant's own graphics options, and their presets.
-//! GRAPHICS, a row of the video's at the tab's top, sets every option at once: its arrows flip
-//! between ORIGINAL, the original's look, and MODERN, OpenReliant's, and it shows CUSTOM once an
-//! option differs from both. Below it, the options stand a row each in a pane that shows four of
-//! them and scrolls as the controls' list does (`widgets.Pane`).
+//! The VIDEO tab's graphics (`Graphics`): the game's own details and OpenReliant's graphics
+//! options, and their presets. GRAPHICS, a row of the video's at the tab's top, sets every option
+//! at once: its arrows flip between ORIGINAL, the original's look, and MODERN, OpenReliant's, and it
+//! shows CUSTOM once an option differs from both. Below it, the options stand a row each in a pane
+//! that shows four of them and scrolls as the controls' list does (`widgets.Pane`).
 //!
 //! A change is applied and written at once, as the driver keeps it (`settings.Own`), but for the
 //! options that take effect at the next start (`Own.Graphics.Running`): the original's look beneath
-//! the options, LINEAR LIGHT, COLOR DEPTH and OUTLINE FONTS. While one differs from what the game
-//! runs with, RESTART TO APPLY stands at GRAPHICS' right, in gold.
+//! the options, the game's details, LINEAR LIGHT, COLOR DEPTH and OUTLINE FONTS. While one differs
+//! from what the game runs with, RESTART TO APPLY stands at GRAPHICS' right, in gold.
 //!
-//! **Improvement:** the list is OpenReliant's own, and so are its options: the original has none of
-//! them.
+//! **Improvement:** the list is OpenReliant's own, and so are its options but the game's details,
+//! which its video screen has among its rows.
 
 const std = @import("std");
 
 const input = @import("../../../input.zig");
 const profile = @import("../../../profile.zig");
 const hud = @import("../../hud.zig");
+const explode = @import("../../explode.zig");
 const guns = @import("../../guns.zig");
+const xtrabits = @import("../../xtrabits.zig");
 const canvas_module = @import("../canvas.zig");
 const Canvas = canvas_module.Canvas;
 const Label = canvas_module.Label;
@@ -33,9 +35,13 @@ const Pane = widgets.Pane;
 const steppedChoice = widgets.steppedChoice;
 const steppedIndex = widgets.steppedIndex;
 
-/// The rows, from the top: the lighting, the shadows and the shots' lights, then the frame's look,
-/// then the motion and the text.
+/// The rows, from the top: the game's own details, as its video screen has them, then the
+/// lighting, the shadows and the shots' lights, then the frame's look, then the motion and the
+/// text.
 pub const Row = enum {
+    texture_detail,
+    graphic_detail,
+    light_maps,
     pixel_lighting,
     linear_light,
     materials,
@@ -50,21 +56,26 @@ pub const Row = enum {
     smooth_motion,
     outline_fonts,
 
-    fn words(row: Row) []const u8 {
+    /// Its label: the game's TEXTURE DETAIL, GRAPHIC DETAIL and LIGHT MAPS (`0x110`, `0x111`,
+    /// `0x114`), and OpenReliant's words for its own.
+    fn label(row: Row) Label.Text {
         return switch (row) {
-            .pixel_lighting => "PER-PIXEL LIGHTING",
-            .linear_light => "LINEAR LIGHT",
-            .materials => "MATERIALS",
-            .shadows => "SHADOWS",
-            .cockpit_shadows => "COCKPIT SHADOWS",
-            .shot_lights => "SHOT LIGHTS",
-            .bloom => "BLOOM",
-            .dither => "DITHER",
-            .filter => "TEXTURE FILTER",
-            .anti_aliasing => "ANTI-ALIASING",
-            .color_depth => "COLOR DEPTH",
-            .smooth_motion => "SMOOTH MOTION",
-            .outline_fonts => "OUTLINE FONTS",
+            .texture_detail => .{ .string = 0x110 },
+            .graphic_detail => .{ .string = 0x111 },
+            .light_maps => .{ .string = 0x114 },
+            .pixel_lighting => .{ .words = "PER-PIXEL LIGHTING" },
+            .linear_light => .{ .words = "LINEAR LIGHT" },
+            .materials => .{ .words = "MATERIALS" },
+            .shadows => .{ .words = "SHADOWS" },
+            .cockpit_shadows => .{ .words = "COCKPIT SHADOWS" },
+            .shot_lights => .{ .words = "SHOT LIGHTS" },
+            .bloom => .{ .words = "BLOOM" },
+            .dither => .{ .words = "DITHER" },
+            .filter => .{ .words = "TEXTURE FILTER" },
+            .anti_aliasing => .{ .words = "ANTI-ALIASING" },
+            .color_depth => .{ .words = "COLOR DEPTH" },
+            .smooth_motion => .{ .words = "SMOOTH MOTION" },
+            .outline_fonts => .{ .words = "OUTLINE FONTS" },
         };
     }
 
@@ -76,7 +87,7 @@ pub const Row = enum {
             .shadows, .materials => chosen.pixel_lighting,
             .cockpit_shadows => chosen.pixel_lighting and chosen.shadows != .off,
             .linear_light => !chosen.sixteen_bit,
-            .pixel_lighting, .shot_lights, .bloom, .dither, .filter, .anti_aliasing, .color_depth, .smooth_motion, .outline_fonts => true,
+            .texture_detail, .graphic_detail, .light_maps, .pixel_lighting, .shot_lights, .bloom, .dither, .filter, .anti_aliasing, .color_depth, .smooth_motion, .outline_fonts => true,
         };
     }
 
@@ -97,6 +108,7 @@ const Kind = union(enum) { check: Check, choice: Choice };
 
 /// The rows a check box turns on and off.
 pub const Check = enum {
+    light_maps,
     pixel_lighting,
     linear_light,
     materials,
@@ -115,6 +127,8 @@ pub const Check = enum {
 
 /// The rows an arrow box steps through their choices.
 pub const Choice = enum {
+    texture_detail,
+    graphic_detail,
     shadows,
     shot_lights,
     filter,
@@ -126,6 +140,8 @@ pub const Choice = enum {
     fn step(choice: Choice, graphics: *Own.Graphics, by: Step) void {
         const chosen = &graphics.chosen;
         switch (choice) {
+            .texture_detail => chosen.texture_detail = steppedChoice(xtrabits.TextureDetail, chosen.texture_detail, by),
+            .graphic_detail => chosen.graphic_detail = steppedChoice(explode.Detail, chosen.graphic_detail, by),
             .shadows => chosen.shadows = steppedChoice(Own.Graphics.Shadows, chosen.shadows, by),
             .shot_lights => chosen.shot_lights = steppedChoice(guns.ShotLights, chosen.shot_lights, by),
             .filter => chosen.filter = steppedChoice(Own.Graphics.Filter, chosen.filter, by),
@@ -134,28 +150,49 @@ pub const Choice = enum {
         }
     }
 
-    fn value(choice: Choice, graphics: Own.Graphics) []const u8 {
+    fn value(choice: Choice, graphics: Own.Graphics) Label.Text {
         const chosen = graphics.chosen;
         return switch (choice) {
-            .shadows => switch (chosen.shadows) {
+            .texture_detail => .{ .string = detailString(chosen.texture_detail) },
+            .graphic_detail => .{ .string = detailString(chosen.graphic_detail) },
+            .shadows => .{ .words = switch (chosen.shadows) {
                 .off => "OFF",
                 .low => "LOW",
                 .high => "HIGH",
-            },
-            .shot_lights => switch (chosen.shot_lights) {
+            } },
+            .shot_lights => .{ .words = switch (chosen.shot_lights) {
                 .every_shot => "EVERY SHOT",
                 .latest_two => "LATEST TWO",
-            },
-            .filter => switch (chosen.filter) {
+            } },
+            .filter => .{ .words = switch (chosen.filter) {
                 .original => "ORIGINAL",
                 .trilinear => "TRILINEAR",
                 .crisp => "CRISP",
-            },
-            .anti_aliasing => samplesText(drawnSamples(graphics)),
-            .color_depth => if (chosen.sixteen_bit) "16-BIT" else "32-BIT",
+            } },
+            .anti_aliasing => .{ .words = samplesText(drawnSamples(graphics)) },
+            .color_depth => .{ .words = if (chosen.sixteen_bit) "16-BIT" else "32-BIT" },
         };
     }
 };
+
+/// The game's word for `detail`, a texture or a graphic detail (`0x0042F44C` on): LOW, MEDIUM or
+/// HIGH. Its video screen calls the texture detail's 0 LOW and 1 HIGH, and a file's 2, its highest,
+/// LOW.
+///
+/// **Improvement:** TEXTURE DETAIL steps through all three of the file's, LOW, MEDIUM and HIGH,
+/// where the game's screen steps between the first two; a texture detail the game doesn't know,
+/// which caps nothing, shows as HIGH.
+fn detailString(detail: anytype) u32 {
+    return switch (detail) {
+        .low => low_string,
+        .medium => medium_string,
+        else => high_string,
+    };
+}
+
+const low_string = 0x11D;
+const medium_string = 0x11C;
+const high_string = 0x11B;
 
 comptime {
     // Each row is a check box's or an arrow box's, and only one's.
@@ -270,10 +307,10 @@ fn shownRows(graphics: Own.Graphics) [rows.len]Line.Shown {
     var shown: [rows.len]Line.Shown = undefined;
     var chosen = graphics.chosen;
     for (rows, &shown) |row, *each| each.* = .{
-        .label = .{ .words = row.words() },
+        .label = row.label(),
         .control = switch (row.kind()) {
             .check => |check| .{ .check = check.flag(&chosen).* },
-            .choice => |choice| .{ .choice = .{ .words = choice.value(graphics) } },
+            .choice => |choice| .{ .choice = choice.value(graphics) },
         },
         .usable = row.usable(graphics.chosen),
     };
@@ -477,7 +514,7 @@ test "the arrows step the choices, and the pane's arrows scroll it" {
     _ = tab.choose(.{ .pane = .{ .step = .{ .row = anti_aliasing, .step = .back } } }, context);
     _ = tab.choose(.{ .pane = .{ .step = .{ .row = anti_aliasing, .step = .back } } }, context);
     try std.testing.expectEqual(2, recorder.graphics.chosen.samples);
-    try std.testing.expectEqualStrings("2 SAMPLES", Choice.anti_aliasing.value(tab.graphics));
+    try std.testing.expectEqualStrings("2 SAMPLES", Choice.anti_aliasing.value(tab.graphics).words);
     // COLOR DEPTH waits for the next start.
     _ = tab.choose(.{ .pane = .{ .step = .{ .row = @intFromEnum(Row.color_depth), .step = .on } } }, context);
     try std.testing.expect(recorder.graphics.chosen.sixteen_bit and tab.graphics.waits());
@@ -490,7 +527,6 @@ test "the arrows step the choices, and the pane's arrows scroll it" {
     context.pointer.wheel = -1;
     tab.scroll(context);
     try std.testing.expectEqual(4, tab.list.rows.first);
-    tab.scroll(context);
-    tab.scroll(context);
+    for (0..rows.len) |_| tab.scroll(context);
     try std.testing.expectEqual(rows.len - shown_rows, tab.list.rows.first);
 }

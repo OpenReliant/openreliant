@@ -81,8 +81,13 @@ pub const Context = struct {
     saved: *Saved,
     /// A hardware renderer (`sr + 0x1AC`), which the cursor's light takes its colour by.
     hardware: bool = true,
-    /// The options' detail (`0x005D54E0`), which the ships on the arc are drawn at while they move.
+    /// The settings' graphic detail (`graphic_detail`, `0x005D54E0`), which the ships on the arc
+    /// are drawn at while they move.
     detail: explode.Detail = .high,
+    /// The longest side a texture keeps, by the settings' texture detail
+    /// (`srtexture.Table.largest`), null for any; and whether the light maps are drawn (`Lmaps`).
+    largest_texture: ?u32 = null,
+    light_maps: bool = true,
 };
 
 /// The campaign's saved loadout (`0x00562F18`): the ship the pilot last chose and the missiles on
@@ -582,6 +587,7 @@ pub const Loadout = struct {
         loadout.textures = .init(gpa, context.cache, loadout.palette);
         const textures = &loadout.textures.?;
         textures.files = resources.mods.pictures();
+        textures.largest = context.largest_texture;
 
         // The ships the tier or the rank offers (`loadout_ships_create`, `0x00444760`), each an
         // object of the interface whose tooltip is its name (`0x00441E43` on), reached by the green
@@ -707,7 +713,7 @@ pub const Loadout = struct {
         const source = try arena.create(shp.Model);
         source.* = try .parse(arena, try loadout.context.rooms.resources.readFile(arena, file));
         const loaded = try arena.create(srofiles.Loaded);
-        loaded.* = try srofiles.modelLoad(arena, &loadout.textures.?, source, .{ .hardware = loadout.context.hardware, .prefix = prefix }, false);
+        loaded.* = try srofiles.modelLoad(arena, &loadout.textures.?, source, .{ .light_maps = loadout.context.light_maps, .hardware = loadout.context.hardware, .prefix = prefix }, false);
         return .{ .model = source, .loaded = loaded };
     }
 
@@ -2176,7 +2182,7 @@ pub const Loadout = struct {
         const file = loadout.missile_models[@intFromEnum(missile)];
         const flight = try gpa.create(Flight);
         errdefer gpa.destroy(flight);
-        flight.loaded = try srofiles.modelLoad(gpa, &loadout.textures.?, file.model, .{ .hardware = loadout.context.hardware, .prefix = .loadout_weapons }, false);
+        flight.loaded = try srofiles.modelLoad(gpa, &loadout.textures.?, file.model, .{ .light_maps = loadout.context.light_maps, .hardware = loadout.context.hardware, .prefix = .loadout_weapons }, false);
         errdefer flight.loaded.deinit(gpa);
         flight.model = try .create(gpa, file.model, &flight.loaded, .{});
         errdefer flight.model.deinit(gpa);

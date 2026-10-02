@@ -95,8 +95,11 @@ const hrtf_key = "Hrtf";
 const reverb_key = "Reverb";
 const compressor_key = "Compressor";
 
+/// An option of the settings screen's, by its field, and the key that keeps it.
+const FieldKey = struct { field: []const u8, name: []const u8 };
+
 /// The graphics' options by the keys that keep them; `Original` keeps the base beneath them.
-const graphics_keys = [_]struct { field: []const u8, name: []const u8 }{
+const graphics_keys = [_]FieldKey{
     .{ .field = "pixel_lighting", .name = pixel_lighting_key },
     .{ .field = "linear_light", .name = linear_light_key },
     .{ .field = "materials", .name = materials_key },
@@ -112,10 +115,20 @@ const graphics_keys = [_]struct { field: []const u8, name: []const u8 }{
     .{ .field = "outline_fonts", .name = outline_fonts_key },
 };
 
+/// The game's own details among the graphics' options, which it keeps in `[Device]`
+/// (`engine.game.winmain.Details`), by their keys.
+const Details = engine.game.winmain.Details;
+const device_keys = [_]FieldKey{
+    .{ .field = "texture_detail", .name = Details.texture_key },
+    .{ .field = "graphic_detail", .name = Details.graphic_key },
+    .{ .field = "light_maps", .name = Details.light_maps_key },
+};
+
 comptime {
     // A key for each of the graphics' options, and `Original` for the base.
-    std.debug.assert(graphics_keys.len + 1 == @typeInfo(screen.Own.Graphics.Chosen).@"struct".fields.len);
-    for (graphics_keys) |key| std.debug.assert(@hasField(screen.Own.Graphics.Chosen, key.field));
+    const fields = @typeInfo(screen.Own.Graphics.Chosen).@"struct".fields.len;
+    std.debug.assert(graphics_keys.len + device_keys.len + 1 == fields);
+    for (graphics_keys ++ device_keys) |key| std.debug.assert(@hasField(screen.Own.Graphics.Chosen, key.field));
 }
 
 /// An option's value as its key takes it, in `arena`: 1 or 0 for on and off, every shot's lights
@@ -291,9 +304,19 @@ pub const Own = struct {
     ///
     /// `Original` plays the software Miles: written while OpenAL Soft plays, the sound's own keys
     /// go with it, so that the sound stays as the AUDIO tab has it.
+    ///
+    /// The game's details go to `[Device]`, each as its number where it changes, as
+    /// `renderer_open` writes them as it starts the renderer again (`0x004A8716` on).
     fn keepGraphics(own: *Own, chosen: screen.Own.Graphics.Chosen) Allocator.Error!void {
         const file = own.settings_file;
         const was = own.graphics.chosen;
+        inline for (device_keys) |key| {
+            const value = @field(chosen, key.field);
+            if (value != @field(was, key.field)) try file.writeInt(screen.video.section, key.name, switch (@TypeOf(value)) {
+                bool => @intFromBool(value),
+                else => @intFromEnum(value),
+            });
+        }
         const whole = chosen.preset() != null or chosen.original != was.original;
         if (whole) {
             if (chosen.original) {
@@ -438,24 +461,27 @@ fn sizeText(arena: Allocator, size: FrameSize) Allocator.Error![]const u8 {
 
 comptime {
     // The settings screen's defaults are the options' own, and its presets the options' and
-    // `--original`'s.
+    // `--original`'s, the game's details at their highest.
     const options: Options = .{};
-    std.debug.assert(std.meta.eql(graphicsOf(options).chosen, screen.Own.Graphics.Preset.modern.chosen()));
+    std.debug.assert(std.meta.eql(graphicsOf(options, .{}).chosen, screen.Own.Graphics.Preset.modern.chosen()));
     var original_options: Options = .{};
     original_options.apply(.@"--original", "") catch unreachable;
-    std.debug.assert(std.meta.eql(graphicsOf(original_options).chosen, screen.Own.Graphics.Preset.original.chosen()));
+    std.debug.assert(std.meta.eql(graphicsOf(original_options, .{}).chosen, screen.Own.Graphics.Preset.original.chosen()));
     const display: screen.Own.Display.Chosen = .{};
     std.debug.assert(std.meta.eql(options.settings.size, display.size));
     std.debug.assert(options.fullscreen == display.fullscreen and options.settings.vsync == display.vsync);
     std.debug.assert(options.fps == display.frame_rate);
 }
 
-/// The graphics' options as the game starts with them, the options' (`read`), and what it runs
-/// with of those that take effect at the next start.
-pub fn graphicsOf(options: Options) screen.Own.Graphics {
+/// The graphics' options as the game starts with them, the options' (`read`) and the game's
+/// `details`, and what it runs with of those that take effect at the next start.
+pub fn graphicsOf(options: Options, details: Details) screen.Own.Graphics {
     const gpu = options.settings;
     const chosen: screen.Own.Graphics.Chosen = .{
         .original = options.original,
+        .texture_detail = details.texture,
+        .graphic_detail = details.graphic,
+        .light_maps = details.light_maps,
         .pixel_lighting = gpu.pixel_lighting,
         .linear_light = gpu.linear_light,
         .materials = gpu.materials,
@@ -602,7 +628,7 @@ test "Own's graphics options" {
     var file: engine.profile.File = .{ .arena = arena.allocator(), .profile = .empty };
     var smooth_motion = true;
     var shot_lights: engine.game.guns.ShotLights = .every_shot;
-    var own: Own = .{ .settings_file = &file, .output = null, .sound = .{}, .graphics = graphicsOf(.{}), .smooth_motion = &smooth_motion, .shot_lights = &shot_lights };
+    var own: Own = .{ .settings_file = &file, .output = null, .sound = .{}, .graphics = graphicsOf(.{}, .{}), .smooth_motion = &smooth_motion, .shot_lights = &shot_lights };
     const shown = own.interface();
     try std.testing.expectEqual(screen.Own.Graphics{}, shown.graphics());
     // What changes is written as the file takes it, and read back the same; the motion and the
@@ -616,7 +642,7 @@ test "Own's graphics options" {
     try std.testing.expectEqual(null, file.profile.value(section, bloom_key));
     try std.testing.expect(!smooth_motion);
     try std.testing.expectEqual(.latest_two, shot_lights);
-    try std.testing.expectEqual(chosen, graphicsOf(optionsOf(file.profile.text)).chosen);
+    try std.testing.expectEqual(chosen, graphicsOf(optionsOf(file.profile.text), .{}).chosen);
     // 16-bit colour and the fonts wait for the next start: the game runs as it started.
     try std.testing.expect(!shown.graphics().running.sixteen_bit and shown.graphics().waits());
     // Changed back to the default, an option's key goes.
@@ -624,13 +650,24 @@ test "Own's graphics options" {
     back.shadows = .high;
     shown.setGraphics(back);
     try std.testing.expectEqual(null, file.profile.value(section, shadows_key));
+    // The game's details go to `[Device]` as numbers, as its renderer writes them, and are read
+    // back the same.
+    var lowered = back;
+    lowered.texture_detail = .low;
+    lowered.light_maps = false;
+    shown.setGraphics(lowered);
+    try std.testing.expectEqualStrings("0", file.profile.value(screen.video.section, Details.texture_key).?);
+    try std.testing.expectEqualStrings("0", file.profile.value(screen.video.section, Details.light_maps_key).?);
+    try std.testing.expectEqual(null, file.profile.value(screen.video.section, Details.graphic_key));
+    try std.testing.expectEqual(Details{ .texture = .low, .light_maps = false }, Details.read(file.profile));
+    try std.testing.expect(shown.graphics().waits());
 }
 
 test "Own's presets keep the file to its base" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     var file: engine.profile.File = .{ .arena = arena.allocator(), .profile = .empty };
-    var own: Own = .{ .settings_file = &file, .output = null, .sound = .{}, .graphics = graphicsOf(.{}) };
+    var own: Own = .{ .settings_file = &file, .output = null, .sound = .{}, .graphics = graphicsOf(.{}, .{}) };
     const shown = own.interface();
     const Preset = screen.Own.Graphics.Preset;
     // ORIGINAL is written as `Original` alone, with the sound's keys, which keep OpenAL Soft
@@ -640,25 +677,25 @@ test "Own's presets keep the file to its base" {
     try std.testing.expectEqual(null, file.profile.value(section, bloom_key));
     try std.testing.expectEqualStrings("auto", file.profile.value(section, hrtf_key).?);
     const original_read = optionsOf(file.profile.text);
-    try std.testing.expectEqual(Preset.original.chosen(), graphicsOf(original_read).chosen);
+    try std.testing.expectEqual(Preset.original.chosen(), graphicsOf(original_read, .{}).chosen);
     try std.testing.expect(original_read.sound.?.player == .openal and original_read.sound.?.master.?.compresses());
     // An option changed from it is written beside it; changed back, the preset is the base alone.
     var bloomed = Preset.original.chosen();
     bloomed.bloom = true;
     shown.setGraphics(bloomed);
     try std.testing.expectEqualStrings("1", file.profile.value(section, bloom_key).?);
-    try std.testing.expectEqual(bloomed, graphicsOf(optionsOf(file.profile.text)).chosen);
+    try std.testing.expectEqual(bloomed, graphicsOf(optionsOf(file.profile.text), .{}).chosen);
     shown.setGraphics(Preset.original.chosen());
     try std.testing.expectEqual(null, file.profile.value(section, bloom_key));
     // MODERN takes `Original` out.
     shown.setGraphics(Preset.modern.chosen());
     try std.testing.expectEqual(null, file.profile.value(section, original_key));
-    try std.testing.expectEqual(Preset.modern.chosen(), graphicsOf(optionsOf(file.profile.text)).chosen);
+    try std.testing.expectEqual(Preset.modern.chosen(), graphicsOf(optionsOf(file.profile.text), .{}).chosen);
     // A change of base that is no preset, as CANCEL CHANGES puts back, writes every option that
     // differs from the new base.
     shown.setGraphics(bloomed);
     try std.testing.expectEqualStrings("1", file.profile.value(section, original_key).?);
-    try std.testing.expectEqual(bloomed, graphicsOf(optionsOf(file.profile.text)).chosen);
+    try std.testing.expectEqual(bloomed, graphicsOf(optionsOf(file.profile.text), .{}).chosen);
 }
 
 test keys {

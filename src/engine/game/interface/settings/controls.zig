@@ -94,11 +94,12 @@ pub const Check = enum {
     joystick_roll,
 
     const box_x = 349;
+    /// How far left of a box the pointer finds it (`0x0042B70D` on).
+    const reach = 4;
 
-    /// Its box and its label, the pointer finding the box from 4 pixels left of it (`0x0042B70D`
-    /// on).
+    /// Its box and its label.
     fn box(check: Check) Toggle {
-        return .{ .at = .{ box_x, check.y() }, .gap = Toggle.check_gap, .reach = 4 };
+        return .{ .at = .{ box_x, check.y() }, .gap = Toggle.check_gap, .reach = reach };
     }
 
     /// Its row (`0x0042B70D` on).

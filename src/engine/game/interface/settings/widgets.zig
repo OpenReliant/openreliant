@@ -5,7 +5,7 @@
 //! - `Line`: a row as the video screen lays one out, its label, an arrows' box or a check box, and
 //!   its value.
 //! - `Box`, a check box or a radio button, and `Toggle`, one with its label beside it.
-//! - `StepArrows`: the audio screen's pair of arrows.
+//! - `ArrowPair`: two arrows, the audio screen's (`StepArrows`) or a list's (`ListArrows`).
 //! - `Slider`: the volumes' and the brightness's.
 //! - `Frame`, the box round a list; `List`, the rows a list shows, which its `ListArrows` scroll;
 //!   and `Pane`, a list of `Line`s in a frame, with its arrows.
@@ -84,11 +84,6 @@ pub const Line = struct {
         return .{ .x = @intCast(line.edge + from), .y = @intCast(line.y - arrows_raise), .width = arrow_size[0], .height = arrow_size[1] };
     }
 
-    /// Where its check box stands across, as the presets' radio buttons line up with it.
-    pub fn boxX(line: Line) i32 {
-        return line.edge + box_from;
-    }
-
     /// The arrow at `at`.
     pub fn arrowAt(line: Line, at: [2]i32) ?Step {
         for (std.enums.values(Step)) |step| if (line.arrow(step).holds(at)) return step;
@@ -97,7 +92,7 @@ pub const Line = struct {
 
     /// Where its check box stands.
     pub fn box(line: Line) [2]i32 {
-        return .{ line.boxX(), line.y + box_drop };
+        return .{ line.edge + box_from, line.y + box_drop };
     }
 
     /// Where the pointer finds its check box.
@@ -196,47 +191,70 @@ pub const Toggle = struct {
     }
 };
 
+/// A pair of arrows of the screen's shapes, keyed by `Key`, each lit under the pointer: the first
+/// at `at`, the second `layout.apart` from it, each found `layout.size` from `layout.reach` left of
+/// its shape.
+pub fn ArrowPair(comptime Key: type, comptime layout: PairLayout(Key)) type {
+    return struct {
+        /// Where the first arrow's shape stands.
+        at: [2]i32,
+
+        const Pair = @This();
+        const keys = std.enums.values(Key);
+
+        /// Where `key`'s shape stands.
+        fn corner(arrows: Pair, key: Key) [2]i32 {
+            if (key == keys[0]) return arrows.at;
+            return .{ arrows.at[0] + layout.apart[0], arrows.at[1] + layout.apart[1] };
+        }
+
+        /// Where the pointer finds the arrow `key`.
+        pub fn rect(arrows: Pair, key: Key) Rect {
+            const at = arrows.corner(key);
+            return .{ .x = @intCast(at[0] - layout.reach), .y = @intCast(at[1]), .width = layout.size[0], .height = layout.size[1] };
+        }
+
+        /// The arrow at `at`.
+        pub fn itemAt(arrows: Pair, at: [2]i32) ?Key {
+            for (keys) |key| if (arrows.rect(key).holds(at)) return key;
+            return null;
+        }
+
+        /// Both arrows, and `lit` lit.
+        pub fn draw(arrows: Pair, canvas: Canvas, art: *hud.Art, lit: ?Key) Error!void {
+            for (keys) |key| {
+                const shapes = layout.shapes.get(key);
+                try canvas.shape(art, shapes.off, arrows.corner(key));
+                if (lit == key) try canvas.shape(art, shapes.lit, arrows.corner(key));
+            }
+        }
+
+        comptime {
+            std.debug.assert(keys.len == 2);
+        }
+    };
+}
+
+/// How an `ArrowPair` is laid out, and the shapes each arrow is drawn with, as it stands and lit.
+pub fn PairLayout(comptime Key: type) type {
+    return struct {
+        apart: [2]i32,
+        size: [2]i16,
+        reach: i32 = 0,
+        shapes: std.EnumArray(Key, struct { off: usize, lit: usize }),
+    };
+}
+
 /// A pair of arrows, as the audio screen's 3D SOUND has them (`0x0042E4E4` on): back, shape `0x13`,
 /// and on, `0x14`, 22 right of it, lit under the pointer with `0x15` and `0x16`, each found 19 by 26.
-pub const StepArrows = struct {
-    /// Where the arrow back stands.
-    at: [2]i32,
-
-    const spacing = 22;
-    const size: [2]i16 = .{ 19, 26 };
-    const shapes = std.EnumArray(Step, struct { off: usize, lit: usize }).init(.{
+pub const StepArrows = ArrowPair(Step, .{
+    .apart = .{ 22, 0 },
+    .size = .{ 19, 26 },
+    .shapes = .init(.{
         .back = .{ .off = 0x13, .lit = 0x15 },
         .on = .{ .off = 0x14, .lit = 0x16 },
-    });
-
-    fn corner(arrows: StepArrows, step: Step) [2]i32 {
-        return switch (step) {
-            .back => arrows.at,
-            .on => .{ arrows.at[0] + spacing, arrows.at[1] },
-        };
-    }
-
-    /// Where the pointer finds the arrow `step`.
-    pub fn rect(arrows: StepArrows, step: Step) Rect {
-        const at = arrows.corner(step);
-        return .{ .x = @intCast(at[0]), .y = @intCast(at[1]), .width = size[0], .height = size[1] };
-    }
-
-    /// The arrow at `at`.
-    pub fn itemAt(arrows: StepArrows, at: [2]i32) ?Step {
-        for (std.enums.values(Step)) |step| if (arrows.rect(step).holds(at)) return step;
-        return null;
-    }
-
-    /// Both arrows, and `lit` lit.
-    pub fn draw(arrows: StepArrows, canvas: Canvas, art: *hud.Art, lit: ?Step) Error!void {
-        for (std.enums.values(Step)) |step| {
-            const pair = shapes.get(step);
-            try canvas.shape(art, pair.off, arrows.corner(step));
-            if (lit == step) try canvas.shape(art, pair.lit, arrows.corner(step));
-        }
-    }
-};
+    }),
+});
 
 /// A slider of the screen's shapes, as the audio's volumes and the video's brightness have it: a
 /// knob, shape `0x2C`, 15 by 27, which slides `travel` to the right of where it starts, and a
@@ -338,47 +356,15 @@ pub const List = struct {
 /// A list's arrows, as the controls' list has them (`0x0042D8CA` on): the up arrow, shape `0x1E`,
 /// above the down arrow, `0x1F`, 20 below it, each lit under the pointer with `0x20` and `0x21`, and
 /// found 28 by 16 from 4 pixels left of its shape (`0x0042B69A` on).
-pub const ListArrows = struct {
-    /// Where the up arrow's shape stands.
-    at: [2]i32,
-
-    const spacing = 20;
-    const reach = 4;
-    const size: [2]i16 = .{ 28, 16 };
-    const shapes = std.EnumArray(Arrow, struct { off: usize, lit: usize }).init(.{
+pub const ListArrows = ArrowPair(Arrow, .{
+    .apart = .{ 0, 20 },
+    .size = .{ 28, 16 },
+    .reach = 4,
+    .shapes = .init(.{
         .up = .{ .off = 0x1E, .lit = 0x20 },
         .down = .{ .off = 0x1F, .lit = 0x21 },
-    });
-
-    /// Where `arrow`'s shape stands.
-    fn corner(arrows: ListArrows, arrow: Arrow) [2]i32 {
-        return switch (arrow) {
-            .up => arrows.at,
-            .down => .{ arrows.at[0], arrows.at[1] + spacing },
-        };
-    }
-
-    /// Where the pointer finds `arrow`.
-    pub fn rect(arrows: ListArrows, arrow: Arrow) Rect {
-        const at = arrows.corner(arrow);
-        return .{ .x = @intCast(at[0] - reach), .y = @intCast(at[1]), .width = size[0], .height = size[1] };
-    }
-
-    /// The arrow at `at`.
-    pub fn itemAt(arrows: ListArrows, at: [2]i32) ?Arrow {
-        for (std.enums.values(Arrow)) |arrow| if (arrows.rect(arrow).holds(at)) return arrow;
-        return null;
-    }
-
-    /// Both arrows, and `lit` lit.
-    pub fn draw(arrows: ListArrows, canvas: Canvas, art: *hud.Art, lit: ?Arrow) Error!void {
-        for (std.enums.values(Arrow)) |arrow| {
-            const pair = shapes.get(arrow);
-            try canvas.shape(art, pair.off, arrows.corner(arrow));
-            if (lit == arrow) try canvas.shape(art, pair.lit, arrows.corner(arrow));
-        }
-    }
-};
+    }),
+});
 
 /// A list of `Line`s in a frame, as the controls' list is framed and scrolled by its arrows: the
 /// rows shown stand `spacing` apart from `first` down, their labels ending at `edge`.
@@ -461,6 +447,13 @@ test Toggle {
     const check: Toggle = .{ .at = .{ 349, 325 }, .gap = Toggle.check_gap, .reach = 4 };
     try std.testing.expectEqual(Rect{ .x = 345, .y = 325, .width = 16, .height = 16 }, check.rect());
     try std.testing.expectEqual([2]i32{ 367, 325 }, check.label(.{ .words = "" }).at);
+}
+
+test StepArrows {
+    // The audio screen's, found 19 by 26 from x 300 and 322.
+    const arrows: StepArrows = .{ .at = .{ 300, 369 } };
+    try std.testing.expectEqual(Rect{ .x = 322, .y = 369, .width = 19, .height = 26 }, arrows.rect(.on));
+    try std.testing.expectEqual(Step.back, arrows.itemAt(.{ 305, 375 }).?);
 }
 
 test "the lists' arrows and panes" {

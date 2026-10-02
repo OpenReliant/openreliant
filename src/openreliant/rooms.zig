@@ -82,8 +82,10 @@ pub const Driver = struct {
     lines: ?*const openreliant.hog.Archive,
     /// The screenshots the briefing's O key saves.
     screenshots: *game.xtrabits.screenshot.Screenshots,
-    /// The texture cache, which the loadout decodes its own textures from.
+    /// The texture cache, which the loadout decodes its own textures from, and the renderer's
+    /// details, which it draws them and its ships with.
     cache: tcache.Cache,
+    details: game.winmain.Details,
     /// The campaign's saved loadout, which the loadout starts from and keeps the ship chosen and
     /// its racks in.
     saved: *loadout.Saved,
@@ -265,6 +267,9 @@ pub const Driver = struct {
             .rank = driver.player.rank,
             .saved = driver.saved,
             .hardware = driver.movies.presenter.screen.* != .software,
+            .detail = driver.details.graphic,
+            .largest_texture = driver.details.texture.largest(),
+            .light_maps = driver.details.light_maps,
         };
     }
 

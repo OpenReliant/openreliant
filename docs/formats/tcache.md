@@ -138,9 +138,17 @@ name, what follows its last `\`, `/` or `:`, with each entry's in directory orde
 first use it reads the pixels and uploads them. A miss stops the game: `Could not find image %s`.
 
 The upload (`texture_upload`, `0x004C9C90`) fits the image to the device. `Tdetail` in the `Device`
-section of the settings, 0, 1 or 2 (default 1), caps texture sides at 128, 256 or 2048; a larger
-image is shrunk by the integer ratio. Brightness and contrast apply when either is non-zero. The
-image is then converted to the device's format.
+section of the settings, 0, 1 or 2 (default 1), caps texture sides at 128, 256 or 2048
+(`renderer_start`, `0x004ACF9F`); a side longer gives the whole ratio of it to the cap, each side
+its own. `image_shrink` (`0x004C95F0`) then makes the image that many times smaller: one with
+levels, made smaller by the same ratio both ways, gives up a level for each halving; any other has
+its finest level averaged over blocks of the ratios, a part block at its edge left out, and its
+levels made again. Brightness and contrast apply when either is non-zero. The image is then
+converted to the device's format.
+
+OpenReliant fits each of the cache's images to the cap the first time it reads it, and a mod's
+picture loses its finest levels until it fits. Its settings screen calls the three LOW, MEDIUM and
+HIGH; HIGH caps nothing, and is the default ([Video](../engine/front-end.md#video)).
 
 The shipped game adds nothing to the file. The loadout screen draws its panels into transient
 32-bit textures, `fpanels`, `bpanels`, `finfo` and `binfo`, kept in memory.

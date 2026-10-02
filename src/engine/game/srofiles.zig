@@ -535,14 +535,14 @@ pub const ModelFile = struct {
     loaded: *const Loaded,
 };
 
-/// Reads the model `file` from `resources` and loads it (`modelLoad`), as the loaders of a ship
-/// type's model, of a mounted model and of the cockpit each do. Everything is made in `gpa`, an
-/// arena, since none of it is let go but all at once.
-pub fn readModel(gpa: Allocator, resources: *const bigfile.Hog, textures: *srtexture.Table, file: []const u8) !ModelFile {
+/// Reads the model `file` from `resources` and loads it with `settings` (`modelLoad`), as the
+/// loaders of a ship type's model, of a mounted model and of the cockpit each do. Everything is
+/// made in `gpa`, an arena, since none of it is let go but all at once.
+pub fn readModel(gpa: Allocator, resources: *const bigfile.Hog, textures: *srtexture.Table, file: []const u8, settings: Settings) !ModelFile {
     const model = try gpa.create(shp.Model);
     model.* = try .parse(gpa, try resources.readFile(gpa, file));
     const loaded = try gpa.create(Loaded);
-    loaded.* = try modelLoad(gpa, textures, model, .{}, false);
+    loaded.* = try modelLoad(gpa, textures, model, settings, false);
     return .{ .model = model, .loaded = loaded };
 }
 
@@ -1211,7 +1211,7 @@ test readModel {
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
 
-    const file = try readModel(arena.allocator(), &resources, &textures.table, "ship.shp");
+    const file = try readModel(arena.allocator(), &resources, &textures.table, "ship.shp", .{});
     try std.testing.expectEqual(1, file.model.parts.len);
     try std.testing.expectEqual(1, file.loaded.parts.len);
 }

@@ -2656,3 +2656,5 @@ address	kind	name	type	comment
 004e7e98	data	reliant_crew_failed	byte[6][48]	The Reliant's crew after a failure, or a pickup, laid out as yamato_crew_honoured
 004e7fb8	data	reliant_crew_won	byte[5][48]	The Reliant's crew after any other rating, laid out as yamato_crew_honoured
 004e80a8	data	yamato_second_crew	byte[3][48]	The Yamato's second crew, who come in turn (yamato_crew_next), laid out as yamato_crew_honoured, without lines
+004a8600	function	renderer_open		Starts the renderer with the display settings (renderer_start), trying others where it fails, and writes those it starts with to the Device section of the settings: Tdetail, Gdetail and Lmaps among them
+004c95f0	function	image_shrink	void __fastcall (TextureImage *image, int ratio_x, int ratio_y)	Makes an image ratio times smaller across and down: one with mipmaps, by the same ratio both ways, gives up its finest levels; any other is averaged over blocks and has its mipmaps made again

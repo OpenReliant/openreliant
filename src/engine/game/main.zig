@@ -903,11 +903,21 @@ test screenshotAsked {
     try std.testing.expect(screenshotAsked(&keyboard));
 }
 
-/// Where `mission_frame` holds `detail_divisor` (`srapi.Context.detail`) at the high detail setting
-/// on a machine that keeps up: it raises it by 0.05 each frame whose timed sections take under 1/60
-/// s, up to 3, and lowers it by 0.5 each frame over 1/40 s, down to 1.5. OpenReliant holds it at
-/// the top.
-pub const high_detail: f32 = 3;
+/// Where `mission_frame` holds `detail_divisor` (`srapi.Context.detail`) at the graphic detail
+/// `detail` on a machine that keeps up: it raises it by 0.05 each frame whose timed sections take
+/// under 1/60 s, up to a top the detail sets, and lowers it by 0.5 each frame over 1/40 s, down to
+/// a bottom (`0x00492550` on): from 0.75 to 1.5 at LOW, 1 to 2 at MEDIUM and 1.5 to 3 at HIGH.
+/// OpenReliant holds it at the top.
+pub fn detailDivisor(detail: explode.Detail) f32 {
+    return detail_tops.get(detail);
+}
+
+const detail_tops: std.EnumArray(explode.Detail, f32) = .init(.{ .low = 1.5, .medium = 2, .high = 3 });
+
+test detailDivisor {
+    try std.testing.expectEqual(3, detailDivisor(.high));
+    try std.testing.expectEqual(1.5, detailDivisor(.low));
+}
 
 /// How far the finer levels of detail reach (`srapi.Context.finer`).
 pub const DetailReach = enum {
@@ -1692,7 +1702,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
 
     const player = &all.slots[all.player];
     const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @enumFromInt(record.kind) else player.object.type);
-    try start.cockpit.load(start.types.resources, start.types.textures, player_type);
+    try start.cockpit.load(start.types.resources, start.types.textures, player_type, start.types.light_maps);
     start.display.ejected = false;
     fitDevices(start.display, player_type, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     start.display.missiles.build(&player.object);
