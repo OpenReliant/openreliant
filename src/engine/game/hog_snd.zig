@@ -688,9 +688,10 @@ pub const Sound = struct {
         sound.timerTick(clock.game_ticks);
     }
 
-    /// `tick_timer`'s (`0x004827C0`) sound: every five ticks and more, the music's fade and each
-    /// fading voice's step. OpenReliant runs it once a frame rather than on a timer of its own,
-    /// which steps it the same while frames come faster than every five ticks.
+    /// The sound half of `tick_timer` (`0x004827C0`): once at least five ticks have passed since
+    /// the last step, it steps the music's fade and each fading voice's. OpenReliant calls it once
+    /// a frame instead of from a timer of its own, which steps the fades the same as long as frames
+    /// come more often than every five ticks.
     pub fn timerTick(sound: *Sound, game_ticks: u32) void {
         const driver = sound.driver orelse return;
         if (@as(i64, sound.faded_at) >= @as(i64, game_ticks) - fade_ticks) return;
@@ -986,8 +987,8 @@ pub const Sound = struct {
         sound.playMusic(queued.path[0..queued.path_len], queued.loops, queued.level, .now);
     }
 
-    /// `music_fade_out` (`0x00482960`): the music fades by `step` every five ticks from
-    /// `game_ticks`, the timer's count now, until it stops.
+    /// `music_fade_out` (`0x00482960`): starts fading the music out by `step` every five ticks,
+    /// counting from `game_ticks`, the timer's count now, until it stops.
     pub fn fadeMusic(sound: *Sound, step: i32, game_ticks: u32) void {
         if (sound.music.stream == null) return;
         sound.music.fading = true;

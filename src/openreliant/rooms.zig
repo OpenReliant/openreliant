@@ -674,9 +674,9 @@ pub const Driver = struct {
         return .{ .pointer = pointer, .keyboard = &driver.movies.devices.keyboard, .typed = driver.movies.typed, .ticks = driver.clock.game_ticks, .saves = saves };
     }
 
-    /// The window's messages since the last pass, as the message pump reads them, the keyboard
-    /// read, the pointer moved on, and the timer's ticks, which the fades step by; false where the
-    /// window was closed, which quits the game (`game_exit`).
+    /// Reads the window's messages since the last pass, as the message pump does, reads the
+    /// keyboard, moves the pointer on and runs the timer, which steps the fades. Returns false if
+    /// the window was closed, which quits the game (`game_exit`).
     fn pump(driver: *Driver) !bool {
         const movies = driver.movies;
         const devices = movies.devices;
