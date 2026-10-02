@@ -65,6 +65,7 @@ const keys = [_]Key{
     .{ .name = cockpit_shadows_key, .takes = on_off, .read = onOff("settings.cockpit_shadows") },
     .{ .name = smooth_motion_key, .takes = on_off, .read = onOff("smooth_motion") },
     .{ .name = shot_lights_key, .takes = on_off, .read = shotLights },
+    .{ .name = real_lights_key, .takes = on_off, .read = onOff("real_lights") },
     .{ .name = outline_fonts_key, .takes = on_off, .read = onOff("outline_fonts") },
     .{ .name = hrtf_key, .takes = "auto, on or off", .read = hrtf },
     .{ .name = reverb_key, .takes = on_off, .read = reverb },
@@ -90,6 +91,7 @@ const shadows_key = "Shadows";
 const cockpit_shadows_key = "CockpitShadows";
 const smooth_motion_key = "SmoothMotion";
 const shot_lights_key = "ShotLights";
+const real_lights_key = "RealLights";
 const outline_fonts_key = "OutlineFonts";
 const hrtf_key = "Hrtf";
 const reverb_key = "Reverb";
@@ -106,6 +108,7 @@ const graphics_keys = [_]FieldKey{
     .{ .field = "shadows", .name = shadows_key },
     .{ .field = "cockpit_shadows", .name = cockpit_shadows_key },
     .{ .field = "shot_lights", .name = shot_lights_key },
+    .{ .field = "real_lights", .name = real_lights_key },
     .{ .field = "bloom", .name = bloom_key },
     .{ .field = "dither", .name = dither_key },
     .{ .field = "filter", .name = filter_key },
@@ -488,6 +491,7 @@ pub fn graphicsOf(options: Options, details: Details) screen.Own.Graphics {
         .shadows = sameTag(screen.Own.Graphics.Shadows, gpu.shadows),
         .cockpit_shadows = gpu.cockpit_shadows,
         .shot_lights = options.shot_lights,
+        .real_lights = options.real_lights,
         .bloom = gpu.bloom,
         .dither = gpu.dither,
         .filter = sameTag(screen.Own.Graphics.Filter, gpu.filter),

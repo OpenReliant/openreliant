@@ -25,8 +25,8 @@ pub const MountCache = struct {
     gpa: Allocator,
     resources: *const bigfile.Hog,
     textures: *srtexture.Table,
-    /// Whether the light maps are drawn (`Lmaps`), which the models are built with.
-    light_maps: bool = true,
+    /// What the models are built with: the light maps (`Lmaps`) and the lights.
+    models: srofiles.Settings = .{},
     read: std.StringHashMapUnmanaged(?objects.Mounts.Mounted) = .empty,
 
     pub fn mounts(cache: *MountCache) objects.Mounts {
@@ -36,7 +36,7 @@ pub const MountCache = struct {
     fn load(context: *anyopaque, file: []const u8) ?objects.Mounts.Mounted {
         const cache: *MountCache = @ptrCast(@alignCast(context));
         if (cache.read.get(file)) |found| return found;
-        const mounted = srofiles.readModel(cache.gpa, cache.resources, cache.textures, file, .{ .light_maps = cache.light_maps }) catch |err| missing: {
+        const mounted = srofiles.readModel(cache.gpa, cache.resources, cache.textures, file, cache.models) catch |err| missing: {
             log.warn("the model {s} is not mounted: {s}", .{ file, @errorName(err) });
             break :missing null;
         };
@@ -52,9 +52,9 @@ pub const TypeCache = struct {
     gpa: Allocator,
     resources: *const bigfile.Hog,
     textures: *srtexture.Table,
-    /// Whether the light maps are drawn (`Lmaps`), which the models, the cockpit's among them, are
-    /// built with.
-    light_maps: bool = true,
+    /// What the models are built with, the cockpit's among them: the light maps (`Lmaps`) and the
+    /// lights.
+    models: srofiles.Settings = .{},
     /// What the types' objects light themselves with; each type mounts from its own `MountCache`.
     looks: objects.Effects,
     /// VFX's global palette, which the schematics are drawn with.
@@ -101,8 +101,8 @@ pub const TypeCache = struct {
         cached.arena = .init(std.heap.page_allocator);
         errdefer cached.arena.deinit();
         const gpa = cached.arena.allocator();
-        const file = try srofiles.readModel(gpa, cache.resources, cache.textures, name, .{ .light_maps = cache.light_maps });
-        cached.mounted = .{ .gpa = gpa, .resources = cache.resources, .textures = cache.textures, .light_maps = cache.light_maps };
+        const file = try srofiles.readModel(gpa, cache.resources, cache.textures, name, cache.models);
+        cached.mounted = .{ .gpa = gpa, .resources = cache.resources, .textures = cache.textures, .models = cache.models };
         cached.schematic = if (schematic_name) |schematic| found: {
             const bytes = cache.resources.readFile(gpa, schematic) catch |err| {
                 log.warn("the schematic {s} is left out: {s}", .{ schematic, @errorName(err) });

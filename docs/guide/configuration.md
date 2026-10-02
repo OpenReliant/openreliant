@@ -53,6 +53,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--no-cockpit-shadows` | Leave the shadows out of the cockpit, keeping them on the ships |
 | `--no-smooth-motion` | Move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame |
 | `--few-shot-lights` | Light only the latest two of the player's shots and the latest two of everyone else's, as the original does |
+| `--baked-lights` | Bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near ([Rendering](../engine/rendering.md#static-lights)) |
 | `--bitmap-fonts` | Write the interface's text in the game's own bitmap fonts, magnified to the window, rather than in outline fonts drawn at its resolution: Newtown, built in, or a mod's ([Modding](modding.md#fonts)) |
 
 ## Sound
@@ -169,6 +170,7 @@ Samples=8
 | `CockpitShadows` | 1 or 0, which VIDEO's COCKPIT SHADOWS sets | `--no-cockpit-shadows` |
 | `SmoothMotion` | 1 or 0, which VIDEO's SMOOTH MOTION sets | `--no-smooth-motion` |
 | `ShotLights` | 1: every shot lights the ships it passes; 0: the latest two of each side's, as the original; which VIDEO's SHOT LIGHTS sets | `--few-shot-lights` |
+| `RealLights` | 1: the steady lights of ships and stations shine on what stands near; 0: they are baked into their hulls, as the original; which VIDEO's REAL LIGHTS sets | `--baked-lights` |
 | `OutlineFonts` | 1 or 0, which VIDEO's OUTLINE FONTS sets: the interface's text drawn from outline fonts, or in the game's bitmap fonts | `--bitmap-fonts` |
 | `Hrtf` | `auto`, `on` or `off`, which AUDIO's 3D SOUND sets: AUTOMATIC, HEADPHONES or SPEAKERS | `--hrtf`, `--no-hrtf` |
 | `Reverb` | 1 or 0, which AUDIO's REVERB sets | `--no-reverb` |

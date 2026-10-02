@@ -86,6 +86,8 @@ pub const Driver = struct {
     /// details, which it draws them and its ships with.
     cache: tcache.Cache,
     details: game.winmain.Details,
+    /// What the game's models are built with (`game.srofiles.Settings`).
+    models: game.srofiles.Settings,
     /// The campaign's saved loadout, which the loadout starts from and keeps the ship chosen and
     /// its racks in.
     saved: *loadout.Saved,
@@ -269,7 +271,7 @@ pub const Driver = struct {
             .hardware = driver.movies.presenter.screen.* != .software,
             .detail = driver.details.graphic,
             .largest_texture = driver.details.texture.largest(),
-            .light_maps = driver.details.light_maps,
+            .models = driver.models,
         };
     }
 

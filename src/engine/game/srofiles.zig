@@ -188,6 +188,10 @@ pub const Settings = struct {
     /// A static light stands in this part's class, which `staticLightsMark` works out, so its
     /// meshes take baked colours for `staticLightsBake` to fill.
     static_light: bool = false,
+    /// **Improvement:** the steady lights shine on what stands near as real lights, as the
+    /// blinking ones do, rather than being baked into the meshes of their parts' class
+    /// (`staticLightsBake`). The model keeps it for its objects (`Loaded.real_lights`).
+    real_lights: bool = false,
 };
 
 /// The most surfaces a mesh holds (`mesh_create`, `0x004C4440`).
@@ -522,6 +526,9 @@ test Cloaking {
 /// A model's parts, their meshes built (`model_load`, `0x004A44D0`, once it has read the file).
 pub const Loaded = struct {
     parts: []LoadedPart,
+    /// Whether its steady lights were left out of the bake to shine as real lights
+    /// (`Settings.real_lights`), which its objects' lights then cast (`objects.Model.Light.cast`).
+    real_lights: bool = false,
 
     pub fn deinit(loaded: Loaded, gpa: Allocator) void {
         for (loaded.parts) |part| part.deinit(gpa);
@@ -582,7 +589,7 @@ pub fn modelLoad(gpa: Allocator, textures: *srtexture.Table, model: *const shp.M
         loaded.* = .{ .flags = flags, .meshes = meshes, .levels = levels };
         made += 1;
     }
-    staticLightsBake(model, parts);
+    if (!settings.real_lights) staticLightsBake(model, parts);
     if (level_settings.cloak) {
         var buffer: [1 + Cloaking.image.len]u8 = undefined;
         const shimmer = try matmanager.textureRequire(textures, prefixed(&buffer, settings.prefix.letter(), Cloaking.image));
@@ -591,7 +598,7 @@ pub fn modelLoad(gpa: Allocator, textures: *srtexture.Table, model: *const shp.M
             if (part.levels.len > 0) part.cloaking = try .build(gpa, part.levels, shimmer, settings.hardware);
         }
     }
-    return .{ .parts = parts };
+    return .{ .parts = parts, .real_lights = settings.real_lights };
 }
 
 // --- Static lights ------------------------------------------------------------------------
@@ -619,11 +626,7 @@ fn isStaticLight(attachment: shp.Attachment) bool {
 fn staticLight(part: *const shp.PartData, attachment: shp.Attachment) StaticLight {
     return .{
         .position = gameobj.vector(attachment.position.add(part.part.position)),
-        // The bake knows no colour past red.
-        .colour = switch (attachment.light()) {
-            .blue, .green, .yellow, .red => |light| @import("objects.zig").lightColour(light),
-            else => .{ 0, 0, 0 },
-        },
+        .colour = @import("objects.zig").steadyColour(attachment.light()),
         .brightness = attachment.light_brightness,
         .radius = attachment.light_brightness * attachment.light_range,
     };
@@ -1160,6 +1163,22 @@ test staticLightsBake {
     try std.testing.expectApproxEqAbs(0.25, colours[0][0][0], 1e-5);
     try std.testing.expectEqual(0, colours[0][0][1]);
     try std.testing.expectEqual(0, colours[0][0][2]);
+}
+
+test "a model loaded with real lights keeps them out of the bake for its objects" {
+    const gpa = std.testing.allocator;
+    var meshes = [_]shp.Mesh{};
+    var lights = [_]shp.Attachment{testLight(@intFromEnum(shp.Attachment.Light.red), 100, 1, 100)};
+    var parts = [_]shp.PartData{testPart(&meshes, std.mem.zeroes(shp.Part.Flags))};
+    parts[0].attachments = &lights;
+    const model: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &parts, .trailing_bytes = 0 };
+    const textures = try srtexture.testing.Textures.init(gpa, &.{});
+    defer textures.deinit(gpa);
+    for ([_]bool{ false, true }) |real| {
+        const loaded = try modelLoad(gpa, &textures.table, &model, .{ .real_lights = real }, false);
+        defer loaded.deinit(gpa);
+        try std.testing.expectEqual(real, loaded.real_lights);
+    }
 }
 
 test staticLightBake {

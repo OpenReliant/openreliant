@@ -85,9 +85,10 @@ pub const Context = struct {
     /// are drawn at while they move.
     detail: explode.Detail = .high,
     /// The longest side a texture keeps, by the settings' texture detail
-    /// (`srtexture.Table.largest`), null for any; and whether the light maps are drawn (`Lmaps`).
+    /// (`srtexture.Table.largest`), null for any.
     largest_texture: ?u32 = null,
-    light_maps: bool = true,
+    /// What the game's models are built with: the light maps (`Lmaps`) and the lights.
+    models: srofiles.Settings = .{},
 };
 
 /// The campaign's saved loadout (`0x00562F18`): the ship the pilot last chose and the missiles on
@@ -706,6 +707,15 @@ pub const Loadout = struct {
         ship.showLevel(0);
     }
 
+    /// What the loadout's models are built with: the game's settings (`Context.models`), on the
+    /// loadout's renderer, their textures named with `prefix`'s letter.
+    fn modelSettings(loadout: *const Loadout, prefix: srofiles.Prefix) srofiles.Settings {
+        var settings = loadout.context.models;
+        settings.hardware = loadout.context.hardware;
+        settings.prefix = prefix;
+        return settings;
+    }
+
     /// `model_load` (`0x004A44D0`) of `file` from `resource.hog`, its textures named with
     /// `prefix`'s letter and decoded with the loadout's palette, made in the loadout's arena.
     fn loadModel(loadout: *Loadout, file: []const u8, prefix: srofiles.Prefix) !srofiles.ModelFile {
@@ -713,7 +723,7 @@ pub const Loadout = struct {
         const source = try arena.create(shp.Model);
         source.* = try .parse(arena, try loadout.context.rooms.resources.readFile(arena, file));
         const loaded = try arena.create(srofiles.Loaded);
-        loaded.* = try srofiles.modelLoad(arena, &loadout.textures.?, source, .{ .light_maps = loadout.context.light_maps, .hardware = loadout.context.hardware, .prefix = prefix }, false);
+        loaded.* = try srofiles.modelLoad(arena, &loadout.textures.?, source, loadout.modelSettings(prefix), false);
         return .{ .model = source, .loaded = loaded };
     }
 
@@ -2182,7 +2192,7 @@ pub const Loadout = struct {
         const file = loadout.missile_models[@intFromEnum(missile)];
         const flight = try gpa.create(Flight);
         errdefer gpa.destroy(flight);
-        flight.loaded = try srofiles.modelLoad(gpa, &loadout.textures.?, file.model, .{ .light_maps = loadout.context.light_maps, .hardware = loadout.context.hardware, .prefix = .loadout_weapons }, false);
+        flight.loaded = try srofiles.modelLoad(gpa, &loadout.textures.?, file.model, loadout.modelSettings(.loadout_weapons), false);
         errdefer flight.loaded.deinit(gpa);
         flight.model = try .create(gpa, file.model, &flight.loaded, .{});
         errdefer flight.model.deinit(gpa);

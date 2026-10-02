@@ -38,6 +38,7 @@ pub const Arg = enum {
     @"--no-cockpit-shadows",
     @"--no-smooth-motion",
     @"--few-shot-lights",
+    @"--baked-lights",
     @"--bitmap-fonts",
     @"--hrtf",
     @"--no-hrtf",
@@ -113,6 +114,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--shadows" = .{ .section = .graphics, .value = "<off|low|high>", .text = "shadows from the sun: low is soft and light on older GPUs, high sharp and smooth; high by default, and none without lighting each pixel" },
     .@"--no-smooth-motion" = .{ .section = .graphics, .text = "move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame" },
     .@"--few-shot-lights" = .{ .section = .graphics, .text = "light only the latest two of the player's shots and the latest two of everyone else's, as the original does" },
+    .@"--baked-lights" = .{ .section = .graphics, .text = "bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near" },
     .@"--bitmap-fonts" = .{ .section = .graphics, .text = "write the interface's text in the game's own bitmap fonts, magnified to the window, rather than in outline fonts drawn at its resolution: Newtown, built in, or a mod's" },
     .@"--hrtf" = .{ .section = .sound, .text = "place the sounds for headphones whatever the output; by default they are while the output is headphones" },
     .@"--no-hrtf" = .{ .section = .sound, .text = "place the sounds for speakers whatever the output" },
@@ -230,6 +232,9 @@ pub const Options = struct {
     riders: game.objects.Riders = .together,
     /// Which shots cast a light: every one, or the latest two of each side as the original does.
     shot_lights: game.guns.ShotLights = .every_shot,
+    /// Whether the steady lights of ships and stations shine as lights, or are baked into their
+    /// hulls as the original bakes them (`game.srofiles.Settings.real_lights`).
+    real_lights: bool = true,
     /// Whether a muzzle's flash lights what stands round it, and whether the turrets' guns flash.
     flashes: game.guns.flash.Settings = .{},
     /// Whether the effects the game never reads play on the controller, and whether hits shake the
@@ -334,6 +339,7 @@ pub const Options = struct {
                 options.smooth_motion = false;
                 options.riders = .in_turn;
                 options.shot_lights = .latest_two;
+                options.real_lights = false;
                 options.flashes = .original;
                 options.forces = .original;
                 options.debris_lights = .every_light;
@@ -406,6 +412,7 @@ pub const Options = struct {
             .@"--no-cockpit-shadows" => options.settings.cockpit_shadows = false,
             .@"--no-smooth-motion" => options.smooth_motion = false,
             .@"--few-shot-lights" => options.shot_lights = .latest_two,
+            .@"--baked-lights" => options.real_lights = false,
             .@"--bitmap-fonts" => options.outline_fonts = false,
             .@"--hrtf" => if (options.openAl()) |settings| {
                 settings.hrtf = .on;
@@ -539,6 +546,7 @@ test Options {
     try std.testing.expectEqual(.together, plain.riders);
     try std.testing.expectEqual(.in_turn, retro.riders);
     try std.testing.expectEqual(.latest_two, retro.shot_lights);
+    try std.testing.expect(plain.real_lights and !retro.real_lights);
     try std.testing.expectEqual(game.guns.flash.Settings.original, retro.flashes);
     try std.testing.expectEqual(game.guns.flash.Settings{}, plain.flashes);
     try std.testing.expectEqual(engine.input.force.Settings.original, retro.forces);
@@ -587,6 +595,7 @@ test Options {
     try std.testing.expectEqual(.original, retro.draw_budget);
     try std.testing.expect(!(try parsed(&.{"--no-smooth-motion"})).smooth_motion);
     try std.testing.expectEqual(.latest_two, (try parsed(&.{"--few-shot-lights"})).shot_lights);
+    try std.testing.expect(!(try parsed(&.{"--baked-lights"})).real_lights);
     // Sound is on unless told otherwise, and the mission's script plays its music.
     try std.testing.expect((try parsed(&.{})).sound.?.player == .openal);
     try std.testing.expectEqual(null, (try parsed(&.{"--no-sound"})).sound);

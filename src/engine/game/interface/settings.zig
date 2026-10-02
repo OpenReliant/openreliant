@@ -176,6 +176,9 @@ pub const Own = struct {
             shadows: Shadows = .high,
             cockpit_shadows: bool = true,
             shot_lights: guns.ShotLights = .every_shot,
+            /// Whether the steady lights of ships and stations shine as lights rather than baked
+            /// into their hulls (`srofiles.Settings.real_lights`).
+            real_lights: bool = true,
             bloom: bool = true,
             dither: bool = true,
             filter: Filter = .crisp,
@@ -201,6 +204,7 @@ pub const Own = struct {
             texture_detail: xtrabits.TextureDetail = .high,
             graphic_detail: explode.Detail = .high,
             light_maps: bool = true,
+            real_lights: bool = true,
             linear_light: bool = true,
             sixteen_bit: bool = false,
             outline_fonts: bool = true,
@@ -232,6 +236,7 @@ pub const Own = struct {
                         .materials = false,
                         .shadows = .off,
                         .shot_lights = .latest_two,
+                        .real_lights = false,
                         .bloom = false,
                         .dither = false,
                         .filter = .original,

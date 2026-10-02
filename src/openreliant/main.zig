@@ -194,6 +194,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var device_settings: game.winmain.Device = .read(settings_file.profile);
     if (options.screenshot != null) device_settings.details = .{};
     const details = device_settings.details;
+    // What the game's models are built with: the light maps, and the lights as `--original` has
+    // them or as OpenReliant's.
+    const models: game.srofiles.Settings = .{ .light_maps = details.light_maps, .real_lights = options.real_lights };
     // The textures, the mods' pictures in place of the cache's images, made in `gpa`, since a large
     // picture's reading leaves much behind, each fitted to the texture detail.
     var textures: srtexture.Table = .init(gpa, cache, palette);
@@ -358,7 +361,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .gpa = gpa,
         .resources = &resources,
         .textures = &textures,
-        .light_maps = details.light_maps,
+        .models = models,
         .looks = .{ .light_sprites = try .load(&textures), .glows = &glows, .flashes = &flashes },
         .global_palette = global_palette,
     };
@@ -450,7 +453,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     atmospheres.style = options.atmospheres;
     var flash: game.main.flash.Flash = .{};
     // The countermeasures' model, read once for the whole run, as `decoys_init` reads it.
-    var effects_models: game.create.library.MountCache = .{ .gpa = arena, .resources = &resources, .textures = &textures, .light_maps = details.light_maps };
+    var effects_models: game.create.library.MountCache = .{ .gpa = arena, .resources = &resources, .textures = &textures, .models = models };
     var countermeasures: game.cloak.Countermeasures = .init(gpa, effects_models.mounts());
     defer countermeasures.reset();
     const lock_rings: *game.main.lock.Rings = try .create(gpa, &textures);
@@ -669,6 +672,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     .screenshots = &screenshots,
                     .cache = cache,
                     .details = details,
+                    .models = models,
                     .saved = &saved_loadout,
                     .stats = tables,
                     .missile_stats = &objects.missile_stats,

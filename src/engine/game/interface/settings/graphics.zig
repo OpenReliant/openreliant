@@ -48,6 +48,7 @@ pub const Row = enum {
     shadows,
     cockpit_shadows,
     shot_lights,
+    real_lights,
     bloom,
     dither,
     filter,
@@ -69,6 +70,7 @@ pub const Row = enum {
             .shadows => .{ .words = "SHADOWS" },
             .cockpit_shadows => .{ .words = "COCKPIT SHADOWS" },
             .shot_lights => .{ .words = "SHOT LIGHTS" },
+            .real_lights => .{ .words = "REAL LIGHTS" },
             .bloom => .{ .words = "BLOOM" },
             .dither => .{ .words = "DITHER" },
             .filter => .{ .words = "TEXTURE FILTER" },
@@ -87,7 +89,7 @@ pub const Row = enum {
             .shadows, .materials => chosen.pixel_lighting,
             .cockpit_shadows => chosen.pixel_lighting and chosen.shadows != .off,
             .linear_light => !chosen.sixteen_bit,
-            .texture_detail, .graphic_detail, .light_maps, .pixel_lighting, .shot_lights, .bloom, .dither, .filter, .anti_aliasing, .color_depth, .smooth_motion, .outline_fonts => true,
+            .texture_detail, .graphic_detail, .light_maps, .pixel_lighting, .shot_lights, .real_lights, .bloom, .dither, .filter, .anti_aliasing, .color_depth, .smooth_motion, .outline_fonts => true,
         };
     }
 
@@ -113,6 +115,7 @@ pub const Check = enum {
     linear_light,
     materials,
     cockpit_shadows,
+    real_lights,
     bloom,
     dither,
     smooth_motion,

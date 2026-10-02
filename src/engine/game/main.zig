@@ -1721,7 +1721,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
 
     const player = &all.slots[all.player];
     const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @enumFromInt(record.kind) else player.object.type);
-    try start.cockpit.load(start.types.resources, start.types.textures, player_type, start.types.light_maps);
+    try start.cockpit.load(start.types.resources, start.types.textures, player_type, start.types.models);
     start.display.ejected = false;
     fitDevices(start.display, player_type, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     start.display.missiles.build(&player.object);

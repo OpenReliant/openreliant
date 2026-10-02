@@ -1637,7 +1637,7 @@ pub const Model = struct {
         const order = try linkOrder(gpa, model);
         errdefer gpa.free(order);
         var built: Model = .{ .source = model, .parts = parts, .order = order, .lights = &.{}, .glows = &.{}, .mounts = &.{} };
-        const lights = try createLights(gpa, model, effects.light_sprites);
+        const lights = try createLights(gpa, model, effects.light_sprites, loaded.real_lights);
         errdefer gpa.free(lights);
         const glows = try createGlows(gpa, model, effects.glows);
         errdefer gpa.free(glows);
@@ -1842,8 +1842,9 @@ pub const Model = struct {
     }
 
     /// One light for each attachment of kind `light` a part carries, at its place in the model
-    /// (`node_mount_light`), with its sprites or the light it casts, or both.
-    fn createLights(gpa: Allocator, model: *const shp.Model, images: LightSprites) Allocator.Error![]Light {
+    /// (`node_mount_light`), with its sprites or the light it casts, or both. With `real_lights`,
+    /// a steady light casts one too, in the colour the bake would give it, where it has one.
+    fn createLights(gpa: Allocator, model: *const shp.Model, images: LightSprites, real_lights: bool) Allocator.Error![]Light {
         var each: Attached = .of(model, .light);
         const lights = try gpa.alloc(Light, each.count());
         for (lights) |*light| {
@@ -1874,11 +1875,13 @@ pub const Model = struct {
                 sprites.sprite[Light.Sprites.lamp_sprite].hidden = images.lamp == null;
             }
             const blinks = attachment.blink[0] +% attachment.blink[1] != 0;
-            if (attachment.light_brightness > 0 and blinks) {
+            const colour = if (blinks) lightColour(attachment.light()) else steadyColour(attachment.light());
+            const steady_shines = real_lights and @reduce(.Or, @as(Vector, colour) > @as(Vector, @splat(0)));
+            if (attachment.light_brightness > 0 and (blinks or steady_shines)) {
                 light.cast = .{
                     .mask = 0,
                     .intensity = attachment.light_brightness,
-                    .colour = lightColour(attachment.light()),
+                    .colour = colour,
                     .kind = .{ .point = .{ .position = @splat(0), .range = attachment.light_range } },
                 };
             }
@@ -2600,6 +2603,15 @@ pub fn lightColour(light: shp.Attachment.Light) [3]f32 {
     };
 }
 
+/// The colour a steady light is baked in (`static_light_bake`), which knows none past red, and
+/// which it shines with as a real light (`Model.Light.cast`).
+pub fn steadyColour(light: shp.Attachment.Light) [3]f32 {
+    return switch (light) {
+        .blue, .green, .yellow, .red => lightColour(light),
+        else => .{ 0, 0, 0 },
+    };
+}
+
 /// The paler colour of a light's lamp (`node_draw`). Past the sixth it takes none.
 fn lampColour(light: shp.Attachment.Light) [3]f32 {
     return switch (light) {
@@ -2989,6 +3001,62 @@ test "Model.Light.Sprites.show" {
     sprites.show(2, 0);
     try std.testing.expectEqual([3]f32{ 0.5, 0, 0 }, flare.colour);
     try std.testing.expectEqual([2]f32{ 0, 0 }, flare.half_size);
+}
+
+test "a model's steady lights shine as real lights where it was loaded so" {
+    const gpa = std.testing.allocator;
+    var loaded_parts = [1]srofiles.LoadedPart{.{ .flags = .{}, .levels = &.{}, .meshes = &.{} }};
+    const loaded: srofiles.Loaded = .{ .parts = &loaded_parts, .real_lights = true };
+    // A steady blue light, a steady cyan one, past the bake's colours, and a blinking red one.
+    var attachments: [3]shp.Attachment = @splat(.{
+        .kind = .light,
+        .position = .{ .x = 0, .y = 0, .z = 0 },
+        .orientation = math.identity,
+        .id = @intFromEnum(shp.Attachment.Light.blue),
+        .later_tiers = @splat(0),
+        .size = .{ 0, 3, 0 },
+        .blink = .{ 0, 0 },
+        .blink_phase = 0,
+        ._unknown_60 = @splat(0),
+        .gun_type = 0,
+        ._unknown_68 = @splat(0),
+        .light_range = 50,
+        .light_brightness = 1,
+    });
+    attachments[1].id = @intFromEnum(shp.Attachment.Light.cyan);
+    attachments[2].id = @intFromEnum(shp.Attachment.Light.red);
+    attachments[2].blink = .{ 1000, 1000 };
+    var hull = [1]shp.PartData{testingPart()};
+    hull[0].part.parent = -1;
+    hull[0].attachments = &attachments;
+    const model: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &hull, .trailing_bytes = 0 };
+    var built: Model = try .create(gpa, &model, &loaded, .{});
+    defer built.deinit(gpa);
+    testingLink(&built);
+
+    // The steady blue one casts as a blinking one does, in the colour the bake gives it; the cyan
+    // one, which the bake gives none, casts nothing.
+    const steady = built.lights[0].cast.?;
+    try std.testing.expectEqual([3]f32{ 0, 0, 1 }, steady.colour);
+    try std.testing.expectEqual(1, steady.intensity);
+    try std.testing.expectEqual(50, steady.kind.point.range);
+    try std.testing.expectEqual(null, built.lights[1].cast);
+    try std.testing.expectEqual([3]f32{ 1, 0, 0 }, built.lights[2].cast.?.colour);
+    // Drawn, both shine; with the ship's lights out (`DisableLights`), neither does.
+    built.place(@splat(0), math.identity);
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    try built.draw(gpa, &scene, .world, .{});
+    try std.testing.expectEqual(2, scene.lights.items.len);
+    scene.clear();
+    try built.draw(gpa, &scene, .world, .{ .lights = false });
+    try std.testing.expectEqual(0, scene.lights.items.len);
+}
+
+test steadyColour {
+    try std.testing.expectEqual(lightColour(.yellow), steadyColour(.yellow));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, steadyColour(.cyan));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, steadyColour(.white));
 }
 
 test "a model's lights: their sprites, and the light a blinking one casts" {
