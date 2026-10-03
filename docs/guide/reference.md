@@ -95,7 +95,7 @@ What the order table says of each order, the orders each object has, and ending 
 |---|---|---|
 | `info(order: Order)` | [OrderInfo](#orderinfo), or nil | What the order table says of `order`: its developers' name, its priority and its flags. Nil for an order the table doesn't have. |
 | `stack(object: Object)` | list of [OrderEntry](#orderentry) | The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends. |
-| `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: it runs no more, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
+| `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
 | `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
 
 ### `openreliant.hud`

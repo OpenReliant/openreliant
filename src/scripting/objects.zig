@@ -123,8 +123,7 @@ pub const fields = struct {
     pub const last_attacker = api.Field(?Object, "The object that last hit it; nil for none, or once that one has left the mission.", struct {
         pub fn get(all: *const create.Objects, index: u16) ?Object {
             const attacker = all.slots[index].object.last_attacker.index() orelse return null;
-            if (attacker >= all.slots.len or !world.inMission(all, attacker)) return null;
-            return .of(attacker);
+            return world.objectIn(all, attacker);
         }
     });
 

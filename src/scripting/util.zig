@@ -22,8 +22,8 @@ pub const Orientation = struct {
     forward: Vector,
 
     /// The orientation a matrix of the engine's holds in its columns.
-    pub fn of(turned: math.Matrix) Orientation {
-        return .{ .right = math.xAxis(turned), .down = math.yAxis(turned), .forward = math.forward(turned) };
+    pub fn of(columns: math.Matrix) Orientation {
+        return .{ .right = math.xAxis(columns), .down = math.yAxis(columns), .forward = math.forward(columns) };
     }
 
     /// The matrix whose columns are its axes.

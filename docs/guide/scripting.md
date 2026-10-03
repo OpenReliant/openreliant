@@ -277,10 +277,14 @@ end
 
   ```lua
   local util = require("openreliant.util")
-  -- How far off the player's nose the target is, in degrees, and whether it's above.
-  local player, target = world.player, world.player.last_attacker
-  local off = math.deg(util.angle_off(player.position, player.orientation, target.position))
-  local above = util.to_local(player.position, player.orientation, target.position).y < 0
+  local world = require("openreliant.world")
+  -- How far off the player's nose its last attacker is, in degrees, and whether it's above.
+  local player = world.player
+  local attacker = player.last_attacker
+  if attacker then
+      local off = math.deg(util.angle_off(player.position, player.orientation, attacker.position))
+      local above = util.to_local(player.position, player.orientation, attacker.position).y < 0
+  end
   ```
 
 ## Object scripts

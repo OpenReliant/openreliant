@@ -46,3 +46,10 @@ fn allObjects(call: Call) handles.List {
 pub fn inMission(all: *const create.Objects, index: u16) bool {
     return all.slots[index].object.type != .stand_in;
 }
+
+/// The object in slot `index`, as the game names one by its slot, where that's one of the slots
+/// and its object is in the mission; null otherwise.
+pub fn objectIn(all: *const create.Objects, index: u16) ?Object {
+    if (index >= all.slots.len or !inMission(all, index)) return null;
+    return .of(index);
+}

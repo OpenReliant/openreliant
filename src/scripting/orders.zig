@@ -48,7 +48,7 @@ pub const Stack = values.List(OrderEntry, aigeneric.max_stack);
 pub const package = struct {
     pub const info = api.Function("What the order table says of `order`: its developers' name, its priority and its flags. Nil for an order the table doesn't have.", &.{"order"}, infoOf);
     pub const stack = api.Function("The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends.", &.{"object"}, stackOf);
-    pub const cancel = api.Function("Ends the order `object` follows, as an order ends itself: it runs no more, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's.", &.{"object"}, cancelOrder);
+    pub const cancel = api.Function("Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's.", &.{"object"}, cancelOrder);
     pub const clear = api.Function("Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's.", &.{"object"}, clearAll);
 };
 
@@ -60,8 +60,12 @@ fn stackOf(call: Call, object: Object) Stack {
     const all = call.runtime().objects orelse call.raise("orders.stack can only be used while a game runs", .{});
     var found: Stack = .{};
     for (all.slots[object.slot()].stack()) |entry| {
-        const target = if (entry.target.ship()) |slot| if (slot < all.slots.len and world.inMission(all, slot)) Object.of(slot) else null else null;
-        found.append(.{ .order = entry.order, .target = target, .component = entry.target.part() });
+        const ship = entry.target.ship();
+        found.append(.{
+            .order = entry.order,
+            .target = if (ship) |slot| world.objectIn(all, slot) else null,
+            .component = entry.target.part(),
+        });
     }
     return found;
 }
@@ -76,7 +80,7 @@ fn clearAll(call: Call, object: Object) bool {
     return ctx.world.objects.slots[object.slot()].object.order_count == 0;
 }
 
-test "orders: the table, an object's stack, and ending its orders" {
+test "scripts read the order table and an object's orders, and end them" {
     const gpa = std.testing.allocator;
     const runtime = @import("runtime.zig");
     const packages = @import("packages.zig");
