@@ -2,11 +2,14 @@
 //! ([#498](https://github.com/OpenReliant/openreliant/issues/498)): the sandbox, the time and
 //! memory limits, loading each mod's scripts, and `require`.
 //!
-//! When a mod is opened, each of its scripts is compiled and loaded with its own global table, so
-//! scripts can't see each other's globals. `require` runs a script once and returns its result. It
-//! accepts another script from the same mod, by file name with or without the extension and in any
-//! case, or an OpenReliant package (`script.Package`). Compile errors are logged when the mod is
-//! opened, and raised again when the script is required.
+//! A mod's scripts are compiled once, the first time the mod is opened, and kept as bytecode
+//! (`Code`). Each opening of the mod (`Context`), such as the one for each object a mod's object
+//! scripts run on, loads its own copy of a script as it requires it, with its own global table. So
+//! scripts can't see each other's globals, and an object's scripts can't see another object's.
+//! `require` runs a script once for its context and returns its result. It accepts another script
+//! from the same mod, by file name with or without the extension and in any case, or an
+//! OpenReliant package (`script.Package`). Compile errors are logged when the mod is first opened,
+//! and raised again when the script is required.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -17,10 +20,13 @@ const openreliant = @import("openreliant");
 const mods = openreliant.engine.game.bigfile.mods;
 const Mod = mods.Mod;
 const Objects = openreliant.engine.game.create.Objects;
+const aigeneric = openreliant.engine.game.aigeneric;
 const luau = @import("luau.zig");
 const State = luau.State;
 const script = @import("script.zig");
 const values = @import("values.zig");
+const objects = @import("objects.zig");
+const game_module = @import("game.zig");
 
 /// The userdata tags, one per kind of userdata, each with its own metatable.
 pub const Tag = enum(luau.Tag) {
@@ -34,6 +40,8 @@ pub const Tag = enum(luau.Tag) {
     hook_event = 4,
     /// What `hooks.add` returns (`hooks.Handle`).
     hook_handle = 5,
+    /// The package `openreliant.interfaces` (`interfaces.Interfaces`).
+    interfaces = 6,
 };
 
 /// Which part of the game a state runs scripts for.
@@ -58,6 +66,8 @@ pub const Options = struct {
     limits: Limits,
     /// The seed for `math.random` on the game side.
     seed: u64,
+    /// OpenReliant's version, such as `0.7.0` (`core.package.version`).
+    version: []const u8,
 };
 
 /// The interrupt callback reads the clock on every this many calls, since reading it on every call
@@ -86,6 +96,8 @@ pub const Runtime = struct {
     packages: std.EnumArray(script.Package, ?luau.Ref) = .initFill(null),
     /// The opened mods (`open`).
     contexts: std.ArrayList(*Context) = .empty,
+    /// Each mod's scripts compiled, by the mod's index in `mods`, once it has been opened.
+    code: std.AutoHashMapUnmanaged(u16, Code) = .empty,
     random: std.Random.DefaultPrng,
     /// The call in progress, if any (`begin`).
     running: ?Running = null,
@@ -93,6 +105,10 @@ pub const Runtime = struct {
     interrupts: u32 = 0,
     /// The objects that handles stand for, while a game runs (`objects.zig`).
     objects: ?*Objects = null,
+    /// The game the scripts run in, while one runs.
+    game: ?*game_module.Game = null,
+    /// What orders run against, while a mission runs.
+    orders: ?aigeneric.Context = null,
     /// The handles made, by slot (`objects.zig`).
     handles: ?luau.Ref = null,
 
@@ -136,6 +152,9 @@ pub const Runtime = struct {
         runtime.state.close();
         for (runtime.contexts.items) |context| runtime.gpa.destroy(context);
         runtime.contexts.deinit(runtime.gpa);
+        var code = runtime.code.valueIterator();
+        while (code.next()) |held| held.deinit(runtime.gpa);
+        runtime.code.deinit(runtime.gpa);
         runtime.gpa.destroy(runtime);
     }
 
@@ -150,59 +169,72 @@ pub const Runtime = struct {
         runtime.state.pop(1);
     }
 
-    /// Opens a mod for scripts of `family`: compiles and loads all its scripts so that they can be
-    /// required. `mod` is the mod's index in `mods`.
-    pub fn open(runtime: *Runtime, mod: u16, family: script.Family) Allocator.Error!*Context {
+    /// Opens a mod for scripts of `family`, so that they can be required. `mod` is the mod's index
+    /// in `mods`. An object script's context names its object (`object`). The mod's scripts are
+    /// compiled the first time it's opened (`compiled`).
+    pub fn open(runtime: *Runtime, mod: u16, family: script.Family, object: ?objects.Handle) Allocator.Error!*Context {
+        _ = try runtime.compiled(mod);
         const state = runtime.state;
         const context = try runtime.gpa.create(Context);
         errdefer runtime.gpa.destroy(context);
         try runtime.contexts.ensureUnusedCapacity(runtime.gpa, 1);
+        if (!state.checkStack(context_stack)) return error.OutOfMemory;
         const thread = state.newThread();
-        context.* = .{ .runtime = runtime, .mod = mod, .family = family, .thread = thread, .thread_ref = state.ref(-1) };
+        context.* = .{ .runtime = runtime, .mod = mod, .family = family, .object = object, .thread = thread, .thread_ref = state.ref(-1) };
         state.pop(1);
         thread.setThreadData(context);
         thread.setMemoryCategory(context.category());
         state.newTable(0, 0);
-        context.chunks = state.ref(-1);
-        state.newTable(0, 0);
         context.loaded = state.ref(-1);
-        state.pop(2);
+        state.pop(1);
         runtime.contexts.appendAssumeCapacity(context);
-        try runtime.loadChunks(context);
         return context;
     }
 
-    /// Compiles and loads each of the mod's scripts into `Context.chunks`.
-    fn loadChunks(runtime: *Runtime, context: *Context) Allocator.Error!void {
-        const mod = context.modOf();
-        var names = mod.scripts();
+    /// The scripts of mod `mod` compiled, compiling them the first time. A script that doesn't
+    /// compile is logged, and kept, so that requiring it raises its error.
+    fn compiled(runtime: *Runtime, mod: u16) Allocator.Error!*const Code {
+        const entry = try runtime.code.getOrPut(runtime.gpa, mod);
+        if (entry.found_existing) return entry.value_ptr;
+        entry.value_ptr.* = .{};
+        errdefer {
+            entry.value_ptr.deinit(runtime.gpa);
+            runtime.code.removeByPtr(entry.key_ptr);
+        }
+        const code = entry.value_ptr;
+        const opened = &runtime.mods[mod];
+        var names = opened.scripts();
         while (names.next()) |name| {
             var module_buffer: [max_module_name:0]u8 = undefined;
             const module = moduleName(&module_buffer, name) orelse {
-                log.warn("{s}: skipping {s}: the name is too long", .{ mod.name, name });
+                log.warn("{s}: skipping {s}: the name is too long", .{ opened.name, name });
                 continue;
             };
-            const source = mod.readFile(runtime.gpa, name) catch |err| switch (err) {
+            const source = opened.readFile(runtime.gpa, name) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 else => {
-                    log.warn("{s}: skipping {s}: {s}", .{ mod.name, name, @errorName(err) });
+                    log.warn("{s}: skipping {s}: {s}", .{ opened.name, name, @errorName(err) });
                     continue;
                 },
             } orelse continue;
             defer runtime.gpa.free(source);
             const bytecode = luau.compile(source) orelse return error.OutOfMemory;
-            defer bytecode.free();
+            errdefer bytecode.free();
             var chunk_buffer: [max_chunk_name:0]u8 = undefined;
-            var request: LoadRequest = .{
-                .context = context,
-                .module = module,
-                .chunk = std.fmt.bufPrintZ(&chunk_buffer, "={s}/{s}", .{ mod.name, name }) catch "=script",
-                .bytecode = bytecode.bytes,
-            };
-            const outer = runtime.begin(context);
-            const status = context.thread.protectedCallC(luau.wrap(loadChunk), &request);
-            runtime.end(outer);
-            if (status != .ok) log.warn("{s}: {s} could not be loaded: {t}", .{ mod.name, name, status });
+            const chunk = std.fmt.bufPrintZ(&chunk_buffer, "={s}/{s}", .{ opened.name, name }) catch "=script";
+            try code.add(runtime.gpa, module, chunk, bytecode);
+            runtime.check(chunk, bytecode.bytes);
+        }
+        return code;
+    }
+
+    /// Loads `bytecode` once to log its compile error, if it has one.
+    fn check(runtime: *Runtime, chunk: [:0]const u8, bytecode: []const u8) void {
+        const state = runtime.state;
+        var request: LoadRequest = .{ .chunk = chunk, .bytecode = bytecode };
+        if (state.protectedCallC(luau.wrap(checkChunk), &request) != .ok) {
+            log.warn("{s}: out of memory checking the script", .{chunk[1..]});
+            state.pop(1);
         }
     }
 
@@ -213,7 +245,6 @@ pub const Runtime = struct {
         if (context.closed) return;
         context.closed = true;
         const state = runtime.state;
-        state.unref(context.chunks);
         state.unref(context.loaded);
         state.unref(context.thread_ref);
     }
@@ -275,6 +306,28 @@ pub const Runtime = struct {
         const thread = context.thread;
         if (!thread.checkStack(arguments.len + 2)) return .failed;
         _ = thread.pushRef(function);
+        return runtime.callPushed(context, arguments);
+    }
+
+    /// `call`, for the function at `key` of the referenced table, such as an event's handler.
+    /// Returns null if the table has no function there.
+    pub fn callIn(runtime: *Runtime, context: *Context, table: luau.Ref, key: [:0]const u8, arguments: anytype) ?Called {
+        if (context.closed) return .failed;
+        const thread = context.thread;
+        if (!thread.checkStack(arguments.len + 3)) return .failed;
+        _ = thread.pushRef(table);
+        const found = thread.rawGetField(-1, key);
+        thread.remove(-2);
+        if (found != .function) {
+            thread.pop(1);
+            return null;
+        }
+        return runtime.callPushed(context, arguments);
+    }
+
+    /// Calls the function on top of the context's thread with `arguments` (`call`).
+    fn callPushed(runtime: *Runtime, context: *Context, arguments: anytype) Called {
+        const thread = context.thread;
         inline for (arguments) |argument| pushArgument(thread, argument);
         const outer = runtime.begin(context);
         const status = thread.protectedCall(arguments.len, 1);
@@ -357,6 +410,7 @@ fn pushArgument(state: *State, argument: anytype) void {
     switch (@typeInfo(T)) {
         .float, .int, .comptime_float, .comptime_int => state.pushNumber(argument),
         .bool => state.pushBoolean(argument),
+        .optional => if (argument) |held| pushArgument(state, held) else state.pushNil(),
         else => if (T == luau.Ref) {
             _ = state.pushRef(argument);
         } else @compileError("make a reference to pass a " ++ @typeName(T)),
@@ -366,27 +420,75 @@ fn pushArgument(state: *State, argument: anytype) void {
 /// The engine handlers a script returned, as references.
 pub const Handlers = std.EnumArray(script.Handler, ?luau.Ref);
 
+/// The longest name of an interface or of an event.
+pub const max_name = 64;
+
+/// A name of up to `max_name` bytes, kept in place, with a zero after it for Luau.
+pub const Name = struct {
+    bytes: [max_name:0]u8 = @splat(0),
+    len: u8 = 0,
+
+    /// `text` as a name, or null if it's too long.
+    pub fn of(text: []const u8) ?Name {
+        if (text.len > max_name) return null;
+        var name: Name = .{ .len = @intCast(text.len) };
+        @memcpy(name.bytes[0..text.len], text);
+        return name;
+    }
+
+    pub fn slice(name: *const Name) [:0]const u8 {
+        return name.bytes[0..name.len :0];
+    }
+};
+
+/// What a script offers in the table it returns (`Context.offerOf`), as references.
+pub const Offered = struct {
+    handlers: Handlers = .initFill(null),
+    /// A copy of its `event_handlers`: functions by event name.
+    event_handlers: ?luau.Ref = null,
+    /// Its `interface`, and the `interface_name` it goes by.
+    interface: ?Interface = null,
+
+    pub const Interface = struct {
+        name: Name,
+        table: luau.Ref,
+    };
+
+    /// Lets go of what it holds.
+    pub fn release(offered: *Offered, runtime: *Runtime) void {
+        for (std.enums.values(script.Handler)) |handler| {
+            if (offered.handlers.get(handler)) |function| runtime.release(function);
+        }
+        if (offered.event_handlers) |table| runtime.release(table);
+        if (offered.interface) |interface| runtime.release(interface.table);
+        offered.* = .{};
+    }
+};
+
 /// What's wrong with the table a script returned.
 const Failure = union(enum) {
     returns: []const u8,
     key: []const u8,
     offer: []const u8,
-    handlers: []const u8,
+    table: struct { offer: script.Offer, type_name: []const u8 },
     handler: []const u8,
     function: []const u8,
+    event: []const u8,
+    interface_name: []const u8,
+    half_interface,
 };
 
-/// A mod opened for one script family (`Runtime.open`).
+/// A mod opened for one script family (`Runtime.open`), or for its scripts on one object.
 pub const Context = struct {
     runtime: *Runtime,
     /// The mod's index in `Runtime.mods`.
     mod: u16,
     family: script.Family,
+    /// The object an object script's context runs on; null for the other families.
+    object: ?objects.Handle = null,
     /// The thread the mod's calls run on. Its allocations count against the mod.
     thread: *State,
     thread_ref: luau.Ref,
-    /// The mod's scripts by module name: the loaded function, or the error if it didn't load.
-    chunks: luau.Ref = undefined,
     /// The modules `require` has run, with their results.
     loaded: luau.Ref = undefined,
     /// Whether it has been closed (`Runtime.close`).
@@ -401,21 +503,26 @@ pub const Context = struct {
         return @intCast(@min(@as(usize, context.mod) + 1, max_category));
     }
 
-    /// Checks the table a script returned, and returns references to its engine handlers. Returns
-    /// null if the table has something a script of this family may not return; the problem is
-    /// logged.
-    pub fn handlersOf(context: *Context, name: []const u8, returned: luau.Ref) ?Handlers {
+    /// Checks the table a script returned, and returns references to what it offers. Returns null
+    /// if the table has something a script of this family may not return, or out of memory; the
+    /// problem is logged.
+    pub fn offerOf(context: *Context, name: []const u8, returned: luau.Ref) ?Offered {
         const state = context.thread;
         const mod = context.modOf();
-        var handlers: Handlers = .initFill(null);
+        var offered: Offered = .{};
         const base = state.top();
         defer state.setTop(base);
+        if (!state.checkStack(offer_stack)) {
+            log.warn("{s}: {s}: out of memory", .{ mod.name, name });
+            return null;
+        }
+        var interface_name: ?Name = null;
         const failure: Failure = check: {
             switch (state.pushRef(returned)) {
-                .nil => return handlers,
+                .nil => return offered,
                 .table => {},
                 // What `require` returns for a script that returns nothing.
-                .boolean => if (state.toBoolean(-1)) return handlers else break :check .{ .returns = state.typeName(-1) },
+                .boolean => if (state.toBoolean(-1)) return offered else break :check .{ .returns = state.typeName(-1) },
                 else => break :check .{ .returns = state.typeName(-1) },
             }
             state.pushNil();
@@ -423,31 +530,64 @@ pub const Context = struct {
                 const key = state.toString(-2) orelse break :check .{ .key = state.typeName(-2) };
                 const offer = std.meta.stringToEnum(script.Offer, key) orelse break :check .{ .offer = key };
                 if (!offer.offeredBy(context.family)) break :check .{ .offer = key };
-                if (offer == .engine_handlers) {
-                    if (state.typeOf(-1) != .table) break :check .{ .handlers = state.typeName(-1) };
-                    const table = state.top();
-                    state.pushNil();
-                    while (state.next(table)) {
-                        const handler_name = state.toString(-2) orelse break :check .{ .key = state.typeName(-2) };
-                        const handler = std.meta.stringToEnum(script.Handler, handler_name) orelse break :check .{ .handler = handler_name };
-                        if (!handler.givenBy(context.family)) break :check .{ .handler = handler_name };
-                        if (state.typeOf(-1) != .function) break :check .{ .function = handler_name };
-                        handlers.set(handler, state.ref(-1));
+                switch (offer) {
+                    .engine_handlers => {
+                        if (state.typeOf(-1) != .table) break :check .{ .table = .{ .offer = offer, .type_name = state.typeName(-1) } };
+                        const table = state.top();
+                        state.pushNil();
+                        while (state.next(table)) {
+                            const handler_name = state.toString(-2) orelse break :check .{ .key = state.typeName(-2) };
+                            const handler = std.meta.stringToEnum(script.Handler, handler_name) orelse break :check .{ .handler = handler_name };
+                            if (!handler.givenBy(context.family)) break :check .{ .handler = handler_name };
+                            if (state.typeOf(-1) != .function) break :check .{ .function = handler_name };
+                            offered.handlers.set(handler, state.ref(-1));
+                            state.pop(1);
+                        }
+                    },
+                    .event_handlers => {
+                        if (state.typeOf(-1) != .table) break :check .{ .table = .{ .offer = offer, .type_name = state.typeName(-1) } };
+                        const table = state.top();
+                        state.newTable(0, 0);
+                        const copied = state.top();
+                        state.pushNil();
+                        while (state.next(table)) {
+                            const event = state.toString(-2) orelse break :check .{ .key = state.typeName(-2) };
+                            if (event.len > max_name) break :check .{ .event = event };
+                            if (state.typeOf(-1) != .function) break :check .{ .event = event };
+                            state.pushCopy(-2);
+                            state.pushCopy(-2);
+                            state.rawSet(copied);
+                            state.pop(1);
+                        }
+                        offered.event_handlers = state.ref(copied);
                         state.pop(1);
-                    }
+                    },
+                    .interface_name => {
+                        const text = state.toString(-1) orelse break :check .{ .interface_name = state.typeName(-1) };
+                        interface_name = Name.of(text) orelse break :check .{ .interface_name = text };
+                    },
+                    .interface => {
+                        if (state.typeOf(-1) != .table) break :check .{ .table = .{ .offer = offer, .type_name = state.typeName(-1) } };
+                        offered.interface = .{ .name = .{}, .table = state.ref(-1) };
+                    },
                 }
                 state.pop(1);
             }
-            return handlers;
+            if ((interface_name == null) != (offered.interface == null)) break :check .half_interface;
+            if (offered.interface) |*interface| interface.name = interface_name.?;
+            return offered;
         };
-        for (std.enums.values(script.Handler)) |handler| if (handlers.get(handler)) |kept| state.unref(kept);
+        offered.release(context.runtime);
         switch (failure) {
             .returns => |type_name| log.warn("{s}: {s} must return a table or nothing, not a {s}", .{ mod.name, name, type_name }),
             .key => |type_name| log.warn("{s}: {s} returned a table with a {s} key; keys must be names", .{ mod.name, name, type_name }),
             .offer => |offer| log.warn("{s}: {s} returned '{s}', which {t} scripts can't use", .{ mod.name, name, offer, context.family }),
-            .handlers => |type_name| log.warn("{s}: {s}: engine_handlers must be a table, not a {s}", .{ mod.name, name, type_name }),
+            .table => |wrong| log.warn("{s}: {s}: {t} must be a table, not a {s}", .{ mod.name, name, wrong.offer, wrong.type_name }),
             .handler => |handler| log.warn("{s}: {s}: {t} scripts can't use the engine handler '{s}'", .{ mod.name, name, context.family, handler }),
             .function => |handler| log.warn("{s}: {s}: the engine handler {s} must be a function", .{ mod.name, name, handler }),
+            .event => |event| log.warn("{s}: {s}: the event handler '{s}' must be a function, with a name of at most {d} bytes", .{ mod.name, name, event, max_name }),
+            .interface_name => |text| log.warn("{s}: {s}: interface_name must be a name of at most {d} bytes, not {s}", .{ mod.name, name, max_name, text }),
+            .half_interface => log.warn("{s}: {s}: an interface needs both interface_name and interface", .{ mod.name, name }),
         }
         return null;
     }
@@ -459,25 +599,54 @@ pub const Context = struct {
     }
 };
 
-/// The arguments for `loadChunk`.
+/// How much stack opening a context takes.
+const context_stack = 2;
+
+/// How much stack checking a returned table takes (`Context.offerOf`): the table, a key and a
+/// value, a nested table's key and value, and a copy's table, key and value.
+const offer_stack = 10;
+
+/// A mod's scripts, compiled (`Runtime.compiled`).
+const Code = struct {
+    /// Each script's bytecode, by module name (`moduleName`).
+    modules: std.StringArrayHashMapUnmanaged(Module) = .empty,
+
+    const Module = struct {
+        /// The name tracebacks give it, `=` and its mod's name and file's name.
+        chunk: [:0]const u8,
+        bytecode: luau.Bytecode,
+    };
+
+    fn add(code: *Code, gpa: Allocator, module: []const u8, chunk: [:0]const u8, bytecode: luau.Bytecode) Allocator.Error!void {
+        try code.modules.ensureUnusedCapacity(gpa, 1);
+        const key = try gpa.dupe(u8, module);
+        errdefer gpa.free(key);
+        const name = try gpa.dupeZ(u8, chunk);
+        code.modules.putAssumeCapacity(key, .{ .chunk = name, .bytecode = bytecode });
+    }
+
+    fn deinit(code: *Code, gpa: Allocator) void {
+        var entries = code.modules.iterator();
+        while (entries.next()) |entry| {
+            gpa.free(entry.key_ptr.*);
+            gpa.free(entry.value_ptr.chunk);
+            entry.value_ptr.bytecode.free();
+        }
+        code.modules.deinit(gpa);
+    }
+};
+
+/// The arguments for `checkChunk`.
 const LoadRequest = struct {
-    context: *Context,
-    module: [:0]const u8,
     chunk: [:0]const u8,
     bytecode: []const u8,
 };
 
-/// Loads a script's bytecode with its own globals and stores the function, or the error message if
-/// it fails, in the mod's chunks. Runs in protected mode (`Runtime.loadChunks`).
-fn loadChunk(state: *State) i32 {
+/// Loads a script's bytecode and logs its error if it doesn't load. Runs in protected mode
+/// (`Runtime.check`).
+fn checkChunk(state: *State) i32 {
     const request = state.toLightUserdata(LoadRequest, 1).?;
-    const own = state.newSandboxedThread();
-    const status = own.load(request.chunk, request.bytecode);
-    own.move(state, 1);
-    if (status != .ok) log.warn("{s}", .{state.toString(-1) orelse "a script that doesn't compile"});
-    _ = state.pushRef(request.context.chunks);
-    state.pushCopy(-2);
-    state.rawSetField(-2, request.module);
+    if (state.load(request.chunk, request.bytecode) != .ok) log.warn("{s}", .{state.toString(-1) orelse "a script that doesn't compile"});
     return 0;
 }
 
@@ -490,6 +659,11 @@ fn require(state: *State) i32 {
     if (script.Package.parse(name)) |package| {
         if (!package.reachableFrom(context.family)) state.raise("{s} is not available to {t} scripts", .{ name, context.family });
         if (!package.ready()) state.raise("{s} is not available in this version of OpenReliant", .{name});
+        // The script's own object.
+        if (package == .self) {
+            objects.push(state, context.object.?.slot);
+            return 1;
+        }
         const kept = context.runtime.packages.get(package) orelse state.raise("{s} is not available here", .{name});
         _ = state.pushRef(kept);
         return 1;
@@ -505,12 +679,14 @@ fn require(state: *State) i32 {
         .light_userdata => if (state.toLightUserdata(u8, -1) == &loading) state.raise("circular require of {s}", .{module}) else return 1,
         else => return 1,
     }
-    _ = state.pushRef(context.chunks);
-    switch (state.rawGetField(-1, module)) {
-        .function => {},
-        .string => state.raiseTop(),
-        else => state.raise("mod {s} has no script {s}{s}", .{ context.modOf().name, module, mods.script_extension }),
-    }
+    const code = context.runtime.code.getPtr(context.mod).?;
+    const found = code.modules.get(module) orelse state.raise("mod {s} has no script {s}{s}", .{ context.modOf().name, module, mods.script_extension });
+    // Each context loads its own copy, with its own globals.
+    const own = state.newSandboxedThread();
+    _ = own.load(found.chunk, found.bytecode.bytes);
+    own.move(state, 1);
+    state.remove(-2);
+    if (state.typeOf(-1) != .function) state.raiseTop();
     state.pushLightUserdata(&loading);
     state.rawSetField(loaded, module);
     if (state.protectedCallBare(0, 1) != .ok) {

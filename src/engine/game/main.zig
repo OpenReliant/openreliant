@@ -1721,7 +1721,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     loaded.script.variables.players = all.players;
     orders.world.mission = &loaded.bound;
     orders.world.events = &loaded.events;
-    if (all.scripts) |scripts| scripts.begin(mission, scriptSeed(world.random, number));
+    if (all.scripts) |scripts| scripts.begin(orders, mission, scriptSeed(world.random, number));
     try loaded.start(orders);
 
     startWing(all);

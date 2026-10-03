@@ -1,11 +1,11 @@
-//! The reference of the scripting API, generated from the bindings: the definitions file for
+//! The reference of the scripting API, generated from its declarations: the definitions file for
 //! Luau's language server (`openreliant.d.luau`), which editors complete names and check types
-//! with, the reference page of the hooks (`hooks.md`), and the list `openreliant hooks` prints.
+//! with, the reference page (`reference.md`), and the list `openreliant hooks` prints.
 //!
 //! `docs/guide` holds the definitions and the reference page as generated, and tests check that
-//! they haven't changed. Everything scripts see is in them: the hooks and the fields of their `e`,
-//! the names of enum values, the fields of objects and records, the packages and the engine
-//! handlers. So a change to OpenReliant's code that would change what scripts see fails the tests,
+//! they haven't changed. Everything scripts see is in them: the engine handlers, the packages, the
+//! fields and methods of objects, the hooks and the fields of their `e`, the records, and the names
+//! of values. So a change to OpenReliant's code that would change what scripts see fails the tests,
 //! and the scripting API only changes on purpose: then `make definitions` writes the files again.
 
 const std = @import("std");
@@ -16,53 +16,134 @@ const engine = openreliant.engine;
 const engine_hooks = engine.hooks;
 const Hook = engine_hooks.Hook;
 const Object = engine_hooks.Object;
-const game = engine.game;
-const stats = openreliant.stats;
 const values = @import("values.zig");
 const objects = @import("objects.zig");
 const records = @import("records.zig");
 const bind = @import("bind.zig");
+const script = @import("script.zig");
+const api = @import("api.zig");
+const data = @import("data.zig");
+const packages = @import("packages.zig");
 
-/// The name each enum scripts see takes in the definitions.
-const enum_names = .{
-    .{ game.collision.Quadrant, "Quadrant" },
-    .{ game.collision.Kind, "DamageKind" },
-    .{ game.guns.GunType, "GunType" },
-    .{ game.gameobj.Type, "ShipType" },
-    .{ game.create.ShipCombat.Class, "ShipClass" },
-    .{ game.gameobj.Side(i32), "Side" },
-    .{ game.ai.orders.Order, "Order" },
-    .{ openreliant.dte.Condition, "Condition" },
-    .{ game.main.Ending, "Ending" },
-    .{ engine.vm.Variables.Outcome, "Rating" },
-    .{ stats.Pilot.Skill, "PilotSkill" },
-    .{ stats.Pilot.Tier, "PilotTier" },
+/// Whether `T` is a value that scripts hold as a handle or a reference, which has a type of its
+/// own in the definitions rather than fields to list.
+fn held(comptime T: type) bool {
+    return T == Object or T == objects.Handle or T == objects.List or T == data.Data or T == values.Table or T == []const u8;
+}
+
+/// Whether `T` is one of the records' structs, which the definitions declare as classes.
+fn isRecord(comptime T: type) bool {
+    return std.mem.indexOfScalar(type, records.Values.kinds, T) != null;
+}
+
+/// The types of what a declared function takes and gives; nothing for a native one.
+fn functionTypes(comptime F: type) []const type {
+    return if (@hasDecl(F, "Parameters")) &(F.Parameters ++ .{F.Result}) else &.{};
+}
+
+/// The types at the roots of what scripts see, which `gather` follows.
+const roots: []const type = list: {
+    @setEvalBranchQuota(1_000_000);
+    var found: []const type = namespaceTypes(objects.fields) ++ namespaceTypes(objects.methods);
+    for (std.enums.values(script.Package)) |package| {
+        if (packages.namespace(package)) |Namespace| found = found ++ namespaceTypes(Namespace);
+    }
+    for (std.enums.values(script.Handler)) |handler| {
+        if (handler.Arguments()) |Arguments| {
+            for (@typeInfo(Arguments).@"struct".fields) |field| found = found ++ .{field.type};
+        }
+    }
+    for (std.enums.values(Hook)) |hook| {
+        const declared = engine_hooks.declaration(hook);
+        for (values.shownFields(declared.Fields)) |field| found = found ++ .{field.type};
+        if (declared.Result != void) found = found ++ .{declared.Result};
+    }
+    break :list found ++ records.Values.kinds;
 };
 
-/// The name of `T`, an enum, in the definitions.
-fn enumName(comptime T: type) []const u8 {
-    inline for (enum_names) |entry| {
-        if (entry[0] == T) return entry[1];
+/// The types of the fields and functions `Namespace` declares.
+fn namespaceTypes(comptime Namespace: type) []const type {
+    var found: []const type = &.{};
+    for (api.declared(Namespace, .field)) |name| found = found ++ .{@field(Namespace, name).Type};
+    for (api.declared(Namespace, .function)) |name| found = found ++ functionTypes(@field(Namespace, name));
+    return found;
+}
+
+/// The enums and the tables (structs given as tables) scripts see, each once, in the order `roots`
+/// reaches them.
+const Gathered = struct {
+    enums: []const type = &.{},
+    tables: []const type = &.{},
+};
+
+const gathered: Gathered = found: {
+    @setEvalBranchQuota(10_000_000);
+    var seen: Gathered = .{};
+    for (roots) |T| seen = gather(T, seen);
+    // Each takes a name of its own.
+    const all = seen.enums ++ seen.tables;
+    for (all, 0..) |T, at| {
+        for (all[at + 1 ..]) |other| {
+            if (std.mem.eql(u8, bind.noun(T), bind.noun(other))) @compileError("two types scripts see are named " ++ bind.noun(T) ++ ": give one a script_name");
+        }
     }
-    @compileError("give the enum " ++ @typeName(T) ++ " a name in reference.enum_names");
+    break :found seen;
+};
+
+fn gather(comptime T: type, comptime seen: Gathered) Gathered {
+    if (held(T) or T == void) return seen;
+    return switch (@typeInfo(T)) {
+        .optional => |optional| gather(optional.child, seen),
+        .array => |array| if (array.child == u8) seen else gather(array.child, seen),
+        .@"enum" => if (std.mem.indexOfScalar(type, seen.enums, T) != null) seen else .{ .enums = seen.enums ++ .{T}, .tables = seen.tables },
+        .@"struct" => fields: {
+            if (std.mem.indexOfScalar(type, seen.tables, T) != null) break :fields seen;
+            var next = seen;
+            if (!isRecord(T)) next.tables = next.tables ++ .{T};
+            for (values.shownFields(T)) |field| next = gather(field.type, next);
+            break :fields next;
+        },
+        else => seen,
+    };
 }
 
 /// The Luau type of a value of `T` (`values.push`).
 fn luauType(comptime T: type) []const u8 {
     comptime {
-        if (T == Object) return "Object";
+        if (T == Object or T == objects.Handle) return "Object";
+        if (T == objects.List) return "{ Object }";
+        if (T == data.Data) return "any";
+        if (T == values.Table) return "{ [any]: any }";
         return switch (@typeInfo(T)) {
+            .void => "()",
             .float, .int => "number",
             .bool => "boolean",
-            .@"enum" => enumName(T),
+            .@"enum", .@"struct" => bind.noun(T),
             .optional => |optional| luauType(optional.child) ++ "?",
             .vector => "vector",
             .array => |array| if (array.child == u8) "string" else "{ " ++ luauType(array.child) ++ " }",
             .pointer => "string",
-            .@"struct" => bind.noun(T),
             else => @compileError("no Luau type for " ++ @typeName(T)),
         };
     }
+}
+
+/// The parameters of the declared function `F`, as Luau writes them, without the first `skipped`
+/// (a method's receiver).
+fn parameterList(comptime F: type, comptime skipped: usize) []const u8 {
+    comptime {
+        if (@hasDecl(F, "luau_parameters")) return F.luau_parameters;
+        var text: []const u8 = "";
+        for (F.names[skipped..], F.Parameters[skipped..], 0..) |name, P, at| {
+            text = text ++ (if (at == 0) "" else ", ") ++ name ++ ": " ++ luauType(P);
+        }
+        return text;
+    }
+}
+
+/// What the declared function `F` returns, as Luau writes it.
+fn resultType(comptime F: type) []const u8 {
+    return if (@hasDecl(F, "luau_result")) F.luau_result else luauType(F.Result);
 }
 
 /// The name of the class of `hook`'s `e`: its name in Pascal case, or `OrderRoutine` for the
@@ -70,30 +151,67 @@ fn luauType(comptime T: type) []const u8 {
 fn eventClass(comptime hook: Hook) []const u8 {
     comptime {
         if (engine_hooks.Fields(hook) == engine_hooks.RoutineFields) return "OrderRoutine";
-        var name: []const u8 = "";
+        return pascal(@tagName(hook));
+    }
+}
+
+/// `name`, in snake case, in Pascal case.
+fn pascal(comptime name: []const u8) []const u8 {
+    comptime {
+        var text: []const u8 = "";
         var upper = true;
-        for (@tagName(hook)) |c| {
+        for (name) |c| {
             if (c == '_') {
                 upper = true;
                 continue;
             }
-            name = name ++ .{if (upper) std.ascii.toUpper(c) else c};
+            text = text ++ .{if (upper) std.ascii.toUpper(c) else c};
             upper = false;
         }
-        return name;
+        return text;
     }
 }
 
-/// Every enum scripts see, in the order the definitions declare them.
-const enums: []const type = list: {
-    var found: []const type = &.{};
-    for (enum_names) |entry| found = found ++ .{entry[0]};
+/// Whether this version runs scripts of `family`.
+fn familyRuns(comptime family: script.Family) bool {
+    for (std.enums.values(script.Kind)) |kind| {
+        if (kind.family() == family and kind.runs()) return true;
+    }
+    return false;
+}
+
+/// The families of scripts this version runs, in order.
+const running_families: []const script.Family = list: {
+    var found: []const script.Family = &.{};
+    for (std.enums.values(script.Family)) |family| {
+        if (familyRuns(family)) found = found ++ .{family};
+    }
     break :list found;
 };
 
+/// Whether the engine calls `handler` in this version, for a family it runs.
+fn called(comptime handler: script.Handler) bool {
+    if (handler.Arguments() == null) return false;
+    for (running_families) |family| {
+        if (handler.givenBy(family)) return true;
+    }
+    return false;
+}
+
+/// The arguments of `handler`, as Luau writes them.
+fn handlerParameters(comptime handler: script.Handler) []const u8 {
+    comptime {
+        var text: []const u8 = "";
+        for (@typeInfo(handler.Arguments().?).@"struct".fields, 0..) |field, at| {
+            text = text ++ (if (at == 0) "" else ", ") ++ field.name ++ ": " ++ luauType(field.type);
+        }
+        return text;
+    }
+}
+
 /// Writes the definitions file.
 pub fn writeDefinitions(w: *Writer) Writer.Error!void {
-    @setEvalBranchQuota(1_000_000);
+    @setEvalBranchQuota(10_000_000);
     try w.writeAll(
         \\-- The types of OpenReliant's scripting API, for Luau's language server (luau-lsp). Point its
         \\-- luau-lsp.types.definitionFiles setting at this file, and give each package's local its type,
@@ -105,8 +223,8 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     );
 
     try w.writeAll("-- Names of values. A value without a name is a number.\n\n");
-    inline for (enums) |T| {
-        try w.print("type {s} = ", .{comptime enumName(T)});
+    inline for (gathered.enums) |T| {
+        try w.print("type {s} = ", .{comptime bind.noun(T)});
         inline for (comptime values.names(T), 0..) |name, at| {
             if (at > 0) try w.writeAll(" | ");
             try w.print("\"{s}\"", .{name});
@@ -115,14 +233,19 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         try w.writeAll("\n");
     }
 
+    try w.writeAll("\n-- Tables of values, which scripts can only read.\n\n");
+    inline for (gathered.tables) |T| try writeTable(w, comptime bind.noun(T), T);
+
     try w.writeAll("\n-- Objects, which scripts hold by handles.\n\n");
     try w.writeAll("declare class Object\n");
-    inline for (comptime std.meta.declarations(objects.fields)) |decl| {
-        const field = @field(objects.fields, decl.name);
-        try w.print("    -- {s}\n    {s}: {s}\n", .{ field.description, decl.name, comptime luauType(field.Type) });
+    inline for (comptime api.declared(objects.fields, .field)) |name| {
+        const field = @field(objects.fields, name);
+        try w.print("    -- {s}\n    {s}: {s}\n", .{ field.description, name, comptime luauType(field.Type) });
     }
-    inline for (comptime std.meta.declarations(objects.methods)) |decl| {
-        try w.print("    -- {s}\n    function {s}(self): boolean\n", .{ @field(objects.methods, decl.name), decl.name });
+    inline for (comptime api.declared(objects.methods, .function)) |name| {
+        const method = @field(objects.methods, name);
+        const parameters = comptime parameterList(method, 1);
+        try w.print("    -- {s}\n    function {s}(self{s}{s}): {s}\n", .{ method.description, name, if (parameters.len > 0) ", " else "", parameters, comptime resultType(method) });
     }
     try w.writeAll("end\n");
 
@@ -141,13 +264,24 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     }
     try w.writeAll("}\n");
 
+    try w.writeAll("\n-- The packages made from declarations. `openreliant.self` is the script's own Object.\n");
+    inline for (comptime std.enums.values(script.Package)) |package| {
+        if (comptime packages.namespace(package)) |Namespace| {
+            try w.print("\n-- {s}\ntype {s} = {{\n", .{ package.about(), comptime pascal(@tagName(package)) });
+            inline for (comptime api.declared(Namespace, .field)) |name| {
+                const field = @field(Namespace, name);
+                try w.print("    -- {s}\n    {s}: {s},\n", .{ field.description, name, comptime luauType(field.Type) });
+            }
+            inline for (comptime api.declared(Namespace, .function)) |name| {
+                const function = @field(Namespace, name);
+                try w.print("    -- {s}\n    {s}: ({s}) -> {s},\n", .{ function.description, name, comptime parameterList(function, 0), comptime resultType(function) });
+            }
+            try w.writeAll("}\n");
+        }
+    }
+    try w.print("\n-- {s}\ntype Interfaces = {{ [string]: any }}\n", .{script.Package.interfaces.about()});
+
     try w.writeAll(
-        \\
-        \\-- The package `openreliant.core`.
-        \\
-        \\type Core = {
-        \\    version: string,
-        \\}
         \\
         \\-- The hooks (`openreliant.hooks`). Each handler gets `e`, whose class is named after the hook.
         \\
@@ -186,33 +320,27 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         \\    after: HooksAfter,
         \\}
         \\
-    );
-
-    try w.writeAll("\n-- What the engine tells the scripts.\n\n");
-    try writeTable(w, "Mission", engine_hooks.Mission);
-    try writeTable(w, "Outcome", engine_hooks.Outcome);
-    try w.writeAll(
-        \\
         \\-- What scripts return.
         \\
-        \\type LoadScript = {
-        \\    engine_handlers: {
-        \\        on_records_loaded: (() -> ())?,
-        \\    }?,
-        \\}
-        \\type GlobalScript = {
-        \\    engine_handlers: {
-        \\        on_init: (() -> ())?,
-        \\        on_update: ((seconds: number) -> ())?,
-        \\        on_step: (() -> ())?,
-        \\        on_mission_start: ((mission: Mission) -> ())?,
-        \\        on_mission_end: ((outcome: Outcome) -> ())?,
-        \\        on_object_added: ((object: Object) -> ())?,
-        \\        on_object_removed: ((object: Object) -> ())?,
-        \\    }?,
-        \\}
-        \\
     );
+    inline for (running_families) |family| {
+        try w.print("\ntype {s}Script = {{\n    engine_handlers: {{\n", .{comptime pascal(@tagName(family))});
+        inline for (comptime std.enums.values(script.Handler)) |handler| {
+            if (comptime called(handler) and handler.givenBy(family)) {
+                try w.print("        {t}: (({s}) -> ())?,\n", .{ handler, comptime handlerParameters(handler) });
+            }
+        }
+        try w.writeAll("    }?,\n");
+        if (comptime script.Offer.event_handlers.offeredBy(family)) {
+            try w.writeAll(
+                \\    event_handlers: { [string]: (data: any) -> boolean? }?,
+                \\    interface_name: string?,
+                \\    interface: { [any]: any }?,
+                \\
+            );
+        }
+        try w.writeAll("}\n");
+    }
 }
 
 /// Writes the class of `hook`'s `e`.
@@ -256,25 +384,88 @@ fn writeTable(w: *Writer, comptime name: []const u8, comptime T: type) Writer.Er
     try w.writeAll("}\n");
 }
 
-/// Writes the reference page of the hooks, `docs/guide/hooks.md`: each hook with the fields of its
-/// `e`, the fields of objects, and the names of values.
+/// Writes the reference page, `docs/guide/reference.md`: the engine handlers, the packages, the
+/// fields and methods of objects, each hook with the fields of its `e`, the tables, and the names of
+/// values.
 pub fn writeMarkdown(w: *Writer) Writer.Error!void {
-    @setEvalBranchQuota(1_000_000);
+    @setEvalBranchQuota(10_000_000);
     try w.writeAll(
-        \\# Hooks
+        \\# Scripting reference
         \\
-        \\This page lists everything mods' scripts can hook, with the fields each handler sees in `e`,
-        \\then the fields of objects and the names of values. [Scripting](scripting.md#hooks) explains how
-        \\to use them. `openreliant hooks` prints the same list, and `openreliant hooks <name>` one hook.
+        \\This page lists everything mods' scripts can use: the engine handlers, the packages, the fields
+        \\and methods of objects, the hooks with the fields each handler sees in `e`, and the names of
+        \\values. [Scripting](scripting.md) explains how to use them. `openreliant hooks` prints the list of
+        \\hooks, and `openreliant hooks <name>` one hook.
         \\
         \\This page is generated from OpenReliant's code by `make definitions`, so don't change it by hand.
         \\
+        \\- [Engine handlers](#engine-handlers)
+        \\- [Packages](#packages)
+        \\- [Objects](#objects)
         \\- [The game's functions](#the-games-functions)
         \\- [The order routines](#the-order-routines)
         \\- [The mission's events](#the-missions-events)
         \\- [The engine's events](#the-engines-events)
-        \\- [Objects](#objects)
+        \\- [Tables](#tables)
         \\- [Names of values](#names-of-values)
+        \\
+        \\## Engine handlers
+        \\
+        \\The functions a script returns in `engine_handlers`, which OpenReliant calls. Global scripts
+        \\include mission scripts.
+        \\
+        \\| Handler | Scripts | When it's called |
+        \\|---|---|---|
+        \\
+    );
+    inline for (comptime std.enums.values(script.Handler)) |handler| {
+        if (comptime called(handler)) {
+            try w.print("| `{t}({s})` | ", .{ handler, comptime handlerParameters(handler) });
+            try writeFamilies(w, handler);
+            try w.print(" | {s} |\n", .{handler.about()});
+        }
+    }
+
+    try w.writeAll(
+        \\
+        \\## Packages
+        \\
+        \\What `require("openreliant.<name>")` gives.
+        \\
+    );
+    inline for (comptime std.enums.values(script.Package)) |package| {
+        if (comptime package.ready()) try writePackageSection(w, package);
+    }
+
+    try w.writeAll(
+        \\
+        \\## Objects
+        \\
+        \\Scripts see objects through handles. A handle stays valid until its object is removed or its
+        \\mission ends; reading a field of a handle that isn't valid is an error. Every script can read the
+        \\fields; global scripts can change those marked *changes* on any object, and an object's own
+        \\scripts on their object.
+        \\
+        \\| Field | Type | What it is |
+        \\|---|---|---|
+        \\
+    );
+    inline for (comptime api.declared(objects.fields, .field)) |name| {
+        const field = @field(objects.fields, name);
+        try w.print("| `{s}` | {s} | {s}{s} |\n", .{ name, comptime markdownType(field.Type), if (field.writable) "*Changes.* " else "", field.description });
+    }
+    try w.writeAll(
+        \\
+        \\| Method | Returns | What it does |
+        \\|---|---|---|
+        \\
+    );
+    inline for (comptime api.declared(objects.methods, .function)) |name| {
+        const method = @field(objects.methods, name);
+        try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(method, 1)), comptime markdownResult(method), method.description });
+    }
+
+    try w.writeAll(
         \\
         \\## The game's functions
         \\
@@ -331,22 +522,14 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
 
     try w.writeAll(
         \\
-        \\## Objects
+        \\## Tables
         \\
-        \\Scripts see objects through handles. A handle stays valid until its object is removed or its
-        \\mission ends; reading a field of a handle that isn't valid is an error. These fields can only be
-        \\read in this version.
-        \\
-        \\| Field | Type | What it is |
-        \\|---|---|---|
+        \\Values given as tables of fields, which scripts can only read.
         \\
     );
-    inline for (comptime std.meta.declarations(objects.fields)) |decl| {
-        const field = @field(objects.fields, decl.name);
-        try w.print("| `{s}` | {s} | {s} |\n", .{ decl.name, comptime markdownType(field.Type), field.description });
-    }
-    inline for (comptime std.meta.declarations(objects.methods)) |decl| {
-        try w.print("| `{s}()` | boolean | {s} |\n", .{ decl.name, @field(objects.methods, decl.name) });
+    inline for (gathered.tables) |T| {
+        try w.print("\n### {s}\n\n| Field | Type |\n|---|---|\n", .{comptime bind.noun(T)});
+        inline for (comptime values.shownFields(T)) |field| try w.print("| `{s}` | {s} |\n", .{ field.name, comptime markdownType(field.type) });
     }
 
     try w.writeAll(
@@ -357,10 +540,76 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         \\number. A script can set a field to either.
         \\
     );
-    inline for (enums) |T| {
-        try w.print("\n### {s}\n\n", .{comptime enumName(T)});
+    inline for (gathered.enums) |T| {
+        try w.print("\n### {s}\n\n", .{comptime bind.noun(T)});
         inline for (comptime values.names(T), 0..) |name, at| try w.print("{s}`{s}`", .{ if (at == 0) "" else ", ", name });
         try w.writeAll(if (comptime values.takesNumbers(T)) ", or a number.\n" else ".\n");
+    }
+}
+
+/// `text` for a cell of a markdown table, its `|` escaped.
+fn cell(comptime text: []const u8) []const u8 {
+    comptime {
+        var escaped: []const u8 = "";
+        for (text) |c| escaped = escaped ++ if (c == '|') "\\|" else .{c};
+        return escaped;
+    }
+}
+
+/// What the declared function `F` returns, for the reference page.
+fn markdownResult(comptime F: type) []const u8 {
+    if (@hasDecl(F, "Result") and F.Result == void) return "nothing";
+    return cell(resultType(F));
+}
+
+/// Writes the names of `families`, as in "global and object".
+fn writeFamilyNames(w: *Writer, comptime families: []const script.Family) Writer.Error!void {
+    inline for (families, 0..) |family, at| {
+        const separator = if (at == 0) "" else if (at == families.len - 1) " and " else ", ";
+        try w.print("{s}{t}", .{ separator, family });
+    }
+}
+
+/// The families this version runs that `wanted` holds of.
+fn familiesWhere(comptime wanted: fn (script.Family) bool) []const script.Family {
+    comptime {
+        var found: []const script.Family = &.{};
+        for (running_families) |family| {
+            if (wanted(family)) found = found ++ .{family};
+        }
+        return found;
+    }
+}
+
+/// Writes the families of scripts that may give `handler`, among those this version runs.
+fn writeFamilies(w: *Writer, comptime handler: script.Handler) Writer.Error!void {
+    try writeFamilyNames(w, comptime familiesWhere(struct {
+        fn gives(family: script.Family) bool {
+            return handler.givenBy(family);
+        }
+    }.gives));
+}
+
+/// Writes the section of `package` on the reference page.
+fn writePackageSection(w: *Writer, comptime package: script.Package) Writer.Error!void {
+    try w.print("\n### `{s}{t}`\n\n{s} For ", .{ script.Package.prefix, package, package.about() });
+    try writeFamilyNames(w, comptime familiesWhere(struct {
+        fn reaches(family: script.Family) bool {
+            return package.reachableFrom(family);
+        }
+    }.reaches));
+    try w.writeAll(" scripts.\n");
+    const declared = comptime packages.namespace(package);
+    if (declared == null) return;
+    const Namespace = declared.?;
+    try w.writeAll("\n| Name | Type | What it is |\n|---|---|---|\n");
+    inline for (comptime api.declared(Namespace, .field)) |name| {
+        const field = @field(Namespace, name);
+        try w.print("| `{s}` | {s} | {s} |\n", .{ name, comptime markdownType(field.Type), field.description });
+    }
+    inline for (comptime api.declared(Namespace, .function)) |name| {
+        const function = @field(Namespace, name);
+        try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(function, 0)), comptime markdownResult(function), function.description });
     }
 }
 
@@ -383,9 +632,11 @@ fn markdownType(comptime T: type) []const u8 {
             else => T,
         };
         const optional = if (Plain == T) "" else ", or nil";
-        if (Plain == Object) return "[object](#objects)" ++ optional;
-        if (@typeInfo(Plain) == .@"enum") {
-            const name = enumName(Plain);
+        if (Plain == Object or Plain == objects.Handle) return "[object](#objects)" ++ optional;
+        if (Plain == objects.List) return "list of [objects](#objects)" ++ optional;
+        if (Plain == data.Data) return "plain data";
+        if (std.mem.indexOfScalar(type, gathered.enums ++ gathered.tables, Plain) != null) {
+            const name = bind.noun(Plain);
             var anchor: []const u8 = "";
             for (name) |c| anchor = anchor ++ .{std.ascii.toLower(c)};
             return "[" ++ name ++ "](#" ++ anchor ++ ")" ++ optional;
@@ -461,9 +712,9 @@ test "the reference page doesn't change unless the scripting API does" {
     var buffer: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
     try writeMarkdown(&buffer.writer);
-    const pinned = @embedFile("hooks.md");
+    const pinned = @embedFile("reference.md");
     if (!std.mem.eql(u8, buffer.written(), pinned)) {
-        std.debug.print("the scripting API has changed: if that's meant, run `make definitions` to update docs/guide/hooks.md\n", .{});
+        std.debug.print("the scripting API has changed: if that's meant, run `make definitions` to update docs/guide/reference.md\n", .{});
         return error.TestUnexpectedResult;
     }
 }

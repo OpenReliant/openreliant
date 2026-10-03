@@ -1,17 +1,123 @@
-# Hooks
+# Scripting reference
 
-This page lists everything mods' scripts can hook, with the fields each handler sees in `e`,
-then the fields of objects and the names of values. [Scripting](scripting.md#hooks) explains how
-to use them. `openreliant hooks` prints the same list, and `openreliant hooks <name>` one hook.
+This page lists everything mods' scripts can use: the engine handlers, the packages, the fields
+and methods of objects, the hooks with the fields each handler sees in `e`, and the names of
+values. [Scripting](scripting.md) explains how to use them. `openreliant hooks` prints the list of
+hooks, and `openreliant hooks <name>` one hook.
 
 This page is generated from OpenReliant's code by `make definitions`, so don't change it by hand.
 
+- [Engine handlers](#engine-handlers)
+- [Packages](#packages)
+- [Objects](#objects)
 - [The game's functions](#the-games-functions)
 - [The order routines](#the-order-routines)
 - [The mission's events](#the-missions-events)
 - [The engine's events](#the-engines-events)
-- [Objects](#objects)
+- [Tables](#tables)
 - [Names of values](#names-of-values)
+
+## Engine handlers
+
+The functions a script returns in `engine_handlers`, which OpenReliant calls. Global scripts
+include mission scripts.
+
+| Handler | Scripts | When it's called |
+|---|---|---|
+| `on_init(data: any?)` | global and object | When the script starts, with the data `add_script` gave it, or nil. |
+| `on_records_loaded()` | load | After every mod's load scripts have run. |
+| `on_update(seconds: number)` | global and object | Each frame in which game time passes, after the ships' orders, with the seconds it covers. |
+| `on_step()` | global and object | Each simulation step, 25 a second, after everything has moved. |
+| `on_mission_start(mission: Mission)` | global | When a mission has started and its first ships are there. |
+| `on_mission_end(outcome: Outcome)` | global | When the mission ends, for whatever reason. |
+| `on_object_added(object: Object)` | global | When an object is added to the mission. |
+| `on_object_removed(object: Object)` | global | When an object leaves the mission, such as once it has blown up. |
+| `on_added()` | object | When the script's object is in the mission: as it's added, or at once if the script starts later. |
+| `on_removed()` | object | When the script's object leaves the mission. |
+| `on_interface_override(base: { [any]: any })` | global and object | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
+
+## Packages
+
+What `require("openreliant.<name>")` gives.
+
+### `openreliant.core`
+
+OpenReliant's version, and events for the global scripts. For load, global and object scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `version` | string | The version of OpenReliant, such as `0.7.0`. |
+| `send_global_event(name: string, data: any)` | nothing | Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update. |
+
+### `openreliant.records`
+
+The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them. For load, global and object scripts.
+
+### `openreliant.hooks`
+
+Handlers on the game's functions and events. For global and object scripts.
+
+### `openreliant.world`
+
+The mission's objects, the player's ship and the mission itself. For global scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `player` | [object](#objects), or nil | The player's ship, while a mission runs; nil between missions. |
+| `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
+| `objects()` | { Object } | Every object in the mission, in the order of their slots. |
+
+### `openreliant.self`
+
+The script's own object, as a handle. For object scripts.
+
+### `openreliant.nearby`
+
+The objects around the script's own. For object scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `objects(radius: number)` | { Object } | The objects within `radius` of the script's object, nearest first, without it. |
+
+### `openreliant.interfaces`
+
+The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, and those of an object's scripts to the object's other scripts. Nil for one nobody offers. For global and object scripts.
+
+## Objects
+
+Scripts see objects through handles. A handle stays valid until its object is removed or its
+mission ends; reading a field of a handle that isn't valid is an error. Every script can read the
+fields; global scripts can change those marked *changes* on any object, and an object's own
+scripts on their object.
+
+| Field | Type | What it is |
+|---|---|---|
+| `slot` | number | The slot it fills in the mission, from 0. |
+| `type` | [ShipType](#shiptype) | Its type, such as `predator`. |
+| `class` | [ShipClass](#shipclass), or nil | Its class, such as `fighter`; nil for an object without stats, such as a nav point. |
+| `side` | [Side](#side) | The side it's on. |
+| `position` | vector | Where it is. |
+| `velocity` | vector | How far it moves in a simulation step, of which there are 25 a second. |
+| `speed` | number | How fast it moves: the length of its velocity. |
+| `is_player` | boolean | Whether it's the player's ship. |
+| `order` | [Order](#order), or nil | The order it's following, such as `fight`; nil for none. |
+| `last_attacker` | [object](#objects), or nil | The object that last hit it; nil for none, or once that one has left the mission. |
+| `throttle` | number | *Changes.* Its throttle: 1 is full, 2 the afterburner's and -1 reverse thrust's. Its order or its pilot usually sets it each frame. |
+| `roll_input` | number | *Changes.* How hard it rolls, from -1 to 1. Its order or its pilot usually sets it each frame. |
+| `pitch_input` | number | *Changes.* How hard it pitches, from -1 to 1. Its order or its pilot usually sets it each frame. |
+| `yaw_input` | number | *Changes.* How hard it yaws, from -1 to 1. Its order or its pilot usually sets it each frame. |
+| `shields` | [Quadrants](#quadrants) | Its shields in each quadrant. |
+| `armor` | [Quadrants](#quadrants) | Its armour in each quadrant. |
+| `hull` | number, or nil | The share of its armour it has left, from about 1 as it's made down to 0: its weakest quadrant against a quadrant's full armour. Nil for an object without stats. |
+
+| Method | Returns | What it does |
+|---|---|---|
+| `is_valid()` | boolean | Whether the object is still in the mission. A handle stops being valid once its object is removed or its mission ends. |
+| `give_order(order: Order, target: Object?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
+| `send_event(name: string, data: any)` | nothing | Sends the event `name` to the object's scripts, with `data`, which must be plain data. It arrives at the next update. |
+| `add_script(name: string, data: any?)` | boolean | Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts. |
+| `hook(name: string, handler: (e: any) -> boolean?, filter: (Filter \| (e: any) -> boolean)?)` | HookHandle | `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own. |
+| `remove_script(name: string)` | boolean | Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts. |
 
 ## The game's functions
 
@@ -462,40 +568,37 @@ The mission's trigger number `trigger` has fired on an event of `condition`. It'
 | `condition` | [Condition](#condition) |
 | `object` | [object](#objects), or nil |
 
-## Objects
+## Tables
 
-Scripts see objects through handles. A handle stays valid until its object is removed or its
-mission ends; reading a field of a handle that isn't valid is an error. These fields can only be
-read in this version.
+Values given as tables of fields, which scripts can only read.
 
-| Field | Type | What it is |
-|---|---|---|
-| `slot` | number | The slot it fills in the mission, from 0. |
-| `type` | [ShipType](#shiptype) | Its type, such as `predator`. |
-| `class` | [ShipClass](#shipclass), or nil | Its class, such as `fighter`; nil for an object without stats, such as a nav point. |
-| `side` | [Side](#side) | The side it's on. |
-| `position` | vector | Where it is. |
-| `velocity` | vector | How far it moves in a simulation step, of which there are 25 a second. |
-| `is_player` | boolean | Whether it's the player's ship. |
-| `order` | [Order](#order), or nil | The order it's following, such as `fight`; nil for none. |
-| `is_valid()` | boolean | Whether the object is still in the mission. A handle stops being valid once its object is removed or its mission ends. |
+### Quadrants
+
+| Field | Type |
+|---|---|
+| `left` | number |
+| `right` | number |
+| `fore` | number |
+| `aft` | number |
+
+### Mission
+
+| Field | Type |
+|---|---|
+| `number` | number |
+| `file` | string |
+
+### Outcome
+
+| Field | Type |
+|---|---|
+| `ending` | [Ending](#ending) |
+| `rating` | [Rating](#rating) |
 
 ## Names of values
 
 A value that has a name in OpenReliant is given as a string: its name. One without a name is a
 number. A script can set a field to either.
-
-### Quadrant
-
-`left`, `right`, `fore`, `aft`.
-
-### DamageKind
-
-`bullet`, `missile`, `collision`, `crash`, `screamer`, or a number.
-
-### GunType
-
-`laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`.
 
 ### ShipType
 
@@ -513,10 +616,6 @@ number. A script can set a field to either.
 
 `do_nothing`, `fly_aimlessly`, `launch_missile`, `unnamed_3`, `warp_in`, `warp_out`, `fly`, `run_away`, `land`, `escort`, `find_new_target`, `explode`, `ripper_grabs_target_object`, `object_attach`, `formation_regroup`, `patrol_route`, `toggle_cloak`, `ship_follow_curve`, `slow_rotate`, `jump_in`, `jump_out`, `find_scoop_up`, `random_spin_slow`, `random_spin_medium`, `random_spin_fast`, `fixed_gate_jump_in`, `fixed_gate_jump_out`, `formation`, `fixed_gate_open`, `fixed_gate_close`, `eject`, `fixed_gate_collapse`, `match_speed`, `dark_reign_shoot`, `move_to_spawn_pos`, `turns_object_lights_on`, `make_boridin_section_break_away`, `rotate_boridin_breakaway_warp_projector`, `start_warp_projection_from_boridin`, `make_ripper_drop_what_its_carrying`, `jump_in_40`, `jump_out_41`, `turns_object_lights_off`, `huuuuuuuge_explosion`, `immediately_set_ship_to_zero_velocity_and_rotation`, `fly_ship_backwards`, `player_control`, `multiplayer_control`, `avoid_target`, `torpedo`, `launch`, `fight`, `eject_106`, `scoop_up`, `eject_spin`, `dock`, `dark_reign_shoot_110`, `ripper_end_drop_object`, `ripper_attach_cargo_pod_to_mammoth`, `eject_fighter_attack`, `disrupted`, `make_capship_list_left`, `make_capship_list_right`, `friendly_fire`, `eject_player`, `ship_follow_curve_backwards`, `mill`, `deathmatch_respawn_effect`, `deathmatch_dark_reign_target`, `unnamed_200`, or a number.
 
-### Condition
-
-`shot_at`, `destroyed`, `launched`, `camera_reached`, `ship_reached`, `proximity_close`, `proximity_general`, `object_scooped`, `player_ready_to_jump`, `jumped_in`, `fixed_gate_jumped_in`, `player_ready_to_warp`, `jumped_through_hoop`, `player_wants_backup`, `ripper_grabbed_object`, `ripper_dropped_object`, `cloaked`, `decloaked`, `targetted`, `player_l1_doubletap`, `player_l2_doubletap`, `player_r1_doubletap`, `player_r2_doubletap`, `player_l1_l2_r1_r2_pressed`, `player_l1_r1_pressed`, `game_timer_expired`, `tractor_beam_locked`, `tractor_beam_broken`, `inside_object`, `outside_object`, `docked`, `undocked`, `being_chased`, `call_reinforcements`, `explosion_ship`, or a number.
-
 ### Ending
 
 `playing`, `destroyed`, `rescued`, `captured`, `left`, `total_failure`, `friendly_fire`, `ejecting`, or a number.
@@ -525,10 +624,26 @@ number. A script can set a field to either.
 
 `total_failure`, `failure`, `partial_failure`, `partial_success`, `success`, `success_bonus`, or a number.
 
-### PilotSkill
+### Quadrant
 
-`low`, `medium`, `high`, or a number.
+`left`, `right`, `fore`, `aft`.
+
+### DamageKind
+
+`bullet`, `missile`, `collision`, `crash`, `screamer`, or a number.
+
+### GunType
+
+`laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`.
+
+### Condition
+
+`shot_at`, `destroyed`, `launched`, `camera_reached`, `ship_reached`, `proximity_close`, `proximity_general`, `object_scooped`, `player_ready_to_jump`, `jumped_in`, `fixed_gate_jumped_in`, `player_ready_to_warp`, `jumped_through_hoop`, `player_wants_backup`, `ripper_grabbed_object`, `ripper_dropped_object`, `cloaked`, `decloaked`, `targetted`, `player_l1_doubletap`, `player_l2_doubletap`, `player_r1_doubletap`, `player_r2_doubletap`, `player_l1_l2_r1_r2_pressed`, `player_l1_r1_pressed`, `game_timer_expired`, `tractor_beam_locked`, `tractor_beam_broken`, `inside_object`, `outside_object`, `docked`, `undocked`, `being_chased`, `call_reinforcements`, `explosion_ship`, or a number.
 
 ### PilotTier
 
 `level_0`, `level_1`, `level_2`, or a number.
+
+### PilotSkill
+
+`low`, `medium`, `high`, or a number.

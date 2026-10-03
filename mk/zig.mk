@@ -58,7 +58,7 @@ test: ## Run the unit tests
 definitions: ## Write the scripting API's definitions and reference page in docs/guide
 	$(ZIG) build
 	$(ROOT)/zig-out/bin/openreliant hooks --definitions > $(ROOT)/docs/guide/openreliant.d.luau
-	$(ROOT)/zig-out/bin/openreliant hooks --markdown > $(ROOT)/docs/guide/hooks.md
+	$(ROOT)/zig-out/bin/openreliant hooks --markdown > $(ROOT)/docs/guide/reference.md
 
 # Tests joystick and gamepad support on Linux with virtual controllers that imitate real ones
 # (scripts/controllers). It runs in a privileged Docker container with the host's /dev mounted,

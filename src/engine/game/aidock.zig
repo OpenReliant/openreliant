@@ -401,7 +401,7 @@ fn stationUpdate(ctx: Context, index: u16) void {
     if (math.lengthSquared(left) < reach_squared) state.step = state.step.next();
     const up = math.transformTransposed(slot.drawn.orientation, math.yAxis(at.orientation));
     const roll = -std.math.atan2(up[0], up[1]);
-    object.roll_input = std.math.clamp((roll - roll_damping * object.roll_rate) * ai.roll_input_per_radian, -1, 1);
+    object.roll_input = std.math.clamp((roll - roll_damping * object.roll_rate) * ai.roll_input_per_radian, -motion.full_input, motion.full_input);
 }
 
 /// `dock_way` (`0x00406F20`), which `motion_follow` calls as the ship slides in: a point on the

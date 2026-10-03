@@ -9,6 +9,10 @@ const std = @import("std");
 const openreliant = @import("openreliant");
 const gameobj = openreliant.engine.game.gameobj;
 const create = openreliant.engine.game.create;
+const engine_hooks = openreliant.engine.hooks;
+const Object = engine_hooks.Object;
+const data = @import("data.zig");
+const values = @import("values.zig");
 
 /// The manifest section that lists a mod's scripts by kind.
 pub const section = "Scripts";
@@ -92,11 +96,21 @@ pub const Kind = enum {
         };
     }
 
-    /// Whether this version runs scripts of this kind.
+    /// Whether this version runs scripts of this kind. Missiles and turrets aren't objects of
+    /// their own, so their scripts need handles of their own first
+    /// ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
     pub fn runs(kind: Kind) bool {
-        return switch (kind.family()) {
-            .load, .global => true,
-            .object, .player, .menu => false,
+        return switch (kind) {
+            .load, .global, .fighter, .capital, .support, .other, .torpedo, .debris, .mine, .planet => true,
+            .player, .menu, .missile, .turret => false,
+        };
+    }
+
+    /// The object class whose objects scripts of this kind run on, for the kinds named after one.
+    pub fn class(kind: Kind) ?create.ShipCombat.Class {
+        return switch (kind) {
+            inline .fighter, .capital, .support, .other, .torpedo, .debris, .mine, .planet => |tag| @field(create.ShipCombat.Class, @tagName(tag)),
+            .load, .global, .player, .menu, .missile, .turret => null,
         };
     }
 };
@@ -181,6 +195,46 @@ pub const Handler = enum {
             .on_interface_override => family != .load,
         };
     }
+
+    /// When the engine calls it, for the reference.
+    pub fn about(handler: Handler) []const u8 {
+        return switch (handler) {
+            .on_init => "When the script starts, with the data `add_script` gave it, or nil.",
+            .on_save => "When the game is saved.",
+            .on_load => "When a saved game is loaded.",
+            .on_records_loaded => "After every mod's load scripts have run.",
+            .on_update => "Each frame in which game time passes, after the ships' orders, with the seconds it covers.",
+            .on_step => "Each simulation step, 25 a second, after everything has moved.",
+            .on_frame => "Each frame drawn, even while the game is paused.",
+            .on_mission_start => "When a mission has started and its first ships are there.",
+            .on_mission_end => "When the mission ends, for whatever reason.",
+            .on_object_added => "When an object is added to the mission.",
+            .on_object_removed => "When an object leaves the mission, such as once it has blown up.",
+            .on_added => "When the script's object is in the mission: as it's added, or at once if the script starts later.",
+            .on_removed => "When the script's object leaves the mission.",
+            .on_key_press => "When a key is pressed.",
+            .on_key_release => "When a key is released.",
+            .on_action => "When a bound action happens.",
+            .on_console_command => "When a line is typed in the console.",
+            .on_viewport_resized => "When the window changes size.",
+            .on_interface_override => "When the script's interface takes the place of one an earlier script offered under the same name, with that one.",
+        };
+    }
+
+    /// What the engine passes it, as fields named after its parameters; null for a handler this
+    /// version doesn't call yet.
+    pub fn Arguments(comptime handler: Handler) ?type {
+        return switch (handler) {
+            .on_init => struct { data: ?data.Data },
+            .on_records_loaded, .on_step, .on_added, .on_removed => struct {},
+            .on_update => struct { seconds: f32 },
+            .on_mission_start => struct { mission: engine_hooks.Mission },
+            .on_mission_end => struct { outcome: engine_hooks.Outcome },
+            .on_object_added, .on_object_removed => struct { object: Object },
+            .on_interface_override => struct { base: values.Table },
+            .on_save, .on_load, .on_frame, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_viewport_resized => null,
+        };
+    }
 };
 
 /// The packages a script can require as `openreliant.<name>`.
@@ -218,8 +272,8 @@ pub const Package = enum {
     /// Whether a script of `family` may require this package.
     pub fn reachableFrom(package: Package, family: Family) bool {
         return switch (package) {
-            .core, .records, .storage, .interfaces, .util, .vfs => true,
-            .hooks, .async => family != .load,
+            .core, .records, .storage, .util, .vfs => true,
+            .hooks, .async, .interfaces => family != .load,
             .world => family == .global,
             .self => family == .object,
             .nearby => family == .object or family == .player,
@@ -230,11 +284,37 @@ pub const Package = enum {
         };
     }
 
+    /// What it gives, for the reference.
+    pub fn about(package: Package) []const u8 {
+        return switch (package) {
+            .core => "OpenReliant's version, and events for the global scripts.",
+            .records => "The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them.",
+            .hooks => "Handlers on the game's functions and events.",
+            .world => "The mission's objects, the player's ship and the mission itself.",
+            .self => "The script's own object, as a handle.",
+            .nearby => "The objects around the script's own.",
+            .orders => "Giving orders, and new orders.",
+            .hud => "Drawing on the flight display, and new displays.",
+            .ui => "Screens, windows, and settings pages.",
+            .input => "Keys, buttons, and new actions to bind.",
+            .camera => "The view, and new views.",
+            .audio => "Sounds, music and radio lines.",
+            .postprocessing => "Effects drawn over the scene.",
+            .shaders => "Functions that change how surfaces look.",
+            .storage => "Settings and data kept between games.",
+            .async => "Timers that survive saving.",
+            .interfaces => "The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, and those of an object's scripts to the object's other scripts. Nil for one nobody offers.",
+            .util => "Vectors, matrices, positions and angles.",
+            .vfs => "Reading the game's and the mods' files.",
+            .debug => "Lines and text drawn in the world, for debugging.",
+        };
+    }
+
     /// Whether this version implements this package.
     pub fn ready(package: Package) bool {
         return switch (package) {
-            .core, .records, .hooks => true,
-            else => false,
+            .core, .records, .hooks, .world, .self, .nearby, .interfaces => true,
+            .orders, .hud, .ui, .input, .camera, .audio, .postprocessing, .shaders, .storage, .async, .util, .vfs, .debug => false,
         };
     }
 };
@@ -269,7 +349,10 @@ test Kind {
     try std.testing.expectEqualStrings("Postprocessing", comptime capitalised("postprocessing"));
     try std.testing.expect(Kind.load.runs());
     try std.testing.expect(Kind.global.runs());
+    try std.testing.expect(Kind.fighter.runs());
     try std.testing.expect(!Kind.player.runs());
+    try std.testing.expectEqual(create.ShipCombat.Class.mine, Kind.mine.class().?);
+    try std.testing.expectEqual(null, Kind.missile.class());
 }
 
 test List {
@@ -294,7 +377,8 @@ test Package {
     try std.testing.expect(!Package.world.reachableFrom(.load));
     try std.testing.expect(Package.records.ready());
     try std.testing.expect(Package.hooks.ready());
-    try std.testing.expect(!Package.world.ready());
+    try std.testing.expect(Package.world.ready());
+    try std.testing.expect(!Package.storage.ready());
 }
 
 test Offer {

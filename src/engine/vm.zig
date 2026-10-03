@@ -292,6 +292,9 @@ pub const Variables = extern struct {
     /// clearance to land picks its line by it, and a rating past the named ones is "incorrectly
     /// defined".
     pub const Outcome = enum(i32) {
+        /// The name scripts know these values by.
+        pub const script_name = "Rating";
+
         /// "Total Failure (kick out)".
         total_failure = -1,
         failure = 0,

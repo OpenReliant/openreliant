@@ -240,9 +240,13 @@ const lateral_share: f32 = 0.25;
 const burn_fuel: i32 = 4;
 
 /// The throttle the afterburner and reverse thrust hold a ship at (`object_fly`, `0x00474301` and
-/// `0x00474326`).
-const afterburner_throttle: f32 = 2;
-const reverse_throttle: f32 = -1;
+/// `0x00474326`): the most and the least a ship flies at.
+pub const afterburner_throttle: f32 = 2;
+pub const reverse_throttle: f32 = -1;
+
+/// How far a steering input reaches either way (`GameObject.roll_input`, `pitch_input` and
+/// `yaw_input`): `object_steer` holds each between minus this and this.
+pub const full_input: f32 = 1;
 
 /// How many times more slowly a ship with no throttle turns than one at full throttle, where the
 /// steering slows it (`object_steer`, `0x004DC3D8`): the divisor falls from this to 1 as the
@@ -279,7 +283,7 @@ pub fn steer(object: *GameObject, flight: *const create.FlightModel, throttle_tu
         .{ .rate = &object.roll_rate, .input = &object.roll_input, .full = flight.roll_rate, .inertia = flight.roll_inertia },
     };
     for (axes) |axis| {
-        axis.input.* = std.math.clamp(axis.input.*, -1, 1);
+        axis.input.* = std.math.clamp(axis.input.*, -full_input, full_input);
         axis.rate.* = settle(axis.rate.*, axis.full * axis.input.* / divisor, axis.inertia);
     }
     object.rotation = math.fromAngles(object.pitch_rate, object.yaw_rate, object.roll_rate);

@@ -6,18 +6,35 @@
 
 -- Names of values. A value without a name is a number.
 
-type Quadrant = "left" | "right" | "fore" | "aft"
-type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
-type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun"
 type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "reliant" | "yamato" | "victorious" | "endeavour" | "mitchell" | "bremen" | "ulysses" | "nanny" | "limpet_car" | "prowler" | "ripper" | "mammoth" | "stork" | "sabre" | "kamov" | "scimitar" | "ramases" | "badanov" | "pukov" | "kurgan" | "sharov" | "gurevich" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "escape_pod" | "debris" | "crewman" | "russian_torpedo" | "neptune_hi" | "uranus_hi" | "jupiter_hi" | "venus_hi" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "latov" | "czar_docked" | "dm_beacon" | "kafelnikof" | "krasny" | "varyag" | "other_ramases" | "other_mitchell" | "rogue_base" | "boridin_breakaway" | "other_escape_pod" | "cargo_pod" | "zakov" | "shell" | "rock_chunk" | "limpet_pod" | "kiev" | "neptune_lo" | "uranus_lo" | "jupiter_lo" | "venus_lo" | "reliant_hangar" | "comms_relay" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "t_phoenix" | "sun_marker" | "nebula_marker" | "marker" | "stand_in" | number
 type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debris" | "mine" | "planet" | number
 type Side = "friendly" | "hostile" | "neutral" | number
 type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "unnamed_3" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_40" | "jump_out_41" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "eject_106" | "scoop_up" | "eject_spin" | "dock" | "dark_reign_shoot_110" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | "unnamed_200" | number
-type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
-type PilotSkill = "low" | "medium" | "high" | number
+type Quadrant = "left" | "right" | "fore" | "aft"
+type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
+type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun"
+type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
 type PilotTier = "level_0" | "level_1" | "level_2" | number
+type PilotSkill = "low" | "medium" | "high" | number
+
+-- Tables of values, which scripts can only read.
+
+type Quadrants = {
+    left: number,
+    right: number,
+    fore: number,
+    aft: number,
+}
+type Mission = {
+    number: number,
+    file: string,
+}
+type Outcome = {
+    ending: Ending,
+    rating: Rating,
+}
 
 -- Objects, which scripts hold by handles.
 
@@ -34,12 +51,40 @@ declare class Object
     position: vector
     -- How far it moves in a simulation step, of which there are 25 a second.
     velocity: vector
+    -- How fast it moves: the length of its velocity.
+    speed: number
     -- Whether it's the player's ship.
     is_player: boolean
     -- The order it's following, such as `fight`; nil for none.
     order: Order?
+    -- The object that last hit it; nil for none, or once that one has left the mission.
+    last_attacker: Object?
+    -- Its throttle: 1 is full, 2 the afterburner's and -1 reverse thrust's. Its order or its pilot usually sets it each frame.
+    throttle: number
+    -- How hard it rolls, from -1 to 1. Its order or its pilot usually sets it each frame.
+    roll_input: number
+    -- How hard it pitches, from -1 to 1. Its order or its pilot usually sets it each frame.
+    pitch_input: number
+    -- How hard it yaws, from -1 to 1. Its order or its pilot usually sets it each frame.
+    yaw_input: number
+    -- Its shields in each quadrant.
+    shields: Quadrants
+    -- Its armour in each quadrant.
+    armor: Quadrants
+    -- The share of its armour it has left, from about 1 as it's made down to 0: its weakest quadrant against a quadrant's full armour. Nil for an object without stats.
+    hull: number?
     -- Whether the object is still in the mission. A handle stops being valid once its object is removed or its mission ends.
     function is_valid(self): boolean
+    -- Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object.
+    function give_order(self, order: Order, target: Object?): boolean
+    -- Sends the event `name` to the object's scripts, with `data`, which must be plain data. It arrives at the next update.
+    function send_event(self, name: string, data: any): ()
+    -- Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts.
+    function add_script(self, name: string, data: any?): boolean
+    -- `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own.
+    function hook(self, name: string, handler: (e: any) -> boolean?, filter: (Filter | (e: any) -> boolean)?): HookHandle
+    -- Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts.
+    function remove_script(self, name: string): boolean
 end
 
 -- The records (`openreliant.records`).
@@ -101,11 +146,34 @@ type Records = {
     itac_text: { [number | string]: string },
 }
 
--- The package `openreliant.core`.
+-- The packages made from declarations. `openreliant.self` is the script's own Object.
 
+-- OpenReliant's version, and events for the global scripts.
 type Core = {
+    -- The version of OpenReliant, such as `0.7.0`.
     version: string,
+    -- Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update.
+    send_global_event: (name: string, data: any) -> (),
 }
+
+-- The mission's objects, the player's ship and the mission itself.
+type World = {
+    -- The player's ship, while a mission runs; nil between missions.
+    player: Object?,
+    -- The mission that runs, with its `number` and its `file`'s name; nil between missions.
+    mission: Mission?,
+    -- Every object in the mission, in the order of their slots.
+    objects: () -> { Object },
+}
+
+-- The objects around the script's own.
+type Nearby = {
+    -- The objects within `radius` of the script's object, nearest first, without it.
+    objects: (radius: number) -> { Object },
+}
+
+-- The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, and those of an object's scripts to the object's other scripts. Nil for one nobody offers.
+type Interfaces = { [string]: any }
 
 -- The hooks (`openreliant.hooks`). Each handler gets `e`, whose class is named after the hook.
 
@@ -639,17 +707,6 @@ type Hooks = {
     after: HooksAfter,
 }
 
--- What the engine tells the scripts.
-
-type Mission = {
-    number: number,
-    file: string,
-}
-type Outcome = {
-    ending: Ending,
-    rating: Rating,
-}
-
 -- What scripts return.
 
 type LoadScript = {
@@ -657,14 +714,33 @@ type LoadScript = {
         on_records_loaded: (() -> ())?,
     }?,
 }
+
 type GlobalScript = {
     engine_handlers: {
-        on_init: (() -> ())?,
+        on_init: ((data: any?) -> ())?,
         on_update: ((seconds: number) -> ())?,
         on_step: (() -> ())?,
         on_mission_start: ((mission: Mission) -> ())?,
         on_mission_end: ((outcome: Outcome) -> ())?,
         on_object_added: ((object: Object) -> ())?,
         on_object_removed: ((object: Object) -> ())?,
+        on_interface_override: ((base: { [any]: any }) -> ())?,
     }?,
+    event_handlers: { [string]: (data: any) -> boolean? }?,
+    interface_name: string?,
+    interface: { [any]: any }?,
+}
+
+type ObjectScript = {
+    engine_handlers: {
+        on_init: ((data: any?) -> ())?,
+        on_update: ((seconds: number) -> ())?,
+        on_step: (() -> ())?,
+        on_added: (() -> ())?,
+        on_removed: (() -> ())?,
+        on_interface_override: ((base: { [any]: any }) -> ())?,
+    }?,
+    event_handlers: { [string]: (data: any) -> boolean? }?,
+    interface_name: string?,
+    interface: { [any]: any }?,
 }

@@ -233,6 +233,9 @@ pub const ShipCombat = extern struct {
 
     /// What a ship type is, going by the models of each class.
     pub const Class = enum(u16) {
+        /// The name scripts know these values by.
+        pub const script_name = "ShipClass";
+
         /// The player's ships, their twins, and the Coalition's fighters.
         fighter = 1,
         /// Capital ships and their wrecks, and other large bodies such as the asteroids of types
@@ -268,6 +271,15 @@ pub const ShipCombat = extern struct {
     /// Six times its `shield_power`: a quadrant's full shields, likewise.
     pub fn fullShields(combat: *const ShipCombat) f32 {
         return @floatFromInt(combat.shield_power * 6);
+    }
+
+    /// OpenReliant's: the share of its armour a ship has left, its weakest quadrant of `armor`
+    /// against `fullArmor`. A ship starts a little under 1 (`startingArmor`), and one with no
+    /// armour class has nothing to lose, so it stays at 1.
+    pub fn armorShare(combat: *const ShipCombat, armor: gameobj.Quadrants) f32 {
+        const full = combat.fullArmor();
+        if (full <= 0) return 1;
+        return std.math.clamp(armor.weakest() / full, 0, 1);
     }
 
     comptime {
@@ -784,6 +796,17 @@ pub const Simulator = struct {
         return simulator.instant_action or simulator.mode != .none;
     }
 };
+
+test "ShipCombat.armorShare" {
+    var combat = std.mem.zeroes(ShipCombat);
+    combat.armor_class = 5;
+    // Its weakest quadrant counts, against six times the armour class.
+    try std.testing.expectEqual(0.5, combat.armorShare(.{ .left = 15, .right = 30, .fore = 30, .aft = 30 }));
+    try std.testing.expectEqual(0, combat.armorShare(.all(-3)));
+    // With no armour class, there's nothing to lose.
+    combat.armor_class = 0;
+    try std.testing.expectEqual(1, combat.armorShare(.all(0)));
+}
 
 test Simulator {
     try std.testing.expect(!(Simulator{}).simulated());

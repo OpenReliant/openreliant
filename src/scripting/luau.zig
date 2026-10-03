@@ -275,6 +275,18 @@ pub const State = opaque {
         c.lua_rawseti(state.raw(), index, n);
     }
 
+    /// Pops a key and a value, the value on top, and sets `table[key]` to it for the table at
+    /// `index`, ignoring metamethods.
+    pub fn rawSet(state: *State, index: i32) void {
+        c.lua_rawset(state.raw(), index);
+    }
+
+    /// Pushes `table[key]` for the table at `index` and the key on top, which it pops, ignoring
+    /// metamethods.
+    pub fn rawGet(state: *State, index: i32) Type {
+        return @enumFromInt(c.lua_rawget(state.raw(), index));
+    }
+
     /// Pops a table and makes it the metatable of the table at `index`.
     pub fn setMetatable(state: *State, index: i32) void {
         _ = c.lua_setmetatable(state.raw(), index);

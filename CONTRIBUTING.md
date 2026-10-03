@@ -75,10 +75,12 @@ if (hooks.enter(.object_damage, damage, .{ world, index, struck, value, factor, 
 ```
 
 What scripts see is an API that mods rely on: the hooks' names, their fields, the names of enum
-values, and the fields of objects and records. Tests check it against
-`docs/guide/openreliant.d.luau` and `docs/guide/hooks.md`, so a change to what scripts see fails
-them. Change it only on purpose, and then run `make definitions`. An enum that scripts see needs a
-name in `scripting/reference.zig`.
+values, the packages, and the fields and methods of objects and records. Declare a package's or an
+object's fields and functions once, in `src/scripting/api.zig`'s terms, and the bindings and the
+reference come from the declarations. Tests check the API against `docs/guide/openreliant.d.luau`
+and `docs/guide/reference.md`, so a change to what scripts see fails them. Change it only on
+purpose, and then run `make definitions`. An enum whose own name isn't clear on its own, such as
+`gameobj.Type`, gives scripts a better one with `pub const script_name`.
 
 ### Improvements and fixes
 

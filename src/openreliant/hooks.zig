@@ -13,7 +13,7 @@ pub const usage =
     \\  <hook>         show only this hook, such as object_damage
     \\  --definitions  write the definitions file for Luau's language server (openreliant.d.luau)
     \\                 instead of the list
-    \\  --markdown     write the reference page of the hooks (hooks.md) instead of the list
+    \\  --markdown     write the scripting reference page (reference.md) instead of the list
     \\  -h, --help     show this page
     \\
     \\Lists every hook mods' scripts can add handlers to: the game's functions, the mission's

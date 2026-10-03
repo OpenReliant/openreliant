@@ -41,6 +41,7 @@ const Runtime = runtime_module.Runtime;
 const Context = runtime_module.Context;
 const objects = @import("objects.zig");
 const values = @import("values.zig");
+const api = @import("api.zig");
 
 /// The handlers mods have added, by hook.
 pub const Hooks = struct {
@@ -521,22 +522,41 @@ fn after(state: *State) i32 {
 }
 
 fn addAs(state: *State, comptime when: When) i32 {
-    const hooks = state.upvalue(Hooks);
     const verb = switch (when) {
         .before => "hooks.add",
         .after => "hooks.after",
     };
+    return addFrom(state.upvalue(Hooks), state, when, verb, 1, null);
+}
+
+/// `object:hook(name, handler, filter)`: `hooks.add`, for the calls that concern one object.
+/// Global scripts can hook any object, and an object's scripts their own.
+pub fn hookObject(state: *State) i32 {
+    const call: api.Call = .of(state, "hook");
+    const index = objects.read(state, 1, "self");
+    if (!objects.mayChange(call.context, index)) state.raise("hook: {t} scripts can't hook this object", .{call.context.family});
+    const game = call.runtime().game orelse state.raise("hook: objects can only be hooked while a game runs", .{});
+    return addFrom(&game.hooks, state, .before, "hook", 2, .of(game.objects, index));
+}
+
+/// Adds the handler whose hook's name is at `first`, the function after it and then the filter,
+/// for the object `only` if it's given.
+fn addFrom(hooks: *Hooks, state: *State, comptime when: When, comptime verb: []const u8, comptime first: i32, only: ?objects.Handle) i32 {
     const context = state.threadData(Context) orelse state.raise("{s} can only be used by mod scripts", .{verb});
-    const name = state.toString(1) orelse state.raise("{s}: expected a hook's name, got {s}", .{ verb, state.typeName(1) });
+    const name = state.toString(first) orelse state.raise("{s}: expected a hook's name, got {s}", .{ verb, state.typeName(first) });
     const hook = std.meta.stringToEnum(Hook, name) orelse state.raise("{s}: there's no hook named '{s}' ('openreliant hooks' lists them)", .{ verb, name });
     const access = accesses.getPtrConst(hook);
     if (when == .after and access.on != .function) state.raise("hooks.after: {s} is an event; hooks.add adds its handlers", .{name});
-    if (state.typeOf(2) != .function) state.raise("{s}: expected a function for the handler, got {s}", .{ verb, state.typeName(2) });
-    var filter = readFilter(state, verb, access, 3);
+    if (state.typeOf(first + 1) != .function) state.raise("{s}: expected a function for the handler, got {s}", .{ verb, state.typeName(first + 1) });
+    var filter = readFilter(state, verb, access, first + 2);
+    if (only) |handle| {
+        if (access.subject == null) state.raise("{s}: {s} concerns no object to hook", .{ verb, name });
+        filter.object = handle;
+    }
 
     // Nothing can raise an error from here until the references are let go.
-    filter.function = if (state.typeOf(3) == .function) state.ref(3) else null;
-    const handler: Handler = .{ .id = hooks.next_id, .context = context, .function = state.ref(2), .when = when, .filter = filter };
+    filter.function = if (state.typeOf(first + 2) == .function) state.ref(first + 2) else null;
+    const handler: Handler = .{ .id = hooks.next_id, .context = context, .function = state.ref(first + 1), .when = when, .filter = filter };
     hooks.addHandler(hook, handler) catch {
         var dropped = handler;
         dropped.release(hooks.runtime);

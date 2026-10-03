@@ -115,7 +115,11 @@ pub fn build(b: *std.Build) void {
     // The scripting API's definitions and reference page as generated, which its tests check
     // against.
     scripting.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
-    scripting.addAnonymousImport("hooks.md", .{ .root_source_file = b.path("docs/guide/hooks.md") });
+    scripting.addAnonymousImport("reference.md", .{ .root_source_file = b.path("docs/guide/reference.md") });
+    // The wingmen example mod, whose scripts the tests run as they ship.
+    for ([_][]const u8{ "mod.ini", "wingman.luau", "wingmen.luau" }) |file| {
+        scripting.addAnonymousImport(b.fmt("wingmen/{s}", .{file}), .{ .root_source_file = b.path(b.fmt("examples/mods/wingmen/{s}", .{file})) });
+    }
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
     const archive_library = b.dependency("libarchive", .{ .target = target, .optimize = optimize }).artifact("archive");

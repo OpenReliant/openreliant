@@ -210,6 +210,9 @@ fn push(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
 /// What damage counts as (`0x00463EE0`'s last argument). Kinds 0, 1 and 5 count toward
 /// `recent_damage` (`counted`); 3 and 4 wreck a component with armour to spare (`heavyKind`).
 pub const Kind = enum(i32) {
+    /// The name scripts know these values by.
+    pub const script_name = "DamageKind";
+
     /// A shot from a gun (`guns.bulletHit`).
     bullet = 0,
     /// A missile's hit, but a Screamer's (`missiles.collide`), and what an Imp's shockwave does to

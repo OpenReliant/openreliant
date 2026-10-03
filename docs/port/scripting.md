@@ -3,9 +3,10 @@
 OpenReliant runs scripts from mods, written in [Luau](https://luau.org). The design follows OpenMW's
 Lua scripting and is described in full in
 [#498](https://github.com/OpenReliant/openreliant/issues/498). This version supports load scripts,
-which change the game's records (stats and text) at startup, and global scripts, which hook the
-game's functions and events as it plays. The [scripting guide](../guide/scripting.md) explains how
-to write them; this page explains how they run.
+which change the game's records (stats and text) at startup, global scripts, which hook the game's
+functions and events as it plays, and object scripts, which run on the mission's objects. Scripts
+send each other events and offer each other interfaces. The [scripting guide](../guide/scripting.md)
+explains how to write them; this page explains how they run.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
 
@@ -35,8 +36,8 @@ kinds of state:
 | Presentation | Player and menu scripts, which affect what the player sees and hears | Luau's standard libraries |
 
 Load scripts run in their own game state, which is created at startup and closed once they finish.
-Global scripts run in another, which lasts for a game ([Global scripts](#global-scripts)). If no
-mod has a script of the kind, no state is created for it.
+Global and object scripts run in another, which lasts for a game ([The game's
+scripts](#the-games-scripts)). If no mod has a script of the kind, no state is created for it.
 
 ### Sandbox
 
@@ -47,21 +48,26 @@ writes to the log, prefixed with the mod's name.
 
 ### Loading a mod's scripts
 
-When a mod is opened (`Runtime.open`), every `.luau` file in it is compiled and loaded with its own
-global table (`luaL_sandboxthread`), so scripts can't see each other's globals. If a script fails to
-compile, the error is logged when the mod is opened, and again if another script requires it. Each
-mod's calls run on a dedicated thread that records which mod is running, so `require` knows where to
-look. Coroutines created by a script inherit this.
+The first time a mod is opened (`Runtime.open`), every `.luau` file in it is compiled, and the
+bytecode is kept for the rest of the state's life (`Code`). If a script fails to compile, the error
+is logged then, and again if a script requires it. Each opening of the mod is a context
+(`Context`): one for its global scripts, one for each mission it has scripts for, and one for each
+object its object scripts run on. A context loads its own copy of a script as it requires it, with
+its own global table (`luaL_sandboxthread`), so scripts can't see each other's globals, and the
+scripts on one object can't see another object's. Each context's calls run on a thread of its own
+that records the context, so `require` and OpenReliant's functions know which mod, and which
+object, is calling. Coroutines created by a script inherit this.
 
-`require(name)` runs a script from the same mod once and returns its result, or `true` if it returns
-nothing. Requiring it again returns the same value. The name is the file name, with or without the
-`.luau` extension, in any case. Circular requires are an error. Names starting with `openreliant.`
-load a package ([`script.Package`](../../src/scripting/script.zig)). Requiring a package that isn't
+`require(name)` runs a script from the same mod once for its context and returns its result, or
+`true` if it returns nothing. Requiring it again returns the same value. The name is the file name,
+with or without the `.luau` extension, in any case. Circular requires are an error. Names starting
+with `openreliant.` load a package ([`script.Package`](../../src/scripting/script.zig)), and
+`openreliant.self` gives the handle of the context's object. Requiring a package that isn't
 available to that kind of script, or isn't implemented yet, raises an error saying which.
 
 ### Limits
 
-| Limit | Load scripts | Global scripts | How it works |
+| Limit | Load scripts | Global and object scripts | How it works |
 |---|---|---|---|
 | Time | 1 second per call | 100 milliseconds per call | Luau's interrupt callback checks the clock every 64 safe points and raises an error when the limit is passed |
 | Memory | 64 MiB per mod | 64 MiB per mod | Each mod's allocations are counted in their own memory category (`lua_setmemcat`), and the allocator refuses any allocation that would take the mod over its limit |
@@ -133,11 +139,35 @@ scripts written now keep working as later versions fill it in:
 - The script families, which decide what a script may do: load, global, object, player and menu.
 - The keys of the table a script returns: `engine_handlers`, `event_handlers`, `interface_name` and
   `interface`.
-- The engine handlers, and which families may use each one.
-- The packages, which families may require each one, and which are implemented in this version:
-  `core`, `records` and `hooks`. `Kind.runs` says which kinds of script run: load and global.
+- The engine handlers, which families may use each one, and what the engine passes each
+  (`Handler.Arguments`), null for a handler this version doesn't call yet. A script that gives one
+  of those is told so in the log.
+- The packages, which families may require each one, and which are implemented in this version
+  (`Package.ready`): `core`, `records`, `hooks`, `world`, `self`, `nearby` and `interfaces`.
+  `Kind.runs` says which kinds of script run: load, global, and the object kinds but `Missile` and
+  `Turret`, whose objects aren't objects in the mission's slots
+  ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
 
-## Global scripts
+## Declarations
+
+What scripts see of a package or a handle is declared once, in Zig, and the bindings and the
+reference are made from it at compile time ([`api.zig`](../../src/scripting/api.zig)):
+
+- `Field` declares a field: its type, a sentence for the reference, a getter, and a setter for a
+  field scripts can change.
+- `Function` declares a function: a sentence and its parameters' names. Its Zig parameters give
+  their types: the first is the `Call` (the state and the calling context), and the rest are read
+  with `values.read`. Its result is pushed with `values.push`. The build checks that every
+  parameter has a name.
+- `Native` declares a function that reads what it's passed itself, such as one that takes a
+  script's function, with its Luau types written out for the reference.
+
+A package made this way is a namespace of these declarations
+([`packages.zig`](../../src/scripting/packages.zig) says which namespace declares which package),
+pushed as a read-only table of its functions, whose metatable reads its fields. A handle's fields
+and methods are declared the same way (`objects.fields`, `objects.methods`).
+
+## The game's scripts
 
 [`game.zig`](../../src/scripting/game.zig) runs the scripts that decide what happens in the game,
 while a game runs. The driver starts them as the front end starts a campaign, loads a saved game or
@@ -145,25 +175,59 @@ flies a mission on its own, or as `--mission` starts one, and stops them as the 
 menu comes back, or the game quits. Each game gets a new Luau state.
 
 - A mod's `Global` scripts start with the game, in load order, each mod's in the order its manifest
-  lists them. Each runs as `require` runs it, its returned table is checked as a load script's is,
-  and its `on_init` is called.
+  lists them. Each runs as `require` runs it, the table it returns is checked
+  (`Context.offerOf`), and its `on_init` is called.
 - `[Missions]` matches a mission's file name (`winmain.missionFileName`) to its keys, in any case.
   As the mission begins, each mod with scripts for it is opened again (`Runtime.open`), so that
   every attempt starts them afresh, and the scripts start as the global ones do. As the mission
-  ends, their handlers are removed and the mod is closed (`Runtime.close`).
+  ends, they stop and the mod is closed (`Runtime.close`).
+- Object scripts start as an object is added (`object_added`): each mod whose manifest names the
+  object's class or type is opened for the object, and each script it lists for them starts there,
+  with `on_init` and then `on_added`. A global script starts one on an object with
+  `object:add_script`. As the object leaves the mission (`object_removed`), its scripts get
+  `on_removed` and stop; as the mission ends or the next begins, the objects' scripts stop without
+  it.
+- As a script stops, its handlers, hooks and interfaces go, and so does its context once none of
+  the mod's scripts on it runs. While engine handlers are being called, a stopped script only gets
+  marked, and leaves its list once they're done (`Game.sweep`), so no list changes under a call.
 - An engine handler that fails is logged and not called again.
+
+The engine handlers get their arguments as `Handler.Arguments` declares them: numbers as they are,
+and handles and tables made beforehand in protected mode (`Runtime.make`). They're called in the
+order the scripts started: the global and mission scripts', then each object's, by slot.
+
+### Events
+
+`core.send_global_event` and `object:send_event` copy their value as plain data
+([`data.zig`](../../src/scripting/data.zig)): nil, booleans, numbers, strings, vectors, handles, and
+tables of these, at most 32 deep. The copy and the event's name wait in a queue
+([`events.zig`](../../src/scripting/events.zig)) until the next update, which delivers them before
+any `on_update`, in the order they were sent. Each script with a handler for the event's name in its
+`event_handlers` gets it, newest mod first, and within a mod in the order the scripts started; a
+handler that returns `false` stops the rest. Events sent while the queue is delivered wait for the
+next update.
+
+### Interfaces
+
+A script that returns `interface_name` and `interface` offers the table under that name
+([`interfaces.zig`](../../src/scripting/interfaces.zig)). An interface is seen within its scope:
+the global and mission scripts', or one object's scripts'. `openreliant.interfaces` is one
+userdata for every script, whose `__index` looks up the latest interface of the name in the calling
+script's scope. A script that offers an interface of a name already offered in its scope gets the
+earlier one in `on_interface_override`. As a script stops, its interfaces go, and the earlier ones
+are seen again.
 
 The engine calls the game side through `engine.hooks.Scripts`, which `create.Objects.scripts` holds
 while a game runs, null otherwise:
 
 | Call | Where | Handlers |
 |---|---|---|
-| `begin` | `main.startMission`, before the script's start part makes the mission's ships | The mission's scripts start, and `math.random` starts again |
+| `begin` | `main.startMission`, before the script's start part makes the mission's ships | The objects' and the last mission's scripts stop, the mission's scripts start, `math.random` starts again, and the mission's order context is kept for the functions that give orders |
 | `started` | The end of `main.startMission` | `on_mission_start`, then the hook `mission_started` |
-| `update` | `main.missionFrame`, after the orders (`aigeneric.ordersUpdate`), in a frame whose `frame_duration` isn't 0 | `on_update`, with `frame_duration` in seconds |
+| `update` | `main.missionFrame`, after the orders (`aigeneric.ordersUpdate`), in a frame whose `frame_duration` isn't 0 | The events waiting, then `on_update`, with `frame_duration` in seconds |
 | `step` | The end of `gameobj.simulationStep` | `on_step` |
-| `ended` | `main.endMission`, as the driver lets a mission go | `on_mission_end`, then the hook `mission_ended`; the mission's scripts stop |
-| `call` | The hooks ([Hooks](#hooks)) | `on_object_added` and `on_object_removed`, then the hooks' handlers |
+| `ended` | `main.endMission`, as the driver lets a mission go | `on_mission_end`, then the hook `mission_ended`; the objects' and the mission's scripts stop |
+| `call` | The hooks ([Hooks](#hooks)) | For `object_added`, the object's scripts start, then `on_object_added`; for `object_removed`, `on_object_removed`, then the object's scripts get `on_removed` and stop. Then the hooks' handlers |
 
 `math.random` starts again from a seed made of the C runtime's `rand` seed as the mission begins
 (`libcmt.Rand`, which it doesn't draw from) and the mission's number, so the game's own numbers stay
@@ -175,7 +239,7 @@ OpenReliant doesn't port yet ([#582](https://github.com/OpenReliant/openreliant/
 
 [`engine/hooks.zig`](../../src/engine/hooks.zig) declares what scripts can hook, and the engine
 calls the hooks where they happen. [`scripting/hooks.zig`](../../src/scripting/hooks.zig) runs the
-handlers mods add. [Hooks](../guide/hooks.md) lists every hook.
+handlers mods add. The [scripting reference](../guide/reference.md) lists every hook.
 
 ### Declarations
 
@@ -247,13 +311,26 @@ every slot as a mission starts. A handle is valid while its count matches. The s
 handle per slot in a table with weak values, so the same object always gives the same handle while
 a script holds it.
 
+Every script can read a handle's fields. A field with a setter can be changed by a global script on
+any object, and by an object's own scripts on their object (`objects.mayChange`); the setter checks
+the value's range, such as the throttle's (`motion.reverse_throttle` to
+`motion.afterburner_throttle`). The same goes for `give_order`, which gives an order as the
+mission's `SetAI` does (`aigeneric.give`), and for `hook`, which adds a handler whose filter names
+the object. `add_script` and `remove_script` are for global scripts only, and act on the calling
+mod's scripts.
+
 ## The reference
 
 [`reference.zig`](../../src/scripting/reference.zig) generates, from the declarations above, the
-definitions file for luau-lsp ([`openreliant.d.luau`](../guide/openreliant.d.luau)), the reference
-page [Hooks](../guide/hooks.md), and what `openreliant hooks` prints. The first two are committed,
-and tests check that they match what the code generates. Everything scripts see is in them: the
-hooks and their fields, the names of enum values, and the fields of objects and records. So a change
-that would change the scripting API fails the tests, and the API only changes on purpose; `make
-definitions` then writes both files again. Each enum scripts see needs a name in the definitions
-(`reference.enum_names`), which the build asks for.
+definitions file for luau-lsp ([`openreliant.d.luau`](../guide/openreliant.d.luau)), the
+[scripting reference](../guide/reference.md), and what `openreliant hooks` prints. The first two are
+committed, and tests check that they match what the code generates. Everything scripts see is in
+them: the engine handlers, the packages, the fields and methods of objects, the hooks and their
+fields, the records, and the names of enum values. So a change that would change the scripting API
+fails the tests, and the API only changes on purpose; `make definitions` then writes both files
+again.
+
+The enums and the tables the reference lists are found by following every type scripts can reach
+from the declarations. Each takes its type's own name, or the name its `script_name` gives where
+that isn't clear enough on its own (`gameobj.Type` is `ShipType`); the build fails if two types
+would take the same name.

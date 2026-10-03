@@ -319,6 +319,9 @@ pub const Pilot = extern struct {
     /// might hit, and use the afterburner when attacking. Other values match none of the three
     /// (`aifight`, `aidefend`).
     pub const Skill = enum(u16) {
+        /// The name scripts know these values by.
+        pub const script_name = "PilotSkill";
+
         low = 0,
         medium = 1,
         high = 2,
@@ -327,6 +330,9 @@ pub const Pilot = extern struct {
 
     /// A preset level. Any other value leaves that group at its default.
     pub const Tier = enum(u32) {
+        /// The name scripts know these values by.
+        pub const script_name = "PilotTier";
+
         level_0 = 0,
         level_1 = 1,
         level_2 = 2,

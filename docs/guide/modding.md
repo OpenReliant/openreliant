@@ -317,13 +317,15 @@ pack <folder> <archive> --checksum` writes a checksum file next to the archive i
 
 Mods can include scripts written in [Luau](https://luau.org), a version of Lua, which OpenReliant
 runs while you play. [Scripting](scripting.md) explains them step by step, starting from a first
-script, and [Hooks](hooks.md) lists everything they can hook into. In short:
+script, and the [scripting reference](reference.md) lists everything they can use. In short:
 
 - **Load scripts** run once at startup and change the game's records: the stats of ships, guns,
   missiles and pilots, and the game's text.
 - **Global scripts** run for the whole game, and **mission scripts** while their mission runs. They
   react to what happens in the game, and change it, through hooks on the game's functions and
   events.
+- **Object scripts** run on each ship of a class or a type, such as every fighter, while it's in
+  the mission.
 
 A mod lists its scripts in its manifest:
 

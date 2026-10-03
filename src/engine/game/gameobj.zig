@@ -287,6 +287,9 @@ pub const Wing = enum(u16) {
 /// `shipstats.bin`, and past those what else the game places, markers and nav points among them,
 /// which have no stats. The names are OpenReliant's, for the types the game's code singles out.
 pub const Type = enum(u32) {
+    /// The name scripts know these values by.
+    pub const script_name = "ShipType";
+
     predator = 0x00,
     /// The Grendel, the Wolverine and the Reaper, whose guns fire rounds, which the gunnery display
     /// counts.

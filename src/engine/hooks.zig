@@ -467,8 +467,8 @@ pub const Scripts = struct {
         /// Runs the handlers of `call.hook`.
         call: *const fn (context: *anyopaque, call: *Call) void,
         /// A mission begins, before its objects are made: its own scripts start, and the scripts'
-        /// random numbers start again from `seed`.
-        begin: *const fn (context: *anyopaque, mission: Mission, seed: u64) void,
+        /// random numbers start again from `seed`. Its orders run against `ctx` until it ends.
+        begin: *const fn (context: *anyopaque, ctx: aigeneric.Context, mission: Mission, seed: u64) void,
         /// The mission has started (`on_mission_start`, `mission_started`).
         started: *const fn (context: *anyopaque, mission: Mission) void,
         /// The mission ends (`on_mission_end`, `mission_ended`), and its own scripts stop.
@@ -479,8 +479,8 @@ pub const Scripts = struct {
         step: *const fn (context: *anyopaque) void,
     };
 
-    pub fn begin(scripts: *Scripts, mission: Mission, seed: u64) void {
-        scripts.vtable.begin(scripts.context, mission, seed);
+    pub fn begin(scripts: *Scripts, ctx: aigeneric.Context, mission: Mission, seed: u64) void {
+        scripts.vtable.begin(scripts.context, ctx, mission, seed);
     }
 
     pub fn started(scripts: *Scripts, mission: Mission) void {

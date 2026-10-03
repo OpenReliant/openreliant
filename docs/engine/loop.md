@@ -44,7 +44,7 @@ The simulation step processes objects in sequence ([The object array](objects.md
 4. `objects_update` moves all objects, and [shots in flight](guns.md#shots) advance.
 5. Each frame, `mission_frame` interpolates each object between its last two steps, checks shots against potential targets, and draws the scene after the camera frame.
 
-Mods' global scripts run at the end of each simulation step (`on_step`), and in each frame in which game time passes, after the orders (`on_update`) ([Scripting](../port/scripting.md#global-scripts)).
+Mods' global and object scripts run at the end of each simulation step (`on_step`), and in each frame in which game time passes, after the orders (`on_update`) ([Scripting](../port/scripting.md#the-games-scripts)).
 
 Ported so far: the clocks, pacing, keyboard, joystick and mouse inputs (polled 25 times a second as `read_keyboard`, `read_joystick` and `read_mouse` do, rather than once per frame), simulation step work on objects and [missiles](missiles.md#flight), and per-frame orders and interpolation (`main.missionFrame`), which every mission runs with its script's frame's work.
 

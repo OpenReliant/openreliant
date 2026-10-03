@@ -21,6 +21,7 @@ const create = @import("create.zig");
 const explode = @import("explode.zig");
 const gameobj = @import("gameobj.zig");
 const hooks = @import("../hooks.zig");
+const motion = @import("motion.zig");
 const objects = @import("objects.zig");
 const shield = @import("shield.zig");
 const shieldfx = @import("shieldfx.zig");
@@ -602,8 +603,8 @@ fn steer(object: *GameObject, orientation: math.Matrix, toward: Vector) void {
     object.throttle = @max(math.cosineOff(toward, math.forward(orientation)), 0);
     const local = math.transformTransposed(orientation, toward);
     if (local[2] >= 0) {
-        object.pitch_input = std.math.clamp((-std.math.atan2(local[1], local[2]) - object.pitch_rate * rate_damping) * steer_gain, -1, 1);
-        object.yaw_input = std.math.clamp((std.math.atan2(local[0], local[2]) - object.yaw_rate * rate_damping) * steer_gain, -1, 1);
+        object.pitch_input = std.math.clamp((-std.math.atan2(local[1], local[2]) - object.pitch_rate * rate_damping) * steer_gain, -motion.full_input, motion.full_input);
+        object.yaw_input = std.math.clamp((std.math.atan2(local[0], local[2]) - object.yaw_rate * rate_damping) * steer_gain, -motion.full_input, motion.full_input);
     } else {
         object.pitch_input = 0;
         object.yaw_input = if (local[0] < 0) -1 else 1;

@@ -6,7 +6,10 @@
 //!   starts with an underscore, since those hold values whose meaning isn't known yet.
 //! - Byte arrays and slices of bytes are strings, and `@Vector(3, f32)` is a Luau vector.
 //! - An optional that holds nothing is nil.
-//! - An object (`engine.hooks.Object`) is a handle (`objects.zig`).
+//! - An object (`engine.hooks.Object`) is a handle (`objects.zig`), and a list of objects
+//!   (`objects.List`) a table of handles.
+//! - Plain data passed on (`data.Data`) is the copy made of it.
+//! - Any other struct is a read-only table of its fields.
 //!
 //! Values read back are checked: a value of the wrong type, out of range or not finite raises an
 //! error that names it.
@@ -19,10 +22,22 @@ const Object = openreliant.engine.hooks.Object;
 const luau = @import("luau.zig");
 const State = luau.State;
 const objects = @import("objects.zig");
+const data = @import("data.zig");
+
+/// A table scripts handed over, such as an interface, held by a reference that its holder lets go
+/// (`Runtime.release`).
+pub const Table = struct {
+    ref: luau.Ref,
+};
 
 /// Pushes `value`.
 pub fn push(state: *State, comptime T: type, value: T) void {
     if (T == Object) return objects.push(state, value.slot());
+    if (T == objects.List) return pushList(state, value);
+    if (T == data.Data or T == Table) {
+        _ = state.pushRef(value.ref);
+        return;
+    }
     switch (@typeInfo(T)) {
         .float => state.pushNumber(value),
         .int => state.pushNumber(@floatFromInt(value)),
@@ -38,7 +53,17 @@ pub fn push(state: *State, comptime T: type, value: T) void {
             comptime assert(pointer.size == .slice and pointer.child == u8);
             state.pushString(value);
         },
+        .@"struct" => pushTable(state, T, value),
         else => @compileError("scripts can't read a " ++ @typeName(T)),
+    }
+}
+
+/// Pushes a table of the handles of `list`'s objects, in order.
+fn pushList(state: *State, list: objects.List) void {
+    state.newTable(@intCast(list.len), 0);
+    for (list.slots[0..list.len], 1..) |index, at| {
+        objects.push(state, index);
+        state.rawSetIndex(-2, @intCast(at));
     }
 }
 
@@ -68,6 +93,12 @@ pub fn shownFields(comptime T: type) []const std.builtin.Type.StructField {
 /// the message.
 pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const u8) T {
     if (T == Object) return .of(objects.read(state, given, label));
+    if (T == objects.Handle) return (state.toUserdata(objects.Handle, given, objects.Handle.tag) orelse wrongType(state, label, "an object", given)).*;
+    if (T == data.Data) {
+        data.copy(state, given, label);
+        defer state.pop(1);
+        return .{ .ref = state.ref(-1) };
+    }
     switch (@typeInfo(T)) {
         .float => {
             const number = state.toNumber(given) orelse wrongType(state, label, "a number", given);
@@ -116,6 +147,11 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
             var bytes: T = @splat(0);
             @memcpy(bytes[0..text.len], text);
             return bytes;
+        },
+        // A string is read in place, so it lasts only as long as the call that reads it.
+        .pointer => |pointer| {
+            comptime assert(pointer.size == .slice and pointer.child == u8 and pointer.is_const);
+            return state.toString(given) orelse wrongType(state, label, "a string", given);
         },
         else => @compileError("scripts can't write a " ++ @typeName(T)),
     }

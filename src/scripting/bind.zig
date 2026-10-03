@@ -335,8 +335,14 @@ pub fn noun(comptime T: type) []const u8 {
         return switch (@typeInfo(T)) {
             .array => |array| noun(array.child) ++ "s",
             else => {
+                switch (@typeInfo(T)) {
+                    .@"struct", .@"enum", .@"union", .@"opaque" => if (@hasDecl(T, "script_name")) return T.script_name,
+                    else => {},
+                }
                 const full = @typeName(T);
-                return if (std.mem.lastIndexOfScalar(u8, full, '.')) |dot| full[dot + 1 ..] else full;
+                // Without the arguments of a generic type, such as `Side(i32)`.
+                const plain = full[0 .. std.mem.indexOfScalar(u8, full, '(') orelse full.len];
+                return if (std.mem.lastIndexOfScalar(u8, plain, '.')) |dot| plain[dot + 1 ..] else plain;
             },
         };
     }
@@ -346,6 +352,12 @@ test noun {
     const Sample = struct { x: f32 };
     try std.testing.expectEqualStrings("Sample", comptime noun(Sample));
     try std.testing.expectEqualStrings("Samples", comptime noun([2]Sample));
+    const Renamed = enum {
+        a,
+        pub const script_name = "Other";
+    };
+    try std.testing.expectEqualStrings("Other", comptime noun(Renamed));
+    try std.testing.expectEqualStrings("Side", comptime noun(@import("openreliant").engine.game.gameobj.Side(i32)));
 }
 
 test "a proxy reads and writes a struct in place" {

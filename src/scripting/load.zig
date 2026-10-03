@@ -17,7 +17,7 @@ const luau = @import("luau.zig");
 const script = @import("script.zig");
 const runtime = @import("runtime.zig");
 const records = @import("records.zig");
-const core = @import("core.zig");
+const packages = @import("packages.zig");
 
 /// Limits for load scripts: 1 second per call and 64 MiB per mod. Changing records needs far less,
 /// so only a broken script hits them.
@@ -41,13 +41,12 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
     } else false;
     if (!any) return;
 
-    const scripts = try runtime.Runtime.create(gpa, io, opened, .{ .side = .game, .limits = within, .seed = seed });
+    const scripts = try runtime.Runtime.create(gpa, io, opened, .{ .side = .game, .limits = within, .seed = seed, .version = version });
     defer scripts.destroy();
     records.register(scripts.state);
     records.push(scripts.state, held, true);
     scripts.setPackage(.records);
-    core.push(scripts.state, version);
-    scripts.setPackage(.core);
+    packages.push(scripts);
 
     var pending: std.ArrayList(Pending) = .empty;
     defer pending.deinit(gpa);
@@ -55,7 +54,7 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
         var listed = loadScripts(mod);
         if (listed.next() == null) continue;
         listed = loadScripts(mod);
-        const context = try scripts.open(@intCast(at), .load);
+        const context = try scripts.open(@intCast(at), .load, null);
         while (listed.next()) |name| {
             const saved = try held.snapshot(gpa);
             defer saved.deinit(gpa);
@@ -64,11 +63,11 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
                 continue;
             };
             defer scripts.release(returned);
-            const offered = context.handlersOf(name, returned) orelse {
+            const offered = context.offerOf(name, returned) orelse {
                 saved.restore(held);
                 continue;
             };
-            if (offered.get(.on_records_loaded)) |handler| try pending.append(gpa, .{ .context = context, .handler = handler });
+            if (offered.handlers.get(.on_records_loaded)) |handler| try pending.append(gpa, .{ .context = context, .handler = handler });
             log.info("{s}: ran {s}", .{ mod.name, name });
         }
     }
@@ -100,9 +99,9 @@ fn tellLeftOut(mod: *const Mod) void {
         };
         const runs = switch (attachment) {
             .kind => |kind| kind.runs(),
-            .object_type => false,
+            .object_type => true,
         };
-        if (!runs) log.warn("{s}: skipping its {s} scripts: this version of OpenReliant only runs load and global scripts", .{ mod.name, key });
+        if (!runs) log.warn("{s}: skipping its {s} scripts: this version of OpenReliant doesn't run them yet", .{ mod.name, key });
     }
 }
 
