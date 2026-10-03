@@ -45,7 +45,7 @@ const log = std.log.scoped(.interface);
 pub const opening = settings.opening(.game_options, .controls).?;
 
 /// The most mods the list holds; a screen counts its rows in a byte, as the game's lists do.
-pub const capacity = std.math.maxInt(u8);
+const capacity = std.math.maxInt(u8);
 
 /// The list's frame and the lists' arrows, where the controls tab has its first pane and its
 /// arrows (`0x0042CFC0`), and the frame beside it that the chosen mod's manifest is written in. They
@@ -65,27 +65,34 @@ const row_spacing = 26;
 /// How far right of its check box a row's name starts (`widgets.Toggle.check_gap`), and how wide it
 /// can be before the list's arrows.
 const name_gap = widgets.Toggle.check_gap;
-const name_width = list_frame.at[0] + list_frame.extent[0] - box_x - name_gap - 8;
+const name_width = list_frame.at[0] + list_frame.extent[0] - box_x - name_gap - name_margin;
+const name_margin = 8;
+
+/// The middle of each frame, which what the screen says of an empty list or no mod chosen is
+/// centred on.
+const list_middle: [2]i32 = .{ list_frame.at[0] + list_frame.extent[0] / 2, list_frame.at[1] + list_frame.extent[1] / 2 };
+const details_middle: [2]i32 = .{ details_frame.at[0] + details_frame.extent[0] / 2, details_frame.at[1] + details_frame.extent[1] / 2 };
 
 /// The note over the frames that says the mods wait for the next start, in gold, ending where the
 /// frames do, as the video tab's note ends where its pane does.
 const restart_note: Label = .{
     .text = .{ .words = "RESTART TO APPLY" },
-    .at = .{ details_frame.at[0] + details_frame.extent[0], 118 },
+    .at = .{ details_frame.at[0] + details_frame.extent[0], list_frame.at[1] - restart_note_above },
     .alignment = .right,
 };
+const restart_note_above = 18;
 
 /// The title, in the place of the settings screen's tabs.
 const title: Label = .{ .text = .{ .words = "MODS" }, .at = .{ 320, settings.title_y }, .alignment = .centre };
 
-/// What the list says when the `mods` folder holds no mods.
+/// What the list says when the `mods` folder holds no mods, two lines, a row apart.
 const empty_notes = [_]Label{
-    .{ .text = .{ .words = "NO MODS FOUND" }, .at = .{ 207, 250 }, .alignment = .centre },
-    .{ .text = .{ .words = "PUT MODS IN THE MODS FOLDER" }, .at = .{ 207, 274 }, .alignment = .centre },
+    .{ .text = .{ .words = "NO MODS FOUND" }, .at = list_middle, .alignment = .centre },
+    .{ .text = .{ .words = "PUT MODS IN THE MODS FOLDER" }, .at = .{ list_middle[0], list_middle[1] + row_spacing }, .alignment = .centre },
 };
 
 /// What the panel on the right says when no mod is chosen.
-const choose_note: Label = .{ .text = .{ .words = "CHOOSE A MOD" }, .at = .{ 498, 250 }, .alignment = .centre };
+const choose_note: Label = .{ .text = .{ .words = "CHOOSE A MOD" }, .at = details_middle, .alignment = .centre };
 
 /// How the panel lays out the chosen mod's manifest, from the frame's corner.
 const details_inside = 10;
@@ -93,8 +100,13 @@ const details_lines: Canvas.Lines = .{ .width = details_frame.extent[0] - 2 * de
 const description_lines: Canvas.Lines = .{ .width = details_lines.width, .height = 15, .most = 9 };
 
 /// The arrows that move the chosen mod up or down the order: a gold box of up and down arrows, unlike
-/// the lists' arrows that scroll the list, at the foot of the gap between the frames.
-const movers: widgets.UpDown = .{ .at = .{ 372, list_frame.at[1] + frame_height - 40 } };
+/// the lists' arrows that scroll the list, in the middle of the gap between the frames and
+/// `movers_above` above the frames' foot.
+const movers: widgets.UpDown = .{ .at = .{
+    (list_frame.at[0] + list_frame.extent[0] + details_frame.at[0] - widgets.UpDown.box_size[0]) / 2,
+    list_frame.at[1] + frame_height - widgets.UpDown.box_size[1] - movers_above,
+} };
+const movers_above = 7;
 
 /// The buttons, which are the settings screen's, REFRESH standing where its RESET DEFAULTS does.
 const Button = enum {
@@ -103,7 +115,7 @@ const Button = enum {
     refresh,
     cancel_changes,
 
-    fn place(button: Button) settings.Button {
+    fn settingsButton(button: Button) settings.Button {
         return switch (button) {
             .ok => .ok,
             .leave => .leave,
@@ -113,13 +125,13 @@ const Button = enum {
     }
 
     fn rect(button: Button) Rect {
-        return button.place().rect();
+        return button.settingsButton().rect();
     }
 
     fn shown(button: Button) canvas_module.Button {
         return switch (button) {
-            .refresh => button.place().labelled(.{ .words = "REFRESH" }),
-            .ok, .leave, .cancel_changes => button.place().shown(.game_options),
+            .refresh => button.settingsButton().labelled(.{ .words = "REFRESH" }),
+            .ok, .leave, .cancel_changes => button.settingsButton().shown(.game_options),
         };
     }
 };
@@ -160,6 +172,7 @@ pub const Context = struct {
     settings_file: *profile.File,
     /// The timer's ticks (`game_ticks`), which a held arrow scrolls the list by.
     ticks: u32,
+    /// The mods, and where to read them again.
     source: Source,
 };
 
@@ -238,14 +251,16 @@ pub const ModManager = struct {
         const order: Order = .{ .profile = context.settings_file.profile };
         var found: bigfile.Mods = try .installed(source.gpa, source.io, source.game, source.version, order);
         errdefer found.close(source.gpa);
-        var remembered: [name_buffer]u8 = undefined;
-        const chosen: ?[]const u8 = if (screen.chosen) |row| remember(&remembered, screen.rows[row].mod.name) else null;
-        screen.release();
+        // The mods the rows are of now stay until the new rows are made, which find the chosen mod
+        // by its name.
+        var previous = screen.scanned;
+        const chosen = if (screen.chosen) |row| screen.rows[row].mod.name else null;
         screen.scanned = .{ .gpa = source.gpa, .mods = found };
         screen.fill(&found, order);
         screen.kept = screen.rows;
         screen.list = .of(screen.count, shown_rows, context.ticks);
         screen.chooseNamed(chosen);
+        if (previous) |*old| old.mods.close(old.gpa);
     }
 
     /// Chooses the row of the mod called `name`, ignoring case, and shows it; the first row where
@@ -378,11 +393,9 @@ pub const ModManager = struct {
         try screen.drawList(canvas, art);
         try screen.drawDetails(canvas);
         for (std.enums.values(Button)) |button| {
-            const lit = if (screen.lit) |item| item == .button and item.button == button else false;
-            try button.shown().draw(canvas, art, settings.button_shapes, lit);
+            try button.shown().draw(canvas, art, settings.button_shapes, std.meta.eql(screen.lit, Item{ .button = button }));
         }
-        const lit_move: ?Arrow = if (screen.lit) |item| (if (item == .move) item.move else null) else null;
-        try movers.draw(canvas, art, lit_move);
+        try movers.draw(canvas, art, screen.litArrow(.move));
         try canvas.drawVersion();
         try canvas.shape(art, pointer.shape(), pointer.at);
     }
@@ -400,8 +413,17 @@ pub const ModManager = struct {
             const colour = if (is_chosen) canvas_module.white else canvas_module.blue;
             try canvas.dimmedUnless(row.on).wrapped(canvas.fonts.small, box.label(.{ .words = "" }).at, nameOf(&named, row), colour, .left, .{ .width = name_width, .height = row_spacing, .most = 1 });
         }
-        const lit: ?Arrow = if (screen.lit) |item| (if (item == .scroll) item.scroll else null) else null;
-        try arrows.draw(canvas, art, lit);
+        try arrows.draw(canvas, art, screen.litArrow(.scroll));
+    }
+
+    /// The arrow of the list's arrows (`.scroll`) or of the box that moves a mod (`.move`) that is
+    /// lit.
+    fn litArrow(screen: ModManager, comptime pair: enum { scroll, move }) ?Arrow {
+        return switch (screen.lit orelse return null) {
+            .scroll => |arrow| if (pair == .scroll) arrow else null,
+            .move => |arrow| if (pair == .move) arrow else null,
+            .button, .check, .choose => null,
+        };
     }
 
     /// The chosen mod's manifest: its name, version and author, its description, how many files and
@@ -424,8 +446,8 @@ pub const ModManager = struct {
             try canvas.wrapped(font, .{ x, y }, description, canvas_module.blue, .left, description_lines);
             y += @intCast(description_lines.height * description_lines.count(font, description));
         }
-        const files = count(row.mod.names());
-        const scripts = count(row.mod.scripts());
+        const files = row.mod.names().count();
+        const scripts = row.mod.scripts().count();
         const counts = std.fmt.bufPrint(&buffer, "{d} FILE{s}, {d} SCRIPT{s}", .{ files, plural(files), scripts, plural(scripts) }) catch "";
         try canvas.wrapped(font, .{ x, y }, counts, canvas_module.blue, .left, details_lines);
         y += details_lines.height;
@@ -435,13 +457,6 @@ pub const ModManager = struct {
 
 /// How long a name on the screen can be, in bytes.
 const name_buffer = 256;
-
-/// `name` copied into `buffer`; null if it doesn't fit.
-fn remember(buffer: *[name_buffer]u8, name: []const u8) ?[]const u8 {
-    if (name.len > buffer.len) return null;
-    @memcpy(buffer[0..name.len], name);
-    return buffer[0..name.len];
-}
 
 /// A row's name and, after it, its version, written in `buffer`.
 fn nameOf(buffer: *[name_buffer]u8, row: Row) []const u8 {
@@ -455,14 +470,6 @@ fn plural(number: usize) []const u8 {
     return if (number == 1) "" else "S";
 }
 
-/// How many names `names` lists.
-fn count(names: Mod.Names) usize {
-    var listed = names;
-    var total: usize = 0;
-    while (listed.next()) |_| total += 1;
-    return total;
-}
-
 /// The check box of the row shown `place`th from the top, with its name beside it.
 fn checkBox(place: usize) widgets.Toggle {
     return .{ .at = .{ box_x, first_row + @as(i32, @intCast(place)) * row_spacing }, .gap = name_gap, .reach = 4 };
@@ -472,6 +479,19 @@ fn checkBox(place: usize) widgets.Toggle {
 fn nameRect(place: usize) Rect {
     const box = checkBox(place);
     return .{ .x = @intCast(box.at[0] + name_gap - 2), .y = @intCast(box.at[1]), .width = name_width + 4, .height = widgets.Box.size };
+}
+
+/// The middle of `rect`, where a click on it lands.
+fn centre(rect: Rect) [2]i32 {
+    return .{ rect.x + @divTrunc(rect.width, 2), rect.y + @divTrunc(rect.height, 2) };
+}
+
+fn boxCentre(place: usize) [2]i32 {
+    return centre(checkBox(place).rect());
+}
+
+fn nameCentre(place: usize) [2]i32 {
+    return centre(nameRect(place));
 }
 
 /// What the tests stand a screen in with: three folder mods in a `mods` folder, and a settings file.
@@ -557,16 +577,16 @@ test "a check box turns a mod on or off and the file keeps it" {
     try fixture.init("");
     defer fixture.deinit();
     try std.testing.expect(!fixture.screen.waits());
-    // The second row's box, found from 4 pixels left of it.
-    try std.testing.expectEqual(null, fixture.click(.{ 62, first_row + row_spacing + 6 }));
+    // The second row's box.
+    try std.testing.expectEqual(null, fixture.click(boxCentre(1)));
     try std.testing.expect(!fixture.screen.rows[1].on);
     try std.testing.expectEqualStrings("0", fixture.file.profile.value("OpenReliantMods", "beta").?);
     try std.testing.expectEqualStrings("1", fixture.file.profile.value("OpenReliantMods", "alpha").?);
     try std.testing.expect(fixture.screen.waits());
     // The press that did it, held, does it no more; coming up and down again turns it on.
-    _ = fixture.screen.frame(fixture.context(.{ .at = .{ 62, first_row + row_spacing + 6 }, .down = true }));
+    _ = fixture.screen.frame(fixture.context(.{ .at = boxCentre(1), .down = true }));
     try std.testing.expect(!fixture.screen.rows[1].on);
-    _ = fixture.click(.{ 62, first_row + row_spacing + 6 });
+    _ = fixture.click(boxCentre(1));
     try std.testing.expect(fixture.screen.rows[1].on);
     try std.testing.expect(!fixture.screen.waits());
     // The order the file now gives is the one the mods load in.
@@ -579,10 +599,10 @@ test "a name chooses the mod, and the lower arrows set the order" {
     try fixture.init("");
     defer fixture.deinit();
     var buffer: [capacity][]const u8 = undefined;
-    _ = fixture.click(.{ 120, first_row + 2 * row_spacing + 6 });
+    _ = fixture.click(nameCentre(2));
     try std.testing.expectEqual(2, fixture.screen.chosen.?);
-    // the up arrow takes gamma past beta, the down arrow back; the first can't go up, nor the last down.
-    _ = fixture.click(.{ 380, 354 });
+    // The up arrow takes gamma past beta, the down arrow back; the first can't go up, nor the last down.
+    _ = fixture.click(centre(movers.rect(.up)));
     try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "gamma", "beta" }, fixture.names(&buffer));
     try std.testing.expectEqual(1, fixture.screen.chosen.?);
     try std.testing.expect(fixture.screen.waits());
@@ -590,13 +610,13 @@ test "a name chooses the mod, and the lower arrows set the order" {
     try std.testing.expectEqual(1, order.position("gamma"));
     try std.testing.expectEqual(2, order.position("beta"));
     // The down arrow puts it back, as far as the list goes.
-    _ = fixture.click(.{ 380, 372 });
+    _ = fixture.click(centre(movers.rect(.down)));
     try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "beta", "gamma" }, fixture.names(&buffer));
     try std.testing.expect(!fixture.screen.waits());
-    _ = fixture.click(.{ 380, 372 });
+    _ = fixture.click(centre(movers.rect(.down)));
     try std.testing.expectEqual(2, fixture.screen.chosen.?);
     fixture.screen.chosen = 0;
-    _ = fixture.click(.{ 380, 354 });
+    _ = fixture.click(centre(movers.rect(.up)));
     try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "beta", "gamma" }, fixture.names(&buffer));
 }
 
@@ -607,17 +627,17 @@ test "CANCEL CHANGES puts the mods back as the screen opened them" {
     var buffer: [capacity][]const u8 = undefined;
     try std.testing.expectEqualDeep(&[_][]const u8{ "gamma", "beta", "alpha" }, fixture.names(&buffer));
     // A change, then CANCEL CHANGES: the screen as it opened, and the file says so.
-    _ = fixture.click(.{ 62, first_row + 6 });
+    _ = fixture.click(boxCentre(0));
     try std.testing.expect(!fixture.screen.rows[0].on);
-    _ = fixture.click(.{ 380, 450 });
+    _ = fixture.click(centre(Button.cancel_changes.rect()));
     try std.testing.expect(fixture.screen.rows[0].on);
     try std.testing.expectEqualStrings("1", fixture.file.profile.value("OpenReliantMods", "gamma").?);
     try std.testing.expectEqualStrings("0", fixture.file.profile.value("OpenReliantMods", "beta").?);
     // A move, then CANCEL CHANGES, with the moved mod still chosen where it goes back to.
     fixture.screen.chosen = 2;
-    _ = fixture.click(.{ 380, 354 });
+    _ = fixture.click(centre(movers.rect(.up)));
     try std.testing.expectEqualDeep(&[_][]const u8{ "gamma", "alpha", "beta" }, fixture.names(&buffer));
-    _ = fixture.click(.{ 380, 450 });
+    _ = fixture.click(centre(Button.cancel_changes.rect()));
     try std.testing.expectEqualDeep(&[_][]const u8{ "gamma", "beta", "alpha" }, fixture.names(&buffer));
     try std.testing.expectEqual(2, fixture.screen.chosen.?);
 }
@@ -628,13 +648,13 @@ test "REFRESH reads the mods folder again" {
     defer fixture.deinit();
     const io = std.testing.io;
     // Beta turned off and chosen; a mod added and one removed since the screen opened.
-    _ = fixture.click(.{ 62, first_row + row_spacing + 6 });
+    _ = fixture.click(boxCentre(1));
     fixture.screen.chosen = 1;
     try fixture.tmp.dir.createDirPath(io, "mods/delta");
     try fixture.tmp.dir.deleteTree(io, "mods/alpha");
     var buffer: [capacity][]const u8 = undefined;
     try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "beta", "gamma" }, fixture.names(&buffer));
-    try std.testing.expectEqual(null, fixture.click(.{ 380, 430 }));
+    try std.testing.expectEqual(null, fixture.click(centre(Button.refresh.rect())));
     // The list has the new mod, after the ones the file lists, and not the removed one; beta is
     // still off and still chosen.
     try std.testing.expectEqualDeep(&[_][]const u8{ "beta", "gamma", "delta" }, fixture.names(&buffer));
@@ -646,12 +666,12 @@ test "REFRESH reads the mods folder again" {
     try std.testing.expect(fixture.screen.waits());
     // Beta turned on, then refreshing again, which frees the mods it opened before; CANCEL CHANGES
     // puts back the mods as they stood at the last refresh.
-    _ = fixture.click(.{ 62, first_row + 6 });
+    _ = fixture.click(boxCentre(0));
     try std.testing.expect(fixture.screen.rows[0].on);
-    _ = fixture.click(.{ 380, 430 });
+    _ = fixture.click(centre(Button.refresh.rect()));
     try std.testing.expect(fixture.screen.rows[0].on);
-    _ = fixture.click(.{ 62, first_row + 6 });
-    _ = fixture.click(.{ 380, 450 });
+    _ = fixture.click(boxCentre(0));
+    _ = fixture.click(centre(Button.cancel_changes.rect()));
     try std.testing.expect(fixture.screen.rows[0].on);
 }
 
@@ -663,11 +683,11 @@ test "the list scrolls, and OK, MAIN MENU and Escape end the screen" {
     _ = fixture.screen.frame(fixture.context(.{ .wheel = -1 }));
     try std.testing.expectEqual(0, fixture.screen.list.rows.first);
     try std.testing.expectEqual(null, fixture.screen.itemAt(.{ 500, 300 }));
-    try std.testing.expectEqual(Item{ .scroll = .down }, fixture.screen.itemAt(.{ 380, 160 }).?);
-    try std.testing.expectEqual(Item{ .move = .up }, fixture.screen.itemAt(.{ 380, 354 }).?);
-    try std.testing.expectEqual(Item{ .move = .down }, fixture.screen.itemAt(.{ 380, 372 }).?);
-    try std.testing.expectEqual(settings.End.back, fixture.click(.{ 250, 430 }).?);
-    try std.testing.expectEqual(settings.End.main_menu, fixture.click(.{ 250, 450 }).?);
+    try std.testing.expectEqual(Item{ .scroll = .down }, fixture.screen.itemAt(centre(arrows.rect(.down))).?);
+    try std.testing.expectEqual(Item{ .move = .up }, fixture.screen.itemAt(centre(movers.rect(.up))).?);
+    try std.testing.expectEqual(Item{ .move = .down }, fixture.screen.itemAt(centre(movers.rect(.down))).?);
+    try std.testing.expectEqual(settings.End.back, fixture.click(centre(Button.ok.rect())).?);
+    try std.testing.expectEqual(settings.End.main_menu, fixture.click(centre(Button.leave.rect())).?);
     fixture.keyboard.down[input.scan.escape] = true;
     try std.testing.expectEqual(settings.End.back, fixture.screen.frame(fixture.context(.{})).?);
 }

@@ -14,6 +14,10 @@ const profile = @import("../../profile.zig");
 /// load in, a later mod's files replacing an earlier mod's.
 pub const section = "OpenReliantMods";
 
+/// The values of a mod's line in the list: 1 for a mod that is on, and 0 for one that is off.
+const on_value = "1";
+const off_value = "0";
+
 /// A mod in the list.
 pub const Listed = struct {
     /// The mod's name in the `mods` folder.
@@ -38,9 +42,10 @@ pub const Order = struct {
         return null;
     }
 
-    /// Whether the mod `name` is on. A mod the list doesn't have is.
+    /// Whether the mod `name` is on: its line in the list isn't 0. A mod the list doesn't have is.
     pub fn isOn(order: Order, name: []const u8) bool {
-        return order.profile.int(section, name, 1) != 0;
+        const value = order.profile.value(section, name) orelse return true;
+        return !std.mem.eql(u8, value, off_value);
     }
 
     /// Whether the mod `first` loads before `second`: the mods in the list in its order, then the
@@ -70,7 +75,7 @@ pub const Order = struct {
         while (keys.next()) |key| try old.append(file.arena, key);
         for (old.items) |key| try file.remove(section, key);
         for (mods) |mod| {
-            if (listable(mod.name)) try file.write(section, mod.name, if (mod.on) "1" else "0");
+            if (listable(mod.name)) try file.write(section, mod.name, if (mod.on) on_value else off_value);
         }
     }
 };
@@ -83,6 +88,9 @@ test "mods not in the list are on and load by name after the listed ones" {
     try std.testing.expect(order.isOn("zeta"));
     try std.testing.expect(!order.isOn("Alpha"));
     try std.testing.expect(order.isOn("beta"));
+    // Only 0 turns a mod off.
+    const written: Order = .{ .profile = .{ .text = "[OpenReliantMods]\na=on\nb=0\nc=\n" } };
+    try std.testing.expect(written.isOn("a") and !written.isOn("b") and written.isOn("c"));
     // The listed ones go first, in the list's order; the others by name.
     try std.testing.expect(order.before("zeta", "alpha"));
     try std.testing.expect(!order.before("alpha", "zeta"));

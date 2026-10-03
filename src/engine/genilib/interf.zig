@@ -323,11 +323,7 @@ pub const Interface = struct {
                 const mods = context.mods orelse return front.backToOptions();
                 const settings_file = context.settings orelse return front.backToOptions();
                 const end = front.mod_manager.frame(modsContext(front, context, settings_file, mods, pointer)) orelse return null;
-                front.movie = settings.leavingMovie(.game_options, end);
-                front.screen = switch (end) {
-                    .back, .continue_mission => .game_options,
-                    .main_menu => .main_menu,
-                };
+                front.leaveToMenus(end);
                 return null;
             },
             .audio, .controls, .video => {
@@ -336,11 +332,7 @@ pub const Interface = struct {
                     return null;
                 };
                 const end = front.settings.frame(settingsContext(front, context, settings_file, pointer)) orelse return null;
-                front.movie = settings.leavingMovie(.game_options, end);
-                front.screen = switch (end) {
-                    .back, .continue_mission => .game_options,
-                    .main_menu => .main_menu,
-                };
+                front.leaveToMenus(end);
                 return null;
             },
             .pilot_roster => {
@@ -427,6 +419,16 @@ pub const Interface = struct {
             log.warn("{f}'s shapes and background are left out: {s}", .{ front.screen, @errorName(err) });
         };
         front.entered = front.screen;
+    }
+
+    /// Ends the settings screen or the mods screen, which GAME OPTIONS opened, as `end` says: back to
+    /// GAME OPTIONS or on to the main menu, after the movie that leads there.
+    fn leaveToMenus(front: *Interface, end: settings.End) void {
+        front.movie = settings.leavingMovie(.game_options, end);
+        front.screen = switch (end) {
+            .back, .continue_mission => .game_options,
+            .main_menu => .main_menu,
+        };
     }
 
     /// Goes back to GAME OPTIONS from a screen that has nothing to show, and so no frame to give.

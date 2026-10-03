@@ -167,6 +167,14 @@ pub const Mod = struct {
         keeps: *const fn (name: []const u8) bool,
         file: usize = 0,
 
+        /// How many names are left to list.
+        pub fn count(listed: Names) usize {
+            var left = listed;
+            var total: usize = 0;
+            while (left.next()) |_| total += 1;
+            return total;
+        }
+
         pub fn next(listed: *Names) ?[]const u8 {
             while (listed.file < listed.mod.count()) {
                 const name = listed.mod.fileName(listed.file);

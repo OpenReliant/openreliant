@@ -269,6 +269,8 @@ pub const UpDown = struct {
 
     const box_shape = 0x2A;
     const lit_shapes: std.EnumArray(Arrow, usize) = .init(.{ .up = 0x2B, .down = 0x27 });
+    /// The box's size, and each arrow's, where the pointer finds it.
+    pub const box_size: [2]i32 = .{ 26, 33 };
     pub const size: [2]i16 = .{ 26, 16 };
     /// How far below the up arrow the down arrow stands.
     const down_from = 17;

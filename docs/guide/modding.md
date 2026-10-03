@@ -284,10 +284,16 @@ coyote=0
 ```
 
 The mods the section doesn't list are on, and load after the listed ones, in the order of their names.
-To go back to loading every mod in the order of its name, delete the section. You can edit the section by hand. A mod whose name has an equals sign, starts with a bracket or has
-spaces at either end can't be listed: it stays on and loads with the unlisted mods. The screen lists
-up to 255 mods, and leaves out the ones that need a newer OpenReliant ([The manifest](#the-manifest)). `--no-mods` loads none, and keeps the screen shut. A screenshot taken with
-`--screenshot` ignores the section, so that it comes out the same for everyone.
+Only 0 turns a mod off. To go back to loading every mod in the order of its name, delete the section.
+You can also edit it by hand.
+
+- A mod whose name has an equals sign, starts with a bracket or has spaces at either end can't be
+  listed. It stays on and loads with the unlisted mods.
+- The screen lists up to 255 mods, and leaves out the ones that need a newer OpenReliant
+  ([The manifest](#the-manifest)).
+- `--no-mods` loads none, and keeps the screen shut.
+- A screenshot taken with `--screenshot` ignores the section, so that it comes out the same for
+  everyone.
 
 ## Folder mods
 
@@ -376,8 +382,9 @@ mods.
 
 At startup, `openreliant` lists each mod it loads, in order, by its manifest name if it has one,
 followed by what each of its files does: which game file, texture, shape, picture or font it
-replaces, which earlier mod's file it replaces, or which file it adds. When a font is loaded, it
-says which outline font draws it.
+replaces, which earlier mod's file it replaces, or which file it adds. A mod that the mods screen
+has turned off is listed as off, and none of it is used. When a font is loaded, it says which
+outline font draws it.
 
 ```text
 info(mods): music.hog matches music.hog.sha256
@@ -386,6 +393,7 @@ info(mods): coyote replaces USA_Coyote.SHP
 info(mods): mod 2 of 2: music.hog
 info(mods): music.hog replaces New_Pensive.wav
 info(mods): music.hog adds msc_theme.wav
+info(mods): the mod old-ships is off
 info(fonts): optfnt.fnt uses Newtown, with strokes 0.002 em wider
 info(scripts): balance: ran balance.luau
 info(scripts): balance: the Laser Cannon hits shields for 10 and hulls for 10
