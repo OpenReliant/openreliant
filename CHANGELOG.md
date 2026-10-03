@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.4](https://github.com/OpenReliant/openreliant/compare/v0.6.3...v0.6.4) (2026-10-03)
+
+
+### Fixes
+
+* ships launch out of the hangar bays of the Bremen and the other carriers ([#584](https://github.com/OpenReliant/openreliant/issues/584)) ([37a80bc](https://github.com/OpenReliant/openreliant/commit/37a80bccccf1a213d05aae3b32d46388da18c56d)), closes [#579](https://github.com/OpenReliant/openreliant/issues/579)
+* the Storks drop their satellites, which open out their panels ([#586](https://github.com/OpenReliant/openreliant/issues/586)) ([aa22435](https://github.com/OpenReliant/openreliant/commit/aa22435a64233b4bfe66e466c31f3473dfcd89d3)), closes [#580](https://github.com/OpenReliant/openreliant/issues/580)
+
 ## [0.6.3](https://github.com/OpenReliant/openreliant/compare/v0.6.2...v0.6.3) (2026-10-02)
 
 
