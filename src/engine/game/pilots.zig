@@ -366,7 +366,8 @@ pub const Wingmen = struct {
         wingmen.alpha = new_wing;
     }
 
-    /// `update_pilots` (`0x0049CD70`), as mission `number` starts: Alpha 5 and Alpha 6 take the
+    /// `update_pilots` (`0x0049CD70`) for mission `number`, as the campaign moves on to it and as it
+    /// starts (`gameflow.endMission`, `main.startMission`): Alpha 5 and Alpha 6 take the
     /// stretch's pilots (`stretches`), then each wingman whose pilot has died takes the first free
     /// pilot of the pool, which is then in the wing.
     ///

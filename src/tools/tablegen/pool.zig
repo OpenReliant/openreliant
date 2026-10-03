@@ -16,6 +16,7 @@ const zig_text = @import("zig_text.zig");
 /// `pilot_pool`, which `update_pilots` (`0x0049CD70`) and `explode_ship_init` (`0x004086F0`) read.
 pub const table: u32 = 0x005047D0;
 
+/// The pool's records as the payload holds them, in `arena`.
 pub fn read(arena: std.mem.Allocator, reader: image.Reader) (image.Error || std.mem.Allocator.Error)![]const Replacement {
     const records = try reader.records(Replacement, table, pilots.pool_size);
     const pool = try arena.alloc(Replacement, records.len);
