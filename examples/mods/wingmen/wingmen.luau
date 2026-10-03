@@ -4,9 +4,11 @@
 -- the whole game.
 
 local world = require("openreliant.world")
+local settings = require("openreliant.settings")
 
--- How long a wingman stays out of the fight before it rejoins the player, in seconds of game time.
-local rejoin_after = 20
+-- How long a wingman stays out of the fight before it rejoins the player, in seconds of game time,
+-- which the mod's options set.
+local rejoin_after = settings.get("rejoin_after")
 
 local pulled_out = 0
 -- The wingmen out of the fight, with the seconds left until each rejoins.

@@ -37,6 +37,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 | 15, the video ([Video](#video)) | `video_screen` (`0x0042E9B0`) | |
 | 16, the controls ([Controls](#controls)) | `controls_screen` (`0x0042B690`) | |
 | 100, the mods screen ([The mods screen](#the-mods-screen)), which OpenReliant adds | | [#497](https://github.com/OpenReliant/openreliant/issues/497) |
+| 101, a mod's options ([The mod's options](#the-mods-options)), which OpenReliant adds | | [#597](https://github.com/OpenReliant/openreliant/issues/597) |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
 | 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
@@ -309,11 +310,25 @@ Not ported: 3D RENDER MODE, which OpenReliant has no Direct3D devices for.
 - A framed panel from (401, 136), 195 by 250, with the chosen mod's name, version, author, description, the number of files it replaces or adds and of scripts it has, and its page.
 - A gold box of up and down arrows (shape `0x2A`, lit with `0x2B` and `0x27`) at the foot of the gap between the frames, which moves the chosen mod up or down the order.
 - The settings screen's buttons: OK and MAIN MENU in the left column, and in the right column REFRESH, where RESET DEFAULTS stands on the settings screen, and CANCEL CHANGES. REFRESH reads the `mods` folder again, to find mods added or removed since OpenReliant started, and keeps the chosen mod chosen. CANCEL CHANGES puts the mods back as they were when the screen opened, or at the last REFRESH. OK and Escape end the screen, back to GAME OPTIONS.
+- OPTIONS, in the foot of the panel, where the chosen mod's scripts offer a page of options ([The mod's options](#the-mods-options)). It is a button of the settings screen's shapes (`0x28`, lit `0x29`) with its label right of it.
 - RESTART TO APPLY, in gold over the right frame, while the mods that are on, in their order, differ from the ones OpenReliant started with.
 
 Each change is written to `starlancer.ini` at once, in the section `[OpenReliantMods]` ([Load order](../guide/modding.md#load-order)), and takes effect at the next start. A mod whose folder name can't be a key of the settings file (it has an equals sign, starts with a bracket or has spaces at either end) stays on, in name order after the mods the list names. The screen lists at most 255 mods. It stays shut with `--no-mods`.
 
-Not ported: a mod's thumbnail and its conflicts ([#497](https://github.com/OpenReliant/openreliant/issues/497)), and a page of options for a mod's scripts ([#597](https://github.com/OpenReliant/openreliant/issues/597)).
+Not ported: a mod's thumbnail and its conflicts ([#497](https://github.com/OpenReliant/openreliant/issues/497)).
+
+## The mod's options
+
+**Improvement:** the original can't load mods. OPTIONS on the mods screen opens the page of options the chosen mod's scripts declare ([`mod_options.zig`](../../src/engine/game/interface/mod_options.zig), [`settings.zig`](../../src/scripting/settings.zig), [#597](https://github.com/OpenReliant/openreliant/issues/597)), at once and with no movie, on the same shapes and background as the mods screen. It is laid out as the VIDEO tab's graphics list is ([Video](#video)):
+
+- The page's title in white, centred on (320, 95), as the mods screen has MODS.
+- A framed list from (45, 136), as tall as its rows, up to eight, 30 pixels apart, with the list's arrows right of it. Each row ends its label at x 300. A toggle is a check box, and a choice or a number is an arrows box with its value written beside it: a choice's label, or the number written out. A choice steps round from the last to the first; a number steps by its `step` and stops at its ends.
+- The settings screen's buttons: OK and MAIN MENU in the left column, and RESET DEFAULTS and CANCEL CHANGES in the right. RESET DEFAULTS sets every option to its default, CANCEL CHANGES to what it was when the page opened. OK and Escape go back to the mods screen as it was left, keeping the chosen mod and what REFRESH found.
+- While the pointer is on a row, the option's description under the list, in the small font, blue, centred.
+
+Each change is kept at once in the mod's storage, and told to the scripting ([Options](../port/scripting.md#options)). An option that is the same as it was isn't set again.
+
+Not ported: changing the options from the pause menu in a game ([#600](https://github.com/OpenReliant/openreliant/issues/600)), and more kinds of option and groups ([#601](https://github.com/OpenReliant/openreliant/issues/601)).
 
 ## The dialogs
 

@@ -174,6 +174,11 @@ pub const Runner = struct {
     /// Calls `handler` of each running script of `list` with `arguments`, in order. Scripts that
     /// start meanwhile are called too.
     pub fn callEach(runner: *Runner, list: *List, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler)) void {
+        runner.callEachOf(list, null, handler, arguments);
+    }
+
+    /// `callEach`, for the scripts of the mod called `mod` only; of every mod where it is null.
+    fn callEachOf(runner: *Runner, list: *List, mod: ?[]const u8, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler)) void {
         if (list.items.len == 0) return;
         var made: Made = .{};
         defer made.release(runner.runtime);
@@ -181,7 +186,17 @@ pub const Runner = struct {
         runner.walking += 1;
         defer runner.leave();
         var at: usize = 0;
-        while (at < list.items.len) : (at += 1) runner.callPassed(list, at, handler, passed);
+        while (at < list.items.len) : (at += 1) {
+            if (mod) |wanted| if (!std.mem.eql(u8, list.items[at].context.modOf().name, wanted)) continue;
+            runner.callPassed(list, at, handler, passed);
+        }
+    }
+
+    /// `callAll`, for the scripts of the mod called `mod` only.
+    pub fn callMod(runner: *Runner, mod: []const u8, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler)) void {
+        runner.walking += 1;
+        defer runner.leave();
+        for (runner.lists) |*list| runner.callEachOf(list, mod, handler, arguments);
     }
 
     /// Whether a running script of any list has `handler`.

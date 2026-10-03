@@ -16,6 +16,7 @@ type Action = "cockpit_camera" | "left_view_camera" | "right_view_camera" | "rea
 type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "chase_too" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | number
 type BettyLine = "missiles_gone" | "armor_failing" | "screamer" | "havoc" | "jack_hammer" | "vagabond" | "imp" | "bandit" | "raptor" | "hawk" | "solomon" | "countermeasures_low" | "countermeasures_gone" | "cloak_on" | "cloak_off" | "blind_fire_on" | "blind_fire_off" | "spectral_shields_on" | "spectral_shields_off" | number
 type Axis = "x" | "y" | "z"
+type OptionKind = "toggle" | "choice" | "number"
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
@@ -77,6 +78,25 @@ type FillStyle = {
 type Size = {
     width: number,
     height: number,
+}
+type Page = {
+    title: string,
+    options: { Option },
+}
+type Option = {
+    key: string,
+    label: string,
+    kind: OptionKind,
+    default: boolean | number | string,
+    description: string?,
+    choices: { Choice }?,
+    min: number?,
+    max: number?,
+    step: number?,
+}
+type Choice = {
+    value: boolean | number | string,
+    label: string,
 }
 type Outcome = {
     ending: Ending,
@@ -339,6 +359,14 @@ type Vfs = {
     read_mod: (name: string) -> string?,
     -- Whether the game has the file `name`, in a mod or of its own.
     exists: (name: string) -> boolean,
+}
+
+-- The options a mod offers the player on the mods screen: declaring the page, and reading the values.
+type Settings = {
+    -- Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.
+    register_page: (page: Page) -> (),
+    -- The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set.
+    get: (key: string) -> boolean | number | string,
 }
 
 -- Lines and text placed in the world, drawn over the flight display where the camera sees them, for debugging.
@@ -959,6 +987,7 @@ type MenuScript = {
         on_console_command: ((text: string) -> ())?,
         on_viewport_resized: ((width: number, height: number) -> ())?,
         on_interface_override: ((base: { [any]: any }) -> ())?,
+        on_setting_changed: ((key: string, value: boolean | number | string) -> ())?,
     }?,
     event_handlers: { [string]: (data: any) -> boolean? }?,
     interface_name: string?,

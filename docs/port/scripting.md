@@ -411,6 +411,29 @@ sections.
   OpenReliant starts (`Storage.readGlobal`), and the files of the mods whose sections changed are
   written at most every 2 seconds and as OpenReliant quits (`Storage.flush`).
 
+## Options
+
+[`settings.zig`](../../src/scripting/settings.zig) is the `openreliant.settings` package and the
+registry of the mods' pages (`settings.Registry`), which the driver makes with the storage and
+reaches both Luau states through `runtime.Shared`.
+
+- `register_page` reads a table of lists and values: `values.read` takes a `values.List` as a
+  table of values in order, at most its capacity, and a union of a boolean, a number and a string as
+  whichever the value is (`mod_options.Value`). The page is checked (`mod_options.Option.problem`
+  and the keys' being unique) and copied into the registry's arena, as the mod's page
+  (`mod_options.Page`). Load and menu scripts can register, until the driver closes the registry
+  once the menu scripts have started (`Registry.close`).
+- The values are the mod's global storage section `settings` (`settings.section_name`), written by
+  `Storage.put`. A value that is the option's default takes the field out. Reading goes through
+  `Option.fit`, which gives the default for a value that doesn't suit the option, and a choice's
+  own copy of its value, so that what the screen holds lasts as long as the page.
+- The mods screen reaches the pages and values through `mod_options.Pages`, whose three functions
+  `Registry.pages` fills in, as the settings screen reaches OpenReliant's options through
+  `settings.Own`. A change is also noted in the registry (`Registry.takeChange`). The driver takes
+  the changes after each pass of the front end and tells the mod's menu scripts
+  (`Presentation.settingChanged`, `Runner.callMod`): the screen is the front end's, so no game
+  scripts run then.
+
 ## Timers
 
 [`async.zig`](../../src/scripting/async.zig) runs a mod's functions after a while.

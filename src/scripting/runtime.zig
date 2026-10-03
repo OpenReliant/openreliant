@@ -29,6 +29,7 @@ const objects = @import("objects.zig");
 const game_module = @import("game.zig");
 const presentation_module = @import("presentation.zig");
 const storage_module = @import("storage.zig");
+const settings_module = @import("settings.zig");
 const running_module = @import("running.zig");
 const stored = @import("stored.zig");
 const bigfile = openreliant.engine.game.bigfile;
@@ -84,6 +85,9 @@ pub const Shared = struct {
     storage: ?*storage_module.Storage = null,
     /// The game's files, as the game reads them, mods first (`vfs.zig`); null where there are none.
     files: ?bigfile.Hog = null,
+    /// The pages of options the mods offer, which their values are kept for (`settings.zig`); null
+    /// where there are none.
+    settings: ?*settings_module.Registry = null,
 };
 
 /// The interrupt callback reads the clock on every this many calls, since reading it on every call

@@ -26,6 +26,7 @@ const Value = stored.Value;
 const runtime_module = @import("runtime.zig");
 const api = @import("api.zig");
 const Call = api.Call;
+const settings = @import("settings.zig");
 
 /// Where a section is kept.
 pub const Scope = enum {
@@ -130,6 +131,12 @@ pub const Storage = struct {
         if (value == .nil) return;
         try section.fields.ensureUnusedCapacity(storage.gpa, 1);
         section.fields.appendAssumeCapacity(.{ .key = try storage.gpa.dupe(u8, key), .value = value });
+    }
+
+    /// Sets the field `key` of the section `name` of `mod` kept in `scope` to `value`, which it takes
+    /// over unless it fails; nil takes the field out.
+    pub fn put(storage: *Storage, mod: []const u8, name: []const u8, scope: Scope, key: []const u8, value: Value) Allocator.Error!void {
+        try storage.set(try storage.obtain(mod, name, scope), key, value);
     }
 
     fn markChanged(storage: *Storage, mod: []const u8) Allocator.Error!void {
@@ -378,6 +385,8 @@ fn gameSection(state: *State) i32 {
 }
 
 fn globalSection(state: *State) i32 {
+    const reserved = state.toString(1) orelse "";
+    if (std.mem.eql(u8, reserved, settings.section_name)) state.raise("storage: the section '{s}' keeps the mod's settings; read them with openreliant.settings", .{reserved});
     return pushSection(state, .global);
 }
 

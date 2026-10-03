@@ -23,6 +23,7 @@ const interface = game.interface;
 const canvas = interface.canvas;
 const main_menu = interface.main_menu;
 const mod_manager = interface.mod_manager;
+const mod_options = interface.mod_options;
 const game_options = interface.game_options;
 const pilot_roster = interface.pilot_roster;
 const saved_games = interface.saved_games;
@@ -51,6 +52,8 @@ pub const Screen = enum(u8) {
     controls = 16,
     /// OpenReliant's mods screen (`mod_manager`), which has no number in the game.
     mods = 100,
+    /// The page of options a mod's scripts offer (`mod_options`), which the mods screen opens.
+    mod_options = 101,
     _,
 
     pub fn format(screen: Screen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -190,7 +193,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
         .audio => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .audio).?.background },
         .controls => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .controls).?.background },
         .video => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .video).?.background },
-        .mods => .{ .shapes = settings.shapes_name, .background = mod_manager.opening.background },
+        .mods, .mod_options => .{ .shapes = settings.shapes_name, .background = mod_manager.opening.background },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
         .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
         else => null,
@@ -237,6 +240,9 @@ pub const Interface = struct {
     game_options: game_options.GameOptions = .{},
     settings: settings.Settings = .{},
     mod_manager: mod_manager.ModManager = .{},
+    mod_options: mod_options.ModOptions = .{},
+    /// The mod the mods screen has opened the options of, while they are shown.
+    options_of: []const u8 = "",
     pilot_roster: pilot_roster.Roster = .{},
     saved_games: saved_games.SavedGames = .{},
     /// The pilot the roster sets, which every mission the front end starts is flown by.
@@ -322,8 +328,27 @@ pub const Interface = struct {
             .mods => {
                 const mods = context.mods orelse return front.backToOptions();
                 const settings_file = context.settings orelse return front.backToOptions();
-                const end = front.mod_manager.frame(modsContext(front, context, settings_file, mods, pointer)) orelse return null;
-                front.leaveToMenus(end);
+                const left = front.mod_manager.frame(modsContext(front, context, settings_file, mods, pointer)) orelse return null;
+                switch (left) {
+                    .end => |end| front.leaveToMenus(end),
+                    .options => |mod| {
+                        front.options_of = mod;
+                        front.screen = .mod_options;
+                    },
+                }
+                return null;
+            },
+            .mod_options => {
+                const mods = context.mods orelse return front.backToOptions();
+                const end = front.mod_options.frame(.{ .pointer = pointer, .keyboard = &context.devices.keyboard, .ticks = front.ticks, .pages = mods.pages }) orelse return null;
+                switch (end) {
+                    // Back to the mods screen as it was left, with no movie between.
+                    .back, .continue_mission => {
+                        front.screen = .mods;
+                        front.entered = .mods;
+                    },
+                    .main_menu => front.leaveToMenus(end),
+                }
                 return null;
             },
             .audio, .controls, .video => {
@@ -411,6 +436,10 @@ pub const Interface = struct {
             .controls => if (context.settings) |settings_file| front.settings.enter(.game_options, .controls, settingsContext(front, context, settings_file, front.pointer)),
             .video => if (context.settings) |settings_file| front.settings.enter(.game_options, .video, settingsContext(front, context, settings_file, front.pointer)),
             .mods => if (context.settings) |settings_file| if (context.mods) |mods| front.mod_manager.enter(modsContext(front, context, settings_file, mods, front.pointer)),
+            .mod_options => if (context.mods) |mods| {
+                const shown = front.mod_options.enter(front.options_of, .{ .pointer = front.pointer, .keyboard = &context.devices.keyboard, .ticks = front.ticks, .pages = mods.pages });
+                if (!shown) front.screen = .mods;
+            },
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
             .saved_games => if (context.saves) |saves| front.saved_games.enter(.load, .roster, savesContext(front, context, saves, front.pointer)),
             else => {},
@@ -440,7 +469,10 @@ pub const Interface = struct {
     /// Leaves the screen entered, as it ends its loop.
     fn leave(front: *Interface, context: Context) void {
         if (front.entered == .pilot_roster) pilot_roster.Roster.leave(context.typed);
-        if (front.entered == .mods) front.mod_manager.release();
+        // The mods screen keeps what REFRESH opened while its options are shown, and frees it as either
+        // is left for another screen.
+        const to_options = front.entered == .mods and front.screen == .mod_options;
+        if ((front.entered == .mods or front.entered == .mod_options) and !to_options) front.mod_manager.release();
         front.entered = null;
     }
 
@@ -480,6 +512,7 @@ pub const Interface = struct {
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about, front.pointer),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown, front.pointer),
             .mods => try front.mod_manager.draw(drawn, art, front.pointer),
+            .mod_options => try front.mod_options.draw(drawn, art, front.pointer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
             .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
             else => {},

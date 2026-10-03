@@ -23,6 +23,7 @@ pub const induction = @import("interface/induction.zig");
 pub const locker = @import("interface/locker.zig");
 pub const main_menu = @import("interface/main_menu.zig");
 pub const mod_manager = @import("interface/mod_manager.zig");
+pub const mod_options = @import("interface/mod_options.zig");
 pub const pilot_roster = @import("interface/pilot_roster.zig");
 pub const restart = @import("interface/restart.zig");
 pub const rooms = @import("interface/rooms.zig");

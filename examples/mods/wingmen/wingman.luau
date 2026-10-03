@@ -4,9 +4,10 @@
 
 local self = require("openreliant.self")
 local core = require("openreliant.core")
+local settings = require("openreliant.settings")
 
--- The share of its armour left below which a wingman pulls out.
-local pull_out_below = 0.3
+-- The share of its armour left below which a wingman pulls out, which the mod's options set.
+local pull_out_below = settings.get("pull_out_below")
 
 -- Whether this wingman has pulled out already. Each fighter's script has its own.
 local pulled_out = false

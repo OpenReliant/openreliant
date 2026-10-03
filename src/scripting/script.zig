@@ -11,6 +11,7 @@ const gameobj = openreliant.engine.game.gameobj;
 const create = openreliant.engine.game.create;
 const engine_hooks = openreliant.engine.hooks;
 const input = openreliant.engine.input;
+const mod_options = openreliant.engine.game.interface.mod_options;
 const Object = engine_hooks.Object;
 const data = @import("data.zig");
 const values = @import("values.zig");
@@ -182,6 +183,7 @@ pub const Handler = enum {
     on_console_command,
     on_viewport_resized,
     on_interface_override,
+    on_setting_changed,
 
     /// Whether a script of `family` may use this handler.
     pub fn givenBy(handler: Handler, family: Family) bool {
@@ -196,6 +198,8 @@ pub const Handler = enum {
             .on_mission_start, .on_mission_end => family == .global or family == .player or family == .menu,
             .on_object_added, .on_object_removed => family == .global,
             .on_added, .on_removed => family == .object,
+            // The options are set in the front end, where the menu scripts run.
+            .on_setting_changed => family == .menu,
         };
     }
 
@@ -221,6 +225,7 @@ pub const Handler = enum {
             .on_console_command => "When a line typed in the console isn't one of its commands, with the line.",
             .on_viewport_resized => "When the window changes size, with its new size in pixels.",
             .on_interface_override => "When the script's interface takes the place of one an earlier script offered under the same name, with that one.",
+            .on_setting_changed => "When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `settings.get` as they start.",
         };
     }
 
@@ -241,6 +246,7 @@ pub const Handler = enum {
             .on_action => struct { action: input.controls.Action },
             .on_viewport_resized => struct { width: u32, height: u32 },
             .on_console_command => struct { text: []const u8 },
+            .on_setting_changed => struct { key: []const u8, value: mod_options.Value },
         };
     }
 
@@ -249,7 +255,7 @@ pub const Handler = enum {
     pub fn Result(comptime handler: Handler) type {
         return switch (handler) {
             .on_save => ?data.Data,
-            .on_init, .on_load, .on_records_loaded, .on_update, .on_step, .on_frame, .on_mission_start, .on_mission_end, .on_object_added, .on_object_removed, .on_added, .on_removed, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_viewport_resized, .on_interface_override => void,
+            .on_init, .on_load, .on_records_loaded, .on_update, .on_step, .on_frame, .on_mission_start, .on_mission_end, .on_object_added, .on_object_removed, .on_added, .on_removed, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_viewport_resized, .on_interface_override, .on_setting_changed => void,
         };
     }
 };
@@ -275,6 +281,7 @@ pub const Package = enum {
     interfaces,
     util,
     vfs,
+    settings,
     debug,
 
     /// The prefix of package names.
@@ -289,7 +296,7 @@ pub const Package = enum {
     /// Whether a script of `family` may require this package.
     pub fn reachableFrom(package: Package, family: Family) bool {
         return switch (package) {
-            .core, .records, .storage, .util, .vfs => true,
+            .core, .records, .storage, .util, .vfs, .settings => true,
             .async, .interfaces => family != .load,
             // The hooks there are so far are all the game's.
             .hooks => family == .global or family == .object,
@@ -325,6 +332,7 @@ pub const Package = enum {
             .interfaces => "The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers.",
             .util => "Orientations, turning points between the world and an object's own frame, and angles. Luau's vector library has the rest of the vector maths.",
             .vfs => "Reading the game's and the mods' files.",
+            .settings => "The options a mod offers the player on the mods screen: declaring the page, and reading the values.",
             .debug => "Lines and text placed in the world, drawn over the flight display where the camera sees them, for debugging.",
         };
     }
@@ -332,7 +340,7 @@ pub const Package = enum {
     /// Whether this version implements this package.
     pub fn ready(package: Package) bool {
         return switch (package) {
-            .core, .records, .hooks, .world, .self, .nearby, .orders, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .util, .vfs => true,
+            .core, .records, .hooks, .world, .self, .nearby, .orders, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .util, .vfs, .settings => true,
             .postprocessing, .shaders => false,
         };
     }

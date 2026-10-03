@@ -142,16 +142,26 @@ fn luauType(comptime T: type) []const u8 {
         if (T == data.Data) return "any";
         if (T == values.Table) return "{ [any]: any }";
         return switch (@typeInfo(T)) {
+            .@"union" => |info| unionType(info),
             .void => api.nothing,
             .float, .int => "number",
             .bool => "boolean",
             .@"enum", .@"struct" => bind.noun(T),
-            .optional => |optional| luauType(optional.child) ++ "?",
+            .optional => |optional| if (@typeInfo(optional.child) == .@"union") "(" ++ luauType(optional.child) ++ ")?" else luauType(optional.child) ++ "?",
             .vector => "vector",
             .array => |array| if (array.child == u8) "string" else "{ " ++ luauType(array.child) ++ " }",
             .pointer => "string",
             else => @compileError("no Luau type for " ++ @typeName(T)),
         };
+    }
+}
+
+/// The Luau type of a union of booleans, numbers and strings: whichever of them.
+fn unionType(comptime info: std.builtin.Type.Union) []const u8 {
+    comptime {
+        var text: []const u8 = "";
+        for (info.fields, 0..) |field, at| text = text ++ (if (at == 0) "" else " | ") ++ luauType(field.type);
+        return text;
     }
 }
 
@@ -409,7 +419,7 @@ fn writeTable(w: *Writer, comptime name: []const u8, comptime T: type) Writer.Er
     try w.print("type {s} = {{\n", .{name});
     inline for (comptime values.shownFields(T)) |field| {
         // A field with a default can be left out of a table a script gives.
-        const optional = if (comptime given(T) and field.defaultValue() != null) "?" else "";
+        const optional = if (comptime given(T) and field.defaultValue() != null and @typeInfo(field.type) != .optional) "?" else "";
         try w.print("    {s}: {s}{s},\n", .{ field.name, comptime luauType(field.type), optional });
     }
     try w.writeAll("}\n");
@@ -438,6 +448,8 @@ fn defaultText(comptime field: std.builtin.Type.StructField) []const u8 {
             .@"enum" => "`\"" ++ @tagName(value) ++ "\"`",
             .vector => std.fmt.comptimePrint("`vector.create({d}, {d}, {d})`", .{ value[0], value[1], value[2] }),
             .optional => "nil",
+            .pointer => "`\"" ++ value ++ "\"`",
+            .@"struct" => if (values.isList(field.type) and value.len == 0) "none" else @compileError("no way to write the default of " ++ @typeName(field.type)),
             else => @compileError("no way to write the default of " ++ @typeName(field.type)),
         };
     }
@@ -711,7 +723,7 @@ fn markdownType(comptime T: type) []const u8 {
             for (name) |c| anchor = anchor ++ .{std.ascii.toLower(c)};
             return "[" ++ name ++ "](#" ++ anchor ++ ")" ++ optional;
         }
-        return luauType(Plain) ++ optional;
+        return cell(luauType(Plain)) ++ optional;
     }
 }
 

@@ -43,6 +43,7 @@ include mission scripts.
 | `on_console_command(text: string)` | player and menu | When a line typed in the console isn't one of its commands, with the line. |
 | `on_viewport_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
 | `on_interface_override(base: { [any]: any })` | global, object, player and menu | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
+| `on_setting_changed(key: string, value: boolean | number | string)` | menu | When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `settings.get` as they start. |
 
 ## Packages
 
@@ -200,6 +201,15 @@ Reading the game's and the mods' files. For load, global, object, player and men
 | `read(name: string)` | string? | The file `name` as the game reads it: a mod's, the latest mod's first, or else the game's own, as a string of its bytes. Nil where there's none. |
 | `read_mod(name: string)` | string? | The calling mod's own file `name`, as a string of its bytes. Nil where it has none. |
 | `exists(name: string)` | boolean | Whether the game has the file `name`, in a mod or of its own. |
+
+### `openreliant.settings`
+
+The options a mod offers the player on the mods screen: declaring the page, and reading the values. For load, global, object, player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `register_page(page: Page)` | nothing | Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page. |
+| `get(key: string)` | boolean \| number \| string | The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set. |
 
 ### `openreliant.debug`
 
@@ -787,6 +797,36 @@ A table a script gives, which may leave out any field.
 | `width` | number |
 | `height` | number |
 
+### Page
+
+| Field | Type |
+|---|---|
+| `title` | string |
+| `options` | list of [Option](#option) |
+
+### Option
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `key` | string | needed |
+| `label` | string | needed |
+| `kind` | [OptionKind](#optionkind) | needed |
+| `default` | boolean \| number \| string | needed |
+| `description` | string | `""` |
+| `choices` | list of [Choice](#choice) | none |
+| `min` | number, or nil | nil |
+| `max` | number, or nil | nil |
+| `step` | number, or nil | nil |
+
+### Choice
+
+| Field | Type |
+|---|---|
+| `value` | boolean \| number \| string |
+| `label` | string |
+
 ### Outcome
 
 | Field | Type |
@@ -838,6 +878,10 @@ number. A script can set a field to either.
 ### Axis
 
 `x`, `y`, `z`.
+
+### OptionKind
+
+`toggle`, `choice`, `number`.
 
 ### Ending
 

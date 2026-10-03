@@ -35,6 +35,7 @@ pub const util = @import("scripting/util.zig");
 pub const orders = @import("scripting/orders.zig");
 pub const async = @import("scripting/async.zig");
 pub const storage = @import("scripting/storage.zig");
+pub const settings = @import("scripting/settings.zig");
 pub const events = @import("scripting/events.zig");
 pub const interfaces = @import("scripting/interfaces.zig");
 pub const world = @import("scripting/world.zig");

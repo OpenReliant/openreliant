@@ -269,6 +269,9 @@ the top down, so a mod replaces the files of the mods above it. REFRESH reads th
 again, to find mods you've added or removed while the screen is open.
 
 - CANCEL CHANGES puts the mods back as they were when you opened the screen.
+- OPTIONS opens the page of options the chosen mod offers, if its scripts declare one
+  ([Options](scripting.md#options)). The mod's scripts read what you set; the values are kept in
+  its storage file, `storage\<mod>.data`.
 - The changes take effect the next time OpenReliant starts. RESTART TO APPLY shows while the screen's
   list differs from what's loaded.
 

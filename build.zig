@@ -117,7 +117,7 @@ pub fn build(b: *std.Build) void {
     scripting.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
     scripting.addAnonymousImport("reference.md", .{ .root_source_file = b.path("docs/guide/reference.md") });
     // The example mods whose scripts the tests run as they ship.
-    const example_files = [_][]const u8{ "wingmen/mod.ini", "wingmen/wingman.luau", "wingmen/wingmen.luau", "wingmen/status.luau", "dvd/mod.ini", "dvd/dvd.luau" };
+    const example_files = [_][]const u8{ "wingmen/mod.ini", "wingmen/options.luau", "wingmen/wingman.luau", "wingmen/wingmen.luau", "wingmen/status.luau", "dvd/mod.ini", "dvd/dvd.luau" };
     for (example_files) |file| {
         scripting.addAnonymousImport(file, .{ .root_source_file = b.path(b.fmt("examples/mods/{s}", .{file})) });
     }

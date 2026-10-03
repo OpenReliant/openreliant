@@ -19,6 +19,7 @@ const async_package = @import("async.zig");
 const vfs = @import("vfs.zig");
 const util = @import("util.zig");
 const orders = @import("orders.zig");
+const settings = @import("settings.zig");
 
 /// The namespace that declares `package`; null for a package made otherwise, or not made yet.
 pub fn namespace(comptime package: script.Package) ?type {
@@ -37,6 +38,7 @@ pub fn namespace(comptime package: script.Package) ?type {
         .vfs => vfs.package,
         .util => util.package,
         .orders => orders.package,
+        .settings => settings.package,
         .records, .hooks, .self, .interfaces, .postprocessing, .shaders => null,
     };
 }

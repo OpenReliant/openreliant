@@ -8,7 +8,9 @@
 //! - An optional that holds nothing is nil.
 //! - An object (`engine.hooks.Object`) is a handle (`objects.zig`).
 //! - A list (`List`) is a table of its values in order, such as handles for a list of objects
-//!   (`objects.List`).
+//!   (`objects.List`). Scripts can give one too, as a table of values in order.
+//! - A union of booleans, numbers and strings is whichever of them the value is, as a boolean, a
+//!   number or a string.
 //! - Plain data passed on (`data.Data`) is the copy made of it.
 //! - Any other struct is a read-only table of its fields.
 //!
@@ -52,6 +54,11 @@ pub fn List(comptime T: type, comptime capacity: usize) type {
     };
 }
 
+/// How many values a `List` type holds at most.
+pub fn capacityOf(comptime T: type) usize {
+    return @typeInfo(@FieldType(T, "items")).array.len;
+}
+
 /// Whether `T` is a `List`.
 pub fn isList(comptime T: type) bool {
     return @typeInfo(T) == .@"struct" and @hasDecl(T, "Item") and T == List(T.Item, @typeInfo(@FieldType(T, "items")).array.len);
@@ -61,6 +68,11 @@ pub fn isList(comptime T: type) bool {
 pub fn push(state: *State, comptime T: type, value: T) void {
     if (T == Object) return objects.push(state, value.slot());
     if (comptime isList(T)) return pushList(state, T, value);
+    if (@typeInfo(T) == .@"union") {
+        switch (value) {
+            inline else => |held| return push(state, @TypeOf(held), held),
+        }
+    }
     if (T == data.Data or T == Table) {
         _ = state.pushRef(value.ref);
         return;
@@ -126,6 +138,7 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
         defer state.pop(1);
         return .{ .ref = state.ref(-1) };
     }
+    if (comptime isList(T)) return readList(state, T, given, label);
     switch (@typeInfo(T)) {
         .float => {
             const number = state.toNumber(given) orelse wrongType(state, label, "a number", given);
@@ -185,7 +198,61 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
             return state.toString(given) orelse wrongType(state, label, "a string", given);
         },
         .@"struct" => return readTable(state, T, given, label),
+        .@"union" => |info| {
+            const kind = state.typeOf(given);
+            inline for (info.fields) |field| {
+                if (kind == comptime luauKind(field.type)) return @unionInit(T, field.name, read(state, field.type, given, label));
+            }
+            wrongType(state, label, comptime kindNames(T), given);
+        },
         else => @compileError("scripts can't write a " ++ @typeName(T)),
+    }
+}
+
+/// The kind of Luau value that is read as a `T`, for a union of booleans, numbers and strings.
+fn luauKind(comptime T: type) luau.Type {
+    return switch (@typeInfo(T)) {
+        .bool => .boolean,
+        .float, .int => .number,
+        .pointer => .string,
+        else => @compileError("a union scripts give holds booleans, numbers and strings, not " ++ @typeName(T)),
+    };
+}
+
+/// What a union of booleans, numbers and strings takes, for error messages: "a boolean, a number or
+/// a string".
+fn kindNames(comptime T: type) []const u8 {
+    comptime {
+        const fields = @typeInfo(T).@"union".fields;
+        var text: []const u8 = "";
+        for (fields, 0..) |field, at| {
+            const separator = if (at == 0) "" else if (at == fields.len - 1) " or " else ", ";
+            text = text ++ separator ++ switch (luauKind(field.type)) {
+                .boolean => "a boolean",
+                .number => "a number",
+                .string => "a string",
+                else => unreachable,
+            };
+        }
+        return text;
+    }
+}
+
+/// The table at `given` as a list of `T`, its values read in order: the table's array part, up to
+/// its first gap.
+fn readList(state: *State, comptime T: type, given: i32, comptime label: []const u8) T {
+    if (state.typeOf(given) != .table) wrongType(state, label, "a list", given);
+    const at = state.absolute(given);
+    var list: T = .{};
+    var n: i32 = 1;
+    while (true) : (n += 1) {
+        if (state.rawGetIndex(at, n) == .nil) {
+            state.pop(1);
+            return list;
+        }
+        if (list.len == capacityOf(T)) state.raise("{s}: at most {d} values", .{ label, capacityOf(T) });
+        list.append(read(state, T.Item, -1, label));
+        state.pop(1);
     }
 }
 
@@ -293,6 +360,37 @@ test choices {
     try std.testing.expectEqualStrings("'left', 'right' or 'fore'", comptime choices(Exact));
     try std.testing.expectEqual(null, name(Level, ._unknown_2));
     try std.testing.expectEqualStrings("high", name(Level, .high).?);
+}
+
+test "lists and unions of plain values are read" {
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    const Plain = union(enum) { on: bool, number: f64, text: []const u8 };
+    const Row = struct { name: []const u8, value: Plain };
+    const Rows = List(Row, 2);
+    const bind = @import("bind.zig");
+    state.pushFunction(luau.wrap(struct {
+        fn run(called: *State) i32 {
+            const rows = read(called, Rows, 1, "rows");
+            called.pushNumber(@floatFromInt(rows.len));
+            push(called, Plain, rows.items[0].value);
+            push(called, Plain, rows.items[1].value);
+            return 3;
+        }
+    }.run), "rows");
+    state.setGlobal("rows");
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+    try bind.testing.runSource(thread,
+        \\local n, a, b = rows({ { name = "a", value = true }, { name = "b", value = "two" } })
+        \\assert(n == 2 and a == true and b == "two")
+        \\local n2, c = rows({ { name = "a", value = 3.5 }, { name = "b", value = 1 } })
+        \\assert(n2 == 2 and c == 3.5)
+    );
+    try bind.testing.expectSourceError(thread, "rows({ { name = 'a', value = 1 }, { name = 'b', value = 2 }, { name = 'c', value = 3 } })", "at most 2 values");
+    try bind.testing.expectSourceError(thread, "rows({ { name = 'a', value = {} }, { name = 'b', value = 2 } })", "a boolean, a number or a string");
+    try bind.testing.expectSourceError(thread, "rows(5)", "expected a list");
 }
 
 test "values go to scripts and back" {

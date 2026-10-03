@@ -27,6 +27,7 @@ const hud = engine.game.hud;
 const camera = engine.game.camera;
 const hog_snd = engine.game.hog_snd;
 const input = engine.input;
+const mod_options = engine.game.interface.mod_options;
 const controls = engine.input.controls;
 const device = engine.surrender.srd3d.device;
 const engine_hooks = engine.hooks;
@@ -196,6 +197,11 @@ pub const Presentation = struct {
         shown.runner.callAll(.on_mission_end, .{ .outcome = outcome });
     }
 
+    /// Tells the scripts of the mod `mod` that the player set its option `option` to `value`.
+    pub fn settingChanged(shown: *Presentation, mod: []const u8, option: []const u8, value: mod_options.Value) void {
+        shown.runner.callMod(mod, .on_setting_changed, .{ .key = option, .value = value });
+    }
+
     /// Tells the scripts that `key` went down or up. A key held down that the window repeats is
     /// told once.
     pub fn key(shown: *Presentation, pressed: input.Key, down: bool) void {
@@ -292,6 +298,12 @@ const Fixture = struct {
     font: hud.Opened,
 
     fn init(fixture: *Fixture, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }) !void {
+        return fixture.initShared(made, .{});
+    }
+
+    /// `init`, with what the mods share; where it has a registry of options, the load scripts run
+    /// first, to declare the pages the others read.
+    fn initShared(fixture: *Fixture, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }, shared: runtime.Shared) !void {
         const gpa = std.testing.allocator;
         const io = std.testing.io;
         fixture.* = .{ .tmp = std.testing.tmpDir(.{ .iterate = true }), .mods = undefined, .arena = .init(gpa), .held = undefined, .mission = undefined, .shown = undefined, .font = .open(try openreliant.fnt.Font.parse(comptime openreliant.fnt.testing.font(false)), null) };
@@ -304,7 +316,8 @@ const Fixture = struct {
         try fixture.mission.init(gpa);
         errdefer fixture.mission.deinit();
         _ = try fixture.mission.add(.predator, @splat(0));
-        fixture.shown = (try Presentation.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", .{})).?;
+        if (shared.settings != null) try load.run(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared);
+        fixture.shown = (try Presentation.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared)).?;
     }
 
     fn deinit(fixture: *Fixture) void {
@@ -479,16 +492,24 @@ test "the bouncing DVD logo example drifts, bounces and changes colour" {
 }
 
 test "the wingmen example's panel lists the wingmen nearby, and calls them back" {
+    const storage_module = @import("storage.zig");
+    const settings_module = @import("settings.zig");
+    const gpa = std.testing.allocator;
+    var storage: storage_module.Storage = .{ .gpa = gpa };
+    defer storage.deinit();
+    var pages: settings_module.Registry = .init(gpa, &storage);
+    defer pages.deinit();
+    const shared: runtime.Shared = .{ .storage = &storage, .settings = &pages };
     var fixture: Fixture = undefined;
-    try fixture.init(&.{.{ "wingmen", &.{
+    try fixture.initShared(&.{.{ "wingmen", &.{
         .{ "mod.ini", @embedFile("wingmen/mod.ini") },
+        .{ "options.luau", @embedFile("wingmen/options.luau") },
         .{ "wingman.luau", @embedFile("wingmen/wingman.luau") },
         .{ "wingmen.luau", @embedFile("wingmen/wingmen.luau") },
         .{ "status.luau", @embedFile("wingmen/status.luau") },
-    } }});
+    } }}, shared);
     defer fixture.deinit();
-    const gpa = std.testing.allocator;
-    const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
+    const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, shared, false)).?;
     defer game.stop();
     game.scripts.begin(fixture.mission.orders(), .{ .number = 5, .file = "mission5.dte" }, 1);
     const wingman = try fixture.mission.add(.wolverine, .{ 0, 0, -1000 });
@@ -520,4 +541,26 @@ test "the wingmen example's panel lists the wingmen nearby, and calls them back"
     game.scripts.update(0.1);
     game.scripts.update(0.1);
     try std.testing.expectEqual(.formation, slot.current().?.order);
+}
+
+test "menu scripts are told of their own mod's options" {
+    var fixture: Fixture = undefined;
+    const handler =
+        \\local ui = require("openreliant.ui")
+        \\local heard = "nothing"
+        \\return { engine_handlers = {
+        \\    on_setting_changed = function(key, value) heard = key .. "=" .. tostring(value) end,
+        \\    on_frame = function() ui.text(vector.create(0, 0, 0), heard) end,
+        \\} }
+    ;
+    try fixture.init(&.{
+        .{ "a", &.{ .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" }, .{ "menu.luau", handler } } },
+        .{ "b", &.{ .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" }, .{ "menu.luau", handler } } },
+    });
+    defer fixture.deinit();
+    fixture.shown.settingChanged("b", "flee", .{ .number = 0.35 });
+    fixture.shown.settingChanged("b", "show", .{ .boolean = false });
+    fixture.frame(0.016, .{ 800, 600 });
+    // Mod a heard nothing, and mod b the last of its changes.
+    try std.testing.expectEqualStrings("nothingshow=false", fixture.shown.layers.getPtr(.ui).text.items);
 }

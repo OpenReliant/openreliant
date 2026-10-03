@@ -245,12 +245,17 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     defer storage.deinit();
     defer storage.flush();
     try storage.readGlobal(mods.list);
-    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources };
+    // The pages of options the mods' load and menu scripts declare as OpenReliant starts, whose
+    // values are kept in the storage.
+    var option_pages: scripting.settings.Registry = .init(gpa, &storage);
+    defer option_pages.deinit();
+    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .settings = &option_pages };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
     const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string, shared);
     defer if (presentation) |shown| shown.stop();
+    option_pages.close();
     const ship_stats = records.ships;
     const gun_stats = records.guns;
     const missile_stats = records.missiles;
@@ -635,7 +640,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .video = video_settings,
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
         // The mods screen, which with `--no-mods` stays shut.
-        .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic } else null,
+        .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
     };
     // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
     // play and draw with: made as the front end's resources open.
@@ -799,6 +804,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
             const front_outcome = if (console_up) null else front.frame(front_context);
+            // What the player set on the mods screen goes to the mod's menu scripts.
+            while (option_pages.takeChange()) |change| {
+                if (presentation) |shown| shown.settingChanged(change.mod, change.key, change.value);
+            }
             if (front_outcome) |outcome| {
                 const through = &rooms.?;
                 switch (outcome) {

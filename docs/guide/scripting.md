@@ -477,10 +477,57 @@ end
 - A global section is kept in the game folder, in `storage\<mod>.data`, across every game. Any
   script can change it. OpenReliant writes the sections that changed at most every 2 seconds, and
   as it quits.
+- The global section called `settings` is the mod's options ([Options](#options)), which
+  `global_section` doesn't open.
 - Each mod has its own sections: two mods' sections of the same name are separate. Every script of
   the mod sees the same sections, on either side.
 - Values are plain data, copied as they're stored and as they're read, so changing a table read
   from a section changes nothing until it's stored again. Setting a field to nil removes it.
+
+## Options
+
+A mod can offer the player options, which the player sets on the mods screen: GAME OPTIONS, then
+MODS, then OPTIONS with the mod chosen. A load or menu script declares the mod's page as
+OpenReliant starts, with `openreliant.settings`, and any script of the mod reads the values:
+
+```lua
+local settings = require("openreliant.settings")
+
+settings.register_page({
+    title = "WINGMEN",
+    options = {
+        { key = "show_panel", label = "SHOW PANEL", kind = "toggle", default = true },
+        { key = "pull_out_below", label = "PULL OUT BELOW", kind = "choice", default = 0.3,
+          choices = { { value = 0.2, label = "20%" }, { value = 0.3, label = "30%" } } },
+        { key = "rejoin_after", label = "REJOIN AFTER", kind = "number",
+          min = 5, max = 60, step = 5, default = 20,
+          description = "The seconds a wingman stays out of the fight." },
+    },
+})
+
+local rejoin_after = settings.get("rejoin_after")
+```
+
+- A `"toggle"` is a check box, with a boolean default. A `"choice"` steps through its `choices`, each
+  a number or a string `value` with the `label` the screen shows, and its default is one of the
+  values. A `"number"` steps from `min` to `max` by `step`, and its default is in the range.
+- A page has up to 64 options, a choice up to 32 choices, and a mod one page. A mistake in the page
+  is an error in the script that declares it.
+- Only load and menu scripts declare a page, and only as OpenReliant starts: the pages are fixed
+  before the front end shows. A mod that is off has no page until it's turned on and OpenReliant
+  has restarted.
+- `settings.get(key)` gives what the player set, or the default. A value that no longer suits the
+  option, such as a choice the mod has since dropped, reads as the default.
+- The player sets options in the front end, before a game starts. A script that runs in a game
+  reads them as it starts. A menu script can also hear a change at once, with the engine handler
+  `on_setting_changed(key, value)`.
+- The values are kept in the mod's global storage, in a section of its own that
+  `storage.global_section` doesn't open. A value that is the default isn't kept.
+- Changing the options in a game, and more kinds of option, are planned
+  ([#600](https://github.com/OpenReliant/openreliant/issues/600),
+  [#601](https://github.com/OpenReliant/openreliant/issues/601)).
+
+[`examples/mods/wingmen`](../../examples/mods/wingmen) offers three options.
 
 ## Timers
 

@@ -491,6 +491,12 @@ const Fixture = struct {
     const collision = openreliant.engine.game.collision;
 
     fn init(fixture: *Fixture, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }) !void {
+        return fixture.initShared(made, .{});
+    }
+
+    /// `init`, with what the mods share; where it has a registry of options, the load scripts run
+    /// first, to declare the pages the others read.
+    fn initShared(fixture: *Fixture, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }, shared: runtime.Shared) !void {
         const gpa = std.testing.allocator;
         const io = std.testing.io;
         fixture.tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -504,7 +510,8 @@ const Fixture = struct {
         try fixture.mission.init(gpa);
         errdefer fixture.mission.deinit();
         _ = try fixture.mission.add(.predator, @splat(0));
-        fixture.game = (try Game.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
+        if (shared.settings != null) try load.run(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared);
+        fixture.game = (try Game.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, shared, false)).?;
         fixture.sabre = try fixture.mission.add(.sabre, .{ 0, 0, 1000 });
     }
 
@@ -865,14 +872,25 @@ test "object scripts read the world around them, and give their object orders" {
 }
 
 test "the wingmen example: a badly damaged wingman runs from its attacker, and rejoins later" {
+    const storage_module = @import("storage.zig");
+    const settings = @import("settings.zig");
+    const mod_options = openreliant.engine.game.interface.mod_options;
+    var storage: storage_module.Storage = .{ .gpa = std.testing.allocator };
+    defer storage.deinit();
+    var pages: settings.Registry = .init(std.testing.allocator, &storage);
+    defer pages.deinit();
     var fixture: Fixture = undefined;
-    try fixture.init(&.{.{ "wingmen", &.{
+    try fixture.initShared(&.{.{ "wingmen", &.{
         .{ "mod.ini", @embedFile("wingmen/mod.ini") },
+        .{ "options.luau", @embedFile("wingmen/options.luau") },
         .{ "wingman.luau", @embedFile("wingmen/wingman.luau") },
         .{ "wingmen.luau", @embedFile("wingmen/wingmen.luau") },
         .{ "status.luau", @embedFile("wingmen/status.luau") },
-    } }});
+    } }}, .{ .storage = &storage, .settings = &pages });
     defer fixture.deinit();
+    // Its options are the defaults until the player sets them.
+    try std.testing.expectEqual(3, pages.page("wingmen").?.options.len);
+    try std.testing.expectEqual(mod_options.Value{ .number = 0.3 }, pages.value("wingmen", "pull_out_below").?);
     fixture.begin();
     const wingman = try fixture.mission.add(.wolverine, .{ 0, 0, -1000 });
     const scripts = &fixture.game.scripts;
