@@ -47,6 +47,7 @@ pub const Arg = enum {
     @"--no-sound",
     @"--no-mods",
     @"--no-intro",
+    @"--developer-mode",
     @"--screenshot",
     @"--screenshot-ticks",
     @"--version",
@@ -123,6 +124,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-sound" = .{ .section = .sound, .text = "play without sound" },
     .@"--no-mods" = .{ .section = .other, .text = "start without the mods in the game's mods folder" },
     .@"--no-intro" = .{ .section = .other, .text = "start without the three movies the game plays as it starts, as --mission and --screenshot do" },
+    .@"--developer-mode" = .{ .section = .other, .text = "the tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading as they're saved" },
     .@"--screenshot" = .{ .section = .other, .value = "<file.png>", .text = "draw one frame, with the camera settled, to a PNG, and quit; the controls, the [OpenReliant] settings and the details in [Device] are not read, so that it comes out the same each time" },
     .@"--screenshot-ticks" = .{ .section = .other, .value = "<ticks>", .text = "with --screenshot, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default" },
     .@"--version" = .{ .section = .other, .text = "show the version" },
@@ -161,7 +163,7 @@ pub const help_page = page: {
             .{ .typed = "F4", .text = "in the sandbox, bring in another wing" },
             .{ .typed = "Alt+Enter", .text = "switch between the window and the full screen" },
             .{ .typed = "Escape", .text = "the pause menu, whose LEAVE MISSION quits" },
-            .{ .typed = "F11", .text = "the scripting console, where a mod has scripts, in the menus too" },
+            .{ .typed = "F11", .text = "in the developer mode, the scripting console, where a mod has scripts, in the menus too" },
             .{ .typed = "0", .text = "save a screenshot, a PNG in the screenshots folder of the game's directory; O does the same in the briefing" },
         }) ++ "\nCommands:\n" ++
         help.table(&.{
@@ -219,6 +221,9 @@ pub const Options = struct {
     intro: bool = true,
     /// Whether to load the mods in the game's `mods` folder (`game.bigfile.Mods`).
     mods: bool = true,
+    /// Whether the tools for writing mods' scripts are on: the scripting console, and folder mods'
+    /// scripts reloading as they're saved (`console.Driver`).
+    developer_mode: bool = false,
     /// Whether the original's look and sound were taken (`--original`), which the options after it
     /// change.
     original: bool = false,
@@ -389,6 +394,7 @@ pub const Options = struct {
             .@"--no-pause-menu" => options.pause_menu = false,
             .@"--no-mods" => options.mods = false,
             .@"--no-intro" => options.intro = false,
+            .@"--developer-mode" => options.developer_mode = true,
             .@"--fullscreen" => options.fullscreen = true,
             .@"--size" => options.settings.size = parseSize(value) orelse return error.BadValue,
             .@"--fps" => {

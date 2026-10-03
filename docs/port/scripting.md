@@ -432,8 +432,8 @@ ported: reading the game's loose files
 
 [`console.zig`](../../src/scripting/console.zig) holds the console: its output, the line typed and
 the lines typed before, and what a line runs as. The driver ([`openreliant/console.zig`](../../src/openreliant/console.zig))
-creates it where a mod has a `.luau` file, brings it up and takes it away with F11, and draws it
-last over the frame.
+creates it in the developer mode (`DeveloperMode`, `--developer-mode`) where a mod has a `.luau`
+file, brings it up and takes it away with F11, and draws it last over the frame.
 
 - **The output** keeps the latest 512 lines, of at most 256 bytes each, and is locked while it
   changes, since the log writes to it from any thread. The driver's log function
@@ -467,8 +467,9 @@ mission shows through.
 
 ### Reloading
 
-The scripts reload as the console asks, and as a folder mod's script is saved: the driver looks at
-when each folder mod's scripts last changed once a second (`console.Watch`). `GameScripts.reload`
+The scripts reload as the console asks, and in the developer mode as a folder mod's script is
+saved: the driver looks at when each folder mod's scripts last changed once a second
+(`console.Watch`). `GameScripts.reload`
 in the driver:
 
 1. takes the scripts' state where a game runs, as a save takes it (`snapshot.take`);

@@ -553,9 +553,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // menu: ramped, as the menus' fonts are, so that its text takes the colour a script gives.
     var script_font: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(arena, resources, game.hud.Resources.font_name, &outlines) else null;
     defer game_scripts.deinit();
-    // The scripting console, where a mod has scripts, which F11 brings up over the front end or
-    // the mission.
-    var console = ScriptConsole.init(gpa, mods.list);
+    // The scripting console, in the developer mode where a mod has scripts, which F11 brings up
+    // over the front end or the mission.
+    var console = if (options.developer_mode) ScriptConsole.init(gpa, mods.list) else null;
     defer if (console) |*shown| shown.deinit();
     display.console = if (console) |*shown| shown else null;
     // The mission `--mission` names, read once from the game's files, or for mission 0, where the

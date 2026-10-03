@@ -72,6 +72,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 |---|---|
 | `--no-mods` | Start without the mods in the game's `mods` folder ([Modding](modding.md)) |
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
+| `--developer-mode` | The tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading as they're saved ([Scripting](scripting.md#the-console)) |
 | `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls, the `[OpenReliant]` settings and the details in `[Device]` are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--version` | Show the version |
@@ -118,7 +119,7 @@ OpenReliant adds:
 |---|---|
 | F2, F3 | In the sandbox, start it again in the previous or next ship type |
 | F4 | In the sandbox, bring in another wing |
-| F11 | The scripting console, where a mod has scripts, in the menus too ([Scripting](scripting.md#the-console)) |
+| F11 | In the developer mode, the scripting console, where a mod has scripts, in the menus too ([Scripting](scripting.md#the-console)) |
 | Alt+Enter | Switch between windowed and fullscreen mode |
 
 ## Configuration file (starlancer.ini)
@@ -176,6 +177,7 @@ Samples=8
 | `Hrtf` | `auto`, `on` or `off`, which AUDIO's 3D SOUND sets: AUTOMATIC, HEADPHONES or SPEAKERS | `--hrtf`, `--no-hrtf` |
 | `Reverb` | 1 or 0, which AUDIO's REVERB sets | `--no-reverb` |
 | `Compressor` | 1 or 0, which AUDIO's COMPRESSOR sets | `--no-compressor` |
+| `DeveloperMode` | 1 or 0; 0 by default | `--developer-mode` |
 
 In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default, or `Original`'s where it is 1.
 

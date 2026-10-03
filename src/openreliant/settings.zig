@@ -70,6 +70,7 @@ const keys = [_]Key{
     .{ .name = hrtf_key, .takes = "auto, on or off", .read = hrtf },
     .{ .name = reverb_key, .takes = on_off, .read = reverb },
     .{ .name = compressor_key, .takes = on_off, .read = compressor },
+    .{ .name = "DeveloperMode", .takes = on_off, .read = onOff("developer_mode") },
 };
 
 /// The keys the settings screen writes (`Own`): the display's options, the graphics' and the
@@ -537,6 +538,7 @@ test read {
         \\Compressor=0
         \\Vsync=0
         \\OutlineFonts=1
+        \\DeveloperMode=1
     );
     try std.testing.expect(chosen.settings.bloom and chosen.settings.sixteen_bit);
     try std.testing.expectEqual(8, chosen.settings.samples);
@@ -546,7 +548,8 @@ test read {
     try std.testing.expectEqual(FrameSize{ .pixels = .{ 800, 600 } }, chosen.settings.size);
     try std.testing.expectEqual(.every_shot, chosen.shot_lights);
     try std.testing.expect(!chosen.smooth_motion and !chosen.settings.vsync);
-    try std.testing.expect(chosen.original and chosen.outline_fonts);
+    try std.testing.expect(chosen.original and chosen.outline_fonts and chosen.developer_mode);
+    try std.testing.expect(!plain.developer_mode);
     const sound = chosen.sound.?;
     try std.testing.expectEqual(.on, sound.player.openal.hrtf);
     try std.testing.expectEqual(1, sound.master.?.ratio);

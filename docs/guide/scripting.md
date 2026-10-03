@@ -43,10 +43,11 @@ Start OpenReliant from a terminal and fly a mission (`--mission 0` flies the san
 log in the terminal shows `info(scripts): tough: started tough.luau`, and the player's ship takes
 half the damage.
 
-What a script prints with `print`, and its errors, go to the log after the mod's name, and to the
-console, which F11 brings up ([The console](#the-console)). A folder mod's scripts reload as soon
-as one is saved, and carry on from where they were. After changing `mod.ini`, adding a file or
-changing a load script, start OpenReliant again.
+What a script prints with `print`, and its errors, go to the log after the mod's name. In the
+developer mode, they go to the console too, and a folder mod's scripts reload as soon as one is
+saved, carrying on from where they were ([The console](#the-console)); otherwise, go back to the
+main menu and start a game again. After changing `mod.ini`, adding a file or changing a load
+script, start OpenReliant again.
 
 ## Kinds of scripts
 
@@ -504,9 +505,13 @@ async.after(30, "reinforce", { wave = 2 })
 
 ## The console
 
-F11 brings up the console, in the menus and in flight, where any mod has scripts. It pauses the
-mission, and F11, Escape or CLOSE takes it away again. It shows what the scripts print and their
-errors, and runs the lines typed into it:
+The developer mode turns on the tools for writing scripts: the console, and reloading. Turn it on
+with `DeveloperMode=1` in the `[OpenReliant]` section of `starlancer.ini`, or with
+`--developer-mode` ([Configuration](configuration.md)); it's off by default.
+
+F11 then brings up the console, in the menus and in flight, where any mod has scripts. It pauses
+the mission, and F11, Escape or CLOSE takes it away again. It shows what the scripts print and
+their errors, and runs the lines typed into it:
 
 | Command | What it does |
 |---|---|
@@ -539,7 +544,8 @@ wingmen global> exit
 
 ### Reloading
 
-A folder mod's scripts reload as soon as one of them is saved, as `reload` reloads them:
+In the developer mode, a folder mod's scripts reload as soon as one of them is saved, as `reload`
+reloads them:
 
 - Global and player scripts start again from their state, as a saved game would keep it
   ([Saved games](#saved-games)): `on_save` runs, and the new scripts get `on_load`.
