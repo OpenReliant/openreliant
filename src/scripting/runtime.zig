@@ -341,6 +341,7 @@ pub const Runtime = struct {
     /// null if the script fails; the error is logged.
     pub fn run(runtime: *Runtime, context: *Context, name: []const u8) ?luau.Ref {
         const registrations = runtime.custom_orders.entries.items.len;
+        const actions_generation = runtime.input_actions.generation;
         const thread = context.thread;
         _ = thread.getGlobal("require");
         thread.pushString(name);
@@ -349,7 +350,7 @@ pub const Runtime = struct {
         runtime.end(outer);
         if (status != .ok) {
             runtime.custom_orders.removeSince(runtime, context, registrations);
-            runtime.input_actions.removeOwner(context);
+            runtime.input_actions.removeSince(context, actions_generation);
             runtime.recover(context, thread);
             return null;
         }

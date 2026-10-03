@@ -28,7 +28,10 @@ fn registerAction(call: Call, name: []const u8, definition: Definition) []const 
     if (call.context.family != .menu) call.raise("input.register_action requires a menu script", .{});
     const scripts = call.runtime();
     if (!openreliant.dte.source.validId(name)) call.raise("action name must be an identifier", .{});
-    if (definition.modifier == .alt or @intFromEnum(definition.modifier) > @intFromEnum(Modifier.alt)) call.raise("action modifier must be none, shift or control", .{});
+    switch (definition.modifier) {
+        .none, .shift, .control => {},
+        else => call.raise("action modifier must be none, shift or control", .{}),
+    }
     if (definition.button) |button| if (button >= engine_input.JoystickState.max_buttons) call.raise("action button is out of range", .{});
     var buffer: [engine_input.actions.name_size]u8 = undefined;
     const qualified = std.fmt.bufPrint(&buffer, "{s}:{s}", .{ call.context.modOf().name, name }) catch call.raise("qualified action name is too long", .{});

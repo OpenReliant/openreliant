@@ -239,7 +239,11 @@ pub const Presentation = struct {
         // Callbacks may register or close contexts; fixed entry slots keep the walk valid.
         const count = registry.count;
         for (0..count) |index| {
-            if (registry.pressed(index, host.devices, host.flying)) shown.runner.callAll(.on_action, .{ .action = registry.entries[index].nameOf() });
+            if (registry.pressed(index, host.devices, host.flying)) {
+                // A handler can reload registration slots. Keep this event's name stable.
+                const name = registry.entries[index].name;
+                shown.runner.callAll(.on_action, .{ .action = std.mem.sliceTo(&name, 0) });
+            }
         }
         shown.runner.advance(host.seconds);
         shown.runner.callAll(.on_frame, .{ .seconds = host.seconds });

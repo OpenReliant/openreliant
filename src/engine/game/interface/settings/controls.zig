@@ -269,8 +269,7 @@ const taken_modifiers = [_]Modifier{ .none, .shift, .control };
 const Waiting = struct {
     action: RowAction,
     old: Binding,
-    /// Registry identity at the time the wait began, to detect reloads while this tab is open.
-    owner: ?*anyopaque = null,
+    generation: u64 = 0,
 };
 
 /// What a waiting row has taken that another action holds: a key of `controls.keys`, by its place
@@ -285,6 +284,7 @@ const Taken = union(enum) {
 const Conflict = struct {
     taken: Taken,
     holder: RowAction,
+    generation: u64 = 0,
     question: dialog.Confirm = .{ .message = .{ .words = "" } },
 };
 
@@ -313,6 +313,13 @@ const RowAction = union(enum) {
             .custom => |index| devices.mod_actions.?.entries[index].labelOf(),
         };
     }
+
+    fn generation(action: RowAction, devices: *const input.Devices) u64 {
+        return switch (action) {
+            .original => 0,
+            .custom => |index| if (devices.mod_actions.?.entries[index].owner != null) devices.mod_actions.?.entries[index].generation else 0,
+        };
+    }
 };
 
 fn actionAt(devices: *const input.Devices, row: usize) ?RowAction {
@@ -322,20 +329,15 @@ fn actionAt(devices: *const input.Devices, row: usize) ?RowAction {
     return .{ .custom = registry.liveIndex(row - controls.list.len - 1) orelse return null };
 }
 
-fn conflictAt(devices: *const input.Devices, except: RowAction, key: ?struct { code: u16, modifier: Modifier }, button: ?u8) ?RowAction {
-    for (std.enums.values(Action)) |original| {
-        const candidate: RowAction = .{ .original = original };
-        if (std.meta.eql(candidate, except)) continue;
-        const binding = candidate.binding(devices);
-        if (if (key) |given| binding.key == given.code and binding.modifier == given.modifier else binding.button == button) return candidate;
-    }
-    const registry = devices.mod_actions orelse return null;
-    for (registry.entries[0..registry.count], 0..) |entry, index| {
-        const candidate: RowAction = .{ .custom = index };
-        if (entry.owner == null or std.meta.eql(candidate, except)) continue;
-        if (if (key) |given| entry.binding.key == given.code and entry.binding.modifier == given.modifier else entry.binding.button == button) return candidate;
-    }
-    return null;
+fn conflictAt(devices: *const input.Devices, except: RowAction, control: interface.BindingControl) ?RowAction {
+    const excluded: interface.BindingAction = switch (except) {
+        .original => |original| .{ .original = original },
+        .custom => |index| .{ .custom = index },
+    };
+    return switch (interface.bindingConflict(devices, excluded, control) orelse return null) {
+        .original => |original| .{ .original = original },
+        .custom => |index| .{ .custom = index },
+    };
 }
 
 /// The tab's state, which the game keeps in globals and on `controls_screen`'s stack.
@@ -357,7 +359,7 @@ pub const Controls = struct {
     /// The arrow under the pointer, lit (`0x0051DA04`).
     arrow: ?Arrow = null,
     kept_mod: [input.actions.max_actions]?Binding = @splat(null),
-    kept_owners: [input.actions.max_actions]?*anyopaque = @splat(null),
+    kept_generations: [input.actions.max_actions]u64 = @splat(0),
 
     /// `controls_screen`'s start (`0x0042BA75` on): the bindings read again from `starlancer.ini`,
     /// kept for CANCEL CHANGES, and the list at its top.
@@ -369,10 +371,10 @@ pub const Controls = struct {
             .list = .of(controls.list.len, rows, context.ticks),
         };
         if (devices.mod_actions) |registry| {
-            tab.list.rows.count = @intCast(controls.list.len + 1 + registry.liveCount());
+            tab.list.rows.count = registry.rowCount();
             for (registry.entries[0..registry.count], 0..) |entry, index| {
                 tab.kept_mod[index] = entry.binding;
-                tab.kept_owners[index] = entry.owner;
+                tab.kept_generations[index] = entry.generation;
             }
         }
     }
@@ -452,10 +454,7 @@ pub const Controls = struct {
                 tab.restore(devices);
                 const action = actionAt(devices, tab.list.rows.first + row) orelse return false;
                 const binding = action.mutable(devices);
-                tab.waiting = .{ .action = action, .old = binding.*, .owner = switch (action) {
-                    .original => null,
-                    .custom => |index| devices.mod_actions.?.entries[index].owner,
-                } };
+                tab.waiting = .{ .action = action, .old = binding.*, .generation = action.generation(devices) };
                 binding.key = 0;
                 binding.button = null;
                 binding.modifier = .none;
@@ -512,8 +511,8 @@ pub const Controls = struct {
         keys: for (controls.keys, 0..) |key, index| {
             for (taken_modifiers) |modifier| {
                 if (!devices.keyboard.pressed(key.code, modifier, true)) continue;
-                if (conflictAt(devices, waiting.action, .{ .code = key.code, .modifier = modifier }, null)) |holder| {
-                    tab.conflict = .{ .taken = .{ .key = .{ .index = @intCast(index), .modifier = modifier } }, .holder = holder };
+                if (conflictAt(devices, waiting.action, .{ .key = .{ .code = key.code, .modifier = modifier } })) |holder| {
+                    tab.conflict = .{ .taken = .{ .key = .{ .index = @intCast(index), .modifier = modifier } }, .holder = holder, .generation = holder.generation(devices) };
                     return;
                 }
                 binding.key = key.code;
@@ -528,8 +527,8 @@ pub const Controls = struct {
             if (joystick.down(@intCast(number))) break @intCast(number);
         } else return;
         tab.button_down = button;
-        if (conflictAt(devices, waiting.action, null, button)) |holder| {
-            tab.conflict = .{ .taken = .{ .button = button }, .holder = holder };
+        if (conflictAt(devices, waiting.action, .{ .button = button })) |holder| {
+            tab.conflict = .{ .taken = .{ .button = button }, .holder = holder, .generation = holder.generation(devices) };
             return;
         }
         binding.button = button;
@@ -541,7 +540,7 @@ pub const Controls = struct {
         devices.settings = tab.kept.settings;
         devices.bindings = tab.kept.bindings;
         if (devices.mod_actions) |registry| for (registry.entries[0..registry.count], 0..) |*entry, index| {
-            if (entry.owner == tab.kept_owners[index]) {
+            if (entry.owner != null and entry.generation == tab.kept_generations[index]) {
                 if (tab.kept_mod[index]) |binding| entry.binding = binding;
             }
         };
@@ -551,21 +550,17 @@ pub const Controls = struct {
     /// A reload can remove actions while the tab is open. Cancel a stale wait before using it.
     fn refresh(tab: *Controls, devices: *const input.Devices) void {
         if (devices.mod_actions) |registry| {
-            tab.list.rows.count = @intCast(controls.list.len + 1 + registry.liveCount());
+            tab.list.rows.count = registry.rowCount();
             tab.list.rows.first = @min(tab.list.rows.first, tab.list.rows.count -| tab.list.rows.shown);
-            if (tab.conflict) |conflict| switch (conflict.holder) {
-                .original => {},
-                .custom => |index| if (registry.entries[index].owner == null) {
-                    tab.conflict = null;
-                },
-            };
-            if (tab.waiting) |waiting| switch (waiting.action) {
-                .original => {},
-                .custom => |index| if (registry.entries[index].owner != waiting.owner) {
+            if (tab.conflict) |conflict| {
+                if (conflict.holder.generation(devices) != conflict.generation) tab.conflict = null;
+            }
+            if (tab.waiting) |waiting| {
+                if (waiting.action.generation(devices) != waiting.generation) {
                     tab.waiting = null;
                     tab.conflict = null;
-                },
-            };
+                }
+            }
         }
     }
 
@@ -600,7 +595,9 @@ pub const Controls = struct {
     /// the check boxes' labels, each dimmed where it can't be used, the list's rows, the boxes,
     /// the arrows, the one under the pointer lit, the ticks, and the conflict's question where it
     /// is up.
-    pub fn draw(tab: Controls, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, devices: *const input.Devices) canvas_module.Error!void {
+    pub fn draw(given: Controls, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, devices: *const input.Devices) canvas_module.Error!void {
+        var tab = given;
+        tab.refresh(devices);
         const small = canvas.fonts.small;
         const blue = canvas_module.blue;
         for (panes) |pane| pane.draw(canvas);
@@ -647,7 +644,14 @@ pub const Controls = struct {
             const waiting = if (tab.waiting) |waits| std.meta.eql(waits.action, action) else false;
             const colour = if (waiting) canvas_module.white else canvas_module.blue;
             const binding = action.binding(devices).*;
-            try canvas.text(small, .{ name_x, y }, action.label(devices, canvas.strings), colour, .left);
+            switch (action) {
+                .original => try canvas.string(small, .{ name_x, y }, binding.string, colour, .left),
+                .custom => {
+                    var label_buffer: [input.actions.label_size]u8 = undefined;
+                    const label = language.encode(&label_buffer, action.label(devices, canvas.strings));
+                    try canvas.text(small, .{ name_x, y }, label, colour, .left);
+                },
+            }
             var buffer: [96]u8 = undefined;
             const shown = bindingText(&buffer, binding, canvas.strings, &devices.key_names);
             if (shown.len != 0) {
@@ -836,7 +840,33 @@ test "a mod row rebinds through original conflicts and cancel restores its bindi
     try std.testing.expectEqual(0, registry.entries[index].binding.key);
     registry.removeOwner(&owner);
     fixture.tab.refresh(&fixture.devices);
-    try std.testing.expectEqual(controls.list.len + 1, fixture.tab.list.rows.count);
+    try std.testing.expectEqual(controls.list.len, fixture.tab.list.rows.count);
+}
+
+test "reused mod action slots cannot receive stale conflicts or cancelled bindings" {
+    var fixture: Fixture = .init();
+    defer fixture.deinit();
+    var registry: input.actions.Registry = .{};
+    var owner: u8 = 0;
+    const empty: Binding = .{ .name = "", .string = 0, .key = 0, .modifier = .none, .button = null };
+    const index = try registry.add(&owner, "a:old", "Old", empty);
+    fixture.devices.mod_actions = &registry;
+    fixture.enter();
+    fixture.tab.waiting = .{ .action = .{ .original = .cockpit_camera }, .old = fixture.devices.bindings.get(.cockpit_camera) };
+    fixture.tab.conflict = .{ .holder = .{ .custom = index }, .generation = registry.entries[index].generation, .taken = .{ .button = 3 } };
+    registry.removeOwner(&owner);
+    var replacement = empty;
+    replacement.key = @intFromEnum(input.Key.f12);
+    try std.testing.expectEqual(index, try registry.add(&owner, "a:new", "New", replacement));
+    fixture.tab.refresh(&fixture.devices);
+    try std.testing.expectEqual(null, fixture.tab.conflict);
+    fixture.tab.cancel(&fixture.devices);
+    try std.testing.expectEqual(replacement.key, registry.entries[index].binding.key);
+    fixture.tab.waiting = .{ .action = .{ .custom = index }, .old = replacement, .generation = registry.entries[index].generation };
+    registry.removeOwner(&owner);
+    _ = try registry.add(&owner, "a:new", "New again", empty);
+    fixture.tab.refresh(&fixture.devices);
+    try std.testing.expectEqual(null, fixture.tab.waiting);
 }
 
 test "a key another action holds asks, and YES takes it from that action" {

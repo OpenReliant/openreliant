@@ -289,21 +289,38 @@ pub fn loadModBinding(devices: *input.Devices, file: Profile, index: usize) void
 
 pub fn modKeyConflict(devices: *const input.Devices, except: usize, key: u16, modifier: Modifier) bool {
     if (key == 0) return false;
-    if (bindingFind(&devices.bindings, null, key, modifier) != null) return true;
-    const registry = devices.mod_actions orelse return false;
-    for (registry.entries[0..registry.count], 0..) |entry, index| {
-        if (index != except and entry.owner != null and entry.binding.key == key and entry.binding.modifier == modifier) return true;
-    }
-    return false;
+    return bindingConflict(devices, .{ .custom = except }, .{ .key = .{ .code = key, .modifier = modifier } }) != null;
 }
 
 pub fn modButtonConflict(devices: *const input.Devices, except: usize, button: u8) bool {
-    for (devices.bindings.values) |binding| if (binding.button == button) return true;
-    const registry = devices.mod_actions orelse return false;
-    for (registry.entries[0..registry.count], 0..) |entry, index| {
-        if (index != except and entry.owner != null and entry.binding.button == button) return true;
+    return bindingConflict(devices, .{ .custom = except }, .{ .button = button }) != null;
+}
+
+pub const BindingAction = union(enum) { original: controls.Action, custom: usize };
+pub const BindingControl = union(enum) {
+    key: struct { code: u16, modifier: Modifier },
+    button: u8,
+
+    fn matches(control: BindingControl, binding: controls.Binding) bool {
+        return switch (control) {
+            .key => |key| binding.key == key.code and binding.modifier == key.modifier,
+            .button => |button| binding.button == button,
+        };
     }
-    return false;
+};
+
+/// Shared conflict lookup for default assignment and explicit controls-screen rebinding.
+pub fn bindingConflict(devices: *const input.Devices, except: BindingAction, control: BindingControl) ?BindingAction {
+    for (std.enums.values(controls.Action)) |original| {
+        const candidate: BindingAction = .{ .original = original };
+        if (!std.meta.eql(candidate, except) and control.matches(devices.bindings.get(original))) return candidate;
+    }
+    const registry = devices.mod_actions orelse return null;
+    for (registry.entries[0..registry.count], 0..) |entry, index| {
+        const candidate: BindingAction = .{ .custom = index };
+        if (entry.owner != null and !std.meta.eql(candidate, except) and control.matches(entry.binding)) return candidate;
+    }
+    return null;
 }
 
 pub fn saveModBindings(devices: *const input.Devices, file: *profile.File) Allocator.Error!void {

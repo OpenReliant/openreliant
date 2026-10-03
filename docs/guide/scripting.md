@@ -53,7 +53,8 @@ script, start OpenReliant again.
 
 Menu scripts register actions at startup with `input.register_action(name, definition)` (#617).
 The result is a mod-qualified name such as `custom-order:pulse`. Equal local names in different
-mods are independent; registering the same qualified name twice is an error. The definition
+mods are independent; registering the same qualified name twice, including a case-only difference,
+is an error because saved binding keys are case-insensitive. The definition
 requires a `label` and may specify `key`, `modifier` (none, shift or control), joystick `button`
 and a separate `gamepad_button`. Conflicting defaults stay unassigned rather than taking an
 original action's or another mod's control.
