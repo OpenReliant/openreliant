@@ -49,6 +49,33 @@ saved, carrying on from where they were ([The console](#the-console)); otherwise
 main menu and start a game again. After changing `mod.ini`, adding a file or changing a load
 script, start OpenReliant again.
 
+## Custom AI orders
+
+Global scripts can register an order with `require("openreliant.orders").register(name, definition)`
+([#615](https://github.com/OpenReliant/openreliant/issues/615)). The result is a qualified name,
+such as `custom-order:pulse`, using the mod's folder or archive identity. Different mods can use
+the same local name. Registering it twice in one mod is an error. Pass the qualified name to
+`object:give_order` or `orders.info`; another mod can use the same full name. Internal numbers are
+session-local and must not be saved. Original order names and numbers still work.
+
+The definition takes the existing `OrderFlags`, a nonnegative `priority` (default 0), optional
+`init` and `exit` functions, and a required `update`. Each callback receives the ship, its live
+object target or nil, and the frame's seconds of game time. Group targets have no object handle.
+Returning false from `update` ends the order; nil or true continues it. Callbacks may steer the
+ship, but cannot change order stacks or register another order. Finish through the return value
+and use events for changes that must happen later.
+
+The existing stack rules apply: `init` runs when the order starts or restarts, and `exit` runs
+when a started order ends or gives way. One-shot orders run only `update`. A callback failure
+disables that registration; affected orders end and the underlying stack can continue. The
+registration belongs to its script context. Its orders are removed before that context closes,
+scripts reload or the mission ends. Global registrations can last across missions, but their
+active orders cannot. Keep per-ship state in a closure keyed by object handles and clear it in
+`exit`. Between-mission saves restart global registrations from their scripts.
+
+[`examples/mods/custom-order`](../../examples/mods/custom-order) demonstrates a short throttle
+pulse. Camera, HUD and input registries follow separately under #558.
+
 ## Kinds of scripts
 
 | Kind | In `mod.ini` | When it runs | What it's for |

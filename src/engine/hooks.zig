@@ -482,6 +482,9 @@ pub const Scripts = struct {
         update: *const fn (context: *anyopaque, seconds: f32) void,
         /// A simulation step (`on_step`).
         step: *const fn (context: *anyopaque) void,
+        /// Metadata and callbacks for orders registered by mods, absent without a registry.
+        order_info: ?*const fn (context: *anyopaque, order: orders.Order) ?orders.Info = null,
+        order_run: ?*const fn (context: *anyopaque, ctx: aigeneric.Context, index: u16, order: orders.Order, role: routines.Role) bool = null,
     };
 
     pub fn begin(scripts: *Scripts, ctx: aigeneric.Context, mission: Mission, seed: u64) void {

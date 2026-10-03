@@ -314,6 +314,18 @@ pub const Context = struct {
 /// caller, and `give` logs it.
 pub const Error = error{OrderConflict};
 
+/// The original catalogue or a mod's registered order. All runtime metadata uses this lookup.
+pub fn infoOf(all: *const create.Objects, order: Order) ?orders.Info {
+    if (orders.info(order)) |info| return info;
+    const scripts = all.scripts orelse return null;
+    return (scripts.vtable.order_info orelse return null)(scripts.context, order);
+}
+
+fn custom(ctx: Context, index: u16, order: Order, role: ai.routines.Role) bool {
+    const scripts = ctx.world.objects.scripts orelse return false;
+    return (scripts.vtable.order_run orelse return false)(scripts.context, ctx, index, order, role);
+}
+
 /// The sphere the action keeps to (`action_sphere_center`, `0x00515D78`, and
 /// `action_sphere_radius`, `0x00515D74`): a fighter that strays out of it with no player near flies
 /// back to the object at its centre.
@@ -342,10 +354,13 @@ comptime {
 /// `order_refused` (`0x0040CA00`): whether the ship refuses the order outright. A player's ship,
 /// which is one of the slots from the first that belong to players, takes only the orders numbered
 /// 100 and up and those the table marks as a player's. An order the table does not hold is refused
-/// with them.
+/// with them. Registered custom orders use their explicit player eligibility flag.
 pub fn refused(all: *const create.Objects, index: u16, order: Order) bool {
+    if (orders.info(order) == null) {
+        if (infoOf(all, order)) |info| return index < all.players and !info.flags.players;
+    }
     if (index >= all.players or @intFromEnum(order) >= players_orders) return false;
-    const info = orders.info(order) orelse return true;
+    const info = infoOf(all, order) orelse return true;
     return !info.flags.players;
 }
 
@@ -369,9 +384,9 @@ pub fn giveWay(ctx: Context, index: u16, order: ?Order) Error!bool {
     if (object.order_starting) return true;
     // Clearing reads the record before the table in the game, which is zero, so it is neither
     // one-shot nor of any priority.
-    const pushed = if (order) |wanted| orders.info(wanted) else null;
+    const pushed = if (order) |wanted| infoOf(all, wanted) else null;
     if (pushed) |info| if (info.flags.one_shot) return true;
-    const running = orders.info(current.order) orelse return true;
+    const running = infoOf(all, current.order) orelse return true;
     if (order == .explode or running.priority == 0) {
         exitOrder(ctx, index, running);
         return true;
@@ -384,8 +399,8 @@ pub fn giveWay(ctx: Context, index: u16, order: ?Order) Error!bool {
 
 /// Whether `order` has a priority (`ai.Record.priority`): once started, it gives way only to
 /// Explode, a one-shot order or an order of higher priority (`giveWay`).
-pub fn prioritised(order: Order) bool {
-    const info = orders.info(order) orelse return false;
+pub fn prioritised(all: *const create.Objects, order: Order) bool {
+    const info = infoOf(all, order) orelse return false;
     return info.priority > 0;
 }
 
@@ -421,7 +436,7 @@ pub fn push(ctx: Context, index: u16, order: Order, target: Target) Error!bool {
         break :numbered @truncate(next.*);
     } else 0;
     slot.orders[0] = .{ .order = order, .target = target, .sequence = sequence, .data = .{ .words = @splat(0) } };
-    if (orders.info(order)) |info| if (!info.flags.one_shot) start(slot);
+    if (infoOf(all, order)) |info| if (!info.flags.one_shot) start(slot);
     object.order_count += 1;
     return true;
 }
@@ -481,7 +496,7 @@ pub fn pop(ctx: Context, index: u16) bool {
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
     const running = slot.current() orelse return false;
-    const popped = orders.info(running.order);
+    const popped = infoOf(ctx.world.objects, running.order);
     if (popped) |info| if (!object.order_starting) exitOrder(ctx, index, info);
     remove(slot, 0);
     if (popped) |info| if (!info.flags.one_shot) start(slot);
@@ -503,6 +518,37 @@ pub fn clear(ctx: Context, index: u16) Error!void {
 pub fn popAll(ctx: Context, index: u16) void {
     while (ctx.world.objects.slots[index].object.order_count > 0) {
         if (!pop(ctx, index)) return;
+    }
+}
+
+/// Removes a registration's orders before its script context closes, including suspended ones.
+pub fn forget(ctx: Context, order: Order) void {
+    for (&ctx.world.objects.slots, 0..) |*slot, index| {
+        var at: usize = 0;
+        while (at < slot.stack().len) {
+            if (slot.orders[at].order != order) {
+                at += 1;
+                continue;
+            }
+            if (at == 0) {
+                _ = pop(ctx, @intCast(index));
+            } else remove(slot, at);
+        }
+    }
+}
+
+/// Stops custom orders before an object is retired, while its handle and callbacks are valid.
+pub fn forgetCustom(ctx: Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    var at: usize = 0;
+    while (at < slot.stack().len) {
+        if (orders.info(slot.orders[at].order) != null) {
+            at += 1;
+            continue;
+        }
+        if (at == 0) {
+            _ = pop(ctx, index);
+        } else remove(slot, at);
     }
 }
 
@@ -548,21 +594,31 @@ pub fn objectOrders(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
     if (slot.current()) |entry| {
-        if (orders.info(entry.order)) |info| if (info.flags.retaliate) retaliate(ctx, index);
+        if (infoOf(ctx.world.objects, entry.order)) |info| if (info.flags.retaliate) retaliate(ctx, index);
     }
     object.afterburner = false;
     object.reverse_thrust = false;
     if (slot.current()) |entry| run: {
-        const running = orders.info(entry.order) orelse break :run;
+        const running = infoOf(ctx.world.objects, entry.order) orelse break :run;
         if (!running.flags.one_shot) {
             if (object.order_starting) {
-                runInit(ctx, index, running);
+                if (orders.info(running.order) == null) {
+                    object.order_starting = false;
+                    if (!custom(ctx, index, running.order, .init)) {
+                        _ = pop(ctx, index);
+                        break :run;
+                    }
+                } else runInit(ctx, index, running);
                 object.order_starting = false;
                 hooks.tell(ctx, .order_started, .{ .object = .of(index), .order = running.order });
             }
-            runUpdate(ctx, index, running);
+            if (orders.info(running.order) == null) {
+                if (!custom(ctx, index, running.order, .update)) _ = pop(ctx, index);
+            } else runUpdate(ctx, index, running);
         } else {
-            runUpdate(ctx, index, running);
+            if (orders.info(running.order) == null) {
+                _ = custom(ctx, index, running.order, .update);
+            } else runUpdate(ctx, index, running);
             const starting = object.order_starting;
             _ = pop(ctx, index);
             object.order_starting = starting;
@@ -806,6 +862,10 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
 /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), nor multiplayer's
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runExit(ctx: Context, index: u16, info: orders.Info) void {
+    if (orders.info(info.order) == null) {
+        if (!info.flags.one_shot) _ = custom(ctx, index, info.order, .exit);
+        return;
+    }
     if (hooks.enterRoutine(.exit, runExit, ctx, index, info)) |done| return done;
     switch (info.order) {
         .scoop_up => tractor.scoopUpExit(ctx, index),
@@ -834,9 +894,12 @@ test {
 }
 
 test prioritised {
-    try std.testing.expect(prioritised(.land));
-    try std.testing.expect(prioritised(.explode));
-    try std.testing.expect(!prioritised(.player_control));
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    try std.testing.expect(prioritised(mission.objects, .land));
+    try std.testing.expect(prioritised(mission.objects, .explode));
+    try std.testing.expect(!prioritised(mission.objects, .player_control));
 }
 
 test push {

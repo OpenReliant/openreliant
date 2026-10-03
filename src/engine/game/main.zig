@@ -786,7 +786,7 @@ fn avoidanceScan(world: gameobj.World, index: u16) void {
     const ship = &slot.object;
     if (ship.flags.no_avoidance) return;
     const entry = slot.current() orelse return;
-    const info = ai.orders.info(entry.order) orelse return;
+    const info = aigeneric.infoOf(all, entry.order) orelse return;
     if (!info.flags.avoidance) return;
     ship.avoid_near.count = 0;
     ship.avoid_ahead.count = 0;

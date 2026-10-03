@@ -159,6 +159,7 @@ pub const Game = struct {
 
     /// Stops the game's scripts, as the game ends.
     pub fn stop(game: *Game) void {
+        game.runtime.custom_orders.endMission(game.runtime);
         game.objects.scripts = null;
         game.stopMissionScripts();
         game.runner.deinit();
@@ -272,7 +273,18 @@ pub const Game = struct {
         .ended = ended,
         .update = update,
         .step = step,
+        .order_info = orderInfo,
+        .order_run = orderRun,
     };
+
+    fn orderInfo(context: *anyopaque, order: openreliant.engine.game.ai.orders.Order) ?openreliant.engine.game.ai.orders.Info {
+        return ofScripts(context).runtime.custom_orders.info(order);
+    }
+
+    fn orderRun(context: *anyopaque, ctx: aigeneric.Context, index: u16, order: openreliant.engine.game.ai.orders.Order, role: openreliant.engine.game.ai.routines.Role) bool {
+        const game = ofScripts(context);
+        return game.runtime.custom_orders.run(game.runtime, ctx, index, order, role);
+    }
 
     fn hookCall(context: *anyopaque, hook_call: *engine_hooks.Call) void {
         const game = ofScripts(context);
@@ -284,6 +296,7 @@ pub const Game = struct {
             },
             .object_removed => {
                 const index = objectOf(hook_call);
+                if (game.runtime.orders) |ctx| aigeneric.forgetCustom(ctx, index);
                 game.runner.callEach(game.global(), .on_object_removed, .{ .object = .of(index) });
                 game.objectRemoved(index);
             },
@@ -339,6 +352,7 @@ pub const Game = struct {
         const game = ofScripts(context);
         game.runner.callEach(game.global(), .on_mission_end, .{ .outcome = outcome });
         game.hooks.tell(.mission_ended, outcome);
+        game.runtime.custom_orders.endMission(game.runtime);
         game.stopObjectScripts();
         game.stopMissionScripts();
         game.runtime.orders = null;
@@ -534,6 +548,169 @@ const Fixture = struct {
         fixture.game.scripts.begin(fixture.mission.orders(), .{ .number = 5, .file = "mission5.dte" }, 1);
     }
 };
+
+test "custom orders use qualified names, lifecycle callbacks and the engine stack" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{
+        .{
+            "a",
+            &.{
+                .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+                .{
+                    "a.luau",
+                    \\local orders = require("openreliant.orders")
+                    \\local world = require("openreliant.world")
+                    \\local started, updated, exited = 0, 0, 0
+                    \\local own
+                    \\own = orders.register("hold", {
+                    \\    priority = 2, flags = {avoidance = true},
+                    \\    init = function(ship, target) started += 1; assert(target == world.objects()[1]) end,
+                    \\    update = function(ship, target, seconds)
+                    \\        updated += 1; ship.throttle = 0.25
+                    \\        assert(ship.order == "a:hold" and orders.stack(ship)[1].order == own)
+                    \\        return updated < 2
+                    \\    end,
+                    \\    exit = function(ship) exited += 1; ship.throttle = 0.5 end,
+                    \\})
+                    \\assert(own == "a:hold")
+                    \\assert(not pcall(function() orders.register("hold", {update = function() end}) end))
+                    \\return { engine_handlers = {on_mission_start = function()
+                    \\    local ships = world.objects(); local ship = ships[2]
+                    \\    assert(orders.info(own).priority == 2 and orders.info(own).flags.avoidance)
+                    \\    assert(orders.info("b:hold") ~= nil)
+                    \\    assert(not ships[1]:give_order(own))
+                    \\    assert(ship:give_order("do_nothing") and ship:give_order(own, ships[1]))
+                    \\end, on_update = function()
+                    \\    assert(started == 1 and updated == 2 and exited == 1)
+                    \\end} }
+                },
+            },
+        },
+        .{ "b", &.{ .{ "mod.ini", "[Scripts]\nGlobal=b.luau\n" }, .{ "b.luau", "assert(require('openreliant.orders').register('hold', {update = function() end}) == 'b:hold')" } } },
+    });
+    defer fixture.deinit();
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    const ctx = fixture.mission.orders();
+    aigeneric.objectOrders(ctx, fixture.sabre);
+    try std.testing.expectEqual(0.25, fixture.mission.slot(fixture.sabre).object.throttle);
+    try std.testing.expectError(error.OrderConflict, aigeneric.push(ctx, fixture.sabre, .fly_aimlessly, .none));
+    aigeneric.objectOrders(ctx, fixture.sabre);
+    try std.testing.expectEqual(0.5, fixture.mission.slot(fixture.sabre).object.throttle);
+    try std.testing.expect(fixture.game.runtime.custom_orders.entries.items[1].enabled);
+    try std.testing.expectEqual(.do_nothing, fixture.mission.slot(fixture.sabre).current().?.order);
+    fixture.game.scripts.update(0.04);
+    try std.testing.expect(fixture.game.runtime.custom_orders.entries.items[0].enabled);
+}
+
+test "custom order failures disable callbacks and context closure removes stacked orders" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local orders = require("openreliant.orders")
+                \\local world = require("openreliant.world")
+                \\orders.register("broken", {update = function(ship) ship:give_order("do_nothing") end})
+                \\orders.register("hold", {priority = 3, update = function() end, exit = function(ship) ship.throttle = 0.75 end})
+                \\return {engine_handlers = {on_mission_start = function()
+                \\    local ship = world.objects()[2]
+                \\    assert(ship:give_order("do_nothing") and ship:give_order("a:broken"))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    const ctx = fixture.mission.orders();
+    aigeneric.objectOrders(ctx, fixture.sabre);
+    try std.testing.expect(!fixture.game.runtime.custom_orders.entries.items[0].enabled);
+    try std.testing.expectEqual(.do_nothing, fixture.mission.slot(fixture.sabre).current().?.order);
+    const hold = fixture.game.runtime.custom_orders.find("a:hold").?;
+    try std.testing.expect(aigeneric.give(ctx, fixture.sabre, hold, .none));
+    aigeneric.objectOrders(ctx, fixture.sabre);
+    fixture.game.runtime.close(fixture.game.runtime.custom_orders.entries.items[1].context);
+    try std.testing.expectEqual(0.75, fixture.mission.slot(fixture.sabre).object.throttle);
+    try std.testing.expectEqual(.do_nothing, fixture.mission.slot(fixture.sabre).current().?.order);
+    try std.testing.expectEqual(null, fixture.game.runtime.custom_orders.find("a:hold"));
+}
+
+test "one-shot custom orders skip init and exit and mission end removes custom stacks" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local orders = require("openreliant.orders")
+                \\local world = require("openreliant.world")
+                \\orders.register("hold", {update = function() end, exit = function(ship) ship.throttle = 0.75 end})
+                \\orders.register("once", {flags = {one_shot = true, players = true},
+                \\    init = function() error("must not init") end,
+                \\    update = function(ship) ship.throttle = 0.5 end,
+                \\    exit = function() error("must not exit") end})
+                \\return {engine_handlers = {on_mission_start = function()
+                \\    local ship = world.objects()[2]
+                \\    assert(ship:give_order("do_nothing") and ship:give_order("a:hold") and ship:give_order("a:once"))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    aigeneric.objectOrders(fixture.mission.orders(), fixture.sabre);
+    const hold = fixture.game.runtime.custom_orders.find("a:hold").?;
+    try std.testing.expectEqual(hold, fixture.mission.slot(fixture.sabre).current().?.order);
+    try std.testing.expectEqual(0.5, fixture.mission.slot(fixture.sabre).object.throttle);
+    fixture.game.scripts.ended(.{ .ending = .playing, .rating = .success });
+    try std.testing.expectEqual(0.75, fixture.mission.slot(fixture.sabre).object.throttle);
+    try std.testing.expectEqual(.do_nothing, fixture.mission.slot(fixture.sabre).current().?.order);
+    // Global registrations remain available in the next mission, with the same qualified names.
+    try std.testing.expectEqual(hold, fixture.game.runtime.custom_orders.find("a:hold").?);
+}
+
+test "mission order registrations close and register again without stale numeric IDs" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "a", &.{
+        .{ "mod.ini", "[Missions]\nmission5.dte=a.luau\n" },
+        .{ "a.luau", "require('openreliant.orders').register('hold', {update = function() end})" },
+    } }});
+    defer fixture.deinit();
+    fixture.begin();
+    const old = fixture.game.runtime.custom_orders.find("a:hold").?;
+    try std.testing.expect(aigeneric.give(fixture.mission.orders(), fixture.sabre, old, .none));
+    aigeneric.objectOrders(fixture.mission.orders(), fixture.sabre);
+    // Starting the context again models the shutdown/restart path used on reload.
+    fixture.begin();
+    const new = fixture.game.runtime.custom_orders.find("a:hold").?;
+    try std.testing.expect(old != new);
+    try std.testing.expectEqual(0, fixture.mission.slot(fixture.sabre).object.order_count);
+    try std.testing.expect(aigeneric.give(fixture.mission.orders(), fixture.sabre, new, .none));
+}
+
+test "the custom order example runs and completes its throttle pulse" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "custom-order", &.{
+        .{ "mod.ini", @embedFile("custom-order/mod.ini") },
+        .{ "pulse.luau", @embedFile("custom-order/pulse.luau") },
+    } }});
+    defer fixture.deinit();
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    const pulse = fixture.game.runtime.custom_orders.find("custom-order:pulse").?;
+    try std.testing.expectEqual(pulse, fixture.mission.slot(fixture.sabre).current().?.order);
+    fixture.mission.clock.frame_duration = 100;
+    aigeneric.objectOrders(fixture.mission.orders(), fixture.sabre);
+    try std.testing.expectEqual(0.25, fixture.mission.slot(fixture.sabre).object.throttle);
+    aigeneric.objectOrders(fixture.mission.orders(), fixture.sabre);
+    try std.testing.expectEqual(0, fixture.mission.slot(fixture.sabre).object.order_count);
+    try std.testing.expectEqual(0, fixture.mission.slot(fixture.sabre).object.throttle);
+}
 
 test "handlers run newest mod first, in the order each mod added them" {
     var fixture: Fixture = undefined;

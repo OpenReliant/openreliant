@@ -170,7 +170,7 @@ pub const Shockwave = struct {
         const all = world.objects;
         const slot = &all.slots[index];
         if (slot.current()) |entry| {
-            const running = orders.info(entry.order);
+            const running = aigeneric.infoOf(all, entry.order);
             if (running) |info| if (info.priority > orders.info(.disrupted).?.priority) return;
         }
         const ctx: aigeneric.Context = .of(world);

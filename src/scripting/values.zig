@@ -309,7 +309,7 @@ pub fn name(comptime T: type, value: T) ?[]const u8 {
 }
 
 /// The value named `tag_name`, if scripts see a value by that name.
-fn byName(comptime T: type, tag_name: []const u8) ?T {
+pub fn byName(comptime T: type, tag_name: []const u8) ?T {
     if (!shown(tag_name)) return null;
     return std.meta.stringToEnum(T, tag_name);
 }

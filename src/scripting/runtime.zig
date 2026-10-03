@@ -137,6 +137,7 @@ pub const Runtime = struct {
     runner: ?*running_module.Runner = null,
     /// The handles made, by slot (`objects.zig`).
     handles: ?luau.Ref = null,
+    custom_orders: @import("orders.zig").Registry = .{},
 
     const Running = struct {
         /// The memory category of the running mod.
@@ -176,6 +177,7 @@ pub const Runtime = struct {
     }
 
     pub fn destroy(runtime: *Runtime) void {
+        runtime.custom_orders.deinit(runtime);
         runtime.state.close();
         for (runtime.contexts.items) |context| runtime.gpa.destroy(context);
         runtime.contexts.deinit(runtime.gpa);
@@ -288,6 +290,7 @@ pub const Runtime = struct {
     /// runtime is destroyed, since coroutines its scripts made may still point to it.
     pub fn close(runtime: *Runtime, context: *Context) void {
         if (context.closed) return;
+        runtime.custom_orders.removeContext(runtime, context);
         context.closed = true;
         const state = runtime.state;
         state.unref(context.loaded);
@@ -333,6 +336,7 @@ pub const Runtime = struct {
     /// Runs the script `name` like `require` does, and returns a reference to its result. Returns
     /// null if the script fails; the error is logged.
     pub fn run(runtime: *Runtime, context: *Context, name: []const u8) ?luau.Ref {
+        const registrations = runtime.custom_orders.entries.items.len;
         const thread = context.thread;
         _ = thread.getGlobal("require");
         thread.pushString(name);
@@ -340,6 +344,7 @@ pub const Runtime = struct {
         const status = thread.protectedCall(1, 1);
         runtime.end(outer);
         if (status != .ok) {
+            runtime.custom_orders.removeSince(runtime, context, registrations);
             runtime.recover(context, thread);
             return null;
         }

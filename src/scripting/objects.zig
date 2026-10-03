@@ -113,10 +113,12 @@ pub const fields = struct {
         }
     });
 
-    pub const order = api.Field(?orders.Order, "The order it's following, such as `fight`; nil for none.", struct {
-        pub fn get(all: *const create.Objects, index: u16) ?orders.Order {
+    pub const order = api.Field(?@import("orders.zig").Identifier, "The order it's following: an original name or a mod-qualified custom name; nil for none.", struct {
+        pub fn get(all: *const create.Objects, index: u16) ?@import("orders.zig").Identifier {
             const entry = all.slots[index].current() orelse return null;
-            return entry.order;
+            if (values.name(orders.Order, entry.order)) |name| return .{ .name = name };
+            if (engine.game.aigeneric.infoOf(all, entry.order)) |info| return .{ .name = info.name };
+            return .{ .number = @intFromEnum(entry.order) };
         }
     });
 
@@ -196,8 +198,9 @@ fn isValid(call: Call, handle: Handle) bool {
 }
 
 /// `object:give_order(order, target)`.
-fn giveOrder(call: Call, object: Object, given: orders.Order, target: ?Object) bool {
+fn giveOrder(call: Call, object: Object, identifier: @import("orders.zig").Identifier, target: ?Object) bool {
     const ctx = ordersOf(call, object, "give_order");
+    const given = @import("orders.zig").resolve(call, identifier);
     const aim: engine.game.aigeneric.Target = if (target) |aimed| .at(aimed.slot(), null) else .none;
     return engine.game.aigeneric.give(ctx, object.slot(), given, aim);
 }
@@ -205,6 +208,7 @@ fn giveOrder(call: Call, object: Object, given: orders.Order, target: ?Object) b
 /// What orders run against, where the calling script may change `object`'s orders
 /// (`mayChange`). Raises an error naming `label` otherwise.
 pub fn ordersOf(call: Call, object: Object, comptime label: []const u8) engine.game.aigeneric.Context {
+    if (call.runtime().custom_orders.running) call.raise("order callbacks cannot change order stacks; return false to finish", .{});
     if (!mayChange(call.context, object.slot())) call.raise(label ++ ": {t} scripts can't change this object's orders", .{call.context.family});
     return call.runtime().orders orelse call.raise(label ++ ": orders can only change while a mission runs", .{});
 }

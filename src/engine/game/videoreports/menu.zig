@@ -393,7 +393,7 @@ fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
     const combat = slot.combat orelse return;
     if (combat.class != .fighter) return;
     if (slot.current()) |current| {
-        if (aigeneric.prioritised(current.order) or current.target.index == @as(i16, @intCast(all.player))) return;
+        if (aigeneric.prioritised(all, current.order) or current.target.index == @as(i16, @intCast(all.player))) return;
     }
     switch (all.pilots.get(object.pilot)._unknown_20) {
         0, 1 => _ = world.random.rand(),
