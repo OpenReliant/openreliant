@@ -85,6 +85,8 @@ pub const Shared = struct {
     storage: ?*storage_module.Storage = null,
     /// The game's files, as the game reads them, mods first (`vfs.zig`); null where there are none.
     files: ?bigfile.Hog = null,
+    /// The game's folder, which its loose files are read from (`vfs.zig`); null where there is none.
+    game: ?storage_module.Storage.Folder = null,
     /// The pages of options the mods offer, which their values are kept for (`settings.zig`); null
     /// where there are none.
     settings: ?*settings_module.Registry = null,

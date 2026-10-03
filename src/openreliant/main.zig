@@ -249,7 +249,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // values are kept in the storage.
     var option_pages: scripting.settings.Registry = .init(gpa, &storage);
     defer option_pages.deinit();
-    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .settings = &option_pages };
+    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .settings = &option_pages };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).

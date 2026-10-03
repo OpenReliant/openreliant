@@ -198,7 +198,7 @@ Reading the game's and the mods' files. For load, global, object, player and men
 
 | Name | Type | What it is |
 |---|---|---|
-| `read(name: string)` | string? | The file `name` as the game reads it: a mod's, the latest mod's first, or else the game's own, as a string of its bytes. Nil where there's none. |
+| `read(name: string)` | string? | The file `name` as the game reads it, as a string of its bytes: a mod's, the latest mod's first, else the game folder's own file of that name, such as `missions\mission1.dte`, else the game's resource archive's. Nil where there's none. |
 | `read_mod(name: string)` | string? | The calling mod's own file `name`, as a string of its bytes. Nil where it has none. |
 | `exists(name: string)` | boolean | Whether the game has the file `name`, in a mod or of its own. |
 

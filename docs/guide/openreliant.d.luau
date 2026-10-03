@@ -353,7 +353,7 @@ type Util = {
 
 -- Reading the game's and the mods' files.
 type Vfs = {
-    -- The file `name` as the game reads it: a mod's, the latest mod's first, or else the game's own, as a string of its bytes. Nil where there's none.
+    -- The file `name` as the game reads it, as a string of its bytes: a mod's, the latest mod's first, else the game folder's own file of that name, such as `missions\mission1.dte`, else the game's resource archive's. Nil where there's none.
     read: (name: string) -> string?,
     -- The calling mod's own file `name`, as a string of its bytes. Nil where it has none.
     read_mod: (name: string) -> string?,
