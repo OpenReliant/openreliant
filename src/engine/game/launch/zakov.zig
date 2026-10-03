@@ -25,13 +25,12 @@ const out_ticks = 100;
 const out_throttle: f32 = 2;
 
 /// `launch_zakov_init` (`0x0041B8B0`): places the ship in slot `index` at the launch point of the
-/// Zakov, in slot `carrier`, that its gate names (`launch.attach`), riding the part that holds it.
+/// Zakov, in slot `carrier`, for its gate (`launch.attachAtGate`), riding the part that holds it.
 /// Then it moves the ship forward along its own nose by how far its bounding box reaches behind its
 /// centre (`bounds_min`).
 pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
-    const all = ctx.world.objects;
-    const slot = &all.slots[index];
-    launch.attach(all, index, carrier, slot.orders[0].target.component);
+    const slot = &ctx.world.objects.slots[index];
+    launch.attachAtGate(ctx, index, carrier);
     objects.setPosition(&slot.object, &slot.drawn, slot.drawn.point(.{ 0, 0, -slot.object.bounds_min.z }));
 }
 

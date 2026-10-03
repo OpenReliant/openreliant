@@ -2,12 +2,13 @@
 
 A ship leaves the ship it launches from, its carrier, under order 104, Launch (`launch.cpp`):
 `order_launch_init` (`0x00418EB0`) readies it, and `order_launch` (`0x004191C0`) runs it an update
-at a time. The carrier's type picks how the launch goes, its style. OpenReliant runs four styles:
-the Reliant, the torpedoes, the hangar bays and the Zakov.
+at a time. The carrier's type picks how the launch goes, its style. OpenReliant runs five styles:
+the Reliant, the torpedoes, the hangar bays, the Stork and the Zakov.
 [`launch.zig`](../../src/engine/game/launch.zig) holds the order, and
 [`launch/reliant.zig`](../../src/engine/game/launch/reliant.zig),
 [`launch/torpedo.zig`](../../src/engine/game/launch/torpedo.zig),
-[`launch/bay.zig`](../../src/engine/game/launch/bay.zig) and
+[`launch/bay.zig`](../../src/engine/game/launch/bay.zig),
+[`launch/stork.zig`](../../src/engine/game/launch/stork.zig) and
 [`launch/zakov.zig`](../../src/engine/game/launch/zakov.zig) hold the styles.
 
 ## How a launch is given
@@ -51,10 +52,10 @@ then runs again with the push of its argument before it.
    | 1 | A ship from the Yamato | `0x004192C0`, `0x00419840` |
    | 2 | A ship from the Badanov or the Krasny | `0x00419F60`, `0x0041A100` |
    | 3 | A torpedo (`0x4A`, `0x5C`), from anything | `launch_torpedo_init` (`0x0041A360`), `launch_torpedo_run` (`0x0041A390`) |
-   | 4 | An escape pod (`0x4D`) | `0x0041A4B0`, `0x0041A4D0` |
-   | 5 | A ship from the Stork | `0x0041A4B0`, `0x0041AD10` |
+   | 4 | An escape pod (`0x4D`) | `launch_point_init` (`0x0041A4B0`), `0x0041A4D0` |
+   | 5 | A ship from the Stork | `launch_point_init` (`0x0041A4B0`), `launch_stork_run` (`0x0041AD10`) |
    | 6 | A ship from the Reliant | `launch_reliant_init` (`0x0041AE20`), `launch_reliant_run` (`0x0041B240`) |
-   | 7 | The other escape pod (`0x90`) | `0x0041A4B0`, `0x0041B690` |
+   | 7 | The other escape pod (`0x90`) | `launch_point_init` (`0x0041A4B0`), `0x0041B690` |
    | 8 | A ship from the rogue base's first six gates | `0x0041B770`, `0x0041B7F0` |
    | 9 | A ship from the Zakov | `0x0041B8B0`, `0x0041B940` |
 
@@ -97,8 +98,9 @@ them, each part's attachments in order.
 
 `launch_attach` (`0x0041B9F0`) places a ship at the point of an object that its order's target names
 by its component: the ship's centre of mass stands at the point, and it is turned as the point is.
-The part that holds the point becomes the node the ship rides. The torpedoes' style, the escape
-pods', the Stork's, the Zakov's, and the Reliant's for the player's ship place their ships so.
+The part that holds the point becomes the node the ship rides. The styles of the torpedoes, the
+hangar bays, the escape pods, the Stork and the Zakov place their ships this way, and so does the
+Reliant's style for the player's ship.
 
 ## The Reliant's launch
 
@@ -204,6 +206,20 @@ the order's state.
 
 **Fix:** when the carrier's model lacks a door part, the game reads past the end of its root's
 child list. OpenReliant skips that door.
+
+## The Stork
+
+A ship launching from the Stork is placed at the launch point of its gate (`launch_point_init`,
+`0x0041A4B0`), riding the part that holds it. The escape pods' styles start with the same routine.
+From step 2 (`launch_stork_run`, `0x0041AD10`):
+
+| Step | What happens | Ticks to the next |
+|---|---|---|
+| 2 | The ship lets go and flies out along its nose at throttle 2 (`motion_plain`) | 400 |
+| 3 | Its throttle drops to 0 | 200, which step 4 doesn't wait for |
+| 4 | Each part in the ship's root child list plays `deploy` from its start, once, at speed 4. The ship flies itself (`motion_forward`) and no longer passes through the Stork. Its order pops, it can be targeted again, and its Launched event is posted | |
+
+In mission 4, the Storks drop their satellites this way, and each satellite opens out its panels.
 
 ## The Zakov
 

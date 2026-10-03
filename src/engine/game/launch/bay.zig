@@ -1,9 +1,9 @@
 //! A ship's launch from a hangar bay (`launch_bay_init`, `0x0041A610`, and `launch_bay_run`,
 //! `0x0041A9C0`): from the Victorious, the Endeavour, the Mitchells, the Bremen, the Ramases, the
-//! Pukov, the Kronstadt, the Krasnaya, the Varyag, the Kiev, and the rogue base from its seventh gate
-//! on. The ship waits at one of its carrier's launch points. Then the bay's doors open and the ship
-//! flies out. The doors close behind it unless another ship is still on its way out through them,
-//! and the ship flies on by itself.
+//! Pukov, the Kronstadt, the Krasnaya, the Varyag, the Kiev, and the rogue base from its seventh
+//! gate on. The ship waits at one of its carrier's launch points. Then the bay's doors open and the
+//! ship flies out. The doors close behind it unless another ship is still on its way out through
+//! them, and the ship flies on by itself.
 
 const std = @import("std");
 
@@ -123,11 +123,10 @@ fn longBay(carrier: gameobj.Type) bool {
 }
 
 /// `launch_bay_init` (`0x0041A610`): places the ship in slot `index` at the launch point of the
-/// carrier in slot `carrier` that its gate names (`launch.attach`), riding the part that holds it.
+/// carrier in slot `carrier` for its gate (`launch.attachAtGate`), riding the part that holds it.
 /// The game then keeps the gate's doors in the launch's state (`Doors.of`).
 pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
-    const all = ctx.world.objects;
-    launch.attach(all, index, carrier, all.slots[index].orders[0].target.component);
+    launch.attachAtGate(ctx, index, carrier);
 }
 
 /// `launch_bay_run` (`0x0041A9C0`): the launch of the ship in slot `index` from step 2 on.
@@ -186,8 +185,8 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
 /// Which way the doors go.
 const Way = enum { open, close };
 
-/// Plays the track of the doors `doors` of the carrier in `carrier`: forward from where it stands to
-/// open them, backwards to close them. The sound plays at the first door.
+/// Plays the track of the doors `doors` of the carrier in `carrier`: forward from where it stands
+/// to open them, backwards to close them. The sound plays at the first door.
 fn playDoors(world: gameobj.World, carrier: *create.Slot, doors: Doors, way: Way) void {
     const model = if (carrier.model) |*live| live else return;
     const speed: f32 = switch (way) {
