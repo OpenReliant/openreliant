@@ -47,6 +47,16 @@ pub fn build(b: *std.Build) void {
         },
     });
     platform.linkLibrary(sdl_library);
+    // Mod post effects compile through glslang and SPIRV-Cross. Keep their C++ exceptions
+    // inside the platform wrapper, and ship the upstream notices with the executable.
+    const shader_dependency = b.dependency("shader_compiler", .{ .target = target, .optimize = .ReleaseFast });
+    const shader_library = shader_dependency.artifact("shader-compiler");
+    platform.linkLibrary(shader_library);
+    platform.addIncludePath(shader_library.getEmittedIncludeTree());
+    platform.addCSourceFile(.{ .file = b.path("src/platform/shader_compiler.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
+    for ([_][]const u8{ "LICENSE-glslang.txt", "LICENSE-spirv-cross.txt" }) |notice| {
+        b.getInstallStep().dependOn(&b.addInstallFile(shader_dependency.namedLazyPath(notice), notice).step);
+    }
     // The sound: OpenAL Soft in place of Miles's 3D providers, which deps/openal-soft builds from
     // source for the target and the platform renders through its loopback device. It is built
     // optimized whatever the game's own mode: its mixer runs in the audio device's callback and has

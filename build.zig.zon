@@ -4,6 +4,7 @@
     .fingerprint = 0x51560fdd72ea15d0,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
+        .shader_compiler = .{ .path = "deps/shader-compiler" },
         .sdl = .{
             .url = "git+https://github.com/castholm/SDL.git?ref=v0.5.4+3.4.16#b72b3671502a70e109350ecac90afdc480dcfcc6",
             .hash = "sdl-0.5.4+3.4.16-SDL--sQ4qAH3kwC19Zs1kxdHplaSDnWl2MUptZD4AItI",

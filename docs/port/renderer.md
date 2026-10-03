@@ -58,6 +58,29 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 
 `--shadows off`, `--original` and `--no-pixel-lighting` leave them out, and `--no-cockpit-shadows` the cockpit's alone. The software device draws none. Not yet: fitting the cascades to the objects in them, which space leaves mostly empty ([#196](https://github.com/OpenReliant/openreliant/issues/196)).
 
+## Runtime shader compilation
+
+**Improvement:** `platform.shader_compiler` compiles post-effect fragment GLSL into owned SPIR-V
+and Metal code (#621). The platform links glslang 16.1.0 and SPIRV-Cross
+vulkan-sdk-1.4.357.0 from pinned source packages. The existing built-in shaders still use their
+committed outputs. A C++ boundary catches compiler exceptions; Zig owns copies of successful
+code or diagnostics. Compiler calls serialize glslang initialization and shutdown.
+
+The initial post-effect contract is GLSL 450 for Vulkan 1.0 and SPIR-V 1.0, translated to Metal
+2.2. Each fragment has one `vec2` input and one `vec4` output, both at location 0. It may read
+`gl_FragCoord`, but cannot write built-in outputs. It may declare up to two float `sampler2D`
+textures at set 2, distinct bindings 0 and 1. An optional std140 uniform block at set 3,
+binding 0 contains exactly two `vec4` fields at offsets 0 and 16. This matches SDL GPU's fragment
+resource sets and Metal binding indices. Arrays, storage resources, push constants and
+specialization constants are rejected. Reflection checks these requirements before Metal
+translation. Source is limited to 1 MiB; includes and embedded NUL bytes are rejected.
+
+Compilation failures retain glslang's filename and line diagnostics. Resource-layout failures
+identify the source filename and incompatible interface. The compiler does not run a GPU pass.
+The script registry, effect settings, disk cache and reload remain in
+[#559](https://github.com/OpenReliant/openreliant/issues/559), along with surface functions and
+whole-shader overrides.
+
 ## Improvements
 
 Deliberate differences from the original, each marked **Improvement** where it is made. The settings screen's VIDEO turns the GPU device's on and off as the game plays, but for 16-bit colour and linear light, which take effect at the next start ([Video](../engine/front-end.md#video)):

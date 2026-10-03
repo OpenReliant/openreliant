@@ -1,0 +1,17 @@
+.{
+    .name = .shader_compiler,
+    .fingerprint = 0x36d3f5d96811e625,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .glslang = .{
+            .url = "git+https://github.com/KhronosGroup/glslang.git?ref=16.1.0#b5782e52ee2f7b3e40bb9c80d15b47016e008bc9",
+            .hash = "N-V-__8AAPfXwQK5nhPhIaQMUrcFkdb38Fmdvhuq3F7EqSZX",
+        },
+        .spirv_cross = .{
+            .url = "git+https://github.com/KhronosGroup/SPIRV-Cross.git?ref=vulkan-sdk-1.4.357.0#6c09849fe88c48eaed08413aa022aaa136a3a057",
+            .hash = "N-V-__8AAEi2vwBldxiqJ4VwO-t6Bci6_ne5OA5437M7Yyih",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon" },
+}

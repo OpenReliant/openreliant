@@ -72,6 +72,7 @@ jobs:
           done
           # The licence of the libraries whose text has to go with every copy.
           cp deps/luau/LICENSE.txt "$name"/LICENSE-luau.txt
+          cp zig-out/LICENSE-glslang.txt zig-out/LICENSE-spirv-cross.txt "$name"/
           # The scripting API's definitions, for mods' authors' editors.
           cp docs/guide/openreliant.d.luau "$name"/
           case "${{ matrix.target }}" in
