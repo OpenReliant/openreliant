@@ -27,6 +27,7 @@ const script = @import("script.zig");
 const values = @import("values.zig");
 const objects = @import("objects.zig");
 const game_module = @import("game.zig");
+const presentation_module = @import("presentation.zig");
 
 /// The userdata tags, one per kind of userdata, each with its own metatable.
 pub const Tag = enum(luau.Tag) {
@@ -105,8 +106,10 @@ pub const Runtime = struct {
     interrupts: u32 = 0,
     /// The objects that handles stand for, while a game runs (`objects.zig`).
     objects: ?*Objects = null,
-    /// The game the scripts run in, while one runs.
+    /// The game the scripts run in, while one runs, for the game side.
     game: ?*game_module.Game = null,
+    /// The presentation side, for its own state.
+    presentation: ?*presentation_module.Presentation = null,
     /// What orders run against, while a mission runs.
     orders: ?aigeneric.Context = null,
     /// The handles made, by slot (`objects.zig`).
@@ -659,9 +662,13 @@ fn require(state: *State) i32 {
     if (script.Package.parse(name)) |package| {
         if (!package.reachableFrom(context.family)) state.raise("{s} is not available to {t} scripts", .{ name, context.family });
         if (!package.ready()) state.raise("{s} is not available in this version of OpenReliant", .{name});
-        // The script's own object.
+        // The script's own object, or the player's ship.
         if (package == .self) {
-            objects.push(state, context.object.?.slot);
+            if (context.object) |own| {
+                objects.push(state, own.slot);
+            } else if (context.runtime.objects) |all| {
+                objects.push(state, all.player);
+            } else state.pushNil();
             return 1;
         }
         const kept = context.runtime.packages.get(package) orelse state.raise("{s} is not available here", .{name});

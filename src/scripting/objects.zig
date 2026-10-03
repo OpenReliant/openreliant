@@ -254,6 +254,14 @@ pub fn push(state: *State, index: u16) void {
     state.remove(table);
 }
 
+/// Pushes `handle`, as another state's script held it: the object's own handle while it's in the
+/// mission, or else a handle that isn't valid.
+pub fn pushHandle(state: *State, handle: Handle) void {
+    const runtime = state.callbackData(Runtime).?;
+    if (runtime.objects) |all| if (handle.valid(all)) return push(state, handle.slot);
+    state.newUserdata(Handle, Handle.tag).* = handle;
+}
+
 /// The slot of the object whose handle is at `given`. Raises an error if it isn't a valid handle;
 /// `label` names the value in the message.
 pub fn read(state: *State, given: i32, comptime label: []const u8) u16 {

@@ -10,6 +10,10 @@ const api = @import("api.zig");
 const core = @import("core.zig");
 const world = @import("world.zig");
 const nearby = @import("nearby.zig");
+const drawing = @import("drawing.zig");
+const input = @import("input.zig");
+const camera = @import("camera.zig");
+const audio = @import("audio.zig");
 
 /// The namespace that declares `package`; null for a package made otherwise, or not made yet.
 pub fn namespace(comptime package: script.Package) ?type {
@@ -17,7 +21,13 @@ pub fn namespace(comptime package: script.Package) ?type {
         .core => core.package,
         .world => world.package,
         .nearby => nearby.package,
-        .records, .hooks, .self, .interfaces, .orders, .hud, .ui, .input, .camera, .audio, .postprocessing, .shaders, .storage, .async, .util, .vfs, .debug => null,
+        .hud => drawing.Package(.hud),
+        .ui => drawing.Package(.ui),
+        .debug => drawing.debug,
+        .input => input.package,
+        .camera => camera.package,
+        .audio => audio.package,
+        .records, .hooks, .self, .interfaces, .orders, .postprocessing, .shaders, .storage, .async, .util, .vfs => null,
     };
 }
 

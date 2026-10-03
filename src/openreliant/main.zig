@@ -223,6 +223,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         },
     });
     try scripting.load.run(gpa, io, mods.list, &records, version.string);
+    // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
+    // scripts while a game runs (`GameScripts`).
+    const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string);
+    defer if (presentation) |shown| shown.stop();
     const ship_stats = records.ships;
     const gun_stats = records.guns;
     const missile_stats = records.missiles;
@@ -521,7 +525,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
 
     // The mods' global scripts, which run while a game runs: from the front end's start of a game,
     // or `--mission`'s, to the main menu or the end. They stop after the mission's end below.
-    var game_scripts: GameScripts = .{ .gpa = gpa, .io = io, .mods = mods.list, .records = &records, .objects = objects };
+    var game_scripts: GameScripts = .{ .gpa = gpa, .io = io, .mods = mods.list, .records = &records, .objects = objects, .presentation = presentation };
+    display.presentation = presentation;
+    // The display's font as the player and menu scripts write in it over the display and the pause
+    // menu: ramped, as the menus' fonts are, so that its text takes the colour a script gives.
+    var script_font: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(arena, resources, game.hud.Resources.font_name, &outlines) else null;
     defer game_scripts.stop();
     // The mission `--mission` names, read once from the game's files, or for mission 0, where the
     // game has none, from the copy `openreliant` carries, and started; it starts again as each
@@ -539,6 +547,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .loading = &loading,
         .objects = objects,
         .player = &player,
+        .presentation = presentation,
     };
     defer play.end();
     display.play = &play;
@@ -575,6 +584,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         try game.winmain.saveCallSigns(&front.pilot_roster.list, settings_file);
     }
     var front_ticks = platform.window.ticks();
+    // When the player and menu scripts' last frame ran.
+    var presented_at = platform.window.nanoseconds();
     // What the front end's screens run and are entered with, its window and the time since its
     // last pass given each pass.
     var front_context: engine.genilib.interf.Context = .{
@@ -643,6 +654,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             .quit => return,
             .key => |key| if (options.screenshot == null) {
                 devices.keyboard.down[@intFromEnum(key.scan)] = key.down;
+                if (presentation) |shown| shown.key(key.scan, key.down);
             },
             .typed => |character| if (options.screenshot == null) typed.push(game.language.fromUnicode(character)),
             .controllers => if (options.screenshot == null) connectController(arena, &devices, &controller, settings_file.profile),
@@ -880,12 +892,35 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             }
         }
 
+        // The player and menu scripts' frame, before anything is drawn, with what each of their
+        // layers is drawn on.
+        if (presentation) |shown| {
+            const now = platform.window.nanoseconds();
+            var host: scripting.presentation.Host = .{
+                .seconds = @as(f32, @floatFromInt(now -| presented_at)) / std.time.ns_per_s,
+                .devices = &devices,
+                .window = size,
+                .sound = sound,
+                .flying = !flow.in_front_end and !clock.paused,
+            };
+            presented_at = now;
+            if (flow.in_front_end) {
+                const fonts = &front_resources.?;
+                host.views.set(.ui, .{ .font = &fonts.small.font, .gpa = fonts.gpa, .screen = size, .scale = game.interface.canvas.scaleFor(size) });
+            } else {
+                const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
+                if (script_font) |*file| host.views.set(layer, .{ .font = &file.font, .gpa = arena, .screen = size, .scale = game.hud.scaleFor(size) });
+                host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
+            }
+            shown.frame(host);
+        }
+
         _ = frame_arena.reset(.retain_capacity);
         if (flow.in_front_end) {
             // The screen a transition's movie or a mission's end has just led to entered before
             // its first frame is drawn, as each of the game's screens enters before its loop.
             front.enterShown(front_context);
-            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings } };
+            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation };
             scene.clear();
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
@@ -1092,23 +1127,28 @@ const Flow = struct {
     }
 };
 
-/// The mods' global scripts, which run while a game runs (`scripting.Game`).
+/// The mods' global and player scripts, which run while a game runs (`scripting.Game`,
+/// `scripting.Presentation.startGame`).
 const GameScripts = struct {
     gpa: Allocator,
     io: Io,
     mods: []const game.bigfile.mods.Mod,
     records: *scripting.Records,
     objects: *game.create.Objects,
+    /// The player and menu scripts, if any mod has some.
+    presentation: ?*scripting.Presentation,
     running: ?*scripting.Game = null,
 
     /// Starts them as a game starts, after any of the game before.
     fn start(scripts: *GameScripts) !void {
         scripts.stop();
         scripts.running = try scripting.Game.start(scripts.gpa, scripts.io, scripts.mods, scripts.records, version.string, scripts.objects);
+        if (scripts.presentation) |shown| try shown.startGame(scripts.running, scripts.objects);
     }
 
     /// Stops them as the game ends, if they run.
     fn stop(scripts: *GameScripts) void {
+        if (scripts.presentation) |shown| shown.endGame();
         if (scripts.running) |running| running.stop();
         scripts.running = null;
     }
@@ -1326,6 +1366,8 @@ const FrontEndDisplay = struct {
     /// What the settings screen shows the state of: the devices' settings and bindings, the
     /// sound's volumes, and the video.
     settings: game.interface.settings.Shown,
+    /// The player and menu scripts, which draw over the screen.
+    presentation: ?*scripting.Presentation,
 
     fn overlay(shown: *FrontEndDisplay) srcore.Overlay {
         return .{ .context = shown, .draw = draw };
@@ -1333,7 +1375,8 @@ const FrontEndDisplay = struct {
 
     fn draw(context: *anyopaque) Allocator.Error!void {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
-        return drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string));
+        try drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string));
+        if (shown.presentation) |scripts| try scripts.draw(.ui, shown.target, null);
     }
 };
 
@@ -1418,6 +1461,8 @@ const Play = struct {
     /// The objects and the player, whose ending the mods' scripts hear as a mission ends.
     objects: *game.create.Objects,
     player: *const engine.input.Player,
+    /// The player and menu scripts, which hear as each mission starts and ends.
+    presentation: ?*scripting.Presentation = null,
 
     /// Starts the mission, letting go of the one before, the loading screen shown first
     /// (`game.xtrabits.loading.missionFrames`).
@@ -1437,9 +1482,13 @@ const Play = struct {
             .display = play.display,
             .campaign = play.campaign,
         }, try play.gpa.dupe(u8, play.file), play.number);
+        const all = orders.world.objects;
+        if (play.presentation) |shown| {
+            var file_buffer: [game.winmain.mission_path_size]u8 = undefined;
+            shown.missionStarted(game.main.scriptMission(&file_buffer, all, play.number));
+        }
         // A launch holds the camera until the ship is out; a ship that does not launch starts in
         // its view at once.
-        const all = orders.world.objects;
         if (!play.view.locked) _ = play.view.setView(startingView(&all.slots[all.player], play.view.cockpit_mode), all.player, false, true, play.clock.viewTime());
     }
 
@@ -1471,7 +1520,10 @@ const Play = struct {
     }
 
     fn end(play: *Play) void {
-        if (play.loaded) |loaded| game.main.endMission(play.objects, play.player, loaded);
+        if (play.loaded) |loaded| {
+            if (play.presentation) |shown| shown.missionEnded(game.main.scriptOutcome(play.player, loaded));
+            game.main.endMission(play.objects, play.player, loaded);
+        }
         play.loaded = null;
     }
 
@@ -1538,6 +1590,8 @@ const Display = struct {
     pause_menu: *game.hudoptions.PauseMenu,
     devices: *engine.input.Devices,
     settings: game.hudoptions.Settings,
+    /// The player and menu scripts, which draw over the display and the pause menu.
+    presentation: ?*scripting.Presentation = null,
 
     fn overlay(display: *Display) srcore.Overlay {
         return .{ .context = display, .draw = draw };
@@ -1549,9 +1603,20 @@ const Display = struct {
     }
 
     /// What Surrender's overlay slot (`sr + 0x88`) holds: the pause menu while paused
-    /// (`pause_menu_draw`), and the display otherwise (`hud_draw`).
+    /// (`pause_menu_draw`), and the display otherwise (`hud_draw`), each with what the player and
+    /// menu scripts draw over it.
     fn drawOverlay(display: *Display) !void {
-        if (display.pause_menu.isOpen()) return display.pause_menu.draw(.{
+        if (display.pause_menu.isOpen()) {
+            try display.drawPauseMenu();
+            if (display.presentation) |scripts| try scripts.draw(.ui, display.device, null);
+            return;
+        }
+        try display.drawDisplay();
+        if (display.presentation) |scripts| try scripts.draw(.hud, display.device, display.sight);
+    }
+
+    fn drawPauseMenu(display: *Display) !void {
+        return display.pause_menu.draw(.{
             .target = display.device,
             .screen = display.screen,
             .art = &display.resources.art,
@@ -1562,6 +1627,9 @@ const Display = struct {
             .version = version.string,
             .timer = platform.window.ticks(),
         });
+    }
+
+    fn drawDisplay(display: *Display) !void {
         try game.hud.draw(&display.state, &display.resources, .{
             .gpa = display.gpa,
             .device = display.device,

@@ -10,6 +10,7 @@ const openreliant = @import("openreliant");
 const gameobj = openreliant.engine.game.gameobj;
 const create = openreliant.engine.game.create;
 const engine_hooks = openreliant.engine.hooks;
+const input = openreliant.engine.input;
 const Object = engine_hooks.Object;
 const data = @import("data.zig");
 const values = @import("values.zig");
@@ -101,8 +102,8 @@ pub const Kind = enum {
     /// ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
     pub fn runs(kind: Kind) bool {
         return switch (kind) {
-            .load, .global, .fighter, .capital, .support, .other, .torpedo, .debris, .mine, .planet => true,
-            .player, .menu, .missile, .turret => false,
+            .load, .global, .player, .menu, .fighter, .capital, .support, .other, .torpedo, .debris, .mine, .planet => true,
+            .missile, .turret => false,
         };
     }
 
@@ -205,18 +206,18 @@ pub const Handler = enum {
             .on_records_loaded => "After every mod's load scripts have run.",
             .on_update => "Each frame in which game time passes, after the ships' orders, with the seconds it covers.",
             .on_step => "Each simulation step, 25 a second, after everything has moved.",
-            .on_frame => "Each frame drawn, even while the game is paused.",
+            .on_frame => "Each frame drawn, even while the game is paused, with the seconds of real time since the last.",
             .on_mission_start => "When a mission has started and its first ships are there.",
             .on_mission_end => "When the mission ends, for whatever reason.",
             .on_object_added => "When an object is added to the mission.",
             .on_object_removed => "When an object leaves the mission, such as once it has blown up.",
             .on_added => "When the script's object is in the mission: as it's added, or at once if the script starts later.",
             .on_removed => "When the script's object leaves the mission.",
-            .on_key_press => "When a key is pressed.",
+            .on_key_press => "When a key is pressed. A key held down is told once.",
             .on_key_release => "When a key is released.",
-            .on_action => "When a bound action happens.",
+            .on_action => "When the player uses the controls bound to an action, in flight.",
             .on_console_command => "When a line is typed in the console.",
-            .on_viewport_resized => "When the window changes size.",
+            .on_viewport_resized => "When the window changes size, with its new size in pixels.",
             .on_interface_override => "When the script's interface takes the place of one an earlier script offered under the same name, with that one.",
         };
     }
@@ -232,7 +233,11 @@ pub const Handler = enum {
             .on_mission_end => struct { outcome: engine_hooks.Outcome },
             .on_object_added, .on_object_removed => struct { object: Object },
             .on_interface_override => struct { base: values.Table },
-            .on_save, .on_load, .on_frame, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_viewport_resized => null,
+            .on_frame => struct { seconds: f32 },
+            .on_key_press, .on_key_release => struct { key: input.Key },
+            .on_action => struct { action: input.controls.Action },
+            .on_viewport_resized => struct { width: u32, height: u32 },
+            .on_save, .on_load, .on_console_command => null,
         };
     }
 };
@@ -273,9 +278,11 @@ pub const Package = enum {
     pub fn reachableFrom(package: Package, family: Family) bool {
         return switch (package) {
             .core, .records, .storage, .util, .vfs => true,
-            .hooks, .async, .interfaces => family != .load,
+            .async, .interfaces => family != .load,
+            // The hooks there are so far are all the game's.
+            .hooks => family == .global or family == .object,
             .world => family == .global,
-            .self => family == .object,
+            .self => family == .object or family == .player,
             .nearby => family == .object or family == .player,
             .orders => family == .global or family == .object,
             .hud, .camera, .postprocessing, .debug => family == .player,
@@ -291,30 +298,30 @@ pub const Package = enum {
             .records => "The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them.",
             .hooks => "Handlers on the game's functions and events.",
             .world => "The mission's objects, the player's ship and the mission itself.",
-            .self => "The script's own object, as a handle.",
+            .self => "The script's own object, as a handle: an object script's object, or the player's ship for a player script, nil between games.",
             .nearby => "The objects around the script's own.",
             .orders => "Giving orders, and new orders.",
-            .hud => "Drawing on the flight display, and new displays.",
-            .ui => "Screens, windows, and settings pages.",
-            .input => "Keys, buttons, and new actions to bind.",
-            .camera => "The view, and new views.",
-            .audio => "Sounds, music and radio lines.",
+            .hud => "Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels.",
+            .ui => "Drawing over the menus, the front end's screens and the pause menu, while they're shown: text, lines and rectangles, in the window's pixels.",
+            .input => "Whether keys are held, and the controls bound to actions.",
+            .camera => "The camera's view, and switching between the game's views.",
+            .audio => "Interface sounds, music and Betty's lines.",
             .postprocessing => "Effects drawn over the scene.",
             .shaders => "Functions that change how surfaces look.",
             .storage => "Settings and data kept between games.",
             .async => "Timers that survive saving.",
-            .interfaces => "The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, and those of an object's scripts to the object's other scripts. Nil for one nobody offers.",
+            .interfaces => "The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers.",
             .util => "Vectors, matrices, positions and angles.",
             .vfs => "Reading the game's and the mods' files.",
-            .debug => "Lines and text drawn in the world, for debugging.",
+            .debug => "Lines and text placed in the world, drawn over the flight display where the camera sees them, for debugging.",
         };
     }
 
     /// Whether this version implements this package.
     pub fn ready(package: Package) bool {
         return switch (package) {
-            .core, .records, .hooks, .world, .self, .nearby, .interfaces => true,
-            .orders, .hud, .ui, .input, .camera, .audio, .postprocessing, .shaders, .storage, .async, .util, .vfs, .debug => false,
+            .core, .records, .hooks, .world, .self, .nearby, .interfaces, .hud, .ui, .input, .camera, .audio, .debug => true,
+            .orders, .postprocessing, .shaders, .storage, .async, .util, .vfs => false,
         };
     }
 };
@@ -350,7 +357,8 @@ test Kind {
     try std.testing.expect(Kind.load.runs());
     try std.testing.expect(Kind.global.runs());
     try std.testing.expect(Kind.fighter.runs());
-    try std.testing.expect(!Kind.player.runs());
+    try std.testing.expect(Kind.player.runs());
+    try std.testing.expect(!Kind.turret.runs());
     try std.testing.expectEqual(create.ShipCombat.Class.mine, Kind.mine.class().?);
     try std.testing.expectEqual(null, Kind.missile.class());
 }

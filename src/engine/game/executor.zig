@@ -18,6 +18,7 @@ const gameobj = @import("gameobj.zig");
 const follow = @import("ai/follow.zig");
 const friendly_fire = @import("friendly_fire.zig");
 const guns = @import("guns.zig");
+const hog_snd = @import("hog_snd.zig");
 const hud = @import("hud.zig");
 const hudmovie = @import("hudmovie.zig");
 const launch = @import("launch.zig");
@@ -450,18 +451,24 @@ const music_folder = "music\\";
 
 /// `cmd_PlayMusic` (`0x00458DF0`, command `0x23`): plays the piece the first argument names from
 /// the game's music folder, for ever, at once where the second argument is 1, or else once the
-/// music playing has faded out (`hog_snd.Sound.When.of`, `hog_snd.Sound.playMusic`).
-///
-/// **Fix:** the game writes a path longer than its buffer past it; OpenReliant plays nothing.
+/// music playing has faded out (`hog_snd.Sound.When.of`, `playPiece`).
 fn playMusic(call: Call, game: aigeneric.Context) void {
     const hearing = game.world.hearing orelse return;
     const name = call.machine.mission.text(call.args[0]) catch return;
+    playPiece(hearing.sound, name, .of(call.args[1], game.world.clock.game_ticks));
+}
+
+/// Plays the piece `name` from the game's music folder for ever, as `cmd_PlayMusic` plays it, when
+/// `when` has it.
+///
+/// **Fix:** the game writes a path longer than its buffer past it; OpenReliant plays nothing.
+pub fn playPiece(sound: *hog_snd.Sound, name: []const u8, when: hog_snd.Sound.When) void {
     var buffer: [music_path_size]u8 = undefined;
     const path = std.fmt.bufPrint(&buffer, music_folder ++ "{s}", .{name}) catch {
         log.warn("the music {s} is left out: its path is too long", .{name});
         return;
     };
-    hearing.sound.playMusic(path, music_forever, music_level, .of(call.args[1], game.world.clock.game_ticks));
+    sound.playMusic(path, music_forever, music_level, when);
 }
 
 /// Who a comms command's first argument names to speak: a mission's ship, or a pilot of the

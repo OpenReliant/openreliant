@@ -326,6 +326,7 @@ script, and the [scripting reference](reference.md) lists everything they can us
   events.
 - **Object scripts** run on each ship of a class or a type, such as every fighter, while it's in
   the mission.
+- **Player and menu scripts** draw over the flight display and the menus, and react to the keys.
 
 A mod lists its scripts in its manifest:
 

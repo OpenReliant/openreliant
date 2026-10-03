@@ -8,6 +8,7 @@
 const luau = @import("luau.zig");
 const State = luau.State;
 const objects = @import("objects.zig");
+const Runtime = @import("runtime.zig").Runtime;
 
 /// Plain data a script passed on: a copy, held by a reference that its holder lets go
 /// (`Runtime.release`).
@@ -25,6 +26,48 @@ const level_stack = 5;
 /// isn't plain data.
 pub fn copy(state: *State, given: i32, comptime label: []const u8) void {
     copyAt(state, state.absolute(given), label, 0);
+}
+
+/// Copies the plain data `ref` holds in `from`'s state into `to`'s, as an event from a player
+/// script goes to the game's scripts, and returns a reference to the copy there; null if memory
+/// runs out. The data was checked as it was copied the first time (`copy`).
+pub fn transfer(from: *State, ref: luau.Ref, to: *Runtime) ?luau.Ref {
+    const base = from.top();
+    defer from.setTop(base);
+    if (!from.checkStack(1)) return null;
+    _ = from.pushRef(ref);
+    return to.make(copyAcross, .{ from, from.top() });
+}
+
+fn copyAcross(state: *State, from: *State, at: i32) void {
+    copyFrom(state, from, at, 0);
+}
+
+/// Pushes on `to` a copy of the plain data at `at` in `from`.
+fn copyFrom(to: *State, from: *State, at: i32, depth: u32) void {
+    if (!to.checkStack(level_stack) or !from.checkStack(level_stack)) to.raise("out of memory", .{});
+    switch (from.typeOf(at)) {
+        .boolean => to.pushBoolean(from.toBoolean(at)),
+        .number => to.pushNumber(from.toNumber(at).?),
+        .string => to.pushString(from.toString(at).?),
+        .vector => to.pushVector(from.toVector(at).?),
+        .userdata => objects.pushHandle(to, from.toUserdata(objects.Handle, at, objects.Handle.tag).?.*),
+        .table => {
+            if (depth == max_depth) to.raise("tables nest more than {d} deep", .{max_depth});
+            to.newTable(0, 0);
+            const made = to.top();
+            from.pushNil();
+            while (from.next(at)) {
+                const value = from.top();
+                copyFrom(to, from, value - 1, depth + 1);
+                copyFrom(to, from, value, depth + 1);
+                to.rawSet(made);
+                from.pop(1);
+            }
+        },
+        // Nothing else passes `copy`.
+        else => to.pushNil(),
+    }
 }
 
 fn copyAt(state: *State, at: i32, comptime label: []const u8, depth: u32) void {

@@ -1714,7 +1714,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     winmain.startMission(world.player, if (start.campaign) |campaign| campaign.kept(number).kills else 0);
     all.mission_number = number;
     var file_buffer: [winmain.mission_path_size]u8 = undefined;
-    const mission: hooks.Mission = .{ .number = number, .file = winmain.missionFileName(&file_buffer, number, all.mission25_second_part) };
+    const mission = scriptMission(&file_buffer, all, number);
     const loaded = try Loaded.create(gpa, image, world.random);
     errdefer loaded.destroy();
     loaded.script.variables = if (start.campaign) |campaign| campaign.attempt() else gameflow.restartPoint();
@@ -1760,8 +1760,20 @@ fn scriptSeed(random: *const libcmt.Rand, number: u16) u64 {
 /// ended (`hooks.Scripts.ended`): for the player (`player.ending`), and as the mission's script
 /// rated it.
 pub fn endMission(all: *create.Objects, player: *const input.Player, loaded: *Loaded) void {
-    if (all.scripts) |scripts| scripts.ended(.{ .ending = player.ending, .rating = loaded.script.variables.mission_success });
+    if (all.scripts) |scripts| scripts.ended(scriptOutcome(player, loaded));
     loaded.destroy();
+}
+
+/// OpenReliant's: mission `number` as the mods' scripts hear of it, its file's name written in
+/// `buffer`: mission 25's second part where `all` has it flown.
+pub fn scriptMission(buffer: *[winmain.mission_path_size]u8, all: *const create.Objects, number: u16) hooks.Mission {
+    return .{ .number = number, .file = winmain.missionFileName(buffer, number, all.mission25_second_part) };
+}
+
+/// OpenReliant's: how the mission `loaded` ended as the mods' scripts hear of it: for the player
+/// (`player.ending`), and as the mission's script rated it.
+pub fn scriptOutcome(player: *const input.Player, loaded: *const Loaded) hooks.Outcome {
+    return .{ .ending = player.ending, .rating = loaded.script.variables.mission_success };
 }
 
 /// Fits the display's devices to the player's ship, as the start does after `hud_init` has set

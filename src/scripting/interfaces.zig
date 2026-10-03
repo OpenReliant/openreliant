@@ -1,8 +1,8 @@
 //! Interfaces ([#498](https://github.com/OpenReliant/openreliant/issues/498)): what a script
 //! offers other scripts. A script that returns `interface_name` and `interface` offers the table
 //! `interface` under that name, and scripts reach it through `openreliant.interfaces`, as
-//! `I.<name>`. Global scripts see the interfaces of the global scripts, and an object's scripts
-//! those of the scripts on the same object.
+//! `I.<name>`. Global scripts see the interfaces of the global scripts, an object's scripts those
+//! of the scripts on the same object, and player and menu scripts each other's.
 //!
 //! A later script that offers an interface of the same name, in a later mod or later in the same
 //! mod, overrides the earlier one: scripts see the latest. The later script's
@@ -24,7 +24,7 @@ const Call = api.Call;
 
 /// Which scripts see an interface.
 pub const Scope = union(enum) {
-    /// The global scripts, and the mission's.
+    /// The global and mission scripts, or on the presentation side the player and menu scripts.
     global,
     /// The scripts on one object.
     object: objects.Handle,
@@ -32,9 +32,9 @@ pub const Scope = union(enum) {
     /// The scope of the scripts of `context`.
     pub fn of(context: *const Context) ?Scope {
         return switch (context.family) {
-            .global => .global,
+            .global, .player, .menu => .global,
             .object => .{ .object = context.object.? },
-            .load, .player, .menu => null,
+            .load => null,
         };
     }
 

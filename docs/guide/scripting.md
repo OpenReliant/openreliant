@@ -3,9 +3,11 @@
 Mods can include scripts, written in [Luau](https://luau.org), a version of Lua 5.1. Load scripts
 change the game's records, such as a gun's damage, at startup. Global and mission scripts run as the
 game plays: they react to what happens and change it through hooks on the game's functions and
-events. Object scripts run on the ships and other objects of a mission, each on its own object. This
-page explains how to write them; the [scripting reference](reference.md) lists everything they can
-use, and [`examples/mods`](../../examples/mods) holds complete example mods.
+events. Object scripts run on the ships and other objects of a mission, each on its own object.
+Player and menu scripts decide what the player sees, hears and does: they draw over the flight
+display and the menus, and react to the keys. This page explains how to write them; the
+[scripting reference](reference.md) lists everything they can use, and
+[`examples/mods`](../../examples/mods) holds complete example mods.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
 
@@ -53,6 +55,8 @@ main menu and start again. After changing `mod.ini` or adding a file, start Open
 | Global | `Global=` under `[Scripts]` | For the whole game | [Hooks](#hooks) on the game's functions and events |
 | Mission | The mission's file name under `[Missions]` | While that mission runs | Hooks for one mission |
 | Object | A class, such as `Fighter=`, or a type, such as `Type.predator=`, under `[Scripts]` | On each object of that class or type, while it's in the mission | [Object scripts](#object-scripts) |
+| Player | `Player=` under `[Scripts]` | For the whole game, even while it's paused | [What the player sees and does](#player-and-menu-scripts) |
+| Menu | `Menu=` under `[Scripts]` | From OpenReliant's start until it quits, in the menus and over the missions | [Drawing over the menus](#player-and-menu-scripts) |
 
 ```ini
 [Scripts]
@@ -77,10 +81,9 @@ mission2.dte=escort.luau
   `Other`. A type is `Type.` and its name ([ShipType](reference.md#shiptype)) or its number, such as
   `Type.12`.
 - Each script has its own global variables, and each object's scripts their own.
-- Later versions add player and menu scripts
-  ([#557](https://github.com/OpenReliant/openreliant/issues/557)), and scripts on missiles and
-  turrets ([#587](https://github.com/OpenReliant/openreliant/issues/587)); this version skips them,
-  and says so in the log.
+- Later versions add scripts on missiles and turrets
+  ([#587](https://github.com/OpenReliant/openreliant/issues/587)); this version skips them, and
+  says so in the log.
 
 ## Engine handlers
 
@@ -296,6 +299,50 @@ return {
   `hooks.add` with the object as the filter.
 - `openreliant.nearby` gives the objects around the script's object.
 
+## Player and menu scripts
+
+Player and menu scripts decide what the player sees, hears and does. They run in a state of their
+own, apart from the game's scripts: they can read objects, but change the game only by sending
+events to the global scripts.
+
+```lua
+-- clock.luau, listed as Player=clock.luau: the time spent flying, over the flight display.
+local hud = require("openreliant.hud")
+local flown = 0
+
+return {
+    engine_handlers = {
+        on_frame = function(seconds)
+            if not hud.shown then return end
+            flown += seconds
+            hud.text(vector.create(16, 16, 0), string.format("%.0f s", flown), {
+                colour = vector.create(0.4, 1, 0.4),
+            })
+        end,
+        on_key_press = function(key)
+            if key == "f9" then flown = 0 end
+        end,
+    },
+}
+```
+
+- `on_frame` runs each frame drawn, even while the game is paused, with the seconds of real time
+  since the last. `on_key_press` and `on_key_release` hear the keys, by name, such as `"f9"` or
+  `"escape"` ([Key](reference.md#key)). In flight, `on_action` hears the controls bound to the
+  game's actions, such as `"fire_lasers"` ([Action](reference.md#action)).
+- `openreliant.hud` draws over the flight display, and `openreliant.ui` over the menus: the front
+  end's screens and the pause menu. Draw in `on_frame`: each frame starts with nothing drawn. Places
+  are in the window's pixels from its top left corner, `width` and `height` give the window's size,
+  and `shown` says whether the display or the menu shows this frame. Text is drawn in the game's
+  font, at the size the game draws its own times the style's `scale`.
+- For a player script, `require("openreliant.self")` gives the player's ship, and
+  `openreliant.nearby` the objects around it.
+- `openreliant.input`, `openreliant.camera`, `openreliant.audio` and `openreliant.debug` read the
+  keys, switch the camera's view, play sounds, and draw lines and text placed in the world
+  ([Packages](reference.md#packages)).
+- Menu scripts don't run yet while the briefing, the loadout, the ITAC and the other rooms are
+  shown ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
+
 ## Events
 
 Scripts send each other events: `core.send_global_event(name, data)` to the global and mission
@@ -318,6 +365,8 @@ return {
 ```
 
 - An event arrives at the next update, before the scripts' `on_update`.
+- Player and menu scripts send events to the global scripts too, which is how they change the
+  game.
 - `data` must be plain data: nil, booleans, numbers, strings, vectors, objects, and tables of these.
   It's copied as it's sent, so changing the table afterwards changes nothing.
 - Each script with a handler for the event gets it, newest mod first. A handler that returns `false`
@@ -344,8 +393,8 @@ if I.Wingmen and I.Wingmen.fled() > 2 then
 end
 ```
 
-- Global and mission scripts see each other's interfaces, and an object's scripts those of the
-  other scripts on the same object.
+- Global and mission scripts see each other's interfaces, an object's scripts those of the other
+  scripts on the same object, and player and menu scripts each other's.
 - An interface that nobody offers is nil.
 - A later script that offers the same name takes its place, and gets the earlier interface in its
   `on_interface_override(base)` handler, so it can call through to it.
@@ -387,8 +436,8 @@ It may report that it can't find the packages themselves, which OpenReliant prov
 ## Limits
 
 Scripts run in a sandbox: they can't open files, use the network or run programs. A call into a
-script may run for at most 1 second in a load script and 100 milliseconds in a global, mission or
-object script, and each mod's scripts may use at most 64 MiB of memory. An error in a script never
+script may run for at most 1 second in a load script and 100 milliseconds in any other, and each
+mod's scripts may use at most 64 MiB of memory. An error in a script never
 stops the game: it's logged with the file and the line, and the game carries on.
 
 ## When something goes wrong
@@ -407,3 +456,4 @@ stops the game: it's logged with the file and the line, and the game carries on.
 | `object scripts can't change this object's ...` | An object's scripts can only change their own object |
 | `only plain data can be passed on` | An event's data holds a function or something else that isn't plain data |
 | `only global scripts can add scripts` | Start object scripts from a global script, or list them in `mod.ini` |
+| `hud is only drawn while it's shown` | Check `hud.shown` or `ui.shown` before drawing or reading its size |

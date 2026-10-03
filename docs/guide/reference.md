@@ -24,17 +24,22 @@ include mission scripts.
 
 | Handler | Scripts | When it's called |
 |---|---|---|
-| `on_init(data: any?)` | global and object | When the script starts, with the data `add_script` gave it, or nil. |
+| `on_init(data: any?)` | global, object, player and menu | When the script starts, with the data `add_script` gave it, or nil. |
 | `on_records_loaded()` | load | After every mod's load scripts have run. |
 | `on_update(seconds: number)` | global and object | Each frame in which game time passes, after the ships' orders, with the seconds it covers. |
 | `on_step()` | global and object | Each simulation step, 25 a second, after everything has moved. |
-| `on_mission_start(mission: Mission)` | global | When a mission has started and its first ships are there. |
-| `on_mission_end(outcome: Outcome)` | global | When the mission ends, for whatever reason. |
+| `on_frame(seconds: number)` | player and menu | Each frame drawn, even while the game is paused, with the seconds of real time since the last. |
+| `on_mission_start(mission: Mission)` | global, player and menu | When a mission has started and its first ships are there. |
+| `on_mission_end(outcome: Outcome)` | global, player and menu | When the mission ends, for whatever reason. |
 | `on_object_added(object: Object)` | global | When an object is added to the mission. |
 | `on_object_removed(object: Object)` | global | When an object leaves the mission, such as once it has blown up. |
 | `on_added()` | object | When the script's object is in the mission: as it's added, or at once if the script starts later. |
 | `on_removed()` | object | When the script's object leaves the mission. |
-| `on_interface_override(base: { [any]: any })` | global and object | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
+| `on_key_press(key: Key)` | player and menu | When a key is pressed. A key held down is told once. |
+| `on_key_release(key: Key)` | player and menu | When a key is released. |
+| `on_action(action: Action)` | player and menu | When the player uses the controls bound to an action, in flight. |
+| `on_viewport_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
+| `on_interface_override(base: { [any]: any })` | global, object, player and menu | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
 
 ## Packages
 
@@ -42,7 +47,7 @@ What `require("openreliant.<name>")` gives.
 
 ### `openreliant.core`
 
-OpenReliant's version, and events for the global scripts. For load, global and object scripts.
+OpenReliant's version, and events for the global scripts. For load, global, object, player and menu scripts.
 
 | Name | Type | What it is |
 |---|---|---|
@@ -51,7 +56,7 @@ OpenReliant's version, and events for the global scripts. For load, global and o
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them. For load, global and object scripts.
+The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them. For load, global, object, player and menu scripts.
 
 ### `openreliant.hooks`
 
@@ -65,23 +70,88 @@ The mission's objects, the player's ship and the mission itself. For global scri
 |---|---|---|
 | `player` | [object](#objects), or nil | The player's ship, while a mission runs; nil between missions. |
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
-| `objects()` | { Object } | Every object in the mission, in the order of their slots. |
+| `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
 
 ### `openreliant.self`
 
-The script's own object, as a handle. For object scripts.
+The script's own object, as a handle: an object script's object, or the player's ship for a player script, nil between games. For object and player scripts.
 
 ### `openreliant.nearby`
 
-The objects around the script's own. For object scripts.
+The objects around the script's own. For object and player scripts.
 
 | Name | Type | What it is |
 |---|---|---|
-| `objects(radius: number)` | { Object } | The objects within `radius` of the script's object, nearest first, without it. |
+| `objects(radius: number)` | list of [objects](#objects) | The objects within `radius` of the script's object, or of the player's ship for a player script, nearest first, without it. |
+
+### `openreliant.hud`
+
+Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels. For player scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
+| `width` | number | The window's width, in pixels. |
+| `height` | number | The window's height, in pixels. |
+| `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
+| `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
+| `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
+| `measure(text: string, scale: number?)` | [Size](#size) | How wide and tall `text` is drawn, in pixels, at `scale` times the game's own size, or at its own size where `scale` is nil. |
+
+### `openreliant.ui`
+
+Drawing over the menus, the front end's screens and the pause menu, while they're shown: text, lines and rectangles, in the window's pixels. For player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
+| `width` | number | The window's width, in pixels. |
+| `height` | number | The window's height, in pixels. |
+| `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
+| `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
+| `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
+| `measure(text: string, scale: number?)` | [Size](#size) | How wide and tall `text` is drawn, in pixels, at `scale` times the game's own size, or at its own size where `scale` is nil. |
+
+### `openreliant.input`
+
+Whether keys are held, and the controls bound to actions. For player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `key_down(key: Key)` | boolean | Whether `key` is held down. |
+| `action_down(action: Action)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. |
+
+### `openreliant.camera`
+
+The camera's view, and switching between the game's views. For player scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `view` | [View](#view), or nil | The view the camera shows; nil while no mission is shown. |
+| `set_view(view: View, object: Object?)` | boolean | Switches the camera to `view`, of `object`, or of the player's ship where it's nil, as the player's camera keys do. Returns whether it switched: a mission's own camera and the cutaways hold it. |
+
+### `openreliant.audio`
+
+Interface sounds, music and Betty's lines. For player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `play_sound(index: number, volume: number?)` | boolean | Plays sound `index` of the game's standard sounds, the menus' and the display's, at `volume` from 0 to 1, or at its loudest where it's nil. Returns whether it played. |
+| `play_music(name: string)` | nothing | Plays the piece `name` from the game's music folder for ever, in place of the music playing. |
+| `say(line: BettyLine)` | boolean | Betty says `line`. Returns whether she does. |
 
 ### `openreliant.interfaces`
 
-The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, and those of an object's scripts to the object's other scripts. Nil for one nobody offers. For global and object scripts.
+The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers. For global, object, player and menu scripts.
+
+### `openreliant.debug`
+
+Lines and text placed in the world, drawn over the flight display where the camera sees them, for debugging. For player scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line between the points `from` and `to` of the world, as `style` says, where the camera sees them. |
+| `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at the point `at` of the world, as `style` says, where the camera sees it. |
 
 ## Objects
 
@@ -570,7 +640,7 @@ The mission's trigger number `trigger` has fired on an event of `condition`. It'
 
 ## Tables
 
-Values given as tables of fields, which scripts can only read.
+Values given as tables of fields. Scripts can only read the ones OpenReliant gives them.
 
 ### Quadrants
 
@@ -587,6 +657,43 @@ Values given as tables of fields, which scripts can only read.
 |---|---|
 | `number` | number |
 | `file` | string |
+
+### TextStyle
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `colour` | vector | `vector.create(1, 1, 1)` |
+| `alpha` | number | 1 |
+| `scale` | number | 1 |
+| `align` | [Align](#align) | `"left"` |
+
+### LineStyle
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `colour` | vector | `vector.create(1, 1, 1)` |
+| `alpha` | number | 1 |
+| `width` | number | 1 |
+
+### FillStyle
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `colour` | vector | `vector.create(1, 1, 1)` |
+| `alpha` | number | 1 |
+
+### Size
+
+| Field | Type |
+|---|---|
+| `width` | number |
+| `height` | number |
 
 ### Outcome
 
@@ -615,6 +722,26 @@ number. A script can set a field to either.
 ### Order
 
 `do_nothing`, `fly_aimlessly`, `launch_missile`, `unnamed_3`, `warp_in`, `warp_out`, `fly`, `run_away`, `land`, `escort`, `find_new_target`, `explode`, `ripper_grabs_target_object`, `object_attach`, `formation_regroup`, `patrol_route`, `toggle_cloak`, `ship_follow_curve`, `slow_rotate`, `jump_in`, `jump_out`, `find_scoop_up`, `random_spin_slow`, `random_spin_medium`, `random_spin_fast`, `fixed_gate_jump_in`, `fixed_gate_jump_out`, `formation`, `fixed_gate_open`, `fixed_gate_close`, `eject`, `fixed_gate_collapse`, `match_speed`, `dark_reign_shoot`, `move_to_spawn_pos`, `turns_object_lights_on`, `make_boridin_section_break_away`, `rotate_boridin_breakaway_warp_projector`, `start_warp_projection_from_boridin`, `make_ripper_drop_what_its_carrying`, `jump_in_40`, `jump_out_41`, `turns_object_lights_off`, `huuuuuuuge_explosion`, `immediately_set_ship_to_zero_velocity_and_rotation`, `fly_ship_backwards`, `player_control`, `multiplayer_control`, `avoid_target`, `torpedo`, `launch`, `fight`, `eject_106`, `scoop_up`, `eject_spin`, `dock`, `dark_reign_shoot_110`, `ripper_end_drop_object`, `ripper_attach_cargo_pod_to_mammoth`, `eject_fighter_attack`, `disrupted`, `make_capship_list_left`, `make_capship_list_right`, `friendly_fire`, `eject_player`, `ship_follow_curve_backwards`, `mill`, `deathmatch_respawn_effect`, `deathmatch_dark_reign_target`, `unnamed_200`, or a number.
+
+### Align
+
+`left`, `centre`, `right`, or a number.
+
+### Key
+
+`escape`, `one`, `two`, `three`, `four`, `five`, `six`, `seven`, `eight`, `nine`, `zero`, `minus`, `equals`, `backspace`, `tab`, `q`, `w`, `e`, `r`, `t`, `y`, `u`, `i`, `o`, `p`, `left_bracket`, `right_bracket`, `enter`, `left_control`, `a`, `s`, `d`, `f`, `g`, `h`, `j`, `k`, `l`, `semicolon`, `apostrophe`, `grave`, `left_shift`, `backslash`, `z`, `x`, `c`, `v`, `b`, `n`, `m`, `comma`, `period`, `slash`, `right_shift`, `keypad_multiply`, `left_alt`, `space`, `caps_lock`, `f1`, `f2`, `f3`, `f4`, `f5`, `f6`, `f7`, `f8`, `f9`, `f10`, `num_lock`, `scroll_lock`, `keypad_7`, `keypad_8`, `keypad_9`, `keypad_minus`, `keypad_4`, `keypad_5`, `keypad_6`, `keypad_plus`, `keypad_1`, `keypad_2`, `keypad_3`, `keypad_0`, `keypad_period`, `non_us_backslash`, `f11`, `f12`, `keypad_enter`, `right_control`, `keypad_divide`, `print_screen`, `right_alt`, `pause`, `home`, `up`, `page_up`, `left`, `right`, `end`, `down`, `page_down`, `insert`, `delete`, `left_windows`, `right_windows`, `menu`, or a number.
+
+### Action
+
+`cockpit_camera`, `left_view_camera`, `right_view_camera`, `rear_view_camera`, `flyby_camera`, `target_camera`, `external_camera`, `missile_camera`, `next_enemy_target`, `previous_enemy_target`, `next_friendly_target`, `previous_friendly_target`, `next_subtarget`, `previous_subtarget`, `target_under_reticule`, `target_nearest_enemy`, `target_nearest_friendly`, `target_torpedo`, `smart_target`, `primary_target`, `afterburners`, `afterburner_toggle`, `reverse_thrust`, `jump_drive`, `match_speed`, `accelerate`, `decelerate`, `zero_throttle`, `full_throttle`, `roll_ship_clockwise`, `roll_ship_anti_clockwise`, `nose_up`, `nose_down`, `rotate_clockwise`, `rotate_anti_clockwise`, `strafe_left`, `strafe_right`, `joystick_roll`, `fire_lasers`, `full_guns`, `gunnery_window`, `gunnery_window_locked`, `synchronise_guns`, `toggle_blindfire`, `launch_missile`, `missile_window`, `rotate_missiles_clockwise`, `rotate_missiles_anticlockwise`, `comms_window`, `powerball_window`, `powerball_window_locked`, `full_power_to_gunnery`, `full_power_to_engines`, `full_power_to_shields`, `equalize_power`, `objectives_window`, `wing_status_window`, `wing_status_window_locked`, `damage_window`, `damage_window_locked`, `radar_ranges`, `shield_balancing`, `countermeasures`, `eject`, `cloak_ship`, `ecm`, `spectral_shields`, `attack_my_target`, `back_off`, `help_me`, `permission_to_land`, `display_kills`, `send_comms_message`, `key_config`.
+
+### View
+
+`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, or a number.
+
+### BettyLine
+
+`missiles_gone`, `armor_failing`, `screamer`, `havoc`, `jack_hammer`, `vagabond`, `imp`, `bandit`, `raptor`, `hawk`, `solomon`, `countermeasures_low`, `countermeasures_gone`, `cloak_on`, `cloak_off`, `blind_fire_on`, `blind_fire_off`, `spectral_shields_on`, `spectral_shields_off`, or a number.
 
 ### Ending
 

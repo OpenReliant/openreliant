@@ -36,8 +36,6 @@ const aigeneric = openreliant.engine.game.aigeneric;
 const winmain = openreliant.engine.game.winmain;
 const engine_hooks = openreliant.engine.hooks;
 const Object = engine_hooks.Object;
-const luau = @import("luau.zig");
-const State = luau.State;
 const script = @import("script.zig");
 const runtime = @import("runtime.zig");
 const Runtime = runtime.Runtime;
@@ -51,52 +49,32 @@ const load = @import("load.zig");
 const data = @import("data.zig");
 const api = @import("api.zig");
 const Call = api.Call;
-const events = @import("events.zig");
+const running = @import("running.zig");
 const interfaces = @import("interfaces.zig");
 
 /// Limits for game scripts: 100 milliseconds per call, since they run as the game plays, and
 /// 64 MiB per mod.
 pub const limits: runtime.Limits = .{ .time = .fromMilliseconds(100), .memory = 64 << 20 };
 
-/// A script that runs.
-pub const Running = struct {
-    context: *Context,
-    /// Its file's name, as its mod has it.
-    name: []const u8,
-    offered: runtime.Offered,
-    /// Whether it's a mission's, which stops as its mission ends.
-    mission: bool = false,
-    /// Whether it has stopped, and waits for the calls walking its list to finish (`Game.sweep`).
-    stopped: bool = false,
-};
-
-/// The scripts that run in one place: the game's, or one object's.
-const List = std.ArrayList(Running);
-
 /// The game side of mods' scripts while a game runs.
 pub const Game = struct {
     gpa: Allocator,
     runtime: *Runtime,
+    /// The scripts that run, with their events and interfaces.
+    runner: running.Runner,
+    /// The global and mission scripts that run, then each object's, by slot (`global`,
+    /// `onObject`).
+    lists: [1 + gameobj.max_objects]running.List = @splat(.empty),
     /// The handlers the scripts add to hooks.
     hooks: hooks.Hooks,
     /// What the engine calls (`create.Objects.scripts`).
     scripts: engine_hooks.Scripts,
     /// The objects of the game, which handles stand for.
     objects: *create.Objects,
-    /// The global and mission scripts that run, in the order they started.
-    running: List = .empty,
-    /// The object scripts that run on each object, by slot, in the order they started.
-    on_objects: [gameobj.max_objects]List = @splat(.empty),
     /// The mods opened for the mission's scripts, which close as it ends.
     mission_mods: std.ArrayList(*Context) = .empty,
-    events: events.Events,
-    interfaces: interfaces.Interfaces,
     /// The mission that runs, if any.
     mission: ?MissionHeld = null,
-    /// How many calls walk the lists of scripts that run, whose stopped scripts wait for them.
-    walking: u32 = 0,
-    /// Whether a script stopped while calls walked the lists.
-    stopped: bool = false,
 
     /// The mission that runs, kept from its start.
     const MissionHeld = struct {
@@ -136,13 +114,14 @@ pub const Game = struct {
         game.* = .{
             .gpa = gpa,
             .runtime = scripts,
+            .runner = undefined,
             .hooks = undefined,
             .scripts = .{ .context = game, .vtable = &vtable },
             .objects = all,
-            .events = .{ .gpa = gpa, .runtime = scripts },
-            .interfaces = .{ .gpa = gpa, .runtime = scripts },
         };
+        game.runner = .init(gpa, scripts, &game.lists);
         game.hooks = .init(gpa, scripts, &game.scripts);
+        game.runner.hooks = &game.hooks;
         errdefer game.stop();
         const state = scripts.state;
         records.register(state);
@@ -154,7 +133,7 @@ pub const Game = struct {
         scripts.setPackage(.hooks);
         objects.register(scripts);
         interfaces.Interfaces.register(state);
-        game.interfaces.push(state);
+        game.runner.interfaces.push(state);
         scripts.setPackage(.interfaces);
         scripts.objects = all;
         scripts.game = game;
@@ -169,7 +148,7 @@ pub const Game = struct {
             if (listed.next() == null) continue;
             listed = globalScripts(mod);
             const context = try scripts.open(@intCast(at), .global, null);
-            while (listed.next()) |name| try game.startScript(&game.running, context, name, false, null);
+            while (listed.next()) |name| _ = try game.startScript(game.global(), context, name, false, null);
         }
         return game;
     }
@@ -177,14 +156,9 @@ pub const Game = struct {
     /// Stops the game's scripts, as the game ends.
     pub fn stop(game: *Game) void {
         game.objects.scripts = null;
-        game.stopObjectScripts();
         game.stopMissionScripts();
-        for (game.running.items) |*running| running.offered.release(game.runtime);
-        game.running.deinit(game.gpa);
-        for (&game.on_objects) |*list| list.deinit(game.gpa);
+        game.runner.deinit();
         game.mission_mods.deinit(game.gpa);
-        game.events.deinit();
-        game.interfaces.deinit();
         game.hooks.deinit();
         game.runtime.destroy();
         game.gpa.destroy(game);
@@ -195,148 +169,41 @@ pub const Game = struct {
         return call.runtime().game orelse call.raise("{s} can only be used while a game runs", .{label});
     }
 
-    /// Runs the script `name` of the mod opened as `context`, keeps what it offers in `list`, and
-    /// calls its `on_init` with `init`, then, for an object script, its `on_added`. A script that
-    /// fails is logged and left out. `init` goes with the script.
-    fn startScript(game: *Game, list: *List, context: *Context, name: []const u8, mission: bool, init: ?data.Data) Allocator.Error!void {
-        defer if (init) |given| game.runtime.release(given.ref);
-        const mod = context.modOf();
-        const returned = game.runtime.run(context, name) orelse return;
-        defer game.runtime.release(returned);
-        var offered = context.offerOf(name, returned) orelse return;
-        list.append(game.gpa, .{ .context = context, .name = name, .offered = offered, .mission = mission }) catch |err| {
-            offered.release(game.runtime);
-            return err;
-        };
-        const at = list.items.len - 1;
-        inline for (comptime std.enums.values(script.Handler)) |handler| {
-            if (comptime script.Handler.Arguments(handler) == null) {
-                if (offered.handlers.get(handler) != null) log.warn("{s}: {s}: this version of OpenReliant doesn't call {t} yet", .{ mod.name, name, handler });
-            }
-        }
-        if (offered.handlers.get(.on_object_added) != null) game.hooks.want(.object_added);
-        log.info("{s}: started {s}", .{ mod.name, name });
-        if (offered.interface) |interface| {
-            if (try game.interfaces.offer(context, interface.name, interface.table)) |base| {
-                game.callOne(list, at, .on_interface_override, .{ .base = .{ .ref = base } });
-            }
-        }
-        game.callOne(list, at, .on_init, .{ .data = init });
-        if (context.family == .object) game.callOne(list, at, .on_added, .{});
+    /// The global and mission scripts that run.
+    pub fn global(game: *Game) *running.List {
+        return &game.lists[0];
     }
 
-    /// Calls the engine handler `handler` of the script at `at` in `list` with `arguments`.
-    fn callOne(game: *Game, list: *List, at: usize, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler).?) void {
-        var made: Made = .{};
-        defer made.release(game.runtime);
-        const passed = made.pass(game.runtime, arguments) orelse return;
-        game.walking += 1;
-        defer game.leave();
-        game.callPassed(list, at, handler, passed);
+    /// The scripts that run on the object in slot `index`.
+    pub fn onObject(game: *Game, index: u16) *running.List {
+        return &game.lists[1 + @as(usize, index)];
     }
 
-    /// Calls `handler` of each running script of `list` with `arguments`, in order. Scripts that
-    /// start meanwhile are called too.
-    fn callEach(game: *Game, list: *List, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler).?) void {
-        if (list.items.len == 0) return;
-        var made: Made = .{};
-        defer made.release(game.runtime);
-        const passed = made.pass(game.runtime, arguments) orelse return;
-        game.walking += 1;
-        defer game.leave();
-        var at: usize = 0;
-        while (at < list.items.len) : (at += 1) game.callPassed(list, at, handler, passed);
-    }
-
-    /// `callEach`, for the game's scripts and then each object's.
-    fn callAll(game: *Game, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler).?) void {
-        game.walking += 1;
-        defer game.leave();
-        game.callEach(&game.running, handler, arguments);
-        for (&game.on_objects) |*list| game.callEach(list, handler, arguments);
-    }
-
-    fn callPassed(game: *Game, list: *List, at: usize, comptime handler: script.Handler, passed: anytype) void {
-        const running = &list.items[at];
-        if (running.stopped) return;
-        const function = running.offered.handlers.get(handler) orelse return;
-        if (game.runtime.call(running.context, function, passed) != .failed) return;
-        // The call may have added scripts to the list, which moves it.
-        const failed = &list.items[at];
-        log.warn("{s}: {s}: {t} failed, and isn't called again", .{ failed.context.modOf().name, failed.name, handler });
-        game.runtime.release(function);
-        failed.offered.handlers.set(handler, null);
-    }
-
-    fn leave(game: *Game) void {
-        game.walking -= 1;
-        if (game.walking == 0 and game.stopped) game.sweep();
-    }
-
-    /// Stops the script at `at` in `list`: lets go of what it offered, and closes its mod's context
-    /// once none of its scripts there runs. It leaves the list once no call walks it (`sweep`).
-    fn stopScript(game: *Game, list: *List, at: usize) void {
-        const running = &list.items[at];
-        if (running.stopped) return;
-        running.stopped = true;
-        running.offered.release(game.runtime);
-        const context = running.context;
-        const shared = for (list.items) |*other| {
-            if (!other.stopped and other.context == context) break true;
-        } else false;
-        if (!shared) game.closeContext(context);
-        game.stopped = true;
-        if (game.walking == 0) game.sweep();
-    }
-
-    /// Closes a mod opened for scripts that have all stopped: their hooks and interfaces go.
-    fn closeContext(game: *Game, context: *Context) void {
-        game.hooks.removeContext(context);
-        game.interfaces.removeContext(context);
-        game.runtime.close(context);
-    }
-
-    /// Takes the stopped scripts out of their lists.
-    fn sweep(game: *Game) void {
-        sweepList(&game.running);
-        for (&game.on_objects) |*list| sweepList(list);
-        game.stopped = false;
-    }
-
-    fn sweepList(list: *List) void {
-        var kept: usize = 0;
-        for (list.items) |running| {
-            if (running.stopped) continue;
-            list.items[kept] = running;
-            kept += 1;
-        }
-        list.shrinkRetainingCapacity(kept);
+    /// `Runner.start`, which also has the engine tell the scripts of each object added where the
+    /// script handles that.
+    fn startScript(game: *Game, list: *running.List, context: *Context, name: []const u8, mission: bool, payload: ?data.Data) Allocator.Error!?usize {
+        const at = try game.runner.start(list, context, name, mission, payload) orelse return null;
+        if (list.items[at].offered.handlers.get(.on_object_added) != null) game.hooks.want(.object_added);
+        return at;
     }
 
     /// Stops the scripts of the mission, and closes the mods opened for them.
     fn stopMissionScripts(game: *Game) void {
-        game.walking += 1;
-        defer game.leave();
-        for (game.running.items, 0..) |running, at| {
-            if (running.mission) game.stopScript(&game.running, at);
+        game.runner.walking += 1;
+        defer game.runner.leave();
+        const list = game.global();
+        for (list.items, 0..) |held, at| {
+            if (held.mission) game.runner.stopScript(list, at);
         }
         for (game.mission_mods.items) |context| {
-            if (!context.closed) game.closeContext(context);
+            if (!context.closed) game.runner.closeContext(context);
         }
         game.mission_mods.clearRetainingCapacity();
     }
 
     /// Stops every object's scripts, as a mission ends.
     fn stopObjectScripts(game: *Game) void {
-        for (0..game.on_objects.len) |index| game.stopObject(@intCast(index));
-    }
-
-    /// Stops the scripts of the object in slot `index`.
-    fn stopObject(game: *Game, index: u16) void {
-        game.walking += 1;
-        defer game.leave();
-        const list = &game.on_objects[index];
-        for (0..list.items.len) |at| game.stopScript(list, at);
+        for (game.lists[1..]) |*list| game.runner.stopAll(list);
     }
 
     /// Starts the scripts that mods' manifests attach to the object in slot `index`, as it's added
@@ -361,7 +228,7 @@ pub const Game = struct {
                         return;
                     };
                     context = opened;
-                    game.startScript(&game.on_objects[index], opened, name, false, null) catch |err| {
+                    _ = game.startScript(game.onObject(index), opened, name, false, null) catch |err| {
                         log.warn("{s}: {s} can't start on object {d}: {s}", .{ mod.name, name, index, @errorName(err) });
                     };
                 }
@@ -372,45 +239,21 @@ pub const Game = struct {
     /// Calls the `on_removed` of the scripts of the object in slot `index`, and stops them, as it
     /// leaves the mission.
     fn objectRemoved(game: *Game, index: u16) void {
-        game.callEach(&game.on_objects[index], .on_removed, .{});
-        game.stopObject(index);
+        game.runner.callEach(game.onObject(index), .on_removed, .{});
+        game.runner.stopAll(game.onObject(index));
     }
 
     /// Delivers the events sent since the last update (`events.zig`).
     fn deliver(game: *Game) void {
-        var pending = game.events.take();
+        var pending = game.runner.events.take();
         defer pending.deinit(game.gpa);
-        game.walking += 1;
-        defer game.leave();
         for (pending.items) |*sent| {
             defer game.runtime.release(sent.data.ref);
             const list = switch (sent.to) {
-                .global => &game.running,
-                .object => |handle| if (handle.valid(game.objects)) &game.on_objects[handle.slot] else continue,
+                .global => game.global(),
+                .object => |handle| if (handle.valid(game.objects)) game.onObject(handle.slot) else continue,
             };
-            game.deliverTo(list, sent);
-        }
-    }
-
-    /// Calls the handlers of `list` for the event `sent`, newest mod first, and within a mod in the
-    /// order its scripts started.
-    fn deliverTo(game: *Game, list: *List, sent: *const events.Pending) void {
-        const name = sent.name.slice();
-        var mod = game.runtime.mods.len;
-        while (mod > 0) {
-            mod -= 1;
-            var at: usize = 0;
-            while (at < list.items.len) : (at += 1) {
-                const running = &list.items[at];
-                if (running.stopped or running.context.mod != mod) continue;
-                const table = running.offered.event_handlers orelse continue;
-                const called = game.runtime.callIn(running.context, table, name, .{sent.data.ref}) orelse continue;
-                switch (called) {
-                    .returned_false => return,
-                    .failed => log.warn("{s}: {s}: the handler of the event {s} failed", .{ list.items[at].context.modOf().name, list.items[at].name, name }),
-                    .returned, .returned_nil => {},
-                }
-            }
+            game.runner.deliverTo(list, sent);
         }
     }
 
@@ -433,11 +276,11 @@ pub const Game = struct {
             .object_added => {
                 const index = objectOf(hook_call);
                 game.objectAdded(index);
-                game.callEach(&game.running, .on_object_added, .{ .object = .of(index) });
+                game.runner.callEach(game.global(), .on_object_added, .{ .object = .of(index) });
             },
             .object_removed => {
                 const index = objectOf(hook_call);
-                game.callEach(&game.running, .on_object_removed, .{ .object = .of(index) });
+                game.runner.callEach(game.global(), .on_object_removed, .{ .object = .of(index) });
                 game.objectRemoved(index);
             },
             else => {},
@@ -468,18 +311,18 @@ pub const Game = struct {
         try game.mission_mods.ensureUnusedCapacity(game.gpa, 1);
         const context = try game.runtime.open(mod, .global, null);
         game.mission_mods.appendAssumeCapacity(context);
-        while (listed.next()) |name| try game.startScript(&game.running, context, name, true, null);
+        while (listed.next()) |name| _ = try game.startScript(game.global(), context, name, true, null);
     }
 
     fn started(context: *anyopaque, mission: engine_hooks.Mission) void {
         const game = ofScripts(context);
-        game.callEach(&game.running, .on_mission_start, .{ .mission = mission });
+        game.runner.callEach(game.global(), .on_mission_start, .{ .mission = mission });
         game.hooks.tell(.mission_started, mission);
     }
 
     fn ended(context: *anyopaque, outcome: engine_hooks.Outcome) void {
         const game = ofScripts(context);
-        game.callEach(&game.running, .on_mission_end, .{ .outcome = outcome });
+        game.runner.callEach(game.global(), .on_mission_end, .{ .outcome = outcome });
         game.hooks.tell(.mission_ended, outcome);
         game.stopObjectScripts();
         game.stopMissionScripts();
@@ -490,67 +333,11 @@ pub const Game = struct {
     fn update(context: *anyopaque, seconds: f32) void {
         const game = ofScripts(context);
         game.deliver();
-        game.callAll(.on_update, .{ .seconds = seconds });
+        game.runner.callAll(.on_update, .{ .seconds = seconds });
     }
 
     fn step(context: *anyopaque) void {
-        ofScripts(context).callAll(.on_step, .{});
-    }
-};
-
-/// The values made to pass an engine handler its arguments, let go once it has been called.
-const Made = struct {
-    refs: [max_made]luau.Ref = undefined,
-    len: usize = 0,
-
-    /// The most arguments a handler takes that are made rather than pushed as they are.
-    const max_made = 4;
-
-    fn release(made: *Made, scripts: *Runtime) void {
-        for (made.refs[0..made.len]) |ref| scripts.release(ref);
-    }
-
-    /// The arguments `Runtime.call` takes for `arguments`: numbers as they are, and a reference to
-    /// each value made for the others. Null if one can't be made.
-    fn pass(made: *Made, scripts: *Runtime, arguments: anytype) ?Passed(@TypeOf(arguments)) {
-        const Arguments = @TypeOf(arguments);
-        var passed: Passed(Arguments) = undefined;
-        inline for (@typeInfo(Arguments).@"struct".fields, 0..) |field, at| {
-            const value = @field(arguments, field.name);
-            passed[at] = switch (field.type) {
-                f32 => value,
-                ?data.Data => if (value) |given| given.ref else null,
-                values.Table => value.ref,
-                else => ref: {
-                    const ref = scripts.make(Push(field.type).push, .{value}) orelse return null;
-                    made.refs[made.len] = ref;
-                    made.len += 1;
-                    break :ref ref;
-                },
-            };
-        }
-        return passed;
-    }
-
-    /// The tuple `pass` gives for a handler's `Arguments`.
-    fn Passed(comptime Arguments: type) type {
-        const fields = @typeInfo(Arguments).@"struct".fields;
-        var types: [fields.len]type = undefined;
-        for (&types, fields) |*passed, field| passed.* = switch (field.type) {
-            f32 => f32,
-            ?data.Data => ?luau.Ref,
-            else => luau.Ref,
-        };
-        return @Tuple(&types);
-    }
-
-    /// What pushes a value of `T` (`Runtime.make`).
-    fn Push(comptime T: type) type {
-        return struct {
-            fn push(state: *State, value: T) void {
-                values.push(state, T, value);
-            }
-        };
+        ofScripts(context).runner.callAll(.on_step, .{});
     }
 };
 
@@ -605,34 +392,33 @@ pub fn addScript(call: Call, object: Object, name: []const u8, payload: ?data.Da
         call.raise("add_script: mod {s} has no script {s}", .{ mod.name, name });
     };
     const index = object.slot();
-    const list = &game.on_objects[index];
-    for (list.items) |running| {
-        if (running.stopped or running.context.mod != call.context.mod) continue;
-        if (std.ascii.eqlIgnoreCase(running.name, file)) {
+    const list = game.onObject(index);
+    for (list.items) |held| {
+        if (held.stopped or held.context.mod != call.context.mod) continue;
+        if (std.ascii.eqlIgnoreCase(held.name, file)) {
             drop(scripts, payload);
             return false;
         }
     }
-    const context = for (list.items) |running| {
-        if (!running.stopped and running.context.mod == call.context.mod) break running.context;
+    const context = for (list.items) |held| {
+        if (!held.stopped and held.context.mod == call.context.mod) break held.context;
     } else scripts.open(call.context.mod, .object, .of(game.objects, index)) catch {
         drop(scripts, payload);
         call.raise("add_script: out of memory", .{});
     };
-    const before = list.items.len;
-    game.startScript(list, context, file, false, payload) catch call.raise("add_script: out of memory", .{});
-    return list.items.len > before;
+    const started = game.startScript(list, context, file, false, payload) catch call.raise("add_script: out of memory", .{});
+    return started != null;
 }
 
 /// `object:remove_script(name)`.
 pub fn removeScript(call: Call, object: Object, name: []const u8) bool {
     const game = Game.of(call, "remove_script");
     if (call.context.family != .global) call.raise("remove_script: only global scripts can remove scripts", .{});
-    const list = &game.on_objects[object.slot()];
-    for (list.items, 0..) |running, at| {
-        if (running.stopped or running.context.mod != call.context.mod) continue;
-        if (!sameScript(running.name, name)) continue;
-        game.stopScript(list, at);
+    const list = game.onObject(object.slot());
+    for (list.items, 0..) |held, at| {
+        if (held.stopped or held.context.mod != call.context.mod) continue;
+        if (!sameScript(held.name, name)) continue;
+        game.runner.stopScript(list, at);
         return true;
     }
     return false;
@@ -644,16 +430,17 @@ pub fn sendEvent(call: Call, object: Object, name: []const u8, payload: data.Dat
         call.runtime().release(payload.ref);
         call.raise("send_event: events can only be sent while a game runs", .{});
     };
-    game.events.send(call, .{ .object = .of(game.objects, object.slot()) }, name, payload);
+    game.runner.events.send(call, .{ .object = .of(game.objects, object.slot()) }, name, payload);
 }
 
 /// `core.send_global_event(name, data)`.
 pub fn sendGlobalEvent(call: Call, name: []const u8, payload: data.Data) void {
+    if (call.runtime().presentation) |shown| return shown.sendToGame(call, name, payload);
     const game = call.runtime().game orelse {
         call.runtime().release(payload.ref);
         call.raise("send_global_event: events can only be sent while a game runs", .{});
     };
-    game.events.send(call, .global, name, payload);
+    game.runner.events.send(call, .global, name, payload);
 }
 
 /// The file name of `mod`'s script `name`, given with or without its extension and in any case, as
@@ -891,7 +678,7 @@ test "object scripts run on the objects their manifest names, each with its own 
     // The Sabre made before the mission began has no scripts; one made now has both.
     const sabre = try fixture.mission.add(.sabre, .{ 0, 0, 2000 });
     const all = fixture.mission.objects;
-    try std.testing.expectEqual(2, fixture.game.on_objects[sabre].items.len);
+    try std.testing.expectEqual(2, fixture.game.onObject(sabre).items.len);
     try std.testing.expectEqual(1, all.slots[sabre].object.yaw_input);
     try std.testing.expectEqual(1.5, fixture.scaled(sabre, 3));
     try std.testing.expectEqual(1.5, fixture.scaled(sabre, 3));
@@ -901,7 +688,7 @@ test "object scripts run on the objects their manifest names, each with its own 
     try std.testing.expectEqual(0.25, all.slots[sabre].object.throttle);
     // As it leaves, its scripts stop with it.
     all.resetSlot(sabre, &fixture.mission.random);
-    try std.testing.expectEqual(0, fixture.game.on_objects[sabre].items.len);
+    try std.testing.expectEqual(0, fixture.game.onObject(sabre).items.len);
 }
 
 test "global scripts add scripts to objects, send them events, and share interfaces" {
@@ -981,7 +768,7 @@ test "global scripts add scripts to objects, send them events, and share interfa
     fixture.begin();
     const scripts = &fixture.game.scripts;
     scripts.started(.{ .number = 5, .file = "mission5.dte" });
-    try std.testing.expectEqual(1, fixture.game.on_objects[fixture.sabre].items.len);
+    try std.testing.expectEqual(1, fixture.game.onObject(fixture.sabre).items.len);
     const player = &fixture.mission.objects.slots[0].object;
     // The first update delivers the greeting before the scripts' on_update, and the second the
     // report it sends back, which mod b then finds through the interface.
@@ -1038,6 +825,7 @@ test "the wingmen example: a badly damaged wingman runs from its attacker, and r
         .{ "mod.ini", @embedFile("wingmen/mod.ini") },
         .{ "wingman.luau", @embedFile("wingmen/wingman.luau") },
         .{ "wingmen.luau", @embedFile("wingmen/wingmen.luau") },
+        .{ "status.luau", @embedFile("wingmen/status.luau") },
     } }});
     defer fixture.deinit();
     fixture.begin();

@@ -380,8 +380,36 @@ fn writeAdd(w: *Writer, comptime functions_only: bool) Writer.Error!void {
 /// Writes a table type of `T`'s fields, as `values.pushTable` gives them.
 fn writeTable(w: *Writer, comptime name: []const u8, comptime T: type) Writer.Error!void {
     try w.print("type {s} = {{\n", .{name});
-    inline for (comptime values.shownFields(T)) |field| try w.print("    {s}: {s},\n", .{ field.name, comptime luauType(field.type) });
+    inline for (comptime values.shownFields(T)) |field| {
+        // A field with a default can be left out of a table a script gives.
+        const optional = if (field.defaultValue() != null) "?" else "";
+        try w.print("    {s}: {s}{s},\n", .{ field.name, comptime luauType(field.type), optional });
+    }
     try w.writeAll("}\n");
+}
+
+/// Whether every field of `T` scripts see has a default: a table scripts give, such as a style,
+/// which may leave any out.
+fn given(comptime T: type) bool {
+    for (values.shownFields(T)) |field| {
+        if (field.defaultValue() == null) return false;
+    }
+    return true;
+}
+
+/// A field's default, as a script would write it.
+fn defaultText(comptime field: std.builtin.Type.StructField) []const u8 {
+    comptime {
+        const value = field.defaultValue().?;
+        return switch (@typeInfo(field.type)) {
+            .float, .int => std.fmt.comptimePrint("{d}", .{value}),
+            .bool => if (value) "true" else "false",
+            .@"enum" => "`\"" ++ @tagName(value) ++ "\"`",
+            .vector => std.fmt.comptimePrint("`vector.create({d}, {d}, {d})`", .{ value[0], value[1], value[2] }),
+            .optional => "nil",
+            else => @compileError("no way to write the default of " ++ @typeName(field.type)),
+        };
+    }
 }
 
 /// Writes the reference page, `docs/guide/reference.md`: the engine handlers, the packages, the
@@ -524,12 +552,17 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         \\
         \\## Tables
         \\
-        \\Values given as tables of fields, which scripts can only read.
+        \\Values given as tables of fields. Scripts can only read the ones OpenReliant gives them.
         \\
     );
     inline for (gathered.tables) |T| {
-        try w.print("\n### {s}\n\n| Field | Type |\n|---|---|\n", .{comptime bind.noun(T)});
-        inline for (comptime values.shownFields(T)) |field| try w.print("| `{s}` | {s} |\n", .{ field.name, comptime markdownType(field.type) });
+        if (comptime given(T)) {
+            try w.print("\n### {s}\n\nA table a script gives, which may leave out any field.\n\n| Field | Type | Default |\n|---|---|---|\n", .{comptime bind.noun(T)});
+            inline for (comptime values.shownFields(T)) |field| try w.print("| `{s}` | {s} | {s} |\n", .{ field.name, comptime markdownType(field.type), comptime defaultText(field) });
+        } else {
+            try w.print("\n### {s}\n\n| Field | Type |\n|---|---|\n", .{comptime bind.noun(T)});
+            inline for (comptime values.shownFields(T)) |field| try w.print("| `{s}` | {s} |\n", .{ field.name, comptime markdownType(field.type) });
+        }
     }
 
     try w.writeAll(
@@ -558,8 +591,8 @@ fn cell(comptime text: []const u8) []const u8 {
 
 /// What the declared function `F` returns, for the reference page.
 fn markdownResult(comptime F: type) []const u8 {
-    if (@hasDecl(F, "Result") and F.Result == void) return "nothing";
-    return cell(resultType(F));
+    if (!@hasDecl(F, "Result")) return cell(resultType(F));
+    return if (F.Result == void) "nothing" else markdownType(F.Result);
 }
 
 /// Writes the names of `families`, as in "global and object".

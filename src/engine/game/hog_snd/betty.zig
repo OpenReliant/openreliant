@@ -11,6 +11,9 @@ const mss = @import("../../mss.zig");
 
 /// Her lines, the sounds of `bank_betty`.
 pub const Line = enum(u8) {
+    /// The name scripts know these values by.
+    pub const script_name = "BettyLine";
+
     /// The armed missile run out.
     missiles_gone = 0,
     /// A quadrant has lost its shield and half its armour (`main.armorWarning`).

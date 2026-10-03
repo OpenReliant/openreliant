@@ -24,6 +24,7 @@ pub const records = @import("scripting/records.zig");
 pub const core = @import("scripting/core.zig");
 pub const objects = @import("scripting/objects.zig");
 pub const hooks = @import("scripting/hooks.zig");
+pub const running = @import("scripting/running.zig");
 pub const api = @import("scripting/api.zig");
 pub const data = @import("scripting/data.zig");
 pub const events = @import("scripting/events.zig");
@@ -31,12 +32,18 @@ pub const interfaces = @import("scripting/interfaces.zig");
 pub const world = @import("scripting/world.zig");
 pub const nearby = @import("scripting/nearby.zig");
 pub const packages = @import("scripting/packages.zig");
+pub const drawing = @import("scripting/drawing.zig");
+pub const presentation = @import("scripting/presentation.zig");
+pub const input = @import("scripting/input.zig");
+pub const camera = @import("scripting/camera.zig");
+pub const audio = @import("scripting/audio.zig");
 pub const load = @import("scripting/load.zig");
 pub const game = @import("scripting/game.zig");
 pub const reference = @import("scripting/reference.zig");
 
 pub const Records = records.Records;
 pub const Game = game.Game;
+pub const Presentation = presentation.Presentation;
 
 test {
     std.testing.refAllDecls(@This());

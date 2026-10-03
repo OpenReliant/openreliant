@@ -4,8 +4,9 @@ OpenReliant runs scripts from mods, written in [Luau](https://luau.org). The des
 Lua scripting and is described in full in
 [#498](https://github.com/OpenReliant/openreliant/issues/498). This version supports load scripts,
 which change the game's records (stats and text) at startup, global scripts, which hook the game's
-functions and events as it plays, and object scripts, which run on the mission's objects. Scripts
-send each other events and offer each other interfaces. The [scripting guide](../guide/scripting.md)
+functions and events as it plays, object scripts, which run on the mission's objects, and player
+and menu scripts, which draw over the flight display and the menus and hear the keys. Scripts send
+each other events and offer each other interfaces. The [scripting guide](../guide/scripting.md)
 explains how to write them; this page explains how they run.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
@@ -37,7 +38,9 @@ kinds of state:
 
 Load scripts run in their own game state, which is created at startup and closed once they finish.
 Global and object scripts run in another, which lasts for a game ([The game's
-scripts](#the-games-scripts)). If no mod has a script of the kind, no state is created for it.
+scripts](#the-games-scripts)). Player and menu scripts run in a presentation state, which lasts
+from startup until OpenReliant quits ([The presentation side](#the-presentation-side)). If no mod
+has a script of the kind, no state is created for it.
 
 ### Sandbox
 
@@ -67,7 +70,7 @@ available to that kind of script, or isn't implemented yet, raises an error sayi
 
 ### Limits
 
-| Limit | Load scripts | Global and object scripts | How it works |
+| Limit | Load scripts | Other scripts | How it works |
 |---|---|---|---|
 | Time | 1 second per call | 100 milliseconds per call | Luau's interrupt callback checks the clock every 64 safe points and raises an error when the limit is passed |
 | Memory | 64 MiB per mod | 64 MiB per mod | Each mod's allocations are counted in their own memory category (`lua_setmemcat`), and the allocator refuses any allocation that would take the mod over its limit |
@@ -301,6 +304,48 @@ fails, they're put back, unless the function ran inside it, and the handler is r
 While any hook runs, handlers that are added wait, and removed ones are only marked, so that no
 list changes under a run. Once the outermost run ends, the lists are brought up to date, and so is
 `Scripts.hooked`.
+
+## The presentation side
+
+[`presentation.zig`](../../src/scripting/presentation.zig) runs player and menu scripts in their
+own state, created at startup where a mod has either. The scripts of both sides share the code that
+starts, calls and stops them ([`running.zig`](../../src/scripting/running.zig)).
+
+- Menu scripts start at once and run until OpenReliant quits. Player scripts start as a game
+  starts and stop as it ends, with the global scripts (`GameScripts` in the driver).
+- Each pass of the driver's loop, before anything is drawn, `Presentation.frame` gets the seconds
+  since the last pass, the devices, the window's size, the camera and the sound, and what each
+  drawing layer is drawn on. It tells the scripts of a new window size (`on_viewport_resized`) and,
+  in flight, of the actions whose controls have just been used (`on_action`, from
+  `Devices.active` without taking the press), then calls `on_frame`.
+- The window's key events reach `Presentation.key`, which tells `on_key_press` and
+  `on_key_release` as a key's state changes, so a key the window repeats is told once.
+- The driver tells both kinds as each mission starts and ends (`Play.start`, `Play.end`), with the
+  same mission and outcome the game's scripts get (`main.scriptMission`, `main.scriptOutcome`).
+
+### Drawing
+
+What the scripts draw in a frame is recorded in a layer
+([`drawing.zig`](../../src/scripting/drawing.zig)): `hud` over the flight display, and `ui` over
+the front end's screens or the pause menu. The layers
+are cleared as each frame starts, and drawn after the game's own display or menu: the flight
+display's and the pause menu's in `Display.drawOverlay`, the front end's in `FrontEndDisplay.draw`.
+At most 4096 things and 64 KiB of text can be drawn on a layer in a frame. Text is converted to the
+game's code page and drawn with `hud.drawText`, in the menus' small font over the front end, and
+over the flight display and the pause menu in a ramped copy of the display's font, so that it takes
+the colour the script gives. The debug's lines and text are placed in the world and projected
+where the camera sees them (`hud.Sight`).
+
+### Events to the game
+
+`core.send_global_event` from a player or menu script copies its plain data a second time, from
+the presentation state into the game's (`data.transfer`), as an event would be sent to another
+machine. Handles cross as handles of the same object, and a handle that's no longer valid stays so.
+
+Not ported yet: menu scripts in the rooms, the movies and the loading screens, which have loops of
+their own ([#589](https://github.com/OpenReliant/openreliant/issues/589)); and pictures, shapes
+and a choice of fonts for the drawing packages
+([#590](https://github.com/OpenReliant/openreliant/issues/590)).
 
 ## Object handles
 

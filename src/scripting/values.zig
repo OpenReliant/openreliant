@@ -132,7 +132,11 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
             state.raise("{s}: expected {s}, got {d}", .{ label, comptime choices(T), number });
         },
         .optional => |optional| {
-            if (state.typeOf(given) == .nil) return null;
+            // Left out of a call, or nil.
+            switch (state.typeOf(given)) {
+                .nil, .none => return null,
+                else => {},
+            }
             return read(state, optional.child, given, label);
         },
         .vector => {
@@ -153,7 +157,41 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
             comptime assert(pointer.size == .slice and pointer.child == u8 and pointer.is_const);
             return state.toString(given) orelse wrongType(state, label, "a string", given);
         },
+        .@"struct" => return readTable(state, T, given, label),
         else => @compileError("scripts can't write a " ++ @typeName(T)),
+    }
+}
+
+/// The table at `given` as a `T`, whose fields scripts see all have defaults: each field the table
+/// names, and the rest at their defaults. A name `T` has no field of is an error, so a misspelt one
+/// is reported.
+fn readTable(state: *State, comptime T: type, given: i32, comptime label: []const u8) T {
+    if (state.typeOf(given) != .table) wrongType(state, label, "a table", given);
+    const at = state.absolute(given);
+    var value: T = .{};
+    state.pushNil();
+    while (state.next(at)) {
+        // The key's type is checked first, as reading a number as a string would change it.
+        const key = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse
+            state.raise("{s}: a table of fields has names for keys, not {s}", .{ label, state.typeName(-2) });
+        const found = inline for (comptime shownFields(T)) |field| {
+            if (std.mem.eql(u8, key, field.name)) {
+                @field(value, field.name) = read(state, field.type, -1, label ++ "." ++ field.name);
+                break true;
+            }
+        } else false;
+        if (!found) state.raise("{s}: there's no field '{s}' ({s})", .{ label, key, comptime fieldNames(T) });
+        state.pop(1);
+    }
+    return value;
+}
+
+/// The names of `T`'s fields scripts see, for error messages.
+fn fieldNames(comptime T: type) []const u8 {
+    comptime {
+        var text: []const u8 = "";
+        for (shownFields(T), 0..) |field, at| text = text ++ (if (at == 0) "" else ", ") ++ field.name;
+        return text;
     }
 }
 
