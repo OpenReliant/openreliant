@@ -29,6 +29,10 @@ OpenReliant keeps the factor down and chooses the factor across that keeps pixel
 | 0xC | External | Round the player's ship | External Camera |
 | 7 | | Round the pilot's pod as the pilot ejects ([The ejection's views](#the-ejections-views)) | Eject Camera |
 | 8 | | Behind the object, turning with it about its own `Y` at 0.005 a tick and pulling away from 3000 at 10 a tick, as the player's ship is destroyed | Death Cam |
+| 9 | | During Warp Out, starts at `(0, -350, -2000)` in the saved departure frame, turned about Y by `0.5 - ticks * 0.0005` | a space |
+| 10 | | Holds the preparation camera while the ship enters its warp tunnel | a space |
+| 11 | | 10000 units along the arrival tunnel's axis at high detail, 3000 at lower detail, watching the ship with roll `ticks * -0.003` | a space |
+| 0x2B | | Beside the Nanny, watching the player's ship dock and rearm | a space |
 | 0x0F | | Beside the player's ship during the Yamato launch, rising and following it ([Launches](launch.md#the-yamatos-launch)) | a space |
 | 0x10 | | Ahead of the Yamato's launching ship, held still with a fixed orientation | a space |
 | 0x11 | | Beside the Yamato's launch bay, held still and watching the player fly out | a space |

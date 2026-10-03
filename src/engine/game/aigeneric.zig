@@ -276,6 +276,8 @@ pub const State = extern union {
     jump: jump.State,
     follow: follow.State,
     dock: aidock.State,
+    nanny_dock: aidock.NannyState,
+    warp: wgate.warp_orders.State,
     land: ailand.State,
     ripper_grab: airipper.GrabState,
     ripper_drop: airipper.DropState,
@@ -672,8 +674,9 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .fixed_gate_open => wgate.openInit(ctx, index),
         .fixed_gate_close => wgate.closeInit(ctx, index),
         .fixed_gate_collapse => wgate.collapseInit(ctx, index),
-        // Not ported: the warps ([#481](https://github.com/OpenReliant/openreliant/issues/481)).
-        .warp_in, .warp_out => {},
+        // Warp steps share their independent tunnel record.
+        .warp_in => wgate.warp_orders.inInit(ctx, index),
+        .warp_out => wgate.warp_orders.outInit(ctx, index),
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .deathmatch_respawn_effect => {},
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
@@ -768,8 +771,9 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .fixed_gate_open => wgate.open(ctx, index),
         .fixed_gate_close => wgate.close(ctx, index),
         .fixed_gate_collapse => wgate.collapse(ctx, index),
-        // Not ported: the warps ([#481](https://github.com/OpenReliant/openreliant/issues/481)).
-        .warp_in, .warp_out => {},
+        // Warp steps share their independent tunnel record.
+        .warp_in => wgate.warp_orders.inUpdate(ctx, index),
+        .warp_out => wgate.warp_orders.outUpdate(ctx, index),
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .multiplayer_control, .deathmatch_respawn_effect => {},
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).

@@ -553,7 +553,7 @@ const shielded_hit: f32 = 1000;
 ///
 /// Last, whether or not the part took the hit, come the ShotAt events (`componentShotAt`).
 ///
-/// Not ported: the invulnerability a component may carry and the score a player's hit is worth
+/// Not ported: the score a player's hit is worth
 /// ([#538](https://github.com/OpenReliant/openreliant/issues/538)), and what multiplayer makes of it
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
@@ -604,7 +604,14 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     }
 
     if (object.invulnerable != ._unknown_5 and object.flags.shield_generator and share < shielded_hit) share *= shielded_damage;
-    const protected = object.invulnerable.protects(attacker < all.players);
+    const player_hit = attacker < all.players;
+    var protected = object.invulnerable.protects(player_hit);
+    // The original checks the armor-bearing part, after resolving a linked assembly
+    // (`0x00464800`), rather than the part that the shot first hit.
+    if (std.mem.indexOfScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
+        const protection: gameobj.Invulnerability = @enumFromInt(slot.object.components[n].invulnerable);
+        protected = protected or protection.protects(player_hit);
+    }
 
     const left = struck.armor - share;
     if (left >= 0 or !protected) struck.armor = left;
@@ -1185,6 +1192,22 @@ test componentDamage {
     try std.testing.expectEqual(20000, part.armor);
     componentDamage(world, index, struck, 600, 1, .crash);
     try std.testing.expectEqual(19400, part.armor);
+
+    // Listed component protection prevents a lethal hit, but still permits nonlethal wear.
+    all.slots[index].components[0] = part;
+    all.slots[index].object.component_count = 1;
+    part.component_armor = 100;
+    part.armor = 100;
+    all.slots[index].object.components[0].invulnerable = @intFromEnum(gameobj.Invulnerability.full);
+    componentDamage(world, index, struck, 40, 1, .bullet);
+    try std.testing.expectEqual(60, part.armor);
+    componentDamage(world, index, struck, 100, 1, .bullet);
+    try std.testing.expectEqual(60, part.armor);
+    all.slots[index].object.components[0].invulnerable = @intFromEnum(gameobj.Invulnerability.player_can_hit);
+    componentDamage(world, index, struck, 100, 1, .bullet);
+    try std.testing.expectEqual(60, part.armor);
+    componentDamage(world, index, struck, 100, 0, .bullet);
+    try std.testing.expect(part.armor < 0);
 }
 
 test goOff {

@@ -466,6 +466,11 @@ pub fn docked(world: gameobj.World, index: u16) void {
     postOwn(world, index, .docked);
 }
 
+/// `dock_limpet_run` (`0x00408183`): the limpet car has retrieved its pod and left the port.
+pub fn undocked(world: gameobj.World, index: u16) void {
+    postOwn(world, index, .undocked);
+}
+
 /// `event_camera_reached` (`0x00451180`): the director's camera has reached mission ship `ship`,
 /// the end of the curve it flew or a point that marks a place on it. The ship's CameraReached, with
 /// no values, for its own triggers.
@@ -548,6 +553,29 @@ test "an event waits where a trigger would answer it, and goes off with the fram
     mission.events.flush();
     try std.testing.expectEqual(1, mission.game.fixture.global(0));
     try std.testing.expectEqual(0, mission.events.count);
+}
+
+test "Docked and Undocked reach their own mission triggers" {
+    const gpa = std.testing.allocator;
+    const code = try vm.machine.testing.counting(gpa, 0);
+    defer gpa.free(code);
+    const parts = [_]vm.machine.testing.Part{.{ .code = code }};
+    var mission: TestMission = undefined;
+    try mission.init(&parts, .{
+        .globals = &.{0},
+        .ships = &dte.testing.ships(1, 0),
+        .objects = &.{dte.testing.object(.ship, 0, 2)},
+        .triggers = &.{
+            triggers.testing.trigger(&parts, 0, .docked, .always),
+            triggers.testing.trigger(&parts, 0, .undocked, .always),
+        },
+    }, &.{@splat(0)});
+    defer mission.deinit();
+    docked(mission.world(), 0);
+    undocked(mission.world(), 0);
+    try std.testing.expectEqual(2, mission.events.count);
+    mission.events.flush();
+    try std.testing.expectEqual(2, mission.game.fixture.global(0));
 }
 
 test "an event waits where only its flight group's trigger would answer it" {

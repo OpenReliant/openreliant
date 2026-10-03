@@ -507,7 +507,7 @@ fn jumpsOutAt(slot: *const create.Slot, target: i16) bool {
 /// `jump_mark` (`0x00418470`): the object in slot `index`, in the way of a jump, is marked jumping,
 /// which holds it where it is and leaves it out of the frame until the player's jump ends; so is
 /// each fuel pod, and each ship launching from the object or docking with it, and those in turn.
-fn markJumping(all: *create.Objects, index: u16) void {
+pub fn markJumping(all: *create.Objects, index: u16) void {
     all.slots[index].object.flags.jumping = true;
     for (all.slots[0..all.count], 0..) |*other, at| {
         if (other.object.flags.outOfFrame()) continue;

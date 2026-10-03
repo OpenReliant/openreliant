@@ -601,6 +601,39 @@ test "a handler can stop a call, or run the rest of it itself" {
     try std.testing.expectEqual(0, fixture.mission.objects.slots[fixture.sabre].object.order_count);
 }
 
+test "mods can intercept warp orders and receive filtered Undocked events" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\local seen = false
+                \\hooks.add("undocked", function(e)
+                \\    assert(e.object.type == "sabre")
+                \\    seen = true
+                \\end, { type = "sabre" })
+                \\hooks.add("order_warp_out", function(e)
+                \\    assert(seen)
+                \\    e.object.throttle = 0.75
+                \\    return false
+                \\end, { type = "sabre" })
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const game = openreliant.engine.game;
+    const ctx = fixture.mission.orders();
+    try std.testing.expect(try game.aigeneric.pushShip(ctx, fixture.sabre, .warp_out, 0, null));
+    openreliant.engine.hooks.tell(fixture.mission.world(), .undocked, .{ .object = .of(0) });
+    openreliant.engine.hooks.tell(fixture.mission.world(), .undocked, .{ .object = .of(fixture.sabre) });
+    game.aigeneric.objectOrders(ctx, fixture.sabre);
+    try std.testing.expectEqual(0.75, fixture.mission.slot(fixture.sabre).object.throttle);
+    try std.testing.expectEqual(0, fixture.mission.slot(fixture.sabre).state.warp.step);
+}
+
 test "a handler that fails is removed, and its changes undone" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{

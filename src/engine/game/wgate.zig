@@ -8,9 +8,8 @@
 //! `wgate/tunnel.zig`, the worm's in `wgate/worm.zig`. [Gates](../../../docs/engine/gates.md)
 //! describes them.
 //!
-//! Not ported: the warps' tunnels (kind 0, `order_warp_out`, `order_warp_in`), with their
-//! particles and beams ([#481](https://github.com/OpenReliant/openreliant/issues/481)); the Boridin's
-//! projection (kind 3, `order_start_warp_projection_from_boridin`)
+//! Warp orders and projector effects are in `wgate/warp.zig`.
+//! Not ported: the Boridin's projection (kind 3, `order_start_warp_projection_from_boridin`)
 //! ([#30](https://github.com/OpenReliant/openreliant/issues/30)); and the Krasny's split, as it jumps
 //! in through the gate collapsing behind it in missions 16 and 66 (`0x00422CA0`)
 //! ([#407](https://github.com/OpenReliant/openreliant/issues/407)).
@@ -42,6 +41,7 @@ const xtrabits = @import("xtrabits.zig");
 
 pub const tunnel = @import("wgate/tunnel.zig");
 pub const worm = @import("wgate/worm.zig");
+pub const warp_orders = @import("wgate/warp.zig");
 pub const Kind = tunnel.Kind;
 pub const Tunnels = tunnel.Tunnels;
 const Grid = tunnel.Grid;
@@ -82,6 +82,7 @@ pub const Gates = struct {
     warp: *srtexture.Image,
     /// The jumps' flashes' texture (`warpin3`).
     flash: *srtexture.Image,
+    beam: *srtexture.Image,
     /// Whether a hardware renderer draws them, which gives the tunnels their colours and their
     /// highlight (`tunnel.Tunnel.build`).
     hardware: bool,
@@ -104,15 +105,14 @@ pub const Gates = struct {
     /// The tick the ride's rumbles were last drawn for, in the steady style (`Rumbles`).
     rumbled_at: i32 = 0,
 
-    /// The gates' start (`0x0041E280`), without the warps' textures and particles
-    /// ([#481](https://github.com/OpenReliant/openreliant/issues/481)) and the Boridin's
-    /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)): the tunnels' texture, the
-    /// flashes', and the grid by `detail`.
+    /// `wgates_init` (`0x0041E280`): loads tunnel, flash and projector-beam textures and
+    /// selects the grid by detail. Warp particle templates are static values in `warp_orders`.
     pub fn init(gpa: Allocator, textures: *srtexture.Table, detail: Detail, hardware: bool, settings: Settings) matmanager.Error!Gates {
         return .{
             .gpa = gpa,
             .warp = try matmanager.textureRequire(textures, if (hardware) warp_texture else software_warp_texture),
             .flash = try matmanager.textureRequire(textures, flash_texture),
+            .beam = try matmanager.textureRequire(textures, if (hardware) beam_texture else software_beam_texture),
             .hardware = hardware,
             .grid = .of(detail),
             .settings = settings,
@@ -148,12 +148,13 @@ pub const Gates = struct {
 
     /// `0x0041FE60`: a record for a tunnel of `kind` at the object in slot `index`, in the first
     /// free place, standing at `at` in the object's frame and turned a half turn about its Y axis,
-    /// fully open, every vertex of it as much deeper as the object's type has it (`depthOf`); null
-    /// where every place is taken, or for a kind not ported.
+    /// every vertex deeper by the ship type's depth (`depthOf`). Fixed gates start fully open;
+    /// warp orders shape their own rings and keep an independent departure frame. Returns null
+    /// when all records are occupied or the kind is not ported.
     pub fn make(gates: *Gates, world: gameobj.World, index: u16, kind: Kind, at: Vector) Allocator.Error!?*Record {
         switch (kind) {
-            .proto, .advanced => {},
-            .warp, .boridin => {
+            .proto, .advanced, .warp => {},
+            .boridin => {
                 log.warn("the tunnel of kind {s} at object {d} is left out: it is not ported", .{ @tagName(kind), index });
                 return null;
             },
@@ -173,12 +174,16 @@ pub const Gates = struct {
             .at = at,
             .tunnel = undefined,
             .squares = undefined,
+            .warp_place = world.objects.slots[index].drawn,
+            .warp_size = sizeOf(world.objects.slots[index].object.type),
         };
         try record.tunnel.build(gates.gpa, gates.grid, gates.settings.tunnels.split(), gates.hardware, gates.warp, kind, tunnelSize(kind, world.objects.mission_number));
         errdefer record.tunnel.deinit(gates.gpa);
         try record.squares[0].build(gates.gpa, gates.flash);
         errdefer record.squares[0].deinit(gates.gpa);
         try record.squares[1].build(gates.gpa, gates.flash);
+        errdefer record.squares[1].deinit(gates.gpa);
+        if (kind == .warp) record.warp_effect = try .init(gates.gpa, gates.beam, now);
         place.* = record;
         return record;
     }
@@ -188,12 +193,13 @@ pub const Gates = struct {
         const record = gates.records[index] orelse return;
         record.tunnel.deinit(gates.gpa);
         for (&record.squares) |*square| square.deinit(gates.gpa);
+        if (record.warp_effect) |*effect| effect.deinit(gates.gpa);
         gates.gpa.destroy(record);
         gates.records[index] = null;
     }
 
     /// `free` for the record `record` is.
-    fn freeRecord(gates: *Gates, record: *const Record) void {
+    pub fn freeRecord(gates: *Gates, record: *const Record) void {
         for (gates.records, 0..) |held, index| {
             if (held == record) return gates.free(index);
         }
@@ -230,8 +236,12 @@ pub const Gates = struct {
     pub fn draw(gates: *Gates, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, frame_start: i32) Allocator.Error!void {
         for (gates.records) |held| {
             const record = held orelse continue;
+            if (record.kind == .warp and !record.warp_shown) continue;
             record.drawn_at = frame_start;
-            record.tunnel.reshape(record.kind, recordTime(record.made_at, frame_start), frame_start, record.deeper);
+            if (record.kind == .warp)
+                record.tunnel.reshapeWarp(frame_start, record.deeper)
+            else
+                record.tunnel.reshape(record.kind, recordTime(record.made_at, frame_start), frame_start, record.deeper);
             const place = record.tunnelPlace(all);
             record.tunnel.object.position = place.position;
             record.tunnel.object.orientation = place.orientation;
@@ -247,6 +257,7 @@ pub const Gates = struct {
                 }
             }
             try xtrabits.sceneAdd(gpa, scene, .{ .portal = &record.portal }, .world);
+            if (record.warp_effect) |*effect| try effect.draw(gpa, scene, record, all);
             if (!gates.riding) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &record.tunnel.object }, .world);
         }
         if (gates.worm_shown) if (gates.worm) |tube| {
@@ -260,6 +271,8 @@ pub const Gates = struct {
 const warp_texture = "warp128";
 const software_warp_texture = "ddwarp128";
 const flash_texture = "warpin3";
+const beam_texture = "laser2";
+const software_beam_texture = "ddlaserr";
 
 /// The time from tick `from` to `now` as the gates count it (`gameobj.progress_per_tick`), the
 /// ticks taken unsigned as the game takes a record's (`0x00420A00`, `0x00420950`, `0x00421940`,
@@ -271,7 +284,7 @@ fn recordTime(from: i32, now: i32) f32 {
 
 /// A tunnel's size, which scales its radii: the prototype's 70, the advanced gate's 40, and 70
 /// again in mission 8 (`0x0041FE60`). A warp's radius takes no size (`tunnel.ringRadius`), and
-/// `Gates.make` leaves the warps and the Boridin out.
+/// `Gates.make` leaves the Boridin out.
 fn tunnelSize(kind: Kind, mission_number: u16) f32 {
     return switch (kind) {
         .advanced => if (mission_number == wide_advanced_mission) proto_size else advanced_size,
@@ -286,9 +299,8 @@ const wide_advanced_mission = 8;
 /// `wgate_warp_size_table` (`0x004E3F38`): the types of object whose tunnels stand deeper, with
 /// how much deeper every vertex stands (`+0x1C`) and a warp's size (`+0x18`), which
 /// `wgate_create` (`0x0041FE60`) looks up for every kind (`wgate_warp_sizes`, `0x00423020`). Any
-/// other type's stand no deeper, and its warp's size is 2000. The size and the flag the game sets
-/// beside it (`+0x2C`) serve the warps alone
-/// ([#481](https://github.com/OpenReliant/openreliant/issues/481)).
+/// other type's stand no deeper, and its warp's size is 2000. Warp departure uses the table's
+/// membership (`+0x2C`) to choose its translation rate.
 const warp_sizes = [_]WarpSize{
     .{ .type = .badanov, .depth = 15000, .size = 10000 },
     .{ .type = .yamato, .depth = 100000, .size = 50000 },
@@ -304,6 +316,14 @@ fn depthOf(object_type: gameobj.Type) f32 {
     }
     return 0;
 }
+
+fn sizeOf(object_type: gameobj.Type) f32 {
+    for (warp_sizes) |entry| if (entry.type == object_type) return entry.size;
+    return warp_default_size;
+}
+
+/// Default warp radius (`wgate_create`, `0x0041FE60`).
+const warp_default_size: f32 = 2000;
 
 /// A record of the gates (`0x88` bytes): a tunnel at an object, its portal, and the two flashes a
 /// ship jumping in through it shows.
@@ -333,17 +353,25 @@ pub const Record = struct {
     squares_shown: bool = false,
     /// `+0x84`: set while a ship comes through it, until it is half way, which the next waits for.
     busy: bool = false,
+    /// Warp tunnels have an independent world frame; fixed gates hang from their carrier.
+    warp_place: math.Place = .{},
+    warp_effect: ?warp_orders.Effect = null,
+    /// Warp orders choose which frames show the independent tunnel.
+    warp_shown: bool = false,
+    /// Radius from the shared ship-type warp size table (`+0x18`).
+    warp_size: f32 = warp_default_size,
 
     /// Where its tunnel stands in the world: at `at` in its object's frame, as the object is
     /// drawn, turned a half turn about its Y axis.
     pub fn tunnelPlace(record: *const Record, all: *const create.Objects) math.Place {
+        if (record.kind == .warp) return record.warp_place;
         const turned: math.Place = .{ .position = record.at, .orientation = tunnel_turn };
         return turned.within(all.slots[record.slot].drawn);
     }
 
     /// `0x0041FDF0`: its portal faces along the tunnel's axis, at the throat's ring
     /// (`tunnel.Tunnel.throat`) as the tunnel stands now.
-    fn portalSetUp(record: *Record) void {
+    pub fn portalSetUp(record: *Record) void {
         record.portal.normal = .{ 0, 0, 1 };
         record.portal_at = record.tunnel.throat();
     }
@@ -1126,7 +1154,7 @@ pub const testing = struct {
         gates: Gates,
 
         pub fn init(built: *Built, gpa: Allocator) !void {
-            built.textures = try .init(gpa, &.{ warp_texture, software_warp_texture, flash_texture });
+            built.textures = try .init(gpa, &.{ warp_texture, software_warp_texture, flash_texture, beam_texture, software_beam_texture });
             errdefer built.textures.deinit(gpa);
             built.gates = try .init(gpa, &built.textures.table, .high, true, .{});
         }
@@ -1223,9 +1251,9 @@ test "the gates keep 32 records, and make no more" {
     const world = run.orders().world;
     for (0..max_records) |_| try std.testing.expect(try run.built.gates.make(world, point, .proto, @splat(0)) != null);
     try std.testing.expectEqual(null, try run.built.gates.make(world, point, .proto, @splat(0)));
-    // Nor any of a kind not ported.
+    // A freed record is available for a warp too.
     run.built.gates.free(0);
-    try std.testing.expectEqual(null, try run.built.gates.make(world, point, .warp, @splat(0)));
+    try std.testing.expect(try run.built.gates.make(world, point, .warp, @splat(0)) != null);
 }
 
 test "a tunnel at a Yamato stands deeper than one at a nav point" {

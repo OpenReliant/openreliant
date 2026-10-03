@@ -270,8 +270,8 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 1 | Fly Aimlessly | On starting, takes a figure from 1 to 3 from the ship's own random numbers, keeps where the ship will be next and how it will be turned, its X axis reversed where its next number is odd, and sets the throttle to 0.4 and up to 0.3 more by `rand()`. Each update it steers with flags `0x3` for point `n` of its figure, from 1, and for the next once within 1000 of it. Point `n` lies `t = n` twentieths of a turn round, `(cos t - 1)(figure + 1)` times 25000 along the kept X axis and `sin(figure t)` times 50000 along the kept Z axis from where the order began: figure 1 is a circle, and figures 2 and 3 are wider loops that swing ahead and back two and three times on the way round. It never ends. **Improvement:** OpenReliant computes the sine and cosine rather than reading the engine's tables (`sr_sin`, `sr_cos`). | Yes |
 | 2 | Launch Missile | One-shot: launches a missile at the target from the first of the ship's racks with missiles left that is not a Jack Hammer's ([Missiles](missiles.md#the-ais-missiles)). | Yes |
 | 3 | (nameless) | One-shot: as Launch Missile, from the first rack of Jack Hammers. | Yes |
-| 4 | Warp In | A capital ship warps in through a tunnel of its own ([Gates](gates.md)). Not read in full yet. | No ([#481](https://github.com/OpenReliant/openreliant/issues/481)) |
-| 5 | Warp Out | A capital ship warps out through a tunnel of its own. Not read in full yet. | No ([#481](https://github.com/OpenReliant/openreliant/issues/481)) |
+| 4 | Warp In | A ship arrives through its own tunnel, emerges, then posts JumpedIn ([Gates](gates.md#warps)). | Yes |
+| 5 | Warp Out | A ship aligns with its target, opens its tunnel and enters it, then queues Warp In with the same sequence number. | Yes |
 | 6 | Fly | Flies at the speed in its data, or at full throttle for zero. With a target it flies to it and pops within 2000 units; otherwise it keeps the heading it had when it started, steering at a point 20000 units along it. It steers with flags `0x7` and halves the throttle while avoiding. An object without flight stats is moved along that heading instead; **Improvement:** OpenReliant draws it gliding on between the ticks ([The game loop](loop.md#porting)). | Yes |
 | 7 | Run Away | Flies away from the target at half throttle, for a point on the far side of the ship from the target, 100000 times as far from the ship as the target is. It moves the point round what is near (`avoid_near`), then steers at it with flags `0x3` and an ease of 0.1, which go round what is near and ahead again. Pops when the target's slot holds a stand-in. | Yes |
 | 8 | Land | The player's ship lands on its carrier, which ends the mission ([Landing](#landing)). | Partly: the Yamato's style is not ([#349](https://github.com/OpenReliant/openreliant/issues/349)) |
@@ -317,7 +317,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 106 | Eject | The ship a pilot has left: destroyed 200 ticks on. | Yes |
 | 107 | Scoop Up | A nanny ship or the Antanov takes the player's pod aboard with its tractor beams ([Ejection](ejection.md#scoop-up)). | Yes |
 | 108 | Eject Spin | An AI pilot's ship spins, unpowered, for 200 ticks; then the pilot ejects (Eject). | Yes |
-| 109 | Dock | Docks at a port of its target ([Docking](#docking)). | Partly: the Nanny's, the limpet car's and the limpet pod's styles are not ([#320](https://github.com/OpenReliant/openreliant/issues/320)) |
+| 109 | Dock | Docks at a port of its target ([Docking](#docking)). | Station, Nanny, limpet car and limpet pod styles; Czar-specific limpet docking remains ([#320](https://github.com/OpenReliant/openreliant/issues/320)) |
 | 110 | Dark reign shoot | The Dark Reign's ion cannon; `ion_cannons_hold_lock` keeps its target ([Script VM](script-vm.md#the-games-variables)). Not read in full yet. | No |
 | 111 | Ripper end drop object | A Ripper draws its forearms back once it has let go ([The Ripper](#the-ripper)). | Yes |
 | 112 | Ripper attach cargo pod to Mammoth | A Ripper fits a cargo pod onto a Mammoth ([The Ripper](#the-ripper)). | Yes |
@@ -454,8 +454,38 @@ that the component names it faults. OpenReliant logs either, and the order ends.
 **Fix:** the game goes on reading the frames of a station that has gone; OpenReliant ends the
 order, and until then the slide in holds the ship where it is.
 
-Not ported: the Nanny's, the limpet car's and the limpet pod's styles
-([#320](https://github.com/OpenReliant/openreliant/issues/320)).
+### Nanny docking
+
+`dock_nanny_init` (`0x004073E0`) enables carrier pass-through and plain motion. It stores the
+selected port's point, raised by the docking ship's height. `dock_nanny_run` (`0x00407510`)
+opens entry door 0 or 1, approaches a point 1500 above and 20000 ahead of the port, then
+steers into it. Within 500 units it stops and closes the door. After strictly more than
+500 ticks, `create.rearm` refits missiles through the shared `create.arm` path and restores
+countermeasures, afterburner fuel, gun charge and rounds. Player ships retain their chosen
+loadout, including modded missile racks. Hull and shields are not repaired.
+
+Exit door 4 or 3 opens. After 400 ticks, Docked is posted and forward motion resumes.
+The ship uses its afterburner for another 150 ticks, then the exit door closes and the order
+ends. The player's locked Nanny view (43) returns to the cockpit. **Fix:** each door closes
+from its own animation time instead of using the first port's time. Invalid ports or missing
+carriers end the order without dereferencing missing nodes.
+
+### Limpet docking
+
+`dock_limpet_init` (`0x00407D30`) shares station docking-point lookup and berth math.
+`dock_limpet_run` (`0x00407D70`) approaches 10000 behind the berth, then uses the shared
+slide callback for 1000 mission ticks at half speed. It stops the carrier during entry.
+At the berth, clamp parts 2 and 3 play `rotate` at speed 4. A visible pod mesh (part 0)
+is hidden and replaced by a separate limpet-pod object, attached to the carrier. If it was
+already hidden, the mesh shows again and the first existing limpet pod is retired, as in
+the original. Three 400-tick waits cover clamp rotation, departure and clamp return.
+
+The order posts Docked if the pod mesh is hidden, Undocked otherwise. Its exit restores
+forward motion, clears attachment and clears the first two pass-through entries. The
+separate pod's update (`0x004084B0`) destroys it if its carrier explodes. Undocked is also
+exposed to mod scripts through the event declarations.
+
+Czar-specific limpet docking remains in [#320](https://github.com/OpenReliant/openreliant/issues/320).
 
 ### Landing
 

@@ -138,6 +138,7 @@ const implementations = table: {
         .{ "DisableListing", .{ .in_game = disableListing } },
         .{ "Scanner", .{ .in_game = scanner } },
         .{ "Fire", .{ .in_game = fire } },
+        .{ "Cloak", .{ .per_ship = cloakShip } },
     }) |pair| {
         const number = commandIndex(pair[0]);
         table[number] = switch (pair[1]) {
@@ -419,8 +420,8 @@ fn startLaunchShip(call: Call, ship: Ship) void {
 /// `cmd_SetInvulnerability` (`0x00458BC0`, command `0x1A`) and `cmd_SetInvulnerability_ship`
 /// (`0x00458BE0`), for each ship the first argument names (`perShip`): the ship takes the
 /// invulnerability the command's second argument gives, or where the first names one of its
-/// components (`push_component`), that component does, which its damage does not read yet
-/// (`gameobj.Component.invulnerable`, [#538](https://github.com/OpenReliant/openreliant/issues/538)).
+/// components (`push_component`), that component does (`gameobj.Component.invulnerable`).
+/// Component damage checks this after resolving the linked assembly's armor-bearing part.
 /// A ship in the players' slots is reached only in the training missions
 /// (`create.Objects.training`) and in the Reliant's simulator's training (`simulator_mode` 1,
 /// `create.Simulator.Mode.training`).
@@ -435,6 +436,27 @@ fn setInvulnerabilityShip(call: Call, ship: Ship) void {
         return;
     }
     object.invulnerable = @enumFromInt(@as(u8, @truncate(value)));
+}
+
+/// `cmd_Cloak_ship` (`0x00459F60`), called by `cmd_Cloak` (`0x00459F40`, command `0x58`):
+/// sets the ship's cloak from the remaining argument. The shared setter checks the model's
+/// cloak capability and propagates the change to ships launching from it.
+fn cloakShip(call: Call, ship: Ship) void {
+    @import("cloak.zig").set(ship.game.world, ship.index, call.args[0] != 0);
+}
+
+test "Cloak uses the existing setter and its command catalogue entry" {
+    const cloak = @import("cloak.zig");
+    var stage: cloak.testing.Cloaked = undefined;
+    try stage.init(std.testing.allocator);
+    defer stage.deinit(std.testing.allocator);
+    var args = [_]u32{1};
+    var machine: vm.Machine = undefined;
+    const ctx = stage.mission.orders();
+    const call: Call = .{ .machine = &machine, .thread = 0, .args = &args };
+    cloakShip(call, .{ .game = ctx, .index = stage.index, .slot = stage.slot() });
+    try std.testing.expect(stage.slot().object.flags.cloaked);
+    try std.testing.expect(implementation(commandIndex("Cloak")) != null);
 }
 
 /// How loud a mission's music plays (`cmd_PlayMusic`, `0x00458E16`).

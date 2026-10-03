@@ -637,6 +637,10 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     friendly_fire.sendHome(orders);
     player.scanner.frame(orders.world, orders.world.clock.frame_start);
     frameObjects(orders.world.objects, timing, orders.world.clock.frame_start);
+    if (orders.world.gates) |gates| for (gates.records) |held| {
+        const record = held orelse continue;
+        if (record.kind == .warp) @import("wgate/warp.zig").frame(&orders.world.objects.slots[record.slot], record);
+    };
     missiles.frame(orders.world, timing.fraction);
     guns.bulletsFrame(orders.world, orders.world.clock, timing.fraction);
     if (orders.world.sparks) |thrown| thrown.frame(orders.world.clock);

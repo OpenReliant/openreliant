@@ -122,6 +122,14 @@ pub const View = enum(u8) {
     watch_marker = 0x1B,
     /// From a point the player flies past.
     flyby = 0x24,
+    /// Watches the player's ship dock at a Nanny, from beside the Nanny.
+    nanny_dock = 0x2B,
+    /// Orbits beside the player while the warp tunnel opens.
+    warp_prepare = 9,
+    /// Holds the preparation camera as the ship enters its warp.
+    warp_depart = 10,
+    /// Watches the ship emerge from its arrival tunnel.
+    warp_arrive = 11,
     /// **Unknown:** what it shows. The second of the two views the Yamato's landing picks from
     /// (`0x0040EBC0`), which OpenReliant has not ported
     /// ([#349](https://github.com/OpenReliant/openreliant/issues/349)).
@@ -690,6 +698,24 @@ pub const Camera = struct {
                 camera.place = lookingAt(landing.tube + math.transform(landing.carrier, landing_aside_offset), world.object.position);
             },
             .jump_out => camera.place = lookingAt(camera.place.position, world.object.position),
+            .nanny_dock => camera.place = lookingAt(world.object.place().point(nanny_dock_offset), world.player.position),
+            .warp_prepare => {
+                const turn = math.rotation(.y, warp_prepare_yaw - camera.shown(world) * warp_prepare_turn);
+                const facing = if (world.game) |game|
+                    game.objects.slots[game.objects.player].state.warp.orientation
+                else
+                    world.player.orientation;
+                camera.place = .{
+                    .position = world.player.position + math.transform(facing, math.transform(turn, warp_prepare_offset)),
+                    .orientation = math.product(facing, turn),
+                };
+            },
+            .warp_depart => {},
+            .warp_arrive => if (world.game) |game| if (game.gates) |gates| if (gates.of(game.objects.player)) |record| {
+                const distance = if (gates.grid.segments < @import("wgate/tunnel.zig").Grid.of(.high).segments) warp_arrive_distance_low else warp_arrive_distance;
+                camera.place = lookingAt(record.warp_place.ahead(distance), world.player.position);
+                camera.place.orientation = math.turned(camera.place.orientation, .z, camera.shown(world) * warp_arrive_roll);
+            },
             .jump_in_close => {
                 camera.place = lookingAt(world.player.place().point(jumpCloseOffset(camera.shown(world))), world.player.position);
                 // The camera shakes with a hit, as the cockpit's does.
@@ -1183,6 +1209,17 @@ const yamato_beside_end: Vector = .{ 1500, 300, 500 };
 const yamato_beside_rate: f32 = 0.0013;
 /// View 15 starts looking at the ship after step 5's due tick plus 150 (`camera_frame`).
 const yamato_look_delay = 150;
+
+/// Nanny docking view offset (`camera_frame`, `0x00461AE3`).
+const nanny_dock_offset: Vector = .{ 10000, -1800, -1400 };
+/// Warp preparation camera yaw and turn per tick (`0x004DC408`, `0x004DC784`).
+const warp_prepare_yaw: f32 = 0.5;
+const warp_prepare_turn: f32 = 0.0005;
+const warp_prepare_offset: Vector = .{ 0, -350, -2000 };
+/// Highest-detail arrival distance and roll rate (`camera_frame`, `0x004DC77C`).
+const warp_arrive_distance: f32 = 10000;
+const warp_arrive_distance_low: f32 = 3000;
+const warp_arrive_roll: f32 = -0.003;
 
 fn yamatoBeside(player: Subject, since: f32) Place {
     const offset = math.lerp(yamato_beside_start, yamato_beside_end, since * yamato_beside_rate);

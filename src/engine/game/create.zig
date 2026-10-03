@@ -716,8 +716,6 @@ pub const Objects = struct {
     /// in the simulator, where the loadout ran. `create_object` passes over mission 25's first
     /// part too (`createdRacks`).
     ///
-    /// Not ported yet: the Nanny's re-arm (`order_dock`, `0x00407A5F`,
-    /// [#320](https://github.com/OpenReliant/openreliant/issues/320)).
     pub fn loadoutRacks(all: *const Objects, index: u16) ?*const Racks {
         if (index >= all.players or index >= all.loadout_racks.len) return null;
         if (index == all.player and all.simulator.simulated()) return null;
@@ -1205,6 +1203,20 @@ pub fn arm(gpa: Allocator, slot: *Slot, fit: Fit) Allocator.Error!void {
     }
     object.gun_charge = combat.gun_energy;
     object.rounds = combat.rounds;
+}
+
+/// Refills weapons and supplies as `dock_nanny_run` (`0x004079C9`) does. Player slots retain
+/// the racks selected on the loadout screen; other ships use their stored loadout tier.
+/// The shared `arm` path also rebuilds mounted missile models, preserving modded loadouts.
+pub fn rearm(world: gameobj.World, index: u16) Allocator.Error!void {
+    const all = world.objects;
+    const slot = &all.slots[index];
+    const fit: Fit = if (all.loadoutRacks(index)) |racks|
+        .{ .loadout = racks }
+    else
+        .{ .tier = std.math.cast(u2, slot.object.loadout_tier) orelse 0 };
+    try arm(all.gpa, slot, fit);
+    if (index == all.player) if (world.display) |display| display.missiles.build(&slot.object);
 }
 
 /// Each quadrant's shields and armour full, as `create_object` makes an object and
@@ -2008,6 +2020,19 @@ test "a player's ship takes the racks its loadout fitted" {
     try std.testing.expectEqual(missiles.Type.imp, object.racks[0].type);
     try std.testing.expectEqual(missiles.Type.fuel_pod, object.racks[1].type);
     try std.testing.expectEqual(missiles.Type.raptor, object.racks[2].type);
+    // Rearming restores the selected racks even if the ship's default tier differs.
+    var clock: main.Clock = .{};
+    var player: @import("../input.zig").Player = .{};
+    var shake: f32 = 0;
+    const world: gameobj.World = .{ .objects = all, .clock = &clock, .player = &player, .view = .cockpit, .shake = &shake, .random = &random };
+    object.loadout_tier = 3;
+    object.racks[0].count = 0;
+    object.countermeasures = 0;
+    try rearm(world, index);
+    try std.testing.expectEqual(missiles.Type.imp, object.racks[0].type);
+    try std.testing.expect(object.racks[0].count > 0);
+    try std.testing.expectEqual(missiles.Type.fuel_pod, object.racks[1].type);
+    try std.testing.expectEqual(gameobj.countermeasures_when_created, object.countermeasures);
     // Not in the simulator, nor in mission 25's first part.
     try std.testing.expect(all.createdRacks(0) != null);
     all.simulator = .{ .mode = .training };

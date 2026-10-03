@@ -15,9 +15,11 @@ and colours the tunnels and the jumps' flashes, and
 Coalition's gates up ([`game/create.zig`](../../src/engine/game/create.zig)). A mission's start
 lets every tunnel go.
 
-Not ported: the warps' tunnels (kind 0, Warp In and Warp Out, orders 4 and 5), with their
-particles and beams ([#481](https://github.com/OpenReliant/openreliant/issues/481)); the Boridin's
-projection (kind 3, order 38) ([#30](https://github.com/OpenReliant/openreliant/issues/30)); the
+[`game/wgate/warp.zig`](../../src/engine/game/wgate/warp.zig) implements Warp In and Warp Out,
+with their independent tunnels, projector beams and particles.
+
+Not ported: the Boridin's projection (kind 3, order 38)
+([#30](https://github.com/OpenReliant/openreliant/issues/30)); the
 Krasny's split in missions 16 and 66 ([#407](https://github.com/OpenReliant/openreliant/issues/407));
 and the collapse's second passes on the parts of models a gate carries, which the game's walk of
 its nodes reaches too ([#540](https://github.com/OpenReliant/openreliant/issues/540)). No shipped gate carries a model.
@@ -136,6 +138,47 @@ object's hook at `+0x170`).
 
 OpenReliant places the tunnel and its portal from where the gate's object is drawn, where the
 game hangs their frames from it.
+
+## Warps
+
+Warp Out (5) and Warp In (4) use an independent tunnel for each ship, rather than a fixed
+gate's tunnel. Their shared order state stores the step at `0x04`, an orientation at `0x0C`
+and the saved position at `0x3C`.
+
+Warp Out (`0x0041E550`, `0x0041E710`) clears the steering controls and uncloaks player slots.
+The ship aligns with its target. The player faces it immediately and marks objects in a
+500000-unit corridor ahead as jumping; other ships steer until their inputs and turn rates
+are within 0.05. The projection sound plays and the player's camera takes view 9.
+
+The order creates a kind-0 record, saves the departure frame and freezes the ship. Four
+beams connect its warp projectors to two counter-rotating endpoint frames. The original supplies
+red vertex colours, but the unlit material draws the texture's own colour. Point group 10
+supplies the origins; the Yamato uses four points on `Yam_Warp_Proj_3`. Without projector
+points, the origin is 300 units ahead of the ship. Each beam has a cap and three blades,
+110 units wide on either side. Its endpoints stream particles with a 120-tick life.
+
+The opening depth follows square-root easing. Ring spacing is 900 units for ships without
+components and 4000 for ships with them. Rings start updating once the depth exceeds 800.
+Their radii grow from five percent of the ship type's warp size to its full size. The
+extension then moves the rings along the tunnel. At entry, the portal clips the ship,
+the departure sound plays and the player's camera holds view 10. The ship moves forward
+while the tunnel fades. Fighters stretch along their drawn Z axis between progress 0.2 and
+0.6, without changing their flight orientation. The order hides the ship and queues Warp In at its target, keeping
+the sequence number. A self-targeted departure ends without an arrival.
+
+Warp In (`0x0041E5C0`, `0x0041F260`) stops the ship and uses the target's orientation. The
+sequence spreads arrivals along the target's X axis: 0, -3000, +3000, -6000, +6000. It
+reuses the departure record where one exists, resets its colours and reverses the tunnel.
+The player takes camera view 11, clears jumping flags and updates the environment. The
+arrival sound plays. At high detail the ship starts 20000 units behind its arrival point,
+hidden (15000 units at lower detail), and becomes visible at progress 0.4. Other ships accelerate at throttle 2; the
+Yamato moves explicitly while frozen. After the emergence and final wait, the tunnel is
+freed, collision and motion flags are restored, the player returns to the cockpit and
+JumpedIn is posted.
+
+The existing fine-tunnel setting applies to warps too. `--original` uses the original grid.
+**Fix:** a missing record or allocation failure ends the order and releases its frozen flags
+instead of leaving the ship stuck.
 
 ## The Coalition's gates
 

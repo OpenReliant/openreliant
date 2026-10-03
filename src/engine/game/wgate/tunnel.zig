@@ -27,8 +27,7 @@ const Detail = @import("../explode.zig").Detail;
 
 /// What a tunnel serves, its record's kind (`+0x00`).
 pub const Kind = enum(u32) {
-    /// A warp's (`order_warp_out`, `order_warp_in`), not ported
-    /// ([#481](https://github.com/OpenReliant/openreliant/issues/481)).
+    /// A ship's independent warp tunnel (`order_warp_out`, `order_warp_in`).
     warp = 0,
     /// A fixed gate's, while no advanced gate is among the objects: blue.
     proto = 1,
@@ -271,7 +270,7 @@ pub const Tunnel = struct {
     /// straight line over the first `palette_turn` of the rings, then to the end's by the square
     /// root (`Palette.at`): a proto gate's blue, an advanced gate's red. A software renderer's runs
     /// from white down to black, and its ring before the last is a mid grey.
-    fn colour(tunnel: *Tunnel, kind: Kind, hardware: bool) void {
+    pub fn colour(tunnel: *Tunnel, kind: Kind, hardware: bool) void {
         const grid = tunnel.grid;
         const palette: Palette = if (kind == .advanced) .red else .blue;
         for (0..grid.rings + 1) |ring| {
@@ -290,11 +289,22 @@ pub const Tunnel = struct {
     /// (`shape`), and its lighting, its bounds and its radius follow them.
     pub fn reshape(tunnel: *Tunnel, kind: Kind, since: f32, frame_start: i32, deeper: f32) void {
         tunnel.swayRings(since);
+        tunnel.reshapeWith(kind, frame_start, deeper);
+    }
+
+    /// Updates mesh lighting and bounds after placing the rings.
+    fn reshapeWith(tunnel: *Tunnel, kind: Kind, frame_start: i32, deeper: f32) void {
         tunnel.shape(kind, frame_start, deeper);
         srapi.calcPolyNormals(&tunnel.mesh);
         srapi.calcVertexNormals(&tunnel.mesh);
         srapi.findBoundingBox(&tunnel.mesh);
         tunnel.object.radius = tunnel.mesh.radius;
+    }
+
+    /// Shapes a warp from radii and depths updated by its order. Fixed-gate sway must not
+    /// overwrite these values (`order_warp_out`, `order_warp_in`, `wgate_tunnel_shape`).
+    pub fn reshapeWarp(tunnel: *Tunnel, frame_start: i32, deeper: f32) void {
+        tunnel.reshapeWith(.warp, frame_start, deeper);
     }
 
     /// Each ring stands the game's `ring_spacing` deeper than the last, swaying by `ring_sway` as
@@ -374,6 +384,12 @@ pub const Tunnel = struct {
     /// as the game does as it draws it (`0x00420950`).
     pub fn scroll(tunnel: *Tunnel, time: f32) void {
         scrollBy(&tunnel.mesh, .{ -(time * scroll_rate[0]), -(time * scroll_rate[1]) });
+    }
+
+    /// `order_warp_in` (`0x0041F260`) also scrolls U forward and V back before its update.
+    /// The draw callback then applies the shared tunnel scroll.
+    pub fn scrollArrival(tunnel: *Tunnel, time: f32) void {
+        scrollBy(&tunnel.mesh, .{ time * scroll_rate[0], -(time * scroll_rate[1]) });
     }
 };
 

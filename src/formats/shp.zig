@@ -391,6 +391,8 @@ pub const PointList = struct {
         jump_trails = 7,
         /// Where a jump's lights stand along the hull (`jump_effect_start`).
         jump_lights = 8,
+        /// Warp projector origins (`warp_projector_beams`, `0x0041D510`).
+        warp_projectors = 10,
         _,
     };
 };

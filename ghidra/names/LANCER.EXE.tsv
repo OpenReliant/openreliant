@@ -677,7 +677,26 @@ address	kind	name	type	comment
 00463420	function	cloak_drop	ObjectRoutine	Drops an object's cloak: its nodes' callbacks freed (cloak_node_free), the cloaked flag cleared and its record freed
 004c1070	function	vec3_lerp	void __fastcall (Vec3 *out, Vec3 *from, Vec3 *to, float share)	out = from + (to - from) * share
 00588394	data	mission_ending	byte	How the mission is ending: 0 while it goes on, 1 the player's ship destroyed or the ejected pilot killed, 2 the ejected pilot picked up by a nanny ship, 3 picked up by the enemy, 4 the mission left from the pause menu (LEAVE MISSION), 5 a total failure (mission_end_record, a rating of -1), 6 the player's ship sent home for destroying a friend, 8 the player ejecting until the pod's time is up (order_eject settles it by the rescue odds); mission_end_record keeps the pilot's kills for every ending but 1 and 3; the debriefing names the ending by it
-004645c0	function	component_damage	void __fastcall (GameObject *object, ModelNode *node, float damage, int attacker, DamageKind kind)	Damages a component: lowers its node's armor, records the attacker in last_attacker, and marks the component's holder destroyed once the armor is below zero
+004645c0	function	component_damage	void __fastcall (GameObject *object, ModelNode *node, float damage, int attacker, DamageKind kind)	Resolves the armor-bearing part, applies object and listed-component invulnerability, records the attacker and marks destroyed parts; posts ShotAt events even when protection blocks lethal damage
+004073e0	function	dock_nanny_init	void __fastcall (int slot)	Enables carrier pass-through and plain motion, and stores the docking port raised by the ship's height
+00407510	function	dock_nanny_run	void __fastcall (int slot)	Approaches and enters a Nanny, closes the entry door, rearms after 500 ticks, opens the exit door and posts Docked before departure
+00407d30	function	dock_limpet_init	void __fastcall (int slot)	Finds the limpet car and carrier docking points, enables pass-through and starts the approach
+00407d70	function	dock_limpet_run	void __fastcall (int slot)	Approaches and slides to the carrier berth, transfers a limpet pod and rotates the clamps, then departs and posts Docked or Undocked
+004081c0	function	dock_limpet_exit	void __fastcall (int slot)	Restores forward motion, clears attachment and clears the first two pass-through slots
+004084b0	function	dock_limpet_pod_run	void __fastcall (int slot)	Destroys the attached limpet pod when its docking target explodes
+004084e0	function	dock_limpet_pod_exit	void __fastcall (int slot)	Clears the limpet pod's first two pass-through slots
+0041d220	function	warp_record_start	void __fastcall (int slot)	Creates or initializes a warp record, saves the ship's departure orientation and position, and advances the order step
+0041d2b0	function	warp_beam_build		Builds a warp projector beam: an end quad and three longitudinal blades, 110 wide and initially 400 long
+0041d510	function	warp_projector_beams		Places four beams from point group 10 to alternating counter-rotating endpoint frames; the Yamato uses Yam_Warp_Proj_3
+0041dc20	function	warp_beam_fade		Keeps beam brightness until progress 0.9, then linearly fades it to zero
+0041dc60	function	warp_ring_depth		Cosine-interpolates a ring depth until progress 1, then oscillates between 80 and 100 percent of the depth interval
+0041dd20	function	warp_ring_radius		Cosine-eases a radius from five percent to its full value
+0041dd50	function	warp_open_depth		Square-root easing for the warp tunnel's opening depth
+0041e660	function	warp_arrival_position		Places an arrival at its target, alternating sequence positions along the target X axis in steps of 3000
+0041fd50	function	warp_endpoint_frames		Places the two counter-rotating beam endpoint frames ahead of the ship at tunnel depth plus ship-type depth
+0051d194	data	warp_beam_particles	ParticleTemplate *	Small particles streamed from warp projector beam endpoints
+0051d138	data	warp_large_particles	ParticleTemplate *	Large warp particle template, with sizes 1000, 750 and 500 over its life
+0051d22c	data	warp_beam_texture	TextureImage *	The warp beam texture: laser2 for hardware, ddlaserr for software
 00463640	function	object_cloak	void __fastcall (int slot)	Cloaks an object: sets its cloaked flag, posts the Cloaked event and sets up the cloak state at +0x63C
 00401830	function	object_set_targetable	void __fastcall (int slot, bool targetable)	Sets or clears the object's targetable flag; it stays clear when the word at +0x24 of the combat stats is zero
 00401380	function	ai_steer	bool __fastcall (int slot, Vec3 *point, float limit, float ease, uint flags)	The AI's steering: turning inputs toward point, less (1 - ease) * 6 times each turn rate, times 11.46, held within limit. Flags 1 and 2 run avoid_near and avoid_ahead first, 4 rolls upright, 8 keeps pitch at 0.2 or more. Returns whether avoidance took over

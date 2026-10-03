@@ -334,6 +334,11 @@ pub const mission_events = struct {
         .Fields = struct { object: Object },
     };
 
+    pub const undocked: Declaration = .{
+        .about = "`object` has retrieved its limpet pod and left the docking port.",
+        .Fields = struct { object: Object },
+    };
+
     pub const docked: Declaration = .{
         .about = "`object` has docked.",
         .Fields = struct { object: Object },

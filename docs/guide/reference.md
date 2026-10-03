@@ -624,6 +624,14 @@ REQUEST BACKUP brought the mission's backup for `object`, the player's ship.
 |---|---|
 | `object` | [object](#objects) |
 
+### undocked
+
+`object` has retrieved its limpet pod and left the docking port.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+
 ### docked
 
 `object` has docked.
@@ -869,7 +877,7 @@ number. A script can set a field to either.
 
 ### View
 
-`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.
+`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.
 
 ### BettyLine
 
