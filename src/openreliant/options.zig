@@ -161,6 +161,7 @@ pub const help_page = page: {
             .{ .typed = "F4", .text = "in the sandbox, bring in another wing" },
             .{ .typed = "Alt+Enter", .text = "switch between the window and the full screen" },
             .{ .typed = "Escape", .text = "the pause menu, whose LEAVE MISSION quits" },
+            .{ .typed = "F11", .text = "the scripting console, where a mod has scripts, in the menus too" },
             .{ .typed = "0", .text = "save a screenshot, a PNG in the screenshots folder of the game's directory; O does the same in the briefing" },
         }) ++ "\nCommands:\n" ++
         help.table(&.{

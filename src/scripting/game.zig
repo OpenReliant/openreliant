@@ -51,6 +51,7 @@ const api = @import("api.zig");
 const Call = api.Call;
 const running = @import("running.zig");
 const interfaces = @import("interfaces.zig");
+const world = @import("world.zig");
 
 /// Limits for game scripts: 100 milliseconds per call, since they run as the game plays, and
 /// 64 MiB per mod.
@@ -307,6 +308,17 @@ pub const Game = struct {
         for (game.runtime.mods, 0..) |*mod, at| {
             var listed = missionScripts(mod, mission.file) orelse continue;
             game.startMissionScripts(@intCast(at), &listed) catch |err| log.warn("{s}: the scripts of {s} can't start: {s}", .{ mod.name, mission.file, @errorName(err) });
+        }
+    }
+
+    /// Starts the scripts of a mission that runs already, as the scripts are reloaded partway
+    /// through it: the mission's scripts, and the scripts manifests attach to each object in it,
+    /// as its start would have them (`begin`), but without `on_mission_start` or
+    /// `on_object_added`.
+    pub fn resumeMission(game: *Game, orders: aigeneric.Context, mission: engine_hooks.Mission, seed: u64) void {
+        begin(game, orders, mission, seed);
+        for (0..game.objects.slots.len) |index| {
+            if (world.inMission(game.objects, @intCast(index))) game.objectAdded(@intCast(index));
         }
     }
 

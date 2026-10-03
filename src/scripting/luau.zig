@@ -53,6 +53,12 @@ pub const State = opaque {
         return thread;
     }
 
+    /// The thread at `index`, or null where it isn't one.
+    pub fn toThread(state: *State, index: i32) ?*State {
+        const thread = c.lua_tothread(state.raw(), index) orelse return null;
+        return of(thread);
+    }
+
     /// The pointer stored with the thread (`lua_getthreaddata`).
     pub fn threadData(state: *State, comptime T: type) ?*T {
         return @ptrCast(@alignCast(c.lua_getthreaddata(state.raw())));
@@ -365,7 +371,8 @@ pub const State = opaque {
     // --- Calls ----------------------------------------------------------------------------------
 
     /// Calls the function below the `arguments` on the stack in protected mode. On success it
-    /// leaves `results` results; on failure it leaves the error message with a traceback.
+    /// leaves `results` results, or all of them for `all_results`; on failure it leaves the error
+    /// message with a traceback.
     pub fn protectedCall(state: *State, arguments: i32, results: i32) Status {
         const base = state.top() - arguments;
         state.pushFunction(traceback, "traceback");
@@ -419,6 +426,9 @@ pub const State = opaque {
         return if (c.luau_load(state.raw(), chunk, bytecode.ptr, bytecode.len, 0) == 0) .ok else .syntax_error;
     }
 };
+
+/// The `results` of `State.protectedCall` that keeps every result (`LUA_MULTRET`).
+pub const all_results = c.LUA_MULTRET;
 
 /// The longest error message `State.raise` produces.
 pub const max_message = 512;

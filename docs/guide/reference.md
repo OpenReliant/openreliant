@@ -40,6 +40,7 @@ include mission scripts.
 | `on_key_press(key: Key)` | player and menu | When a key is pressed. A key held down is told once. |
 | `on_key_release(key: Key)` | player and menu | When a key is released. |
 | `on_action(action: Action)` | player and menu | When the player uses the controls bound to an action, in flight. |
+| `on_console_command(text: string)` | player and menu | When a line typed in the console isn't one of its commands, with the line. |
 | `on_viewport_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
 | `on_interface_override(base: { [any]: any })` | global, object, player and menu | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
 

@@ -118,6 +118,7 @@ OpenReliant adds:
 |---|---|
 | F2, F3 | In the sandbox, start it again in the previous or next ship type |
 | F4 | In the sandbox, bring in another wing |
+| F11 | The scripting console, where a mod has scripts, in the menus too ([Scripting](scripting.md#the-console)) |
 | Alt+Enter | Switch between windowed and fullscreen mode |
 
 ## Configuration file (starlancer.ini)

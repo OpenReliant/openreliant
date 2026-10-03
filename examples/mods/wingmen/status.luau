@@ -1,11 +1,12 @@
 -- A panel of the wingmen nearby, over the flight display: how much armour each has left, and
--- whether it has pulled out of the fight. F9 shows and hides the panel, and F11 calls
--- every wingman that pulled out back to the formation at once. This is a player script: it draws
+-- whether it has pulled out of the fight. F9 shows and hides the panel, and Shift+F9, or regroup
+-- typed in the console, calls every wingman that pulled out back to the formation at once. This is a player script: it draws
 -- what the player sees, and changes the game only through the event it sends the global script.
 
 local hud = require("openreliant.hud")
 local nearby = require("openreliant.nearby")
 local core = require("openreliant.core")
+local input = require("openreliant.input")
 
 -- How far from the player's ship the panel looks for wingmen.
 local reach = 50000
@@ -29,10 +30,19 @@ end
 return {
     engine_handlers = {
         on_key_press = function(key)
-            if key == "f9" then
-                shown = not shown
-            elseif key == "f11" then
+            if key ~= "f9" then
+                return
+            end
+            if input.key_down("left_shift") or input.key_down("right_shift") then
                 core.send_global_event("WingmenRegroup", {})
+            else
+                shown = not shown
+            end
+        end,
+        on_console_command = function(text)
+            if text == "regroup" then
+                core.send_global_event("WingmenRegroup", {})
+                print("the wingmen regroup")
             end
         end,
         on_frame = function()

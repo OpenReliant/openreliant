@@ -52,7 +52,8 @@ writes to the log, prefixed with the mod's name.
 ### Loading a mod's scripts
 
 The first time a mod is opened (`Runtime.open`), every `.luau` file in it is compiled, and the
-bytecode is kept for the rest of the state's life (`Code`). If a script fails to compile, the error
+bytecode is kept for the rest of the state's life (`Code`), or until the scripts are reloaded
+(`Runtime.recompileFolders`, [Reloading](#reloading)). If a script fails to compile, the error
 is logged then, and again if a script requires it. Each opening of the mod is a context
 (`Context`): one for its global scripts, one for each mission it has scripts for, and one for each
 object its object scripts run on. A context loads its own copy of a script as it requires it, with
@@ -426,6 +427,58 @@ same `bigfile.Hog` as the game's resources, a mod's file first (`runtime.Shared.
 `vfs.read_mod` reads the calling mod's own file (`Mod.readFile`). Scripts can't write files. Not
 ported: reading the game's loose files
 ([#592](https://github.com/OpenReliant/openreliant/issues/592)).
+
+## The console
+
+[`console.zig`](../../src/scripting/console.zig) holds the console: its output, the line typed and
+the lines typed before, and what a line runs as. The driver ([`openreliant/console.zig`](../../src/openreliant/console.zig))
+creates it where a mod has a `.luau` file, brings it up and takes it away with F11, and draws it
+last over the frame.
+
+- **The output** keeps the latest 512 lines, of at most 256 bytes each, and is locked while it
+  changes, since the log writes to it from any thread. The driver's log function
+  (`std_options.logFn`) writes each message of the `scripts` scope to it as well as to the
+  terminal: errors red, warnings gold, the rest blue.
+- **A line** runs as one of the console's commands (`console.Command`), or, in Luau mode, as Luau in
+  the context of a mod's global, player or menu scripts (`console.Mode`), looked up again for each
+  line, since contexts close and open as games start and scripts reload. `Runtime.evaluate` compiles
+  the line as `return` and the line, and failing that as the line, and runs it on the context's
+  thread within the time limit, with a thread of its own for globals (`Context.console`), which the
+  context keeps for the next line. Each value it returns is shown as `tostring` gives it, in
+  protected mode. Any other line goes to `on_console_command` where a player or menu script has it.
+- **`help`** writes from the same declarations as the reference (`reference.writeHelp`): a package's
+  fields and functions, an engine handler, or a hook as `openreliant hooks` lists it.
+- **While it's up** in flight, the mission is paused as the pause menu pauses it, and the console
+  stands in the pause menu's place; in the front end, the screen's pass is left out. Its pass
+  (`console/screen.zig`) takes the characters typed and the keys, and the player and menu scripts
+  hear no key pressed meanwhile, nor F11. Not yet: the console in the Reliant's rooms and the
+  briefing, which have loops of their own
+  ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
+
+The screen is laid out on the front end's screen as the settings screen is
+([`console/screen.zig`](../../src/scripting/console/screen.zig)): its title on the row of the
+settings screen's tabs, the output in a frame from x 45, 520 wide, with the controls list's arrows
+right of its top, the line typed in a frame below it with the saved games' blinking cursor, and
+RUN, CLOSE, CLEAR and RELOAD in the places of the settings screen's buttons, with their shapes. The
+text is in the front end's small font, the title in its large font, and everything stands over
+what's behind it darkened.
+
+### Reloading
+
+The scripts reload as the console asks, and as a folder mod's script is saved: the driver looks at
+when each folder mod's scripts last changed once a second (`console.Watch`). `GameScripts.reload`
+in the driver:
+
+1. takes the scripts' state where a game runs, as a save takes it (`snapshot.take`);
+2. reads the folder mods' scripts again in the presentation state and starts the menu scripts again
+   (`Presentation.reload`);
+3. starts the game's scripts and the player scripts again from that state, in a new game state,
+   which reads the scripts again as it opens each mod (`GameScripts.startFrom`);
+4. partway through a mission, starts its mission scripts and the scripts of each object in it
+   (`Game.resumeMission`), as the mission's start would, without `on_mission_start` or
+   `on_object_added`.
+
+Load scripts and the manifests are read only as OpenReliant starts.
 
 ## Object handles
 

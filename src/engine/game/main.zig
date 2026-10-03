@@ -1752,7 +1752,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
 ///
 /// Not ported: `mission_start` seeds the game's own numbers with the time (`0x004936AE`)
 /// ([#582](https://github.com/OpenReliant/openreliant/issues/582)).
-fn scriptSeed(random: *const libcmt.Rand, number: u16) u64 {
+pub fn scriptSeed(random: *const libcmt.Rand, number: u16) u64 {
     return @as(u64, random.seed) << 16 | number;
 }
 

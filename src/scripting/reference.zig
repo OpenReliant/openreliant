@@ -49,9 +49,7 @@ const roots: []const type = list: {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceTypes(Namespace);
     }
     for (std.enums.values(script.Handler)) |handler| {
-        if (handler.Arguments()) |Arguments| {
-            for (@typeInfo(Arguments).@"struct".fields) |field| found = found ++ .{field.type};
-        }
+        for (@typeInfo(handler.Arguments()).@"struct".fields) |field| found = found ++ .{field.type};
     }
     for (std.enums.values(Hook)) |hook| {
         const declared = engine_hooks.declaration(hook);
@@ -189,9 +187,8 @@ const running_families: []const script.Family = list: {
     break :list found;
 };
 
-/// Whether the engine calls `handler` in this version, for a family it runs.
+/// Whether the engine calls `handler` for a family it runs.
 fn called(comptime handler: script.Handler) bool {
-    if (handler.Arguments() == null) return false;
     for (running_families) |family| {
         if (handler.givenBy(family)) return true;
     }
@@ -202,7 +199,7 @@ fn called(comptime handler: script.Handler) bool {
 fn handlerParameters(comptime handler: script.Handler) []const u8 {
     comptime {
         var text: []const u8 = "";
-        for (@typeInfo(handler.Arguments().?).@"struct".fields, 0..) |field, at| {
+        for (@typeInfo(handler.Arguments()).@"struct".fields, 0..) |field, at| {
             text = text ++ (if (at == 0) "" else ", ") ++ field.name ++ ": " ++ luauType(field.type);
         }
         return text;
@@ -627,11 +624,7 @@ fn writeFamilies(w: *Writer, comptime handler: script.Handler) Writer.Error!void
 /// Writes the section of `package` on the reference page.
 fn writePackageSection(w: *Writer, comptime package: script.Package) Writer.Error!void {
     try w.print("\n### `{s}{t}`\n\n{s} For ", .{ script.Package.prefix, package, package.about() });
-    try writeFamilyNames(w, comptime familiesWhere(struct {
-        fn reaches(family: script.Family) bool {
-            return package.reachableFrom(family);
-        }
-    }.reaches));
+    try writePackageFamilies(w, package);
     try w.writeAll(" scripts.\n");
     const declared = comptime packages.namespace(package);
     if (declared == null) return;
@@ -645,6 +638,15 @@ fn writePackageSection(w: *Writer, comptime package: script.Package) Writer.Erro
         const function = @field(Namespace, name);
         try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(function, 0)), comptime markdownResult(function), function.description });
     }
+}
+
+/// Writes the families of scripts that can require `package`.
+fn writePackageFamilies(w: *Writer, comptime package: script.Package) Writer.Error!void {
+    try writeFamilyNames(w, comptime familiesWhere(struct {
+        fn reaches(family: script.Family) bool {
+            return package.reachableFrom(family);
+        }
+    }.reaches));
 }
 
 /// Writes the section of `hook` on the reference page.
@@ -713,6 +715,48 @@ pub fn writeList(w: *Writer, only: ?[]const u8) Writer.Error!bool {
     return found;
 }
 
+/// Writes what the console's `help` says of `name`: a package, with or without `openreliant.`
+/// before it, an engine handler or a hook. Returns false if nothing has that name.
+pub fn writeHelp(w: *Writer, name: []const u8) Writer.Error!bool {
+    @setEvalBranchQuota(1_000_000);
+    const package_name = if (std.mem.startsWith(u8, name, script.Package.prefix)) name[script.Package.prefix.len..] else name;
+    inline for (comptime std.enums.values(script.Package)) |package| {
+        if (std.mem.eql(u8, package_name, @tagName(package))) {
+            try writePackageHelp(w, package);
+            return true;
+        }
+    }
+    inline for (comptime std.enums.values(script.Handler)) |handler| {
+        if (comptime called(handler)) if (std.mem.eql(u8, name, @tagName(handler))) {
+            try w.print("{t}({s}) -> {s}\n    {s}\n    For ", .{ handler, comptime handlerParameters(handler), comptime luauType(handler.Result()), handler.about() });
+            try writeFamilies(w, handler);
+            try w.writeAll(" scripts.\n");
+            return true;
+        };
+    }
+    return writeList(w, name);
+}
+
+/// Writes what `help` says of `package`: what it holds, who can require it, and its fields and
+/// functions.
+fn writePackageHelp(w: *Writer, comptime package: script.Package) Writer.Error!void {
+    try w.print("{s}{t}\n    {s}\n    For ", .{ script.Package.prefix, package, package.about() });
+    try writePackageFamilies(w, package);
+    try w.writeAll(" scripts.\n");
+    if (!package.ready()) return w.writeAll("    Not available in this version of OpenReliant.\n");
+    const declared = comptime packages.namespace(package);
+    if (declared == null) return;
+    const Namespace = declared.?;
+    inline for (comptime api.declared(Namespace, .field)) |field_name| {
+        const field = @field(Namespace, field_name);
+        try w.print("{s}: {s}\n    {s}\n", .{ field_name, comptime luauType(field.Type), field.description });
+    }
+    inline for (comptime api.declared(Namespace, .function)) |function_name| {
+        const function = @field(Namespace, function_name);
+        try w.print("{s}({s}) -> {s}\n    {s}\n", .{ function_name, comptime parameterList(function, 0), comptime resultType(function), function.description });
+    }
+}
+
 /// The most names of an enum's values that `openreliant hooks` lists after a field's type.
 const listed_names = 12;
 
@@ -729,6 +773,20 @@ fn writeChoices(w: *Writer, comptime T: type) Writer.Error!void {
     inline for (names, 0..) |name, at| try w.print("{s}\"{s}\"", .{ if (at == 0) "" else ", ", name });
     if (comptime values.takesNumbers(Plain)) try w.writeAll(", or a number");
     try w.writeAll(")");
+}
+
+test writeHelp {
+    var buffer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer buffer.deinit();
+    try std.testing.expect(try writeHelp(&buffer.writer, "openreliant.storage"));
+    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "game_section(name: string) -> Section") != null);
+    buffer.clearRetainingCapacity();
+    try std.testing.expect(try writeHelp(&buffer.writer, "on_update"));
+    try std.testing.expect(std.mem.startsWith(u8, buffer.written(), "on_update(seconds: number) -> ()"));
+    buffer.clearRetainingCapacity();
+    try std.testing.expect(try writeHelp(&buffer.writer, "object_damage"));
+    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "e.object") != null);
+    try std.testing.expect(!try writeHelp(&buffer.writer, "no_such_thing"));
 }
 
 test "the definitions don't change unless the scripting API does" {

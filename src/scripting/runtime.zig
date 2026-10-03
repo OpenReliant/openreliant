@@ -217,12 +217,30 @@ pub const Runtime = struct {
     fn compiled(runtime: *Runtime, mod: u16) Allocator.Error!*const Code {
         const entry = try runtime.code.getOrPut(runtime.gpa, mod);
         if (entry.found_existing) return entry.value_ptr;
-        entry.value_ptr.* = .{};
-        errdefer {
-            entry.value_ptr.deinit(runtime.gpa);
+        entry.value_ptr.* = runtime.compile(mod) catch |err| {
             runtime.code.removeByPtr(entry.key_ptr);
+            return err;
+        };
+        return entry.value_ptr;
+    }
+
+    /// Reads and compiles the scripts of the folder mods compiled so far again, as they're
+    /// reloaded: the scripts that start from then on, and the modules `require` runs, take the
+    /// new code. A mod's archive doesn't change while OpenReliant runs.
+    pub fn recompileFolders(runtime: *Runtime) Allocator.Error!void {
+        var entries = runtime.code.iterator();
+        while (entries.next()) |entry| {
+            if (runtime.mods[entry.key_ptr.*].source != .folder) continue;
+            const code = try runtime.compile(entry.key_ptr.*);
+            entry.value_ptr.deinit(runtime.gpa);
+            entry.value_ptr.* = code;
         }
-        const code = entry.value_ptr;
+    }
+
+    /// Reads and compiles the scripts of `mod`.
+    fn compile(runtime: *Runtime, mod: u16) Allocator.Error!Code {
+        var code: Code = .{};
+        errdefer code.deinit(runtime.gpa);
         const opened = &runtime.mods[mod];
         var names = opened.scripts();
         while (names.next()) |name| {
@@ -270,6 +288,8 @@ pub const Runtime = struct {
         state.unref(context.thread_ref);
         if (context.callbacks) |callbacks| state.unref(callbacks);
         context.callbacks = null;
+        if (context.console) |console| state.unref(console);
+        context.console = null;
     }
 
     /// Makes a value in protected mode, with `build` and its `arguments` pushing it, and returns a
@@ -364,6 +384,55 @@ pub const Runtime = struct {
             return null;
         }
         return request.kept;
+    }
+
+    /// Runs `source`, a line of Luau typed into the console, as the context's mod: as an expression,
+    /// whose values are written to `w` separated by tabs, or else as statements. Its global
+    /// variables are kept for the next line, apart from the scripts' (`Context.console`). Returns
+    /// false where it doesn't compile or fails, which is logged as the scripts' errors are.
+    pub fn evaluate(runtime: *Runtime, context: *Context, source: []const u8, w: *Io.Writer) Allocator.Error!bool {
+        if (context.closed) return false;
+        const expression = try std.mem.concat(runtime.gpa, u8, &.{ "return ", source });
+        defer runtime.gpa.free(expression);
+        const as_expression = luau.compile(expression) orelse return error.OutOfMemory;
+        defer as_expression.free();
+        const as_statements = luau.compile(source) orelse return error.OutOfMemory;
+        defer as_statements.free();
+
+        const thread = context.thread;
+        if (!thread.checkStack(console_stack)) return error.OutOfMemory;
+        var request: EvaluateRequest = .{ .context = context, .tried = .{ as_expression.bytes, as_statements.bytes } };
+        if (thread.protectedCallC(luau.wrap(loadConsoleLine), &request) != .ok) {
+            runtime.recover(context, thread);
+            return false;
+        }
+        const base = thread.top();
+        defer thread.setTop(base);
+        _ = thread.pushRef(request.function.?);
+        runtime.release(request.function.?);
+        const outer = runtime.begin(context);
+        defer runtime.end(outer);
+        if (thread.protectedCall(0, luau.all_results) != .ok) {
+            runtime.recover(context, thread);
+            return false;
+        }
+        // Each value is written as `tostring` gives it, called in protected mode, since a
+        // metatable's `__tostring` can fail.
+        const results = thread.top();
+        var at = base + 1;
+        while (at <= results) : (at += 1) {
+            if (!thread.checkStack(console_stack)) return error.OutOfMemory;
+            if (at > base + 1) w.writeByte('\t') catch {};
+            _ = thread.getGlobal("tostring");
+            thread.pushCopy(at);
+            if (thread.protectedCall(1, 1) != .ok) {
+                runtime.recover(context, thread);
+                return false;
+            }
+            w.writeAll(thread.toString(-1) orelse "") catch {};
+            thread.pop(1);
+        }
+        return true;
     }
 
     /// `call`, for the function at `key` of the referenced table, such as an event's handler.
@@ -551,6 +620,9 @@ pub const Context = struct {
     /// The functions its scripts registered for timers, by name (`async.zig`); null until the
     /// first.
     callbacks: ?luau.Ref = null,
+    /// The thread whose globals keep the variables of the Luau typed into the console in this
+    /// context (`Runtime.evaluate`); null until the first line.
+    console: ?luau.Ref = null,
     /// Whether it has been closed (`Runtime.close`).
     closed: bool = false,
 
@@ -658,6 +730,46 @@ pub const Context = struct {
         thread.pop(1);
     }
 };
+
+/// How much stack running a line of the console takes, beyond its results.
+const console_stack = 4;
+
+/// The name a line of the console's tracebacks give it.
+const console_chunk = "=console";
+
+/// The arguments of `loadConsoleLine`.
+const EvaluateRequest = struct {
+    context: *Context,
+    /// The line compiled as an expression, then as statements.
+    tried: [2][]const u8,
+    function: ?luau.Ref = null,
+};
+
+/// Loads a line of the console as a function of the console's thread in its context, which it
+/// makes the first time, the first of `tried` that loads. Raises the error of the last where none
+/// does. Runs in protected mode (`Runtime.evaluate`).
+fn loadConsoleLine(state: *State) i32 {
+    const request = state.toLightUserdata(EvaluateRequest, 1).?;
+    const context = request.context;
+    if (context.console == null) {
+        _ = state.newSandboxedThread();
+        context.console = state.ref(-1);
+        state.pop(1);
+    }
+    _ = state.pushRef(context.console.?);
+    const console = state.toThread(-1).?;
+    for (request.tried, 0..) |bytecode, at| {
+        if (console.load(console_chunk, bytecode) == .ok) break;
+        if (at + 1 == request.tried.len) {
+            console.move(state, 1);
+            state.raiseTop();
+        }
+        console.pop(1);
+    }
+    console.move(state, 1);
+    request.function = state.ref(-1);
+    return 0;
+}
 
 /// The arguments of `keepValue`.
 const KeepRequest = struct {
@@ -848,4 +960,32 @@ test moduleName {
     try std.testing.expectEqualStrings("util", moduleName(&buffer, "util").?);
     try std.testing.expectEqualStrings("a.lua", moduleName(&buffer, "a.lua").?);
     try std.testing.expectEqual(null, moduleName(&buffer, "a name past sixteen bytes"));
+}
+
+test "Runtime.recompileFolders" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const load = @import("load.zig");
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try load.testing.makeMods(io, tmp.dir, &.{.{ "a", &.{ .{ "mod.ini", "" }, .{ "value.luau", "return 1" } } }});
+    var opened: mods.Mods = try .open(gpa, io, tmp.dir, null);
+    defer opened.close(gpa);
+    const scripts = try Runtime.create(gpa, io, opened.list, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    defer scripts.destroy();
+    const before = try scripts.open(0, .global, null);
+    const first = scripts.run(before, "value").?;
+    defer scripts.release(first);
+    _ = scripts.state.pushRef(first);
+    try std.testing.expectEqual(1, scripts.state.toNumber(-1).?);
+    scripts.state.pop(1);
+    // The file saved again, the scripts that start from then on take the new code.
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/value.luau", .data = "return 2" });
+    try scripts.recompileFolders();
+    const after = try scripts.open(0, .global, null);
+    const second = scripts.run(after, "value").?;
+    defer scripts.release(second);
+    _ = scripts.state.pushRef(second);
+    try std.testing.expectEqual(2, scripts.state.toNumber(-1).?);
+    scripts.state.pop(1);
 }

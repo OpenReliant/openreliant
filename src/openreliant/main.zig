@@ -45,6 +45,7 @@ const drawn = presenting.drawn;
 const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
 const test_keys = @import("test_keys.zig");
+const ScriptConsole = @import("console.zig").Driver;
 const version = @import("version");
 const options_page = @import("options.zig");
 const Options = options_page.Options;
@@ -57,6 +58,15 @@ fn say(io: Io, text: []const u8) !u8 {
     try stdout.interface.writeAll(text);
     try stdout.interface.flush();
     return 0;
+}
+
+pub const std_options: std.Options = .{ .logFn = logLine };
+
+/// Writes each message of the log as the standard library does, and the scripts' messages to the
+/// scripting console too (`scripting.console.log`).
+fn logLine(comptime level: std.log.Level, comptime scope: @EnumLiteral(), comptime format: []const u8, args: anytype) void {
+    std.log.defaultLog(level, scope, format, args);
+    if (scope == .scripts) scripting.console.log(level, format, args);
 }
 
 pub fn main(init: std.process.Init) !u8 {
@@ -543,6 +553,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // menu: ramped, as the menus' fonts are, so that its text takes the colour a script gives.
     var script_font: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(arena, resources, game.hud.Resources.font_name, &outlines) else null;
     defer game_scripts.deinit();
+    // The scripting console, where a mod has scripts, which F11 brings up over the front end or
+    // the mission.
+    var console = ScriptConsole.init(gpa, mods.list);
+    defer if (console) |*shown| shown.deinit();
+    display.console = if (console) |*shown| shown else null;
     // The mission `--mission` names, read once from the game's files, or for mission 0, where the
     // game has none, from the copy `openreliant` carries, and started; it starts again as each
     // attempt ends. Without it, the front end picks the mission.
@@ -601,6 +616,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var presented_at = platform.window.nanoseconds();
     // When the mods' storage was last written (`storage_interval`).
     var storage_written_at = presented_at;
+    // The file's name of the mission the scripts reload in.
+    var reload_file: [game.winmain.mission_path_size]u8 = undefined;
     // What the front end's screens run and are entered with, its window and the time since its
     // last pass given each pass.
     var front_context: engine.genilib.interf.Context = .{
@@ -673,7 +690,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             .quit => return,
             .key => |key| if (options.screenshot == null) {
                 devices.keyboard.down[@intFromEnum(key.scan)] = key.down;
-                if (presentation) |shown| shown.key(key.scan, key.down);
+                // The player and menu scripts don't hear the keys pressed while the console is
+                // up, nor the key that brings it up.
+                const consoled = if (console) |*shown| shown.isUp() or key.scan == scripting.console.key else false;
+                if (presentation) |shown| if (!key.down or !consoled) shown.key(key.scan, key.down);
             },
             .typed => |character| if (options.screenshot == null) typed.push(game.language.fromUnicode(character)),
             .controllers => if (options.screenshot == null) connectController(arena, &devices, &controller, settings_file.profile),
@@ -700,6 +720,28 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         try game.winmain.followActivation(&app, pausing, play.loaded != null);
         if (output) |open| open.update();
         const size = try presenter.size();
+        // The scripting console, which takes the keys while it's up; the scripts reload as it
+        // asks, and as a folder mod's script is saved.
+        if (console) |*shown| {
+            devices.keyboard.read();
+            const mission = !flow.in_front_end and play.loaded != null;
+            var reloading = shown.watch.changed(io, mods.list, platform.window.nanoseconds());
+            if (shown.isUp()) {
+                if (shown.frame(&devices, &typed, size)) |action| switch (action) {
+                    .close => try shown.takeAway(pausing),
+                    .reload => reloading = true,
+                    .run => if (try shown.console.run(.{ .game = game_scripts.running, .presentation = presentation })) |request| switch (request) {
+                        .reload => reloading = true,
+                    },
+                };
+            } else if (ScriptConsole.asked(&devices.keyboard)) try shown.bringUp(pausing, mission, &typed);
+            if (reloading) try game_scripts.reload(if (mission) .{
+                .orders = .{ .world = world, .devices = &devices },
+                .mission = game.main.scriptMission(&reload_file, objects, play.number),
+                .seed = game.main.scriptSeed(world.random, play.number),
+            } else null);
+        }
+        const console_up = if (console) |*shown| shown.isUp() else false;
 
         world.view = view.view;
         world.cockpit = if (cockpit.shown) |*shown| &shown.model else null;
@@ -749,7 +791,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             sound.updateMusic();
             front_context.window = size;
             front_context.elapsed = elapsed;
-            if (front.frame(front_context)) |outcome| {
+            // While the console is up, it takes the pass.
+            const front_outcome = if (console_up) null else front.frame(front_context);
+            if (front_outcome) |outcome| {
                 const through = &rooms.?;
                 switch (outcome) {
                     .fly, .campaign, .loaded => try game_scripts.start(),
@@ -842,7 +886,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             _ = try movies.play(name, .over_screen) orelse return;
         }
         // The window takes text while the front end has a line to type into.
-        window.takeText(flow.in_front_end and front.takesText());
+        window.takeText(console_up or (flow.in_front_end and front.takesText()));
         const orders: game.aigeneric.Context = .{ .world = world, .devices = &devices };
         const slot = &objects.slots[objects.player];
         if (!flow.in_front_end) {
@@ -939,7 +983,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             // The screen a transition's movie or a mission's end has just led to entered before
             // its first frame is drawn, as each of the game's screens enters before its loop.
             front.enterShown(front_context);
-            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation };
+            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation, .console = if (console) |*up| up else null };
             scene.clear();
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
@@ -1205,6 +1249,27 @@ const GameScripts = struct {
         scripts.running = null;
         scripts.started = false;
     }
+
+    /// Reads the folder mods' scripts again and starts the scripts again from where they were, as
+    /// the console asks: the game's and the player scripts from their state as a save would keep
+    /// it, partway through `mission` where one runs, and the menu scripts afresh.
+    fn reload(scripts: *GameScripts, mission: ?Resume) Allocator.Error!void {
+        std.log.scoped(.scripts).info("reloading the scripts", .{});
+        const kept = if (scripts.started) try scripting.snapshot.take(scripts.gpa, scripts.running, scripts.presentation, scripts.shared.storage) else null;
+        defer if (kept) |bytes| scripts.gpa.free(bytes);
+        if (scripts.presentation) |shown| try shown.reload();
+        if (!scripts.started) return;
+        try scripts.startFrom(kept);
+        const going = mission orelse return;
+        if (scripts.running) |running| running.resumeMission(going.orders, going.mission, going.seed);
+    }
+
+    /// A mission that runs, as the scripts start again partway through it.
+    const Resume = struct {
+        orders: game.aigeneric.Context,
+        mission: engine.hooks.Mission,
+        seed: u64,
+    };
 
     /// Keeps their state as the campaign's restart point is taken.
     fn keepRestartPoint(scripts: *GameScripts) Allocator.Error!void {
@@ -1474,6 +1539,8 @@ const FrontEndDisplay = struct {
     settings: game.interface.settings.Shown,
     /// The player and menu scripts, which draw over the screen.
     presentation: ?*scripting.Presentation,
+    /// The scripting console, drawn over the screen while it's up.
+    console: ?*ScriptConsole,
 
     fn overlay(shown: *FrontEndDisplay) srcore.Overlay {
         return .{ .context = shown, .draw = draw };
@@ -1483,6 +1550,7 @@ const FrontEndDisplay = struct {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
         try drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string));
         if (shown.presentation) |scripts| try scripts.draw(.ui, shown.target, null);
+        if (shown.console) |console| try console.draw(shown.target, shown.window, shown.strings);
     }
 };
 
@@ -1698,6 +1766,8 @@ const Display = struct {
     settings: game.hudoptions.Settings,
     /// The player and menu scripts, which draw over the display and the pause menu.
     presentation: ?*scripting.Presentation = null,
+    /// The scripting console, which stands in the pause menu's place while it's up.
+    console: ?*ScriptConsole = null,
 
     fn overlay(display: *Display) srcore.Overlay {
         return .{ .context = display, .draw = draw };
@@ -1712,6 +1782,7 @@ const Display = struct {
     /// (`pause_menu_draw`), and the display otherwise (`hud_draw`), each with what the player and
     /// menu scripts draw over it.
     fn drawOverlay(display: *Display) !void {
+        if (display.console) |console| if (console.isUp()) return console.draw(display.device, display.screen, display.strings);
         if (display.pause_menu.isOpen()) {
             try display.drawPauseMenu();
             if (display.presentation) |scripts| try scripts.draw(.ui, display.device, null);

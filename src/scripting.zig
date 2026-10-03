@@ -3,7 +3,8 @@
 //! records at startup ([#555](https://github.com/OpenReliant/openreliant/issues/555)), global
 //! scripts, which run as the game plays and hook its functions and events
 //! ([#556](https://github.com/OpenReliant/openreliant/issues/556)), and object scripts, which run
-//! on the objects of a mission, with events and interfaces between scripts
+//! on the objects of a mission, with events and interfaces between scripts, and player and menu
+//! scripts, which draw over the display and the menus, with a console for modders
 //! ([#557](https://github.com/OpenReliant/openreliant/issues/557)). The
 //! [scripting guide](../docs/guide/scripting.md) explains how to write them, and
 //! [docs/port/scripting.md](../docs/port/scripting.md) how they run.
@@ -45,6 +46,7 @@ pub const audio = @import("scripting/audio.zig");
 pub const load = @import("scripting/load.zig");
 pub const game = @import("scripting/game.zig");
 pub const reference = @import("scripting/reference.zig");
+pub const console = @import("scripting/console.zig");
 
 pub const Records = records.Records;
 pub const Game = game.Game;

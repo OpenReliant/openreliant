@@ -150,11 +150,6 @@ pub const Runner = struct {
             return err;
         };
         const at = list.items.len - 1;
-        inline for (comptime std.enums.values(script.Handler)) |handler| {
-            if (comptime script.Handler.Arguments(handler) == null) {
-                if (offered.handlers.get(handler) != null) log.warn("{s}: {s}: this version of OpenReliant doesn't call {t} yet", .{ mod.name, name, handler });
-            }
-        }
         log.info("{s}: started {s}", .{ mod.name, name });
         if (offered.interface) |interface| {
             if (try runner.interfaces.offer(context, interface.name, interface.table)) |base| {
@@ -167,7 +162,7 @@ pub const Runner = struct {
     }
 
     /// Calls the engine handler `handler` of the script at `at` in `list` with `arguments`.
-    pub fn callOne(runner: *Runner, list: *List, at: usize, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler).?) void {
+    pub fn callOne(runner: *Runner, list: *List, at: usize, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler)) void {
         var made: Made = .{};
         defer made.release(runner.runtime);
         const passed = made.pass(runner.runtime, arguments) orelse return;
@@ -178,7 +173,7 @@ pub const Runner = struct {
 
     /// Calls `handler` of each running script of `list` with `arguments`, in order. Scripts that
     /// start meanwhile are called too.
-    pub fn callEach(runner: *Runner, list: *List, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler).?) void {
+    pub fn callEach(runner: *Runner, list: *List, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler)) void {
         if (list.items.len == 0) return;
         var made: Made = .{};
         defer made.release(runner.runtime);
@@ -189,8 +184,16 @@ pub const Runner = struct {
         while (at < list.items.len) : (at += 1) runner.callPassed(list, at, handler, passed);
     }
 
+    /// Whether a running script of any list has `handler`.
+    pub fn offers(runner: *const Runner, comptime handler: script.Handler) bool {
+        for (runner.lists) |list| for (list.items) |held| {
+            if (!held.stopped and held.offered.handlers.get(handler) != null) return true;
+        };
+        return false;
+    }
+
     /// `callEach`, for every list in order.
-    pub fn callAll(runner: *Runner, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler).?) void {
+    pub fn callAll(runner: *Runner, comptime handler: script.Handler, arguments: script.Handler.Arguments(handler)) void {
         runner.walking += 1;
         defer runner.leave();
         for (runner.lists) |*list| runner.callEach(list, handler, arguments);

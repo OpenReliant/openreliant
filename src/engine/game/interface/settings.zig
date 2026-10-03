@@ -72,7 +72,7 @@ pub const Tab = enum {
 
 /// The labels' row, and where the pointer finds a label: from a little above it, as high as the
 /// large font's letters.
-const title_y = 95;
+pub const title_y = 95;
 const tab_above = 4;
 const tab_height = 20;
 
@@ -334,11 +334,22 @@ pub const Button = enum {
     }
 
     fn shown(button: Button, from: From) canvas_module.Button {
+        return button.labelled(switch (button) {
+            .ok => .{ .string = 0x316 },
+            .leave => .{ .string = if (from == .pause_menu) continue_string else main_menu_string },
+            .reset_defaults => .{ .string = 0x183 },
+            .cancel_changes => .{ .string = 0x5A9 },
+        });
+    }
+
+    /// The button in its place with `text` as its label: the left column's labels end left of
+    /// their shapes, and the right column's start right of them.
+    pub fn labelled(button: Button, text: Label.Text) canvas_module.Button {
         return switch (button) {
-            .ok => .{ .at = .{ 299, 422 }, .label = .of(0x316, .{ 292, 421 }, .right) },
-            .leave => .{ .at = .{ 299, 443 }, .label = .of(if (from == .pause_menu) continue_string else main_menu_string, .{ 292, 442 }, .right) },
-            .reset_defaults => .{ .at = .{ 329, 422 }, .label = .of(0x183, .{ 357, 421 }, .left) },
-            .cancel_changes => .{ .at = .{ 329, 443 }, .label = .of(0x5A9, .{ 357, 442 }, .left) },
+            .ok => .{ .at = .{ 299, 422 }, .label = .{ .text = text, .at = .{ 292, 421 }, .alignment = .right } },
+            .leave => .{ .at = .{ 299, 443 }, .label = .{ .text = text, .at = .{ 292, 442 }, .alignment = .right } },
+            .reset_defaults => .{ .at = .{ 329, 422 }, .label = .{ .text = text, .at = .{ 357, 421 } } },
+            .cancel_changes => .{ .at = .{ 329, 443 }, .label = .{ .text = text, .at = .{ 357, 442 } } },
         };
     }
 };
@@ -347,7 +358,7 @@ const main_menu_string = 0xBB;
 const continue_string = 0x180;
 
 /// The buttons' shapes, and lit under the pointer (`0x0042D109`, `0x0042D709`).
-const button_shapes: canvas_module.Button.Pair = .{ .off = 0x28, .lit = 0x29 };
+pub const button_shapes: canvas_module.Button.Pair = .{ .off = 0x28, .lit = 0x29 };
 
 /// What Escape asks where a binding has changed (`0x0042C4BA`): Would you like to save your
 /// changes before leaving this screen?

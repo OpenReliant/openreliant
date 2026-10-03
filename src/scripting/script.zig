@@ -218,15 +218,14 @@ pub const Handler = enum {
             .on_key_press => "When a key is pressed. A key held down is told once.",
             .on_key_release => "When a key is released.",
             .on_action => "When the player uses the controls bound to an action, in flight.",
-            .on_console_command => "When a line is typed in the console.",
+            .on_console_command => "When a line typed in the console isn't one of its commands, with the line.",
             .on_viewport_resized => "When the window changes size, with its new size in pixels.",
             .on_interface_override => "When the script's interface takes the place of one an earlier script offered under the same name, with that one.",
         };
     }
 
-    /// What the engine passes it, as fields named after its parameters; null for a handler this
-    /// version doesn't call yet.
-    pub fn Arguments(comptime handler: Handler) ?type {
+    /// What the engine passes it, as fields named after its parameters.
+    pub fn Arguments(comptime handler: Handler) type {
         return switch (handler) {
             .on_init => struct { data: ?data.Data },
             .on_save => struct {},
@@ -241,7 +240,7 @@ pub const Handler = enum {
             .on_key_press, .on_key_release => struct { key: input.Key },
             .on_action => struct { action: input.controls.Action },
             .on_viewport_resized => struct { width: u32, height: u32 },
-            .on_console_command => null,
+            .on_console_command => struct { text: []const u8 },
         };
     }
 

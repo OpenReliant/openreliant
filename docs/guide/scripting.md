@@ -43,9 +43,10 @@ Start OpenReliant from a terminal and fly a mission (`--mission 0` flies the san
 log in the terminal shows `info(scripts): tough: started tough.luau`, and the player's ship takes
 half the damage.
 
-What a script prints with `print`, and its errors, go to the log after the mod's name. OpenReliant
-reads a folder mod's scripts again each time a game starts, so after changing one, go back to the
-main menu and start again. After changing `mod.ini` or adding a file, start OpenReliant again.
+What a script prints with `print`, and its errors, go to the log after the mod's name, and to the
+console, which F11 brings up ([The console](#the-console)). A folder mod's scripts reload as soon
+as one is saved, and carry on from where they were. After changing `mod.ini`, adding a file or
+changing a load script, start OpenReliant again.
 
 ## Kinds of scripts
 
@@ -500,6 +501,52 @@ async.after(30, "reinforce", { wave = 2 })
   it.
 - The game's loose files, such as the missions in the `missions` folder, can't be read yet
   ([#592](https://github.com/OpenReliant/openreliant/issues/592)).
+
+## The console
+
+F11 brings up the console, in the menus and in flight, where any mod has scripts. It pauses the
+mission, and F11, Escape or CLOSE takes it away again. It shows what the scripts print and their
+errors, and runs the lines typed into it:
+
+| Command | What it does |
+|---|---|
+| `help` | Lists the commands |
+| `help <name>` | What a package (`storage` or `openreliant.storage`), an engine handler (`on_update`) or a hook (`object_damage`) is |
+| `mods` | Lists the mods, and their scripts that run |
+| `reload` | Reads the folder mods' scripts again, and starts them again from where they were |
+| `clear` | Empties the console |
+| `global <mod>`, `player <mod>`, `menu <mod>` | Runs Luau in the context of the mod's global, player or menu scripts, until `exit` |
+
+```text
+> global wingmen
+wingmen global> player = require("openreliant.world").player
+wingmen global> player.hull, player.speed
+0.8    120
+wingmen global> require("openreliant.interfaces").Wingmen.pulled_out()
+2
+wingmen global> exit
+```
+
+- In Luau, a line runs as an expression where it is one, and its values are shown; otherwise it
+  runs as statements. Its variables are kept for the next line, apart from the scripts' own.
+  `require` gives the mod's modules as its scripts have them, and the packages its scripts can use.
+- Enter or RUN runs the line, Up and Down bring back the lines typed before, and Page Up, Page Down,
+  the mouse wheel and the arrows scroll the output.
+- Any other line goes to the player and menu scripts' `on_console_command(text)`, so that a mod
+  can add commands of its own.
+- The console isn't there yet in the Reliant's rooms and the briefing
+  ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
+
+### Reloading
+
+A folder mod's scripts reload as soon as one of them is saved, as `reload` reloads them:
+
+- Global and player scripts start again from their state, as a saved game would keep it
+  ([Saved games](#saved-games)): `on_save` runs, and the new scripts get `on_load`.
+- Partway through a mission, its mission scripts start again, and so do the scripts on each of its
+  objects, with `on_init` and then `on_added`, but no `on_mission_start` or `on_object_added`.
+- Menu scripts start again with `on_init`.
+- Load scripts and `mod.ini` are read only as OpenReliant starts, so they need a restart.
 
 ## Values
 
