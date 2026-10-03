@@ -270,6 +270,18 @@ end
   itself.
 - An order an object follows usually sets its throttle and steering each frame, so a change to
   those lasts until its order sets them again. To change what a ship does, give it an order.
+  `openreliant.orders` lists the orders an object has, says what each order is, and ends them.
+- `orientation` is where an object's axes point: to its right, down and forward, in the game's
+  frame, where Y points down. `openreliant.util` turns points between the world and an object's
+  own frame, and works with orientations and angles:
+
+  ```lua
+  local util = require("openreliant.util")
+  -- How far off the player's nose the target is, in degrees, and whether it's above.
+  local player, target = world.player, world.player.last_attacker
+  local off = math.deg(util.angle_off(player.position, player.orientation, target.position))
+  local above = util.to_local(player.position, player.orientation, target.position).y < 0
+  ```
 
 ## Object scripts
 

@@ -6,8 +6,9 @@
 //!   starts with an underscore, since those hold values whose meaning isn't known yet.
 //! - Byte arrays and slices of bytes are strings, and `@Vector(3, f32)` is a Luau vector.
 //! - An optional that holds nothing is nil.
-//! - An object (`engine.hooks.Object`) is a handle (`objects.zig`), and a list of objects
-//!   (`objects.List`) a table of handles.
+//! - An object (`engine.hooks.Object`) is a handle (`objects.zig`).
+//! - A list (`List`) is a table of its values in order, such as handles for a list of objects
+//!   (`objects.List`).
 //! - Plain data passed on (`data.Data`) is the copy made of it.
 //! - Any other struct is a read-only table of its fields.
 //!
@@ -30,10 +31,36 @@ pub const Table = struct {
     ref: luau.Ref,
 };
 
+/// A list of at most `capacity` values of `T`, which scripts get as a table of them in order.
+pub fn List(comptime T: type, comptime capacity: usize) type {
+    return struct {
+        items: [capacity]T = undefined,
+        len: usize = 0,
+
+        pub const Item = T;
+
+        const Self = @This();
+
+        pub fn append(list: *Self, item: T) void {
+            list.items[list.len] = item;
+            list.len += 1;
+        }
+
+        pub fn slice(list: *const Self) []const T {
+            return list.items[0..list.len];
+        }
+    };
+}
+
+/// Whether `T` is a `List`.
+pub fn isList(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and @hasDecl(T, "Item") and T == List(T.Item, @typeInfo(@FieldType(T, "items")).array.len);
+}
+
 /// Pushes `value`.
 pub fn push(state: *State, comptime T: type, value: T) void {
     if (T == Object) return objects.push(state, value.slot());
-    if (T == objects.List) return pushList(state, value);
+    if (comptime isList(T)) return pushList(state, T, value);
     if (T == data.Data or T == Table) {
         _ = state.pushRef(value.ref);
         return;
@@ -58,11 +85,11 @@ pub fn push(state: *State, comptime T: type, value: T) void {
     }
 }
 
-/// Pushes a table of the handles of `list`'s objects, in order.
-fn pushList(state: *State, list: objects.List) void {
+/// Pushes a table of `list`'s values, in order.
+fn pushList(state: *State, comptime T: type, list: T) void {
     state.newTable(@intCast(list.len), 0);
-    for (list.slots[0..list.len], 1..) |index, at| {
-        objects.push(state, index);
+    for (list.slice(), 1..) |item, at| {
+        push(state, T.Item, item);
         state.rawSetIndex(-2, @intCast(at));
     }
 }
@@ -162,26 +189,35 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
     }
 }
 
-/// The table at `given` as a `T`, whose fields scripts see all have defaults: each field the table
-/// names, and the rest at their defaults. A name `T` has no field of is an error, so a misspelt one
-/// is reported.
+/// The table at `given` as a `T`: each field the table names, and the rest at their defaults. A
+/// field without a default must be given, and a name `T` has no field of is an error, so a
+/// misspelt one is reported. The fields scripts don't see take their defaults.
 fn readTable(state: *State, comptime T: type, given: i32, comptime label: []const u8) T {
     if (state.typeOf(given) != .table) wrongType(state, label, "a table", given);
     const at = state.absolute(given);
-    var value: T = .{};
+    const fields = comptime shownFields(T);
+    var value: T = undefined;
+    inline for (@typeInfo(T).@"struct".fields) |field| {
+        if (field.defaultValue()) |default| @field(value, field.name) = default else if (comptime !shown(field.name)) @compileError(field.name ++ " is hidden from scripts, so it needs a default");
+    }
+    var named: std.StaticBitSet(fields.len) = .initEmpty();
     state.pushNil();
     while (state.next(at)) {
         // The key's type is checked first, as reading a number as a string would change it.
         const key = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse
             state.raise("{s}: a table of fields has names for keys, not {s}", .{ label, state.typeName(-2) });
-        const found = inline for (comptime shownFields(T)) |field| {
+        const found = inline for (fields, 0..) |field, place| {
             if (std.mem.eql(u8, key, field.name)) {
                 @field(value, field.name) = read(state, field.type, -1, label ++ "." ++ field.name);
+                named.set(place);
                 break true;
             }
         } else false;
         if (!found) state.raise("{s}: there's no field '{s}' ({s})", .{ label, key, comptime fieldNames(T) });
         state.pop(1);
+    }
+    inline for (fields, 0..) |field, place| {
+        if (field.default_value_ptr == null and !named.isSet(place)) state.raise("{s}: the field '{s}' is missing", .{ label, field.name });
     }
     return value;
 }

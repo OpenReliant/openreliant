@@ -312,7 +312,7 @@ pub const Package = enum {
             .world => "The mission's objects, the player's ship and the mission itself.",
             .self => "The script's own object, as a handle: an object script's object, or the player's ship for a player script, nil between games.",
             .nearby => "The objects around the script's own.",
-            .orders => "Giving orders, and new orders.",
+            .orders => "What the order table says of each order, the orders each object has, and ending them. An object's give_order gives orders.",
             .hud => "Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels.",
             .ui => "Drawing over the menus, the front end's screens and the pause menu, while they're shown: text, lines and rectangles, in the window's pixels.",
             .input => "Whether keys are held, and the controls bound to actions.",
@@ -323,7 +323,7 @@ pub const Package = enum {
             .storage => "Sections of plain data for each mod: kept with the saved game, or in the game folder across every game.",
             .async => "Timers, kept with the saved game: game time for global and object scripts, real time for player and menu scripts.",
             .interfaces => "The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers.",
-            .util => "Vectors, matrices, positions and angles.",
+            .util => "Orientations, turning points between the world and an object's own frame, and angles. Luau's vector library has the rest of the vector maths.",
             .vfs => "Reading the game's and the mods' files.",
             .debug => "Lines and text placed in the world, drawn over the flight display where the camera sees them, for debugging.",
         };
@@ -332,8 +332,8 @@ pub const Package = enum {
     /// Whether this version implements this package.
     pub fn ready(package: Package) bool {
         return switch (package) {
-            .core, .records, .hooks, .world, .self, .nearby, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .vfs => true,
-            .orders, .postprocessing, .shaders, .util => false,
+            .core, .records, .hooks, .world, .self, .nearby, .orders, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .util, .vfs => true,
+            .postprocessing, .shaders => false,
         };
     }
 };
@@ -398,7 +398,7 @@ test Package {
     try std.testing.expect(Package.records.ready());
     try std.testing.expect(Package.hooks.ready());
     try std.testing.expect(Package.world.ready());
-    try std.testing.expect(!Package.util.ready());
+    try std.testing.expect(!Package.shaders.ready());
 }
 
 test Offer {

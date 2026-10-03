@@ -37,7 +37,7 @@ fn allObjects(call: Call) handles.List {
     var list: handles.List = .{};
     var walk = held.objects.walk();
     while (walk.next()) |index| {
-        if (inMission(held.objects, index)) list.append(index);
+        if (inMission(held.objects, index)) list.append(.of(index));
     }
     return list;
 }

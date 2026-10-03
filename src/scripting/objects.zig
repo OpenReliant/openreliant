@@ -31,6 +31,7 @@ const data = @import("data.zig");
 const game = @import("game.zig");
 const world = @import("world.zig");
 const hooks = @import("hooks.zig");
+const util = @import("util.zig");
 
 /// An object as scripts hold it.
 pub const Handle = struct {
@@ -52,15 +53,7 @@ pub const Handle = struct {
 };
 
 /// Several objects, which scripts get as a table of handles, in order (`values.push`).
-pub const List = struct {
-    slots: [gameobj.max_objects]u16 = undefined,
-    len: usize = 0,
-
-    pub fn append(list: *List, index: u16) void {
-        list.slots[list.len] = index;
-        list.len += 1;
-    }
-};
+pub const List = values.List(Object, gameobj.max_objects);
 
 /// What scripts can read of an object, by name, and what they can change (`api.Field`). A field's
 /// `get` takes the objects and the object's slot; its `set`, the call that sets it as well.
@@ -93,6 +86,12 @@ pub const fields = struct {
     pub const position = api.Field(@Vector(3, f32), "Where it is.", struct {
         pub fn get(all: *const create.Objects, index: u16) @Vector(3, f32) {
             return gameobj.vector(all.slots[index].object.root.position);
+        }
+    });
+
+    pub const orientation = api.Field(util.Orientation, "Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`).", struct {
+        pub fn get(all: *const create.Objects, index: u16) util.Orientation {
+            return .of(all.slots[index].object.root.orientation);
         }
     });
 
@@ -199,11 +198,16 @@ fn isValid(call: Call, handle: Handle) bool {
 
 /// `object:give_order(order, target)`.
 fn giveOrder(call: Call, object: Object, given: orders.Order, target: ?Object) bool {
-    const index = object.slot();
-    if (!mayChange(call.context, index)) call.raise("give_order: {t} scripts can't give this object orders", .{call.context.family});
-    const ctx = call.runtime().orders orelse call.raise("give_order: orders can only be given while a mission runs", .{});
+    const ctx = ordersOf(call, object, "give_order");
     const aim: engine.game.aigeneric.Target = if (target) |aimed| .at(aimed.slot(), null) else .none;
-    return engine.game.aigeneric.give(ctx, index, given, aim);
+    return engine.game.aigeneric.give(ctx, object.slot(), given, aim);
+}
+
+/// What orders run against, where the calling script may change `object`'s orders
+/// (`mayChange`). Raises an error naming `label` otherwise.
+pub fn ordersOf(call: Call, object: Object, comptime label: []const u8) engine.game.aigeneric.Context {
+    if (!mayChange(call.context, object.slot())) call.raise(label ++ ": {t} scripts can't change this object's orders", .{call.context.family});
+    return call.runtime().orders orelse call.raise(label ++ ": orders can only change while a mission runs", .{});
 }
 
 /// Whether the script of `context` may change the object in slot `index`: a global script may

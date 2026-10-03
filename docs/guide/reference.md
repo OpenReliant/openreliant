@@ -87,6 +87,17 @@ The objects around the script's own. For object and player scripts.
 |---|---|---|
 | `objects(radius: number)` | list of [objects](#objects) | The objects within `radius` of the script's object, or of the player's ship for a player script, nearest first, without it. |
 
+### `openreliant.orders`
+
+What the order table says of each order, the orders each object has, and ending them. An object's give_order gives orders. For global and object scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `info(order: Order)` | [OrderInfo](#orderinfo), or nil | What the order table says of `order`: its developers' name, its priority and its flags. Nil for an order the table doesn't have. |
+| `stack(object: Object)` | list of [OrderEntry](#orderentry) | The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends. |
+| `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: it runs no more, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
+| `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
+
 ### `openreliant.hud`
 
 Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels. For player scripts.
@@ -165,6 +176,21 @@ Timers, kept with the saved game: game time for global and object scripts, real 
 
 The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers. For global, object, player and menu scripts.
 
+### `openreliant.util`
+
+Orientations, turning points between the world and an object's own frame, and angles. Luau's vector library has the rest of the vector maths. For load, global, object, player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `to_world(position: vector, orientation: Orientation, point: vector)` | vector | The point of the world that `point` is in the frame of something at `position` turned as `orientation`: `point`'s x to its right, y down and z forward of it. |
+| `to_local(position: vector, orientation: Orientation, point: vector)` | vector | Where the point of the world `point` is in the frame of something at `position` turned as `orientation`: x to its right, y down and z forward of it. |
+| `angle_off(position: vector, orientation: Orientation, point: vector)` | number | The angle in radians between the forward axis of something at `position` turned as `orientation` and the direction to `point`: 0 dead ahead, pi straight behind. |
+| `look_at(direction: vector)` | [Orientation](#orientation) | The orientation whose forward axis points along `direction`, turned about its Y axis, then its X axis, with no roll, as the game turns a ship to look at something. |
+| `turn(orientation: Orientation, axis: Axis, angle: number)` | [Orientation](#orientation) | `orientation` turned by `angle` radians about its own `axis`: right-handed, so about its Y axis, which points down, a positive angle turns its nose to the right. |
+| `angles(orientation: Orientation)` | vector | The angles in radians that `orientation` is turned by from looking along the world's Z axis, as the game reads them: x the pitch, y the yaw and z the roll. |
+| `from_angles(angles: vector)` | [Orientation](#orientation) | The orientation turned by `angles` in radians from looking along the world's Z axis, as `angles` gives them: about X, then Y, then Z. |
+| `normalize_angle(angle: number)` | number | `angle` in radians brought within half a turn either way, from -pi to pi. |
+
 ### `openreliant.vfs`
 
 Reading the game's and the mods' files. For load, global, object, player and menu scripts.
@@ -198,6 +224,7 @@ scripts on their object.
 | `class` | [ShipClass](#shipclass), or nil | Its class, such as `fighter`; nil for an object without stats, such as a nav point. |
 | `side` | [Side](#side) | The side it's on. |
 | `position` | vector | Where it is. |
+| `orientation` | [Orientation](#orientation) | Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). |
 | `velocity` | vector | How far it moves in a simulation step, of which there are 25 a second. |
 | `speed` | number | How fast it moves: the length of its velocity. |
 | `is_player` | boolean | Whether it's the player's ship. |
@@ -673,6 +700,14 @@ The mission's trigger number `trigger` has fired on an event of `condition`. It'
 
 Values given as tables of fields. Scripts can only read the ones OpenReliant gives them.
 
+### Orientation
+
+| Field | Type |
+|---|---|
+| `right` | vector |
+| `down` | vector |
+| `forward` | vector |
+
 ### Quadrants
 
 | Field | Type |
@@ -688,6 +723,32 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 |---|---|
 | `number` | number |
 | `file` | string |
+
+### OrderInfo
+
+| Field | Type |
+|---|---|
+| `name` | string |
+| `priority` | number |
+| `flags` | [OrderFlags](#orderflags) |
+
+### OrderFlags
+
+| Field | Type |
+|---|---|
+| `players` | boolean |
+| `one_shot` | boolean |
+| `retaliate` | boolean |
+| `avoidance` | boolean |
+| `send_flight` | boolean |
+
+### OrderEntry
+
+| Field | Type |
+|---|---|
+| `order` | [Order](#order) |
+| `target` | [object](#objects), or nil |
+| `component` | number, or nil |
 
 ### TextStyle
 
@@ -773,6 +834,10 @@ number. A script can set a field to either.
 ### BettyLine
 
 `missiles_gone`, `armor_failing`, `screamer`, `havoc`, `jack_hammer`, `vagabond`, `imp`, `bandit`, `raptor`, `hawk`, `solomon`, `countermeasures_low`, `countermeasures_gone`, `cloak_on`, `cloak_off`, `blind_fire_on`, `blind_fire_off`, `spectral_shields_on`, `spectral_shields_off`, or a number.
+
+### Axis
+
+`x`, `y`, `z`.
 
 ### Ending
 

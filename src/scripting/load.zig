@@ -227,7 +227,7 @@ test "load scripts can only require the packages available to them" {
                     \\    local ok, err = pcall(require, name)
                     \\    assert(not ok and string.find(err, message, 1, true), err)
                     \\end
-                    \\fails("openreliant.util", "is not available in this version")
+                    \\fails("openreliant.shaders", "is not available in this version")
                     \\fails("openreliant.hooks", "is not available to load scripts")
                     \\fails("openreliant.world", "is not available to load scripts")
                     \\fails("openreliant.nothing", "unknown package")

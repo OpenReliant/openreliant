@@ -17,6 +17,8 @@ const audio = @import("audio.zig");
 const storage = @import("storage.zig");
 const async_package = @import("async.zig");
 const vfs = @import("vfs.zig");
+const util = @import("util.zig");
+const orders = @import("orders.zig");
 
 /// The namespace that declares `package`; null for a package made otherwise, or not made yet.
 pub fn namespace(comptime package: script.Package) ?type {
@@ -33,7 +35,9 @@ pub fn namespace(comptime package: script.Package) ?type {
         .storage => storage.package,
         .async => async_package.package,
         .vfs => vfs.package,
-        .records, .hooks, .self, .interfaces, .orders, .postprocessing, .shaders, .util => null,
+        .util => util.package,
+        .orders => orders.package,
+        .records, .hooks, .self, .interfaces, .postprocessing, .shaders => null,
     };
 }
 

@@ -10,6 +10,7 @@ const api = @import("api.zig");
 const Call = api.Call;
 const handles = @import("objects.zig");
 const world = @import("world.zig");
+const Object = openreliant.engine.hooks.Object;
 
 /// What `openreliant.nearby` holds.
 pub const package = struct {
@@ -30,11 +31,11 @@ fn objectsWithin(call: Call, radius: f32) handles.List {
         const apart = math.distance(centre, gameobj.vector(all.slots[index].object.root.position));
         if (apart > radius) continue;
         distances[found.len] = apart;
-        found.append(index);
+        found.append(.of(index));
     }
     const Order = struct {
         distances: []f32,
-        slots: []u16,
+        objects: []Object,
 
         pub fn lessThan(order: @This(), a: usize, b: usize) bool {
             return order.distances[a] < order.distances[b];
@@ -42,9 +43,9 @@ fn objectsWithin(call: Call, radius: f32) handles.List {
 
         pub fn swap(order: @This(), a: usize, b: usize) void {
             std.mem.swap(f32, &order.distances[a], &order.distances[b]);
-            std.mem.swap(u16, &order.slots[a], &order.slots[b]);
+            std.mem.swap(Object, &order.objects[a], &order.objects[b]);
         }
     };
-    std.sort.insertionContext(0, found.len, Order{ .distances = &distances, .slots = &found.slots });
+    std.sort.insertionContext(0, found.len, Order{ .distances = &distances, .objects = &found.items });
     return found;
 }

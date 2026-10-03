@@ -54,6 +54,9 @@ pub const Record = extern struct {
     priority: i32,
 
     pub const Flags = packed struct(u32) {
+        /// The name mods' scripts know it by.
+        pub const script_name = "OrderFlags";
+
         /// It may be given to a player's ship. A player's ship refuses the other orders numbered
         /// below 100.
         players: bool = false,

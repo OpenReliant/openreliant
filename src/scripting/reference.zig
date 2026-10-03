@@ -28,7 +28,7 @@ const packages = @import("packages.zig");
 /// Whether `T` is a value that scripts hold as a handle or a reference, which has a type of its
 /// own in the definitions rather than fields to list.
 fn held(comptime T: type) bool {
-    return T == Object or T == objects.Handle or T == objects.List or T == data.Data or T == values.Table or T == []const u8;
+    return T == Object or T == objects.Handle or T == data.Data or T == values.Table or T == []const u8;
 }
 
 /// Whether `T` is one of the records' structs, which the definitions declare as classes.
@@ -57,6 +57,34 @@ const roots: []const type = list: {
         if (declared.Result != void) found = found ++ .{declared.Result};
     }
     break :list found ++ records.Values.kinds;
+};
+
+/// The types of what scripts pass the functions and methods declared, which `given` follows.
+const passed: []const type = list: {
+    @setEvalBranchQuota(1_000_000);
+    var found: []const type = namespaceParameters(objects.methods);
+    for (std.enums.values(script.Package)) |package| {
+        if (packages.namespace(package)) |Namespace| found = found ++ namespaceParameters(Namespace);
+    }
+    break :list found;
+};
+
+/// The types of the parameters of the functions `Namespace` declares; none for a native one.
+fn namespaceParameters(comptime Namespace: type) []const type {
+    var found: []const type = &.{};
+    for (api.declared(Namespace, .function)) |name| {
+        const F = @field(Namespace, name);
+        if (@hasDecl(F, "Parameters")) found = found ++ F.Parameters;
+    }
+    return found;
+}
+
+/// The tables scripts give, reached from what declared functions take.
+const given_tables: []const type = found: {
+    @setEvalBranchQuota(10_000_000);
+    var seen: Gathered = .{};
+    for (passed) |T| seen = gather(T, seen);
+    break :found seen.tables;
 };
 
 /// The types of the fields and functions `Namespace` declares.
@@ -90,6 +118,7 @@ const gathered: Gathered = found: {
 
 fn gather(comptime T: type, comptime seen: Gathered) Gathered {
     if (held(T) or T == void) return seen;
+    if (values.isList(T)) return gather(T.Item, seen);
     return switch (@typeInfo(T)) {
         .optional => |optional| gather(optional.child, seen),
         .array => |array| if (array.child == u8) seen else gather(array.child, seen),
@@ -109,7 +138,7 @@ fn gather(comptime T: type, comptime seen: Gathered) Gathered {
 fn luauType(comptime T: type) []const u8 {
     comptime {
         if (T == Object or T == objects.Handle) return "Object";
-        if (T == objects.List) return "{ Object }";
+        if (values.isList(T)) return "{ " ++ luauType(T.Item) ++ " }";
         if (T == data.Data) return "any";
         if (T == values.Table) return "{ [any]: any }";
         return switch (@typeInfo(T)) {
@@ -380,19 +409,23 @@ fn writeTable(w: *Writer, comptime name: []const u8, comptime T: type) Writer.Er
     try w.print("type {s} = {{\n", .{name});
     inline for (comptime values.shownFields(T)) |field| {
         // A field with a default can be left out of a table a script gives.
-        const optional = if (field.defaultValue() != null) "?" else "";
+        const optional = if (comptime given(T) and field.defaultValue() != null) "?" else "";
         try w.print("    {s}: {s}{s},\n", .{ field.name, comptime luauType(field.type), optional });
     }
     try w.writeAll("}\n");
 }
 
-/// Whether every field of `T` scripts see has a default: a table scripts give, such as a style,
-/// which may leave any out.
+/// Whether `T` is a table scripts give, such as a style, to a function that takes one.
 fn given(comptime T: type) bool {
-    for (values.shownFields(T)) |field| {
-        if (field.defaultValue() == null) return false;
-    }
-    return true;
+    return std.mem.indexOfScalar(type, given_tables, T) != null;
+}
+
+/// How many of the fields scripts see of `T` have a default, which a table scripts give may leave
+/// out.
+fn defaulted(comptime T: type) usize {
+    var count: usize = 0;
+    for (values.shownFields(T)) |field| count += @intFromBool(field.defaultValue() != null);
+    return count;
 }
 
 /// A field's default, as a script would write it.
@@ -554,9 +587,10 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         \\
     );
     inline for (gathered.tables) |T| {
-        if (comptime given(T)) {
-            try w.print("\n### {s}\n\nA table a script gives, which may leave out any field.\n\n| Field | Type | Default |\n|---|---|---|\n", .{comptime bind.noun(T)});
-            inline for (comptime values.shownFields(T)) |field| try w.print("| `{s}` | {s} | {s} |\n", .{ field.name, comptime markdownType(field.type), comptime defaultText(field) });
+        if (comptime given(T) and defaulted(T) > 0) {
+            const left_out = comptime if (defaulted(T) == values.shownFields(T).len) "any field" else "a field with a default";
+            try w.print("\n### {s}\n\nA table a script gives, which may leave out {s}.\n\n| Field | Type | Default |\n|---|---|---|\n", .{ comptime bind.noun(T), left_out });
+            inline for (comptime values.shownFields(T)) |field| try w.print("| `{s}` | {s} | {s} |\n", .{ field.name, comptime markdownType(field.type), comptime if (field.defaultValue() != null) defaultText(field) else "needed" });
         } else {
             try w.print("\n### {s}\n\n| Field | Type |\n|---|---|\n", .{comptime bind.noun(T)});
             inline for (comptime values.shownFields(T)) |field| try w.print("| `{s}` | {s} |\n", .{ field.name, comptime markdownType(field.type) });
@@ -669,7 +703,7 @@ fn markdownType(comptime T: type) []const u8 {
         };
         const optional = if (Plain == T) "" else ", or nil";
         if (Plain == Object or Plain == objects.Handle) return "[object](#objects)" ++ optional;
-        if (Plain == objects.List) return "list of [objects](#objects)" ++ optional;
+        if (values.isList(Plain)) return "list of " ++ (if (Plain.Item == Object) "[objects](#objects)" else markdownType(Plain.Item)) ++ optional;
         if (Plain == data.Data) return "plain data";
         if (std.mem.indexOfScalar(type, gathered.enums ++ gathered.tables, Plain) != null) {
             const name = bind.noun(Plain);

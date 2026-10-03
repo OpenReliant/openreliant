@@ -15,6 +15,7 @@ type Key = "escape" | "one" | "two" | "three" | "four" | "five" | "six" | "seven
 type Action = "cockpit_camera" | "left_view_camera" | "right_view_camera" | "rear_view_camera" | "flyby_camera" | "target_camera" | "external_camera" | "missile_camera" | "next_enemy_target" | "previous_enemy_target" | "next_friendly_target" | "previous_friendly_target" | "next_subtarget" | "previous_subtarget" | "target_under_reticule" | "target_nearest_enemy" | "target_nearest_friendly" | "target_torpedo" | "smart_target" | "primary_target" | "afterburners" | "afterburner_toggle" | "reverse_thrust" | "jump_drive" | "match_speed" | "accelerate" | "decelerate" | "zero_throttle" | "full_throttle" | "roll_ship_clockwise" | "roll_ship_anti_clockwise" | "nose_up" | "nose_down" | "rotate_clockwise" | "rotate_anti_clockwise" | "strafe_left" | "strafe_right" | "joystick_roll" | "fire_lasers" | "full_guns" | "gunnery_window" | "gunnery_window_locked" | "synchronise_guns" | "toggle_blindfire" | "launch_missile" | "missile_window" | "rotate_missiles_clockwise" | "rotate_missiles_anticlockwise" | "comms_window" | "powerball_window" | "powerball_window_locked" | "full_power_to_gunnery" | "full_power_to_engines" | "full_power_to_shields" | "equalize_power" | "objectives_window" | "wing_status_window" | "wing_status_window_locked" | "damage_window" | "damage_window_locked" | "radar_ranges" | "shield_balancing" | "countermeasures" | "eject" | "cloak_ship" | "ecm" | "spectral_shields" | "attack_my_target" | "back_off" | "help_me" | "permission_to_land" | "display_kills" | "send_comms_message" | "key_config"
 type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "chase_too" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | number
 type BettyLine = "missiles_gone" | "armor_failing" | "screamer" | "havoc" | "jack_hammer" | "vagabond" | "imp" | "bandit" | "raptor" | "hawk" | "solomon" | "countermeasures_low" | "countermeasures_gone" | "cloak_on" | "cloak_off" | "blind_fire_on" | "blind_fire_off" | "spectral_shields_on" | "spectral_shields_off" | number
+type Axis = "x" | "y" | "z"
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
@@ -26,6 +27,11 @@ type PilotSkill = "low" | "medium" | "high" | number
 
 -- Tables of values, which scripts can only read.
 
+type Orientation = {
+    right: vector,
+    down: vector,
+    forward: vector,
+}
 type Quadrants = {
     left: number,
     right: number,
@@ -35,6 +41,23 @@ type Quadrants = {
 type Mission = {
     number: number,
     file: string,
+}
+type OrderInfo = {
+    name: string,
+    priority: number,
+    flags: OrderFlags,
+}
+type OrderFlags = {
+    players: boolean,
+    one_shot: boolean,
+    retaliate: boolean,
+    avoidance: boolean,
+    send_flight: boolean,
+}
+type OrderEntry = {
+    order: Order,
+    target: Object?,
+    component: number?,
 }
 type TextStyle = {
     colour: vector?,
@@ -73,6 +96,8 @@ declare class Object
     side: Side
     -- Where it is.
     position: vector
+    -- Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`).
+    orientation: Orientation
     -- How far it moves in a simulation step, of which there are 25 a second.
     velocity: vector
     -- How fast it moves: the length of its velocity.
@@ -196,6 +221,18 @@ type Nearby = {
     objects: (radius: number) -> { Object },
 }
 
+-- What the order table says of each order, the orders each object has, and ending them. An object's give_order gives orders.
+type Orders = {
+    -- What the order table says of `order`: its developers' name, its priority and its flags. Nil for an order the table doesn't have.
+    info: (order: Order) -> OrderInfo?,
+    -- The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends.
+    stack: (object: Object) -> { OrderEntry },
+    -- Ends the order `object` follows, as an order ends itself: it runs no more, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's.
+    cancel: (object: Object) -> boolean,
+    -- Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's.
+    clear: (object: Object) -> boolean,
+}
+
 -- Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels.
 type Hud = {
     -- Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read.
@@ -272,6 +309,26 @@ type Async = {
     register_timer: (name: string, handler: (data: any) -> ()) -> (),
     -- Runs the function registered under `name` once `seconds` have passed, with `data`, which must be plain data: seconds of game time for global and object scripts, and of real time for player and menu scripts.
     after: (seconds: number, name: string, data: any?) -> (),
+}
+
+-- Orientations, turning points between the world and an object's own frame, and angles. Luau's vector library has the rest of the vector maths.
+type Util = {
+    -- The point of the world that `point` is in the frame of something at `position` turned as `orientation`: `point`'s x to its right, y down and z forward of it.
+    to_world: (position: vector, orientation: Orientation, point: vector) -> vector,
+    -- Where the point of the world `point` is in the frame of something at `position` turned as `orientation`: x to its right, y down and z forward of it.
+    to_local: (position: vector, orientation: Orientation, point: vector) -> vector,
+    -- The angle in radians between the forward axis of something at `position` turned as `orientation` and the direction to `point`: 0 dead ahead, pi straight behind.
+    angle_off: (position: vector, orientation: Orientation, point: vector) -> number,
+    -- The orientation whose forward axis points along `direction`, turned about its Y axis, then its X axis, with no roll, as the game turns a ship to look at something.
+    look_at: (direction: vector) -> Orientation,
+    -- `orientation` turned by `angle` radians about its own `axis`: right-handed, so about its Y axis, which points down, a positive angle turns its nose to the right.
+    turn: (orientation: Orientation, axis: Axis, angle: number) -> Orientation,
+    -- The angles in radians that `orientation` is turned by from looking along the world's Z axis, as the game reads them: x the pitch, y the yaw and z the roll.
+    angles: (orientation: Orientation) -> vector,
+    -- The orientation turned by `angles` in radians from looking along the world's Z axis, as `angles` gives them: about X, then Y, then Z.
+    from_angles: (angles: vector) -> Orientation,
+    -- `angle` in radians brought within half a turn either way, from -pi to pi.
+    normalize_angle: (angle: number) -> number,
 }
 
 -- Reading the game's and the mods' files.

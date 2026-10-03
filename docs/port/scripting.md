@@ -143,11 +143,10 @@ scripts written now keep working as later versions fill it in:
 - The script families, which decide what a script may do: load, global, object, player and menu.
 - The keys of the table a script returns: `engine_handlers`, `event_handlers`, `interface_name` and
   `interface`.
-- The engine handlers, which families may use each one, and what the engine passes each
-  (`Handler.Arguments`), null for a handler this version doesn't call yet. A script that gives one
-  of those is told so in the log.
+- The engine handlers, which families may use each one, what the engine passes each
+  (`Handler.Arguments`), and what it takes from what each returns (`Handler.Result`).
 - The packages, which families may require each one, and which are implemented in this version
-  (`Package.ready`): `core`, `records`, `hooks`, `world`, `self`, `nearby` and `interfaces`.
+  (`Package.ready`): all but `postprocessing` and `shaders`.
   `Kind.runs` says which kinds of script run: load, global, and the object kinds but `Missile` and
   `Turret`, whose objects aren't objects in the mission's slots
   ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
@@ -165,6 +164,12 @@ reference are made from it at compile time ([`api.zig`](../../src/scripting/api.
   parameter has a name.
 - `Native` declares a function that reads what it's passed itself, such as one that takes a
   script's function, with its Luau types written out for the reference.
+
+A struct is a table of its fields ([`values.zig`](../../src/scripting/values.zig)). One a function
+returns is read-only; one a script passes must name each field that has no default, and may leave
+out the rest. A list (`values.List`), such as the objects `world.objects` gives, is a table of its
+values in order. The reference shows a table as one scripts give, with its defaults, where a
+declared function takes it.
 
 A package made this way is a namespace of these declarations
 ([`packages.zig`](../../src/scripting/packages.zig) says which namespace declares which package),
