@@ -1,11 +1,10 @@
 //! The `openreliant.vfs` package ([#498](https://github.com/OpenReliant/openreliant/issues/498),
 //! [#592](https://github.com/OpenReliant/openreliant/issues/592)):
-//! reading the game's and the mods' files, which scripts can't change (`package`). A file comes as
-//! a string of its bytes.
+//! Scripts read the game's and the mods' files, and can't change them (`package`). A file comes as a
+//! string of its bytes.
 //!
-//! A name is looked up as the game looks up what it reads: a mod's copy first, then the game
-//! folder's loose file of that name, such as `missions\mission1.dte`, then the member of
-//! `resource.hog` (`find`).
+//! A name is looked up in three places in turn: a mod's copy, then the game folder's loose file, such
+//! as `missions\mission1.dte`, then the member of `resource.hog` (`find`).
 
 const std = @import("std");
 
@@ -20,9 +19,9 @@ const Storage = @import("storage.zig").Storage;
 
 /// What `openreliant.vfs` holds.
 pub const package = struct {
-    pub const read = api.Native("The file `name` as the game reads it, as a string of its bytes: a mod's, the latest mod's first, else the game folder's own file of that name, such as `missions\\mission1.dte`, else the game's resource archive's. Nil where there's none.", "name: string", "string?", readGame);
-    pub const read_mod = api.Native("The calling mod's own file `name`, as a string of its bytes. Nil where it has none.", "name: string", "string?", readMod);
-    pub const exists = api.Native("Whether the game has the file `name`, in a mod or of its own.", "name: string", "boolean", fileExists);
+    pub const read = api.Native("Reads the file `name` as a string of its bytes, the way the game does: a mod's copy (the latest mod's first), else the game folder's own file of that name, such as `missions\\mission1.dte`, else the member of the game's `resource.hog`. Nil if there is none.", "name: string", "string?", readGame);
+    pub const read_mod = api.Native("Reads the calling mod's own file `name` as a string of its bytes. Nil if the mod doesn't have it.", "name: string", "string?", readMod);
+    pub const exists = api.Native("Whether `vfs.read` would find the file `name`.", "name: string", "boolean", fileExists);
 };
 
 /// `vfs.read(name)`.
@@ -30,8 +29,8 @@ fn readGame(state: *State) i32 {
     const call: Call = .of(state, "vfs.read");
     const name = nameOf(state, "vfs.read");
     const gpa = call.runtime().gpa;
-    // A loose file is copied into the script's string, so one bigger than half the mod's memory is
-    // refused.
+    // Refuses a loose file bigger than half the mod's memory, since it is copied into the script's
+    // string.
     const most = call.runtime().options.limits.memory / 2;
     const bytes = find(call, name, most) catch |err| switch (err) {
         error.StreamTooLong => state.raise("vfs.read: {s} is bigger than the {d} bytes a script can read", .{ name, most }),
@@ -40,9 +39,9 @@ fn readGame(state: *State) i32 {
     return pushBytes(state, gpa, bytes orelse return pushNone(state));
 }
 
-/// The file `name`, made in the runtime's allocator, if there is one: a mod's copy, else the game
-/// folder's loose file (`Mods.readLoose`), else the archive's member. Loose files of at most `most`
-/// bytes are read.
+/// Reads the file `name` into memory from the runtime's allocator, or returns null if there is none:
+/// a mod's copy, else the game folder's loose file (`Mods.readLoose`), else the archive's member.
+/// A loose file can be at most `most` bytes.
 fn find(call: Call, name: []const u8, most: usize) !?[]u8 {
     const shared = call.runtime().options.shared;
     const gpa = call.runtime().gpa;
@@ -61,8 +60,8 @@ fn find(call: Call, name: []const u8, most: usize) !?[]u8 {
     return if (archive.has(name)) try archive.readFile(gpa, name) else null;
 }
 
-/// The game folder's loose file `name`, spelled as it is on disk in `spelled`; null where there is
-/// none, or `name` is a folder.
+/// The game folder's loose file `name`, spelled as it is on disk in `spelled`. Null if there is none,
+/// or if `name` is a folder.
 fn looseFile(folder: Storage.Folder, name: []const u8, spelled: *[files.max_path]u8) ?[]const u8 {
     const path = files.find(folder.io, folder.dir, name, spelled) orelse return null;
     const stat = folder.dir.statFile(folder.io, path, .{}) catch return null;
@@ -99,8 +98,8 @@ fn pushNone(state: *State) i32 {
     return 1;
 }
 
-/// Pushes `bytes` as a string, which the state copies, and lets them go. Luau's errors skip Zig's
-/// defers: should the copy run out of memory, the bytes are lost until OpenReliant quits.
+/// Pushes `bytes` as a string (the state copies it) and frees them. Luau's errors skip Zig's defers,
+/// so if the copy runs out of memory, the bytes are not freed until OpenReliant quits.
 fn pushBytes(state: *State, gpa: std.mem.Allocator, bytes: []u8) i32 {
     if (!state.checkStack(1)) {
         gpa.free(bytes);

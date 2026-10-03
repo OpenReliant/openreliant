@@ -81,14 +81,14 @@ pub const Options = struct {
 
 /// What every state shares.
 pub const Shared = struct {
-    /// The mods' storage (`storage.zig`); null where it isn't kept.
+    /// The mods' storage (`storage.zig`); null if it isn't kept.
     storage: ?*storage_module.Storage = null,
-    /// The game's files, as the game reads them, mods first (`vfs.zig`); null where there are none.
+    /// The game's resource archive, with the mods' files taking priority (`vfs.zig`); null if there
+    /// is none.
     files: ?bigfile.Hog = null,
-    /// The game's folder, which its loose files are read from (`vfs.zig`); null where there is none.
+    /// The game's folder, where its loose files are read from (`vfs.zig`); null if there is none.
     game: ?storage_module.Storage.Folder = null,
-    /// The pages of options the mods offer, which their values are kept for (`settings.zig`); null
-    /// where there are none.
+    /// The pages of options the mods offer (`settings.zig`); null if there are none.
     settings: ?*settings_module.Registry = null,
 };
 

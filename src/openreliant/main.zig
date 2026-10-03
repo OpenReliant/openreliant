@@ -238,15 +238,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             break :blank &.{};
         },
     });
-    // The mods' storage: the sections each mod keeps across every game, read as OpenReliant starts
-    // and written back as they change, and the sections it keeps with a saved game. Every script
-    // reaches it, and the game's files.
+    // The mods' storage: the sections each mod keeps across every game (read at start-up and
+    // written back as they change) and with each saved game. Every script can reach it, the game's
+    // files and the game's folder.
     var storage: scripting.storage.Storage = .{ .gpa = gpa, .folder = .{ .io = io, .dir = directory } };
     defer storage.deinit();
     defer storage.flush();
     try storage.readGlobal(mods.list);
-    // The pages of options the mods' load and menu scripts declare as OpenReliant starts, whose
-    // values are kept in the storage.
+    // The pages of options that the mods' load and menu scripts declare at start-up. Their values
+    // are kept in the storage.
     var option_pages: scripting.settings.Registry = .init(gpa, &storage);
     defer option_pages.deinit();
     const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .settings = &option_pages };
