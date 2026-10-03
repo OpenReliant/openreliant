@@ -14,7 +14,6 @@ type Align = "left" | "centre" | "right" | number
 type Key = "escape" | "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight" | "nine" | "zero" | "minus" | "equals" | "backspace" | "tab" | "q" | "w" | "e" | "r" | "t" | "y" | "u" | "i" | "o" | "p" | "left_bracket" | "right_bracket" | "enter" | "left_control" | "a" | "s" | "d" | "f" | "g" | "h" | "j" | "k" | "l" | "semicolon" | "apostrophe" | "grave" | "left_shift" | "backslash" | "z" | "x" | "c" | "v" | "b" | "n" | "m" | "comma" | "period" | "slash" | "right_shift" | "keypad_multiply" | "left_alt" | "space" | "caps_lock" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "num_lock" | "scroll_lock" | "keypad_7" | "keypad_8" | "keypad_9" | "keypad_minus" | "keypad_4" | "keypad_5" | "keypad_6" | "keypad_plus" | "keypad_1" | "keypad_2" | "keypad_3" | "keypad_0" | "keypad_period" | "non_us_backslash" | "f11" | "f12" | "keypad_enter" | "right_control" | "keypad_divide" | "print_screen" | "right_alt" | "pause" | "home" | "up" | "page_up" | "left" | "right" | "end" | "down" | "page_down" | "insert" | "delete" | "left_windows" | "right_windows" | "menu" | number
 type Modifier = "none" | "shift" | "control" | "alt" | number
 type GamepadButton = "south" | "east" | "west" | "north" | "back" | "guide" | "start" | "left_stick" | "right_stick" | "left_shoulder" | "right_shoulder" | "dpad_up" | "dpad_down" | "dpad_left" | "dpad_right" | "misc1" | "right_paddle1" | "left_paddle1" | "right_paddle2" | "left_paddle2" | "touchpad" | "misc2" | "misc3" | "misc4" | "misc5" | "misc6" | "left_trigger" | "right_trigger" | "right_stick_up" | "right_stick_down" | "right_stick_left" | "right_stick_right"
-type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "chase_too" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | "nanny_dock" | "warp_prepare" | "warp_depart" | "warp_arrive" | "yamato_beside" | "yamato_ahead" | "yamato_aside" | number
 type BettyLine = "missiles_gone" | "armor_failing" | "screamer" | "havoc" | "jack_hammer" | "vagabond" | "imp" | "bandit" | "raptor" | "hawk" | "solomon" | "countermeasures_low" | "countermeasures_gone" | "cloak_on" | "cloak_off" | "blind_fire_on" | "blind_fire_off" | "spectral_shields_on" | "spectral_shields_off" | number
 type Axis = "x" | "y" | "z"
 type OptionKind = "toggle" | "choice" | "number"
@@ -279,6 +278,10 @@ type Hud = {
     width: number,
     -- The window's height, in pixels.
     height: number,
+    -- Registers an enabled mod-qualified HUD display for this player context. Its frame callback draws through the HUD package while shown; failure disables only that display.
+    register_display: (name: string, definition: {frame: (seconds: number) -> ()}) -> string,
+    -- Enables or disables a registered HUD display by qualified name. Returns whether it exists.
+    set_display_enabled: (name: string, enabled: boolean) -> boolean,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
     -- Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices.
@@ -301,6 +304,10 @@ type Ui = {
     width: number,
     -- The window's height, in pixels.
     height: number,
+    -- Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen.
+    register_screen: (name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}) -> string,
+    -- Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists.
+    show_screen: (name: string?) -> boolean,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
     -- Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices.
@@ -325,12 +332,14 @@ type Input = {
     action_down: (action: string | number) -> boolean,
 }
 
--- The camera's view, and switching between the game's views.
+-- Original and mod-qualified camera views, switching views and registering player-script views.
 type Camera = {
-    -- The view the camera shows; nil while no mission is shown.
-    view: View?,
-    -- Switches the camera to `view`, of `object`, or of the player's ship where it's nil, as the player's camera keys do. Returns whether it switched: a mission's own camera and the cutaways hold it.
-    set_view: (view: View, object: Object?) -> boolean,
+    -- The original or mod-qualified view the camera shows; nil while no mission is shown.
+    view: (string | number)?,
+    -- Registers a mod-qualified camera view for this player context. frame returns position and orthonormal orientation; a failed callback returns to cockpit. Mission camera locks take precedence.
+    register_view: (name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?}) -> string,
+    -- Switches to an original or mod-qualified view of object, or the player's ship where nil. Returns whether it switched; mission locks and cutaways take precedence.
+    set_view: (view: string | number, object: Object?) -> boolean,
 }
 
 -- Interface sounds, music and Betty's lines.
@@ -406,7 +415,87 @@ type Debug = {
 }
 
 -- The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers.
-type Interfaces = { [string]: any }
+type Interfaces = {
+    Flight: {
+        to_world: (position: vector, orientation: Orientation, point: vector) -> vector,
+        to_local: (position: vector, orientation: Orientation, point: vector) -> vector,
+        look_at: (direction: vector) -> Orientation,
+        angle_off: (position: vector, orientation: Orientation, point: vector) -> number,
+        turn: (orientation: Orientation, axis: Axis, angle: number) -> Orientation,
+    },
+    AI: {
+        register: (name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?}) -> string,
+        info: (order: string | number) -> OrderInfo?,
+        stack: (object: Object) -> { OrderEntry },
+        cancel: (object: Object) -> boolean,
+        clear: (object: Object) -> boolean,
+        give_order: (self: Object, order: string | number, target: Object?) -> boolean,
+    },
+    Combat: {
+        add_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+        after_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+    },
+    Weapons: {
+        add_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+        after_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+    },
+    Carriers: {
+        give_order: (self: Object, order: string | number, target: Object?) -> boolean,
+        add_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+        after_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+    },
+    Camera: {
+        view: (string | number)?,
+        register_view: (name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?}) -> string,
+        set_view: (view: string | number, object: Object?) -> boolean,
+    },
+    Controls: {
+        register_action: (name: string, definition: Definition) -> string,
+        key_down: (key: Key) -> boolean,
+        action_down: (action: string | number) -> boolean,
+    },
+    HUD: {
+        shown: boolean,
+        width: number,
+        height: number,
+        register_display: (name: string, definition: {frame: (seconds: number) -> ()}) -> string,
+        set_display_enabled: (name: string, enabled: boolean) -> boolean,
+        picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
+        shape: (at: vector, index: number, style: ShapeStyle?) -> (),
+        text: (at: vector, text: string, style: TextStyle?) -> (),
+        line: (from: vector, to: vector, style: LineStyle?) -> (),
+        rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
+        measure: (text: string, style: (number | TextStyle)?) -> Size,
+    },
+    Audio: {
+        play_sound: (index: number, volume: number?) -> boolean,
+        play_music: (name: string) -> (),
+        say: (line: BettyLine) -> boolean,
+    },
+    Missions: {
+        player: Object?,
+        mission: Mission?,
+        objects: () -> { Object },
+    },
+    Campaign: {
+        mission: Mission?,
+        send_global_event: (name: string, data: any) -> (),
+    },
+    FrontEnd: {
+        shown: boolean,
+        width: number,
+        height: number,
+        register_screen: (name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}) -> string,
+        show_screen: (name: string?) -> boolean,
+        picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
+        shape: (at: vector, index: number, style: ShapeStyle?) -> (),
+        text: (at: vector, text: string, style: TextStyle?) -> (),
+        line: (from: vector, to: vector, style: LineStyle?) -> (),
+        rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
+        measure: (text: string, style: (number | TextStyle)?) -> Size,
+    },
+    [string]: any,
+}
 
 -- A section of a mod's storage: its fields by name, each plain data. Reading one gives a copy.
 type Section = { [string]: any }

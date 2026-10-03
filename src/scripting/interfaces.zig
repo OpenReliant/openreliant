@@ -21,6 +21,7 @@ const Name = runtime_module.Name;
 const objects = @import("objects.zig");
 const api = @import("api.zig");
 const Call = api.Call;
+const builtin = @import("builtin_interfaces.zig");
 
 /// Which scripts see an interface.
 pub const Scope = union(enum) {
@@ -63,10 +64,12 @@ pub const Interfaces = struct {
     gpa: Allocator,
     runtime: *Runtime,
     offered: std.ArrayList(Entry) = .empty,
+    builtins: std.EnumArray(builtin.Group, ?luau.Ref) = .initFill(null),
 
     pub const tag = @intFromEnum(runtime_module.Tag.interfaces);
 
     pub fn deinit(interfaces: *Interfaces) void {
+        for (interfaces.builtins.values) |ref| if (ref) |held| interfaces.runtime.release(held);
         interfaces.offered.deinit(interfaces.gpa);
     }
 
@@ -74,9 +77,22 @@ pub const Interfaces = struct {
     /// Returns the interface it overrides, if any.
     pub fn offer(interfaces: *Interfaces, context: *const Context, name: Name, table: luau.Ref) Allocator.Error!?luau.Ref {
         const scope = Scope.of(context).?;
-        const base = interfaces.find(scope, name.slice());
+        const base = if (interfaces.find(scope, name.slice())) |entry| entry.table else interfaces.builtinBase(context.family, name.slice());
         try interfaces.offered.append(interfaces.gpa, .{ .scope = scope, .name = name, .table = table, .context = context });
-        return if (base) |entry| entry.table else null;
+        return base;
+    }
+
+    fn builtinBase(interfaces: *Interfaces, family: @import("script.zig").Family, name: []const u8) ?luau.Ref {
+        inline for (std.meta.fields(builtin.Group)) |group| {
+            const kind: builtin.Group = @enumFromInt(group.value);
+            if (std.mem.eql(u8, name, group.name) and kind.reachable(family)) {
+                if (interfaces.builtins.get(kind)) |ref| return ref;
+                const ref = interfaces.runtime.make(builtin.push, .{kind}) orelse return null;
+                interfaces.builtins.set(kind, ref);
+                return ref;
+            }
+        }
+        return null;
     }
 
     /// Takes away the interfaces the scripts of `context` offered, as they stop. The references
@@ -124,6 +140,10 @@ pub const Interfaces = struct {
         const call: Call = .of(state, "interfaces");
         const scope = Scope.of(call.context) orelse state.raise("{t} scripts have no interfaces yet", .{call.context.family});
         const entry = interfaces.find(scope, name) orelse {
+            if (interfaces.builtinBase(call.context.family, name)) |ref| {
+                _ = state.pushRef(ref);
+                return 1;
+            }
             state.pushNil();
             return 1;
         };

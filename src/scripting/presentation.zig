@@ -184,6 +184,7 @@ pub const Presentation = struct {
 
     /// Stops the `Player` scripts as the game ends.
     pub fn endGame(shown: *Presentation) void {
+        shown.resetRegisteredCamera();
         shown.runner.stopAll(shown.lists.getPtr(.player));
         shown.game = null;
         shown.runtime.objects = null;
@@ -196,7 +197,13 @@ pub const Presentation = struct {
 
     /// Tells the scripts that the mission has ended as `outcome` says.
     pub fn missionEnded(shown: *Presentation, outcome: engine_hooks.Outcome) void {
+        shown.resetRegisteredCamera();
         shown.runner.callAll(.on_mission_end, .{ .outcome = outcome });
+    }
+
+    /// A mission transition must not keep a camera callback's subject from the previous scene.
+    fn resetRegisteredCamera(shown: *Presentation) void {
+        shown.runtime.registries.resetCamera(shown.runtime);
     }
 
     /// Tells the scripts of the mod `mod` that the player set its option `option` to `value`.
@@ -210,6 +217,7 @@ pub const Presentation = struct {
         const code = @intFromEnum(pressed);
         if (shown.keys.isSet(code) == down) return;
         shown.keys.setValue(code, down);
+        shown.runtime.registries.input(shown.runtime, pressed, down);
         if (down) {
             shown.runner.callAll(.on_key_press, .{ .key = pressed });
         } else {
@@ -249,6 +257,7 @@ pub const Presentation = struct {
         }
         shown.runner.advance(host.seconds);
         shown.runner.callAll(.on_frame, .{ .seconds = host.seconds });
+        shown.runtime.registries.frame(shown.runtime, host.seconds);
     }
 
     /// Draws what the scripts drew on `which` this frame into `into`, where it's shown. `sight`
@@ -389,6 +398,171 @@ test "menu actions dispatch qualified press edges in flight and close on reload"
     host.flying = true;
     fixture.shown.frame(host);
     try std.testing.expect(!fixture.shown.runtime.input_actions.entries[index].ready);
+}
+
+test "registered views, displays and screens execute and close with their contexts" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\nMenu=menu.luau\n" },
+            .{
+                "player.luau",
+                \\local camera = require("openreliant.camera")
+                \\local hud = require("openreliant.hud")
+                \\local util = require("openreliant.util")
+                \\local view = camera.register_view("follow", {letterbox = true, frame = function(ship, seconds)
+                \\    return {position = ship.position + vector.create(0, -50, -100), orientation = util.from_angles(vector.zero)}
+                \\end})
+                \\hud.register_display("status", {frame = function() hud.text(vector.zero, "registered display") end})
+                \\return {engine_handlers = {on_frame = function()
+                \\    assert(camera.set_view(view))
+                \\    assert(camera.view == view)
+                \\end}}
+            },
+            .{
+                "menu.luau",
+                \\local ui = require("openreliant.ui")
+                \\local screen = ui.register_screen("panel", {frame = function() ui.text(vector.zero, "registered screen") end,
+                \\    key = function(key, down) if key == "escape" and down then assert(ui.show_screen(nil)) end end})
+                \\assert(ui.show_screen(screen))
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 } };
+    const layer: drawing.View = .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 };
+    host.views.set(.hud, layer);
+    host.views.set(.ui, layer);
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("registered display", fixture.shown.layers.get(.hud).text.items);
+    try std.testing.expectEqualStrings("registered screen", fixture.shown.layers.get(.ui).text.items);
+    try engine.surrender.math.testing.expectVector(.{ 0, -50, -100 }, view.place.position);
+    try std.testing.expectEqual(engine.game.camera.letterbox, view.bars);
+    fixture.shown.key(.escape, true);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.selected_screen);
+    fixture.shown.endGame();
+    try std.testing.expectEqual(engine.game.camera.View.cockpit, view.view);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.find(.display, "a:status"));
+    try fixture.shown.reload();
+    try std.testing.expect(fixture.shown.runtime.registries.find(.screen, "a:panel") != null);
+}
+
+test "camera locks take precedence and failed registry callbacks fall back safely" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\nMenu=menu.luau\n" },
+            .{ "menu.luau", "local ui = require('openreliant.ui'); ui.register_screen('bad', {frame = function() ui.text(vector.zero, 'partial'); error('broken screen') end})" },
+            .{
+                "player.luau",
+                \\local camera = require("openreliant.camera")
+                \\local view = camera.register_view("bad", {frame = function() return {position = vector.zero} end})
+                \\return {engine_handlers = {on_frame = function() camera.set_view(view) end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    var view: engine.game.camera.Camera = .{ .locked = true, .view = .director };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 } };
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(engine.game.camera.View.director, view.view);
+    view.locked = false;
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(engine.game.camera.View.cockpit, view.view);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.find(.camera, "a:bad"));
+    host.views.set(.ui, .{ .font = &fixture.font, .gpa = std.testing.allocator, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.runtime.registries.selected_screen = fixture.shown.runtime.registries.find(.screen, "a:bad");
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.selected_screen);
+    try std.testing.expectEqual(0, fixture.shown.layers.get(.ui).commands.items.len);
+}
+
+test "camera callbacks that select an original view do not apply their returned pose" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=a.luau\n" },
+            .{
+                "a.luau",
+                \\local camera = require("openreliant.camera")
+                \\local util = require("openreliant.util")
+                \\local name = camera.register_view("switch", {frame = function()
+                \\    assert(camera.set_view("external"))
+                \\    return {position = vector.create(999, 999, 999), orientation = util.from_angles(vector.zero)}
+                \\end})
+                \\return {engine_handlers = {on_frame = function() camera.set_view(name) end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    var view: engine.game.camera.Camera = .{};
+    fixture.shown.frame(.{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 } });
+    try std.testing.expectEqual(engine.game.camera.View.external, view.view);
+    try engine.surrender.math.testing.expectVector(@splat(0), view.place.position);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.selected_camera);
+}
+
+test "presentation names isolate mods and failed loads remove only new registrations" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{
+        .{ "a", &.{
+            .{ "mod.ini", "[Scripts]\nMenu=good.luau,bad.luau\n" },
+            .{ "good.luau", "local ui = require('openreliant.ui'); assert(ui.register_screen('panel', {frame = function() end}) == 'a:panel'); assert(not pcall(ui.register_screen, 'panel', {frame = function() end}))" },
+            .{ "bad.luau", "require('openreliant.ui').register_screen('discard', {frame = function() end}); error('bad load')" },
+        } },
+        .{ "b", &.{ .{ "mod.ini", "[Scripts]\nMenu=b.luau\n" }, .{ "b.luau", "assert(require('openreliant.ui').register_screen('panel', {frame = function() end}) == 'b:panel')" } } },
+    });
+    defer fixture.deinit();
+    try std.testing.expect(fixture.shown.runtime.registries.find(.screen, "a:panel") != null);
+    try std.testing.expect(fixture.shown.runtime.registries.find(.screen, "b:panel") != null);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.find(.screen, "a:discard"));
+}
+
+test "the strafe-run example combines registries and built-in interfaces" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "strafe-run", &.{
+        .{ "mod.ini", @embedFile("strafe-run/mod.ini") },
+        .{ "order.luau", @embedFile("strafe-run/order.luau") },
+        .{ "actions.luau", @embedFile("strafe-run/actions.luau") },
+        .{ "display.luau", @embedFile("strafe-run/display.luau") },
+    } }});
+    defer fixture.deinit();
+    const sabre = try fixture.mission.add(.sabre, .{ 0, 0, 1000 });
+    const scripts = (try game_module.Game.start(std.testing.allocator, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
+    defer scripts.stop();
+    try fixture.shown.startGame(scripts, fixture.mission.objects, false);
+    defer fixture.shown.endGame();
+    scripts.scripts.begin(fixture.mission.orders(), .{ .number = 0, .file = "mission0.dte" }, 1);
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .flying = true, .camera = .{ .camera = &view, .now = 1, .player = 0 } };
+    const layer: drawing.View = .{ .font = &fixture.font, .gpa = std.testing.allocator, .screen = .{ 640, 480 }, .scale = 1 };
+    host.views.set(.hud, layer);
+    host.views.set(.ui, layer);
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("Shift F12: strafe run", fixture.shown.layers.get(.hud).text.items);
+    fixture.devices.keyboard.down[input.scan.left_shift] = true;
+    fixture.devices.keyboard.down[@intFromEnum(input.Key.f12)] = true;
+    fixture.shown.frame(host);
+    scripts.scripts.update(0.04);
+    try std.testing.expectEqual(scripts.runtime.custom_orders.find("strafe-run:strafe_run").?, fixture.mission.slot(sabre).current().?.order);
+    engine.game.aigeneric.objectOrders(fixture.mission.orders(), sabre);
+    try std.testing.expectEqual(0.25, fixture.mission.slot(sabre).object.yaw_input);
+    fixture.devices.keyboard.down[@intFromEnum(input.Key.f10)] = true;
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("strafe-run:chase", fixture.shown.runtime.registries.cameraName(view.view).?);
+    try engine.surrender.math.testing.expectVector(.{ 0, -200, -1000 }, view.place.position);
+    fixture.devices.keyboard.down[@intFromEnum(input.Key.f9)] = true;
+    fixture.shown.frame(host);
+    try std.testing.expect(fixture.shown.runtime.registries.selected_screen != null);
+    try std.testing.expect(fixture.shown.layers.get(.ui).commands.items.len == 3);
 }
 
 test "the example action sends a game event that starts its custom order" {

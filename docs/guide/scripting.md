@@ -49,6 +49,60 @@ saved, carrying on from where they were ([The console](#the-console)); otherwise
 main menu and start a game again. After changing `mod.ini`, adding a file or changing a load
 script, start OpenReliant again.
 
+## Registered views, displays and screens
+
+The registries in #558 use mod-qualified names, such as `strafe-run:chase`. Different mods may
+use the same local identifier. Duplicate names in the same registry are errors. Registrations
+belong to their script context and disappear when it closes or reloads. A failed script load
+rolls back its new registrations. Internal indices are not stable identifiers and are not saved.
+
+Player scripts register camera views with `camera.register_view(name, {frame = function,
+letterbox = boolean})`. `frame(object, seconds)` returns `{position = vector, orientation =
+Orientation}`. The axes must be finite, unit length, perpendicular and right-handed. Select the
+returned qualified name with `camera.set_view`, optionally naming the followed object. The
+original camera keys and mission cutaways take precedence; mission locks cannot be bypassed.
+A failed callback or invalid subject returns to the cockpit. Custom views are external views,
+with optional letterboxing, using the existing projection. They do not add a cockpit model.
+
+Player scripts register HUD displays with `hud.register_display(name, {frame = function})`.
+Enabled displays run in registration order while the HUD layer is shown, after ordinary
+`on_frame` handlers, and draw with the existing HUD functions. `hud.set_display_enabled(name,
+enabled)` toggles a display. A failed callback disables only its registration.
+
+Menu or player scripts register screens with `ui.register_screen(name, {frame = function,
+key = function})`. `ui.show_screen(name)` selects one; nil closes it. The frame callback draws
+through `ui`; the optional key callback gets `(key, down)` while selected. In flight, selecting
+a screen makes the UI drawing layer available over the HUD. Screens are overlays with script
+input callbacks, not replacements for the original menu flow or a new widget layout system.
+The original controls still receive keys. Callback failure or context closure closes the screen.
+Registrations are bounded by the unused values in the engine's byte-sized view representation,
+including retired entries in one runtime. Registering beyond that limit raises a script error.
+
+### Built-in interfaces
+
+`require("openreliant.interfaces")` supplies built-in groups beneath mod overrides:
+
+| Group | Existing APIs grouped |
+|---|---|
+| `Flight` | Coordinate/orientation helpers from `util` |
+| `AI` | Order registration, inspection, cancellation and `give_order` |
+| `Combat`, `Weapons` | Existing before/after hooks |
+| `Carriers` | Orders and carrier-related hooks through the same hooks API |
+| `Camera`, `Controls`, `HUD`, `Audio` | Their existing packages |
+| `Missions` | Existing `world` mission/object queries |
+| `Campaign` | Current mission query and global events |
+| `FrontEnd` | Existing UI drawing and screen registration |
+
+These tables contain no separate engine logic. Their context permissions remain those of the
+underlying APIs; unavailable groups are nil. Mods override them through the normal
+`interface_name`/`interface` mechanism and receive the built-in base in `on_interface_override`.
+Stopping the override restores the base. The groups do not add campaign progression or menu-flow
+APIs; those features remain in #442 and #560. Their editor definitions come from the reused API
+declarations.
+
+[`examples/mods/strafe-run`](../../examples/mods/strafe-run) combines a custom order, HUD display,
+chase camera, selectable help panel and rebindable actions.
+
 ## Pictures, shapes and fonts
 
 The `hud` and `ui` packages can draw mod pictures and the game's shapes (#590):
