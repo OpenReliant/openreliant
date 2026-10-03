@@ -50,6 +50,7 @@ const shockwave = @import("shockwave.zig");
 const sparks = @import("sparks.zig");
 const bigfile = @import("bigfile.zig");
 const hog_snd = @import("hog_snd.zig");
+const hooks = @import("../hooks.zig");
 const betty = hog_snd.betty;
 const hud = @import("hud.zig");
 const hudoptions = @import("hudoptions.zig");
@@ -605,6 +606,9 @@ pub fn controlsFrame(controls: Controls) void {
 /// script runs its frame's work (`mission.Loaded.process`), its clock ticking first for the
 /// seconds past (`mission.Loaded.tickClock`).
 ///
+/// After the orders, in a frame in which game time passes, mods' scripts run their `on_update`
+/// handlers with the seconds of game time the frame covers.
+///
 /// Whether the mission is over: as the camera has it (`missionOver`), which sets the script's
 /// `mission_over`, or as the script has it, which ends the mission before the frame's work; or,
 /// once the frame's work is done, where the script has ended it (`TerminateMission`), as
@@ -626,6 +630,9 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.display) |display| display.uncloakSpent(orders.world);
     if (orders.world.jump_effects) |effects| effects.beginFrame();
     aigeneric.ordersUpdate(orders);
+    if (orders.world.objects.scripts) |scripts| if (orders.world.clock.frameTicks() > 0) {
+        scripts.update(@as(f32, @floatFromInt(orders.world.clock.frameTicks())) / ticks_per_second);
+    };
     friendly_fire.sendHome(orders);
     player.scanner.frame(orders.world, orders.world.clock.frame_start);
     frameObjects(orders.world.objects, timing, orders.world.clock.frame_start);
@@ -1632,7 +1639,8 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///    of players, which WinMain sets before the mission loads (`script_set_players`,
 ///    `0x004124D0`, `vm.Variables.players`), and starts the script (`mission.Loaded.start`),
 ///    whose start part makes the mission's first ships and gives them their orders, a launch
-///    among them;
+///    among them. The mods' scripts for the mission start just before that
+///    (`hooks.Scripts.begin`);
 /// 3. lists the player's wing's icons (`startWing`), and makes the camera's marker in the next
 ///    slot;
 /// 4. lets go of the types no object is of any more, and loads the model of each type the mission
@@ -1640,6 +1648,8 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 /// 5. resets the frame's clock (`frame_reset`), loads the cockpit of the player's ship, and readies
 ///    the display for it as `hud_init` and the start have it: its devices fitted (`fitDevices`),
 ///    its missiles in the missile display, no missile lock, and the eject marker out.
+///
+/// Last, mods' scripts run their `on_mission_start` handlers (`hooks.Scripts.started`).
 ///
 /// The start clears the keyboard's state (`0x004BD7E0`), which the next read of the keyboard fills
 /// again; OpenReliant's keeps what the device reports.
@@ -1703,12 +1713,15 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     }
     winmain.startMission(world.player, if (start.campaign) |campaign| campaign.kept(number).kills else 0);
     all.mission_number = number;
+    var file_buffer: [winmain.mission_path_size]u8 = undefined;
+    const mission: hooks.Mission = .{ .number = number, .file = winmain.missionFileName(&file_buffer, number, all.mission25_second_part) };
     const loaded = try Loaded.create(gpa, image, world.random);
     errdefer loaded.destroy();
     loaded.script.variables = if (start.campaign) |campaign| campaign.attempt() else gameflow.restartPoint();
     loaded.script.variables.players = all.players;
     orders.world.mission = &loaded.bound;
     orders.world.events = &loaded.events;
+    if (all.scripts) |scripts| scripts.begin(mission, scriptSeed(world.random, number));
     try loaded.start(orders);
 
     startWing(all);
@@ -1730,7 +1743,25 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     fitDevices(start.display, player_type, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     start.display.missiles.build(&player.object);
     start.display.lock.reset();
+    if (all.scripts) |scripts| scripts.started(mission);
     return loaded;
+}
+
+/// The seed of the mods' scripts' random numbers for mission `number`: the seed of the game's own
+/// random numbers, which the scripts don't draw from, combined with the mission's number.
+///
+/// Not ported: `mission_start` seeds the game's own numbers with the time (`0x004936AE`)
+/// ([#582](https://github.com/OpenReliant/openreliant/issues/582)).
+fn scriptSeed(random: *const libcmt.Rand, number: u16) u64 {
+    return @as(u64, random.seed) << 16 | number;
+}
+
+/// OpenReliant's: ends the mission `loaded` and lets it go. First the mods' scripts hear how it
+/// ended (`hooks.Scripts.ended`): for the player (`player.ending`), and as the mission's script
+/// rated it.
+pub fn endMission(all: *create.Objects, player: *const input.Player, loaded: *Loaded) void {
+    if (all.scripts) |scripts| scripts.ended(.{ .ending = player.ending, .rating = loaded.script.variables.mission_success });
+    loaded.destroy();
 }
 
 /// Fits the display's devices to the player's ship, as the start does after `hud_init` has set

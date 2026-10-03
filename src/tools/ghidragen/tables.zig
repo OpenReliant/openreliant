@@ -159,3 +159,30 @@ test "no address is named twice by the hand tables or by the generated rows" {
         }
     }
 }
+
+test "the scripts' hooks on functions take their functions' names" {
+    const hooks = @import("openreliant").engine.hooks;
+    var buffer: [256 << 10]u8 = undefined;
+    var w: Io.Writer = .fixed(&buffer);
+    try names.write(&w);
+    const tables = [_]Table{ hand[1], .{ .name = "ghidragen names", .text = w.buffered() } };
+    inline for (comptime std.enums.values(hooks.Hook)) |hook| {
+        const declared = comptime hooks.declaration(hook);
+        if (declared.address) |address| {
+            // The hand table's row for the address, which Ghidra applies last, else the generated
+            // one; every hook's function has one.
+            const named = for (tables) |table| {
+                var lines = std.mem.splitScalar(u8, table.text, '\n');
+                const found = while (lines.next()) |line| {
+                    const row = try parseLine(line) orelse continue;
+                    if (row.address == address) break row.name;
+                } else null;
+                if (found) |name| break name;
+            } else null;
+            if (named == null or !std.mem.eql(u8, named.?, @tagName(hook))) {
+                std.debug.print("the hook {s} is on {x:0>8}, which the names tables call {s}\n", .{ @tagName(hook), address, named orelse "nothing" });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+}

@@ -1,15 +1,17 @@
 //! Exposes Zig values to scripts by reflecting over their declarations at compile time
 //! ([#498](https://github.com/OpenReliant/openreliant/issues/498)).
 //!
-//! Numbers become Luau numbers, enums their tag names, and byte arrays strings. Structs and other
-//! arrays become proxies: userdata that read and write the value in place. Struct fields use their
-//! Zig names, except fields starting with an underscore, which are hidden because they hold unknown
-//! or unused data. Array elements are indexed from 1. Writes are type-checked, and unknown field
-//! names are errors, so that typos are reported.
+//! Structs and arrays become proxies: userdata that read and write the value in place. Other values
+//! are converted as `values.zig` describes: numbers stay numbers, enums become their tag names, and
+//! byte arrays become strings. Struct fields use their Zig names, except fields starting with an
+//! underscore, which are hidden because they hold unknown or unused data. Array elements are
+//! indexed from 1. Writes are type-checked, and unknown field names are errors, so that typos are
+//! reported.
 
 const std = @import("std");
 const luau = @import("luau.zig");
 const State = luau.State;
+const values = @import("values.zig");
 
 /// Proxies for the types in `roots` and every struct and array inside them. The proxies use the
 /// userdata tag `tag`, and Luau's `typeof` returns `name` for them.
@@ -39,22 +41,14 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
 
         /// Registers the proxies' metatable.
         pub fn register(state: *State) void {
-            state.newTable(0, 8);
-            inline for (.{
+            state.registerUserdata(tag, name, &.{
                 .{ "__index", luau.wrap(index) },
                 .{ "__newindex", luau.wrap(newIndex) },
                 .{ "__iter", luau.wrap(iterate) },
                 .{ "__len", luau.wrap(length) },
                 .{ "__eq", luau.wrap(equal) },
                 .{ "__tostring", luau.wrap(describe) },
-            }) |entry| {
-                state.pushFunction(entry[1], entry[0]);
-                state.rawSetField(-2, entry[0]);
-            }
-            state.pushString(name);
-            state.rawSetField(-2, "__type");
-            state.setReadonly(-1, true);
-            state.setUserdataMetatable(tag);
+            });
         }
 
         /// Pushes a proxy for `value`. Scripts can change it only if `writable`.
@@ -135,7 +129,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
                     const T = kinds[@intFromEnum(kind)];
                     const len = switch (@typeInfo(T)) {
                         .array => |array| array.len,
-                        else => comptime fieldsOf(T).len,
+                        else => comptime values.shownFields(T).len,
                     };
                     state.pushNumber(@floatFromInt(len));
                 },
@@ -164,7 +158,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             switch (@typeInfo(T)) {
                 .@"struct" => {
                     const field_name = state.toString(key) orelse state.raise("{s}: expected a field name, got {s}", .{ comptime noun(T), state.typeName(key) });
-                    inline for (comptime fieldsOf(T)) |field| {
+                    inline for (comptime values.shownFields(T)) |field| {
                         if (std.mem.eql(u8, field_name, field.name)) return pushField(state, T, value, field, writable);
                     }
                     state.raise("{s} has no field '{s}'", .{ comptime noun(T), field_name });
@@ -181,7 +175,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             switch (@typeInfo(T)) {
                 .@"struct" => {
                     const field_name = state.toString(key) orelse state.raise("{s}: expected a field name, got {s}", .{ comptime noun(T), state.typeName(key) });
-                    inline for (comptime fieldsOf(T)) |field| {
+                    inline for (comptime values.shownFields(T)) |field| {
                         if (std.mem.eql(u8, field_name, field.name)) return setField(state, T, value, field, given);
                     }
                     state.raise("{s} has no field '{s}'", .{ comptime noun(T), field_name });
@@ -197,7 +191,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
         fn pushNext(state: *State, comptime T: type, value: *T, writable: bool) i32 {
             switch (@typeInfo(T)) {
                 .@"struct" => {
-                    const fields = comptime fieldsOf(T);
+                    const fields = comptime values.shownFields(T);
                     // The field after the given one, or the first if none is given.
                     var after: usize = 0;
                     if (state.toString(2)) |previous| {
@@ -230,21 +224,21 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
         /// Pushes `value`: a proxy for a struct or an array, the value itself otherwise.
         fn pushValue(state: *State, comptime T: type, value: *T, writable: bool) void {
             if (comptime isAggregate(T)) return push(state, T, value, writable);
-            pushScalar(state, T, value.*);
+            values.push(state, T, value.*);
         }
 
         /// Pushes a struct field. Scalar fields are read by value, because fields of packed
         /// structs can't be pointed at.
         fn pushField(state: *State, comptime T: type, value: *T, comptime field: std.builtin.Type.StructField, writable: bool) void {
             if (comptime isAggregate(field.type)) return push(state, field.type, &@field(value.*, field.name), writable);
-            pushScalar(state, field.type, @field(value.*, field.name));
+            values.push(state, field.type, @field(value.*, field.name));
         }
 
         /// Sets a struct field from the value at `given`.
         fn setField(state: *State, comptime T: type, value: *T, comptime field: std.builtin.Type.StructField, given: i32) void {
             const label = comptime noun(T) ++ "." ++ field.name;
             if (comptime isAggregate(field.type)) return setValue(state, field.type, &@field(value.*, field.name), given, label);
-            @field(value.*, field.name) = scalarOf(state, field.type, given, label);
+            @field(value.*, field.name) = values.read(state, field.type, given, label);
         }
 
         /// Sets `value` from the value at `given`: from a table of fields for a struct or an array,
@@ -254,7 +248,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
                 if (state.typeOf(given) != .table) state.raise("{s}: expected a table, got {s}", .{ label, state.typeName(given) });
                 return assignTable(state, T, value, state.absolute(given), &.{});
             }
-            value.* = scalarOf(state, T, given, label);
+            value.* = values.read(state, T, given, label);
         }
 
         fn assignTable(state: *State, comptime T: type, value: *T, table: i32, comptime skipped: []const []const u8) void {
@@ -294,95 +288,6 @@ pub fn wholeIndex(number: f64) ?usize {
 /// The largest index a script can give.
 const max_index: f64 = std.math.maxInt(u32);
 
-fn pushScalar(state: *State, comptime T: type, value: T) void {
-    switch (@typeInfo(T)) {
-        .float => state.pushNumber(value),
-        .int => state.pushNumber(@floatFromInt(value)),
-        .bool => state.pushBoolean(value),
-        .@"enum" => if (std.enums.tagName(T, value)) |tag_name|
-            state.pushString(tag_name)
-        else
-            state.pushNumber(@floatFromInt(@intFromEnum(value))),
-        .array => state.pushString(std.mem.sliceTo(&value, 0)),
-        else => @compileError("scripts can't read a " ++ @typeName(T)),
-    }
-}
-
-/// Reads the value at `given` as a `T`, raising an error if it doesn't fit. `label` names the
-/// value in error messages.
-fn scalarOf(state: *State, comptime T: type, given: i32, comptime label: []const u8) T {
-    switch (@typeInfo(T)) {
-        .float => {
-            const number = state.toNumber(given) orelse wrongType(state, label, "a number", given);
-            const narrowed = std.math.lossyCast(T, number);
-            if (!std.math.isFinite(narrowed)) state.raise("{s}: expected a finite number, got {d}", .{ label, number });
-            return narrowed;
-        },
-        .int => {
-            const number = state.toNumber(given) orelse wrongType(state, label, "a number", given);
-            if (number != @floor(number) or number < std.math.minInt(T) or number > std.math.maxInt(T)) {
-                state.raise("{s}: expected a whole number from {d} to {d}, got {d}", .{ label, std.math.minInt(T), std.math.maxInt(T), number });
-            }
-            return @intFromFloat(number);
-        },
-        .bool => {
-            if (state.typeOf(given) != .boolean) wrongType(state, label, "a boolean", given);
-            return state.toBoolean(given);
-        },
-        .@"enum" => |info| {
-            if (state.toString(given)) |tag_name| {
-                return std.meta.stringToEnum(T, tag_name) orelse state.raise("{s}: expected {s}, got '{s}'", .{ label, comptime choices(T), tag_name });
-            }
-            const number = state.toNumber(given) orelse wrongType(state, label, comptime choices(T), given);
-            if (number == @floor(number) and number >= std.math.minInt(info.tag_type) and number <= std.math.maxInt(info.tag_type)) {
-                const raw: info.tag_type = @intFromFloat(number);
-                if (!info.is_exhaustive) return @enumFromInt(raw);
-                inline for (comptime std.enums.values(T)) |named| {
-                    if (@intFromEnum(named) == raw) return named;
-                }
-            }
-            state.raise("{s}: expected {s}, got {d}", .{ label, comptime choices(T), number });
-        },
-        .array => |array| {
-            const text = state.toString(given) orelse wrongType(state, label, "a string", given);
-            if (text.len >= array.len) state.raise("{s}: expected at most {d} bytes, got {d}", .{ label, array.len - 1, text.len });
-            var bytes: T = @splat(0);
-            @memcpy(bytes[0..text.len], text);
-            return bytes;
-        },
-        else => @compileError("scripts can't write a " ++ @typeName(T)),
-    }
-}
-
-fn wrongType(state: *State, comptime label: []const u8, comptime expected: []const u8, given: i32) noreturn {
-    state.raise("{s}: expected {s}, got {s}", .{ label, expected, state.typeName(given) });
-}
-
-/// The values an enum field accepts, for error messages: its tag names, and any number if the enum
-/// is open.
-fn choices(comptime T: type) []const u8 {
-    comptime {
-        var text: []const u8 = "";
-        const values = std.enums.values(T);
-        for (values, 0..) |value, at| {
-            const separator = if (at == 0) "" else if (at == values.len - 1 and @typeInfo(T).@"enum".is_exhaustive) " or " else ", ";
-            text = text ++ separator ++ "'" ++ @tagName(value) ++ "'";
-        }
-        return if (@typeInfo(T).@"enum".is_exhaustive) text else text ++ " or a number";
-    }
-}
-
-/// The fields of `T` that scripts see: all except those starting with an underscore.
-pub fn fieldsOf(comptime T: type) []const std.builtin.Type.StructField {
-    comptime {
-        var fields: []const std.builtin.Type.StructField = &.{};
-        for (@typeInfo(T).@"struct".fields) |field| {
-            if (field.name[0] != '_') fields = fields ++ .{field};
-        }
-        return fields;
-    }
-}
-
 /// Whether scripts see `T` through a proxy: structs, and arrays of anything but bytes, which are
 /// strings.
 fn isAggregate(comptime T: type) bool {
@@ -411,7 +316,7 @@ fn add(comptime found: []const type, comptime T: type) []const type {
         var more: []const type = found ++ &[_]type{T};
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
-                for (fieldsOf(T)) |field| {
+                for (values.shownFields(T)) |field| {
                     if (info.layout == .@"packed" and isAggregate(field.type)) @compileError("fields of packed structs can't be proxies");
                     more = add(more, field.type);
                 }
@@ -423,9 +328,9 @@ fn add(comptime found: []const type, comptime T: type) []const type {
     }
 }
 
-/// `T`'s name in messages: the last part of its Zig name, or its element type's plus "s" for an
-/// array.
-fn noun(comptime T: type) []const u8 {
+/// `T`'s name in messages and in the reference: the last part of its Zig name, or its element
+/// type's plus "s" for an array.
+pub fn noun(comptime T: type) []const u8 {
     comptime {
         return switch (@typeInfo(T)) {
             .array => |array| noun(array.child) ++ "s",

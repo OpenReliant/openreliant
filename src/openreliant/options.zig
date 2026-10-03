@@ -137,6 +137,7 @@ pub const help_page = page: {
         \\       openreliant install [--from <disc>]... [--force] <directory>
         \\       openreliant joysticks [<game-directory>] [--watch]
         \\       openreliant missions [<game-directory>] [--no-mods]
+        \\       openreliant hooks [<hook>] [--definitions]
         \\
         \\
     ++ help.table(&.{.{ .typed = "<game-directory>", .text = "where StarLancer is installed, with resource.hog and tcachehw.dat; the current directory by default" }}) ++
@@ -166,6 +167,7 @@ pub const help_page = page: {
             .{ .typed = "install", .text = "install the game's files from the StarLancer discs into a directory" },
             .{ .typed = "joysticks", .text = "list the joysticks and gamepads, and which one the game uses" },
             .{ .typed = "missions", .text = "list the game's missions, its own and those added to its missions folder, and check that each loads" },
+            .{ .typed = "hooks", .text = "list what mods' scripts can hook, or write the definitions file for Luau's language server" },
         }) ++ help.paragraph("Each command's --help shows its options.", 2);
 };
 

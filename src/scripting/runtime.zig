@@ -16,9 +16,11 @@ const log = std.log.scoped(.scripts);
 const openreliant = @import("openreliant");
 const mods = openreliant.engine.game.bigfile.mods;
 const Mod = mods.Mod;
+const Objects = openreliant.engine.game.create.Objects;
 const luau = @import("luau.zig");
 const State = luau.State;
 const script = @import("script.zig");
+const values = @import("values.zig");
 
 /// The userdata tags, one per kind of userdata, each with its own metatable.
 pub const Tag = enum(luau.Tag) {
@@ -26,6 +28,12 @@ pub const Tag = enum(luau.Tag) {
     record_value = 1,
     /// A table of records, such as the ships (`records.Set`).
     record_set = 2,
+    /// An object's handle (`objects.Handle`).
+    object = 3,
+    /// What a hook's handler sees as `e` (`hooks.Event`).
+    hook_event = 4,
+    /// What `hooks.add` returns (`hooks.Handle`).
+    hook_handle = 5,
 };
 
 /// Which part of the game a state runs scripts for.
@@ -83,6 +91,10 @@ pub const Runtime = struct {
     running: ?Running = null,
     /// Interrupt calls since the clock was last read.
     interrupts: u32 = 0,
+    /// The objects that handles stand for, while a game runs (`objects.zig`).
+    objects: ?*Objects = null,
+    /// The handles made, by slot (`objects.zig`).
+    handles: ?luau.Ref = null,
 
     const Running = struct {
         /// The memory category of the running mod.
@@ -187,11 +199,55 @@ pub const Runtime = struct {
                 .chunk = std.fmt.bufPrintZ(&chunk_buffer, "={s}/{s}", .{ mod.name, name }) catch "=script",
                 .bytecode = bytecode.bytes,
             };
-            runtime.begin(context);
+            const outer = runtime.begin(context);
             const status = context.thread.protectedCallC(luau.wrap(loadChunk), &request);
-            runtime.end();
+            runtime.end(outer);
             if (status != .ok) log.warn("{s}: {s} could not be loaded: {t}", .{ mod.name, name, status });
         }
+    }
+
+    /// Closes a mod opened for scripts that stop before the others, such as a mission's: its
+    /// scripts can be collected, and it can't be called again. The context itself stays until the
+    /// runtime is destroyed, since coroutines its scripts made may still point to it.
+    pub fn close(runtime: *Runtime, context: *Context) void {
+        if (context.closed) return;
+        context.closed = true;
+        const state = runtime.state;
+        state.unref(context.chunks);
+        state.unref(context.loaded);
+        state.unref(context.thread_ref);
+    }
+
+    /// Makes a value in protected mode, with `build` and its `arguments` pushing it, and returns a
+    /// reference to it, or null if memory runs out. The value is the engine's, so it counts
+    /// against no mod's memory.
+    pub fn make(runtime: *Runtime, comptime build: anytype, arguments: anytype) ?luau.Ref {
+        const Request = struct {
+            arguments: @TypeOf(arguments),
+            made: ?luau.Ref = null,
+
+            fn run(state: *State) i32 {
+                const request = state.toLightUserdata(@This(), 1).?;
+                @call(.auto, build, .{state} ++ request.arguments);
+                request.made = state.ref(-1);
+                state.pop(1);
+                return 0;
+            }
+        };
+        var request: Request = .{ .arguments = arguments };
+        const outer = runtime.running;
+        runtime.running = null;
+        defer runtime.running = outer;
+        if (runtime.state.protectedCallC(luau.wrap(Request.run), &request) != .ok) {
+            runtime.state.pop(1);
+            return null;
+        }
+        return request.made;
+    }
+
+    /// Starts `math.random` on the game side again from `seed`.
+    pub fn reseed(runtime: *Runtime, seed: u64) void {
+        runtime.random = .init(seed);
     }
 
     /// Runs the script `name` like `require` does, and returns a reference to its result. Returns
@@ -200,9 +256,9 @@ pub const Runtime = struct {
         const thread = context.thread;
         _ = thread.getGlobal("require");
         thread.pushString(name);
-        runtime.begin(context);
+        const outer = runtime.begin(context);
         const status = thread.protectedCall(1, 1);
-        runtime.end();
+        runtime.end(outer);
         if (status != .ok) {
             runtime.recover(context, thread);
             return null;
@@ -211,19 +267,28 @@ pub const Runtime = struct {
         return thread.ref(-1);
     }
 
-    /// Calls the referenced function as the context's mod. Returns false if it fails; the error is
-    /// logged.
-    pub fn call(runtime: *Runtime, context: *Context, function: luau.Ref) bool {
+    /// Calls the referenced function as the context's mod, with `arguments`: each a reference, a
+    /// number or a boolean, none of which takes memory to push (`make` makes the rest). Returns
+    /// what the function returned, or `failed` if it raised an error, which is logged.
+    pub fn call(runtime: *Runtime, context: *Context, function: luau.Ref, arguments: anytype) Called {
+        if (context.closed) return .failed;
         const thread = context.thread;
+        if (!thread.checkStack(arguments.len + 2)) return .failed;
         _ = thread.pushRef(function);
-        runtime.begin(context);
-        const status = thread.protectedCall(0, 0);
-        runtime.end();
+        inline for (arguments) |argument| pushArgument(thread, argument);
+        const outer = runtime.begin(context);
+        const status = thread.protectedCall(arguments.len, 1);
+        runtime.end(outer);
         if (status != .ok) {
             runtime.recover(context, thread);
-            return false;
+            return .failed;
         }
-        return true;
+        defer thread.pop(1);
+        return switch (thread.typeOf(-1)) {
+            .nil => .returned_nil,
+            .boolean => if (thread.toBoolean(-1)) .returned else .returned_false,
+            else => .returned,
+        };
     }
 
     /// After a failed call: logs the error, and runs a full garbage collection so that a script
@@ -234,14 +299,17 @@ pub const Runtime = struct {
     }
 
     /// Starts a call into a mod's scripts: its allocations count against the mod's memory, and the
-    /// time limit starts.
-    fn begin(runtime: *Runtime, context: *const Context) void {
+    /// time limit starts. Returns the call it interrupts, if any, which `end` resumes: a hook's
+    /// handler can run the game's function, whose own hooks call other handlers.
+    fn begin(runtime: *Runtime, context: *const Context) ?Running {
+        const outer = runtime.running;
         runtime.running = .{ .category = context.category(), .started = .now(runtime.io, .awake) };
         runtime.interrupts = 0;
+        return outer;
     }
 
-    fn end(runtime: *Runtime) void {
-        runtime.running = null;
+    fn end(runtime: *Runtime, outer: ?Running) void {
+        runtime.running = outer;
     }
 
     /// Luau's allocator, using C's allocator. Refuses allocations that would take the running mod
@@ -271,6 +339,30 @@ pub const Runtime = struct {
     }
 };
 
+/// What a call returned (`Runtime.call`).
+pub const Called = enum {
+    /// It raised an error, which is logged.
+    failed,
+    /// It returned a value other than nil and `false`.
+    returned,
+    /// It returned nil, or nothing.
+    returned_nil,
+    /// It returned `false`, which stops a hook's later handlers.
+    returned_false,
+};
+
+/// Pushes an argument of `Runtime.call`.
+fn pushArgument(state: *State, argument: anytype) void {
+    const T = @TypeOf(argument);
+    switch (@typeInfo(T)) {
+        .float, .int, .comptime_float, .comptime_int => state.pushNumber(argument),
+        .bool => state.pushBoolean(argument),
+        else => if (T == luau.Ref) {
+            _ = state.pushRef(argument);
+        } else @compileError("make a reference to pass a " ++ @typeName(T)),
+    }
+}
+
 /// The engine handlers a script returned, as references.
 pub const Handlers = std.EnumArray(script.Handler, ?luau.Ref);
 
@@ -297,6 +389,8 @@ pub const Context = struct {
     chunks: luau.Ref = undefined,
     /// The modules `require` has run, with their results.
     loaded: luau.Ref = undefined,
+    /// Whether it has been closed (`Runtime.close`).
+    closed: bool = false,
 
     pub fn modOf(context: *const Context) *const Mod {
         return &context.runtime.mods[context.mod];
@@ -391,6 +485,7 @@ fn loadChunk(state: *State) i32 {
 /// OpenReliant package.
 fn require(state: *State) i32 {
     const context = state.threadData(Context) orelse state.raise("require can only be used by mod scripts", .{});
+    if (context.closed) state.raise("require: this script has stopped", .{});
     const name = state.toString(1) orelse state.raise("require: expected a string, got {s}", .{state.typeName(1)});
     if (script.Package.parse(name)) |package| {
         if (!package.reachableFrom(context.family)) state.raise("{s} is not available to {t} scripts", .{ name, context.family });

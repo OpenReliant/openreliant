@@ -52,6 +52,14 @@ $(SHADER_DIR)/%.msl: $(SHADER_DIR)/%.spv | $(SPIRV_CROSS)
 test: ## Run the unit tests
 	$(ZIG) build test --summary all
 
+# The scripting API's definitions for Luau's language server and its reference page, which tests
+# check (src/scripting/reference.zig). Write them again when what scripts see changes on purpose.
+.PHONY: definitions
+definitions: ## Write the scripting API's definitions and reference page in docs/guide
+	$(ZIG) build
+	$(ROOT)/zig-out/bin/openreliant hooks --definitions > $(ROOT)/docs/guide/openreliant.d.luau
+	$(ROOT)/zig-out/bin/openreliant hooks --markdown > $(ROOT)/docs/guide/hooks.md
+
 # Tests joystick and gamepad support on Linux with virtual controllers that imitate real ones
 # (scripts/controllers). It runs in a privileged Docker container with the host's /dev mounted,
 # which also works on macOS through Docker's Linux VM.

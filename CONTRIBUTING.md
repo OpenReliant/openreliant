@@ -64,6 +64,22 @@ failed.
 0047b3d0	function	nova_release	void __thiscall (GameObject *object, char remote, float charge)	Fires a Phoenix's Nova Cannon when the trigger is released, ...
 ```
 
+### Hooks for scripts
+
+Mods' scripts can hook the original's functions ([Scripting](docs/port/scripting.md#hooks)). To make
+a ported function hookable, declare its hook in `src/engine/hooks.zig`, under the function's name in
+the names table, and start the function with one line:
+
+```zig
+if (hooks.enter(.object_damage, damage, .{ world, index, struck, value, factor, attacker, kind })) |done| return done;
+```
+
+What scripts see is an API that mods rely on: the hooks' names, their fields, the names of enum
+values, and the fields of objects and records. Tests check it against
+`docs/guide/openreliant.d.luau` and `docs/guide/hooks.md`, so a change to what scripts see fails
+them. Change it only on purpose, and then run `make definitions`. An enum that scripts see needs a
+name in `scripting/reference.zig`.
+
 ### Improvements and fixes
 
 OpenReliant is faithful by default, and every difference is marked where it is made.

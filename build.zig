@@ -112,6 +112,10 @@ pub fn build(b: *std.Build) void {
         },
     });
     scripting.linkLibrary(luau_library);
+    // The scripting API's definitions and reference page as generated, which its tests check
+    // against.
+    scripting.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
+    scripting.addAnonymousImport("hooks.md", .{ .root_source_file = b.path("docs/guide/hooks.md") });
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
     const archive_library = b.dependency("libarchive", .{ .target = target, .optimize = optimize }).artifact("archive");

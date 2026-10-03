@@ -20,6 +20,7 @@ const collision = @import("collision.zig");
 const create = @import("create.zig");
 const explode = @import("explode.zig");
 const gameobj = @import("gameobj.zig");
+const hooks = @import("../hooks.zig");
 const objects = @import("objects.zig");
 const shield = @import("shield.zig");
 const shieldfx = @import("shieldfx.zig");
@@ -302,6 +303,7 @@ pub const Missiles = Linked(Missile, max_missiles);
 ///
 /// Not ported: what a multiplayer game sends.
 pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneric.Target) void {
+    if (hooks.enter(.missile_launch, launch, .{ world, launcher, rack, target })) |done| return done;
     const all = world.objects;
     const missiles = &all.missiles;
     const carrier = &all.slots[launcher];
@@ -345,6 +347,7 @@ pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneri
 ///
 /// Where memory runs out for it, or the game lacks its model, nothing is launched.
 pub fn launchFromTurret(world: gameobj.World, ship: u16, model: *const objects.Model, launcher: usize, target: aigeneric.Target) void {
+    if (hooks.enter(.missile_launch_turret, launchFromTurret, .{ world, ship, model, launcher, target })) |done| return done;
     const all = world.objects;
     const carrier = &all.slots[ship];
     if (carrier.object.flags.missiles_disabled or all.missiles.full()) return;

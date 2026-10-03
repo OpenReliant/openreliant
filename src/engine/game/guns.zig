@@ -195,6 +195,11 @@ pub const Turret = union(enum) {
 pub const Barrel = struct {
     muzzle: Muzzle,
     type: GunType,
+
+    /// Fires a shot from it for the object in slot `owner`, heard or not (`shoot`).
+    pub fn fire(barrel: Barrel, world: gameobj.World, owner: u16, is_heard: bool) void {
+        shoot(world, owner, barrel.muzzle, barrel.type, is_heard);
+    }
 };
 
 /// A muzzle a gun fires from: an attachment of kind `gun_muzzle` on a part of its object's model,
@@ -750,7 +755,7 @@ pub fn step(world: gameobj.World, clock: *const Clock, index: u16) void {
                                 alternated = true;
                             }
                             if (!fires(world, object)) break :shot;
-                            shoot(world, clock, index, barrel.*, is_heard);
+                            barrel.fire(world, index, is_heard);
                             object.gun_charge -= @floatFromInt(record.shot_energy);
                         },
                         .rounds => {
@@ -760,7 +765,7 @@ pub fn step(world: gameobj.World, clock: *const Clock, index: u16) void {
                                 alternated = true;
                             }
                             if (!fires(world, object)) break :shot;
-                            shoot(world, clock, index, barrel.*, is_heard);
+                            barrel.fire(world, index, is_heard);
                             object.rounds -= 1;
                         },
                         else => {},
@@ -775,7 +780,7 @@ pub fn step(world: gameobj.World, clock: *const Clock, index: u16) void {
                     if (!takes) continue;
                     alternated = true;
                 }
-                shoot(world, clock, index, barrel.*, is_heard);
+                barrel.fire(world, index, is_heard);
                 effects.throwCases(world, index, barrel.muzzle.model, barrel.muzzle.part);
                 object.rounds -= 1;
             },
@@ -1075,12 +1080,12 @@ test blindAim {
 
     // Not aiming blind, the shot flies along its muzzle.
     try std.testing.expectEqual(null, blindAim(world, ship.index, barrel.type));
-    shoot(world, &ship.mission.clock, ship.index, barrel, false);
+    barrel.fire(world, ship.index, false);
     try std.testing.expectEqual(Vector{ 0, 0, speed }, pool[0].velocity);
 
     // Aiming blind, the player's shot flies at the lead cursor's point, as fast as ever.
     ship.object().blind_fire_aim = 1;
-    shoot(world, &ship.mission.clock, ship.index, barrel, false);
+    barrel.fire(world, ship.index, false);
     const aimed = pool[1];
     const toward = math.normalize(display.lead_point - aimed.at) * @as(Vector, @splat(speed));
     try math.testing.expectVectorWithin(toward, aimed.velocity, 1e-3);
@@ -1269,10 +1274,10 @@ fn shotColour(player: bool, side: gameobj.Side(i32)) [3]f32 {
     return if (!player and side == .hostile) hostile_shot_light else shot_light;
 }
 
-/// `bullet_fire` (`0x0047C5F0`) with `bullet_place` (`0x0047BDB0`): the shot a gun takes. It
-/// leaves the muzzle where the step is taking it, flying along the muzzle's nose at the type's
-/// speed, and lives for the type's `lifetime` ticks. Nothing is fired while every record is in
-/// flight.
+/// `bullet_fire` (`0x0047C5F0`) with `bullet_place` (`0x0047BDB0`): a shot of `gun_type` that the
+/// object in slot `owner` fires from `muzzle`, heard or not. It leaves the muzzle where the step is
+/// taking it, flying along the muzzle's nose at the type's speed, and lives for the type's
+/// `lifetime` ticks. Nothing is fired while every record is in flight.
 ///
 /// The shot is given the objects it may reach on its way: any object whose radius, widened by how
 /// far it could travel meanwhile, the shot's path comes within. The frame pass tests only those
@@ -1297,7 +1302,9 @@ fn shotColour(player: bool, side: gameobj.Side(i32)) [3]f32 {
 /// Not ported: how the other gun types' shots are drawn
 /// ([#154](https://github.com/OpenReliant/openreliant/issues/154)); its sound
 /// ([#47](https://github.com/OpenReliant/openreliant/issues/47)).
-pub fn shoot(world: gameobj.World, clock: *const Clock, owner: u16, barrel: Barrel, is_heard: bool) void {
+pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType, is_heard: bool) void {
+    if (hooks.enter(.bullet_fire, shoot, .{ world, owner, muzzle, gun_type, is_heard })) |done| return done;
+    const clock = world.clock;
     const all = world.objects;
     const slot = &all.slots[owner];
     const model = if (slot.model) |*live| live else return;
@@ -1306,15 +1313,15 @@ pub fn shoot(world: gameobj.World, clock: *const Clock, owner: u16, barrel: Barr
 
     // The shot's own type, which is its gun's but for a Turret Flak's two times in five
     // (`bullet_fire`); its figures follow it.
-    var kind = barrel.type;
+    var kind = gun_type;
     if (kind == .turret_flak and @rem(world.random.rand(), flak_lasers.in) < flak_lasers.times) kind = .turret_lasers;
     const record = kind.stats(&all.gun_stats);
 
     // The muzzle stands where the step is taking the ship, on the part that carries it. A shot
     // aimed blind faces where it is aimed, unrolled.
-    const muzzle = barrel.muzzle.at(model, slot.object.placeAt(.next), .next) orelse return;
-    const at = muzzle.position;
-    const turn = if (blindAim(world, owner, kind)) |aim| math.lookAt(aim - at) else muzzle.orientation;
+    const leaves = muzzle.at(model, slot.object.placeAt(.next), .next) orelse return;
+    const at = leaves.position;
+    const turn = if (blindAim(world, owner, kind)) |aim| math.lookAt(aim - at) else leaves.orientation;
 
     bullet.* = .{
         .live = true,
@@ -1359,7 +1366,7 @@ pub fn shoot(world: gameobj.World, clock: *const Clock, owner: u16, barrel: Barr
     if (is_heard) shotSound(world, @intCast(index), kind, record.sound, owner == all.player);
     if (player) if (world.forces) |forces| forces.start(forceEffect(kind), clock.frame_start);
     candidates(world, bullet, record, lifetime);
-    if (barrel.muzzle.flashOf()) |lit| lit.fire(kind, clock.frame_start, shotColour(player, bullet.side));
+    if (muzzle.flashOf()) |lit| lit.fire(kind, clock.frame_start, shotColour(player, bullet.side));
 }
 
 /// `bullet_place`'s aim for a shot of type `kind` from the ship in slot `owner`, while the ship
@@ -1404,7 +1411,7 @@ pub fn clipEventMuzzles(world: gameobj.World, owner: u16, model: *const objects.
     for (model.parts[index].attachments) |*attachment| {
         if (attachment.kind != .gun_muzzle) continue;
         const muzzle: Muzzle = .{ .model = model, .part = index, .attachment = attachment };
-        shoot(world, world.clock, owner, .{ .muzzle = muzzle, .type = .fromNumber(attachment.gun_type) }, true);
+        shoot(world, owner, muzzle, .fromNumber(attachment.gun_type), true);
     }
 }
 
@@ -1805,8 +1812,9 @@ test shoot {
     try ship.init(gpa);
     defer ship.deinit(gpa);
     const world = ship.world();
+    const barrel = ship.guns()[0].turret.fixed;
 
-    shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    barrel.fire(world, ship.index, false);
     try std.testing.expectEqual(1, flying(world));
     const bullet = &world.objects.bullets.pool[0];
     // It leaves the muzzle, a hundred to the left of the ship's nose, flying along that nose at
@@ -1825,7 +1833,7 @@ test shoot {
 
     // Nothing is fired once every record is in flight.
     for (&world.objects.bullets.pool) |*record| record.live = true;
-    shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    barrel.fire(world, ship.index, false);
     try std.testing.expectEqual(max_bullets, flying(world));
 }
 
@@ -1847,7 +1855,7 @@ test "a shot lights its muzzle's flash" {
     try std.testing.expectEqual(null, lit.until);
 
     // Lit for the Laser Cannon's 50 ticks from the frame's start; the other muzzle's stays out.
-    shoot(world, &ship.mission.clock, flashing, barrel, false);
+    barrel.fire(world, flashing, false);
     try std.testing.expectEqual(ship.mission.clock.frame_start + 50, lit.until);
     for (slot.model.?.flashes) |*other| {
         if (other != lit) try std.testing.expectEqual(null, other.until);
@@ -1869,7 +1877,7 @@ test bulletsFrame {
 
     // A shot whose path crosses the ship: its shields take the type's shield damage, and it is
     // spent.
-    shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const bullet = &world.objects.bullets.pool[0];
     try std.testing.expectEqual(1, bullet.candidate_count);
     try std.testing.expectEqual(target, bullet.candidates[0].object);
@@ -1883,7 +1891,7 @@ test bulletsFrame {
     struck.shields = .all(0);
     struck.recent_damage = 0;
     const armor = struck.armor;
-    shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const next = &world.objects.bullets.pool[0];
     next.last = .{ 0, 0, 0 };
     next.at = .{ 0, 0, 600 };
@@ -1893,7 +1901,7 @@ test bulletsFrame {
     try std.testing.expectEqual(0, flying(world));
 
     // A shot that reaches the end of its life is let go.
-    shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     try std.testing.expectEqual(1, flying(world));
     ship.mission.clock.frame_start += 1000;
     bulletsFrame(world, &ship.mission.clock, 0);
@@ -1998,7 +2006,7 @@ test "a shot strikes a component of a ship that lists them" {
     part.object.radius = 150;
 
     // The part is the shot's candidate, and the shot, crossing it, spends itself on it.
-    shoot(world, &mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const bullet = &world.objects.bullets.pool[0];
     try std.testing.expectEqual(1, bullet.candidate_count);
     try std.testing.expectEqual(target, bullet.candidates[0].object);
@@ -2011,7 +2019,7 @@ test "a shot strikes a component of a ship that lists them" {
 
     // A Huge Gun's shot sets a fireball off there, and does no damage.
     const armor = part.armor;
-    shoot(world, &mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const huge = &world.objects.bullets.pool[0];
     huge.kind = .coalition_huge_gun;
     huge.last = .{ -100, 0, 0 };
@@ -2021,7 +2029,7 @@ test "a shot strikes a component of a ship that lists them" {
     try std.testing.expectEqual(0, flying(world));
 
     // One that passes beside the part flies on.
-    shoot(world, &mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const beside = &world.objects.bullets.pool[0];
     beside.last = .{ -400, 0, 0 };
     beside.at = .{ -400, 0, 600 };
@@ -2031,7 +2039,7 @@ test "a shot strikes a component of a ship that lists them" {
     // Where the object's model has changed since the shot was fired, to one without the part, the
     // shot finds no part by the number it keeps, and flies on.
     beside.* = .{};
-    shoot(world, &mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const changed = &world.objects.bullets.pool[0];
     const parts = slot.model.?.parts;
     defer slot.model.?.parts = parts;
@@ -2060,7 +2068,7 @@ test "a shot striking a hull throws sparks from where it struck" {
     slot.object.shields = .all(0);
 
     // They fly from where the shot enters the part's box, its face 500 ahead.
-    shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const bullet = &world.objects.bullets.pool[0];
     bullet.last = .{ 0, 0, 0 };
     bullet.at = .{ 0, 0, 600 };
@@ -2084,7 +2092,7 @@ test "the player's shifted shields take a hit before the quadrant does" {
     ship.mission.player.shield_reserves = .{ .fore = 25, .aft = 0 };
 
     // A shot into the player's fore quadrant comes off the reserve, and the shields are untouched.
-    shoot(world, &ship.mission.clock, shooter, ship.mission.objects.slots[shooter].guns[0].turret.fixed, false);
+    ship.mission.objects.slots[shooter].guns[0].turret.fixed.fire(world, shooter, false);
     const bullet = &world.objects.bullets.pool[0];
     bullet.last = .{ 0, 0, 500 };
     bullet.at = .{ 0, 0, -100 };
@@ -2111,9 +2119,9 @@ test "a heard shot sounds, following it" {
     world.hearing = speaker.hearing(&ship.mission.clock);
 
     // Unheard, nothing plays; heard, the gun type's sound follows the shot.
-    shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     for (sound.voices_3d[0..sound.voice_3d_count]) |voice| try std.testing.expectEqual(-1, voice.owner);
-    shoot(world, &ship.mission.clock, ship.index, ship.guns()[1].turret.fixed, true);
+    ship.guns()[1].turret.fixed.fire(world, ship.index, true);
     const record = testing.gun_type.stats(&ship.mission.objects.gun_stats);
     var found = false;
     for (sound.voices_3d[0..sound.voice_3d_count]) |voice| {
@@ -2137,14 +2145,14 @@ test "only the latest two shots of a ring cast a light" {
     ship.mission.objects.slots[other].object.side = .hostile;
 
     // The player's third shot puts out the first one's light.
-    for (0..3) |_| shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    for (0..3) |_| ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     try std.testing.expectEqual(null, bullets.pool[0].light);
     try std.testing.expect(bullets.pool[1].light != null);
     try std.testing.expect(bullets.pool[2].light != null);
     try std.testing.expectEqual(shot_light, bullets.pool[2].light.?.colour);
 
     // Another ship's shots keep a ring of their own, and a hostile ship's are orange.
-    shoot(world, &ship.mission.clock, other, ship.mission.objects.slots[other].guns[0].turret.fixed, false);
+    ship.mission.objects.slots[other].guns[0].turret.fixed.fire(world, other, false);
     try std.testing.expectEqual(hostile_shot_light, bullets.pool[3].light.?.colour);
     try std.testing.expect(bullets.pool[1].light != null);
 
@@ -2162,7 +2170,7 @@ test "every shot casts a light where OpenReliant lets them" {
     defer ship.deinit(gpa);
     const world = ship.world();
     world.objects.bullets.shot_lights = .every_shot;
-    for (0..3) |_| shoot(world, &ship.mission.clock, ship.index, ship.guns()[0].turret.fixed, false);
+    for (0..3) |_| ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     for (world.objects.bullets.pool[0..3]) |bullet| try std.testing.expect(bullet.light != null);
     // The rings are left alone.
     try std.testing.expectEqual(null, world.objects.bullets.player_lights.slots[0]);
@@ -2185,7 +2193,7 @@ test "a Turret Flak shot bursts at a random range, scatters, and is at times a l
     var flak: usize = 0;
     var lasers: usize = 0;
     for (0..40) |_| {
-        shoot(world, &ship.mission.clock, ship.index, gun, false);
+        gun.fire(world, ship.index, false);
         const bullet = &world.objects.bullets.pool[0];
         if (bullet.kind == .turret_lasers) {
             // A laser's shot flies straight, for its type's whole life.
@@ -2219,7 +2227,7 @@ test "a Huge Gun's shot reaches farther, and always through the shields" {
     const slot = &ship.mission.objects.slots[target];
     slot.drawn = .{ .position = .{ 1500, 0, 500 }, .orientation = math.identity };
     slot.object.shields = .all(0);
-    shoot(world, &ship.mission.clock, ship.index, gun, false);
+    gun.fire(world, ship.index, false);
     const bullet = &world.objects.bullets.pool[0];
     try std.testing.expectEqual(1, bullet.candidate_count);
     bullet.last = .{ 0, 0, 0 };
@@ -3232,6 +3240,7 @@ const Objects = create.Objects;
 const formats = @import("../../formats/stats.zig");
 const gameobj = @import("gameobj.zig");
 const gun_stats = @import("guns/stats.zig");
+const hooks = @import("../hooks.zig");
 const hud = @import("hud.zig");
 const libcmt = @import("../libcmt.zig");
 const matmanager = @import("matmanager.zig");

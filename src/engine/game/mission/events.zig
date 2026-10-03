@@ -4,6 +4,9 @@
 //! each kind. Once a second the watches of the proximity conditions look for ships close by.
 //! [docs/engine/script-vm.md](../../../../docs/engine/script-vm.md#events) describes them.
 //!
+//! Mods' scripts are told about each event on one of the mission's ships when the routine here
+//! posts it, whether or not a trigger waits for it (`hooks.events`).
+//!
 //! **Unverified:** the queue's own routines (`0x0045B690` to `0x0045B840`) lie past this file's
 //! known code, before the interpreter's; they do its queue's work.
 
@@ -15,6 +18,7 @@ const dte = @import("../../../formats/dte.zig");
 const math = @import("../../surrender/math.zig");
 const vm = @import("../../vm.zig");
 const gameobj = @import("../gameobj.zig");
+const hooks = @import("../../hooks.zig");
 const bind = @import("bind.zig");
 
 const triggers = vm.triggers;
@@ -323,38 +327,50 @@ const no_weapon: u32 = 0xFFFF_FFFF;
 /// `event_launched` (`0x0045A9B0`): the object in slot `index` has launched. Its ship's Launched,
 /// with the ship, goes on to its groups.
 pub fn launched(world: gameobj.World, index: u16) void {
-    postNaming(world, index, .launched, index);
+    postNaming(world, index, .launched, index, .{ .object = .of(index) });
 }
 
 /// `event_jumped_in` (`0x0045B300`): the object in slot `index` has jumped in (`jump.inUpdate`).
 /// Its ship's JumpedIn, with the ship, goes on to its groups.
 pub fn jumpedIn(world: gameobj.World, index: u16) void {
-    postNaming(world, index, .jumped_in, index);
+    postNaming(world, index, .jumped_in, index, .{ .object = .of(index) });
 }
 
 /// `event_fixed_gate_jumped_in` (`0x0045ABD0`): the object in slot `index` has come in through the
 /// fixed gate in slot `gate` (`wgate.jumpIn`). Its ship's FixedGateJumpedIn, with the gate's ship,
 /// goes on to its groups.
 pub fn fixedGateJumpedIn(world: gameobj.World, index: u16, gate: u16) void {
-    postNaming(world, index, .fixed_gate_jumped_in, gate);
+    postNaming(world, index, .fixed_gate_jumped_in, gate, .{ .object = .of(index), .gate = .of(gate) });
 }
 
 /// The ship of the object in slot `index` posts `condition` with the ship of the object in slot
-/// `named` as its value, which goes on to its groups; an object that stands for no mission's ship
-/// posts nothing.
-fn postNaming(world: gameobj.World, index: u16, condition: dte.Condition, named: u16) void {
+/// `named` as its value, which goes on to its groups, once the scripts have heard of it as `told`;
+/// an object that stands for no mission's ship posts nothing.
+fn postNaming(world: gameobj.World, index: u16, comptime condition: dte.Condition, named: u16, told: Told(condition)) void {
     const events = world.events orelse return;
     const ship = events.shipOf(index) orelse return;
+    hooks.tell(world, hookOf(condition), told);
     var values = [_]u32{events.value(named)};
     events.postGroup(ship, .{ .condition = condition, .values = &values });
 }
 
-/// The ship of the object in slot `index` posts `condition`, with no values, for its own triggers;
-/// an object that stands for no mission's ship posts nothing.
-fn postOwn(world: gameobj.World, index: u16, condition: dte.Condition) void {
+/// The ship of the object in slot `index` posts `condition`, with no values, for its own triggers,
+/// once the scripts have heard of it; an object that stands for no mission's ship posts nothing.
+fn postOwn(world: gameobj.World, index: u16, comptime condition: dte.Condition) void {
     const events = world.events orelse return;
     const ship = events.shipOf(index) orelse return;
+    hooks.tell(world, hookOf(condition), .{ .object = .of(index) });
     events.post(ship, .{ .condition = condition });
+}
+
+/// The scripts' hook on the event of `condition`, which takes its name.
+fn hookOf(comptime condition: dte.Condition) hooks.Hook {
+    return @field(hooks.Hook, @tagName(condition));
+}
+
+/// What the scripts hear of an event of `condition`.
+fn Told(comptime condition: dte.Condition) type {
+    return hooks.Fields(hookOf(condition));
 }
 
 /// `event_shot_at` (`0x0045A9E0`): the object in slot `index` is hit by the one in slot
@@ -366,6 +382,7 @@ pub fn shotAt(world: gameobj.World, index: u16, attacker: u16, component: ?u8) v
     const events = world.events orelse return;
     const ship = events.shipOf(index) orelse return;
     if (events.shipOf(attacker) == null) return;
+    hooks.tell(world, .shot_at, .{ .object = .of(index), .attacker = .of(attacker), .component = component });
     const qualifier = component orelse dte.Trigger.whole_object;
     const damage = triggers.damageValue(world, ship, qualifier);
     var values = [_]u32{ events.value(attacker), damage, damage, events.value(index), no_weapon };
@@ -389,6 +406,11 @@ pub fn destroyed(world: gameobj.World, index: u16, component: ?u8) void {
         if (record.flags.destroyed) return;
         record.flags.destroyed = true;
     }
+    hooks.tell(world, .destroyed, .{
+        .object = .of(index),
+        .component = component,
+        .attacker = if (world.objects.slots[index].object.last_attacker.index()) |slot| .of(slot) else null,
+    });
     events.postGroup(ship, .{ .condition = .destroyed, .qualifier = component orelse dte.Trigger.whole_object, .values = &values });
 }
 
@@ -396,27 +418,27 @@ pub fn destroyed(world: gameobj.World, index: u16, component: ?u8) void {
 /// (`order_scoop_up`). Its ship's ObjectScooped, with the ship of what it took, goes on to its
 /// groups.
 pub fn scooped(world: gameobj.World, index: u16, object: u16) void {
-    postNaming(world, index, .object_scooped, object);
+    postNaming(world, index, .object_scooped, object, .{ .object = .of(index), .scooped = .of(object) });
 }
 
 /// `event_ripper_grabbed` (`0x0045AB10`): the Ripper in slot `index` has the object in slot
 /// `object` aboard (`airipper.grab`). Its ship's RipperGrabbedObject, with the ship of what it
 /// took, goes on to its groups.
 pub fn ripperGrabbed(world: gameobj.World, index: u16, object: u16) void {
-    postNaming(world, index, .ripper_grabbed_object, object);
+    postNaming(world, index, .ripper_grabbed_object, object, .{ .object = .of(index), .grabbed = .of(object) });
 }
 
 /// `event_ripper_dropped` (`0x0045AB90`): the Ripper in slot `index` has let go of the object in
 /// slot `object`, or fitted it to a ship (`airipper.endDrop`, `airipper.attach`). Its ship's
 /// RipperDroppedObject, with the ship of what it let go, goes on to its groups.
 pub fn ripperDropped(world: gameobj.World, index: u16, object: u16) void {
-    postNaming(world, index, .ripper_dropped_object, object);
+    postNaming(world, index, .ripper_dropped_object, object, .{ .object = .of(index), .dropped = .of(object) });
 }
 
 /// `event_post_explosion` (`0x0045AB50`): the explosion that the object in slot `index` set off is
 /// over. Its ship's ExplosionShip, with the ship, goes on to its groups.
 pub fn exploded(world: gameobj.World, index: u16) void {
-    postNaming(world, index, .explosion_ship, index);
+    postNaming(world, index, .explosion_ship, index, .{ .object = .of(index) });
 }
 
 /// The object in slot `index` cloaks, or uncloaks (`object_cloak`, `object_uncloak`): its ship's
@@ -425,7 +447,7 @@ pub fn exploded(world: gameobj.World, index: u16) void {
 /// **Fix:** the game faults on an object that stands for no mission's ship; OpenReliant posts
 /// nothing.
 pub fn cloaked(world: gameobj.World, index: u16, on: bool) void {
-    postOwn(world, index, if (on) .cloaked else .decloaked);
+    if (on) postOwn(world, index, .cloaked) else postOwn(world, index, .decloaked);
 }
 
 /// `event_post_ship_reached` (`0x0045AC10`): the object in slot `index` has reached mission ship
@@ -433,6 +455,7 @@ pub fn cloaked(world: gameobj.World, index: u16, on: bool) void {
 /// ShipReached, with the ship of the object that reached it, for its own triggers.
 pub fn shipReached(world: gameobj.World, ship: u16, index: u16) void {
     const events = world.events orelse return;
+    if (events.script.mission.ship(ship) != null) hooks.tell(world, .ship_reached, .{ .ship = ship, .reached_by = .of(index) });
     var values = [_]u32{events.value(index)};
     events.post(ship, .{ .condition = .ship_reached, .values = &values });
 }
@@ -448,6 +471,7 @@ pub fn docked(world: gameobj.World, index: u16) void {
 /// no values, for its own triggers.
 pub fn cameraReached(world: gameobj.World, ship: u16) void {
     const events = world.events orelse return;
+    if (events.script.mission.ship(ship) != null) hooks.tell(world, .camera_reached, .{ .ship = ship });
     events.post(ship, .{ .condition = .camera_reached });
 }
 
@@ -455,7 +479,7 @@ pub fn cameraReached(world: gameobj.World, ship: u16) void {
 /// the mission's first, has its PlayerReadyToJump or its PlayerReadyToWarp, with no values, for its
 /// own triggers.
 pub fn readyToJump(world: gameobj.World, warp: bool) void {
-    postOwn(world, 0, if (warp) .player_ready_to_warp else .player_ready_to_jump);
+    if (warp) postOwn(world, 0, .player_ready_to_warp) else postOwn(world, 0, .player_ready_to_jump);
 }
 
 /// REQUEST BACKUP brought the mission's backup (`comms_request_backup`, `0x004559D6`): the

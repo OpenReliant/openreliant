@@ -16,6 +16,7 @@ const Pointer = engine.Pointer;
 const dte = @import("../../formats/dte.zig");
 const bind = @import("mission/bind.zig");
 const events = @import("mission/events.zig");
+const hooks = @import("../hooks.zig");
 const gameobj = @import("gameobj.zig");
 const Routine = gameobj.Routine;
 const camera = @import("camera.zig");
@@ -30,6 +31,8 @@ const GameObject = gameobj.GameObject;
 
 /// The order table, every order objects follow.
 pub const orders = @import("ai/orders.zig");
+/// The names of the order table's routines.
+pub const routines = @import("ai/routines.zig");
 /// Ship Follow Curve and its backwards twin.
 pub const follow = @import("ai/follow.zig");
 
@@ -410,6 +413,7 @@ pub fn hullLost(ctx: aigeneric.Context, index: u16) void {
 /// Not ported: multiplayer, where the player's ship explodes at once
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn objectDestroyed(ctx: aigeneric.Context, index: u16, may_spin: bool, no_eject: bool) void {
+    if (hooks.enter(.object_destroyed, objectDestroyed, .{ ctx, index, may_spin, no_eject })) |done| return done;
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;

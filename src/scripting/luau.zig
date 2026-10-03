@@ -113,6 +113,11 @@ pub const State = opaque {
 
     // --- Stack ----------------------------------------------------------------------------------
 
+    /// Makes room for `count` more values on the stack. Returns false if it can't.
+    pub fn checkStack(state: *State, count: i32) bool {
+        return c.lua_checkstack(state.raw(), count) != 0;
+    }
+
     pub fn top(state: *State) i32 {
         return c.lua_gettop(state.raw());
     }
@@ -134,6 +139,11 @@ pub const State = opaque {
     /// Moves the top value to `index`, shifting the values above it up.
     pub fn insert(state: *State, index: i32) void {
         c.lua_insert(state.raw(), index);
+    }
+
+    /// Removes the value at `index`, shifting the values above it down.
+    pub fn remove(state: *State, index: i32) void {
+        c.lua_remove(state.raw(), index);
     }
 
     pub fn pushCopy(state: *State, index: i32) void {
@@ -179,6 +189,28 @@ pub const State = opaque {
     /// Pushes a C function, with `name` shown in tracebacks.
     pub fn pushFunction(state: *State, function: Function, name: [:0]const u8) void {
         c.lua_pushcclosurek(state.raw(), function, name, 0, null);
+    }
+
+    /// Pushes a C function that keeps `data`, which it reads with `upvalue`.
+    pub fn pushClosure(state: *State, function: Function, name: [:0]const u8, data: *anyopaque) void {
+        state.pushLightUserdata(data);
+        c.lua_pushcclosurek(state.raw(), function, name, 1, null);
+    }
+
+    /// What the running C function keeps (`pushClosure`).
+    pub fn upvalue(state: *State, comptime T: type) *T {
+        return state.toLightUserdata(T, c.LUA_GLOBALSINDEX - 1).?;
+    }
+
+    /// Pushes a vector.
+    pub fn pushVector(state: *State, value: @Vector(3, f32)) void {
+        c.lua_pushvector(state.raw(), value[0], value[1], value[2]);
+    }
+
+    /// The vector at `index`, or null if the value isn't a vector.
+    pub fn toVector(state: *State, index: i32) ?@Vector(3, f32) {
+        const components = c.lua_tovector(state.raw(), index) orelse return null;
+        return .{ components[0], components[1], components[2] };
     }
 
     pub fn toBoolean(state: *State, index: i32) bool {
@@ -233,6 +265,21 @@ pub const State = opaque {
         c.lua_rawsetfield(state.raw(), index, key);
     }
 
+    /// Pushes `table[n]` for the table at `index`, ignoring metamethods.
+    pub fn rawGetIndex(state: *State, index: i32, n: i32) Type {
+        return @enumFromInt(c.lua_rawgeti(state.raw(), index, n));
+    }
+
+    /// Pops a value and sets `table[n]` to it for the table at `index`, ignoring metamethods.
+    pub fn rawSetIndex(state: *State, index: i32, n: i32) void {
+        c.lua_rawseti(state.raw(), index, n);
+    }
+
+    /// Pops a table and makes it the metatable of the table at `index`.
+    pub fn setMetatable(state: *State, index: i32) void {
+        _ = c.lua_setmetatable(state.raw(), index);
+    }
+
     /// Pops a key and pushes the next key and value of the table at `index` (`lua_next`). Returns
     /// false after the last one.
     pub fn next(state: *State, index: i32) bool {
@@ -270,6 +317,20 @@ pub const State = opaque {
     /// Pops a table and registers it as the metatable for userdata with `tag`.
     pub fn setUserdataMetatable(state: *State, tag: Tag) void {
         c.lua_setuserdatametatable(state.raw(), tag);
+    }
+
+    /// Registers the metatable of userdata with `tag`: its `methods`, and `type_name` for Luau's
+    /// `typeof`. Scripts can't change the metatable.
+    pub fn registerUserdata(state: *State, tag: Tag, type_name: []const u8, methods: []const Method) void {
+        state.newTable(0, @intCast(methods.len + 1));
+        for (methods) |method| {
+            state.pushFunction(method[1], method[0]);
+            state.rawSetField(-2, method[0]);
+        }
+        state.pushString(type_name);
+        state.rawSetField(-2, "__type");
+        state.setReadonly(-1, true);
+        state.setUserdataMetatable(tag);
     }
 
     // --- References -----------------------------------------------------------------------------
@@ -380,6 +441,9 @@ const debug_level = 1;
 /// A C function that Luau can call.
 pub const Function = *const fn (?*c.lua_State) callconv(.c) c_int;
 
+/// A metamethod of a userdata's metatable, such as `__index`, and its function.
+pub const Method = struct { [:0]const u8, Function };
+
 /// Wraps a Zig function as a C function for Luau. `run` returns the number of results it pushed.
 pub fn wrap(comptime run: fn (*State) i32) Function {
     return &struct {
@@ -462,6 +526,27 @@ test "a syntax error is reported when loading" {
     defer broken.free();
     try std.testing.expectEqual(Status.syntax_error, state.load("=broken", broken.bytes));
     try std.testing.expect(std.mem.startsWith(u8, state.toString(-1).?, "broken:1:"));
+}
+
+test "vectors and closures" {
+    const state = State.create(testing.allocate, null).?;
+    defer state.close();
+    state.pushVector(.{ 1, 2, 3 });
+    try std.testing.expectEqual(Type.vector, state.typeOf(-1));
+    try std.testing.expectEqual(@Vector(3, f32){ 1, 2, 3 }, state.toVector(-1).?);
+    try std.testing.expectEqual(null, state.toVector(-2));
+    state.pop(1);
+
+    var kept: u32 = 7;
+    const reads = struct {
+        fn reads(called: *State) i32 {
+            called.pushNumber(@floatFromInt(called.upvalue(u32).*));
+            return 1;
+        }
+    }.reads;
+    state.pushClosure(wrap(reads), "reads", &kept);
+    try std.testing.expectEqual(Status.ok, state.protectedCall(0, 1));
+    try std.testing.expectEqual(7, state.toNumber(-1).?);
 }
 
 test "the sandbox makes the standard libraries read-only" {

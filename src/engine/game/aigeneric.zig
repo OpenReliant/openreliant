@@ -24,6 +24,7 @@ const friendly_fire = @import("friendly_fire.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
 const guns = @import("guns.zig");
+const hooks = @import("../hooks.zig");
 const input = @import("../input.zig");
 const jump = @import("jump.zig");
 const launch = @import("launch.zig");
@@ -370,12 +371,12 @@ pub fn giveWay(ctx: Context, index: u16, order: ?Order) Error!bool {
     if (pushed) |info| if (info.flags.one_shot) return true;
     const running = orders.info(current.order) orelse return true;
     if (order == .explode or running.priority == 0) {
-        runExit(ctx, index, running);
+        exitOrder(ctx, index, running);
         return true;
     }
     const wanted = pushed orelse return error.OrderConflict;
     if (running.priority >= wanted.priority) return error.OrderConflict;
-    runExit(ctx, index, running);
+    exitOrder(ctx, index, running);
     return true;
 }
 
@@ -479,7 +480,7 @@ pub fn pop(ctx: Context, index: u16) bool {
     const object = &slot.object;
     const running = slot.current() orelse return false;
     const popped = orders.info(running.order);
-    if (popped) |info| if (!object.order_starting) runExit(ctx, index, info);
+    if (popped) |info| if (!object.order_starting) exitOrder(ctx, index, info);
     remove(slot, 0);
     if (popped) |info| if (!info.flags.one_shot) start(slot);
     return true;
@@ -503,6 +504,13 @@ pub fn popAll(ctx: Context, index: u16) void {
     }
 }
 
+/// Ends an order the object has started: its `exit` runs (`runExit`), and the scripts hear of it
+/// (`order_ended`).
+fn exitOrder(ctx: Context, index: u16, info: orders.Info) void {
+    runExit(ctx, index, info);
+    hooks.tell(ctx, .order_ended, .{ .object = .of(index), .order = info.order });
+}
+
 /// Marks the current order as one that has yet to start and clears what an order keeps between its
 /// updates, which both `order_push` and `order_pop` do.
 fn start(slot: *create.Slot) void {
@@ -523,10 +531,10 @@ fn remove(slot: *create.Slot, at: usize) void {
 /// `object_orders` (`0x0040C5F0`): runs an object's current order. A `retaliate` order lets the
 /// ship turn on whoever is shooting it first. Both burns are cleared, so an order that burns sets
 /// them again each time it runs. A one-shot order runs its update, pops itself and lets the order
-/// below run in the same pass; any other runs its `init` where it is starting, then its update.
-/// Afterwards the object's own state has the last word: engines that are disabled hold the throttle
-/// at nothing, an empty tank stops both burns, and only a ship that can reverse keeps reverse
-/// thrust.
+/// below run in the same pass; any other runs its `init` where it is starting, which the scripts
+/// hear of (`order_started`), then its update. Afterwards the object's own state has the last word:
+/// engines that are disabled hold the throttle at nothing, an empty tank stops both burns, and only
+/// a ship that can reverse keeps reverse thrust.
 ///
 /// **Improvement** (`input.force.Unread.played`): the player's afterburner lighting and going out
 /// starts and stops `Afterburn` on the controller (`input.force.Forces.afterburner`).
@@ -534,6 +542,7 @@ fn remove(slot: *create.Slot, at: usize) void {
 /// Not ported: the orders other players' machines queue, which are multiplayer's
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn objectOrders(ctx: Context, index: u16) void {
+    if (hooks.enter(.object_orders, objectOrders, .{ ctx, index })) |done| return done;
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
     if (slot.current()) |entry| {
@@ -547,6 +556,7 @@ pub fn objectOrders(ctx: Context, index: u16) void {
             if (object.order_starting) {
                 runInit(ctx, index, running);
                 object.order_starting = false;
+                hooks.tell(ctx, .order_started, .{ .object = .of(index), .order = running.order });
             }
             runUpdate(ctx, index, running);
         } else {
@@ -598,6 +608,7 @@ const retaliation_share: f32 = 0.7;
 /// be on the other side and not already the order's target, and a ship told not to be disturbed
 /// stays on its order.
 pub fn retaliate(ctx: Context, index: u16) void {
+    if (hooks.enter(.order_retaliate, retaliate, .{ ctx, index })) |done| return done;
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
@@ -617,11 +628,13 @@ pub fn retaliate(ctx: Context, index: u16) void {
     _ = giveShip(ctx, index, .fight, attacking, null);
 }
 
-/// The `init` of the order, where OpenReliant runs it. The orders whose `init` isn't ported yet do
-/// nothing ([#30](https://github.com/OpenReliant/openreliant/issues/30)), the warps' among them
+/// The `init` of the order, where OpenReliant runs it, which scripts can hook under the routine's
+/// name (`hooks.routine_hooks`). The orders whose `init` isn't ported yet do nothing
+/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), the warps' among them
 /// ([#481](https://github.com/OpenReliant/openreliant/issues/481)) and multiplayer's
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runInit(ctx: Context, index: u16, info: orders.Info) void {
+    if (hooks.enterRoutine(.init, runInit, ctx, index, info)) |done| return done;
     switch (info.order) {
         .fly => aifuncs.flyInit(ctx, index),
         .mill => aifuncs.millInit(ctx, index),
@@ -699,11 +712,13 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
     }
 }
 
-/// The `update` of the order, where OpenReliant runs it. The orders whose update isn't ported yet
-/// do nothing ([#30](https://github.com/OpenReliant/openreliant/issues/30)), the warps' among them
+/// The `update` of the order, where OpenReliant runs it, which scripts can hook under the routine's
+/// name (`hooks.routine_hooks`). The orders whose update isn't ported yet do nothing
+/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), the warps' among them
 /// ([#481](https://github.com/OpenReliant/openreliant/issues/481)) and multiplayer's
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
+    if (hooks.enterRoutine(.update, runUpdate, ctx, index, info)) |done| return done;
     switch (info.order) {
         .do_nothing => aifuncs.doNothing(ctx, index),
         .fly => aifuncs.fly(ctx, index),
@@ -782,10 +797,12 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
     }
 }
 
-/// The `exit` of the order, where OpenReliant runs it. Dark reign shoot's isn't ported yet
+/// The `exit` of the order, where OpenReliant runs it, which scripts can hook under the routine's
+/// name (`hooks.routine_hooks`). Dark reign shoot's isn't ported yet
 /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), nor multiplayer's
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runExit(ctx: Context, index: u16, info: orders.Info) void {
+    if (hooks.enterRoutine(.exit, runExit, ctx, index, info)) |done| return done;
     switch (info.order) {
         .scoop_up => tractor.scoopUpExit(ctx, index),
         .disrupted => aifuncs.disruptedExit(ctx, index),

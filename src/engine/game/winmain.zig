@@ -228,6 +228,19 @@ const second_part_path = path_start ++ std.fmt.comptimePrint("{d}", .{second_par
 const multiplayer_mission = 3;
 const multiplayer_path = path_start ++ "311" ++ file_end;
 
+/// The name of the file of mission `number`, without its folder, as `missionPath` names it: such
+/// as `mission40.dte`. Added for OpenReliant, which matches mods' mission scripts to missions by it.
+pub fn missionFileName(buffer: *[mission_path_size]u8, number: u16, second_part: bool) []const u8 {
+    return missionPath(buffer, number, second_part, false)[path_start.len - file_start.len ..];
+}
+
+test missionFileName {
+    var buffer: [mission_path_size]u8 = undefined;
+    try std.testing.expectEqualStrings("mission40.dte", missionFileName(&buffer, 40, false));
+    try std.testing.expectEqualStrings("mission251.dte", missionFileName(&buffer, 25, true));
+    try std.testing.expectEqualStrings("mission0.dte", missionFileName(&buffer, 0, false));
+}
+
 /// The number in a mission file's name, `mission<number>.dte` as `missionPath` names it, whatever
 /// its case; null for any other name. Added for OpenReliant, which lists the missions a game's
 /// folder holds (`openreliant missions`).

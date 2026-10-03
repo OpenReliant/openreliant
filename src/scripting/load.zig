@@ -75,7 +75,7 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
     for (pending.items) |entry| {
         const saved = try held.snapshot(gpa);
         defer saved.deinit(gpa);
-        if (!scripts.call(entry.context, entry.handler)) saved.restore(held);
+        if (scripts.call(entry.context, entry.handler, .{}) == .failed) saved.restore(held);
     }
 }
 
@@ -102,15 +102,13 @@ fn tellLeftOut(mod: *const Mod) void {
             .kind => |kind| kind.runs(),
             .object_type => false,
         };
-        if (!runs) log.warn("{s}: skipping its {s} scripts: this version of OpenReliant only runs load scripts", .{ mod.name, key });
+        if (!runs) log.warn("{s}: skipping its {s} scripts: this version of OpenReliant only runs load and global scripts", .{ mod.name, key });
     }
-    var missions = mod.manifest.keys(script.missions_section);
-    if (missions.next() != null) log.warn("{s}: skipping its mission scripts: this version of OpenReliant only runs load scripts", .{mod.name});
 }
 
-const testing = struct {
+pub const testing = struct {
     /// Creates a game folder in `dir` with the mods `made`, each a folder of files.
-    fn makeMods(io: Io, dir: Io.Dir, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }) !void {
+    pub fn makeMods(io: Io, dir: Io.Dir, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }) !void {
         for (made) |mod| {
             for (mod[1]) |file| {
                 var path_buffer: [128]u8 = undefined;
@@ -124,7 +122,7 @@ const testing = struct {
     }
 
     /// Records with three guns, the first being the Laser Cannon, and one string.
-    fn records3(arena: Allocator) !records.Records {
+    pub fn records3(arena: Allocator) !records.Records {
         var guns: [3]openreliant.stats.Gun = @splat(std.mem.zeroes(openreliant.stats.Gun));
         for (&guns, 0..) |*gun, at| gun.range = @floatFromInt(at + 1);
         return .init(arena, .{ .ships = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .text = &.{"Laser Cannon"}, .itac_text = &.{} });

@@ -12,6 +12,7 @@ const engine = openreliant.engine;
 const opcodes = engine.vm.opcodes;
 const command_table = engine.game.executor.commands;
 const orders = engine.game.ai.orders;
+const routines = engine.game.ai.routines;
 const maneuvers = engine.game.aidefend.maneuvers;
 
 pub fn write(w: *Io.Writer) Io.Writer.Error!void {
@@ -78,50 +79,23 @@ fn orderGroups(w: *Io.Writer) Io.Writer.Error!void {
     }
 }
 
-const Role = enum { init, update, exit };
-
-/// A row per order routine, named `order_` and the order's identifier, with `_init` or `_exit` for
-/// those. A routine that orders of different names share, or that serves in different roles, is
-/// left to the hand-kept table.
+/// A row per order routine with a name (`routines.named`): `order_` and the order's identifier,
+/// with `_init` or `_exit` for those. A routine that orders of different names share, or that
+/// serves in different roles, is left to the hand-kept table.
 fn orderRoutines(w: *Io.Writer) Io.Writer.Error!void {
-    for (orders.table) |entry| {
-        const identifier = std.enums.tagName(orders.Order, entry.order) orelse continue;
-        inline for (comptime std.enums.values(Role)) |role| {
-            if (@field(entry, @tagName(role))) |address| {
-                if (namesRoutine(entry, role, address)) {
-                    const suffix = switch (role) {
-                        .init => "_init",
-                        .update => "",
-                        .exit => "_exit",
-                    };
-                    try w.print("{x:0>8}\tfunction\torder_{s}{s}\tObjectRoutine\tThe {s} of order {d}", .{
-                        address, identifier, suffix, @tagName(role), @intFromEnum(entry.order),
-                    });
-                    if (entry.name.len != 0) try w.print(", {s}", .{entry.name});
-                    for (orders.table) |other| {
-                        if (@field(other, @tagName(role)) == address and other.order != entry.order) {
-                            try w.print(", and of order {d}", .{@intFromEnum(other.order)});
-                        }
-                    }
-                    try w.writeByte('\n');
-                }
+    for (routines.named) |routine| {
+        const entry = orders.info(routine.order).?;
+        try w.print("{x:0>8}\tfunction\t{s}\tObjectRoutine\tThe {t} of order {d}", .{
+            routine.address, routine.name, routine.role, @intFromEnum(entry.order),
+        });
+        if (entry.name.len != 0) try w.print(", {s}", .{entry.name});
+        for (orders.table) |other| {
+            if (routines.address(other, routine.role) == routine.address and other.order != entry.order) {
+                try w.print(", and of order {d}", .{@intFromEnum(other.order)});
             }
         }
+        try w.writeByte('\n');
     }
-}
-
-/// Whether `entry` names the routine at `address`: it is the first order to use it, and every
-/// order that does is named alike and uses it as the same routine.
-fn namesRoutine(entry: orders.Info, role: Role, address: u32) bool {
-    for (orders.table) |other| {
-        inline for (comptime std.enums.values(Role)) |other_role| {
-            if (@field(other, @tagName(other_role)) == address) {
-                if (other_role != role or !std.mem.eql(u8, other.name, entry.name)) return false;
-                if (@intFromEnum(other.order) < @intFromEnum(entry.order)) return false;
-            }
-        }
-    }
-    return true;
 }
 
 /// Rows labelling the maneuver table, the handler table and each maneuver's script, which ends

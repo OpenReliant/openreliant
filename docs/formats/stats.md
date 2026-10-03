@@ -15,8 +15,8 @@ lists a table's records with their field names, and marks the records the engine
 Each file is an array of **352-byte (`0x160`) records** with no header. All four use the same
 frame: a 64-byte name padded with NULs, followed by the table's fields.
 
-Mod scripts can read and change these records ([Scripts](../guide/modding.md#scripts)). The tables
-below list each field's name in scripts; the record name is `name`.
+Mod scripts can read and change these records ([Scripting](../guide/scripting.md#the-records)). The
+tables below list each field's name in scripts; the record name is `name`.
 
 | File | Records | Fields end at |
 |---|---|---|

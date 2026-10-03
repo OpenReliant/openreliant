@@ -21,6 +21,7 @@ const language = game.language;
 const luau = @import("luau.zig");
 const State = luau.State;
 const bind = @import("bind.zig");
+const values = @import("values.zig");
 const runtime = @import("runtime.zig");
 
 /// The proxies for records.
@@ -187,21 +188,13 @@ const SetProxy = struct {
 /// Registers the metatables for records and record tables.
 pub fn register(state: *State) void {
     Values.register(state);
-    state.newTable(0, 8);
-    inline for (.{
+    state.registerUserdata(SetProxy.tag, "records", &.{
         .{ "__index", luau.wrap(index) },
         .{ "__newindex", luau.wrap(newIndex) },
         .{ "__iter", luau.wrap(iterate) },
         .{ "__len", luau.wrap(length) },
         .{ "__tostring", luau.wrap(describe) },
-    }) |entry| {
-        state.pushFunction(entry[1], entry[0]);
-        state.rawSetField(-2, entry[0]);
-    }
-    state.pushString("records");
-    state.rawSetField(-2, "__type");
-    state.setReadonly(-1, true);
-    state.setUserdataMetatable(SetProxy.tag);
+    });
 }
 
 /// Pushes the `openreliant.records` package: a read-only table holding the record tables, which
@@ -447,7 +440,7 @@ test "the field names scripts see don't change" {
     };
     inline for (expected) |pinned| {
         comptime var names: []const u8 = "";
-        inline for (comptime bind.fieldsOf(pinned[0]), 0..) |field, at| names = names ++ (if (at == 0) "" else ",") ++ field.name;
+        inline for (comptime values.shownFields(pinned[0]), 0..) |field, at| names = names ++ (if (at == 0) "" else ",") ++ field.name;
         try std.testing.expectEqualStrings(pinned[1], names);
     }
     try std.testing.expectEqual(1, Set.guns.first());

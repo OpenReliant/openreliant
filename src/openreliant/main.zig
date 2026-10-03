@@ -32,6 +32,7 @@ const game = engine.game;
 const save = game.gameflow.save;
 const camera = game.camera;
 const help = @import("help.zig");
+const hooks_command = @import("hooks.zig");
 const install = @import("install.zig");
 const joysticks = @import("joysticks.zig");
 const mission0 = @import("mission0.zig");
@@ -64,6 +65,7 @@ pub fn main(init: std.process.Init) !u8 {
     if (args.len > 1 and std.mem.eql(u8, args[1], "install")) return install.main(init.io, arena, args[2..]);
     if (args.len > 1 and std.mem.eql(u8, args[1], "joysticks")) return joysticks.main(init.io, arena, args[2..]);
     if (args.len > 1 and std.mem.eql(u8, args[1], "missions")) return missions.main(init.io, arena, args[2..]);
+    if (args.len > 1 and std.mem.eql(u8, args[1], "hooks")) return hooks_command.main(init.io, args[2..]);
     const io = init.io;
     const asked = switch (Options.parse(args[1..], .{})) {
         .play => |options| options,
@@ -517,6 +519,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     };
     world.display = &display.state;
 
+    // The mods' global scripts, which run while a game runs: from the front end's start of a game,
+    // or `--mission`'s, to the main menu or the end. They stop after the mission's end below.
+    var game_scripts: GameScripts = .{ .gpa = gpa, .io = io, .mods = mods.list, .records = &records, .objects = objects };
+    defer game_scripts.stop();
     // The mission `--mission` names, read once from the game's files, or for mission 0, where the
     // game has none, from the copy `openreliant` carries, and started; it starts again as each
     // attempt ends. Without it, the front end picks the mission.
@@ -531,16 +537,21 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .display = &display.state,
         .view = &view,
         .loading = &loading,
+        .objects = objects,
+        .player = &player,
     };
     defer play.end();
     display.play = &play;
-    if (options.mission != null) try play.start(.{ .world = world, .devices = &devices });
+    if (options.mission != null) {
+        try game_scripts.start();
+        try play.start(.{ .world = world, .devices = &devices });
+    }
     // The front end, where the game opens unless `--mission` names a mission, and what it draws
     // with; and where the game is between it and the missions.
     var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
     var front_resources: ?engine.genilib.interf.Resources = null;
     defer if (front_resources) |*open| open.close();
-    var flow: Flow = .{ .in_front_end = options.mission == null };
+    var flow: Flow = .{ .in_front_end = options.mission == null, .scripts = &game_scripts };
     // The campaign's saved loadout, which `campaign_new` starts in the Predator, and which the
     // saved games keep.
     var saved_loadout: engine.interface.loadout.Saved = .{};
@@ -709,6 +720,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             front_context.elapsed = elapsed;
             if (front.frame(front_context)) |outcome| {
                 const through = &rooms.?;
+                switch (outcome) {
+                    .fly, .campaign, .loaded => try game_scripts.start(),
+                    .quit, .briefing => {},
+                }
                 flow.next = switch (outcome) {
                     .quit => return,
                     .fly => |flight| fly: {
@@ -1054,6 +1069,8 @@ fn waitBeforeLaunch(clock: *game.main.Clock, sound: *game.hog_snd.Sound) void {
 /// campaign it is flown in, none outside one; and the flight to start next, and the last started.
 const Flow = struct {
     in_front_end: bool,
+    /// The mods' global scripts, which stop as the game goes back to the main menu.
+    scripts: *GameScripts,
     from_front_end: bool = false,
     campaign: ?game.gameflow.Campaign = null,
     /// The campaign the front end's LOAD GAME loads into, which then goes into the rooms as the
@@ -1065,12 +1082,35 @@ const Flow = struct {
     /// (`restartPoint`).
     restart_point: ?save.Save = null,
 
-    /// Back to the front end's main menu, out of the campaign.
+    /// Back to the front end's main menu, out of the campaign, which ends the game's scripts.
     fn toFrontEnd(flow: *Flow, front: *engine.genilib.interf.Interface) void {
+        flow.scripts.stop();
         front.back();
         flow.in_front_end = true;
         flow.from_front_end = false;
         flow.campaign = null;
+    }
+};
+
+/// The mods' global scripts, which run while a game runs (`scripting.Game`).
+const GameScripts = struct {
+    gpa: Allocator,
+    io: Io,
+    mods: []const game.bigfile.mods.Mod,
+    records: *scripting.Records,
+    objects: *game.create.Objects,
+    running: ?*scripting.Game = null,
+
+    /// Starts them as a game starts, after any of the game before.
+    fn start(scripts: *GameScripts) !void {
+        scripts.stop();
+        scripts.running = try scripting.Game.start(scripts.gpa, scripts.io, scripts.mods, scripts.records, version.string, scripts.objects);
+    }
+
+    /// Stops them as the game ends, if they run.
+    fn stop(scripts: *GameScripts) void {
+        if (scripts.running) |running| running.stop();
+        scripts.running = null;
     }
 };
 
@@ -1375,6 +1415,9 @@ const Play = struct {
     /// The campaign the mission is flown in, whose variables each attempt starts from; none
     /// outside it.
     campaign: ?*const game.gameflow.Campaign = null,
+    /// The objects and the player, whose ending the mods' scripts hear as a mission ends.
+    objects: *game.create.Objects,
+    player: *const engine.input.Player,
 
     /// Starts the mission, letting go of the one before, the loading screen shown first
     /// (`game.xtrabits.loading.missionFrames`).
@@ -1428,7 +1471,7 @@ const Play = struct {
     }
 
     fn end(play: *Play) void {
-        if (play.loaded) |loaded| loaded.destroy();
+        if (play.loaded) |loaded| game.main.endMission(play.objects, play.player, loaded);
         play.loaded = null;
     }
 
@@ -1549,6 +1592,7 @@ test {
     _ = joysticks;
     _ = mission0;
     _ = missions;
+    _ = hooks_command;
     _ = test_keys;
     _ = version;
 }

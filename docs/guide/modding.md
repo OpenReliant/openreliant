@@ -294,7 +294,8 @@ Every key is optional, and keys can be written in any case. `Url` is the mod's w
 players can find it and its updates. `OpenReliant` is the OpenReliant version the mod needs:
 OpenReliant skips mods that need a newer version and says so in the log. The game never reads a file
 called `mod.ini`, so the archive still works with the original, and the manifest doesn't replace any
-game file. A mod's scripts are listed in a `[Scripts]` section ([Scripts](#scripts)).
+game file. A mod's scripts are listed in the sections `[Scripts]` and `[Missions]`
+([Scripts](#scripts)).
 
 ## The thumbnail
 
@@ -314,124 +315,32 @@ pack <folder> <archive> --checksum` writes a checksum file next to the archive i
 
 ## Scripts
 
-Mods can include scripts written in [Luau](https://luau.org), a version of Lua. This version of
-OpenReliant runs **load scripts**, which change the game's records at startup: the ship, gun,
-missile and pilot stats, and the game's text. Scripts that change how the game plays come in later
-versions ([#498](https://github.com/OpenReliant/openreliant/issues/498)).
-[`examples/mods/balance`](../../examples/mods/balance) is a complete example.
+Mods can include scripts written in [Luau](https://luau.org), a version of Lua, which OpenReliant
+runs while you play. [Scripting](scripting.md) explains them step by step, starting from a first
+script, and [Hooks](hooks.md) lists everything they can hook into. In short:
 
-**Improvement:** the original has no scripting apart from its mission scripts.
+- **Load scripts** run once at startup and change the game's records: the stats of ships, guns,
+  missiles and pilots, and the game's text.
+- **Global scripts** run for the whole game, and **mission scripts** while their mission runs. They
+  react to what happens in the game, and change it, through hooks on the game's functions and
+  events.
 
-### Adding a script
-
-Put the script in the mod as a file ending in `.luau`, and list it in `mod.ini` under `[Scripts]`:
+A mod lists its scripts in its manifest:
 
 ```ini
-[Mod]
-Name=Balance
-OpenReliant=0.7
-
 [Scripts]
 Load=balance.luau
+Global=rules.luau
+
+[Missions]
+mission2.dte=escort.luau
 ```
 
-To run several scripts, separate them with commas: `Load=ships.luau, guns.luau`. They run in that
-order. Scripts are ordinary files of the mod: a folder mod keeps them next to `mod.ini`, and `sltool
-hog pack` packs them into the archive. Set `OpenReliant=0.7` or later, since older versions of
-OpenReliant don't run scripts.
+Scripts are ordinary files of the mod: a folder mod keeps them next to `mod.ini`, and `sltool hog
+pack` packs them into the archive. [`examples/mods`](../../examples/mods) holds complete example
+mods.
 
-Later versions will run other kinds of scripts, such as `Global`, `Player` and `Menu`. This version
-skips those and says so in the log.
-
-### When load scripts run
-
-Load scripts run once at startup, before the main menu. Mods run in load order ([Load
-order](#load-order)), and each mod's scripts in the order they're listed, so a later mod sees the
-changes of the earlier ones.
-
-A script can return an `on_records_loaded` handler, which runs after all mods' load scripts have
-finished. It's useful for checking the final values:
-
-```lua
-local records = require("openreliant.records")
-
-return {
-    engine_handlers = {
-        on_records_loaded = function()
-            print("Laser Cannon range:", records.guns.laser_cannon.range)
-        end,
-    },
-}
-```
-
-`print` writes to OpenReliant's log, prefixed with the mod's folder name.
-
-### The records
-
-`require("openreliant.records")` returns the game's records:
-
-| Table | Contents | First number | Names |
-|---|---|---|---|
-| `ships` | Ship stats, `shipstats.bin` | 0 | The ship types OpenReliant has names for, such as `predator` |
-| `guns` | Gun stats, `gunstats.bin` | 1 | `laser_cannon`, `pulse_cannon` and the rest |
-| `missiles` | Missile stats, `missilestats.bin` | 0 | `screamer`, `raptor` and the rest |
-| `pilots` | Pilot stats, `pilotstats.bin` | 0 | |
-| `text` | The game's text, `language.dll`, by string id | 1 | |
-| `itac_text` | The ITAC's text, `itaclang.dll`, by string id | 1 | |
-
-Look records up by number or by name, and use the field names from the [stat
-tables](../formats/stats.md):
-
-```lua
-local records = require("openreliant.records")
-
-records.guns.laser_cannon.damage.hull = 30   -- by name
-records.ships[12].max_speed *= 1.1           -- by number
-records.pilots[66].skill = "high"            -- enums use names
-records.text[568] = "Laser Cannon Mk II"     -- text is a string
-
-for number, missile in records.missiles do  -- every record, in order
-    missile.lock_time *= 0.8
-end
-```
-
-- **Changing several fields at once:** assign a table to the record. Only the fields in the table
-  change. With a `template` record, the record is first copied from the template: `records.guns[2] =
-  { template = records.guns[1], speed = 5 }`.
-- **Checks:** a wrong field name or a value of the wrong type is an error, so typos don't go
-  unnoticed. Integer fields take whole numbers, and enum fields take their names, such as
-  `"medium"`, or a number.
-- **Text** is UTF-8. Characters the game can't show become `?`.
-- **Limits:** records can't be removed, because missions refer to them by number, and adding new
-  records isn't supported yet ([#560](https://github.com/OpenReliant/openreliant/issues/560)).
-
-### Other scripts and packages
-
-`require("name")` runs another script from the same mod and returns what it returns, so a mod can
-split its code into several files. Each script runs once, however often it's required, and has its
-own global variables.
-
-`require("openreliant.core")` gives `core.version`, the OpenReliant version. Other packages come in
-later versions, and requiring one now gives an error that says so.
-
-### What scripts can't do
-
-Scripts run in a sandbox:
-
-- They can't open files, use the network or run programs: Luau's `io`, `os` and `package` libraries
-  aren't there.
-- Each call into a load script may run for at most 1 second, and each mod's scripts may use at most
-  64 MiB of memory.
-- `math.random` returns the same numbers on every computer, so every player gets the same records.
-
-If a script fails, OpenReliant logs the error with the file and line, undoes that script's changes,
-and carries on with the next one.
-
-### Editors
-
-Any text editor works. [luau-lsp](https://github.com/JohnnyMorganz/luau-lsp) adds completion and
-error checking to VS Code and other editors. Definitions of OpenReliant's packages for it are
-planned ([#556](https://github.com/OpenReliant/openreliant/issues/556)).
+**Improvement:** the original has no scripting apart from its mission scripts.
 
 ## Log messages
 
@@ -452,8 +361,8 @@ info(scripts): balance: ran balance.luau
 info(scripts): balance: the Laser Cannon hits shields for 10 and hulls for 10
 ```
 
+A script's messages and errors follow its mod's name, as above;
+[Scripting](scripting.md#when-something-goes-wrong) explains the common ones.
+
 `openreliant missions` lists and checks the missions in the mods too, showing `mod` in the file
 column, and also accepts `--no-mods`.
-
-Scripts that change how the game plays, and new records, are planned for later versions
-([#498](https://github.com/OpenReliant/openreliant/issues/498)).

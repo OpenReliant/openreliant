@@ -27,6 +27,7 @@ const motion = @import("motion.zig");
 const input = @import("../input.zig");
 const Clock = @import("main.zig").Clock;
 const collision = @import("collision.zig");
+const hooks = @import("../hooks.zig");
 
 /// A slot of the object array as an object names one, or `none` for no slot, which the game holds
 /// as -1.
@@ -1740,7 +1741,8 @@ pub const World = struct {
 /// (`guns.step`). Then
 /// the player's controls fly the player's ship, `objects_update` moves them all
 /// (`create.objectsUpdate`), and the missiles (`missiles.move`) and the shots (`guns.moveBullets`)
-/// move after them. Returns whether it did that work.
+/// move after them. Last, mods' scripts run their `on_step` handlers. Returns whether it did that
+/// work.
 ///
 /// The player's own order runs here as well as once a frame, while its top order is Player
 /// Control, so the controls are read on every step.
@@ -1774,6 +1776,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
     create.objectsUpdate(world);
     missiles.move(world.objects);
     guns.moveBullets(world);
+    if (all.scripts) |scripts| scripts.step();
     return true;
 }
 

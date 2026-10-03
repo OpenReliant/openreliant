@@ -16,6 +16,7 @@ const dte = @import("../../formats/dte.zig");
 const math = @import("../surrender/math.zig");
 const vm = @import("../vm.zig");
 const gameobj = @import("../game/gameobj.zig");
+const hooks = @import("../hooks.zig");
 const Kinds = @import("../game/executor/commands.zig").Kinds;
 
 const conditions = vm.conditions;
@@ -52,17 +53,34 @@ pub fn raise(machine: *Machine, object: ?u16, event: Event) void {
 /// `trigger_match` (`0x0045CEA0`): each trigger that fires on `event` (`firings`) starts a thread
 /// on its block, the one whose locals have the event's values, at once or for the scheduler as the
 /// trigger says, unless a thread it started still runs (`threadRunning`). It is disarmed as its
-/// repeat mode says (`disarm`), whether or not a thread started.
+/// repeat mode says (`disarm`), whether or not a thread started. Mods' scripts are told of each
+/// trigger that fires (`trigger_fired`).
 fn match(machine: *Machine, object: u16, event: Event) void {
     var each = firings(machine, object, event);
     while (each.next()) |firing| {
         const trigger = firing.trigger;
         log.debug("trigger {d} of object {d} fires on {f}", .{ firing.index, object, event.condition });
+        if (machine.game) |game| hooks.tell(game, .trigger_fired, .{
+            .trigger = firing.index,
+            .condition = event.condition,
+            .object = if (shipOf(machine, object)) |ship| .of(ship) else null,
+        });
         if (!threadRunning(machine, firing.index)) {
             _ = machine.startThread(machine.mission.blockAt(.script, trigger.block()), firing.thread, trigger.deferred != 0, null, firing.index);
         }
         disarm(trigger);
     }
+}
+
+/// The slot of the mission's ship whose object ID is `object`, if the object is a ship: a mission's
+/// ship fills the slot of its index.
+fn shipOf(machine: *const Machine, object: u16) ?u16 {
+    if (object >= machine.mission.records.len) return null;
+    const record = machine.mission.records[object] orelse return null;
+    return switch (record) {
+        .ship => |ship| ship,
+        .flight_group, .squad => null,
+    };
 }
 
 /// `event_would_fire` (`0x0045B4E0`): whether `event` on the object `object` would fire any of the

@@ -15,6 +15,7 @@ const aigeneric = @import("aigeneric.zig");
 const aifuncs = @import("aifuncs.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
+const hooks = @import("../hooks.zig");
 const main = @import("main.zig");
 const motion = @import("motion.zig");
 const objects = @import("objects.zig");
@@ -335,6 +336,7 @@ const player_share: f32 = 0.5;
 ///
 /// Not ported: multiplayer, where nothing is scaled.
 pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f32 {
+    if (hooks.enter(.damage_by_difficulty, byDifficulty, .{ world, index, kind, value })) |result| return result;
     const all = world.objects;
     var scaled = value;
     if (kind == .bullet and all.slots[index].object.side == .hostile) scaled *= world.difficulty.onHostile();
@@ -357,6 +359,7 @@ pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f3
 ///
 /// Not ported: the score a player's hit is worth, and what multiplayer makes of it.
 pub fn damage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, factor: f32, attacker: u16, kind: Kind) void {
+    if (hooks.enter(.object_damage, damage, .{ world, index, struck, value, factor, attacker, kind })) |done| return done;
     const all = world.objects;
     const object = &all.slots[index].object;
     const held = object.shields.at(struck);
@@ -429,6 +432,7 @@ fn smartTargeting(world: gameobj.World, attacker: u16, kind: Kind) ?*hud.State {
 /// posted (`shotAt`); a shot's on an object listing components, at once, and even while a
 /// collision's test against a hull runs again.
 pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: u16, kind: Kind) void {
+    if (hooks.enter(.object_armor_damage, armorDamage, .{ world, index, struck, value, attacker, kind })) |done| return done;
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
@@ -550,6 +554,7 @@ const shielded_hit: f32 = 1000;
 /// ([#538](https://github.com/OpenReliant/openreliant/issues/538)), and what multiplayer makes of it
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
+    if (hooks.enter(.component_damage, componentDamage, .{ world, index, struck_part, value, attacker, kind })) |done| return done;
     const object = &world.objects.slots[index].object;
     if (object.flags.jumping or kind == .collision or struck_part.part().flags.damaged) return;
     wearComponent(world, index, struck_part, value, attacker, kind);

@@ -94,7 +94,10 @@ pub const Kind = enum {
 
     /// Whether this version runs scripts of this kind.
     pub fn runs(kind: Kind) bool {
-        return kind == .load;
+        return switch (kind.family()) {
+            .load, .global => true,
+            .object, .player, .menu => false,
+        };
     }
 };
 
@@ -230,7 +233,7 @@ pub const Package = enum {
     /// Whether this version implements this package.
     pub fn ready(package: Package) bool {
         return switch (package) {
-            .core, .records => true,
+            .core, .records, .hooks => true,
             else => false,
         };
     }
@@ -265,7 +268,8 @@ test Kind {
     try std.testing.expectEqualStrings("Load", Kind.load.key());
     try std.testing.expectEqualStrings("Postprocessing", comptime capitalised("postprocessing"));
     try std.testing.expect(Kind.load.runs());
-    try std.testing.expect(!Kind.global.runs());
+    try std.testing.expect(Kind.global.runs());
+    try std.testing.expect(!Kind.player.runs());
 }
 
 test List {
@@ -289,7 +293,8 @@ test Package {
     try std.testing.expect(Package.records.reachableFrom(.load));
     try std.testing.expect(!Package.world.reachableFrom(.load));
     try std.testing.expect(Package.records.ready());
-    try std.testing.expect(!Package.hooks.ready());
+    try std.testing.expect(Package.hooks.ready());
+    try std.testing.expect(!Package.world.ready());
 }
 
 test Offer {

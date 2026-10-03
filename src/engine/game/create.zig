@@ -16,6 +16,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const engine = @import("../../engine.zig");
+const hooks = @import("../hooks.zig");
 const shp = @import("../../formats/shp.zig");
 const stats = @import("../../formats/stats.zig");
 const math = @import("../surrender/math.zig");
@@ -591,6 +592,14 @@ pub const Objects = struct {
     /// The ships whose engine exhaust burns the player's ship, which the game keeps in
     /// `environfx.cpp`'s own globals. OpenReliant keeps them here, as `create_object` adds to them.
     exhaust: environfx.Exhaust = .{},
+    /// OpenReliant's: the mods' scripts, which the hooked functions and events call while a game
+    /// runs; null without them.
+    scripts: ?*hooks.Scripts = null,
+    /// OpenReliant's: how often each slot has had its object replaced, which the scripts' object
+    /// handles keep, so that a handle to an object that has gone is no longer valid. A slot's count
+    /// goes up as `create_object` fills it and as its object is removed (`resetSlot`, `retire`),
+    /// and every slot's as a mission starts (`reset`).
+    reuses: [gameobj.max_objects]u32 = @splat(0),
 
     /// Every slot standing in, as a mission's start leaves them (`reset`), made in `gpa`.
     pub fn create(gpa: Allocator, random: *libcmt.Rand) Allocator.Error!*Objects {
@@ -620,6 +629,7 @@ pub const Objects = struct {
             object.flags.stand_in = true;
             slot.* = .{ .object = object };
         }
+        for (&all.reuses) |*count| count.* +%= 1;
         all.types = @splat(.{});
         all.count = 0;
         // The game lets the exhaust's list go as the mission before ends (`exhaust_ships_reset`).
@@ -628,16 +638,19 @@ pub const Objects = struct {
 
     /// `object_reset` (`0x004688B0`): replaces the object in slot `index` with a new stand-in
     /// flagged as one (`GameObject.Flags.standing_in`), and lets its nodes go, its orders with
-    /// them. Its type's count of objects stays as it was.
+    /// them. Its type's count of objects stays as it was. Mods' scripts are told first
+    /// (`object_removed`).
     ///
     /// Not ported: the `exit` routines popping those orders would run, none of which is ported yet
     /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
     pub fn resetSlot(all: *Objects, index: u16, random: *libcmt.Rand) void {
         const slot = &all.slots[index];
+        if (slot.object.type != .stand_in) hooks.tell(all, .object_removed, .{ .object = .of(index) });
         slot.release(all.gpa);
         var object = gameobj.objectAlloc(.stand_in, random);
         object.flags = .standing_in;
         slot.* = .{ .object = object };
+        all.reuses[index] +%= 1;
     }
 
     /// A type's model, loaded for its first object where it isn't held, and one more object of it
@@ -970,6 +983,8 @@ pub fn make(world: gameobj.World, wanted: ?u16, object_type: gameobj.Type) Error
 /// (`Objects.createdRacks`, `arm`). Given a player's slot, it makes the type the loadout chose
 /// (`Objects.slotType`).
 ///
+/// Once the object is made, mods' scripts are told (`object_added`).
+///
 /// Not ported: the components (#40); what it does for capital ships, gates and other single types
 /// but the wrecks and the planets (#233, `wreckMade`, `planetMade`); and what differs in a
 /// multiplayer game.
@@ -981,6 +996,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     const object = &slot.object;
     if (object.created) return error.CreatedTwice;
     if (wanted == null) all.count += 1;
+    all.reuses[index] +%= 1;
 
     object.type = ship_type;
     object.index = index;
@@ -1030,6 +1046,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         object.armor = .all(0);
         object.flags = .standing_in;
         object.radius = stand_in_radius;
+        hooks.tell(all, .object_added, .{ .object = .of(index) });
         return index;
     };
     const becomes = donor(stats_type) orelse stats_type;
@@ -1117,6 +1134,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     ai.setTargetable(object, combat, true);
     all.exhaust.offer(all, index);
     object.type = @enumFromInt(becomes);
+    hooks.tell(all, .object_added, .{ .object = .of(index) });
     return index;
 }
 
@@ -1570,18 +1588,22 @@ pub const testing = struct {
 
 /// `0x004688E0`: what the Explode order leaves of an object once it has blown up. It stands in
 /// where it was, of type `stand_in`, as flagged as a slot's stand-in and exploding, and with no
-/// orders. Nothing moves, draws, collides with or targets it. **Unverified:** it lies after
-/// `object_reset`, before this file's known code.
+/// orders. Nothing moves, draws, collides with or targets it. Mods' scripts are told first
+/// (`object_removed`). **Unverified:** it lies after `object_reset`, before this
+/// file's known code.
 ///
 /// Not ported: the `exit` routines popping its orders would run, none of which is ported yet
 /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
 pub fn retire(ctx: aigeneric.Context, index: u16) void {
-    const object = &ctx.world.objects.slots[index].object;
+    const all = ctx.world.objects;
+    const object = &all.slots[index].object;
+    if (object.type != .stand_in) hooks.tell(ctx, .object_removed, .{ .object = .of(index) });
     object.type = .stand_in;
     object.flags = object.flags.with(.standing_in);
     object.flags.exploding = true;
     object.flags.targetable = false;
     aigeneric.popAll(ctx, index);
+    all.reuses[index] +%= 1;
 }
 
 test "Slot.stack" {
