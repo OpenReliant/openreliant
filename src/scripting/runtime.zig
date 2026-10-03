@@ -88,6 +88,8 @@ pub const Shared = struct {
     files: ?bigfile.Hog = null,
     /// The game's folder, where its loose files are read from (`vfs.zig`); null if there is none.
     game: ?storage_module.Storage.Folder = null,
+    /// The original and mod bindings' settings file, shared with the controls screen.
+    bindings_file: ?*@import("openreliant").engine.profile.File = null,
     /// The pages of options the mods offer (`settings.zig`); null if there are none.
     settings: ?*settings_module.Registry = null,
 };
@@ -138,6 +140,7 @@ pub const Runtime = struct {
     /// The handles made, by slot (`objects.zig`).
     handles: ?luau.Ref = null,
     custom_orders: @import("orders.zig").Registry = .{},
+    input_actions: @import("openreliant").engine.input.actions.Registry = .{},
 
     const Running = struct {
         /// The memory category of the running mod.
@@ -291,6 +294,7 @@ pub const Runtime = struct {
     pub fn close(runtime: *Runtime, context: *Context) void {
         if (context.closed) return;
         runtime.custom_orders.removeContext(runtime, context);
+        runtime.input_actions.removeOwner(context);
         context.closed = true;
         const state = runtime.state;
         state.unref(context.loaded);
@@ -345,6 +349,7 @@ pub const Runtime = struct {
         runtime.end(outer);
         if (status != .ok) {
             runtime.custom_orders.removeSince(runtime, context, registrations);
+            runtime.input_actions.removeOwner(context);
             runtime.recover(context, thread);
             return null;
         }

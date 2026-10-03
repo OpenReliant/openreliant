@@ -249,7 +249,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // are kept in the storage.
     var option_pages: scripting.settings.Registry = .init(gpa, &storage);
     defer option_pages.deinit();
-    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .settings = &option_pages };
+    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .settings = &option_pages, .bindings_file = settings_file };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
@@ -288,6 +288,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .budget = options.draw_budget.limit(),
     };
     var devices: engine.input.Devices = .{};
+    if (presentation) |shown| devices.mod_actions = &shown.runtime.input_actions;
     // As `WinMain` starts, the keys named as the keyboard's layout names them (`key_names_rename`,
     // `0x004A8F82`).
     platform.keyboard.nameKeys(&devices.key_names);

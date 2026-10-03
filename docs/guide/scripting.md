@@ -49,6 +49,25 @@ saved, carrying on from where they were ([The console](#the-console)); otherwise
 main menu and start a game again. After changing `mod.ini`, adding a file or changing a load
 script, start OpenReliant again.
 
+## Mod input actions
+
+Menu scripts register actions at startup with `input.register_action(name, definition)` (#617).
+The result is a mod-qualified name such as `custom-order:pulse`. Equal local names in different
+mods are independent; registering the same qualified name twice is an error. The definition
+requires a `label` and may specify `key`, `modifier` (none, shift or control), joystick `button`
+and a separate `gamepad_button`. Conflicting defaults stay unassigned rather than taking an
+original action's or another mod's control.
+
+Mod actions appear after the original list in the controls screen. Rebinding, conflicts, cancel
+and reset use the same screen logic. Keys, joystick buttons and gamepad buttons are saved by
+qualified name in separate `starlancer.ini` sections. Actions stop with their menu context and
+register again on reload. A control held during registration or outside flight must be released
+before it emits another press. In flight, `on_action` receives the qualified name on a press
+edge; `input.action_down` reads whether its binding is held. Original actions remain supported.
+
+Presentation scripts send events to global scripts to change the game. The custom-order example
+registers Shift + F12 and sends an event that starts its throttle-pulse order.
+
 ## Custom AI orders
 
 Global scripts can register an order with `require("openreliant.orders").register(name, definition)`

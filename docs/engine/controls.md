@@ -1,5 +1,11 @@
 # Controls
 
+**Improvement:** menu scripts register named mod actions (#617), kept in `input.actions.Registry`
+separately from the generated original catalogue. `Devices.bindingActive` supplies the same
+activation logic for both. The controls screen includes live registrations and saves their
+qualified-name bindings in `OpenReliantActionKeys`, `OpenReliantActionJoystick` and
+`OpenReliantActionGamepad`. Registrations follow their script context; bindings survive reload.
+
 How the payload reads the player's keyboard, joystick and mouse, and turns them into the inputs of the [flight model](objects.md#motion). The names below are those `make ghidra-annotate` gives the Ghidra project; [`src/engine/input.zig`](../../src/engine/input.zig) defines the structures.
 
 ## Devices

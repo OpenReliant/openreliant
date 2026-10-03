@@ -39,7 +39,7 @@ include mission scripts.
 | `on_removed()` | object | When the script's object leaves the mission. |
 | `on_key_press(key: Key)` | player and menu | When a key is pressed. A key held down is told once. |
 | `on_key_release(key: Key)` | player and menu | When a key is released. |
-| `on_action(action: Action)` | player and menu | When the player uses the controls bound to an action, in flight. |
+| `on_action(action: string)` | player and menu | When the player uses the controls bound to an action, in flight. |
 | `on_console_command(text: string)` | player and menu | When a line typed in the console isn't one of its commands, with the line. |
 | `on_viewport_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
 | `on_interface_override(base: { [any]: any })` | global, object, player and menu | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
@@ -134,8 +134,9 @@ Whether keys are held, and the controls bound to actions. For player and menu sc
 
 | Name | Type | What it is |
 |---|---|---|
+| `register_action(name: string, definition: Definition)` | string | Registers a mod-qualified action from a menu script. Its label appears in controls; conflicting defaults stay unassigned. Returns its name for action_down and on_action. Bindings are saved by name. |
 | `key_down(key: Key)` | boolean | Whether `key` is held down. |
-| `action_down(action: Action)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. |
+| `action_down(action: string \| number)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. |
 
 ### `openreliant.camera`
 
@@ -806,6 +807,18 @@ A table a script gives, which may leave out any field.
 | `width` | number |
 | `height` | number |
 
+### Definition
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `label` | string | needed |
+| `key` | [Key](#key), or nil | nil |
+| `modifier` | [Modifier](#modifier) | `"none"` |
+| `button` | number, or nil | nil |
+| `gamepad_button` | [GamepadButton](#gamepadbutton), or nil | nil |
+
 ### Page
 
 | Field | Type |
@@ -868,9 +881,13 @@ number. A script can set a field to either.
 
 `escape`, `one`, `two`, `three`, `four`, `five`, `six`, `seven`, `eight`, `nine`, `zero`, `minus`, `equals`, `backspace`, `tab`, `q`, `w`, `e`, `r`, `t`, `y`, `u`, `i`, `o`, `p`, `left_bracket`, `right_bracket`, `enter`, `left_control`, `a`, `s`, `d`, `f`, `g`, `h`, `j`, `k`, `l`, `semicolon`, `apostrophe`, `grave`, `left_shift`, `backslash`, `z`, `x`, `c`, `v`, `b`, `n`, `m`, `comma`, `period`, `slash`, `right_shift`, `keypad_multiply`, `left_alt`, `space`, `caps_lock`, `f1`, `f2`, `f3`, `f4`, `f5`, `f6`, `f7`, `f8`, `f9`, `f10`, `num_lock`, `scroll_lock`, `keypad_7`, `keypad_8`, `keypad_9`, `keypad_minus`, `keypad_4`, `keypad_5`, `keypad_6`, `keypad_plus`, `keypad_1`, `keypad_2`, `keypad_3`, `keypad_0`, `keypad_period`, `non_us_backslash`, `f11`, `f12`, `keypad_enter`, `right_control`, `keypad_divide`, `print_screen`, `right_alt`, `pause`, `home`, `up`, `page_up`, `left`, `right`, `end`, `down`, `page_down`, `insert`, `delete`, `left_windows`, `right_windows`, `menu`, or a number.
 
-### Action
+### Modifier
 
-`cockpit_camera`, `left_view_camera`, `right_view_camera`, `rear_view_camera`, `flyby_camera`, `target_camera`, `external_camera`, `missile_camera`, `next_enemy_target`, `previous_enemy_target`, `next_friendly_target`, `previous_friendly_target`, `next_subtarget`, `previous_subtarget`, `target_under_reticule`, `target_nearest_enemy`, `target_nearest_friendly`, `target_torpedo`, `smart_target`, `primary_target`, `afterburners`, `afterburner_toggle`, `reverse_thrust`, `jump_drive`, `match_speed`, `accelerate`, `decelerate`, `zero_throttle`, `full_throttle`, `roll_ship_clockwise`, `roll_ship_anti_clockwise`, `nose_up`, `nose_down`, `rotate_clockwise`, `rotate_anti_clockwise`, `strafe_left`, `strafe_right`, `joystick_roll`, `fire_lasers`, `full_guns`, `gunnery_window`, `gunnery_window_locked`, `synchronise_guns`, `toggle_blindfire`, `launch_missile`, `missile_window`, `rotate_missiles_clockwise`, `rotate_missiles_anticlockwise`, `comms_window`, `powerball_window`, `powerball_window_locked`, `full_power_to_gunnery`, `full_power_to_engines`, `full_power_to_shields`, `equalize_power`, `objectives_window`, `wing_status_window`, `wing_status_window_locked`, `damage_window`, `damage_window_locked`, `radar_ranges`, `shield_balancing`, `countermeasures`, `eject`, `cloak_ship`, `ecm`, `spectral_shields`, `attack_my_target`, `back_off`, `help_me`, `permission_to_land`, `display_kills`, `send_comms_message`, `key_config`.
+`none`, `shift`, `control`, `alt`, or a number.
+
+### GamepadButton
+
+`south`, `east`, `west`, `north`, `back`, `guide`, `start`, `left_stick`, `right_stick`, `left_shoulder`, `right_shoulder`, `dpad_up`, `dpad_down`, `dpad_left`, `dpad_right`, `misc1`, `right_paddle1`, `left_paddle1`, `right_paddle2`, `left_paddle2`, `touchpad`, `misc2`, `misc3`, `misc4`, `misc5`, `misc6`, `left_trigger`, `right_trigger`, `right_stick_up`, `right_stick_down`, `right_stick_left`, `right_stick_right`.
 
 ### View
 

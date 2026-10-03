@@ -18,15 +18,18 @@ local pulse = orders.register("pulse", {
     end,
 })
 
+local function startPulse()
+    for _, ship in world.objects() do
+        if not ship.is_player and ship.class == "fighter" then
+            ship:give_order(pulse)
+            break
+        end
+    end
+end
+
 return {
-    engine_handlers = {
-        on_mission_start = function()
-            for _, ship in world.objects() do
-                if not ship.is_player and ship.class == "fighter" then
-                    ship:give_order(pulse)
-                    break
-                end
-            end
-        end,
+    engine_handlers = { on_mission_start = startPulse },
+    event_handlers = {
+        CustomOrderPulse = startPulse,
     },
 }

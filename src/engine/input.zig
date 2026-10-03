@@ -638,6 +638,8 @@ pub const Settings = struct {
 /// from the game's defaults, which `load_key_config` changes from `starlancer.ini`.
 pub const Bindings = std.EnumArray(controls.Action, controls.Binding);
 
+pub const actions = @import("input/actions.zig");
+
 /// The executable's bindings for a controller of `kind`, which `default.txt` changes
 /// (`game.interface.keyConfigDefaults`): the game's own table for a joystick, and for a gamepad
 /// (added by OpenReliant) the same keys with `gamepad_buttons` as the buttons.
@@ -812,6 +814,8 @@ pub const Devices = struct {
     defaults_file: ?profile.Profile = null,
     /// The keys' names as the keyboard's layout gives them, which the controls screens show.
     key_names: KeyNames = .{},
+    /// **Improvement:** named mod actions shown in the controls screen (#617).
+    mod_actions: ?*actions.Registry = null,
 
     /// What the player steers with: the controller chosen, but the keyboard while the joystick
     /// chosen is not attached, as `load_key_config` has it (`0x0042C8A5`).
@@ -845,7 +849,11 @@ pub const Devices = struct {
     /// latched and is then latched, and a key is checked with `key_pressed`. While the keyboard's
     /// `numbers_taken` is set, the keys 1 to 8 are ignored.
     pub fn active(devices: *Devices, action: controls.Action, once: bool) bool {
-        const binding = devices.bindings.get(action);
+        return devices.bindingActive(devices.bindings.get(action), once);
+    }
+
+    /// Shared activation semantics for original and mod bindings.
+    pub fn bindingActive(devices: *Devices, binding: controls.Binding, once: bool) bool {
         const keyboard = &devices.keyboard;
         if (binding.button) |button| {
             if (devices.joystick.down(button)) {

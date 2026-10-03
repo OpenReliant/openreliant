@@ -230,10 +230,17 @@ pub const Presentation = struct {
             for (std.enums.values(controls.Action)) |action| {
                 if (!host.devices.active(action, false)) continue;
                 held.insert(action);
-                if (!shown.actions.contains(action)) shown.runner.callAll(.on_action, .{ .action = action });
+                if (!shown.actions.contains(action)) shown.runner.callAll(.on_action, .{ .action = @tagName(action) });
             }
         }
         shown.actions = held;
+        const registry = &shown.runtime.input_actions;
+        host.devices.mod_actions = registry;
+        // Callbacks may register or close contexts; fixed entry slots keep the walk valid.
+        const count = registry.count;
+        for (0..count) |index| {
+            if (registry.pressed(index, host.devices, host.flying)) shown.runner.callAll(.on_action, .{ .action = registry.entries[index].nameOf() });
+        }
         shown.runner.advance(host.seconds);
         shown.runner.callAll(.on_frame, .{ .seconds = host.seconds });
     }
@@ -335,6 +342,76 @@ const Fixture = struct {
         fixture.shown.frame(host);
     }
 };
+
+test "menu actions dispatch qualified press edges in flight and close on reload" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=a.luau\n" },
+            .{
+                "a.luau",
+                \\local input = require("openreliant.input")
+                \\local action = input.register_action("pulse", {label = "Pulse", key = "f12", modifier = "shift"})
+                \\local count = 0
+                \\assert(action == "a:pulse")
+                \\assert(not pcall(function() input.register_action("pulse", {label = "Duplicate"}) end))
+                \\return {engine_handlers = {on_action = function(name)
+                \\    if name == action then
+                \\        count += 1; assert(count == 1 and input.action_down(action))
+                \\    end
+                \\end, on_frame = function()
+                \\    require("openreliant.ui").text(vector.zero, tostring(count))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const index = fixture.shown.runtime.input_actions.find("a:pulse").?;
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .flying = true };
+    fixture.shown.frame(host);
+    fixture.devices.keyboard.down[@intFromEnum(input.Key.f12)] = true;
+    fixture.devices.keyboard.down[input.scan.left_shift] = true;
+    fixture.shown.frame(host);
+    try std.testing.expect(fixture.shown.runtime.input_actions.entries[index].held);
+    try std.testing.expectEqualStrings("1", fixture.shown.layers.get(.ui).text.items);
+    fixture.shown.frame(host);
+    host.flying = false;
+    fixture.shown.frame(host);
+    try std.testing.expect(!fixture.shown.runtime.input_actions.entries[index].held);
+    try fixture.shown.reload();
+    host.flying = true;
+    fixture.shown.frame(host);
+    try std.testing.expect(!fixture.shown.runtime.input_actions.entries[index].ready);
+}
+
+test "the example action sends a game event that starts its custom order" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "custom-order", &.{
+        .{ "mod.ini", @embedFile("custom-order/mod.ini") },
+        .{ "pulse.luau", @embedFile("custom-order/pulse.luau") },
+        .{ "action.luau", @embedFile("custom-order/action.luau") },
+    } }});
+    defer fixture.deinit();
+    const sabre = try fixture.mission.add(.sabre, .{ 0, 0, 1000 });
+    const game_scripts = (try game_module.Game.start(std.testing.allocator, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
+    defer game_scripts.stop();
+    try fixture.shown.startGame(game_scripts, fixture.mission.objects, false);
+    defer fixture.shown.endGame();
+    game_scripts.scripts.begin(fixture.mission.orders(), .{ .number = 0, .file = "mission0.dte" }, 1);
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .flying = true };
+    fixture.shown.frame(host);
+    fixture.devices.keyboard.down[@intFromEnum(input.Key.f12)] = true;
+    fixture.devices.keyboard.down[input.scan.left_shift] = true;
+    fixture.shown.frame(host);
+    game_scripts.scripts.update(0.04);
+    const pulse = game_scripts.runtime.custom_orders.find("custom-order:pulse").?;
+    try std.testing.expectEqual(pulse, fixture.mission.slot(sabre).current().?.order);
+    engine.game.aigeneric.objectOrders(fixture.mission.orders(), sabre);
+    try std.testing.expectEqual(0.25, fixture.mission.slot(sabre).object.throttle);
+    host.flying = false;
+    fixture.shown.frame(host);
+}
 
 test "menu scripts draw over the menus, and hear keys and the window" {
     var fixture: Fixture = undefined;
