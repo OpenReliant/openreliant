@@ -391,7 +391,6 @@ fn check(ctx: Context, data: []const u8) !void {
         try ctx.stdout.writeByte('\n');
     } else {
         try ctx.stdout.print("{d} problems\n", .{problems});
-        try ctx.stdout.flush(); // the error path skips the flush in main
         return error.ModelInconsistent;
     }
 
@@ -399,7 +398,6 @@ fn check(ctx: Context, data: []const u8) !void {
     try model.write(&written.writer);
     if (std.mem.indexOfDiff(u8, data, written.written())) |offset| {
         try ctx.stdout.print("written again, it differs from offset {x:0>8}\n", .{offset});
-        try ctx.stdout.flush();
         return error.Differs;
     }
     try ctx.stdout.writeAll("written again: the same bytes\n");
