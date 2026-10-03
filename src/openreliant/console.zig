@@ -86,8 +86,8 @@ pub const Driver = struct {
     }
 
     /// Draws the console over the frame drawn into `target`, a window `window` pixels across and
-    /// down, while it's up.
-    pub fn draw(driver: *Driver, target: device.Device, window: [2]u32, strings: *const game.language.Language) Allocator.Error!void {
+    /// down, while it's up, over `backdrop`.
+    pub fn draw(driver: *Driver, target: device.Device, window: [2]u32, strings: *const game.language.Language, backdrop: screen.Backdrop) Allocator.Error!void {
         if (!driver.console.open) return;
         const resources = if (driver.resources) |*open| open else return;
         try drawn(screen.draw(&driver.console, .{
@@ -97,6 +97,6 @@ pub const Driver = struct {
             .fonts = resources.fonts(),
             .strings = strings,
             .version = version.string,
-        }, &resources.shapes.art, driver.pointer));
+        }, &resources.shapes.art, driver.pointer, backdrop));
     }
 };

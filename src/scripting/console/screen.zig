@@ -2,8 +2,9 @@
 //! OpenReliant's settings screen is, and drawn with the front end's pieces: its title where the
 //! settings screen has its tabs, in the large font; the output in a frame, in the small font, with
 //! a list's arrows beside it; the line typed in a frame below, with the cursor the saved games'
-//! name blinks; and buttons where the settings screen has its own. It's drawn over the menus or
-//! the paused mission, darkened as the pause menu darkens the mission behind the settings screen.
+//! name blinks; and buttons where the settings screen has its own. It's drawn over the menus,
+//! darkened, or over the paused mission, which shows through as it does behind the pause menu's
+//! settings screen (`Backdrop`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -17,6 +18,7 @@ const language = engine.game.language;
 const winmain = engine.game.winmain;
 const interface = engine.game.interface;
 const saved_games = interface.saved_games;
+const hudoptions = engine.game.hudoptions;
 const settings = interface.settings;
 const widgets = settings.widgets;
 const canvas_module = interface.canvas;
@@ -48,9 +50,21 @@ const typed_at: [2]i32 = .{ 51, 394 };
 /// The space between the prompt and the line.
 const prompt_gap = 4;
 
-/// How dark what the console stands over is drawn: dark enough that a menu's labels behind it don't
-/// show through.
-const shade: [4]f32 = .{ 0, 0, 0, 0.92 };
+/// What the console stands over.
+pub const Backdrop = enum {
+    /// The front end's screens, drawn dark enough that their labels don't show through.
+    menus,
+    /// The paused mission, which shows through as it does behind the pause menu's settings
+    /// screen (`hudoptions.shade`).
+    mission,
+
+    fn shade(backdrop: Backdrop) [4]f32 {
+        return switch (backdrop) {
+            .menus => .{ 0, 0, 0, 0.92 },
+            .mission => hudoptions.shade,
+        };
+    }
+};
 
 /// The buttons, each in the place of one of the settings screen's.
 pub const Button = enum {
@@ -195,11 +209,11 @@ fn colourOf(tone: Tone) [3]f32 {
     };
 }
 
-/// Draws the screen over what `canvas` stands over, and the pointer at `pointer` with `art`, the
+/// Draws the screen over `backdrop`, darkened, and the pointer at `pointer` with `art`, the
 /// settings screen's shapes.
-pub fn draw(console: *Console, canvas: Canvas, art: *hud.Art, pointer: Pointer) canvas_module.Error!void {
+pub fn draw(console: *Console, canvas: Canvas, art: *hud.Art, pointer: Pointer, backdrop: Backdrop) canvas_module.Error!void {
     const window: [2]f32 = .{ @floatFromInt(canvas.window[0]), @floatFromInt(canvas.window[1]) };
-    hud.drawFilled(canvas.target, .{ .left = 0, .top = 0, .right = window[0], .bottom = window[1] }, shade);
+    hud.drawFilled(canvas.target, .{ .left = 0, .top = 0, .right = window[0], .bottom = window[1] }, backdrop.shade());
     const view = &console.view;
     try canvas.text(canvas.fonts.large, title_at, title, canvas_module.white, .centre);
     output_frame.draw(canvas);

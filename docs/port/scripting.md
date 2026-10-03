@@ -460,8 +460,10 @@ The screen is laid out on the front end's screen as the settings screen is
 settings screen's tabs, the output in a frame from x 45, 520 wide, with the controls list's arrows
 right of its top, the line typed in a frame below it with the saved games' blinking cursor, and
 RUN, CLOSE, CLEAR and RELOAD in the places of the settings screen's buttons, with their shapes. The
-text is in the front end's small font, the title in its large font, and everything stands over
-what's behind it darkened.
+text is in the front end's small font, the title in its large font. Over the front end, what's
+behind it is darkened enough that the menus' labels don't show through; over the paused mission,
+only as much as the pause menu darkens it behind the settings screen (`hudoptions.shade`), so the
+mission shows through.
 
 ### Reloading
 

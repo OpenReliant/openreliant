@@ -1550,7 +1550,7 @@ const FrontEndDisplay = struct {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
         try drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string));
         if (shown.presentation) |scripts| try scripts.draw(.ui, shown.target, null);
-        if (shown.console) |console| try console.draw(shown.target, shown.window, shown.strings);
+        if (shown.console) |console| try console.draw(shown.target, shown.window, shown.strings, .menus);
     }
 };
 
@@ -1782,7 +1782,7 @@ const Display = struct {
     /// (`pause_menu_draw`), and the display otherwise (`hud_draw`), each with what the player and
     /// menu scripts draw over it.
     fn drawOverlay(display: *Display) !void {
-        if (display.console) |console| if (console.isUp()) return console.draw(display.device, display.screen, display.strings);
+        if (display.console) |console| if (console.isUp()) return console.draw(display.device, display.screen, display.strings, .mission);
         if (display.pause_menu.isOpen()) {
             try display.drawPauseMenu();
             if (display.presentation) |scripts| try scripts.draw(.ui, display.device, null);

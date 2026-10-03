@@ -35,6 +35,10 @@ test {
     _ = screens;
 }
 
+/// How dark the mission stands behind the settings screen in the pause menu, and behind the
+/// scripting console in a mission.
+pub const shade: [4]f32 = .{ 0, 0, 0, 0.6 };
+
 /// A screen of the menu: `pause_screen` 1 to 4.
 pub const Screen = enum { main, controls, audio, video };
 
@@ -101,9 +105,6 @@ const SettingsScreen = struct {
     press: input.FreshPress = .{},
     /// The timer's ticks as the last frame was drawn.
     timer: u64,
-
-    /// How dark the mission stands behind the screen.
-    const shade: [4]f32 = .{ 0, 0, 0, 0.6 };
 
     fn close(shown: *SettingsScreen, gpa: Allocator) void {
         if (shown.shapes) |*shapes| shapes.deinit(gpa);
@@ -256,7 +257,7 @@ pub const PauseMenu = struct {
         var pointer = shown.pointer;
         pointer.down = shown.press.pressed(pointer.down);
         const end = shown.screen.frame(settingsContext(frame, pointer));
-        hud.drawFilled(frame.target, .{ .left = 0, .top = 0, .right = @floatFromInt(frame.screen[0]), .bottom = @floatFromInt(frame.screen[1]) }, SettingsScreen.shade);
+        hud.drawFilled(frame.target, .{ .left = 0, .top = 0, .right = @floatFromInt(frame.screen[0]), .bottom = @floatFromInt(frame.screen[1]) }, shade);
         const shapes = if (shown.shapes) |*read| &read.art else return .{ .screen = .main };
         const dialog_art = if (shown.dialog) |*read| &read.art else return .{ .screen = .main };
         const drawn: canvas.Canvas = .{
