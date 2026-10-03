@@ -349,6 +349,18 @@ fn recordLine(call: Call, which: Which, from: Where, to: Where, given: ?LineStyl
 /// `openreliant.ui`).
 pub fn Package(comptime which: Which) type {
     return struct {
+        pub const register_display = if (which == .hud) api.Native("Registers an enabled mod-qualified HUD display for this player context. Its frame callback draws through the HUD package while shown; failure disables only that display.", "name: string, definition: {frame: (seconds: number) -> ()}", "string", @import("registries.zig").registration(.display)) else {};
+        pub const set_display_enabled = if (which == .hud) api.Function("Enables or disables a registered HUD display by qualified name. Returns whether it exists.", &.{ "name", "enabled" }, struct {
+            fn set(call: Call, name: []const u8, enabled: bool) bool {
+                return @import("registries.zig").show(call, .display, name, enabled);
+            }
+        }.set) else {};
+        pub const register_screen = if (which == .ui) api.Native("Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen.", "name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}", "string", @import("registries.zig").registration(.screen)) else {};
+        pub const show_screen = if (which == .ui) api.Function("Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists.", &.{"name"}, struct {
+            fn show(call: Call, name: ?[]const u8) bool {
+                return @import("registries.zig").show(call, .screen, name, true);
+            }
+        }.show) else {};
         pub const picture = api.Function("Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.", &.{ "at", "file", "size", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), path: []const u8, size: ?@Vector(3, f32), given: ?FillStyle) void {
                 const scripts = presentation.Presentation.of(call, "picture");

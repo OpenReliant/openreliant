@@ -109,6 +109,8 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
+| `register_display(name: string, definition: {frame: (seconds: number) -> ()})` | string | Registers an enabled mod-qualified HUD display for this player context. Its frame callback draws through the HUD package while shown; failure disables only that display. |
+| `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
@@ -125,6 +127,8 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
+| `register_screen(name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?})` | string | Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen. |
+| `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
@@ -144,12 +148,13 @@ Whether keys are held, and the controls bound to actions. For player and menu sc
 
 ### `openreliant.camera`
 
-The camera's view, and switching between the game's views. For player scripts.
+Original and mod-qualified camera views, switching views and registering player-script views. For player scripts.
 
 | Name | Type | What it is |
 |---|---|---|
-| `view` | [View](#view), or nil | The view the camera shows; nil while no mission is shown. |
-| `set_view(view: View, object: Object?)` | boolean | Switches the camera to `view`, of `object`, or of the player's ship where it's nil, as the player's camera keys do. Returns whether it switched: a mission's own camera and the cutaways hold it. |
+| `view` | string \| number, or nil | The original or mod-qualified view the camera shows; nil while no mission is shown. |
+| `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a mod-qualified camera view for this player context. frame returns position and orthonormal orientation; a failed callback returns to cockpit. Mission camera locks take precedence. |
+| `set_view(view: string \| number, object: Object?)` | boolean | Switches to an original or mod-qualified view of object, or the player's ship where nil. Returns whether it switched; mission locks and cutaways take precedence. |
 
 ### `openreliant.audio`
 
@@ -262,6 +267,124 @@ scripts on their object.
 | `add_script(name: string, data: any?)` | boolean | Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts. |
 | `hook(name: string, handler: (e: any) -> boolean?, filter: (Filter \| (e: any) -> boolean)?)` | HookHandle | `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own. |
 | `remove_script(name: string)` | boolean | Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts. |
+
+## Built-in interfaces
+
+These groups reuse existing API declarations beneath mod overrides. Context permissions still apply.
+
+### I.Flight
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `to_world(position: vector, orientation: Orientation, point: vector)` | vector | The point of the world that `point` is in the frame of something at `position` turned as `orientation`: `point`'s x to its right, y down and z forward of it. |
+| `to_local(position: vector, orientation: Orientation, point: vector)` | vector | Where the point of the world `point` is in the frame of something at `position` turned as `orientation`: x to its right, y down and z forward of it. |
+| `look_at(direction: vector)` | [Orientation](#orientation) | The orientation whose forward axis points along `direction`, turned about its Y axis, then its X axis, with no roll, as the game turns a ship to look at something. |
+| `angle_off(position: vector, orientation: Orientation, point: vector)` | number | The angle in radians between the forward axis of something at `position` turned as `orientation` and the direction to `point`: 0 dead ahead, pi straight behind. |
+| `turn(orientation: Orientation, axis: Axis, angle: number)` | [Orientation](#orientation) | `orientation` turned by `angle` radians about its own `axis`: right-handed, so about its Y axis, which points down, a positive angle turns its nose to the right. |
+
+### I.AI
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `register(name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?})` | string | Registers a custom order for this global script's mod. Returns its qualified name, which give_order and orders.info accept. The update callback returns false to finish; callbacks cannot change order stacks. Registrations stop with their script context. |
+| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The metadata of an original order or mod-qualified custom order: name, priority and flags. Nil for an unknown or disabled registration. |
+| `stack(object: Object)` | list of [OrderEntry](#orderentry) | The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends. |
+| `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
+| `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
+| `give_order(self: Object, order: string \| number, target: Object?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
+
+### I.Combat
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds a handler through the existing hooks package. |
+| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds an after handler through the existing hooks package. |
+
+### I.Weapons
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds a handler through the existing hooks package. |
+| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds an after handler through the existing hooks package. |
+
+### I.Carriers
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `give_order(self: Object, order: string \| number, target: Object?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
+| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds a handler through the existing hooks package. |
+| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds an after handler through the existing hooks package. |
+
+### I.Camera
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `view` | string \| number, or nil | The original or mod-qualified view the camera shows; nil while no mission is shown. |
+| `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a mod-qualified camera view for this player context. frame returns position and orthonormal orientation; a failed callback returns to cockpit. Mission camera locks take precedence. |
+| `set_view(view: string \| number, object: Object?)` | boolean | Switches to an original or mod-qualified view of object, or the player's ship where nil. Returns whether it switched; mission locks and cutaways take precedence. |
+
+### I.Controls
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `register_action(name: string, definition: Definition)` | string | Registers a mod-qualified action from a menu script. Its label appears in controls; conflicting defaults stay unassigned. Returns its name for action_down and on_action. Bindings are saved by name. |
+| `key_down(key: Key)` | boolean | Whether `key` is held down. |
+| `action_down(action: string \| number)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. |
+
+### I.HUD
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
+| `width` | number | The window's width, in pixels. |
+| `height` | number | The window's height, in pixels. |
+| `register_display(name: string, definition: {frame: (seconds: number) -> ()})` | string | Registers an enabled mod-qualified HUD display for this player context. Its frame callback draws through the HUD package while shown; failure disables only that display. |
+| `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
+| `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
+| `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
+| `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
+| `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing. |
+
+### I.Audio
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `play_sound(index: number, volume: number?)` | boolean | Plays sound `index` of the game's standard sounds, the menus' and the display's, at `volume` from 0 to 1, or at its loudest where it's nil. Returns whether it played. |
+| `play_music(name: string)` | nothing | Plays the piece `name` from the game's music folder for ever, in place of the music playing. |
+| `say(line: BettyLine)` | boolean | Betty says `line`. Returns whether she does. |
+
+### I.Missions
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `player` | [object](#objects), or nil | The player's ship, while a mission runs; nil between missions. |
+| `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
+| `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
+
+### I.Campaign
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
+| `send_global_event(name: string, data: any)` | nothing | Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update. |
+
+### I.FrontEnd
+
+| Member | Type or returns | Description |
+|---|---|---|
+| `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
+| `width` | number | The window's width, in pixels. |
+| `height` | number | The window's height, in pixels. |
+| `register_screen(name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?})` | string | Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen. |
+| `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
+| `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
+| `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
+| `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
+| `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing. |
 
 ## The game's functions
 
@@ -908,10 +1031,6 @@ number. A script can set a field to either.
 ### GamepadButton
 
 `south`, `east`, `west`, `north`, `back`, `guide`, `start`, `left_stick`, `right_stick`, `left_shoulder`, `right_shoulder`, `dpad_up`, `dpad_down`, `dpad_left`, `dpad_right`, `misc1`, `right_paddle1`, `left_paddle1`, `right_paddle2`, `left_paddle2`, `touchpad`, `misc2`, `misc3`, `misc4`, `misc5`, `misc6`, `left_trigger`, `right_trigger`, `right_stick_up`, `right_stick_down`, `right_stick_left`, `right_stick_right`.
-
-### View
-
-`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.
 
 ### BettyLine
 

@@ -48,6 +48,7 @@ const roots: []const type = list: {
     for (std.enums.values(script.Package)) |package| {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceTypes(Namespace);
     }
+    for (std.enums.values(@import("builtin_interfaces.zig").Group)) |group| found = found ++ namespaceTypes(group.namespace());
     for (std.enums.values(script.Handler)) |handler| {
         for (@typeInfo(handler.Arguments()).@"struct".fields) |field| found = found ++ .{field.type};
     }
@@ -66,6 +67,7 @@ const passed: []const type = list: {
     for (std.enums.values(script.Package)) |package| {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceParameters(Namespace);
     }
+    for (std.enums.values(@import("builtin_interfaces.zig").Group)) |group| found = found ++ namespaceParameters(group.namespace());
     break :list found;
 };
 
@@ -315,7 +317,22 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
             try w.writeAll("}\n");
         }
     }
-    try w.print("\n-- {s}\ntype Interfaces = {{ [string]: any }}\n", .{script.Package.interfaces.about()});
+    try w.print("\n-- {s}\ntype Interfaces = {{\n", .{script.Package.interfaces.about()});
+    inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
+        const tag: @import("builtin_interfaces.zig").Group = @enumFromInt(group.value);
+        const Namespace = comptime tag.namespace();
+        try w.print("    {s}: {{\n", .{group.name});
+        inline for (comptime api.declared(Namespace, .field)) |name| {
+            const field = @field(Namespace, name);
+            try w.print("        {s}: {s},\n", .{ name, comptime luauType(field.Type) });
+        }
+        inline for (comptime api.declared(Namespace, .function)) |name| {
+            const function = @field(Namespace, name);
+            try w.print("        {s}: ({s}) -> {s},\n", .{ name, comptime parameterList(function, 0), comptime resultType(function) });
+        }
+        try w.writeAll("    },\n");
+    }
+    try w.writeAll("    [string]: any,\n}\n");
     try w.writeAll("\n-- A section of a mod's storage: its fields by name, each plain data. Reading one gives a copy.\ntype Section = { [string]: any }\n");
 
     try w.writeAll(
@@ -534,6 +551,21 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
     inline for (comptime api.declared(objects.methods, .function)) |name| {
         const method = @field(objects.methods, name);
         try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(method, 1)), comptime markdownResult(method), method.description });
+    }
+
+    try w.writeAll("\n## Built-in interfaces\n\nThese groups reuse existing API declarations beneath mod overrides. Context permissions still apply.\n");
+    inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
+        const tag: @import("builtin_interfaces.zig").Group = @enumFromInt(group.value);
+        const Namespace = comptime tag.namespace();
+        try w.print("\n### I.{s}\n\n| Member | Type or returns | Description |\n|---|---|---|\n", .{group.name});
+        inline for (comptime api.declared(Namespace, .field)) |name| {
+            const field = @field(Namespace, name);
+            try w.print("| `{s}` | {s} | {s} |\n", .{ name, comptime markdownType(field.Type), field.description });
+        }
+        inline for (comptime api.declared(Namespace, .function)) |name| {
+            const function = @field(Namespace, name);
+            try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(function, 0)), comptime markdownResult(function), function.description });
+        }
     }
 
     try w.writeAll(

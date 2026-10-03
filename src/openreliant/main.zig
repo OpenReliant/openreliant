@@ -1007,7 +1007,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 layer.fonts.set(.menu_large, if (script_large) |*font| &font.font else null);
                 layer.art = if (flow.in_front_end) if (front_resources.?.shapes) |*art| art else null else &display.resources.art;
             };
+            if (shown.runtime.registries.selected_screen != null and host.views.get(.ui) == null) host.views.set(.ui, host.views.get(.hud));
             shown.frame(host);
+            if (host.camera != null) {
+                objects.slots[objects.player].object.flags.hidden = view.inside(objects.player);
+            }
         }
 
         _ = frame_arena.reset(.retain_capacity);
@@ -1822,7 +1826,10 @@ const Display = struct {
             return;
         }
         try display.drawDisplay();
-        if (display.presentation) |scripts| try scripts.draw(.hud, display.device, display.sight);
+        if (display.presentation) |scripts| {
+            try scripts.draw(.hud, display.device, display.sight);
+            if (scripts.runtime.registries.selected_screen != null) try scripts.draw(.ui, display.device, null);
+        }
     }
 
     fn drawPauseMenu(display: *Display) !void {

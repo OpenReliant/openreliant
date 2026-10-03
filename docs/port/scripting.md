@@ -20,6 +20,19 @@ rasterizer. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Mea
 same bitmap layout as drawing. Cached resources are released before the rasterizer and renderer
 at shutdown; reload creates a new context's entries without invalidating preceding frames.
 
+## Registries and built-in interfaces
+
+**Improvement:** `registries.zig` owns presentation registrations by context and qualified name
+(#558). It calls handlers through the protected runtime and validates camera return values in
+a protected boundary. Camera selection uses unnamed view values after the original table; an
+original view change releases the custom selection. Camera subjects use reuse-counted object
+handles. HUD displays and selected screens record commands through the existing drawing layer.
+Context shutdown and failed loads invalidate registrations and release callback references.
+
+`builtin_interfaces.zig` groups existing API declarations. `interfaces.zig` supplies these tables
+as fallback bases, while keeping normal scope/override behavior. Generated definitions follow
+the same declarations rather than a second list of function signatures.
+
 ## Luau implementation
 
 `deps/luau` builds Luau 0.740 from source as a static library. It includes the VM and the

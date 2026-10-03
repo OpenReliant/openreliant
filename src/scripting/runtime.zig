@@ -141,6 +141,7 @@ pub const Runtime = struct {
     handles: ?luau.Ref = null,
     custom_orders: @import("orders.zig").Registry = .{},
     input_actions: @import("openreliant").engine.input.actions.Registry = .{},
+    registries: @import("registries.zig").Registry = .{},
 
     const Running = struct {
         /// The memory category of the running mod.
@@ -180,6 +181,7 @@ pub const Runtime = struct {
     }
 
     pub fn destroy(runtime: *Runtime) void {
+        runtime.registries.deinit(runtime);
         runtime.custom_orders.deinit(runtime);
         runtime.state.close();
         for (runtime.contexts.items) |context| runtime.gpa.destroy(context);
@@ -295,6 +297,7 @@ pub const Runtime = struct {
         if (context.closed) return;
         runtime.custom_orders.removeContext(runtime, context);
         runtime.input_actions.removeOwner(context);
+        runtime.registries.removeSince(runtime, context, 0);
         context.closed = true;
         const state = runtime.state;
         state.unref(context.loaded);
@@ -342,6 +345,7 @@ pub const Runtime = struct {
     pub fn run(runtime: *Runtime, context: *Context, name: []const u8) ?luau.Ref {
         const registrations = runtime.custom_orders.entries.items.len;
         const actions_generation = runtime.input_actions.generation;
+        const registrations_presentation = runtime.registries.entries.items.len;
         const thread = context.thread;
         _ = thread.getGlobal("require");
         thread.pushString(name);
@@ -351,6 +355,7 @@ pub const Runtime = struct {
         if (status != .ok) {
             runtime.custom_orders.removeSince(runtime, context, registrations);
             runtime.input_actions.removeSince(context, actions_generation);
+            runtime.registries.removeSince(runtime, context, registrations_presentation);
             runtime.recover(context, thread);
             return null;
         }
@@ -388,6 +393,46 @@ pub const Runtime = struct {
         thread.pop(1);
         defer runtime.release(returned);
         return runtime.keep(context, returned, gpa, "on_save");
+    }
+
+    /// Calls a registered function and validates its returned value inside a protected boundary.
+    pub fn callResult(runtime: *Runtime, context: *Context, table: luau.Ref, key: [:0]const u8, comptime T: type, arguments: anytype) ?T {
+        if (context.closed) return null;
+        const thread = context.thread;
+        if (!thread.checkStack(arguments.len + 4)) return null;
+        _ = thread.pushRef(table);
+        if (thread.rawGetField(-1, key) != .function) {
+            thread.pop(2);
+            return null;
+        }
+        thread.remove(-2);
+        inline for (arguments) |argument| pushArgument(thread, argument);
+        const outer = runtime.begin(context);
+        defer runtime.end(outer);
+        if (thread.protectedCall(arguments.len, 1) != .ok) {
+            runtime.recover(context, thread);
+            return null;
+        }
+        defer thread.pop(1);
+        const ref = thread.ref(-1);
+        defer runtime.release(ref);
+        const Request = struct {
+            ref: luau.Ref,
+            result: ?T = null,
+            fn read(state: *State) i32 {
+                const request = state.toLightUserdata(@This(), 1).?;
+                _ = state.pushRef(request.ref);
+                request.result = values.read(state, T, -1, "callback result");
+                state.pop(1);
+                return 0;
+            }
+        };
+        var request: Request = .{ .ref = ref };
+        if (thread.protectedCallC(luau.wrap(Request.read), &request) != .ok) {
+            runtime.recover(context, thread);
+            return null;
+        }
+        return request.result;
     }
 
     /// A copy of the referenced value as plain data (`stored.capture`), made in `gpa`; null where

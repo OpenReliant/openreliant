@@ -749,6 +749,39 @@ test "handlers run newest mod first, in the order each mod added them" {
     try std.testing.expectEqual(100, shields.get(.fore));
 }
 
+test "built-in interfaces provide existing APIs beneath mod overrides" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local I = require("openreliant.interfaces")
+                \\assert(I.Flight.look_at(vector.create(0, 0, 1)).forward == vector.create(0, 0, 1))
+                \\assert(I.AI.info("fight").name == "Fight")
+                \\assert(I.Camera == nil and I.HUD == nil)
+                \\I.Combat.add_hook("damage_by_difficulty", function(e) e.value *= 2 end)
+                \\return {interface_name = "AI", interface = {custom = true}, engine_handlers = {
+                \\    on_interface_override = function(base) assert(base.info("fight").name == "Fight") end,
+                \\    on_update = function() assert(I.AI.custom) end,
+                \\}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try std.testing.expectEqual(4, fixture.scaled(fixture.sabre, 2));
+    fixture.game.scripts.update(0.04);
+    const context = fixture.game.global().items[0].context;
+    fixture.game.runner.stopAll(fixture.game.global());
+    try std.testing.expect(context.closed);
+    const reopened = try fixture.game.runtime.open(0, .global, null);
+    try @import("bind.zig").testing.runSource(reopened.thread,
+        \\local I = require("openreliant.interfaces")
+        \\assert(I.AI.custom == nil and I.AI.info("fight").name == "Fight")
+    );
+}
+
 test "a handler can stop a call, or run the rest of it itself" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{
