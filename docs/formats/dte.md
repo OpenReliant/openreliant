@@ -564,6 +564,36 @@ Assembled again from its disassembly, every routine of the 44 missions comes bac
 the padding after its last instruction, which in the shipped missions holds stale bytes, and the
 three routines that hold unused arm slots of a `random_branch`.
 
+## Mission source groundwork
+
+[Mission Source v1](https://github.com/OpenReliant/openreliant/issues/608) defines a YAML tool
+input that compiles to a standard `.DTE`. The first implemented slice is source identity and
+typed symbol resolution ([#609](https://github.com/OpenReliant/openreliant/issues/609)).
+
+[`dte/source.zig`](../../src/formats/dte/source.zig) provides `Symbols(Record)`, a table for one
+collection of existing format records or source records. Each entry has an explicit source `id`
+and its record. IDs match `[A-Za-z_][A-Za-z0-9_-]*` and are unique within that collection. They
+are independent of display names, original object IDs and binary offsets.
+
+`Reference(Record)` identifies the collection's record type. Resolution uses the selected table,
+so equal IDs in different collections or script banks do not conflict. There is no separate list
+of supported record kinds. Adding fields to a record or introducing another record type does
+not require changing the symbol table. Binary width and sentinel checks belong to the compiler
+that lowers resolved indices into the file.
+
+Source IDs also do not depend on the base game's asset catalogue. A record can reference a
+numeric type introduced by a mod. Named content resolution in the future compiler must use the
+selected game's effective mod records and resources, including load order, rather than a fixed
+list of shipped types. Source identity and asset lookup are separate operations.
+
+The table borrows immutable records and ID bytes. Rebuild it after changing IDs or collection
+order: a reference then resolves to the record's new index. Display names may repeat or change
+without affecting resolution. The caller selects the script bank explicitly.
+
+**Not implemented:** YAML parsing, source compilation, export and preservation. These follow
+in separate slices under #608. The existing binary reader, writer and assembler remain the
+format implementation.
+
 ## Prior art
 
 The container, directory, record strides and condition list are from [Starlancer-OSS

@@ -24,6 +24,9 @@ pub const section_count = 27;
 pub const write = @import("dte/write.zig");
 pub const assemble = @import("dte/assemble.zig");
 
+/// Identity and typed references for mission source collections (#608).
+pub const source = @import("dte/source.zig");
+
 /// What each directory slot holds. Sections the loader reads but this module does not interpret
 /// keep their index as a name.
 pub const Section = enum(u8) {
@@ -2066,4 +2069,5 @@ test {
     _ = opcodes;
     _ = write;
     _ = assemble;
+    _ = source;
 }
