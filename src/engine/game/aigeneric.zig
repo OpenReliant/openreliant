@@ -315,6 +315,7 @@ pub const Context = struct {
 pub const Error = error{OrderConflict};
 
 /// The original catalogue or a mod's registered order. All runtime metadata uses this lookup.
+/// **Improvement:** custom order metadata is supplied by the script registry (#615).
 pub fn infoOf(all: *const create.Objects, order: Order) ?orders.Info {
     if (orders.info(order)) |info| return info;
     const scripts = all.scripts orelse return null;
@@ -354,7 +355,9 @@ comptime {
 /// `order_refused` (`0x0040CA00`): whether the ship refuses the order outright. A player's ship,
 /// which is one of the slots from the first that belong to players, takes only the orders numbered
 /// 100 and up and those the table marks as a player's. An order the table does not hold is refused
-/// with them. Registered custom orders use their explicit player eligibility flag.
+/// with them.
+///
+/// **Improvement:** registered orders use their explicit player eligibility flag (#615).
 pub fn refused(all: *const create.Objects, index: u16, order: Order) bool {
     if (orders.info(order) == null) {
         if (infoOf(all, order)) |info| return index < all.players and !info.flags.players;
@@ -523,26 +526,23 @@ pub fn popAll(ctx: Context, index: u16) void {
 
 /// Removes a registration's orders before its script context closes, including suspended ones.
 pub fn forget(ctx: Context, order: Order) void {
-    for (&ctx.world.objects.slots, 0..) |*slot, index| {
-        var at: usize = 0;
-        while (at < slot.stack().len) {
-            if (slot.orders[at].order != order) {
-                at += 1;
-                continue;
-            }
-            if (at == 0) {
-                _ = pop(ctx, @intCast(index));
-            } else remove(slot, at);
-        }
-    }
+    for (0..ctx.world.objects.slots.len) |index| forgetIn(ctx, @intCast(index), order);
 }
 
 /// Stops custom orders before an object is retired, while its handle and callbacks are valid.
 pub fn forgetCustom(ctx: Context, index: u16) void {
+    forgetIn(ctx, index, null);
+}
+
+/// Removes one registered order, or all registered orders where `order` is null. Unknown
+/// original-file order numbers are left alone, as they are without scripts.
+fn forgetIn(ctx: Context, index: u16, order: ?Order) void {
     const slot = &ctx.world.objects.slots[index];
     var at: usize = 0;
     while (at < slot.stack().len) {
-        if (orders.info(slot.orders[at].order) != null) {
+        const candidate = slot.orders[at].order;
+        const matches = if (order) |wanted| candidate == wanted else orders.info(candidate) == null and infoOf(ctx.world.objects, candidate) != null;
+        if (!matches) {
             at += 1;
             continue;
         }
@@ -589,6 +589,9 @@ fn remove(slot: *create.Slot, at: usize) void {
 ///
 /// Not ported: the orders other players' machines queue, which are multiplayer's
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+///
+/// **Improvement:** registered orders run protected script callbacks through the engine's script
+/// bridge. Completion or failure pops the order using the existing stack rules (#615).
 pub fn objectOrders(ctx: Context, index: u16) void {
     if (hooks.enter(.object_orders, objectOrders, .{ ctx, index })) |done| return done;
     const slot = &ctx.world.objects.slots[index];

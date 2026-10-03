@@ -16,6 +16,8 @@ const world = @import("world.zig");
 const runtime = @import("runtime.zig");
 const luau = @import("luau.zig");
 const State = luau.State;
+const log = std.log.scoped(.scripts);
+const Role = engine.game.ai.routines.Role;
 
 /// First session-local order number, derived from the original catalogue rather than fixed.
 pub const first_custom: i32 = first: {
@@ -23,6 +25,14 @@ pub const first_custom: i32 = first: {
     for (orders.table) |info| highest = @max(highest, @intFromEnum(info.order));
     break :first highest + 1;
 };
+
+fn orderAt(index: usize) orders.Order {
+    return @enumFromInt(first_custom + @as(i32, @intCast(index)));
+}
+
+fn pushObject(state: *State, object: ?Object) void {
+    values.push(state, ?Object, object);
+}
 
 const Registered = struct {
     context: *runtime.Context,
@@ -64,7 +74,7 @@ pub const Registry = struct {
     pub fn find(registry: *Registry, name: []const u8) ?orders.Order {
         for (registry.entries.items, 0..) |entry, index| {
             if (!entry.enabled or entry.context.closed) continue;
-            if (std.mem.eql(u8, name, entry.qualified.slice())) return @enumFromInt(first_custom + @as(i32, @intCast(index)));
+            if (std.mem.eql(u8, name, entry.qualified.slice())) return orderAt(index);
         }
         return null;
     }
@@ -76,7 +86,7 @@ pub const Registry = struct {
     pub fn removeSince(registry: *Registry, scripts: *runtime.Runtime, context: *runtime.Context, first: usize) void {
         for (first..registry.entries.items.len) |index| {
             if (registry.entries.items[index].context != context) continue;
-            if (scripts.orders) |ctx| aigeneric.forget(ctx, @enumFromInt(first_custom + @as(i32, @intCast(index))));
+            if (scripts.orders) |ctx| aigeneric.forget(ctx, orderAt(index));
             registry.entries.items[index].enabled = false;
             registry.release(scripts, &registry.entries.items[index]);
         }
@@ -84,11 +94,11 @@ pub const Registry = struct {
 
     pub fn endMission(registry: *Registry, scripts: *runtime.Runtime) void {
         if (scripts.orders) |ctx| for (0..registry.entries.items.len) |index| {
-            aigeneric.forget(ctx, @enumFromInt(first_custom + @as(i32, @intCast(index))));
+            aigeneric.forget(ctx, orderAt(index));
         };
     }
 
-    pub fn run(registry: *Registry, scripts: *runtime.Runtime, ctx: aigeneric.Context, index: u16, order: orders.Order, role: engine.game.ai.routines.Role) bool {
+    pub fn run(registry: *Registry, scripts: *runtime.Runtime, ctx: aigeneric.Context, index: u16, order: orders.Order, role: Role) bool {
         const at = registry.position(order) orelse return false;
         const held = registry.entries.items[at];
         if ((!held.enabled and role != .exit) or held.context.closed or registry.running) return false;
@@ -97,23 +107,15 @@ pub const Registry = struct {
         defer registry.running = false;
         const aim = ctx.world.objects.slots[index].orders[0].target.ship();
         const target: ?Object = if (aim) |slot| world.objectIn(ctx.world.objects, slot) else null;
-        const ship_ref = scripts.make(struct {
-            fn push(state: *State, ship: Object) void {
-                values.push(state, Object, ship);
-            }
-        }.push, .{Object.of(index)}) orelse return false;
+        const ship_ref = scripts.make(pushObject, .{@as(?Object, .of(index))}) orelse return false;
         defer scripts.release(ship_ref);
-        const target_ref = scripts.make(struct {
-            fn push(state: *State, aimed: ?Object) void {
-                values.push(state, ?Object, aimed);
-            }
-        }.push, .{target}) orelse return false;
+        const target_ref = scripts.make(pushObject, .{target}) orelse return false;
         defer scripts.release(target_ref);
         const seconds = @as(f32, @floatFromInt(ctx.world.clock.frameTicks())) / engine.game.main.ticks_per_second;
         const called = scripts.callIn(held.context, callbacks, @tagName(role), .{ ship_ref, target_ref, seconds }) orelse return true;
         if (called == .failed) {
             registry.entries.items[at].enabled = false;
-            std.log.scoped(.scripts).warn("{s}: custom order {s} failed and is disabled", .{ held.context.modOf().name, held.name.slice() });
+            log.warn("{s}: custom order {s} failed and is disabled", .{ held.context.modOf().name, held.name.slice() });
             return false;
         }
         return role != .update or called != .returned_false;
@@ -141,7 +143,7 @@ fn registerOrder(state: *State) i32 {
         } else if (std.mem.eql(u8, field, "priority")) {
             priority = values.read(state, i32, -1, "priority");
             if (priority < 0) call.raise("order priority must be nonnegative", .{});
-        } else if (std.mem.eql(u8, field, "init") or std.mem.eql(u8, field, "update") or std.mem.eql(u8, field, "exit")) {
+        } else if (std.meta.stringToEnum(Role, field) != null) {
             if (state.typeOf(-1) != .function) call.raise("order callbacks must be functions", .{});
         } else call.raise("unknown order definition field '{s}'", .{field});
         state.pop(1);
@@ -155,10 +157,10 @@ fn registerOrder(state: *State) i32 {
     if (number > std.math.maxInt(i16)) call.raise("the custom order registry is full", .{});
     scripts.custom_orders.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("orders.register: out of memory", .{});
     // Copy callbacks so later changes to the definition cannot replace a registered handler.
-    state.newTable(0, 3);
-    inline for (.{ "init", "update", "exit" }) |field| {
-        _ = state.rawGetField(2, field);
-        state.rawSetField(-2, field);
+    state.newTable(0, std.meta.fields(Role).len);
+    inline for (std.meta.fields(Role)) |role| {
+        _ = state.rawGetField(2, role.name);
+        state.rawSetField(-2, role.name);
     }
     const callbacks = state.ref(-1);
     state.pop(1);
@@ -171,24 +173,26 @@ fn registerOrder(state: *State) i32 {
 /// Original names/numbers stay supported. Custom orders require a qualified name.
 pub const Identifier = union(enum) { name: []const u8, number: i16 };
 
-pub fn identifierOf(scripts: *runtime.Runtime, order: orders.Order) Identifier {
+pub fn identifierOf(all: *const engine.game.create.Objects, order: orders.Order) Identifier {
     if (values.name(orders.Order, order)) |name| return .{ .name = name };
-    if (scripts.custom_orders.info(order)) |info| return .{ .name = info.name };
+    if (aigeneric.infoOf(all, order)) |info| return .{ .name = info.name };
     return .{ .number = @intFromEnum(order) };
 }
 
+fn find(scripts: *runtime.Runtime, identifier: Identifier) ?orders.Order {
+    return switch (identifier) {
+        .name => |name| values.byName(orders.Order, name) orelse scripts.custom_orders.find(name),
+        .number => |number| if (orders.info(@enumFromInt(number)) != null) @enumFromInt(number) else null,
+    };
+}
+
 pub fn resolve(call: Call, identifier: Identifier) orders.Order {
-    switch (identifier) {
+    return find(call.runtime(), identifier) orelse switch (identifier) {
         .name => |name| {
-            if (values.byName(orders.Order, name)) |order| return order;
-            return call.runtime().custom_orders.find(name) orelse call.raise("no registered order named '{s}'", .{name});
+            call.raise("no registered order named '{s}'", .{name});
         },
-        .number => |number| {
-            const order: orders.Order = @enumFromInt(number);
-            if (orders.info(order) == null) call.raise("custom orders must be named, not numbered", .{});
-            return order;
-        },
-    }
+        .number => call.raise("custom orders must be named, not numbered", .{}),
+    };
 }
 
 /// What the order table says of an order.
@@ -228,11 +232,7 @@ pub const package = struct {
 };
 
 fn infoOf(call: Call, identifier: Identifier) ?OrderInfo {
-    const order: orders.Order = switch (identifier) {
-        .name => |name| values.byName(orders.Order, name) orelse call.runtime().custom_orders.find(name) orelse return null,
-        .number => |number| @enumFromInt(number),
-    };
-    if (identifier == .number and orders.info(order) == null) return null;
+    const order = find(call.runtime(), identifier) orelse return null;
     const all = call.runtime().objects;
     return .of((if (all) |objects_held| aigeneric.infoOf(objects_held, order) else orders.info(order)) orelse return null);
 }
@@ -243,7 +243,7 @@ fn stackOf(call: Call, object: Object) Stack {
     for (all.slots[object.slot()].stack()) |entry| {
         const ship = entry.target.ship();
         found.append(.{
-            .order = identifierOf(call.runtime(), entry.order),
+            .order = identifierOf(all, entry.order),
             .target = if (ship) |slot| world.objectIn(all, slot) else null,
             .component = entry.target.part(),
         });
