@@ -512,7 +512,7 @@ fn reassemble(gpa: std.mem.Allocator, instructions: []const dte.Instruction, con
     return routine.finish();
 }
 
-fn fail(out: *Io.Writer, what: []const u8) error{Differs} {
-    out.print("{s}\n", .{what}) catch {};
+fn fail(out: *Io.Writer, what: []const u8) (Io.Writer.Error || error{Differs}) {
+    try out.print("{s}\n", .{what});
     return error.Differs;
 }
