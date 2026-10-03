@@ -32,14 +32,15 @@ pub fn Symbols(comptime Record: type) type {
             id: []const u8,
             record: Record,
         };
-        pub const Error = error{ InvalidId, DuplicateId, MissingId };
+        pub const InitError = Allocator.Error || error{ InvalidId, DuplicateId };
+        pub const ResolveError = error{ InvalidId, MissingId };
 
         entries: []const Entry,
         indices: std.StringHashMapUnmanaged(usize) = .empty,
 
         /// Borrows immutable entries and ID bytes until `deinit`. Rebuild the table after changing
         /// IDs or collection order. Display names and original object IDs are never inspected.
-        pub fn init(gpa: Allocator, entries: []const Entry) (Allocator.Error || Error)!Self {
+        pub fn init(gpa: Allocator, entries: []const Entry) InitError!Self {
             var table: Self = .{ .entries = entries };
             errdefer table.deinit(gpa);
             for (entries, 0..) |entry, index| {
@@ -58,12 +59,12 @@ pub fn Symbols(comptime Record: type) type {
 
         /// Resolves only in this collection. An invalid reference is distinguished from a valid
         /// ID that is absent, so a source reader can report the appropriate diagnostic.
-        pub fn indexOf(table: Self, reference: Ref) Error!usize {
+        pub fn indexOf(table: Self, reference: Ref) ResolveError!usize {
             if (!validId(reference.id)) return error.InvalidId;
             return table.indices.get(reference.id) orelse error.MissingId;
         }
 
-        pub fn resolve(table: Self, reference: Ref) Error!*const Record {
+        pub fn resolve(table: Self, reference: Ref) ResolveError!*const Record {
             return &table.entries[try table.indexOf(reference)].record;
         }
     };
@@ -72,6 +73,14 @@ pub fn Symbols(comptime Record: type) type {
 test validId {
     for ([_][]const u8{ "player", "_start", "Alpha_2-escort" }) |id| try std.testing.expect(validId(id));
     for ([_][]const u8{ "", "2player", "-player", "A B", "A.B", "A\x00B", "é" }) |id| try std.testing.expect(!validId(id));
+    // Check every byte at both positions, including non-ASCII bytes and control characters.
+    for (0..256) |value| {
+        const char: u8 = @intCast(value);
+        const letter = (char >= 'A' and char <= 'Z') or (char >= 'a' and char <= 'z');
+        const digit = char >= '0' and char <= '9';
+        try std.testing.expectEqual(letter or char == '_', validId(&.{char}));
+        try std.testing.expectEqual(letter or digit or char == '_' or char == '-', validId(&.{ 'a', char }));
+    }
 }
 
 test "source IDs resolve format records independently of display names and binary IDs" {
@@ -121,13 +130,24 @@ test "symbol errors and allocation failures release the index" {
     try std.testing.expectError(error.DuplicateId, Table.init(gpa, &duplicate));
     const invalid = [_]Table.Entry{ entries[0], .{ .id = "bad.id", .record = 0 } };
     try std.testing.expectError(error.InvalidId, Table.init(gpa, &invalid));
+    // Grow through several map allocations so failures also exercise cleanup of an existing map.
+    var many: [300]Table.Entry = undefined;
+    var ids: [many.len][16]u8 = undefined;
+    for (&many, &ids, 0..) |*entry, *id, index| entry.* = .{
+        .id = try std.fmt.bufPrint(id, "record_{d}", .{index}),
+        .record = @intCast(index),
+    };
     try std.testing.checkAllAllocationFailures(gpa, struct {
         fn run(allocator: Allocator, records: []const Table.Entry) !void {
             var made = try Table.init(allocator, records);
             defer made.deinit(allocator);
-            try std.testing.expectEqual(1, try made.indexOf(.{ .id = "two" }));
+            try std.testing.expectEqual(299, try made.indexOf(.{ .id = "record_299" }));
+            try std.testing.expectError(error.MissingId, made.indexOf(.{ .id = "Record_299" }));
         }
-    }.run, .{&entries});
+    }.run, .{&many});
+    var empty = try Table.init(gpa, &.{});
+    defer empty.deinit(gpa);
+    try std.testing.expectError(error.MissingId, empty.indexOf(.{ .id = "one" }));
 }
 
 test "new record types and independent script banks use the same symbol table" {
