@@ -297,6 +297,11 @@ const Pass = struct {
 /// entries looked up, and `tRNS`'s transparency applied. Chunks this reader does not know are
 /// passed over where PNG lets a reader do without them.
 pub fn read(gpa: Allocator, bytes: []const u8) ReadError!Picture {
+    return readLimited(gpa, bytes, std.math.maxInt(usize));
+}
+
+/// Reads a picture only when its decoded RGBA pixels fit `max_rgba_bytes`.
+pub fn readLimited(gpa: Allocator, bytes: []const u8, max_rgba_bytes: usize) ReadError!Picture {
     if (!std.mem.startsWith(u8, bytes, signature)) return error.NotAPng;
     var header: ?Header = null;
     // Each palette entry's red, green, blue and alpha; entries past the palette's end are black.
@@ -318,6 +323,7 @@ pub fn read(gpa: Allocator, bytes: []const u8) ReadError!Picture {
         const body = named[4..];
         if (std.mem.eql(u8, name, "IHDR")) {
             header = try .parse(body);
+            if (@as(usize, header.?.width) * header.?.height * 4 > max_rgba_bytes) return error.BadSize;
             continue;
         }
         const head = header orelse return error.Corrupt;
@@ -390,6 +396,17 @@ pub fn read(gpa: Allocator, bytes: []const u8) ReadError!Picture {
         }
     }
     return .{ .width = head.width, .height = head.height, .rgba = rgba };
+}
+
+test "bounded PNG decoding rejects large dimensions before pixel allocation" {
+    const gpa = std.testing.allocator;
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try writeRgba(gpa, &bytes.writer, 2, 1, &.{ 255, 0, 0, 255, 0, 255, 0, 255 });
+    try std.testing.expectError(error.BadSize, readLimited(gpa, bytes.written(), 4));
+    const picture = try readLimited(gpa, bytes.written(), 8);
+    defer picture.deinit(gpa);
+    try std.testing.expectEqual(8, picture.rgba.len);
 }
 
 /// A chunk's bytes besides its data: its length, its name and its checksum.

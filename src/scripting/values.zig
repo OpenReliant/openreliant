@@ -209,13 +209,14 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
     }
 }
 
-/// The kind of Luau value that is read as a `T`, for a union of booleans, numbers and strings.
+/// The kind of Luau value read for a union variant: boolean, number, string or struct table.
 fn luauKind(comptime T: type) luau.Type {
     return switch (@typeInfo(T)) {
+        .@"struct" => .table,
         .bool => .boolean,
         .float, .int => .number,
         .pointer => .string,
-        else => @compileError("a union scripts give holds booleans, numbers and strings, not " ++ @typeName(T)),
+        else => @compileError("a union scripts give holds booleans, numbers, strings or struct tables, not " ++ @typeName(T)),
     };
 }
 
@@ -231,6 +232,7 @@ fn kindNames(comptime T: type) []const u8 {
                 .boolean => "a boolean",
                 .number => "a number",
                 .string => "a string",
+                .table => "a table",
                 else => unreachable,
             };
         }

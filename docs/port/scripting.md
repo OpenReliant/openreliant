@@ -11,7 +11,16 @@ explains how to write them; this page explains how they run.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
 
-## Luau
+## Drawing resources
+
+**Improvement:** scripted HUD/UI drawing uses mod PNG pictures, the current game's sprite set,
+and selected bitmap or outline fonts (#590). `drawing.Assets` owns cached mod resources by script
+context and filename, while `drawing.View` borrows the current game's fonts, sprite set and
+rasterizer. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Measurement uses the
+same bitmap layout as drawing. Cached resources are released before the rasterizer and renderer
+at shutdown; reload creates a new context's entries without invalidating preceding frames.
+
+## Luau implementation
 
 `deps/luau` builds Luau 0.740 from source as a static library. It includes the VM and the
 compiler, using the source files listed in Luau's `Sources.cmake` for `Luau.Common`, `Luau.Ast`,

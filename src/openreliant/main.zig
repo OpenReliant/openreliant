@@ -366,6 +366,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     defer if (free_type) |*library| library.deinit();
     var outlines: game.hud.outline.Outlines = .init(gpa, if (free_type) |*library| library.rasterizer() else null, &mods);
     defer outlines.deinit();
+    // Script font faces must close before the rasterizer, and images before the device.
+    defer if (presentation) |shown| shown.assets.deinit(gpa);
     // The loading screen the renderer's start shows as the game loads, and each mission's start
     // after it: the picture alone, then with LOADING before each part of the game it loads.
     var loading: Loading = .{
@@ -561,7 +563,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     display.presentation = presentation;
     // The display's font as the player and menu scripts write in it over the display and the pause
     // menu: ramped, as the menus' fonts are, so that its text takes the colour a script gives.
-    var script_font: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(arena, resources, game.hud.Resources.font_name, &outlines) else null;
+    var script_font: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(gpa, resources, game.hud.Resources.font_name, &outlines) else null;
+    defer if (script_font) |*font| font.deinit(gpa);
+    var script_small: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(gpa, resources, game.hud.small_menu_font, &outlines) else null;
+    defer if (script_small) |*font| font.deinit(gpa);
+    var script_large: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(gpa, resources, game.hud.large_menu_font, &outlines) else null;
+    defer if (script_large) |*font| font.deinit(gpa);
     defer game_scripts.deinit();
     // The scripting console, in the developer mode where a mod has scripts, which F11 brings up
     // over the front end or the mission.
@@ -990,9 +997,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 host.views.set(.ui, .{ .font = &fonts.small.font, .gpa = fonts.gpa, .screen = size, .scale = game.interface.canvas.scaleFor(size) });
             } else {
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
-                if (script_font) |*file| host.views.set(layer, .{ .font = &file.font, .gpa = arena, .screen = size, .scale = game.hud.scaleFor(size) });
+                if (script_font) |*file| host.views.set(layer, .{ .font = &file.font, .gpa = gpa, .screen = size, .scale = game.hud.scaleFor(size) });
                 host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
             }
+            for (&host.views.values) |*held| if (held.*) |*layer| {
+                layer.rasterizer = outlines.rasterizer;
+                layer.fonts.set(.hud, if (script_font) |*font| &font.font else null);
+                layer.fonts.set(.menu_small, if (script_small) |*font| &font.font else null);
+                layer.fonts.set(.menu_large, if (script_large) |*font| &font.font else null);
+                layer.art = if (flow.in_front_end) if (front_resources.?.shapes) |*art| art else null else &display.resources.art;
+            };
             shown.frame(host);
         }
 

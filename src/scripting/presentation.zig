@@ -89,6 +89,7 @@ pub const Presentation = struct {
     runner: running.Runner,
     lists: std.EnumArray(Place, running.List) = .initFill(.empty),
     layers: std.EnumArray(drawing.Which, drawing.Layer) = .initFill(.{}),
+    assets: drawing.Assets = .{},
     /// What each layer is drawn on this frame.
     views: std.EnumArray(drawing.Which, ?drawing.View) = .initFill(null),
     /// What the driver told of the last frame, which the packages reach the game through.
@@ -137,6 +138,7 @@ pub const Presentation = struct {
     pub fn stop(shown: *Presentation) void {
         shown.runner.deinit();
         for (&shown.layers.values) |*layer| layer.deinit(shown.gpa);
+        shown.assets.deinit(shown.gpa);
         shown.runtime.destroy();
         shown.gpa.destroy(shown);
     }
@@ -461,6 +463,91 @@ test "menu scripts draw over the menus, and hear keys and the window" {
     fixture.frame(0.016, .{ 1024, 768 });
     try std.testing.expectEqual(3, layer.commands.items.len);
     try std.testing.expectEqual(1024, layer.commands.items[2].line.to.screen[0]);
+}
+
+test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=a.luau\n" },
+            .{ "font.ttf", "face" },
+            .{ "bad.ttf", "not a font" },
+            .{ "bad.png", "not a PNG" },
+            .{
+                "a.luau",
+                \\local ui = require("openreliant.ui")
+                \\return {engine_handlers = {on_frame = function()
+                \\    local style = {font = "font.ttf", base_font = "menu_large", scale = 2}
+                \\    local size = ui.measure("AH", style)
+                \\    assert(size.width == 24 and size.height == 16)
+                \\    ui.text(vector.create(1, 2, 0), "AH", style)
+                \\    ui.text(vector.zero, "AH", {font = "menu_large"})
+                \\    ui.picture(vector.create(10, 20, 0), "icon.png", vector.create(12, 8, 0), {alpha = 0.5})
+                \\    ui.shape(vector.create(30, 40, 0), 1, {scale = 2})
+                \\    assert(not pcall(ui.picture, vector.zero, "bad.png"))
+                \\    assert(not pcall(ui.text, vector.zero, "AH", {font = "bad.ttf"}))
+                \\    assert(not pcall(ui.picture, vector.zero, "../icon.png"))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    var png: std.Io.Writer.Allocating = .init(gpa);
+    defer png.deinit();
+    try openreliant.png.writeRgba(gpa, &png.writer, 1, 1, &.{ 255, 0, 0, 255 });
+    const mod = fixture.mods.list[0];
+    try mod.source.folder.dir.writeFile(std.testing.io, .{ .sub_path = "icon.png", .data = png.written() });
+    // Folder lookup is inventoried at open, so reopen after adding the synthetic picture.
+    fixture.shown.stop();
+    fixture.mods.close(gpa);
+    fixture.mods = try .open(gpa, std.testing.io, fixture.tmp.dir, null);
+    fixture.shown = (try Presentation.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", .{})).?;
+    var boxes: hud.outline.testing.Boxes = .{};
+    defer std.debug.assert(boxes.open_faces == 0);
+    // Close cached faces before checking the rasterizer's lifetime.
+    defer fixture.shown.assets.deinit(gpa);
+    var font: hud.Opened = .ramp(try openreliant.fnt.Font.parse(hud.outline.testing.font));
+    defer font.deinit(gpa);
+    const sprite_bytes = try openreliant.spr.testing.paletteAndShape(gpa);
+    defer gpa.free(sprite_bytes);
+    var art = try hud.Art.init(gpa, try openreliant.spr.Sprite.parse(sprite_bytes), null, null);
+    defer art.deinit(gpa);
+    var view: drawing.View = .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1, .art = &art, .rasterizer = boxes.rasterizer() };
+    view.fonts.set(.menu_large, &font);
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 } };
+    host.views.set(.ui, view);
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(4, fixture.shown.layers.get(.ui).commands.items.len);
+    try std.testing.expectEqual(1, fixture.shown.assets.pictures.items.len);
+    try std.testing.expectEqual(1, fixture.shown.assets.fonts.items.len);
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    try fixture.shown.draw(.ui, recorder.interface(), null);
+    try std.testing.expect(recorder.draws.items.len > 2);
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(1, fixture.shown.assets.pictures.items.len);
+    try fixture.shown.reload();
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(2, fixture.shown.assets.pictures.items.len);
+    try std.testing.expectEqual(2, fixture.shown.assets.fonts.items.len);
+}
+
+test "the drawing assets example handles absent optional files" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "drawing-assets", &.{
+        .{ "mod.ini", @embedFile("drawing-assets/mod.ini") },
+        .{ "drawing.luau", @embedFile("drawing-assets/drawing.luau") },
+    } }});
+    defer fixture.deinit();
+    var view: drawing.View = .{ .font = &fixture.font, .gpa = std.testing.allocator, .screen = .{ 640, 480 }, .scale = 1 };
+    view.fonts.set(.menu_large, &fixture.font);
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 } };
+    host.views.set(.ui, view);
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("Drawing assets", fixture.shown.layers.get(.ui).text.items);
+    try std.testing.expectEqual(1, fixture.shown.layers.get(.ui).commands.items.len);
 }
 
 test "menu scripts reload from their files, and start again" {

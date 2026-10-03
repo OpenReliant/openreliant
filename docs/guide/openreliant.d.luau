@@ -9,6 +9,7 @@
 type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "reliant" | "yamato" | "victorious" | "endeavour" | "mitchell" | "bremen" | "ulysses" | "nanny" | "limpet_car" | "prowler" | "ripper" | "mammoth" | "stork" | "sabre" | "kamov" | "scimitar" | "ramases" | "badanov" | "pukov" | "kurgan" | "sharov" | "gurevich" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "escape_pod" | "debris" | "crewman" | "russian_torpedo" | "neptune_hi" | "uranus_hi" | "jupiter_hi" | "venus_hi" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "latov" | "czar_docked" | "dm_beacon" | "kafelnikof" | "krasny" | "varyag" | "other_ramases" | "other_mitchell" | "rogue_base" | "boridin_breakaway" | "other_escape_pod" | "cargo_pod" | "zakov" | "shell" | "rock_chunk" | "limpet_pod" | "kiev" | "neptune_lo" | "uranus_lo" | "jupiter_lo" | "venus_lo" | "yamato_hangar" | "reliant_hangar" | "comms_relay" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "t_phoenix" | "sun_marker" | "nebula_marker" | "marker" | "stand_in" | number
 type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debris" | "mine" | "planet" | number
 type Side = "friendly" | "hostile" | "neutral" | number
+type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
 type Key = "escape" | "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight" | "nine" | "zero" | "minus" | "equals" | "backspace" | "tab" | "q" | "w" | "e" | "r" | "t" | "y" | "u" | "i" | "o" | "p" | "left_bracket" | "right_bracket" | "enter" | "left_control" | "a" | "s" | "d" | "f" | "g" | "h" | "j" | "k" | "l" | "semicolon" | "apostrophe" | "grave" | "left_shift" | "backslash" | "z" | "x" | "c" | "v" | "b" | "n" | "m" | "comma" | "period" | "slash" | "right_shift" | "keypad_multiply" | "left_alt" | "space" | "caps_lock" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "num_lock" | "scroll_lock" | "keypad_7" | "keypad_8" | "keypad_9" | "keypad_minus" | "keypad_4" | "keypad_5" | "keypad_6" | "keypad_plus" | "keypad_1" | "keypad_2" | "keypad_3" | "keypad_0" | "keypad_period" | "non_us_backslash" | "f11" | "f12" | "keypad_enter" | "right_control" | "keypad_divide" | "print_screen" | "right_alt" | "pause" | "home" | "up" | "page_up" | "left" | "right" | "end" | "down" | "page_down" | "insert" | "delete" | "left_windows" | "right_windows" | "menu" | number
 type Modifier = "none" | "shift" | "control" | "alt" | number
@@ -61,7 +62,18 @@ type OrderEntry = {
     target: Object?,
     component: number?,
 }
+type FillStyle = {
+    colour: vector?,
+    alpha: number?,
+}
+type ShapeStyle = {
+    colour: vector?,
+    alpha: number?,
+    scale: number?,
+}
 type TextStyle = {
+    font: string?,
+    base_font: Font?,
     colour: vector?,
     alpha: number?,
     scale: number?,
@@ -71,10 +83,6 @@ type LineStyle = {
     colour: vector?,
     alpha: number?,
     width: number?,
-}
-type FillStyle = {
-    colour: vector?,
-    alpha: number?,
 }
 type Size = {
     width: number,
@@ -271,14 +279,18 @@ type Hud = {
     width: number,
     -- The window's height, in pixels.
     height: number,
+    -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
+    picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
+    -- Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices.
+    shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     -- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),
     -- Draws a line from `from` to `to`, in pixels, as `style` says.
     line: (from: vector, to: vector, style: LineStyle?) -> (),
     -- Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.
     rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
-    -- How wide and tall `text` is drawn, in pixels, at `scale` times the game's own size, or at its own size where `scale` is nil.
-    measure: (text: string, scale: number?) -> Size,
+    -- Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing.
+    measure: (text: string, style: (number | TextStyle)?) -> Size,
 }
 
 -- Drawing over the menus, the front end's screens and the pause menu, while they're shown: text, lines and rectangles, in the window's pixels.
@@ -289,14 +301,18 @@ type Ui = {
     width: number,
     -- The window's height, in pixels.
     height: number,
+    -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
+    picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
+    -- Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices.
+    shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     -- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),
     -- Draws a line from `from` to `to`, in pixels, as `style` says.
     line: (from: vector, to: vector, style: LineStyle?) -> (),
     -- Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.
     rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
-    -- How wide and tall `text` is drawn, in pixels, at `scale` times the game's own size, or at its own size where `scale` is nil.
-    measure: (text: string, scale: number?) -> Size,
+    -- Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing.
+    measure: (text: string, style: (number | TextStyle)?) -> Size,
 }
 
 -- Whether keys are held, and the controls bound to actions.

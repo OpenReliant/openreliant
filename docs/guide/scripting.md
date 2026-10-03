@@ -49,6 +49,41 @@ saved, carrying on from where they were ([The console](#the-console)); otherwise
 main menu and start a game again. After changing `mod.ini`, adding a file or changing a load
 script, start OpenReliant again.
 
+## Pictures, shapes and fonts
+
+The `hud` and `ui` packages can draw mod pictures and the game's shapes (#590):
+
+```lua
+local ui = require("openreliant.ui")
+ui.picture(vector.create(20, 30, 0), "badge.png", vector.create(64, 64, 0), { alpha = 0.8 })
+ui.shape(vector.create(100, 30, 0), 1, { scale = 1, colour = vector.create(1, 1, 1) })
+local style = { font = "menu_large", scale = 1.5 }
+local size = ui.measure("Flight status", style)
+ui.text(vector.create(20, 110, 0), "Flight status", style)
+```
+
+Pictures are PNG files in the calling mod, with flat filenames as in its manifest. `size` is in
+window pixels; nil uses the PNG's native pixel size. Tint and alpha multiply the picture's
+colour and transparency. Shape indices select the current layer's sprite set: the flight
+display's set for `hud` and paused flight, or the current front-end screen's set for `ui`.
+Shapes retain their original anchor and use the game's scale times the style's `scale`. An
+unavailable set or invalid shape raises a script error.
+
+Text styles select `default`, `hud`, `menu_small` or `menu_large`, or a font filename in the
+calling mod. Custom `.fnt` files use their bitmap metrics. Custom `.ttf` and `.otf` files use the
+existing FreeType outline path and require outline fonts to be enabled. Their `base_font`
+(`default` unless supplied) selects a built-in font's layout and fallback glyphs. This changes
+the glyphs without changing the base font's spacing; it is not native outline-font layout or a
+general Unicode text engine. Drawing and measurement use the same metrics. `measure(text, scale)`
+still accepts its existing numeric scale, or a full text style to select a font.
+
+Assets are cached separately for each script context. Reloaded scripts read new files; old
+images and faces remain alive until presentation shutdown because a renderer may still use
+them. The cache holds at most 128 picture/font entries and 64 MiB of decoded picture pixels and
+font source/layout bytes across live and retired contexts. Glyph textures use the existing
+outline cache. Missing, malformed or oversized assets raise script errors without changing
+the game's own resources. Each frame still starts with no drawing commands.
+
 ## Mod input actions
 
 Menu scripts register actions at startup with `input.register_action(name, definition)` (#617).

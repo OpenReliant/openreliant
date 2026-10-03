@@ -109,10 +109,12 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
+| `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, scale: number?)` | [Size](#size) | How wide and tall `text` is drawn, in pixels, at `scale` times the game's own size, or at its own size where `scale` is nil. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing. |
 
 ### `openreliant.ui`
 
@@ -123,10 +125,12 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
+| `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, scale: number?)` | [Size](#size) | How wide and tall `text` is drawn, in pixels, at `scale` times the game's own size, or at its own size where `scale` is nil. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing. |
 
 ### `openreliant.input`
 
@@ -770,12 +774,33 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 | `target` | [object](#objects), or nil |
 | `component` | number, or nil |
 
+### FillStyle
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `colour` | vector | `vector.create(1, 1, 1)` |
+| `alpha` | number | 1 |
+
+### ShapeStyle
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `colour` | vector | `vector.create(1, 1, 1)` |
+| `alpha` | number | 1 |
+| `scale` | number | 1 |
+
 ### TextStyle
 
 A table a script gives, which may leave out any field.
 
 | Field | Type | Default |
 |---|---|---|
+| `font` | string, or nil | nil |
+| `base_font` | [Font](#font) | `"default"` |
 | `colour` | vector | `vector.create(1, 1, 1)` |
 | `alpha` | number | 1 |
 | `scale` | number | 1 |
@@ -790,15 +815,6 @@ A table a script gives, which may leave out any field.
 | `colour` | vector | `vector.create(1, 1, 1)` |
 | `alpha` | number | 1 |
 | `width` | number | 1 |
-
-### FillStyle
-
-A table a script gives, which may leave out any field.
-
-| Field | Type | Default |
-|---|---|---|
-| `colour` | vector | `vector.create(1, 1, 1)` |
-| `alpha` | number | 1 |
 
 ### Size
 
@@ -872,6 +888,10 @@ number. A script can set a field to either.
 ### Side
 
 `friendly`, `hostile`, `neutral`, or a number.
+
+### Font
+
+`default`, `hud`, `menu_small`, `menu_large`.
 
 ### Align
 
