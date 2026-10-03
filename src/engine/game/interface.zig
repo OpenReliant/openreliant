@@ -1,7 +1,8 @@
 //! `C:\lancer\game\interface.cpp`: the front end's screens and the settings they manage. Ported so
 //! far: loading and saving the input settings and bindings in `starlancer.ini` (`load_key_config`,
 //! `save_key_config`), the main menu (`main_menu`) with its dialog (`dialog`), GAME OPTIONS
-//! (`game_options`), the controls on OpenReliant's settings screen (`settings`), the pilot roster
+//! (`game_options`), the controls on OpenReliant's settings screen (`settings`), its mods screen
+//! (`mod_manager`), the pilot roster
 //! (`pilot_roster`) and the saved games (`saved_games`), on the front end's screen (`canvas`);
 //! opening the discs' archives (`disc`); and the Reliant's rooms (`rooms`), with a new pilot's
 //! induction (`induction`), the locker (`locker`), the CD player (`cd_player`), the in-game options
@@ -21,6 +22,7 @@ pub const in_game_options = @import("interface/in_game_options.zig");
 pub const induction = @import("interface/induction.zig");
 pub const locker = @import("interface/locker.zig");
 pub const main_menu = @import("interface/main_menu.zig");
+pub const mod_manager = @import("interface/mod_manager.zig");
 pub const pilot_roster = @import("interface/pilot_roster.zig");
 pub const restart = @import("interface/restart.zig");
 pub const rooms = @import("interface/rooms.zig");

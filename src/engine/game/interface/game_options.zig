@@ -5,6 +5,9 @@
 //!
 //! AUDIO, CONTROL DEVICES and VIDEO open the settings screen on its audio, its controls and its
 //! video (`settings`).
+//!
+//! **Improvement:** MODS, a fourth button right of ABOUT OPENRELIANT, opens the mods screen
+//! (`mod_manager`).
 
 const std = @import("std");
 
@@ -26,7 +29,7 @@ pub const shapes_name = "interface\\frntend4.spr";
 pub const background_name = "interface\\main2opt.tga";
 
 /// The menu's items, in the order of its table.
-pub const Item = enum { audio, control_devices, video, main_menu, quit, about };
+pub const Item = enum { audio, control_devices, video, main_menu, quit, about, mods };
 
 /// Where the pointer finds each item (`0x0042A623` on).
 pub const rects = std.EnumArray(Item, Rect).init(.{
@@ -36,6 +39,8 @@ pub const rects = std.EnumArray(Item, Rect).init(.{
     .main_menu = .{ .x = 292, .y = 441, .width = 25, .height = 16 },
     .quit = .{ .x = 324, .y = 441, .width = 25, .height = 16 },
     .about = .{ .x = 292, .y = 421, .width = 25, .height = 16 },
+    // Right of ABOUT, as QUIT stands right of MAIN MENU.
+    .mods = .{ .x = 324, .y = 421, .width = 25, .height = 16 },
 });
 
 /// An icon's label and its shape under the pointer (`0x0042B091` on).
@@ -44,7 +49,7 @@ fn icon(item: Item) ?in_game_options.Panel {
         .audio => .{ .label = .of(0x109, .{ 133, 319 }, .centre), .lit_shape = 0x13, .lit_at = .{ 35, 155 } },
         .control_devices => .{ .label = .of(0x10A, .{ 320, 319 }, .centre), .lit_shape = 0x14, .lit_at = .{ 202, 160 } },
         .video => .{ .label = .of(0x10B, .{ 511, 319 }, .centre), .lit_shape = 0x15, .lit_at = .{ 392, 161 } },
-        .main_menu, .quit, .about => null,
+        .main_menu, .quit, .about, .mods => null,
     };
 }
 
@@ -54,6 +59,7 @@ fn buttonLabel(item: Item) ?Label {
         .main_menu => .of(0xBB, .{ 288, 440 }, .right),
         .quit => .of(0xBC, .{ 353, 440 }, .left),
         .about => .{ .text = .{ .words = About.title }, .at = .{ 288, 420 }, .alignment = .right },
+        .mods => .{ .text = .{ .words = "MODS" }, .at = .{ 353, 420 }, .alignment = .left },
         .audio, .control_devices, .video => null,
     };
 }
@@ -77,6 +83,8 @@ pub const Choice = union(enum) {
     main_menu,
     /// QUIT, answered YES.
     quit,
+    /// MODS: the mods screen.
+    mods,
     /// AUDIO, CONTROL DEVICES and VIDEO: the settings screen, on its audio (screen 3), its controls
     /// (screen 16) or its video (screen 15).
     settings: settings.Tab,
@@ -91,7 +99,8 @@ pub const GameOptions = struct {
     about: ?About = null,
 
     /// A pass of the menu's loop (`0x0042A709` on): Escape and MAIN MENU go to the main menu, AUDIO,
-    /// CONTROL DEVICES and VIDEO to the settings screen, QUIT asks first, and ABOUT opens its box.
+    /// CONTROL DEVICES and VIDEO to the settings screen, MODS to the mods screen, QUIT asks first,
+    /// and ABOUT opens its box.
     /// While QUIT's question or ABOUT OPENRELIANT's box is up, it takes the pass.
     pub fn frame(menu: *GameOptions, pointer: Pointer, keyboard: *input.Keyboard) ?Choice {
         const escaped = keyboard.pressed(input.scan.escape, .none, true);
@@ -115,6 +124,7 @@ pub const GameOptions = struct {
             .main_menu => return .main_menu,
             .quit => menu.confirm = .{ .message = .{ .string = quit_question } },
             .about => menu.about = .{},
+            .mods => return .mods,
         }
         return null;
     }
@@ -124,7 +134,7 @@ pub const GameOptions = struct {
     /// either is up, OpenReliant's version, then the pointer. The game writes the label under the
     /// pointer white before the labels, which write over it in blue, so it stays blue.
     pub fn draw(menu: GameOptions, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, about_art: *hud.Art, pointer: Pointer) canvas_module.Error!void {
-        for ([_]Item{ .about, .main_menu, .quit }) |item| {
+        for ([_]Item{ .about, .mods, .main_menu, .quit }) |item| {
             const rect = rects.get(item);
             try canvas.shape(art, button_shape, .{ rect.x, rect.y });
         }
@@ -162,6 +172,8 @@ test GameOptions {
     try std.testing.expect(menu.confirm != null);
     _ = menu.frame(.{ .at = .{ 295, 275 }, .down = true }, &keyboard);
     try std.testing.expectEqual(.quit, menu.frame(.{ .at = .{ 295, 275 } }, &keyboard).?);
+    // MODS leads to the mods screen.
+    try std.testing.expectEqual(.mods, menu.frame(.{ .at = .{ 335, 430 }, .down = true }, &keyboard).?);
     // ABOUT opens its box, which Escape closes; then Escape leads to the main menu.
     menu = .{};
     _ = menu.frame(.{ .at = .{ 300, 430 }, .down = true }, &keyboard);

@@ -6,11 +6,11 @@ The screens the game shows outside a mission: the main menu, the pilots, the set
 
 ## In OpenReliant
 
-[`genilib/interf.zig`](../../src/engine/genilib/interf.zig) runs the screens (`interface_run`) and opens what they draw with. [`game/interface/`](../../src/engine/game/interface) holds the screens: the front end's screen and pointer in [`canvas.zig`](../../src/engine/game/interface/canvas.zig), the main menu in [`main_menu.zig`](../../src/engine/game/interface/main_menu.zig), GAME OPTIONS in [`game_options.zig`](../../src/engine/game/interface/game_options.zig), the settings screen in [`settings.zig`](../../src/engine/game/interface/settings.zig), the pilot roster in [`pilot_roster.zig`](../../src/engine/game/interface/pilot_roster.zig), the saved games in [`saved_games.zig`](../../src/engine/game/interface/saved_games.zig), and the YES or NO dialog and the box saying a save failed in [`dialog.zig`](../../src/engine/game/interface/dialog.zig). The picture behind the screens is `matmanager.Background` ([`game/matmanager.zig`](../../src/engine/game/matmanager.zig)). The loading screens are in [`game/xtrabits/loading.zig`](../../src/engine/game/xtrabits/loading.zig).
+[`genilib/interf.zig`](../../src/engine/genilib/interf.zig) runs the screens (`interface_run`) and opens what they draw with. [`game/interface/`](../../src/engine/game/interface) holds the screens: the front end's screen and pointer in [`canvas.zig`](../../src/engine/game/interface/canvas.zig), the main menu in [`main_menu.zig`](../../src/engine/game/interface/main_menu.zig), GAME OPTIONS in [`game_options.zig`](../../src/engine/game/interface/game_options.zig), the settings screen in [`settings.zig`](../../src/engine/game/interface/settings.zig), the mods screen in [`mod_manager.zig`](../../src/engine/game/interface/mod_manager.zig), the pilot roster in [`pilot_roster.zig`](../../src/engine/game/interface/pilot_roster.zig), the saved games in [`saved_games.zig`](../../src/engine/game/interface/saved_games.zig), and the YES or NO dialog and the box saying a save failed in [`dialog.zig`](../../src/engine/game/interface/dialog.zig). The picture behind the screens is `matmanager.Background` ([`game/matmanager.zig`](../../src/engine/game/matmanager.zig)). The loading screens are in [`game/xtrabits/loading.zig`](../../src/engine/game/xtrabits/loading.zig).
 
 OpenReliant opens in the front end unless `--mission` names a mission. The pilot roster's START GAME, or a game its LOAD GAME loads, leads into the Reliant's rooms ([The Reliant's rooms](rooms.md)). A mission the front end or the rooms start flies at once, after the music's fade and the hangar's movie but for INSTANT ACTION's and the simulator pod's ([The simulator pod](simulator-pod.md)). As a mission of the campaign ends, OpenReliant plays the landing or a chapter's end ([Movies](movies.md#around-a-mission)), and the campaign goes on to the next mission's briefing, or turns to the restart screen ([After a mission](rooms.md#after-a-mission)). INSTANT ACTION's goes back to the main menu.
 
-Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
+Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the mods screen ([The mods screen](#the-mods-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
 - The other screens ([#43](https://github.com/OpenReliant/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
@@ -36,6 +36,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 | 3, the audio ([Audio](#audio)) | `audio_screen` (`0x0042DAB0`) | |
 | 15, the video ([Video](#video)) | `video_screen` (`0x0042E9B0`) | |
 | 16, the controls ([Controls](#controls)) | `controls_screen` (`0x0042B690`) | |
+| 100, the mods screen ([The mods screen](#the-mods-screen)), which OpenReliant adds | | [#497](https://github.com/OpenReliant/openreliant/issues/497) |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
 | 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
@@ -155,17 +156,18 @@ The shapes take the palette of their block's set: the pointer's the first, the l
 | MAIN MENU | (292, 441) | 25 by 16 | `interface\opt2main.bik`, then the main menu |
 | QUIT | (324, 441) | 25 by 16 | QUIT's dialog ([The dialogs](#the-dialogs)), whose YES quits the game |
 | ABOUT STARLANCER | (292, 421) | 25 by 16 | The about box ([The in-game options](rooms.md#the-in-game-options)) |
+| MODS, which OpenReliant adds | (324, 421) | 25 by 16 | `interface\optfade.bik`, then the mods screen ([The mods screen](#the-mods-screen)) |
 
 An item acts while the left button is down over it. Escape leads to the main menu, as MAIN MENU does.
 
 Its drawing (`game_options_draw`, `0x0042AFB0`), the render hook:
 
-1. The buttons, shape `0x1B` at (292, 421), (292, 441) and (324, 441).
+1. The buttons, shape `0x1B` at (292, 421), (324, 421), (292, 441) and (324, 441).
 2. The item under the pointer (`roster_item`, `0x00520130`): an icon's lit shape, `0x13` at (35, 155), `0x14` at (202, 160) or `0x15` at (392, 161), or shape `0x1C` on a button. Its label is written white, then in blue again with the others, so it stays blue.
-3. In blue, SELECT AN OPTION (`0x108`) centred on (320, 95), and the icons' labels, AUDIO (`0x109`), CONTROL DEVICES (`0x10A`) and VIDEO (`0x10B`), centred on (133, 319), (320, 319) and (511, 319), in `interface_font_large`; ABOUT STARLANCER (`0x10C`) to the left of (288, 420), MAIN MENU (`0xBB`) to the left of (288, 440) and QUIT (`0xBC`) from (353, 440), in `interface_font_small`.
+3. In blue, SELECT AN OPTION (`0x108`) centred on (320, 95), and the icons' labels, AUDIO (`0x109`), CONTROL DEVICES (`0x10A`) and VIDEO (`0x10B`), centred on (133, 319), (320, 319) and (511, 319), in `interface_font_large`; ABOUT STARLANCER (`0x10C`) to the left of (288, 420), MAIN MENU (`0xBB`) to the left of (288, 440) and QUIT (`0xBC`) from (353, 440), in `interface_font_small`; MODS from (353, 420) in the same font.
 4. The about box, where it is up, the dialogs, then the pointer.
 
-**Improvement:** ABOUT STARLANCER is ABOUT OPENRELIANT, as in the in-game options.
+**Improvement:** ABOUT STARLANCER is ABOUT OPENRELIANT, as in the in-game options. MODS is a button of OpenReliant's, right of it as QUIT is right of MAIN MENU.
 
 ## The settings screen
 
@@ -297,6 +299,21 @@ RESET DEFAULTS sets the game's defaults and OpenReliant's, MODERN among them, an
 - The settings change at once, where the game starts its renderer again to change the mode.
 
 Not ported: 3D RENDER MODE, which OpenReliant has no Direct3D devices for.
+
+## The mods screen
+
+**Improvement:** the original can't load mods. GAME OPTIONS' MODS button opens OpenReliant's mods screen ([`mod_manager.zig`](../../src/engine/game/interface/mod_manager.zig), [#497](https://github.com/OpenReliant/openreliant/issues/497)) after `interface\optfade.bik`, on the settings screen's shapes and background (`interface\frntend5.spr`, `interface\optfade.tga`), laid out as its controls tab is:
+
+- MODS, in white, centred on (320, 95), where the settings screen has its tabs.
+- A framed list of the mods in the `mods` folder, from (45, 136), 324 by 250, nine rows of 26 apart. Each row is a check box, ticked while the mod is on, and the mod's name and version from its manifest, or its folder name if it has none. The chosen row's name is white, a mod that is off is dim. The lists' arrows right of the frame scroll it, as the mouse wheel and the Up and Down keys do.
+- A framed panel from (401, 136), 195 by 250, with the chosen mod's name, version, author, description, the number of files it replaces or adds and of scripts it has, and its page.
+- A gold box of up and down arrows (shape `0x2A`, lit with `0x2B` and `0x27`) at the foot of the gap between the frames, which moves the chosen mod up or down the order.
+- The settings screen's buttons: OK and MAIN MENU in the left column, and in the right column REFRESH, where RESET DEFAULTS stands on the settings screen, and CANCEL CHANGES. REFRESH reads the `mods` folder again, to find mods added or removed since OpenReliant started, and keeps the chosen mod chosen. CANCEL CHANGES puts the mods back as they were when the screen opened, or at the last REFRESH. OK and Escape end the screen, back to GAME OPTIONS.
+- RESTART TO APPLY, in gold over the right frame, while the mods that are on, in their order, differ from the ones OpenReliant started with.
+
+Each change is written to `starlancer.ini` at once, in the section `[OpenReliantMods]` ([Load order](../guide/modding.md#load-order)), and takes effect at the next start. A mod whose folder name can't be a key of the settings file (it has an equals sign, starts with a bracket or has spaces at either end) stays on, in name order after the mods the list names. The screen lists at most 255 mods. It stays shut with `--no-mods`.
+
+Not ported: importing a mod, a mod's thumbnail and its conflicts ([#497](https://github.com/OpenReliant/openreliant/issues/497)), and a page of options for a mod's scripts ([#597](https://github.com/OpenReliant/openreliant/issues/597)).
 
 ## The dialogs
 

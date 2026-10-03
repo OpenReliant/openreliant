@@ -26,8 +26,9 @@ pub const usage =
     \\Lists the missions in the game's mods, its missions folder and resource.hog, plus OpenReliant's
     \\built-in mission 0 if the game has none, and binds each one as starting a mission does. A
     \\mod's file takes priority over the others, and a loose file over the archive's copy, as in the
-    \\game. Each is shown with what its file contains: its counts, its format flags, the ship type
-    \\and name of the player's record, and the mission's name if the file has OpenReliant's section.
+    \\game. The mods are the ones the mods screen has turned on, in the order it set. Each is shown
+    \\with what its file contains: its counts, its format flags, the ship type and name of the
+    \\player's record, and the mission's name if the file has OpenReliant's section.
     \\
 ;
 
@@ -65,7 +66,11 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
     };
     var resources: game.bigfile.Hog = try .open(gpa, io, directory, archive_name);
     defer resources.close(gpa);
-    var mods: game.bigfile.Mods = if (with_mods) try .open(gpa, io, directory, version.semantic) else .none;
+    // The mods that are on, in the order the mods screen set.
+    var settings_arena: std.heap.ArenaAllocator = .init(gpa);
+    defer settings_arena.deinit();
+    const order: game.bigfile.mods.Order = .{ .profile = .read(io, settings_arena.allocator(), directory) };
+    var mods: game.bigfile.Mods = if (with_mods) try .openOrdered(gpa, io, directory, version.semantic, order) else .none;
     defer mods.close(gpa);
     resources.mods = &mods;
 

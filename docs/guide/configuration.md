@@ -179,6 +179,8 @@ Samples=8
 | `Compressor` | 1 or 0, which AUDIO's COMPRESSOR sets | `--no-compressor` |
 | `DeveloperMode` | 1 or 0; 0 by default | `--developer-mode` |
 
+The mods screen keeps which mods are on, and the order they load in, in a section of its own, `[OpenReliantMods]` ([The mods screen](modding.md#the-mods-screen)).
+
 In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default, or `Original`'s where it is 1.
 
 The settings screen keeps the graphics' settings so: a preset chosen with VIDEO's GRAPHICS is written as `Original` alone, and a graphics option changed after it is written only where it differs from what `Original` gives, and taken out where it is the same. As `Original` plays the original's mixer, ORIGINAL writes `Hrtf`, `Reverb` and `Compressor` beside it while OpenAL Soft plays the sound, so that the sound stays as AUDIO has it. A screenshot taken with `--screenshot` leaves this section out, so that it comes out the same for everyone.

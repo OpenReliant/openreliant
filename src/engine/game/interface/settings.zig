@@ -333,7 +333,8 @@ pub const Button = enum {
         };
     }
 
-    fn shown(button: Button, from: From) canvas_module.Button {
+    /// The button with the label the screens give it, MAIN MENU or CONTINUE as `from` says.
+    pub fn shown(button: Button, from: From) canvas_module.Button {
         return button.labelled(switch (button) {
             .ok => .{ .string = 0x316 },
             .leave => .{ .string = if (from == .pause_menu) continue_string else main_menu_string },

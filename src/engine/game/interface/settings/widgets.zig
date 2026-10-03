@@ -5,7 +5,8 @@
 //! - `Line`: a row as the video screen lays one out, its label, an arrows' box or a check box, and
 //!   its value.
 //! - `Box`, a check box or a radio button, and `Toggle`, one with its label beside it.
-//! - `ArrowPair`: two arrows, the audio screen's (`StepArrows`) or a list's (`ListArrows`).
+//! - `ArrowPair`: two arrows, the audio screen's (`StepArrows`) or a list's (`ListArrows`); and
+//!   `UpDown`, an up and a down arrow in one box.
 //! - `Slider`: the volumes' and the brightness's.
 //! - `Frame`, the box round a list; `List`, the rows a list shows, which its `ListArrows` scroll;
 //!   and `Pane`, a list of `Line`s in a frame, with its arrows.
@@ -256,6 +257,46 @@ pub const StepArrows = ArrowPair(Step, .{
     }),
 });
 
+/// An up arrow over a down arrow in one gold box of the screen's shapes: the box, shape `0x2A`, 26 by
+/// 33, whose halves light under the pointer with `0x2B`, the up arrow, and `0x27`, the down arrow,
+/// each 26 by 16, the down arrow 17 below the up arrow. It is a different pair from the lists'
+/// arrows, which scroll.
+///
+/// **Improvement:** the game's screens don't draw this box.
+pub const UpDown = struct {
+    /// Where the box's corner stands.
+    at: [2]i32,
+
+    const box_shape = 0x2A;
+    const lit_shapes: std.EnumArray(Arrow, usize) = .init(.{ .up = 0x2B, .down = 0x27 });
+    pub const size: [2]i16 = .{ 26, 16 };
+    /// How far below the up arrow the down arrow stands.
+    const down_from = 17;
+
+    fn corner(box: UpDown, way: Arrow) [2]i32 {
+        const below: i32 = if (way == .down) down_from else 0;
+        return .{ box.at[0], box.at[1] + below };
+    }
+
+    /// Where the pointer finds an arrow.
+    pub fn rect(box: UpDown, way: Arrow) Rect {
+        const at = box.corner(way);
+        return .{ .x = @intCast(at[0]), .y = @intCast(at[1]), .width = size[0], .height = size[1] };
+    }
+
+    /// The arrow at `at`.
+    pub fn itemAt(box: UpDown, at: [2]i32) ?Arrow {
+        for (std.enums.values(Arrow)) |way| if (box.rect(way).holds(at)) return way;
+        return null;
+    }
+
+    /// The box, and the arrow `lit` lit.
+    pub fn draw(box: UpDown, canvas: Canvas, art: *hud.Art, lit: ?Arrow) Error!void {
+        try canvas.shape(art, box_shape, box.at);
+        if (lit) |way| try canvas.shape(art, lit_shapes.get(way), box.corner(way));
+    }
+};
+
 /// A slider of the screen's shapes, as the audio's volumes and the video's brightness have it: a
 /// knob, shape `0x2C`, 15 by 27, which slides `travel` to the right of where it starts, and a
 /// track, shape `0x2D`, 10 below the knob's top, every 45 from where the knob starts until `end`
@@ -447,6 +488,15 @@ test Toggle {
     const check: Toggle = .{ .at = .{ 349, 325 }, .gap = Toggle.check_gap, .reach = 4 };
     try std.testing.expectEqual(Rect{ .x = 345, .y = 325, .width = 16, .height = 16 }, check.rect());
     try std.testing.expectEqual([2]i32{ 367, 325 }, check.label(.{ .words = "" }).at);
+}
+
+test UpDown {
+    const box: UpDown = .{ .at = .{ 372, 364 } };
+    try std.testing.expectEqual(Rect{ .x = 372, .y = 381, .width = 26, .height = 16 }, box.rect(.down));
+    try std.testing.expectEqual(Arrow.up, box.itemAt(.{ 380, 370 }).?);
+    try std.testing.expectEqual(Arrow.down, box.itemAt(.{ 380, 390 }).?);
+    try std.testing.expectEqual(null, box.itemAt(.{ 380, 380 }));
+    try std.testing.expectEqual(null, box.itemAt(.{ 410, 370 }));
 }
 
 test StepArrows {

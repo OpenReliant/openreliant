@@ -22,6 +22,7 @@ const matmanager = game.matmanager;
 const interface = game.interface;
 const canvas = interface.canvas;
 const main_menu = interface.main_menu;
+const mod_manager = interface.mod_manager;
 const game_options = interface.game_options;
 const pilot_roster = interface.pilot_roster;
 const saved_games = interface.saved_games;
@@ -48,6 +49,8 @@ pub const Screen = enum(u8) {
     connection = 14,
     video = 15,
     controls = 16,
+    /// OpenReliant's mods screen (`mod_manager`), which has no number in the game.
+    mods = 100,
     _,
 
     pub fn format(screen: Screen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -187,6 +190,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
         .audio => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .audio).?.background },
         .controls => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .controls).?.background },
         .video => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .video).?.background },
+        .mods => .{ .shapes = settings.shapes_name, .background = mod_manager.opening.background },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
         .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
         else => null,
@@ -218,6 +222,9 @@ pub const Context = struct {
     /// The saved games LOAD GAME lists, and the game it loads into; none leaves LOAD GAME on the
     /// roster.
     saves: ?saved_games.Saves = null,
+    /// The mods OpenReliant started with and where to find them again, which the mods screen lists
+    /// and orders; none leaves the screen shut.
+    mods: ?mod_manager.Source = null,
 };
 
 /// The front end's state, which the game keeps in globals.
@@ -229,6 +236,7 @@ pub const Interface = struct {
     main_menu: main_menu.MainMenu = .{},
     game_options: game_options.GameOptions = .{},
     settings: settings.Settings = .{},
+    mod_manager: mod_manager.ModManager = .{},
     pilot_roster: pilot_roster.Roster = .{},
     saved_games: saved_games.SavedGames = .{},
     /// The pilot the roster sets, which every mission the front end starts is flown by.
@@ -304,7 +312,22 @@ pub const Interface = struct {
                         front.screen = screenOf(tab);
                         front.movie = settings.opening(.game_options, tab).?.movie;
                     },
+                    .mods => if (context.settings != null and context.mods != null) {
+                        front.screen = .mods;
+                        front.movie = mod_manager.opening.movie;
+                    },
                 }
+                return null;
+            },
+            .mods => {
+                const mods = context.mods orelse return front.backToOptions();
+                const settings_file = context.settings orelse return front.backToOptions();
+                const end = front.mod_manager.frame(modsContext(front, context, settings_file, mods, pointer)) orelse return null;
+                front.movie = settings.leavingMovie(.game_options, end);
+                front.screen = switch (end) {
+                    .back, .continue_mission => .game_options,
+                    .main_menu => .main_menu,
+                };
                 return null;
             },
             .audio, .controls, .video => {
@@ -395,6 +418,7 @@ pub const Interface = struct {
             .audio => if (context.settings) |settings_file| front.settings.enter(.game_options, .audio, settingsContext(front, context, settings_file, front.pointer)),
             .controls => if (context.settings) |settings_file| front.settings.enter(.game_options, .controls, settingsContext(front, context, settings_file, front.pointer)),
             .video => if (context.settings) |settings_file| front.settings.enter(.game_options, .video, settingsContext(front, context, settings_file, front.pointer)),
+            .mods => if (context.settings) |settings_file| if (context.mods) |mods| front.mod_manager.enter(modsContext(front, context, settings_file, mods, front.pointer)),
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
             .saved_games => if (context.saves) |saves| front.saved_games.enter(.load, .roster, savesContext(front, context, saves, front.pointer)),
             else => {},
@@ -405,9 +429,16 @@ pub const Interface = struct {
         front.entered = front.screen;
     }
 
+    /// Goes back to GAME OPTIONS from a screen that has nothing to show, and so no frame to give.
+    fn backToOptions(front: *Interface) ?Outcome {
+        front.screen = .game_options;
+        return null;
+    }
+
     /// Leaves the screen entered, as it ends its loop.
     fn leave(front: *Interface, context: Context) void {
         if (front.entered == .pilot_roster) pilot_roster.Roster.leave(context.typed);
+        if (front.entered == .mods) front.mod_manager.release();
         front.entered = null;
     }
 
@@ -446,6 +477,7 @@ pub const Interface = struct {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer.font),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about, front.pointer),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown, front.pointer),
+            .mods => try front.mod_manager.draw(drawn, art, front.pointer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
             .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
             else => {},
@@ -456,6 +488,11 @@ pub const Interface = struct {
 /// What a pass of the settings screen reads, with the pointer at `pointer`.
 fn settingsContext(front: *const Interface, context: Context, settings_file: *profile.File, pointer: canvas.Pointer) settings.Context {
     return .{ .pointer = pointer, .devices = context.devices, .settings_file = settings_file, .ticks = front.ticks, .sound = context.sound, .own = context.own, .video = context.video };
+}
+
+/// What a pass of the mods screen reads, with the pointer at `pointer`.
+fn modsContext(front: *const Interface, context: Context, settings_file: *profile.File, source: mod_manager.Source, pointer: canvas.Pointer) mod_manager.Context {
+    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .settings_file = settings_file, .ticks = front.ticks, .source = source };
 }
 
 /// The screen of the settings screen's `tab`, the game's screen for it.

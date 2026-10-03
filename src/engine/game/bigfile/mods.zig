@@ -11,8 +11,9 @@
 //! while making a mod. A folder is read the same way as the archive `sltool hog pack` would make
 //! from it. Names have no folders, as in the archives, and where the game has several files with
 //! the same name, they are copies of each other. Mods take priority over the game's files, and a
-//! mod that loads later, in alphabetical order, over an earlier one. Each mod can describe itself
-//! in a manifest, `mod.ini`. [docs/guide/modding.md](../../../../docs/guide/modding.md) is the
+//! mod that loads later over an earlier one. Mods load in the order of their names unless the mods
+//! screen has set an order and turned some off (`Order`). Each mod can describe itself in a
+//! manifest, `mod.ini`. [docs/guide/modding.md](../../../../docs/guide/modding.md) is the
 //! modding guide.
 //!
 //! **Improvement:** the original can't load mods.
@@ -32,6 +33,11 @@ const files = @import("../../files.zig");
 const profile = @import("../../profile.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
+const order_module = @import("order.zig");
+
+/// The order the mods load in and which are on (`Mods.openOrdered`).
+pub const Order = order_module.Order;
+pub const Listed = order_module.Listed;
 
 const log = std.log.scoped(.mods);
 
@@ -228,10 +234,10 @@ pub const Mod = struct {
     }
 
     /// Opens the mod `name` in the `mods` folder `folder` (`Source.open`), with its manifest if it
-    /// has one. Returns null, with a message in the log, if it isn't a mod, can't be opened, or is
-    /// an archive that fails its checksum (`intact`).
-    fn open(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8, kind: Io.File.Kind) Allocator.Error!?Mod {
-        if (kind == .file and isArchive(name) and !try intact(gpa, io, folder, name)) return null;
+    /// has one. Returns null, with a message in the log, if it isn't a mod, can't be opened, or, if
+    /// `check` is set, is an archive that fails its checksum (`intact`).
+    fn open(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8, kind: Io.File.Kind, check: bool) Allocator.Error!?Mod {
+        if (check and kind == .file and isArchive(name) and !try intact(gpa, io, folder, name)) return null;
         var source = Source.open(gpa, io, folder, name, kind) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.NotAMod => {
@@ -360,6 +366,9 @@ pub const Folder = struct {
 pub const Mods = struct {
     /// The mods, in load order.
     list: []Mod = &.{},
+    /// The mods that are off (`Order`), opened so that the mods screen can list them. Their files
+    /// and scripts aren't used.
+    off: []Mod = &.{},
     /// Every file in the mods, by its name in lower case, pointing to the last mod that has it.
     index: std.StringHashMapUnmanaged(Place) = .empty,
 
@@ -369,13 +378,30 @@ pub const Mods = struct {
     /// A file in a mod: the mod's index in the list, and the file's index in the mod.
     const Place = struct { mod: usize, file: usize };
 
-    /// Opens the mods in the `mods` folder of the game folder `game`: each `.hog` file is an
-    /// archive and each folder a folder mod, sorted by name, ignoring case. Anything else, mods
-    /// that fail to open, and mods that need a newer OpenReliant than `running` are skipped and
-    /// logged. If `running` is null, the version check is skipped. Returns no mods if there's no
-    /// `mods` folder. The log lists each mod and what each of its files replaces or adds
-    /// (`report`).
+    /// Opens the mods in the `mods` folder of the game folder `game` with every mod on, in the order
+    /// of their names (`openOrdered`).
     pub fn open(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion) Allocator.Error!Mods {
+        return openOrdered(gpa, io, game, running, .none);
+    }
+
+    /// Opens the mods in the `mods` folder of the game folder `game`: each `.hog` file is an
+    /// archive and each folder a folder mod. `order` says which are on and the order they load in:
+    /// the mods it lists first, in its order, then the others sorted by name, ignoring case. The
+    /// mods that are off go to `off`. Anything else, mods that fail to open, and mods that need a
+    /// newer OpenReliant than `running` are skipped and logged. If `running` is null, the version
+    /// check is skipped. Returns no mods if there's no `mods` folder. The log lists each mod and
+    /// what each of its files replaces or adds (`report`).
+    pub fn openOrdered(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion, order: Order) Allocator.Error!Mods {
+        return openListing(gpa, io, game, running, order, true);
+    }
+
+    /// Opens the mods as `openOrdered` does, for the mods screen to list them again: it doesn't log
+    /// what each mod's files replace or add (`report`).
+    pub fn installed(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion, order: Order) Allocator.Error!Mods {
+        return openListing(gpa, io, game, running, order, false);
+    }
+
+    fn openListing(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion, order: Order, report_files: bool) Allocator.Error!Mods {
         var path: [files.max_path]u8 = undefined;
         const found = files.find(io, game, folder_name, &path) orelse return .none;
         var folder = game.openDir(io, found, .{ .iterate = true }) catch |err| {
@@ -402,31 +428,38 @@ pub const Mods = struct {
             errdefer gpa.free(name);
             try entries.append(gpa, .{ .name = name, .kind = kind });
         }
-        std.mem.sort(Entry, entries.items, {}, struct {
-            fn lessThan(_: void, a: Entry, b: Entry) bool {
-                return std.ascii.lessThanIgnoreCase(a.name, b.name);
+        std.mem.sort(Entry, entries.items, order, struct {
+            fn lessThan(sorted: Order, a: Entry, b: Entry) bool {
+                return sorted.before(a.name, b.name);
             }
         }.lessThan);
 
         var list: std.ArrayList(Mod) = .empty;
         defer list.deinit(gpa);
         errdefer for (list.items) |*mod| mod.close(gpa);
+        var off: std.ArrayList(Mod) = .empty;
+        defer off.deinit(gpa);
+        errdefer for (off.items) |*mod| mod.close(gpa);
         for (entries.items) |entry| {
-            var mod = try Mod.open(gpa, io, folder, entry.name, entry.kind) orelse continue;
+            // A mod that is off isn't checked against its checksum, as none of it is used.
+            const on = order.isOn(entry.name);
+            var mod = try Mod.open(gpa, io, folder, entry.name, entry.kind, on) orelse continue;
             if (running) |version| if (mod.needsLater(version)) |needed| {
                 log.warn("skipping the mod {f}: it needs OpenReliant {f}, and this is {f}", .{ mod, needed, version });
                 mod.close(gpa);
                 continue;
             };
-            list.append(gpa, mod) catch |err| {
+            if (!on) log.info("the mod {f} is off", .{mod});
+            (if (on) &list else &off).append(gpa, mod) catch |err| {
                 mod.close(gpa);
                 return err;
             };
         }
         var mods: Mods = .{ .list = try list.toOwnedSlice(gpa) };
         errdefer mods.close(gpa);
+        mods.off = try off.toOwnedSlice(gpa);
         try mods.makeIndex(gpa);
-        try mods.report(gpa, io, game);
+        if (report_files) try mods.report(gpa, io, game);
         return mods;
     }
 
@@ -434,6 +467,8 @@ pub const Mods = struct {
         freeIndex(Place, &mods.index, gpa);
         for (mods.list) |*mod| mod.close(gpa);
         gpa.free(mods.list);
+        for (mods.off) |*mod| mod.close(gpa);
+        gpa.free(mods.off);
         mods.* = .none;
     }
 
@@ -947,6 +982,35 @@ test "a mod that needs a newer version is skipped" {
     var every: Mods = try .open(gpa, io, tmp.dir, null);
     defer every.close(gpa);
     try std.testing.expectEqual(5, every.list.len);
+}
+
+test "the order says which mods are on and when they load" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    for ([_][]const u8{ "a", "b", "c", "d" }) |name| {
+        const path = try std.fmt.allocPrint(gpa, "mods/{s}/ship.shp", .{name});
+        defer gpa.free(path);
+        try tmp.dir.createDirPath(io, std.fs.path.dirname(path).?);
+        try tmp.dir.writeFile(io, .{ .sub_path = path, .data = name });
+    }
+    // C goes first, then A, then D; B is off, and the mods the list lacks would follow.
+    const order: Order = .{ .profile = .{ .text = "[OpenReliantMods]\nC=1\na=1\nB=0\nD=1\n" } };
+    var mods: Mods = try .openOrdered(gpa, io, tmp.dir, null, order);
+    defer mods.close(gpa);
+    try std.testing.expectEqual(3, mods.list.len);
+    for ([_][]const u8{ "c", "a", "d" }, mods.list) |name, mod| try std.testing.expectEqualStrings(name, mod.name);
+    // The last mod to load wins; the one that is off is opened, and none of its files are used.
+    try std.testing.expectEqual(&mods.list[2], mods.holder("ship.shp").?);
+    try std.testing.expectEqual(1, mods.off.len);
+    try std.testing.expectEqualStrings("b", mods.off[0].name);
+    // A mod the list lacks loads after the listed ones, by name, and is on.
+    try tmp.dir.createDirPath(io, "mods/aa");
+    var more: Mods = try .openOrdered(gpa, io, tmp.dir, null, order);
+    defer more.close(gpa);
+    try std.testing.expectEqual(4, more.list.len);
+    try std.testing.expectEqualStrings("aa", more.list[3].name);
 }
 
 test parseVersion {

@@ -195,8 +195,10 @@ fn readStats(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigf
 /// pause menu's screens write to.
 fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io.Dir, settings_file: *engine.profile.File) !void {
     // OpenReliant's mods, whose files take priority over the game's files wherever they are; none
-    // with `--no-mods`.
-    var mods: game.bigfile.Mods = if (options.mods) try .open(arena, io, directory, version.semantic) else .none;
+    // with `--no-mods`. The mods screen sets which are on and the order they load in, which a
+    // screenshot doesn't read, so that it comes out the same each time.
+    const mods_order: game.bigfile.mods.Order = if (options.screenshot == null) .{ .profile = settings_file.profile } else .none;
+    var mods: game.bigfile.Mods = if (options.mods) try .openOrdered(arena, io, directory, version.semantic, mods_order) else .none;
     defer mods.close(arena);
     // What `WinMain` opens at start-up, and the texture cache `renderer_start` opens.
     var resources: game.bigfile.Hog = try .open(arena, io, directory, game.bigfile.resource_name);
@@ -632,6 +634,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .own = own.interface(),
         .video = video_settings,
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
+        // The mods screen, which with `--no-mods` stays shut.
+        .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic } else null,
     };
     // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
     // play and draw with: made as the front end's resources open.
