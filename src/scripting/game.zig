@@ -662,6 +662,35 @@ test "the engine calls the scripts' handlers, and a mission's scripts run with i
     try std.testing.expectEqual(200, fixture.scaled(fixture.sabre, 2));
 }
 
+test "scripts reloaded partway through a mission start on its objects, without its start" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{
+        .{
+            "a",
+            &.{
+                .{ "mod.ini", "[Scripts]\nFighter=wing.luau\n[Missions]\nMISSION5.dte=mission.luau\n" },
+                .{
+                    "wing.luau",
+                    \\local self = require("openreliant.self")
+                    \\self:hook("damage_by_difficulty", function(e) e.value *= 0.5 end)
+                },
+                .{
+                    "mission.luau",
+                    \\local factor = 3
+                    \\require("openreliant.hooks").add("damage_by_difficulty", function(e) e.value *= factor end)
+                    \\return { engine_handlers = { on_mission_start = function() factor = 100 end } }
+                },
+            },
+        },
+    });
+    defer fixture.deinit();
+    // The Sabre is in the mission already: its script starts on it, and the mission's script
+    // starts without hearing the mission start.
+    fixture.game.resumeMission(fixture.mission.orders(), .{ .number = 5, .file = "mission5.dte" }, 1);
+    try std.testing.expectEqual(1, fixture.game.onObject(fixture.sabre).items.len);
+    try std.testing.expectEqual(3, fixture.scaled(fixture.sabre, 2));
+}
+
 test "object scripts run on the objects their manifest names, each with its own globals" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{

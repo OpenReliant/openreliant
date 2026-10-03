@@ -369,6 +369,24 @@ test "menu scripts draw over the menus, and hear keys and the window" {
     try std.testing.expectEqual(1024, layer.commands.items[2].line.to.screen[0]);
 }
 
+test "menu scripts reload from their files, and start again" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "a", &.{
+        .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" },
+        .{ "menu.luau", "local frames = 0\nreturn { engine_handlers = { on_frame = function() frames += 1; require('openreliant.ui').text(vector.zero, 'old ' .. frames) end } }" },
+    } }});
+    defer fixture.deinit();
+    const layer = fixture.shown.layers.getPtr(.ui);
+    fixture.frame(0.016, .{ 800, 600 });
+    fixture.frame(0.016, .{ 800, 600 });
+    try std.testing.expectEqualStrings("old 2", layer.text.items);
+    // The file saved again, the menu script starts again with the new code.
+    try fixture.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "mods/a/menu.luau", .data = "local frames = 0\nreturn { engine_handlers = { on_frame = function() frames += 1; require('openreliant.ui').text(vector.zero, 'new ' .. frames) end } }" });
+    try fixture.shown.reload();
+    fixture.frame(0.016, .{ 800, 600 });
+    try std.testing.expectEqualStrings("new 1", layer.text.items);
+}
+
 test "player scripts run with the game, and send it events" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{

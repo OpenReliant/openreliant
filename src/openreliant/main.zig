@@ -692,8 +692,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 devices.keyboard.down[@intFromEnum(key.scan)] = key.down;
                 // The player and menu scripts don't hear the keys pressed while the console is
                 // up, nor the key that brings it up.
-                const consoled = if (console) |*shown| shown.isUp() or key.scan == scripting.console.key else false;
-                if (presentation) |shown| if (!key.down or !consoled) shown.key(key.scan, key.down);
+                const withheld = if (console) |*shown| shown.isUp() or key.scan == scripting.console.key else false;
+                if (presentation) |shown| if (!key.down or !withheld) shown.key(key.scan, key.down);
             },
             .typed => |character| if (options.screenshot == null) typed.push(game.language.fromUnicode(character)),
             .controllers => if (options.screenshot == null) connectController(arena, &devices, &controller, settings_file.profile),

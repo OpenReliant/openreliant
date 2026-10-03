@@ -225,8 +225,8 @@ pub fn draw(console: *Console, canvas: Canvas, art: *hud.Art, pointer: Pointer, 
 
     typed_frame.draw(canvas);
     const small = canvas.fonts.small;
-    var prompt_buffer: [96]u8 = undefined;
-    var encoded: [96 + console_module.max_typed]u8 = undefined;
+    var prompt_buffer: [console_module.prompt_room]u8 = undefined;
+    var encoded: [console_module.prompt_room]u8 = undefined;
     const prompt = language.encode(&encoded, console.prompt(&prompt_buffer));
     try canvas.text(small, typed_at, prompt, canvas_module.blue, .left);
     const prompt_width: i32 = @intCast(small.textWidth(prompt));

@@ -202,6 +202,9 @@ pub const Scripts = struct {
 /// The most bytes of a line typed, in the game's code page.
 pub const max_typed = 200;
 
+/// The most bytes UTF-8 takes for a character, which a line typed takes as it runs.
+const max_utf8 = 4;
+
 /// A line typed, in the game's code page, as the front end keeps one (`pilot_roster.Text`).
 pub const Typed = pilot_roster.Text(max_typed);
 
@@ -278,7 +281,7 @@ pub const Console = struct {
     /// Runs the line typed, and empties it: a command, Luau, or a line for the scripts.
     pub fn run(console: *Console, scripts: Scripts) Allocator.Error!?Request {
         const typed = console.typed.slice();
-        var utf8_buffer: [max_typed * 4]u8 = undefined;
+        var utf8_buffer: [max_typed * max_utf8]u8 = undefined;
         const utf8 = toUtf8(&utf8_buffer, typed);
         if (typed.len > 0) console.history.add(typed);
         console.typed.len = 0;
@@ -318,10 +321,11 @@ pub const Console = struct {
             .mods => try console.listMods(scripts),
             .reload => return .reload,
             .clear => output.clear(),
-            .global, .player, .menu => console.enter(.{ .mod = console.modNamed(rest) orelse {
-                console.say(.warning, "there's no mod {s}: mods lists them", .{rest});
-                return null;
-            }, .family = named.family().? }, scripts),
+            .global, .player, .menu => if (rest.len == 0) {
+                console.say(.warning, "{t} takes a mod's name: {s}", .{ named, named.about() });
+            } else if (console.modNamed(rest)) |mod| {
+                console.enter(.{ .mod = mod, .family = named.family().? }, scripts);
+            } else console.say(.warning, "there's no mod {s}: mods lists them", .{rest}),
             .exit => console.say(.info, "exit leaves Luau, from global, player or menu", .{}),
         }
         return null;
@@ -330,22 +334,35 @@ pub const Console = struct {
     fn help(console: *Console, name: []const u8) Allocator.Error!void {
         var text: Io.Writer.Allocating = .init(console.gpa);
         defer text.deinit();
-        const w = &text.writer;
-        if (name.len == 0) {
-            for (std.enums.values(Command)) |each| w.print("{s}\n", .{each.about()}) catch return error.OutOfMemory;
-            w.writeAll("Any other line goes to the player and menu scripts' on_console_command.") catch return error.OutOfMemory;
-        } else if (std.meta.stringToEnum(Command, name)) |named| {
-            w.writeAll(named.about()) catch return error.OutOfMemory;
-        } else if (!(reference.writeHelp(w, name) catch return error.OutOfMemory)) {
-            return console.say(.warning, "there's no command, package, engine handler or hook named {s}", .{name});
-        }
+        const found = writeHelp(&text.writer, name) catch return error.OutOfMemory;
+        if (!found) return console.say(.warning, "there's no command, package, engine handler or hook named {s}", .{name});
         output.add(.info, std.mem.trimEnd(u8, text.written(), "\n"));
+    }
+
+    /// Writes what `help` says of `name`: the commands where it's empty, a command, or what the
+    /// reference says of it. Returns false where nothing has that name.
+    fn writeHelp(w: *Io.Writer, name: []const u8) Io.Writer.Error!bool {
+        if (name.len == 0) {
+            for (std.enums.values(Command)) |each| try w.print("{s}\n", .{each.about()});
+            try w.writeAll("Any other line goes to the player and menu scripts' on_console_command.");
+            return true;
+        }
+        if (std.meta.stringToEnum(Command, name)) |named| {
+            try w.writeAll(named.about());
+            return true;
+        }
+        return reference.writeHelp(w, name);
     }
 
     /// Lists each mod, and its scripts that run, by family, with how many run where several do.
     fn listMods(console: *Console, scripts: Scripts) Allocator.Error!void {
         var text: Io.Writer.Allocating = .init(console.gpa);
         defer text.deinit();
+        console.writeMods(&text.writer, scripts) catch return error.OutOfMemory;
+        output.add(.info, std.mem.trimEnd(u8, text.written(), "\n"));
+    }
+
+    fn writeMods(console: *Console, w: *Io.Writer, scripts: Scripts) (Allocator.Error || Io.Writer.Error)!void {
         var found: std.ArrayList(Found) = .empty;
         defer found.deinit(console.gpa);
         for (console.mods, 0..) |*mod, at| {
@@ -363,16 +380,15 @@ pub const Console = struct {
                     } else try found.append(console.gpa, .{ .kind = kind, .name = held.name });
                 };
             }
-            text.writer.print("{s}:", .{mod.name}) catch return error.OutOfMemory;
-            if (found.items.len == 0) text.writer.writeAll(" no scripts run") catch return error.OutOfMemory;
+            try w.print("{s}:", .{mod.name});
+            if (found.items.len == 0) try w.writeAll(" no scripts run");
             for (found.items, 0..) |seen, place| {
-                text.writer.print("{s} {f} {s}", .{ if (place == 0) "" else ",", seen.kind, seen.name }) catch return error.OutOfMemory;
-                if (seen.count > 1) text.writer.print(" ({d})", .{seen.count}) catch return error.OutOfMemory;
+                try w.print("{s} {f} {s}", .{ if (place == 0) "" else ",", seen.kind, seen.name });
+                if (seen.count > 1) try w.print(" ({d})", .{seen.count});
             }
-            text.writer.writeByte('\n') catch return error.OutOfMemory;
+            try w.writeByte('\n');
         }
-        if (console.mods.len == 0) text.writer.writeAll("no mods") catch return error.OutOfMemory;
-        output.add(.info, std.mem.trimEnd(u8, text.written(), "\n"));
+        if (console.mods.len == 0) try w.writeAll("no mods");
     }
 
     /// A script that runs, as `mods` counts them.
@@ -405,14 +421,18 @@ pub const Console = struct {
 
     /// Runs Luau in `target`'s context from now on, where its scripts run.
     fn enter(console: *Console, target: Target, scripts: Scripts) void {
-        const name = console.mods[target.mod].name;
-        if (contextOf(target, scripts) == null) return console.say(.warning, "no {t} scripts of {s} run now", .{ target.family, name });
+        if (contextOf(target, scripts) == null) return console.notRunning(target);
         console.mode = .{ .luau = target };
-        console.say(.info, "Luau runs in the context of the {t} scripts of {s}; exit goes back to the commands", .{ target.family, name });
+        console.say(.info, "Luau runs in the context of the {t} scripts of {s}; exit goes back to the commands", .{ target.family, console.mods[target.mod].name });
+    }
+
+    /// Says that `target`'s scripts don't run, so Luau can't run in their context.
+    fn notRunning(console: *const Console, target: Target) void {
+        console.say(.warning, "no {t} scripts of {s} run now", .{ target.family, console.mods[target.mod].name });
     }
 
     fn luau(console: *Console, target: Target, line: []const u8, scripts: Scripts) Allocator.Error!void {
-        const context = contextOf(target, scripts) orelse return console.say(.warning, "no {t} scripts of {s} run now", .{ target.family, console.mods[target.mod].name });
+        const context = contextOf(target, scripts) orelse return console.notRunning(target);
         var result: Io.Writer.Allocating = .init(console.gpa);
         defer result.deinit();
         if (try context.runtime.evaluate(context, line, &result.writer) and result.written().len > 0) output.add(.info, result.written());
@@ -461,7 +481,7 @@ pub const Watch = struct {
 };
 
 /// The room a prompt takes: a mod's name, a family and the mark after them.
-const prompt_room = 96;
+pub const prompt_room = 96;
 
 /// The extension of a mod's archive, which `global`, `player` and `menu` take its name with or
 /// without.
@@ -480,7 +500,7 @@ fn contextOf(target: Target, scripts: Scripts) ?*Context {
 }
 
 /// `typed`, in the game's code page, as UTF-8 in `buffer`.
-fn toUtf8(buffer: *[max_typed * 4]u8, typed: []const u8) []const u8 {
+fn toUtf8(buffer: *[max_typed * max_utf8]u8, typed: []const u8) []const u8 {
     var len: usize = 0;
     for (typed) |byte| len += std.unicode.utf8Encode(language.toUnicode(byte), buffer[len..]) catch continue;
     return buffer[0..len];
@@ -554,6 +574,8 @@ test "the console runs its commands, and Luau in a mod's context" {
     try Expect.last("there's no command nope: help lists them");
     _ = try runLine(&console, scripts, "player a");
     try Expect.last("no player scripts of a run now");
+    _ = try runLine(&console, scripts, "global");
+    try Expect.last("global takes a mod's name: global <mod>: runs Luau in the context of the mod's global scripts");
     // Luau keeps its variables from one line to the next, and requires the mod's scripts.
     _ = try runLine(&console, scripts, "global a");
     try std.testing.expectEqual(Mode{ .luau = .{ .mod = 0, .family = .global } }, console.mode);
