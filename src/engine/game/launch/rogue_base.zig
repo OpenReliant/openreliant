@@ -1,7 +1,7 @@
-//! A ship's launch from the rogue base's first six gates (`0x0041B770` and `0x0041B7F0`): it waits
-//! at one of the base's launch points, set back along its nose, then backs out of the base for a
-//! second before it flies itself. From the seventh gate on, the base launches from a bay
-//! (`launch.Style.of`).
+//! The rogue base's first six gates use `launch_rogue_init` (`0x0041B770`) and
+//! `launch_rogue_run` (`0x0041B7F0`). A ship waits behind its launch point, then uses downward
+//! motion at negative throttle for 100 ticks before normal flight resumes. Later gates use
+//! the common bay style (`launch.Style.of`).
 
 const std = @import("std");
 
@@ -10,7 +10,7 @@ const gameobj = @import("../gameobj.zig");
 const objects = @import("../objects.zig");
 const launch = @import("../launch.zig");
 
-/// A launch from the rogue base's steps, after `launch.Step`'s two.
+/// The rogue base's steps after the common launch wait and delay.
 pub const Step = enum(i32) {
     /// The ship lets go of the base and backs away.
     leave = 2,
@@ -27,21 +27,18 @@ const set_back: f32 = 500;
 const back_ticks = 100;
 const back_throttle: f32 = -2;
 
-/// `launch_rogue_init` (`0x0041B770`): places the ship in slot `index` at the launch point of the rogue base, in slot
-/// `carrier`, for its gate (`launch.attachAtGate`), riding the part that holds it, then moves it
-/// back along its own nose by `set_back`.
+/// `launch_rogue_init` (`0x0041B770`): places the ship in slot `index` at its gate's launch
+/// point on `carrier`, riding the part that holds it, then moves it `set_back` behind the point
+/// along the ship's forward axis.
 pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const slot = &ctx.world.objects.slots[index];
     launch.attachAtGate(ctx, index, carrier);
     objects.setPosition(&slot.object, &slot.drawn, slot.drawn.point(.{ 0, 0, -set_back }));
 }
 
-/// `launch_rogue_run` (`0x0041B7F0`): the launch of the ship in slot `index` from step 2 on.
-///
-/// 1. The ship lets go of the base and drops along its Y axis (`motion.Motion.downward`) at a
-///    throttle of `back_throttle`.
-/// 2. After `back_ticks`, it flies itself (`motion.Motion.forward`) with its throttle and yaw
-///    input at 0, and the launch lets it go (`launch.letGo`).
+/// `launch_rogue_run` (`0x0041B7F0`): releases the ship in slot `index` with downward motion
+/// and `back_throttle`. After `back_ticks`, it clears throttle and yaw, restores forward
+/// motion and ends the launch, removing the carrier pass-through entry.
 pub fn run(ctx: aigeneric.Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.launch;
@@ -97,7 +94,7 @@ test "a ship backs out of the rogue base" {
     try std.testing.expectEqual(.downward, slot.motion.?);
     try std.testing.expectEqual(back_throttle, slot.object.throttle);
 
-    // A second later it flies itself, passing through the base no more, its launch over.
+    // After 100 ticks, normal flight resumes and the ship stops passing through the base.
     slot.object.yaw_input = 0.5;
     launch.testing.pastDue(&mission, ctx, ship);
     try std.testing.expectEqual(.forward, slot.motion.?);

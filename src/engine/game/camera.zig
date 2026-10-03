@@ -12,6 +12,7 @@ const libcmt = @import("../libcmt.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
 const missiles = @import("missiles.zig");
+const yamato_launch = @import("launch/yamato.zig");
 const Vector = math.Vector;
 
 /// The view table, which [`camera/views.zig`](camera/views.zig) transcribes.
@@ -672,8 +673,9 @@ pub const Camera = struct {
                 camera.place = yamatoBeside(world.player, camera.shown(world));
                 if (world.game) |game| {
                     const state = game.objects.slots[game.objects.player].state.launch;
-                    const step = @intFromEnum(state.step);
-                    if (step < 5 or (step == 5 and state.due + yamato_look_delay >= game.clock.frame_start))
+                    const step = state.step.as(yamato_launch.Step);
+                    if (@intFromEnum(step) < @intFromEnum(yamato_launch.Step.clear) or
+                        (step == .clear and state.due + yamato_look_delay >= game.clock.frame_start))
                         camera.place.orientation = world.player.orientation;
                 }
             },

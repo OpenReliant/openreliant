@@ -1,8 +1,9 @@
 # Launches
 
-A ship leaves the ship it launches from, its carrier, under order 104, Launch (`launch.cpp`):
-`order_launch_init` (`0x00418EB0`) readies it, and `order_launch` (`0x004191C0`) runs it an update
-at a time. The carrier's type picks how the launch goes, its style. OpenReliant runs all ten styles.
+A ship leaves its carrier under order 104, Launch (`launch.cpp`). `order_launch_init`
+(`0x00418EB0`) prepares the launch, and `order_launch` (`0x004191C0`) updates it. Torpedoes and
+escape pods select their own styles; other ships use the carrier's type and gate. OpenReliant
+runs all ten styles.
 [`launch.zig`](../../src/engine/game/launch.zig) holds the order, and
 [`launch/reliant.zig`](../../src/engine/game/launch/reliant.zig),
 [`launch/torpedo.zig`](../../src/engine/game/launch/torpedo.zig),
@@ -271,61 +272,61 @@ child list. OpenReliant skips that door.
 
 ## The Badanov and the Krasny
 
-A ship launching from the Badanov or the Krasny (`launch_badanov_init`, `0x00419F60`) waits at one of
-ten places along the carrier's bay, which is child 4 of its root's child list, and rides that part.
-Its gate numbers the places: 0 to 4 are on one side of the bay, 5 to 9 on the other. In terms of the
-bounds of the level the part last drew, with `size` their extent and `middle` their middle, the ship
-stands at
+A ship launching from the Badanov or Krasny (`launch_badanov_init`, `0x00419F60`) rides bay
+part 4 in the carrier's root child list. It waits at one of ten positions: gates 0 to 4 on
+one side, 5 to 9 on the other. Its position uses the bounds of the part's last drawn level.
+With `size` as the bounds' extent and `middle` as their midpoint, its local coordinates are:
 
 - X: `middle.x` plus half of `size.y` (gates 0 to 4) or minus it (5 to 9),
 - Y: `middle.y` plus a fifth of `size.y`,
-- Z: `middle.z` plus a fifth of `size.z` for each gate past 2 (gates 0 to 4) or past 7 (5 to 9),
+- Z: `middle.z + (gate - 2) * size.z / 5` for gates 0 to 4, or
+  `middle.z + (gate - 7) * size.z / 5` for gates 5 to 9.
 
-in the part's frame. It is turned as the part is, then a quarter turn about its Y axis, one way for
-each side, and 0.377 radians (21.6 degrees) about its X axis, which tilts its nose down.
+It starts with the part's orientation, turns a quarter turn about Y (positive for gates
+below 5, negative otherwise), then tilts its nose down by 0.37699112 radians about X.
+**Improvement:** OpenReliant uses an exact quarter turn in this style and the Yamato's,
+instead of the original's rounded angle.
 
 From step 2 (`launch_badanov_run`, `0x0041A100`):
 
 | Step | What happens | Ticks to the next |
 |---|---|---|
-| 2 | The bay's doors, children 1 and 2 of the root's child list, play `opendoor` forward at speed 4 from its start, with the sound `0x35` at the first. Where the first door is moving already (it has a track playing at a speed other than 0), as another ship's launch has it, they are left as they are | 200, and up to 99 more, drawn from the ship's own numbers (`object_random15`) |
-| 3 | The ship lets go and flies out along its nose at throttle 2 (`motion_plain`) with its carrier's velocity. It steers a little by its place: its yaw input is 0.2 for each of its gate's places past the middle of its five (gate modulo 5, less 2.5), turned about for gates 0 to 4 | 300 |
-| 4 | The ship flies itself (`motion_forward`) with its throttle and inputs set to 0. It no longer passes through its carrier, its order pops, it can be targeted again, and its Launched event is posted | |
+| 2 | Doors 1 and 2 play `opendoor` from time zero, once, at speed 4. Sound `0x35` plays at door 1. If that door is already playing a track at nonzero speed, both doors are left unchanged | 200 plus 0 to 99, from `object_random15` |
+| 3 | The ship releases and uses `motion_plain` at throttle 2, starting with its carrier's velocity. Its yaw input is `(gate remainder 5 - 2.5) * 0.2`, negated for gates below 5. The remainder is signed, as in the original | 300 |
+| 4 | Throttle and steering clear, and `motion_forward` resumes. The carrier pass-through entry clears, the order pops, targeting returns and the Launched event is posted | |
 
-**Fix:** when the carrier's model lacks the bay part, the game reads past the end of its root's child
-list. OpenReliant leaves the ship where it stands, riding the carrier's root.
+**Fix:** if the model lacks the bay or its level, OpenReliant leaves the ship in place,
+riding the carrier's root. The original dereferences the missing part.
 
 ## The escape pods
 
-An escape pod launching from any carrier (`launch_point_init`, `0x0041A4B0`) waits at the launch point
-its gate names, riding the part that holds it, as the Stork's ships do. The two pods differ in how
-they go. Neither stops passing through its carrier: the game leaves the first slot of its
-pass-through list as it is.
+Both escape pods use `launch_point_init` (`0x0041A4B0`) to wait at the launch point selected
+by their gate, riding the part that holds it. The Stork uses the same init routine. The two
+pods have different launch steps, but both keep their carrier pass-through entry afterward.
 
 The first pod (type `0x4D`, `launch_pod_run`, `0x0041A4D0`):
 
 | Step | What happens | Ticks to the next |
 |---|---|---|
-| 2 | The pod lets go and flies by `motion_plain` at a throttle of 2 and up to 0.5 more, drawn from the C runtime's `rand`. Its yaw input follows its gate: for gates before 7, one twelfth for each gate past 3, and for the others one sixteenth for each gate past 7. The sound `0x33` plays at it | 200 |
-| 3 | Its throttle drops to 0. The pod flies itself (`motion_forward`), its order pops, it can be targeted again, and its Launched event is posted | |
+| 2 | The pod releases and uses `motion_plain` at throttle `2 + rand / RAND_MAX * 0.5`. Yaw is `(gate - 3) / 12` for gates below 7, or `(gate - 7) / 16` otherwise. Sound `0x33` plays at the pod | 200 |
+| 3 | Throttle clears and `motion_forward` resumes. Yaw stays unchanged. The order pops, targeting returns and the Launched event is posted | |
 
 The other pod (type `0x90`, `launch_pod_other_run`, `0x0041B690`):
 
 | Step | What happens | Ticks to the next |
 |---|---|---|
 | 2 | The sound `0x33` plays at the pod | none: step 3 runs at the next update |
-| 3 | The pod lets go and flies straight out by `motion_plain` at a throttle of 2 | 200 |
-| 4 | Its throttle and yaw input drop to 0. The pod flies itself (`motion_forward`), its order pops, it can be targeted again, and its Launched event is posted | |
+| 3 | The pod releases and uses `motion_plain` at throttle 2 | 200 |
+| 4 | Throttle and yaw clear, and `motion_forward` resumes. The order pops, targeting returns and the Launched event is posted | |
 
 ## The rogue base
 
-A ship launching from the rogue base's first six gates (`launch_rogue_init`, `0x0041B770`) is placed
-at the launch point its gate names, riding the part that holds it, then moved 500 back along its
-nose. The base's later gates launch from a bay ([Hangar bays](#hangar-bays)). From step 2
-(`launch_rogue_run`, `0x0041B7F0`) the ship lets go and backs away: it drops along its Y axis
-(`motion_downward`) at a throttle of -2. A hundred ticks later it flies itself (`motion_forward`)
-with its throttle and yaw input at 0, no longer passing through the base, its order pops, it can be
-targeted again, and its Launched event is posted.
+A ship using one of the rogue base's first six gates (`launch_rogue_init`, `0x0041B770`)
+waits 500 behind its launch point along its forward axis, riding the part that holds the
+point. Later gates use the [bay style](#hangar-bays). At step 2 (`launch_rogue_run`,
+`0x0041B7F0`), the ship releases with `motion_downward` at throttle -2. After 100 ticks,
+throttle and yaw clear, and `motion_forward` resumes. The carrier pass-through entry clears,
+the order pops, targeting returns and the Launched event is posted.
 
 ## The Stork
 
@@ -353,14 +354,14 @@ passes through the Zakov.
 
 ## In OpenReliant
 
-OpenReliant keeps the node a ship rides as its object and its part (`create.Slot.riding`), where
-the game keeps the node's address.
+OpenReliant stores a riding node as an object slot and optional part index
+(`create.Slot.riding`). The original stores the node's address.
 
 **Fix:** a launch from an unsupported carrier logs a warning, waits for StartLaunch and then lets
-the ship go where it stands. A Launch aimed at nothing, whose carrier the game reads through the word before its
-objects (`0x00587CDC`), lets the ship go at once: the game's assertion "Launch Crash Imminent"
-(`0x004191E6`) compares the sign-extended index with 0xFFFF and never fires. A style that names no node, and a
-Reliant whose model lacks a tube's door, leave the ship where it stands.
+the ship go where it stands. A Launch without a target releases the ship immediately. The
+original reads its carrier through the word before the object table (`0x00587CDC`): its
+"Launch Crash Imminent" assertion (`0x004191E6`) compares a sign-extended index with 0xFFFF
+and never fires. A missing riding node or Reliant tube door leaves the ship in place.
 
 **Improvement:** OpenReliant's shadows leave out a mesh that keeps the sun out by its light mask, so
 the hangar's walls cast none over the ship, which shows lit within them as in the original

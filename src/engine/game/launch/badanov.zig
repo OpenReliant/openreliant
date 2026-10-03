@@ -1,12 +1,14 @@
-//! A ship's launch from the Badanov and the Krasny (`0x00419F60` and `0x0041A100`): it waits at
-//! the side of the carrier's launch bay, one of ten places along it, its nose tilted down. Then
-//! the bay's two doors open and the ship flies out, steering a little by its place, and flies on by
-//! itself.
+//! The Badanov and Krasny launches (`launch_badanov_init`, `0x00419F60`, and
+//! `launch_badanov_run`, `0x0041A100`): a ship waits at one of ten positions along the bay,
+//! facing out with its nose tilted down. The doors open, and the ship flies out with a yaw
+//! input based on its gate. Normal flight resumes after 300 ticks.
 
 const std = @import("std");
 const log = std.log.scoped(.launch);
 
 const math = @import("../../surrender/math.zig");
+const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
+const srmesh = @import("../../surrender/surrenderlib/srmesh.zig");
 const aigeneric = @import("../aigeneric.zig");
 const create = @import("../create.zig");
 const gameobj = @import("../gameobj.zig");
@@ -17,7 +19,7 @@ const xtrabits = @import("../xtrabits.zig");
 const bay = @import("bay.zig");
 const launch = @import("../launch.zig");
 
-/// A launch from the Badanov's steps, after `launch.Step`'s two.
+/// The Badanov's steps after the common launch wait and delay.
 pub const Step = enum(i32) {
     /// The doors open.
     open = 2,
@@ -33,14 +35,13 @@ pub const Step = enum(i32) {
 const bay_part = 4;
 const doors = [_]usize{ 1, 2 };
 
-/// The ship waits at one of ten places along the bay, five to each side: gates before
-/// `gates_a_side` on one, the others on the other (`0x00419FFB`).
+/// Each side has five positions. Gates below this number use one side; the rest use the other
+/// (`0x00419FFB`).
 const gates_a_side = 5;
 
-/// Where the ship waits, in the frame of the bay's part and in terms of the bounds of the level the
-/// part last drew (`size`, the bounds' extent, and the middle of the bounds): across by half its
-/// height, up by `up` of its height, and along by `along` of its length for each gate past
-/// `first_gate` (`0x00419FD1`, `0x0041A01F`, `0x0041A03D`; `0x0041A05E`, `0x0041A082`).
+/// Offsets from the bay bounds' midpoint: half its height across, a fifth of its height up,
+/// and a fifth of its length per gate relative to `first_gate_near` or `first_gate_far`
+/// (`0x00419FD1`, `0x0041A01F`, `0x0041A03D`, `0x0041A05E`, `0x0041A082`).
 const side_reach: f32 = 0.5;
 const up_share: f32 = 0.2;
 const along_share: f32 = 0.2;
@@ -49,6 +50,7 @@ const first_gate_far: f32 = 7;
 
 /// The ship's nose is turned a quarter turn about the part's Y axis, one way for each side, then
 /// down about its X axis by `tilt` (`0x0041A00C`, `0x0041A051`, `0x0041A09D`): 21.6 degrees.
+/// **Improvement:** use an exact quarter turn instead of the original's rounded angle.
 const quarter_turn: f32 = std.math.pi / 2.0;
 const tilt: f32 = -0.37699112;
 
@@ -62,19 +64,18 @@ const open_spread = 100;
 const out_ticks = 300;
 const out_throttle: f32 = 2;
 
-/// The ship steers by its place along the bay: its yaw input is `steer` for each gate past the
-/// middle, the middle being `steer_middle` of the five gates of its side, turned about for the
-/// first side (`0x0041A20C` to `0x0041A252`).
+/// Yaw is `(gate remainder 5 - steer_middle) * steer`, negated for the first side
+/// (`0x0041A20C` to `0x0041A252`). The original uses signed remainder.
 const steer: f32 = 0.2;
 const steer_middle: f32 = 2.5;
 
-/// `launch_badanov_init` (`0x00419F60`): places the ship in slot `index` at its gate's place along the bay of the carrier
-/// in slot `carrier` (`bay_part`), riding that part. It stands at the middle of the bounds of the
-/// level the part last drew, moved by a share of their extent for its gate (`gates_a_side`), and is
-/// turned as the part is, a quarter turn about its Y axis and `tilt` down about its X.
+/// `launch_badanov_init` (`0x00419F60`): places the ship in slot `index` at its gate's position
+/// in `carrier`'s bay (`bay_part`), riding that part. The position uses the bounds of the last
+/// drawn level. The ship turns a quarter turn about the part's Y axis, with opposite signs for
+/// the two sides, then tilts down about its X axis.
 ///
-/// **Fix:** the game reads through a bay part or a level the carrier's model lacks; OpenReliant
-/// leaves the ship where it stands.
+/// **Fix:** if the model lacks the bay or its level, the ship stays where it is and rides the
+/// carrier's root instead of dereferencing the missing part.
 pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
@@ -100,16 +101,10 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     objects.setPlace(&slot.object, &slot.drawn, .{ .position = part.point(at), .orientation = turned });
 }
 
-/// `launch_badanov_run` (`0x0041A100`): the launch of the ship in slot `index` from step 2 on.
-///
-/// 1. The launch waits `open_ticks` and a random share of `open_spread`. Unless the first door is
-///    moving already, as another ship's launch has it, both doors play their track forward at
-///    `bay.door_speed` from its start, with the `dooropen` sound at the first.
-/// 2. After the wait, the ship lets go of its carrier and flies out along its nose at
-///    `out_throttle` (`motion.Motion.plain`), with its carrier's velocity, steering by its gate
-///    (`steer`).
-/// 3. After `out_ticks`, the ship flies itself (`motion.Motion.forward`) with its throttle and
-///    inputs at 0, and the launch lets it go (`launch.letGo`).
+/// `launch_badanov_run` (`0x0041A100`): opens the doors unless they are already moving, then
+/// waits `open_ticks` plus a random delay below `open_spread`. It releases the ship with the
+/// carrier's velocity, `out_throttle` and gate-based yaw. After `out_ticks`, it clears the
+/// controls, restores forward motion and ends the launch.
 pub fn run(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -135,10 +130,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             slot.motion = .plain;
         },
         .end => if (state.due < now) {
-            slot.object.throttle = 0;
-            slot.object.roll_input = 0;
-            slot.object.pitch_input = 0;
-            slot.object.yaw_input = 0;
+            slot.object.letGo();
             slot.motion = .forward;
             launch.letGo(ctx, index);
         },
@@ -146,8 +138,8 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
     }
 }
 
-/// Opens the carrier's doors, unless the first is moving already: each plays its track forward from
-/// its start, the sound at the first.
+/// Opens both doors from the track's start unless the first is already moving. Plays the sound
+/// at the first door after starting both tracks.
 fn openDoors(world: gameobj.World, carrier: *create.Slot) void {
     const model = if (carrier.model) |*live| live else return;
     const first = model.rootChild(doors[0]) orelse return;
@@ -159,16 +151,17 @@ fn openDoors(world: gameobj.World, carrier: *create.Slot) void {
     sound3d.playFrom(world, first.drawn(), .dooropen, .not_reserved);
 }
 
-/// A Badanov's model for the tests: its bay, part 4, whose level is the square test mesh, with bounds 200 across and 600 long, and two doors, parts 1 and 2, each with the doors' track.
 const testing = struct {
+    /// A five-part model: bay 4 has bounds 200 wide and high, 600 long; doors 1 and 2 have
+    /// an opening track. Initialize it in place because its records point into it.
     const Badanov = struct {
-        mesh: @import("../../surrender/surrenderlib/srapiext.zig").Mesh,
-        levels: [1]@import("../../surrender/surrenderlib/srapiext.zig").Level,
+        mesh: srapiext.Mesh,
+        levels: [1]srapiext.Level,
         tracks: [1]shp.Track,
         parts: objects.testing.Parts(5),
 
         fn init(badanov: *Badanov, gpa: std.mem.Allocator) !void {
-            badanov.mesh = try @import("../../surrender/surrenderlib/srmesh.zig").testing.square(gpa);
+            badanov.mesh = try srmesh.testing.square(gpa);
             badanov.mesh.bounds = .{ .{ -100, -100, -300 }, .{ 100, 100, 300 } };
             badanov.levels = .{.{ .mesh = &badanov.mesh, .until = std.math.inf(f32) }};
             badanov.tracks = .{.{ .clip = objects.testing.clip(100, .once, bay.door_track), .keyframes = &.{}, .events = &.{} }};
@@ -234,9 +227,7 @@ test "a ship launches from the Badanov's bay" {
     const state = &slot.state.launch;
     try std.testing.expectEqual(launch.Style.badanov, state.style);
 
-    // The bay's bounds are 200 across and 600 long, centred on the part. Gate 1, on the near side,
-    // stands half the height across (100), a fifth of it up (40) and a fifth of the length for gate
-    // 1 past 2 back (-120).
+    // Gate 1 is 100 across, 40 up and 120 behind the bay's midpoint.
     try std.testing.expect(state.attached);
     try std.testing.expectEqual(badanov, slot.riding.?.object);
     try std.testing.expectEqual(bay_part, slot.riding.?.part.?);
@@ -247,7 +238,7 @@ test "a ship launches from the Badanov's bay" {
     const nose = math.forward(slot.drawn.orientation);
     try std.testing.expectApproxEqAbs(@cos(tilt), nose[0], 1e-4);
     try std.testing.expectApproxEqAbs(-@sin(tilt), nose[1], 1e-4);
-    // Gate 7, on the far side, stands across the other way, and at the middle of the length.
+    // Gate 7 is on the other side, at the bay's longitudinal midpoint.
     const away = mission.slot(far);
     try std.testing.expectApproxEqAbs(-100, away.drawn.position[0], 1e-3);
     try std.testing.expectApproxEqAbs(10000, away.drawn.position[2], 1e-3);
@@ -271,7 +262,7 @@ test "a ship launches from the Badanov's bay" {
     try std.testing.expectEqual(5, slot.object.velocity.z);
     try std.testing.expectApproxEqAbs(0.3, slot.object.yaw_input, 1e-6);
 
-    // Later it flies itself, passing through the Badanov no more, its launch over.
+    // Normal flight resumes, and the ship stops passing through the Badanov.
     launch.testing.pastDue(&mission, ctx, ship);
     try std.testing.expectEqual(.forward, slot.motion.?);
     try std.testing.expectEqual(0, slot.object.throttle);

@@ -1,8 +1,7 @@
-//! An escape pod's launch (`launch_point_init`, `0x0041A4B0`, with `0x0041A4D0` or `0x0041B690`),
-//! whatever launches it: it waits at one of its carrier's launch points, then leaves with a sound
-//! of its own. The two pods differ in how they go. The first (`run`) drifts off with a throttle and
-//! a turn drawn at random and from its gate. The second (`runOther`) flies straight out. Neither
-//! stops passing through its carrier.
+//! Escape-pod launches: both use `launch_point_init` (`0x0041A4B0`) to wait at a carrier's
+//! launch point. `launch_pod_run` (`0x0041A4D0`) gives the first pod a random throttle and a
+//! yaw input based on its gate. `launch_pod_other_run` (`0x0041B690`) sends the other pod
+//! straight out. Both play the escape sound and keep passing through their carrier afterward.
 
 const std = @import("std");
 
@@ -11,7 +10,7 @@ const gameobj = @import("../gameobj.zig");
 const sound3d = @import("../sound3d.zig");
 const launch = @import("../launch.zig");
 
-/// A launch's steps of the first pod, after `launch.Step`'s two.
+/// The first pod's steps after the common launch wait and delay.
 pub const Step = enum(i32) {
     /// The pod lets go and drifts off.
     leave = 2,
@@ -20,7 +19,7 @@ pub const Step = enum(i32) {
     _,
 };
 
-/// A launch's steps of the other pod, after `launch.Step`'s two.
+/// The other pod's steps after the common launch wait and delay.
 pub const OtherStep = enum(i32) {
     /// Its sound plays.
     sound = 2,
@@ -37,15 +36,13 @@ const leave_sound: sound3d.sounds.Sound = .escape;
 /// How long the first pod drifts, in ticks (`0x0041A5FB`).
 const drift_ticks = 200;
 
-/// The first pod's throttle is a share of `drift_spread` above `drift_throttle` (`0x0041A56E`,
-/// `0x0041A57A`): the C runtime's `rand` times the reciprocal of RAND_MAX (`0x004DC4C8`).
+/// The first pod's throttle starts at `drift_throttle` and adds a random fraction of
+/// `drift_spread` (`0x0041A56E`, `0x0041A57A`, `libcmt.Rand.fraction`).
 const drift_throttle: f32 = 2;
 const drift_spread: f32 = 0.5;
-const rand_fraction: f32 = 1.0 / 32767.0;
 
-/// The first pod turns by its gate: gates before `turn_split` by `low_turn` for each gate past
-/// `low_middle`, the others by `high_turn` for each gate past `high_middle` (`0x0041A58A` to
-/// `0x0041A5D4`).
+/// Below `turn_split`, yaw is `(gate - low_middle) * low_turn`; otherwise it is
+/// `(gate - high_middle) * high_turn` (`0x0041A58A` to `0x0041A5D4`).
 const turn_split = 7;
 const low_middle: f32 = 3;
 const low_turn: f32 = 1.0 / 12.0;
@@ -63,13 +60,10 @@ fn turnOf(gate: i16) f32 {
     return if (gate < turn_split) (number - low_middle) * low_turn else (number - high_middle) * high_turn;
 }
 
-/// `launch_pod_run` (`0x0041A4D0`): the first pod's launch of the ship in slot `index` from step 2 on.
-///
-/// 1. The pod lets go of its carrier and flies on by `motion.Motion.plain` at a throttle of
-///    `drift_throttle` and up to `drift_spread` more, drawn from the C runtime's `rand`, turning
-///    by its gate (`turnOf`). Its sound plays.
-/// 2. After `drift_ticks`, its throttle drops to 0, it flies itself (`motion.Motion.forward`),
-///    and the launch ends (`launch.finish`), leaving the pod passing through its carrier.
+/// `launch_pod_run` (`0x0041A4D0`): releases the first pod in slot `index`, plays its sound and
+/// starts plain motion with a random throttle and gate-based yaw (`turnOf`). After `drift_ticks`,
+/// it clears the throttle, restores forward motion and ends the order. The yaw input and
+/// carrier pass-through entry remain unchanged.
 pub fn run(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
@@ -79,8 +73,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
         .leave => {
             state.attached = false;
             slot.motion = .plain;
-            const drawn: f32 = @floatFromInt(world.random.rand());
-            slot.object.throttle = drawn * rand_fraction * drift_spread + drift_throttle;
+            slot.object.throttle = world.random.fraction() * drift_spread + drift_throttle;
             slot.object.yaw_input = turnOf(slot.orders[0].target.component);
             sound3d.playIn(world, null, null, index, leave_sound, 1, .not_reserved);
             state.advance(.of(Step.drift), now, drift_ticks);
@@ -94,14 +87,9 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
     }
 }
 
-/// `launch_pod_other_run` (`0x0041B690`): the other pod's launch of the ship in slot `index` from step 2 on.
-///
-/// 1. Its sound plays.
-/// 2. At the next update it lets go of its carrier and flies straight out along its nose at
-///    `out_throttle` (`motion.Motion.plain`).
-/// 3. After `out_ticks`, its throttle and its yaw input drop to 0, it flies itself
-///    (`motion.Motion.forward`), and the launch ends (`launch.finish`), leaving it passing
-///    through its carrier.
+/// `launch_pod_other_run` (`0x0041B690`): plays the other pod's sound, then releases it on the
+/// next update at `out_throttle` with plain motion. After `out_ticks`, it clears throttle and
+/// yaw, restores forward motion and ends the order. The carrier pass-through entry remains.
 pub fn runOther(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
@@ -129,8 +117,8 @@ pub fn runOther(ctx: aigeneric.Context, index: u16) void {
 }
 
 const testing = struct {
-    /// Starts the launch of a pod of type `kind` from an Ulysses, in a mission that `mission`
-    /// holds, past its delay; the pod's slot.
+    /// Creates a pod of type `kind` on an Ulysses and runs its launch past the common delay.
+    /// Returns the pod's slot.
     fn started(mission: *gameobj.testing.Mission, carrier_model: *launch.testing.Carrier, kind: gameobj.Type) !u16 {
         const gpa = std.testing.allocator;
         _ = try mission.add(.predator, @splat(0));
@@ -175,7 +163,7 @@ test run {
     try std.testing.expect(slot.object.throttle >= drift_throttle and slot.object.throttle <= drift_throttle + drift_spread);
     try std.testing.expectEqual(turnOf(0), slot.object.yaw_input);
 
-    // Later it flies itself, its launch over, and it still passes through its carrier.
+    // Normal flight resumes, but the pod still passes through its carrier.
     launch.testing.pastDue(&mission, ctx, pod);
     try std.testing.expectEqual(0, slot.object.throttle);
     try std.testing.expectEqual(.forward, slot.motion.?);
@@ -206,7 +194,7 @@ test runOther {
     try std.testing.expectEqual(out_throttle, slot.object.throttle);
     try std.testing.expectEqual(.plain, slot.motion.?);
 
-    // After its way out it flies itself, its launch over.
+    // The launch ends with normal flight and no throttle or yaw input.
     slot.object.yaw_input = 0.5;
     launch.testing.pastDue(&mission, ctx, pod);
     try std.testing.expectEqual(0, slot.object.throttle);
