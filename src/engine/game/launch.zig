@@ -1,9 +1,11 @@
 //! `C:\lancer\game\launch.cpp`: order 104, Launch, by which a ship leaves the ship it launches
 //! from, its carrier: `order_launch_init` (`0x00418EB0`) and `order_launch` (`0x004191C0`). A
 //! carrier launches its ships in a style of its own (`Style`), each a pair of routines in the
-//! table at `0x004E3C98`. OpenReliant runs the Reliant ([`launch/reliant.zig`](launch/reliant.zig)),
-//! the torpedoes ([`launch/torpedo.zig`](launch/torpedo.zig)), the hangar bays
-//! ([`launch/bay.zig`](launch/bay.zig)) and the Zakov ([`launch/zakov.zig`](launch/zakov.zig)).
+//! table at `0x004E3C98`. OpenReliant runs the Reliant
+//! ([`launch/reliant.zig`](launch/reliant.zig)), the torpedoes
+//! ([`launch/torpedo.zig`](launch/torpedo.zig)), the hangar bays
+//! ([`launch/bay.zig`](launch/bay.zig)), the Stork ([`launch/stork.zig`](launch/stork.zig)) and
+//! the Zakov ([`launch/zakov.zig`](launch/zakov.zig)).
 //! **Unverified:** that the code next to the file's known code belongs to it too: StartLaunch's
 //! start (`start`) and the gate search before it, and the styles' routines after it, up to
 //! `tractor.cpp`'s code, including the placing at a launch point (`attach`).
@@ -32,6 +34,7 @@ const xtrabits = @import("xtrabits.zig");
 
 pub const bay = @import("launch/bay.zig");
 pub const reliant = @import("launch/reliant.zig");
+pub const stork = @import("launch/stork.zig");
 pub const torpedo = @import("launch/torpedo.zig");
 pub const zakov = @import("launch/zakov.zig");
 
@@ -49,13 +52,13 @@ pub const Style = enum(i32) {
     badanov = 2,
     /// A torpedo from its tube (`0x0041A360`, `0x0041A390`), whatever it launches from.
     torpedo = 3,
-    /// An escape pod (`0x0041A4B0`, `0x0041A4D0`).
+    /// An escape pod (`launch_point_init`, `0x0041A4B0`, and `0x0041A4D0`).
     escape_pod = 4,
-    /// From the Stork (`0x0041A4B0`, `0x0041AD10`).
+    /// From the Stork (`launch_point_init`, `0x0041A4B0`, and `launch_stork_run`, `0x0041AD10`).
     stork = 5,
     /// From the Reliant (`0x0041AE20`, `0x0041B240`).
     reliant = 6,
-    /// The other escape pod (`0x0041A4B0`, `0x0041B690`).
+    /// The other escape pod (`launch_point_init`, `0x0041A4B0`, and `0x0041B690`).
     other_escape_pod = 7,
     /// From the rogue base's first six gates (`0x0041B770`, `0x0041B7F0`).
     rogue_base = 8,
@@ -93,8 +96,9 @@ pub const Style = enum(i32) {
             .bay => .{ .init = &bay.init, .run = &bay.run },
             .reliant => .{ .init = &reliant.init, .run = &reliant.run },
             .torpedo => .{ .init = &torpedo.init, .run = &torpedo.run },
+            .stork => .{ .init = &attachAtGate, .run = &stork.run },
             .zakov => .{ .init = &zakov.init, .run = &zakov.run },
-            .yamato, .badanov, .escape_pod, .stork, .other_escape_pod, .rogue_base, _ => null,
+            .yamato, .badanov, .escape_pod, .other_escape_pod, .rogue_base, _ => null,
         };
     }
 
@@ -153,6 +157,7 @@ comptime {
     assert(Step.of(torpedo.Step.fire) == Step.styled);
     assert(Step.of(zakov.Step.leave) == Step.styled);
     assert(Step.of(bay.Step.open) == Step.styled);
+    assert(Step.of(stork.Step.leave) == Step.styled);
 }
 
 /// What Launch keeps in the object's order state.
@@ -426,6 +431,15 @@ pub fn attach(all: *create.Objects, index: u16, on: u16, gate: i16) void {
     objects.setPlace(&slot.object, &slot.drawn, .{ .position = at.point(gameobj.vector(slot.object.centre)), .orientation = at.orientation });
 }
 
+/// `launch_point_init` (`0x0041A4B0`), the first routine of the escape pods' styles and the
+/// Stork's: places the ship in slot `index` at the launch point of the carrier in slot `carrier`
+/// that its gate names (`attach`), riding the part that holds it. The first routines of the bays,
+/// the torpedoes and the Zakov start the same way.
+pub fn attachAtGate(ctx: aigeneric.Context, index: u16, carrier: u16) void {
+    const all = ctx.world.objects;
+    attach(all, index, carrier, all.slots[index].orders[0].target.component);
+}
+
 test {
     std.testing.refAllDecls(@This());
 }
@@ -454,8 +468,15 @@ test "Style.of" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Style.reliant}));
     try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @enumFromInt(12))}));
-    // OpenReliant runs the routines of the Reliant, the torpedoes, the hangar bays and the Zakov.
-    for (std.enums.values(Style)) |style| try std.testing.expectEqual(style == .bay or style == .reliant or style == .torpedo or style == .zakov, style.routines() != null);
+    // OpenReliant runs the routines of the Reliant, the torpedoes, the hangar bays, the Stork and
+    // the Zakov.
+    for (std.enums.values(Style)) |style| {
+        const runs = switch (style) {
+            .bay, .reliant, .torpedo, .stork, .zakov => true,
+            .yamato, .badanov, .escape_pod, .other_escape_pod, .rogue_base, _ => false,
+        };
+        try std.testing.expectEqual(runs, style.routines() != null);
+    }
 }
 
 /// Fixtures for the launches' tests.

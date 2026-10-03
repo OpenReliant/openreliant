@@ -34,12 +34,10 @@ const trail_look: missiles.Type = .torpedo;
 
 /// `launch_torpedo_init` (`0x0041A360`): the torpedo in slot `index` collides with nothing, and
 /// stands at the launch point of its carrier, in slot `carrier`, that its gate names
-/// (`launch.attach`), riding the part that holds it.
+/// (`launch.attachAtGate`), riding the part that holds it.
 pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
-    const all = ctx.world.objects;
-    const slot = &all.slots[index];
-    slot.object.flags.no_collisions = true;
-    launch.attach(all, index, carrier, slot.orders[0].target.component);
+    ctx.world.objects.slots[index].object.flags.no_collisions = true;
+    launch.attachAtGate(ctx, index, carrier);
 }
 
 /// `launch_torpedo_run` (`0x0041A390`): as its launch reaches step 2, the torpedo in slot `index`
