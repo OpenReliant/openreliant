@@ -9,6 +9,7 @@
 //! (`afterMission`). `openreliant`'s own frame loop stands in for the rest.
 
 const std = @import("std");
+const pilots = @import("pilots.zig");
 
 const main = @import("main.zig");
 const Clock = main.Clock;
@@ -372,7 +373,7 @@ pub const AfterMission = union(enum) {
 /// - Otherwise the mission's end is recorded (`gameflow.endMission`): the campaign goes on, the
 ///   story ends after the last mission, and a total failure ends the career in the transfer or
 ///   the shuttle the story gives (`careerOver`).
-pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variables: *vm.Variables, mission: u16, second_part: *bool, tier: u2) AfterMission {
+pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variables: *vm.Variables, mission: u16, second_part: *bool, tier: u2, wingmen: *pilots.Wingmen) AfterMission {
     const carrier = rooms.Carrier.of(mission);
     switch (player.ending) {
         .destroyed => return lost(second_part, funeral.get(carrier)),
@@ -387,7 +388,7 @@ pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variabl
         return .second_part;
     }
     second_part.* = false;
-    const record = gameflow.endMission(player, variables, mission, tier, campaign) orelse return .{ .career_over = careerOver(mission, variables) };
+    const record = gameflow.endMission(player, variables, mission, tier, campaign, wingmen) orelse return .{ .career_over = careerOver(mission, variables) };
     if (record.next == gameflow.story_end) return .story_end;
     return .{ .goes_on = record };
 }
@@ -419,6 +420,7 @@ fn careerOver(mission: u16, variables: *vm.Variables) []const u8 {
 }
 
 test afterMission {
+    var wingmen: pilots.Wingmen = .{};
     var campaign: gameflow.Campaign = .begin();
     var variables = campaign.attempt();
     var player: input.Player = .{};
@@ -426,44 +428,44 @@ test afterMission {
     // Destroyed, the funeral, the Yamato's after mission 18, and mission 25 replayed from its first
     // part; captured, the capture; and left, the restart screen at once.
     player.ending = .destroyed;
-    try std.testing.expectEqualStrings(funeral.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0).restart.?);
+    try std.testing.expectEqualStrings(funeral.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).restart.?);
     try std.testing.expect(!second_part);
-    try std.testing.expectEqualStrings(funeral.get(.yamato), afterMission(&campaign, &player, &variables, 20, &second_part, 0).restart.?);
+    try std.testing.expectEqualStrings(funeral.get(.yamato), afterMission(&campaign, &player, &variables, 20, &second_part, 0, &wingmen).restart.?);
     player.ending = .captured;
-    try std.testing.expectEqualStrings(capture, afterMission(&campaign, &player, &variables, 5, &second_part, 0).restart.?);
+    try std.testing.expectEqualStrings(capture, afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).restart.?);
     player.ending = .left;
-    try std.testing.expectEqual(null, afterMission(&campaign, &player, &variables, 5, &second_part, 0).restart);
+    try std.testing.expectEqual(null, afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).restart);
     // Sent home, the execution, mission 25's part as it was.
     player.ending = .friendly_fire;
     second_part = true;
-    try std.testing.expectEqualStrings(execution.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0).restart.?);
+    try std.testing.expectEqualStrings(execution.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).restart.?);
     try std.testing.expect(second_part);
     // Won, mission 25's first part leads into its second, and the others go on.
     player.ending = .playing;
     variables.mission_success = .success;
     second_part = false;
-    try std.testing.expectEqual(.second_part, std.meta.activeTag(afterMission(&campaign, &player, &variables, 25, &second_part, 0)));
+    try std.testing.expectEqual(.second_part, std.meta.activeTag(afterMission(&campaign, &player, &variables, 25, &second_part, 0, &wingmen)));
     try std.testing.expect(second_part);
-    try std.testing.expectEqual(26, afterMission(&campaign, &player, &variables, 25, &second_part, 0).goes_on.next);
+    try std.testing.expectEqual(26, afterMission(&campaign, &player, &variables, 25, &second_part, 0, &wingmen).goes_on.next);
     try std.testing.expect(!second_part);
-    try std.testing.expectEqual(6, afterMission(&campaign, &player, &variables, 5, &second_part, 0).goes_on.next);
-    try std.testing.expectEqual(.story_end, std.meta.activeTag(afterMission(&campaign, &player, &variables, gameflow.last_mission, &second_part, 0)));
+    try std.testing.expectEqual(6, afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).goes_on.next);
+    try std.testing.expectEqual(.story_end, std.meta.activeTag(afterMission(&campaign, &player, &variables, gameflow.last_mission, &second_part, 0, &wingmen)));
     // A total failure ends the career: off the Reliant where variable 32 is set, as a new
     // campaign has it; off the Yamato after mission 18; and after mission 25, where the landing
     // would be none, the shuttle.
     variables.mission_success = .total_failure;
-    try std.testing.expectEqualStrings(transfer.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0).career_over);
+    try std.testing.expectEqualStrings(transfer.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).career_over);
     player.ending = .playing;
-    try std.testing.expectEqualStrings(transfer.get(.yamato), afterMission(&campaign, &player, &variables, 20, &second_part, 0).career_over);
+    try std.testing.expectEqualStrings(transfer.get(.yamato), afterMission(&campaign, &player, &variables, 20, &second_part, 0, &wingmen).career_over);
     player.ending = .playing;
     variables.slot(landing.last_missions_land).* = 0;
-    try std.testing.expectEqualStrings(shuttle, afterMission(&campaign, &player, &variables, 25, &second_part, 0).career_over);
+    try std.testing.expectEqualStrings(shuttle, afterMission(&campaign, &player, &variables, 25, &second_part, 0, &wingmen).career_over);
     // Picked up twice, the campaign goes on; the third time, the pilot is transferred.
     variables.mission_success = .success;
     player.ending = .rescued;
-    try std.testing.expectEqual(.goes_on, std.meta.activeTag(afterMission(&campaign, &player, &variables, 5, &second_part, 0)));
-    try std.testing.expectEqual(.goes_on, std.meta.activeTag(afterMission(&campaign, &player, &variables, 5, &second_part, 0)));
-    try std.testing.expectEqualStrings(transfer.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0).career_over);
+    try std.testing.expectEqual(.goes_on, std.meta.activeTag(afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen)));
+    try std.testing.expectEqual(.goes_on, std.meta.activeTag(afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen)));
+    try std.testing.expectEqualStrings(transfer.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).career_over);
 }
 
 /// What `WinMain` does before each single-player mission (`0x004A99CC`): puts back the pilot's

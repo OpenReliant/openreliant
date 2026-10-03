@@ -43,9 +43,9 @@ after the call sign's terminator, which OpenReliant writes as zeros.
   as the game writes it. The saves folder tells the driver as a game is saved, loaded or removed
   (`save.Extra`), and the driver writes, reads or removes that file
   ([Scripting](../port/scripting.md#saved-games)).
-- Not ported: the wing's pilots and the pool of their replacements, which the saves keep
-  ([#301](https://github.com/OpenReliant/openreliant/issues/301)). OpenReliant keeps them as a save
-  holds them, and a new campaign's as `campaign_pilots_reset` (`0x0049CD20`) sets them.
+- The wing's pilots and the pool of their replacements live beside the campaign, as the game's
+  globals do (`pilots.Wingmen`, [Objects](../engine/objects.md#the-wings-pilots)). A load puts
+  back the wing and the pool's first record; the rest of the pool stays as the session left it.
 
 ## Layout
 

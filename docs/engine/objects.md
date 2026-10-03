@@ -648,9 +648,41 @@ A ship's end, and the limpet car's, posts its Destroyed event for the mission's 
 The blasts' break-up, particles, fireballs, burning bits and shockwaves are in
 [Effects](effects.md). Not ported: what a few types set off first
 ([#238](https://github.com/OpenReliant/openreliant/issues/238)); the Ulysses' own end
-([#232](https://github.com/OpenReliant/openreliant/issues/232)); and the pilots' records the end keeps,
-its pilot taken off the wing's list (`0x0058A958`) and marked lost (`0x005047D0`)
-([#301](https://github.com/OpenReliant/openreliant/issues/301)).
+([#232](https://github.com/OpenReliant/openreliant/issues/232)).
+
+## The wing's pilots
+
+The player's wingmen in the campaign are pilots of the 45th, who change as they die. The game keeps
+them in `pilots.cpp`'s globals ([`pilots.zig`](../../src/engine/game/pilots.zig), `Wingmen`):
+
+- `alpha_pilots` (`0x0058A958`): the pilots of Alpha 1 to 6, by the pilot stats' number: -1 for
+  the player, then the five wingmen's. A new campaign's are Frenchy (`0x55`), Worm (`0x6C`), Silky
+  (`0x56`), Bandit (`0xAC`) and Viper (7).
+- `pilot_pool` (`0x005047D0`): the 65 pilots who replace those who die, each with a status: 0 dead,
+  1 in the wing, 2 free. All are free as the game starts
+  ([`pilots/pool.zig`](../../src/engine/game/pilots/pool.zig), generated from the payload).
+
+`campaign_pilots_reset` (`0x0049CD20`) frees every pilot of the pool and gives the wing a new
+campaign's pilots. The front end calls it on the way into SINGLE PLAYER (`0x0042910A`) and as START
+GAME starts a campaign (`0x00430AB4`).
+
+As the campaign moves on from a mission, before the autosave (`mission_end_record`,
+`0x00475BE8`), and again as each mission starts, once its script has started, `update_pilots`
+(`0x0049CD70`) gives Alpha 5 and 6 the pilots of the campaign's stretch: Bandit and Viper to
+mission 5, Diceman and Bandit to mission 22 (two different Bandit records), and Hawkeye and Diceman
+to mission 28. Each other place left empty takes the first free pilot of the pool, which is then in
+the wing; with none free, the game stops (**Fix:** OpenReliant logs it and leaves the place empty).
+Then, in missions 1 to 28 out of the simulator, the start gives each of the player's wingmen its
+place's pilot (`object_set_pilot`, `0x00493DD1` to `0x00493E0A`), in place of the one the mission's
+records name, such as 45TH VOLUNTEERS. The radio's window and the target display then name it.
+**Fix:** for a place of the wing no ship fills, the game gives the pilot to the object before the
+first, writing through the pointer in front of the objects' table; OpenReliant gives none.
+
+As a ship is destroyed (`explode_ship_init`, from `0x004088D5`), a pilot of the wing leaves an empty
+place for the next mission to fill, and is dead in the pool.
+
+A saved game keeps the wing (`ALPH`) and the pool's first record alone (`PILO`)
+([Saved games](../formats/save.md#pilo-and-alph)).
 
 ## Components
 

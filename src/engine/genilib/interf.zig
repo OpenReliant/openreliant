@@ -272,7 +272,10 @@ pub const Interface = struct {
                     .quit => .quit,
                     .fly => |flight| .{ .fly = flight },
                     .briefing => |mission| .{ .briefing = mission },
+                    // On the way into SINGLE PLAYER, the wing's pilots start again
+                    // (`campaign_pilots_reset`, `0x0042910A`).
                     .pilot_roster => {
+                        if (context.saves) |saves| saves.game.wingmen.reset();
                         front.screen = .pilot_roster;
                         front.movie = movie.main_to_single;
                         return null;
@@ -336,7 +339,10 @@ pub const Interface = struct {
                         front.screen = .saved_games;
                         front.movie = saved_games.opening(.roster).movie;
                     },
+                    // START GAME starts a campaign, whose wing's pilots start again
+                    // (`campaign_pilots_reset`, `0x00430AB4`).
                     .start_game => {
+                        if (context.saves) |saves| saves.game.wingmen.reset();
                         front.leave(context);
                         return .{ .campaign = first_mission };
                     },
@@ -528,6 +534,7 @@ test "LOAD GAME opens the saved games, where there are saves to list" {
     var player: input.Player = .{};
     var tier: u2 = 0;
     var saved: @import("../interface/loadout/loadout.zig").Saved = .{};
+    var wingmen: game.pilots.Wingmen = .{};
     const strings: language.Language = .{ .strings = &.{} };
     var context: Context = .{ .devices = &devices, .typed = &typed, .window = .{ 640, 480 }, .elapsed = 1 };
     const click = struct {
@@ -546,7 +553,7 @@ test "LOAD GAME opens the saved games, where there are saves to list" {
     context.saves = .{
         .gpa = std.testing.allocator,
         .folder = .{ .io = std.testing.io, .dir = tmp.dir },
-        .game = .{ .campaign = &campaign, .player = &player, .tier = &tier, .pilot = &front.pilot, .saved = &saved },
+        .game = .{ .campaign = &campaign, .player = &player, .tier = &tier, .pilot = &front.pilot, .saved = &saved, .wingmen = &wingmen },
         .strings = &strings,
     };
     try std.testing.expectEqual(null, click(&front, context, 450, 305));

@@ -101,6 +101,8 @@ pub const Driver = struct {
     pilot: *interface.pilot_roster.Pilot,
     player: *engine.input.Player,
     campaign_flown: *?game.gameflow.Campaign,
+    /// The pilots of the player's wing and their replacements, which the saved games keep.
+    wingmen: *game.pilots.Wingmen,
     /// `ITACLANG.DLL`'s strings, which the ITAC writes with.
     itac_strings: *const game.language.Language,
     /// The game's folder, which holds the saved games, and the local date and time of a moment,
@@ -238,7 +240,7 @@ pub const Driver = struct {
     /// campaign.
     fn played(driver: *Driver) ?save.Game {
         const going = if (driver.campaign_flown.*) |*flown| flown else return null;
-        return .{ .campaign = going, .player = driver.player, .tier = driver.tier, .pilot = driver.pilot, .saved = driver.saved };
+        return .{ .campaign = going, .player = driver.player, .tier = driver.tier, .pilot = driver.pilot, .saved = driver.saved, .wingmen = driver.wingmen };
     }
 
     /// What `WinMain` does as it turns to the rooms or a briefing (`0x004AA1BA` on): the music

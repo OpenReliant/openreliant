@@ -20,6 +20,7 @@ const collision = @import("../collision.zig");
 const gameflow = @import("../gameflow.zig");
 const iff = @import("../iff.zig");
 const pilot_roster = @import("../interface/pilot_roster.zig");
+const pilots = @import("../pilots.zig");
 const winmain = @import("../winmain.zig");
 
 /// The saved games' form type.
@@ -189,29 +190,13 @@ comptime {
 }
 
 /// `PILO`: the first record of the pool of pilots that replace the wingmen who die (`pilot_pool`,
-/// `0x005047D0`, 65 records): a pilot, by the pilot stats' number, and whether the pilot is free,
-/// in the wing or dead. **Unverified:** that the whole pool was meant, `0x104` bytes; the game
-/// saves the first record alone, and sends it alone to the other players too (`0x004BA338`).
-pub const Replacement = extern struct {
-    pilot: i16,
-    status: Status,
-    _unused: u8 = 0,
+/// `0x005047D0`, `pilots.Wingmen`). **Unverified:** that the whole pool was meant, `0x104` bytes; the
+/// game saves the first record alone, and sends it alone to the other players too (`0x004BA338`).
+pub const Replacement = pilots.Replacement;
 
-    pub const Status = enum(u8) {
-        dead = 0,
-        in_wing = 1,
-        free = 2,
-        _,
-    };
-
-    comptime {
-        assert(@sizeOf(Replacement) == 4);
-    }
-};
-
-/// `ALPH`: the pilots of the player's wing, Alpha 1 to 6 (`alpha_pilots`, `0x0058A958`): -1 for the
-/// player, then the five wingmen's, by the pilot stats' number.
-pub const Wing = [6]i16;
+/// `ALPH`: the pilots of the player's wing, Alpha 1 to 6 (`alpha_pilots`, `0x0058A958`,
+/// `pilots.Wingmen`).
+pub const Wing = pilots.Wing;
 
 /// The name a saved game shows, which `NAME` holds with its terminator: 47 characters at most, as
 /// the saved games' list keeps 48 bytes of each, its terminator too (`saved_games_names`,
@@ -302,13 +287,15 @@ pub fn read(bytes: []const u8, save: *Save) bool {
 
 /// Where OpenReliant keeps what a saved game holds, which the game keeps in the globals its
 /// records cover: the campaign, the pilot's kills and rank, the campaign's tier, the pilot the
-/// roster set, and the loadout's saved choice.
+/// roster set, the loadout's saved choice, and the wing's pilots with the pool of their
+/// replacements.
 pub const Game = struct {
     campaign: *gameflow.Campaign,
     player: *input.Player,
     tier: *u2,
     pilot: *pilot_roster.Pilot,
     saved: *loadout.Saved,
+    wingmen: *pilots.Wingmen,
 
     /// `campaign_new`'s clearing of the pilot's tallies as START GAME begins a campaign
     /// (`0x004751DE` to `0x00475203`): the pilot's rank, the campaign's tier and the pilot's kills
@@ -327,8 +314,8 @@ pub const Game = struct {
         var save: Save = .{
             .miss = std.mem.zeroes(Miss),
             .vars = @splat(0),
-            .pilo = campaign.first_replacement,
-            .alph = campaign.wing,
+            .pilo = game.wingmen.pool[0],
+            .alph = game.wingmen.alpha,
         };
         save.name.set(name);
         const miss = &save.miss;
@@ -389,8 +376,8 @@ pub const Game = struct {
         game.pilot.female = miss.female != 0;
         game.saved.ship = if (miss.saved_ship >= 0 and miss.saved_ship < loadout_tables.ship_count) @intCast(miss.saved_ship) else (loadout.Saved{}).ship;
         for (&game.saved.racks, miss.saved_racks) |*rack, missile| rack.* = if (std.math.cast(u32, missile)) |id| loadout_tables.Missile.ofId(id) else null;
-        campaign.first_replacement = save.pilo;
-        campaign.wing = save.alph;
+        game.wingmen.pool[0] = save.pilo;
+        game.wingmen.alpha = save.alph;
         const variables = &campaign.variables;
         for (0..cleared_variables) |number| variables.slot(@intCast(number)).* = 0;
         for (kept_variables, save.vars[0..kept_variables.len]) |number, value| variables.slot(number).* = @bitCast(value);
@@ -635,9 +622,10 @@ const TestGame = struct {
     tier: u2 = 0,
     pilot: pilot_roster.Pilot = .{},
     saved: loadout.Saved = .{},
+    wingmen: pilots.Wingmen = .{},
 
     fn game(state: *TestGame) Game {
-        return .{ .campaign = &state.campaign, .player = &state.player, .tier = &state.tier, .pilot = &state.pilot, .saved = &state.saved };
+        return .{ .campaign = &state.campaign, .player = &state.player, .tier = &state.tier, .pilot = &state.pilot, .saved = &state.saved, .wingmen = &state.wingmen };
     }
 };
 
@@ -650,7 +638,7 @@ test Game {
     campaign.records[4] = .{ .rating = .success, .kills = 7, .pickups = 1, .promotion = 1 };
     campaign.records[13] = .{ .rating = .partial_failure, .kills = 3 };
     campaign.pickups = 1;
-    campaign.wing[3] = -1;
+    state.wingmen.alpha[3] = -1;
     campaign.variables.slot(16).* = 0;
     campaign.variables.slot(36).* = 5;
     campaign.variables.slot(33).* = 9;
@@ -716,7 +704,7 @@ test Game {
     try std.testing.expectEqual(5, other.campaign.variables.slot(36).*);
     try std.testing.expectEqual(0, other.campaign.variables.slot(16).*);
     try std.testing.expectEqual(1, other.campaign.variables.slot(17).*);
-    try std.testing.expectEqual(campaign.wing, other.campaign.wing);
+    try std.testing.expectEqual(state.wingmen.alpha, other.wingmen.alpha);
     // Written and read again, the same.
     try std.testing.expectEqualDeep(save, other.game().capture("Mission14"));
 

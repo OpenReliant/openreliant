@@ -11,6 +11,8 @@ const Pointer = @import("../../engine.zig").Pointer;
 const gameobj = @import("gameobj.zig");
 const GameObject = gameobj.GameObject;
 
+const log = std.log.scoped(.pilots);
+
 /// One pilot of `pilot_stats`. The loader fills every slot with defaults, then applies the
 /// records: each tier field sets a group of these, in `formats/stats.zig`'s preset tables. The
 /// Fight order ([`aifight.zig`](aifight.zig)) and its maneuvers read them.
@@ -293,6 +295,152 @@ pub fn faceOf(pilot: i32) ?*const Face {
 pub fn nameOf(pilot: i32) ?u16 {
     const face = faceOf(pilot) orelse return null;
     return face.name;
+}
+
+/// A pilot of the pool that replaces the wingmen who die (`pilot_pool`, `0x005047D0`): a pilot, by
+/// the pilot stats' number, and whether the pilot is free, in the wing or dead, as `update_pilots`
+/// and `explode_ship_init` mark it.
+pub const Replacement = extern struct {
+    pilot: i16,
+    status: Status,
+    _unused: u8 = 0,
+
+    pub const Status = enum(u8) {
+        dead = 0,
+        in_wing = 1,
+        free = 2,
+        _,
+    };
+
+    comptime {
+        assert(@sizeOf(Replacement) == 4);
+    }
+};
+
+/// The pool's records: 65 (`update_pilots` gives up past the last, `0x0049CE10`).
+pub const pool_size = 65;
+pub const Pool = [pool_size]Replacement;
+
+/// The pool as the game starts, every pilot free ([`pilots/pool.zig`](pilots/pool.zig), generated
+/// from the payload).
+pub const starting_pool: Pool = @import("pilots/pool.zig").pool;
+
+/// The pilots of the player's wing, Alpha 1 to 6 (`alpha_pilots`, `0x0058A958`), by the pilot
+/// stats' number: -1 for the player, and for a wingman whose pilot has died, then the five
+/// wingmen's.
+pub const Wing = [6]i16;
+
+/// The wing `campaign_pilots_reset` (`0x0049CD20`) starts a campaign with: Frenchy, Worm, Silky,
+/// Bandit and Viper behind the player.
+pub const new_wing: Wing = .{ -1, 0x55, 0x6C, 0x56, 0xAC, 7 };
+
+/// The pilots `update_pilots` gives Alpha 5 and Alpha 6 for each stretch of the campaign, by the
+/// last mission of the stretch (`0x0049CD7B` on): Bandit and Viper to mission 5, Diceman and Bandit
+/// to mission 22, the two Bandits a different record each, and Hawkeye and Diceman to mission 28.
+/// A mission past them leaves them as they are.
+const stretches = [_]struct { last: u16, pilots: [2]i16 }{
+    .{ .last = 5, .pilots = .{ 0xAC, 7 } },
+    .{ .last = 13, .pilots = .{ 0x78, 6 } },
+    .{ .last = 22, .pilots = .{ 0x78, 0 } },
+    .{ .last = 28, .pilots = .{ 0x5F, 1 } },
+};
+
+/// The places of the wing `update_pilots` fills from `stretches`: Alpha 5 and Alpha 6.
+const story_places = 4;
+
+/// The pilots of the player's wing and the pool of their replacements, which the game keeps in
+/// `pilots.cpp`'s globals across a session, and a saved game in part (`save.Save`'s `ALPH` and
+/// `PILO`).
+///
+/// The game starts with the wing zeroed, which no mission sees, since the campaign's start and the
+/// way into SINGLE PLAYER reset it (`reset`). OpenReliant starts with a new campaign's, which only
+/// `--mission` flies outside a campaign.
+pub const Wingmen = struct {
+    alpha: Wing = new_wing,
+    pool: Pool = starting_pool,
+
+    /// `campaign_pilots_reset` (`0x0049CD20`): every pilot of the pool free, and the wing a new
+    /// campaign's.
+    pub fn reset(wingmen: *Wingmen) void {
+        for (&wingmen.pool) |*replacement| replacement.status = .free;
+        wingmen.alpha = new_wing;
+    }
+
+    /// `update_pilots` (`0x0049CD70`), as mission `number` starts: Alpha 5 and Alpha 6 take the
+    /// stretch's pilots (`stretches`), then each wingman whose pilot has died takes the first free
+    /// pilot of the pool, which is then in the wing.
+    ///
+    /// **Fix:** with no pilot free, the game stops with "Uh Oh, update_pilots has run out of
+    /// pilots"; OpenReliant logs it and leaves the place empty.
+    pub fn update(wingmen: *Wingmen, number: u16) void {
+        if (number > 0) for (stretches) |stretch| {
+            if (number > stretch.last) continue;
+            wingmen.alpha[story_places..].* = stretch.pilots;
+            break;
+        };
+        for (wingmen.alpha[1..]) |*pilot| {
+            if (pilot.* != -1) continue;
+            const replacement = for (&wingmen.pool) |*held| {
+                if (held.status == .free) break held;
+            } else {
+                log.warn("Uh Oh, update_pilots has run out of pilots", .{});
+                continue;
+            };
+            replacement.status = .in_wing;
+            pilot.* = replacement.pilot;
+        }
+    }
+
+    /// What `explode_ship_init` (`0x004088D5` on) does as a ship flown by `pilot` is destroyed:
+    /// where the pilot flies in the wing, the place is empty for the next mission to fill, and the
+    /// pilot dead in the pool.
+    pub fn lose(wingmen: *Wingmen, pilot: i32) void {
+        const place = for (wingmen.alpha[1..]) |*held| {
+            if (held.* == pilot) break held;
+        } else return;
+        place.* = -1;
+        for (&wingmen.pool) |*replacement| {
+            if (replacement.pilot != pilot) continue;
+            replacement.status = .dead;
+            return;
+        }
+    }
+
+    /// The wingmen's pilots, Alpha 2 to 6.
+    pub fn pilots(wingmen: *const Wingmen) *const [5]i16 {
+        return wingmen.alpha[1..];
+    }
+};
+
+test Wingmen {
+    var wingmen: Wingmen = .{};
+    try std.testing.expectEqual(starting_pool[0].pilot, wingmen.pool[0].pilot);
+    // Mission 6 brings Diceman and Bandit in as Alpha 5 and 6, and the wing's first replacement
+    // takes the place of the wingman who died.
+    wingmen.lose(0x55);
+    try std.testing.expectEqual(-1, wingmen.alpha[1]);
+    wingmen.update(6);
+    try std.testing.expectEqual(Wing{ -1, starting_pool[0].pilot, 0x6C, 0x56, 0x78, 6 }, wingmen.alpha);
+    try std.testing.expectEqual(Replacement.Status.in_wing, wingmen.pool[0].status);
+    // A replacement who dies is dead in the pool too, and the next takes the place.
+    wingmen.lose(starting_pool[0].pilot);
+    try std.testing.expectEqual(Replacement.Status.dead, wingmen.pool[0].status);
+    wingmen.update(14);
+    try std.testing.expectEqual(starting_pool[1].pilot, wingmen.alpha[1]);
+    try std.testing.expectEqual(@as(i16, 0), wingmen.alpha[5]);
+    // A pilot outside the wing changes nothing; past the campaign's missions, Alpha 5 and 6 stay.
+    wingmen.lose(66);
+    wingmen.update(29);
+    try std.testing.expectEqual(@as(i16, 0x78), wingmen.alpha[4]);
+    // A new campaign frees every pilot, and starts the wing again.
+    wingmen.reset();
+    try std.testing.expectEqual(new_wing, wingmen.alpha);
+    try std.testing.expectEqual(Replacement.Status.free, wingmen.pool[0].status);
+    // With nobody free, the place stays empty.
+    for (&wingmen.pool) |*replacement| replacement.status = .dead;
+    wingmen.alpha[2] = -1;
+    wingmen.update(1);
+    try std.testing.expectEqual(-1, wingmen.alpha[2]);
 }
 
 test nameOf {

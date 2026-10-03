@@ -242,6 +242,16 @@ face-tables: ## Re-derive the pilots' faces, the string naming each pilot, its s
 	$(ROOT)/zig-out/bin/tablegen faces $(PAYLOAD) $(FACE_TABLES)
 	$(ZIG) fmt $(FACE_TABLES)
 
+POOL_TABLE := $(ROOT)/src/engine/game/pilots/pool.zig
+
+.PHONY: pilot-pool-table
+pilot-pool-table: ## Re-derive the pool of pilots that replace the wingmen who die from the payload executable
+	@test -f $(PAYLOAD) || { echo "missing $(PAYLOAD), the game executable with its code readable" >&2; exit 1; }
+	$(ZIG) build tablegen
+	mkdir -p $(dir $(POOL_TABLE))
+	$(ROOT)/zig-out/bin/tablegen pool $(PAYLOAD) $(POOL_TABLE)
+	$(ZIG) fmt $(POOL_TABLE)
+
 ROOM_TABLES := $(ROOT)/src/engine/game/interface/rooms/views.zig
 
 .PHONY: room-tables

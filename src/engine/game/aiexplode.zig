@@ -18,14 +18,11 @@
 //! leaving three smaller in its place, and the limpet car leaves its pod.
 //!
 //! A ship's end credits the player with the kill where the player's ship struck it last
-//! (`killCredit`), and posts its Destroyed event (`events.destroyed`).
+//! (`killCredit`), takes a pilot of the player's wing off it (`pilots.Wingmen.lose`), and posts
+//! its Destroyed event (`events.destroyed`).
 //!
 //! Order 43, Huuuuuuuge Explosion, lies with Explode (`huge`): it sets the Uber Explode off where
 //! the object stands ([`explode/uber.zig`](explode/uber.zig)).
-//!
-//! **Not ported:** the pilots' records a ship's end keeps, its pilot taken off the wing's list
-//! (`0x0058A958`) and marked lost (`0x005047D0`), which are the campaign's
-//! ([#301](https://github.com/OpenReliant/openreliant/issues/301)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -310,10 +307,11 @@ const slow: f32 = 100;
 
 /// `explode_ship_init` (`0x004086F0`): a ship's end begins. Close to the camera it is heard at
 /// once. It takes a style of going, the torpedoes always stopping dead; the player's credit for the
-/// kill is settled (`killCredit`), and the ship's Destroyed event posted (`events.destroyed`). The
-/// player's has the camera watch it, from a view by the style and how fast it was flying, and the
-/// mission end with it. At the end of the player's ejection (`main.Showing.ejection`) the player's
-/// pod stops dead instead, as the Sabre's view watches it, and its end ends nothing.
+/// kill is settled (`killCredit`), a pilot of the player's wing dies (`pilots.Wingmen.lose`), and
+/// the ship's Destroyed event posted (`events.destroyed`). The player's has the camera watch it,
+/// from a view by the style and how fast it was flying, and the mission end with it. At the end of
+/// the player's ejection (`main.Showing.ejection`) the player's pod stops dead instead, as the
+/// Sabre's view watches it, and its end ends nothing.
 ///
 /// Not ported: a multiplayer game's end, in which a player's ship is made invulnerable and its kill
 /// announced to everyone, a proximity mine halts and is retired, and every other ship spins out
@@ -333,6 +331,7 @@ fn shipInit(ctx: Context, index: u16) void {
     else
         @enumFromInt(xtrabits.objectRandom15(object) % std.enums.values(Style).len);
     killCredit(world, index);
+    world.objects.wingmen.lose(object.pilot);
     events.destroyed(world, index, null);
 
     if (players and !cutaway) {

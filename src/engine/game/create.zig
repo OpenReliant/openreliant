@@ -556,6 +556,10 @@ pub const Objects = struct {
     /// asked for none is fitted by. 0 for a new pilot; the missions after the 11th, 19th and 21st
     /// raise it to 1, 2 and 3 (`mission_end_record`).
     campaign_tier: u2 = 0,
+    /// The pilots of the player's wing and the pool of their replacements (`alpha_pilots`,
+    /// `pilot_pool`), which the game keeps in `pilots.cpp`'s globals. OpenReliant keeps them here
+    /// too, as it keeps the campaign's tier.
+    wingmen: pilots.Wingmen = .{},
     /// `pilot_stats` (`0x0058A968`): every pilot, which `stats_load_pilots` fills from
     /// `pilotstats.bin`.
     pilots: pilots.Table = .{},

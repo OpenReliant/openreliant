@@ -651,6 +651,7 @@ const Fixture = struct {
     tier: u2 = 0,
     pilot: pilot_roster.Pilot = .{},
     saved: @import("../../interface/loadout/loadout.zig").Saved = .{},
+    wingmen: @import("../pilots.zig").Wingmen = .{},
     strings: language.Language = .{ .strings = &.{} },
     screen: SavedGames = .{},
     ticks: u32 = 0,
@@ -673,7 +674,7 @@ const Fixture = struct {
             .saves = .{
                 .gpa = std.testing.allocator,
                 .folder = fixture.folder(),
-                .game = .{ .campaign = &fixture.campaign, .player = &fixture.player, .tier = &fixture.tier, .pilot = &fixture.pilot, .saved = &fixture.saved },
+                .game = .{ .campaign = &fixture.campaign, .player = &fixture.player, .tier = &fixture.tier, .pilot = &fixture.pilot, .saved = &fixture.saved, .wingmen = &fixture.wingmen },
                 .strings = &fixture.strings,
             },
         };

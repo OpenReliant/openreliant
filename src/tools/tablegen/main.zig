@@ -17,6 +17,7 @@
 //!     tablegen sequences <LANCER.EXE> <output.zig>
 //!     tablegen speech <LANCER.EXE> <output.zig>
 //!     tablegen faces <LANCER.EXE> <output.zig>
+//!     tablegen pool <LANCER.EXE> <output.zig>
 //!     tablegen rooms <LANCER.EXE> <output.zig>
 //!     tablegen locker <LANCER.EXE> <output.zig>
 //!     tablegen sources <LANCER.EXE> <disassembly.asm> <strings.tsv> <output.zig>
@@ -65,6 +66,8 @@
 //! `faces`: the pilots' faces, the string that names each pilot, its side and the films of its
 //! face.
 //!
+//! `pool`: the pilots that replace the wingmen who die, in the order the game takes them.
+//!
 //! `locker`: where the locker shows each medal and ribbon, on each carrier, and its shape on each
 //! frame of the lid's movie.
 //!
@@ -90,6 +93,7 @@ const conditions = @import("conditions.zig");
 const controls = @import("controls.zig");
 const eval = @import("eval.zig");
 const faces = @import("faces.zig");
+const pool = @import("pool.zig");
 const flight = @import("flight.zig");
 const gun_stats = @import("guns.zig");
 const sound_tables = @import("sounds.zig");
@@ -138,6 +142,7 @@ const usage =
     \\       tablegen sequences <LANCER.EXE> <output.zig>
     \\       tablegen speech <LANCER.EXE> <output.zig>
     \\       tablegen faces <LANCER.EXE> <output.zig>
+    \\       tablegen pool <LANCER.EXE> <output.zig>
     \\       tablegen rooms <LANCER.EXE> <output.zig>
     \\       tablegen locker <LANCER.EXE> <output.zig>
     \\       tablegen sources <LANCER.EXE> <disassembly.asm> <strings.tsv> <output.zig>
@@ -162,6 +167,7 @@ const Mode = union(enum) {
     sequences: struct { binary: []const u8, output: []const u8 },
     speech: struct { binary: []const u8, output: []const u8 },
     faces: struct { binary: []const u8, output: []const u8 },
+    pool: struct { binary: []const u8, output: []const u8 },
     rooms: struct { binary: []const u8, output: []const u8 },
     locker: struct { binary: []const u8, output: []const u8 },
     sources: struct { binary: []const u8, listing: []const u8, strings: []const u8, output: []const u8 },
@@ -232,6 +238,7 @@ pub fn main(init: std.process.Init) !u8 {
         .sequences => |paths| sequenceTable(init, arena, paths),
         .speech => |paths| speechTables(init, arena, paths),
         .faces => |paths| faceTable(init, arena, paths),
+        .pool => |paths| poolTable(init, arena, paths),
         .rooms => |paths| roomTable(init, arena, paths),
         .locker => |paths| lockerTables(init, arena, paths),
         .sources => |paths| sourceMap(init, arena, paths),
@@ -335,6 +342,13 @@ fn faceTable(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType
     const found = try faces.read(arena, try loadBinary(init, arena, paths.binary));
     try writeOutput(init, paths.output, faces.emit, .{found});
     std.debug.print("{d} pilots' faces -> {s}\n", .{ found.len, paths.output });
+    return 0;
+}
+
+fn poolTable(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType(Mode, "pool")) !u8 {
+    const found = try pool.read(arena, try loadBinary(init, arena, paths.binary));
+    try writeOutput(init, paths.output, pool.emit, .{found});
+    std.debug.print("{d} pilots of the pool -> {s}\n", .{ found.len, paths.output });
     return 0;
 }
 
@@ -542,6 +556,7 @@ test {
     _ = itac;
     _ = eval;
     _ = faces;
+    _ = pool;
     _ = flight;
     _ = image;
     _ = locker;

@@ -9,6 +9,7 @@
 //! the ribbon and the next mission; and the saved games (`save`).
 
 const std = @import("std");
+const pilots = @import("pilots.zig");
 
 const input = @import("../input.zig");
 const vm = @import("../vm.zig");
@@ -92,13 +93,6 @@ pub const Campaign = struct {
     medals: std.EnumSet(Medal) = .initEmpty(),
     /// The ribbons the pilot has been awarded, ribbon 1 first (`pilot_ribbons`, `0x00562E14`).
     ribbons: Ribbons = .initEmpty(),
-    /// The pilots of the player's wing, Alpha 1 to 6 (`alpha_pilots`, `0x0058A958`): -1 for the
-    /// player, then the five wingmen's, as `campaign_pilots_reset` (`0x0049CD20`) starts them for
-    /// START GAME.
-    wing: save.Wing = .{ -1, 0x55, 0x6C, 0x56, 0xAC, 7 },
-    /// The first of the pool of pilots that replace the wingmen who die (`pilot_pool`,
-    /// `0x005047D0`), the one record of it a save keeps, as the executable starts it.
-    first_replacement: save.Replacement = .{ .pilot = 119, .status = .free },
     /// What the saves keep that a single-player campaign leaves as it is: the local player's
     /// deaths in a multiplayer mission (`mp_deaths`, `0x00562DF8`), and the seed of the ITAC's
     /// KILLBOARD (`killboard_seed`, `0x00562F10`).
@@ -234,11 +228,12 @@ pub const Record = struct {
 /// from the last mission to the story's end (`0x00475B3A`), after any other the record keeping the
 /// rating (`0x00475B43`). A mission that awards a medal (`medal_of_mission`, `0x00475B57`) awards
 /// it for a success with its bonus, unless a nanny ship picked the pilot up (`medal_award`,
-/// `0x00475A40`).
+/// `0x00475A40`). Last, the wing's pilots are brought up to date for the next mission
+/// (`update_pilots`, `0x00475BE8`), before the autosave keeps them.
 ///
 /// Not ported: the pilot's profile written
 /// ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
-pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16, tier: u2, campaign: ?*Campaign) ?Record {
+pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16, tier: u2, campaign: ?*Campaign, wingmen: *pilots.Wingmen) ?Record {
     if (!keepsKills(player.ending)) return null;
     const rating = variables.mission_success;
     if (rating == .total_failure) {
@@ -262,6 +257,7 @@ pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16,
     const awards = player.ending != .rescued and rating == .success_bonus;
     const medal = if (awards) Medal.of(mission) else null;
     if (campaign) |going| if (medal) |won| going.medals.insert(won);
+    wingmen.update(next);
     return .{ .next = next, .tier = reached, .medal = medal };
 }
 
@@ -401,6 +397,7 @@ pub fn promote(player: *input.Player) ?Rank {
 }
 
 test endMission {
+    var wingmen: pilots.Wingmen = .{};
     var player: input.Player = .{ .kills = .{ .count = 40, .kept = 2, .mission = 7 } };
     var variables: vm.Variables = .{ .mission_success = .success };
     var campaign: Campaign = .begin();
@@ -408,10 +405,10 @@ test endMission {
     // Destroyed, or captured after ejecting, the attempt's kills are not kept, nor the pilot
     // promoted, and the campaign stays where it is.
     player.ending = .destroyed;
-    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign));
+    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign, &wingmen));
     try std.testing.expectEqual(2, player.kills.kept);
     player.ending = .captured;
-    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign));
+    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign, &wingmen));
     try std.testing.expectEqual(2, player.kills.kept);
     try std.testing.expectEqual(0, player.rank);
     try std.testing.expectEqual(MissionRecord{}, campaign.kept(5));
@@ -419,14 +416,16 @@ test endMission {
     // A total failure keeps nothing, and becomes the mission's ending.
     player.ending = .rescued;
     variables.mission_success = .total_failure;
-    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign));
+    try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign, &wingmen));
     try std.testing.expectEqual(2, player.kills.kept);
     try std.testing.expectEqual(.total_failure, player.ending);
     // Picked up, they are kept, 40 kills make the pilot's rank 1, and the campaign goes on; the
     // record keeps the rating, the mission's kills and the promotion.
     player.ending = .rescued;
     variables.mission_success = .failure;
-    try std.testing.expectEqual(Record{ .next = 6, .tier = 0 }, endMission(&player, &variables, 5, 0, &campaign).?);
+    try std.testing.expectEqual(Record{ .next = 6, .tier = 0 }, endMission(&player, &variables, 5, 0, &campaign, &wingmen).?);
+    // Mission 6's stretch brings Diceman in as Alpha 5.
+    try std.testing.expectEqual(0x78, wingmen.alpha[4]);
     try std.testing.expectEqual(40, player.kills.kept);
     try std.testing.expectEqual(1, player.rank);
     try std.testing.expectEqual(.failure, variables.last_success);
@@ -438,7 +437,7 @@ test endMission {
     // keeps none.
     player.ending = .playing;
     variables.mission_success = .success_bonus;
-    try std.testing.expectEqual(Record{ .next = 14, .tier = 1, .medal = .black_eagle }, endMission(&player, &variables, 11, 0, &campaign).?);
+    try std.testing.expectEqual(Record{ .next = 14, .tier = 1, .medal = .black_eagle }, endMission(&player, &variables, 11, 0, &campaign, &wingmen).?);
     try std.testing.expectEqual(null, campaign.kept(11).promotion);
     try std.testing.expect(campaign.medals.contains(.black_eagle));
     try std.testing.expect(campaign.ribbons.isSet(1) and campaign.ribbons.count() == 1);
@@ -447,10 +446,10 @@ test endMission {
     // and the last mission leads to the story's end, its record keeping no rating.
     player.ending = .rescued;
     campaign.medals = .initEmpty();
-    try std.testing.expectEqual(Record{ .next = 14, .tier = 1 }, endMission(&player, &variables, 11, 0, &campaign).?);
+    try std.testing.expectEqual(Record{ .next = 14, .tier = 1 }, endMission(&player, &variables, 11, 0, &campaign, &wingmen).?);
     try std.testing.expectEqual(0, campaign.medals.count());
-    try std.testing.expectEqual(Record{ .next = 14, .tier = 1 }, endMission(&player, &variables, 11, 0, null).?);
-    try std.testing.expectEqual(Record{ .next = story_end, .tier = 3 }, endMission(&player, &variables, last_mission, 3, &campaign).?);
+    try std.testing.expectEqual(Record{ .next = 14, .tier = 1 }, endMission(&player, &variables, 11, 0, null, &wingmen).?);
+    try std.testing.expectEqual(Record{ .next = story_end, .tier = 3 }, endMission(&player, &variables, last_mission, 3, &campaign, &wingmen).?);
     try std.testing.expectEqual(null, campaign.kept(last_mission).rating);
     try std.testing.expectEqual(story_end, campaign.mission);
 }

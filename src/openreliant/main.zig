@@ -599,6 +599,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .tier = &objects.campaign_tier,
         .pilot = &front.pilot,
         .saved = &saved_loadout,
+        .wingmen = &objects.wingmen,
         .strings = &strings,
     };
     // The pilot as the game starts: the call sign the profile gives, as `campaign_new` reads it,
@@ -775,6 +776,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     .pilot = &front.pilot,
                     .player = &player,
                     .campaign_flown = &flow.campaign,
+                    .wingmen = &objects.wingmen,
                     .itac_strings = &itac_strings,
                     .saves = saving.folder,
                     .local_time = localDate,
@@ -1338,11 +1340,12 @@ const Saving = struct {
     tier: *u2,
     pilot: *game.interface.pilot_roster.Pilot,
     saved: *engine.interface.loadout.Saved,
+    wingmen: *game.pilots.Wingmen,
     strings: *const game.language.Language,
 
     /// The game of `campaign`, as a save takes it and puts it back.
     fn gameOf(saving: Saving, campaign: *game.gameflow.Campaign) save.Game {
-        return .{ .campaign = campaign, .player = saving.player, .tier = saving.tier, .pilot = saving.pilot, .saved = saving.saved };
+        return .{ .campaign = campaign, .player = saving.player, .tier = saving.tier, .pilot = saving.pilot, .saved = saving.saved, .wingmen = saving.wingmen };
     }
 
     /// `restart_save` (`0x00475D20`), as `WinMain` saves the game before each attempt at a mission
@@ -1477,7 +1480,7 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
     const loaded = play.loaded orelse return .main_menu;
     const variables = &loaded.script.variables;
     const landing = play.landing(player.ending, all.mission25_second_part);
-    const after = game.winmain.afterMission(campaign, player, variables, play.number, &all.mission25_second_part, all.campaign_tier);
+    const after = game.winmain.afterMission(campaign, player, variables, play.number, &all.mission25_second_part, all.campaign_tier, &all.wingmen);
     switch (after) {
         .goes_on, .second_part => campaign.variables = variables.*,
         .restart, .career_over, .story_end => {},
@@ -1672,7 +1675,7 @@ const Play = struct {
     /// (`campaignGoesOn`).
     fn again(play: *Play, orders: game.aigeneric.Context) !void {
         if (play.campaign == null) if (play.loaded) |loaded| {
-            _ = game.gameflow.endMission(orders.world.player, &loaded.script.variables, play.number, orders.world.objects.campaign_tier, null);
+            _ = game.gameflow.endMission(orders.world.player, &loaded.script.variables, play.number, orders.world.objects.campaign_tier, null, &orders.world.objects.wingmen);
         };
         try play.start(orders);
     }
