@@ -29,6 +29,9 @@ OpenReliant keeps the factor down and chooses the factor across that keeps pixel
 | 0xC | External | Round the player's ship | External Camera |
 | 7 | | Round the pilot's pod as the pilot ejects ([The ejection's views](#the-ejections-views)) | Eject Camera |
 | 8 | | Behind the object, turning with it about its own `Y` at 0.005 a tick and pulling away from 3000 at 10 a tick, as the player's ship is destroyed | Death Cam |
+| 0x0F | | Beside the player's ship during the Yamato launch, rising and following it ([Launches](launch.md#the-yamatos-launch)) | a space |
+| 0x10 | | Ahead of the Yamato's launching ship, held still with a fixed orientation | a space |
+| 0x11 | | Beside the Yamato's launch bay, held still and watching the player fly out | a space |
 | 0x12 | Missile | Behind a missile the object launched ([Missiles](missiles.md#the-missile-camera)) | Missile Camera |
 | 0x1A | | From where the camera was, watching the object | a space |
 | 0x1B | | From where the camera was, watching where the player's ship burst (`explode_marker`), which drifts on at a quarter of its velocity a frame | a space |

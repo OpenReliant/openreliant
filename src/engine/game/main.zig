@@ -1702,6 +1702,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     world.player.rescue_odds = .{};
     world.player.carrier = null;
     world.player.cutaway = .none;
+    world.player.yamato_launch = .{};
     world.player.jumping_in = false;
     world.player.flyback = .{};
     world.player.primary_target = null;

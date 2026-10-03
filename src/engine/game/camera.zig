@@ -125,9 +125,12 @@ pub const View = enum(u8) {
     /// (`0x0040EBC0`), which OpenReliant has not ported
     /// ([#349](https://github.com/OpenReliant/openreliant/issues/349)).
     _unknown_37 = 0x25,
-    /// **Unknown:** in which the player's own ship is heard flying past no more than from the
-    /// cockpit (`sound3d_engine_update`).
-    _unknown_15 = 0x0F,
+    /// The Yamato's launch: beside the ship, rising with time and following its position.
+    yamato_beside = 0x0F,
+    /// Far ahead of the ship, held still with a fixed pitch, looking back toward the bay.
+    yamato_ahead = 0x10,
+    /// Beside and ahead of the bay, held still and watching the ship fly out.
+    yamato_aside = 0x11,
     _,
 
     /// The view's record in the view table (`0x004F72A8`), or null for a number past it, which
@@ -487,6 +490,22 @@ pub const Camera = struct {
         return true;
     }
 
+    /// The Yamato's exterior views (`camera_set_view`, `0x0045F4B0` onward). The ahead view
+    /// keeps its orientation; the aside view keeps its position and follows the ship.
+    pub fn setYamato(camera: *Camera, view: View, object: u16, now: u32, player: Subject) bool {
+        if (!camera.setView(view, object, true, true, now)) return false;
+        switch (view) {
+            .yamato_beside => camera.place = yamatoBeside(player, 0),
+            .yamato_ahead => camera.place = .{
+                .position = player.place().point(yamato_ahead_offset),
+                .orientation = math.turned(math.turned(player.orientation, .x, yamato_ahead_pitch), .y, std.math.pi),
+            },
+            .yamato_aside => camera.place = lookingAt(player.place().point(yamato_aside_offset), player.position),
+            else => {},
+        }
+        return true;
+    }
+
     /// Switches to one of a jump's views, `view`, of `object`, locked and forced
     /// (`camera_set_view`), placing the camera once where the view stands: Jump Out's view
     /// `jump_out_reach` out from `seen`, the object, along each of its axes; the view ahead
@@ -649,6 +668,17 @@ pub const Camera = struct {
                 if (world.showing) |showing| showing.* = .everything;
                 camera.place = lookingAt(camera.place.position, world.player.position);
             },
+            .yamato_beside => {
+                camera.place = yamatoBeside(world.player, camera.shown(world));
+                if (world.game) |game| {
+                    const state = game.objects.slots[game.objects.player].state.launch;
+                    const step = @intFromEnum(state.step);
+                    if (step < 5 or (step == 5 and state.due + yamato_look_delay >= game.clock.frame_start))
+                        camera.place.orientation = world.player.orientation;
+                }
+            },
+            .yamato_ahead => {},
+            .yamato_aside => camera.place = lookingAt(camera.place.position, world.player.position),
             // The landing's views stand off the tube's middle each frame, turned as the carrier
             // is, looking at the player's ship and at the view's object.
             .landing_tube => if (world.landing) |landing| {
@@ -1140,6 +1170,44 @@ test pullBack {
 }
 
 // --- The launch ---------------------------------------------------------------------------------
+
+/// The Yamato's view offsets (`camera_set_view`, views 16 and 17), and view 15's rise from
+/// -600 to 300 at 0.0013 of the way per tick (`camera_frame`, `0x004DC768`).
+const yamato_ahead_offset: Vector = .{ 0, -600, 40000 };
+const yamato_aside_offset: Vector = .{ -800, 200, 5000 };
+const yamato_ahead_pitch: f32 = 0.33;
+const yamato_beside_start: Vector = .{ 1500, -600, 500 };
+const yamato_beside_end: Vector = .{ 1500, 300, 500 };
+const yamato_beside_rate: f32 = 0.0013;
+/// View 15 starts looking at the ship after step 5's due tick plus 150 (`camera_frame`).
+const yamato_look_delay = 150;
+
+fn yamatoBeside(player: Subject, since: f32) Place {
+    const offset = math.lerp(yamato_beside_start, yamato_beside_end, since * yamato_beside_rate);
+    return lookingAt(player.place().point(offset), player.position);
+}
+
+test "the Yamato cutaways follow or hold their original camera positions" {
+    const player: Subject = .{ .position = .{ 100, 200, 300 }, .orientation = math.identity };
+    var view: Camera = .{};
+    try std.testing.expect(view.setYamato(.yamato_ahead, 0, 0, player));
+    const ahead = view.place;
+    try std.testing.expectEqual(Vector{ 100, -400, 40300 }, ahead.position);
+    var moved = player;
+    moved.position[2] += 1000;
+    _ = view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 100 });
+    try std.testing.expectEqual(ahead, view.place);
+    try std.testing.expect(view.setYamato(.yamato_aside, 0, 0, player));
+    const aside = view.place.position;
+    _ = view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 100 });
+    try std.testing.expectEqual(aside, view.place.position);
+    try std.testing.expectApproxEqAbs(1, math.dot(math.forward(view.place.orientation), math.normalize(moved.position - aside)), 1e-6);
+    try std.testing.expect(view.setYamato(.yamato_beside, 0, 0, player));
+    _ = view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 1000 });
+    // The original extrapolates past the interpolation's end instead of clamping it.
+    try std.testing.expectApproxEqAbs(770, view.place.position[1], 1e-3);
+    try std.testing.expectEqual(moved.position[2] + 500, view.place.position[2]);
+}
 
 /// Where the launch's views stand, in the frame of what they watch as they are switched to
 /// (`camera_set_view`): the bay view 750 to the side of its ship, 600 above it and 300 behind

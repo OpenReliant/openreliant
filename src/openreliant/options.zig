@@ -39,6 +39,7 @@ pub const Arg = enum {
     @"--no-smooth-motion",
     @"--few-shot-lights",
     @"--baked-lights",
+    @"--launch-steam",
     @"--bitmap-fonts",
     @"--hrtf",
     @"--no-hrtf",
@@ -116,6 +117,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-smooth-motion" = .{ .section = .graphics, .text = "move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame" },
     .@"--few-shot-lights" = .{ .section = .graphics, .text = "light only the latest two of the player's shots and the latest two of everyone else's, as the original does" },
     .@"--baked-lights" = .{ .section = .graphics, .text = "bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near" },
+    .@"--launch-steam" = .{ .section = .graphics, .value = "<original|soft>", .text = "the Yamato's launch steam: original brightness or softer jets with less glare; soft by default" },
     .@"--bitmap-fonts" = .{ .section = .graphics, .text = "draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod)" },
     .@"--hrtf" = .{ .section = .sound, .text = "place the sounds for headphones whatever the output; by default they are while the output is headphones" },
     .@"--no-hrtf" = .{ .section = .sound, .text = "place the sounds for speakers whatever the output" },
@@ -264,6 +266,7 @@ pub const Options = struct {
     shields: game.shield.Style = .smooth,
     /// How far the launch's hangar's beacons reach.
     hangar_beacons: game.objects.HangarBeacons = .to_the_ship,
+    launch_steam: game.launch.yamato.Steam = .soft,
     /// How the Reliant's landing brings the ship down.
     touchdown: game.ailand.Touchdown = .level,
     /// How the radio's lines sound.
@@ -358,6 +361,7 @@ pub const Options = struct {
                 options.smoke = .alike;
                 options.shields = .original;
                 options.hangar_beacons = .own;
+                options.launch_steam = .original;
                 options.touchdown = .original;
                 options.speech = .original;
                 options.beam_glow = .none;
@@ -421,6 +425,7 @@ pub const Options = struct {
             .@"--no-smooth-motion" => options.smooth_motion = false,
             .@"--few-shot-lights" => options.shot_lights = .latest_two,
             .@"--baked-lights" => options.real_lights = false,
+            .@"--launch-steam" => options.launch_steam = std.meta.stringToEnum(game.launch.yamato.Steam, value) orelse return error.BadValue,
             .@"--bitmap-fonts" => options.outline_fonts = false,
             .@"--hrtf" => if (options.openAl()) |settings| {
                 settings.hrtf = .on;
@@ -593,6 +598,9 @@ test Options {
     try std.testing.expectEqual(game.cbox.Style{}, plain.speech);
     try std.testing.expectEqual(.to_the_ship, plain.hangar_beacons);
     try std.testing.expectEqual(.own, retro.hangar_beacons);
+    try std.testing.expectEqual(.soft, plain.launch_steam);
+    try std.testing.expectEqual(.original, retro.launch_steam);
+    try std.testing.expectEqual(.soft, (try parsed(&.{ "--original", "--launch-steam", "soft" })).launch_steam);
     try std.testing.expectEqual(.halo, plain.beam_glow);
     try std.testing.expectEqual(.none, retro.beam_glow);
     try std.testing.expectEqual(.flare, plain.jump_light);

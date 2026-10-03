@@ -312,7 +312,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 101 | Multiplayer Control | Disables the object once it has object flag `0x10000000`. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
 | 102 | Avoid Target | Not read yet. | No |
 | 103 | Torpedo | Find New Target's for a ship of the torpedo class. On starting, full throttle. Each update it pops once it can aim at its target no more; otherwise it steers with a limit of 2 and no ease at the target's node, led along the target's nose by the target's speed times the ticks the torpedo takes to get there at its top speed, less its own velocity times half those ticks, 25 at most. It goes off against what it meets ([Collisions](loop.md#collisions)). | Yes |
-| 104 | Launch | The ship leaves its carrier, in the style the carrier's type picks ([Launches](launch.md)). | Partly: the other styles are not ([#304](https://github.com/OpenReliant/openreliant/issues/304)) |
+| 104 | Launch | The ship leaves its carrier, in the style the carrier's type picks ([Launches](launch.md)). | Yes |
 | 105 | Fight | Fights its target by running [combat maneuvers](maneuvers.md), one after another. | Yes |
 | 106 | Eject | The ship a pilot has left: destroyed 200 ticks on. | Yes |
 | 107 | Scoop Up | A nanny ship or the Antanov takes the player's pod aboard with its tractor beams ([Ejection](ejection.md#scoop-up)). | Yes |

@@ -841,7 +841,7 @@ number. A script can set a field to either.
 
 ### ShipType
 
-`predator`, `grendel`, `wolverine`, `reaper`, `phoenix`, `reliant`, `yamato`, `victorious`, `endeavour`, `mitchell`, `bremen`, `ulysses`, `nanny`, `limpet_car`, `prowler`, `ripper`, `mammoth`, `stork`, `sabre`, `kamov`, `scimitar`, `ramases`, `badanov`, `pukov`, `kurgan`, `sharov`, `gurevich`, `saladin`, `darkreign`, `stalag`, `antanov`, `kronstadt`, `boridin`, `troop_car`, `torpedo`, `escape_pod`, `debris`, `crewman`, `russian_torpedo`, `neptune_hi`, `uranus_hi`, `jupiter_hi`, `venus_hi`, `proto_gate`, `advanced_gate`, `proximity_mine`, `black_box`, `satellite`, `mammoth_wreck_front`, `mammoth_wreck_back`, `badanov_wreck_back`, `badanov_wreck_front`, `kurgan_wreck`, `krasnaya`, `latov`, `czar_docked`, `dm_beacon`, `kafelnikof`, `krasny`, `varyag`, `other_ramases`, `other_mitchell`, `rogue_base`, `boridin_breakaway`, `other_escape_pod`, `cargo_pod`, `zakov`, `shell`, `rock_chunk`, `limpet_pod`, `kiev`, `neptune_lo`, `uranus_lo`, `jupiter_lo`, `venus_lo`, `reliant_hangar`, `comms_relay`, `late_escape_pod`, `other_late_escape_pod`, `fuel_pod`, `t_phoenix`, `sun_marker`, `nebula_marker`, `marker`, `stand_in`, or a number.
+`predator`, `grendel`, `wolverine`, `reaper`, `phoenix`, `reliant`, `yamato`, `victorious`, `endeavour`, `mitchell`, `bremen`, `ulysses`, `nanny`, `limpet_car`, `prowler`, `ripper`, `mammoth`, `stork`, `sabre`, `kamov`, `scimitar`, `ramases`, `badanov`, `pukov`, `kurgan`, `sharov`, `gurevich`, `saladin`, `darkreign`, `stalag`, `antanov`, `kronstadt`, `boridin`, `troop_car`, `torpedo`, `escape_pod`, `debris`, `crewman`, `russian_torpedo`, `neptune_hi`, `uranus_hi`, `jupiter_hi`, `venus_hi`, `proto_gate`, `advanced_gate`, `proximity_mine`, `black_box`, `satellite`, `mammoth_wreck_front`, `mammoth_wreck_back`, `badanov_wreck_back`, `badanov_wreck_front`, `kurgan_wreck`, `krasnaya`, `latov`, `czar_docked`, `dm_beacon`, `kafelnikof`, `krasny`, `varyag`, `other_ramases`, `other_mitchell`, `rogue_base`, `boridin_breakaway`, `other_escape_pod`, `cargo_pod`, `zakov`, `shell`, `rock_chunk`, `limpet_pod`, `kiev`, `neptune_lo`, `uranus_lo`, `jupiter_lo`, `venus_lo`, `yamato_hangar`, `reliant_hangar`, `comms_relay`, `late_escape_pod`, `other_late_escape_pod`, `fuel_pod`, `t_phoenix`, `sun_marker`, `nebula_marker`, `marker`, `stand_in`, or a number.
 
 ### ShipClass
 
@@ -869,7 +869,7 @@ number. A script can set a field to either.
 
 ### View
 
-`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, or a number.
+`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.
 
 ### BettyLine
 

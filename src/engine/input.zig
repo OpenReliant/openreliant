@@ -1194,6 +1194,8 @@ pub const Player = struct {
     female: bool = false,
     /// The cutaway the player's launch from the Reliant shows.
     cutaway: @import("game/launch/reliant.zig").Cutaway = .none,
+    /// The Yamato's launch cutaway and six steam emitters (`launches_init`, `0x00418A70`).
+    yamato_launch: @import("game/launch/yamato.zig").Effects = .{},
     /// `0x005E82F0`: set while the player's ship jumps in, which cuts the dust's streaks shorter
     /// (`srstars.Field.shortened`); the loading before a mission's start clears it (`jump_init`,
     /// `0x00416490`).

@@ -54,6 +54,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--no-smooth-motion` | Move what moves on with the game's ticks, a hundred a second, as the original does, rather than on every frame |
 | `--few-shot-lights` | Light only the latest two of the player's shots and the latest two of everyone else's, as the original does |
 | `--baked-lights` | Bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near ([Rendering](../engine/rendering.md#static-lights)) |
+| `--launch-steam original\|soft` | The Yamato's launch steam: original brightness or softer jets with less glare. Defaults to `soft`; `--original` selects `original` ([Launches](../engine/launch.md#the-yamatos-launch)) |
 | `--bitmap-fonts` | Draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod) ([Modding](modding.md#fonts)) |
 
 ## Sound

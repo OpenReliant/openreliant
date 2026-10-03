@@ -422,6 +422,8 @@ pub const Type = enum(u32) {
     uranus_lo = 0xCB,
     jupiter_lo = 0xCE,
     venus_lo = 0xD3,
+    /// The Yamato's launch tube (`yam_tube.shp`), shown as the player's hangar (`0x00419544`).
+    yamato_hangar = 0xD4,
     /// The Reliant's hangar (`reliant_hang.shp`): the cutaway the Reliant's launch shows the
     /// player's ship in.
     reliant_hangar = 0xD6,
@@ -1634,6 +1636,8 @@ pub const World = struct {
     difficulty: collision.Difficulty = .medium,
     /// How far the launch's hangar's beacons reach.
     hangar_beacons: objects.HangarBeacons = .to_the_ship,
+    /// The Yamato launch steam's brightness, with the original emission behavior.
+    launch_steam: @import("launch/yamato.zig").Steam = .soft,
     /// How the Reliant's landing brings the ship down.
     touchdown: @import("ailand.zig").Touchdown = .level,
     view: camera.View,
