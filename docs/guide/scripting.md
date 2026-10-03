@@ -73,7 +73,8 @@ mission2.dte=escort.luau
   the mods before ([Load order](modding.md#load-order)).
 - A game starts when you start a campaign, load a saved game, or fly a mission on its own (INSTANT
   ACTION, the simulator or `--mission`), and ends at the main menu. Global scripts start afresh
-  with each game.
+  with each game, and for a loaded game from the state they saved with it
+  ([Saved games](#saved-games)).
 - `[Missions]` matches the mission's file name in any case: `mission2.dte` is mission 2, and
   `mission251.dte` the second part of mission 25. A mission script starts as its mission begins,
   before its ships appear, and stops as it ends. Each attempt starts it afresh.
@@ -399,6 +400,107 @@ end
 - A later script that offers the same name takes its place, and gets the earlier interface in its
   `on_interface_override(base)` handler, so it can call through to it.
 
+## Saved games
+
+The game is saved between missions: in the Reliant's rooms, and by the autosave as the campaign
+moves on. Global and player scripts keep what they need to carry on in a loaded game in a file beside
+the saved game (`saves\<call sign>GAME<slot>.scripts`), so the saved game itself stays as the
+original writes it:
+
+```lua
+local missions = 0
+
+return {
+    engine_handlers = {
+        on_mission_start = function()
+            missions += 1
+        end,
+        on_save = function()
+            return { missions = missions }
+        end,
+        on_load = function(saved)
+            missions = saved and saved.missions or 0
+        end,
+    },
+}
+```
+
+- `on_save` returns plain data ([Events](#events)), which is kept with the saved game.
+- When a saved game is loaded, the scripts start again, and each gets `on_load` with what its
+  `on_save` returned, in place of `on_init`. A script that didn't run when the game was saved, such
+  as one of a mod added since, gets `on_init` instead.
+- The same goes for the restart point. The scripts' state is kept as each mission of the campaign
+  starts, and a replay or the pause menu's RESTART puts it back, so that the scripts start the
+  mission again as they were.
+- Mission and object scripts don't run between missions, so they aren't kept. Menu scripts run
+  across games, so they aren't kept either.
+
+## Storage
+
+`openreliant.storage` gives each mod sections of plain data, by name, which read and change like
+tables:
+
+```lua
+local storage = require("openreliant.storage")
+local tally = storage.game_section("tally")
+local best = storage.global_section("best")
+
+tally.kills = (tally.kills or 0) + 1
+if tally.kills > (best.kills or 0) then
+    best.kills = tally.kills
+end
+for name, value in tally do
+    print(name, value)
+end
+```
+
+- A game section goes with the saved game and the restart point, and starts empty with each new
+  game. Global and object scripts change it; the other scripts can only read it.
+- A global section is kept in the game folder, in `storage\<mod>.data`, across every game. Any
+  script can change it. OpenReliant writes the sections that changed at most every 2 seconds, and
+  as it quits.
+- Each mod has its own sections: two mods' sections of the same name are separate. Every script of
+  the mod sees the same sections, on either side.
+- Values are plain data, copied as they're stored and as they're read, so changing a table read
+  from a section changes nothing until it's stored again. Setting a field to nil removes it.
+
+## Timers
+
+`openreliant.async` runs a function of the mod's after a while:
+
+```lua
+local async = require("openreliant.async")
+
+async.register_timer("reinforce", function(data)
+    print("wave " .. data.wave)
+end)
+
+async.after(30, "reinforce", { wave = 2 })
+```
+
+- A timer names a function the mod registered, rather than holding the function itself, so that it
+  can be kept with the saved game. Register the function when the script runs, at its top level, so
+  that it's there again after a load.
+- Global and object scripts' timers count game time, which stops while the game is paused. Player
+  and menu scripts' timers count real time.
+- A timer runs at the first update after its time is up, before `on_update`; on the presentation
+  side, at the first frame, before `on_frame`. It gets its data, which must be plain data.
+- Global and player scripts' timers are kept with the saved game and the restart point. A timer
+  stops with its script's mod, so an object script's timers stop as its object leaves the mission.
+
+## Files
+
+`openreliant.vfs` reads files, which come as strings of their bytes:
+
+- `vfs.read(name)` reads a file the way the game reads its resources: the latest mod's copy, else
+  the game's own from `resource.hog`. The name is the file's name, such as `palette.tga`; any
+  folders before it are ignored, as the game ignores them.
+- `vfs.read_mod(name)` reads a file of the calling mod.
+- Both return nil where there's no such file. `vfs.exists(name)` says whether `vfs.read` would find
+  it.
+- The game's loose files, such as the missions in the `missions` folder, can't be read yet
+  ([#592](https://github.com/OpenReliant/openreliant/issues/592)).
+
 ## Values
 
 - Numbers use the game's units ([developer documentation](../README.md)). Positions and velocities
@@ -435,7 +537,8 @@ It may report that it can't find the packages themselves, which OpenReliant prov
 
 ## Limits
 
-Scripts run in a sandbox: they can't open files, use the network or run programs. A call into a
+Scripts run in a sandbox: they can't use the network or run programs, and the only files they can
+read are the game's and the mods' ([Files](#files)). A call into a
 script may run for at most 1 second in a load script and 100 milliseconds in any other, and each
 mod's scripts may use at most 64 MiB of memory. An error in a script never
 stops the game: it's logged with the file and the line, and the game carries on.
@@ -454,6 +557,9 @@ stops the game: it's logged with the file and the line, and the game carries on.
 | `script timed out` | A loop that doesn't end, or does too much at once |
 | `... is not available to load scripts` | Load scripts can't use that package |
 | `object scripts can't change this object's ...` | An object's scripts can only change their own object |
-| `only plain data can be passed on` | An event's data holds a function or something else that isn't plain data |
+| `only plain data can be passed on` | An event's or a timer's data holds a function or something else that isn't plain data |
 | `only global scripts can add scripts` | Start object scripts from a global script, or list them in `mod.ini` |
 | `hud is only drawn while it's shown` | Check `hud.shown` or `ui.shown` before drawing or reading its size |
+| `only plain data can be kept` | What `on_save` returns, or a value stored in a section, holds a function or something else that isn't plain data |
+| `a timer names ..., which no script registered` | `async.register_timer` runs as the script starts, before a timer can fire |
+| `player scripts can only read a game section` | Change game sections from a global or object script |

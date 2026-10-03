@@ -347,6 +347,86 @@ their own ([#589](https://github.com/OpenReliant/openreliant/issues/589)); and p
 and a choice of fonts for the drawing packages
 ([#590](https://github.com/OpenReliant/openreliant/issues/590)).
 
+## Saved games
+
+[`snapshot.zig`](../../src/scripting/snapshot.zig) keeps the scripts' state with a saved game, in a
+file beside it, `saves\<call sign>GAME<slot>.scripts` (`save.companionName`). The saves folder
+tells the driver as a game is saved, loaded or removed (`save.Extra`, which `GameScripts` in the
+driver implements), and the driver writes, reads or removes the file. The game is saved between
+missions, so the file holds what lasts a whole game: the storage's game sections, each global and
+player script that runs with what its `on_save` returned, and those scripts' timers. Mission and
+object scripts don't run then, and menu scripts run across games.
+
+The form, little-endian:
+
+| Part | What it holds |
+|---|---|
+| Magic | `ORSV`, then the form's version as a `u16`, 1 |
+| Game sections | Their count as a `u32`, then for each its mod's name, its name, the count of its fields as a `u32`, and each field's name and value (`Storage.encodeGame`) |
+| Scripts | Their count as a `u32`, then for each its mod's name, its family as a byte (`script.Family`), its file's name, and what its `on_save` returned, nil where it has none |
+| Timers | Their count as a `u32`, then for each its mod's name, its family, the name of its function, the seconds left as an `f64`, and its data |
+
+Names and values are written in [`stored.zig`](../../src/scripting/stored.zig)'s form: each value
+starts with its kind as a byte (`stored.Kind`); a number is an `f64`, a string its length as a `u32`
+and its bytes, a vector three `f32`s, a handle the object's slot as a `u16` and its count of reuses
+as a `u32`, and a table its count of pairs as a `u32`, then each key and value. A handle comes back
+as one that isn't valid, since the game is saved between missions.
+
+- As a game is loaded, `GameScripts` reads the file and starts the scripts with `loading` set, so
+  that they don't get `on_init` (`Game.start`, `Presentation.startGame`), then `snapshot.restore`
+  puts the state back. The game sections come back first; then each script the file holds gets
+  `on_load` with what it saved, matched by its mod, its family and its file's name; then the timers
+  start again. The scripts the file doesn't hold, such as a new mod's, get `on_init`. A load from the
+  front end starts the scripts as the game goes into the rooms; a load in the rooms starts them again
+  at once. A saved game without the file starts them as a new game.
+- A file of another version, or a damaged one, is logged, and what's left of it goes unread.
+- The restart point keeps the same state in memory (`Saving.restartPoint`), and a replay or the
+  pause menu's RESTART starts the scripts again from it. RESTART ends the mission first, so that the
+  scripts don't hear the end of a mission they never saw start.
+- With no scripts at all, nothing is written, and a file left from an earlier save in the slot is
+  removed.
+
+## Storage
+
+[`storage.zig`](../../src/scripting/storage.zig) holds the mods' storage: sections of plain data,
+by mod and by name, each a game section or a global section (`storage.Scope`). The driver makes one
+`Storage` as OpenReliant starts, and both Luau states reach it through `runtime.Shared`, so a
+mod's scripts see the same sections on either side. A section's handle is a userdata whose
+`__index` copies a field's value out as Luau values (`stored.push`), whose `__newindex` copies a
+value in (`stored.capture`) and whose `__iter` goes through a copy of the fields made as the loop
+starts, so that the loop can change the section. Load, player and menu scripts can't change game
+sections.
+
+- Game sections are kept with the saved game and the restart point. As a game starts, they're
+  emptied rather than freed (`Storage.clearGame`), since scripts may still hold their handles.
+- Global sections are kept in the game folder, one file per mod: `storage\<mod>.data`, where the mod
+  is named as its archive or folder is. The file holds `ORST`, the form's version as a `u16`, 1, and
+  the mod's global sections as the scripts' state file holds game sections. They're read as
+  OpenReliant starts (`Storage.readGlobal`), and the files of the mods whose sections changed are
+  written at most every 2 seconds and as OpenReliant quits (`Storage.flush`).
+
+## Timers
+
+[`async.zig`](../../src/scripting/async.zig) runs a mod's functions after a while.
+`async.register_timer` keeps a function in a table of its context (`Context.callbacks`) under a
+name, and `async.after` adds a timer that names it (`Runner.addTimer`, at most 4096 waiting). A
+timer names its function rather than holding it, so that it can be written to a file.
+
+`Runner.advance` counts the timers down and runs those whose time is up, the most overdue first. A
+timer added while timers run waits for the next round, so a timer that starts itself again with no
+delay doesn't run for ever. The game side advances them in `update`, after the events and
+before `on_update`, with game time; the presentation side in `Presentation.frame`, before
+`on_frame`, with real time. A timer whose function isn't registered is logged and dropped. As a
+context closes, its timers go.
+
+## Files
+
+[`vfs.zig`](../../src/scripting/vfs.zig) reads files for scripts. `vfs.read` reads through the
+same `bigfile.Hog` as the game's resources, a mod's file first (`runtime.Shared.files`), and
+`vfs.read_mod` reads the calling mod's own file (`Mod.readFile`). Scripts can't write files. Not
+ported: reading the game's loose files
+([#592](https://github.com/OpenReliant/openreliant/issues/592)).
+
 ## Object handles
 
 [`objects.zig`](../../src/scripting/objects.zig) gives scripts objects as handles: a slot, and the

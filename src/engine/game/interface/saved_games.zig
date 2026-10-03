@@ -489,6 +489,7 @@ pub const SavedGames = struct {
             return false;
         }
         saves.game.apply(&loaded);
+        saves.folder.loaded(saves.callSign(), slot);
         return true;
     }
 

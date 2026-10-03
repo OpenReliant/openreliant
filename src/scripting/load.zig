@@ -29,11 +29,11 @@ pub const seed = 0x4F70_656E_5265_6C69;
 
 /// Runs the load scripts of `opened` on `held`. `version` is OpenReliant's version, which scripts
 /// can read.
-pub fn run(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8) Allocator.Error!void {
-    return runWithin(gpa, io, opened, held, version, limits);
+pub fn run(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8, shared: runtime.Shared) Allocator.Error!void {
+    return runWithin(gpa, io, opened, held, version, limits, shared);
 }
 
-fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8, within: runtime.Limits) Allocator.Error!void {
+fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8, within: runtime.Limits, shared: runtime.Shared) Allocator.Error!void {
     for (opened) |*mod| tellLeftOut(mod);
     const any = for (opened) |*mod| {
         var listed = loadScripts(mod);
@@ -41,7 +41,7 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
     } else false;
     if (!any) return;
 
-    const scripts = try runtime.Runtime.create(gpa, io, opened, .{ .side = .game, .limits = within, .seed = seed, .version = version });
+    const scripts = try runtime.Runtime.create(gpa, io, opened, .{ .side = .game, .limits = within, .seed = seed, .version = version, .shared = shared });
     defer scripts.destroy();
     records.register(scripts.state);
     records.push(scripts.state, held, true);
@@ -173,7 +173,7 @@ test "load scripts run in load order, and their handlers run after all of them" 
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     var held = try testing.records3(arena.allocator());
-    try run(gpa, io, mods_held.list, &held, "0.7.0");
+    try run(gpa, io, mods_held.list, &held, "0.7.0", .{});
 
     // The first mod sets the range to 5, the second doubles it, and the handler runs after both.
     try std.testing.expectEqual(10, held.guns[0].range);
@@ -203,7 +203,7 @@ test "a failed script's changes are undone" {
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     var held = try testing.records3(arena.allocator());
-    try runWithin(gpa, io, mods_held.list, &held, "0.7.0", .{ .time = .fromMilliseconds(50), .memory = 1 << 20 });
+    try runWithin(gpa, io, mods_held.list, &held, "0.7.0", .{ .time = .fromMilliseconds(50), .memory = 1 << 20 }, .{});
 
     // Every script failed, including the one that timed out and the one that ran out of memory, and
     // the last one still ran.
@@ -227,7 +227,7 @@ test "load scripts can only require the packages available to them" {
                     \\    local ok, err = pcall(require, name)
                     \\    assert(not ok and string.find(err, message, 1, true), err)
                     \\end
-                    \\fails("openreliant.storage", "is not available in this version")
+                    \\fails("openreliant.util", "is not available in this version")
                     \\fails("openreliant.hooks", "is not available to load scripts")
                     \\fails("openreliant.world", "is not available to load scripts")
                     \\fails("openreliant.nothing", "unknown package")
@@ -245,9 +245,9 @@ test "load scripts can only require the packages available to them" {
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     var first = try testing.records3(arena.allocator());
-    try run(gpa, io, mods_held.list, &first, "0.7.0");
+    try run(gpa, io, mods_held.list, &first, "0.7.0", .{});
     var second = try testing.records3(arena.allocator());
-    try run(gpa, io, mods_held.list, &second, "0.7.0");
+    try run(gpa, io, mods_held.list, &second, "0.7.0", .{});
     // The script ran to the end, and got the same random number both times.
     try std.testing.expect(first.guns[0].range != 1);
     try std.testing.expectEqual(first.guns[0].range, second.guns[0].range);
@@ -267,5 +267,5 @@ test "no Luau state is created without load scripts" {
     var held = try testing.records3(arena.allocator());
     // Nothing is allocated, so no state was created.
     var failing: std.testing.FailingAllocator = .init(std.testing.allocator, .{ .fail_index = 0 });
-    try run(failing.allocator(), io, mods_held.list, &held, "0.7.0");
+    try run(failing.allocator(), io, mods_held.list, &held, "0.7.0", .{});
 }

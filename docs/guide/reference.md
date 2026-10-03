@@ -25,6 +25,8 @@ include mission scripts.
 | Handler | Scripts | When it's called |
 |---|---|---|
 | `on_init(data: any?)` | global, object, player and menu | When the script starts, with the data `add_script` gave it, or nil. |
+| `on_save()`: plain data | global and player | When the game is saved, between missions, and as each mission of the campaign starts, for its restart point: what it returns, which must be plain data, is kept with it. Mission scripts aren't kept. |
+| `on_load(saved: any?)` | global and player | In place of `on_init`, when a saved game is loaded or the game goes back to the restart point, with what the script's `on_save` returned then, or nil. A script that didn't run then, such as one of a mod added since, gets `on_init` instead. |
 | `on_records_loaded()` | load | After every mod's load scripts have run. |
 | `on_update(seconds: number)` | global and object | Each frame in which game time passes, after the ships' orders, with the seconds it covers. |
 | `on_step()` | global and object | Each simulation step, 25 a second, after everything has moved. |
@@ -140,9 +142,37 @@ Interface sounds, music and Betty's lines. For player and menu scripts.
 | `play_music(name: string)` | nothing | Plays the piece `name` from the game's music folder for ever, in place of the music playing. |
 | `say(line: BettyLine)` | boolean | Betty says `line`. Returns whether she does. |
 
+### `openreliant.storage`
+
+Sections of plain data for each mod: kept with the saved game, or in the game folder across every game. For load, global, object, player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `game_section(name: string)` | Section | The section `name` of the calling mod's storage that's kept with the saved game, and starts empty with each new game. Global and object scripts change it; other scripts read it. |
+| `global_section(name: string)` | Section | The section `name` of the calling mod's storage that's kept in the game folder, across every game. Any script changes it. |
+
+### `openreliant.async`
+
+Timers, kept with the saved game: game time for global and object scripts, real time for player and menu scripts. For global, object, player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `register_timer(name: string, handler: (data: any) -> ())` | nothing | Registers `handler` under `name` for the script's mod, for timers to run. Register it as the script runs, so that a timer kept with a saved game finds it again after the game is loaded. |
+| `after(seconds: number, name: string, data: any?)` | nothing | Runs the function registered under `name` once `seconds` have passed, with `data`, which must be plain data: seconds of game time for global and object scripts, and of real time for player and menu scripts. |
+
 ### `openreliant.interfaces`
 
 The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers. For global, object, player and menu scripts.
+
+### `openreliant.vfs`
+
+Reading the game's and the mods' files. For load, global, object, player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `read(name: string)` | string? | The file `name` as the game reads it: a mod's, the latest mod's first, or else the game's own, as a string of its bytes. Nil where there's none. |
+| `read_mod(name: string)` | string? | The calling mod's own file `name`, as a string of its bytes. Nil where it has none. |
+| `exists(name: string)` | boolean | Whether the game has the file `name`, in a mod or of its own. |
 
 ### `openreliant.debug`
 

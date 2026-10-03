@@ -93,6 +93,10 @@ pub fn Function(comptime about: []const u8, comptime parameters: []const []const
     };
 }
 
+/// What a function that returns nothing returns, as Luau writes it: the result of a `Native` that
+/// returns nothing.
+pub const nothing = "()";
+
 /// A function described by `about` that reads what scripts pass it itself, such as one that takes
 /// a script's function, with the Luau types of its `parameters` and its `result` for the reference.
 pub fn Native(comptime about: []const u8, comptime parameters: []const u8, comptime result: []const u8, comptime function: fn (*State) i32) type {

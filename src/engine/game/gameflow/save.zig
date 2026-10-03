@@ -45,8 +45,35 @@ pub const restart_name = "restart";
 /// The file of saved game `slot` of the pilot `call_sign` (`0x004756FD`, `0x004E86E4`), in the
 /// game's folder: `saves\<call sign>GAME<slot>.IFF`, the slot in two digits at least.
 pub fn fileName(buffer: []u8, call_sign: []const u8, slot: u8) std.fmt.BufPrintError![]const u8 {
-    return std.fmt.bufPrint(buffer, folder_name ++ "\\{s}GAME{d:0>2}.IFF", .{ call_sign, slot });
+    return companionName(buffer, call_sign, slot, file_extension);
 }
+
+/// The extension of a saved game's file.
+const file_extension = ".IFF";
+
+/// OpenReliant's: the file that goes with saved game `slot` of `call_sign` beside its own, of
+/// `extension`, such as the mods' scripts' state (`Extra`): `saves\<call sign>GAME<slot>` and
+/// the extension.
+pub fn companionName(buffer: []u8, call_sign: []const u8, slot: u8, extension: []const u8) std.fmt.BufPrintError![]const u8 {
+    return std.fmt.bufPrint(buffer, folder_name ++ "\\{s}GAME{d:0>2}{s}", .{ call_sign, slot, extension });
+}
+
+/// OpenReliant's: what else is kept with each saved game beside its file, such as the mods'
+/// scripts' state, which the saved games' folder tells as a game is saved, loaded and removed
+/// (`Folder.extra`).
+pub const Extra = struct {
+    context: *anyopaque,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        /// Saved game `slot` of `call_sign` has been written.
+        stored: *const fn (context: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void,
+        /// Saved game `slot` of `call_sign` has been loaded into the game.
+        loaded: *const fn (context: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void,
+        /// Saved game `slot` of `call_sign` has been removed.
+        removed: *const fn (context: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void,
+    };
+};
 
 /// The campaign's missions, which each keep a record.
 pub const missions = gameflow.last_mission;
@@ -410,15 +437,23 @@ pub fn restartLoad(game: Game, point: *const Save) void {
 pub const Folder = struct {
     io: Io,
     dir: Io.Dir,
+    /// What else is kept with each saved game; null for nothing.
+    extra: ?Extra = null,
 
     pub const Error = error{ BadCallSign, NoSpaceLeft } || Io.Dir.WriteFileError || Io.Dir.CreateDirPathError;
 
     /// The bytes of saved game `slot` of `call_sign`; null where there is none, or it can't be
     /// read.
     pub fn file(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8) ?[]u8 {
+        return folder.companion(gpa, call_sign, slot, file_extension, most_read);
+    }
+
+    /// The bytes of the file of `extension` that goes with saved game `slot` of `call_sign`
+    /// (`companionName`), at most `limit` of them; null where there is none, or it can't be read.
+    pub fn companion(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8, extension: []const u8, limit: usize) ?[]u8 {
         var name: [files.max_path]u8 = undefined;
-        const path = fileName(&name, call_sign, slot) catch return null;
-        return files.readFile(folder.io, gpa, folder.dir, path, .limited(most_read)) catch null;
+        const path = companionName(&name, call_sign, slot, extension) catch return null;
+        return files.readFile(folder.io, gpa, folder.dir, path, .limited(limit)) catch null;
     }
 
     /// Writes `bytes` as saved game `slot` of `call_sign`: over the file found whatever the case of
@@ -432,6 +467,12 @@ pub const Folder = struct {
     /// bytes to `saves\test.bin` first (`0x0047568E`), then writes the save without checking it;
     /// OpenReliant checks the save's own write.
     pub fn put(folder: Folder, call_sign: []const u8, slot: u8, bytes: []const u8) Error!void {
+        return folder.putCompanion(call_sign, slot, file_extension, bytes);
+    }
+
+    /// Writes `bytes` as the file of `extension` that goes with saved game `slot` of `call_sign`,
+    /// as `put` writes the saved game's own.
+    pub fn putCompanion(folder: Folder, call_sign: []const u8, slot: u8, extension: []const u8, bytes: []const u8) Error!void {
         if (std.mem.indexOfAny(u8, call_sign, winmain.Typed.file_name_refused) != null) return error.BadCallSign;
         var spelled: [files.max_path]u8 = undefined;
         const saves = files.find(folder.io, folder.dir, folder_name, &spelled) orelse made: {
@@ -439,7 +480,7 @@ pub const Folder = struct {
             break :made folder_name;
         };
         var name: [files.max_path]u8 = undefined;
-        const path = try fileName(&name, call_sign, slot);
+        const path = try companionName(&name, call_sign, slot, extension);
         var found: [files.max_path]u8 = undefined;
         var joined: [files.max_path]u8 = undefined;
         const written = files.find(folder.io, folder.dir, path, &found) orelse
@@ -447,13 +488,26 @@ pub const Folder = struct {
         try folder.dir.writeFile(folder.io, .{ .sub_path = written, .data = bytes });
     }
 
-    /// Removes saved game `slot` of `call_sign`, where there is one.
+    /// Removes saved game `slot` of `call_sign`, where there is one, and what goes with it.
     pub fn remove(folder: Folder, call_sign: []const u8, slot: u8) void {
+        folder.removeCompanion(call_sign, slot, file_extension);
+        if (folder.extra) |extra| extra.vtable.removed(extra.context, folder, call_sign, slot);
+    }
+
+    /// Removes the file of `extension` that goes with saved game `slot` of `call_sign`, where
+    /// there is one.
+    pub fn removeCompanion(folder: Folder, call_sign: []const u8, slot: u8, extension: []const u8) void {
         var name: [files.max_path]u8 = undefined;
-        const path = fileName(&name, call_sign, slot) catch return;
+        const path = companionName(&name, call_sign, slot, extension) catch return;
         var found: [files.max_path]u8 = undefined;
         const found_path = files.find(folder.io, folder.dir, path, &found) orelse return;
         folder.dir.deleteFile(folder.io, found_path) catch {};
+    }
+
+    /// Tells what's kept with the saved games that saved game `slot` of `call_sign` has been
+    /// loaded into the game.
+    pub fn loaded(folder: Folder, call_sign: []const u8, slot: u8) void {
+        if (folder.extra) |extra| extra.vtable.loaded(extra.context, folder, call_sign, slot);
     }
 
     /// When saved game `slot` of `call_sign` was last written, in nanoseconds from 1970 in UTC;
@@ -480,6 +534,7 @@ pub const Folder = struct {
         const bytes = try write(gpa, save);
         defer gpa.free(bytes);
         try folder.put(call_sign, slot, bytes);
+        if (folder.extra) |extra| extra.vtable.stored(extra.context, folder, call_sign, slot);
     }
 
     /// The most OpenReliant reads of a saved game, far past the game's.
@@ -751,4 +806,42 @@ test Folder {
     // Removed, it is gone.
     folder.remove("Ace", 1);
     try std.testing.expectEqual(null, folder.file(gpa, "Ace", 1));
+}
+
+test Extra {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    // What's kept beside each saved game: a file of its own, written as the game is saved, read
+    // as it's loaded, and removed with it.
+    const Kept = struct {
+        const extension = ".KEPT";
+        read: ?[]u8 = null,
+
+        fn stored(_: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void {
+            folder.putCompanion(call_sign, slot, extension, "kept") catch unreachable;
+        }
+
+        fn loaded(context: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void {
+            const kept: *@This() = @ptrCast(@alignCast(context));
+            kept.read = folder.companion(gpa, call_sign, slot, extension, 16);
+        }
+
+        fn removed(_: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void {
+            folder.removeCompanion(call_sign, slot, extension);
+        }
+    };
+    var kept: Kept = .{};
+    const folder: Folder = .{
+        .io = std.testing.io,
+        .dir = tmp.dir,
+        .extra = .{ .context = &kept, .vtable = &.{ .stored = Kept.stored, .loaded = Kept.loaded, .removed = Kept.removed } },
+    };
+    var save = testSave("First");
+    try folder.store(gpa, "Ace", 3, &save);
+    folder.loaded("Ace", 3);
+    defer if (kept.read) |bytes| gpa.free(bytes);
+    try std.testing.expectEqualStrings("kept", kept.read.?);
+    folder.remove("Ace", 3);
+    try std.testing.expectEqual(null, folder.companion(gpa, "Ace", 3, Kept.extension, 16));
 }

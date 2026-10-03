@@ -96,7 +96,9 @@ pub const Game = struct {
     /// Starts a game's scripts for `all`, the game's objects: the `Global` scripts of `opened`,
     /// which can read `held`, the records. `version` is OpenReliant's version. Returns null if no
     /// mod has global, mission or object scripts.
-    pub fn start(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8, all: *create.Objects) Allocator.Error!?*Game {
+    /// Where `loading`, the scripts start for a saved game, whose state `snapshot.restore` puts
+    /// back, so they don't get `on_init` yet.
+    pub fn start(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8, all: *create.Objects, shared: runtime.Shared, loading: bool) Allocator.Error!?*Game {
         const any = for (opened) |*mod| {
             var listed = globalScripts(mod);
             if (listed.next() != null) break true;
@@ -107,7 +109,7 @@ pub const Game = struct {
         if (!any) return null;
 
         const game = try gpa.create(Game);
-        const scripts = Runtime.create(gpa, io, opened, .{ .side = .game, .limits = limits, .seed = load.seed, .version = version }) catch |err| {
+        const scripts = Runtime.create(gpa, io, opened, .{ .side = .game, .limits = limits, .seed = load.seed, .version = version, .shared = shared }) catch |err| {
             gpa.destroy(game);
             return err;
         };
@@ -137,6 +139,7 @@ pub const Game = struct {
         scripts.setPackage(.interfaces);
         scripts.objects = all;
         scripts.game = game;
+        scripts.runner = &game.runner;
         all.scripts = &game.scripts;
         // An object's scripts stop as it leaves the mission, so the engine tells the scripts of
         // every object that leaves, and of every object added where manifests attach scripts.
@@ -148,7 +151,7 @@ pub const Game = struct {
             if (listed.next() == null) continue;
             listed = globalScripts(mod);
             const context = try scripts.open(@intCast(at), .global, null);
-            while (listed.next()) |name| _ = try game.startScript(game.global(), context, name, false, null);
+            while (listed.next()) |name| _ = try game.startScript(game.global(), context, name, false, null, loading);
         }
         return game;
     }
@@ -181,8 +184,8 @@ pub const Game = struct {
 
     /// `Runner.start`, which also has the engine tell the scripts of each object added where the
     /// script handles that.
-    fn startScript(game: *Game, list: *running.List, context: *Context, name: []const u8, mission: bool, payload: ?data.Data) Allocator.Error!?usize {
-        const at = try game.runner.start(list, context, name, mission, payload) orelse return null;
+    fn startScript(game: *Game, list: *running.List, context: *Context, name: []const u8, mission: bool, payload: ?data.Data, loading: bool) Allocator.Error!?usize {
+        const at = try game.runner.start(list, context, name, mission, payload, loading) orelse return null;
         if (list.items[at].offered.handlers.get(.on_object_added) != null) game.hooks.want(.object_added);
         return at;
     }
@@ -228,7 +231,7 @@ pub const Game = struct {
                         return;
                     };
                     context = opened;
-                    _ = game.startScript(game.onObject(index), opened, name, false, null) catch |err| {
+                    _ = game.startScript(game.onObject(index), opened, name, false, null, false) catch |err| {
                         log.warn("{s}: {s} can't start on object {d}: {s}", .{ mod.name, name, index, @errorName(err) });
                     };
                 }
@@ -311,7 +314,7 @@ pub const Game = struct {
         try game.mission_mods.ensureUnusedCapacity(game.gpa, 1);
         const context = try game.runtime.open(mod, .global, null);
         game.mission_mods.appendAssumeCapacity(context);
-        while (listed.next()) |name| _ = try game.startScript(game.global(), context, name, true, null);
+        while (listed.next()) |name| _ = try game.startScript(game.global(), context, name, true, null, false);
     }
 
     fn started(context: *anyopaque, mission: engine_hooks.Mission) void {
@@ -333,6 +336,7 @@ pub const Game = struct {
     fn update(context: *anyopaque, seconds: f32) void {
         const game = ofScripts(context);
         game.deliver();
+        game.runner.advance(seconds);
         game.runner.callAll(.on_update, .{ .seconds = seconds });
     }
 
@@ -406,7 +410,7 @@ pub fn addScript(call: Call, object: Object, name: []const u8, payload: ?data.Da
         drop(scripts, payload);
         call.raise("add_script: out of memory", .{});
     };
-    const started = game.startScript(list, context, file, false, payload) catch call.raise("add_script: out of memory", .{});
+    const started = game.startScript(list, context, file, false, payload, false) catch call.raise("add_script: out of memory", .{});
     return started != null;
 }
 
@@ -488,7 +492,7 @@ const Fixture = struct {
         try fixture.mission.init(gpa);
         errdefer fixture.mission.deinit();
         _ = try fixture.mission.add(.predator, @splat(0));
-        fixture.game = (try Game.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects)).?;
+        fixture.game = (try Game.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
         fixture.sabre = try fixture.mission.add(.sabre, .{ 0, 0, 1000 });
     }
 

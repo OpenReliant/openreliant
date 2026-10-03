@@ -38,6 +38,11 @@ after the call sign's terminator, which OpenReliant writes as zeros.
   can't hold saves nothing, where the game would take a separator in it for a folder's. The game
   checks the disk by writing `0x1400` bytes to `saves\test.bin` before each save, then writes the
   save without checking it; OpenReliant checks the save's own write.
+- **Improvement:** the mods' scripts keep their state with each saved game, in a file of the same
+  name with the extension `.scripts` beside it (`save.companionName`), so that the saved game stays
+  as the game writes it. The saves folder tells the driver as a game is saved, loaded or removed
+  (`save.Extra`), and the driver writes, reads or removes that file
+  ([Scripting](../port/scripting.md#saved-games)).
 - Not ported: the wing's pilots and the pool of their replacements, which the saves keep
   ([#301](https://github.com/OpenReliant/openreliant/issues/301)). OpenReliant keeps them as a save
   holds them, and a new campaign's as `campaign_pilots_reset` (`0x0049CD20`) sets them.

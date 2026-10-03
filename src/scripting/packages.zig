@@ -14,6 +14,9 @@ const drawing = @import("drawing.zig");
 const input = @import("input.zig");
 const camera = @import("camera.zig");
 const audio = @import("audio.zig");
+const storage = @import("storage.zig");
+const async_package = @import("async.zig");
+const vfs = @import("vfs.zig");
 
 /// The namespace that declares `package`; null for a package made otherwise, or not made yet.
 pub fn namespace(comptime package: script.Package) ?type {
@@ -27,7 +30,10 @@ pub fn namespace(comptime package: script.Package) ?type {
         .input => input.package,
         .camera => camera.package,
         .audio => audio.package,
-        .records, .hooks, .self, .interfaces, .orders, .postprocessing, .shaders, .storage, .async, .util, .vfs => null,
+        .storage => storage.package,
+        .async => async_package.package,
+        .vfs => vfs.package,
+        .records, .hooks, .self, .interfaces, .orders, .postprocessing, .shaders, .util => null,
     };
 }
 

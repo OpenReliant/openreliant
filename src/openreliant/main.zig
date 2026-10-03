@@ -150,6 +150,10 @@ fn missingGameFiles(directory: []const u8, file: ?[]const u8) u8 {
 /// frame takes the window's own. OpenReliant's: the original took the display mode `[Device]` names.
 const initial_size = [2]u32{ 1280, 720 };
 
+/// How often the mods' storage that changed is written to the game folder, at most, so that a
+/// script that changes it every frame doesn't write a file every frame.
+const storage_interval = 2 * std.time.ns_per_s;
+
 /// The voices `WinMain` asks `sound_init` for (`0x004A9421`).
 const sound_voices = 10;
 
@@ -222,10 +226,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             break :blank &.{};
         },
     });
-    try scripting.load.run(gpa, io, mods.list, &records, version.string);
+    // The mods' storage: the sections each mod keeps across every game, read as OpenReliant starts
+    // and written back as they change, and the sections it keeps with a saved game. Every script
+    // reaches it, and the game's files.
+    var storage: scripting.storage.Storage = .{ .gpa = gpa, .folder = .{ .io = io, .dir = directory } };
+    defer storage.deinit();
+    defer storage.flush();
+    try storage.readGlobal(mods.list);
+    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources };
+    try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
-    const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string);
+    const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string, shared);
     defer if (presentation) |shown| shown.stop();
     const ship_stats = records.ships;
     const gun_stats = records.guns;
@@ -525,12 +537,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
 
     // The mods' global scripts, which run while a game runs: from the front end's start of a game,
     // or `--mission`'s, to the main menu or the end. They stop after the mission's end below.
-    var game_scripts: GameScripts = .{ .gpa = gpa, .io = io, .mods = mods.list, .records = &records, .objects = objects, .presentation = presentation };
+    var game_scripts: GameScripts = .{ .gpa = gpa, .io = io, .mods = mods.list, .records = &records, .objects = objects, .presentation = presentation, .shared = shared };
     display.presentation = presentation;
     // The display's font as the player and menu scripts write in it over the display and the pause
     // menu: ramped, as the menus' fonts are, so that its text takes the colour a script gives.
     var script_font: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(arena, resources, game.hud.Resources.font_name, &outlines) else null;
-    defer game_scripts.stop();
+    defer game_scripts.deinit();
     // The mission `--mission` names, read once from the game's files, or for mission 0, where the
     // game has none, from the copy `openreliant` carries, and started; it starts again as each
     // attempt ends. Without it, the front end picks the mission.
@@ -566,7 +578,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var saved_loadout: engine.interface.loadout.Saved = .{};
     const saving: Saving = .{
         .gpa = gpa,
-        .folder = .{ .io = io, .dir = directory },
+        .folder = .{ .io = io, .dir = directory, .extra = game_scripts.extra() },
+        .scripts = &game_scripts,
         .player = &player,
         .tier = &objects.campaign_tier,
         .pilot = &front.pilot,
@@ -586,6 +599,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var front_ticks = platform.window.ticks();
     // When the player and menu scripts' last frame ran.
     var presented_at = platform.window.nanoseconds();
+    // When the mods' storage was last written (`storage_interval`).
+    var storage_written_at = presented_at;
     // What the front end's screens run and are entered with, its window and the time since its
     // last pass given each pass.
     var front_context: engine.genilib.interf.Context = .{
@@ -644,6 +659,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         _ = try movies.play(game.xtrabits.movie.splash_to_menu, .over_screen) orelse return;
     }
     while (true) {
+        if (platform.window.nanoseconds() -| storage_written_at >= storage_interval) {
+            storage.flush();
+            storage_written_at = platform.window.nanoseconds();
+        }
         if (movies.controllers_changed) {
             movies.controllers_changed = false;
             if (options.screenshot == null) connectController(arena, &devices, &controller, settings_file.profile);
@@ -798,7 +817,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             // the campaign's, but `WinMain` keeps no restart point for them.
             play.campaign = if (flow.campaign) |*going| going else null;
             if (flight.byWinMain()) if (flow.campaign) |*going| {
-                flow.restart_point = saving.restartPoint(going);
+                flow.restart_point = try saving.restartPoint(going);
             };
             // The pilot the front end has set flies it: the radio says the pilot's own lines in
             // the pilot's voice, and hits land by the game's difficulty.
@@ -997,7 +1016,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     // mission 25 from its first part, which it reads again (`0x004AA47A`).
                     .restart => {
                         if (flow.flown.byWinMain()) if (flow.campaign) |*campaign| {
-                            saving.restart(campaign, if (flow.restart_point) |*point| point else null);
+                            // The mission ends before the mods' scripts go back to the restart
+                            // point, so that they don't hear it end.
+                            play.end();
+                            try saving.restart(campaign, if (flow.restart_point) |*point| point else null);
                         };
                         if (objects.mission25_second_part) {
                             objects.mission25_second_part = false;
@@ -1128,7 +1150,8 @@ const Flow = struct {
 };
 
 /// The mods' global and player scripts, which run while a game runs (`scripting.Game`,
-/// `scripting.Presentation.startGame`).
+/// `scripting.Presentation.startGame`), and their state, which is kept with each saved game and
+/// with the restart point (`scripting.snapshot`).
 const GameScripts = struct {
     gpa: Allocator,
     io: Io,
@@ -1137,13 +1160,42 @@ const GameScripts = struct {
     objects: *game.create.Objects,
     /// The player and menu scripts, if any mod has some.
     presentation: ?*scripting.Presentation,
+    /// The mods' storage and the game's files, which every script reaches.
+    shared: scripting.runtime.Shared,
     running: ?*scripting.Game = null,
+    /// Whether a game runs: from `start` to `stop`.
+    started: bool = false,
+    /// The scripts' state kept with the game just loaded, which they start from (`loaded`).
+    saved: ?[]u8 = null,
+    /// The scripts' state as the last flight of the campaign began, which goes back with the
+    /// game's restart point (`Saving.restartPoint`).
+    restart_point: ?[]u8 = null,
 
-    /// Starts them as a game starts, after any of the game before.
-    fn start(scripts: *GameScripts) !void {
+    fn deinit(scripts: *GameScripts) void {
         scripts.stop();
-        scripts.running = try scripting.Game.start(scripts.gpa, scripts.io, scripts.mods, scripts.records, version.string, scripts.objects);
-        if (scripts.presentation) |shown| try shown.startGame(scripts.running, scripts.objects);
+        if (scripts.saved) |bytes| scripts.gpa.free(bytes);
+        if (scripts.restart_point) |bytes| scripts.gpa.free(bytes);
+    }
+
+    /// Starts them as a game starts, after any of the game before: from the state kept with the
+    /// game just loaded, if there is one.
+    fn start(scripts: *GameScripts) Allocator.Error!void {
+        const saved = scripts.saved;
+        scripts.saved = null;
+        defer if (saved) |bytes| scripts.gpa.free(bytes);
+        try scripts.startFrom(saved);
+    }
+
+    /// Starts them, from the state `kept` if there is one, and otherwise with the storage's game
+    /// sections empty, as a new game starts.
+    fn startFrom(scripts: *GameScripts, kept: ?[]const u8) Allocator.Error!void {
+        scripts.stop();
+        if (scripts.shared.storage) |storage| storage.clearGame();
+        const loading = kept != null;
+        scripts.running = try scripting.Game.start(scripts.gpa, scripts.io, scripts.mods, scripts.records, version.string, scripts.objects, scripts.shared, loading);
+        scripts.started = true;
+        if (scripts.presentation) |shown| try shown.startGame(scripts.running, scripts.objects, loading);
+        if (kept) |bytes| try scripting.snapshot.restore(scripts.gpa, bytes, scripts.running, scripts.presentation, scripts.shared.storage);
     }
 
     /// Stops them as the game ends, if they run.
@@ -1151,6 +1203,54 @@ const GameScripts = struct {
         if (scripts.presentation) |shown| shown.endGame();
         if (scripts.running) |running| running.stop();
         scripts.running = null;
+        scripts.started = false;
+    }
+
+    /// Keeps their state as the campaign's restart point is taken.
+    fn keepRestartPoint(scripts: *GameScripts) Allocator.Error!void {
+        if (scripts.restart_point) |bytes| scripts.gpa.free(bytes);
+        scripts.restart_point = null;
+        if (!scripts.started) return;
+        scripts.restart_point = try scripting.snapshot.take(scripts.gpa, scripts.running, scripts.presentation, scripts.shared.storage);
+    }
+
+    /// Starts them again from their state at the restart point, as the game goes back to it.
+    fn backToRestartPoint(scripts: *GameScripts) Allocator.Error!void {
+        if (scripts.restart_point) |point| try scripts.startFrom(point);
+    }
+
+    /// What the saved games' folder tells them as a game is saved, loaded and removed.
+    fn extra(scripts: *GameScripts) save.Extra {
+        return .{ .context = scripts, .vtable = &.{ .stored = stored, .loaded = loaded, .removed = removed } };
+    }
+
+    /// As a game is saved, its scripts' state is written beside it. With no scripts, there's
+    /// nothing to keep, and a file left from an earlier save in the slot is removed.
+    fn stored(context: *anyopaque, folder: save.Folder, call_sign: []const u8, slot: u8) void {
+        const scripts: *GameScripts = @ptrCast(@alignCast(context));
+        if (scripts.running == null and scripts.presentation == null) return folder.removeCompanion(call_sign, slot, scripting.snapshot.extension);
+        const bytes = scripting.snapshot.take(scripts.gpa, scripts.running, scripts.presentation, scripts.shared.storage) catch |err| {
+            std.log.warn("the scripts' state can't be saved: {s}", .{@errorName(err)});
+            return;
+        };
+        defer scripts.gpa.free(bytes);
+        folder.putCompanion(call_sign, slot, scripting.snapshot.extension, bytes) catch |err|
+            std.log.warn("the scripts' state can't be saved: {s}", .{@errorName(err)});
+    }
+
+    /// As a game is loaded, its scripts' state is read, and they start from it: at once where a
+    /// game runs, as in the Reliant's rooms, and as the game starts from the front end
+    /// otherwise. A game saved without it starts them as a new game does.
+    fn loaded(context: *anyopaque, folder: save.Folder, call_sign: []const u8, slot: u8) void {
+        const scripts: *GameScripts = @ptrCast(@alignCast(context));
+        if (scripts.saved) |bytes| scripts.gpa.free(bytes);
+        scripts.saved = folder.companion(scripts.gpa, call_sign, slot, scripting.snapshot.extension, scripting.snapshot.max_size);
+        if (scripts.started) scripts.start() catch |err|
+            std.log.warn("the scripts can't start for the game loaded: {s}", .{@errorName(err)});
+    }
+
+    fn removed(_: *anyopaque, folder: save.Folder, call_sign: []const u8, slot: u8) void {
+        folder.removeCompanion(call_sign, slot, scripting.snapshot.extension);
     }
 };
 
@@ -1167,6 +1267,8 @@ fn localDate(since_1970: i96) ?game.interface.saved_games.Date {
 const Saving = struct {
     gpa: Allocator,
     folder: save.Folder,
+    /// The mods' scripts, whose state goes with the restart point.
+    scripts: *GameScripts,
     player: *engine.input.Player,
     tier: *u2,
     pilot: *game.interface.pilot_roster.Pilot,
@@ -1183,14 +1285,18 @@ const Saving = struct {
     ///
     /// **Improvement:** OpenReliant keeps the restart point in memory, where the game writes it to
     /// the saves folder as saved game 100, named restart, and reads it back.
-    fn restartPoint(saving: Saving, campaign: *game.gameflow.Campaign) save.Save {
+    fn restartPoint(saving: Saving, campaign: *game.gameflow.Campaign) Allocator.Error!save.Save {
+        try saving.scripts.keepRestartPoint();
         return saving.gameOf(campaign).capture(save.restart_name);
     }
 
     /// `restart_load` (`0x00475D30`) of `point` into `campaign`, as a replay or the pause menu's
-    /// RESTART turns back to the mission.
-    fn restart(saving: Saving, campaign: *game.gameflow.Campaign, point: ?*const save.Save) void {
-        if (point) |kept| save.restartLoad(saving.gameOf(campaign), kept);
+    /// RESTART turns back to the mission. The mods' scripts go back to their state at that point
+    /// too.
+    fn restart(saving: Saving, campaign: *game.gameflow.Campaign, point: ?*const save.Save) Allocator.Error!void {
+        const kept = point orelse return;
+        save.restartLoad(saving.gameOf(campaign), kept);
+        try saving.scripts.backToRestartPoint();
     }
 
     /// `mission_end_record`'s save as the campaign moves on (`save.autosave`).
@@ -1320,7 +1426,7 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
             switch (try rooms.itac(.after_mission, record.next) orelse return null) {
                 .closed => return .briefed(try rooms.goOn(record.next) orelse return null, all, ship),
                 .replay => {
-                    saving.restart(campaign, restart_point);
+                    try saving.restart(campaign, restart_point);
                     all.mission25_second_part = false;
                     return .briefed(try rooms.replayBriefing(play.number) orelse return null, all, ship);
                 },
@@ -1333,12 +1439,12 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
                 // Each replay loads the restart point (`0x0043ECDB`, `0x0043ECEC`); from the briefing,
                 // it starts from mission 25's first part (`0x004AA2EC`).
                 .replay_from_briefing => {
-                    saving.restart(campaign, restart_point);
+                    try saving.restart(campaign, restart_point);
                     all.mission25_second_part = false;
                     return .briefed(try rooms.replayBriefing(play.number) orelse return null, all, ship);
                 },
                 .replay_from_launch => {
-                    saving.restart(campaign, restart_point);
+                    try saving.restart(campaign, restart_point);
                     return .{ .fly = .{ .flight = flown, .hangar = false } };
                 },
                 .main_menu => return .main_menu,

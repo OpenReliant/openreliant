@@ -28,6 +28,10 @@ const values = @import("values.zig");
 const objects = @import("objects.zig");
 const game_module = @import("game.zig");
 const presentation_module = @import("presentation.zig");
+const storage_module = @import("storage.zig");
+const running_module = @import("running.zig");
+const stored = @import("stored.zig");
+const bigfile = openreliant.engine.game.bigfile;
 
 /// The userdata tags, one per kind of userdata, each with its own metatable.
 pub const Tag = enum(luau.Tag) {
@@ -43,6 +47,8 @@ pub const Tag = enum(luau.Tag) {
     hook_handle = 5,
     /// The package `openreliant.interfaces` (`interfaces.Interfaces`).
     interfaces = 6,
+    /// A section of a mod's storage (`storage.zig`).
+    section = 7,
 };
 
 /// Which part of the game a state runs scripts for.
@@ -69,6 +75,15 @@ pub const Options = struct {
     seed: u64,
     /// OpenReliant's version, such as `0.7.0` (`core.package.version`).
     version: []const u8,
+    shared: Shared = .{},
+};
+
+/// What every state shares.
+pub const Shared = struct {
+    /// The mods' storage (`storage.zig`); null where it isn't kept.
+    storage: ?*storage_module.Storage = null,
+    /// The game's files, as the game reads them, mods first (`vfs.zig`); null where there are none.
+    files: ?bigfile.Hog = null,
 };
 
 /// The interrupt callback reads the clock on every this many calls, since reading it on every call
@@ -112,6 +127,8 @@ pub const Runtime = struct {
     presentation: ?*presentation_module.Presentation = null,
     /// What orders run against, while a mission runs.
     orders: ?aigeneric.Context = null,
+    /// The scripts that run in the state, with their events, interfaces and timers.
+    runner: ?*running_module.Runner = null,
     /// The handles made, by slot (`objects.zig`).
     handles: ?luau.Ref = null,
 
@@ -137,6 +154,7 @@ pub const Runtime = struct {
         state.setGlobal("require");
         state.pushFunction(luau.wrap(print), "print");
         state.setGlobal("print");
+        storage_module.Storage.register(state);
         if (options.side == .game) {
             state.pushNil();
             state.setGlobal("os");
@@ -250,6 +268,8 @@ pub const Runtime = struct {
         const state = runtime.state;
         state.unref(context.loaded);
         state.unref(context.thread_ref);
+        if (context.callbacks) |callbacks| state.unref(callbacks);
+        context.callbacks = null;
     }
 
     /// Makes a value in protected mode, with `build` and its `arguments` pushing it, and returns a
@@ -310,6 +330,40 @@ pub const Runtime = struct {
         if (!thread.checkStack(arguments.len + 2)) return .failed;
         _ = thread.pushRef(function);
         return runtime.callPushed(context, arguments);
+    }
+
+    /// Calls the referenced function with no arguments as the context's mod, and returns a copy of
+    /// what it returned as plain data (`stored.capture`), made in `gpa`: nil for nothing, and null
+    /// where it failed or returned what isn't plain data, which is logged.
+    pub fn callKeeping(runtime: *Runtime, context: *Context, function: luau.Ref, gpa: Allocator) ?stored.Value {
+        if (context.closed) return null;
+        const thread = context.thread;
+        if (!thread.checkStack(2)) return null;
+        _ = thread.pushRef(function);
+        const outer = runtime.begin(context);
+        const status = thread.protectedCall(0, 1);
+        runtime.end(outer);
+        if (status != .ok) {
+            runtime.recover(context, thread);
+            return null;
+        }
+        const returned = thread.ref(-1);
+        thread.pop(1);
+        defer runtime.release(returned);
+        return runtime.keep(context, returned, gpa, "on_save");
+    }
+
+    /// A copy of the referenced value as plain data (`stored.capture`), made in `gpa`; null where
+    /// it isn't plain data, which is logged as the context's error, naming `label`.
+    pub fn keep(runtime: *Runtime, context: *Context, value: luau.Ref, gpa: Allocator, label: []const u8) ?stored.Value {
+        const thread = context.thread;
+        if (!thread.checkStack(2)) return null;
+        var request: KeepRequest = .{ .value = value, .gpa = gpa, .label = label };
+        if (thread.protectedCallC(luau.wrap(keepValue), &request) != .ok) {
+            runtime.recover(context, thread);
+            return null;
+        }
+        return request.kept;
     }
 
     /// `call`, for the function at `key` of the referenced table, such as an event's handler.
@@ -494,6 +548,9 @@ pub const Context = struct {
     thread_ref: luau.Ref,
     /// The modules `require` has run, with their results.
     loaded: luau.Ref = undefined,
+    /// The functions its scripts registered for timers, by name (`async.zig`); null until the
+    /// first.
+    callbacks: ?luau.Ref = null,
     /// Whether it has been closed (`Runtime.close`).
     closed: bool = false,
 
@@ -601,6 +658,22 @@ pub const Context = struct {
         thread.pop(1);
     }
 };
+
+/// The arguments of `keepValue`.
+const KeepRequest = struct {
+    value: luau.Ref,
+    gpa: Allocator,
+    label: []const u8,
+    kept: ?stored.Value = null,
+};
+
+/// Copies a value as plain data. Runs in protected mode (`Runtime.keep`).
+fn keepValue(state: *State) i32 {
+    const request = state.toLightUserdata(KeepRequest, 1).?;
+    _ = state.pushRef(request.value);
+    request.kept = stored.capture(state, request.gpa, -1, request.label);
+    return 0;
+}
 
 /// How much stack opening a context takes.
 const context_stack = 2;

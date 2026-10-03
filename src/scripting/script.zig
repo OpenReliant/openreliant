@@ -186,14 +186,16 @@ pub const Handler = enum {
     /// Whether a script of `family` may use this handler.
     pub fn givenBy(handler: Handler, family: Family) bool {
         return switch (handler) {
-            .on_init, .on_save, .on_load => family != .load,
+            .on_init, .on_interface_override => family != .load,
+            // What lasts a whole game is kept: object scripts end with their mission, and menu
+            // scripts run across games.
+            .on_save, .on_load => family == .global or family == .player,
             .on_records_loaded => family == .load,
             .on_update, .on_step => family == .global or family == .object,
             .on_frame, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_viewport_resized => family == .player or family == .menu,
             .on_mission_start, .on_mission_end => family == .global or family == .player or family == .menu,
             .on_object_added, .on_object_removed => family == .global,
             .on_added, .on_removed => family == .object,
-            .on_interface_override => family != .load,
         };
     }
 
@@ -201,8 +203,8 @@ pub const Handler = enum {
     pub fn about(handler: Handler) []const u8 {
         return switch (handler) {
             .on_init => "When the script starts, with the data `add_script` gave it, or nil.",
-            .on_save => "When the game is saved.",
-            .on_load => "When a saved game is loaded.",
+            .on_save => "When the game is saved, between missions, and as each mission of the campaign starts, for its restart point: what it returns, which must be plain data, is kept with it. Mission scripts aren't kept.",
+            .on_load => "In place of `on_init`, when a saved game is loaded or the game goes back to the restart point, with what the script's `on_save` returned then, or nil. A script that didn't run then, such as one of a mod added since, gets `on_init` instead.",
             .on_records_loaded => "After every mod's load scripts have run.",
             .on_update => "Each frame in which game time passes, after the ships' orders, with the seconds it covers.",
             .on_step => "Each simulation step, 25 a second, after everything has moved.",
@@ -227,6 +229,8 @@ pub const Handler = enum {
     pub fn Arguments(comptime handler: Handler) ?type {
         return switch (handler) {
             .on_init => struct { data: ?data.Data },
+            .on_save => struct {},
+            .on_load => struct { saved: ?data.Data },
             .on_records_loaded, .on_step, .on_added, .on_removed => struct {},
             .on_update => struct { seconds: f32 },
             .on_mission_start => struct { mission: engine_hooks.Mission },
@@ -237,7 +241,16 @@ pub const Handler = enum {
             .on_key_press, .on_key_release => struct { key: input.Key },
             .on_action => struct { action: input.controls.Action },
             .on_viewport_resized => struct { width: u32, height: u32 },
-            .on_save, .on_load, .on_console_command => null,
+            .on_console_command => null,
+        };
+    }
+
+    /// What the engine takes from what it returns: what `on_save` returns is kept. Void for the
+    /// handlers whose result is ignored.
+    pub fn Result(comptime handler: Handler) type {
+        return switch (handler) {
+            .on_save => ?data.Data,
+            .on_init, .on_load, .on_records_loaded, .on_update, .on_step, .on_frame, .on_mission_start, .on_mission_end, .on_object_added, .on_object_removed, .on_added, .on_removed, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_viewport_resized, .on_interface_override => void,
         };
     }
 };
@@ -308,8 +321,8 @@ pub const Package = enum {
             .audio => "Interface sounds, music and Betty's lines.",
             .postprocessing => "Effects drawn over the scene.",
             .shaders => "Functions that change how surfaces look.",
-            .storage => "Settings and data kept between games.",
-            .async => "Timers that survive saving.",
+            .storage => "Sections of plain data for each mod: kept with the saved game, or in the game folder across every game.",
+            .async => "Timers, kept with the saved game: game time for global and object scripts, real time for player and menu scripts.",
             .interfaces => "The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers.",
             .util => "Vectors, matrices, positions and angles.",
             .vfs => "Reading the game's and the mods' files.",
@@ -320,8 +333,8 @@ pub const Package = enum {
     /// Whether this version implements this package.
     pub fn ready(package: Package) bool {
         return switch (package) {
-            .core, .records, .hooks, .world, .self, .nearby, .interfaces, .hud, .ui, .input, .camera, .audio, .debug => true,
-            .orders, .postprocessing, .shaders, .storage, .async, .util, .vfs => false,
+            .core, .records, .hooks, .world, .self, .nearby, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .vfs => true,
+            .orders, .postprocessing, .shaders, .util => false,
         };
     }
 };
@@ -386,7 +399,7 @@ test Package {
     try std.testing.expect(Package.records.ready());
     try std.testing.expect(Package.hooks.ready());
     try std.testing.expect(Package.world.ready());
-    try std.testing.expect(!Package.storage.ready());
+    try std.testing.expect(!Package.util.ready());
 }
 
 test Offer {

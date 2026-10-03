@@ -115,7 +115,7 @@ fn luauType(comptime T: type) []const u8 {
         if (T == data.Data) return "any";
         if (T == values.Table) return "{ [any]: any }";
         return switch (@typeInfo(T)) {
-            .void => "()",
+            .void => api.nothing,
             .float, .int => "number",
             .bool => "boolean",
             .@"enum", .@"struct" => bind.noun(T),
@@ -280,6 +280,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         }
     }
     try w.print("\n-- {s}\ntype Interfaces = {{ [string]: any }}\n", .{script.Package.interfaces.about()});
+    try w.writeAll("\n-- A section of a mod's storage: its fields by name, each plain data. Reading one gives a copy.\ntype Section = { [string]: any }\n");
 
     try w.writeAll(
         \\
@@ -327,7 +328,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         try w.print("\ntype {s}Script = {{\n    engine_handlers: {{\n", .{comptime pascal(@tagName(family))});
         inline for (comptime std.enums.values(script.Handler)) |handler| {
             if (comptime called(handler) and handler.givenBy(family)) {
-                try w.print("        {t}: (({s}) -> ())?,\n", .{ handler, comptime handlerParameters(handler) });
+                try w.print("        {t}: (({s}) -> {s})?,\n", .{ handler, comptime handlerParameters(handler), comptime luauType(handler.Result()) });
             }
         }
         try w.writeAll("    }?,\n");
@@ -354,7 +355,7 @@ fn writeEventClass(w: *Writer, comptime hook: Hook, comptime class: []const u8) 
     inline for (comptime values.shownFields(declared.Fields)) |field| try w.print("    {s}: {s}\n", .{ field.name, comptime luauType(field.type) });
     if (declared.Result != void) try w.print("    result: {s}\n", .{comptime luauType(declared.Result)});
     if (declared.on == .function) {
-        const returned = comptime if (declared.Result == void) "()" else luauType(declared.Result) ++ "?";
+        const returned = comptime if (declared.Result == void) api.nothing else luauType(declared.Result) ++ "?";
         try w.print("    -- Runs the rest of the call now: the handlers after this one, then the function.\n    function original(self): {s}\n", .{returned});
     }
     try w.writeAll("end\n");
@@ -448,7 +449,7 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
     );
     inline for (comptime std.enums.values(script.Handler)) |handler| {
         if (comptime called(handler)) {
-            try w.print("| `{t}({s})` | ", .{ handler, comptime handlerParameters(handler) });
+            try w.print("| `{t}({s})`{s} | ", .{ handler, comptime handlerParameters(handler), comptime if (handler.Result() == void) "" else ": " ++ markdownType(handler.Result()) });
             try writeFamilies(w, handler);
             try w.print(" | {s} |\n", .{handler.about()});
         }
@@ -591,7 +592,7 @@ fn cell(comptime text: []const u8) []const u8 {
 
 /// What the declared function `F` returns, for the reference page.
 fn markdownResult(comptime F: type) []const u8 {
-    if (!@hasDecl(F, "Result")) return cell(resultType(F));
+    if (!@hasDecl(F, "Result")) return if (comptime std.mem.eql(u8, F.luau_result, api.nothing)) "nothing" else cell(F.luau_result);
     return if (F.Result == void) "nothing" else markdownType(F.Result);
 }
 

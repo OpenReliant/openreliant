@@ -103,14 +103,14 @@ pub const Presentation = struct {
 
     /// Starts the `Menu` scripts of `opened`, which can read `held`, the records. `version` is
     /// OpenReliant's version. Returns null if no mod has player or menu scripts.
-    pub fn start(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8) Allocator.Error!?*Presentation {
+    pub fn start(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8, shared: runtime.Shared) Allocator.Error!?*Presentation {
         const any = for (opened) |*mod| {
             if (hasScripts(mod)) break true;
         } else false;
         if (!any) return null;
 
         const shown = try gpa.create(Presentation);
-        const scripts = Runtime.create(gpa, io, opened, .{ .side = .presentation, .limits = limits, .seed = load.seed, .version = version }) catch |err| {
+        const scripts = Runtime.create(gpa, io, opened, .{ .side = .presentation, .limits = limits, .seed = load.seed, .version = version, .shared = shared }) catch |err| {
             gpa.destroy(shown);
             return err;
         };
@@ -127,7 +127,8 @@ pub const Presentation = struct {
         shown.runner.interfaces.push(state);
         scripts.setPackage(.interfaces);
         scripts.presentation = shown;
-        try shown.startScripts(.menu);
+        scripts.runner = &shown.runner;
+        try shown.startScripts(.menu, false);
         return shown;
     }
 
@@ -150,23 +151,23 @@ pub const Presentation = struct {
     }
 
     /// Starts the scripts each mod lists for `place`, in load order.
-    fn startScripts(shown: *Presentation, comptime place: Place) Allocator.Error!void {
+    fn startScripts(shown: *Presentation, comptime place: Place, loading: bool) Allocator.Error!void {
         for (shown.runtime.mods, 0..) |*mod, at| {
             var listed = listedScripts(mod, place);
             if (listed.next() == null) continue;
             listed = listedScripts(mod, place);
             const context = try shown.runtime.open(@intCast(at), familyOf(place), null);
-            while (listed.next()) |name| _ = try shown.runner.start(shown.lists.getPtr(place), context, name, false, null);
+            while (listed.next()) |name| _ = try shown.runner.start(shown.lists.getPtr(place), context, name, false, null, loading);
         }
     }
 
     /// Starts the `Player` scripts as a game starts, with `game`, the game's scripts if any mod
-    /// has some, and `all`, the game's objects.
-    pub fn startGame(shown: *Presentation, game: ?*game_module.Game, all: *create.Objects) Allocator.Error!void {
+    /// has some, and `all`, the game's objects; `loading` as `Game.start` has it.
+    pub fn startGame(shown: *Presentation, game: ?*game_module.Game, all: *create.Objects, loading: bool) Allocator.Error!void {
         shown.endGame();
         shown.game = game;
         shown.runtime.objects = all;
-        try shown.startScripts(.player);
+        try shown.startScripts(.player, loading);
     }
 
     /// Stops the `Player` scripts as the game ends.
@@ -218,6 +219,7 @@ pub const Presentation = struct {
             }
         }
         shown.actions = held;
+        shown.runner.advance(host.seconds);
         shown.runner.callAll(.on_frame, .{ .seconds = host.seconds });
     }
 
@@ -293,7 +295,7 @@ const Fixture = struct {
         try fixture.mission.init(gpa);
         errdefer fixture.mission.deinit();
         _ = try fixture.mission.add(.predator, @splat(0));
-        fixture.shown = (try Presentation.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0")).?;
+        fixture.shown = (try Presentation.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", .{})).?;
     }
 
     fn deinit(fixture: *Fixture) void {
@@ -404,11 +406,11 @@ test "player scripts run with the game, and send it events" {
     }});
     defer fixture.deinit();
     const gpa = std.testing.allocator;
-    const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects)).?;
+    const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
     defer game.stop();
     const sabre = try fixture.mission.add(.sabre, .{ 0, 0, 500 });
     try std.testing.expectEqual(1, fixture.shown.lists.get(.menu).items.len);
-    try fixture.shown.startGame(game, fixture.mission.objects);
+    try fixture.shown.startGame(game, fixture.mission.objects, false);
     try std.testing.expectEqual(1, fixture.shown.lists.get(.player).items.len);
     // The player script's event reaches the global script at the game's next update, the Sabre's
     // handle with it.
@@ -459,12 +461,12 @@ test "the wingmen example's panel lists the wingmen nearby, and calls them back"
     } }});
     defer fixture.deinit();
     const gpa = std.testing.allocator;
-    const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects)).?;
+    const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
     defer game.stop();
     game.scripts.begin(fixture.mission.orders(), .{ .number = 5, .file = "mission5.dte" }, 1);
     const wingman = try fixture.mission.add(.wolverine, .{ 0, 0, -1000 });
     fixture.mission.objects.slots[wingman].object.side = .friendly;
-    try fixture.shown.startGame(game, fixture.mission.objects);
+    try fixture.shown.startGame(game, fixture.mission.objects, false);
     // Over the flight display, the panel's title and the wingman's line.
     var host: Host = .{ .seconds = 0.016, .devices = &fixture.devices, .window = .{ 1024, 768 }, .flying = true };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 1024, 768 }, .scale = 1 });

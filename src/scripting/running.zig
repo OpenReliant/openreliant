@@ -23,6 +23,8 @@ const values = @import("values.zig");
 const data = @import("data.zig");
 const events = @import("events.zig");
 const interfaces = @import("interfaces.zig");
+const async_module = @import("async.zig");
+const Name = runtime.Name;
 
 /// A script that runs.
 pub const Running = struct {
@@ -39,6 +41,18 @@ pub const Running = struct {
 /// The scripts that run in one place, in the order they started.
 pub const List = std.ArrayList(Running);
 
+/// A timer waiting to run the function its mod registered under `name` (`async.zig`).
+pub const Timer = struct {
+    context: *Context,
+    name: Name,
+    /// The seconds left until it runs.
+    left: f64,
+    /// What it passes the function, held in the state; null for nil.
+    data: ?luau.Ref,
+    /// The round of `Runner.advance` it was started in, which runs only those started before it.
+    round: u32 = 0,
+};
+
 /// The scripts of one side, in their lists, with their events and interfaces.
 pub const Runner = struct {
     gpa: Allocator,
@@ -49,6 +63,10 @@ pub const Runner = struct {
     interfaces: interfaces.Interfaces,
     /// The hooks the scripts add handlers to; null for the presentation side, which has none yet.
     hooks: ?*hooks.Hooks = null,
+    /// The timers waiting, in the order they were started.
+    timers: std.ArrayList(Timer) = .empty,
+    /// How many times `advance` has run, which tells the timers it runs from those started since.
+    round: u32 = 0,
     /// How many calls walk the lists, whose stopped scripts wait for them.
     walking: u32 = 0,
     /// Whether a script stopped while calls walked the lists.
@@ -68,15 +86,60 @@ pub const Runner = struct {
     pub fn deinit(runner: *Runner) void {
         for (runner.lists) |*list| runner.stopAll(list);
         for (runner.lists) |*list| list.deinit(runner.gpa);
+        for (runner.timers.items) |timer| if (timer.data) |ref| runner.runtime.release(ref);
+        runner.timers.deinit(runner.gpa);
         runner.events.deinit();
         runner.interfaces.deinit();
     }
 
+    /// Adds `timer`, which then holds its data's reference.
+    pub fn addTimer(runner: *Runner, timer: Timer) error{ OutOfMemory, TooMany }!void {
+        if (runner.timers.items.len == async_module.max_timers) return error.TooMany;
+        var started = timer;
+        started.round = runner.round;
+        try runner.timers.append(runner.gpa, started);
+    }
+
+    /// Moves the timers on by `seconds`, and runs those whose time has come, soonest first, each
+    /// once. Timers started meanwhile wait for the next.
+    pub fn advance(runner: *Runner, seconds: f64) void {
+        for (runner.timers.items) |*timer| timer.left -= seconds;
+        // The timers this call's functions start belong to the round after it.
+        runner.round +%= 1;
+        while (true) {
+            var soonest: ?usize = null;
+            for (runner.timers.items, 0..) |timer, at| {
+                if (timer.round == runner.round or timer.left > 0) continue;
+                if (soonest == null or timer.left < runner.timers.items[soonest.?].left) soonest = at;
+            }
+            const at = soonest orelse return;
+            runner.fire(runner.timers.orderedRemove(at));
+        }
+    }
+
+    /// Runs the function `timer` names, and lets go of its data.
+    fn fire(runner: *Runner, timer: Timer) void {
+        defer if (timer.data) |ref| runner.runtime.release(ref);
+        const context = timer.context;
+        if (context.closed) return;
+        const name = timer.name.slice();
+        const callbacks = context.callbacks orelse return missingCallback(context, name);
+        runner.walking += 1;
+        defer runner.leave();
+        const called = runner.runtime.callIn(context, callbacks, name, .{timer.data}) orelse return missingCallback(context, name);
+        if (called == .failed) log.warn("{s}: the timer {s} failed", .{ context.modOf().name, name });
+    }
+
+    fn missingCallback(context: *const Context, name: []const u8) void {
+        log.warn("{s}: a timer names {s}, which no script registered (async.register_timer)", .{ context.modOf().name, name });
+    }
+
     /// Runs the script `name` of the mod opened as `context`, keeps what it offers in `list`, and
-    /// calls its `on_init` with `payload`, then, for an object script, its `on_added`. Returns
-    /// where it went in `list`; null for a script that fails, which is logged and left out.
-    /// `payload` goes with the script.
-    pub fn start(runner: *Runner, list: *List, context: *Context, name: []const u8, mission: bool, payload: ?data.Data) Allocator.Error!?usize {
+    /// calls its `on_init` with `payload` unless it's `loading`, as a saved game's scripts start
+    /// (`snapshot.restore`), then, for an object script, its `on_added`. Returns where it went in
+    /// `list`; null for a script that fails, which is logged and left out. `payload` goes with the
+    /// script.
+    pub fn start(runner: *Runner, list: *List, context: *Context, name: []const u8, mission: bool, payload: ?data.Data, loading: bool) Allocator.Error!?usize {
         defer if (payload) |given| runner.runtime.release(given.ref);
         const mod = context.modOf();
         const returned = runner.runtime.run(context, name) orelse return null;
@@ -98,7 +161,7 @@ pub const Runner = struct {
                 runner.callOne(list, at, .on_interface_override, .{ .base = .{ .ref = base } });
             }
         }
-        runner.callOne(list, at, .on_init, .{ .data = payload });
+        if (!loading) runner.callOne(list, at, .on_init, .{ .data = payload });
         if (context.family == .object) runner.callOne(list, at, .on_added, .{});
         return at;
     }
@@ -178,6 +241,16 @@ pub const Runner = struct {
     pub fn closeContext(runner: *Runner, context: *Context) void {
         if (runner.hooks) |held| held.removeContext(context);
         runner.interfaces.removeContext(context);
+        var kept: usize = 0;
+        for (runner.timers.items) |timer| {
+            if (timer.context == context) {
+                if (timer.data) |ref| runner.runtime.release(ref);
+                continue;
+            }
+            runner.timers.items[kept] = timer;
+            kept += 1;
+        }
+        runner.timers.shrinkRetainingCapacity(kept);
         runner.runtime.close(context);
     }
 
