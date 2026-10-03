@@ -1,17 +1,17 @@
 //! `C:\lancer\game\launch.cpp`: order 104, Launch, by which a ship leaves the ship it launches
 //! from, its carrier: `order_launch_init` (`0x00418EB0`) and `order_launch` (`0x004191C0`). A
 //! carrier launches its ships in a style of its own (`Style`), each a pair of routines in the
-//! table at `0x004E3C98`: the Reliant's ([`launch/reliant.zig`](launch/reliant.zig)), the
-//! torpedoes' ([`launch/torpedo.zig`](launch/torpedo.zig)) and the Zakov's
-//! ([`launch/zakov.zig`](launch/zakov.zig)). **Unverified:** that the code around
-//! the file's known code is its own too: StartLaunch's start (`start`) and the search for a gate
-//! before it, and the styles' routines, the placing at a launch point (`attach`) among them,
-//! after it, before `tractor.cpp`'s. [Launches](../../../docs/engine/launch.md) describes them.
+//! table at `0x004E3C98`. OpenReliant runs the Reliant ([`launch/reliant.zig`](launch/reliant.zig)),
+//! the torpedoes ([`launch/torpedo.zig`](launch/torpedo.zig)), the hangar bays
+//! ([`launch/bay.zig`](launch/bay.zig)) and the Zakov ([`launch/zakov.zig`](launch/zakov.zig)).
+//! **Unverified:** that the code next to the file's known code belongs to it too: StartLaunch's
+//! start (`start`) and the gate search before it, and the styles' routines after it, up to
+//! `tractor.cpp`'s code, including the placing at a launch point (`attach`).
+//! [Launches](../../../docs/engine/launch.md) describes them.
 //!
-//! Not ported: the other styles
-//! ([#304](https://github.com/OpenReliant/openreliant/issues/304)). A ship that launches in one waits
-//! for its launch riding its carrier, as every launching ship does, and is let go where it stands
-//! as its style's steps would begin (`letGo`).
+//! Not ported: the other styles ([#304](https://github.com/OpenReliant/openreliant/issues/304)). A
+//! ship launching in one of them waits on its carrier like every launching ship, and is let go
+//! where it stands when its style's steps would begin (`letGo`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -30,6 +30,7 @@ const objects = @import("objects.zig");
 const videoreports = @import("videoreports.zig");
 const xtrabits = @import("xtrabits.zig");
 
+pub const bay = @import("launch/bay.zig");
 pub const reliant = @import("launch/reliant.zig");
 pub const torpedo = @import("launch/torpedo.zig");
 pub const zakov = @import("launch/zakov.zig");
@@ -89,10 +90,11 @@ pub const Style = enum(i32) {
     /// ([#304](https://github.com/OpenReliant/openreliant/issues/304)).
     pub fn routines(style: Style) ?Routines {
         return switch (style) {
+            .bay => .{ .init = &bay.init, .run = &bay.run },
             .reliant => .{ .init = &reliant.init, .run = &reliant.run },
             .torpedo => .{ .init = &torpedo.init, .run = &torpedo.run },
             .zakov => .{ .init = &zakov.init, .run = &zakov.run },
-            .bay, .yamato, .badanov, .escape_pod, .stork, .other_escape_pod, .rogue_base, _ => null,
+            .yamato, .badanov, .escape_pod, .stork, .other_escape_pod, .rogue_base, _ => null,
         };
     }
 
@@ -150,6 +152,7 @@ comptime {
     assert(Step.of(reliant.Step.start) == Step.styled);
     assert(Step.of(torpedo.Step.fire) == Step.styled);
     assert(Step.of(zakov.Step.leave) == Step.styled);
+    assert(Step.of(bay.Step.open) == Step.styled);
 }
 
 /// What Launch keeps in the object's order state.
@@ -173,7 +176,10 @@ pub const State = extern struct {
     /// The carrier, and the gate on it, the search found.
     carrier: i32,
     gate: i32,
-    _unknown_50: [0x90 - 0x50]u8,
+    /// The nodes of a bay's doors, which `launch_bay_init` keeps. OpenReliant looks them up from
+    /// the carrier and the gate instead (`bay.Doors`).
+    doors: [2]engine.Pointer(objects.Node),
+    _unknown_58: [0x90 - 0x58]u8,
 
     comptime {
         assert(@offsetOf(State, "due") == 0x04);
@@ -185,6 +191,7 @@ pub const State = extern struct {
         assert(@offsetOf(State, "sequence") == 0x44);
         assert(@offsetOf(State, "carrier") == 0x48);
         assert(@offsetOf(State, "gate") == 0x4C);
+        assert(@offsetOf(State, "doors") == 0x50);
         assert(@sizeOf(State) == 0x90);
     }
 
@@ -447,8 +454,8 @@ test "Style.of" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Style.reliant}));
     try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @enumFromInt(12))}));
-    // OpenReliant runs the Reliant's, the torpedoes' and the Zakov's routines.
-    for (std.enums.values(Style)) |style| try std.testing.expectEqual(style == .reliant or style == .torpedo or style == .zakov, style.routines() != null);
+    // OpenReliant runs the routines of the Reliant, the torpedoes, the hangar bays and the Zakov.
+    for (std.enums.values(Style)) |style| try std.testing.expectEqual(style == .bay or style == .reliant or style == .torpedo or style == .zakov, style.routines() != null);
 }
 
 /// Fixtures for the launches' tests.

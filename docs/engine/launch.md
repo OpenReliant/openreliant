@@ -2,11 +2,13 @@
 
 A ship leaves the ship it launches from, its carrier, under order 104, Launch (`launch.cpp`):
 `order_launch_init` (`0x00418EB0`) readies it, and `order_launch` (`0x004191C0`) runs it an update
-at a time. The carrier's type picks how the launch goes, its style. OpenReliant runs three styles:
-the Reliant's, the torpedoes' and the Zakov's. [`launch.zig`](../../src/engine/game/launch.zig)
-holds the order, and [`launch/reliant.zig`](../../src/engine/game/launch/reliant.zig),
-[`launch/torpedo.zig`](../../src/engine/game/launch/torpedo.zig) and
-[`launch/zakov.zig`](../../src/engine/game/launch/zakov.zig) the styles.
+at a time. The carrier's type picks how the launch goes, its style. OpenReliant runs four styles:
+the Reliant, the torpedoes, the hangar bays and the Zakov.
+[`launch.zig`](../../src/engine/game/launch.zig) holds the order, and
+[`launch/reliant.zig`](../../src/engine/game/launch/reliant.zig),
+[`launch/torpedo.zig`](../../src/engine/game/launch/torpedo.zig),
+[`launch/bay.zig`](../../src/engine/game/launch/bay.zig) and
+[`launch/zakov.zig`](../../src/engine/game/launch/zakov.zig) hold the styles.
 
 ## How a launch is given
 
@@ -45,7 +47,7 @@ then runs again with the push of its argument before it.
 
    | Style | Of | Routines |
    |---|---|---|
-   | 0 | A ship from the Victorious, the Endeavour, the Mitchell (`0x13`, `0xA0`), the Bremen, the Ramases (`0x34`, `0x9C`), the Pukov, the Kronstadt, the Krasnaya, the Varyag or the Kiev, and from the rogue base's seventh gate on | `0x0041A610`, `0x0041A9C0` |
+   | 0 | A ship from the Victorious, the Endeavour, the Mitchell (`0x13`, `0xA0`), the Bremen, the Ramases (`0x34`, `0x9C`), the Pukov, the Kronstadt, the Krasnaya, the Varyag or the Kiev, and from the rogue base's seventh gate on | `launch_bay_init` (`0x0041A610`), `launch_bay_run` (`0x0041A9C0`) |
    | 1 | A ship from the Yamato | `0x004192C0`, `0x00419840` |
    | 2 | A ship from the Badanov or the Krasny | `0x00419F60`, `0x0041A100` |
    | 3 | A torpedo (`0x4A`, `0x5C`), from anything | `launch_torpedo_init` (`0x0041A360`), `launch_torpedo_run` (`0x0041A390`) |
@@ -171,7 +173,39 @@ its carrier's velocity, trailing smoke as a torpedo does. After 200 ticks it fli
 order pops, it can be targeted and collides again, and its Launched event is queued; it still
 passes through the ship that launched it.
 
-## The Zakov's
+## Hangar bays
+
+A ship launching from a hangar bay (`launch_bay_init`, `0x0041A610`) is placed at the launch point
+of its gate, riding the part that holds it. The game keeps the gate's doors in the order's state
+(`+0x50`, `+0x54`). These are up to two parts of the carrier's root's child list, picked by the
+carrier's type and the gate.
+
+| Carrier | Gate 0 | Gate 1 | Gate 2 | Gate 3 |
+|---|---|---|---|---|
+| Victorious, Mitchell (`0xA0`) | 3, 4 | 5, 6 | 7, 8 | 9, 10 |
+| Endeavour | 13, 14 | 15, 16 | 19, 20 | 17, 18 |
+| Bremen | 6, 7 | 4, 5 | | |
+| Pukov, Varyag | 15 | 15 | 16 | 16 |
+| Krasnaya | 3 | 4 | 5 | |
+| Kiev | 8 | 7, as the second door | | |
+
+Other carriers and gates have no doors, among them the Mitchell (`0x13`), the Ramases, the
+Kronstadt and the rogue base. From step 2 (`launch_bay_run`, `0x0041A9C0`):
+
+| Step | What happens | Ticks to the next |
+|---|---|---|
+| 2 | The doors play `opendoor` forward at speed 4 from where they stand. The sound `0x35` plays at the first door | 200 |
+| 3 | The ship lets go and flies out along its nose at throttle 2 (`motion_plain`), with its carrier's velocity. From the Pukov or the Varyag, it climbs with a pitch input of 0.1 for the last 100 ticks | 200, or 400 from the Pukov or the Varyag |
+| 4 | The doors play `opendoor` backwards at speed 4, and the sound `0x36` plays at the first door. They stay open while another ship launches from the same carrier through the same doors and is between its delay (step 1) and its own step 4 | 300 |
+| 5 | The ship flies itself (`motion_forward`) with its throttle and inputs set to 0. It no longer passes through its carrier, its order pops, it can be targeted again, and its Launched event is posted | |
+
+OpenReliant looks up the doors from the carrier and the gate each time, rather than keeping them in
+the order's state.
+
+**Fix:** when the carrier's model lacks a door part, the game reads past the end of its root's
+child list. OpenReliant skips that door.
+
+## The Zakov
 
 A ship launching from the Zakov (`launch_zakov_init`, `0x0041B8B0`) is placed at the launch point
 its gate names, riding the part that holds it, then moved forward along its nose by how far its
