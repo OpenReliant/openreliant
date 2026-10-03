@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.7.0](https://github.com/OpenReliant/openreliant/compare/v0.6.2...v0.7.0) (2026-10-03)
+
+
+### Features
+
+* a mod's scripts offer options the player sets on the mods screen ([#602](https://github.com/OpenReliant/openreliant/issues/602)) ([e5911b3](https://github.com/OpenReliant/openreliant/commit/e5911b3150391e6e5a13eced428804e3ae321f86))
+* a mods screen to turn mods on and off, set their load order and refresh the list ([#598](https://github.com/OpenReliant/openreliant/issues/598)) ([c040ccd](https://github.com/OpenReliant/openreliant/commit/c040ccdc1212a1d9961238ebb6951e5aed3d381b))
+* a scripting console for modders, and scripts that reload as they're saved ([#594](https://github.com/OpenReliant/openreliant/issues/594)) ([0bb23e5](https://github.com/OpenReliant/openreliant/commit/0bb23e5f024b232d3ff9aa8766f2b1479256fda4))
+* add the first ten missions' missing handlers ([#607](https://github.com/OpenReliant/openreliant/issues/607)) ([33f0c0d](https://github.com/OpenReliant/openreliant/commit/33f0c0da0890ce6bcc345378eea42d0aa0187f91)), closes [#606](https://github.com/OpenReliant/openreliant/issues/606)
+* add typed mission source symbols ([#611](https://github.com/OpenReliant/openreliant/issues/611)) ([6c70e13](https://github.com/OpenReliant/openreliant/commit/6c70e139422db4424f7125f8da7a06d3f4de9e81)), closes [#609](https://github.com/OpenReliant/openreliant/issues/609)
+* complete the carrier launch styles ([#605](https://github.com/OpenReliant/openreliant/issues/605)) ([8ae76d8](https://github.com/OpenReliant/openreliant/commit/8ae76d8a19e3277b129fef64ba18ab34dcd45523)), closes [#304](https://github.com/OpenReliant/openreliant/issues/304)
+* draw mod pictures, shapes and fonts in scripts ([#619](https://github.com/OpenReliant/openreliant/issues/619)) ([a8fe8f5](https://github.com/OpenReliant/openreliant/commit/a8fe8f5b027a6da6a586ec7feab69c5bb97c97e1)), closes [#590](https://github.com/OpenReliant/openreliant/issues/590)
+* global scripts, and hooks on the game's functions and events ([#583](https://github.com/OpenReliant/openreliant/issues/583)) ([d18eafb](https://github.com/OpenReliant/openreliant/commit/d18eafba202823ca1b1ed7ee3d1157160ac4ec27)), closes [#556](https://github.com/OpenReliant/openreliant/issues/556)
+* load scripts in Luau change the game's records ([#566](https://github.com/OpenReliant/openreliant/issues/566)) ([cec77c9](https://github.com/OpenReliant/openreliant/commit/cec77c932e10429f61adf0c90d260f6a7eae4227)), closes [#555](https://github.com/OpenReliant/openreliant/issues/555)
+* mods' scripts keep their state with saved games, with timers, storage and file reading ([#593](https://github.com/OpenReliant/openreliant/issues/593)) ([17e6cb4](https://github.com/OpenReliant/openreliant/commit/17e6cb45b7fe1bb9e9d47bf97e494b945358421f))
+* object scripts, events and interfaces for mods ([#588](https://github.com/OpenReliant/openreliant/issues/588)) ([c94be45](https://github.com/OpenReliant/openreliant/commit/c94be455fb88ebfe9d77deae1962e7de93f1cbed))
+* player and menu scripts that draw over the display and the menus ([#591](https://github.com/OpenReliant/openreliant/issues/591)) ([5c80a2f](https://github.com/OpenReliant/openreliant/commit/5c80a2fcf6212bc46f3298f9b259f5670847e415))
+* register mod-qualified input actions ([#618](https://github.com/OpenReliant/openreliant/issues/618)) ([be32494](https://github.com/OpenReliant/openreliant/commit/be3249443d512f87541200c602c094f1fc9df576)), closes [#617](https://github.com/OpenReliant/openreliant/issues/617)
+* register mod-qualified scripted AI orders ([#616](https://github.com/OpenReliant/openreliant/issues/616)) ([9d47fbc](https://github.com/OpenReliant/openreliant/commit/9d47fbcb0a75c69cb816995223e7b65a83455c24)), closes [#615](https://github.com/OpenReliant/openreliant/issues/615)
+* the util and orders packages for mods' scripts ([#595](https://github.com/OpenReliant/openreliant/issues/595)) ([ea64cd5](https://github.com/OpenReliant/openreliant/commit/ea64cd5958a954e49c35642db8e46d70d1b023ab))
+* vfs.read reads the game folder's loose files, such as the missions and the music ([#603](https://github.com/OpenReliant/openreliant/issues/603)) ([8320ae2](https://github.com/OpenReliant/openreliant/commit/8320ae2b08fceb369e3bacaeeece711f645bfd46))
+
+
+### Fixes
+
+* closing the ITAC no longer freezes the screen for seconds ([#575](https://github.com/OpenReliant/openreliant/issues/575)) ([8204f3b](https://github.com/OpenReliant/openreliant/commit/8204f3b84a7ec3a048d84a4aba2116a8732155d2)), closes [#565](https://github.com/OpenReliant/openreliant/issues/565)
+* flush sltool output when a command fails ([#614](https://github.com/OpenReliant/openreliant/issues/614)) ([5cb1149](https://github.com/OpenReliant/openreliant/commit/5cb11490566bc8e73fb1e876fef0ec4c65735a49)), closes [#542](https://github.com/OpenReliant/openreliant/issues/542)
+* ships launch out of the hangar bays of the Bremen and the other carriers ([#584](https://github.com/OpenReliant/openreliant/issues/584)) ([b66f28f](https://github.com/OpenReliant/openreliant/commit/b66f28f2059170d236fe7a61b2a3be2819025922)), closes [#579](https://github.com/OpenReliant/openreliant/issues/579)
+* the 45th's wingmen fly under their own names, which change as they die ([#596](https://github.com/OpenReliant/openreliant/issues/596)) ([420fd20](https://github.com/OpenReliant/openreliant/commit/420fd2029f3689321e70faeb2a20217631138c30)), closes [#564](https://github.com/OpenReliant/openreliant/issues/564)
+* the menu music fades out as a new game's intro starts ([#571](https://github.com/OpenReliant/openreliant/issues/571)) ([b1c8eba](https://github.com/OpenReliant/openreliant/commit/b1c8ebab66cf860ac9af63b23db44eba86fe1622)), closes [#561](https://github.com/OpenReliant/openreliant/issues/561)
+* the small target display names the target's pilot ([#573](https://github.com/OpenReliant/openreliant/issues/573)) ([b6613d9](https://github.com/OpenReliant/openreliant/commit/b6613d900fb90be36f59ba32a1bbca98c3b1f9a3)), closes [#564](https://github.com/OpenReliant/openreliant/issues/564) [#529](https://github.com/OpenReliant/openreliant/issues/529)
+* the steady lights no longer turn the launch bay all red ([#569](https://github.com/OpenReliant/openreliant/issues/569)) ([4982462](https://github.com/OpenReliant/openreliant/commit/4982462b85b147c6de6cf4a5483d65ece7008028)), closes [#567](https://github.com/OpenReliant/openreliant/issues/567)
+* the Storks drop their satellites, which open out their panels ([#586](https://github.com/OpenReliant/openreliant/issues/586)) ([24acc49](https://github.com/OpenReliant/openreliant/commit/24acc499f05e52a96a434d6c4abc9799afdd6ea5)), closes [#580](https://github.com/OpenReliant/openreliant/issues/580)
+* the Zakov's fighters wait on its launch points and launch from them ([#576](https://github.com/OpenReliant/openreliant/issues/576)) ([db73e7d](https://github.com/OpenReliant/openreliant/commit/db73e7d0680b2923005cb2afc40161d1548e45fd))
+
+
+### Documentation
+
+* Enriquez is a woman in the docs and comments ([#572](https://github.com/OpenReliant/openreliant/issues/572)) ([24e6eac](https://github.com/OpenReliant/openreliant/commit/24e6eacb8ff733279d89db8279d23251d0012168))
+* importing mods is dropped from the mod manager's plan ([#599](https://github.com/OpenReliant/openreliant/issues/599)) ([f654794](https://github.com/OpenReliant/openreliant/commit/f654794a9b453f80f494d5f805f726f0da483bb2))
+* plain wording in the briefing, the induction and the sound timer's comments ([#578](https://github.com/OpenReliant/openreliant/issues/578)) ([0627645](https://github.com/OpenReliant/openreliant/commit/0627645cacf53e7d83a0a163d2162375c8d0cab3))
+
 ## [0.6.2](https://github.com/OpenReliant/openreliant/compare/v0.6.1...v0.6.2) (2026-10-02)
 
 
