@@ -14,7 +14,7 @@
 //!
 //! **Improvement:** the original can't load mods.
 //!
-//! Not ported: importing a mod, a mod's thumbnail and its conflicts
+//! Not ported: a mod's thumbnail and its conflicts
 //! ([#497](https://github.com/OpenReliant/openreliant/issues/497)), and a page of options for a mod's
 //! scripts ([#597](https://github.com/OpenReliant/openreliant/issues/597)).
 

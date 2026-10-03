@@ -313,7 +313,7 @@ Not ported: 3D RENDER MODE, which OpenReliant has no Direct3D devices for.
 
 Each change is written to `starlancer.ini` at once, in the section `[OpenReliantMods]` ([Load order](../guide/modding.md#load-order)), and takes effect at the next start. A mod whose folder name can't be a key of the settings file (it has an equals sign, starts with a bracket or has spaces at either end) stays on, in name order after the mods the list names. The screen lists at most 255 mods. It stays shut with `--no-mods`.
 
-Not ported: importing a mod, a mod's thumbnail and its conflicts ([#497](https://github.com/OpenReliant/openreliant/issues/497)), and a page of options for a mod's scripts ([#597](https://github.com/OpenReliant/openreliant/issues/597)).
+Not ported: a mod's thumbnail and its conflicts ([#497](https://github.com/OpenReliant/openreliant/issues/497)), and a page of options for a mod's scripts ([#597](https://github.com/OpenReliant/openreliant/issues/597)).
 
 ## The dialogs
 
