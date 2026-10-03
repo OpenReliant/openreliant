@@ -435,6 +435,11 @@ pub const Rect = extern struct {
     width: i16,
     height: i16,
 
+    /// Its middle, which lies inside it where it is more than a pixel across.
+    pub fn centre(rect: Rect) [2]i32 {
+        return .{ rect.x + @divTrunc(rect.width, 2), rect.y + @divTrunc(rect.height, 2) };
+    }
+
     /// Whether `at` lies inside it, its edges left out, as `interface_hit` tests.
     pub fn holds(rect: Rect, at: [2]i32) bool {
         return rect.x < at[0] and at[0] < @as(i32, rect.x) + rect.width and rect.y < at[1] and at[1] < @as(i32, rect.y) + rect.height;
@@ -696,4 +701,10 @@ test Scrolled {
     short.scroll(.down);
     try std.testing.expectEqual(0, short.first);
     try std.testing.expectEqual(4, short.end());
+}
+
+test "a rectangle's middle lies inside it" {
+    const rect: Rect = .{ .x = 10, .y = 20, .width = 25, .height = 16 };
+    try std.testing.expectEqual([2]i32{ 22, 28 }, rect.centre());
+    try std.testing.expect(rect.holds(rect.centre()));
 }

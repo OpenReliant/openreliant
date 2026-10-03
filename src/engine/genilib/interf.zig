@@ -340,7 +340,7 @@ pub const Interface = struct {
             },
             .mod_options => {
                 const mods = context.mods orelse return front.backToOptions();
-                const end = front.mod_options.frame(.{ .pointer = pointer, .keyboard = &context.devices.keyboard, .ticks = front.ticks, .pages = mods.pages }) orelse return null;
+                const end = front.mod_options.frame(optionsContext(front, context, mods, pointer)) orelse return null;
                 switch (end) {
                     // Back to the mods screen as it was left, with no movie between.
                     .back, .continue_mission => {
@@ -437,7 +437,7 @@ pub const Interface = struct {
             .video => if (context.settings) |settings_file| front.settings.enter(.game_options, .video, settingsContext(front, context, settings_file, front.pointer)),
             .mods => if (context.settings) |settings_file| if (context.mods) |mods| front.mod_manager.enter(modsContext(front, context, settings_file, mods, front.pointer)),
             .mod_options => if (context.mods) |mods| {
-                const shown = front.mod_options.enter(front.options_of, .{ .pointer = front.pointer, .keyboard = &context.devices.keyboard, .ticks = front.ticks, .pages = mods.pages });
+                const shown = front.mod_options.enter(front.options_of, optionsContext(front, context, mods, front.pointer));
                 if (!shown) front.screen = .mods;
             },
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
@@ -528,6 +528,11 @@ fn settingsContext(front: *const Interface, context: Context, settings_file: *pr
 /// What a pass of the mods screen reads, with the pointer at `pointer`.
 fn modsContext(front: *const Interface, context: Context, settings_file: *profile.File, source: mod_manager.Source, pointer: canvas.Pointer) mod_manager.Context {
     return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .settings_file = settings_file, .ticks = front.ticks, .source = source };
+}
+
+/// What a pass of a mod's options reads, with the pointer at `pointer`.
+fn optionsContext(front: *const Interface, context: Context, source: mod_manager.Source, pointer: canvas.Pointer) mod_options.Context {
+    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .ticks = front.ticks, .pages = source.pages };
 }
 
 /// The screen of the settings screen's `tab`, the game's screen for it.

@@ -353,11 +353,13 @@ pub const ModOptions = struct {
         var buffer: [max_options]Line.Shown = undefined;
         var numbers: [max_options][number_words]u8 = undefined;
         const shown = screen.shownRows(&buffer, &numbers);
-        const lit_pane: ?Pane.Item = if (screen.lit) |item| (if (item == .pane) item.pane else null) else null;
+        const lit_pane: ?Pane.Item = if (screen.lit) |item| switch (item) {
+            .pane => |on_pane| on_pane,
+            .button => null,
+        } else null;
         try screen.pane.draw(canvas, art, screen.list, shown, lit_pane);
         for (std.enums.values(settings.Button)) |button| {
-            const lit = if (screen.lit) |item| item == .button and item.button == button else false;
-            try button.shown(.game_options).draw(canvas, art, settings.button_shapes, lit);
+            try button.shown(.game_options).draw(canvas, art, settings.button_shapes, std.meta.eql(screen.lit, Item{ .button = button }));
         }
         if (lit_pane) |item| if (rowOf(item)) |row| {
             const description = screen.page.options[row].description;
@@ -492,10 +494,6 @@ fn click(screen: *ModOptions, keyboard: *input.Keyboard, pages: Pages, at: [2]i3
     return screen.frame(context);
 }
 
-fn centre(rect: canvas_module.Rect) [2]i32 {
-    return .{ rect.x + @divTrunc(rect.width, 2), rect.y + @divTrunc(rect.height, 2) };
-}
-
 test "the screen shows a page, and keeps each change at once" {
     var recorder: Recorder = .{ .mod = "wingmen", .page = .{ .title = "WINGMEN", .options = &test_options } };
     recorder.values[1] = .{ .number = 0.5 };
@@ -512,26 +510,26 @@ test "the screen shows a page, and keeps each change at once" {
     try std.testing.expectEqual(Value{ .number = 20 }, screen.values[2]);
     try std.testing.expectEqual(0, recorder.sets);
     // The check box turns the toggle over; the choice's arrows go on and round; the number's step.
-    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, centre(screen.pane.line(0).boxRect())));
+    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, screen.pane.line(0).boxRect().centre()));
     try std.testing.expectEqual(Value{ .boolean = false }, recorder.values[0].?);
-    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, centre(screen.pane.line(1).arrow(.on))));
+    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, screen.pane.line(1).arrow(.on).centre()));
     try std.testing.expectEqual(Value{ .number = 0.2 }, recorder.values[1].?);
-    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, centre(screen.pane.line(2).arrow(.back))));
+    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, screen.pane.line(2).arrow(.back).centre()));
     try std.testing.expectEqual(Value{ .number = 15 }, recorder.values[2].?);
     try std.testing.expectEqual(3, recorder.sets);
     // CANCEL CHANGES puts the values back as the screen opened them, RESET DEFAULTS the defaults;
     // a value already there isn't set again.
-    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, centre(settings.Button.cancel_changes.rect())));
+    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, settings.Button.cancel_changes.rect().centre()));
     try std.testing.expectEqual(Value{ .boolean = true }, recorder.values[0].?);
     try std.testing.expectEqual(Value{ .number = 0.5 }, recorder.values[1].?);
     try std.testing.expectEqual(Value{ .number = 20 }, recorder.values[2].?);
     try std.testing.expectEqual(6, recorder.sets);
-    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, centre(settings.Button.reset_defaults.rect())));
+    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, settings.Button.reset_defaults.rect().centre()));
     try std.testing.expectEqual(Value{ .number = 0.35 }, recorder.values[1].?);
     try std.testing.expectEqual(7, recorder.sets);
     // OK, MAIN MENU and Escape end the screen.
-    try std.testing.expectEqual(settings.End.back, click(&screen, &keyboard, pages, centre(settings.Button.ok.rect())).?);
-    try std.testing.expectEqual(settings.End.main_menu, click(&screen, &keyboard, pages, centre(settings.Button.leave.rect())).?);
+    try std.testing.expectEqual(settings.End.back, click(&screen, &keyboard, pages, settings.Button.ok.rect().centre()).?);
+    try std.testing.expectEqual(settings.End.main_menu, click(&screen, &keyboard, pages, settings.Button.leave.rect().centre()).?);
     keyboard.down[input.scan.escape] = true;
     context.pointer = .{};
     try std.testing.expectEqual(settings.End.back, screen.frame(context).?);

@@ -138,9 +138,12 @@ const Button = enum {
     }
 };
 
-/// OPTIONS, in the panel's foot: a button of the settings screen's shapes, its label right of it.
-const options_button_at: [2]i32 = .{ details_frame.at[0] + details_inside, details_frame.at[1] + frame_height - details_inside - 16 };
-const options_button: canvas_module.Button = .{ .at = options_button_at, .label = .{ .text = .{ .words = "OPTIONS" }, .at = .{ options_button_at[0] + 33, options_button_at[1] - 1 } } };
+/// OPTIONS, in the panel's foot: a button of the settings screen's shapes, 25 by 16, its label right
+/// of it as the right column's buttons have theirs, and found 100 by 15 as they are.
+const button_height = 16;
+const options_button_at: [2]i32 = .{ details_frame.at[0] + details_inside, details_frame.at[1] + frame_height - details_inside - button_height };
+const options_button: canvas_module.Button = .{ .at = options_button_at, .label = .{ .text = .{ .words = "OPTIONS" }, .at = .{ options_button_at[0] + options_label_from, options_button_at[1] - 1 } } };
+const options_label_from = 33;
 const options_rect: Rect = .{ .x = @intCast(options_button_at[0]), .y = @intCast(options_button_at[1]), .width = 100, .height = 15 };
 
 /// A mod in the list and whether it is on.
@@ -514,17 +517,12 @@ fn nameRect(place: usize) Rect {
     return .{ .x = @intCast(box.at[0] + name_gap - 2), .y = @intCast(box.at[1]), .width = name_width + 4, .height = widgets.Box.size };
 }
 
-/// The middle of `rect`, where a click on it lands.
-fn centre(rect: Rect) [2]i32 {
-    return .{ rect.x + @divTrunc(rect.width, 2), rect.y + @divTrunc(rect.height, 2) };
-}
-
 fn boxCentre(place: usize) [2]i32 {
-    return centre(checkBox(place).rect());
+    return checkBox(place).rect().centre();
 }
 
 fn nameCentre(place: usize) [2]i32 {
-    return centre(nameRect(place));
+    return nameRect(place).centre();
 }
 
 /// What the tests stand a screen in with: three folder mods in a `mods` folder, and a settings file.
@@ -639,7 +637,7 @@ test "a name chooses the mod, and the lower arrows set the order" {
     _ = fixture.click(nameCentre(2));
     try std.testing.expectEqual(2, fixture.screen.chosen.?);
     // The up arrow takes gamma past beta, the down arrow back; the first can't go up, nor the last down.
-    _ = fixture.click(centre(movers.rect(.up)));
+    _ = fixture.click(movers.rect(.up).centre());
     try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "gamma", "beta" }, fixture.names(&buffer));
     try std.testing.expectEqual(1, fixture.screen.chosen.?);
     try std.testing.expect(fixture.screen.waits());
@@ -647,13 +645,13 @@ test "a name chooses the mod, and the lower arrows set the order" {
     try std.testing.expectEqual(1, order.position("gamma"));
     try std.testing.expectEqual(2, order.position("beta"));
     // The down arrow puts it back, as far as the list goes.
-    _ = fixture.click(centre(movers.rect(.down)));
+    _ = fixture.click(movers.rect(.down).centre());
     try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "beta", "gamma" }, fixture.names(&buffer));
     try std.testing.expect(!fixture.screen.waits());
-    _ = fixture.click(centre(movers.rect(.down)));
+    _ = fixture.click(movers.rect(.down).centre());
     try std.testing.expectEqual(2, fixture.screen.chosen.?);
     fixture.screen.chosen = 0;
-    _ = fixture.click(centre(movers.rect(.up)));
+    _ = fixture.click(movers.rect(.up).centre());
     try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "beta", "gamma" }, fixture.names(&buffer));
 }
 
@@ -666,15 +664,15 @@ test "CANCEL CHANGES puts the mods back as the screen opened them" {
     // A change, then CANCEL CHANGES: the screen as it opened, and the file says so.
     _ = fixture.click(boxCentre(0));
     try std.testing.expect(!fixture.screen.rows[0].on);
-    _ = fixture.click(centre(Button.cancel_changes.rect()));
+    _ = fixture.click(Button.cancel_changes.rect().centre());
     try std.testing.expect(fixture.screen.rows[0].on);
     try std.testing.expectEqualStrings("1", fixture.file.profile.value("OpenReliantMods", "gamma").?);
     try std.testing.expectEqualStrings("0", fixture.file.profile.value("OpenReliantMods", "beta").?);
     // A move, then CANCEL CHANGES, with the moved mod still chosen where it goes back to.
     fixture.screen.chosen = 2;
-    _ = fixture.click(centre(movers.rect(.up)));
+    _ = fixture.click(movers.rect(.up).centre());
     try std.testing.expectEqualDeep(&[_][]const u8{ "gamma", "alpha", "beta" }, fixture.names(&buffer));
-    _ = fixture.click(centre(Button.cancel_changes.rect()));
+    _ = fixture.click(Button.cancel_changes.rect().centre());
     try std.testing.expectEqualDeep(&[_][]const u8{ "gamma", "beta", "alpha" }, fixture.names(&buffer));
     try std.testing.expectEqual(2, fixture.screen.chosen.?);
 }
@@ -691,7 +689,7 @@ test "REFRESH reads the mods folder again" {
     try fixture.tmp.dir.deleteTree(io, "mods/alpha");
     var buffer: [capacity][]const u8 = undefined;
     try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "beta", "gamma" }, fixture.names(&buffer));
-    try std.testing.expectEqual(null, fixture.click(centre(Button.refresh.rect())));
+    try std.testing.expectEqual(null, fixture.click(Button.refresh.rect().centre()));
     // The list has the new mod, after the ones the file lists, and not the removed one; beta is
     // still off and still chosen.
     try std.testing.expectEqualDeep(&[_][]const u8{ "beta", "gamma", "delta" }, fixture.names(&buffer));
@@ -705,10 +703,10 @@ test "REFRESH reads the mods folder again" {
     // puts back the mods as they stood at the last refresh.
     _ = fixture.click(boxCentre(0));
     try std.testing.expect(fixture.screen.rows[0].on);
-    _ = fixture.click(centre(Button.refresh.rect()));
+    _ = fixture.click(Button.refresh.rect().centre());
     try std.testing.expect(fixture.screen.rows[0].on);
     _ = fixture.click(boxCentre(0));
-    _ = fixture.click(centre(Button.cancel_changes.rect()));
+    _ = fixture.click(Button.cancel_changes.rect().centre());
     try std.testing.expect(fixture.screen.rows[0].on);
 }
 
@@ -717,13 +715,13 @@ test "OPTIONS opens the page of the mod that has one" {
     try fixture.init("");
     defer fixture.deinit();
     // Alpha is chosen and offers nothing: the panel has no button.
-    try std.testing.expectEqual(null, fixture.screen.itemAt(centre(options_rect)));
-    try std.testing.expectEqual(null, fixture.click(centre(options_rect)));
+    try std.testing.expectEqual(null, fixture.screen.itemAt(options_rect.centre()));
+    try std.testing.expectEqual(null, fixture.click(options_rect.centre()));
     // Beta offers a page.
     _ = fixture.click(nameCentre(1));
     _ = fixture.screen.frame(fixture.context(.{}));
-    try std.testing.expectEqual(Item.options, fixture.screen.itemAt(centre(options_rect)).?);
-    const left = fixture.click(centre(options_rect)).?;
+    try std.testing.expectEqual(Item.options, fixture.screen.itemAt(options_rect.centre()).?);
+    const left = fixture.click(options_rect.centre()).?;
     try std.testing.expectEqualStrings("beta", left.options);
 }
 
@@ -735,11 +733,11 @@ test "the list scrolls, and OK, MAIN MENU and Escape end the screen" {
     _ = fixture.screen.frame(fixture.context(.{ .wheel = -1 }));
     try std.testing.expectEqual(0, fixture.screen.list.rows.first);
     try std.testing.expectEqual(null, fixture.screen.itemAt(.{ 500, 300 }));
-    try std.testing.expectEqual(Item{ .scroll = .down }, fixture.screen.itemAt(centre(arrows.rect(.down))).?);
-    try std.testing.expectEqual(Item{ .move = .up }, fixture.screen.itemAt(centre(movers.rect(.up))).?);
-    try std.testing.expectEqual(Item{ .move = .down }, fixture.screen.itemAt(centre(movers.rect(.down))).?);
-    try std.testing.expectEqual(Leave{ .end = .back }, fixture.click(centre(Button.ok.rect())).?);
-    try std.testing.expectEqual(Leave{ .end = .main_menu }, fixture.click(centre(Button.leave.rect())).?);
+    try std.testing.expectEqual(Item{ .scroll = .down }, fixture.screen.itemAt(arrows.rect(.down).centre()).?);
+    try std.testing.expectEqual(Item{ .move = .up }, fixture.screen.itemAt(movers.rect(.up).centre()).?);
+    try std.testing.expectEqual(Item{ .move = .down }, fixture.screen.itemAt(movers.rect(.down).centre()).?);
+    try std.testing.expectEqual(Leave{ .end = .back }, fixture.click(Button.ok.rect().centre()).?);
+    try std.testing.expectEqual(Leave{ .end = .main_menu }, fixture.click(Button.leave.rect().centre()).?);
     fixture.keyboard.down[input.scan.escape] = true;
     try std.testing.expectEqual(Leave{ .end = .back }, fixture.screen.frame(fixture.context(.{})).?);
 }

@@ -61,7 +61,7 @@ pub fn capacityOf(comptime T: type) usize {
 
 /// Whether `T` is a `List`.
 pub fn isList(comptime T: type) bool {
-    return @typeInfo(T) == .@"struct" and @hasDecl(T, "Item") and T == List(T.Item, @typeInfo(@FieldType(T, "items")).array.len);
+    return @typeInfo(T) == .@"struct" and @hasDecl(T, "Item") and T == List(T.Item, capacityOf(T));
 }
 
 /// Pushes `value`.
