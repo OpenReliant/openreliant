@@ -11,6 +11,7 @@ const std = @import("std");
 
 const openreliant = @import("openreliant");
 const files = openreliant.engine.files;
+const bigfile = openreliant.engine.game.bigfile;
 const luau = @import("luau.zig");
 const State = luau.State;
 const api = @import("api.zig");
@@ -40,15 +41,24 @@ fn readGame(state: *State) i32 {
 }
 
 /// The file `name`, made in the runtime's allocator, if there is one: a mod's copy, else the game
-/// folder's loose file, else the archive's member. Loose files of at most `most` bytes are read.
+/// folder's loose file (`Mods.readLoose`), else the archive's member. Loose files of at most `most`
+/// bytes are read.
 fn find(call: Call, name: []const u8, most: usize) !?[]u8 {
     const shared = call.runtime().options.shared;
     const gpa = call.runtime().gpa;
-    if (shared.files) |held| if (try held.mods.readInPlaceOf(gpa, name)) |bytes| return bytes;
-    var spelled: [files.max_path]u8 = undefined;
-    if (shared.game) |folder| if (looseFile(folder, name, &spelled)) |path| return try folder.dir.readFileAlloc(folder.io, path, gpa, .limited(most));
-    const held = shared.files orelse return null;
-    return if (held.has(name)) try held.readFile(gpa, name) else null;
+    const held = shared.files;
+    const mods = if (held) |archive| archive.mods else &bigfile.Mods.none;
+    const loose = if (shared.game) |folder|
+        mods.readLoose(folder.io, gpa, folder.dir, name, .limited(most)) catch |err| switch (err) {
+            // A folder is not a file.
+            error.IsDir => null,
+            else => return err,
+        }
+    else
+        try mods.readInPlaceOf(gpa, name);
+    if (loose) |bytes| return bytes;
+    const archive = held orelse return null;
+    return if (archive.has(name)) try archive.readFile(gpa, name) else null;
 }
 
 /// The game folder's loose file `name`, spelled as it is on disk in `spelled`; null where there is
@@ -106,7 +116,6 @@ test "scripts read a mod's file, else the game folder's loose file, else the arc
     const io = std.testing.io;
     const load = @import("load.zig");
     const hog = openreliant.hog;
-    const bigfile = openreliant.engine.game.bigfile;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     // The game folder: two loose missions, a loose file that the archive has a member of, and the
