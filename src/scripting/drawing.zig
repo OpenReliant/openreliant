@@ -360,6 +360,8 @@ pub fn Package(comptime which: Which) type {
         pub const replace_screen = if (which == .ui) front_end.functions.replace_screen else {};
         pub const go_to = if (which == .ui) front_end.functions.go_to else {};
         pub const start_game_mode = if (which == .ui) front_end.functions.start_game_mode else {};
+        pub const launch_mission = if (which == .ui) front_end.functions.launch_mission else {};
+        pub const play_movie = if (which == .ui) front_end.functions.play_movie else {};
         pub const quit = if (which == .ui) front_end.functions.quit else {};
         pub const pointer = if (which == .ui) front_end.functions.pointer else {};
         pub const show_screen = if (which == .ui) api.Function("Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists.", &.{"name"}, struct {

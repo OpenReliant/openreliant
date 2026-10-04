@@ -7,12 +7,15 @@ or go away in any release. Copy one as a starting point for your own mod.
 
 | Mod | What it shows |
 |---|---|
+| [`arena`](arena) | A game mode with its own rules and HUD |
 | [`balance`](balance) | Changing the game's records from a load script |
+| [`campaign`](campaign) | A campaign with a briefing screen and a movie |
 | [`cel-shading`](cel-shading) | A lighting function and a surface function (`openreliant.shaders`) |
 | [`crt`](crt) | A post effect (`openreliant.postprocessing`) |
 | [`custom-order`](custom-order) | Registering an AI order |
 | [`drawing-assets`](drawing-assets) | Drawing a mod's pictures, the game's shapes and fonts |
 | [`dvd`](dvd) | A menu script that draws over the menus |
+| [`main-menu`](main-menu) | A main menu of the mod's own in place of the game's |
 | [`rules`](rules) | Hooks on the game's functions |
 | [`strafe-run`](strafe-run) | A custom order with a HUD display, a chase camera and rebindable actions |
 | [`tally`](tally) | Storage kept with each saved game and across every game |

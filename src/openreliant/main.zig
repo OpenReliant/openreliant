@@ -251,7 +251,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var option_pages: scripting.settings.Registry = .init(gpa, &storage);
     defer option_pages.deinit();
     // The game modes the mods' load and menu scripts register at start-up, which GAME MODES lists.
-    var game_modes: scripting.game_modes.Registry = .init(gpa);
+    var game_modes: scripting.game_modes.Registry = .init(gpa, &storage);
     defer game_modes.deinit();
     const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .settings = &option_pages, .bindings_file = settings_file, .modes = &game_modes };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
@@ -839,6 +839,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
             const front_outcome = if (console_up) null else front.frame(front_context);
+            // The movie a menu script asked for (`ui.play_movie`).
+            if (presentation) |shown| if (shown.takeMovie()) |name| {
+                _ = try movies.play(name, .cleared) orelse return;
+            };
             // What the player set on the mods screen goes to the mod's menu scripts.
             while (option_pages.takeChange()) |change| {
                 if (presentation) |shown| shown.settingChanged(change.mod, change.key, change.value);
@@ -847,12 +851,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 const through = &rooms.?;
                 switch (outcome) {
                     .fly, .campaign, .loaded => try game_scripts.start(),
-                    // The scripts start knowing the mode (`core.game_mode`).
+                    // The scripts start knowing the mode and its mission (`core.game_mode`).
                     .game_mode => |mode| {
-                        game_modes.running = mode;
+                        game_modes.start(mode);
                         try game_scripts.start();
                     },
-                    .quit, .briefing => {},
+                    .quit, .briefing, .mode_mission, .mode_left => {},
                 }
                 flow.next = switch (outcome) {
                     .quit => return,
@@ -861,11 +865,20 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                         break :fly .{ .flight = flight };
                     },
                     // A game mode's first mission, which the main menu flies as it flies INSTANT
-                    // ACTION's, the next following as each ends (`missionEnded`).
-                    .game_mode => fly: {
+                    // ACTION's, after the mode's briefing where it has one, the next following as
+                    // each ends (`missionEnded`).
+                    .game_mode => {
                         flow.campaign = null;
-                        flow.mode_mission = 0;
-                        break :fly .{ .flight = modeFlight(game_modes.current().?, 0) };
+                        front.brief();
+                        continue;
+                    },
+                    .mode_mission => .{ .flight = modeFlight(&game_modes) },
+                    // The player left the mode from its briefing, for the screen the front end
+                    // shows.
+                    .mode_left => {
+                        flow.scripts.stop();
+                        game_modes.running = null;
+                        continue;
                     },
                     // START GAME: `WinMain` takes a new campaign into the Reliant's rooms, whose
                     // briefing room's door leads to the briefing, and the mission.
@@ -1255,10 +1268,8 @@ const Flow = struct {
     /// The game as the last flight of the campaign began, which a replay puts back
     /// (`restartPoint`).
     restart_point: ?save.Save = null,
-    /// The game modes the mods registered, the one running while it does, and the place in its
-    /// missions of the mission it flies.
+    /// The game modes the mods registered, and the one running while it does.
     modes: *scripting.game_modes.Registry,
-    mode_mission: usize = 0,
 
     /// Back to the front end's main menu, out of the campaign or the game mode, which ends the
     /// game's scripts.
@@ -1271,25 +1282,22 @@ const Flow = struct {
         flow.modes.running = null;
     }
 
-    /// The flight a game mode goes on to as its mission ends with `ending`: its next mission, or its
-    /// first again where it loops; none where it is over, or the player left the mission.
-    fn modeGoesOn(flow: *Flow, ending: game.main.Ending) ?game.interface.main_menu.Flight {
-        const mode = flow.modes.current() orelse return null;
-        if (ending == .left) return null;
-        flow.mode_mission += 1;
-        if (flow.mode_mission == mode.missions.len) {
-            if (!mode.loop) return null;
-            flow.mode_mission = 0;
-        }
-        return modeFlight(mode, flow.mode_mission);
+    /// To the briefing of the game mode that runs, before its next mission (`modeFlight`). The
+    /// game's scripts go on running.
+    fn toBriefing(flow: *Flow, front: *engine.genilib.interf.Interface) void {
+        front.brief();
+        flow.in_front_end = true;
+        flow.from_front_end = false;
     }
 };
 
-/// The flight of `mode`'s mission at `at`, which the main menu flies, in the mode's ship.
-fn modeFlight(mode: scripting.game_modes.Mode, at: usize) game.interface.main_menu.Flight {
+/// The flight of the mission the game mode that runs is at, which the main menu flies, in the
+/// mode's ship.
+fn modeFlight(modes: *const scripting.game_modes.Registry) game.interface.main_menu.Flight {
+    const ship = modes.current().?.ship;
     return .{
-        .mission = mode.missions[at],
-        .ship = if (mode.ship) |ship| @intCast(@intFromEnum(ship)) else null,
+        .mission = modes.mission().?,
+        .ship = if (ship) |chosen| @intCast(@intFromEnum(chosen)) else null,
         .flier = .main_menu,
     };
 }
@@ -1502,13 +1510,12 @@ fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Pla
         flow.next = .{ .flight = flight };
         return true;
     }
+    // A game mode goes on to the briefing of its next mission, or back to the main menu once it
+    // is over (`game_modes.Registry.goesOn`).
     if (flow.modes.running != null) {
+        const rating = if (play.loaded) |loaded| loaded.script.variables.mission_success else .failure;
         if (!try letGo(play, all, sound, null, movies, resources)) return false;
-        if (flow.modeGoesOn(player.ending)) |flight| {
-            flow.next = .{ .flight = flight };
-            return true;
-        }
-        flow.toFrontEnd(front);
+        if (flow.modes.goesOn(player.ending, rating) != null) flow.toBriefing(front) else flow.toFrontEnd(front);
         return true;
     }
     if (flow.campaign) |*campaign| {

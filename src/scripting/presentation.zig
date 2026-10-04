@@ -227,6 +227,12 @@ pub const Presentation = struct {
         return front_end.scripted(shown);
     }
 
+    /// The movie a menu script asked to play (`ui.play_movie`), if one did, which stays valid until
+    /// the next is asked for.
+    pub fn takeMovie(shown: *Presentation) ?[]const u8 {
+        return front_end.takeMovie(shown);
+    }
+
     /// Sets what compiles and draws the scripts' surface and lighting functions, or null for nothing
     /// (`shaders.Registry.setHost`). Call it with null before the host is destroyed.
     pub fn setShaderHost(shown: *Presentation, host: ?shaders.ShaderHost) void {
@@ -1133,7 +1139,7 @@ test "the cel-shading example registers its functions, and Shift F6 and Shift F5
 
 test "menu scripts register game modes as OpenReliant starts, and player scripts read the one that runs" {
     const gpa = std.testing.allocator;
-    var modes: game_modes.Registry = .init(gpa);
+    var modes: game_modes.Registry = .init(gpa, null);
     defer modes.deinit();
     var fixture: Fixture = undefined;
     try fixture.initShared(&.{.{
@@ -1148,12 +1154,16 @@ test "menu scripts register game modes as OpenReliant starts, and player scripts
                 \\assert(not ok and string.find(message, "registered already", 1, true), message)
                 \\ok, message = pcall(core.register_game_mode, { name = "empty", label = "EMPTY", missions = {} })
                 \\assert(not ok and string.find(message, "needs missions", 1, true), message)
-                \\assert(core.game_mode == nil)
+                \\ok, message = pcall(core.register_game_mode, { name = "tour", label = "TOUR", missions = { 1 }, loop = true, campaign = true })
+                \\assert(not ok and string.find(message, "can't loop", 1, true), message)
+                \\assert(core.game_mode == nil and core.game_mode_mission == nil)
             },
             .{
                 "player.luau",
                 \\local core = require("openreliant.core")
                 \\assert(core.game_mode == "a:arena", tostring(core.game_mode))
+                \\local mission = core.game_mode_mission
+                \\assert(mission.number == 29 and mission.place == 1 and mission.count == 2)
                 \\local ok, message = pcall(core.register_game_mode, { name = "late", label = "LATE", missions = { 1 } })
                 \\assert(not ok and string.find(message, "player scripts can't register", 1, true), message)
             },
@@ -1166,11 +1176,11 @@ test "menu scripts register game modes as OpenReliant starts, and player scripts
     try std.testing.expectEqualStrings("a:arena", arena.name);
     try std.testing.expectEqualSlices(u16, &.{ 29, 30 }, arena.missions);
     try std.testing.expectEqual(engine.game.gameobj.Type.phoenix, arena.ship.?);
-    try std.testing.expect(arena.loop);
+    try std.testing.expectEqual(.loop, arena.kind);
     try std.testing.expectEqualStrings("ARENA", modes.shown.items[0].label);
     try std.testing.expectEqual(2, modes.shown.items[0].missions);
     // The player scripts start knowing the mode; their own asserts would have failed them.
-    modes.running = 0;
+    modes.start(0);
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     try std.testing.expect(fixture.shown.runtime.contexts.items.len > 0);
     for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
@@ -1180,7 +1190,7 @@ test "the arena example registers its game mode, and its board runs within it" {
     const gpa = std.testing.allocator;
     var storage: @import("storage.zig").Storage = .{ .gpa = gpa };
     defer storage.deinit();
-    var modes: game_modes.Registry = .init(gpa);
+    var modes: game_modes.Registry = .init(gpa, null);
     defer modes.deinit();
     var fixture: Fixture = undefined;
     try fixture.initShared(&.{.{ "arena", &.{
@@ -1192,7 +1202,7 @@ test "the arena example registers its game mode, and its board runs within it" {
     try std.testing.expectEqualStrings("arena:arena", modes.modes.items[0].name);
     try std.testing.expectEqualSlices(u16, &.{29}, modes.modes.items[0].missions);
     try std.testing.expectEqual(engine.game.gameobj.Type.phoenix, modes.modes.items[0].ship.?);
-    modes.running = 0;
+    modes.start(0);
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     fixture.frame(0.016, .{ 800, 600 });
     for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
@@ -1250,4 +1260,43 @@ test "the main menu example stands in for the game's" {
         fixture.shown.key(key, false);
     }
     try std.testing.expectEqual(interf.Request{ .go = .game_options }, scripted.vtable.take(scripted.context).?);
+}
+
+test "the campaign example briefs each of its missions, and plays its movie first" {
+    const gpa = std.testing.allocator;
+    var storage: @import("storage.zig").Storage = .{ .gpa = gpa };
+    defer storage.deinit();
+    var modes: game_modes.Registry = .init(gpa, &storage);
+    defer modes.deinit();
+    var fixture: Fixture = undefined;
+    try fixture.initShared(&.{.{ "campaign", &.{
+        .{ "mod.ini", @embedFile("campaign/mod.ini") },
+        .{ "menu.luau", @embedFile("campaign/menu.luau") },
+    } }}, .{ .storage = &storage, .modes = &modes });
+    defer fixture.deinit();
+    modes.close();
+    const tour = modes.modes.items[0];
+    try std.testing.expectEqualStrings("campaign:first_tour", tour.name);
+    try std.testing.expectEqual(.campaign, tour.kind);
+    try std.testing.expectEqualSlices(u16, &.{ 1, 2, 3 }, tour.missions);
+    // Its briefing stands in for the mode's briefing only while the mode runs.
+    const scripted = fixture.shown.scripted();
+    try std.testing.expect(!scripted.vtable.replaces(scripted.context, .mode_briefing));
+    modes.start(0);
+    try std.testing.expect(scripted.vtable.replaces(scripted.context, .mode_briefing));
+    scripted.vtable.show(scripted.context, .mode_briefing);
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqualStrings("thread01.bik", fixture.shown.takeMovie().?);
+    try std.testing.expectEqual(null, fixture.shown.takeMovie());
+    // Enter launches the mission.
+    fixture.shown.key(.enter, true);
+    fixture.shown.key(.enter, false);
+    try std.testing.expectEqual(interf.Request.launch_mission, scripted.vtable.take(scripted.context).?);
+    // The next mission's briefing plays no movie, and Escape leaves for the main menu.
+    _ = modes.goesOn(.playing, .success);
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(null, fixture.shown.takeMovie());
+    fixture.shown.key(.escape, true);
+    try std.testing.expectEqual(interf.Request{ .go = .main_menu }, scripted.vtable.take(scripted.context).?);
+    for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
 }

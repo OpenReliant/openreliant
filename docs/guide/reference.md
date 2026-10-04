@@ -56,8 +56,9 @@ OpenReliant's version, and events for the global scripts. For load, global, obje
 | Name | Type | What it is |
 |---|---|---|
 | `version` | string | The version of OpenReliant, such as `0.7.0`. |
-| `game_mode` | string, or nil | The qualified name of the game mode that runs, such as `arena:arena`; nil in the campaign, INSTANT ACTION and anywhere else. |
-| `register_game_mode(definition: GameMode)` | string | Registers a game mode, which the main menu's GAME MODES lists: a `name`, which the mod's name qualifies; a `label` and a `description` for the screen; the `missions` it flies in turn, by their numbers, each a standard `.DTE` file of the game's or a mod's; the `ship` the player flies them in, or the ship each mission gives; and whether it starts again after its last mission (`loop`). Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name. |
+| `game_mode` | string, or nil | The qualified name of the game mode that runs, such as `arena:arena`; nil in the game's campaign, INSTANT ACTION and anywhere else. |
+| `game_mode_mission` | [GameModeMission](#gamemodemission), or nil | The mission the game mode that runs is at: the one flown, or between missions the one flown next. nil where no game mode runs. |
+| `register_game_mode(definition: GameMode)` | string | Registers a game mode, which the main menu's GAME MODES lists: a `name`, which the mod's name qualifies; a `label` and a `description` for the screen; the `missions` it flies in turn, by their numbers, each a standard `.DTE` file of the game's or a mod's; the `ship` the player flies them in, or the ship each mission gives; whether it starts again after its last mission (`loop`), or is a `campaign`, which flies a lost mission again and carries on from the mission the player reached; and the `briefing`, the name of the mod's registered screen that the front end shows before each mission. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name. |
 | `send_global_event(name: string, data: any)` | nothing | Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update. |
 
 ### `openreliant.records`
@@ -134,6 +135,8 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `replace_screen(screen: FrontEndScreen, name: string?)` | boolean | Makes the calling mod's registered screen `name` stand in for the front end's own `screen`, such as `"main_menu"`: while the front end shows `screen`, it runs and draws the mod's screen in its place, over its background. nil gives `screen` back to the front end. Only menu scripts can use it. Returns whether the screen is registered. |
 | `go_to(screen: FrontEndScreen)` | nothing | Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it. |
 | `start_game_mode(name: string)` | boolean | Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered. |
+| `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
+| `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
 | `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
@@ -411,6 +414,8 @@ These groups reuse existing API declarations beneath mod overrides. Context perm
 | `replace_screen(screen: FrontEndScreen, name: string?)` | boolean | Makes the calling mod's registered screen `name` stand in for the front end's own `screen`, such as `"main_menu"`: while the front end shows `screen`, it runs and draws the mod's screen in its place, over its background. nil gives `screen` back to the front end. Only menu scripts can use it. Returns whether the screen is registered. |
 | `go_to(screen: FrontEndScreen)` | nothing | Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it. |
 | `start_game_mode(name: string)` | boolean | Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered. |
+| `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
+| `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
 | `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
@@ -898,6 +903,14 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 | `fore` | number |
 | `aft` | number |
 
+### GameModeMission
+
+| Field | Type |
+|---|---|
+| `number` | number |
+| `place` | number |
+| `count` | number |
+
 ### GameMode
 
 A table a script gives, which may leave out a field with a default.
@@ -910,6 +923,8 @@ A table a script gives, which may leave out a field with a default.
 | `missions` | list of number | needed |
 | `ship` | [ShipType](#shiptype), or nil | nil |
 | `loop` | boolean | false |
+| `campaign` | boolean | false |
+| `briefing` | string, or nil | nil |
 
 ### Mission
 
@@ -1113,7 +1128,7 @@ number. A script can set a field to either.
 
 ### FrontEndScreen
 
-`main_menu`, `game_options`, `audio`, `briefing`, `landing_movie`, `pilot_roster`, `saved_games`, `connection`, `video`, `controls`, `mods`, `mod_options`, `game_modes`, or a number.
+`main_menu`, `game_options`, `audio`, `briefing`, `landing_movie`, `pilot_roster`, `saved_games`, `connection`, `video`, `controls`, `mods`, `mod_options`, `game_modes`, `mode_briefing`, or a number.
 
 ### Key
 

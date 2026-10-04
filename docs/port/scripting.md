@@ -494,6 +494,31 @@ reaches both Luau states through `runtime.Shared`.
   (`Presentation.settingChanged`, `Runner.callMod`): the screen is the front end's, so no game
   scripts run then.
 
+## Game modes and the menu flow
+
+[`game_modes.zig`](../../src/scripting/game_modes.zig) is the registry of the mods' game modes
+(`game_modes.Registry`), which the driver makes with the storage and reaches both Luau states
+through `runtime.Shared`. [`front_end.zig`](../../src/scripting/front_end.zig) holds the menu
+scripts' side of the front end.
+
+- `core.register_game_mode` reads its table into a `game_modes.Definition`, checks it, and copies
+  it into the registry's arena, with the list the game modes screen shows (`Registry.shown`). Load
+  and menu scripts can register until the driver closes the registry once the menu scripts have
+  started (`Registry.close`), which also reads each campaign's progress.
+- The driver starts the mode the screen chose (`Registry.start`) before the game's scripts start, so
+  that they read it (`core.game_mode`, `core.game_mode_mission`). As each mission ends,
+  `Registry.goesOn` gives the next mission from how it ended and how its script rated it, or none
+  where the mode is over. A campaign's progress is the mod's global storage section `campaigns`
+  (`game_modes.progress_section`), keyed by the mode's own name.
+- Between a mode's missions the driver shows the front end's `mode_briefing` with the game's
+  scripts still running (`Flow.toBriefing`), and stops them as the mode ends.
+- `front_end.scripted` gives the front end its `interf.Scripted`: whether a mod's screen stands in
+  for a screen (the ones `ui.replace_screen` set, and for `mode_briefing` the running mode's
+  briefing), selecting it as the front end shows it, and the request it made since the last pass
+  (`front_end.Standing`). The front end takes one request a pass.
+- `ui.play_movie` keeps the movie's name until the driver takes it after the front end's pass
+  (`Presentation.takeMovie`) and plays it on a cleared screen.
+
 ## Timers
 
 [`async.zig`](../../src/scripting/async.zig) runs a mod's functions after a while.

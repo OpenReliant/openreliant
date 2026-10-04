@@ -1,7 +1,8 @@
 //! OpenReliant's game modes screen (`GameModes`), which the main menu's GAME MODES button opens: the
 //! game modes the mods' scripts register (`scripting.game_modes`,
 //! [#560](https://github.com/OpenReliant/openreliant/issues/560)). Each runs its missions in turn,
-//! with the mod's rules, and comes back to the main menu.
+//! with the mod's rules, and comes back to the main menu. A campaign carries on from the mission
+//! the player reached.
 //!
 //! It is laid out as the mods screen is (`mod_manager`): the list of the modes in its frame, with the
 //! lists' arrows, the chosen mode in the frame beside it, and two of the settings screen's buttons:
@@ -36,11 +37,31 @@ pub const Mode = struct {
     /// What the list calls it, and what the panel says of it.
     label: []const u8,
     description: []const u8 = "",
-    /// The name of the mod that registered it, how many missions it flies, and whether it flies
-    /// them again and again.
+    /// The name of the mod that registered it, how many missions it flies, and how it flies them.
     mod: []const u8,
     missions: usize,
-    loop: bool = false,
+    kind: Kind = .once,
+    /// For a campaign, the place of the mission it carries on from.
+    reached: usize = 0,
+
+    pub const Kind = enum {
+        /// Its missions once each, then back to the main menu.
+        once,
+        /// Its missions again and again, until the player leaves one.
+        loop,
+        /// Its missions in order, a lost one flown again, carrying on from the mission reached.
+        campaign,
+    };
+
+    /// What the panel says of its missions, written into `buffer`.
+    fn missionsText(mode: Mode, buffer: []u8) []const u8 {
+        const plural = if (mode.missions == 1) "" else "S";
+        return switch (mode.kind) {
+            .once => std.fmt.bufPrint(buffer, "{d} MISSION{s}", .{ mode.missions, plural }),
+            .loop => std.fmt.bufPrint(buffer, "{d} MISSION{s}, AGAIN AND AGAIN", .{ mode.missions, plural }),
+            .campaign => std.fmt.bufPrint(buffer, "CAMPAIGN, MISSION {d} OF {d}", .{ mode.reached + 1, mode.missions }),
+        } catch "";
+    }
 };
 
 /// The title, in the place of the settings screen's tabs.
@@ -208,8 +229,7 @@ pub const GameModes = struct {
         const from = std.fmt.bufPrint(&buffer, "FROM {s}", .{mode.mod}) catch mode.mod;
         try canvas.wrapped(font, .{ x, y }, from, canvas_module.blue, .left, lines);
         y += lines.height;
-        const missions = std.fmt.bufPrint(&buffer, "{d} MISSION{s}{s}", .{ mode.missions, if (mode.missions == 1) "" else "S", if (mode.loop) ", AGAIN AND AGAIN" else "" }) catch "";
-        try canvas.wrapped(font, .{ x, y }, missions, canvas_module.blue, .left, lines);
+        try canvas.wrapped(font, .{ x, y }, mode.missionsText(&buffer), canvas_module.blue, .left, lines);
         y += lines.height;
         if (mode.description.len > 0) try canvas.wrapped(font, .{ x, y }, mode.description, canvas_module.blue, .left, mod_manager.description_lines);
     }
@@ -254,6 +274,13 @@ test "a mode is chosen, played, and the screen left" {
     // Escape leaves for the main menu.
     keyboard.down[input.scan.escape] = true;
     try std.testing.expectEqual(Leave.main_menu, screen.frame(context).?);
+}
+
+test "the panel says how a mode flies its missions" {
+    var buffer: [mod_manager.name_buffer]u8 = undefined;
+    try std.testing.expectEqualStrings("1 MISSION", (Mode{ .label = "A", .mod = "a", .missions = 1 }).missionsText(&buffer));
+    try std.testing.expectEqualStrings("3 MISSIONS, AGAIN AND AGAIN", (Mode{ .label = "A", .mod = "a", .missions = 3, .kind = .loop }).missionsText(&buffer));
+    try std.testing.expectEqualStrings("CAMPAIGN, MISSION 2 OF 3", (Mode{ .label = "A", .mod = "a", .missions = 3, .kind = .campaign, .reached = 1 }).missionsText(&buffer));
 }
 
 test "with no modes, PLAY plays nothing" {

@@ -60,6 +60,10 @@ pub const Screen = enum(u8) {
     mod_options = 101,
     /// OpenReliant's game modes screen (`game_modes`), which the main menu's GAME MODES opens.
     game_modes = 102,
+    /// OpenReliant's briefing of a game mode, before each of its missions: the mod's screen that
+    /// the mode names stands in for it (`Scripted`). Without one, the front end goes straight on to
+    /// the mission.
+    mode_briefing = 103,
     _,
 
     pub fn format(screen: Screen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -91,6 +95,11 @@ pub const Outcome = union(enum) {
     /// OpenReliant's: the game mode of this place in `Context.modes`, which PLAY on the game modes
     /// screen starts.
     game_mode: u8,
+    /// OpenReliant's: the next mission of the game mode that runs, which its briefing flies.
+    mode_mission,
+    /// OpenReliant's: the game mode that runs left from its briefing, for the screen the front end
+    /// now shows.
+    mode_left,
 };
 
 /// OpenReliant's: the mods' screens that stand in for the front end's own (the scripts'
@@ -131,6 +140,8 @@ pub const Request = union(enum) {
     go: Screen,
     /// Into the game mode of this place in `Context.modes`.
     game_mode: u8,
+    /// From a game mode's briefing, on to its next mission.
+    launch_mission,
     /// Out of the game.
     quit,
 };
@@ -245,7 +256,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
         .controls => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .controls).?.background },
         .video => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .video).?.background },
         .mods, .mod_options => .{ .shapes = settings.shapes_name, .background = mod_manager.opening.background },
-        .game_modes => .{ .shapes = settings.shapes_name, .background = game_modes.opening.background },
+        .game_modes, .mode_briefing => .{ .shapes = settings.shapes_name, .background = game_modes.opening.background },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
         .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
         else => null,
@@ -498,6 +509,11 @@ pub const Interface = struct {
                 }
                 return null;
             },
+            // No mod's screen briefs the player, so the mission follows at once.
+            .mode_briefing => {
+                front.leave(context);
+                return .mode_mission;
+            },
             else => {
                 log.info("{f} is not ported yet", .{front.screen});
                 front.screen = .main_menu;
@@ -507,9 +523,11 @@ pub const Interface = struct {
     }
 
     /// Goes where a mod's screen asks: to one of the front end's screens, which can be shown, into
-    /// a game mode, or out of the game. A screen that can't be shown is left as it is, which the
-    /// log says.
+    /// a game mode, from a game mode's briefing on to its mission, or out of the game. Going to
+    /// another screen from a game mode's briefing leaves the mode. What can't be done is left
+    /// undone, which the log says.
     fn requested(front: *Interface, request: Request, context: Context) ?Outcome {
+        const briefing = front.screen == .mode_briefing;
         switch (request) {
             .go => |screen| {
                 if (!front.shows(screen, context)) {
@@ -517,13 +535,26 @@ pub const Interface = struct {
                     return null;
                 }
                 front.screen = screen;
-                return null;
+                return if (briefing) .mode_left else null;
             },
             .game_mode => |mode| {
                 if (mode >= context.modes.len) return null;
+                if (briefing) {
+                    log.warn("a game mode's briefing can't start another game mode", .{});
+                    return null;
+                }
                 front.hideScripted(context);
                 front.leave(context);
                 return .{ .game_mode = mode };
+            },
+            .launch_mission => {
+                if (!briefing) {
+                    log.warn("a mod's screen asks for a game mode's mission outside its briefing", .{});
+                    return null;
+                }
+                front.hideScripted(context);
+                front.leave(context);
+                return .mode_mission;
             },
             .quit => {
                 front.hideScripted(context);
@@ -542,7 +573,7 @@ pub const Interface = struct {
             .mods, .mod_options => context.settings != null and context.mods != null,
             .saved_games => context.saves != null,
             .game_modes => context.modes.len > 0,
-            .briefing, .landing_movie, .connection, _ => false,
+            .briefing, .landing_movie, .connection, .mode_briefing, _ => false,
         };
     }
 
@@ -628,6 +659,12 @@ pub const Interface = struct {
     /// the campaign's way on after a mission is ported (#74).
     pub fn back(front: *Interface) void {
         front.screen = .main_menu;
+        front.entered = null;
+    }
+
+    /// Comes to the briefing of the game mode that runs, before its next mission.
+    pub fn brief(front: *Interface) void {
+        front.screen = .mode_briefing;
         front.entered = null;
     }
 
@@ -832,7 +869,7 @@ test "a mod's screen stands in for the front end's own, and goes where it asks" 
         }
 
         fn replaces(_: *anyopaque, screen: Screen) bool {
-            return screen == .main_menu;
+            return screen == .main_menu or screen == .mode_briefing;
         }
 
         fn show(context: *anyopaque, screen: ?Screen) void {
@@ -876,4 +913,32 @@ test "a mod's screen stands in for the front end's own, and goes where it asks" 
     _ = front.frame(context);
     stand.asked = .quit;
     try std.testing.expectEqual(Outcome.quit, front.frame(context).?);
+    // A game mode's mission is flown only from its briefing.
+    front.screen = .main_menu;
+    _ = front.frame(context);
+    stand.asked = .launch_mission;
+    try std.testing.expectEqual(null, front.frame(context));
+    front.brief();
+    _ = front.frame(context);
+    try std.testing.expectEqual(Screen.mode_briefing, stand.shown.?);
+    stand.asked = .launch_mission;
+    try std.testing.expectEqual(Outcome.mode_mission, front.frame(context).?);
+    try std.testing.expectEqual(null, stand.shown);
+    // Going to another screen from the briefing leaves the mode, and the briefing can't start
+    // another.
+    front.brief();
+    _ = front.frame(context);
+    stand.asked = .{ .game_mode = 0 };
+    try std.testing.expectEqual(null, front.frame(context));
+    stand.asked = .{ .go = .main_menu };
+    try std.testing.expectEqual(Outcome.mode_left, front.frame(context).?);
+    try std.testing.expectEqual(Screen.main_menu, front.screen);
+}
+
+test "without a mod's screen, a game mode's briefing goes straight on to the mission" {
+    var devices: input.Devices = .{};
+    var typed: winmain.Typed = .{};
+    var front: Interface = .{};
+    front.brief();
+    try std.testing.expectEqual(Outcome.mode_mission, front.frame(.{ .devices = &devices, .typed = &typed, .window = .{ 640, 480 }, .elapsed = 1 }).?);
 }

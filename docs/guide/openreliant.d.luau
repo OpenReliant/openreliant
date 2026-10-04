@@ -11,7 +11,7 @@ type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debr
 type Side = "friendly" | "hostile" | "neutral" | number
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
-type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | number
+type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | number
 type Key = "escape" | "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight" | "nine" | "zero" | "minus" | "equals" | "backspace" | "tab" | "q" | "w" | "e" | "r" | "t" | "y" | "u" | "i" | "o" | "p" | "left_bracket" | "right_bracket" | "enter" | "left_control" | "a" | "s" | "d" | "f" | "g" | "h" | "j" | "k" | "l" | "semicolon" | "apostrophe" | "grave" | "left_shift" | "backslash" | "z" | "x" | "c" | "v" | "b" | "n" | "m" | "comma" | "period" | "slash" | "right_shift" | "keypad_multiply" | "left_alt" | "space" | "caps_lock" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "num_lock" | "scroll_lock" | "keypad_7" | "keypad_8" | "keypad_9" | "keypad_minus" | "keypad_4" | "keypad_5" | "keypad_6" | "keypad_plus" | "keypad_1" | "keypad_2" | "keypad_3" | "keypad_0" | "keypad_period" | "non_us_backslash" | "f11" | "f12" | "keypad_enter" | "right_control" | "keypad_divide" | "print_screen" | "right_alt" | "pause" | "home" | "up" | "page_up" | "left" | "right" | "end" | "down" | "page_down" | "insert" | "delete" | "left_windows" | "right_windows" | "menu" | number
 type Modifier = "none" | "shift" | "control" | "alt" | number
 type GamepadButton = "south" | "east" | "west" | "north" | "back" | "guide" | "start" | "left_stick" | "right_stick" | "left_shoulder" | "right_shoulder" | "dpad_up" | "dpad_down" | "dpad_left" | "dpad_right" | "misc1" | "right_paddle1" | "left_paddle1" | "right_paddle2" | "left_paddle2" | "touchpad" | "misc2" | "misc3" | "misc4" | "misc5" | "misc6" | "left_trigger" | "right_trigger" | "right_stick_up" | "right_stick_down" | "right_stick_left" | "right_stick_right"
@@ -42,6 +42,11 @@ type Quadrants = {
     fore: number,
     aft: number,
 }
+type GameModeMission = {
+    number: number,
+    place: number,
+    count: number,
+}
 type GameMode = {
     name: string,
     label: string,
@@ -49,6 +54,8 @@ type GameMode = {
     missions: { number },
     ship: ShipType?,
     loop: boolean?,
+    campaign: boolean?,
+    briefing: string?,
 }
 type Mission = {
     number: number,
@@ -274,9 +281,11 @@ type Records = {
 type Core = {
     -- The version of OpenReliant, such as `0.7.0`.
     version: string,
-    -- The qualified name of the game mode that runs, such as `arena:arena`; nil in the campaign, INSTANT ACTION and anywhere else.
+    -- The qualified name of the game mode that runs, such as `arena:arena`; nil in the game's campaign, INSTANT ACTION and anywhere else.
     game_mode: string?,
-    -- Registers a game mode, which the main menu's GAME MODES lists: a `name`, which the mod's name qualifies; a `label` and a `description` for the screen; the `missions` it flies in turn, by their numbers, each a standard `.DTE` file of the game's or a mod's; the `ship` the player flies them in, or the ship each mission gives; and whether it starts again after its last mission (`loop`). Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name.
+    -- The mission the game mode that runs is at: the one flown, or between missions the one flown next. nil where no game mode runs.
+    game_mode_mission: GameModeMission?,
+    -- Registers a game mode, which the main menu's GAME MODES lists: a `name`, which the mod's name qualifies; a `label` and a `description` for the screen; the `missions` it flies in turn, by their numbers, each a standard `.DTE` file of the game's or a mod's; the `ship` the player flies them in, or the ship each mission gives; whether it starts again after its last mission (`loop`), or is a `campaign`, which flies a lost mission again and carries on from the mission the player reached; and the `briefing`, the name of the mod's registered screen that the front end shows before each mission. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name.
     register_game_mode: (definition: GameMode) -> string,
     -- Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update.
     send_global_event: (name: string, data: any) -> (),
@@ -356,6 +365,10 @@ type Ui = {
     go_to: (screen: FrontEndScreen) -> (),
     -- Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered.
     start_game_mode: (name: string) -> boolean,
+    -- From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it.
+    launch_mission: () -> (),
+    -- Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it.
+    play_movie: (name: string) -> (),
     -- Asks the front end to quit the game. Only menu scripts can use it.
     quit: () -> (),
     -- Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists.
@@ -564,6 +577,8 @@ type Interfaces = {
         replace_screen: (screen: FrontEndScreen, name: string?) -> boolean,
         go_to: (screen: FrontEndScreen) -> (),
         start_game_mode: (name: string) -> boolean,
+        launch_mission: () -> (),
+        play_movie: (name: string) -> (),
         quit: () -> (),
         show_screen: (name: string?) -> boolean,
         picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
