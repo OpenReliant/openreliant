@@ -67,10 +67,10 @@ test init {
     defer mission.deinit();
     var carrier_model: launch.testing.Carrier = undefined;
     carrier_model.init();
-    _ = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.zakov, .{ 1000, 0, 0 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.zakov), .{ 1000, 0, 0 });
     try carrier_model.parts.fit(gpa, mission.slot(carrier));
-    const fighter = try mission.add(.sabre, .{ 0, 5000, 0 });
+    const fighter = try mission.add(.of(.sabre), .{ 0, 5000, 0 });
     const slot = mission.slot(fighter);
     slot.object.bounds_min.z = -12;
     _ = try aigeneric.pushShip(mission.orders(), fighter, .launch, carrier, 0);
@@ -94,10 +94,10 @@ test run {
     defer mission.deinit();
     var carrier_model: launch.testing.Carrier = undefined;
     carrier_model.init();
-    _ = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.zakov, .{ 1000, 0, 0 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.zakov), .{ 1000, 0, 0 });
     try carrier_model.parts.fit(gpa, mission.slot(carrier));
-    const fighter = try mission.add(.sabre, @splat(0));
+    const fighter = try mission.add(.of(.sabre), @splat(0));
     const ctx = mission.orders();
     _ = try aigeneric.pushShip(ctx, fighter, .launch, carrier, 0);
     aigeneric.objectOrders(ctx, fighter);

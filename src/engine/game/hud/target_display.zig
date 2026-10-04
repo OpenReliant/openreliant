@@ -78,7 +78,7 @@ pub const Scene = struct {
     pub fn large(scene: Scene) ?Large {
         const index = (scene.state.target orelse return null).slot;
         const slot = &scene.all.slots[index];
-        const shown_subtarget = switch (slot.object.type) {
+        const shown_subtarget = switch (slot.object.type.base()) {
             .proximity_mine, .black_box => false,
             else => true,
         };
@@ -351,9 +351,9 @@ test "the forms show the target" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     try std.testing.expect(try aigeneric.push(mission.orders(), player, .player_control, .none));
-    const sabre = try mission.add(.sabre, .{ 0, 0, 3400 });
+    const sabre = try mission.add(.of(.sabre), .{ 0, 0, 3400 });
     const slot = mission.slot(sabre);
     slot.object.speed = 212.6;
     var state: hud.State = .{ .target = .{ .target = .at(sabre, null), .slot = sabre } };
@@ -397,8 +397,8 @@ test "a torpedo's bar is its weakest armour" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const index = try mission.add(.torpedo, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const index = try mission.add(.of(.torpedo), .{ 0, 0, 1000 });
     const slot = mission.slot(index);
     const full = slot.combat.?.fullArmor();
     slot.object.armor = .all(full);

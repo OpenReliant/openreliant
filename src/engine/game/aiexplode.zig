@@ -59,10 +59,10 @@ pub const Mode = enum(i16) {
 
     /// `order_explode_init`'s choice.
     pub fn of(object: *const GameObject, target: aigeneric.Target) Mode {
-        return switch (object.type) {
+        return switch (object.type.base()) {
             .troop_car => .ship,
             .limpet_car => .limpet_car,
-            else => if (object.type.isAsteroid())
+            else => if (object.type.base().isAsteroid())
                 .asteroid
             else if (!object.flags.components)
                 .ship
@@ -296,7 +296,7 @@ fn limpetCarUpdate(ctx: Context, index: u16) void {
     const place = model.partPlace(0, .next).within(slot.object.placeAt(.next));
     explode.blast(world, index);
     all.resetSlot(index, world.random);
-    const pod = create.make(world, index, .limpet_pod) catch null orelse return;
+    const pod = create.make(world, index, .of(.limpet_pod)) catch null orelse return;
     const replaced = &all.slots[pod];
     objects.setPlace(&replaced.object, &replaced.drawn, place);
 }
@@ -326,7 +326,7 @@ fn shipInit(ctx: Context, index: u16) void {
     const state = &slot.state.explode;
     const players = index == world.objects.player;
     const cutaway = world.player.showing != .everything;
-    state.style = if (object.type.isTorpedo() or (players and cutaway))
+    state.style = if (object.type.base().isTorpedo() or (players and cutaway))
         .halt
     else
         @enumFromInt(xtrabits.objectRandom15(object) % std.enums.values(Style).len);
@@ -381,7 +381,7 @@ pub fn killCredit(world: gameobj.World, index: u16) void {
 /// a Kurgan or a Gurevich.
 fn credited(slot: *const create.Slot) bool {
     if (slot.combat) |combat| if (combat.class == .fighter) return true;
-    return switch (slot.object.type) {
+    return switch (slot.object.type.base()) {
         .kamov, .kurgan, .gurevich => true,
         else => false,
     };
@@ -411,7 +411,7 @@ fn shipUpdate(ctx: Context, index: u16) void {
     }
     switch (state.style) {
         .burst => explode.burst(ctx.world, index),
-        .spin_out, .halt => if (!slot.object.type.isTorpedo()) explode.blast(ctx.world, index),
+        .spin_out, .halt => if (!slot.object.type.base().isTorpedo()) explode.blast(ctx.world, index),
     }
     create.retire(ctx, index);
 }
@@ -477,7 +477,7 @@ fn burstInit(object: *GameObject, state: *State) void {
 fn haltInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     halt(ctx.world, slot);
-    if (!slot.object.type.isTorpedo()) return;
+    if (!slot.object.type.base().isTorpedo()) return;
     chain(ctx.world, slot.drawn.position);
     shockwave.setOff(ctx.world, slot.object.placeAt(.next), .{
         .kind = .torpedo,
@@ -552,11 +552,11 @@ test Mode {
     object.flags.components = true;
     try std.testing.expectEqual(Mode.hull, Mode.of(&object, whole));
     try std.testing.expectEqual(Mode.component, Mode.of(&object, .at(3, 2)));
-    object.type = .troop_car;
+    object.type = .of(.troop_car);
     try std.testing.expectEqual(Mode.ship, Mode.of(&object, whole));
     object.type = .asteroid(2);
     try std.testing.expectEqual(Mode.asteroid, Mode.of(&object, whole));
-    object.type = .limpet_car;
+    object.type = .of(.limpet_car);
     try std.testing.expectEqual(Mode.limpet_car, Mode.of(&object, whole));
 }
 
@@ -567,8 +567,8 @@ test "a ship's end" {
     var watching: camera.Camera = .{};
     var ctx = mission.orders();
     ctx.world.camera = &watching;
-    const player = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     const slots = &mission.objects.slots;
 
     // A ship takes a style, and is gone once its end has passed.
@@ -578,7 +578,7 @@ test "a ship's end" {
     try std.testing.expect(slots[ship].object.flags.unpowered);
     mission.clock.frame_start = 2 * spin_ticks;
     aigeneric.objectOrders(ctx, ship);
-    try std.testing.expectEqual(gameobj.Type.stand_in, slots[ship].object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.stand_in), slots[ship].object.type);
 
     // The player's has the camera watch it, and ends the mission.
     ai.objectDestroyed(ctx, player, true, true);
@@ -594,7 +594,7 @@ test "the pod shot down in the ejection's cutaway bursts at once" {
     var watching: camera.Camera = .{};
     var ctx = mission.orders();
     ctx.world.camera = &watching;
-    const pod = try mission.add(.predator, @splat(0));
+    const pod = try mission.add(.of(.predator), @splat(0));
     _ = watching.setView(.pod_shot, pod, true, true, 0);
     mission.player.showing = .ejection;
     mission.player.ending = .destroyed;
@@ -615,7 +615,7 @@ test "an asteroid goes up, a large one leaving smaller ones" {
     var ctx = mission.orders();
     ctx.world.spawn = mission.spawn(create.testing.no_models);
     const all = mission.objects;
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     const rock = try mission.add(.asteroid(0), .{ 0, 0, 5000 });
     mission.clock.frame_start = 10;
 
@@ -625,12 +625,12 @@ test "an asteroid goes up, a large one leaving smaller ones" {
     try std.testing.expectEqual(Mode.asteroid, all.slots[rock].state.explode.mode);
     try std.testing.expect(all.slots[rock].object.flags.frozen);
     mission.ordersAfter(ctx, rock, 1);
-    try std.testing.expectEqual(gameobj.Type.stand_in, all.slots[rock].object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.stand_in), all.slots[rock].object.type);
 
     // Three fragments of the next asteroids take its place, smaller, colliding with nothing.
     try std.testing.expectEqual(rock + 1 + fragments, all.count);
     const fragment = &all.slots[rock + 1];
-    try std.testing.expect(fragment.object.type.isAsteroid());
+    try std.testing.expect(fragment.object.type.base().isAsteroid());
     try std.testing.expectEqual(fragment_share, fragment.object.visibility);
     try std.testing.expect(fragment.object.flags.no_collisions);
 
@@ -660,8 +660,8 @@ test "a ship listing components loses its hull, or a component" {
     hull.withComponent();
     hull.data[0].part.class = .hull;
     const all = mission.objects;
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.addWith(hull.types(), .reaper, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.addWith(hull.types(), .of(.reaper), .{ 0, 0, 1000 });
     try std.testing.expect(all.slots[ship].object.flags.components);
     const model = &all.slots[ship].model.?;
 
@@ -699,8 +699,8 @@ test "a ship going as a whole loses each part of its hull, whatever it hangs fro
     for (&parts.data) |*data| data.part.class = .hull;
     parts.data[1].part.parent = 0;
     const kind: create.Type = .{ .model = &parts.source, .loaded = &parts.loaded };
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.addWith(create.testing.oneType(&kind), .reaper, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.addWith(create.testing.oneType(&kind), .of(.reaper), .{ 0, 0, 1000 });
     const model = &mission.slot(ship).model.?;
     try std.testing.expectEqual(0, model.parts[1].parent);
 
@@ -722,14 +722,14 @@ test "the limpet car leaves its pod" {
     defer car.deinit(gpa);
     ctx.world.spawn = mission.spawn(car.types());
     const all = mission.objects;
-    _ = try mission.add(.predator, @splat(0));
-    const index = try mission.addWith(car.types(), .limpet_car, .{ 0, 0, 2000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const index = try mission.addWith(car.types(), .of(.limpet_car), .{ 0, 0, 2000 });
 
     // It stops dead and, the same step as its order starts, blows up, and a limpet pod takes its
     // slot where it was.
     ai.objectDestroyed(ctx, index, true, false);
     aigeneric.objectOrders(ctx, index);
-    try std.testing.expectEqual(gameobj.Type.limpet_pod, all.slots[index].object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.limpet_pod), all.slots[index].object.type);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 2000 }), all.slots[index].drawn.position);
 }
 
@@ -738,8 +738,8 @@ test huge {
     try stage.init();
     defer stage.deinit();
     const ctx: Context = .of(stage.world());
-    _ = try stage.mission.add(.predator, @splat(0));
-    const ship = try stage.mission.add(.sabre, .{ 0, 0, 1000 });
+    _ = try stage.mission.add(.of(.predator), @splat(0));
+    const ship = try stage.mission.add(.of(.sabre), .{ 0, 0, 1000 });
     _ = try aigeneric.push(ctx, ship, .do_nothing, .none);
     _ = try aigeneric.push(ctx, ship, .huuuuuuuge_explosion, .none);
 
@@ -757,7 +757,7 @@ test spin {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const ship = try mission.add(.sabre, @splat(0));
+    const ship = try mission.add(.of(.sabre), @splat(0));
     const slot = &mission.objects.slots[ship];
     const state = &slot.state.explode;
     const world = mission.orders().world;
@@ -787,8 +787,8 @@ test "a halting torpedo's shockwave" {
     defer mission.deinit();
     var ctx = mission.orders();
     ctx.world.shockwaves = &built.waves;
-    _ = try mission.add(.predator, @splat(0));
-    const torpedo = try mission.add(.torpedo, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const torpedo = try mission.add(.of(.torpedo), .{ 0, 0, 1000 });
     mission.slot(torpedo).object.root.next_position.z = 1100;
 
     // It halts, and sets off a shockwave that harms the player it passes, from where its next
@@ -816,7 +816,7 @@ test killCredit {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     const world = mission.world();
     const credit = struct {
         fn of(m: *gameobj.testing.Mission, w: gameobj.World, ship_type: gameobj.Type, by: u16) !i32 {
@@ -828,15 +828,15 @@ test killCredit {
         }
     }.of;
     // A hostile fighter the player's ship struck last is the player's kill.
-    try std.testing.expectEqual(1, try credit(&mission, world, .sabre, player));
+    try std.testing.expectEqual(1, try credit(&mission, world, .of(.sabre), player));
     // So are a Kamov and a Kurgan, which are not fighters by their class.
-    try std.testing.expectEqual(1, try credit(&mission, world, .kamov, player));
-    try std.testing.expectEqual(1, try credit(&mission, world, .kurgan, player));
+    try std.testing.expectEqual(1, try credit(&mission, world, .of(.kamov), player));
+    try std.testing.expectEqual(1, try credit(&mission, world, .of(.kurgan), player));
     // A Kronstadt, of the support class like the Kurgan, is not; nor is a friend, nor another's
     // kill.
-    try std.testing.expectEqual(0, try credit(&mission, world, .kronstadt, player));
-    try std.testing.expectEqual(0, try credit(&mission, world, .predator, player));
-    const other = try mission.add(.predator, .{ 0, 0, 2000 });
-    try std.testing.expectEqual(0, try credit(&mission, world, .sabre, other));
+    try std.testing.expectEqual(0, try credit(&mission, world, .of(.kronstadt), player));
+    try std.testing.expectEqual(0, try credit(&mission, world, .of(.predator), player));
+    const other = try mission.add(.of(.predator), .{ 0, 0, 2000 });
+    try std.testing.expectEqual(0, try credit(&mission, world, .of(.sabre), other));
     try std.testing.expectEqual(3, mission.player.kills.count);
 }

@@ -256,7 +256,7 @@ pub fn escort(ctx: Context, index: u16) void {
     const slot = &all.slots[index];
     const escorted = slot.state.escort.escortedIn(all) orelse return aigeneric.end(ctx, index);
     const other = &all.slots[escorted];
-    if (other.object.type == .stand_in) return aigeneric.end(ctx, index);
+    if (other.object.type.base() == .stand_in) return aigeneric.end(ctx, index);
     const lead = other.drawn.ahead(escort_lead);
     const to = other.drawn.position - slot.drawn.position;
     const near = math.lengthSquared(to) <= escort_near * escort_near;
@@ -366,7 +366,7 @@ pub fn runAway(ctx: Context, index: u16) void {
     const other = find: {
         const target = slot.orders[0].target.slotIn(all) orelse break :find null;
         const object = &all.slots[target].object;
-        break :find if (object.type == .stand_in) null else object;
+        break :find if (object.type.base() == .stand_in) null else object;
     } orelse return aigeneric.end(ctx, index);
     const from = slot.object.nextPosition();
     const away = from - other.nextPosition();
@@ -958,7 +958,7 @@ test disruptedInit {
     defer mission.deinit();
     var ctx = mission.orders();
     ctx.world.rays = &rays.rays;
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = mission.slot(index);
     slot.object.radius = 50;
     slot.orders[0].data = .{ .disrupted = .{ .ticks = 300, .push = @splat(0) } };
@@ -1009,8 +1009,8 @@ test capshipList {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.mammoth, .{ 0, 0, 10000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.mammoth), .{ 0, 0, 10000 });
     const object = &mission.slot(ship).object;
     const flight = mission.slot(ship).flight.?;
     try std.testing.expect(try aigeneric.push(ctx, ship, Lurch.left.order(), .none));
@@ -1043,7 +1043,7 @@ test doNothing {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const ctx = mission.orders();
 
     all.slots[index].object.throttle = 1;
@@ -1336,10 +1336,10 @@ test "Find New Target fights what it may, mills round the rest, and pops with no
     // A fighter at the origin, a Predator that fights, and the flight group of three ahead, the
     // nearest fought by two others already and the next cloaked.
     const searcher = try game.addOther(@splat(0));
-    const other = try game.add(.predator, .{ 0, 0, -5000 });
-    const near = try game.add(.predator, .{ 0, 0, 10000 });
-    const cloaked = try game.add(.predator, .{ 0, 0, 20000 });
-    const far = try game.add(.predator, .{ 0, 0, 30000 });
+    const other = try game.add(.of(.predator), .{ 0, 0, -5000 });
+    const near = try game.add(.of(.predator), .{ 0, 0, 10000 });
+    const cloaked = try game.add(.of(.predator), .{ 0, 0, 20000 });
+    const far = try game.add(.of(.predator), .{ 0, 0, 30000 });
     for ([_]u16{ near, cloaked, far }) |index| game.slot(index).object.flags.targetable = true;
     game.slot(cloaked).object.flags.cloaked = true;
     try std.testing.expectEqual(.fighter, game.slot(searcher).combat.?.class);
@@ -1379,9 +1379,9 @@ test "Find Scoop Up scoops up the nearest it may, one after another, and pops wi
     // A ship at the origin, and the flight group of three ahead: the farthest, an ejected one
     // nearer, and the nearest cloaked.
     const searcher = try game.addOther(@splat(0));
-    const far = try game.add(.predator, .{ 0, 0, 20000 });
-    const ejected = try game.add(.predator, .{ 0, 0, 10000 });
-    const cloaked = try game.add(.predator, .{ 0, 0, 5000 });
+    const far = try game.add(.of(.predator), .{ 0, 0, 20000 });
+    const ejected = try game.add(.of(.predator), .{ 0, 0, 10000 });
+    const cloaked = try game.add(.of(.predator), .{ 0, 0, 5000 });
     for ([_]u16{ far, ejected, cloaked }) |index| game.slot(index).object.flags.targetable = true;
     game.slot(ejected).object.flags.ejected = true;
     game.slot(cloaked).object.flags.cloaked = true;
@@ -1413,8 +1413,8 @@ test "Escort takes its place in the group, follows, and ends with its ship" {
     const game = &mission.game.mission;
     const ctx = mission.game.orders();
     const escort_ship = try game.addOther(@splat(0));
-    const first = try game.add(.predator, .{ 0, 0, 20000 });
-    _ = try game.add(.predator, .{ 0, 0, 20000 });
+    const first = try game.add(.of(.predator), .{ 0, 0, 20000 });
+    _ = try game.add(.of(.predator), .{ 0, 0, 20000 });
 
     // Third among the group's two, it counts round to the first.
     _ = try aigeneric.push(ctx, escort_ship, .escort, GroupMission.group);
@@ -1430,7 +1430,7 @@ test "Escort takes its place in the group, follows, and ends with its ship" {
     try std.testing.expectApproxEqAbs(20000 * escort_catch_up + 320 / cruise, game.slot(escort_ship).object.throttle, 1e-4);
 
     // Once its ship has gone, it ends.
-    lead.object.type = .stand_in;
+    lead.object.type = .of(.stand_in);
     aigeneric.objectOrders(ctx, escort_ship);
     try std.testing.expectEqual(0, game.slot(escort_ship).object.order_count);
 }
@@ -1452,7 +1452,7 @@ test "Mill circles its target for a while" {
     defer mission.deinit();
     const ctx = mission.orders();
     const ship = try mission.addOther(@splat(0));
-    const target = try mission.add(.predator, .{ 0, 0, 60000 });
+    const target = try mission.add(.of(.predator), .{ 0, 0, 60000 });
     mission.slot(target).object.flags.targetable = true;
     _ = try aigeneric.pushShip(ctx, ship, .mill, target, null);
     aigeneric.objectOrders(ctx, ship);
@@ -1501,7 +1501,7 @@ test "Formation flies abreast of its target, on alternate sides, and ends with i
     defer mission.deinit();
     const ctx = mission.orders();
     const ship = try mission.addOther(@splat(0));
-    const leader = try mission.add(.predator, .{ 0, 0, 10000 });
+    const leader = try mission.add(.of(.predator), .{ 0, 0, 10000 });
     mission.slot(leader).object.flags.targetable = true;
     _ = try aigeneric.pushShip(ctx, ship, .formation, leader, null);
     const slot = mission.slot(ship);
@@ -1529,7 +1529,7 @@ test "Object Attach rides its target, where it stood in the target's frame" {
     defer mission.deinit();
     const ctx = mission.orders();
     const pod = try mission.addOther(.{ 100, 0, 1000 });
-    const ship = try mission.add(.predator, .{ 0, 0, 1000 });
+    const ship = try mission.add(.of(.predator), .{ 0, 0, 1000 });
     const carrier = mission.slot(ship);
     const quarter = math.rotation(.y, std.math.pi / 2.0);
     objects.setOrientation(&carrier.object, &carrier.drawn, quarter);

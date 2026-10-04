@@ -770,8 +770,8 @@ test enter {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const world = mission.world();
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.sabre, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.sabre), @splat(0));
     var recorder: Recorder = .{ .scripts = .{ .context = undefined, .vtable = &Recorder.vtable } };
     recorder.scripts.context = &recorder;
 

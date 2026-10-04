@@ -555,7 +555,7 @@ pub fn damageValue(world: gameobj.World, ship: u16, component: u8) u16 {
     const all = world.objects;
     if (ship >= all.slots.len) return 0;
     const slot = &all.slots[ship];
-    if (component == dte.Trigger.whole_object and slot.object.type == .stand_in) return all_lost;
+    if (component == dte.Trigger.whole_object and slot.object.type.base() == .stand_in) return all_lost;
     const left: f32, const full: f32 = if (component == dte.Trigger.whole_object)
         .{ slot.object.armor.weakest(), if (slot.combat) |combat| combat.fullArmor() else 0 }
     else if (slot.component(component)) |part|
@@ -945,7 +945,7 @@ test damageValue {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const ship = try mission.add(.predator, @splat(0));
+    const ship = try mission.add(.of(.predator), @splat(0));
     const slot = mission.slot(ship);
     const full = slot.combat.?.fullArmor();
     // Untouched, a ship has lost nothing; its weakest quadrant at a quarter off, 25.
@@ -960,7 +960,7 @@ test damageValue {
     // A stand-in has lost it all: one retired keeps its armour and its type's figures, and one not
     // made yet has neither.
     slot.object.armor = .all(full);
-    slot.object.type = .stand_in;
+    slot.object.type = .of(.stand_in);
     try std.testing.expectEqual(100, damageValue(mission.world(), ship, dte.Trigger.whole_object));
     slot.combat = null;
     slot.object.armor = .all(0);

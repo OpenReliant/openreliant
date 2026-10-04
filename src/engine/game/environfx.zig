@@ -808,7 +808,7 @@ test Exhaust {
     try mission.init(gpa);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     // A capital ship behind the player, its one engine's plume burning forward along +Z through
     // where the player's ship stands.
     const capital = try mission.addOther(.{ 0, 0, -200 });

@@ -122,7 +122,7 @@ fn reportBridge(world: gameobj.World, radio: *Radio, carrier: u16, lines: []cons
     var speech: [report_text_size]u8 = undefined;
     const said = bridgeLine(&speech, all, carrier, pick(world, lines));
     radio.reports[place] = .{
-        .object = if (all.slots[carrier].object.type == .yamato) yamato_bridge else reliant_bridge,
+        .object = if (all.slots[carrier].object.type.base() == .yamato) yamato_bridge else reliant_bridge,
         .about = all.player,
         .name = bridge_name,
         .due = game_ticks + report_delay,
@@ -219,7 +219,7 @@ fn clearances(outcome: vm.Variables.Outcome) []const []const u8 {
 /// explodes; the Reliant's, `rel` and `Rel_Brdge_Off`, otherwise.
 fn bridgeLine(buffer: []u8, all: *const create.Objects, carrier: u16, suffix: []const u8) struct { speech: []const u8, film: []const u8 } {
     const object = &all.slots[carrier].object;
-    const yamato = object.type == .yamato or object.flags.exploding;
+    const yamato = object.type.base() == .yamato or object.flags.exploding;
     const prefix = if (yamato) "yam" else "rel";
     return .{
         .speech = std.fmt.bufPrint(buffer, "{s}{s}", .{ prefix, suffix }) catch suffix,
@@ -685,7 +685,7 @@ pub fn launchLine(world: gameobj.World, carrier: u16) void {
     if (world.player.remarks.generic_comms_disabled) return;
     const all = world.objects;
     if (all.training()) return pilotSays(world, flight_instructor, .talking, training_launch_line, .if_idle, .looping, no_expiry);
-    const officer: u16, const lines: []const []const u8 = switch (all.slots[carrier].object.type) {
+    const officer: u16, const lines: []const []const u8 = switch (all.slots[carrier].object.type.base()) {
         .reliant => .{ reliant_officer, &reliant_launch_lines },
         .yamato => .{ yamato_officer, &yamato_launch_lines },
         else => return,
@@ -1224,8 +1224,8 @@ test Radio {
     try mission.init(gpa);
     defer mission.deinit();
     mission.objects.mission_number = 1;
-    const wingman = try mission.add(.predator, @splat(0));
-    const enemy = try mission.add(.predator, .{ 0, 0, 1000 });
+    const wingman = try mission.add(.of(.predator), @splat(0));
+    const enemy = try mission.add(.of(.predator), .{ 0, 0, 1000 });
     mission.slot(enemy).object.side = .hostile;
 
     var radio = archives.radio(gpa, io);
@@ -1305,7 +1305,7 @@ test sideOf {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const enemy = try mission.add(.predator, @splat(0));
+    const enemy = try mission.add(.of(.predator), @splat(0));
     mission.slot(enemy).object.side = .hostile;
     try std.testing.expectEqual(.hostile, sideOf(mission.objects, enemy));
     try std.testing.expectEqual(.friendly, sideOf(mission.objects, nobody));
@@ -1368,8 +1368,8 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const reliant = try mission.add(.reliant, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 1000 });
     var radio = archives.radio(gpa, io);
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(2, null);
@@ -1435,8 +1435,8 @@ test permissionToLand {
     var variables: @import("../vm.zig").Variables = .{};
     var world = mission.world();
     world.variables = &variables;
-    const player = try mission.add(.predator, @splat(0));
-    const reliant = try mission.add(.reliant, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 1000 });
     const slot = mission.slot(player);
 
     // Not yet cleared, the ship lands on nothing, and the key goes unheard for a while.
@@ -1513,10 +1513,10 @@ pub const testing = struct {
             try mission.init(gpa);
             errdefer mission.deinit();
             mission.objects.mission_number = 1;
-            mission.tables.combat[@intFromEnum(gameobj.Type.predator)].class = .fighter;
-            _ = try mission.add(.predator, @splat(0));
-            heard.wingman = try mission.add(.predator, .{ 0, 0, 1000 });
-            heard.enemy = try mission.add(.predator, .{ 0, 0, 2000 });
+            mission.tables.combat[@intFromEnum(gameobj.GameType.predator)].class = .fighter;
+            _ = try mission.add(.of(.predator), @splat(0));
+            heard.wingman = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+            heard.enemy = try mission.add(.of(.predator), .{ 0, 0, 2000 });
             for ([_]u16{ heard.wingman, heard.enemy }) |ship| mission.slot(ship).object.pilot = bandit;
             mission.slot(heard.wingman).object.wing = .player;
             mission.slot(heard.enemy).object.side = .hostile;
@@ -1577,7 +1577,7 @@ test shipLine {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const ship = try mission.add(.predator, @splat(0));
+    const ship = try mission.add(.of(.predator), @splat(0));
     const object = &mission.slot(ship).object;
     var buffer: [ship_line_size]u8 = undefined;
 
@@ -1745,7 +1745,7 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     killRemark(world, enemy);
     try std.testing.expectEqual(0, radio.count);
     // A torpedo's has Moose's words alone; a pilot's pod has Moose's at any time.
-    heard.mission.tables.combat[@intFromEnum(gameobj.Type.predator)].class = .torpedo;
+    heard.mission.tables.combat[@intFromEnum(gameobj.GameType.predator)].class = .torpedo;
     clock.game_ticks += 1;
     killRemark(world, enemy);
     try heard.expectLine(0, moose_line, &torpedo_kill_lines);
@@ -1802,7 +1802,7 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     try std.testing.expectEqual(clock.frame_start + taunt_wait, remarks.taunt_next);
 
     // A launch from the Reliant has its bridge officer's words; from anything else, none.
-    const reliant = try heard.mission.add(.reliant, .{ 0, 0, 5000 });
+    const reliant = try heard.mission.add(.of(.reliant), .{ 0, 0, 5000 });
     launchLine(world, reliant);
     try heard.expectLine(0, reliant_bridge, &reliant_launch_lines);
     radio.reset(sound);

@@ -493,7 +493,7 @@ fn collect(slot: *create.Slot, kind: shp.PointList.Kind, into: []Vector) usize {
 
 /// Whether the ship's trails stream ahead of it: a Ripper, while its cargo pod shows.
 fn streamsAhead(slot: *create.Slot) bool {
-    if (slot.object.type != .ripper) return false;
+    if (slot.object.type.base() != .ripper) return false;
     const model = if (slot.model) |*live| live else return false;
     const pod = model.partNamed(airipper.cargo_part) orelse return false;
     return !pod.part().hidden;
@@ -774,7 +774,7 @@ test "the flare lights what stands round it as it shows" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    const ship = try mission.add(.predator, @splat(0));
+    const ship = try mission.add(.of(.predator), @splat(0));
     var effects: Effects = .{
         .gpa = gpa,
         .flare_mesh = try loadout.squareMesh(gpa, false, flare_size[0], flare_size[1]),

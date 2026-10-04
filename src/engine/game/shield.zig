@@ -419,7 +419,7 @@ pub const Shields = struct {
     pub fn draw(shields: *Shields, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *Objects, look: Look) Allocator.Error!void {
         for (&shields.levels, &shields.meshes) |*level, *mesh| level.* = .{.{ .mesh = mesh, .until = std.math.inf(f32) }};
         for (&all.slots, 0..) |*slot, index| {
-            if (slot.object.type == .stand_in) continue;
+            if (slot.object.type.base() == .stand_in) continue;
             const bubble = slot.shield orelse continue;
             const struck = bubble.struck orelse continue;
             const since = look.frame_start -% struck;
@@ -1211,8 +1211,8 @@ test flare {
     world.sparks = &thrown.sparks;
     world.camera = &watching;
     mission.clock.frame_start = 50;
-    _ = try mission.add(.predator, @splat(0));
-    const index = try mission.add(.sabre, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const index = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     const slot = mission.slot(index);
     const bubble = slot.shield.?;
     try std.testing.expectEqual(Tint.other, bubble.tint);
@@ -1242,8 +1242,8 @@ test "Shields.draw" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const other = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     for ([_]u16{ player, other }) |index| mission.slot(index).shield.?.struck = 100;
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
@@ -1360,7 +1360,7 @@ test "capital shields" {
     var world = mission.world();
     world.shields = shields;
     mission.clock.frame_start = 100;
-    const index = try mission.add(.kamov, @splat(0));
+    const index = try mission.add(.of(.kamov), @splat(0));
 
     const mesh = try testingPartMesh(gpa);
     defer mesh.deinit(gpa);

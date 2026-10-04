@@ -431,7 +431,7 @@ scripts can only read them.
 
 | Table | Contents | First number | Names |
 |---|---|---|---|
-| `ships` | Ship stats, `shipstats.bin` | 0 | The ship types OpenReliant has names for, such as `predator` |
+| `ships` | Ship stats, `shipstats.bin`, then the types the mods add | 0 | The ship types OpenReliant has names for, such as `predator`, and the qualified names of the types the mods add, such as `teapot:teapot` |
 | `guns` | Gun stats, `gunstats.bin` | 1 | `laser_cannon`, `pulse_cannon` and the rest |
 | `missiles` | Missile stats, `missilestats.bin` | 0 | `screamer`, `raptor` and the rest |
 | `pilots` | Pilot stats, `pilotstats.bin` | 0 | |
@@ -458,9 +458,13 @@ end
   is first copied from the template: `records.guns[2] = { template = records.guns[1], speed = 5 }`.
 - A wrong field name or a value of the wrong type is an error.
 - Text is UTF-8; characters the game can't show become `?`.
-- Records can't be removed, because missions refer to them by number, and adding new ones isn't
-  supported yet ([#333](https://github.com/OpenReliant/openreliant/issues/333),
-  [#640](https://github.com/OpenReliant/openreliant/issues/640)).
+- Records can't be removed, because missions refer to them by number. A mod adds a ship's record by
+  adding a ship type ([Ship types](modding.md#ship-types)), which starts with a copy of its base's
+  record: `records.ships["teapot:teapot"]`. Adding guns, missiles and pilots isn't supported yet
+  ([#640](https://github.com/OpenReliant/openreliant/issues/640)).
+- A ship type, wherever scripts see one ([ShipType](reference.md#shiptype)), is a name: OpenReliant's
+  name for one of the game's types, such as `"predator"`, or the qualified name of one a mod adds,
+  such as `"teapot:teapot"`. A game type without a name is a number.
 
 A load script that fails has its changes undone, and the next one runs.
 

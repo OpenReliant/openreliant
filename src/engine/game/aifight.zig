@@ -752,8 +752,8 @@ pub const testing = struct {
     /// against it that has yet to start.
     pub fn fighter(mission: *gameobj.testing.Mission, apart: f32) !Fighter {
         const ctx = mission.orders();
-        const player = try mission.add(.predator, @splat(0));
-        const index = try mission.add(.sabre, .{ 0, 0, apart });
+        const player = try mission.add(.of(.predator), @splat(0));
+        const index = try mission.add(.of(.sabre), .{ 0, 0, apart });
         try std.testing.expect(try aigeneric.pushShip(ctx, index, .fight, player, null));
         return Fighter.unchecked(ctx, index) orelse error.NoTarget;
     }
@@ -866,7 +866,7 @@ test outOfSphere {
     const started = try testFight(&mission, 300000);
     const player = &all.slots[0].object;
     // The Sabre fights a ship near it, far out of a small sphere around the player.
-    const other = try mission.add(.sabre, .{ 0, 0, 310000 });
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 310000 });
     started.entry().target = .at(other, null);
     const fighter = Fighter.unchecked(started.ctx, started.index).?;
     all.action_sphere = .{ .centre = 0, .radius = 1000 };
@@ -891,8 +891,8 @@ test shipToRunTo {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const fighter = try testFight(&mission, 20000);
-    mission.tables.combat[@intFromEnum(gameobj.Type.mammoth)].class = .capital;
-    const mammoth = try mission.add(.mammoth, .{ 0, 0, 200000 });
+    mission.tables.combat[@intFromEnum(gameobj.GameType.mammoth)].class = .capital;
+    const mammoth = try mission.add(.of(.mammoth), .{ 0, 0, 200000 });
     const friend = &mission.slot(mammoth).object;
     friend.side = fighter.ship().side;
     friend.radius = 1000;
@@ -1031,9 +1031,9 @@ test callForHelp {
     defer mission.deinit();
     const ctx = mission.orders();
     const fighter = try testFight(&mission, 20000);
-    const far = try mission.add(.sabre, .{ 0, 0, 90000 });
-    const near = try mission.add(.sabre, .{ 0, 0, 30000 });
-    const milling = try mission.add(.sabre, .{ 0, 0, 120000 });
+    const far = try mission.add(.of(.sabre), .{ 0, 0, 90000 });
+    const near = try mission.add(.of(.sabre), .{ 0, 0, 30000 });
+    const milling = try mission.add(.of(.sabre), .{ 0, 0, 120000 });
     const none: aigeneric.Target = .none;
     try std.testing.expect(try aigeneric.push(ctx, far, .mill, none));
     try std.testing.expect(try aigeneric.push(ctx, near, .fly, none));

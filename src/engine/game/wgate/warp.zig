@@ -180,13 +180,13 @@ fn projectorSources(slot: *const create.Slot) [beam_count]math.Vector {
     const model = if (slot.model) |*held| held else return result;
     var parts = model.rootChildren();
     while (parts.next()) |part| {
-        if (slot.object.type == .yamato and !std.ascii.eqlIgnoreCase(model.source.parts[part.index].part.name(), "Yam_Warp_Proj_3")) continue;
+        if (slot.object.type.base() == .yamato and !std.ascii.eqlIgnoreCase(model.source.parts[part.index].part.name(), "Yam_Warp_Proj_3")) continue;
         const groups = model.source.parts[part.index].point_lists;
         for (groups) |group| {
             if (group.kind != .warp_projectors or group.points.len == 0) continue;
             const place = model.frameAt(part.index, slot.drawn);
             for (&result, 0..) |*source, n| {
-                const point = group.points[if (slot.object.type == .yamato) @min(n, group.points.len - 1) else 0];
+                const point = group.points[if (slot.object.type.base() == .yamato) @min(n, group.points.len - 1) else 0];
                 source.* = place.point(gameobj.vector(point.position));
             }
             return result;
@@ -398,7 +398,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
         .enter => {
             const held = record orelse return abort(ctx, index);
             if (held.progress >= 1) return advance(state, OutStep.finish, held);
-            const distance = if (slot.object.type == .badanov or slot.object.type == .yamato)
+            const distance = if (slot.object.type.base() == .badanov or slot.object.type.base() == .yamato)
                 held.deeper * capital_depth_speed + slot.object.bounds_max.z - slot.object.bounds_min.z
             else
                 held.deeper * depth_speed + departure_speed;
@@ -466,12 +466,12 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             slot.object.flags.disabled = false;
             objects.setPlace(&slot.object, &slot.drawn, .{ .position = state.position, .orientation = state.orientation });
             held.warp_place = .{ .position = state.position, .orientation = math.turned(state.orientation, .y, std.math.pi) };
-            if (slot.object.type == .yamato) held.warp_place.position = @as(math.Vector, state.position) + math.forward(state.orientation) * @as(math.Vector, @splat(yamato_tunnel_ahead));
+            if (slot.object.type.base() == .yamato) held.warp_place.position = @as(math.Vector, state.position) + math.forward(state.orientation) * @as(math.Vector, @splat(yamato_tunnel_ahead));
             const back = if (held.tunnel.grid.segments < wgate.tunnel.Grid.of(.high).segments) arrival_back_low else arrival_back;
             objects.setPosition(&slot.object, &slot.drawn, @as(math.Vector, state.position) - math.forward(state.orientation) * @as(math.Vector, @splat(back)));
             slot.object.flags.hidden = true;
-            slot.object.flags.frozen = slot.object.type == .yamato;
-            slot.object.flags.unpowered = slot.object.type == .yamato;
+            slot.object.flags.frozen = slot.object.type.base() == .yamato;
+            slot.object.flags.unpowered = slot.object.type.base() == .yamato;
             slot.object.throttle = 1;
             advance(state, InStep.begin, held);
             if (world.gates) |gates| held.tunnel.colour(.warp, gates.hardware);
@@ -489,7 +489,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             arrivalShape(held, slot.object.flags.components, held.progress);
             if (held.progress >= reveal_at) {
                 slot.object.flags.hidden = false;
-                if (slot.object.type == .yamato) {
+                if (slot.object.type.base() == .yamato) {
                     const speed = (1 - (held.progress - reveal_at) * yamato_slowing) *
                         (held.deeper * yamato_depth_speed + slot.object.bounds_max.z - slot.object.bounds_min.z);
                     objects.setPosition(&slot.object, &slot.drawn, slot.drawn.ahead(speed * delta));
@@ -611,8 +611,8 @@ test "Warp Out queues Warp In, preserves sequence and releases its record" {
     var run: wgate.testing.Run = undefined;
     try run.init(gpa);
     defer run.deinit(gpa);
-    _ = try run.mission.add(.predator, .{ 0, 100000, 0 });
-    const ship = try run.mission.add(.predator, @splat(0));
+    _ = try run.mission.add(.of(.predator), .{ 0, 100000, 0 });
+    const ship = try run.mission.add(.of(.predator), @splat(0));
     const target = try run.mission.addOther(.{ 0, 0, 100000 });
     const ctx = run.orders();
     _ = try aigeneric.pushShip(ctx, ship, .warp_out, target, null);
@@ -638,8 +638,8 @@ test "a missing warp record ends without leaving the ship frozen" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.predator), @splat(0));
     const target = try mission.addOther(.{ 0, 0, 100000 });
     const ctx = mission.orders();
     _ = try aigeneric.pushShip(ctx, ship, .warp_in, target, null);
@@ -677,7 +677,7 @@ test "warp allocation failures release every partially built mesh" {
     var run: wgate.testing.Run = undefined;
     try run.init(std.testing.allocator);
     defer run.deinit(std.testing.allocator);
-    const ship = try run.mission.add(.predator, @splat(0));
+    const ship = try run.mission.add(.of(.predator), @splat(0));
     try std.testing.checkAllAllocationFailures(std.testing.allocator, Trial.run, .{ run.orders().world, run.built.gates, ship });
 }
 
@@ -686,7 +686,7 @@ test "warp rings wait for the opening depth and keep the final depth at the prec
     var run: wgate.testing.Run = undefined;
     try run.init(gpa);
     defer run.deinit(gpa);
-    const ship = try run.mission.add(.predator, @splat(0));
+    const ship = try run.mission.add(.of(.predator), @splat(0));
     const record = (try run.built.gates.make(run.orders().world, ship, .warp, @splat(0))).?;
     const before = try gpa.dupe(f32, record.tunnel.radii);
     defer gpa.free(before);
@@ -708,8 +708,8 @@ test "warp stretching affects the drawn fighter frame, not its flight orientatio
     var run: wgate.testing.Run = undefined;
     try run.init(std.testing.allocator);
     defer run.deinit(std.testing.allocator);
-    _ = try run.mission.add(.predator, @splat(0));
-    const ship = try run.mission.add(.predator, @splat(0));
+    _ = try run.mission.add(.of(.predator), @splat(0));
+    const ship = try run.mission.add(.of(.predator), @splat(0));
     const target = try run.mission.addOther(.{ 0, 0, 100000 });
     const ctx = run.orders();
     _ = try aigeneric.pushShip(ctx, ship, .warp_out, target, null);
@@ -728,8 +728,8 @@ test "Warp In restores a reused tunnel's colours after the departure fade" {
     var run: wgate.testing.Run = undefined;
     try run.init(gpa);
     defer run.deinit(gpa);
-    _ = try run.mission.add(.predator, @splat(0));
-    const ship = try run.mission.add(.predator, @splat(0));
+    _ = try run.mission.add(.of(.predator), @splat(0));
+    const ship = try run.mission.add(.of(.predator), @splat(0));
     const target = try run.mission.addOther(.{ 0, 0, 100000 });
     const ctx = run.orders();
     const record = (try run.built.gates.make(ctx.world, ship, .warp, @splat(0))).?;

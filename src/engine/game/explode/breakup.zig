@@ -691,7 +691,7 @@ test "a part's burst takes in the models it carries" {
     try gun.init(gpa);
     defer gun.deinit(gpa);
     const mission = &stage.mission;
-    const index = try mission.addWith(gun.types(), .predator, @splat(0));
+    const index = try mission.addWith(gun.types(), .of(.predator), @splat(0));
 
     // A part with no mesh of its own, carrying the gun's model on an attachment.
     var carrier: objects.testing.Carrier = undefined;
@@ -719,7 +719,7 @@ test breakUp {
     try model.init(gpa);
     defer model.deinit(gpa);
     const mission = &stage.mission;
-    const index = try mission.addWith(model.types(), .predator, @splat(0));
+    const index = try mission.addWith(model.types(), .of(.predator), @splat(0));
     const slot = &mission.objects.slots[index];
     slot.object.velocity = .{ .x = 0, .y = 0, .z = 8 };
 

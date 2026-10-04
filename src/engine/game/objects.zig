@@ -3741,8 +3741,8 @@ test loseComponents {
     var fixture: create.testing.Model = undefined;
     try fixture.init(gpa);
     defer fixture.deinit(gpa);
-    _ = try mission.add(.kamov, @splat(0));
-    const index = try mission.addWith(fixture.types(), .predator, @splat(0));
+    _ = try mission.add(.of(.kamov), @splat(0));
+    const index = try mission.addWith(fixture.types(), .of(.predator), @splat(0));
     const slot = &mission.objects.slots[index];
 
     // Its model, three parts hanging from the root: a comms transmitter; its damaged model, hidden;
@@ -3815,10 +3815,10 @@ test "a ship that lists components ends with its hull" {
     try fixture.init(gpa);
     defer fixture.deinit(gpa);
     fixture.data[0].part.class = .hull;
-    _ = try mission.add(.kamov, @splat(0));
+    _ = try mission.add(.of(.kamov), @splat(0));
 
     // Any ship: the hull is taken out with the rest of its assembly, and the ship ends.
-    const ship = try mission.addWith(fixture.types(), .predator, @splat(0));
+    const ship = try mission.addWith(fixture.types(), .of(.predator), @splat(0));
     const hull = &mission.objects.slots[ship].model.?;
     hull.parts[0].armor = -1;
     hull.destroyed = true;
@@ -3828,7 +3828,7 @@ test "a ship that lists components ends with its hull" {
 
     // A capital ship's routine ends it there instead, leaving the hull and its root's flag, and
     // it drifts on unpowered.
-    const capital = try mission.addWith(fixture.types(), .badanov, .{ 0, 0, 5000 });
+    const capital = try mission.addWith(fixture.types(), .of(.badanov), .{ 0, 0, 5000 });
     const wreck = &mission.objects.slots[capital].model.?;
     wreck.parts[0].armor = -1;
     wreck.destroyed = true;

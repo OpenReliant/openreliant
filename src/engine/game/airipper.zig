@@ -311,7 +311,7 @@ const cabin_track = "cabin turn";
 /// Whether the Ripper can lift an object of `object`: the cargo pod and the fuel pod. The game
 /// asserts "Ripper cannot pick up this type of object." for another, in code that never runs.
 fn carries(object: gameobj.Type) bool {
-    return object == .cargo_pod or object == .fuel_pod;
+    return object.base() == .cargo_pod or object.base() == .fuel_pod;
 }
 
 // --- Order states --------------------------------------------------------------------------------
@@ -1007,7 +1007,7 @@ pub fn attachInit(ctx: Context, index: u16) void {
     state.grip = if (world.rippers) |rippers| rippers.takeFor(world, index, rippers.carried(index)) else .none;
     if (portOf(all, slot.orders[0].target)) |port| {
         const ship = &all.slots[port.ship];
-        const by: f32 = if (ship.object.type == .sharov or ship.object.type == .boridin) -beside_by else beside_by;
+        const by: f32 = if (ship.object.type.base() == .sharov or ship.object.type.base() == .boridin) -beside_by else beside_by;
         state.beside = port.place.point(.{ 0, by, 0 });
         state.port = port.place.position;
     }
@@ -1030,12 +1030,12 @@ fn portOf(all: *create.Objects, target: aigeneric.Target) ?Port {
 /// the Mammoth under any of its numbers, the Sharov and the Boridin, and about its Z on any other
 /// (`0x00411A7B`).
 fn fitTurn(ship: gameobj.Type) math.Axis {
-    return switch (ship) {
+    return switch (ship.base()) {
         .mammoth, .sharov, .boridin => .x,
         else => {
-            const number = std.math.cast(u8, @intFromEnum(ship)) orelse return .z;
+            const number = std.math.cast(u8, @intFromEnum(ship.base())) orelse return .z;
             const under = create.donor(number) orelse return .z;
-            return if (under == @intFromEnum(gameobj.Type.mammoth)) .x else .z;
+            return if (under == @intFromEnum(gameobj.GameType.mammoth)) .x else .z;
         },
     };
 }
@@ -1219,13 +1219,13 @@ const TestRipper = struct {
         t.pod_model.init(.{cargo_part}, .{.tractor}, .{&pod_points});
         t.ship_model.init(.{"Cargo slot"}, .{.tractor}, .{&.{}});
         // The player holds the first slot, and refuses these orders.
-        _ = try t.game.add(.predator, .{ 0, 50000, 0 });
-        t.ripper = try t.game.add(.ripper, @splat(0));
+        _ = try t.game.add(.of(.predator), .{ 0, 50000, 0 });
+        t.ripper = try t.game.add(.of(.ripper), @splat(0));
         try t.ripper_model.parts.fit(gpa, t.game.slot(t.ripper));
         t.game.slot(t.ripper).model.?.parts[4].hidden = true;
-        t.pod = try t.game.add(.cargo_pod, .{ 0, 0, 1000 });
+        t.pod = try t.game.add(.of(.cargo_pod), .{ 0, 0, 1000 });
         try t.pod_model.parts.fit(gpa, t.game.slot(t.pod));
-        t.ship = try t.game.add(.predator, .{ 0, 0, 50000 });
+        t.ship = try t.game.add(.of(.predator), .{ 0, 0, 50000 });
         try t.ship_model.parts.fit(gpa, t.game.slot(t.ship));
         const ship = t.game.slot(t.ship);
         ship.components[0] = &ship.model.?.parts[0];
@@ -1557,13 +1557,13 @@ test "what a Ripper carries is the first it holds, until it lets that go" {
 }
 
 test fitTurn {
-    try std.testing.expectEqual(math.Axis.x, fitTurn(.mammoth));
-    try std.testing.expectEqual(math.Axis.x, fitTurn(.sharov));
-    try std.testing.expectEqual(math.Axis.x, fitTurn(.boridin));
+    try std.testing.expectEqual(math.Axis.x, fitTurn(.of(.mammoth)));
+    try std.testing.expectEqual(math.Axis.x, fitTurn(.of(.sharov)));
+    try std.testing.expectEqual(math.Axis.x, fitTurn(.of(.boridin)));
     // The Mammoth under another number.
     try std.testing.expectEqual(math.Axis.x, fitTurn(@enumFromInt(0xE3)));
-    try std.testing.expectEqual(math.Axis.z, fitTurn(.stalag));
-    try std.testing.expectEqual(math.Axis.z, fitTurn(.stand_in));
+    try std.testing.expectEqual(math.Axis.z, fitTurn(.of(.stalag)));
+    try std.testing.expectEqual(math.Axis.z, fitTurn(.of(.stand_in)));
 }
 
 test {

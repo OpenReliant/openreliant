@@ -419,7 +419,10 @@ fn unionRows(comptime T: type, comptime name: []const u8, comptime info: std.bui
 
 fn enumRows(comptime T: type, comptime name: []const u8, comptime info: std.builtin.Type.Enum) []const u8 {
     var rows: []const u8 = std.fmt.comptimePrint("enum\t{s}\t{d}\n", .{ name, @sizeOf(T) });
-    for (info.fields) |field| {
+    // A type whose values are numbers, some with names, such as `gameobj.Type`, names them by
+    // another enum's tags.
+    const fields = if (@hasDecl(T, "Named")) @typeInfo(T.Named).@"enum".fields else info.fields;
+    for (fields) |field| {
         rows = rows ++ std.fmt.comptimePrint("value\t{s}\t{s}\t{d}\n", .{ name, field.name, field.value });
     }
     return rows;

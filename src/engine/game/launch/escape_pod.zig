@@ -121,8 +121,8 @@ const testing = struct {
     /// Returns the pod's slot.
     fn started(mission: *gameobj.testing.Mission, carrier_model: *launch.testing.Carrier, kind: gameobj.Type) !u16 {
         const gpa = std.testing.allocator;
-        _ = try mission.add(.predator, @splat(0));
-        const carrier = try mission.add(.ulysses, .{ 1000, 0, 0 });
+        _ = try mission.add(.of(.predator), @splat(0));
+        const carrier = try mission.add(.of(.ulysses), .{ 1000, 0, 0 });
         try carrier_model.parts.fit(gpa, mission.slot(carrier));
         const pod = try mission.add(kind, @splat(0));
         const ctx = mission.orders();
@@ -150,7 +150,7 @@ test run {
     defer mission.deinit();
     var carrier_model: launch.testing.Carrier = undefined;
     carrier_model.init();
-    const pod = try testing.started(&mission, &carrier_model, .escape_pod);
+    const pod = try testing.started(&mission, &carrier_model, .of(.escape_pod));
     const ctx = mission.orders();
     const slot = mission.slot(pod);
     const state = &slot.state.launch;
@@ -179,7 +179,7 @@ test runOther {
     defer mission.deinit();
     var carrier_model: launch.testing.Carrier = undefined;
     carrier_model.init();
-    const pod = try testing.started(&mission, &carrier_model, .other_escape_pod);
+    const pod = try testing.started(&mission, &carrier_model, .of(.other_escape_pod));
     const ctx = mission.orders();
     const slot = mission.slot(pod);
     const state = &slot.state.launch;

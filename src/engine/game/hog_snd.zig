@@ -884,7 +884,7 @@ pub const Sound = struct {
                 .object => {
                     const at = voice.ownerIndex().?;
                     const slot = &scene.objects.slots[at];
-                    if (slot.object.type == .stand_in) {
+                    if (slot.object.type.base() == .stand_in) {
                         sound.end3D(v);
                         continue;
                     }

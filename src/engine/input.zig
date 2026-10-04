@@ -1597,7 +1597,7 @@ pub fn nextNavPoint(world: gameobj.World) void {
     ship.object.nav_point = for (flyback.markers[0..flyback.count]) |*marker| {
         const index = marker.slot orelse continue;
         const marked = &all.slots[index];
-        if (marked.object.type == .stand_in) {
+        if (marked.object.type.base() == .stand_in) {
             marker.slot = null;
             continue;
         }
@@ -1609,9 +1609,9 @@ test nextNavPoint {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const near = try mission.add(.predator, .{ 0, 0, 1000 });
-    const far = try mission.add(.predator, .{ 0, 0, 50000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const near = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const far = try mission.add(.of(.predator), .{ 0, 0, 50000 });
     // With no markers, the ship points nowhere.
     nextNavPoint(mission.world());
     try std.testing.expectEqual(.none, mission.slot(player).object.nav_point);
@@ -1625,7 +1625,7 @@ test nextNavPoint {
     nextNavPoint(mission.world());
     try std.testing.expectEqual(gameobj.Slot.of(near), mission.slot(player).object.nav_point);
     // A marker whose object has gone is dropped.
-    mission.slot(near).object.type = .stand_in;
+    mission.slot(near).object.type = .of(.stand_in);
     nextNavPoint(mission.world());
     try std.testing.expectEqual(null, mission.player.flyback.markers[0].slot);
     try std.testing.expectEqual(gameobj.Slot.of(far), mission.slot(player).object.nav_point);
@@ -1669,7 +1669,7 @@ pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
                 guns.fire(object, trigger, guns.held_ticks);
             }
         }
-    } else if (!object.flags.jumping and object.nova_charge > 0 and object.type.carriesNova()) {
+    } else if (!object.flags.jumping and object.nova_charge > 0 and object.type.base().carriesNova()) {
         guns.nova.release(world, index);
     }
     if (devices.active(.launch_missile, true)) launchMissile(world, index);
@@ -1718,7 +1718,7 @@ pub fn eject(world: gameobj.World, index: u16) void {
         .playing, .ejecting => {},
         else => return,
     }
-    if (object.type == .kamov or object.flags.eject_disabled) return;
+    if (object.type.base() == .kamov or object.flags.eject_disabled) return;
     const flying = slot.current() orelse return;
     switch (flying.order) {
         .player_control, .eject_player => {},
@@ -1755,7 +1755,7 @@ pub fn launchMissile(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const ship = &all.slots[index].object;
     if (ship.flags.missiles_disabled or ship.flags.jumping) return;
-    if (ship.type == .kamov) return launchCarried(world, index);
+    if (ship.type.base() == .kamov) return launchCarried(world, index);
     const display = world.display orelse return;
     const ring = &display.missiles;
     const armed = ring.armedEntry();
@@ -1939,7 +1939,7 @@ pub fn seekTarget(all: *const create.Objects, target: *aigeneric.Target, step: S
             .any => true,
             .hostile => object.side == .hostile and within,
             .friendly => object.side == .friendly and within,
-            .torpedo => object.side == .hostile and within and switch (object.type) {
+            .torpedo => object.side == .hostile and within and switch (object.type.base()) {
                 .russian_torpedo, .kamov, .scimitar => true,
                 else => false,
             },
@@ -1979,10 +1979,10 @@ test matchSpeed {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     try std.testing.expect(try aigeneric.push(mission.orders(), player, .player_control, .none));
     const ship = mission.slot(player);
-    const sabre = try mission.add(.sabre, .{ 0, 0, 5000 });
+    const sabre = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
     mission.slot(sabre).object.flags.targetable = true;
     const cruise = ai.cruiseSpeed(&ship.object, ship.flight.?, .cockpit);
     mission.slot(sabre).object.speed = cruise / 4;
@@ -2024,14 +2024,14 @@ test cycleTarget {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     var display: hud.State = .{};
     // Without Player Control, there is no target to step.
     try std.testing.expect(cycleTarget(&display, all, .next, .hostile, false));
     try std.testing.expect(try aigeneric.push(mission.orders(), player, .player_control, .none));
-    const friend = try mission.add(.predator, .{ 0, 0, 1000 });
-    const enemy = try mission.add(.sabre, .{ 0, 0, 2000 });
-    const cloaked = try mission.add(.sabre, .{ 0, 0, 3000 });
+    const friend = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const enemy = try mission.add(.of(.sabre), .{ 0, 0, 2000 });
+    const cloaked = try mission.add(.of(.sabre), .{ 0, 0, 3000 });
     for ([_]u16{ friend, enemy, cloaked }) |index| mission.slot(index).object.flags.targetable = true;
     mission.slot(cloaked).object.flags.cloaked = true;
     const target = &mission.slot(player).orders[0].target;
@@ -2060,9 +2060,9 @@ test cycleSubtarget {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     try std.testing.expect(try aigeneric.push(mission.orders(), player, .player_control, .none));
-    const reliant = try mission.add(.reliant, .{ 0, 0, 5000 });
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 5000 });
     const slot = mission.slot(reliant);
     // Three components, the middle one not targetable; a hostile ship lists them.
     var parts: [3]objects.Model.Part = undefined;
@@ -2334,8 +2334,8 @@ test primaryTarget {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const target = try mission.add(.predator, .{ 0, 0, 5000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const target = try mission.add(.of(.predator), .{ 0, 0, 5000 });
     _ = try aigeneric.push(mission.orders(), player, .player_control, .none);
     var devices: Devices = .{};
     var display: hud.State = .{};
@@ -2857,7 +2857,7 @@ test eject {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = mission.slot(index);
     var watching: camera.Camera = .{};
     var world = mission.world();
@@ -2891,9 +2891,9 @@ test "the Kamov's LAUNCH MISSILE lets its torpedoes go, one at a time" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const kamov = try mission.add(.kamov, @splat(0));
-    const first = try mission.add(.torpedo, @splat(0));
-    const second = try mission.add(.torpedo, @splat(0));
+    const kamov = try mission.add(.of(.kamov), @splat(0));
+    const first = try mission.add(.of(.torpedo), @splat(0));
+    const second = try mission.add(.of(.torpedo), @splat(0));
     const ctx = mission.orders();
     for ([_]u16{ first, second }) |torpedo| _ = try aigeneric.pushShip(ctx, torpedo, .launch, kamov, 0);
     const world = mission.world();
@@ -2908,7 +2908,7 @@ test "the Kamov's LAUNCH MISSILE lets its torpedoes go, one at a time" {
     // With none waiting, nothing happens, and no missile flies.
     launchMissile(world, kamov);
     // An exploding torpedo isn't let go, and a Kamov whose missiles are disabled lets none go.
-    const third = try mission.add(.torpedo, @splat(0));
+    const third = try mission.add(.of(.torpedo), @splat(0));
     _ = try aigeneric.pushShip(ctx, third, .launch, kamov, 0);
     mission.slot(third).object.flags.exploding = true;
     try std.testing.expectEqual(null, waitingLaunch(mission.objects, kamov));

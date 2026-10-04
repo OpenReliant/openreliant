@@ -78,7 +78,7 @@ pub const Look = struct {
     outer_edge: f32,
 
     pub fn of(planet: gameobj.Type) ?Look {
-        return switch (planet) {
+        return switch (planet.base()) {
             .neptune_hi, .neptune_lo => .{ .colour = .{ 0.1, 0.15, 0.2 }, .outer_edge = 0.95 },
             .uranus_hi, .uranus_lo => .{ .colour = .{ 0.15, 0.2, 0.2 }, .outer_edge = 0.95 },
             .jupiter_hi, .jupiter_lo, .venus_hi, .venus_lo => .{ .colour = .{ 0.2, 0.2, 0.15 }, .outer_edge = 1.005 },
@@ -270,16 +270,16 @@ test hazeAt {
 }
 
 test Look {
-    try std.testing.expectEqual(0.95, Look.of(.neptune_lo).?.outer_edge);
-    try std.testing.expectEqual([3]f32{ 0.15, 0.2, 0.2 }, Look.of(.uranus_hi).?.colour);
-    try std.testing.expectEqual(1.005, Look.of(.venus_hi).?.outer_edge);
-    try std.testing.expectEqual(null, Look.of(.predator));
+    try std.testing.expectEqual(0.95, Look.of(.of(.neptune_lo)).?.outer_edge);
+    try std.testing.expectEqual([3]f32{ 0.15, 0.2, 0.2 }, Look.of(.of(.uranus_hi)).?.colour);
+    try std.testing.expectEqual(1.005, Look.of(.of(.venus_hi)).?.outer_edge);
+    try std.testing.expectEqual(null, Look.of(.of(.predator)));
 }
 
 test Ring {
     const gpa = std.testing.allocator;
     var image: srtexture.Image = .{ .levels = &.{} };
-    const ring = try Ring.create(gpa, &image, 1000, Look.of(.jupiter_hi).?, segments);
+    const ring = try Ring.create(gpa, &image, 1000, Look.of(.of(.jupiter_hi)).?, segments);
     defer ring.destroy(gpa);
     // Flat, from 0.85 of the radius in the look's colour out to its outer edge, black.
     try std.testing.expectApproxEqAbs(850, math.length(ring.mesh.positions[0]), 1e-2);
@@ -298,7 +298,7 @@ test Ring {
 test "a round ring" {
     const gpa = std.testing.allocator;
     var image: srtexture.Image = .{ .levels = &.{} };
-    const ring = try Ring.create(gpa, &image, 1000, Look.of(.neptune_hi).?, round_segments);
+    const ring = try Ring.create(gpa, &image, 1000, Look.of(.of(.neptune_hi)).?, round_segments);
     defer ring.destroy(gpa);
     try std.testing.expectEqual(2 * round_segments, ring.mesh.positions.len);
     try std.testing.expectEqual(2 * round_segments, ring.object.baked.?.len);
@@ -319,10 +319,10 @@ test Atmospheres {
     const all = mission.objects;
     var planets: [capacity + 1]u16 = undefined;
     for (&planets, 0..) |*planet, n| {
-        planet.* = try mission.addWith(model.types(), .predator, .{ @floatFromInt(n * 100000), 0, 0 });
-        all.slots[planet.*].object.type = .neptune_hi;
+        planet.* = try mission.addWith(model.types(), .of(.predator), .{ @floatFromInt(n * 100000), 0, 0 });
+        all.slots[planet.*].object.type = .of(.neptune_hi);
     }
-    const ship = try mission.addWith(model.types(), .predator, @splat(0));
+    const ship = try mission.addWith(model.types(), .of(.predator), @splat(0));
 
     // A planet that has one gets its atmosphere; another object none, and a fifth planet none.
     atmospheres.made(all, ship);
@@ -375,8 +375,8 @@ test "an atmosphere round its planet, turning in place" {
     var atmospheres: Atmospheres = .{ .gpa = gpa, .image = &image };
     defer atmospheres.deinit();
     const all = mission.objects;
-    const planet = try mission.addWith(model.types(), .predator, .{ 1000, 0, 0 });
-    all.slots[planet].object.type = .uranus_lo;
+    const planet = try mission.addWith(model.types(), .of(.predator), .{ 1000, 0, 0 });
+    all.slots[planet].object.type = .of(.uranus_lo);
     atmospheres.made(all, planet);
     try std.testing.expectEqual(2 * round_segments, atmospheres.entries[0].ring.mesh.positions.len);
 
@@ -403,8 +403,8 @@ test "a haze, brighter toward the sun" {
     var atmospheres: Atmospheres = .{ .gpa = gpa, .image = &image };
     defer atmospheres.deinit();
     const all = mission.objects;
-    const planet = try mission.addWith(model.types(), .predator, @splat(0));
-    all.slots[planet].object.type = .jupiter_hi;
+    const planet = try mission.addWith(model.types(), .of(.predator), @splat(0));
+    all.slots[planet].object.type = .of(.jupiter_hi);
     all.slots[planet].model.?.parts[0].object.radius = 1000;
     atmospheres.made(all, planet);
     // The planet's terminator softened.

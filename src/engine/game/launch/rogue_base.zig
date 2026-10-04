@@ -67,10 +67,10 @@ test "a ship backs out of the rogue base" {
     defer mission.deinit();
     var carrier_model: launch.testing.Carrier = undefined;
     carrier_model.init();
-    _ = try mission.add(.predator, @splat(0));
-    const base = try mission.add(.rogue_base, .{ 1000, 0, 0 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const base = try mission.add(.of(.rogue_base), .{ 1000, 0, 0 });
     try carrier_model.parts.fit(gpa, mission.slot(base));
-    const ship = try mission.add(.sabre, @splat(0));
+    const ship = try mission.add(.of(.sabre), @splat(0));
     const ctx = mission.orders();
     _ = try aigeneric.pushShip(ctx, ship, .launch, base, 0);
     aigeneric.objectOrders(ctx, ship);

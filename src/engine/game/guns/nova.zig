@@ -40,7 +40,7 @@ const charged_shake: f32 = 0.6;
 /// Whether the trigger charges the cannon: on the Phoenix, firing one group, which a Nova Cannon
 /// leads.
 pub fn charges(object: *const gameobj.GameObject, trigger: guns.Trigger) bool {
-    if (!object.type.carriesNova()) return false;
+    if (!object.type.base().carriesNova()) return false;
     if (object.gun_mode.all) return false;
     return guns.groupLead(trigger.fitted, trigger.groups, object.gun_mode.group) == .nova_cannon;
 }
@@ -259,7 +259,7 @@ pub const Beams = struct {
         for (&beams.slots) |*slot| {
             const beam = &(slot.* orelse continue);
             const ship = &all.slots[beam.owner];
-            if (beam.until < now or ship.object.type == .stand_in) {
+            if (beam.until < now or ship.object.type.base() == .stand_in) {
                 slot.* = null;
                 continue;
             }
@@ -404,7 +404,7 @@ test charges {
     groups[1] = .{ .first = 1 };
     const trigger: guns.Trigger = .{ .fitted = &fitted, .groups = &groups, .frame_start = 0 };
     var object = std.mem.zeroes(gameobj.GameObject);
-    object.type = .phoenix;
+    object.type = .of(.phoenix);
     // The Phoenix charges while it fires the group its Nova Cannon leads.
     try std.testing.expect(!charges(&object, trigger));
     object.gun_mode.group = 1;
@@ -413,7 +413,7 @@ test charges {
     object.gun_mode.all = true;
     try std.testing.expect(!charges(&object, trigger));
     object.gun_mode.all = false;
-    object.type = .predator;
+    object.type = .of(.predator);
     try std.testing.expect(!charges(&object, trigger));
 }
 

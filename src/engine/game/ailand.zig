@@ -43,7 +43,7 @@ pub const Style = enum(u32) {
     /// The style of a landing on a ship of type `carrier`, or null for a ship that nothing lands
     /// on.
     pub fn of(carrier: gameobj.Type) ?Style {
-        return switch (carrier) {
+        return switch (carrier.base()) {
             .reliant => .reliant,
             .yamato => .yamato,
             else => null,
@@ -341,9 +341,9 @@ pub fn seen(all: *const create.Objects, index: u16) ?camera.Landing {
 }
 
 test Style {
-    try std.testing.expectEqual(Style.reliant, Style.of(.reliant).?);
-    try std.testing.expectEqual(Style.yamato, Style.of(.yamato).?);
-    try std.testing.expectEqual(null, Style.of(.predator));
+    try std.testing.expectEqual(Style.reliant, Style.of(.of(.reliant)).?);
+    try std.testing.expectEqual(Style.yamato, Style.of(.of(.yamato)).?);
+    try std.testing.expectEqual(null, Style.of(.of(.predator)));
 }
 
 test "the player's ship lands on the Reliant, and the mission is over" {
@@ -354,9 +354,9 @@ test "the player's ship lands on the Reliant, and the mission is over" {
     var world = mission.world();
     world.variables = &variables;
     const ctx: Context = .of(world);
-    const player = try mission.add(.predator, .{ 100, 0, 0 });
-    const reliant = try mission.add(.reliant, .{ 0, 0, 50000 });
-    const other = try mission.add(.predator, .{ 5, 5, 5 });
+    const player = try mission.add(.of(.predator), .{ 100, 0, 0 });
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 50000 });
+    const other = try mission.add(.of(.predator), .{ 5, 5, 5 });
     try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, reliant, null));
     const slot = mission.slot(player);
     const state = &slot.state.land;
@@ -440,8 +440,8 @@ test "the ship lands in the Reliant's first tube, and its upper door closes over
     var world = mission.world();
     world.touchdown = .level;
     const ctx: Context = .of(world);
-    const player = try mission.add(.predator, @splat(0));
-    const reliant = try mission.add(.reliant, .{ 0, 0, 50000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 50000 });
     try reliant_model.fit(gpa, mission.slot(reliant));
     try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, reliant, null));
     const slot = mission.slot(player);
@@ -476,8 +476,8 @@ test "a ship sent home for its friendly fire lands at once" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    const player = try mission.add(.predator, @splat(0));
-    const reliant = try mission.add(.reliant, .{ 0, 0, 50000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 50000 });
     try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, reliant, null));
     mission.player.ending = .friendly_fire;
     mission.clock.frame_start = 1000;
@@ -495,8 +495,8 @@ test "over the tube, a ship stops dead, or coasts as the game lets it" {
         var world = mission.world();
         world.touchdown = touchdown;
         const ctx: Context = .of(world);
-        const player = try mission.add(.predator, @splat(0));
-        const reliant = try mission.add(.reliant, .{ 0, 0, 50000 });
+        const player = try mission.add(.of(.predator), @splat(0));
+        const reliant = try mission.add(.of(.reliant), .{ 0, 0, 50000 });
         try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, reliant, null));
         const slot = mission.slot(player);
         const state = &slot.state.land;
@@ -516,9 +516,9 @@ test "a landing on the Yamato, or on what nothing lands on, is let go" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     try std.testing.expect(try aigeneric.push(ctx, player, .player_control, .none));
-    for ([_]gameobj.Type{ .yamato, .predator }) |carrier_type| {
+    for ([_]gameobj.Type{ .of(.yamato), .of(.predator) }) |carrier_type| {
         const carrier = try mission.add(carrier_type, .{ 0, 0, 1000 });
         try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, carrier, null));
         aigeneric.objectOrders(ctx, player);
@@ -531,8 +531,8 @@ test seen {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    const player = try mission.add(.predator, @splat(0));
-    const reliant = try mission.add(.reliant, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 1000 });
     try std.testing.expectEqual(null, seen(mission.objects, player));
     try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, reliant, null));
     mission.slot(player).state.land.tube = .{ 1, 2, 3 };

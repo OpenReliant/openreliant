@@ -391,10 +391,10 @@ fn pickUp(ctx: Context, index: u16) void {
         .killed => &killed_lines,
     });
     const scene: PickupScene = switch (fate) {
-        .rescued => .scoop(.nanny),
-        .captured => .scoop(.antanov),
+        .rescued => .scoop(.of(.nanny)),
+        .captured => .scoop(.of(.antanov)),
         .killed => .{
-            .ship = .sabre,
+            .ship = .of(.sabre),
             .at = cutaway_place + Vector{ killer_across, killer_above, -killer_across },
             .orientation = math.turned(pod.object.root.next_orientation, .y, killer_turn),
             .order = .eject_fighter_attack,
@@ -534,7 +534,7 @@ test player {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = &mission.objects.slots[index];
 
     // The player's ship ejects, and drifts until its end, which comes four to six seconds later.
@@ -598,9 +598,9 @@ test "a pilot ejects in the cockpit, which leaves the ship as the pod" {
     fixture.init(.at_root);
     var ctx = mission.orders();
     ctx.world.spawn = mission.spawn(fixture.types());
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     const all = mission.objects;
-    const index = try mission.addWith(fixture.types(), .sabre, .{ 0, 0, 5000 });
+    const index = try mission.addWith(fixture.types(), .of(.sabre), .{ 0, 0, 5000 });
     const pod = mission.slot(index);
     pod.object.invulnerable = .player_can_hit;
     mission.clock.frame_start = 30;
@@ -644,9 +644,9 @@ test "a pilot ejects in a cockpit hanging from the hull" {
     fixture.init(.on_hull);
     var ctx = mission.orders();
     ctx.world.spawn = mission.spawn(fixture.types());
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     const all = mission.objects;
-    const index = try mission.addWith(fixture.types(), .sabre, .{ 0, 0, 5000 });
+    const index = try mission.addWith(fixture.types(), .of(.sabre), .{ 0, 0, 5000 });
     try std.testing.expectEqual(TestShip.hull, mission.slot(index).model.?.parts[TestShip.cockpit].parent);
 
     // The cockpit is found, and hangs from the pod's root, so that the hull taken out of the pod
@@ -675,8 +675,8 @@ test "a cockpit without an eject point still takes its time to clear" {
     fixture.parts.data[TestShip.cockpit].attachments = &.{};
     var ctx = mission.orders();
     ctx.world.spawn = mission.spawn(fixture.types());
-    _ = try mission.add(.predator, @splat(0));
-    const index = try mission.addWith(fixture.types(), .sabre, .{ 0, 0, 5000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const index = try mission.addWith(fixture.types(), .of(.sabre), .{ 0, 0, 5000 });
     const pod = mission.slot(index);
     mission.clock.frame_start = 30;
 
@@ -698,8 +698,8 @@ test "a ship with no cockpit to leave in keeps its pilot" {
     fixture.init(.none);
     var ctx = mission.orders();
     ctx.world.spawn = mission.spawn(fixture.types());
-    _ = try mission.add(.predator, @splat(0));
-    const index = try mission.addWith(fixture.types(), .sabre, .{ 0, 0, 5000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const index = try mission.addWith(fixture.types(), .of(.sabre), .{ 0, 0, 5000 });
     const count = mission.objects.count;
     init(ctx, index);
     try std.testing.expectEqual(count, mission.objects.count);
@@ -741,7 +741,7 @@ test pickUp {
         var ctx = mission.orders();
         ctx.world.spawn = mission.spawn(create.testing.no_models);
         ctx.world.camera = &watching;
-        const index = try mission.add(.predator, @splat(0));
+        const index = try mission.add(.of(.predator), @splat(0));
         const pod = mission.slot(index);
         pod.state.eject = std.mem.zeroes(State);
         pod.state.eject.stage = .called;
@@ -767,7 +767,7 @@ test pickUp {
             // A nanny ship, or the Antanov, short of the pod along Z, scoops it up, watched round
             // the ship.
             .rescued, .captured => {
-                try std.testing.expectEqual(if (fate == .rescued) gameobj.Type.nanny else .antanov, ship.object.type);
+                try std.testing.expectEqual(if (fate == .rescued) gameobj.Type.of(.nanny) else gameobj.Type.of(.antanov), ship.object.type);
                 try std.testing.expectEqual(cutaway_place - Vector{ 0, 0, pickup_short }, ship.drawn.position);
                 try std.testing.expectEqual(.scoop_up, ship.orders[0].order);
                 try std.testing.expectEqual(.pickup, watching.view);
@@ -776,7 +776,7 @@ test pickUp {
             // A Sabre, across, above and short of it, shoots it down, watched from behind the
             // pod, which makes twice as large a target.
             .killed => {
-                try std.testing.expectEqual(.sabre, ship.object.type);
+                try std.testing.expectEqual(gameobj.Type.of(.sabre), ship.object.type);
                 try std.testing.expectEqual(cutaway_place + Vector{ killer_across, killer_above, -killer_across }, ship.drawn.position);
                 try std.testing.expectEqual(.eject_fighter_attack, ship.orders[0].order);
                 try std.testing.expectEqual(.pod_shot, watching.view);
@@ -791,7 +791,7 @@ test update {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = mission.slot(index);
     const state = &slot.state.eject;
 
@@ -870,7 +870,7 @@ test fighterAttack {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    const pod = try mission.add(.predator, @splat(0));
+    const pod = try mission.add(.of(.predator), @splat(0));
     const sabre = try mission.addOther(.{ 0, 0, -30000 });
     const slot = mission.slot(sabre);
     try std.testing.expect(try aigeneric.pushShip(ctx, sabre, .eject_fighter_attack, pod, null));

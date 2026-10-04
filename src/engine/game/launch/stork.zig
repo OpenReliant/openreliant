@@ -88,10 +88,10 @@ test run {
     stork_model.init();
     var satellite_model: Satellite = undefined;
     satellite_model.init();
-    _ = try mission.add(.predator, @splat(0));
-    const stork = try mission.add(.stork, .{ 0, 0, 10000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const stork = try mission.add(.of(.stork), .{ 0, 0, 10000 });
     try stork_model.parts.fit(gpa, mission.slot(stork));
-    const satellite = try mission.add(.satellite, .{ -5000000, 0, -5000000 });
+    const satellite = try mission.add(.of(.satellite), .{ -5000000, 0, -5000000 });
     try satellite_model.parts.fit(gpa, mission.slot(satellite));
     const ctx = mission.orders();
     _ = try aigeneric.pushShip(ctx, satellite, .launch, stork, 0);

@@ -313,6 +313,7 @@ fn wrongType(state: *State, comptime label: []const u8, comptime expected: []con
 
 /// The name scripts see for `value`: its tag's, but for a tag that starts with an underscore.
 pub fn name(comptime T: type, value: T) ?[]const u8 {
+    if (comptime @hasDecl(T, "scriptName")) return value.scriptName();
     const tag_name = std.enums.tagName(T, value) orelse return null;
     return if (shown(tag_name)) tag_name else null;
 }
@@ -320,6 +321,7 @@ pub fn name(comptime T: type, value: T) ?[]const u8 {
 /// The value named `tag_name`, if scripts see a value by that name.
 pub fn byName(comptime T: type, tag_name: []const u8) ?T {
     if (!shown(tag_name)) return null;
+    if (comptime @hasDecl(T, "fromScriptName")) return T.fromScriptName(tag_name);
     return std.meta.stringToEnum(T, tag_name);
 }
 
@@ -331,6 +333,9 @@ pub fn shown(tag_name: []const u8) bool {
 
 /// The names of `T`'s values that scripts see.
 pub fn names(comptime T: type) []const []const u8 {
+    // A type whose values are numbers, some with names, such as `gameobj.Type`, names them by
+    // another enum's tags.
+    if (@hasDecl(T, "Named")) return names(T.Named);
     comptime {
         @setEvalBranchQuota(std.enums.values(T).len * 100);
         var found: []const []const u8 = &.{};
@@ -344,6 +349,7 @@ pub fn names(comptime T: type) []const []const u8 {
 /// Whether scripts may give a number for a value of `T`: an open enum takes any, and a value
 /// without a name is only given as one.
 pub fn takesNumbers(comptime T: type) bool {
+    if (@hasDecl(T, "Named")) return true;
     return !@typeInfo(T).@"enum".is_exhaustive or names(T).len < std.enums.values(T).len;
 }
 

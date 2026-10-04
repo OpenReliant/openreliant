@@ -31,7 +31,7 @@ again and again, and the game's loops never end; OpenReliant walks it once.
 
 | Offset | Size | Field |
 |---|---|---|
-| `0x000` | 4 | Type: the ship's record in `shipstats.bin`. Types above 255, markers and nav points among them, have no stats |
+| `0x000` | 4 | Type: the ship's record in `shipstats.bin`. Types above 255, markers and nav points among them, have no stats, but for the ship types mods add in OpenReliant, from 256 ([Ship types](../guide/modding.md#ship-types)) |
 | `0x004` | 4 | Slot in `game_objects` |
 | `0x008` | 4 | [Flags](#flags) |
 | `0x010` | 4 | The type's entry in `ship_combat_stats` |

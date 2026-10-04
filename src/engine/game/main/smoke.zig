@@ -259,7 +259,7 @@ pub fn frame(world: gameobj.World) void {
         if (object.flags.outOfFrame()) continue;
         if (slot.smoke) |*stream| if (world.smoke) |pools| stream.send(world, pools, slot);
         const combat = slot.combat orelse continue;
-        if (object.type == .ripper) continue;
+        if (object.type.base() == .ripper) continue;
         const level: Level = .of(object, combat);
         if (level == object.smoke_level) continue;
         object.smoke_level = level;
@@ -329,7 +329,7 @@ test frame {
     glow[0].position = .{ .x = 0, .y = 0, .z = -50 };
     glow[0].orientation = math.identity;
     model.data[0].attachments = &glow;
-    const index = try mission.addWith(model.types(), .predator, @splat(0));
+    const index = try mission.addWith(model.types(), .of(.predator), @splat(0));
     const slot = mission.slot(index);
     @import("../main.zig").frameObjects(mission.objects, .{}, mission.clock.frame_start);
 
@@ -375,12 +375,12 @@ test frame {
 
     // The Ripper's level is not followed.
     slot.object.shields = .all(0);
-    slot.object.type = .ripper;
+    slot.object.type = .of(.ripper);
     frame(world);
     try std.testing.expectEqual(Level.light, slot.object.smoke_level);
 
     // A ship a pilot has left lets its smoke go.
-    slot.object.type = .predator;
+    slot.object.type = .of(.predator);
     slot.object.armor = .all(30);
     slot.object.flags.abandoned = true;
     frame(world);

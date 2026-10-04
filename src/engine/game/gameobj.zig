@@ -20,6 +20,7 @@ const objects = @import("objects.zig");
 const Node = objects.Node;
 const Pointer = engine.Pointer;
 const create = @import("create.zig");
+const added_types = @import("added_types.zig");
 const guns = @import("guns.zig");
 const missiles = @import("missiles.zig");
 const libcmt = @import("../libcmt.zig");
@@ -283,13 +284,11 @@ pub const Wing = enum(u16) {
     _,
 };
 
-/// An object's type (`GameObject.type`): for a ship, missile, mine or asteroid its record in
+/// The game's object types, by their numbers: for a ship, missile, mine or asteroid its record in
 /// `shipstats.bin`, and past those what else the game places, markers and nav points among them,
-/// which have no stats. The names are OpenReliant's, for the types the game's code singles out.
-pub const Type = enum(u32) {
-    /// The name scripts know these values by.
-    pub const script_name = "ShipType";
-
+/// which have no stats. The names are OpenReliant's, for the types the game's code singles out. An
+/// object holds its type as a `Type`, whose `base` is one of these.
+pub const GameType = enum(u32) {
     predator = 0x00,
     /// The Grendel, the Wolverine and the Reaper, whose guns fire rounds, which the gunnery display
     /// counts.
@@ -458,7 +457,7 @@ pub const Type = enum(u32) {
 
     comptime {
         // The numbers are the game's own, so the models they stand for say which types they are.
-        const models = [_]struct { Type, []const u8 }{
+        const models = [_]struct { GameType, []const u8 }{
             .{ .predator, "uslf_prd.shp" },
             .{ .phoenix, "uspf_phx.shp" },
             .{ .t_phoenix, "t_uspf_phx.shp" },
@@ -507,11 +506,11 @@ pub const Type = enum(u32) {
             .{ .late_escape_pod, "uly_escape.shp" },
             .{ .other_late_escape_pod, "ber_escape.shp" },
             .{ .debris, "deb_1.shp" },
-            .{ @enumFromInt(Type.debris.number() + 9), "deb_10.shp" },
+            .{ @enumFromInt(GameType.debris.number() + 9), "deb_10.shp" },
             .{ .crewman, "rus_man1.shp" },
-            .{ @enumFromInt(Type.crewman.number() + 3), "rus_man4.shp" },
+            .{ @enumFromInt(GameType.crewman.number() + 3), "rus_man4.shp" },
             .{ .rock_chunk, "rockchunk00.SHP" },
-            .{ @enumFromInt(Type.rock_chunk.number() + 4), "rockchunk04.SHP" },
+            .{ @enumFromInt(GameType.rock_chunk.number() + 4), "rockchunk04.SHP" },
             .{ .shell, "shell.shp" },
             .{ .limpet_pod, "limpet_pod.shp" },
             .{ @enumFromInt(rocks.get(.asteroid)[0]), "ast_1.shp" },
@@ -524,13 +523,8 @@ pub const Type = enum(u32) {
         for (models) |named| assert(std.mem.eql(u8, create.models.ship_types[named[0].number()].model.?, named[1]));
     }
 
-    pub fn number(object_type: Type) u32 {
+    pub fn number(object_type: GameType) u32 {
         return @intFromEnum(object_type);
-    }
-
-    /// Whether it has a record in the ship tables.
-    pub fn hasStats(object_type: Type) bool {
-        return object_type.number() < create.ship_type_count;
     }
 
     /// Where the second set of the player's ship types starts: types `0xF4` to `0xFF`, whose models
@@ -539,7 +533,7 @@ pub const Type = enum(u32) {
 
     /// The type it stands for among the player's ships: one of the second set, from
     /// `player_twins_first`, stands for the first set's in the same place, and any other for itself.
-    pub fn untwinned(object_type: Type) Type {
+    pub fn untwinned(object_type: GameType) GameType {
         const at = object_type.number();
         return @enumFromInt(if (at >= player_twins_first) at - player_twins_first else at);
     }
@@ -549,18 +543,18 @@ pub const Type = enum(u32) {
 
     /// Its twin among the second set of the player's ship types, for one of the first set's; null
     /// for any other.
-    pub fn twin(object_type: Type) ?Type {
+    pub fn twin(object_type: GameType) ?GameType {
         const at = object_type.number();
         return if (at < player_twins) @enumFromInt(at + player_twins_first) else null;
     }
 
     /// Whether it is a Phoenix, the ship that carries the Nova Cannon, or its twin.
-    pub fn carriesNova(object_type: Type) bool {
+    pub fn carriesNova(object_type: GameType) bool {
         return object_type == .phoenix or object_type == .t_phoenix;
     }
 
     /// What rock it is, if any.
-    pub fn rock(object_type: Type) ?Rock {
+    pub fn rock(object_type: GameType) ?Rock {
         const n = object_type.number();
         for (std.enums.values(Rock)) |kind| {
             const range = rocks.get(kind);
@@ -569,13 +563,13 @@ pub const Type = enum(u32) {
         return null;
     }
 
-    pub fn isAsteroid(object_type: Type) bool {
+    pub fn isAsteroid(object_type: GameType) bool {
         return object_type.rock() == .asteroid;
     }
 
     /// Whether it is one of the torpedoes, the Allies' or the Russians', by type (a ship's combat
     /// class may also be `.torpedo`).
-    pub fn isTorpedo(object_type: Type) bool {
+    pub fn isTorpedo(object_type: GameType) bool {
         return switch (object_type) {
             .torpedo, .russian_torpedo => true,
             else => false,
@@ -583,7 +577,7 @@ pub const Type = enum(u32) {
     }
 
     /// Asteroid `n`, from `ast_1.shp`, round and round the seven.
-    pub fn asteroid(n: usize) Type {
+    pub fn asteroid(n: usize) GameType {
         const range = rocks.get(.asteroid);
         return @enumFromInt(range[0] + n % (range[1] - range[0] + 1));
     }
@@ -591,7 +585,7 @@ pub const Type = enum(u32) {
     /// The child of the root the AI aims at on an object of this type, where it aims at a part
     /// rather than the whole (`0x004018F0`): the Saladin's and the troop car's twenty-first, the
     /// Kronstadt's eighteenth, the Boridin's twentieth.
-    pub fn aimedChild(object_type: Type) ?usize {
+    pub fn aimedChild(object_type: GameType) ?usize {
         return switch (object_type) {
             .saladin, .troop_car => 0x14,
             .kronstadt => 0x11,
@@ -600,11 +594,86 @@ pub const Type = enum(u32) {
         };
     }
 
-    pub fn format(object_type: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    pub fn format(object_type: GameType, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (object_type) {
             _ => writer.print("type {d}", .{@intFromEnum(object_type)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
+    }
+};
+
+/// An object's type by its number (`GameObject.type`): one of the game's (`GameType`), or one a mod
+/// adds past them (`added_types`). The code that singles out a type asks for its base (`base`), so
+/// that a type a mod adds acts as the game's type it is based on.
+pub const Type = enum(u32) {
+    /// The name scripts know these values by, and the names they know: the game's types', and the
+    /// qualified names of the types the mods add (`scriptName`).
+    pub const script_name = "ShipType";
+    pub const Named = GameType;
+
+    _,
+
+    /// The game's type `game`.
+    pub fn of(game: GameType) Type {
+        return @enumFromInt(@intFromEnum(game));
+    }
+
+    /// The game's type it acts as: itself for one of the game's, and for one a mod adds, the type
+    /// it is based on.
+    pub fn base(object_type: Type) GameType {
+        const from_mod = added_types.get(object_type.number()) orelse return @enumFromInt(object_type.number());
+        return from_mod.base;
+    }
+
+    /// The type a mod adds that it is, if it is one.
+    pub fn added(object_type: Type) ?*const added_types.Added {
+        return added_types.get(object_type.number());
+    }
+
+    pub fn number(object_type: Type) u32 {
+        return @intFromEnum(object_type);
+    }
+
+    /// Whether it has a record in the ship tables: one of the game's 256, or one a mod adds.
+    pub fn hasStats(object_type: Type) bool {
+        return object_type.number() < create.ship_type_count or object_type.added() != null;
+    }
+
+    /// The type it stands for among the player's ships (`GameType.untwinned`); a type a mod adds
+    /// stands for itself.
+    pub fn untwinned(object_type: Type) Type {
+        if (object_type.added() != null) return object_type;
+        return .of(object_type.base().untwinned());
+    }
+
+    /// Its twin among the second set of the player's ship types (`GameType.twin`); a type a mod adds
+    /// has none.
+    pub fn twin(object_type: Type) ?Type {
+        if (object_type.added() != null) return null;
+        return .of(object_type.base().twin() orelse return null);
+    }
+
+    /// Asteroid `n` (`GameType.asteroid`).
+    pub fn asteroid(n: usize) Type {
+        return .of(GameType.asteroid(n));
+    }
+
+    /// The name scripts know it by, if it has one: its qualified name for a type a mod adds.
+    pub fn scriptName(object_type: Type) ?[]const u8 {
+        if (object_type.added()) |from_mod| return from_mod.name;
+        const tag_name = std.enums.tagName(GameType, object_type.base()) orelse return null;
+        return if (tag_name[0] == '_') null else tag_name;
+    }
+
+    /// The type scripts name `text`, if there is one.
+    pub fn fromScriptName(text: []const u8) ?Type {
+        if (added_types.find(text)) |found| return @enumFromInt(found);
+        return .of(std.meta.stringToEnum(GameType, text) orelse return null);
+    }
+
+    pub fn format(object_type: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (object_type.added()) |from_mod| return writer.writeAll(from_mod.name);
+        return object_type.base().format(writer);
     }
 };
 
@@ -1096,7 +1165,7 @@ pub const GameObject = extern struct {
     /// its slot, or exploding (`order_scoop_up`, `order_ripper_grabs_target_object`,
     /// `order_launch`).
     pub fn gone(object: *const GameObject) bool {
-        return object.type == .stand_in or object.flags.exploding;
+        return object.type.base() == .stand_in or object.flags.exploding;
     }
 
     /// Holds the turns and stops turning: no roll, pitch or yaw input, and no rate of turn.
@@ -1254,9 +1323,9 @@ pub const GunMode = packed struct(u16) {
 };
 
 test "Type.untwinned" {
-    try std.testing.expectEqual(.predator, Type.untwinned(@enumFromInt(0xF4)));
-    try std.testing.expectEqual(.grendel, Type.untwinned(@enumFromInt(0xF6)));
-    try std.testing.expectEqual(.grendel, Type.grendel.untwinned());
+    try std.testing.expectEqual(Type.of(.predator), Type.untwinned(@enumFromInt(0xF4)));
+    try std.testing.expectEqual(Type.of(.grendel), Type.untwinned(@enumFromInt(0xF6)));
+    try std.testing.expectEqual(Type.of(.grendel), Type.of(.grendel).untwinned());
     try std.testing.expectEqual(@as(Type, @enumFromInt(0xF3)), Type.untwinned(@enumFromInt(0xF3)));
 }
 
@@ -1305,12 +1374,12 @@ test "GameObject.letGo" {
 
 test "GameObject.gone" {
     var object = testing.object();
-    object.type = .predator;
+    object.type = .of(.predator);
     try std.testing.expect(!object.gone());
     object.flags.exploding = true;
     try std.testing.expect(object.gone());
     object.flags.exploding = false;
-    object.type = .stand_in;
+    object.type = .of(.stand_in);
     try std.testing.expect(object.gone());
 }
 
@@ -1340,34 +1409,34 @@ test "GameObject.width" {
 
 test "Type.format" {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Type.reliant}));
+    try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Type.of(.reliant)}));
     try std.testing.expectEqualStrings("type 4096", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Type, @enumFromInt(0x1000))}));
 }
 
 test "Type.twin" {
     // The first twelve types have their twins from `player_twins_first`, which stand for them again.
-    try std.testing.expectEqual(Type.t_phoenix, Type.phoenix.twin().?);
-    try std.testing.expectEqual(Type.grendel, Type.grendel.twin().?.untwinned());
-    try std.testing.expectEqual(null, Type.reliant.twin());
-    try std.testing.expectEqual(null, Type.t_phoenix.twin());
+    try std.testing.expectEqual(Type.of(.t_phoenix), Type.of(.phoenix).twin().?);
+    try std.testing.expectEqual(Type.of(.grendel), Type.of(.grendel).twin().?.untwinned());
+    try std.testing.expectEqual(null, Type.of(.reliant).twin());
+    try std.testing.expectEqual(null, Type.of(.t_phoenix).twin());
 }
 
-test "Type.rock" {
-    try std.testing.expectEqual(.asteroid, Type.rock(@enumFromInt(0x7F)));
-    try std.testing.expectEqual(.turret, Type.rock(@enumFromInt(0x85)));
-    try std.testing.expectEqual(.hole, Type.rock(@enumFromInt(0xF3)));
-    try std.testing.expectEqual(null, Type.rock(@enumFromInt(0x80)));
-    try std.testing.expectEqual(null, Type.predator.rock());
-    try std.testing.expect(!Type.isAsteroid(@enumFromInt(0x85)));
+test "GameType.rock" {
+    try std.testing.expectEqual(.asteroid, GameType.rock(@enumFromInt(0x7F)));
+    try std.testing.expectEqual(.turret, GameType.rock(@enumFromInt(0x85)));
+    try std.testing.expectEqual(.hole, GameType.rock(@enumFromInt(0xF3)));
+    try std.testing.expectEqual(null, GameType.rock(@enumFromInt(0x80)));
+    try std.testing.expectEqual(null, GameType.predator.rock());
+    try std.testing.expect(!GameType.isAsteroid(@enumFromInt(0x85)));
     try std.testing.expectEqual(0x79, Type.asteroid(0).number());
     try std.testing.expectEqual(0x7F, Type.asteroid(6).number());
     try std.testing.expectEqual(0x79, Type.asteroid(7).number());
 }
 
-test "Type.isTorpedo" {
-    try std.testing.expect(Type.torpedo.isTorpedo());
-    try std.testing.expect(Type.russian_torpedo.isTorpedo());
-    try std.testing.expect(!Type.sabre.isTorpedo());
+test "GameType.isTorpedo" {
+    try std.testing.expect(GameType.torpedo.isTorpedo());
+    try std.testing.expect(GameType.russian_torpedo.isTorpedo());
+    try std.testing.expect(!GameType.sabre.isTorpedo());
 }
 
 test GunMode {
@@ -1547,8 +1616,8 @@ pub fn objectAlloc(object_type: Type, random: *libcmt.Rand) GameObject {
 
 test objectAlloc {
     var random: libcmt.Rand = .{};
-    const object = objectAlloc(.stand_in, &random);
-    try std.testing.expectEqual(Type.stand_in, object.type);
+    const object = objectAlloc(.of(.stand_in), &random);
+    try std.testing.expectEqual(Type.of(.stand_in), object.type);
     try std.testing.expectEqual(math.identity, object.rotation);
     try std.testing.expect(object.root.flags.component);
     try std.testing.expectEqual(1, object.visibility);
@@ -2261,8 +2330,8 @@ pub const testing = struct {
         /// A ship that is nobody's, at `at`, which takes the orders the player's refuses: the
         /// player holds the first slot, so the ship comes after it.
         pub fn addOther(mission: *Mission, at: Vector) !u16 {
-            if (mission.objects.count == 0) _ = try mission.add(.predator, @splat(0));
-            return mission.add(.predator, at);
+            if (mission.objects.count == 0) _ = try mission.add(.of(.predator), @splat(0));
+            return mission.add(.of(.predator), at);
         }
 
         pub fn slot(mission: *Mission, index: u16) *create.Slot {
@@ -2386,9 +2455,9 @@ test "a step updates and moves every live object" {
     try mission.init(gpa);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
-    const other = try mission.add(.sabre, .{ 0, 0, 1000 });
-    const off = try mission.add(.sabre, .{ 0, 0, 2000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const off = try mission.add(.of(.sabre), .{ 0, 0, 2000 });
     all.slots[other].object.throttle = 1;
     all.slots[off].object.throttle = 1;
     all.slots[off].object.flags.disabled = true;
@@ -2449,7 +2518,7 @@ test recentreObject {
     var model: create.testing.Model = undefined;
     try model.init(gpa);
     defer model.deinit(gpa);
-    const index = try mission.addWith(model.types(), .predator, .{ 0, 0, 100 });
+    const index = try mission.addWith(model.types(), .of(.predator), .{ 0, 0, 100 });
     const slot = mission.slot(index);
     try std.testing.expect(slot.object.radius > 0);
     // A part taken out of the model, as an ejection takes the ship off the pod, counts toward

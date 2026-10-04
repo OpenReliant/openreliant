@@ -80,11 +80,11 @@ test run {
     defer mission.deinit();
     var carrier_model: launch.testing.Carrier = undefined;
     carrier_model.init();
-    _ = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.kamov, .{ 1000, 0, 0 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.kamov), .{ 1000, 0, 0 });
     try carrier_model.parts.fit(gpa, mission.slot(carrier));
     mission.slot(carrier).object.velocity = .{ .x = 0, .y = 0, .z = 5 };
-    const torpedo = try mission.add(.torpedo, @splat(0));
+    const torpedo = try mission.add(.of(.torpedo), @splat(0));
     const ctx = mission.orders();
     _ = try aigeneric.pushShip(ctx, torpedo, .launch, carrier, 1);
     aigeneric.objectOrders(ctx, torpedo);

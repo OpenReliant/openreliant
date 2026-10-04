@@ -203,6 +203,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     const mods_order: game.bigfile.mods.Order = if (options.screenshot == null) .{ .profile = settings_file.profile } else .none;
     var mods: game.bigfile.Mods = if (options.mods) try .openOrdered(arena, io, directory, version.semantic, mods_order) else .none;
     defer mods.close(arena);
+    // The ship types the mods add, each numbered from where the game's end.
+    game.added_types.install(try game.added_types.read(arena, mods.list));
     // What `WinMain` opens at start-up, and the texture cache `renderer_start` opens.
     var resources: game.bigfile.Hog = try .open(arena, io, directory, game.bigfile.resource_name);
     defer resources.close(arena);
@@ -231,11 +233,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // from `language.dll` at startup, and the ITAC's strings from `itaclang.dll` (without it the
     // ITAC shows no text). The mods' load scripts can change them before the game uses them.
     var records: scripting.Records = try .init(arena, .{
-        .ships = try readStats(io, arena, directory, &mods, .ships),
+        .ships = try game.added_types.ships(arena, try readStats(io, arena, directory, &mods, .ships)),
         .guns = try readStats(io, arena, directory, &mods, .guns),
         .missiles = try readStats(io, arena, directory, &mods, .missiles),
         .pilots = try readStats(io, arena, directory, &mods, .pilots),
-        .text = (try readStrings(io, arena, directory, &mods, game.language.file_name)).strings,
+        .text = try game.added_types.addNames(arena, (try readStrings(io, arena, directory, &mods, game.language.file_name)).strings),
         .itac_text = if (readStrings(io, arena, directory, &mods, game.itac.strings_name)) |read| read.strings else |err| blank: {
             std.log.warn("can't read {s}: {s}", .{ game.itac.strings_name, @errorName(err) });
             break :blank &.{};
@@ -441,6 +443,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // need them, and the cockpit a mission's start loads for the player's ship.
     const tables = try arena.create(game.create.Stats);
     tables.* = .initial;
+    tables.addTypes();
     tables.load(ship_stats);
     var cockpit: game.main.cockpit.Cockpit = .{};
     defer cockpit.deinit();
@@ -946,7 +949,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             };
             // The flight's ship, else the one `--ship` names, else the mission's ship; and the
             // simulator it runs in; and the campaign whose variables each attempt starts from.
-            objects.loadout_ships[objects.player] = if (flight.ship orelse options.ship) |ship| @enumFromInt(ship) else null;
+            const asked: ?game.create.TypeIndex = if (options.ship) |ship| ship else null;
+            objects.loadout_ships[objects.player] = if (flight.ship orelse asked) |ship| @enumFromInt(ship) else null;
             objects.loadout_racks[objects.player] = flight.racks;
             objects.simulator = flight.simulator;
             // The simulator pod's missions run on the campaign's variables too, as the game's are
@@ -1857,7 +1861,11 @@ const Play = struct {
 fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const game.bigfile.Hog, number: u16, second_part: bool) ![]const u8 {
     var path_buffer: [game.winmain.mission_path_size]u8 = undefined;
     const path = game.winmain.missionPath(&path_buffer, number, second_part, false);
-    if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| return file.image;
+    if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| {
+        // A mod's mission names the ship types the mod adds by the numbers its manifest gives them.
+        if (file.source == .mod) if (resources.mods.holder(std.fs.path.basenameWindows(path))) |mod| game.added_types.remapMission(file.image, mod.name);
+        return file.image;
+    }
     if (number == mission0.number) return @embedFile("mission0.dte");
     std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, std.fs.path.basenameWindows(path), game.bigfile.resource_name });
     return error.MissingMission;

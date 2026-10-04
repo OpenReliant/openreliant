@@ -368,7 +368,7 @@ test throwCases {
     world.camera = &watching;
     world.gun_particles = &built.pools;
     stage.mission.clock.frame_start = 100;
-    const ship = try stage.mission.add(.grendel, @splat(0));
+    const ship = try stage.mission.add(.of(.grendel), @splat(0));
     stage.mission.objects.slots[ship].object.velocity = .{ .x = 0, .y = 0, .z = 40 };
 
     // A part with a muzzle and a case ejector a little to its side.

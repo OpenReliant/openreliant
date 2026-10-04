@@ -118,7 +118,7 @@ pub fn targetPart(all: *const create.Objects, aimed: ValidTarget) ?*const object
     const slot = &all.slots[aimed.slot];
     const model = if (slot.model) |*model| model else return null;
     if (aimed.target.part()) |component| if (slot.component(component)) |part| return part;
-    const child = slot.object.type.aimedChild() orelse return null;
+    const child = slot.object.type.base().aimedChild() orelse return null;
     return model.rootChild(child);
 }
 
@@ -426,7 +426,7 @@ pub fn objectDestroyed(ctx: aigeneric.Context, index: u16, may_spin: bool, no_ej
         return;
     }
     if (slot.orders[0].order == .explode) return;
-    if (index == all.player and !object.flags.ejected and !no_eject and object.type != .kamov) {
+    if (index == all.player and !object.flags.ejected and !no_eject and object.type.base() != .kamov) {
         if (slot.orders[0].order != .eject_player) {
             _ = aigeneric.give(ctx, index, .eject_player, slot.orders[0].target.asShip());
             object.flags.ejected = true;
@@ -510,8 +510,8 @@ test hullLost {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.sabre, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     const object = &mission.objects.slots[ship].object;
 
     // Its orders are cleared, and it takes none again.
@@ -527,8 +527,8 @@ test objectDestroyed {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    const player = try mission.add(.predator, @splat(0));
-    const other = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     const slots = &mission.objects.slots;
 
     // An AI ship explodes, taking no order after.
@@ -540,7 +540,7 @@ test objectDestroyed {
     try std.testing.expect(!try aigeneric.push(ctx, other, .do_nothing, .none));
 
     // In the player's wing, where its pilot may eject, a low roll ejects, and the ship spins on.
-    const ejecting = try mission.add(.sabre, .{ 0, 0, 2000 });
+    const ejecting = try mission.add(.of(.sabre), .{ 0, 0, 2000 });
     slots[ejecting].object.wing = .player;
     slots[ejecting].object.eject_roll = eject_below - 1;
     objectDestroyed(ctx, ejecting, true, false);
@@ -551,7 +551,7 @@ test objectDestroyed {
     objectDestroyed(ctx, player, true, false);
     try std.testing.expectEqual(.eject_player, slots[player].orders[0].order);
     try std.testing.expect(slots[player].object.flags.ejected);
-    const heavy = try mission.add(.predator, .{ 0, 0, 3000 });
+    const heavy = try mission.add(.of(.predator), .{ 0, 0, 3000 });
     mission.objects.player = heavy;
     objectDestroyed(ctx, heavy, true, true);
     try std.testing.expectEqual(.explode, slots[heavy].orders[0].order);
@@ -1145,8 +1145,8 @@ test ValidTarget {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    _ = try mission.add(.predator, @splat(0));
-    const sabre = try mission.add(.sabre, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const sabre = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     mission.slot(sabre).object.flags.targetable = true;
     // A target that can be aimed at gives itself and its slot.
     const valid: ValidTarget = .{ .target = .at(sabre, null), .slot = sabre };
@@ -1168,9 +1168,9 @@ test targetOrPop {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     const ship = try mission.addOther(.{ 0, 0, -1000 });
-    const sabre = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const sabre = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     mission.slot(sabre).object.flags.targetable = true;
     try std.testing.expect(try aigeneric.push(ctx, ship, .match_speed, .at(sabre, null)));
     // A target that can be aimed at is given with its slot, and the order stays.
@@ -1188,7 +1188,7 @@ test playerControlEntry {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     try std.testing.expectEqual(null, playerControlEntry(mission.objects));
     // Found below an order pushed over it.
     try std.testing.expect(try aigeneric.push(mission.orders(), player, .player_control, .none));
@@ -1201,7 +1201,7 @@ test arrive {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = mission.slot(index);
     const world = mission.world();
     const place = struct {
@@ -1239,7 +1239,7 @@ test turn {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = &all.slots[index];
 
     // Dead ahead, nothing turns.
@@ -1304,8 +1304,8 @@ test targetValid {
     defer hull.deinit(gpa);
     hull.withComponent();
     const all = mission.objects;
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.addWith(hull.types(), .reaper, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.addWith(hull.types(), .of(.reaper), .{ 0, 0, 1000 });
     const object = &mission.slot(ship).object;
     try std.testing.expectEqual(1, object.component_count);
 
@@ -1337,8 +1337,8 @@ test targetPart {
     defer hull.deinit(gpa);
     hull.withComponent();
     const all = mission.objects;
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.addWith(hull.types(), .reaper, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.addWith(hull.types(), .of(.reaper), .{ 0, 0, 1000 });
     const slot = mission.slot(ship);
     const model = &slot.model.?;
 
@@ -1354,7 +1354,7 @@ test targetPart {
     // model has it, whole or by a component past its count.
     const own_type = slot.object.type;
     defer slot.object.type = own_type;
-    slot.object.type = .saladin;
+    slot.object.type = .of(.saladin);
     try std.testing.expectEqual(null, targetPart(all, whole));
     const own_parts = model.parts;
     defer model.parts = own_parts;
@@ -1368,7 +1368,7 @@ test "a ship that turns flat pitches and yaws at once, and never rolls" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = &mission.objects.slots[index];
     var flat = slot.flight.?.*;
     flat.turns = .flat;
@@ -1392,7 +1392,7 @@ test "a ship steered at a point comes round to face it" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = &all.slots[index];
     const at: Vector = .{ 20000, 6000, 10000 };
 
@@ -1421,7 +1421,7 @@ test "a slow frame halves the small turns" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     const slot = &all.slots[index];
 
     turn(slot, .{ 200, 0, 4000 }, 1, 0, .{}, slow_frame, false);
@@ -1442,9 +1442,9 @@ test intercept {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     // A target 1000 along X, flying along its nose, Z, at 10 a tick.
-    const target = try mission.add(.sabre, .{ 1000, 0, 0 });
+    const target = try mission.add(.of(.sabre), .{ 1000, 0, 0 });
     const struck = mission.slot(target);
     objects.setOrientation(&struck.object, &struck.drawn, math.identity);
     struck.object.speed = 10;
@@ -1481,7 +1481,7 @@ test approachToRest {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const ship = try mission.add(.predator, @splat(0));
+    const ship = try mission.add(.of(.predator), @splat(0));
     const slot = mission.slot(ship);
     objects.setOrientation(&slot.object, &slot.drawn, math.identity);
     const bands: ApproachBands = .{ .full_beyond = 20000, .slow_beyond = 10000, .slow_throttle = 0.4 };
@@ -1545,7 +1545,7 @@ test escapeDirection {
     try hull.init(gpa);
     defer hull.deinit(gpa);
     hull.withHull();
-    const index = try mission.addWith(hull.types(), .reaper, @splat(0));
+    const index = try mission.addWith(hull.types(), .of(.reaper), @splat(0));
     const slot = mission.slot(index);
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
 
@@ -1563,8 +1563,8 @@ test "aiming at a target" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const ship = try mission.add(.predator, @splat(0));
-    const target = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const ship = try mission.add(.of(.predator), @splat(0));
+    const target = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     const struck = &all.slots[target];
     struck.drawn = .{ .position = .{ 0, 0, 1000 }, .orientation = math.rotation(.y, std.math.pi / 2.0) };
     struck.object.speed = 10;
@@ -1597,8 +1597,8 @@ test collisionCourse {
     defer mission.deinit();
     const world = mission.world();
     const all = mission.objects;
-    const ship = try mission.add(.predator, @splat(0));
-    const target = try mission.add(.sabre, .{ 0, 0, 2000 });
+    const ship = try mission.add(.of(.predator), @splat(0));
+    const target = try mission.add(.of(.sabre), .{ 0, 0, 2000 });
     all.slots[ship].object.velocity = .{ .x = 0, .y = 0, .z = 50 };
 
     // Flying straight at it, it is on course to hit; turned away, or past it, it isn't.
@@ -1619,7 +1619,7 @@ test "a collision course against a ship's parts" {
     try hull.init(gpa);
     defer hull.deinit(gpa);
     hull.withHull();
-    const target = try mission.addWith(hull.types(), .reaper, @splat(0));
+    const target = try mission.addWith(hull.types(), .of(.reaper), @splat(0));
     const struck = mission.slot(target);
     struck.model.?.place(struck.drawn.position, struck.drawn.orientation);
     const part = &struck.model.?.parts[0];
@@ -1644,7 +1644,7 @@ test "a collision course against a ship's parts" {
 
     // A ship on its way to such a target is tested against its parts, ahead of it or not.
     const world = mission.world();
-    const ship = try mission.add(.predator, .{ 0, 0, 400 });
+    const ship = try mission.add(.of(.predator), .{ 0, 0, 400 });
     if (struck.flight == null) struck.flight = mission.slot(ship).flight;
     struck.object.flags.components = true;
     try std.testing.expect(collisionCourse(world, ship, target, 0, 500));

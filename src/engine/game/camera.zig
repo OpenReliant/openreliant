@@ -640,7 +640,7 @@ pub const Camera = struct {
                 );
             },
             .cockpit_left, .cockpit_right, .cockpit_rear => |side| {
-                camera.place = if (side == .cockpit_rear and world.object.motion.ship_type == .kamov)
+                camera.place = if (side == .cockpit_rear and world.object.motion.ship_type.base() == .kamov)
                     kamovRear(world.object.position, world.object.orientation)
                 else
                     cockpit(side, world.object.position, world.object.orientation, world.object.eye);
@@ -963,7 +963,7 @@ pub const Chase = struct {
     /// The type's offset (`camera_chase`): the heights are its immediates, and the distances
     /// `0x004DC580`, `0x004DC438`, `0x004DC744` and `0x004DC740`.
     pub fn offset(ship_type: gameobj.Type) Offset {
-        return switch (ship_type) {
+        return switch (ship_type.base()) {
             .grendel => .{ .height = -650, .distance = 1800 },
             .wolverine => .{ .height = -850, .distance = 2000 },
             .reaper => .{ .height = -800, .distance = 2400 },
@@ -998,7 +998,7 @@ pub const Chase = struct {
 
     /// What the view follows of the object.
     pub const Motion = struct {
-        ship_type: gameobj.Type = .predator,
+        ship_type: gameobj.Type = .of(.predator),
         throttle: f32 = 0,
         afterburner: bool = false,
         pitch_rate: f32 = 0,
@@ -1676,7 +1676,7 @@ test Chase {
     // Turning, the camera swings the other way, within its limit.
     for (0..400) |_| _ = chase.frame(.{ .yaw_rate = 1 }, .{ 0, 0, 0 }, math.identity);
     try std.testing.expectApproxEqAbs(-Chase.turn_limit, chase.yaw, 1e-3);
-    try std.testing.expectEqual(Chase.Offset{ .height = -1000, .distance = 3400 }, Chase.offset(.kamov));
+    try std.testing.expectEqual(Chase.Offset{ .height = -1000, .distance = 3400 }, Chase.offset(.of(.kamov)));
 }
 
 test Orbit {
@@ -1780,7 +1780,7 @@ test "the missile view" {
     // It follows the player's, behind and above it, easing out from where the chase view left it.
     try std.testing.expect(camera.setView(.missile, player, false, false, 0));
     try std.testing.expectEqual(1, camera.missile);
-    const subject: Subject = .{ .position = @splat(0), .orientation = math.identity, .motion = .{ .ship_type = .predator } };
+    const subject: Subject = .{ .position = @splat(0), .orientation = math.identity, .motion = .{ .ship_type = .of(.predator) } };
     try std.testing.expectEqual(null, camera.frame(.{ .object = subject, .player = subject, .ticks = 1, .now = 10 }));
     const missile = armed.missile(1);
     try std.testing.expectEqual(missile.slot.drawn.position[1] + Chase.missile_height, camera.place.position[1]);

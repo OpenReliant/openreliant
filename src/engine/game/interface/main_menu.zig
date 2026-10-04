@@ -133,7 +133,7 @@ pub const Choice = union(enum) {
 /// the mission gives, the simulator it runs in, and what flies it.
 pub const Flight = struct {
     mission: u16,
-    ship: ?u8 = null,
+    ship: ?create.TypeIndex = null,
     /// The racks the loadout fitted the ship with, where it ran (`player_loadouts + 4` on); none
     /// where the mission starts without it, when the player's ship is fitted by its tier
     /// (`skip_briefing`, `0x005883B4`).
@@ -163,7 +163,7 @@ pub const Flight = struct {
 /// then comes back to itself. It keeps the mission's number and the pilot's kills as they were.
 pub const instant_action: Flight = .{
     .mission = create.instant_action_mission,
-    .ship = @intFromEnum(gameobj.Type.grendel),
+    .ship = @intFromEnum(gameobj.GameType.grendel),
     .simulator = .{ .mode = .instant_action, .instant_action = true },
     .flier = .main_menu,
 };

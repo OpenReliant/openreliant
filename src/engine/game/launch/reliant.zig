@@ -233,7 +233,7 @@ pub fn tubeMiddle(reliant: *const create.Slot, gate: usize, across: f32) ?math.V
 fn showHangar(ctx: aigeneric.Context, index: u16, gate: i16, in_tube: math.Vector, turn: math.Matrix) void {
     const world = ctx.world;
     const all = world.objects;
-    const hangar = create.make(world, create.cutaway_slot, .reliant_hangar) catch |err| {
+    const hangar = create.make(world, create.cutaway_slot, .of(.reliant_hangar)) catch |err| {
         log.warn("the Reliant's hangar is left out: {s}", .{@errorName(err)});
         return;
     } orelse return;
@@ -385,7 +385,7 @@ fn tubeDoor(all: *create.Objects, slot: *const create.Slot, door: Door) ?struct 
 /// The hangar's model, where the hangar stands in the cutaway slot.
 fn hangarModel(all: *create.Objects) ?*objects.Model {
     const hangar = &all.slots[create.cutaway_slot];
-    if (hangar.object.type != .reliant_hangar) return null;
+    if (hangar.object.type.base() != .reliant_hangar) return null;
     return if (hangar.model) |*held| held else null;
 }
 
@@ -468,10 +468,10 @@ test "a ship drops out of the Reliant's tube, step by step" {
     var reliant_model: testing.Reliant = undefined;
     try reliant_model.init(gpa);
     defer reliant_model.deinit(gpa);
-    _ = try mission.add(.predator, @splat(0));
-    const reliant = try mission.add(.reliant, .{ 0, 0, 10000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 10000 });
     try reliant_model.fit(gpa, mission.slot(reliant));
-    const ship = try mission.add(.sabre, @splat(0));
+    const ship = try mission.add(.of(.sabre), @splat(0));
     const slot = mission.slot(ship);
     slot.object.throttle = 1;
     const ctx = mission.orders();
@@ -531,7 +531,7 @@ test tubeMiddle {
     var reliant_model: testing.Reliant = undefined;
     try reliant_model.init(gpa);
     defer reliant_model.deinit(gpa);
-    const slot = mission.slot(try mission.add(.reliant, .{ 0, 0, 10000 }));
+    const slot = mission.slot(try mission.add(.of(.reliant), .{ 0, 0, 10000 }));
     try reliant_model.fit(gpa, slot);
     // Halfway between gate 2's lower door, 2000 along X, and its upper door 500 above it, as the
     // Reliant stands, nothing across.
@@ -550,8 +550,8 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     var reliant_model: testing.Reliant = undefined;
     try reliant_model.init(gpa);
     defer reliant_model.deinit(gpa);
-    const player = try mission.add(.predator, @splat(0));
-    const reliant = try mission.add(.reliant, .{ 0, 0, 10000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 10000 });
     try reliant_model.fit(gpa, mission.slot(reliant));
     var view: camera.Camera = .{ .setting = .chase };
     var display: @import("../hud.zig").State = .{};
@@ -564,7 +564,7 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     // the cutaway leaves it out, and the camera is held in the cockpit.
     _ = try aigeneric.pushShip(ctx, player, .launch, reliant, 0);
     aigeneric.objectOrders(ctx, player);
-    try std.testing.expectEqual(.reliant_hangar, mission.objects.slots[create.cutaway_slot].object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.reliant_hangar), mission.objects.slots[create.cutaway_slot].object.type);
     try std.testing.expect(mission.objects.slots[create.cutaway_slot].object.flags.no_collisions);
     try std.testing.expectEqual(reliant, mission.player.carrier.?);
     try std.testing.expectEqual(.launch, mission.player.showing);
@@ -588,7 +588,7 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     // At the end the date goes, the hangar goes, everything shows, and the camera is free in view 0
     // in the mode the setting picks.
     try std.testing.expect(!display.caption.on);
-    try std.testing.expectEqual(.stand_in, mission.objects.slots[create.cutaway_slot].object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.stand_in), mission.objects.slots[create.cutaway_slot].object.type);
     try std.testing.expectEqual(.everything, mission.player.showing);
     try std.testing.expectEqual(camera.View.cockpit, view.view);
     try std.testing.expectEqual(.chase, view.cockpit_mode);

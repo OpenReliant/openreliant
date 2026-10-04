@@ -1971,7 +1971,7 @@ test "the Nova Cannon strikes a ship's components leaf by leaf" {
     hull.withHull();
     hull.withComponent();
     hull.data[0].part.component_armor = 100;
-    const target = try mission.addWith(hull.types(), .reaper, .{ 0, 0, 500 });
+    const target = try mission.addWith(hull.types(), .of(.reaper), .{ 0, 0, 500 });
     const slot = &mission.objects.slots[target];
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
     const part = &slot.model.?.parts[0];
@@ -1997,7 +1997,7 @@ test "a shot strikes a component of a ship that lists them" {
     hull.withComponent();
     hull.data[0].part.component_armor = 100;
     const mission = &ship.mission;
-    const target = try mission.addWith(hull.types(), .reaper, .{ -50, 0, 500 });
+    const target = try mission.addWith(hull.types(), .of(.reaper), .{ -50, 0, 500 });
     const slot = &mission.objects.slots[target];
     try std.testing.expect(slot.object.flags.components);
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);

@@ -160,7 +160,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     slot.state.friendly_fire.until = ctx.world.clock.frame_start + speaking_ticks;
     switch (slot.object.sent_home) {
         .told, ._unknown_3 => {
-            const reliant = if (world.player.carrier) |carrier| world.objects.slots[carrier].object.type == .reliant else false;
+            const reliant = if (world.player.carrier) |carrier| world.objects.slots[carrier].object.type.base() == .reliant else false;
             const pilot = if (reliant) reliant_aborts else other_aborts;
             videoreports.pilotSays(world, pilot, .talking, abort_line, .queued, .looping, videoreports.no_expiry);
         },
@@ -287,8 +287,8 @@ test destroyedFriend {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const world = mission.world();
-    _ = try mission.add(.predator, @splat(0));
-    const friend = try mission.add(.predator, .{ 0, 0, 1000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const friend = try mission.add(.of(.predator), .{ 0, 0, 1000 });
     try std.testing.expect(destroyedFriend(world, friend, 0, .bullet));
     // A collision with a pilot's pod that anything could harm is no friend destroyed; with one only
     // a player could, it is.
@@ -308,7 +308,7 @@ test "a player who destroys a friend is sent home, and lands" {
     const all = heard.mission.objects;
     const ctx: aigeneric.Context = .of(world);
     const player = &all.slots[0];
-    const reliant = try heard.mission.add(.reliant, .{ 0, 0, 5000 });
+    const reliant = try heard.mission.add(.of(.reliant), .{ 0, 0, 5000 });
     heard.mission.player.carrier = reliant;
     _ = try aigeneric.pushShip(ctx, 0, .player_control, heard.enemy, null);
 

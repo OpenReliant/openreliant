@@ -302,8 +302,8 @@ const wide_advanced_mission = 8;
 /// other type's stand no deeper, and its warp's size is 2000. Warp departure uses the table's
 /// membership (`+0x2C`) to choose its translation rate.
 const warp_sizes = [_]WarpSize{
-    .{ .type = .badanov, .depth = 15000, .size = 10000 },
-    .{ .type = .yamato, .depth = 100000, .size = 50000 },
+    .{ .type = .of(.badanov), .depth = 15000, .size = 10000 },
+    .{ .type = .of(.yamato), .depth = 100000, .size = 50000 },
 };
 
 const WarpSize = struct { type: gameobj.Type, depth: f32, size: f32 };
@@ -551,7 +551,7 @@ const spread_most = 2;
 /// Whether the ship in slot `index` is a Krasny in mission 16 or 66, which comes through its gate
 /// as it collapses.
 fn krasnyRun(all: *const create.Objects, index: u16) bool {
-    return all.slots[index].object.type == .krasny and (all.mission_number == krasny_missions[0] or all.mission_number == krasny_missions[1]);
+    return all.slots[index].object.type.base() == .krasny and (all.mission_number == krasny_missions[0] or all.mission_number == krasny_missions[1]);
 }
 
 const krasny_missions = [2]u16{ 0x10, 0x42 };
@@ -814,7 +814,7 @@ pub fn openInit(ctx: aigeneric.Context, index: u16) void {
     const all = world.objects;
     const gates = world.gates orelse return;
     const advanced = for (all.slots[0..all.count]) |*slot| {
-        if (slot.object.type == .advanced_gate) break true;
+        if (slot.object.type.base() == .advanced_gate) break true;
     } else false;
     _ = gates.make(world, index, if (advanced) .advanced else .proto, @splat(0)) catch |err| {
         log.warn("object {d} opens no tunnel: {s}", .{ index, @errorName(err) });
@@ -895,7 +895,7 @@ const Collapsing = enum {
     other,
 
     fn of(object_type: gameobj.Type) Collapsing {
-        return switch (object_type) {
+        return switch (object_type.base()) {
             .proto_gate => .proto,
             .advanced_gate => .advanced,
             else => .other,
@@ -1214,9 +1214,9 @@ test tunnelSize {
 }
 
 test depthOf {
-    try std.testing.expectEqual(15000, depthOf(.badanov));
-    try std.testing.expectEqual(100000, depthOf(.yamato));
-    try std.testing.expectEqual(0, depthOf(.proto_gate));
+    try std.testing.expectEqual(15000, depthOf(.of(.badanov)));
+    try std.testing.expectEqual(100000, depthOf(.of(.yamato)));
+    try std.testing.expectEqual(0, depthOf(.of(.proto_gate)));
 }
 
 test cutIndex {
@@ -1231,8 +1231,8 @@ test krasnyRun {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    const krasny = try mission.add(.krasny, @splat(0));
-    const other = try mission.add(.predator, @splat(0));
+    const krasny = try mission.add(.of(.krasny), @splat(0));
+    const other = try mission.add(.of(.predator), @splat(0));
     for ([_]u16{ 16, 66 }) |number| {
         mission.objects.mission_number = number;
         try std.testing.expect(krasnyRun(mission.objects, krasny));
@@ -1262,11 +1262,11 @@ test "a tunnel at a Yamato stands deeper than one at a nav point" {
     try run.init(gpa);
     defer run.deinit(gpa);
     const point = try run.mission.addOther(@splat(0));
-    const yamato = try run.mission.add(.yamato, .{ 0, 0, 1e6 });
+    const yamato = try run.mission.add(.of(.yamato), .{ 0, 0, 1e6 });
     const world = run.orders().world;
     const at_point = (try run.built.gates.make(world, point, .proto, @splat(0))).?;
     const at_yamato = (try run.built.gates.make(world, yamato, .proto, @splat(0))).?;
-    try std.testing.expectEqual(depthOf(.yamato), at_yamato.deeper);
+    try std.testing.expectEqual(depthOf(.of(.yamato)), at_yamato.deeper);
 
     // Drawn at the same tick, every vertex of the Yamato's stands 100000 deeper, its throat, its
     // portal and the flashes there with it.
@@ -1349,9 +1349,9 @@ test "a ship comes in through a gate" {
     try run.init(gpa);
     defer run.deinit(gpa);
     const mission = &run.mission;
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.predator, .{ 0, 0, -100000 });
-    const gate = try mission.add(.proto_gate, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.predator), .{ 0, 0, -100000 });
+    const gate = try mission.add(.of(.proto_gate), @splat(0));
     const ctx = run.orders();
     const record = (try run.built.gates.make(ctx.world, gate, .proto, @splat(0))).?;
 
@@ -1391,9 +1391,9 @@ test "the player's ship goes out through the nearest gate and rides the worm" {
     defer run.deinit(gpa);
     const mission = &run.mission;
     const built = &run.built;
-    const player = try mission.add(.predator, .{ 0, 0, 30000 });
-    const near = try mission.add(.proto_gate, @splat(0));
-    const far = try mission.add(.proto_gate, .{ 0, 0, 5e6 });
+    const player = try mission.add(.of(.predator), .{ 0, 0, 30000 });
+    const near = try mission.add(.of(.proto_gate), @splat(0));
+    const far = try mission.add(.of(.proto_gate), .{ 0, 0, 5e6 });
     const ctx = run.orders();
     _ = (try built.gates.make(ctx.world, near, .proto, @splat(0))).?;
     _ = (try built.gates.make(ctx.world, far, .proto, @splat(0))).?;
@@ -1457,8 +1457,8 @@ test "an advanced gate collapses: its tunnel burns out and fades, and it loses i
     var run: testing.Run = undefined;
     try run.init(gpa);
     defer run.deinit(gpa);
-    _ = try run.mission.add(.predator, @splat(0));
-    const gate = try run.mission.add(.advanced_gate, @splat(0));
+    _ = try run.mission.add(.of(.predator), @splat(0));
+    const gate = try run.mission.add(.of(.advanced_gate), @splat(0));
     _ = (try run.built.gates.make(run.orders().world, gate, .advanced, @splat(0))).?;
 
     const ticks = try collapseSteps(&run, gate);
@@ -1477,8 +1477,8 @@ test "a proto gate collapses, and keeps its tunnel" {
     var run: testing.Run = undefined;
     try run.init(gpa);
     defer run.deinit(gpa);
-    _ = try run.mission.add(.predator, @splat(0));
-    const gate = try run.mission.add(.proto_gate, @splat(0));
+    _ = try run.mission.add(.of(.predator), @splat(0));
+    const gate = try run.mission.add(.of(.proto_gate), @splat(0));
     _ = (try run.built.gates.make(run.orders().world, gate, .proto, @splat(0))).?;
 
     const ticks = try collapseSteps(&run, gate);
@@ -1538,7 +1538,7 @@ test secondPasses {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    const gate = mission.slot(try mission.add(.proto_gate, @splat(0)));
+    const gate = mission.slot(try mission.add(.of(.proto_gate), @splat(0)));
     gate.type = &gate_type;
     // Each surface with a second texture loses its second pass, and takes it again; the rest are
     // left as they are.

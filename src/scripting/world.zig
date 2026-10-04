@@ -44,7 +44,7 @@ fn allObjects(call: Call) handles.List {
 
 /// Whether the object in slot `index` is in the mission: not a stand-in for an empty slot.
 pub fn inMission(all: *const create.Objects, index: u16) bool {
-    return all.slots[index].object.type != .stand_in;
+    return all.slots[index].object.type.base() != .stand_in;
 }
 
 /// The object in slot `index`, as the game names one by its slot, where that's one of the slots

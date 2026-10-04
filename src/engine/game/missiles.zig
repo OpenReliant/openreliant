@@ -956,7 +956,7 @@ pub const testing = struct {
 
         /// An armed ship of `side` at `at`, facing along Z, in the next slot.
         pub fn add(armed: *Armed, side: gameobj.Side(i32), at: Vector) !u16 {
-            const index = try armed.mission.addWith(armed.model.types(), .predator, at);
+            const index = try armed.mission.addWith(armed.model.types(), .of(.predator), at);
             armed.mission.slot(index).object.side = side;
             armed.mission.slot(index).object.flags.targetable = true;
             return index;
@@ -1139,11 +1139,11 @@ test "a torpedo flies at where it meets its target, less its own drift" {
     defer mission.deinit();
     const ctx = mission.orders();
     // The first slot is the player's, which takes none of these orders.
-    _ = try mission.add(.predator, .{ 0, 5000, 0 });
-    const fired = try mission.add(.russian_torpedo, @splat(0));
-    const twin = try mission.add(.russian_torpedo, @splat(0));
-    const mammoth = try mission.add(.mammoth, .{ 0, 0, 20000 });
-    mission.tables.combat[@intFromEnum(gameobj.Type.russian_torpedo)].class = .torpedo;
+    _ = try mission.add(.of(.predator), .{ 0, 5000, 0 });
+    const fired = try mission.add(.of(.russian_torpedo), @splat(0));
+    const twin = try mission.add(.of(.russian_torpedo), @splat(0));
+    const mammoth = try mission.add(.of(.mammoth), .{ 0, 0, 20000 });
+    mission.tables.combat[@intFromEnum(gameobj.GameType.russian_torpedo)].class = .torpedo;
     // The target crosses ahead, and the torpedoes drift up and on.
     const target = mission.slot(mammoth);
     target.object.flags.targetable = true;

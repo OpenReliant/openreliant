@@ -251,7 +251,7 @@ test "Loaded.tickClock" {
 }
 
 test shipSlot {
-    const ships = dte.testing.ships(2, @intFromEnum(gameobj.Type.sabre));
+    const ships = dte.testing.ships(2, @intFromEnum(gameobj.GameType.sabre));
     var game: vm.machine.testing.Game = undefined;
     try game.init(std.testing.allocator, &.{}, .{ .ships = &ships });
     defer game.deinit();
@@ -270,9 +270,9 @@ test listPlayerWing {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
-    const wingman = try mission.add(.grendel, .{ 1000, 0, 0 });
-    const outsider = try mission.add(.sabre, .{ 0, 0, 5000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const wingman = try mission.add(.of(.grendel), .{ 1000, 0, 0 });
+    const outsider = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
 
     // The ships listed take the first slots and join the wing; the rest stay out of it.
     all.wing = @splat(outsider);
@@ -314,8 +314,8 @@ test syncShips {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const ahead = try mission.add(.predator, .{ 100, 200, 300 });
-    const across = try mission.add(.sabre, @splat(0));
+    const ahead = try mission.add(.of(.predator), .{ 100, 200, 300 });
+    const across = try mission.add(.of(.sabre), @splat(0));
     const slot = &all.slots[across];
     @import("objects.zig").setOrientation(&slot.object, &slot.drawn, math.rotation(.y, std.math.pi / 2.0));
     var ships: [2]dte.Ship = @splat(std.mem.zeroes(dte.Ship));

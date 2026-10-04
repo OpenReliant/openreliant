@@ -69,7 +69,7 @@ pub fn collide(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
     // Two torpedoes and two pieces of debris pass through each other, as do two satellites.
     if (classes[0] == classes[1] and (classes[0] == .torpedo or classes[0] == .debris)) return false;
     // Two satellites never collide, whatever their class.
-    if (all.slots[near].object.type == .satellite and all.slots[far].object.type == .satellite) return false;
+    if (all.slots[near].object.type.base() == .satellite and all.slots[far].object.type.base() == .satellite) return false;
 
     // A mine goes off against a fighter, and a torpedo against whatever it met.
     if (classes[0] == .mine or classes[1] == .mine) {
@@ -183,7 +183,7 @@ fn shoveAt(world: gameobj.World, first: u16, second: u16, normal: Vector, levers
 fn shoved(all: *const create.Objects, index: u16) bool {
     const slot = &all.slots[index];
     if (slot.object.flags.attached or slot.object.mass <= 0) return false;
-    if (slot.object.type != .ripper) return true;
+    if (slot.object.type.base() != .ripper) return true;
     return slot.running(.ripper_grabs_target_object) == null;
 }
 
@@ -272,7 +272,7 @@ fn impact(world: gameobj.World, first: u16, second: u16, impulse: Vector, contac
 
     for ([_]u16{ first, second }, [_]u16{ second, first }, [_]Flare{ .before, .after }) |index, other, flare| {
         const object = &all.slots[index].object;
-        if (object.type == .ripper) continue;
+        if (object.type.base() == .ripper) continue;
         const struck = quadrant(object, object.placeAt(.now).inverse(contact));
         var share = value;
         // A player's ship is gentler with its own side.
@@ -646,7 +646,7 @@ fn counted(kind: Kind) bool {
 fn parts(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
     const all = world.objects;
     if (all.slots[first].object.flags.components and all.slots[second].object.flags.components) return false;
-    if (all.slots[first].object.type == .limpet_pod or all.slots[second].object.type == .limpet_pod) return false;
+    if (all.slots[first].object.type.base() == .limpet_pod or all.slots[second].object.type.base() == .limpet_pod) return false;
     const hull = if (all.slots[first].object.flags.components) first else second;
     const ship = if (hull == first) second else first;
 
@@ -770,7 +770,7 @@ fn passedTo(all: *create.Objects, hull: u16, struck: objects.PartRef) ?objects.P
 const testing = struct {
     /// An object at `at`, with a radius of its own and nothing flying it.
     fn ship(mission: *gameobj.testing.Mission, at: Vector, radius: f32) !u16 {
-        const index = try mission.add(.predator, at);
+        const index = try mission.add(.of(.predator), at);
         mission.slot(index).object.radius = radius;
         mission.slot(index).motion = null;
         return index;
@@ -854,7 +854,7 @@ test "a ship that meets a hull is shoved off the face it hit" {
     // The inverse inertia of a body of this mass, about 6 / (mass * size squared), which is what
     // `recentre` works out from a model's parts.
     const hull_turn: math.Matrix = @splat(0);
-    const hull = try mission.addWith(model.types(), .predator, @splat(0));
+    const hull = try mission.addWith(model.types(), .of(.predator), @splat(0));
     all.slots[hull].object.flags.components = true;
     all.slots[hull].object.mass = 100000;
     all.slots[hull].object.angular_response = hull_turn;
@@ -863,7 +863,7 @@ test "a ship that meets a hull is shoved off the face it hit" {
     all.slots[hull].object.angular_response[8] = 6e-9;
     all.slots[hull].motion = null;
     // The ship meets the face off to one side, so the hit has a lever on the hull.
-    const ship = try mission.add(.predator, .{ 60, 0, -60 });
+    const ship = try mission.add(.of(.predator), .{ 60, 0, -60 });
     all.slots[ship].object.radius = 100;
     all.slots[ship].object.mass = 1000;
     all.slots[ship].object.angular_response = .{ 6e-7, 0, 0, 0, 6e-7, 0, 0, 0, 6e-7 };
@@ -905,13 +905,13 @@ test "a torpedo that strikes a hull is gone, and the hull lurches" {
 
     // The player's ship, then a hull of one square part, and a torpedo flying straight into its
     // face.
-    _ = try mission.add(.kamov, .{ 0, 50000, 0 });
-    const hull = try mission.addWith(model.types(), .mammoth, @splat(0));
+    _ = try mission.add(.of(.kamov), .{ 0, 50000, 0 });
+    const hull = try mission.addWith(model.types(), .of(.mammoth), @splat(0));
     all.slots[hull].object.flags.components = true;
     all.slots[hull].object.mass = 100000;
     all.slots[hull].motion = null;
-    const torpedo = try mission.add(.russian_torpedo, .{ 60, 0, -60 });
-    mission.tables.combat[@intFromEnum(gameobj.Type.russian_torpedo)].class = .torpedo;
+    const torpedo = try mission.add(.of(.russian_torpedo), .{ 60, 0, -60 });
+    mission.tables.combat[@intFromEnum(gameobj.GameType.russian_torpedo)].class = .torpedo;
     all.slots[torpedo].object.radius = 100;
     all.slots[torpedo].object.mass = 1000;
     all.slots[torpedo].motion = null;
@@ -925,7 +925,7 @@ test "a torpedo that strikes a hull is gone, and the hull lurches" {
     try std.testing.expect(all.slots[torpedo].object.flags.exploding);
     try std.testing.expectEqual(.make_capship_list_right, all.slots[hull].current().?.order);
     // Struck again while it lurches, it lurches no more.
-    const again = try mission.add(.russian_torpedo, .{ 60, 0, -60 });
+    const again = try mission.add(.of(.russian_torpedo), .{ 60, 0, -60 });
     all.slots[again].object.radius = 100;
     all.slots[again].motion = null;
     all.slots[again].object.root.next_position = .{ .x = 60, .y = 0, .z = -20 };
@@ -941,8 +941,8 @@ test passedTo {
     var model: create.testing.Model = undefined;
     try model.init(gpa);
     defer model.deinit(gpa);
-    _ = try mission.add(.kamov, @splat(0));
-    const hull = try mission.addWith(model.types(), .mammoth, @splat(0));
+    _ = try mission.add(.of(.kamov), @splat(0));
+    const hull = try mission.addWith(model.types(), .of(.mammoth), @splat(0));
     const live = &mission.objects.slots[hull].model.?;
     const struck: objects.PartRef = .{ .model = live, .index = 0 };
     // A part of no assembly, or of too much armour, passes nothing on.
@@ -967,7 +967,7 @@ test damage {
     const all = mission.objects;
     const world = mission.world();
     // The player's ship, in the first slot, and another, which the difficulty leaves alone.
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     const index = try testing.ship(&mission, .{ 0, 0, 1000 }, 1000);
     const object = &all.slots[index].object;
     object.shields = .{ .left = 10, .right = 10, .fore = 10, .aft = 10 };
@@ -1007,7 +1007,7 @@ test "smart targeting takes what the player's ship hits" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     try std.testing.expect(try @import("aigeneric.zig").push(mission.orders(), player, .player_control, .none));
     const index = try testing.ship(&mission, .{ 0, 0, 1000 }, 1000);
     const object = &all.slots[index].object;
@@ -1084,7 +1084,7 @@ test armorDamage {
     const all = mission.objects;
     const world = mission.world();
     // The player's ship, in the first slot, and another.
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     const index = try testing.ship(&mission, .{ 0, 0, 1000 }, 1000);
     const object = &all.slots[index].object;
     object.armor = .{ .left = 20, .right = 20, .fore = 20, .aft = 20 };
@@ -1111,8 +1111,8 @@ test byDifficulty {
     defer mission.deinit();
     const all = mission.objects;
     var world = mission.world();
-    const player = try mission.add(.predator, @splat(0));
-    const enemy = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const enemy = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     try std.testing.expectEqual(.hostile, all.slots[enemy].object.side);
 
     // At medium, the player's ship takes half, and nothing else changes.
@@ -1165,8 +1165,8 @@ test componentDamage {
 
     // The player's ship, in the first slot, and another, which the difficulty leaves alone. The
     // player's is of another type, whose model the test's types don't give.
-    _ = try mission.add(.kamov, @splat(0));
-    const index = try mission.addWith(model.types(), .predator, @splat(0));
+    _ = try mission.add(.of(.kamov), @splat(0));
+    const index = try mission.addWith(model.types(), .of(.predator), @splat(0));
     const part = &all.slots[index].model.?.parts[0];
     const struck: objects.PartRef = .{ .model = &all.slots[index].model.?, .index = 0 };
     try std.testing.expectEqual(100, part.armor);
@@ -1216,7 +1216,7 @@ test goOff {
     defer mission.deinit();
     const all = mission.objects;
     const world = mission.world();
-    _ = try mission.add(.predator, .{ 0, 0, -100000 });
+    _ = try mission.add(.of(.predator), .{ 0, 0, -100000 });
 
     // The test's stats make every type a fighter; a torpedo, of a type of its own, strikes one's
     // fore quadrant and goes off itself.

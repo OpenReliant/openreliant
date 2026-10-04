@@ -398,8 +398,9 @@ fn takes(sound: *Sound, class: Class) ?u8 {
 /// engine tables' rows sounds as the first.
 pub fn engineSound(ship_type: gameobj.Type) sounds.Sound {
     const own = ship_type.untwinned();
-    if (own == .kamov) return .pship07;
-    if (own.number() < sounds.engines.len) return @enumFromInt(@intFromEnum(sounds.Sound.pship01) + own.number());
+    if (own.base() == .kamov) return .pship07;
+    const row = @intFromEnum(own.base());
+    if (row < sounds.engines.len) return @enumFromInt(@intFromEnum(sounds.Sound.pship01) + row);
     return .pship01;
 }
 
@@ -410,7 +411,7 @@ const kamov_row = sounds.engines.len - 1;
 /// A type the tables have no row for takes the last, where the game reads past them.
 fn engineRow(ship_type: gameobj.Type) usize {
     const own = ship_type.untwinned();
-    return if (own == .kamov) kamov_row else @min(own.number(), sounds.engines.len - 1);
+    return if (own.base() == .kamov) kamov_row else @min(@intFromEnum(own.base()), sounds.engines.len - 1);
 }
 
 /// The engine's volume factor: the effects volume and the master volume, each over the loudest.
@@ -637,8 +638,8 @@ test fxClass {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const other = try mission.add(.predator, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.predator), .{ 0, 0, 1000 });
     try std.testing.expectEqual(Class.player_fx, fxClass(mission.objects, player));
     try std.testing.expectEqual(Class.not_reserved, fxClass(mission.objects, other));
 }
@@ -685,9 +686,9 @@ test MissileSound {
 }
 
 test engineSound {
-    try std.testing.expectEqual(sounds.Sound.pship01, engineSound(.predator));
+    try std.testing.expectEqual(sounds.Sound.pship01, engineSound(.of(.predator)));
     try std.testing.expectEqual(sounds.Sound.pship03, engineSound(@enumFromInt(0xF4 + 2)));
-    try std.testing.expectEqual(sounds.Sound.pship07, engineSound(.kamov));
+    try std.testing.expectEqual(sounds.Sound.pship07, engineSound(.of(.kamov)));
     try std.testing.expectEqual(sounds.Sound.pship01, engineSound(@enumFromInt(40)));
 }
 
@@ -698,9 +699,9 @@ test engineUpdate {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, .{ 0, 0, 0 });
+    const player = try mission.add(.of(.predator), .{ 0, 0, 0 });
     const scene = testing.scene(&mission);
-    try std.testing.expect(play(sound, scene, null, null, player, engineSound(.predator), 0, .player_engines) != null);
+    try std.testing.expect(play(sound, scene, null, null, player, engineSound(.of(.predator)), 0, .player_engines) != null);
 
     // Idle, the throttle pitches the engine.
     const object = &mission.slot(player).object;
@@ -737,11 +738,11 @@ test "a fighter flying past the camera is heard" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, .{ 0, 0, 0 });
-    const other = try mission.add(.predator, .{ 0, 0, 2000 });
+    const player = try mission.add(.of(.predator), .{ 0, 0, 0 });
+    const other = try mission.add(.of(.predator), .{ 0, 0, 2000 });
     mission.slot(player).drawn.position = .{ 0, 0, -50000 };
     const scene = testing.scene(&mission);
-    try std.testing.expect(play(sound, scene, null, null, player, engineSound(.predator), 0, .player_engines) != null);
+    try std.testing.expect(play(sound, scene, null, null, player, engineSound(.of(.predator)), 0, .player_engines) != null);
 
     // Close by, at speed, and going the other way from where the camera looks.
     const object = &mission.slot(other).object;

@@ -688,7 +688,7 @@ const Scooper = struct {
     /// A ship of type `ship`'s: a nanny ship's, the Antanov's, or for any other type the
     /// Antanov's parts and stow with no doors, as the game takes them.
     fn of(ship: gameobj.Type) Scooper {
-        return switch (ship) {
+        return switch (ship.base()) {
             .nanny => nanny,
             .antanov => antanov,
             else => .{ .hull = antanov.hull, .door = antanov.door, .stow = antanov.stow, .doors = &.{} },
@@ -810,9 +810,9 @@ pub const testing = struct {
             scoop.model.init(.{ "Nanny", "nan_door3" }, .{ .tractor, .door }, .{ &tractor_points, &.{door_point} });
             scoop.tracks = .{.{ .clip = objects.testing.clip(100, .once, door_clip), .keyframes = &.{}, .events = &.{} }};
             scoop.model.parts.data[sounding_door].tracks = &scoop.tracks;
-            scoop.pod = try scoop.mission.add(.predator, @splat(0));
+            scoop.pod = try scoop.mission.add(.of(.predator), @splat(0));
             scoop.mission.slot(scoop.pod).object.radius = 200;
-            scoop.nanny = try scoop.mission.add(.nanny, .{ 0, 0, -30000 });
+            scoop.nanny = try scoop.mission.add(.of(.nanny), .{ 0, 0, -30000 });
             try scoop.model.parts.fit(gpa, scoop.mission.slot(scoop.nanny));
             scoop.ctx = scoop.mission.orders();
             scoop.ctx.world.tractors = &scoop.built.tractors;
@@ -1019,10 +1019,10 @@ test Stage {
 test Scooper {
     // A nanny ship takes the pod in through its one door, the Antanov through two, and any other
     // type by the Antanov's parts through none.
-    try std.testing.expectEqualStrings("nan_door3", Scooper.of(.nanny).door);
-    try std.testing.expectEqual(3000, Scooper.of(.nanny).stow);
-    try std.testing.expectEqual(2, Scooper.of(.antanov).doors.len);
-    const other: Scooper = .of(.predator);
+    try std.testing.expectEqualStrings("nan_door3", Scooper.of(.of(.nanny)).door);
+    try std.testing.expectEqual(3000, Scooper.of(.of(.nanny)).stow);
+    try std.testing.expectEqual(2, Scooper.of(.of(.antanov)).doors.len);
+    const other: Scooper = .of(.of(.predator));
     try std.testing.expectEqualStrings("Antanov", other.hull);
     try std.testing.expectEqual(3400, other.stow);
     try std.testing.expectEqual(0, other.doors.len);
@@ -1133,7 +1133,7 @@ test scoopUp {
     try std.testing.expectEqual(.done, state.stage);
     // Done, the pod is aboard, gone from the mission, and the tractor let go.
     scoopUp(ctx, nanny);
-    try std.testing.expectEqual(.stand_in, held.object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.stand_in), held.object.type);
     try std.testing.expectEqual(null, scoop.built.tractors.slots[0]);
     try std.testing.expect(!held.object.flags.tractored);
     try std.testing.expect(!slot.object.network.scooping);

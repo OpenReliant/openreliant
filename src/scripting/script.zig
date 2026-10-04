@@ -37,8 +37,8 @@ pub const Attachment = union(enum) {
         if (key.len > type_prefix.len and std.ascii.eqlIgnoreCase(key[0..type_prefix.len], type_prefix)) {
             const named = key[type_prefix.len..];
             if (std.fmt.parseInt(u32, named, 0)) |number| return .{ .object_type = @enumFromInt(number) } else |_| {}
-            inline for (comptime std.enums.values(gameobj.Type)) |object_type| {
-                if (std.ascii.eqlIgnoreCase(named, @tagName(object_type))) return .{ .object_type = object_type };
+            inline for (comptime std.enums.values(gameobj.GameType)) |object_type| {
+                if (std.ascii.eqlIgnoreCase(named, @tagName(object_type))) return .{ .object_type = .of(object_type) };
             }
             return null;
         }
@@ -359,8 +359,8 @@ comptime {
 test "Attachment.parse" {
     try std.testing.expectEqual(Attachment{ .kind = .load }, Attachment.parse("Load").?);
     try std.testing.expectEqual(Attachment{ .kind = .fighter }, Attachment.parse("FIGHTER").?);
-    try std.testing.expectEqual(Attachment{ .object_type = .predator }, Attachment.parse("Type.predator").?);
-    try std.testing.expectEqual(Attachment{ .object_type = .reliant }, Attachment.parse("type.0x0C").?);
+    try std.testing.expectEqual(Attachment{ .object_type = .of(.predator) }, Attachment.parse("Type.predator").?);
+    try std.testing.expectEqual(Attachment{ .object_type = .of(.reliant) }, Attachment.parse("type.0x0C").?);
     try std.testing.expectEqual(Attachment{ .object_type = @enumFromInt(200) }, Attachment.parse("Type.200").?);
     try std.testing.expectEqual(null, Attachment.parse("Loads"));
     try std.testing.expectEqual(null, Attachment.parse("predator"));
