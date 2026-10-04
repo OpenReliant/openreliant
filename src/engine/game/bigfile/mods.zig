@@ -629,7 +629,7 @@ fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effe
     if (lastHolder(list[0..at], name)) |earlier| return .{ .over = earlier };
     if (own.kindOf(name)) |kind| return switch (kind) {
         .file => .file,
-        .texture => .{ .texture = GameFiles.pictureStem(name) orelse name },
+        .texture => .{ .texture = GameFiles.textureStem(name) orelse name },
     };
     if (own.mapOf(name)) |map| return .{ .map = map };
     if (own.shapeOf(name)) |shape| return .{ .shape = shape };
@@ -698,9 +698,11 @@ const GameFiles = struct {
         const entries = tcache.Cache.directory(bytes[0..read]) catch return;
         for (entries) |*entry| {
             if (entry.image.flags.transient) continue;
-            var named: [files.max_path]u8 = undefined;
-            const picture = std.fmt.bufPrint(&named, "{s}" ++ srtexture.picture_extension, .{entry.name()}) catch continue;
-            try gathered.add(gpa, picture, .texture);
+            for (srtexture.mod_pictures.containers) |container| {
+                var named: [files.max_path]u8 = undefined;
+                const picture = std.fmt.bufPrint(&named, "{s}{s}", .{ entry.name(), container.extension() }) catch continue;
+                try gathered.add(gpa, picture, .texture);
+            }
         }
     }
 
@@ -719,10 +721,11 @@ const GameFiles = struct {
     /// A material map of one of the cache's textures (`srtexture.MapFile`).
     const Map = struct { texture: []const u8, kind: srtexture.MapFile };
 
-    /// If the file `name` is a material map of a texture in the cache, `<texture>_<map>.png`, the
-    /// texture and which map it is; null otherwise.
+    /// If the file `name` is a material map of a texture in the cache, `<texture>_<map>` and a
+    /// picture's extension (`srtexture.mod_pictures.containers`), the texture and which map it is;
+    /// null otherwise.
     fn mapOf(gathered: GameFiles, name: []const u8) ?Map {
-        const stem = pictureStem(name) orelse return null;
+        const stem = textureStem(name) orelse return null;
         for (std.enums.values(srtexture.MapFile)) |kind| {
             const suffix = kind.suffix();
             if (stem.len <= suffix.len or !std.ascii.endsWithIgnoreCase(stem, suffix)) continue;
@@ -773,6 +776,16 @@ const GameFiles = struct {
             var buffer: [files.max_path]u8 = undefined;
             const font = std.fmt.bufPrint(&buffer, "{s}" ++ fnt.extension, .{stem}) catch return null;
             if (gathered.kindOf(font) == .file) return stem;
+        }
+        return null;
+    }
+
+    /// The file `name` without the extension of a texture's picture, a PNG, DDS or KTX2 file; null
+    /// if it has another.
+    fn textureStem(name: []const u8) ?[]const u8 {
+        for (srtexture.mod_pictures.containers) |container| {
+            const extension = container.extension();
+            if (std.ascii.endsWithIgnoreCase(name, extension)) return name[0 .. name.len - extension.len];
         }
         return null;
     }
@@ -1134,6 +1147,9 @@ test GameFiles {
     try std.testing.expectEqualStrings("yank_2", map.texture);
     try std.testing.expectEqual(.roughness, map.kind);
     try std.testing.expectEqual(null, own.mapOf("hull_normal.png"));
+    // A texture and a map compressed ahead of time.
+    try std.testing.expectEqual(.texture, own.kindOf("yank_2.DDS").?);
+    try std.testing.expectEqual(.normal, own.mapOf("yank_2_normal.ktx2").?.kind);
     // A sprite set shape, by the picture name the interface looks up, and a picture.
     const shape = own.shapeOf("hudhard_021.PNG").?;
     try std.testing.expectEqualStrings("hudhard", shape.set);

@@ -15,6 +15,7 @@ const math = @import("../math.zig");
 const tcache = @import("../../../formats/tcache.zig");
 const tga = @import("../../../formats/tga.zig");
 const srimage = @import("srimage.zig");
+pub const mod_pictures = @import("srtexture/mod_pictures.zig");
 
 const log = std.log.scoped(.textures);
 
@@ -112,6 +113,13 @@ pub const Image = struct {
         return .{ .levels = levels };
     }
 
+    /// Whether its finest level holds pixels the engine can read: 8-bit RGBA, neither compressed
+    /// nor let go of once the device held them (`Table.releaseHeld`).
+    pub fn readable(image: Image) bool {
+        const finest = image.levels[0];
+        return finest.format == .rgba8 and finest.texels.len == finest.format.size(finest.width, finest.height);
+    }
+
     pub fn width(image: Image) u32 {
         return image.levels[0].width;
     }
@@ -164,6 +172,14 @@ pub const Image = struct {
 fn freeLevels(gpa: Allocator, levels: []const Level) void {
     for (levels) |l| gpa.free(l.texels);
     gpa.free(levels);
+}
+
+/// Lets go of `levels`' pixels, which the table made, keeping their sizes.
+fn releasePixels(gpa: Allocator, levels: []const Level) void {
+    for (@constCast(levels)) |*level| {
+        gpa.free(level.texels);
+        level.texels = &.{};
+    }
 }
 
 fn wrap(i: i64, size: u32) usize {
@@ -228,6 +244,63 @@ pub const MapFile = enum {
     }
 };
 
+/// Added by OpenReliant: what compresses the mods' pictures for a device that takes compressed
+/// textures, and keeps what it compressed between runs (`mod_pictures.load`).
+pub const Compressor = struct {
+    context: *anyopaque,
+    vtable: *const VTable,
+    /// The compressed formats the device takes.
+    takes: std.EnumSet(Level.Format),
+
+    /// What a picture's levels hold, which picks their format.
+    pub const Kind = enum {
+        /// A picture's colours, in BC7.
+        colour,
+        /// A material map's values, in BC7, each channel weighed alike.
+        data,
+        /// A normal map's x and y, in BC5.
+        normals,
+
+        pub fn format(kind: Kind) Level.Format {
+            return switch (kind) {
+                .colour, .data => .bc7,
+                .normals => .bc5,
+            };
+        }
+    };
+
+    /// What `load` and `store` check a kept picture by: a hash of its files and the texture detail.
+    pub const Key = [32]u8;
+
+    pub const VTable = struct {
+        /// `level`, 8-bit RGBA, compressed as `kind`, its texels in `gpa`.
+        compress: *const fn (context: *anyopaque, gpa: Allocator, level: Level, kind: Kind) Allocator.Error!Level,
+        /// The image kept for the texture `name` under `key`, in `gpa`; null where there is none.
+        load: *const fn (context: *anyopaque, gpa: Allocator, name: []const u8, key: *const Key) Allocator.Error!?Image,
+        /// Keeps `image` for the texture `name` under `key`, in place of what was kept for it. A
+        /// failure is logged, and costs time at the next run alone.
+        store: *const fn (context: *anyopaque, name: []const u8, key: *const Key, image: Image) void,
+    };
+
+    pub fn compress(compressor: Compressor, gpa: Allocator, level: Level, kind: Kind) Allocator.Error!Level {
+        return compressor.vtable.compress(compressor.context, gpa, level, kind);
+    }
+
+    pub fn load(compressor: Compressor, gpa: Allocator, name: []const u8, key: *const Key) Allocator.Error!?Image {
+        return compressor.vtable.load(compressor.context, gpa, name, key);
+    }
+
+    pub fn store(compressor: Compressor, name: []const u8, key: *const Key, image: Image) void {
+        compressor.vtable.store(compressor.context, name, key, image);
+    }
+
+    /// Whether it compresses pictures: the device takes every format it compresses into.
+    pub fn compresses(compressor: Compressor) bool {
+        for (std.enums.values(Kind)) |kind| if (!compressor.takes.contains(kind.format())) return false;
+        return true;
+    }
+};
+
 /// The images the texture cache holds, by name, each decoded once with the renderer's palette.
 pub const Table = struct {
     gpa: Allocator,
@@ -244,6 +317,15 @@ pub const Table = struct {
     /// null for no limit. The driver shrinks the cache's images to fit when it makes their device
     /// textures (`fit`), and drops a mod picture's finest mipmap levels until it fits.
     largest: ?u32 = null,
+    /// OpenReliant's: what compresses the mods' pictures, where the device takes compressed
+    /// textures; null to keep them as they are.
+    compressor: ?Compressor = null,
+    /// OpenReliant's: whether the table lets go of an image's pixels once the device holds them
+    /// (`releaseHeld`): with the GPU, which keeps its own copy, and not with the software device,
+    /// which reads them.
+    release_held: bool = false,
+    /// The images whose pixels it hasn't let go of yet, while `release_held`.
+    unreleased: std.ArrayList(*Image) = .empty,
 
     pub fn init(gpa: Allocator, cache: tcache.Cache, palette: tga.Palette) Table {
         return .{ .gpa = gpa, .cache = cache, .palette = palette };
@@ -259,6 +341,7 @@ pub const Table = struct {
             }
         }
         table.images.deinit(table.gpa);
+        table.unreleased.deinit(table.gpa);
     }
 
     /// The image the engine finds for `name` (`texture_find`), or null when the cache has none: a
@@ -277,6 +360,8 @@ pub const Table = struct {
         entry.value_ptr.* = null;
         if (try table.picture(key)) |image| {
             entry.value_ptr.* = image;
+            // An image the table can't track keeps its pixels, which costs memory alone.
+            table.track(image) catch {};
             return image;
         }
         const found = table.cache.find(key) orelse return null;
@@ -286,6 +371,7 @@ pub const Table = struct {
         errdefer image.deinit(table.gpa);
         try fit(table.gpa, image, table.largest);
         entry.value_ptr.* = image;
+        table.track(image) catch {};
         return image;
     }
 
@@ -294,70 +380,37 @@ pub const Table = struct {
         return @min(table.largest orelse max_side, max_side);
     }
 
-    /// The picture `files` give the texture `name`, `<name>.png`, of any size, read as an image
-    /// with its levels made (`mipmapped`), and its material maps (`maps`); null where they give
-    /// none, or it can't be read, which the log says.
+    /// The picture `files` give the texture `name`, with its material maps, made ready for the
+    /// device (`mod_pictures.load`); null where they give none, or it can't be used.
     fn picture(table: *Table, name: []const u8) Allocator.Error!?*Image {
         const files = table.files orelse return null;
-        const read = try table.readPicture(files, name, "") orelse return null;
-        const size = [2]u32{ read.width, read.height };
-        var made: Image = .{ .levels = try mipmaps(table.gpa, read, .colour, table.longest()) };
+        var made = try mod_pictures.load(table.gpa, files, name, table.longest(), table.compressor) orelse return null;
         errdefer made.deinit(table.gpa);
-        made.maps = try table.maps(files, name, size);
         const image = try table.gpa.create(Image);
         image.* = made;
         return image;
     }
 
-    /// The material maps `files` give the texture `name` beside its picture of `size`, of the same
-    /// size: `<name>_normal.png`, and `<name>_orm.png` or its maps alone (`packedMaps`). A map of
-    /// another size is left out, which the log says.
-    fn maps(table: *Table, files: Files, name: []const u8, size: [2]u32) Allocator.Error!Image.Maps {
-        var found: Image.Maps = .{};
-        errdefer found.deinit(table.gpa);
-        if (try table.map(files, name, .normal, size)) |normal| found.normal = try mipmaps(table.gpa, normal, .normal, table.longest());
-        const orm = try table.map(files, name, .orm, size) orelse try table.packedMaps(files, name, size);
-        if (orm) |packed_orm| found.orm = try mipmaps(table.gpa, packed_orm, .data, table.longest());
-        return found;
-    }
-
-    /// Occlusion, roughness and metallic packed into one picture, as glTF packs them, from their
-    /// maps alone, each the red of its own (grey) map, or where it has none no occlusion, rough, or
-    /// not metallic. Null where `files` give none of the three.
-    fn packedMaps(table: *Table, files: Files, name: []const u8, size: [2]u32) Allocator.Error!?png.Picture {
-        const parts = [_]MapFile{ .occlusion, .roughness, .metallic };
-        const fallbacks = [parts.len]u8{ std.math.maxInt(u8), std.math.maxInt(u8), 0 };
-        var pictures: [parts.len]?png.Picture = @splat(null);
-        defer for (pictures) |found| if (found) |part| part.deinit(table.gpa);
-        for (&pictures, parts) |*found, part| found.* = try table.map(files, name, part, size);
-        for (pictures) |found| {
-            if (found != null) break;
-        } else return null;
-        const rgba = try table.gpa.alloc(u8, @as(usize, size[0]) * size[1] * 4);
-        for (0..@as(usize, size[0]) * size[1]) |at| {
-            for (pictures, fallbacks, 0..) |found, fallback, channel| {
-                rgba[at * 4 + channel] = if (found) |part| part.rgba[at * 4] else fallback;
+    /// Lets go of the pixels of the images the device holds its own copy of (`Image.held`), where
+    /// `release_held` says that nothing else reads them. Their sizes stay.
+    pub fn releaseHeld(table: *Table) void {
+        var kept: usize = 0;
+        for (table.unreleased.items) |image| {
+            if (!image.held) {
+                table.unreleased.items[kept] = image;
+                kept += 1;
+                continue;
             }
-            rgba[at * 4 + 3] = std.math.maxInt(u8);
+            releasePixels(table.gpa, image.levels);
+            if (image.maps.normal) |levels| releasePixels(table.gpa, levels);
+            if (image.maps.orm) |levels| releasePixels(table.gpa, levels);
         }
-        return .{ .width = size[0], .height = size[1], .rgba = rgba };
+        table.unreleased.shrinkRetainingCapacity(kept);
     }
 
-    /// The map `kind` of the texture `name`, of the picture's `size`; null where `files` give none,
-    /// or it can't be read or is of another size, which the log says.
-    fn map(table: *Table, files: Files, name: []const u8, kind: MapFile, size: [2]u32) Allocator.Error!?png.Picture {
-        const picture_read = try table.readPicture(files, name, kind.suffix()) orelse return null;
-        if (picture_read.width == size[0] and picture_read.height == size[1]) return picture_read;
-        log.warn("{s}{s}{s} is left out: it is {d}x{d} and its picture {d}x{d}", .{ name, kind.suffix(), picture_extension, picture_read.width, picture_read.height, size[0], size[1] });
-        picture_read.deinit(table.gpa);
-        return null;
-    }
-
-    /// The picture `files` give as `name`, `suffix` and the picture extension (`Files.picture`).
-    fn readPicture(table: *Table, files: Files, name: []const u8, suffix: []const u8) Allocator.Error!?png.Picture {
-        const file_name = try std.fmt.allocPrint(table.gpa, "{s}{s}" ++ picture_extension, .{ name, suffix });
-        defer table.gpa.free(file_name);
-        return files.picture(table.gpa, file_name);
+    /// Keeps `image`, which the table made, to let go of its pixels once the device holds them.
+    fn track(table: *Table, image: *Image) Allocator.Error!void {
+        if (table.release_held) try table.unreleased.append(table.gpa, image);
     }
 };
 
@@ -763,6 +816,22 @@ pub const testing = struct {
 
 test {
     _ = srimage;
+    _ = mod_pictures;
+}
+
+test "the table lets go of the pixels the device holds" {
+    const gpa = std.testing.allocator;
+    const textures = try testing.Textures.init(gpa, &.{ "hull", "lhull" });
+    defer textures.deinit(gpa);
+    textures.table.release_held = true;
+    const hull = (try textures.table.find("hull")).?;
+    const lhull = (try textures.table.find("lhull")).?;
+    // The device took the hull, and not yet the other.
+    hull.held = true;
+    textures.table.releaseHeld();
+    try std.testing.expect(!hull.readable() and lhull.readable());
+    try std.testing.expectEqual(8, hull.width());
+    try std.testing.expectEqual(1, textures.table.unreleased.items.len);
 }
 
 test "testing.Textures" {

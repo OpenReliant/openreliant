@@ -278,6 +278,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     };
     var driver: srd3d.srd3d.Driver = try .init(arena, screen.interface());
     defer driver.deinit();
+    // The GPU keeps its own copy of the textures, and takes the mods' pictures compressed, which
+    // the texture cache keeps between runs; the software device reads the table's own pixels.
+    var texture_store: platform.texture_cache.Store = undefined;
+    if (screen.* == .gpu) {
+        textures.release_held = true;
+        if (options.texture_compression) {
+            texture_store = .{ .io = io, .root = directory, .takes = screen.gpu.compressed };
+            textures.compressor = texture_store.compressor();
+        }
+    }
     // The mods' shaders: the player scripts register them, and the GPU draws them while MOD
     // EFFECTS is on. `stop` removes them before the GPU is destroyed.
     var mod_shaders: ModShaders = .{
@@ -1162,6 +1172,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 return writeScreenshot(io, frame_arena.allocator(), options.screenshot.?, frame.rgba, frame.size);
             }
         }
+        // The pixels of the textures that went up to the GPU this frame are let go of.
+        textures.releaseHeld();
         if (pacing.rate(window)) |rate| pacer.wait(rate);
     }
 }

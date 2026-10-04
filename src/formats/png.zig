@@ -292,6 +292,16 @@ const Pass = struct {
     }
 };
 
+/// The width and height of the picture the PNG file `bytes` holds, from its header alone.
+pub fn size(bytes: []const u8) ReadError![2]u32 {
+    if (!std.mem.startsWith(u8, bytes, signature)) return error.NotAPng;
+    const at = signature.len;
+    if (bytes.len < at + chunk_overhead + 13) return error.Corrupt;
+    if (std.mem.readInt(u32, bytes[at..][0..4], .big) != 13 or !std.mem.eql(u8, bytes[at + 4 ..][0..4], "IHDR")) return error.Corrupt;
+    const header: Header = try .parse(bytes[at + 8 ..][0..13]);
+    return .{ header.width, header.height };
+}
+
 /// The picture the PNG file `bytes` holds, as 8-bit RGBA, which the caller owns: a picture of any
 /// colour type, bit depth and interlacing PNG defines, each sample scaled to 8 bits, palette
 /// entries looked up, and `tRNS`'s transparency applied. Chunks this reader does not know are

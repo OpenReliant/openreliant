@@ -9,28 +9,22 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const openreliant = @import("openreliant");
-const Level = openreliant.engine.surrender.surrenderlib.srtexture.Level;
+const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
+const Level = srtexture.Level;
 
 extern fn openreliant_texture_compressor_init() void;
-extern fn openreliant_compress_rows(rgba: [*]const u8, width: u32, height: u32, first: u32, count: u32, kind: Kind, out: [*]u8) void;
+extern fn openreliant_compress_rows(rgba: [*]const u8, width: u32, height: u32, first: u32, count: u32, kind: c_int, out: [*]u8) void;
 
-/// What a level holds, which picks the format and how the encoder weighs its error.
-pub const Kind = enum(c_int) {
-    /// A picture's colours, in BC7, weighed as the eye sees them.
-    colour = 0,
-    /// A material map's values, in BC7, each channel alike.
-    data = 1,
-    /// A normal map's x and y, in red and green, in BC5.
-    normals = 2,
+const Kind = srtexture.Compressor.Kind;
 
-    /// The format a level of this kind is compressed into.
-    pub fn format(kind: Kind) Level.Format {
-        return switch (kind) {
-            .colour, .data => .bc7,
-            .normals => .bc5,
-        };
-    }
-};
+/// The number `texture_compressor.cpp` knows `kind` by.
+fn native(kind: Kind) c_int {
+    return switch (kind) {
+        .colour => 0,
+        .data => 1,
+        .normals => 2,
+    };
+}
 
 /// The most threads a level is shared out between.
 const max_threads = 16;
@@ -77,7 +71,7 @@ pub fn compress(gpa: Allocator, level: Level, kind: Kind) Allocator.Error!Level 
 }
 
 fn compressRows(level: Level, first: u32, count: u32, kind: Kind, out: []u8) void {
-    openreliant_compress_rows(level.texels.ptr, level.width, level.height, first, count, kind, out.ptr);
+    openreliant_compress_rows(level.texels.ptr, level.width, level.height, first, count, native(kind), out.ptr);
 }
 
 test compress {

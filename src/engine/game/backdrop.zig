@@ -350,9 +350,10 @@ pub const Backdrop = struct {
     }
 
     /// The image a sun set draws of the texture `name`, `image`: drawn again finer, once for every
-    /// set that draws it, or the texture itself as the game draws it.
+    /// set that draws it, or the texture itself as the game draws it, as it is where its pixels
+    /// can't be read, such as a mod's picture compressed for the GPU.
     fn drawn(backdrop: *Backdrop, gpa: Allocator, image: *srtexture.Image, name: []const u8, detail: rings.Detail, sun: Sun) Allocator.Error!*srtexture.Image {
-        if (sun == .original) return image;
+        if (sun == .original or !image.readable()) return image;
         for (backdrop.redrawn[0..backdrop.redrawn_count]) |*made| {
             if (std.mem.eql(u8, made.name, name)) return &made.image;
         }

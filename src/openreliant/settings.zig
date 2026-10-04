@@ -72,6 +72,7 @@ const keys = [_]Key{
     .{ .name = reverb_key, .takes = on_off, .read = reverb },
     .{ .name = compressor_key, .takes = on_off, .read = compressor },
     .{ .name = "DeveloperMode", .takes = on_off, .read = onOff("developer_mode") },
+    .{ .name = "TextureCompression", .takes = on_off, .read = onOff("texture_compression") },
 };
 
 /// The keys the settings screen writes (`Own`): the display's options, the graphics' and the
