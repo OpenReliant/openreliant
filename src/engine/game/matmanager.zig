@@ -186,7 +186,7 @@ test "a mod's picture replaces one of the game's pictures" {
     defer modded.deinit(gpa);
     try std.testing.expectEqual(4, modded.width());
     try std.testing.expectEqual(3, modded.levels.len);
-    try std.testing.expectEqual(std.math.maxInt(u8), modded.levels[0].rgba[3]);
+    try std.testing.expectEqual(std.math.maxInt(u8), modded.levels[0].texels[3]);
     // For its pixels, only at the original size.
     const colours = try readPixels(gpa, archive, "dome.tga");
     defer colours.deinit(gpa);
@@ -221,5 +221,5 @@ test picture {
     const image = try picture(gpa, .{ .width = 2, .height = 1, .rgb = &rgb });
     defer image.deinit(gpa);
     try std.testing.expectEqual(2, image.width());
-    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 0xFF, 4, 5, 6, 0xFF }, image.levels[0].rgba);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 0xFF, 4, 5, 6, 0xFF }, image.levels[0].texels);
 }

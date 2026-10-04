@@ -82,8 +82,34 @@ original size, which you can use as a template.
   down to one pixel, computed in linear light and weighted by alpha), so you don't need to provide
   them.
 - A side longer than 8192 pixels is halved until it fits, since every GPU supports that size.
-- A 4096x4096 picture uses about 85 MB of GPU memory with its mipmaps, and as much main memory.
-  2048x2048 is enough for a fighter.
+- 2048x2048 is enough for a fighter.
+
+### Compression
+
+Where the GPU takes compressed textures, as desktop GPUs do, OpenReliant compresses mods' pictures
+as today's games do: colours and material maps in BC7, normal maps in BC5. A 4096x4096 picture then
+takes about 21 MB of GPU memory with its mipmaps, a quarter of the 85 MB it takes uncompressed, and
+the computer lets go of its own copy once the GPU holds it.
+
+- Compressing a large picture takes a few seconds, once. The result is kept in the game folder's
+  `cache/textures`, one file for each texture, and later starts read it in a moment. A changed
+  picture, or another texture detail, compresses again. The folder can be deleted at any time.
+- A BC5 normal map keeps two channels, so OpenReliant keeps the length of the normals' mean, which
+  widens the highlights on fine details, in the material map's alpha instead.
+- `TextureCompression=0` in `starlancer.ini`, or `--uncompressed-textures`, keeps the pictures as
+  they are ([Configuration](configuration.md)).
+
+A picture or a map can also come compressed already, in a DDS (`.dds`) or KTX2 (`.ktx2`) file with
+the same name, which OpenReliant looks for before the PNG file: `yank_2.dds`, `yank_2_normal.dds`.
+It reads a single 2D picture with its mipmaps, in BC1, BC3, BC5 or BC7, or uncompressed 8-bit RGBA,
+without KTX2's supercompression. Its colours are taken as sRGB-encoded, as a PNG's are.
+
+- A compressed file draws as it is, so it starts as fast as a cached one. Give it its mipmaps:
+  OpenReliant can't make them from compressed pixels.
+- Beside a compressed picture, a normal map in BC5 and a material map in BC7 are used as they are,
+  and a PNG map is compressed to match. A map in another format is left out, which the log says.
+- A compressed picture needs a GPU that takes its format. Elsewhere, such as with the software
+  device, it is left out, and the cache's own texture is drawn.
 
 **Improvement:** the original only uses the textures in its cache, at most 256x256.
 

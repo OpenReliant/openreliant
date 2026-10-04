@@ -104,7 +104,7 @@ pub const Ball = struct {
         const left_over = fillShade(&ball.shade);
         fillColours(&ball.colours, left_over);
         @memset(&ball.pixels, 0);
-        ball.level = .{.{ .width = image_width, .height = size, .rgba = &ball.pixels }};
+        ball.level = .{.{ .width = image_width, .height = size, .texels = &ball.pixels }};
         ball.image = .{ .levels = &ball.level };
         return ball;
     }

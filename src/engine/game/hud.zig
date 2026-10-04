@@ -1612,7 +1612,7 @@ test "a ramp font's glyphs are levels of grey" {
     const image = (try glyphImage(&opened, gpa, code)).?;
     const glyph = opened.font.glyph(code).?;
     for (glyph.pixels, 0..) |level, at| {
-        const pixel = image.levels[0].rgba[at * 4 ..][0..4];
+        const pixel = image.levels[0].texels[at * 4 ..][0..4];
         try std.testing.expectEqual(rampLevel(level), pixel[0]);
         try std.testing.expectEqual(pixel[0], pixel[2]);
         try std.testing.expectEqual(@as(u8, if (level == 0 or level > ramp_top) 0 else 255), pixel[3]);
@@ -5214,7 +5214,7 @@ test "a shaken image is drawn a row at a time" {
     defer recorder.deinit();
     const into = recorder.interface();
     const texels = [_]u8{0xFF} ** (2 * 3 * 4);
-    var level = [_]srtexture.Level{.{ .width = 2, .height = 3, .rgba = &texels }};
+    var level = [_]srtexture.Level{.{ .width = 2, .height = 3, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
     var random: libcmt.Rand = .{};
 
@@ -5277,7 +5277,7 @@ test "a shape's pixels of index 0 show as the art has them" {
         defer art.deinit(gpa);
         art.index_zero = index_zero;
         const image = (try art.image(gpa, 1)).?;
-        for (alphas, 0..) |alpha, pixel| try std.testing.expectEqual(alpha, image.levels[0].rgba[pixel * 4 + 3]);
+        for (alphas, 0..) |alpha, pixel| try std.testing.expectEqual(alpha, image.levels[0].texels[pixel * 4 + 3]);
     }
 }
 
@@ -5286,7 +5286,7 @@ test "an image cut to a clip keeps the part of it inside" {
     defer recorder.deinit();
     const into = recorder.interface();
     const texels = [_]u8{0xFF} ** (4 * 2 * 4);
-    var level = [_]srtexture.Level{.{ .width = 4, .height = 2, .rgba = &texels }};
+    var level = [_]srtexture.Level{.{ .width = 4, .height = 2, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
 
     // Its right half cut away: the texture's right edge moves to its middle.

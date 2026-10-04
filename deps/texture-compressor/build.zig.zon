@@ -1,0 +1,13 @@
+.{
+    .name = .texture_compressor,
+    .fingerprint = 0x97f1fcb6cee3b3de,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .bc7enc = .{
+            .url = "git+https://github.com/richgel999/bc7enc_rdo.git#b9438627eef73a1157e84201b6fa6eb2ffd6d9f0",
+            .hash = "N-V-__8AALSQbgIdSq9O0V6DSfv9wQUOuUabvbtDzkjUsDxL",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon" },
+}

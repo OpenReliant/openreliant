@@ -41,6 +41,33 @@ The brightness ([Video](../engine/front-end.md#video)) is the display's gamma ra
 
 The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), takes the driver's vertices as they are: screen positions with pixel centres at whole numbers, reversed depth, and `rhw`, whose inverse as the clip-space `w` makes colours and texture coordinates vary in perspective. The fragment is the texel times the vertex colour, or the vertex colour alone. For a lit mesh, the shader first adds the frame's directional and point lights to the vertex colour for the pixel, the key lights' share scaled by the [shadows](#shadows) ([Improvements](#improvements)). `make shaders` compiles it and the shadows' depth pass, [`shadow.glsl`](../../src/platform/shaders/shadow.glsl), with `glslc` into SPIR-V, and from that into Metal's language with SPIRV-Cross, which `make` builds; the outputs are committed, so building the game needs neither.
 
+### Compressed textures
+
+**Improvement:** mods' pictures go to the GPU compressed where it takes BC formats
+([Compression](../guide/modding.md#compression),
+[`mod_pictures.zig`](../../src/engine/surrender/surrenderlib/srtexture/mod_pictures.zig)).
+
+- A level says how it holds its pixels (`srtexture.Level.Format`, `formats/texels.zig`): 8-bit RGBA
+  or BC1, BC3, BC5 or BC7 blocks. A texture array holds textures of one format as well as one size
+  and number of levels (`Shape`). Its images are read decoded from sRGB in linear light, as 8-bit
+  ones are; its normal maps are BC5 and its material maps BC7, beside a compressed picture.
+- The GPU says which compressed formats it takes for arrays, plain and sRGB alike (`Gpu.compressed`,
+  `Gpu.takes`). The texture table compresses a mod's picture only where it takes BC5 and BC7
+  (`srtexture.Compressor`), with bc7enc and rgbcx from bc7enc_rdo, built from a pinned source
+  package (`deps/texture-compressor`), the rows of blocks shared out between threads
+  (`platform/texture_compressor.zig`).
+- What it compressed is kept in the game folder's `cache/textures` (`platform/texture_cache.zig`):
+  a file for each texture, named by a hash of its name, with a 32-byte header (`ORTX`, the layout's
+  version, the table's key of the picture's files and the texture detail, an XxHash3 of the rest
+  and its size), then the picture's levels and its maps'.
+- A BC5 normal map holds x and y alone. The shader works out z, and reads the length of the
+  normals' mean from the material map's alpha, where the table moved it before compressing
+  (`Shading.two_channel_normals`).
+- Once the GPU has copied an image's pixels for upload, it marks the image held (`Image.held`), and
+  the texture table lets go of its own copy after the frame (`Table.releaseHeld`). It keeps them
+  with the software device, which reads them. Code that reads an image's pixels checks
+  `Image.readable` first, as the sun's redrawing does.
+
 ## Shadows
 
 **Improvement:** the key lights cast shadows, where the original drew none. [`srshadow.zig`](../../src/engine/surrender/surrenderlib/srshadow.zig) gathers them each frame and the GPU device draws them ([`gpu/shadows.zig`](../../src/platform/gpu/shadows.zig)):

@@ -30,7 +30,7 @@ pub fn shrink(gpa: Allocator, image: *Image, ratio: [2]u32) Allocator.Error!void
         const dropped = @min(halvings, levels.len - 1);
         if (dropped == 0) return;
         const kept = try gpa.dupe(Level, levels[dropped..]);
-        for (levels[0..dropped]) |level| gpa.free(level.rgba);
+        for (levels[0..dropped]) |level| gpa.free(level.texels);
         gpa.free(levels);
         image.levels = kept;
         return;
@@ -44,9 +44,9 @@ pub fn shrink(gpa: Allocator, image: *Image, ratio: [2]u32) Allocator.Error!void
         try srtexture.mipmaps(gpa, .{ .width = width, .height = height, .rgba = rgba }, .colour, srtexture.max_side)
     else single: {
         errdefer gpa.free(rgba);
-        break :single try gpa.dupe(Level, &.{.{ .width = width, .height = height, .rgba = rgba }});
+        break :single try gpa.dupe(Level, &.{.{ .width = width, .height = height, .texels = rgba }});
     };
-    for (levels) |level| gpa.free(level.rgba);
+    for (levels) |level| gpa.free(level.texels);
     gpa.free(levels);
     image.levels = made;
 }
@@ -60,7 +60,7 @@ fn blockMeans(gpa: Allocator, level: Level, size: [2]u32, ratio: [2]u32) Allocat
         var sums: [4]u32 = @splat(0);
         for (0..ratio[1]) |dy| for (0..ratio[0]) |dx| {
             const from = ((y * ratio[1] + dy) * level.width + x * ratio[0] + dx) * 4;
-            for (&sums, level.rgba[from..][0..4]) |*sum, channel| sum.* += channel;
+            for (&sums, level.texels[from..][0..4]) |*sum, channel| sum.* += channel;
         };
         for (rgba[(y * size[0] + x) * 4 ..][0..4], sums) |*out, sum| out.* = @intCast(sum / block);
     };
@@ -73,7 +73,7 @@ fn testImage(gpa: Allocator, width: u32, height: u32, levels: usize) Allocator.E
     const made = try gpa.alloc(Level, levels);
     var count: usize = 0;
     errdefer {
-        for (made[0..count]) |level| gpa.free(level.rgba);
+        for (made[0..count]) |level| gpa.free(level.texels);
         gpa.free(made);
     }
     var across = width;
@@ -81,7 +81,7 @@ fn testImage(gpa: Allocator, width: u32, height: u32, levels: usize) Allocator.E
     for (made) |*level| {
         const rgba = try gpa.alloc(u8, @as(usize, across) * down * 4);
         for (0..@as(usize, across) * down) |at| rgba[at * 4 ..][0..4].* = .{ @intCast(at % across), 0, 0, 255 };
-        level.* = .{ .width = across, .height = down, .rgba = rgba };
+        level.* = .{ .width = across, .height = down, .texels = rgba };
         count += 1;
         across = @max(across / 2, 1);
         down = @max(down / 2, 1);
@@ -104,8 +104,8 @@ test shrink {
     try std.testing.expectEqual([2]u32{ 4, 4 }, [2]u32{ wide.width(), wide.height() });
     try std.testing.expectEqual(3, wide.levels.len);
     // The first pixel the mean of reds 0 and 1, rounded down; the second of 2 and 3.
-    try std.testing.expectEqual(0, wide.levels[0].rgba[0]);
-    try std.testing.expectEqual(2, wide.levels[0].rgba[4]);
+    try std.testing.expectEqual(0, wide.levels[0].texels[0]);
+    try std.testing.expectEqual(2, wide.levels[0].texels[4]);
     // A single level stays one, and a part block at the edge is left out.
     var single = try testImage(gpa, 5, 2, 1);
     defer single.deinit(gpa);

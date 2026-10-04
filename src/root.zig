@@ -28,8 +28,11 @@ pub const wave = @import("formats/wave.zig");
 /// Windows executables: the game binary and its libraries.
 pub const pe = @import("formats/pe.zig");
 
-/// Images: the ones the tools write, and the pictures in mods.
+/// Images: the ones the tools write, and the pictures in mods, some compressed for the GPU.
 pub const png = @import("formats/png.zig");
+pub const dds = @import("formats/dds.zig");
+pub const ktx2 = @import("formats/ktx2.zig");
+pub const texels = @import("formats/texels.zig");
 
 /// Checksum files, used to check mod archives.
 pub const checksums = @import("formats/checksums.zig");

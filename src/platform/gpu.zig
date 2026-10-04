@@ -123,15 +123,19 @@ const Vertex = extern struct {
 
 /// A draw's shading as the shader reads it from each vertex, one word: the shadows its pixels take
 /// in the low byte, how its texture is magnified in the next two bits, whether the key lights reach
-/// past its terminator in the one after, and whether its texture's normal map and material map are
-/// shaded in the two after that.
+/// past its terminator in the one after, whether its texture's normal map and material map are
+/// shaded in the two after that, and whether the normal map holds two channels (BC5) in the one
+/// after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,
     soft_terminator: bool,
     normal_map: bool = false,
     material_map: bool = false,
-    _unused: u19 = 0,
+    /// The normal map holds x and y alone, z left for the shader to work out, and the length of
+    /// the normals' mean is in the material map's alpha (`srtexture.Image.Maps`).
+    two_channel_normals: bool = false,
+    _unused: u18 = 0,
 
     /// A draw's shading, its texture's maps shaded where `materials` (`Gpu.shadesMaterials`).
     fn of(state: device.State, materials: bool) Shading {
@@ -142,6 +146,7 @@ const Shading = packed struct(u32) {
             .soft_terminator = state.soft_terminator,
             .normal_map = maps.normal != null,
             .material_map = maps.orm != null,
+            .two_channel_normals = if (maps.normal) |levels| levels[0].format == .bc5 else false,
         };
     }
 };
@@ -265,7 +270,8 @@ const prepared = keys: {
 };
 
 /// A texture's size and levels: textures alike share arrays.
-const Shape = struct { width: u32, height: u32, levels: u32 };
+/// A texture's size, levels and format: textures alike share arrays.
+const Shape = struct { width: u32, height: u32, levels: u32, format: srtexture.Level.Format = .rgba8 };
 
 /// The most layers an array takes: the fewest Vulkan guarantees. More textures of a shape go to a
 /// second array.
@@ -306,6 +312,45 @@ const Array = struct {
 
 /// The format of the arrays of material maps, whose values are linear.
 const map_format = c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+
+/// The SDL format of textures of `format`, read decoded from sRGB where `decoded`: the images, in
+/// linear light, so that sampling decodes them.
+fn sdlFormat(format: srtexture.Level.Format, decoded: bool) c.SDL_GPUTextureFormat {
+    return switch (format) {
+        .rgba8 => if (decoded) c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB else c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+        .bc1 => if (decoded) c.SDL_GPU_TEXTUREFORMAT_BC1_RGBA_UNORM_SRGB else c.SDL_GPU_TEXTUREFORMAT_BC1_RGBA_UNORM,
+        .bc3 => if (decoded) c.SDL_GPU_TEXTUREFORMAT_BC3_RGBA_UNORM_SRGB else c.SDL_GPU_TEXTUREFORMAT_BC3_RGBA_UNORM,
+        .bc5 => c.SDL_GPU_TEXTUREFORMAT_BC5_RG_UNORM,
+        .bc7 => if (decoded) c.SDL_GPU_TEXTUREFORMAT_BC7_RGBA_UNORM_SRGB else c.SDL_GPU_TEXTUREFORMAT_BC7_RGBA_UNORM,
+    };
+}
+
+/// The compressed formats `handle` takes for texture arrays, plain and decoded from sRGB alike.
+fn compressedFormats(handle: *c.SDL_GPUDevice) std.EnumSet(srtexture.Level.Format) {
+    var taken: std.EnumSet(srtexture.Level.Format) = .initEmpty();
+    for (std.enums.values(srtexture.Level.Format)) |format| {
+        if (!format.compressed()) continue;
+        const both = for ([_]bool{ false, true }) |decoded| {
+            if (!c.SDL_GPUTextureSupportsFormat(handle, sdlFormat(format, decoded), c.SDL_GPU_TEXTURETYPE_2D_ARRAY, c.SDL_GPU_TEXTUREUSAGE_SAMPLER)) break false;
+        } else true;
+        if (both) taken.insert(format);
+    }
+    return taken;
+}
+
+/// The formats of a compressed array's maps: normal maps in two channels, material maps in four.
+pub const compressed_normals: srtexture.Level.Format = .bc5;
+pub const compressed_materials: srtexture.Level.Format = .bc7;
+
+/// The SDL format of the normal maps beside images of `format`.
+fn normalsFormat(format: srtexture.Level.Format) c.SDL_GPUTextureFormat {
+    return if (format.compressed()) sdlFormat(compressed_normals, false) else map_format;
+}
+
+/// The SDL format of the material maps beside images of `format`.
+fn materialsFormat(format: srtexture.Level.Format) c.SDL_GPUTextureFormat {
+    return if (format.compressed()) sdlFormat(compressed_materials, false) else map_format;
+}
 
 /// The reflections' cube's side in pixels, and its mipmap levels, down to a pixel.
 const reflection_side = 256;
@@ -358,7 +403,13 @@ const Run = struct {
 
 /// A texture placed in its layer this frame, with its maps, to go up to the GPU before the frame is
 /// drawn.
-const Upload = struct { levels: []const srtexture.Level, maps: srtexture.Image.Maps = .{}, slot: Slot };
+const Upload = struct {
+    levels: []const srtexture.Level,
+    maps: srtexture.Image.Maps = .{},
+    slot: Slot,
+    /// The image whose pixels go up, which is told when the GPU holds them (`Image.held`).
+    image: ?*srtexture.Image = null,
+};
 
 pub const Gpu = struct {
     gpa: Allocator,
@@ -373,8 +424,6 @@ pub const Gpu = struct {
     colour_format: c.SDL_GPUTextureFormat,
     /// What the finished frame is kept in, encoded for the display, which the display is drawn over.
     finish_format: c.SDL_GPUTextureFormat,
-    /// What the textures are kept in: sRGB in linear light, so that sampling decodes them.
-    texture_format: c.SDL_GPUTextureFormat,
     depth_format: c.SDL_GPUTextureFormat,
     vertex_shader: *c.SDL_GPUShader,
     fragment_shader: *c.SDL_GPUShader,
@@ -438,6 +487,8 @@ pub const Gpu = struct {
     /// The frame's lights, for lighting each pixel.
     lighting: Lighting = .{},
     shadows: shadow.Shadows,
+    /// The compressed formats the GPU takes for textures (`takes`).
+    compressed: std.EnumSet(srtexture.Level.Format),
     /// The mods' post effects (`gpu/effects.zig`), and the texture the last frame showed after
     /// them, which a screenshot copies.
     post: effects.Effects,
@@ -555,7 +606,6 @@ pub const Gpu = struct {
             .linear = linear,
             .colour_format = colour_format,
             .finish_format = finish_format,
-            .texture_format = if (linear) c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB else c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
             .depth_format = depth_format,
             .vertex_shader = vertex_shader,
             .fragment_shader = fragment_shader,
@@ -563,9 +613,10 @@ pub const Gpu = struct {
             .edge_sampler = edge_sampler,
             .shadows = shadows,
             .post = .{ .gpa = gpa },
+            .compressed = compressedFormats(handle),
             .code = code,
         };
-        gpu.blank = try gpu.place(&blank_levels, .{});
+        gpu.blank = try gpu.place(&blank_levels, .{}, null);
         gpu.no_maps = try gpu.arrayTexture(.{ .width = 1, .height = 1, .levels = 1 }, 1, map_format);
         gpu.no_reflections = try gpu.cubeTexture(1, 1, c.SDL_GPU_TEXTUREUSAGE_SAMPLER);
         gpu.reflection_sampler = try reflectionSampler(handle);
@@ -975,12 +1026,15 @@ pub const Gpu = struct {
         if (image.levels.len == 0) return null;
         if (Slot.of(image.*)) |slot| {
             if (image.changed) {
-                try gpu.uploads.append(gpu.gpa, .{ .levels = image.levels, .maps = image.maps, .slot = slot });
+                try gpu.uploads.append(gpu.gpa, .{ .levels = image.levels, .maps = image.maps, .slot = slot, .image = image });
                 image.changed = false;
             }
             return slot;
         }
-        const slot = try gpu.place(image.levels, image.maps);
+        // An image compressed in a format the GPU doesn't take draws without its texture. The
+        // texture table compresses only to formats the GPU takes (`takes`).
+        if (!gpu.takes(image.levels[0].format)) return null;
+        const slot = try gpu.place(image.levels, image.maps, image);
         image.device = @as(u32, @bitCast(slot));
         image.changed = false;
         return slot;
@@ -988,24 +1042,30 @@ pub const Gpu = struct {
 
     /// Gives a texture a layer in an array of its shape with room, or in a new one, to go up to the
     /// GPU with the frame with its maps.
-    fn place(gpu: *Gpu, levels: []const srtexture.Level, maps: srtexture.Image.Maps) Error!Slot {
-        const shape: Shape = .{ .width = levels[0].width, .height = levels[0].height, .levels = @intCast(levels.len) };
+    fn place(gpu: *Gpu, levels: []const srtexture.Level, maps: srtexture.Image.Maps, image: ?*srtexture.Image) Error!Slot {
+        const shape: Shape = .{ .width = levels[0].width, .height = levels[0].height, .levels = @intCast(levels.len), .format = levels[0].format };
         const index = for (gpu.arrays.items, 0..) |array, i| {
             if (std.meta.eql(array.shape, shape) and array.count < max_layers) break i;
         } else made: {
             const index = std.math.cast(u15, gpu.arrays.items.len) orelse return error.OutOfMemory;
             try gpu.arrays.ensureUnusedCapacity(gpu.gpa, 1);
             const capacity = firstLayers(shape);
-            gpu.arrays.appendAssumeCapacity(.{ .shape = shape, .texture = try gpu.arrayTexture(shape, capacity, gpu.texture_format), .capacity = capacity, .count = 0 });
+            gpu.arrays.appendAssumeCapacity(.{ .shape = shape, .texture = try gpu.arrayTexture(shape, capacity, sdlFormat(shape.format, gpu.linear)), .capacity = capacity, .count = 0 });
             break :made index;
         };
         try gpu.uploads.ensureUnusedCapacity(gpu.gpa, 1);
         const array = &gpu.arrays.items[index];
         const slot: Slot = .{ .array = @intCast(index), .layer = @intCast(array.count) };
         array.count += 1;
-        gpu.uploads.appendAssumeCapacity(.{ .levels = levels, .maps = maps, .slot = slot });
+        gpu.uploads.appendAssumeCapacity(.{ .levels = levels, .maps = maps, .slot = slot, .image = image });
         if (maps.orm != null) gpu.has_materials = true;
         return slot;
+    }
+
+    /// Whether it takes textures of `format`: every compressed one it takes (`compressed`), and 8-bit
+    /// RGBA.
+    pub fn takes(gpu: *const Gpu, format: srtexture.Level.Format) bool {
+        return !format.compressed() or gpu.compressed.contains(format);
     }
 
     /// Whether it shades material maps: with `Settings.materials`, where each pixel is lit.
@@ -1359,18 +1419,18 @@ pub const Gpu = struct {
         for (gpu.arrays.items) |*array| {
             if (array.count <= array.capacity) continue;
             const capacity = @min(std.math.ceilPowerOfTwoAssert(u32, array.count), max_layers);
-            array.texture = try gpu.grown(copy, array.*, array.texture, capacity, gpu.texture_format);
-            if (array.normals) |texture| array.normals = try gpu.grown(copy, array.*, texture, capacity, map_format);
-            if (array.materials) |texture| array.materials = try gpu.grown(copy, array.*, texture, capacity, map_format);
+            array.texture = try gpu.grown(copy, array.*, array.texture, capacity, sdlFormat(array.shape.format, gpu.linear));
+            if (array.normals) |texture| array.normals = try gpu.grown(copy, array.*, texture, capacity, normalsFormat(array.shape.format));
+            if (array.materials) |texture| array.materials = try gpu.grown(copy, array.*, texture, capacity, materialsFormat(array.shape.format));
             array.capacity = capacity;
         }
         var bytes: usize = 0;
         for (gpu.uploads.items) |item| {
             const array = &gpu.arrays.items[item.slot.array];
-            if (item.maps.normal != null and array.normals == null) array.normals = try gpu.arrayTexture(array.shape, array.capacity, map_format);
-            if (item.maps.orm != null and array.materials == null) array.materials = try gpu.arrayTexture(array.shape, array.capacity, map_format);
+            if (item.maps.normal != null and array.normals == null) array.normals = try gpu.arrayTexture(array.shape, array.capacity, normalsFormat(array.shape.format));
+            if (item.maps.orm != null and array.materials == null) array.materials = try gpu.arrayTexture(array.shape, array.capacity, materialsFormat(array.shape.format));
             for ([_]?[]const srtexture.Level{ item.levels, item.maps.normal, item.maps.orm }) |each| {
-                for (each orelse &.{}) |level| bytes += level.rgba.len;
+                for (each orelse &.{}) |level| bytes += level.texels.len;
             }
         }
         const size = std.math.cast(u32, bytes) orelse return error.OutOfMemory;
@@ -1383,6 +1443,7 @@ pub const Gpu = struct {
             uploadLevels(copy, transfer, mapped, &at, array.texture, item.slot.layer, item.levels);
             if (item.maps.normal) |levels| if (array.normals) |texture| uploadLevels(copy, transfer, mapped, &at, texture, item.slot.layer, levels);
             if (item.maps.orm) |levels| if (array.materials) |texture| uploadLevels(copy, transfer, mapped, &at, texture, item.slot.layer, levels);
+            if (item.image) |image| image.held = true;
         }
         c.SDL_UnmapGPUTransferBuffer(gpu.handle, transfer);
     }
@@ -1702,19 +1763,22 @@ pub fn shader(handle: *c.SDL_GPUDevice, spirv: bool, stage: c.SDL_GPUShaderStage
 /// into layer `layer` of `texture`, and moves `at` past them.
 fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, mapped: [*]u8, at: *u32, texture: *c.SDL_GPUTexture, layer: u16, levels: []const srtexture.Level) void {
     for (levels, 0..) |level, index| {
-        @memcpy(mapped[at.*..][0..level.rgba.len], level.rgba);
+        @memcpy(mapped[at.*..][0..level.texels.len], level.texels);
+        // A compressed level's rows are whole blocks, though the level may be smaller than one.
+        const across: u32 = if (level.format.compressed()) @intCast(srtexture.Level.blocks(level.width) * srtexture.Level.block_side) else level.width;
+        const down: u32 = if (level.format.compressed()) @intCast(srtexture.Level.blocks(level.height) * srtexture.Level.block_side) else level.height;
         c.SDL_UploadToGPUTexture(
             copy,
-            &.{ .transfer_buffer = transfer, .offset = at.*, .pixels_per_row = level.width, .rows_per_layer = level.height },
+            &.{ .transfer_buffer = transfer, .offset = at.*, .pixels_per_row = across, .rows_per_layer = down },
             &.{ .texture = texture, .mip_level = @intCast(index), .layer = layer, .w = level.width, .h = level.height, .d = 1 },
             false,
         );
-        at.* += @intCast(level.rgba.len);
+        at.* += @intCast(level.texels.len);
     }
 }
 
 /// A white texel, which runs with no texture bind.
-const blank_levels = [1]srtexture.Level{.{ .width = 1, .height = 1, .rgba = &.{ 0xFF, 0xFF, 0xFF, 0xFF } }};
+const blank_levels = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &.{ 0xFF, 0xFF, 0xFF, 0xFF } }};
 
 test Shading {
     // The shadows in the low byte and the magnification in the next two bits, as the shader reads
@@ -1731,7 +1795,7 @@ test Shading {
     const planet: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .world, .soft_terminator = true }, false));
     try std.testing.expectEqual(0x401, planet);
     // A texture's normal map and material map in the two bits after, where materials are shaded.
-    const level = [1]srtexture.Level{.{ .width = 1, .height = 1, .rgba = &.{ 0, 0, 0, 0 } }};
+    const level = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &.{ 0, 0, 0, 0 } }};
     var material: srtexture.Image = .{ .levels = &level, .maps = .{ .normal = &level, .orm = &level } };
     const state: device.State = .{ .texture = &material, .depth = undefined, .blend = null, .receives = .world };
     try std.testing.expectEqual(0x1801, @as(u32, @bitCast(Shading.of(state, true))));

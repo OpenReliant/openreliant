@@ -98,7 +98,7 @@ pub fn redraw(gpa: Allocator, image: *const srtexture.Image, detail: Detail) All
             inline for (0..4) |k| first[(y * width + x) * 4 + k] = @intFromFloat(out[k]);
         }
     }
-    made[0] = .{ .width = width, .height = height, .rgba = first };
+    made[0] = .{ .width = width, .height = height, .texels = first };
     var used = first.len;
     for (1..levels_made) |level| {
         const above = made[level - 1];
@@ -106,7 +106,7 @@ pub fn redraw(gpa: Allocator, image: *const srtexture.Image, detail: Detail) All
         const h = @max(above.height / 2, 1);
         const below = rgba[used..][0 .. w * h * 4];
         halve(above, below, w, h);
-        made[level] = .{ .width = w, .height = h, .rgba = below };
+        made[level] = .{ .width = w, .height = h, .texels = below };
         used += below.len;
     }
     return .{ .levels = made };
@@ -115,8 +115,8 @@ pub fn redraw(gpa: Allocator, image: *const srtexture.Image, detail: Detail) All
 /// Lets go of what `redraw` made.
 pub fn free(gpa: Allocator, image: srtexture.Image) void {
     var total: usize = 0;
-    for (image.levels) |level| total += level.rgba.len;
-    gpa.free(image.levels[0].rgba.ptr[0..total]);
+    for (image.levels) |level| total += level.texels.len;
+    gpa.free(image.levels[0].texels.ptr[0..total]);
     gpa.free(image.levels);
 }
 
@@ -190,7 +190,7 @@ const Profile = struct {
             for (0..level.width) |x| {
                 const bin: usize = @intFromFloat(distance(texelCentre(x, y), middle) * bins);
                 if (bin >= count) continue;
-                const bytes = level.rgba[(y * level.width + x) * 4 ..][0..4].*;
+                const bytes = level.texels[(y * level.width + x) * 4 ..][0..4].*;
                 sums[bin] += texel(level, x, y);
                 counts[bin] += 1;
                 if (shared[bin]) |colour| {
@@ -430,7 +430,7 @@ const Drawn = struct {
 };
 
 fn texel(level: srtexture.Level, x: usize, y: usize) Colour {
-    const bytes = level.rgba[(y * level.width + x) * 4 ..][0..4];
+    const bytes = level.texels[(y * level.width + x) * 4 ..][0..4];
     return .{ @floatFromInt(bytes[0]), @floatFromInt(bytes[1]), @floatFromInt(bytes[2]), @floatFromInt(bytes[3]) };
 }
 
@@ -509,7 +509,7 @@ fn halve(above: srtexture.Level, below: []u8, width: u32, height: u32) void {
                     for (0..2) |dx| {
                         const sx = @min(x * 2 + dx, above.width - 1);
                         const sy = @min(y * 2 + dy, above.height - 1);
-                        sum += above.rgba[(sy * above.width + sx) * 4 + k];
+                        sum += above.texels[(sy * above.width + sx) * 4 + k];
                     }
                 }
                 below[(y * width + x) * 4 + k] = @intCast((sum + 2) / 4);
@@ -530,7 +530,7 @@ const Synthetic = struct {
         for (0..size) |y| {
             for (0..size) |x| rgba[(y * size + x) * 4 ..][0..4].* = colour(distance(texelCentre(x, y), middle), x, y);
         }
-        return .{ .rgba = rgba, .level = .{.{ .width = size, .height = size, .rgba = rgba }} };
+        return .{ .rgba = rgba, .level = .{.{ .width = size, .height = size, .texels = rgba }} };
     }
 
     fn deinit(synthetic: Synthetic, gpa: Allocator) void {
@@ -548,7 +548,7 @@ fn fiveBit(level: u8) u8 {
 }
 
 fn redAt(level: srtexture.Level, x: usize, y: usize) u8 {
-    return level.rgba[(y * level.width + x) * 4];
+    return level.texels[(y * level.width + x) * 4];
 }
 
 test redraw {
@@ -590,8 +590,8 @@ test redraw {
     // Its light is the texture's.
     var before: f64 = 0;
     var after: f64 = 0;
-    for (0..source.level[0].rgba.len / 4) |i| before += @floatFromInt(source.level[0].rgba[i * 4]);
-    for (0..fine.rgba.len / 4) |i| after += @floatFromInt(fine.rgba[i * 4]);
+    for (0..source.level[0].texels.len / 4) |i| before += @floatFromInt(source.level[0].texels[i * 4]);
+    for (0..fine.texels.len / 4) |i| after += @floatFromInt(fine.texels[i * 4]);
     try std.testing.expectApproxEqRel(before, after / (scale * scale), 0.01);
 }
 

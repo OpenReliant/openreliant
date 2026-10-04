@@ -41,6 +41,7 @@ pub const Arg = enum {
     @"--baked-lights",
     @"--launch-steam",
     @"--bitmap-fonts",
+    @"--uncompressed-textures",
     @"--no-mod-effects",
     @"--hrtf",
     @"--no-hrtf",
@@ -120,6 +121,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--baked-lights" = .{ .section = .graphics, .text = "bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near" },
     .@"--launch-steam" = .{ .section = .graphics, .value = "<original|soft>", .text = "the Yamato's launch steam: original brightness or softer jets with less glare; soft by default" },
     .@"--bitmap-fonts" = .{ .section = .graphics, .text = "draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod)" },
+    .@"--uncompressed-textures" = .{ .section = .graphics, .text = "keep the mods' pictures uncompressed on the GPU, as 8-bit RGBA, rather than compressed in BC7 and BC5: four times the memory, and a slower start" },
     .@"--no-mod-effects" = .{ .section = .graphics, .text = "don't draw the mods' shaders: their post effects, their surface and lighting functions, and their replacements for OpenReliant's shaders" },
     .@"--hrtf" = .{ .section = .sound, .text = "place the sounds for headphones whatever the output; by default they are while the output is headphones" },
     .@"--no-hrtf" = .{ .section = .sound, .text = "place the sounds for speakers whatever the output" },
@@ -298,6 +300,9 @@ pub const Options = struct {
     /// Whether the interface's text is drawn in outline fonts at the window's resolution
     /// (`game.hud.outline`), or in the game's bitmap fonts alone.
     outline_fonts: bool = true,
+    /// Whether the mods' pictures are compressed for the GPU (`platform.texture_cache`), where it
+    /// takes compressed textures.
+    texture_compression: bool = true,
     /// Whether the mods' shaders draw (`scripting.postprocessing`, `scripting.shaders`).
     /// `--original` leaves them on, as it leaves the mods on.
     mod_effects: bool = true,
@@ -432,6 +437,7 @@ pub const Options = struct {
             .@"--baked-lights" => options.real_lights = false,
             .@"--launch-steam" => options.launch_steam = std.meta.stringToEnum(game.launch.yamato.Steam, value) orelse return error.BadValue,
             .@"--bitmap-fonts" => options.outline_fonts = false,
+            .@"--uncompressed-textures" => options.texture_compression = false,
             .@"--no-mod-effects" => options.mod_effects = false,
             .@"--hrtf" => if (options.openAl()) |settings| {
                 settings.hrtf = .on;
