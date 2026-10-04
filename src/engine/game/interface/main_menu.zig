@@ -28,8 +28,9 @@ pub const shapes_name = "interface\\frontend.spr";
 pub const music_name = "music\\New_Pensive.wav";
 pub const music_level = 0x7F;
 
-/// The menu's items, in the order of its table.
-pub const Item = enum(u3) { single_player, multi_player, game_options, quit, instant_action };
+/// The menu's items, in the order of its table, then OpenReliant's GAME MODES, which is there only
+/// while the mods' scripts have registered game modes (`Context.game_modes`).
+pub const Item = enum(u3) { single_player, multi_player, game_options, quit, instant_action, game_modes };
 
 /// A hotspot of the menu (`main_menu_hotspots`, `0x004E5B90`): where the pointer finds its item,
 /// what choosing it returns, and the shape a panel shows under the pointer. The buttons' shape goes
@@ -57,6 +58,7 @@ pub const hotspots = std.EnumArray(Item, Hotspot).init(.{
     .game_options = .{ .rect = .{ .x = 421, .y = 165, .width = 184, .height = 290 }, .result = .go, .shape = 20 },
     .quit = .{ .rect = .{ .x = 332, .y = 441, .width = 20, .height = 15 }, .result = .quit, .shape = 24 },
     .instant_action = .{ .rect = .{ .x = 300, .y = 441, .width = 20, .height = 15 }, .result = .go, .shape = 24 },
+    .game_modes = .{ .rect = .{ .x = game_modes_button[0], .y = game_modes_button[1], .width = 20, .height = 15 }, .result = .go, .shape = 24 },
 });
 
 /// A panel's two lines, in the large font, centred under it; QUIT and INSTANT ACTION have none.
@@ -65,7 +67,7 @@ fn panelLabels(item: Item) ?[2]Label {
         .single_player => .{ .of(0xBD, .{ 0x74, 0x154 }, .centre), .of(0xBF, .{ 0x74, 0x164 }, .centre) },
         .multi_player => .{ .of(0x5B4, .{ 0x140, 0x154 }, .centre), .of(0x5B5, .{ 0x140, 0x164 }, .centre) },
         .game_options => .{ .of(0xC0, .{ 0x20C, 0x154 }, .centre), .of(0xC1, .{ 0x20C, 0x164 }, .centre) },
-        .quit, .instant_action => null,
+        .quit, .instant_action, .game_modes => null,
     };
 }
 
@@ -77,6 +79,11 @@ const quit_button: [2]i32 = .{ 0x14C, 0x1B9 };
 const instant_action_button: [2]i32 = .{ 0x12C, 0x1B9 };
 const quit_label: Label = .of(0xBC, .{ 0x168, 0x1B7 }, .left);
 const instant_action_label: Label = .of(0x288, .{ 0x128, 0x1B7 }, .right);
+
+/// OpenReliant's GAME MODES (`game_modes`): a button as QUIT's and INSTANT ACTION's are, in the
+/// same row at the screen's left, its label to its right.
+const game_modes_button: [2]i32 = .{ 40, 0x1B9 };
+const game_modes_label: Label = .{ .text = .{ .words = "GAME MODES" }, .at = .{ game_modes_button[0] + 0x1C, 0x1B7 }, .alignment = .left };
 
 /// The question QUIT asks (`0x00428EFF`): Do you really want to Quit?
 pub const quit_question = 0x374;
@@ -111,6 +118,8 @@ pub const Choice = union(enum) {
     game_options,
     /// INSTANT ACTION (`instant_action`).
     instant_action,
+    /// OpenReliant's GAME MODES screen (`game_modes`).
+    game_modes,
     /// QUIT, answered YES.
     quit,
     /// A mission the developers' keys start, without its briefing (`skip_briefing`).
@@ -166,6 +175,8 @@ pub const Context = struct {
     sound: ?*hog_snd.Sound = null,
     /// `bank_stdsmp`, which the click plays from.
     bank: ?fat.Bank = null,
+    /// Whether the mods' scripts have registered game modes, which GAME MODES leads to.
+    game_modes: bool = false,
 };
 
 /// The menu's state.
@@ -180,6 +191,8 @@ pub const MainMenu = struct {
     mission: u16 = 1,
     /// QUIT's question while it is up.
     confirm: ?dialog.Confirm = null,
+    /// Whether it shows GAME MODES, as the last pass found (`Context.game_modes`).
+    has_modes: bool = false,
 
     /// Entering the menu, as `main_menu` does before its loop: the pointer at (320, 200), and the
     /// music started where none is playing. The game also starts a new campaign
@@ -214,7 +227,9 @@ pub const MainMenu = struct {
         }
         if (menu.developer) if (menu.developerKeys(keyboard)) |choice| return choice;
 
+        menu.has_modes = context.game_modes;
         menu.under = for (std.enums.values(Item)) |item| {
+            if (!menu.shows(item)) continue;
             if (hotspots.get(item).rect.holds(context.pointer.at)) break item;
         } else null;
         const chosen = menu.under orelse return null;
@@ -231,8 +246,14 @@ pub const MainMenu = struct {
             .multi_player => .connection,
             .game_options => .game_options,
             .instant_action => .instant_action,
+            .game_modes => .game_modes,
             .quit => unreachable,
         };
+    }
+
+    /// Whether the menu shows `item`: GAME MODES only while there are game modes.
+    fn shows(menu: MainMenu, item: Item) bool {
+        return item != .game_modes or menu.has_modes;
     }
 
     /// The developers' keys (`0x00428C9B` on): Enter with Shift starts the mission without its
@@ -270,6 +291,10 @@ pub const MainMenu = struct {
         try instant_action_label.write(canvas, small, canvas_module.blue);
         try canvas.shape(art, button_shape, quit_button);
         try canvas.shape(art, button_shape, instant_action_button);
+        if (menu.has_modes) {
+            try game_modes_label.write(canvas, small, canvas_module.blue);
+            try canvas.shape(art, button_shape, game_modes_button);
+        }
         if (menu.under) |under| {
             switch (under) {
                 .single_player, .multi_player, .game_options => {
@@ -279,6 +304,7 @@ pub const MainMenu = struct {
                 },
                 .quit => try canvas.shape(art, lit_button_shape, quit_button),
                 .instant_action => try canvas.shape(art, lit_button_shape, instant_action_button),
+                .game_modes => try canvas.shape(art, lit_button_shape, game_modes_button),
             }
         }
         if (menu.confirm) |confirm| try confirm.draw(canvas, dialog_art);
@@ -303,6 +329,14 @@ test "an item is found under the pointer, and chosen while the button is down" {
     // Nothing under the pointer, nothing chosen.
     try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{ .at = .{ 5, 5 }, .down = true }, .keyboard = &keyboard }));
     try std.testing.expectEqual(null, menu.under);
+}
+
+test "GAME MODES is there only while there are game modes" {
+    var keyboard: input.Keyboard = .{};
+    var menu: MainMenu = .{};
+    const at: [2]i32 = .{ game_modes_button[0] + 5, game_modes_button[1] + 5 };
+    try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{ .at = at, .down = true }, .keyboard = &keyboard }));
+    try std.testing.expectEqual(Choice.game_modes, menu.frame(.{ .pointer = .{ .at = at, .down = true }, .keyboard = &keyboard, .game_modes = true }).?);
 }
 
 test "QUIT asks first" {

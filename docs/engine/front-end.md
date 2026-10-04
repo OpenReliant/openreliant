@@ -38,6 +38,8 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 | 16, the controls ([Controls](#controls)) | `controls_screen` (`0x0042B690`) | |
 | 100, the mods screen ([The mods screen](#the-mods-screen)), which OpenReliant adds | | [#497](https://github.com/OpenReliant/openreliant/issues/497) |
 | 101, a mod's options ([The mod's options](#the-mods-options)), which OpenReliant adds | | [#597](https://github.com/OpenReliant/openreliant/issues/597) |
+| 102, the game modes screen ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | [#560](https://github.com/OpenReliant/openreliant/issues/560) |
+| 103, a game mode's briefing ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | [#442](https://github.com/OpenReliant/openreliant/issues/442) |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
 | 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
@@ -121,6 +123,10 @@ from the roster.
 
 OpenReliant flies mission 29 so, RESTART starting it again as for any mission, and comes back to
 the main menu as it ends.
+
+**Improvement:** while the mods' scripts have registered game modes, OpenReliant adds GAME MODES to
+the menu: a button like QUIT's and INSTANT ACTION's, at (40, 441), 20 by 15, with its label to its
+right. It opens the game modes screen ([The game modes screen](#the-game-modes-screen)).
 
 ### The developers' keys
 
@@ -329,6 +335,31 @@ Not ported: a mod's thumbnail and its conflicts ([#497](https://github.com/OpenR
 Each change is kept at once in the mod's storage, and told to the scripting ([Options](../port/scripting.md#options)). An option that is the same as it was isn't set again.
 
 Not ported: changing the options from the pause menu in a game ([#600](https://github.com/OpenReliant/openreliant/issues/600)), and more kinds of option and groups ([#601](https://github.com/OpenReliant/openreliant/issues/601)).
+
+## The game modes screen
+
+**Improvement:** the original has no game modes but its campaign, INSTANT ACTION and multiplayer.
+GAME MODES on the main menu opens OpenReliant's game modes screen
+([`game_modes.zig`](../../src/engine/game/interface/game_modes.zig),
+[#560](https://github.com/OpenReliant/openreliant/issues/560)), which lists the game modes the mods'
+scripts register ([Menus, game modes and campaigns](../guide/scripting.md#menus-game-modes-and-campaigns)).
+It has the mods screen's shapes, background and layout ([The mods screen](#the-mods-screen)):
+
+- GAME MODES, in white, centred on (320, 95).
+- The list of the modes in the left frame, by their labels, with the lists' arrows.
+- The chosen mode in the right frame: its label, the mod it comes from, its missions (how many, and
+  whether it loops, or for a campaign the mission it carries on from), and its description.
+- PLAY, where the settings screen has OK, which starts the chosen mode, and MAIN MENU. Escape goes
+  back to the main menu.
+
+A mode's missions are flown as INSTANT ACTION's is, one after the other. Where the mode names a
+briefing, the front end shows its screen 103 before each mission, with the mods screen's background:
+the mod's screen stands in for it, and flies the mission or goes back to the main menu. Without a
+briefing, or once its script has stopped, the mission follows at once.
+
+Mods' screens can also stand in for the front end's own screens (`interf.Scripted`): the front end
+then draws the screen's background, the mod's screen over it, and the pointer on top, and goes where
+the mod's screen asks.
 
 ## The dialogs
 

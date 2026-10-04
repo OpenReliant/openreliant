@@ -252,13 +252,17 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // are kept in the storage.
     var option_pages: scripting.settings.Registry = .init(gpa, &storage);
     defer option_pages.deinit();
-    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .settings = &option_pages, .bindings_file = settings_file };
+    // The game modes the mods' load and menu scripts register at start-up, which GAME MODES lists.
+    var game_modes: scripting.game_modes.Registry = .init(gpa, &storage);
+    defer game_modes.deinit();
+    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .settings = &option_pages, .bindings_file = settings_file, .modes = &game_modes };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
     const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string, shared);
     defer if (presentation) |shown| shown.stop();
     option_pages.close();
+    game_modes.close();
     const ship_stats = records.ships;
     const gun_stats = records.guns;
     const missile_stats = records.missiles;
@@ -639,7 +643,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
     var front_resources: ?engine.genilib.interf.Resources = null;
     defer if (front_resources) |*open| open.close();
-    var flow: Flow = .{ .in_front_end = options.mission == null, .scripts = &game_scripts };
+    var flow: Flow = .{ .in_front_end = options.mission == null, .scripts = &game_scripts, .modes = &game_modes };
     // The campaign's saved loadout, which `campaign_new` starts in the Predator, and which the
     // saved games keep.
     var saved_loadout: engine.interface.loadout.Saved = .{};
@@ -686,6 +690,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
         // The mods screen, which with `--no-mods` stays shut.
         .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
+        .modes = game_modes.shown.items,
+        // The menu scripts' screens that stand in for the front end's own.
+        .scripted = if (presentation) |shown| shown.scripted() else null,
     };
     // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
     // play and draw with: made as the front end's resources open.
@@ -849,6 +856,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
             const front_outcome = if (console_up) null else front.frame(front_context);
+            // The movie a menu script asked for (`ui.play_movie`).
+            if (presentation) |shown| if (shown.takeMovie()) |name| {
+                _ = try movies.play(name, .cleared) orelse return;
+            };
             // What the player set on the mods screen goes to the mod's menu scripts.
             while (option_pages.takeChange()) |change| {
                 if (presentation) |shown| shown.settingChanged(change.mod, change.key, change.value);
@@ -857,13 +868,34 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                 const through = &rooms.?;
                 switch (outcome) {
                     .fly, .campaign, .loaded => try game_scripts.start(),
-                    .quit, .briefing => {},
+                    // The scripts start knowing the mode and its mission (`core.game_mode`).
+                    .game_mode => |mode| {
+                        game_modes.start(mode);
+                        try game_scripts.start();
+                    },
+                    .quit, .briefing, .mode_mission, .mode_left => {},
                 }
                 flow.next = switch (outcome) {
                     .quit => return,
                     .fly => |flight| fly: {
                         flow.campaign = null;
                         break :fly .{ .flight = flight };
+                    },
+                    // A game mode's first mission, which the main menu flies as it flies INSTANT
+                    // ACTION's, after the mode's briefing where it has one, the next following as
+                    // each ends (`missionEnded`).
+                    .game_mode => {
+                        flow.campaign = null;
+                        front.brief();
+                        continue;
+                    },
+                    .mode_mission => .{ .flight = modeFlight(&game_modes) },
+                    // The player left the mode from its briefing, for the screen the front end
+                    // shows.
+                    .mode_left => {
+                        flow.scripts.stop();
+                        game_modes.running = null;
+                        continue;
                     },
                     // START GAME: `WinMain` takes a new campaign into the Reliant's rooms, whose
                     // briefing room's door leads to the briefing, and the mission.
@@ -1255,16 +1287,39 @@ const Flow = struct {
     /// The game as the last flight of the campaign began, which a replay puts back
     /// (`restartPoint`).
     restart_point: ?save.Save = null,
+    /// The game modes the mods registered, and the one running while it does.
+    modes: *scripting.game_modes.Registry,
 
-    /// Back to the front end's main menu, out of the campaign, which ends the game's scripts.
+    /// Back to the front end's main menu, out of the campaign or the game mode, which ends the
+    /// game's scripts.
     fn toFrontEnd(flow: *Flow, front: *engine.genilib.interf.Interface) void {
         flow.scripts.stop();
         front.back();
         flow.in_front_end = true;
         flow.from_front_end = false;
         flow.campaign = null;
+        flow.modes.running = null;
+    }
+
+    /// To the briefing of the game mode that runs, before its next mission (`modeFlight`). The
+    /// game's scripts go on running.
+    fn toBriefing(flow: *Flow, front: *engine.genilib.interf.Interface) void {
+        front.brief();
+        flow.in_front_end = true;
+        flow.from_front_end = false;
     }
 };
+
+/// The flight of the mission the game mode that runs is at, which the main menu flies, in the
+/// mode's ship.
+fn modeFlight(modes: *const scripting.game_modes.Registry) game.interface.main_menu.Flight {
+    const ship = modes.current().?.ship;
+    return .{
+        .mission = modes.mission().?,
+        .ship = if (ship) |chosen| @intCast(@intFromEnum(chosen)) else null,
+        .flier = .main_menu,
+    };
+}
 
 /// The mods' global and player scripts, which run while a game runs (`scripting.Game`,
 /// `scripting.Presentation.startGame`), and their state, which is kept with each saved game and
@@ -1474,6 +1529,14 @@ fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Pla
         flow.next = .{ .flight = flight };
         return true;
     }
+    // A game mode goes on to the briefing of its next mission, or back to the main menu once it
+    // is over (`game_modes.Registry.goesOn`).
+    if (flow.modes.running != null) {
+        const rating = if (play.loaded) |loaded| loaded.script.variables.mission_success else .failure;
+        if (!try letGo(play, all, sound, null, movies, resources)) return false;
+        if (flow.modes.goesOn(player.ending, rating) != null) flow.toBriefing(front) else flow.toFrontEnd(front);
+        return true;
+    }
     if (flow.campaign) |*campaign| {
         const point = if (flow.restart_point) |*kept| kept else null;
         switch (try campaignGoesOn(play, campaign, rooms, all, player, saving, flow.flown, point, ship, sound, movies, resources) orelse return false) {
@@ -1624,6 +1687,8 @@ const FrontEndDisplay = struct {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
         try drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string));
         if (shown.presentation) |scripts| try scripts.draw(.ui, shown.target, null);
+        // The pointer over a mod's screen that stands in for the front end's own.
+        try drawn(shown.front.drawPointer(shown.resources, shown.target, shown.window, shown.strings));
         if (shown.console) |console| try console.draw(shown.target, shown.window, shown.strings, .menus);
     }
 };

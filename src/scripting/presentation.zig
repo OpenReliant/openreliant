@@ -30,6 +30,9 @@ const input = engine.input;
 const mod_options = engine.game.interface.mod_options;
 const postprocessing = @import("postprocessing.zig");
 const shaders = @import("shaders.zig");
+const game_modes = @import("game_modes.zig");
+const front_end = @import("front_end.zig");
+const interf = engine.genilib.interf;
 const srtexture = engine.surrender.surrenderlib.srtexture;
 const controls = engine.input.controls;
 const device = engine.surrender.srd3d.device;
@@ -93,6 +96,8 @@ pub const Presentation = struct {
     lists: std.EnumArray(Place, running.List) = .initFill(.empty),
     layers: std.EnumArray(drawing.Which, drawing.Layer) = .initFill(.{}),
     assets: drawing.Assets = .{},
+    /// The menu scripts' screens that stand in for the front end's own (`front_end.zig`).
+    standing: front_end.Standing = .{},
     /// What each layer is drawn on this frame.
     views: std.EnumArray(drawing.Which, ?drawing.View) = .initFill(null),
     /// What the driver told of the last frame, which the packages reach the game through.
@@ -142,6 +147,7 @@ pub const Presentation = struct {
         shown.runner.deinit();
         for (&shown.layers.values) |*layer| layer.deinit(shown.gpa);
         shown.assets.deinit(shown.gpa);
+        shown.standing.deinit(shown.gpa);
         shown.runtime.destroy();
         shown.gpa.destroy(shown);
     }
@@ -213,6 +219,18 @@ pub const Presentation = struct {
     /// (`postprocessing.Registry.setHost`). Call it with null before the host is destroyed.
     pub fn setEffectHost(shown: *Presentation, host: ?postprocessing.EffectHost) void {
         shown.runtime.post_effects.setHost(host);
+    }
+
+    /// The menu scripts' screens that stand in for the front end's own, as the front end reaches
+    /// them (`front_end.scripted`).
+    pub fn scripted(shown: *Presentation) @import("openreliant").engine.genilib.interf.Scripted {
+        return front_end.scripted(shown);
+    }
+
+    /// The movie a menu script asked to play (`ui.play_movie`), if one did, which stays valid until
+    /// the next is asked for.
+    pub fn takeMovie(shown: *Presentation) ?[]const u8 {
+        return front_end.takeMovie(shown);
     }
 
     /// Sets what compiles and draws the scripts' surface and lighting functions, or null for nothing
@@ -1117,4 +1135,168 @@ test "the cel-shading example registers its functions, and Shift F6 and Shift F5
     try std.testing.expectEqual(4, host.drawn.items[0].parameters[0]);
     fixture.shown.key(.f6, true);
     for (host.drawn.items) |function| try std.testing.expect(!function.enabled);
+}
+
+test "menu scripts register game modes as OpenReliant starts, and player scripts read the one that runs" {
+    const gpa = std.testing.allocator;
+    var modes: game_modes.Registry = .init(gpa, null);
+    defer modes.deinit();
+    var fixture: Fixture = undefined;
+    try fixture.initShared(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=menu.luau\nPlayer=player.luau\n" },
+            .{
+                "menu.luau",
+                \\local core = require("openreliant.core")
+                \\assert(core.register_game_mode({ name = "arena", label = "ARENA", missions = { 29, 30 }, ship = "phoenix", loop = true }) == "a:arena")
+                \\local ok, message = pcall(core.register_game_mode, { name = "arena", label = "AGAIN", missions = { 1 } })
+                \\assert(not ok and string.find(message, "registered already", 1, true), message)
+                \\ok, message = pcall(core.register_game_mode, { name = "empty", label = "EMPTY", missions = {} })
+                \\assert(not ok and string.find(message, "needs missions", 1, true), message)
+                \\ok, message = pcall(core.register_game_mode, { name = "tour", label = "TOUR", missions = { 1 }, loop = true, campaign = true })
+                \\assert(not ok and string.find(message, "can't loop", 1, true), message)
+                \\assert(core.game_mode == nil and core.game_mode_mission == nil)
+            },
+            .{
+                "player.luau",
+                \\local core = require("openreliant.core")
+                \\assert(core.game_mode == "a:arena", tostring(core.game_mode))
+                \\local mission = core.game_mode_mission
+                \\assert(mission.number == 29 and mission.place == 1 and mission.count == 2)
+                \\local ok, message = pcall(core.register_game_mode, { name = "late", label = "LATE", missions = { 1 } })
+                \\assert(not ok and string.find(message, "player scripts can't register", 1, true), message)
+            },
+        },
+    }}, .{ .modes = &modes });
+    defer fixture.deinit();
+    modes.close();
+    try std.testing.expectEqual(1, modes.modes.items.len);
+    const arena = modes.modes.items[0];
+    try std.testing.expectEqualStrings("a:arena", arena.name);
+    try std.testing.expectEqualSlices(u16, &.{ 29, 30 }, arena.missions);
+    try std.testing.expectEqual(engine.game.gameobj.Type.phoenix, arena.ship.?);
+    try std.testing.expectEqual(.loop, arena.kind);
+    try std.testing.expectEqualStrings("ARENA", modes.shown.items[0].label);
+    try std.testing.expectEqual(2, modes.shown.items[0].missions);
+    // The player scripts start knowing the mode; their own asserts would have failed them.
+    modes.start(0);
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    try std.testing.expect(fixture.shown.runtime.contexts.items.len > 0);
+    for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
+}
+
+test "the arena example registers its game mode, and its board runs within it" {
+    const gpa = std.testing.allocator;
+    var storage: @import("storage.zig").Storage = .{ .gpa = gpa };
+    defer storage.deinit();
+    var modes: game_modes.Registry = .init(gpa, null);
+    defer modes.deinit();
+    var fixture: Fixture = undefined;
+    try fixture.initShared(&.{.{ "arena", &.{
+        .{ "mod.ini", @embedFile("arena/mod.ini") },
+        .{ "menu.luau", @embedFile("arena/menu.luau") },
+        .{ "board.luau", @embedFile("arena/board.luau") },
+    } }}, .{ .storage = &storage, .modes = &modes });
+    defer fixture.deinit();
+    try std.testing.expectEqualStrings("arena:arena", modes.modes.items[0].name);
+    try std.testing.expectEqualSlices(u16, &.{29}, modes.modes.items[0].missions);
+    try std.testing.expectEqual(engine.game.gameobj.Type.phoenix, modes.modes.items[0].ship.?);
+    modes.start(0);
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    fixture.frame(0.016, .{ 800, 600 });
+    for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
+}
+
+test "a menu script's screen stands in for the front end's own, and asks it to go on" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" },
+            .{
+                "menu.luau",
+                \\local ui = require("openreliant.ui")
+                \\local frames = 0
+                \\local screen = ui.register_screen("main", { frame = function()
+                \\    frames += 1
+                \\    if frames == 2 then ui.go_to("pilot_roster") end
+                \\end })
+                \\assert(ui.replace_screen("main_menu", screen))
+                \\assert(not ui.replace_screen("game_options", "nothing"))
+                \\assert(ui.pointer == nil)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const scripted = fixture.shown.scripted();
+    try std.testing.expect(scripted.vtable.replaces(scripted.context, .main_menu));
+    try std.testing.expect(!scripted.vtable.replaces(scripted.context, .game_options));
+    scripted.vtable.show(scripted.context, .main_menu);
+    try std.testing.expect(fixture.shown.runtime.registries.selected_screen != null);
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(null, scripted.vtable.take(scripted.context));
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(interf.Request{ .go = .pilot_roster }, scripted.vtable.take(scripted.context).?);
+    try std.testing.expectEqual(null, scripted.vtable.take(scripted.context));
+    scripted.vtable.show(scripted.context, null);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.selected_screen);
+}
+
+test "the main menu example stands in for the game's" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "main-menu", &.{
+        .{ "mod.ini", @embedFile("main-menu/mod.ini") },
+        .{ "menu.luau", @embedFile("main-menu/menu.luau") },
+    } }});
+    defer fixture.deinit();
+    const scripted = fixture.shown.scripted();
+    try std.testing.expect(scripted.vtable.replaces(scripted.context, .main_menu));
+    scripted.vtable.show(scripted.context, .main_menu);
+    fixture.frame(0.016, .{ 640, 480 });
+    // Down twice and Enter choose OPTIONS.
+    for ([_]input.Key{ .down, .down, .enter }) |key| {
+        fixture.shown.key(key, true);
+        fixture.shown.key(key, false);
+    }
+    try std.testing.expectEqual(interf.Request{ .go = .game_options }, scripted.vtable.take(scripted.context).?);
+}
+
+test "the campaign example briefs each of its missions, and plays its movie first" {
+    const gpa = std.testing.allocator;
+    var storage: @import("storage.zig").Storage = .{ .gpa = gpa };
+    defer storage.deinit();
+    var modes: game_modes.Registry = .init(gpa, &storage);
+    defer modes.deinit();
+    var fixture: Fixture = undefined;
+    try fixture.initShared(&.{.{ "campaign", &.{
+        .{ "mod.ini", @embedFile("campaign/mod.ini") },
+        .{ "menu.luau", @embedFile("campaign/menu.luau") },
+    } }}, .{ .storage = &storage, .modes = &modes });
+    defer fixture.deinit();
+    modes.close();
+    const tour = modes.modes.items[0];
+    try std.testing.expectEqualStrings("campaign:first_tour", tour.name);
+    try std.testing.expectEqual(.campaign, tour.kind);
+    try std.testing.expectEqualSlices(u16, &.{ 1, 2, 3 }, tour.missions);
+    // Its briefing stands in for the mode's briefing only while the mode runs.
+    const scripted = fixture.shown.scripted();
+    try std.testing.expect(!scripted.vtable.replaces(scripted.context, .mode_briefing));
+    modes.start(0);
+    try std.testing.expect(scripted.vtable.replaces(scripted.context, .mode_briefing));
+    scripted.vtable.show(scripted.context, .mode_briefing);
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqualStrings("thread01.bik", fixture.shown.takeMovie().?);
+    try std.testing.expectEqual(null, fixture.shown.takeMovie());
+    // Enter launches the mission.
+    fixture.shown.key(.enter, true);
+    fixture.shown.key(.enter, false);
+    try std.testing.expectEqual(interf.Request.launch_mission, scripted.vtable.take(scripted.context).?);
+    // The next mission's briefing plays no movie, and Escape leaves for the main menu.
+    _ = modes.goesOn(.playing, .success);
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(null, fixture.shown.takeMovie());
+    fixture.shown.key(.escape, true);
+    try std.testing.expectEqual(interf.Request{ .go = .main_menu }, scripted.vtable.take(scripted.context).?);
+    for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
 }

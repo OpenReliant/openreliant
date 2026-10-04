@@ -52,17 +52,17 @@ const capacity = std.math.maxInt(u8);
 /// The list's frame and the lists' arrows, where the controls tab has its first pane and its
 /// arrows (`0x0042CFC0`), and the frame beside it that the chosen mod's manifest is written in. They
 /// are taller than the controls tab's, down to the buttons.
-const frame_height = 250;
-const list_frame: widgets.Frame = .{ .at = .{ 45, 136 }, .extent = .{ 324, frame_height } };
-const details_frame: widgets.Frame = .{ .at = .{ 401, 136 }, .extent = .{ 195, frame_height } };
-const arrows: widgets.ListArrows = .{ .at = .{ 374, 136 } };
+pub const frame_height = 250;
+pub const list_frame: widgets.Frame = .{ .at = .{ 45, 136 }, .extent = .{ 324, frame_height } };
+pub const details_frame: widgets.Frame = .{ .at = .{ 401, 136 }, .extent = .{ 195, frame_height } };
+pub const arrows: widgets.ListArrows = .{ .at = .{ 374, 136 } };
 
 /// The rows the list shows at once, and where they stand: the first row's check box, and how far
 /// apart the rows are.
-const shown_rows = 9;
-const box_x = 60;
-const first_row = 146;
-const row_spacing = 26;
+pub const shown_rows = 9;
+pub const box_x = 60;
+pub const first_row = 146;
+pub const row_spacing = 26;
 
 /// How far right of its check box a row's name starts (`widgets.Toggle.check_gap`), and how wide it
 /// can be before the list's arrows.
@@ -72,8 +72,8 @@ const name_margin = 8;
 
 /// The middle of each frame, which what the screen says of an empty list or no mod chosen is
 /// centred on.
-const list_middle: [2]i32 = .{ list_frame.at[0] + list_frame.extent[0] / 2, list_frame.at[1] + list_frame.extent[1] / 2 };
-const details_middle: [2]i32 = .{ details_frame.at[0] + details_frame.extent[0] / 2, details_frame.at[1] + details_frame.extent[1] / 2 };
+pub const list_middle: [2]i32 = .{ list_frame.at[0] + list_frame.extent[0] / 2, list_frame.at[1] + list_frame.extent[1] / 2 };
+pub const details_middle: [2]i32 = .{ details_frame.at[0] + details_frame.extent[0] / 2, details_frame.at[1] + details_frame.extent[1] / 2 };
 
 /// The note over the frames that says the mods wait for the next start, in gold, ending where the
 /// frames do, as the video tab's note ends where its pane does.
@@ -97,9 +97,9 @@ const empty_notes = [_]Label{
 const choose_note: Label = .{ .text = .{ .words = "CHOOSE A MOD" }, .at = details_middle, .alignment = .centre };
 
 /// How the panel lays out the chosen mod's manifest, from the frame's corner.
-const details_inside = 10;
-const details_lines: Canvas.Lines = .{ .width = details_frame.extent[0] - 2 * details_inside, .height = 15, .most = 1 };
-const description_lines: Canvas.Lines = .{ .width = details_lines.width, .height = 15, .most = 9 };
+pub const details_inside = 10;
+pub const details_lines: Canvas.Lines = .{ .width = details_frame.extent[0] - 2 * details_inside, .height = 15, .most = 1 };
+pub const description_lines: Canvas.Lines = .{ .width = details_lines.width, .height = 15, .most = 9 };
 
 /// The arrows that move the chosen mod up or down the order: a gold box of up and down arrows, unlike
 /// the lists' arrows that scroll the list, in the middle of the gap between the frames and
@@ -492,7 +492,7 @@ pub const ModManager = struct {
 };
 
 /// How long a name on the screen can be, in bytes.
-const name_buffer = 256;
+pub const name_buffer = 256;
 
 /// A row's name and, after it, its version, written in `buffer`.
 fn nameOf(buffer: *[name_buffer]u8, row: Row) []const u8 {

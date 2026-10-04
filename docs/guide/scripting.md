@@ -73,9 +73,10 @@ enabled)` toggles a display. A failed callback disables only its registration.
 Menu or player scripts register screens with `ui.register_screen(name, {frame = function,
 key = function})`. `ui.show_screen(name)` selects one; nil closes it. The frame callback draws
 through `ui`; the optional key callback gets `(key, down)` while selected. In flight, selecting
-a screen makes the UI drawing layer available over the HUD. Screens are overlays with script
-input callbacks, not replacements for the original menu flow or a new widget layout system.
-The original controls still receive keys. Callback failure or context closure closes the screen.
+a screen makes the UI drawing layer available over the HUD. A screen is an overlay with script
+input callbacks, unless it stands in for one of the front end's screens
+([Menus, game modes and campaigns](#menus-game-modes-and-campaigns)). The original controls still
+receive keys. Callback failure or context closure closes the screen.
 Registrations are bounded by the unused values in the engine's byte-sized view representation,
 including retired entries in one runtime. Registering beyond that limit raises a script error.
 
@@ -97,9 +98,10 @@ including retired entries in one runtime. Registering beyond that limit raises a
 These tables contain no separate engine logic. Their context permissions remain those of the
 underlying APIs; unavailable groups are nil. Mods override them through the normal
 `interface_name`/`interface` mechanism and receive the built-in base in `on_interface_override`.
-Stopping the override restores the base. The groups do not add campaign progression or menu-flow
-APIs; those features remain in #442 and #560. Their editor definitions come from the reused API
-declarations.
+Stopping the override restores the base. The groups don't include game modes, campaigns or the
+menu flow, which are in `openreliant.core` and `openreliant.ui`
+([Menus, game modes and campaigns](#menus-game-modes-and-campaigns)). Their editor definitions come
+from the reused API declarations.
 
 [`examples/mods/strafe-run`](../../examples/mods/strafe-run) combines a custom order, HUD display,
 chase camera, selectable help panel and rebindable actions.
@@ -457,7 +459,8 @@ end
 - A wrong field name or a value of the wrong type is an error.
 - Text is UTF-8; characters the game can't show become `?`.
 - Records can't be removed, because missions refer to them by number, and adding new ones isn't
-  supported yet ([#560](https://github.com/OpenReliant/openreliant/issues/560)).
+  supported yet ([#333](https://github.com/OpenReliant/openreliant/issues/333),
+  [#640](https://github.com/OpenReliant/openreliant/issues/640)).
 
 A load script that fails has its changes undone, and the next one runs.
 
@@ -841,6 +844,134 @@ local rejoin_after = settings.get("rejoin_after")
   [#601](https://github.com/OpenReliant/openreliant/issues/601)).
 
 [`examples/mods/wingmen`](../../examples/mods/wingmen) offers three options.
+
+## Menus, game modes and campaigns
+
+A menu script can replace the front end's screens with its own, and a load or menu script can add
+game modes, which the main menu's GAME MODES lists. A campaign is a game mode that flies its
+missions in order and remembers how far the player got.
+
+### Replacing a screen
+
+`ui.replace_screen(screen, name)` makes the mod's registered screen `name` stand in for one of the
+front end's screens, by its name ([FrontEndScreen](reference.md#frontendscreen)), such as
+`"main_menu"`. While the front end shows that screen, it runs the mod's screen in its place: the
+front end draws the screen's background, the mod's screen draws over it and takes the keys, and the
+pointer is drawn on top. `ui.pointer` gives the pointer's place and whether its left button is
+down.
+
+```lua
+local ui = require("openreliant.ui")
+
+local screen = ui.register_screen("main_menu", {
+    frame = function()
+        ui.text(vector.create(ui.width / 2, ui.height / 2, 0), "PRESS ENTER", { align = "centre" })
+    end,
+    key = function(key, down)
+        if down and key == "enter" then ui.go_to("pilot_roster") end
+        if down and key == "escape" then ui.quit() end
+    end,
+})
+ui.replace_screen("main_menu", screen)
+```
+
+- The mod's screen goes on by asking the front end: `ui.go_to(screen)` goes to another of its
+  screens (or to the mod's screen that stands in for it), `ui.start_game_mode(name)` starts a game
+  mode, and `ui.quit()` quits the game. A screen the front end can't show is left alone, and the
+  log says so.
+- `ui.play_movie(name)` plays a Bink movie from the game folder or a mod, such as
+  `"thread01.bik"`, on a cleared screen. Escape or the pointer's right button ends it.
+- `ui.replace_screen(screen, nil)` gives the screen back to the front end. If the mod's script
+  stops, or its screen's callback fails, the front end shows its own screen again.
+- These functions are for menu scripts only.
+
+[`examples/mods/main-menu`](../../examples/mods/main-menu) replaces the main menu.
+
+### Game modes
+
+`core.register_game_mode` adds a game mode. The main menu then shows a GAME MODES button, which
+opens a list of every mod's modes ([Front end](../engine/front-end.md#the-game-modes-screen)).
+
+```lua
+local core = require("openreliant.core")
+
+core.register_game_mode({
+    name = "arena",
+    label = "ARENA",
+    description = "Wave after wave in a Phoenix.",
+    missions = { 29 },
+    ship = "phoenix",
+    loop = true,
+})
+```
+
+- `missions` are mission numbers, flown in order. Each is a standard `.DTE` file, the game's or a
+  mod's, so a mode doesn't change the mission format. A mode has up to 64 missions.
+- `ship` is the ship the player flies; without it, each mission's own ship is used.
+- Without `loop`, the mode goes back to the main menu after its last mission. With `loop`, it
+  starts again from its first mission, until the player leaves a mission from the pause menu.
+- Leaving a mission from the pause menu always ends the mode.
+- Only load and menu scripts register modes, and only as OpenReliant starts. A mod that is off has
+  no modes.
+- `core.game_mode` gives the qualified name of the mode that runs, such as `"arena:arena"`, and
+  nil otherwise. Every script can read it, so a mod's global and player scripts can apply its
+  rules only while its mode runs. `core.game_mode_mission` gives the mission the mode is at: its
+  `number`, its `place` in the mode from 1, and the `count` of the mode's missions.
+
+[`examples/mods/arena`](../../examples/mods/arena) adds a game mode with rules and a HUD of its
+own.
+
+### Campaigns
+
+A game mode with `campaign = true` is a campaign:
+
+- It flies its missions in order. A lost mission is flown again: the player's ship destroyed, the
+  pilot captured or sent home for shooting a friend, or the mission's script rating it a total
+  failure.
+- The mission the player has reached is kept in the mod's global storage, in the section
+  `campaigns`, under the mode's own name ([Storage](#storage)). GAME MODES shows it, and the
+  campaign carries on from it the next time. After the last mission, the campaign starts from its
+  first again. A script can set the value, from 0 for the first mission, to move the campaign on or
+  back.
+- A campaign can't loop.
+
+Any game mode can name a `briefing`: the name of one of the mod's registered screens, which the
+front end shows before each of the mode's missions. The briefing reads `core.game_mode_mission`
+to know which mission is next, flies it with `ui.launch_mission()`, and ends the mode with
+`ui.go_to("main_menu")`. Without a briefing, the next mission starts at once.
+
+```lua
+local core = require("openreliant.core")
+local ui = require("openreliant.ui")
+
+ui.register_screen("briefing", {
+    frame = function()
+        local mission = core.game_mode_mission
+        ui.text(vector.create(ui.width / 2, 100, 0), `MISSION {mission.place} OF {mission.count}`, { align = "centre" })
+    end,
+    key = function(key, down)
+        if down and key == "enter" then ui.launch_mission() end
+        if down and key == "escape" then ui.go_to("main_menu") end
+    end,
+})
+
+core.register_game_mode({
+    name = "tour",
+    label = "FIRST TOUR",
+    missions = { 1, 2, 3 },
+    campaign = true,
+    briefing = "briefing",
+})
+```
+
+The missions are flown as INSTANT ACTION flies its mission: without the game's rooms, ITAC,
+medals or saved games ([#641](https://github.com/OpenReliant/openreliant/issues/641)). New ships,
+guns, missiles and pilots are planned
+([#333](https://github.com/OpenReliant/openreliant/issues/333),
+[#640](https://github.com/OpenReliant/openreliant/issues/640)).
+
+[`examples/mods/campaign`](../../examples/mods/campaign) is a short campaign of the game's first
+three missions, with a briefing and a movie.
 
 ## Timers
 

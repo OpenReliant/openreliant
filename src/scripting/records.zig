@@ -8,8 +8,9 @@
 //! the rest from 0. Ships, guns and missiles can also be looked up by OpenReliant's names, such as
 //! `records.guns.laser_cannon` or `records.ships.predator`. A record is a proxy (`bind.Binding`)
 //! whose fields are named as in the format docs, and a text entry is a string. Records can't be
-//! removed, because missions refer to them by number, and adding new ones isn't supported yet
-//! ([#560](https://github.com/OpenReliant/openreliant/issues/560)).
+//! removed, because missions refer to them by number. Adding new ones isn't supported yet
+//! ([#333](https://github.com/OpenReliant/openreliant/issues/333),
+//! [#640](https://github.com/OpenReliant/openreliant/issues/640)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

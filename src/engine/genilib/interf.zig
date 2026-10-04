@@ -24,6 +24,7 @@ const canvas = interface.canvas;
 const main_menu = interface.main_menu;
 const mod_manager = interface.mod_manager;
 const mod_options = interface.mod_options;
+const game_modes = interface.game_modes;
 const game_options = interface.game_options;
 const pilot_roster = interface.pilot_roster;
 const saved_games = interface.saved_games;
@@ -40,6 +41,9 @@ const log = std.log.scoped(.interface);
 /// and 11 are the multiplayer sessions, and 17 and 18 a session's loadout, each pair the same
 /// screen with a flag set or clear (`0x0051D54C`); a number without a screen ends the front end.
 pub const Screen = enum(u8) {
+    /// The name scripts know these values by.
+    pub const script_name = "FrontEndScreen";
+
     main_menu = 0,
     game_options = 1,
     audio = 3,
@@ -54,6 +58,12 @@ pub const Screen = enum(u8) {
     mods = 100,
     /// The page of options a mod's scripts offer (`mod_options`), which the mods screen opens.
     mod_options = 101,
+    /// OpenReliant's game modes screen (`game_modes`), which the main menu's GAME MODES opens.
+    game_modes = 102,
+    /// OpenReliant's briefing of a game mode, before each of its missions: the mod's screen that
+    /// the mode names stands in for it (`Scripted`). Without one, the front end goes straight on to
+    /// the mission.
+    mode_briefing = 103,
     _,
 
     pub fn format(screen: Screen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -82,6 +92,58 @@ pub const Outcome = union(enum) {
     /// LOAD GAME's saved game loaded: 1, which `WinMain` takes as START GAME's, into the Reliant's
     /// rooms before the loaded campaign's mission (`0x004AA1AB` on).
     loaded,
+    /// OpenReliant's: the game mode of this place in `Context.modes`, which PLAY on the game modes
+    /// screen starts.
+    game_mode: u8,
+    /// OpenReliant's: the next mission of the game mode that runs, which its briefing flies.
+    mode_mission,
+    /// OpenReliant's: the game mode that runs left from its briefing, for the screen the front end
+    /// now shows.
+    mode_left,
+};
+
+/// OpenReliant's: the mods' screens that stand in for the front end's own (the scripts'
+/// `ui.replace_screen`, [#560](https://github.com/OpenReliant/openreliant/issues/560)). While one
+/// stands in for the screen shown, the front end runs and draws it in place of its own, over the
+/// screen's background, with the pointer over it, and goes where it asks (`Request`).
+///
+/// **Improvement:** the original's menus are its own alone.
+pub const Scripted = struct {
+    context: *anyopaque,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        /// Whether a mod's screen stands in for `screen`.
+        replaces: *const fn (context: *anyopaque, screen: Screen) bool,
+        /// Shows the mod's screen that stands in for `screen`, or none.
+        show: *const fn (context: *anyopaque, screen: ?Screen) void,
+        /// What the mod's screen shown has asked for since the last pass, if anything.
+        take: *const fn (context: *anyopaque) ?Request,
+    };
+
+    fn replaces(scripted: Scripted, screen: Screen) bool {
+        return scripted.vtable.replaces(scripted.context, screen);
+    }
+
+    fn show(scripted: Scripted, screen: ?Screen) void {
+        scripted.vtable.show(scripted.context, screen);
+    }
+
+    fn take(scripted: Scripted) ?Request {
+        return scripted.vtable.take(scripted.context);
+    }
+};
+
+/// Where a mod's screen asks the front end to go.
+pub const Request = union(enum) {
+    /// To one of the front end's screens, or the mod's screen that stands in for it.
+    go: Screen,
+    /// Into the game mode of this place in `Context.modes`.
+    game_mode: u8,
+    /// From a game mode's briefing, on to its next mission.
+    launch_mission,
+    /// Out of the game.
+    quit,
 };
 
 /// The mission a new campaign starts with (`campaign_new` sets `mission_number` to 1).
@@ -194,6 +256,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
         .controls => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .controls).?.background },
         .video => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .video).?.background },
         .mods, .mod_options => .{ .shapes = settings.shapes_name, .background = mod_manager.opening.background },
+        .game_modes, .mode_briefing => .{ .shapes = settings.shapes_name, .background = game_modes.opening.background },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
         .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
         else => null,
@@ -228,6 +291,11 @@ pub const Context = struct {
     /// The mods OpenReliant started with and where to find them again, which the mods screen lists
     /// and orders; none leaves the screen shut.
     mods: ?mod_manager.Source = null,
+    /// The game modes the mods' scripts registered, which GAME MODES lists; none leaves it off the
+    /// main menu.
+    modes: []const game_modes.Mode = &.{},
+    /// The mods' screens that stand in for the front end's own; none leaves the front end its own.
+    scripted: ?Scripted = null,
 };
 
 /// The front end's state, which the game keeps in globals.
@@ -241,6 +309,9 @@ pub const Interface = struct {
     settings: settings.Settings = .{},
     mod_manager: mod_manager.ModManager = .{},
     mod_options: mod_options.ModOptions = .{},
+    game_modes: game_modes.GameModes = .{},
+    /// The screen a mod's screen stands in for, while it is shown (`Scripted`).
+    scripted_shown: ?Screen = null,
     /// The mod the mods screen has opened the options of, while they are shown.
     options_of: []const u8 = "",
     pilot_roster: pilot_roster.Roster = .{},
@@ -274,6 +345,19 @@ pub const Interface = struct {
         front.pointer.update(&context.devices.mouse, context.window, context.elapsed);
         var pointer = front.pointer;
         pointer.down = front.press.pressed(front.pointer.down);
+        if (context.scripted) |scripted| {
+            if (scripted.replaces(front.screen)) {
+                if (front.scripted_shown != front.screen) {
+                    scripted.show(front.screen);
+                    front.scripted_shown = front.screen;
+                }
+                return front.requested(scripted.take() orelse return null, context);
+            }
+            if (front.scripted_shown != null) {
+                scripted.show(null);
+                front.scripted_shown = null;
+            }
+        }
         switch (front.screen) {
             .main_menu => {
                 const choice = front.main_menu.frame(.{
@@ -281,6 +365,7 @@ pub const Interface = struct {
                     .keyboard = &context.devices.keyboard,
                     .sound = context.sound,
                     .bank = context.bank,
+                    .game_modes = context.modes.len > 0,
                 }) orelse return null;
                 return switch (choice) {
                     .quit => .quit,
@@ -295,6 +380,10 @@ pub const Interface = struct {
                         return null;
                     },
                     .instant_action => .{ .fly = main_menu.instant_action },
+                    .game_modes => {
+                        front.screen = .game_modes;
+                        return null;
+                    },
                     .game_options => {
                         front.screen = .game_options;
                         front.movie = movie.main_to_options;
@@ -348,6 +437,18 @@ pub const Interface = struct {
                         front.entered = .mods;
                     },
                     .main_menu => front.leaveToMenus(end),
+                }
+                return null;
+            },
+            .game_modes => {
+                const left = front.game_modes.frame(modesContext(front, context, pointer)) orelse return null;
+                switch (left) {
+                    .main_menu => front.screen = .main_menu,
+                    .play => |mode| {
+                        front.leave(context);
+                        front.screen = .main_menu;
+                        return .{ .game_mode = mode };
+                    },
                 }
                 return null;
             },
@@ -408,12 +509,79 @@ pub const Interface = struct {
                 }
                 return null;
             },
+            // No mod's screen briefs the player, so the mission follows at once.
+            .mode_briefing => {
+                front.leave(context);
+                return .mode_mission;
+            },
             else => {
                 log.info("{f} is not ported yet", .{front.screen});
                 front.screen = .main_menu;
                 return null;
             },
         }
+    }
+
+    /// Goes where a mod's screen asks: to one of the front end's screens, which can be shown, into
+    /// a game mode, from a game mode's briefing on to its mission, or out of the game. Going to
+    /// another screen from a game mode's briefing leaves the mode. What can't be done is left
+    /// undone, which the log says.
+    fn requested(front: *Interface, request: Request, context: Context) ?Outcome {
+        const briefing = front.screen == .mode_briefing;
+        switch (request) {
+            .go => |screen| {
+                if (!front.shows(screen, context)) {
+                    log.warn("a mod's screen asks for {f}, which can't be shown", .{screen});
+                    return null;
+                }
+                front.screen = screen;
+                return if (briefing) .mode_left else null;
+            },
+            .game_mode => |mode| {
+                if (mode >= context.modes.len) return null;
+                if (briefing) {
+                    log.warn("a game mode's briefing can't start another game mode", .{});
+                    return null;
+                }
+                front.hideScripted(context);
+                front.leave(context);
+                return .{ .game_mode = mode };
+            },
+            .launch_mission => {
+                if (!briefing) {
+                    log.warn("a mod's screen asks for a game mode's mission outside its briefing", .{});
+                    return null;
+                }
+                front.hideScripted(context);
+                front.leave(context);
+                return .mode_mission;
+            },
+            .quit => {
+                front.hideScripted(context);
+                return .quit;
+            },
+        }
+    }
+
+    /// Whether the front end can show `screen` with `context`: one it has ported, with what it
+    /// reads.
+    fn shows(front: *const Interface, screen: Screen, context: Context) bool {
+        _ = front;
+        return switch (screen) {
+            .main_menu, .game_options, .pilot_roster => true,
+            .audio, .controls, .video => context.settings != null,
+            .mods, .mod_options => context.settings != null and context.mods != null,
+            .saved_games => context.saves != null,
+            .game_modes => context.modes.len > 0,
+            .briefing, .landing_movie, .connection, .mode_briefing, _ => false,
+        };
+    }
+
+    /// Takes away the mod's screen shown in place of the front end's, as the front end ends.
+    fn hideScripted(front: *Interface, context: Context) void {
+        if (front.scripted_shown == null) return;
+        if (context.scripted) |scripted| scripted.show(null);
+        front.scripted_shown = null;
     }
 
     /// The shown screen entered where it has not been yet, as a pass begins, and as the driver does
@@ -441,6 +609,7 @@ pub const Interface = struct {
                 if (!shown) front.screen = .mods;
             },
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
+            .game_modes => front.game_modes.enter(modesContext(front, context, front.pointer)),
             .saved_games => if (context.saves) |saves| front.saved_games.enter(.load, .roster, savesContext(front, context, saves, front.pointer)),
             else => {},
         }
@@ -493,6 +662,12 @@ pub const Interface = struct {
         front.entered = null;
     }
 
+    /// Comes to the briefing of the game mode that runs, before its next mission.
+    pub fn brief(front: *Interface) void {
+        front.screen = .mode_briefing;
+        front.entered = null;
+    }
+
     /// The front end's frame as its render hook draws it (`sr + 0x88`): the background behind all,
     /// then the shown screen, the settings screen's of `shown`, with OpenReliant's `version` in the
     /// window's corner where there is one (`canvas.Canvas.drawVersion`).
@@ -507,16 +682,34 @@ pub const Interface = struct {
         };
         if (resources.background.image) |*picture| drawn.fill(picture);
         const art = if (resources.shapes) |*shapes| shapes else return;
+        // A mod's screen stands in for the screen's own, drawn by its scripts over this.
+        if (front.scripted_shown != null) return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer.font),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about, front.pointer),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown, front.pointer),
             .mods => try front.mod_manager.draw(drawn, art, front.pointer),
             .mod_options => try front.mod_options.draw(drawn, art, front.pointer),
+            .game_modes => try front.game_modes.draw(drawn, art, front.pointer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
             .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
             else => {},
         }
+    }
+
+    /// The pointer over a mod's screen that stands in for the front end's own, which the front end
+    /// draws after the scripts' drawing, as each of its own screens draws the pointer last.
+    pub fn drawPointer(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language) canvas.Error!void {
+        if (front.scripted_shown == null) return;
+        const art = if (resources.shapes) |*shapes| shapes else return;
+        const drawn: canvas.Canvas = .{
+            .gpa = resources.gpa,
+            .target = target,
+            .window = window,
+            .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
+            .strings = strings,
+        };
+        try drawn.shape(art, front.pointer.shape(), front.pointer.at);
     }
 };
 
@@ -528,6 +721,11 @@ fn settingsContext(front: *const Interface, context: Context, settings_file: *pr
 /// What a pass of the mods screen reads, with the pointer at `pointer`.
 fn modsContext(front: *const Interface, context: Context, settings_file: *profile.File, source: mod_manager.Source, pointer: canvas.Pointer) mod_manager.Context {
     return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .settings_file = settings_file, .ticks = front.ticks, .source = source };
+}
+
+/// What a pass of the game modes screen reads, with the pointer at `pointer`.
+fn modesContext(front: *const Interface, context: Context, pointer: canvas.Pointer) game_modes.Context {
+    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .ticks = front.ticks, .modes = context.modes };
 }
 
 /// What a pass of a mod's options reads, with the pointer at `pointer`.
@@ -654,4 +852,93 @@ test Screen {
     var buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("pilot_roster", try std.fmt.bufPrint(&buffer, "{f}", .{Screen.pilot_roster}));
     try std.testing.expectEqualStrings("screen 10", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Screen, @enumFromInt(10))}));
+}
+
+test "a mod's screen stands in for the front end's own, and goes where it asks" {
+    // Scripts whose screen stands in for the main menu, and asks for each request in turn.
+    const Stand = struct {
+        shown: ?Screen = null,
+        asked: ?Request = null,
+
+        fn scripted(stand: *@This()) Scripted {
+            return .{ .context = stand, .vtable = &.{ .replaces = replaces, .show = show, .take = take } };
+        }
+
+        fn from(context: *anyopaque) *@This() {
+            return @ptrCast(@alignCast(context));
+        }
+
+        fn replaces(_: *anyopaque, screen: Screen) bool {
+            return screen == .main_menu or screen == .mode_briefing;
+        }
+
+        fn show(context: *anyopaque, screen: ?Screen) void {
+            from(context).shown = screen;
+        }
+
+        fn take(context: *anyopaque) ?Request {
+            const stand = from(context);
+            defer stand.asked = null;
+            return stand.asked;
+        }
+    };
+    var stand: Stand = .{};
+    var devices: input.Devices = .{};
+    var typed: winmain.Typed = .{};
+    var front: Interface = .{};
+    const modes = [_]game_modes.Mode{.{ .label = "ARENA", .mod = "arena", .missions = 1 }};
+    const context: Context = .{ .devices = &devices, .typed = &typed, .window = .{ 640, 480 }, .elapsed = 1, .scripted = stand.scripted(), .modes = &modes };
+    // The main menu's own items take nothing: the mod's screen is shown in its place.
+    devices.mouse.at = .{ 100.0 / 640.0, 200.0 / 480.0 };
+    devices.mouse.buttons.left = true;
+    try std.testing.expectEqual(null, front.frame(context));
+    try std.testing.expectEqual(Screen.main_menu, front.screen);
+    try std.testing.expectEqual(Screen.main_menu, stand.shown.?);
+    // It goes to a screen that can be shown, and not one that can't.
+    stand.asked = .{ .go = .connection };
+    _ = front.frame(context);
+    try std.testing.expectEqual(Screen.main_menu, front.screen);
+    stand.asked = .{ .go = .game_options };
+    _ = front.frame(context);
+    try std.testing.expectEqual(Screen.game_options, front.screen);
+    // Off the main menu, the front end's own screen runs, and the mod's is taken away.
+    _ = front.frame(context);
+    try std.testing.expectEqual(null, stand.shown);
+    // Back on it, a game mode, and quitting.
+    front.screen = .main_menu;
+    _ = front.frame(context);
+    stand.asked = .{ .game_mode = 0 };
+    try std.testing.expectEqual(Outcome{ .game_mode = 0 }, front.frame(context).?);
+    front.screen = .main_menu;
+    _ = front.frame(context);
+    stand.asked = .quit;
+    try std.testing.expectEqual(Outcome.quit, front.frame(context).?);
+    // A game mode's mission is flown only from its briefing.
+    front.screen = .main_menu;
+    _ = front.frame(context);
+    stand.asked = .launch_mission;
+    try std.testing.expectEqual(null, front.frame(context));
+    front.brief();
+    _ = front.frame(context);
+    try std.testing.expectEqual(Screen.mode_briefing, stand.shown.?);
+    stand.asked = .launch_mission;
+    try std.testing.expectEqual(Outcome.mode_mission, front.frame(context).?);
+    try std.testing.expectEqual(null, stand.shown);
+    // Going to another screen from the briefing leaves the mode, and the briefing can't start
+    // another.
+    front.brief();
+    _ = front.frame(context);
+    stand.asked = .{ .game_mode = 0 };
+    try std.testing.expectEqual(null, front.frame(context));
+    stand.asked = .{ .go = .main_menu };
+    try std.testing.expectEqual(Outcome.mode_left, front.frame(context).?);
+    try std.testing.expectEqual(Screen.main_menu, front.screen);
+}
+
+test "without a mod's screen, a game mode's briefing goes straight on to the mission" {
+    var devices: input.Devices = .{};
+    var typed: winmain.Typed = .{};
+    var front: Interface = .{};
+    front.brief();
+    try std.testing.expectEqual(Outcome.mode_mission, front.frame(.{ .devices = &devices, .typed = &typed, .window = .{ 640, 480 }, .elapsed = 1 }).?);
 }
