@@ -9,6 +9,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const png = @import("../../../formats/png.zig");
+const texels = @import("../../../formats/texels.zig");
 const colour = @import("../colour.zig");
 const math = @import("../math.zig");
 const tcache = @import("../../../formats/tcache.zig");
@@ -26,51 +27,13 @@ pub const Level = struct {
     /// blocks of 4 by 4 pixels, a row of blocks at a time.
     texels: []const u8,
 
-    /// How a level holds its pixels.
+    /// How a level holds its pixels (`formats.texels`).
     ///
     /// **Improvement:** OpenReliant keeps mods' pictures compressed on the GPU, as today's games
     /// do: a quarter of the memory of 8-bit RGBA, or less.
-    pub const Format = enum {
-        rgba8,
-        /// BC1: colour, and alpha on or off, in 8 bytes a block.
-        bc1,
-        /// BC3: colour and alpha in 16 bytes a block.
-        bc3,
-        /// BC5: two channels, red and green, in 16 bytes a block, for normal maps.
-        bc5,
-        /// BC7: colour and alpha in 16 bytes a block, finer than BC3.
-        bc7,
-
-        /// Whether it holds blocks of 4 by 4 pixels.
-        pub fn compressed(format: Format) bool {
-            return format != .rgba8;
-        }
-
-        /// The bytes a level `width` by `height` takes.
-        pub fn size(format: Format, width: u32, height: u32) usize {
-            return switch (format) {
-                .rgba8 => @as(usize, width) * height * 4,
-                .bc1, .bc3, .bc5, .bc7 => blocks(width) * blocks(height) * format.blockBytes(),
-            };
-        }
-
-        /// The bytes of a block of 4 by 4 pixels; for 8-bit RGBA, of a pixel.
-        pub fn blockBytes(format: Format) usize {
-            return switch (format) {
-                .rgba8 => 4,
-                .bc1 => 8,
-                .bc3, .bc5, .bc7 => 16,
-            };
-        }
-    };
-
-    /// The blocks of 4 pixels across `pixels`, the last partly filled.
-    pub fn blocks(pixels: u32) usize {
-        return (@as(usize, pixels) + block_side - 1) / block_side;
-    }
-
-    /// The side of a compressed format's block, in pixels.
-    pub const block_side = 4;
+    pub const Format = texels.Format;
+    pub const blocks = texels.blocks;
+    pub const block_side = texels.block_side;
 };
 
 /// Added by OpenReliant: a mod's surface function that a draw is shaded with, and the parameters it
