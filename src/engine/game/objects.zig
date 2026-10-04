@@ -1044,6 +1044,13 @@ const whole_light_mask: u32 = 0x03;
 ///
 /// Not yet ported: the moment of inertia `object_bounds` sums, which nothing reads yet; the
 /// animation a node's track holds (`node_animate`).
+/// The names of the tracks the game plays on models' parts by name (`node_play_named`): `deploy`
+/// (`0x004E1690`), which opens out or lowers a part, such as a satellite's panels, the Reliant's
+/// retainer, a station's port or the Kamov's tubes; and `opendoor` (`0x004E1728`), which opens
+/// doors, such as a bay's or the Nanny's.
+pub const deploy_track = "deploy";
+pub const door_track = "opendoor";
+
 pub const Model = struct {
     /// The file the model was made from, which its parts' collision trees are read from.
     source: *const shp.Model = &no_source,

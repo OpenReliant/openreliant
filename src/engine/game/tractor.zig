@@ -728,7 +728,7 @@ const Doors = enum { open, close };
 /// The clip the doors play (`0x004E1728`), forward from its start to open them
 /// (`0x0041C116`, `0x0041C13E`, `0x0041C159`) and back from where it stands to close them
 /// (`0x0041C8A6`, `0x0041C8EF`, `0x0041CADA`, `0x0041CB23`).
-const door_clip = "opendoor";
+const door_clip = objects.door_track;
 const opening: f32 = 1;
 const closing: f32 = -1;
 

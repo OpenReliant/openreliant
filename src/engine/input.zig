@@ -1156,6 +1156,7 @@ const videoreports = @import("game/videoreports.zig");
 const objects = @import("game/objects.zig");
 const missiles = @import("game/missiles.zig");
 const cloak = @import("game/cloak.zig");
+const launch = @import("game/launch.zig");
 const events = @import("game/mission/events.zig");
 const math = @import("surrender/math.zig");
 
@@ -1745,15 +1746,16 @@ const gone_pause = 500;
 /// missiles are disabled or it jumps; nor, for a type that needs a lock, without one, which the
 /// display refuses, Betty saying so too where none is left, but no more than once in 500 ticks.
 /// A cloaked ship uncloaks instead (`setCloak`). A launch opens the missile display and holds it
-/// open, Betty says so where the armed type has run out, and the display counts one off.
+/// open, Betty says so where the armed type has run out, and the display counts one off. The
+/// player's Kamov, in mission 25, launches a torpedo from its tubes instead (`launchCarried`).
 ///
-/// Not ported: the Kamov of mission 25 letting the craft it carries go instead
-/// ([#305](https://github.com/OpenReliant/openreliant/issues/305)), and uncloaking;
-/// and in a multiplayer game, the missile being a power-up, and launching from under the cloak.
+/// Not ported: in a multiplayer game, the missile being a power-up, launching from under the cloak,
+/// and telling the other players of a Kamov's launch.
 pub fn launchMissile(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const ship = &all.slots[index].object;
     if (ship.flags.missiles_disabled or ship.flags.jumping) return;
+    if (ship.type == .kamov) return launchCarried(world, index);
     const display = world.display orelse return;
     const ring = &display.missiles;
     const armed = ring.armedEntry();
@@ -1780,6 +1782,36 @@ pub fn launchMissile(world: gameobj.World, index: u16) void {
         ring.left -= 1;
         return;
     }
+}
+
+/// `player_launch_missile`'s part for the Kamov (`0x00412867` on): the first ship, in slot order,
+/// that waits to launch from the ship in slot `index` (`waitingLaunch`) is let go. A cloaked ship
+/// uncloaks first (`setCloak`) and goes on. Each part of its root plays `objects.deploy_track` on from
+/// where it stands, in the track's own mode, at `deploy_speed`, and the waiting ship's launch
+/// starts (`launch.start`). Where none waits, nothing happens.
+fn launchCarried(world: gameobj.World, index: u16) void {
+    const all = world.objects;
+    const waiting = waitingLaunch(all, index) orelse return;
+    if (all.slots[index].object.flags.cloaked) setCloak(world, false);
+    if (all.slots[index].model) |*model| model.playNamedTree(objects.deploy_track, objects.Model.keep_time, null, deploy_speed);
+    launch.start(all, waiting);
+}
+
+/// The speed the Kamov's parts play `objects.deploy_track` at as a torpedo leaves (`0x00412917`).
+const deploy_speed: f32 = 4;
+
+/// The first ship, in slot order, whose current order is a Launch from the ship in slot `carrier`
+/// that hasn't started (`launch.Data.go`), and that isn't a stand-in, exploding or disabled
+/// (`0x0041288D`, the mask `0x460`).
+fn waitingLaunch(all: *const create.Objects, carrier: u16) ?u16 {
+    for (all.slots[0..all.count], 0..) |*slot, at| {
+        const flags = slot.object.flags;
+        if (flags.stand_in or flags.exploding or flags.disabled) continue;
+        const entry = slot.current() orelse continue;
+        if (entry.order != .launch or entry.target.index != carrier or entry.data.launch.go) continue;
+        return @intCast(at);
+    }
+    return null;
 }
 
 /// `player_jump` (`0x00412B20`): JUMP DRIVE, while the mission goes on, where the mission has a
@@ -2853,6 +2885,41 @@ test eject {
     const before = slot.object.order_count;
     eject(world, index);
     try std.testing.expectEqual(before, slot.object.order_count);
+}
+
+test "the Kamov's LAUNCH MISSILE lets its torpedoes go, one at a time" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const kamov = try mission.add(.kamov, @splat(0));
+    const first = try mission.add(.torpedo, @splat(0));
+    const second = try mission.add(.torpedo, @splat(0));
+    const ctx = mission.orders();
+    for ([_]u16{ first, second }) |torpedo| _ = try aigeneric.pushShip(ctx, torpedo, .launch, kamov, 0);
+    const world = mission.world();
+
+    // Each press starts the launch of the first torpedo still waiting, in slot order.
+    launchMissile(world, kamov);
+    try std.testing.expect(mission.slot(first).orders[0].data.launch.go);
+    try std.testing.expect(!mission.slot(second).orders[0].data.launch.go);
+    launchMissile(world, kamov);
+    try std.testing.expect(mission.slot(second).orders[0].data.launch.go);
+    try std.testing.expectEqual(null, waitingLaunch(mission.objects, kamov));
+    // With none waiting, nothing happens, and no missile flies.
+    launchMissile(world, kamov);
+    // An exploding torpedo isn't let go, and a Kamov whose missiles are disabled lets none go.
+    const third = try mission.add(.torpedo, @splat(0));
+    _ = try aigeneric.pushShip(ctx, third, .launch, kamov, 0);
+    mission.slot(third).object.flags.exploding = true;
+    try std.testing.expectEqual(null, waitingLaunch(mission.objects, kamov));
+    mission.slot(third).object.flags.exploding = false;
+    mission.slot(kamov).object.flags.missiles_disabled = true;
+    launchMissile(world, kamov);
+    try std.testing.expect(!mission.slot(third).orders[0].data.launch.go);
+    // A launch aimed at another carrier isn't the Kamov's.
+    mission.slot(kamov).object.flags.missiles_disabled = false;
+    mission.slot(third).orders[0].target.index = @intCast(first);
+    try std.testing.expectEqual(null, waitingLaunch(mission.objects, kamov));
 }
 
 test launchMissile {

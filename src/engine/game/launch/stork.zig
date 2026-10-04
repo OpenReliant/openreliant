@@ -32,7 +32,7 @@ const out_throttle: f32 = 2;
 
 /// The track every part of the ship plays as it opens out (`0x004E1690`), from its start, once, at
 /// `deploy_speed` (`0x0041AD49`).
-const deploy_track = "deploy";
+const deploy_track = objects.deploy_track;
 const deploy_speed: f32 = 4;
 
 /// `launch_stork_run` (`0x0041AD10`): the launch of the ship in slot `index` from step 2 on.

@@ -141,8 +141,8 @@ const hangar_points = [2]i16{ 0, 1 };
 
 /// The tracks the launch plays (`node_play_named`): the doors' opening (`0x004E1728`), and the
 /// retainer's lowering (`0x004E1690`).
-const open_track = "opendoor";
-const deploy_track = "deploy";
+const open_track = objects.door_track;
+const deploy_track = objects.deploy_track;
 
 /// How fast the launch plays its tracks: the tube's lower door's opening (`0x0041B3E7`), the
 /// hangar's door's (`0x0041B42E`), the upper door's closing back (`0x0041B2FB`), and the

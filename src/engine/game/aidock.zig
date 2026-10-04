@@ -174,7 +174,7 @@ const slide_limit: f32 = 0.5;
 const roll_damping: f32 = 2;
 
 /// The animation a port plays as a ship docks at it (`0x004E1690`).
-const port_track = "deploy";
+const port_track = objects.deploy_track;
 
 /// How fast the port's animation plays (`0x00406E15`).
 const port_speed: f32 = 4;
@@ -609,7 +609,7 @@ pub const NannyStep = enum(u32) {
 const entry_doors = [2]usize{ 0, 1 };
 const exit_doors = [2]usize{ 4, 3 };
 /// Nanny door animation (`0x004E1728`, `0x0040757A`).
-const nanny_door_track = "opendoor";
+const nanny_door_track = objects.door_track;
 const nanny_door_speed: f32 = 1;
 /// Approach offsets, slowing distance, speed and arrival distance (`0x004DC4B8`,
 /// `0x004DC444`, `0x004DC43C`, `0x004DC440`, `0x004DC438`).

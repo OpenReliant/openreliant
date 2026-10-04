@@ -50,7 +50,7 @@ const climb_ticks = 100;
 
 /// The track the doors play (`0x004E1728`), forward from where it stands to open them and back to
 /// close them, at `door_speed` (`0x0041AA0A`, `0x0041ABD8`).
-pub const door_track = "opendoor";
+pub const door_track = objects.door_track;
 pub const door_speed: f32 = 4;
 
 /// The doors a bay's gate opens: up to two parts of the carrier's root's child list, which the game

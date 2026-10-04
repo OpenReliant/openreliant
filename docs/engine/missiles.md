@@ -462,8 +462,22 @@ armed type:
 4. The first rack of the armed type with a missile left launches one, at the ship's target while the
    lock holds, else at nothing, and the armed entry counts one off.
 
-In a multiplayer game a missile is a power-up; and the Kamov of mission 25 lets the craft it
-carries go instead. The right mouse button launches too, in the mouse's mode.
+In a multiplayer game a missile is a power-up. The right mouse button launches too, in the mouse's
+mode.
+
+The player's Kamov, in mission 25, launches no missile. Its torpedoes wait in its tubes under Launch
+orders aimed at it ([Launches](launch.md#how-a-launch-is-given)), and LAUNCH MISSILE lets the next
+one go (`0x00412867` on):
+
+1. It looks for the first object, in slot order, that is not a stand-in, exploding or disabled,
+   whose current order is a Launch aimed at the Kamov that hasn't started yet. Where there is none,
+   nothing happens.
+2. A cloaked Kamov drops its cloak, and goes on.
+3. Every part of the Kamov's root plays its `deploy` track on from where it stands, in the track's
+   own mode, at speed 4.
+4. That object's launch starts (`launch_start`, `0x00418DB0`).
+
+In a multiplayer game it also tells the other players (`0x004BB190`).
 
 COUNTERMEASURES (`0x00413E80`, once a press), outside a mission's ending: with none left Betty says
 so (sound `0xF`), and with 6, 4 or 2 left she warns they run low (`0xD`); then
@@ -472,7 +486,8 @@ so (sound `0xF`), and with 6, 4 or 2 left she warns they run low (`0xD`); then
 A cloaked ship uncloaks in place of the launch ([The cloak](cloak.md#who-cloaks)).
 
 OpenReliant reads both in `input.playerWeapons`, after the throttle's keys, and the right mouse
-button after LAUNCH MISSILE. Not ported: the Kamov, and the multiplayer game's power-up.
+button after LAUNCH MISSILE, and the Kamov's in `input.launchCarried`. Not ported: the multiplayer
+game's power-up, and what the Kamov's launch tells the other players.
 
 ### The lock
 

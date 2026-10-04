@@ -30,7 +30,8 @@ numbered in turn as it is given ([Orders](orders.md#the-stack)).
 A launch waits until `StartLaunch` (command `0x14`) starts it: `launch_start` (`0x00418DB0`) sets
 the first byte of the data of the first Launch among the ship's orders. In mission 25 the player's
 Kamov starts the launch of a torpedo waiting in its tubes with LAUNCH MISSILE
-(`player_launch_missile`, `0x00412820`), and a multiplayer game's packets start launches too.
+(`player_launch_missile`, `0x00412820`, [The player's](missiles.md#the-players)), and a
+multiplayer game's packets start launches too.
 `WaitForJumpOrLaunch` (command `0x3A`) holds its thread while any
 ship it names, one the AI's searches reach, is on a jump, a warp or a launch: Jump In and Jump Out
 under both their numbers, Warp In, Warp Out, Fixed Gate Jump In and Out, and Launch. The command
@@ -381,8 +382,5 @@ blinking beacons get the longer reach and the thrown-back light: when the steady
 real lights, they keep their own reach and throw nothing back. `--original` keeps the beacons'
 normal reach and throws nothing back.
 
-Not ported:
-
-- The Kamov's LAUNCH MISSILE, which starts its torpedoes' launches
-  ([#305](https://github.com/OpenReliant/openreliant/issues/305)), and a multiplayer game's
-  ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+Not ported: a multiplayer game's starting of launches
+([#55](https://github.com/OpenReliant/openreliant/issues/55)).
