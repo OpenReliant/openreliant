@@ -64,8 +64,8 @@ pub const thumbnail_name = "mod.png";
 /// don't replace game files.
 pub const script_extension = ".luau";
 
-/// The file extensions of a mod's post effects' shaders (`scripting.postprocessing`), matched
-/// ignoring case. Like scripts, they don't replace game files.
+/// The file extensions of the shaders for a mod's post effects (`scripting.postprocessing`),
+/// matched ignoring case. Like scripts, shaders don't replace game files.
 pub const shader_extensions = [_][]const u8{ ".frag", ".glsl" };
 
 /// Files that belong to the mod itself rather than replacing game files, besides its scripts and
@@ -810,10 +810,15 @@ fn isOwn(name: []const u8) bool {
     return isScript(name) or isShader(name);
 }
 
-/// Whether `name` has one of the shaders' extensions, ignoring case.
+/// Whether `name` is a shader, ignoring case.
 fn isShader(name: []const u8) bool {
+    return hasExtension(name, &shader_extensions);
+}
+
+/// Whether `name` ends in one of `extensions`, ignoring case.
+fn hasExtension(name: []const u8, extensions: []const []const u8) bool {
     const extension = std.fs.path.extension(name);
-    for (shader_extensions) |shader| if (std.ascii.eqlIgnoreCase(extension, shader)) return true;
+    for (extensions) |each| if (std.ascii.eqlIgnoreCase(extension, each)) return true;
     return false;
 }
 
@@ -825,7 +830,7 @@ fn isGameFile(name: []const u8) bool {
 
 /// Whether `name` has the script extension, ignoring case.
 fn isScript(name: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(std.fs.path.extension(name), script_extension);
+    return hasExtension(name, &.{script_extension});
 }
 
 /// Parses a version such as `0.7` or `0.7.1`. A missing patch number counts as 0. Returns null if

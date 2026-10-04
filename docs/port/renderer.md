@@ -84,8 +84,9 @@ whole-shader overrides.
 
 **Improvement:** the mods' post effects ([`gpu/effects.zig`](../../src/platform/gpu/effects.zig),
 [Post effects](scripting.md#post-effects)). Each effect is a fragment shader that draws the
-screen-wide triangle of the bloom's passes, reading the frame through the screen sampler. As a
-frame is put on the screen (`Gpu.compose`):
+screen-wide triangle of the bloom's passes, reading the frame through the screen sampler
+(`gpu.drawScreenPass`, `gpu.screenPassPipeline`). As a frame is put on the screen
+(`Gpu.compose`):
 
 1. The bloom and the tone finish the frame, as before.
 2. The effects of the stage before the display draw over it, in order.
@@ -97,8 +98,8 @@ reads what the last wrote (`source`). Each also reads the finished frame before 
 (`frame_image`), and gets the frame's size, the seconds passed and its four parameters in its
 uniform block. What the last pass wrote is what the window shows and a screenshot saves. A frame
 without passes is drawn as before, without the extra targets. An effect's pipeline is made the
-first time it draws; one that can't be made is logged and left out. A frame draws at most 32
-passes.
+first time it draws; if it can't be made, the error is logged and the effect is left out. A frame
+draws at most 64 passes, as many as the scripts can register.
 
 ## Improvements
 

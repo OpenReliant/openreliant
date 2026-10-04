@@ -1,5 +1,5 @@
-//! The mods' post effects as the driver draws them ([#559](https://github.com/OpenReliant/openreliant/issues/559)):
-//! it compiles the shaders the player scripts register (`platform.shader_compiler`), adds them to
+//! The driver's side of the mods' post effects ([#559](https://github.com/OpenReliant/openreliant/issues/559)).
+//! It compiles the shaders the player scripts register (`platform.shader_compiler`), adds them to
 //! the GPU (`platform.gpu.effects`), and gives the GPU each frame's passes from the scripts
 //! (`scripting.postprocessing`). Effects draw on the GPU only: with the software device the scripts
 //! have no host, and their effects draw nothing.
@@ -13,22 +13,26 @@ const scripting = @import("scripting");
 const postprocessing = scripting.postprocessing;
 const Screen = @import("presenter.zig").Screen;
 
-const log = std.log.scoped(.scripts);
-
 pub const PostEffects = struct {
     gpa: Allocator,
     screen: *Screen,
-    /// The scripts that register the effects, where any run.
+    /// The scripts that register the effects, if any run.
     presentation: ?*scripting.Presentation,
     /// Whether the effects are drawn: the MOD EFFECTS setting (`--no-mod-effects`).
     drawn: bool = true,
-    /// Why the last shader didn't compile, which the scripts get.
+    /// Why the last shader didn't compile, which is passed on to the script.
     message: [max_message]u8 = undefined,
 
-    /// The longest message a script gets of why a shader didn't compile.
+    /// The longest message a script gets about a shader that didn't compile.
     const max_message = 1024;
 
-    /// Has the scripts' effects compiled and drawn, as the GPU draws its frames.
+    // A frame can draw every effect the scripts can register.
+    comptime {
+        std.debug.assert(postprocessing.max_effects <= gpu_effects.max_passes);
+    }
+
+    /// Becomes the scripts' effect host and the GPU's effect source, so that the scripts' effects
+    /// compile and draw. Does nothing without scripts or without the GPU.
     pub fn start(effects: *PostEffects) void {
         const shown = effects.presentation orelse return;
         const device = effects.gpu() orelse return;
@@ -36,7 +40,7 @@ pub const PostEffects = struct {
         device.effect_source = .{ .context = effects, .passes = passes };
     }
 
-    /// Takes the effects back from the GPU, before it goes.
+    /// Removes the effects from the GPU. Call it before the GPU is destroyed.
     pub fn stop(effects: *PostEffects) void {
         if (effects.presentation) |shown| shown.setEffectHost(null);
         if (effects.gpu()) |device| device.effect_source = null;
@@ -69,7 +73,7 @@ pub const PostEffects = struct {
         return .{ .effect = @intFromEnum(id) };
     }
 
-    /// `text`, kept as the message the scripts get, cut to `max_message`.
+    /// Keeps `text`, cut to `max_message`, as the message the script gets.
     fn failed(effects: *PostEffects, text: []const u8) postprocessing.EffectHost.Compiled {
         const kept = std.mem.trimEnd(u8, text[0..@min(text.len, max_message)], "\n");
         @memcpy(effects.message[0..kept.len], kept);
@@ -81,15 +85,14 @@ pub const PostEffects = struct {
         device.removeEffect(@enumFromInt(effect));
     }
 
-    /// The passes the scripts have enabled, while MOD EFFECTS is on.
+    /// The passes of the effects the scripts have enabled, or none while MOD EFFECTS is off.
     fn passes(context: *anyopaque, buffer: *[gpu_effects.max_passes]gpu_effects.Pass) []const gpu_effects.Pass {
         const effects = from(context);
         const shown = effects.presentation orelse return &.{};
         if (!effects.drawn) return &.{};
         var scripted: [postprocessing.max_effects]postprocessing.Pass = undefined;
         const listed = shown.effectPasses(&scripted);
-        const count = @min(listed.len, buffer.len);
-        for (listed[0..count], buffer[0..count]) |pass, *drawn| drawn.* = .{
+        for (listed, buffer[0..listed.len]) |pass, *into| into.* = .{
             .effect = @enumFromInt(pass.effect),
             .stage = switch (pass.stage) {
                 .before_hud => .before_hud,
@@ -97,7 +100,7 @@ pub const PostEffects = struct {
             },
             .parameters = pass.parameters,
         };
-        return buffer[0..count];
+        return buffer[0..listed.len];
     }
 };
 

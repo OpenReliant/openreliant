@@ -56,7 +56,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--baked-lights` | Bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near ([Rendering](../engine/rendering.md#static-lights)) |
 | `--launch-steam original\|soft` | The Yamato's launch steam: original brightness or softer jets with less glare. Defaults to `soft`; `--original` selects `original` ([Launches](../engine/launch.md#the-yamatos-launch)) |
 | `--bitmap-fonts` | Draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod) ([Modding](modding.md#fonts)) |
-| `--no-mod-effects` | Draw none of the post effects the mods' scripts register ([Post effects](scripting.md#post-effects)) |
+| `--no-mod-effects` | Don't draw the post effects of the mods' scripts ([Post effects](scripting.md#post-effects)) |
 
 ## Sound
 

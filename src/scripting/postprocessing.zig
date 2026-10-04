@@ -8,8 +8,8 @@
 //! - Each frame the driver takes the passes of the enabled effects (`Registry.passes`): those drawn
 //!   before the flight display first, then those after it, each group by `order`, then in the
 //!   order they were registered.
-//! - An effect ends with the script that registered it, and the effects a script registered as it
-//!   failed to load are taken back (`Registry.removeSince`).
+//! - An effect is removed when the script that registered it stops. If a script fails to load, the
+//!   effects it registered are removed (`Registry.removeSince`).
 //! - Effects draw on the GPU only. Without a host, as with the software device, scripts can still
 //!   register them, and they draw nothing.
 
@@ -57,7 +57,7 @@ pub const Definition = struct {
     enabled: bool = true,
 };
 
-/// What compiles the mods' shaders and draws them, which the driver gives.
+/// What compiles the mods' shaders and draws them. The driver provides it.
 pub const EffectHost = struct {
     context: *anyopaque,
     vtable: *const VTable,
@@ -74,7 +74,7 @@ pub const EffectHost = struct {
     pub const Compiled = union(enum) {
         /// The effect added.
         effect: u32,
-        /// Why it didn't compile, which lasts until the host's next call.
+        /// Why it didn't compile. The text is valid until the host's next call.
         failed: []const u8,
     };
 };
@@ -94,14 +94,14 @@ const Entry = struct {
     order: i32,
     parameters: [parameter_count]f32,
     enabled: bool,
-    /// The host's effect, or null where there is no host.
+    /// The host's effect, or null if there is no host.
     effect: ?u32,
 };
 
 /// The effects the scripts have registered.
 pub const Registry = struct {
     entries: std.ArrayList(Entry) = .empty,
-    /// What compiles and draws them; null where nothing does, such as in a test.
+    /// What compiles and draws them, or null if nothing does, such as in a test.
     host: ?EffectHost = null,
 
     pub fn deinit(registry: *Registry, gpa: Allocator) void {
@@ -114,8 +114,8 @@ pub const Registry = struct {
         if (entry.effect) |effect| host.vtable.remove(host.context, effect);
     }
 
-    /// Has `host` compile and draw the effects from now on, or nothing where it is null. The effects
-    /// registered already are taken back from the host before, and draw no more.
+    /// Sets what compiles and draws the effects from now on, or null for nothing. Effects already
+    /// registered are removed from the old host and draw no more.
     pub fn setHost(registry: *Registry, host: ?EffectHost) void {
         for (registry.entries.items) |*entry| {
             registry.release(entry.*);
@@ -124,8 +124,8 @@ pub const Registry = struct {
         registry.host = host;
     }
 
-    /// Takes back the effects `context` registered from the `first` on: all of them as its
-    /// script stops, or those it registered as it failed to load.
+    /// Removes the effects `context` registered from entry `first` on: all of them when its script
+    /// stops, or the ones it registered while failing to load.
     pub fn removeSince(registry: *Registry, context: *const Context, first: usize) void {
         var kept: usize = @min(first, registry.entries.items.len);
         for (registry.entries.items[kept..]) |entry| {
@@ -139,7 +139,7 @@ pub const Registry = struct {
         registry.entries.shrinkRetainingCapacity(kept);
     }
 
-    /// Takes back every effect `context` registered.
+    /// Removes every effect `context` registered.
     pub fn removeContext(registry: *Registry, context: *const Context) void {
         registry.removeSince(context, 0);
     }
@@ -149,14 +149,14 @@ pub const Registry = struct {
         return null;
     }
 
-    /// The passes of the enabled effects, in the order they draw, in `buffer`: those before the
-    /// flight display first, each stage by its order, and effects of the same order as they were
-    /// registered.
+    /// The passes of the enabled effects in the order they draw, in `buffer`: the stage before the
+    /// flight display first, each stage sorted by order, and effects of the same order in the order
+    /// they were registered.
     pub fn passes(registry: *const Registry, buffer: *[max_effects]Pass) []const Pass {
         var drawn: [max_effects]Entry = undefined;
         var count: usize = 0;
         for (registry.entries.items) |entry| {
-            if (!entry.enabled or entry.context.closed or entry.effect == null) continue;
+            if (!entry.enabled or entry.effect == null) continue;
             drawn[count] = entry;
             count += 1;
         }
@@ -193,9 +193,9 @@ fn qualified(call: Call, local: []const u8, buffer: *[runtime_module.max_name]u8
 }
 
 fn registerEffect(call: Call, given: Definition) []const u8 {
-    const scripts = call.runtime();
-    const registry = registryOf(call);
     if (call.context.family != .player) call.raise("postprocessing: only player scripts can register effects", .{});
+    const scripts = call.runtime();
+    const registry = &scripts.post_effects;
     var buffer: [runtime_module.max_name]u8 = undefined;
     const name = runtime_module.Name.of(qualified(call, given.name, &buffer)).?;
     if (registry.find(name.slice()) != null) call.raise("postprocessing: the effect '{s}' is registered already", .{name.slice()});
@@ -242,13 +242,12 @@ fn setParameters(call: Call, local: []const u8, given: Parameters) bool {
     return true;
 }
 
-/// What the tests stand a host in with, and the CRT example's shader, which the driver's tests
-/// compile.
+/// A stand-in host for the tests, and the CRT example's shader, which the driver's tests compile.
 pub const testing = struct {
     pub const crt_shader = @embedFile("crt/crt.frag");
 
-    /// A host that "compiles" any shader but one holding `broken`, counting the effects it adds
-    /// and those taken back.
+    /// A host that "compiles" any shader that doesn't contain `broken`. It counts the effects it
+    /// adds and records the ones removed.
     pub const Host = struct {
         added: u32 = 0,
         removed: std.ArrayList(u32) = .empty,

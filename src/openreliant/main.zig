@@ -278,8 +278,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     };
     var driver: srd3d.srd3d.Driver = try .init(arena, screen.interface());
     defer driver.deinit();
-    // The mods' post effects, which the player scripts register and the GPU draws, while the
-    // settings have them drawn. They are taken back from the GPU before it goes.
+    // The mods' post effects: the player scripts register them, and the GPU draws them while MOD
+    // EFFECTS is on. `stop` removes them before the GPU is destroyed.
     var post_effects: PostEffects = .{ .gpa = gpa, .screen = screen, .presentation = presentation, .drawn = options.mod_effects };
     post_effects.start();
     defer post_effects.stop();

@@ -35,7 +35,7 @@ pub const Pass = struct {
 };
 
 /// The most passes a frame draws.
-pub const max_passes = 32;
+pub const max_passes = 64;
 
 /// What a pass's shader reads, in std140's layout: the frame's size in pixels and the time in
 /// seconds, then the script's four parameters.
@@ -53,15 +53,15 @@ pub const Uniforms = extern struct {
 const samplers = 2;
 const uniform_buffers = 1;
 
-/// An effect: its fragment shader, and the pipeline it draws with, made the first time it draws.
+/// An effect: its fragment shader, or null once it is removed, and the pipeline it draws with.
 const Effect = struct {
     shader: ?*c.SDL_GPUShader,
     pipeline: ?*c.SDL_GPUGraphicsPipeline = null,
-    /// Set once its pipeline can't be made, which leaves it out from then on.
+    /// Whether making its pipeline failed.
     failed: bool = false,
 
-    /// Its pipeline, made the first time it draws; null where it can't be made, which leaves it
-    /// out from then on.
+    /// Its pipeline, made the first time it draws. Returns null if the pipeline can't be made, and
+    /// the effect is left out from then on.
     fn pipelineFor(effect: *Effect, screen: Screen) ?*c.SDL_GPUGraphicsPipeline {
         if (effect.pipeline) |made| return made;
         if (effect.failed) return null;
@@ -90,12 +90,12 @@ pub const Screen = struct {
 /// The effects the mods have added, and the passes the next frame draws.
 pub const Effects = struct {
     gpa: Allocator,
-    /// By `Id`; an effect removed leaves its place empty, so ids stay as they were.
+    /// Indexed by `Id`. A removed effect leaves its place empty, so the other ids don't change.
     effects: std.ArrayList(Effect) = .empty,
     passes: std.ArrayList(Pass) = .empty,
-    /// The seconds passed, which the passes get.
+    /// The time in seconds, which the passes get.
     time: f32 = 0,
-    /// The two targets the passes take turns writing into, of `size`.
+    /// The two targets the passes take turns writing into, and their size.
     targets: ?[2]*c.SDL_GPUTexture = null,
     size: [2]u32 = .{ 0, 0 },
 
@@ -115,8 +115,8 @@ pub const Effects = struct {
         return @enumFromInt(effects.effects.items.len - 1);
     }
 
-    /// Removes the effect `id`, and the passes that draw it. SDL lets go of its shader and pipeline
-    /// once the frames that draw with them are done.
+    /// Removes the effect `id` and the passes that draw it. SDL frees its shader and pipeline once
+    /// the frames that use them are done.
     pub fn remove(effects: *Effects, handle: *c.SDL_GPUDevice, id: Id) void {
         const index = @intFromEnum(id);
         if (index >= effects.effects.items.len) return;
@@ -136,8 +136,8 @@ pub const Effects = struct {
         if (effect.shader) |made| c.SDL_ReleaseGPUShader(handle, made);
     }
 
-    /// The passes the next frame draws, in order, and the seconds passed. Passes beyond
-    /// `max_passes`, and passes of effects that aren't there, are left out.
+    /// Sets the passes the next frame draws, in order, and the time in seconds. Passes past
+    /// `max_passes` and passes of removed effects are left out.
     pub fn set(effects: *Effects, passes: []const Pass, time: f32) void {
         effects.time = time;
         effects.passes.clearRetainingCapacity();
@@ -156,8 +156,9 @@ pub const Effects = struct {
         return false;
     }
 
-    /// Draws the passes at `stage` over `shown`, and returns what is shown after them: `shown`
-    /// where there are none, or where the passes can't be drawn, which the log says.
+    /// Draws the passes at `stage` over `shown`, and returns the texture to show after them. That
+    /// is `shown` itself if there are no passes at `stage` or they can't be drawn (the log says
+    /// why).
     pub fn draw(effects: *Effects, commands: *c.SDL_GPUCommandBuffer, screen: Screen, stage: Stage, shown: *c.SDL_GPUTexture, frame_image: *c.SDL_GPUTexture) *c.SDL_GPUTexture {
         if (!effects.drawsAt(stage)) return shown;
         const targets = effects.ensureTargets(screen) catch |err| {
@@ -184,7 +185,7 @@ pub const Effects = struct {
         return source;
     }
 
-    /// The two targets, made again where the frame's size has changed.
+    /// The two targets, made again if the frame's size has changed.
     fn ensureTargets(effects: *Effects, screen: Screen) sdl.Error![2]*c.SDL_GPUTexture {
         if (effects.targets) |made| {
             if (effects.size[0] == screen.width and effects.size[1] == screen.height) return made;

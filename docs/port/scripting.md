@@ -45,11 +45,11 @@ package and the registry of the effects (`Runtime.post_effects`), on the present
   as with the software device, an effect registers and draws nothing.
 - Each entry keeps its script's context, its qualified name, its stage, its order, its four
   parameters, whether it is on, and the host's effect. `Runtime.close` and a failed load
-  (`Runtime.run`) take a context's effects back, and the host removes them from the GPU.
+  (`Runtime.run`) remove a context's effects, and the host removes them from the GPU.
 - The driver's [`post_effects.zig`](../../src/openreliant/post_effects.zig) is the host. It is the
   GPU's effect source (`Gpu.effect_source`): as each frame is finished, it gives the GPU the passes
   of the enabled effects (`Registry.passes`), sorted by stage, then order, then registration, and
-  none while MOD EFFECTS is off. Before the GPU goes, the driver takes the host away again.
+  none while MOD EFFECTS is off. The driver removes the host before the GPU is destroyed.
 
 ## Luau implementation
 

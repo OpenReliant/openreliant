@@ -207,8 +207,8 @@ pub const Presentation = struct {
         shown.runtime.registries.resetCamera(shown.runtime);
     }
 
-    /// Has `host` compile and draw the post effects the scripts register, or nothing where it is
-    /// null (`postprocessing.Registry.setHost`). Call it with null before the host goes.
+    /// Sets what compiles and draws the scripts' post effects, or null for nothing
+    /// (`postprocessing.Registry.setHost`). Call it with null before the host is destroyed.
     pub fn setEffectHost(shown: *Presentation, host: ?postprocessing.EffectHost) void {
         shown.runtime.post_effects.setHost(host);
     }

@@ -122,17 +122,18 @@ post.set_parameters("crt", { 0.5, 0.08, 0.6 })
 post.set_enabled("crt", false)
 ```
 
-- `stage` is `"before_hud"`, the default, which draws over the scene before the flight display
-  and the menus are drawn over it, or `"after_hud"`, which draws over everything.
-- Effects of a stage draw in the order of `order`, lowest first, and effects of the same order in
-  the order they were registered. Each effect reads what the one before it drew.
+- `stage` is `"before_hud"` (the default), which draws over the scene before the flight display
+  and the menus are drawn, or `"after_hud"`, which draws over everything.
+- Within a stage, effects draw by `order`, lowest first. Effects with the same order draw in the
+  order they were registered. Each effect reads what the one before it drew.
 - `parameters` holds up to four numbers, which the shader reads. Those left out are 0.
 - `register` returns the effect's name qualified with the mod's, such as `crt:crt`.
   `set_enabled` and `set_parameters` take the effect's own name or the qualified one.
-- The shader compiles as the script registers it. A shader that doesn't compile is an error in
+- The shader compiles when the script registers it. A shader that doesn't compile is an error in
   the script, with the file and the line.
-- An effect ends with the script that registered it. Effects a script registers before it fails
-  to load are taken back.
+- An effect is removed when the script that registered it stops. If a script fails to load, the
+  effects it registered are removed.
+- The mods can register at most 64 effects at once.
 - Effects draw on the GPU only. With `--software` they register and draw nothing.
 - MOD EFFECTS on the VIDEO tab, `ModEffects` in `starlancer.ini` and `--no-mod-effects` turn all
   the mods' effects off. GRAPHICS' presets leave the setting as it is.

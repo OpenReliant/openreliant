@@ -428,14 +428,14 @@ pub const Gpu = struct {
     /// The frame's lights, for lighting each pixel.
     lighting: Lighting = .{},
     shadows: shadow.Shadows,
-    /// The mods' post effects (`gpu/effects.zig`), and what the last frame showed after them,
-    /// which a screenshot takes.
+    /// The mods' post effects (`gpu/effects.zig`), and the texture the last frame showed after
+    /// them, which a screenshot copies.
     post: effects.Effects,
     shown: ?*c.SDL_GPUTexture = null,
-    /// What gives each frame's post effects, where anything does.
+    /// Where each frame's post effects come from, if anywhere.
     effect_source: ?EffectSource = null,
 
-    /// What gives the passes of the mods' post effects a frame draws, in order, in `buffer`.
+    /// Gives the passes of the mods' post effects for a frame, in order, in `buffer`.
     pub const EffectSource = struct {
         context: *anyopaque,
         passes: *const fn (context: *anyopaque, buffer: *[effects.max_passes]effects.Pass) []const effects.Pass,
@@ -1122,15 +1122,16 @@ pub const Gpu = struct {
         c.SDL_BlitGPUTexture(commands, &blit);
     }
 
-    /// What is shown of the finished frame: the mods' post effects drawn before the display, the
-    /// display drawn over the frame, and the effects drawn after it (`effects.Effects.draw`).
-    /// Without effects it is the finished frame, as before.
+    /// Draws the mods' post effects and the display over the finished frame, and returns the
+    /// texture to show: the effects before the display, then the display, then the effects after
+    /// it (`effects.Effects.draw`). Without effects this is the finished frame, as before.
     fn compose(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets) Error!*c.SDL_GPUTexture {
         const finished = targets.finished();
         var shown = finished;
         if (gpu.effect_source) |source| {
             var buffer: [effects.max_passes]effects.Pass = undefined;
-            gpu.post.set(source.passes(source.context, &buffer), @as(f32, @floatFromInt(c.SDL_GetTicks())) / std.time.ms_per_s);
+            const seconds = @as(f64, @floatFromInt(c.SDL_GetTicks())) / std.time.ms_per_s;
+            gpu.post.set(source.passes(source.context, &buffer), @floatCast(seconds));
         }
         const screen = if (gpu.post.passes.items.len > 0) try gpu.effectScreen(targets) else null;
         if (screen) |drawn| shown = gpu.post.draw(commands, drawn, .before_hud, shown, finished);
@@ -1152,8 +1153,8 @@ pub const Gpu = struct {
         };
     }
 
-    /// Adds a mod's post effect of the shader compiled for both devices, drawn where a frame's
-    /// passes name it (`effect_source`).
+    /// Adds a mod's post effect from its shader, compiled for both kinds of device. It draws when
+    /// a frame's passes name it (`effect_source`).
     pub fn addEffect(gpu: *Gpu, spirv_words: []const u32, metal: []const u8) Error!effects.Id {
         return gpu.post.add(gpu.handle, gpu.spirv, if (gpu.spirv) std.mem.sliceAsBytes(spirv_words) else metal);
     }
@@ -1579,8 +1580,8 @@ fn blendFactor(factor: srd3d.BlendFactor) c.SDL_GPUBlendFactor {
 }
 
 /// Draws the screen-wide triangle into `into` with `pipeline`, reading `source` and `frame_image`
-/// with `sampler`, and pushing `uniforms` to the fragment stage: the screen's passes, and the mods'
-/// post effects (`gpu/effects.zig`).
+/// with `sampler` and pushing `uniforms` to the fragment stage. Used by the screen's passes and by
+/// the mods' post effects (`gpu/effects.zig`).
 pub fn drawScreenPass(
     commands: *c.SDL_GPUCommandBuffer,
     into: *c.SDL_GPUTexture,
@@ -1606,8 +1607,8 @@ pub fn drawScreenPass(
     c.SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
 }
 
-/// A pipeline that draws the screen-wide triangle of `vertex` with `fragment` into a target of
-/// `format`: the screen's passes', and the mods' post effects' (`gpu/effects.zig`).
+/// Makes a pipeline that draws the screen-wide triangle of `vertex` with `fragment` into a target
+/// of `format`. Used by the screen's passes and by the mods' post effects (`gpu/effects.zig`).
 pub fn screenPassPipeline(handle: *c.SDL_GPUDevice, vertex: *c.SDL_GPUShader, fragment: *c.SDL_GPUShader, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUGraphicsPipeline {
     var colour = std.mem.zeroes(c.SDL_GPUColorTargetDescription);
     colour.format = format;
