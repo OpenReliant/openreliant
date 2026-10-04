@@ -357,7 +357,53 @@ players can find it and its updates. `OpenReliant` is the OpenReliant version th
 OpenReliant skips mods that need a newer version and says so in the log. The game never reads a file
 called `mod.ini`, so the archive still works with the original, and the manifest doesn't replace any
 game file. A mod's scripts are listed in the sections `[Scripts]` and `[Missions]`
-([Scripts](#scripts)).
+([Scripts](#scripts)), and the ship types it adds in `[ShipTypes]` ([Ship types](#ship-types)).
+
+## Ship types
+
+A mod can add new ship types. Each one is based on one of the game's types, and acts as that type
+wherever the game treats a type specially: a type based on the Phoenix carries the Nova Cannon, and
+one based on the Predator has the Predator's cockpit, engine sound and display. The manifest lists
+the types and describes each in a section of its own:
+
+```ini
+[ShipTypes]
+teapot=300
+
+[ShipType teapot]
+Base=predator
+Model=teapot.shp
+Schematic=teapotscem.spr
+Name=Teapot
+```
+
+- `Base` is the game's type the new one is based on, by OpenReliant's name for it, such as
+  `predator`, `phoenix` or `sabre`, or by its number below 256. The type starts with a copy of the
+  base's record in `shipstats.bin`, which a load script can change
+  ([The records](scripting.md#the-records)).
+- `Model` is the type's model, a `.shp` file in the mod or the game ([`.SHP`
+  models](../formats/shp.md)). It can be one of the game's models under the new type's own stats.
+- `Schematic` is the sprite set the display shows the ship in, as the player's ship and as a target.
+  Without it, the type shows its base's. Where the mod has no file of that name, the type takes the
+  base's sprite set as a template, and the mod's pictures named after the schematic draw over its
+  shapes ([Shapes](#shapes)): `teapotscem_000.png` is the ship, and `teapotscem_001.png` to
+  `teapotscem_004.png` the hit markers of its four quadrants, which otherwise stay the base's.
+- `Name` is what the game calls the type, such as on the target display. Without it, the type takes
+  its base's name.
+- OpenReliant numbers the types from 256 as it starts, mod by mod in load order, so a type's number
+  changes with the mods that are on. Scripts name a type by the mod's folder or archive name and the
+  type's own, `teapot:teapot` for a type `teapot` in a folder `teapot`.
+- The number after a type's name in `[ShipTypes]` is the number the mod's own missions use for it,
+  from 256 to 987. As OpenReliant loads one of the mod's missions, it changes that number in the
+  mission's ships to the type's, so the mission file stays a standard `.DTE`. Leave it empty for a
+  type the mod's missions don't use. A mission from elsewhere can't use the mod's types.
+- A type the manifest gets wrong, such as one whose base isn't one of the game's types, is left out,
+  and the log says why. The mods can add up to 732 types in all.
+
+[`examples/mods/interceptor`](../../examples/mods/interceptor) adds a faster Predator under a name
+of its own, and flies it in a game mode.
+
+**Improvement:** the original's ship types are its own 256.
 
 ## The thumbnail
 

@@ -1559,10 +1559,10 @@ pub const player_ships = [_]PlayerShip{
     .{ .cockpit = "phe2_frm.shp", .wire_frame = 0x112, .wing_icon = 0x104, .blind_fire = true },
 };
 
-/// The player's ship of `ship_type`, a twin as the ship it twins (`gameobj.Type.untwinned`), or null
-/// for a type the start has none for.
+/// The player's ship of `ship_type`, a twin as the ship it twins (`gameobj.GameType.untwinned`) and a
+/// type a mod adds as its base, or null for a type the start has none for.
 pub fn playerShip(ship_type: gameobj.Type) ?PlayerShip {
-    const index = ship_type.untwinned().number();
+    const index = @intFromEnum(ship_type.base().untwinned());
     return if (index < player_ships.len) player_ships[index] else null;
 }
 
@@ -1739,7 +1739,8 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     // The schematics the target display last showed went with the types let go.
     start.display.target_pictures = .{};
     for (try loaded.bound.ships()) |ship| {
-        if (std.math.cast(u8, ship.kind)) |kind| _ = types.load(types.context, kind);
+        const kind: gameobj.Type = @enumFromInt(ship.kind);
+        if (kind.hasStats()) _ = types.load(types.context, @intCast(kind.number()));
     }
     start.clock.frameReset();
 

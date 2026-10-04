@@ -1131,7 +1131,7 @@ pub const ComponentLoss = enum {
 
     /// The routine an object of `ship_type` has, or none.
     pub fn of(ship_type: gameobj.Type) ?ComponentLoss {
-        const number = std.math.cast(u8, @intFromEnum(ship_type)) orelse return null;
+        const number = std.math.cast(u8, @intFromEnum(ship_type.base())) orelse return null;
         const stats = create.donor(number) orelse number;
         if (capital_ships.isSet(stats)) return .capital_ship;
         return if (stats == 0x16) .ulysses else null;

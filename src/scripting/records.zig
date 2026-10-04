@@ -6,7 +6,8 @@
 //! ([Stat tables](../../docs/formats/stats.md)), plus `text` from `language.dll` and `itac_text`
 //! from the ITAC's `itaclang.dll`. Records are indexed by the game's numbers: guns and text from 1,
 //! the rest from 0. Ships, guns and missiles can also be looked up by OpenReliant's names, such as
-//! `records.guns.laser_cannon` or `records.ships.predator`. A record is a proxy (`bind.Binding`)
+//! `records.guns.laser_cannon` or `records.ships.predator`, and the ship types mods add by their
+//! qualified names, such as `records.ships["teapot:teapot"]`. A record is a proxy (`bind.Binding`)
 //! whose fields are named as in the format docs, and a text entry is a string. Records can't be
 //! removed, because missions refer to them by number. Adding new ones isn't supported yet
 //! ([#333](https://github.com/OpenReliant/openreliant/issues/333),
@@ -77,10 +78,12 @@ pub const Records = struct {
     }
 
     /// The number of records in `set` that scripts can access: as many as the game reads from the
-    /// file.
+    /// file, and for the ships, then those of the types mods add (`added_types`).
     pub fn count(records: Records, comptime set: Set) usize {
         const held = @field(records, @tagName(set)).len;
-        return if (comptime set.table()) |table| @min(held, table.load().capacity()) else held;
+        const table = (comptime set.table()) orelse return held;
+        const added = if (set == .ships) game.added_types.all().len else 0;
+        return @min(held, table.load().capacity() + added);
     }
 
     /// Saves a copy of all tables, which `Snapshot.restore` puts back if a script fails.
@@ -154,7 +157,7 @@ pub const Set = enum {
         comptime {
             var named: []const Named = &.{};
             switch (set) {
-                .ships => for (std.enums.values(game.gameobj.Type)) |ship| {
+                .ships => for (std.enums.values(game.gameobj.GameType)) |ship| {
                     const number = @intFromEnum(ship);
                     if (number < stats.Table.ships.load().capacity()) named = named ++ .{Named{ .name = @tagName(ship), .number = number }};
                 },
@@ -306,6 +309,8 @@ fn placeOf(state: *State, records: Records, comptime set: Set, key: i32) ?usize 
         inline for (comptime set.names()) |named| {
             if (std.mem.eql(u8, name, named.name)) break :named named.number;
         }
+        // The ship types the mods add, by their qualified names.
+        if (set == .ships) if (game.added_types.find(name)) |number| break :named number;
         return null;
     } else return null;
     if (number < set.first()) return null;
@@ -396,6 +401,44 @@ test "records can be read and changed by number and by name" {
     try bind.testing.expectSourceError(thread, "records.guns[1] = { template = records.text }", "template must be a record from guns");
     try bind.testing.expectSourceError(thread, "records.text[1] = 'x' .. string.rep('y', 998)", "text: expected at most 998 characters, got 999");
     try bind.testing.expectSourceError(thread, "records.ships = nil", "readonly");
+}
+
+test "ship records by the game's names and by the qualified names of the types mods add" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const added_types = game.added_types;
+    var list = [_]added_types.Added{.{ .name = "pots:teapot", .mod = "pots", .base = .phoenix, .model = "teapot.shp" }};
+    added_types.testing.use(&list);
+    defer added_types.testing.reset();
+    var game_ships: [12]stats.Ship = @splat(std.mem.zeroes(stats.Ship));
+    game_ships[@intFromEnum(game.gameobj.GameType.phoenix)].max_speed = 300;
+    var records: Records = try .init(arena.allocator(), .{
+        .ships = try added_types.ships(arena.allocator(), &game_ships),
+        .guns = &.{},
+        .missiles = &.{},
+        .pilots = &.{},
+        .text = &.{},
+        .itac_text = &.{},
+    });
+
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    register(state);
+    push(state, &records, true);
+    state.setGlobal("records");
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+
+    try bind.testing.runSource(thread,
+        \\local ships = records.ships
+        \\assert(ships.phoenix.max_speed == 300 and ships.phoenix == ships[11])
+        \\local teapot = ships["pots:teapot"]
+        \\assert(teapot == ships[256] and teapot.max_speed == 300)
+        \\teapot.max_speed = 150
+        \\assert(ships.phoenix.max_speed == 300 and ships["nobody:teapot"] == nil)
+    );
+    try std.testing.expectEqual(150, records.ships[added_types.first].max_speed);
 }
 
 test "read-only records" {

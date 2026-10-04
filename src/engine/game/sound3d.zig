@@ -399,7 +399,8 @@ fn takes(sound: *Sound, class: Class) ?u8 {
 pub fn engineSound(ship_type: gameobj.Type) sounds.Sound {
     const own = ship_type.untwinned();
     if (own.base() == .kamov) return .pship07;
-    if (own.number() < sounds.engines.len) return @enumFromInt(@intFromEnum(sounds.Sound.pship01) + own.number());
+    const row = @intFromEnum(own.base());
+    if (row < sounds.engines.len) return @enumFromInt(@intFromEnum(sounds.Sound.pship01) + row);
     return .pship01;
 }
 
@@ -410,7 +411,7 @@ const kamov_row = sounds.engines.len - 1;
 /// A type the tables have no row for takes the last, where the game reads past them.
 fn engineRow(ship_type: gameobj.Type) usize {
     const own = ship_type.untwinned();
-    return if (own.base() == .kamov) kamov_row else @min(own.number(), sounds.engines.len - 1);
+    return if (own.base() == .kamov) kamov_row else @min(@intFromEnum(own.base()), sounds.engines.len - 1);
 }
 
 /// The engine's volume factor: the effects volume and the master volume, each over the loudest.

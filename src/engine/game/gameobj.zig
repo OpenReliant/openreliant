@@ -20,6 +20,7 @@ const objects = @import("objects.zig");
 const Node = objects.Node;
 const Pointer = engine.Pointer;
 const create = @import("create.zig");
+const added_types = @import("added_types.zig");
 const guns = @import("guns.zig");
 const missiles = @import("missiles.zig");
 const libcmt = @import("../libcmt.zig");
@@ -601,10 +602,12 @@ pub const GameType = enum(u32) {
     }
 };
 
-/// An object's type by its number (`GameObject.type`): one of the game's (`GameType`). The code
-/// that singles out a type asks for its base (`base`), the game's type it is.
+/// An object's type by its number (`GameObject.type`): one of the game's (`GameType`), or one a mod
+/// adds past them (`added_types`). The code that singles out a type asks for its base (`base`), so
+/// that a type a mod adds acts as the game's type it is based on.
 pub const Type = enum(u32) {
-    /// The name scripts know these values by, and the names they know.
+    /// The name scripts know these values by, and the names they know: the game's types', and the
+    /// qualified names of the types the mods add (`scriptName`).
     pub const script_name = "ShipType";
     pub const Named = GameType;
 
@@ -615,27 +618,38 @@ pub const Type = enum(u32) {
         return @enumFromInt(@intFromEnum(game));
     }
 
-    /// The game's type it is.
+    /// The game's type it acts as: itself for one of the game's, and for one a mod adds, the type
+    /// it is based on.
     pub fn base(object_type: Type) GameType {
-        return @enumFromInt(@intFromEnum(object_type));
+        const from_mod = added_types.get(object_type.number()) orelse return @enumFromInt(object_type.number());
+        return from_mod.base;
+    }
+
+    /// The type a mod adds that it is, if it is one.
+    pub fn added(object_type: Type) ?*const added_types.Added {
+        return added_types.get(object_type.number());
     }
 
     pub fn number(object_type: Type) u32 {
         return @intFromEnum(object_type);
     }
 
-    /// Whether it has a record in the ship tables.
+    /// Whether it has a record in the ship tables: one of the game's 256, or one a mod adds.
     pub fn hasStats(object_type: Type) bool {
-        return object_type.number() < create.ship_type_count;
+        return object_type.number() < create.ship_type_count or object_type.added() != null;
     }
 
-    /// The type it stands for among the player's ships (`GameType.untwinned`).
+    /// The type it stands for among the player's ships (`GameType.untwinned`); a type a mod adds
+    /// stands for itself.
     pub fn untwinned(object_type: Type) Type {
+        if (object_type.added() != null) return object_type;
         return .of(object_type.base().untwinned());
     }
 
-    /// Its twin among the second set of the player's ship types (`GameType.twin`).
+    /// Its twin among the second set of the player's ship types (`GameType.twin`); a type a mod adds
+    /// has none.
     pub fn twin(object_type: Type) ?Type {
+        if (object_type.added() != null) return null;
         return .of(object_type.base().twin() orelse return null);
     }
 
@@ -644,18 +658,21 @@ pub const Type = enum(u32) {
         return .of(GameType.asteroid(n));
     }
 
-    /// The name scripts know it by, if it has one.
+    /// The name scripts know it by, if it has one: its qualified name for a type a mod adds.
     pub fn scriptName(object_type: Type) ?[]const u8 {
+        if (object_type.added()) |from_mod| return from_mod.name;
         const tag_name = std.enums.tagName(GameType, object_type.base()) orelse return null;
         return if (tag_name[0] == '_') null else tag_name;
     }
 
     /// The type scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?Type {
+        if (added_types.find(text)) |found| return @enumFromInt(found);
         return .of(std.meta.stringToEnum(GameType, text) orelse return null);
     }
 
     pub fn format(object_type: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (object_type.added()) |from_mod| return writer.writeAll(from_mod.name);
         return object_type.base().format(writer);
     }
 };

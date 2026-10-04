@@ -133,7 +133,7 @@ pub const Choice = union(enum) {
 /// the mission gives, the simulator it runs in, and what flies it.
 pub const Flight = struct {
     mission: u16,
-    ship: ?u8 = null,
+    ship: ?create.TypeIndex = null,
     /// The racks the loadout fitted the ship with, where it ran (`player_loadouts + 4` on); none
     /// where the mission starts without it, when the player's ship is fitted by its tier
     /// (`skip_briefing`, `0x005883B4`).

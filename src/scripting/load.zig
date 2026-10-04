@@ -269,3 +269,47 @@ test "no Luau state is created without load scripts" {
     var failing: std.testing.FailingAllocator = .init(std.testing.allocator, .{ .fail_index = 0 });
     try run(failing.allocator(), io, mods_held.list, &held, "0.7.0", .{});
 }
+
+test "the interceptor example adds a ship type, and its load script changes its record" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const game = openreliant.engine.game;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try testing.makeMods(io, tmp.dir, &.{.{ "interceptor", &.{
+        .{ "mod.ini", @embedFile("interceptor/mod.ini") },
+        .{ "records.luau", @embedFile("interceptor/records.luau") },
+        .{ "menu.luau", @embedFile("interceptor/menu.luau") },
+    } }});
+    var opened: mods.Mods = try .open(gpa, io, tmp.dir, null);
+    defer opened.close(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    game.added_types.install(try game.added_types.read(arena.allocator(), opened.list));
+    defer game.added_types.testing.reset();
+    const added = game.added_types.all();
+    try std.testing.expectEqual(1, added.len);
+    try std.testing.expectEqualStrings("interceptor:interceptor", added[0].name);
+    try std.testing.expectEqual(game.gameobj.GameType.predator, added[0].base);
+    // Scripts know the type by its qualified name, which stands for its number.
+    const interceptor = game.gameobj.Type.fromScriptName("interceptor:interceptor").?;
+    try std.testing.expectEqual(game.added_types.first, interceptor.number());
+    try std.testing.expectEqual(game.gameobj.GameType.predator, interceptor.base());
+
+    var game_ships: [1]openreliant.stats.Ship = .{std.mem.zeroes(openreliant.stats.Ship)};
+    game_ships[0].max_speed = 100;
+    game_ships[0].shield_power = 10;
+    var held: records.Records = try .init(arena.allocator(), .{
+        .ships = try game.added_types.ships(arena.allocator(), &game_ships),
+        .guns = &.{},
+        .missiles = &.{},
+        .pilots = &.{},
+        .text = &.{},
+        .itac_text = &.{},
+    });
+    try run(gpa, io, opened.list, &held, "0.7.0", .{});
+    // The Predator stays as it was, and the Interceptor is faster with lighter shields.
+    try std.testing.expectEqual(100, held.ships[0].max_speed);
+    try std.testing.expectApproxEqAbs(130, held.ships[game.added_types.first].max_speed, 1e-3);
+    try std.testing.expectApproxEqAbs(6, held.ships[game.added_types.first].shield_power, 1e-3);
+}

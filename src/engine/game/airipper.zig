@@ -1033,7 +1033,7 @@ fn fitTurn(ship: gameobj.Type) math.Axis {
     return switch (ship.base()) {
         .mammoth, .sharov, .boridin => .x,
         else => {
-            const number = std.math.cast(u8, @intFromEnum(ship)) orelse return .z;
+            const number = std.math.cast(u8, @intFromEnum(ship.base())) orelse return .z;
             const under = create.donor(number) orelse return .z;
             return if (under == @intFromEnum(gameobj.GameType.mammoth)) .x else .z;
         },

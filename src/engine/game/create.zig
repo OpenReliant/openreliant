@@ -45,6 +45,7 @@ const smoke = @import("main/smoke.zig");
 const srofiles = @import("srofiles.zig");
 const wgate = @import("wgate.zig");
 const xtrabits = @import("xtrabits.zig");
+const added_types = @import("added_types.zig");
 
 pub const models = @import("create/models.zig");
 pub const flight_stats = @import("create/flight.zig");
@@ -54,14 +55,32 @@ pub const atmosphere = @import("create/atmosphere.zig");
 pub const escort = @import("create/escort.zig");
 
 /// Ship types: the records of `shipstats.bin`, and the entries of the tables they index. Types
-/// above the last, markers and nav points among them, have no stats.
+/// above the last, markers and nav points among them, have no stats, but for the types mods add
+/// (`max_ship_types`).
 pub const ship_type_count = 256;
+
+/// The ship types the tables hold rows for: the game's, then the types mods add, up to the
+/// markers (`added_types`).
+pub const max_ship_types = added_types.end;
+
+/// A ship type's row in the tables, the game's types' and the mods'.
+pub const TypeIndex = u16;
+
+/// The files of ship type `number`'s model and schematic: the game's (`models.ship_types`), or a
+/// mod's type's, whose schematic is its base's where it names none.
+pub fn shipFiles(number: TypeIndex) models.ShipType {
+    if (added_types.get(number)) |added| return .{
+        .model = added.model,
+        .schematic = added.schematic orelse models.ship_types[@intFromEnum(added.base)].schematic,
+    };
+    return if (number < models.ship_types.len) models.ship_types[number] else .{ .model = null, .schematic = null };
+}
 
 /// `ship_flight_stats` (`0x004F9E70`) and `ship_combat_stats` (`0x004FC670`): each ship type's
 /// flight model and combat stats, which `create_object` points each object of the type at.
 pub const Stats = struct {
-    flight: [ship_type_count]FlightModel,
-    combat: [ship_type_count]ShipCombat,
+    flight: [max_ship_types]FlightModel,
+    combat: [max_ship_types]ShipCombat,
 
     /// The tables as the executable holds them before `stats_load_ships` runs: every figure zero,
     /// and each record's own words, how the AI turns the type and what its combat record says it is.
@@ -70,8 +89,8 @@ pub const Stats = struct {
             .flight = @splat(std.mem.zeroes(FlightModel)),
             .combat = @splat(std.mem.zeroes(ShipCombat)),
         };
-        for (&tables.flight, 0..) |*flight, ship_type| flight.turns = flight_stats.turns(ship_type);
-        for (&tables.combat, combat_stats.ship_types) |*record, static| {
+        for (tables.flight[0..ship_type_count], 0..) |*flight, ship_type| flight.turns = flight_stats.turns(ship_type);
+        for (tables.combat[0..ship_type_count], combat_stats.ship_types) |*record, static| {
             record.targeting = .{ .targetable = static.targetable };
             record.name = static.name;
             record.class = static.class;
@@ -87,7 +106,7 @@ pub const Stats = struct {
     /// figures down to, and a `shield_recharge` of zero becomes
     /// `stats.Ship.default_shield_recharge`.
     pub fn load(tables: *Stats, ships: []align(1) const stats.Ship) void {
-        const count = @min(ships.len, ship_type_count);
+        const count = @min(ships.len, max_ship_types);
         for (tables.flight[0..count], tables.combat[0..count], ships[0..count]) |*flight, *record, ship| {
             flight.max_speed = ship.max_speed;
             flight.roll_rate = ship.roll_rate;
@@ -108,10 +127,27 @@ pub const Stats = struct {
         for (&tables.flight) |*flight| flight.speed_per_pitch_rate = flight.max_speed / flight.pitch_rate;
     }
 
+    /// OpenReliant's: gives each type the mods add (`added_types`) its base's words that the
+    /// executable holds, as `initial` has them, and its own name where it has one. Its figures come
+    /// from its record (`load`).
+    pub fn addTypes(tables: *Stats) void {
+        for (added_types.all(), added_types.first..) |added, number| {
+            const base = @intFromEnum(added.base);
+            tables.flight[number].turns = tables.flight[base].turns;
+            const record = &tables.combat[number];
+            const from = tables.combat[base];
+            record.targeting = from.targeting;
+            record.name = added.label_string orelse from.name;
+            record.class = from.class;
+            record.side = from.side;
+            record.display = from.display;
+        }
+    }
+
     /// What `create_object` does for a type that is `from` under another number (`donor`): the
     /// type takes `from`'s flight model and its combat stats, save for its own gun groups and
     /// name.
-    fn borrow(tables: *Stats, ship_type: u8, from: u8) void {
+    fn borrow(tables: *Stats, ship_type: TypeIndex, from: TypeIndex) void {
         const own = tables.combat[ship_type];
         tables.combat[ship_type] = tables.combat[from];
         tables.combat[ship_type].gun_groups = own.gun_groups;
@@ -125,7 +161,7 @@ pub const Stats = struct {
 /// Krasnaya, the Kiev, the Mitchell, the Zakov, the Kestrel and the Mammoth are each more than one
 /// type, one model under several numbers. An object of such a type takes the stats of the first
 /// (`Stats.borrow`), and then its number.
-pub fn donor(ship_type: u8) ?u8 {
+pub fn donor(ship_type: TypeIndex) ?TypeIndex {
     return switch (ship_type) {
         0x35, 0xDB, 0xDC => 0x78,
         0x36, 0x40, 0xDD, 0xDE => 0xC2,
@@ -349,7 +385,7 @@ pub const Types = struct {
     context: *anyopaque,
     /// Null for a type with no model, or one the game lacks or cannot read; whoever answers says
     /// why.
-    load: *const fn (context: *anyopaque, ship_type: u8) ?*const Type,
+    load: *const fn (context: *anyopaque, ship_type: TypeIndex) ?*const Type,
 };
 
 /// What `ship_types` keeps of a ship type while a mission runs: how many objects of it
@@ -542,10 +578,10 @@ pub const Objects = struct {
     players: u16 = 1,
     /// `player_index` (`0x005883FA`): the player's slot, the first in a single-player game.
     player: u16 = 0,
-    types: [ship_type_count]TypeUse = @splat(.{}),
+    types: [max_ship_types]TypeUse = @splat(.{}),
     /// Each ship type's gun groups (`0x00545900`), which `gun_groups_build` works out from an
     /// object of the type.
-    gun_groups: [ship_type_count][guns.max_groups]guns.Group = @splat(@splat(.{})),
+    gun_groups: [max_ship_types][guns.max_groups]guns.Group = @splat(@splat(.{})),
     /// `gun_stats` (`0x00500CA4`): every gun type's figures, which `stats_load_guns` fills from
     /// `gunstats.bin`.
     gun_stats: guns.Stats = .initial,
@@ -672,7 +708,7 @@ pub const Objects = struct {
     /// A type's model, loaded for its first object where it isn't held, and one more object of it
     /// counted, so that it stays (`create_object`, `ship_type_first_levels`). Null where the game
     /// has no model for it.
-    pub fn useType(all: *Objects, types: Types, ship_type: u8) ?*const Type {
+    pub fn useType(all: *Objects, types: Types, ship_type: TypeIndex) ?*const Type {
         const use = &all.types[ship_type];
         if (use.objects == 0 and use.loaded == null) use.loaded = types.load(types.context, ship_type);
         use.objects += 1;
@@ -923,7 +959,7 @@ const planet_types = [_][2]u32{ .{ 0x5F, 0x69 }, .{ 0xC9, 0xD3 } };
 
 /// Whether `ship_type` is a planet's (`planet_types`).
 pub fn isPlanet(ship_type: gameobj.Type) bool {
-    const number = ship_type.number();
+    const number = @intFromEnum(ship_type.base());
     for (planet_types) |range| {
         if (number >= range[0] and number <= range[1]) return true;
     }
@@ -995,13 +1031,13 @@ pub fn make(world: gameobj.World, wanted: ?u16, object_type: gameobj.Type) Error
 }
 
 /// `create_object` (`0x00466C10`): fills slot `wanted`, or the next where null, with an object of
-/// `ship_type` at `at`, facing along the world's Z axis, and returns the slot. Types above the
-/// last ship type are stand-ins for markers and nav points: `Flags.standing_in` and a sphere of
-/// `stand_in_radius`, and nothing else. Any other is set up at rest, undamaged and flying itself
-/// forward (`motion.Motion.forward`), on its type's side, with its model's parts playing their
-/// `startup` tracks (`startUp`) and linked (`gameobj.linkParts`). A ship that lists no components
-/// and is not debris gets its shields' bubble (`shield.Bubble`). A type that is another under a
-/// second number takes the other's stats (`donor`), and its number once it is made.
+/// `ship_type` at `at`, facing along the world's Z axis, and returns the slot. Types with no stats
+/// (`gameobj.Type.hasStats`) are stand-ins for markers and nav points: `Flags.standing_in` and a
+/// sphere of `stand_in_radius`, and nothing else. Any other is set up at rest, undamaged and flying
+/// itself forward (`motion.Motion.forward`), on its type's side, with its model's parts playing
+/// their `startup` tracks (`startUp`) and linked (`gameobj.linkParts`). A ship that lists no
+/// components and is not debris gets its shields' bubble (`shield.Bubble`). A type that is another
+/// under a second number takes the other's stats (`donor`), and its number once it is made.
 ///
 /// It is armed by the loadout `tier` a mission's ship record asks for, as `settledTier` settles it
 /// for the type asked for, or in a player's slot with the racks the loadout fitted, where it ran
@@ -1063,7 +1099,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     object.sent_home = .none;
     object._unknown_710 = @splat(0);
 
-    const stats_type = std.math.cast(u8, ship_type.number()) orelse {
+    const stats_type: TypeIndex = if (ship_type.hasStats()) @intCast(ship_type.number()) else {
         object.type_data = .null;
         object.pilot_record = .null;
         object._unknown_628 = .zero;
@@ -1237,7 +1273,7 @@ const last_fighter = 11;
 /// tier 0 with 4 or 5.
 pub fn settledTier(asked: i32, ship_type: gameobj.Type, campaign: u2) u2 {
     var tier: i32 = if (asked == 5) 4 else if (asked < 0 or asked > 4) 0 else asked;
-    if (tier == 0 and @intFromEnum(ship_type) <= last_fighter) tier = campaign;
+    if (tier == 0 and @intFromEnum(ship_type.base()) <= last_fighter) tier = campaign;
     return if (tier == 4) 0 else @intCast(tier);
 }
 
@@ -1597,14 +1633,14 @@ pub const testing = struct {
         return .{ .context = @constCast(kind), .load = loadOne };
     }
 
-    fn loadOne(context: *anyopaque, _: u8) ?*const Type {
+    fn loadOne(context: *anyopaque, _: TypeIndex) ?*const Type {
         return @ptrCast(@alignCast(context));
     }
 
     /// Types with no model at all.
     pub const no_models: Types = .{ .context = @constCast(&{}), .load = noModel };
 
-    fn noModel(context: *anyopaque, ship_type: u8) ?*const Type {
+    fn noModel(context: *anyopaque, ship_type: TypeIndex) ?*const Type {
         _ = context;
         _ = ship_type;
         return null;

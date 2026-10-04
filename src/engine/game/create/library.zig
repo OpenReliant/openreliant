@@ -11,6 +11,7 @@ const spr = @import("../../../formats/spr.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
 const create = @import("../create.zig");
+const added_types = @import("../added_types.zig");
 const hud = @import("../hud.zig");
 const objects = @import("../objects.zig");
 const srofiles = @import("../srofiles.zig");
@@ -45,6 +46,25 @@ pub const MountCache = struct {
     }
 };
 
+/// Where a ship type's schematic comes from: the sprite set its shapes are read from, and the set
+/// name the pictures that replace them are named after (`hud.Art.Pictures`).
+const Schematic = struct {
+    layout: []const u8,
+    pictures: []const u8,
+};
+
+/// The schematic named `named` of ship type `ship_type`. A type a mod adds whose schematic no file
+/// holds takes its shapes from its base's set, and the mod's pictures named after its own schematic
+/// draw over them: `teapotscem_000.png` over the Predator's schematic for a type based on it that
+/// names `teapotscem.spr`. A mod can so give its type a schematic without writing a sprite set.
+fn schematicOf(resources: *const bigfile.Hog, ship_type: create.TypeIndex, named: ?[]const u8) ?Schematic {
+    const own = named orelse return null;
+    const added = added_types.get(ship_type) orelse return .{ .layout = own, .pictures = own };
+    if (resources.has(own)) return .{ .layout = own, .pictures = own };
+    const base = create.models.ship_types[@intFromEnum(added.base)].schematic orelse return null;
+    return .{ .layout = base, .pictures = own };
+}
+
 /// The ship types' models (`ship_type_load`), each read as `create_object` asks for it, with what
 /// it mounts and its schematic, in an arena of its own that `sweep` lets go once no object is of
 /// the type.
@@ -59,9 +79,9 @@ pub const TypeCache = struct {
     looks: objects.Effects,
     /// VFX's global palette, which the schematics are drawn with.
     global_palette: ?*const [spr.palette_size]u8,
-    loaded: [create.ship_type_count]?*Cached = @splat(null),
+    loaded: [create.max_ship_types]?*Cached = @splat(null),
     /// Types the game names no model for, or whose files it lacks, looked for once.
-    missing: std.StaticBitSet(create.ship_type_count) = .initEmpty(),
+    missing: std.StaticBitSet(create.max_ship_types) = .initEmpty(),
 
     const Cached = struct {
         arena: std.heap.ArenaAllocator,
@@ -77,16 +97,16 @@ pub const TypeCache = struct {
 
     /// The type's model, loaded the first time; null for a type the game names no model for, and
     /// for one whose model it lacks or can't read, which is logged.
-    fn load(context: *anyopaque, ship_type: u8) ?*const create.Type {
+    fn load(context: *anyopaque, ship_type: create.TypeIndex) ?*const create.Type {
         const cache: *TypeCache = @ptrCast(@alignCast(context));
         if (cache.loaded[ship_type]) |cached| return &cached.type;
         if (cache.missing.isSet(ship_type)) return null;
-        const files = create.models.ship_types[ship_type];
+        const files = create.shipFiles(ship_type);
         const name = files.model orelse {
             cache.missing.set(ship_type);
             return null;
         };
-        const cached = cache.build(name, files.schematic) catch |err| {
+        const cached = cache.build(name, schematicOf(cache.resources, ship_type, files.schematic)) catch |err| {
             log.warn("ship type {d} has no model: {s}", .{ ship_type, @errorName(err) });
             cache.missing.set(ship_type);
             return null;
@@ -95,7 +115,7 @@ pub const TypeCache = struct {
         return &cached.type;
     }
 
-    fn build(cache: *TypeCache, name: []const u8, schematic_name: ?[]const u8) !*Cached {
+    fn build(cache: *TypeCache, name: []const u8, schematic: ?Schematic) !*Cached {
         const cached = try cache.gpa.create(Cached);
         errdefer cache.gpa.destroy(cached);
         cached.arena = .init(std.heap.page_allocator);
@@ -103,12 +123,12 @@ pub const TypeCache = struct {
         const gpa = cached.arena.allocator();
         const file = try srofiles.readModel(gpa, cache.resources, cache.textures, name, cache.models);
         cached.mounted = .{ .gpa = gpa, .resources = cache.resources, .textures = cache.textures, .models = cache.models };
-        cached.schematic = if (schematic_name) |schematic| found: {
-            const bytes = cache.resources.readFile(gpa, schematic) catch |err| {
-                log.warn("the schematic {s} is left out: {s}", .{ schematic, @errorName(err) });
+        cached.schematic = if (schematic) |files| found: {
+            const bytes = cache.resources.readFile(gpa, files.layout) catch |err| {
+                log.warn("the schematic {s} is left out: {s}", .{ files.layout, @errorName(err) });
                 break :found null;
             };
-            break :found try .init(gpa, try spr.Sprite.parse(bytes), cache.global_palette, .of(cache.resources.mods, schematic));
+            break :found try .init(gpa, try spr.Sprite.parse(bytes), cache.global_palette, .of(cache.resources.mods, files.pictures));
         } else null;
         var effects = cache.looks;
         effects.mounts = cached.mounted.mounts();
@@ -122,7 +142,7 @@ pub const TypeCache = struct {
     }
 
     /// Lets go of each type no object is of any more, by the objects' count of each (`uses`).
-    pub fn sweep(cache: *TypeCache, uses: *const [create.ship_type_count]create.TypeUse) void {
+    pub fn sweep(cache: *TypeCache, uses: *const [create.max_ship_types]create.TypeUse) void {
         for (&cache.loaded, uses) |*held, use| {
             const cached = held.* orelse continue;
             if (use.objects > 0) continue;
@@ -208,7 +228,7 @@ test TypeCache {
     try std.testing.expect(cache.missing.isSet(modelless));
 
     // Swept while an object is of it, the type stays; once none is, it goes.
-    var uses: [create.ship_type_count]create.TypeUse = @splat(.{});
+    var uses: [create.max_ship_types]create.TypeUse = @splat(.{});
     uses[torpedo].objects = 1;
     cache.sweep(&uses);
     try std.testing.expect(cache.loaded[torpedo] != null);
