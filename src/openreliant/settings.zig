@@ -67,6 +67,7 @@ const keys = [_]Key{
     .{ .name = shot_lights_key, .takes = on_off, .read = shotLights },
     .{ .name = real_lights_key, .takes = on_off, .read = onOff("real_lights") },
     .{ .name = outline_fonts_key, .takes = on_off, .read = onOff("outline_fonts") },
+    .{ .name = mod_effects_key, .takes = on_off, .read = onOff("mod_effects") },
     .{ .name = hrtf_key, .takes = "auto, on or off", .read = hrtf },
     .{ .name = reverb_key, .takes = on_off, .read = reverb },
     .{ .name = compressor_key, .takes = on_off, .read = compressor },
@@ -94,6 +95,7 @@ const smooth_motion_key = "SmoothMotion";
 const shot_lights_key = "ShotLights";
 const real_lights_key = "RealLights";
 const outline_fonts_key = "OutlineFonts";
+const mod_effects_key = "ModEffects";
 const hrtf_key = "Hrtf";
 const reverb_key = "Reverb";
 const compressor_key = "Compressor";
@@ -117,6 +119,7 @@ const graphics_keys = [_]FieldKey{
     .{ .field = "sixteen_bit", .name = sixteen_bit_key },
     .{ .field = "smooth_motion", .name = smooth_motion_key },
     .{ .field = "outline_fonts", .name = outline_fonts_key },
+    .{ .field = "mod_effects", .name = mod_effects_key },
 };
 
 /// The game's own details among the graphics' options, which it keeps in `[Device]`
@@ -239,6 +242,8 @@ pub const Own = struct {
     /// drawn between the ticks, and which shots light.
     smooth_motion: ?*bool = null,
     shot_lights: ?*engine.game.guns.ShotLights = null,
+    /// Whether the mods' post effects are drawn.
+    mod_effects: ?*bool = null,
 
     pub const Display = struct {
         window: *platform.window.Window,
@@ -286,6 +291,7 @@ pub const Own = struct {
         own.graphics.chosen = chosen;
         if (own.smooth_motion) |smooth| smooth.* = chosen.smooth_motion;
         if (own.shot_lights) |lights| lights.* = chosen.shot_lights;
+        if (own.mod_effects) |drawn| drawn.* = chosen.mod_effects;
         const display = own.display orelse return;
         const gpu = display.gpu() orelse return;
         var wanted = gpu.settings;
@@ -500,6 +506,7 @@ pub fn graphicsOf(options: Options, details: Details) screen.Own.Graphics {
         .sixteen_bit = gpu.sixteen_bit,
         .smooth_motion = options.smooth_motion,
         .outline_fonts = options.outline_fonts,
+        .mod_effects = options.mod_effects,
     };
     return .{ .chosen = chosen, .running = .of(chosen) };
 }

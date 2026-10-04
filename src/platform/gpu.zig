@@ -26,6 +26,7 @@ const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
 const srgb = openreliant.engine.surrender.colour;
 const Geometry = @import("gpu/geometry.zig").Geometry;
 const shadow = @import("gpu/shadows.zig");
+pub const effects = @import("gpu/effects.zig");
 const sdl = @import("sdl.zig");
 
 const log = std.log.scoped(.gpu);
@@ -427,6 +428,18 @@ pub const Gpu = struct {
     /// The frame's lights, for lighting each pixel.
     lighting: Lighting = .{},
     shadows: shadow.Shadows,
+    /// The mods' post effects (`gpu/effects.zig`), and what the last frame showed after them,
+    /// which a screenshot takes.
+    post: effects.Effects,
+    shown: ?*c.SDL_GPUTexture = null,
+    /// What gives each frame's post effects, where anything does.
+    effect_source: ?EffectSource = null,
+
+    /// What gives the passes of the mods' post effects a frame draws, in order, in `buffer`.
+    pub const EffectSource = struct {
+        context: *anyopaque,
+        passes: *const fn (context: *anyopaque, buffer: *[effects.max_passes]effects.Pass) []const effects.Pass,
+    };
 
     const Targets = struct {
         width: u32,
@@ -539,6 +552,7 @@ pub const Gpu = struct {
             .sampler = sampler,
             .edge_sampler = edge_sampler,
             .shadows = shadows,
+            .post = .{ .gpa = gpa },
         };
         gpu.blank = try gpu.place(&blank_levels, .{});
         gpu.no_maps = try gpu.arrayTexture(.{ .width = 1, .height = 1, .levels = 1 }, 1, map_format);
@@ -718,6 +732,7 @@ pub const Gpu = struct {
         gpu.runs.deinit(gpu.gpa);
         Geometry.release(&gpu.geometry, gpu.handle);
         gpu.shadows.deinit(gpu.handle);
+        gpu.post.deinit(gpu.handle);
         gpu.releaseTargets();
         if (gpu.bloom_pipeline) |p| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, p);
         if (gpu.finish_pipeline) |p| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, p);
@@ -762,17 +777,7 @@ pub const Gpu = struct {
     }
 
     fn screenPipeline(gpu: *Gpu, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUGraphicsPipeline {
-        var colour = std.mem.zeroes(c.SDL_GPUColorTargetDescription);
-        colour.format = format;
-        var info = std.mem.zeroes(c.SDL_GPUGraphicsPipelineCreateInfo);
-        info.vertex_shader = gpu.screen_vertex_shader;
-        info.fragment_shader = gpu.screen_fragment_shader;
-        info.primitive_type = c.SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-        info.rasterizer_state.fill_mode = c.SDL_GPU_FILLMODE_FILL;
-        info.rasterizer_state.cull_mode = c.SDL_GPU_CULLMODE_NONE;
-        info.multisample_state.sample_count = c.SDL_GPU_SAMPLECOUNT_1;
-        info.target_info = .{ .color_target_descriptions = &colour, .num_color_targets = 1 };
-        return c.SDL_CreateGPUGraphicsPipeline(gpu.handle, &info) orelse fail("SDL_CreateGPUGraphicsPipeline");
+        return screenPassPipeline(gpu.handle, gpu.screen_vertex_shader.?, gpu.screen_fragment_shader.?, format);
     }
 
     /// Which of the screen's passes the shader runs, as `frame.settings.x` picks it
@@ -819,20 +824,7 @@ pub const Gpu = struct {
         frame_image: *c.SDL_GPUTexture,
         uniforms: ScreenUniforms,
     ) sdl.Error!void {
-        var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
-        colour.texture = into;
-        colour.load_op = c.SDL_GPU_LOADOP_DONT_CARE;
-        colour.store_op = c.SDL_GPU_STOREOP_STORE;
-        const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
-        defer c.SDL_EndGPURenderPass(pass);
-        c.SDL_BindGPUGraphicsPipeline(pass, pipeline_);
-        const bindings = [_]c.SDL_GPUTextureSamplerBinding{
-            .{ .texture = source, .sampler = gpu.screen_sampler },
-            .{ .texture = frame_image, .sampler = gpu.screen_sampler },
-        };
-        c.SDL_BindGPUFragmentSamplers(pass, 0, &bindings, bindings.len);
-        c.SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, @sizeOf(ScreenUniforms));
-        c.SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+        return drawScreenPass(commands, into, pipeline_, gpu.screen_sampler, source, frame_image, std.mem.asBytes(&uniforms));
     }
 
     pub fn interface(gpu: *Gpu) device.Device {
@@ -1111,23 +1103,64 @@ pub const Gpu = struct {
     /// screen.
     fn present(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets, swapchain: *c.SDL_GPUTexture, width: u32, height: u32) Error!void {
         try gpu.finish(commands, targets);
-        try gpu.drawOverlay(commands, targets);
+        const shown = try gpu.compose(commands, targets);
+        gpu.shown = shown;
         if (gpu.brightness != 1 and !gpu.gamma_failed) {
             const format = c.SDL_GetGPUSwapchainTextureFormat(gpu.handle, gpu.window);
             if (gpu.gammaPipeline(format)) |pipeline_| {
-                const finished = targets.finished();
-                return gpu.screenPass(commands, swapchain, pipeline_, finished, finished, .of(.gamma, .{ 0, 0 }, gpu.brightness, @splat(0)));
+                return gpu.screenPass(commands, swapchain, pipeline_, shown, shown, .of(.gamma, .{ 0, 0 }, gpu.brightness, @splat(0)));
             } else |err| {
                 log.err("the brightness is left out: {s}", .{@errorName(err)});
                 gpu.gamma_failed = true;
             }
         }
         var blit = std.mem.zeroes(c.SDL_GPUBlitInfo);
-        blit.source = .{ .texture = targets.finished(), .w = targets.width, .h = targets.height };
+        blit.source = .{ .texture = shown, .w = targets.width, .h = targets.height };
         blit.destination = .{ .texture = swapchain, .w = width, .h = height };
         blit.load_op = c.SDL_GPU_LOADOP_DONT_CARE;
         blit.filter = c.SDL_GPU_FILTER_LINEAR;
         c.SDL_BlitGPUTexture(commands, &blit);
+    }
+
+    /// What is shown of the finished frame: the mods' post effects drawn before the display, the
+    /// display drawn over the frame, and the effects drawn after it (`effects.Effects.draw`).
+    /// Without effects it is the finished frame, as before.
+    fn compose(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets) Error!*c.SDL_GPUTexture {
+        const finished = targets.finished();
+        var shown = finished;
+        if (gpu.effect_source) |source| {
+            var buffer: [effects.max_passes]effects.Pass = undefined;
+            gpu.post.set(source.passes(source.context, &buffer), @as(f32, @floatFromInt(c.SDL_GetTicks())) / std.time.ms_per_s);
+        }
+        const screen = if (gpu.post.passes.items.len > 0) try gpu.effectScreen(targets) else null;
+        if (screen) |drawn| shown = gpu.post.draw(commands, drawn, .before_hud, shown, finished);
+        try gpu.drawOverlay(commands, targets, shown);
+        if (screen) |drawn| shown = gpu.post.draw(commands, drawn, .after_hud, shown, finished);
+        return shown;
+    }
+
+    /// What the mods' post effects draw with.
+    fn effectScreen(gpu: *Gpu, targets: Targets) sdl.Error!effects.Screen {
+        try gpu.screenShaders();
+        return .{
+            .handle = gpu.handle,
+            .vertex_shader = gpu.screen_vertex_shader.?,
+            .sampler = gpu.screen_sampler,
+            .format = gpu.finish_format,
+            .width = targets.width,
+            .height = targets.height,
+        };
+    }
+
+    /// Adds a mod's post effect of the shader compiled for both devices, drawn where a frame's
+    /// passes name it (`effect_source`).
+    pub fn addEffect(gpu: *Gpu, spirv_words: []const u32, metal: []const u8) Error!effects.Id {
+        return gpu.post.add(gpu.handle, gpu.spirv, if (gpu.spirv) std.mem.sliceAsBytes(spirv_words) else metal);
+    }
+
+    /// Removes a mod's post effect.
+    pub fn removeEffect(gpu: *Gpu, id: effects.Id) void {
+        gpu.post.remove(gpu.handle, id);
     }
 
     /// Finishes the frame into `composed`, where it has one: its bright parts taken into a
@@ -1235,16 +1268,16 @@ pub const Gpu = struct {
         }
     }
 
-    /// Draws what was recorded over the finished frame, after the bloom has been added to it, so
-    /// that the display the game drew over its own frame is not bloomed with the scene.
-    fn drawOverlay(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets) Error!void {
+    /// Draws what was recorded over the finished frame into `into`, after the bloom has been added
+    /// to it, so that the display the game drew over its own frame is not bloomed with the scene.
+    fn drawOverlay(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets, into: *c.SDL_GPUTexture) Error!void {
         const first = gpu.overlay_from orelse return;
         const runs = gpu.runs.items[@min(first, gpu.runs.items.len)..];
         if (runs.len == 0) return;
         for (runs) |run| _ = try gpu.pipeline(run.key);
 
         var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
-        colour.texture = targets.finished();
+        colour.texture = into;
         colour.load_op = c.SDL_GPU_LOADOP_LOAD;
         colour.store_op = c.SDL_GPU_STOREOP_STORE;
         const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
@@ -1376,6 +1409,7 @@ pub const Gpu = struct {
         if (targets.bloom) |bloom| for (bloom) |texture| c.SDL_ReleaseGPUTexture(gpu.handle, texture);
         if (targets.composed) |texture| c.SDL_ReleaseGPUTexture(gpu.handle, texture);
         gpu.targets = null;
+        gpu.shown = null;
     }
 
     /// The pipeline for a topology and render states, made the first time it is needed: depth
@@ -1466,7 +1500,7 @@ pub const Gpu = struct {
 
         const commands = c.SDL_AcquireGPUCommandBuffer(gpu.handle) orelse return fail("SDL_AcquireGPUCommandBuffer");
         var blit = std.mem.zeroes(c.SDL_GPUBlitInfo);
-        blit.source = .{ .texture = targets.finished(), .w = size[0], .h = size[1] };
+        blit.source = .{ .texture = gpu.shown orelse targets.finished(), .w = size[0], .h = size[1] };
         blit.destination = .{ .texture = plain, .w = size[0], .h = size[1] };
         blit.load_op = c.SDL_GPU_LOADOP_DONT_CARE;
         blit.filter = c.SDL_GPU_FILTER_NEAREST;
@@ -1542,6 +1576,50 @@ fn blendFactor(factor: srd3d.BlendFactor) c.SDL_GPUBlendFactor {
         .source_alpha => c.SDL_GPU_BLENDFACTOR_SRC_ALPHA,
         .inverse_source_alpha => c.SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
     };
+}
+
+/// Draws the screen-wide triangle into `into` with `pipeline`, reading `source` and `frame_image`
+/// with `sampler`, and pushing `uniforms` to the fragment stage: the screen's passes, and the mods'
+/// post effects (`gpu/effects.zig`).
+pub fn drawScreenPass(
+    commands: *c.SDL_GPUCommandBuffer,
+    into: *c.SDL_GPUTexture,
+    pipeline: *c.SDL_GPUGraphicsPipeline,
+    sampler: *c.SDL_GPUSampler,
+    source: *c.SDL_GPUTexture,
+    frame_image: *c.SDL_GPUTexture,
+    uniforms: []const u8,
+) sdl.Error!void {
+    var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
+    colour.texture = into;
+    colour.load_op = c.SDL_GPU_LOADOP_DONT_CARE;
+    colour.store_op = c.SDL_GPU_STOREOP_STORE;
+    const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
+    defer c.SDL_EndGPURenderPass(pass);
+    c.SDL_BindGPUGraphicsPipeline(pass, pipeline);
+    const bindings = [_]c.SDL_GPUTextureSamplerBinding{
+        .{ .texture = source, .sampler = sampler },
+        .{ .texture = frame_image, .sampler = sampler },
+    };
+    c.SDL_BindGPUFragmentSamplers(pass, 0, &bindings, bindings.len);
+    c.SDL_PushGPUFragmentUniformData(commands, 0, uniforms.ptr, @intCast(uniforms.len));
+    c.SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+}
+
+/// A pipeline that draws the screen-wide triangle of `vertex` with `fragment` into a target of
+/// `format`: the screen's passes', and the mods' post effects' (`gpu/effects.zig`).
+pub fn screenPassPipeline(handle: *c.SDL_GPUDevice, vertex: *c.SDL_GPUShader, fragment: *c.SDL_GPUShader, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUGraphicsPipeline {
+    var colour = std.mem.zeroes(c.SDL_GPUColorTargetDescription);
+    colour.format = format;
+    var info = std.mem.zeroes(c.SDL_GPUGraphicsPipelineCreateInfo);
+    info.vertex_shader = vertex;
+    info.fragment_shader = fragment;
+    info.primitive_type = c.SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    info.rasterizer_state.fill_mode = c.SDL_GPU_FILLMODE_FILL;
+    info.rasterizer_state.cull_mode = c.SDL_GPU_CULLMODE_NONE;
+    info.multisample_state.sample_count = c.SDL_GPU_SAMPLECOUNT_1;
+    info.target_info = .{ .color_target_descriptions = &colour, .num_color_targets = 1 };
+    return c.SDL_CreateGPUGraphicsPipeline(handle, &info) orelse fail("SDL_CreateGPUGraphicsPipeline");
 }
 
 pub fn shader(handle: *c.SDL_GPUDevice, spirv: bool, stage: c.SDL_GPUShaderStage, code: []const u8, samplers: u32, uniforms: u32) sdl.Error!*c.SDL_GPUShader {
@@ -1679,6 +1757,7 @@ test "Lighting.take" {
 
 test {
     _ = shadow;
+    _ = effects;
 }
 
 test "Lighting.take in linear light" {

@@ -28,6 +28,7 @@ const camera = engine.game.camera;
 const hog_snd = engine.game.hog_snd;
 const input = engine.input;
 const mod_options = engine.game.interface.mod_options;
+const postprocessing = @import("postprocessing.zig");
 const controls = engine.input.controls;
 const device = engine.surrender.srd3d.device;
 const engine_hooks = engine.hooks;
@@ -204,6 +205,17 @@ pub const Presentation = struct {
     /// A mission transition must not keep a camera callback's subject from the previous scene.
     fn resetRegisteredCamera(shown: *Presentation) void {
         shown.runtime.registries.resetCamera(shown.runtime);
+    }
+
+    /// Has `host` compile and draw the post effects the scripts register, or nothing where it is
+    /// null (`postprocessing.Registry.setHost`). Call it with null before the host goes.
+    pub fn setEffectHost(shown: *Presentation, host: ?postprocessing.EffectHost) void {
+        shown.runtime.post_effects.setHost(host);
+    }
+
+    /// The passes of the post effects the scripts have enabled, in the order they draw.
+    pub fn effectPasses(shown: *const Presentation, buffer: *[postprocessing.max_effects]postprocessing.Pass) []const postprocessing.Pass {
+        return shown.runtime.post_effects.passes(buffer);
     }
 
     /// Tells the scripts of the mod `mod` that the player set its option `option` to `value`.
@@ -905,4 +917,103 @@ test "menu scripts are told of their own mod's options" {
     fixture.frame(0.016, .{ 800, 600 });
     // Mod a heard nothing, and mod b the last of its changes.
     try std.testing.expectEqualStrings("nothingshow=false", fixture.shown.layers.getPtr(.ui).text.items);
+}
+
+test "player scripts register post effects, which draw in order and end with their scripts" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "retro",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=effects.luau, failing.luau\n" },
+            .{ "a.frag", "void main() {}" },
+            .{ "broken.frag", "broken" },
+            .{
+                "effects.luau",
+                \\local post = require("openreliant.postprocessing")
+                \\assert(post.register({ name = "late", shader = "a.frag", stage = "after_hud" }) == "retro:late")
+                \\post.register({ name = "second", shader = "a.frag", order = 5, parameters = { 1, 2 } })
+                \\post.register({ name = "first", shader = "a.frag", order = -1 })
+                \\post.register({ name = "off", shader = "a.frag", enabled = false })
+                \\local ok, message = pcall(post.register, { name = "late", shader = "a.frag" })
+                \\assert(not ok and string.find(message, "registered already", 1, true), message)
+                \\ok, message = pcall(post.register, { name = "bad", shader = "broken.frag" })
+                \\assert(not ok and string.find(message, "broken.frag:2", 1, true), message)
+                \\ok, message = pcall(post.register, { name = "gone", shader = "missing.frag" })
+                \\assert(not ok and string.find(message, "no file missing.frag", 1, true), message)
+                \\ok, message = pcall(post.register, { name = "no good", shader = "a.frag" })
+                \\assert(not ok and string.find(message, "identifier", 1, true), message)
+                \\assert(post.set_parameters("retro:first", { 0.5 }) and post.set_enabled("off", true))
+                \\assert(not post.set_enabled("nothing", true))
+            },
+            .{
+                "failing.luau",
+                \\require("openreliant.postprocessing").register({ name = "rolled_back", shader = "a.frag" })
+                \\error("this script fails to load")
+            },
+        },
+    }});
+    defer fixture.deinit();
+    var host: postprocessing.testing.Host = .{};
+    defer host.deinit();
+    fixture.shown.setEffectHost(host.effectHost());
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    // The failing script's effect was taken back as it failed to load.
+    try std.testing.expectEqual(5, host.added);
+    try std.testing.expectEqualSlices(u32, &.{4}, host.removed.items);
+    // Before the display by order (first, then off, which was turned on, then second), then after
+    // it.
+    var buffer: [postprocessing.max_effects]postprocessing.Pass = undefined;
+    const passes = fixture.shown.effectPasses(&buffer);
+    try std.testing.expectEqual(4, passes.len);
+    const expected = [_]struct { u32, postprocessing.Stage }{ .{ 2, .before_hud }, .{ 3, .before_hud }, .{ 1, .before_hud }, .{ 0, .after_hud } };
+    for (expected, passes) |want, pass| {
+        try std.testing.expectEqual(want[0], pass.effect);
+        try std.testing.expectEqual(want[1], pass.stage);
+    }
+    try std.testing.expectEqual([4]f32{ 0.5, 0, 0, 0 }, passes[0].parameters);
+    try std.testing.expectEqual([4]f32{ 1, 2, 0, 0 }, passes[2].parameters);
+    // The game's end stops the player scripts, and their effects go.
+    fixture.shown.endGame();
+    try std.testing.expectEqual(0, fixture.shown.effectPasses(&buffer).len);
+    try std.testing.expectEqual(5, host.removed.items.len);
+}
+
+test "without a host, as with the software device, effects register and draw nothing" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "retro", &.{
+        .{ "mod.ini", "[Scripts]\nPlayer=effects.luau\n" },
+        .{ "a.frag", "void main() {}" },
+        .{ "effects.luau", "assert(require('openreliant.postprocessing').register({ name = 'crt', shader = 'a.frag' }) == 'retro:crt')" },
+    } }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    var buffer: [postprocessing.max_effects]postprocessing.Pass = undefined;
+    try std.testing.expectEqual(0, fixture.shown.effectPasses(&buffer).len);
+}
+
+test "the CRT example registers its effect, and Shift F8 and Shift F7 change it" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "crt", &.{
+        .{ "mod.ini", @embedFile("crt/mod.ini") },
+        .{ "crt.luau", @embedFile("crt/crt.luau") },
+        .{ "crt.frag", @embedFile("crt/crt.frag") },
+    } }});
+    defer fixture.deinit();
+    var host: postprocessing.testing.Host = .{};
+    defer host.deinit();
+    fixture.shown.setEffectHost(host.effectHost());
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    fixture.frame(0.016, .{ 800, 600 });
+    var buffer: [postprocessing.max_effects]postprocessing.Pass = undefined;
+    var passes = fixture.shown.effectPasses(&buffer);
+    try std.testing.expectEqual(1, passes.len);
+    try std.testing.expectEqual(.after_hud, passes[0].stage);
+    try std.testing.expectEqual(0.3, passes[0].parameters[0]);
+    // Shift F7 steps the scanlines on; Shift F8 turns the effect off.
+    fixture.devices.keyboard.down[@intFromEnum(input.Key.left_shift)] = true;
+    fixture.shown.key(.f7, true);
+    passes = fixture.shown.effectPasses(&buffer);
+    try std.testing.expectEqual(0.5, passes[0].parameters[0]);
+    fixture.shown.key(.f8, true);
+    try std.testing.expectEqual(0, fixture.shown.effectPasses(&buffer).len);
 }

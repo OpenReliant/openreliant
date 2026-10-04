@@ -325,7 +325,7 @@ pub const Package = enum {
             .input => "Whether keys are held, and the controls bound to actions.",
             .camera => "Original and mod-qualified camera views, switching views and registering player-script views.",
             .audio => "Interface sounds, music and Betty's lines.",
-            .postprocessing => "Effects drawn over the scene.",
+            .postprocessing => "Post effects: GLSL fragment shaders from the mod, drawn over the whole frame, before the flight display or after it.",
             .shaders => "Functions that change how surfaces look.",
             .storage => "Sections of plain data for each mod: kept with the saved game, or in the game folder across every game.",
             .async => "Timers, kept with the saved game: game time for global and object scripts, real time for player and menu scripts.",
@@ -340,8 +340,8 @@ pub const Package = enum {
     /// Whether this version implements this package.
     pub fn ready(package: Package) bool {
         return switch (package) {
-            .core, .records, .hooks, .world, .self, .nearby, .orders, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .util, .vfs, .settings => true,
-            .postprocessing, .shaders => false,
+            .core, .records, .hooks, .world, .self, .nearby, .orders, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .util, .vfs, .settings, .postprocessing => true,
+            .shaders => false,
         };
     }
 };

@@ -15,6 +15,7 @@ type Key = "escape" | "one" | "two" | "three" | "four" | "five" | "six" | "seven
 type Modifier = "none" | "shift" | "control" | "alt" | number
 type GamepadButton = "south" | "east" | "west" | "north" | "back" | "guide" | "start" | "left_stick" | "right_stick" | "left_shoulder" | "right_shoulder" | "dpad_up" | "dpad_down" | "dpad_left" | "dpad_right" | "misc1" | "right_paddle1" | "left_paddle1" | "right_paddle2" | "left_paddle2" | "touchpad" | "misc2" | "misc3" | "misc4" | "misc5" | "misc6" | "left_trigger" | "right_trigger" | "right_stick_up" | "right_stick_down" | "right_stick_left" | "right_stick_right"
 type BettyLine = "missiles_gone" | "armor_failing" | "screamer" | "havoc" | "jack_hammer" | "vagabond" | "imp" | "bandit" | "raptor" | "hawk" | "solomon" | "countermeasures_low" | "countermeasures_gone" | "cloak_on" | "cloak_off" | "blind_fire_on" | "blind_fire_off" | "spectral_shields_on" | "spectral_shields_off" | number
+type EffectStage = "before_hud" | "after_hud"
 type Axis = "x" | "y" | "z"
 type OptionKind = "toggle" | "choice" | "number"
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
@@ -93,6 +94,14 @@ type Definition = {
     modifier: Modifier?,
     button: number?,
     gamepad_button: GamepadButton?,
+}
+type Effect = {
+    name: string,
+    shader: string,
+    stage: EffectStage?,
+    order: number?,
+    parameters: { number }?,
+    enabled: boolean?,
 }
 type Page = {
     title: string,
@@ -350,6 +359,16 @@ type Audio = {
     play_music: (name: string) -> (),
     -- Betty says `line`. Returns whether she does.
     say: (line: BettyLine) -> boolean,
+}
+
+-- Post effects: GLSL fragment shaders from the mod, drawn over the whole frame, before the flight display or after it.
+type Postprocessing = {
+    -- Registers a post effect: a GLSL fragment shader from the calling mod's file `shader`, drawn over the whole frame. `stage` is `"before_hud"` (the default) or `"after_hud"`, `order` sorts the effects of a stage, lower first, and `parameters` holds up to four numbers its shader reads. Returns the effect's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the shader reads.
+    register: (definition: Effect) -> string,
+    -- Turns the calling mod's effect `name` on or off, by its own name or the qualified one. Returns whether the mod has it.
+    set_enabled: (name: string, enabled: boolean) -> boolean,
+    -- Sets the numbers the calling mod's effect `name` reads, up to four; those left out are 0. Returns whether the mod has it.
+    set_parameters: (name: string, parameters: { number }) -> boolean,
 }
 
 -- Sections of plain data for each mod: kept with the saved game, or in the game folder across every game.

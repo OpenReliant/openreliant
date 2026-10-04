@@ -64,7 +64,12 @@ pub const thumbnail_name = "mod.png";
 /// don't replace game files.
 pub const script_extension = ".luau";
 
-/// Files that belong to the mod itself rather than replacing game files, besides its scripts.
+/// The file extensions of a mod's post effects' shaders (`scripting.postprocessing`), matched
+/// ignoring case. Like scripts, they don't replace game files.
+pub const shader_extensions = [_][]const u8{ ".frag", ".glsl" };
+
+/// Files that belong to the mod itself rather than replacing game files, besides its scripts and
+/// shaders.
 const own_files = [_][]const u8{ manifest_name, thumbnail_name };
 
 /// The fields of a mod's manifest, each under its key in `manifest_section`.
@@ -802,7 +807,14 @@ fn isOwn(name: []const u8) bool {
     for (own_files) |own| {
         if (std.ascii.eqlIgnoreCase(name, own)) return true;
     }
-    return isScript(name);
+    return isScript(name) or isShader(name);
+}
+
+/// Whether `name` has one of the shaders' extensions, ignoring case.
+fn isShader(name: []const u8) bool {
+    const extension = std.fs.path.extension(name);
+    for (shader_extensions) |shader| if (std.ascii.eqlIgnoreCase(extension, shader)) return true;
+    return false;
 }
 
 /// Whether `name` is a file that replaces or adds a game file: anything except the manifest, the
@@ -929,7 +941,7 @@ test Mods {
     try std.testing.expectEqualStrings("the game's theme", theme);
 }
 
-test "scripts don't replace game files" {
+test "scripts and shaders don't replace game files" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -939,10 +951,15 @@ test "scripts don't replace game files" {
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/balance/balance.luau", .data = "return {}" });
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/balance/util.LUAU", .data = "return 1" });
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/balance/gunstats.bin", .data = "guns" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/balance/crt.FRAG", .data = "void main() {}" });
 
     var mods: Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     const balance = mods.list[0];
+    // A shader belongs to the mod, and is read as its own file.
+    try std.testing.expect(!mods.has("crt.frag"));
+    const shader = (try balance.readFile(gpa, "crt.frag")).?;
+    defer gpa.free(shader);
     // Scripts are found ignoring case, and aren't treated as replacement game files.
     var scripts = balance.scripts();
     try std.testing.expectEqualStrings("balance.luau", scripts.next().?);

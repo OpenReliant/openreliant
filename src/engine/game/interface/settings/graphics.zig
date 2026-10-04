@@ -56,6 +56,7 @@ pub const Row = enum {
     color_depth,
     smooth_motion,
     outline_fonts,
+    mod_effects,
 
     /// Its label: the game's TEXTURE DETAIL, GRAPHIC DETAIL and LIGHT MAPS (`0x110`, `0x111`,
     /// `0x114`), and OpenReliant's words for its own.
@@ -78,6 +79,7 @@ pub const Row = enum {
             .color_depth => .{ .words = "COLOR DEPTH" },
             .smooth_motion => .{ .words = "SMOOTH MOTION" },
             .outline_fonts => .{ .words = "OUTLINE FONTS" },
+            .mod_effects => .{ .words = "MOD EFFECTS" },
         };
     }
 
@@ -89,7 +91,7 @@ pub const Row = enum {
             .shadows, .materials => chosen.pixel_lighting,
             .cockpit_shadows => chosen.pixel_lighting and chosen.shadows != .off,
             .linear_light => !chosen.sixteen_bit,
-            .texture_detail, .graphic_detail, .light_maps, .pixel_lighting, .shot_lights, .real_lights, .bloom, .dither, .filter, .anti_aliasing, .color_depth, .smooth_motion, .outline_fonts => true,
+            .texture_detail, .graphic_detail, .light_maps, .pixel_lighting, .shot_lights, .real_lights, .bloom, .dither, .filter, .anti_aliasing, .color_depth, .smooth_motion, .outline_fonts, .mod_effects => true,
         };
     }
 
@@ -120,6 +122,7 @@ pub const Check = enum {
     dither,
     smooth_motion,
     outline_fonts,
+    mod_effects,
 
     fn flag(check: Check, chosen: *Chosen) *bool {
         return switch (check) {
@@ -375,7 +378,7 @@ pub const Graphics = struct {
     pub fn choose(tab: *Graphics, item: Item, context: Context) bool {
         const chosen = &tab.graphics.chosen;
         switch (item) {
-            .preset => |step| chosen.* = steppedPreset(chosen.preset(), step).chosen(),
+            .preset => |step| chosen.* = chosen.withPreset(steppedPreset(chosen.preset(), step)),
             .pane => |on_pane| switch (on_pane) {
                 .scroll => |way| {
                     tab.list.scrollHeld(way, context.ticks);
@@ -443,9 +446,18 @@ test "the rows stand in the pane, four shown" {
     try std.testing.expectEqual(162, pane.line(0).y);
     try std.testing.expectEqual(252, pane.line(shown_rows - 1).y);
     var tab: Graphics = .{};
-    // OUTLINE FONTS, the last, is shown once the list is scrolled to its end.
-    try std.testing.expectEqual(252, lineOf(&tab, .outline_fonts).y);
+    // MOD EFFECTS, the last, is shown once the list is scrolled to its end.
+    try std.testing.expectEqual(252, lineOf(&tab, .mod_effects).y);
     try std.testing.expectEqual(rows.len - shown_rows, tab.list.rows.first);
+}
+
+test "the presets leave MOD EFFECTS as it is" {
+    var chosen = Preset.modern.chosen();
+    chosen.mod_effects = false;
+    try std.testing.expectEqual(Preset.modern, chosen.preset().?);
+    const applied = chosen.withPreset(.original);
+    try std.testing.expect(!applied.mod_effects and applied.original);
+    try std.testing.expectEqual(Preset.original, applied.preset().?);
 }
 
 test steppedPreset {

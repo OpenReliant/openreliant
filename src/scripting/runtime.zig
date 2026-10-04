@@ -142,6 +142,8 @@ pub const Runtime = struct {
     custom_orders: @import("orders.zig").Registry = .{},
     input_actions: @import("openreliant").engine.input.actions.Registry = .{},
     registries: @import("registries.zig").Registry = .{},
+    /// The mods' post effects (`postprocessing.zig`).
+    post_effects: @import("postprocessing.zig").Registry = .{},
 
     const Running = struct {
         /// The memory category of the running mod.
@@ -182,6 +184,7 @@ pub const Runtime = struct {
 
     pub fn destroy(runtime: *Runtime) void {
         runtime.registries.deinit(runtime);
+        runtime.post_effects.deinit(runtime.gpa);
         runtime.custom_orders.deinit(runtime);
         runtime.state.close();
         for (runtime.contexts.items) |context| runtime.gpa.destroy(context);
@@ -298,6 +301,7 @@ pub const Runtime = struct {
         runtime.custom_orders.removeContext(runtime, context);
         runtime.input_actions.removeOwner(context);
         runtime.registries.removeSince(runtime, context, 0);
+        runtime.post_effects.removeContext(context);
         context.closed = true;
         const state = runtime.state;
         state.unref(context.loaded);
@@ -346,6 +350,7 @@ pub const Runtime = struct {
         const registrations = runtime.custom_orders.entries.items.len;
         const actions_generation = runtime.input_actions.generation;
         const registrations_presentation = runtime.registries.entries.items.len;
+        const effects_before = runtime.post_effects.entries.items.len;
         const thread = context.thread;
         _ = thread.getGlobal("require");
         thread.pushString(name);
@@ -356,6 +361,7 @@ pub const Runtime = struct {
             runtime.custom_orders.removeSince(runtime, context, registrations);
             runtime.input_actions.removeSince(context, actions_generation);
             runtime.registries.removeSince(runtime, context, registrations_presentation);
+            runtime.post_effects.removeSince(context, effects_before);
             runtime.recover(context, thread);
             return null;
         }

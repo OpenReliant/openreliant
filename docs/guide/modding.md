@@ -376,7 +376,8 @@ mission2.dte=escort.luau
 ```
 
 Scripts are ordinary files of the mod: a folder mod keeps them next to `mod.ini`, and `sltool hog
-pack` packs them into the archive. [`examples/mods`](../../examples/mods) holds complete example
+pack` packs them into the archive. So are the shaders of a mod's post effects, files ending in
+`.frag` or `.glsl` ([Post effects](scripting.md#post-effects)). Neither replaces a game file. [`examples/mods`](../../examples/mods) holds complete example
 mods.
 
 **Improvement:** the original has no scripting apart from its mission scripts.

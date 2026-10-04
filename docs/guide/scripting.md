@@ -103,6 +103,64 @@ declarations.
 [`examples/mods/strafe-run`](../../examples/mods/strafe-run) combines a custom order, HUD display,
 chase camera, selectable help panel and rebindable actions.
 
+## Post effects
+
+A player script can draw a post effect over the whole frame: a GLSL fragment shader from its mod,
+which `openreliant.postprocessing` registers.
+
+```lua
+local post = require("openreliant.postprocessing")
+
+post.register({
+    name = "crt",
+    shader = "crt.frag",
+    stage = "after_hud",
+    order = 0,
+    parameters = { 0.3, 0.08, 0.6 },
+})
+post.set_parameters("crt", { 0.5, 0.08, 0.6 })
+post.set_enabled("crt", false)
+```
+
+- `stage` is `"before_hud"`, the default, which draws over the scene before the flight display
+  and the menus are drawn over it, or `"after_hud"`, which draws over everything.
+- Effects of a stage draw in the order of `order`, lowest first, and effects of the same order in
+  the order they were registered. Each effect reads what the one before it drew.
+- `parameters` holds up to four numbers, which the shader reads. Those left out are 0.
+- `register` returns the effect's name qualified with the mod's, such as `crt:crt`.
+  `set_enabled` and `set_parameters` take the effect's own name or the qualified one.
+- The shader compiles as the script registers it. A shader that doesn't compile is an error in
+  the script, with the file and the line.
+- An effect ends with the script that registered it. Effects a script registers before it fails
+  to load are taken back.
+- Effects draw on the GPU only. With `--software` they register and draw nothing.
+- MOD EFFECTS on the VIDEO tab, `ModEffects` in `starlancer.ini` and `--no-mod-effects` turn all
+  the mods' effects off. GRAPHICS' presets leave the setting as it is.
+
+The shader is GLSL 450, and reads:
+
+```glsl
+#version 450
+// The frame as the effects before this one left it.
+layout(set = 2, binding = 0) uniform sampler2D source;
+// The frame before any effect.
+layout(set = 2, binding = 1) uniform sampler2D frame_image;
+layout(set = 3, binding = 0, std140) uniform Frame {
+    vec4 size_time;   // x and y: the frame's size in pixels; z: the seconds passed
+    vec4 parameters;  // the script's numbers
+} frame;
+layout(location = 0) in vec2 uv;      // 0 to 1 across and down the frame
+layout(location = 0) out vec4 colour;
+
+void main() {
+    colour = texture(source, uv);
+}
+```
+
+A shader file's name ends in `.frag` or `.glsl`. Like scripts, shader files belong to the mod and
+don't replace game files. [`examples/mods/crt`](../../examples/mods/crt) draws an old curved
+monitor over the game: Shift F8 turns it on and off, and Shift F7 changes the scanlines.
+
 ## Pictures, shapes and fonts
 
 The `hud` and `ui` packages can draw mod pictures and the game's shapes (#590):

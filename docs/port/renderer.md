@@ -76,10 +76,29 @@ specialization constants are rejected. Reflection checks these requirements befo
 translation. Source is limited to 1 MiB; includes and embedded NUL bytes are rejected.
 
 Compilation failures retain glslang's filename and line diagnostics. Resource-layout failures
-identify the source filename and incompatible interface. The compiler does not run a GPU pass.
-The script registry, effect settings, disk cache and reload remain in
+identify the source filename and incompatible interface. The disk cache and reload remain in
 [#559](https://github.com/OpenReliant/openreliant/issues/559), along with surface functions and
 whole-shader overrides.
+
+## Post effects
+
+**Improvement:** the mods' post effects ([`gpu/effects.zig`](../../src/platform/gpu/effects.zig),
+[Post effects](scripting.md#post-effects)). Each effect is a fragment shader that draws the
+screen-wide triangle of the bloom's passes, reading the frame through the screen sampler. As a
+frame is put on the screen (`Gpu.compose`):
+
+1. The bloom and the tone finish the frame, as before.
+2. The effects of the stage before the display draw over it, in order.
+3. The display and the menus are drawn over what they left.
+4. The effects of the stage after the display draw over that.
+
+The passes take turns writing into two targets of the finished frame's format and size, so each
+reads what the last wrote (`source`). Each also reads the finished frame before any effect
+(`frame_image`), and gets the frame's size, the seconds passed and its four parameters in its
+uniform block. What the last pass wrote is what the window shows and a screenshot saves. A frame
+without passes is drawn as before, without the extra targets. An effect's pipeline is made the
+first time it draws; one that can't be made is logged and left out. A frame draws at most 32
+passes.
 
 ## Improvements
 

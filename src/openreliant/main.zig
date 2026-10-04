@@ -41,6 +41,7 @@ const Movies = @import("movies.zig").Movies;
 const presenting = @import("presenter.zig");
 const Presenter = presenting.Presenter;
 const Screen = presenting.Screen;
+const PostEffects = @import("post_effects.zig").PostEffects;
 const drawn = presenting.drawn;
 const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
@@ -277,6 +278,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     };
     var driver: srd3d.srd3d.Driver = try .init(arena, screen.interface());
     defer driver.deinit();
+    // The mods' post effects, which the player scripts register and the GPU draws, while the
+    // settings have them drawn. They are taken back from the GPU before it goes.
+    var post_effects: PostEffects = .{ .gpa = gpa, .screen = screen, .presentation = presentation, .drawn = options.mod_effects };
+    post_effects.start();
+    defer post_effects.stop();
     var pacer: platform.window.Pacer = .{};
     // How the frames are paced, which the settings screen changes as the game plays.
     var pacing = options.pacing();
@@ -328,6 +334,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .display = .{ .window = &window, .presenter = &presenter },
         .graphics = settings_module.graphicsOf(options, details),
         .smooth_motion = &smooth_motion,
+        .mod_effects = &post_effects.drawn,
     };
     // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
     var screenshots: game.xtrabits.screenshot.Screenshots = .{ .io = io, .directory = directory };
@@ -1871,6 +1878,7 @@ const Display = struct {
 };
 
 test {
+    _ = @import("post_effects.zig");
     _ = options_page;
     _ = settings_module;
     _ = install;

@@ -41,6 +41,7 @@ pub const Arg = enum {
     @"--baked-lights",
     @"--launch-steam",
     @"--bitmap-fonts",
+    @"--no-mod-effects",
     @"--hrtf",
     @"--no-hrtf",
     @"--no-reverb",
@@ -119,6 +120,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--baked-lights" = .{ .section = .graphics, .text = "bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near" },
     .@"--launch-steam" = .{ .section = .graphics, .value = "<original|soft>", .text = "the Yamato's launch steam: original brightness or softer jets with less glare; soft by default" },
     .@"--bitmap-fonts" = .{ .section = .graphics, .text = "draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod)" },
+    .@"--no-mod-effects" = .{ .section = .graphics, .text = "draw none of the post effects the mods' scripts register" },
     .@"--hrtf" = .{ .section = .sound, .text = "place the sounds for headphones whatever the output; by default they are while the output is headphones" },
     .@"--no-hrtf" = .{ .section = .sound, .text = "place the sounds for speakers whatever the output" },
     .@"--no-reverb" = .{ .section = .sound, .text = "play the sounds around you, the cockpit's voice and the Reliant's rooms without reverb" },
@@ -296,6 +298,9 @@ pub const Options = struct {
     /// Whether the interface's text is drawn in outline fonts at the window's resolution
     /// (`game.hud.outline`), or in the game's bitmap fonts alone.
     outline_fonts: bool = true,
+    /// Whether the mods' post effects are drawn (`scripting.postprocessing`). `--original` leaves
+    /// them on, as it leaves the mods.
+    mod_effects: bool = true,
     /// How the sound plays, or null for none.
     sound: ?platform.audio.Options = .{},
     /// Where a missile's sound is heard from.
@@ -427,6 +432,7 @@ pub const Options = struct {
             .@"--baked-lights" => options.real_lights = false,
             .@"--launch-steam" => options.launch_steam = std.meta.stringToEnum(game.launch.yamato.Steam, value) orelse return error.BadValue,
             .@"--bitmap-fonts" => options.outline_fonts = false,
+            .@"--no-mod-effects" => options.mod_effects = false,
             .@"--hrtf" => if (options.openAl()) |settings| {
                 settings.hrtf = .on;
             },
@@ -588,6 +594,8 @@ test Options {
     try std.testing.expect(plain.movie_look.deblock and !retro.movie_look.deblock);
     try std.testing.expect(plain.outline_fonts and !retro.outline_fonts);
     try std.testing.expect(!(try parsed(&.{"--bitmap-fonts"})).outline_fonts);
+    try std.testing.expect(plain.mod_effects and retro.mod_effects);
+    try std.testing.expect(!(try parsed(&.{"--no-mod-effects"})).mod_effects);
     try std.testing.expectEqual(.whole_view, plain.ice_field);
     try std.testing.expectEqual(.original, retro.ice_field);
     try std.testing.expectEqual(game.wgate.Settings{}, plain.gates);

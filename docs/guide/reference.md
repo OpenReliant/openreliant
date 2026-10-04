@@ -166,6 +166,16 @@ Interface sounds, music and Betty's lines. For player and menu scripts.
 | `play_music(name: string)` | nothing | Plays the piece `name` from the game's music folder for ever, in place of the music playing. |
 | `say(line: BettyLine)` | boolean | Betty says `line`. Returns whether she does. |
 
+### `openreliant.postprocessing`
+
+Post effects: GLSL fragment shaders from the mod, drawn over the whole frame, before the flight display or after it. For player scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `register(definition: Effect)` | string | Registers a post effect: a GLSL fragment shader from the calling mod's file `shader`, drawn over the whole frame. `stage` is `"before_hud"` (the default) or `"after_hud"`, `order` sorts the effects of a stage, lower first, and `parameters` holds up to four numbers its shader reads. Returns the effect's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the shader reads. |
+| `set_enabled(name: string, enabled: boolean)` | boolean | Turns the calling mod's effect `name` on or off, by its own name or the qualified one. Returns whether the mod has it. |
+| `set_parameters(name: string, parameters: { number })` | boolean | Sets the numbers the calling mod's effect `name` reads, up to four; those left out are 0. Returns whether the mod has it. |
+
 ### `openreliant.storage`
 
 Sections of plain data for each mod: kept with the saved game, or in the game folder across every game. For load, global, object, player and menu scripts.
@@ -958,6 +968,19 @@ A table a script gives, which may leave out a field with a default.
 | `button` | number, or nil | nil |
 | `gamepad_button` | [GamepadButton](#gamepadbutton), or nil | nil |
 
+### Effect
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `name` | string | needed |
+| `shader` | string | needed |
+| `stage` | [EffectStage](#effectstage) | `"before_hud"` |
+| `order` | number | 0 |
+| `parameters` | list of number | none |
+| `enabled` | boolean | true |
+
 ### Page
 
 | Field | Type |
@@ -1035,6 +1058,10 @@ number. A script can set a field to either.
 ### BettyLine
 
 `missiles_gone`, `armor_failing`, `screamer`, `havoc`, `jack_hammer`, `vagabond`, `imp`, `bandit`, `raptor`, `hawk`, `solomon`, `countermeasures_low`, `countermeasures_gone`, `cloak_on`, `cloak_off`, `blind_fire_on`, `blind_fire_off`, `spectral_shields_on`, `spectral_shields_off`, or a number.
+
+### EffectStage
+
+`before_hud`, `after_hud`.
 
 ### Axis
 
