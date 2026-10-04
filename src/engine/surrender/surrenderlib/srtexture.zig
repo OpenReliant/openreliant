@@ -98,6 +98,10 @@ pub const Image = struct {
     maps: Maps = .{},
     /// Added by OpenReliant: the mod's surface function its draws are shaded with, if any.
     surface: ?ModSurface = null,
+    /// Added by OpenReliant: set by a device that keeps its own copy of the pixels, such as the
+    /// GPU, once it has taken them. The texture table can then let go of its own
+    /// (`Table.releaseHeld`).
+    held: bool = false,
 
     /// The maps of a material, each as many levels as its image and of its size, in linear values;
     /// either may be missing.
@@ -105,7 +109,8 @@ pub const Image = struct {
         /// The surface's normal in the texture's own frame, as OpenGL's normal maps hold it: its
         /// x toward the texture's right, its y toward its top and its z out of the surface, each
         /// from -1 to 1 in red, green and blue; in alpha, how long the mean of the normals each
-        /// texel stands for is (`Content.normal`).
+        /// texel stands for is (`Content.normal`). Compressed in BC5, it holds x and y alone, and
+        /// the length is in the material map's alpha.
         normal: ?[]const Level = null,
         /// How much of the ambient light reaches the surface, how rough it is, and how metallic, in
         /// red, green and blue, as glTF packs them.

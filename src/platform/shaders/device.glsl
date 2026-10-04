@@ -28,8 +28,9 @@ layout(location = 6) in uint lightMask;
 // none, 1 the world's cascades, 2 the cockpit's map (device.zig's Receives); in the next two bits,
 // how its texture is magnified, 0 by the settings' filter, 1 smoothly, 2 by FSR 1's edge-adaptive
 // upscale, 3 as a glyph's coverage (srtexture.zig's Magnify); in the one after, 1 for the key
-// lights to reach past its terminator, as a planet's atmosphere carries them; and in the two after
-// that, 1 where its texture's normal map and its material map are shaded.
+// lights to reach past its terminator, as a planet's atmosphere carries them; in the two after
+// that, 1 where its texture's normal map and its material map are shaded; and in the one after, 1
+// where the normal map holds two channels (BC5).
 layout(location = 7) in uint shading;
 
 layout(set = 1, binding = 0) uniform Target {
@@ -411,6 +412,13 @@ Lit litOf(vec4 texel, mat3 onTexture) {
     if ((shade & 0x800u) != 0u && dot(onTexture[0], onTexture[0]) > 0.0) {
         vec4 map = texture(normalMaps, vec3(uv, image));
         vec3 bent = map.xyz * 2.0 - 1.0;
+        mean = map.a;
+        if ((shade & 0x2000u) != 0u) {
+            // A normal map compressed in two channels (BC5): its z, out of the surface, from x and
+            // y; the length of the normals' mean in the material map's alpha.
+            bent.z = sqrt(max(1.0 - dot(bent.xy, bent.xy), 0.0));
+            mean = (shade & 0x1000u) != 0u ? texture(materialMaps, vec3(uv, image)).a : 1.0;
+        }
         // OpenGL's normal maps point their y toward the texture's top, where its v grows down.
         bent.y = -bent.y;
         s.normal = normalize(onTexture * bent);
@@ -418,7 +426,6 @@ Lit litOf(vec4 texel, mat3 onTexture) {
         // shaded by the cosine of how far the map tilts the normal from the surface's own, so that
         // the grooves and edges show in it as they do in the lights.
         s.ambient = max(dot(s.normal, onTexture[2]), 0.0);
-        mean = map.a;
     }
     if ((shade & 0x1000u) != 0u) {
         vec3 orm = texture(materialMaps, vec3(uv, image)).rgb;
