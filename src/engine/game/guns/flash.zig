@@ -173,7 +173,7 @@ pub fn flareColour(regions: []const Region) [3]f32 {
         const y = texels(region.low[1], region.high[1], level.height);
         for (y[0]..y[1]) |row| {
             for (x[0]..x[1]) |column| {
-                const texel = level.rgba[(row * level.width + column) * 4 ..][0..3];
+                const texel = level.texels[(row * level.width + column) * 4 ..][0..3];
                 sum += .{ @floatFromInt(texel[0]), @floatFromInt(texel[1]), @floatFromInt(texel[2]) };
             }
         }
@@ -392,7 +392,7 @@ test Guns {
 test flareColour {
     // A yellow texel and a dark blue one: the light is their sum brought up to full brightness.
     const rgba = [_]u8{ 200, 200, 0, 255, 0, 0, 100, 255 };
-    const level: srtexture.Level = .{ .width = 2, .height = 1, .rgba = &rgba };
+    const level: srtexture.Level = .{ .width = 2, .height = 1, .texels = &rgba };
     const image: srtexture.Image = .{ .levels = &.{level} };
     try std.testing.expectEqual([3]f32{ 1, 1, 0.5 }, flareColour(&.{.{ .image = &image }}));
     // Over the left texel alone.

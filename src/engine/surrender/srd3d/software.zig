@@ -339,9 +339,9 @@ test "points and lines" {
 test mipLevel {
     const rgba = [_]u8{0} ** (16 * 16 * 4);
     const levels = [_]srtexture.Level{
-        .{ .width = 16, .height = 16, .rgba = &rgba },
-        .{ .width = 8, .height = 8, .rgba = &rgba },
-        .{ .width = 4, .height = 4, .rgba = &rgba },
+        .{ .width = 16, .height = 16, .texels = &rgba },
+        .{ .width = 8, .height = 8, .texels = &rgba },
+        .{ .width = 4, .height = 4, .texels = &rgba },
     };
     const texture: srtexture.Image = .{ .levels = &levels };
     try std.testing.expectEqual(0, mipLevel(&texture, .{ 0, 0 }, .{ .{ 1.0 / 16.0, 0 }, .{ 0, 1.0 / 16.0 } }));

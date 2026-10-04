@@ -643,7 +643,7 @@ pub const Loadout = struct {
                 texture.pixels = try arena.create(panels.Image);
                 texture.pixels.* = @splat(.{ 0, 0, 0, 0 });
                 const levels = try arena.alloc(srtexture.Level, 1);
-                levels[0] = .{ .width = panels.size, .height = panels.size, .rgba = std.mem.asBytes(texture.pixels) };
+                levels[0] = .{ .width = panels.size, .height = panels.size, .texels = std.mem.asBytes(texture.pixels) };
                 texture.image = .{ .levels = levels };
             }
         }

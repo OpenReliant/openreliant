@@ -88,7 +88,7 @@ test "the film keeps its shape at any window's size" {
     const across = 120;
     const down = 100;
     var rgba: [across * down * 4]u8 = @splat(0);
-    var level = [1]srtexture.Level{.{ .width = across, .height = down, .rgba = &rgba }};
+    var level = [1]srtexture.Level{.{ .width = across, .height = down, .texels = &rgba }};
     var picture: srtexture.Image = .{ .levels = &level };
     var random: libcmt.Rand = .{};
     // The display is drawn at one scale both ways, the least of the window's to 1024 by 768, so

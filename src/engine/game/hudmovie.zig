@@ -245,10 +245,10 @@ pub const Movie = struct {
         const height: u32 = @intCast(movie.film.height);
         if (movie.rgba.len != pixels.len * 4) {
             movie.rgba = try movie.gpa.realloc(movie.rgba, pixels.len * 4);
-            movie.level = .{.{ .width = width, .height = height, .rgba = movie.rgba }};
+            movie.level = .{.{ .width = width, .height = height, .texels = movie.rgba }};
             movie.picture = .{ .levels = &movie.level };
         } else if (movie.level[0].width != width) {
-            movie.level = .{.{ .width = width, .height = height, .rgba = movie.rgba }};
+            movie.level = .{.{ .width = width, .height = height, .texels = movie.rgba }};
             movie.picture = .{ .levels = &movie.level };
         }
         for (pixels, 0..) |index, at| {

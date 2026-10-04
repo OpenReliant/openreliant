@@ -20,8 +20,57 @@ const log = std.log.scoped(.textures);
 pub const Level = struct {
     width: u32,
     height: u32,
-    /// Red, green, blue and alpha, row by row from the top.
-    rgba: []const u8,
+    /// How `texels` hold its pixels.
+    format: Format = .rgba8,
+    /// Its pixels, row by row from the top: 8-bit red, green, blue and alpha each, or, compressed,
+    /// blocks of 4 by 4 pixels, a row of blocks at a time.
+    texels: []const u8,
+
+    /// How a level holds its pixels.
+    ///
+    /// **Improvement:** OpenReliant keeps mods' pictures compressed on the GPU, as today's games
+    /// do: a quarter of the memory of 8-bit RGBA, or less.
+    pub const Format = enum {
+        rgba8,
+        /// BC1: colour, and alpha on or off, in 8 bytes a block.
+        bc1,
+        /// BC3: colour and alpha in 16 bytes a block.
+        bc3,
+        /// BC5: two channels, red and green, in 16 bytes a block, for normal maps.
+        bc5,
+        /// BC7: colour and alpha in 16 bytes a block, finer than BC3.
+        bc7,
+
+        /// Whether it holds blocks of 4 by 4 pixels.
+        pub fn compressed(format: Format) bool {
+            return format != .rgba8;
+        }
+
+        /// The bytes a level `width` by `height` takes.
+        pub fn size(format: Format, width: u32, height: u32) usize {
+            return switch (format) {
+                .rgba8 => @as(usize, width) * height * 4,
+                .bc1, .bc3, .bc5, .bc7 => blocks(width) * blocks(height) * format.blockBytes(),
+            };
+        }
+
+        /// The bytes of a block of 4 by 4 pixels; for 8-bit RGBA, of a pixel.
+        pub fn blockBytes(format: Format) usize {
+            return switch (format) {
+                .rgba8 => 4,
+                .bc1 => 8,
+                .bc3, .bc5, .bc7 => 16,
+            };
+        }
+    };
+
+    /// The blocks of 4 pixels across `pixels`, the last partly filled.
+    pub fn blocks(pixels: u32) usize {
+        return (@as(usize, pixels) + block_side - 1) / block_side;
+    }
+
+    /// The side of a compressed format's block, in pixels.
+    pub const block_side = 4;
 };
 
 /// Added by OpenReliant: a mod's surface function that a draw is shaded with, and the parameters it
@@ -91,7 +140,7 @@ pub const Image = struct {
     /// them with the level.
     pub fn single(gpa: Allocator, across: u32, down: u32, rgba: []const u8) Allocator.Error!Image {
         const levels = try gpa.alloc(Level, 1);
-        levels[0] = .{ .width = across, .height = down, .rgba = rgba };
+        levels[0] = .{ .width = across, .height = down, .texels = rgba };
         return .{ .levels = levels };
     }
 
@@ -120,7 +169,7 @@ pub const Image = struct {
         for (weights, 0..) |weight, corner| {
             const cx = wrap(ix + @as(i64, @intCast(corner & 1)), l.width);
             const cy = wrap(iy + @as(i64, @intCast(corner >> 1)), l.height);
-            const texel = l.rgba[(cy * l.width + cx) * 4 ..][0..4];
+            const texel = l.texels[(cy * l.width + cx) * 4 ..][0..4];
             for (&out, texel) |*c, t| c.* += @as(f32, @floatFromInt(t)) / 255 * weight;
         }
         return out;
@@ -134,7 +183,7 @@ pub const Image = struct {
         const y = std.math.clamp(std.math.lossyCast(i64, @floor(v * @as(f32, @floatFromInt(l.height)))), 0, @as(i64, l.height) - 1);
         const at: usize = @intCast(y * l.width + x);
         var out: [4]f32 = undefined;
-        for (&out, l.rgba[at * 4 ..][0..4]) |*c, t| c.* = @as(f32, @floatFromInt(t)) / 255;
+        for (&out, l.texels[at * 4 ..][0..4]) |*c, t| c.* = @as(f32, @floatFromInt(t)) / 255;
         return out;
     }
 
@@ -145,7 +194,7 @@ pub const Image = struct {
 };
 
 fn freeLevels(gpa: Allocator, levels: []const Level) void {
-    for (levels) |l| gpa.free(l.rgba);
+    for (levels) |l| gpa.free(l.texels);
     gpa.free(levels);
 }
 
@@ -387,19 +436,19 @@ pub fn mipmapped(gpa: Allocator, picture: png.Picture) Allocator.Error!Image {
 pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content, longest: u32) Allocator.Error![]const Level {
     var levels: std.ArrayList(Level) = .empty;
     errdefer {
-        for (levels.items) |l| gpa.free(l.rgba);
+        for (levels.items) |l| gpa.free(l.texels);
         levels.deinit(gpa);
     }
     // Each of a normal map's own normals stands for itself alone, at its full length.
     if (content == .normal) for (std.mem.bytesAsSlice([4]u8, picture.rgba)) |*texel| {
         texel[3] = std.math.maxInt(u8);
     };
-    var finest: Level = .{ .width = picture.width, .height = picture.height, .rgba = picture.rgba };
+    var finest: Level = .{ .width = picture.width, .height = picture.height, .texels = picture.rgba };
     {
-        errdefer gpa.free(finest.rgba);
+        errdefer gpa.free(finest.texels);
         while (@max(finest.width, finest.height) > longest) {
             const smaller = try halved(gpa, finest, content);
-            gpa.free(finest.rgba);
+            gpa.free(finest.texels);
             finest = smaller;
         }
         try levels.append(gpa, finest);
@@ -408,7 +457,7 @@ pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content, longest: 
     while (last.width > 1 or last.height > 1) {
         last = try halved(gpa, last, content);
         levels.append(gpa, last) catch |err| {
-            gpa.free(last.rgba);
+            gpa.free(last.texels);
             return err;
         };
     }
@@ -429,7 +478,7 @@ fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level 
         const columns = [2]usize{ @min(2 * x, level.width - 1), @min(2 * x + 1, level.width - 1) };
         const rows = [2]usize{ @min(2 * y, level.height - 1), @min(2 * y + 1, level.height - 1) };
         for (rows) |row| for (columns) |column| {
-            const texel = level.rgba[(row * level.width + column) * 4 ..][0..4];
+            const texel = level.texels[(row * level.width + column) * 4 ..][0..4];
             const value: Rgb = switch (content) {
                 .colour => .{ colour.light(texel[0]), colour.light(texel[1]), colour.light(texel[2]) },
                 .normal => direction(Rgb{ unit(texel[0]), unit(texel[1]), unit(texel[2]) } * @as(Rgb, @splat(2)) - @as(Rgb, @splat(1))),
@@ -462,7 +511,7 @@ fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level 
             },
         }
     };
-    return .{ .width = width, .height = height, .rgba = rgba };
+    return .{ .width = width, .height = height, .texels = rgba };
 }
 
 /// `normal` a unit long; straight out of the surface where it has no length.
@@ -484,14 +533,14 @@ fn level8(value: f32) u8 {
 fn decode(gpa: Allocator, texture: tcache.Texture, palette: *const tga.Palette) Allocator.Error!Image {
     var levels: std.ArrayList(Level) = .empty;
     errdefer {
-        for (levels.items) |l| gpa.free(l.rgba);
+        for (levels.items) |l| gpa.free(l.texels);
         levels.deinit(gpa);
     }
     var n: u32 = 0;
     while (texture.level(n)) |source| : (n += 1) {
         const rgba = try source.rgba(gpa, palette);
         errdefer gpa.free(rgba);
-        try levels.append(gpa, .{ .width = source.width, .height = source.height, .rgba = rgba });
+        try levels.append(gpa, .{ .width = source.width, .height = source.height, .texels = rgba });
     }
     return .{ .levels = try levels.toOwnedSlice(gpa) };
 }
@@ -508,7 +557,7 @@ test "Image.single" {
 
 test "images sample bilinearly and wrap" {
     const rgba = [_]u8{ 0, 0, 0, 255, 255, 255, 255, 255 };
-    const levels = [_]Level{.{ .width = 2, .height = 1, .rgba = &rgba }};
+    const levels = [_]Level{.{ .width = 2, .height = 1, .texels = &rgba }};
     const image: Image = .{ .levels = &levels };
     // Texel centres give the texels; between them, the mean; past the edge it wraps.
     try std.testing.expectEqual([4]f32{ 0, 0, 0, 1 }, image.sample(0, 0.25, 0.5));
@@ -634,8 +683,8 @@ test "material maps come beside a picture" {
     table.files = .{ .context = &separate, .readFn = Pictures.read };
     const hull = (try table.find("hull")).?;
     try std.testing.expectEqual(2, hull.maps.normal.?.len);
-    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 255 }, hull.maps.normal.?[1].rgba);
-    try std.testing.expectEqualSlices(u8, &.{ 255, 64, 255, 255 }, hull.maps.orm.?[0].rgba[0..4]);
+    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 255 }, hull.maps.normal.?[1].texels);
+    try std.testing.expectEqualSlices(u8, &.{ 255, 64, 255, 255 }, hull.maps.orm.?[0].texels[0..4]);
 
     // A material map packed already takes the place of the three; without maps, there are none.
     const packed_maps: Pictures = .{ .files = &.{
@@ -648,7 +697,7 @@ test "material maps come beside a picture" {
     other.files = .{ .context = &packed_maps, .readFn = Pictures.read };
     const packed_hull = (try other.find("hull")).?;
     try std.testing.expectEqual(null, packed_hull.maps.normal);
-    try std.testing.expectEqualSlices(u8, &.{ 10, 20, 30, 255 }, packed_hull.maps.orm.?[1].rgba);
+    try std.testing.expectEqualSlices(u8, &.{ 10, 20, 30, 255 }, packed_hull.maps.orm.?[1].texels);
 }
 
 test "mipmaps of normals and of values" {
@@ -660,14 +709,14 @@ test "mipmaps of normals and of values" {
     const leaning = try gpa.dupe(u8, &.{ 218, 128, 218, 0, 38, 128, 218, 0, 218, 128, 218, 0, 38, 128, 218, 0 });
     const normals = try mipmaps(gpa, .{ .width = 4, .height = 1, .rgba = leaning }, .normal, max_side);
     defer freeLevels(gpa, normals);
-    try std.testing.expectEqualSlices(u8, &.{ 218, 128, 218, 255 }, normals[0].rgba[0..4]);
-    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 181 }, normals[1].rgba[0..4]);
-    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 181 }, normals[2].rgba);
+    try std.testing.expectEqualSlices(u8, &.{ 218, 128, 218, 255 }, normals[0].texels[0..4]);
+    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 181 }, normals[1].texels[0..4]);
+    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 181 }, normals[2].texels);
     // Values mean plainly, not in linear light as colours do.
     const values = try gpa.dupe(u8, &.{ 0, 0, 0, 255, 255, 255, 255, 255 });
     const data = try mipmaps(gpa, .{ .width = 2, .height = 1, .rgba = values }, .data, max_side);
     defer freeLevels(gpa, data);
-    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 128, 255 }, data[1].rgba);
+    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 128, 255 }, data[1].texels);
 }
 
 test mipmapped {
@@ -677,13 +726,13 @@ test mipmapped {
     const grey = try mipmapped(gpa, .{ .width = 2, .height = 1, .rgba = black_white });
     defer grey.deinit(gpa);
     try std.testing.expectEqual(2, grey.levels.len);
-    try std.testing.expectEqualSlices(u8, &.{ 188, 188, 188, 255 }, grey.levels[1].rgba);
+    try std.testing.expectEqualSlices(u8, &.{ 188, 188, 188, 255 }, grey.levels[1].texels);
 
     // A clear pixel lends its colour nothing, and its alpha half.
     const half_clear = try gpa.dupe(u8, &.{ 255, 0, 0, 255, 0, 255, 0, 0 });
     const red = try mipmapped(gpa, .{ .width = 2, .height = 1, .rgba = half_clear });
     defer red.deinit(gpa);
-    try std.testing.expectEqualSlices(u8, &.{ 255, 0, 0, 128 }, red.levels[1].rgba);
+    try std.testing.expectEqualSlices(u8, &.{ 255, 0, 0, 128 }, red.levels[1].texels);
 
     // Past the longest side, the finest levels go.
     const long = try gpa.alloc(u8, (max_side + 1) * 4);

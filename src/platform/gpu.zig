@@ -1369,7 +1369,7 @@ pub const Gpu = struct {
             if (item.maps.normal != null and array.normals == null) array.normals = try gpu.arrayTexture(array.shape, array.capacity, map_format);
             if (item.maps.orm != null and array.materials == null) array.materials = try gpu.arrayTexture(array.shape, array.capacity, map_format);
             for ([_]?[]const srtexture.Level{ item.levels, item.maps.normal, item.maps.orm }) |each| {
-                for (each orelse &.{}) |level| bytes += level.rgba.len;
+                for (each orelse &.{}) |level| bytes += level.texels.len;
             }
         }
         const size = std.math.cast(u32, bytes) orelse return error.OutOfMemory;
@@ -1701,19 +1701,19 @@ pub fn shader(handle: *c.SDL_GPUDevice, spirv: bool, stage: c.SDL_GPUShaderStage
 /// into layer `layer` of `texture`, and moves `at` past them.
 fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, mapped: [*]u8, at: *u32, texture: *c.SDL_GPUTexture, layer: u16, levels: []const srtexture.Level) void {
     for (levels, 0..) |level, index| {
-        @memcpy(mapped[at.*..][0..level.rgba.len], level.rgba);
+        @memcpy(mapped[at.*..][0..level.texels.len], level.texels);
         c.SDL_UploadToGPUTexture(
             copy,
             &.{ .transfer_buffer = transfer, .offset = at.*, .pixels_per_row = level.width, .rows_per_layer = level.height },
             &.{ .texture = texture, .mip_level = @intCast(index), .layer = layer, .w = level.width, .h = level.height, .d = 1 },
             false,
         );
-        at.* += @intCast(level.rgba.len);
+        at.* += @intCast(level.texels.len);
     }
 }
 
 /// A white texel, which runs with no texture bind.
-const blank_levels = [1]srtexture.Level{.{ .width = 1, .height = 1, .rgba = &.{ 0xFF, 0xFF, 0xFF, 0xFF } }};
+const blank_levels = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &.{ 0xFF, 0xFF, 0xFF, 0xFF } }};
 
 test Shading {
     // The shadows in the low byte and the magnification in the next two bits, as the shader reads
@@ -1730,7 +1730,7 @@ test Shading {
     const planet: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .world, .soft_terminator = true }, false));
     try std.testing.expectEqual(0x401, planet);
     // A texture's normal map and material map in the two bits after, where materials are shaded.
-    const level = [1]srtexture.Level{.{ .width = 1, .height = 1, .rgba = &.{ 0, 0, 0, 0 } }};
+    const level = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &.{ 0, 0, 0, 0 } }};
     var material: srtexture.Image = .{ .levels = &level, .maps = .{ .normal = &level, .orm = &level } };
     const state: device.State = .{ .texture = &material, .depth = undefined, .blend = null, .receives = .world };
     try std.testing.expectEqual(0x1801, @as(u32, @bitCast(Shading.of(state, true))));
