@@ -20,7 +20,7 @@ const openreliant = @import("openreliant");
 const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
 const Screen = @import("presenter.zig").Screen;
 
-const log = std.log.scoped(.scripts);
+const log = std.log.scoped(.shaders);
 
 pub const ModShaders = struct {
     gpa: Allocator,
@@ -31,11 +31,15 @@ pub const ModShaders = struct {
     presentation: ?*scripting.Presentation,
     /// The textures the surface functions name.
     textures: *srtexture.Table,
+    /// The device shader the functions are compiled into: OpenReliant's own or a mod's
+    /// replacement (`whole_shaders.zig`). Null where the replacement has no place for them, and
+    /// they draw nothing.
+    template: ?variants.Template,
     /// Why the last shader didn't compile, which is passed on to the script.
     message: [max_message]u8 = undefined,
     /// The surface and lighting functions, by the number the GPU knows their variants by.
     functions: std.AutoArrayHashMapUnmanaged(u16, Function) = .empty,
-    /// The number the next function gets. 0 is OpenReliant's own shader.
+    /// The number the next function gets. 0 is the device shader the GPU started with.
     next_function: u16 = 1,
     /// The lighting function the variants are compiled with, or 0 for none.
     lighting: u16 = 0,
@@ -148,21 +152,23 @@ pub const ModShaders = struct {
         return buffer[0..listed.len];
     }
 
-    /// Compiles the variant with `lighting` and `surface`, each a function or none, through the
-    /// cache.
-    fn compileVariant(host: *ModShaders, lighting: ?Function, surface: ?Function) Allocator.Error!shader_compiler.Result {
+    /// Compiles the variant of `template` with `lighting` and `surface`, each a function or none,
+    /// through the cache.
+    fn compileVariant(host: *ModShaders, template: *const variants.Template, lighting: ?Function, surface: ?Function) Allocator.Error!shader_compiler.Result {
         var buffer: [variants.max_parts]shader_compiler.Part = undefined;
         const lit = if (lighting) |function| function.part() else null;
         const surfaced = if (surface) |function| function.part() else null;
         var name_buffer: [512]u8 = undefined;
-        const name = std.fmt.bufPrint(&name_buffer, "variant {s} {s}", .{
+        const name = std.fmt.bufPrint(&name_buffer, "variant {s} {s} {s}", .{
+            template.after.name,
             if (lit) |part| part.name else "-",
             if (surfaced) |part| part.name else "-",
         }) catch "variant";
-        return host.cache.compileParts(host.gpa, name, .device_variant, variants.parts(lit, surfaced, &buffer), variants.preamble(lit != null, surfaced != null));
+        return host.cache.compileParts(host.gpa, name, .openreliant, .fragment, template.parts(lit, surfaced, &buffer), variants.preamble(lit != null, surfaced != null));
     }
 
     /// Compiles the function of `kind` in `source` on its own, to find its mistakes, and keeps it.
+    /// Without a template it is kept as it is, and draws nothing.
     fn addFunction(context: *anyopaque, kind: shaders.Kind, name: []const u8, source: []const u8) shaders.ShaderHost.Compiled {
         const host = from(context);
         const out_of_memory: shaders.ShaderHost.Compiled = .{ .failed = host.keep("out of memory compiling the shader") };
@@ -174,17 +180,19 @@ pub const ModShaders = struct {
             return out_of_memory;
         };
         const function: Function = .{ .kind = kind, .name = name_copy, .source = source_copy };
-        const result = switch (kind) {
-            .surface => host.compileVariant(null, function),
-            .lighting => host.compileVariant(function, null),
-        } catch {
-            host.free(function);
-            return out_of_memory;
-        };
-        defer result.deinit(host.gpa);
-        if (result == .diagnostic) {
-            host.free(function);
-            return .{ .failed = host.keep(result.diagnostic) };
+        if (host.template) |*template| {
+            const result = switch (kind) {
+                .surface => host.compileVariant(template, null, function),
+                .lighting => host.compileVariant(template, function, null),
+            } catch {
+                host.free(function);
+                return out_of_memory;
+            };
+            defer result.deinit(host.gpa);
+            if (result == .diagnostic) {
+                host.free(function);
+                return .{ .failed = host.keep(result.diagnostic) };
+            }
         }
         const id = host.next_function;
         host.next_function += 1;
@@ -252,20 +260,26 @@ pub const ModShaders = struct {
         const function = host.functions.getPtr(id) orelse return;
         if (function.compiled_with == lighting) return;
         const device = host.gpu() orelse return;
+        const template = if (host.template) |*held| held else return;
         function.compiled_with = lighting;
         const lit = if (lighting != 0) host.functions.get(lighting) else null;
-        const result = host.compileVariant(lit, if (function.kind == .surface) function.* else null) catch {
-            log.err("{s} is left out: out of memory compiling it", .{function.name});
+        const result = host.compileVariant(template, lit, if (function.kind == .surface) function.* else null) catch {
+            log.warn("{s} is left out: out of memory compiling it", .{function.name});
             return device.removeVariant(id);
         };
         defer result.deinit(host.gpa);
         switch (result) {
             .diagnostic => |text| {
-                log.err("{s} is left out: it doesn't compile with {s}: {s}", .{ function.name, if (lit) |other| other.name else "OpenReliant's shader", text });
+                log.warn("{s} is left out: it doesn't compile into {s} with {s}: {s}", .{
+                    function.name,
+                    template.after.name,
+                    if (lit) |other| other.name else "no lighting function",
+                    std.mem.trimEnd(u8, text, "\n"),
+                });
                 device.removeVariant(id);
             },
             .compiled => |code| device.setVariant(id, code.spirv, code.metal) catch |err| {
-                log.err("{s} is left out: the GPU can't make it: {s}", .{ function.name, @errorName(err) });
+                log.warn("{s} is left out: the GPU can't make it: {s}", .{ function.name, @errorName(err) });
                 device.removeVariant(id);
             },
         }
@@ -304,7 +318,7 @@ test "the cel-shading example's functions compile into a variant of the device s
     var buffer: [variants.max_parts]shader_compiler.Part = undefined;
     const lighting: shader_compiler.Part = .{ .name = "cel-shading/bands.glsl", .source = shaders.testing.cel_bands };
     const surface: shader_compiler.Part = .{ .name = "cel-shading/ink.glsl", .source = shaders.testing.cel_ink };
-    const result = try shader_compiler.compileParts(gpa, .device_variant, variants.parts(lighting, surface, &buffer), variants.preamble(true, true));
+    const result = try shader_compiler.compileParts(gpa, .openreliant, .fragment, variants.Template.builtin().parts(lighting, surface, &buffer), variants.preamble(true, true));
     defer result.deinit(gpa);
     switch (result) {
         .compiled => |code| try std.testing.expect(code.spirv.len > 0 and code.metal.len > 0),

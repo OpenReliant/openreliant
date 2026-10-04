@@ -56,7 +56,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--baked-lights` | Bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near ([Rendering](../engine/rendering.md#static-lights)) |
 | `--launch-steam original\|soft` | The Yamato's launch steam: original brightness or softer jets with less glare. Defaults to `soft`; `--original` selects `original` ([Launches](../engine/launch.md#the-yamatos-launch)) |
 | `--bitmap-fonts` | Draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod) ([Modding](modding.md#fonts)) |
-| `--no-mod-effects` | Don't draw the mods' shaders: their post effects, and their surface and lighting functions ([Post effects](scripting.md#post-effects)) |
+| `--no-mod-effects` | Don't draw the mods' shaders: their post effects, their surface and lighting functions, and their replacements for OpenReliant's shaders ([Post effects](scripting.md#post-effects)) |
 
 ## Sound
 
@@ -176,7 +176,7 @@ Samples=8
 | `ShotLights` | 1: every shot lights the ships it passes; 0: the latest two of each side's, as the original; which VIDEO's SHOT LIGHTS sets | `--few-shot-lights` |
 | `RealLights` | 1: the steady lights of ships and stations shine on what stands near; 0: they are baked into their hulls, as the original; which VIDEO's REAL LIGHTS sets | `--baked-lights` |
 | `OutlineFonts` | 1 or 0, which VIDEO's OUTLINE FONTS sets: the interface's text drawn from outline fonts, or in the game's bitmap fonts | `--bitmap-fonts` |
-| `ModEffects` | 1 or 0, which VIDEO's MOD EFFECTS sets: whether the mods' shaders draw: their post effects, and their surface and lighting functions ([Post effects](scripting.md#post-effects)). GRAPHICS' presets and `Original` leave it as it is | `--no-mod-effects` |
+| `ModEffects` | 1 or 0, which VIDEO's MOD EFFECTS sets: whether the mods' shaders draw: their post effects, their surface and lighting functions ([Post effects](scripting.md#post-effects)), and, from the next start, their replacements for OpenReliant's shaders. GRAPHICS' presets and `Original` leave it as it is | `--no-mod-effects` |
 | `Hrtf` | `auto`, `on` or `off`, which AUDIO's 3D SOUND sets: AUTOMATIC, HEADPHONES or SPEAKERS | `--hrtf`, `--no-hrtf` |
 | `Reverb` | 1 or 0, which AUDIO's REVERB sets | `--no-reverb` |
 | `Compressor` | 1 or 0, which AUDIO's COMPRESSOR sets | `--no-compressor` |

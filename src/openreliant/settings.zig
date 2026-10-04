@@ -242,7 +242,7 @@ pub const Own = struct {
     /// drawn between the ticks, and which shots light.
     smooth_motion: ?*bool = null,
     shot_lights: ?*engine.game.guns.ShotLights = null,
-    /// Whether the mods' shaders draw (`platform.gpu.variants.Variants.on`), on the GPU only.
+    /// Whether the mods' shaders draw (`platform.gpu.Gpu.mod_effects`), on the GPU only.
     mod_effects: ?*bool = null,
 
     pub const Display = struct {

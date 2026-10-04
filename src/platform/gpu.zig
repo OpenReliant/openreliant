@@ -28,6 +28,7 @@ const Geometry = @import("gpu/geometry.zig").Geometry;
 const shadow = @import("gpu/shadows.zig");
 pub const effects = @import("gpu/effects.zig");
 pub const variants = @import("gpu/variants.zig");
+pub const programs = @import("gpu/programs.zig");
 const sdl = @import("sdl.zig");
 
 const log = std.log.scoped(.gpu);
@@ -445,6 +446,11 @@ pub const Gpu = struct {
     effect_source: ?EffectSource = null,
     /// The variants of the fragment shader with mods' functions in them.
     mod_shaders: variants.Variants = .{},
+    /// Whether the mods' shaders draw (MOD EFFECTS): their post effects, and the variants with their
+    /// functions in them. Off, every draw takes variant 0, the device shader the GPU started with.
+    mod_effects: bool = true,
+    /// The code it draws each of OpenReliant's shaders with: a mod's replacement, or its own.
+    code: std.EnumArray(programs.Name, programs.Stages),
 
     /// Gives the passes of the mods' post effects for a frame, in order, in `buffer`.
     pub const EffectSource = struct {
@@ -480,35 +486,28 @@ pub const Gpu = struct {
         }
     };
 
-    const shaders = struct {
-        const vertex_spirv = @embedFile("shaders/device.vert.spv");
-        const vertex_msl = @embedFile("shaders/device.vert.msl");
-        const fragment_spirv = @embedFile("shaders/device.frag.spv");
-        const fragment_msl = @embedFile("shaders/device.frag.msl");
-        const bloom_vertex_spirv = @embedFile("shaders/bloom.vert.spv");
-        const bloom_vertex_msl = @embedFile("shaders/bloom.vert.msl");
-        const bloom_fragment_spirv = @embedFile("shaders/bloom.frag.spv");
-        const bloom_fragment_msl = @embedFile("shaders/bloom.frag.msl");
-    };
-
     /// How bright a colour must be before it blooms, and how much of the bloom is added back.
     const bloom_threshold: f32 = 0.35;
     const bloom_strength: f32 = 0.9;
 
-    /// One GPU device a run: the textures' slots it keeps in their images are its own.
-    pub fn init(gpa: Allocator, handle: *c.SDL_GPUDevice, window: *c.SDL_Window, settings: Settings) Error!Gpu {
+    /// One GPU device a run: the textures' slots it keeps in their images are its own. It draws
+    /// with the mods' replacements for OpenReliant's shaders, `replaced`, whose code must outlast
+    /// it.
+    pub fn init(gpa: Allocator, handle: *c.SDL_GPUDevice, window: *c.SDL_Window, settings: Settings, replaced: *const programs.Replacements) Error!Gpu {
         const formats = c.SDL_GetGPUShaderFormats(handle);
         const spirv = formats & c.SDL_GPU_SHADERFORMAT_SPIRV != 0;
         if (!spirv and formats & c.SDL_GPU_SHADERFORMAT_MSL == 0) {
             log.err("the GPU takes neither SPIR-V nor Metal's shaders", .{});
             return error.Sdl;
         }
-        const vertex_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, if (spirv) shaders.vertex_spirv else shaders.vertex_msl, 0, 1);
+        const code = programs.chosen(replaced, spirv);
+        const device_code = code.get(.device);
+        const vertex_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, device_code.vertex, 0, 1);
         errdefer c.SDL_ReleaseGPUShader(handle, vertex_shader);
-        const fragment_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) shaders.fragment_spirv else shaders.fragment_msl, fragment_samplers, fragment_uniforms);
+        const fragment_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, device_code.fragment, fragment_samplers, fragment_uniforms);
         errdefer c.SDL_ReleaseGPUShader(handle, fragment_shader);
         // Shadows darken what each pixel is lit by, so they need each pixel lit.
-        var shadows: shadow.Shadows = try .init(handle, spirv, if (settings.pixel_lighting) settings.shadows else .off);
+        var shadows: shadow.Shadows = try .init(handle, spirv, if (settings.pixel_lighting) settings.shadows else .off, code.get(.shadow));
         errdefer shadows.deinit(handle);
 
         const sampler = try textureSampler(handle, settings.filter, c.SDL_GPU_SAMPLERADDRESSMODE_REPEAT);
@@ -564,6 +563,7 @@ pub const Gpu = struct {
             .edge_sampler = edge_sampler,
             .shadows = shadows,
             .post = .{ .gpa = gpa },
+            .code = code,
         };
         gpu.blank = try gpu.place(&blank_levels, .{});
         gpu.no_maps = try gpu.arrayTexture(.{ .width = 1, .height = 1, .levels = 1 }, 1, map_format);
@@ -697,11 +697,11 @@ pub const Gpu = struct {
         const drawn: Settings.Shadows = if (pixel_lighting) quality else .off;
         if (drawn == gpu.shadows.quality) return;
         _ = c.SDL_WaitForGPUIdle(gpu.handle);
-        const none: shadow.Shadows = try .init(gpu.handle, gpu.spirv, .off);
+        const none: shadow.Shadows = try .init(gpu.handle, gpu.spirv, .off, gpu.code.get(.shadow));
         gpu.shadows.deinit(gpu.handle);
         gpu.shadows = none;
         if (drawn == .off) return;
-        const made: shadow.Shadows = try .init(gpu.handle, gpu.spirv, drawn);
+        const made: shadow.Shadows = try .init(gpu.handle, gpu.spirv, drawn, gpu.code.get(.shadow));
         gpu.shadows.deinit(gpu.handle);
         gpu.shadows = made;
     }
@@ -769,8 +769,9 @@ pub const Gpu = struct {
     /// The screen's passes' shaders, made the first time they are needed.
     fn screenShaders(gpu: *Gpu) sdl.Error!void {
         const spirv = gpu.spirv;
-        if (gpu.screen_vertex_shader == null) gpu.screen_vertex_shader = try shader(gpu.handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, if (spirv) shaders.bloom_vertex_spirv else shaders.bloom_vertex_msl, 0, 1);
-        if (gpu.screen_fragment_shader == null) gpu.screen_fragment_shader = try shader(gpu.handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) shaders.bloom_fragment_spirv else shaders.bloom_fragment_msl, 2, 1);
+        const bloom = gpu.code.get(.bloom);
+        if (gpu.screen_vertex_shader == null) gpu.screen_vertex_shader = try shader(gpu.handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, bloom.vertex, 0, 1);
+        if (gpu.screen_fragment_shader == null) gpu.screen_fragment_shader = try shader(gpu.handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, bloom.fragment, 2, 1);
     }
 
     /// The gamma ramp's pass into the swapchain, whose format is `format`: made the first time it
@@ -932,7 +933,7 @@ pub const Gpu = struct {
         const shading: Shading = .of(state, gpu.shadesMaterials());
         const into: Into = if (gpu.face != null) .reflections else if (gpu.overlay_from == null) .scene else .finished;
         const lit = into != .finished and vertices.len > 0 and vertices[0].light_mask != device.no_lights;
-        const picked = gpu.mod_shaders.pick(state.surface, if (state.texture) |image| image.surface else null, lit);
+        const picked: variants.Picked = if (gpu.mod_effects) gpu.mod_shaders.pick(state.surface, if (state.texture) |image| image.surface else null, lit) else .{};
         const base: u32 = @intCast(gpu.vertices.items.len);
         try gpu.vertices.ensureUnusedCapacity(gpu.gpa, vertices.len);
         for (vertices) |v| gpu.vertices.appendAssumeCapacity(.{
@@ -1147,7 +1148,7 @@ pub const Gpu = struct {
         var shown = finished;
         if (gpu.effect_source) |source| {
             var buffer: [effects.max_passes]effects.Pass = undefined;
-            const shown_passes = if (gpu.mod_shaders.on) source.passes(source.context, &buffer) else &.{};
+            const shown_passes = if (gpu.mod_effects) source.passes(source.context, &buffer) else &.{};
             gpu.post.set(shown_passes, seconds());
         }
         const screen = if (gpu.post.passes.items.len > 0) try gpu.effectScreen(targets) else null;
@@ -1822,6 +1823,7 @@ test {
     _ = shadow;
     _ = effects;
     _ = variants;
+    _ = programs;
 }
 
 test "Lighting.take in linear light" {

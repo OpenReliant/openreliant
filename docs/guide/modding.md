@@ -378,8 +378,11 @@ mission2.dte=escort.luau
 Scripts are ordinary files of the mod: a folder mod keeps them next to `mod.ini`, and `sltool hog
 pack` packs them into the archive. The shaders of a mod's post effects and functions, files
 ending in `.frag` or `.glsl`, are kept the same way ([Post effects](scripting.md#post-effects)).
-Neither scripts nor shaders replace game files. [`examples/mods`](../../examples/mods) holds
-example mods for mod makers, which show how the scripting works and aren't supported mods.
+Neither scripts nor shaders replace game files, but a mod's `device.glsl`, `bloom.glsl` or
+`shadow.glsl` can replace OpenReliant's own shader
+([Replacing OpenReliant's shaders](scripting.md#replacing-openreliants-shaders)).
+[`examples/mods`](../../examples/mods) holds example mods for mod makers, which show how the
+scripting works and aren't supported mods.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
 

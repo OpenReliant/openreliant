@@ -126,7 +126,9 @@ pub const Shadows = struct {
 
     const Vertex = srshadow.Corner;
 
-    pub fn init(handle: *c.SDL_GPUDevice, spirv: bool, quality: Quality) gpu.Error!Shadows {
+    /// The shadows of `quality`, drawn with `code`: OpenReliant's `shadow.glsl`, or a mod's
+    /// replacement (`gpu/programs.zig`).
+    pub fn init(handle: *c.SDL_GPUDevice, spirv: bool, quality: Quality, code: gpu.programs.Stages) gpu.Error!Shadows {
         const format = depthFormat(handle);
         const maps = try mapsTexture(handle, format, if (quality.settings()) |found| found.texels else 1);
         errdefer c.SDL_ReleaseGPUTexture(handle, maps);
@@ -145,19 +147,12 @@ pub const Shadows = struct {
         var shadows: Shadows = .{ .quality = quality, .maps = maps, .sampler = sampler };
         if (quality != .off) {
             errdefer shadows.deinit(handle);
-            shadows.vertex_shader = try gpu.shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, if (spirv) code.vertex_spirv else code.vertex_msl, 0, 1);
-            shadows.fragment_shader = try gpu.shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) code.fragment_spirv else code.fragment_msl, 0, 0);
+            shadows.vertex_shader = try gpu.shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, code.vertex, 0, 1);
+            shadows.fragment_shader = try gpu.shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, code.fragment, 0, 0);
             shadows.pipeline = try shadows.depthPipeline(handle, format);
         }
         return shadows;
     }
-
-    const code = struct {
-        const vertex_spirv = @embedFile("../shaders/shadow.vert.spv");
-        const vertex_msl = @embedFile("../shaders/shadow.vert.msl");
-        const fragment_spirv = @embedFile("../shaders/shadow.frag.spv");
-        const fragment_msl = @embedFile("../shaders/shadow.frag.msl");
-    };
 
     pub fn deinit(shadows: *Shadows, handle: *c.SDL_GPUDevice) void {
         Geometry.release(&shadows.geometry, handle);

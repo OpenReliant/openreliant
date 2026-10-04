@@ -42,6 +42,8 @@ const presenting = @import("presenter.zig");
 const Presenter = presenting.Presenter;
 const Screen = presenting.Screen;
 const ModShaders = @import("mod_shaders.zig").ModShaders;
+const whole_shaders = @import("whole_shaders.zig");
+const WholeShaders = whole_shaders.Loaded;
 const drawn = presenting.drawn;
 const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
@@ -266,12 +268,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
 
     var window: platform.window.Window = try .open("OpenReliant", initial_size[0], initial_size[1], options.fullscreen);
     defer window.close();
+    // The compiled shaders of the mods, kept in the game folder, and their replacements for
+    // OpenReliant's shaders, chosen as OpenReliant starts while MOD EFFECTS is on.
+    const shader_cache: platform.shader_cache.Cache = .{ .io = io, .root = directory };
+    const whole: WholeShaders = if (!options.software and options.mod_effects) try whole_shaders.load(arena, shader_cache, mods.list) else .{ .template = .builtin() };
     // The device the driver draws with, and the driver.
     const screen = try arena.create(Screen);
     screen.* = if (options.software)
         .{ .software = try .init(arena, initial_size[0], initial_size[1]) }
     else
-        .{ .gpu = try .init(gpa, window.gpu, window.handle, options.settings) };
+        .{ .gpu = try .init(gpa, window.gpu, window.handle, options.settings, &whole.replacements) };
     defer switch (screen.*) {
         .gpu => |*device| device.deinit(),
         .software => |*device| device.deinit(arena),
@@ -283,14 +289,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     var mod_shaders: ModShaders = .{
         .gpa = gpa,
         .screen = screen,
-        .cache = .{ .io = io, .root = directory },
+        .cache = shader_cache,
         .presentation = presentation,
         .textures = &textures,
+        .template = whole.template,
     };
     mod_shaders.start();
     defer mod_shaders.stop();
     const mod_effects: ?*bool = switch (screen.*) {
-        .gpu => |*device| &device.mod_shaders.on,
+        .gpu => |*device| &device.mod_effects,
         .software => null,
     };
     if (mod_effects) |on| on.* = options.mod_effects;
@@ -1890,6 +1897,7 @@ const Display = struct {
 
 test {
     _ = @import("mod_shaders.zig");
+    _ = whole_shaders;
     _ = options_page;
     _ = settings_module;
     _ = install;
