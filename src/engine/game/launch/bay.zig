@@ -67,7 +67,7 @@ pub const Doors = struct {
     /// `0x0041A667`). A carrier or a gate that the table doesn't list has none: the Mitchell
     /// (`0x13`), the Ramases, the Kronstadt, the other Ramases and the rogue base among them.
     pub fn of(carrier: gameobj.Type, gate: i16) Doors {
-        return switch (carrier) {
+        return switch (carrier.base()) {
             .victorious, .other_mitchell => switch (gate) {
                 0 => .pair(3, 4),
                 1 => .pair(5, 6),
@@ -119,7 +119,7 @@ pub const Doors = struct {
 /// Whether the carrier the ship flies out of is the Pukov or the Varyag, whose ships fly out for
 /// longer, climbing at the end (`0x0041AAB9`, `0x0041AB25`).
 fn longBay(carrier: gameobj.Type) bool {
-    return carrier == .pukov or carrier == .varyag;
+    return carrier.base() == .pukov or carrier.base() == .varyag;
 }
 
 /// `launch_bay_init` (`0x0041A610`): places the ship in slot `index` at the launch point of the
@@ -253,11 +253,11 @@ const testing = struct {
             try bay.mission.init(gpa);
             errdefer bay.mission.deinit();
             bay.bremen_model.init();
-            _ = try bay.mission.add(.predator, @splat(0));
-            bay.bremen = try bay.mission.add(.bremen, .{ 0, 0, 10000 });
+            _ = try bay.mission.add(.of(.predator), @splat(0));
+            bay.bremen = try bay.mission.add(.of(.bremen), .{ 0, 0, 10000 });
             try bay.bremen_model.parts.fit(gpa, bay.mission.slot(bay.bremen));
-            bay.first = try bay.mission.add(.wolverine, @splat(0));
-            bay.second = try bay.mission.add(.wolverine, @splat(0));
+            bay.first = try bay.mission.add(.of(.wolverine), @splat(0));
+            bay.second = try bay.mission.add(.of(.wolverine), @splat(0));
             const ctx = bay.mission.orders();
             for ([_]u16{ bay.first, bay.second }, [_]u16{ 0, second_gate }) |ship, gate| {
                 _ = try aigeneric.pushShip(ctx, ship, .launch, bay.bremen, gate);
@@ -277,16 +277,16 @@ const testing = struct {
 };
 
 test "Doors.of" {
-    try std.testing.expectEqual(Doors{ .first = 6, .second = 7 }, Doors.of(.bremen, 0));
-    try std.testing.expectEqual(Doors{ .first = 4, .second = 5 }, Doors.of(.bremen, 1));
-    try std.testing.expectEqual(Doors{}, Doors.of(.bremen, 2));
-    try std.testing.expectEqual(Doors{ .first = 19, .second = 20 }, Doors.of(.endeavour, 2));
+    try std.testing.expectEqual(Doors{ .first = 6, .second = 7 }, Doors.of(.of(.bremen), 0));
+    try std.testing.expectEqual(Doors{ .first = 4, .second = 5 }, Doors.of(.of(.bremen), 1));
+    try std.testing.expectEqual(Doors{}, Doors.of(.of(.bremen), 2));
+    try std.testing.expectEqual(Doors{ .first = 19, .second = 20 }, Doors.of(.of(.endeavour), 2));
     // The Pukov's first two gates share a door, and the Kiev's second gate opens only its second.
-    try std.testing.expectEqual(Doors.of(.pukov, 0), Doors.of(.pukov, 1));
-    try std.testing.expectEqual(Doors{ .second = 7 }, Doors.of(.kiev, 1));
+    try std.testing.expectEqual(Doors.of(.of(.pukov), 0), Doors.of(.of(.pukov), 1));
+    try std.testing.expectEqual(Doors{ .second = 7 }, Doors.of(.of(.kiev), 1));
     // The Mitchell has none, unlike the other Mitchell.
-    try std.testing.expectEqual(Doors{}, Doors.of(.mitchell, 0));
-    try std.testing.expectEqual(Doors{ .first = 3, .second = 4 }, Doors.of(.other_mitchell, 0));
+    try std.testing.expectEqual(Doors{}, Doors.of(.of(.mitchell), 0));
+    try std.testing.expectEqual(Doors{ .first = 3, .second = 4 }, Doors.of(.of(.other_mitchell), 0));
 }
 
 test "a ship launches out of a bay, its doors opening and closing behind it" {
@@ -335,7 +335,7 @@ test "a bay's doors stay open while another ship launches through them" {
     try bay.init(std.testing.allocator, 0);
     defer bay.deinit();
     const ctx = bay.mission.orders();
-    const doors = Doors.of(.bremen, 0);
+    const doors = Doors.of(.of(.bremen), 0);
     // The second ship, through the same doors, has yet to start: it doesn't hold them open.
     try std.testing.expect(!doorsInUse(bay.mission.objects, bay.first, doors));
     // Once it has started, it does.
@@ -343,5 +343,5 @@ test "a bay's doors stay open while another ship launches through them" {
     aigeneric.objectOrders(ctx, bay.second);
     try std.testing.expect(doorsInUse(bay.mission.objects, bay.first, doors));
     // Doors elsewhere on the Bremen are free.
-    try std.testing.expect(!doorsInUse(bay.mission.objects, bay.first, Doors.of(.bremen, 1)));
+    try std.testing.expect(!doorsInUse(bay.mission.objects, bay.first, Doors.of(.of(.bremen), 1)));
 }

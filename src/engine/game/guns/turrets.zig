@@ -403,7 +403,7 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
     aimed.to_turn = .{};
     const huge = aimed.barrel.type.huge();
     const from = aimed.model.parts[aimed.base].object.position;
-    const components_aimed = own.flags.components and switch (own.type) {
+    const components_aimed = own.flags.components and switch (own.type.base()) {
         .kurgan, .antanov, .nanny, .prowler => false,
         else => true,
     };
@@ -713,8 +713,8 @@ const Stage = struct {
             .{ .clip = objects.testing.clip(10, .once, "reload"), .keyframes = &.{}, .events = &.{} },
         };
         for (&stage.parts.data) |*part| part.tracks = &stage.tracks;
-        stage.ship = try stage.mission.add(.predator, @splat(0));
-        stage.target = try stage.mission.add(.sabre, .{ 0, 0, 3000 });
+        stage.ship = try stage.mission.add(.of(.predator), @splat(0));
+        stage.target = try stage.mission.add(.of(.sabre), .{ 0, 0, 3000 });
         const target = &stage.mission.slot(stage.target).object;
         target.side = .hostile;
         target.flags.targetable = true;
@@ -830,10 +830,10 @@ test "an aimed turret passes over a ship the track would drop" {
     try stage.arm();
     const aimed = &stage.gun().turret.aimed;
     // An untargetable hostile ship before the target in the slots is passed over.
-    const hidden = try stage.mission.add(.sabre, .{ 0, 0, 2000 });
+    const hidden = try stage.mission.add(.of(.sabre), .{ 0, 0, 2000 });
     stage.mission.slot(hidden).object.side = .hostile;
     stage.mission.slot(hidden).object.flags.targetable = false;
-    const later = try stage.mission.add(.sabre, .{ 0, 0, 2500 });
+    const later = try stage.mission.add(.of(.sabre), .{ 0, 0, 2500 });
     stage.mission.slot(later).object.side = .hostile;
     stage.mission.slot(later).object.flags.targetable = true;
     stage.mission.slot(later).drawn.position = .{ 0, 0, 2500 };
@@ -857,7 +857,7 @@ test "an aimed turret fires where its muzzle points, and turns toward its target
     const aimed = &stage.gun().turret.aimed;
 
     // With no target, it looks for one: the hostile ship, not its own side's.
-    _ = try stage.mission.add(.predator, .{ 0, 0, 2000 });
+    _ = try stage.mission.add(.of(.predator), .{ 0, 0, 2000 });
     step(world, stage.ship);
     try std.testing.expectEqual(stage.target, aimed.target.ship());
     try std.testing.expect(aimed.looks_at >= 1100 and aimed.looks_at < 1200);

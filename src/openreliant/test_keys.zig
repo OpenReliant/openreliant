@@ -53,7 +53,7 @@ pub fn bringWing(orders: game.aigeneric.Context) void {
     for (0..mission0.wing_size) |place| {
         const across = (@as(f32, @floatFromInt(place)) - @as(f32, mission0.wing_size - 1) / 2) * mission0.wing_spacing;
         const at = from + math.transform(ship.root.next_orientation, .{ across, 0, mission0.wing_ahead });
-        const index = game.create.createObject(all, spawn.tables, spawn.types, null, .sabre, 0, at, world.random) catch |err| {
+        const index = game.create.createObject(all, spawn.tables, spawn.types, null, .of(.sabre), 0, at, world.random) catch |err| {
             log.warn("the wing is left out: {s}", .{@errorName(err)});
             return;
         };
@@ -76,7 +76,7 @@ test bringWing {
     var world: game.gameobj.testing.Mission = undefined;
     try world.init(std.testing.allocator);
     defer world.deinit();
-    const player = try world.add(.predator, @splat(0));
+    const player = try world.add(.of(.predator), @splat(0));
     var orders = world.orders();
     orders.world.spawn = world.spawn(game.create.testing.no_models);
     bringWing(orders);
@@ -84,7 +84,7 @@ test bringWing {
     const all = world.objects;
     try std.testing.expectEqual(1 + mission0.wing_size, all.count);
     for (all.slots[1..all.count]) |slot| {
-        try std.testing.expectEqual(game.gameobj.Type.sabre, slot.object.type);
+        try std.testing.expectEqual(game.gameobj.Type.of(.sabre), slot.object.type);
         try std.testing.expectEqual(mission0.wing_pilot, slot.object.pilot);
         try std.testing.expectEqual(player, slot.orders[0].target.ship());
         try std.testing.expectApproxEqAbs(-1, math.forward(slot.object.root.orientation)[2], 1e-6);

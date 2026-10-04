@@ -691,7 +691,7 @@ pub fn followCarrier(world: gameobj.World) void {
     const carrier = world.player.carrier orelse return;
     if (carrier >= all.slots.len or !all.slots[carrier].object.flags.exploding) return;
     for (all.slots[0..all.count], 0..) |*slot, index| {
-        if (slot.object.type != .yamato) continue;
+        if (slot.object.type.base() != .yamato) continue;
         world.player.carrier = @intCast(index);
         return;
     }
@@ -701,9 +701,9 @@ test followCarrier {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const reliant = try mission.add(.reliant, @splat(0));
-    const yamato = try mission.add(.yamato, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), @splat(0));
+    const yamato = try mission.add(.of(.yamato), @splat(0));
     mission.player.carrier = reliant;
     // While the Reliant holds, it stays the ship the player launched from.
     followCarrier(mission.world());
@@ -1029,7 +1029,7 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
         if (slot.cloak) |*cloaking| {
             view.lights = false;
             view.glows = false;
-            view.cloak = .{ .cloak = cloaking, .kafelnikof = object.type == .kafelnikof };
+            view.cloak = .{ .cloak = cloaking, .kafelnikof = object.type.base() == .kafelnikof };
         }
         try model.draw(gpa, scene, .world, view);
     }
@@ -1046,7 +1046,7 @@ test "the objects are framed and drawn, save those left out" {
     var tables = create.testing.tables();
     for (0..4) |place| {
         const at: math.Vector = .{ @floatFromInt(place * 100), 0, 0 };
-        _ = try create.createObject(all, &tables, model.types(), null, .predator, 0, at, &random);
+        _ = try create.createObject(all, &tables, model.types(), null, .of(.predator), 0, at, &random);
     }
     // The first is the ship the camera sits in, the second is disabled and the third jumping.
     all.slots[0].object.flags.hidden = true;
@@ -1069,7 +1069,7 @@ test "the objects are framed and drawn, save those left out" {
 
     // The ejection's cutaway shows the player's pod and the cutaway slot's ship alone.
     all.slots[0].object.flags.hidden = false;
-    const seen = try create.createObject(all, &tables, model.types(), create.cutaway_slot, .predator, 0, .{ 0, 0, 500 }, &random);
+    const seen = try create.createObject(all, &tables, model.types(), create.cutaway_slot, .of(.predator), 0, .{ 0, 0, 500 }, &random);
     frameObjects(all, .{}, 0);
     scene.clear();
     try drawObjects(gpa, &scene, all, .{}, null, null, .{ .showing = .ejection });
@@ -1096,8 +1096,8 @@ test "a launching ship keeps with the node it rides, though that is framed after
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    const ship = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.reliant, @splat(0));
+    const ship = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.reliant), @splat(0));
     _ = try aigeneric.pushShip(mission.orders(), ship, .launch, carrier, 0);
     const slot = mission.slot(ship);
     slot.riding = .{ .object = carrier };
@@ -1120,7 +1120,7 @@ test "an object the orders place is drawn on by its glide, for the time past the
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const index = try mission.add(.predator, .{ 0, 0, 100 });
+    const index = try mission.add(.of(.predator), .{ 0, 0, 100 });
     const slot = mission.slot(index);
     // Placed at 100 and going 8 a tick, half a tick on it is drawn 4 further along.
     slot.glide = .{ 0, 0, 8 };
@@ -1183,7 +1183,7 @@ test drawFrame {
     var model: create.testing.Model = undefined;
     try model.init(gpa);
     defer model.deinit(gpa);
-    const ship = try mission.addWith(model.types(), .predator, .{ 0, 0, 1000 });
+    const ship = try mission.addWith(model.types(), .of(.predator), .{ 0, 0, 1000 });
     frameObjects(mission.objects, .{}, 0);
 
     // The backdrop, the sky, and the radar's backing, from textures of their own names.
@@ -1388,7 +1388,7 @@ test missionOver {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const index = try mission.add(.predator, @splat(0));
+    const index = try mission.add(.of(.predator), @splat(0));
     var watching: camera.Camera = .{};
     var world = mission.world();
     // Without a camera, or in a view of the mission, the mission goes on.
@@ -1583,10 +1583,10 @@ test startWing {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.reaper, @splat(0));
-    const wingman = try mission.add(.predator, .{ 1000, 0, 0 });
-    const twin = try mission.add(.t_phoenix, .{ 2000, 0, 0 });
-    const capital = try mission.add(.reliant, .{ 0, 0, 9000 });
+    const player = try mission.add(.of(.reaper), @splat(0));
+    const wingman = try mission.add(.of(.predator), .{ 1000, 0, 0 });
+    const twin = try mission.add(.of(.t_phoenix), .{ 2000, 0, 0 });
+    const capital = try mission.add(.of(.reliant), .{ 0, 0, 9000 });
     all.wing = .{ null, wingman, twin, capital, null, null };
     startWing(all);
     // The player first, and each ship by its type's icon: a twin as the ship it twins, a type the
@@ -1732,7 +1732,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
 
     givePilots(all, number);
     startWing(all);
-    _ = create.createObject(all, start.tables, types, null, .marker, 0, camera_marker_at, world.random) catch |err| {
+    _ = create.createObject(all, start.tables, types, null, .of(.marker), 0, camera_marker_at, world.random) catch |err| {
         std.log.warn("the camera's marker is left out: {s}", .{@errorName(err)});
     };
     start.types.sweep(&all.types);
@@ -1827,13 +1827,13 @@ test fitDevices {
     // Its twin is the same ship.
     try std.testing.expectEqual(playerShip(shroud), playerShip(@enumFromInt(0xFE)));
     // The Grendel carries only the ECM.
-    fitDevices(&display, .grendel, false);
+    fitDevices(&display, .of(.grendel), false);
     try std.testing.expectEqual(.off, display.devices.get(.ecm).setting);
     try std.testing.expectEqual(.absent, display.devices.get(.spectral_shields).setting);
     try std.testing.expectEqual(.absent, display.devices.get(.cloak).setting);
     try std.testing.expect(!display.blind_fire_fitted);
     // A capital ship is none of the player's.
-    try std.testing.expectEqual(null, playerShip(.yamato));
+    try std.testing.expectEqual(null, playerShip(.of(.yamato)));
 }
 
 test startMission {
@@ -1906,7 +1906,7 @@ test startMission {
     try std.testing.expectEqual(1, loaded.script.variables.players);
     try std.testing.expectEqual(1, loaded.script.variables.ghost_alive);
     try std.testing.expect(all.slots[0].type != null);
-    try std.testing.expectEqual(gameobj.Type.marker, all.slots[2].object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.marker), all.slots[2].object.type);
     try std.testing.expectEqual(camera_marker_at[2], all.slots[2].object.root.position.z);
     // The player's ship on its controls, and the other under the order the script gave it.
     try std.testing.expectEqual(ai.orders.Order.player_control, all.slots[0].orders[0].order);
@@ -1922,7 +1922,7 @@ test missionFrame {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     // The player's slot, then a ship that turns on the spot under an order of its own.
-    for (0..2) |_| _ = try mission.add(.predator, @splat(0));
+    for (0..2) |_| _ = try mission.add(.of(.predator), @splat(0));
     const orders = mission.orders();
     try std.testing.expect(try aigeneric.push(orders, 1, .slow_rotate, .none));
 
@@ -2160,8 +2160,8 @@ test givePilots {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    _ = try mission.add(.predator, .{ 0, 0, 0 });
-    const wingman = try mission.add(.predator, .{ 0, 0, 100 });
+    _ = try mission.add(.of(.predator), .{ 0, 0, 0 });
+    const wingman = try mission.add(.of(.predator), .{ 0, 0, 100 });
     all.wing = @splat(null);
     all.wing[0] = 0;
     all.wing[1] = wingman;

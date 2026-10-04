@@ -294,7 +294,7 @@ pub const Blast = struct {
     fn strike(blast: *const Blast, world: gameobj.World, caught: *Caught) void {
         const slot = &world.objects.slots[caught.index];
         const object = &slot.object;
-        if (object.type == .stand_in) return;
+        if (object.type.base() == .stand_in) return;
         if (slot.running(.explode) != null) return;
         if (math.distance(slot.drawn.position, blast.place.position) > blast.ball.scale) return;
         const random = world.random;
@@ -458,7 +458,7 @@ pub const Uber = struct {
         if (object.flags.disabled or !object.created or slot.current() == null) return false;
         const combat = slot.combat orelse return false;
         if (combat.side == .neutral) return false;
-        switch (object.type) {
+        switch (object.type.base()) {
             .proto_gate, .advanced_gate, .boridin, .boridin_breakaway => return false,
             else => {},
         }
@@ -674,10 +674,10 @@ test Uber {
     const uber = stage.explosions.uber;
 
     // The player's ship, which it spares; a ship near; one out of reach; and a gate.
-    const player = try stage.mission.add(.predator, @splat(0));
-    const near = try stage.mission.add(.sabre, .{ 0, 0, 30000 });
-    const far = try stage.mission.add(.sabre, .{ 0, 0, 6000 });
-    const gate = try stage.mission.add(.proto_gate, .{ 0, 0, 1000 });
+    const player = try stage.mission.add(.of(.predator), @splat(0));
+    const near = try stage.mission.add(.of(.sabre), .{ 0, 0, 30000 });
+    const far = try stage.mission.add(.of(.sabre), .{ 0, 0, 6000 });
+    const gate = try stage.mission.add(.of(.proto_gate), .{ 0, 0, 1000 });
     _ = player;
     for ([_]u16{ near, far, gate }) |index| _ = try aigeneric.push(ctx, index, .do_nothing, .none);
     const size: f32 = 1000;

@@ -184,7 +184,7 @@ pub const Split = struct {
             }
             var at = split.at;
             inline for (0..3) |axis| at[axis] += if (random.centred() >= 0) shake else -shake;
-            split.cutting = split.step + 1 < count and slot.object.type != .latov;
+            split.cutting = split.step + 1 < count and slot.object.type.base() != .latov;
             objects.setPosition(&slot.object, &slot.drawn, at);
         }
         const duration: f32 = @floatFromInt(sequence.duration);
@@ -212,7 +212,7 @@ pub const Split = struct {
         const root = split.rootPlace(world);
         const object = &world.objects.slots[split.object].object;
         const direction = if (random.rand() % 2 == 0) math.normalize(at - root.position) else -math.forward(object.root.orientation);
-        if (object.type == .latov) {
+        if (object.type.base() == .latov) {
             if (sequence.bits > 0 and std.mem.indexOfScalar(usize, &latov_flash_steps, split.step) != null) flash(world);
             const out = math.normalize(at - root.position);
             for (0..@intCast(@max(sequence.bits, 0))) |_| explode.throwChunk(world, at, out, .large);
@@ -290,14 +290,14 @@ pub const Split = struct {
         if (slot.model) |*model| {
             for (model.parts, 0..) |*part, index| {
                 if (index == split.wreck) continue;
-                if (object.type == .czar_docked and part.link_id == czar_kept_link) continue;
+                if (object.type.base() == .czar_docked and part.link_id == czar_kept_link) continue;
                 part.hidden = true;
             }
         }
         object.flags.unpowered = true;
         object.flags.exploding = true;
         object.velocity = gameobj.vec3(math.transform(object.root.orientation, drift));
-        switch (object.type) {
+        switch (object.type.base()) {
             .czar_docked, .stalag, .kafelnikof, .saladin, .victorious, .darkreign, .kronstadt => {
                 object.rotation = math.identity;
                 object.velocity = gameobj.vec3(@splat(0));
@@ -361,11 +361,11 @@ pub const Split = struct {
         const object = &all.slots[split.object].object;
         const elapsed = world.clock.frame_start - split.started;
         const random = world.random;
-        if (object.type == .stalag and random.rand() % stalag_flash_odds == 0) flash(world);
+        if (object.type.base() == .stalag and random.rand() % stalag_flash_odds == 0) flash(world);
         if (elapsed > bursts_after) {
-            const odds: u15 = if (object.type == .stalag) stalag_burst_odds else burst_odds;
+            const odds: u15 = if (object.type.base() == .stalag) stalag_burst_odds else burst_odds;
             if (random.rand() % odds == 0) {
-                if (object.type == .latov or object.type == .stalag) world.shake.* = bursts_shake;
+                if (object.type.base() == .latov or object.type.base() == .stalag) world.shake.* = bursts_shake;
                 split.burst(world, burst_bit_speed, true);
             }
         }
@@ -462,7 +462,7 @@ pub const Split = struct {
         }
         object.flags.unpowered = true;
         object.flags.exploding = true;
-        if (object.type == .latov or object.type == .stalag) {
+        if (object.type.base() == .latov or object.type.base() == .stalag) {
             object.velocity = gameobj.vec3(@splat(0));
             object.rotation = math.identity;
         } else {
@@ -471,10 +471,10 @@ pub const Split = struct {
         }
         explode.sound(world, slot.drawn.position, .explosions);
         split.ending(world);
-        if (object.type == .latov or object.type == .stalag) flash(world);
+        if (object.type.base() == .latov or object.type.base() == .stalag) flash(world);
         if (split.other) |other| {
             const half = &all.slots[other].object;
-            switch (object.type) {
+            switch (object.type.base()) {
                 .latov => half.velocity = gameobj.vec3(math.transform(object.root.orientation, latov_drift)),
                 .stalag => {
                     half.velocity = gameobj.vec3(@splat(0));
@@ -562,7 +562,7 @@ pub fn start(world: gameobj.World, index: u16) void {
     const object = &slot.object;
     const model = if (slot.model) |*live| live else return;
     const sequence = find(object.type) orelse return;
-    const points = cutPoints(explosions.splits.gpa, model, object.type != .latov) catch return;
+    const points = cutPoints(explosions.splits.gpa, model, object.type.base() != .latov) catch return;
     const taken = explosions.splits.take(world);
     taken.* = .{
         .object = index,
@@ -580,14 +580,14 @@ pub fn start(world: gameobj.World, index: u16) void {
 
     var damaged: usize = 0;
     for (model.parts, 0..) |*part, at| {
-        if (object.type == .czar_docked and part.link_id == Split.czar_kept_link) continue;
+        if (object.type.base() == .czar_docked and part.link_id == Split.czar_kept_link) continue;
         if (!part.flags.damaged) {
             xtrabits.clipPart(model, at, &split.portals[0]);
             if (part.class == .hull) split.hull = at;
             continue;
         }
         if (part.class != .hull) continue;
-        if (object.type == .latov) part.hidden = false;
+        if (object.type.base() == .latov) part.hidden = false;
         if (damaged == Split.variant) {
             if (sequence.mode != .bursts) {
                 part.hidden = false;
@@ -719,8 +719,8 @@ test "a capital ship sweeps apart" {
     var lists = [_]shp.PointList{ .{ .kind = .cut, .points = &cut }, .{ .kind = .fireballs, .points = &fireballs } };
     fixture.data[0].point_lists = &lists;
     const mission = &stage.mission;
-    _ = try mission.add(.kamov, @splat(0));
-    const ship = try mission.addWith(fixture.types(), .badanov, .{ 0, 0, 5000 });
+    _ = try mission.add(.of(.kamov), @splat(0));
+    const ship = try mission.addWith(fixture.types(), .of(.badanov), .{ 0, 0, 5000 });
     var world = stage.world();
     world.spawn = mission.spawn(fixture.types());
     var lit: @import("../main/flash.zig").Flash = .{};
@@ -776,8 +776,8 @@ test "a capital ship bursts apart" {
     var lists = [_]shp.PointList{.{ .kind = .cut, .points = &cut }};
     fixture.data[0].point_lists = &lists;
     const mission = &stage.mission;
-    _ = try mission.add(.kamov, @splat(0));
-    const ship = try mission.addWith(fixture.types(), .kurgan, .{ 0, 0, 5000 });
+    _ = try mission.add(.of(.kamov), @splat(0));
+    const ship = try mission.addWith(fixture.types(), .of(.kurgan), .{ 0, 0, 5000 });
     const world = stage.world();
     const splits = &stage.explosions.splits;
 
@@ -809,16 +809,16 @@ test waveLife {
 }
 
 test find {
-    try std.testing.expectEqual(.sweep, find(.badanov).?.mode);
-    try std.testing.expectEqual(0x75, find(.badanov).?.other_half.?);
-    try std.testing.expectEqual(null, find(.sabre));
+    try std.testing.expectEqual(.sweep, find(.of(.badanov)).?.mode);
+    try std.testing.expectEqual(0x75, find(.of(.badanov)).?.other_half.?);
+    try std.testing.expectEqual(null, find(.of(.sabre)));
 }
 
 test Splits {
     var splits: Splits = .init(std.testing.allocator);
     defer splits.deinit();
     // All taken, a new split takes the first slot.
-    for (&splits.slots, 0..) |*slot, n| slot.* = .{ .object = @intCast(n), .started = 0, .at = @splat(0), .portals = .{ .{}, .{} }, .sequence = find(.badanov).?, .points = try std.testing.allocator.alloc(Vector, 1) };
+    for (&splits.slots, 0..) |*slot, n| slot.* = .{ .object = @intCast(n), .started = 0, .at = @splat(0), .portals = .{ .{}, .{} }, .sequence = find(.of(.badanov)).?, .points = try std.testing.allocator.alloc(Vector, 1) };
     try std.testing.expect(splits.splitting(3));
     try std.testing.expect(!splits.splitting(Splits.max));
 }

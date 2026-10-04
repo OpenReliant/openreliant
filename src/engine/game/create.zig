@@ -641,7 +641,7 @@ pub const Objects = struct {
     pub fn reset(all: *Objects, random: *libcmt.Rand) void {
         for (&all.slots) |*slot| {
             slot.release(all.gpa);
-            var object = gameobj.objectAlloc(.stand_in, random);
+            var object = gameobj.objectAlloc(.of(.stand_in), random);
             object.flags.stand_in = true;
             slot.* = .{ .object = object };
         }
@@ -661,9 +661,9 @@ pub const Objects = struct {
     /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
     pub fn resetSlot(all: *Objects, index: u16, random: *libcmt.Rand) void {
         const slot = &all.slots[index];
-        if (slot.object.type != .stand_in) hooks.tell(all, .object_removed, .{ .object = .of(index) });
+        if (slot.object.type.base() != .stand_in) hooks.tell(all, .object_removed, .{ .object = .of(index) });
         slot.release(all.gpa);
-        var object = gameobj.objectAlloc(.stand_in, random);
+        var object = gameobj.objectAlloc(.of(.stand_in), random);
         object.flags = .standing_in;
         slot.* = .{ .object = object };
         all.reuses[index] +%= 1;
@@ -705,7 +705,7 @@ pub const Objects = struct {
     /// `simulator_mode` by which a type 13 becomes a Reliant.
     pub fn slotType(all: *const Objects, index: u16, asked: gameobj.Type) gameobj.Type {
         if (index >= all.players or index >= all.loadout_ships.len) return asked;
-        if (all.kamovPart()) return .kamov;
+        if (all.kamovPart()) return .of(.kamov);
         const chosen = all.loadout_ships[index] orelse return asked;
         if (all.mission_number < twins_from_mission) return chosen;
         return chosen.twin() orelse chosen;
@@ -854,7 +854,7 @@ const Wreck = struct {
 
 /// The part each wreck burns.
 fn wreckOf(object_type: gameobj.Type) ?Wreck {
-    return switch (object_type) {
+    return switch (object_type.base()) {
         .mammoth_wreck_front => .{ .part = "Mam frnt dest 2" },
         .mammoth_wreck_back => .{ .part = "Mam back dest" },
         .badanov_wreck_back => .{ .part = "Bad dead back", .shown = true },
@@ -886,7 +886,7 @@ pub fn wreckMade(world: gameobj.World, index: u16) void {
 /// first at its inner ring's pace (`wgate.inner_ring_speed`), where it has either.
 pub fn gateMade(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
-    const kind: wgate.Kind, const holder: usize = switch (slot.object.type) {
+    const kind: wgate.Kind, const holder: usize = switch (slot.object.type.base()) {
         .proto_gate => .{ .proto, proto_gate_holder },
         .advanced_gate => .{ .advanced, advanced_gate_holder },
         else => return,
@@ -1636,8 +1636,8 @@ pub const testing = struct {
 pub fn retire(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
     const object = &all.slots[index].object;
-    if (object.type != .stand_in) hooks.tell(ctx, .object_removed, .{ .object = .of(index) });
-    object.type = .stand_in;
+    if (object.type.base() != .stand_in) hooks.tell(ctx, .object_removed, .{ .object = .of(index) });
+    object.type = .of(.stand_in);
     object.flags = object.flags.with(.standing_in);
     object.flags.exploding = true;
     object.flags.targetable = false;
@@ -1695,7 +1695,7 @@ test planetMade {
     const all = mission.objects;
 
     // Only a planet is set up as one.
-    const ship = try mission.addWith(hull.types(), .predator, @splat(0));
+    const ship = try mission.addWith(hull.types(), .of(.predator), @splat(0));
     planetMade(all, ship);
     try std.testing.expect(!all.slots[ship].object.flags.no_collisions);
     try std.testing.expectEqual(50, hull.mesh.positions[0][2]);
@@ -1746,7 +1746,7 @@ test gateMade {
     var levels = [1]@import("../surrender/surrenderlib/srapiext.zig").Level{.{ .mesh = &srofiles.empty, .until = std.math.inf(f32) }};
     var parts: [2]objects.Model.Part = @splat(.{ .hidden = false, .parent = null, .origin = @splat(0), .object = .{ .flags = .{}, .position = @splat(0), .radius = 1, .levels = &levels } });
     parts[1].origin = .{ 0, 1000, 0 };
-    const gate = try mission.add(.proto_gate, @splat(0));
+    const gate = try mission.add(.of(.proto_gate), @splat(0));
     const slot = mission.slot(gate);
     slot.model = .{ .source = &source, .parts = &parts, .order = &.{}, .lights = &.{}, .glows = &.{}, .mounts = &.{} };
     defer slot.model = null;
@@ -1756,7 +1756,7 @@ test gateMade {
     try std.testing.expectEqual(Vector{ 0, 1000, 100 }, record.at);
 
     // Any other type makes no tunnel.
-    const other = try mission.add(.predator, @splat(0));
+    const other = try mission.add(.of(.predator), @splat(0));
     gateMade(world, other);
     try std.testing.expectEqual(null, built.gates.of(other));
 }
@@ -1772,7 +1772,7 @@ test wreckMade {
     world.rays = &rays.rays;
 
     // A Badanov's half shows its part, and burns for good, lit and smoking.
-    const index = try stage.mission.add(.badanov_wreck_back, @splat(0));
+    const index = try stage.mission.add(.of(.badanov_wreck_back), @splat(0));
     const slot = stage.mission.slot(index);
     var burning: explode.testing.Burning = undefined;
     try burning.init(gpa, "Bad dead back");
@@ -1785,8 +1785,8 @@ test wreckMade {
     try std.testing.expect(stage.explosions.burn_lights[0] != null);
 
     // Another type burns nothing.
-    try std.testing.expectEqual(null, wreckOf(.badanov));
-    try std.testing.expectEqualStrings("Box07", wreckOf(.kurgan_wreck).?.part);
+    try std.testing.expectEqual(null, wreckOf(.of(.badanov)));
+    try std.testing.expectEqualStrings("Box07", wreckOf(.of(.kurgan_wreck)).?.part);
 }
 
 test retire {
@@ -1799,7 +1799,7 @@ test retire {
     object.flags.targetable = true;
     try std.testing.expect(try aigeneric.push(ctx, index, .do_nothing, .none));
     retire(ctx, index);
-    try std.testing.expectEqual(gameobj.Type.stand_in, object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.stand_in), object.type);
     try std.testing.expect(object.flags.stand_in and object.flags.no_collisions and object.flags.exploding);
     try std.testing.expect(!object.flags.targetable);
     try std.testing.expectEqual(0, object.order_count);
@@ -1813,7 +1813,7 @@ test "a mission starts with every slot standing in" {
     try std.testing.expectEqual(0, all.count);
     for (all.slots) |slot| {
         try std.testing.expect(slot.object.flags.stand_in and !slot.object.created);
-        try std.testing.expectEqual(gameobj.Type.stand_in, slot.object.type);
+        try std.testing.expectEqual(gameobj.Type.of(.stand_in), slot.object.type);
     }
     // With nothing handed out, the loops walk the cutaway slot alone.
     var walk = all.walk();
@@ -1899,28 +1899,28 @@ test "Objects.slotType" {
     const all = try Objects.create(std.testing.allocator, &random);
     defer all.destroy();
     // With no loadout, the player's slot takes the mission's own kind; other slots always do.
-    try std.testing.expectEqual(gameobj.Type.grendel, all.slotType(0, .grendel));
-    all.loadout_ships[0] = .reaper;
-    try std.testing.expectEqual(gameobj.Type.reaper, all.slotType(0, .grendel));
-    try std.testing.expectEqual(gameobj.Type.sabre, all.slotType(1, .sabre));
+    try std.testing.expectEqual(gameobj.Type.of(.grendel), all.slotType(0, .of(.grendel)));
+    all.loadout_ships[0] = .of(.reaper);
+    try std.testing.expectEqual(gameobj.Type.of(.reaper), all.slotType(0, .of(.grendel)));
+    try std.testing.expectEqual(gameobj.Type.of(.sabre), all.slotType(1, .of(.sabre)));
     // From the 14th mission on the loadout's twin, and in mission 25's first part a Kamov.
     all.mission_number = twins_from_mission;
-    try std.testing.expectEqual(gameobj.Type.reaper.twin().?, all.slotType(0, .grendel));
+    try std.testing.expectEqual(gameobj.Type.of(.reaper).twin().?, all.slotType(0, .of(.grendel)));
     all.mission_number = kamov_mission;
-    try std.testing.expectEqual(gameobj.Type.kamov, all.slotType(0, .grendel));
+    try std.testing.expectEqual(gameobj.Type.of(.kamov), all.slotType(0, .of(.grendel)));
     all.mission25_second_part = true;
-    try std.testing.expectEqual(gameobj.Type.reaper.twin().?, all.slotType(0, .grendel));
+    try std.testing.expectEqual(gameobj.Type.of(.reaper).twin().?, all.slotType(0, .of(.grendel)));
 }
 
 test settledTier {
     // A fighter asked for 0 or 255 takes the campaign's tier; asked for 4 or 5, tier 0.
-    try std.testing.expectEqual(2, settledTier(0, .predator, 2));
-    try std.testing.expectEqual(2, settledTier(255, .predator, 2));
-    try std.testing.expectEqual(0, settledTier(4, .predator, 2));
-    try std.testing.expectEqual(0, settledTier(5, .predator, 2));
-    try std.testing.expectEqual(3, settledTier(3, .predator, 2));
+    try std.testing.expectEqual(2, settledTier(0, .of(.predator), 2));
+    try std.testing.expectEqual(2, settledTier(255, .of(.predator), 2));
+    try std.testing.expectEqual(0, settledTier(4, .of(.predator), 2));
+    try std.testing.expectEqual(0, settledTier(5, .of(.predator), 2));
+    try std.testing.expectEqual(3, settledTier(3, .of(.predator), 2));
     // What isn't a fighter keeps what it was asked for.
-    try std.testing.expectEqual(0, settledTier(0, .sabre, 2));
+    try std.testing.expectEqual(0, settledTier(0, .of(.sabre), 2));
 }
 
 test hardpoints {
@@ -1970,7 +1970,7 @@ test "a ship's racks are fitted by its tier" {
     points[4].id = 1;
     model.data[0].attachments = &points;
     model.hangsItself();
-    var index = try createObject(all, &tables, model.types(), null, .predator, 0, @splat(0), &random);
+    var index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
     var object = &all.slots[index].object;
     try std.testing.expectEqual(3, object.rack_count);
     try std.testing.expectEqual(missiles.Type.screamer, object.racks[0].type);
@@ -1989,7 +1989,7 @@ test "a ship's racks are fitted by its tier" {
     // At tier 1, the first holds a fuel pod, which adds to the afterburner's fuel.
     all.campaign_tier = 1;
     const fuel = object.afterburner_fuel;
-    index = try createObject(all, &tables, model.types(), null, .predator, 0, @splat(0), &random);
+    index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
     object = &all.slots[index].object;
     try std.testing.expectEqual(missiles.Type.fuel_pod, object.racks[0].type);
     try std.testing.expectEqual(fuel + fuel_pod_fuel, object.afterburner_fuel);
@@ -2013,7 +2013,7 @@ test "a player's ship takes the racks its loadout fitted" {
     racks[2] = .raptor;
     all.loadout_racks[0] = racks;
     // The player's slot takes the loadout's, whatever its hardpoints name.
-    const index = try createObject(all, &tables, model.types(), null, .predator, 0, @splat(0), &random);
+    const index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
     const object = &all.slots[index].object;
     try std.testing.expectEqual(0, index);
     try std.testing.expectEqual(3, object.rack_count);
@@ -2063,7 +2063,7 @@ test "a rack left empty on the loadout leaves its hardpoint bare" {
     racks[1] = .imp;
     racks[3] = .raptor;
     all.loadout_racks[0] = racks;
-    const index = try createObject(all, &tables, model.types(), null, .predator, 0, @splat(0), &random);
+    const index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
     const object = &all.slots[index].object;
     // Each missile flies, on the hardpoint the loadout hung it on.
     try std.testing.expectEqual(2, object.rack_count);
@@ -2087,7 +2087,7 @@ test createObject {
     mission.tables.combat[0x2B].side = .hostile;
 
     // The player first, in the next slot, at rest where it is put and facing along Z.
-    const player = try createObject(all, &mission.tables, model.types(), null, .predator, 0, .{ 0, 0, 500 }, &mission.random);
+    const player = try createObject(all, &mission.tables, model.types(), null, .of(.predator), 0, .{ 0, 0, 500 }, &mission.random);
     try std.testing.expectEqual(0, player);
     try std.testing.expectEqual(1, all.count);
     const made = &all.slots[player];
@@ -2114,14 +2114,14 @@ test createObject {
     try std.testing.expect(!object.flags.ecm);
 
     // A Coalition fighter: hostile, flown by the Coalition's pilot, with its ECM on.
-    const enemy = try createObject(all, &mission.tables, model.types(), null, .sabre, 0, .{ 0, 0, 0 }, &mission.random);
+    const enemy = try createObject(all, &mission.tables, model.types(), null, .of(.sabre), 0, .{ 0, 0, 0 }, &mission.random);
     try std.testing.expectEqual(.hostile, all.slots[enemy].object.side);
     try std.testing.expectEqual(coalition_pilot, all.slots[enemy].object.pilot);
     try std.testing.expect(all.slots[enemy].object.flags.ecm);
 
     // A slot filled once is not filled again, and nothing lies past the last.
-    try std.testing.expectError(error.CreatedTwice, createObject(all, &mission.tables, model.types(), player, .predator, 0, @splat(0), &mission.random));
-    try std.testing.expectError(error.Overrun, createObject(all, &mission.tables, model.types(), gameobj.max_objects, .predator, 0, @splat(0), &mission.random));
+    try std.testing.expectError(error.CreatedTwice, createObject(all, &mission.tables, model.types(), player, .of(.predator), 0, @splat(0), &mission.random));
+    try std.testing.expectError(error.Overrun, createObject(all, &mission.tables, model.types(), gameobj.max_objects, .of(.predator), 0, @splat(0), &mission.random));
 
     // Above the last ship type, a stand-in for a marker, at a slot of its own.
     const marker = try createObject(all, &mission.tables, model.types(), 20, @enumFromInt(1000), 0, @splat(0), &mission.random);
@@ -2137,7 +2137,7 @@ test createObject {
     all.resetSlot(player, &mission.random);
     try std.testing.expectEqual(GameObject.Flags.standing_in, all.slots[player].object.flags);
     try std.testing.expectEqual(null, all.slots[player].model);
-    _ = try createObject(all, &mission.tables, model.types(), player, .predator, 0, @splat(0), &mission.random);
+    _ = try createObject(all, &mission.tables, model.types(), player, .of(.predator), 0, @splat(0), &mission.random);
 }
 
 test make {
@@ -2147,15 +2147,15 @@ test make {
     var world = mission.world();
 
     // A world that makes no objects makes none.
-    try std.testing.expectEqual(null, try make(world, null, .sabre));
+    try std.testing.expectEqual(null, try make(world, null, .of(.sabre)));
     try std.testing.expectEqual(0, mission.objects.count);
 
     // One that does makes it of the type, in the slot wanted or the next.
     world.spawn = mission.spawn(testing.no_models);
-    try std.testing.expectEqual(0, (try make(world, null, .sabre)).?);
-    try std.testing.expectEqual(5, (try make(world, 5, .predator)).?);
-    try std.testing.expectEqual(gameobj.Type.sabre, mission.objects.slots[0].object.type);
-    try std.testing.expectEqual(gameobj.Type.predator, mission.objects.slots[5].object.type);
+    try std.testing.expectEqual(0, (try make(world, null, .of(.sabre))).?);
+    try std.testing.expectEqual(5, (try make(world, 5, .of(.predator))).?);
+    try std.testing.expectEqual(gameobj.Type.of(.sabre), mission.objects.slots[0].object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.predator), mission.objects.slots[5].object.type);
 }
 
 test "an object is created with the guns its model holds" {
@@ -2235,7 +2235,7 @@ test objectsUpdate {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    for (0..3) |_| _ = try mission.add(.predator, @splat(0));
+    for (0..3) |_| _ = try mission.add(.of(.predator), @splat(0));
     all.slots[1].object.flags.disabled = true;
     all.slots[2].object.flags.frozen = true;
     // Each drifting, with no motion of its own.
@@ -2261,7 +2261,7 @@ test "the sweep pushes apart the objects that meet" {
     // nowhere.
     const places = [_]math.Vector{ .{ -200, 0, 0 }, .{ 200, 0, 0 }, .{ 20000, 0, 0 } };
     for (places) |at| {
-        const index = try mission.add(.predator, at);
+        const index = try mission.add(.of(.predator), at);
         all.slots[index].object.radius = 1000;
         all.slots[index].motion = null;
     }

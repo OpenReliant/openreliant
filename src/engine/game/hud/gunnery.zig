@@ -95,7 +95,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
             count += 1;
         };
     }
-    switch (object.type) {
+    switch (object.type.base()) {
         .grendel, .wolverine, .reaper => {
             out[count] = .{ .shape = .{ .index = rounds_shape, .at = rounds_shape_at } };
             out[count + 1] = .{ .rounds = .{ .count = object.rounds, .at = rounds_at } };
@@ -180,7 +180,7 @@ test items {
     try std.testing.expectEqual(frame + 2, all[3].shape.index);
 
     // A Reaper counts its rounds.
-    slot.object.type = .reaper;
+    slot.object.type = .of(.reaper);
     slot.object.rounds = 250;
     const reaper = items(&slot, frame, &buffer);
     try std.testing.expectEqual(null, gunName(.turret_lasers));

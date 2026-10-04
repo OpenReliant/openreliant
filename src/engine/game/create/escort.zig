@@ -249,8 +249,8 @@ test "Marker.frame stands it on the escort point, pulses it, and draws it from t
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    const player = try mission.add(.predator, .{ 0, 0, 0 });
-    const point = try mission.add(.marker, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), .{ 0, 0, 0 });
+    const point = try mission.add(.of(.marker), .{ 0, 0, 1000 });
     mission.objects.player = player;
     const marker: *Marker = try .create(gpa);
     defer marker.destroy(gpa);

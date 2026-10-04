@@ -389,7 +389,7 @@ pub const Backdrop = struct {
     pub fn place(backdrop: *Backdrop, sky: *nebula.Sky, all: *const Objects, ship_count: usize) void {
         backdrop.sun_direction = sun_direction;
         const count = @min(@max(ship_count, all.count), all.slots.len);
-        for (all.slots[0..count]) |*slot| switch (slot.object.type) {
+        for (all.slots[0..count]) |*slot| switch (slot.object.type.base()) {
             .sun_marker => backdrop.aimSun(sky, slot.drawn.orientation),
             .nebula_marker => backdrop.aimNebula(sky, slot.drawn.orientation),
             else => {},
@@ -679,9 +679,9 @@ test "Backdrop.place" {
     // screen's Y. The markers lie among the mission's ships, past the objects in use.
     const facing_x = math.lookAt(.{ 1, 0, 0 });
     const facing_y = math.fromAxes(.{ 1, 0, 0 }, .{ 0, 0, -1 }, .{ 0, 1, 0 });
-    all.slots[1].object.type = .sun_marker;
+    all.slots[1].object.type = .of(.sun_marker);
     all.slots[1].drawn.orientation = facing_x;
-    all.slots[2].object.type = .nebula_marker;
+    all.slots[2].object.type = .of(.nebula_marker);
     all.slots[2].drawn.orientation = facing_y;
     backdrop.place(sky, all, 3);
     const sun: [3]f32 = .{ -sun_distance, 0, 0 };
@@ -704,7 +704,7 @@ test "Backdrop.place" {
     try std.testing.expectEqual(facing_y, sky.patches[sky.shown].orientation);
     try std.testing.expectEqual(nebula.patch_orientation, sky.patches[1 - sky.shown].orientation);
     // An object past both counts is not read.
-    all.slots[5].object.type = .sun_marker;
+    all.slots[5].object.type = .of(.sun_marker);
     all.slots[5].drawn.orientation = math.identity;
     backdrop.place(sky, all, 3);
     try std.testing.expectApproxEqAbs(-sun_distance, backdrop.sun_direction[0], 1e-3);

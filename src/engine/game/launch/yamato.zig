@@ -191,7 +191,7 @@ fn showHangar(ctx: aigeneric.Context, frame: math.Place, bounds: [2]math.Vector)
         .original => &steam,
         .soft => &soft_steam,
     };
-    const hangar = create.make(world, create.cutaway_slot, .yamato_hangar) catch |err| {
+    const hangar = create.make(world, create.cutaway_slot, .of(.yamato_hangar)) catch |err| {
         std.log.scoped(.launch).warn("the Yamato's hangar is left out: {s}", .{@errorName(err)});
         return;
     } orelse return;
@@ -342,7 +342,7 @@ fn setMarker(world: gameobj.World, slot: *create.Slot) void {
         bounds[0][1] - marker_margin,
         bounds[0][2],
     };
-    for (&world.objects.slots) |*marker| if (marker.object.type == .marker) {
+    for (&world.objects.slots) |*marker| if (marker.object.type.base() == .marker) {
         objects.setPosition(&marker.object, &marker.drawn, model.frameAt(gate + first_bay, holder.drawn).point(local));
         break;
     };
@@ -361,13 +361,13 @@ test "the Yamato's bays place fighters on both sides and release them on schedul
     var carrier_model: TestCarrier = undefined;
     try carrier_model.init(gpa, test_bounds);
     defer carrier_model.deinit(gpa);
-    _ = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.yamato, .{ 1000, 0, 10000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.yamato), .{ 1000, 0, 10000 });
     try carrier_model.parts.fit(gpa, mission.slot(carrier));
     const model = &mission.slot(carrier).model.?;
     const ctx = mission.orders();
     for ([_]u16{ 0, 8 }) |gate| {
-        const ship = try mission.add(.sabre, @splat(0));
+        const ship = try mission.add(.of(.sabre), @splat(0));
         const slot = mission.slot(ship);
         slot.object.throttle = 1;
         slot.object.pitch_input = 1;
@@ -418,8 +418,8 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     var carrier_model: TestCarrier = undefined;
     try carrier_model.init(gpa, test_bounds);
     defer carrier_model.deinit(gpa);
-    const player = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.yamato, .{ 1000, 0, 10000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.yamato), .{ 1000, 0, 10000 });
     try carrier_model.parts.fit(gpa, mission.slot(carrier));
     var view: camera.Camera = .{ .setting = .chase };
     var display: @import("../hud.zig").State = .{};
@@ -430,7 +430,7 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     _ = try aigeneric.pushShip(ctx, player, .launch, carrier, 0);
     aigeneric.objectOrders(ctx, player);
     try std.testing.expectEqual(carrier, mission.player.carrier.?);
-    try std.testing.expectEqual(.yamato_hangar, mission.slot(create.cutaway_slot).object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.yamato_hangar), mission.slot(create.cutaway_slot).object.type);
     try std.testing.expectEqual(.launch, mission.player.showing);
     try std.testing.expect(view.locked);
     launch.start(mission.objects, player);
@@ -448,7 +448,7 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     launch.testing.pastDue(&mission, ctx, player);
     try std.testing.expect(display.caption.on);
     try std.testing.expectEqual(.everything, mission.player.showing);
-    try std.testing.expectEqual(.stand_in, mission.slot(create.cutaway_slot).object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.stand_in), mission.slot(create.cutaway_slot).object.type);
     // Force the delayed beside cutaway, which starts only in step 6's last 50 ticks.
     mission.player.yamato_launch.cutaway = .beside;
     _ = view.setView(.cockpit, player, true, true, 0);

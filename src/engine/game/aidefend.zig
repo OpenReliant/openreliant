@@ -787,7 +787,7 @@ test runToShip {
     defer mission.deinit();
     const fighter = try aifight.testing.fighter(&mission, 5000);
     const ship = fighter.ship();
-    const other = try mission.add(.sabre, .{ 0, 0, 25000 });
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 25000 });
     const to = mission.slot(other);
     fighter.state.ship = other;
 
@@ -839,7 +839,7 @@ test arcWayOut {
     var arcs = [_]shp.FiringArc{std.mem.zeroes(shp.FiringArc)};
     arcs[0].way_out = .{ .x = 0, .y = -1, .z = 0 };
     hull.source.firing_arcs = &arcs;
-    const index = try mission.addWith(hull.types(), .reaper, @splat(0));
+    const index = try mission.addWith(hull.types(), .of(.reaper), @splat(0));
     const slot = mission.slot(index);
 
     // A component the model gives an arc pulls out the way the arc names; the whole ship, or a
@@ -895,7 +895,7 @@ test startAttackRun {
     hull.source.firing_arcs = &arcs;
     // The target is turned a quarter about Y, the box of its hull 5000 behind it.
     hull.nodes[0].centre = .{ .x = 0, .y = 0, .z = -5000 };
-    const target = try mission.addWith(hull.types(), .reaper, .{ 0, 0, 100000 });
+    const target = try mission.addWith(hull.types(), .of(.reaper), .{ 0, 0, 100000 });
     const slot = mission.slot(target);
     objects.setOrientation(&slot.object, &slot.drawn, math.rotation(.y, std.math.pi / 2.0));
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);

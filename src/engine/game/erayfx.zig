@@ -271,7 +271,7 @@ pub const Ray = struct {
             ray.life += moved -% now;
             if (ray.life < 1) return false;
         }
-        if (ray.owner) |owner| if (all.slots[owner].object.type == .stand_in) return false;
+        if (ray.owner) |owner| if (all.slots[owner].object.type.base() == .stand_in) return false;
         ray.moved = now;
         if (!ray.flags.flickers) return true;
         if (ray.lit) {
@@ -482,7 +482,7 @@ test "a ray flickers, fades and runs out" {
     const other = try built.rays.add(.{ .life = 0, .jitter = 0.2, .width = 10, .flags = .{ .flickers = true } }, &random);
     try std.testing.expect(other.update(all, 1, &random));
     try std.testing.expectEqual(0, other.brightness);
-    const owner = try mission.add(.predator, @splat(0));
+    const owner = try mission.add(.of(.predator), @splat(0));
     other.owner = owner;
     try std.testing.expect(other.update(all, 2, &random));
     mission.objects.resetSlot(owner, &random);
@@ -510,7 +510,7 @@ test Rays {
 
     // Hanging from a ship, its strand and its light go into the scene where the ship stands,
     // the light at the strand's middle.
-    const ship = try mission.add(.predator, .{ 0, 0, 5000 });
+    const ship = try mission.add(.of(.predator), .{ 0, 0, 5000 });
     const ray = try rays.add(.{ .strands = 2, .life = 0, .jitter = 0, .width = 10, .flags = .{} }, &random);
     ray.to = .{ 0, 0, 1600 };
     ray.colour(0, .{ 0.6, 1, 1 });

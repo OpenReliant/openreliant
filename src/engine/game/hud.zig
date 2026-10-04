@@ -2030,7 +2030,7 @@ pub fn blindFire(state: *const State, slot: *const create.Slot) BlindFire {
 /// cannon leads.
 pub fn novaShown(slot: *const create.Slot) bool {
     const object = &slot.object;
-    if (!object.type.carriesNova()) return false;
+    if (!object.type.base().carriesNova()) return false;
     return !object.gun_mode.all and groupLead(slot) == .nova_cannon;
 }
 
@@ -2063,7 +2063,7 @@ test "blind fire, and the charge arc for the Nova Cannon" {
 
     // The charge arc shows the cannon's charge on a Phoenix firing the cannon's group alone.
     try std.testing.expect(!novaShown(&slot));
-    slot.object.type = .phoenix;
+    slot.object.type = .of(.phoenix);
     try std.testing.expect(novaShown(&slot));
     slot.object.gun_mode.all = true;
     try std.testing.expect(!novaShown(&slot));
@@ -3437,7 +3437,7 @@ fn nearest(all: *const create.Objects, side: gameobj.Side(i32)) ?usize {
     var found: ?usize = null;
     for (all.slots[0..all.count], 0..) |*slot, index| {
         const object = &slot.object;
-        if (index == all.player or object.type == .stand_in or object.side != side) continue;
+        if (index == all.player or object.type.base() == .stand_in or object.side != side) continue;
         if (object.flags.exploding or (side == .hostile and object.flags.cloaked)) continue;
         const apart = math.distance(from, slot.drawn.position);
         if (apart < best) {
@@ -3457,7 +3457,7 @@ const TargetingTest = struct {
     fn init(test_: *TargetingTest) !void {
         test_.* = .{ .mission = undefined };
         try test_.mission.init(std.testing.allocator);
-        const player = try test_.mission.add(.predator, @splat(0));
+        const player = try test_.mission.add(.of(.predator), @splat(0));
         try std.testing.expect(try aigeneric.push(test_.mission.orders(), player, .player_control, .none));
     }
 
@@ -3529,8 +3529,8 @@ test "the display follows the player's target" {
     try t.init();
     defer t.deinit();
     const all = t.mission.objects;
-    const sabre = try t.add(.sabre, .{ 0, 0, 5000 });
-    const reliant = try t.add(.reliant, .{ 0, 0, 90000 });
+    const sabre = try t.add(.of(.sabre), .{ 0, 0, 5000 });
+    const reliant = try t.add(.of(.reliant), .{ 0, 0, 90000 });
 
     // With no target, nothing is drawn.
     t.state.followTarget(all, false);
@@ -3569,11 +3569,11 @@ test targetKeys {
     try t.init();
     defer t.deinit();
     const all = t.mission.objects;
-    const near = try t.add(.sabre, .{ 3000, 0, 5000 });
-    const ahead = try t.add(.sabre, .{ 0, 0, 20000 });
-    const friend = try t.add(.reliant, .{ 0, 40000, 0 });
-    _ = try t.add(.sabre, .{ 0, 0, 700000 });
-    const bomber = try t.add(.kamov, .{ 0, 0, -50000 });
+    const near = try t.add(.of(.sabre), .{ 3000, 0, 5000 });
+    const ahead = try t.add(.of(.sabre), .{ 0, 0, 20000 });
+    const friend = try t.add(.of(.reliant), .{ 0, 40000, 0 });
+    _ = try t.add(.of(.sabre), .{ 0, 0, 700000 });
+    const bomber = try t.add(.of(.kamov), .{ 0, 0, -50000 });
     const current = &all.slots[all.player].orders[0].target;
 
     // The nearest enemy, from the cockpit.
@@ -3872,7 +3872,7 @@ pub const ShipStatus = struct {
     /// level `(2 * level + 6) / 3`.
     pub fn rings(slot: *const create.Slot) ?Rings {
         const object = &slot.object;
-        if (object.type == .comms_relay or object.type == .dm_beacon) return null;
+        if (object.type.base() == .comms_relay or object.type.base() == .dm_beacon) return null;
         const combat = slot.combat orelse return null;
         var found: Rings = undefined;
         const invulnerable = object.invulnerable == .full or object.invulnerable == .player_can_hit;
@@ -3999,7 +3999,7 @@ test "the rings follow the shields and the armour" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const index = try mission.add(.sabre, @splat(0));
+    const index = try mission.add(.of(.sabre), @splat(0));
     const slot = mission.slot(index);
     const combat = slot.combat.?;
     slot.object.shields = .all(combat.fullShields());
@@ -4015,14 +4015,14 @@ test "the rings follow the shields and the armour" {
     try std.testing.expectEqual(1, found.armor[0]);
     try std.testing.expectEqual(5, found.armor[1]);
     // A comms relay has no rings, and so nothing shifted for mode 0 to show.
-    slot.object.type = .comms_relay;
+    slot.object.type = .of(.comms_relay);
     try std.testing.expectEqual(null, ShipStatus.rings(slot));
     var own_hits: Hits = .initEmpty();
     const shield_power: f32 = @floatFromInt(combat.shield_power);
     try std.testing.expectEqual(null, ShipStatus.ofPlayer(slot, &own_hits, .{ .fore = 5 * shield_power }).reserves);
 
     // Mode 0 shows what SHIELD BALANCING shifted as levels of the shield power.
-    slot.object.type = .sabre;
+    slot.object.type = .of(.sabre);
     own_hits.insert(.aft);
     const player = ShipStatus.ofPlayer(slot, &own_hits, .{ .fore = 5 * shield_power, .aft = 0 });
     try std.testing.expectEqual([2]i32{ 4, -1 }, player.reserves.?);
@@ -4929,7 +4929,7 @@ test "a target out of sight gets an arrow and a marker" {
     try t.init();
     defer t.deinit();
     const all = t.mission.objects;
-    const behind = try t.add(.sabre, .{ 0, 0, -5000 });
+    const behind = try t.add(.of(.sabre), .{ 0, 0, -5000 });
     input.setPlayerTarget(&t.state, all, @intCast(behind), -1, false);
     const gpa = std.testing.allocator;
     var drawing: TargetDrawing = undefined;
@@ -4957,7 +4957,7 @@ test "a hostile target ahead gets the lead cursor, whose point blind fire aims a
     const laser = &all.gun_stats.types[guns.GunType.laser_cannon.number()];
     laser.speed = 100;
     laser.lifetime = 400;
-    const ahead = try t.add(.sabre, .{ 0, 0, 5000 });
+    const ahead = try t.add(.of(.sabre), .{ 0, 0, 5000 });
     all.slots[ahead].object.side = .hostile;
     all.slots[ahead].object.speed = 20;
     input.setPlayerTarget(&t.state, all, @intCast(ahead), -1, false);
@@ -4977,7 +4977,7 @@ test "a target whose box reaches behind the camera loses its range, not the game
     defer t.deinit();
     const all = t.mission.objects;
     // A wide ship close ahead, the near face of its box a hair in front of the camera's plane.
-    const close = try t.add(.sabre, .{ 0, 0, 1000 });
+    const close = try t.add(.of(.sabre), .{ 0, 0, 1000 });
     all.slots[close].object.bounds_min = .{ .x = -5000, .y = -5000, .z = -999.9999 };
     all.slots[close].object.bounds_max = .{ .x = 5000, .y = 5000, .z = 1000 };
     input.setPlayerTarget(&t.state, all, @intCast(close), -1, false);
@@ -4997,14 +4997,14 @@ test "the radar's contacts" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     try std.testing.expect(try aigeneric.push(mission.orders(), player, .player_control, .none));
     // Ahead and a little below, the target; to the right and above, a hostile ship; a friend;
     // and a hostile ship out of reach of the widest range.
-    const target = try mission.add(.sabre, .{ 0, 11000, 99000 });
-    const hostile = try mission.add(.sabre, .{ 33000, -22000, 0 });
-    const friend = try mission.add(.predator, .{ 0, 0, -66000 });
-    _ = try mission.add(.sabre, .{ 0, 0, 300000 });
+    const target = try mission.add(.of(.sabre), .{ 0, 11000, 99000 });
+    const hostile = try mission.add(.of(.sabre), .{ 33000, -22000, 0 });
+    const friend = try mission.add(.of(.predator), .{ 0, 0, -66000 });
+    _ = try mission.add(.of(.sabre), .{ 0, 0, 300000 });
     for ([_]u16{ target, hostile, friend, 4 }) |index| mission.slot(index).object.flags.targetable = true;
     mission.slot(player).orders[0].target = .at(target, null);
 
@@ -5129,11 +5129,11 @@ test "an object a hair in front of the camera's plane stands far from the reticl
     try t.init();
     defer t.deinit();
     const all = t.mission.objects;
-    _ = try t.add(.sabre, .{ 1000, 1000, 0.0001 });
+    _ = try t.add(.of(.sabre), .{ 1000, 1000, 0.0001 });
     try std.testing.expectEqual(null, testSight().pixel(testSight().view(.{ 1000, 1000, 0.0001 })));
     try std.testing.expectEqual(null, underReticle(all, testSight(), 1));
     // One dead ahead after it is still found.
-    const ahead = try t.add(.sabre, .{ 0, 0, 5000 });
+    const ahead = try t.add(.of(.sabre), .{ 0, 0, 5000 });
     try std.testing.expectEqual(ahead, underReticle(all, testSight(), 1).?);
 }
 
@@ -5181,7 +5181,7 @@ test Interference {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     const world = mission.world();
     var interference: Interference = .{};
 

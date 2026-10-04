@@ -375,7 +375,7 @@ const Fixture = struct {
         fixture.held = try load.testing.records3(fixture.arena.allocator());
         try fixture.mission.init(gpa);
         errdefer fixture.mission.deinit();
-        _ = try fixture.mission.add(.predator, @splat(0));
+        _ = try fixture.mission.add(.of(.predator), @splat(0));
         if (shared.settings != null) try load.run(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared);
         fixture.shown = (try Presentation.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared)).?;
     }
@@ -573,7 +573,7 @@ test "the strafe-run example combines registries and built-in interfaces" {
         .{ "display.luau", @embedFile("strafe-run/display.luau") },
     } }});
     defer fixture.deinit();
-    const sabre = try fixture.mission.add(.sabre, .{ 0, 0, 1000 });
+    const sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, 1000 });
     const scripts = (try game_module.Game.start(std.testing.allocator, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
     defer scripts.stop();
     try fixture.shown.startGame(scripts, fixture.mission.objects, false);
@@ -611,7 +611,7 @@ test "the example action sends a game event that starts its custom order" {
         .{ "action.luau", @embedFile("custom-order/action.luau") },
     } }});
     defer fixture.deinit();
-    const sabre = try fixture.mission.add(.sabre, .{ 0, 0, 1000 });
+    const sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, 1000 });
     const game_scripts = (try game_module.Game.start(std.testing.allocator, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
     defer game_scripts.stop();
     try fixture.shown.startGame(game_scripts, fixture.mission.objects, false);
@@ -828,7 +828,7 @@ test "player scripts run with the game, and send it events" {
     const gpa = std.testing.allocator;
     const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
     defer game.stop();
-    const sabre = try fixture.mission.add(.sabre, .{ 0, 0, 500 });
+    const sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, 500 });
     try std.testing.expectEqual(1, fixture.shown.lists.get(.menu).items.len);
     try fixture.shown.startGame(game, fixture.mission.objects, false);
     try std.testing.expectEqual(1, fixture.shown.lists.get(.player).items.len);
@@ -892,7 +892,7 @@ test "the wingmen example's panel lists the wingmen nearby, and calls them back"
     const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, shared, false)).?;
     defer game.stop();
     game.scripts.begin(fixture.mission.orders(), .{ .number = 5, .file = "mission5.dte" }, 1);
-    const wingman = try fixture.mission.add(.wolverine, .{ 0, 0, -1000 });
+    const wingman = try fixture.mission.add(.of(.wolverine), .{ 0, 0, -1000 });
     fixture.mission.objects.slots[wingman].object.side = .friendly;
     try fixture.shown.startGame(game, fixture.mission.objects, false);
     // Over the flight display, the panel's title and the wingman's line.
@@ -1175,7 +1175,7 @@ test "menu scripts register game modes as OpenReliant starts, and player scripts
     const arena = modes.modes.items[0];
     try std.testing.expectEqualStrings("a:arena", arena.name);
     try std.testing.expectEqualSlices(u16, &.{ 29, 30 }, arena.missions);
-    try std.testing.expectEqual(engine.game.gameobj.Type.phoenix, arena.ship.?);
+    try std.testing.expectEqual(engine.game.gameobj.Type.of(.phoenix), arena.ship.?);
     try std.testing.expectEqual(.loop, arena.kind);
     try std.testing.expectEqualStrings("ARENA", modes.shown.items[0].label);
     try std.testing.expectEqual(2, modes.shown.items[0].missions);
@@ -1201,7 +1201,7 @@ test "the arena example registers its game mode, and its board runs within it" {
     defer fixture.deinit();
     try std.testing.expectEqualStrings("arena:arena", modes.modes.items[0].name);
     try std.testing.expectEqualSlices(u16, &.{29}, modes.modes.items[0].missions);
-    try std.testing.expectEqual(engine.game.gameobj.Type.phoenix, modes.modes.items[0].ship.?);
+    try std.testing.expectEqual(engine.game.gameobj.Type.of(.phoenix), modes.modes.items[0].ship.?);
     modes.start(0);
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     fixture.frame(0.016, .{ 800, 600 });

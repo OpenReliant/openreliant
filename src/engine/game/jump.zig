@@ -515,7 +515,7 @@ pub fn markJumping(all: *create.Objects, index: u16) void {
             .launch, .dock => true,
             else => false,
         } else false;
-        if (other.object.type == .fuel_pod or follows) markJumping(all, @intCast(at));
+        if (other.object.type.base() == .fuel_pod or follows) markJumping(all, @intCast(at));
     }
 }
 
@@ -689,8 +689,8 @@ test "a jump out that names nothing leaves the mission" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.predator, .{ 0, 0, 10000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.predator), .{ 0, 0, 10000 });
     const slot = mission.slot(ship);
     slot.motion = .forward;
     slot.object.throttle = 1;
@@ -721,11 +721,11 @@ test "a jump out that names a ship gives way to a jump in beside it" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const target = try mission.add(.predator, .{ 0, 0, 80000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const target = try mission.add(.of(.predator), .{ 0, 0, 80000 });
     const turned = math.rotation(.y, std.math.pi / 2.0);
     objects.setOrientation(&mission.slot(target).object, &mission.slot(target).drawn, turned);
-    const ship = try mission.add(.predator, .{ 0, 0, 10000 });
+    const ship = try mission.add(.of(.predator), .{ 0, 0, 10000 });
     const slot = mission.slot(ship);
     slot.motion = .forward;
     const ctx = mission.orders();
@@ -768,8 +768,8 @@ test "the player's arrival is watched from a cutaway, and ends in the cockpit" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const target = try mission.add(.predator, .{ 0, 0, 80000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const target = try mission.add(.of(.predator), .{ 0, 0, 80000 });
     const slot = mission.slot(player);
     slot.motion = .forward;
     var view: camera.Camera = .{};
@@ -799,9 +799,9 @@ test "the ships that jump out with the player's form up behind it" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const target = try mission.add(.predator, .{ 0, 0, 100000 });
-    const wing = [_]u16{ try mission.add(.predator, .{ 5000, 0, 0 }), try mission.add(.predator, .{ -5000, 0, 0 }) };
+    const player = try mission.add(.of(.predator), @splat(0));
+    const target = try mission.add(.of(.predator), .{ 0, 0, 100000 });
+    const wing = [_]u16{ try mission.add(.of(.predator), .{ 5000, 0, 0 }), try mission.add(.of(.predator), .{ -5000, 0, 0 }) };
     const ctx = mission.orders();
     for ([_]u16{ player, wing[0], wing[1] }, 0..) |index, sequence| {
         _ = try aigeneric.pushShip(ctx, index, .jump_out, target, null);
@@ -832,9 +832,9 @@ test "a ship that lists components flies in from farther behind" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const target = try mission.add(.predator, .{ 0, 0, 80000 });
-    const ship = try mission.add(.predator, .{ 0, 0, 10000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const target = try mission.add(.of(.predator), .{ 0, 0, 80000 });
+    const ship = try mission.add(.of(.predator), .{ 0, 0, 10000 });
     const slot = mission.slot(ship);
     slot.object.flags.components = true;
     const ctx = mission.orders();
@@ -847,12 +847,12 @@ test markJumping {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const base = try mission.add(.predator, .{ 0, 0, 5000 });
-    const launching = try mission.add(.predator, .{ 0, 0, 5000 });
-    const pod = try mission.add(.predator, .{ 90000, 0, 0 });
-    mission.slot(pod).object.type = .fuel_pod;
-    const other = try mission.add(.predator, .{ 0, 0, 9000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const base = try mission.add(.of(.predator), .{ 0, 0, 5000 });
+    const launching = try mission.add(.of(.predator), .{ 0, 0, 5000 });
+    const pod = try mission.add(.of(.predator), .{ 90000, 0, 0 });
+    mission.slot(pod).object.type = .of(.fuel_pod);
+    const other = try mission.add(.of(.predator), .{ 0, 0, 9000 });
     _ = try aigeneric.pushShip(mission.orders(), launching, .launch, base, null);
     // What is in the way holds, with what launches from it, and every fuel pod.
     markJumping(mission.objects, base);

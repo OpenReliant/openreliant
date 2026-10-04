@@ -404,14 +404,14 @@ const TestPath = struct {
     /// The records of the player's ship, the follower, and `count - 2` curve points.
     fn ships(comptime count: usize) [count]dte.Ship {
         var made = dte.testing.ships(count, dte.Ship.curve_point_kind);
-        for (made[0..2]) |*ship| ship.kind = @intFromEnum(gameobj.Type.predator);
+        for (made[0..2]) |*ship| ship.kind = @intFromEnum(gameobj.GameType.predator);
         return made;
     }
 
     fn init(path: *TestPath, records: []const dte.Ship, list: []const dte.Curve) !void {
         try path.game.init(std.testing.allocator, &.{}, .{ .ships = records, .curves = list });
         errdefer path.game.deinit();
-        for (0..records.len) |n| _ = try path.game.mission.add(.predator, switch (n) {
+        for (0..records.len) |n| _ = try path.game.mission.add(.of(.predator), switch (n) {
             0 => .{ 0, 50000, 0 },
             1 => .{ 0, 0, -100 },
             else => @splat(0),

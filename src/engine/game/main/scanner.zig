@@ -115,8 +115,8 @@ test "the scanner beeps toward its object, looping at its quickest" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const sought = try mission.add(.sabre, .{ 0, 0, 4000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const sought = try mission.add(.of(.sabre), .{ 0, 0, 4000 });
     var speaker: hog_snd.testing.Speaker = undefined;
     const bank = comptime hog_snd.testing.bank(beep_sample + 1);
     try speaker.init(4, &bank);

@@ -142,7 +142,7 @@ pub const Shockwave = struct {
         while (walk.next()) |index| {
             const slot = &all.slots[index];
             const object = &slot.object;
-            if (!harms(object, now) or object.type == .torpedo or object.type == .ripper) continue;
+            if (!harms(object, now) or object.type.base() == .torpedo or object.type.base() == .ripper) continue;
             if (wave.side) |own| if (object.side == own) continue;
             if (!wave.passes(slot.drawn.position, reach)) continue;
             object.shockwave_until = now + harm_pause;
@@ -271,7 +271,7 @@ const torpedo_harm: f32 = 0.05;
 /// heavier for any other (`0x004DC958`).
 const split_harm: f32 = 0.015;
 const lighter_split_harm: f32 = 0.0045;
-const lighter_splits = [_]gameobj.Type{ @enumFromInt(0x36), .darkreign, .stalag, @enumFromInt(0x9B), .boridin_breakaway };
+const lighter_splits = [_]gameobj.Type{ @enumFromInt(0x36), .of(.darkreign), .of(.stalag), @enumFromInt(0x9B), .of(.boridin_breakaway) };
 
 /// A Havoc's shockwave's push: its strength is 1.5 times what is left of its life, up to 1, and
 /// the ticks it disrupts a player's ship and another for at full strength (`0x004DC4E0`,
@@ -491,7 +491,7 @@ test Shockwaves {
     defer mission.deinit();
     var world = mission.world();
     world.shockwaves = &built.waves;
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     mission.objects.slots[player].drawn.position = .{ 0, 0, 500 };
     mission.clock.frame_duration = 10;
 
@@ -532,9 +532,9 @@ test "a split's shockwave" {
     defer mission.deinit();
     var world = mission.world();
     world.shockwaves = &built.waves;
-    const player = try mission.add(.predator, @splat(0));
-    const badanov = try mission.add(.badanov, @splat(0));
-    const stalag = try mission.add(.stalag, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
+    const badanov = try mission.add(.of(.badanov), @splat(0));
+    const stalag = try mission.add(.of(.stalag), @splat(0));
     const slot = &mission.objects.slots[player];
     slot.drawn.position = .{ 0, 0, 1000 };
     slot.object.shields = .all(1000);
@@ -571,8 +571,8 @@ test "a torpedo's shockwave" {
     defer mission.deinit();
     var world = mission.world();
     world.shockwaves = &built.waves;
-    const player = try mission.add(.predator, @splat(0));
-    const torpedo = try mission.add(.sabre, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
+    const torpedo = try mission.add(.of(.sabre), @splat(0));
     const slot = &mission.objects.slots[player];
     slot.drawn.position = .{ 0, 0, 1000 };
     slot.object.shields = .all(1000);

@@ -41,10 +41,10 @@ pub const Style = enum(u8) {
     /// car's, or at the Czar docked its own; a limpet pod's; at a Nanny, the Nanny's; and
     /// otherwise the station's.
     pub fn of(own: gameobj.Type, at: gameobj.Type) Style {
-        return switch (own) {
-            .limpet_car => if (at == .czar_docked) .limpet_car_czar else .limpet_car,
+        return switch (own.base()) {
+            .limpet_car => if (at.base() == .czar_docked) .limpet_car_czar else .limpet_car,
             .limpet_pod => .limpet_pod,
-            else => if (at == .nanny) .nanny else .station,
+            else => if (at.base() == .nanny) .nanny else .station,
         };
     }
 };
@@ -550,7 +550,7 @@ fn transferPod(ctx: Context, index: u16, carrier: u16) void {
     const part = model.rootChild(limpet_pod_part) orelse return;
     if (!part.hidden) {
         model.parts[limpet_pod_part].hidden = true;
-        const pod = create.make(world, null, .limpet_pod) catch |err| {
+        const pod = create.make(world, null, .of(.limpet_pod)) catch |err| {
             log.warn("cannot create limpet pod: {s}", .{@errorName(err)});
             return;
         } orelse return;
@@ -563,7 +563,7 @@ fn transferPod(ctx: Context, index: u16, carrier: u16) void {
         held.object.flags.attached = true;
     } else {
         model.parts[limpet_pod_part].hidden = false;
-        for (all.slots[0..all.count], 0..) |*other, n| if (other.object.type == .limpet_pod) {
+        for (all.slots[0..all.count], 0..) |*other, n| if (other.object.type.base() == .limpet_pod) {
             create.retire(ctx, @intCast(n));
             break;
         };
@@ -795,11 +795,11 @@ const TestDock = struct {
         errdefer dock.game.deinit();
         dock.station_model.init(.{.{ .points = &.{ .{ 0, 0, -1000 }, .{ 1000, 0, 0 } } }});
         dock.freighter_model.init(.{.{ .points = &.{.{ 0, 0, 500 }} }});
-        _ = try dock.game.add(.predator, .{ 0, 50000, 0 });
-        dock.station = try dock.game.add(.predator, .{ 0, 0, 10000 });
+        _ = try dock.game.add(.of(.predator), .{ 0, 50000, 0 });
+        dock.station = try dock.game.add(.of(.predator), .{ 0, 0, 10000 });
         try dock.station_model.parts.fit(std.testing.allocator, dock.game.slot(dock.station));
         for (&dock.freighters) |*freighter| {
-            freighter.* = try dock.game.add(.predator, .{ 0, 0, -200000 });
+            freighter.* = try dock.game.add(.of(.predator), .{ 0, 0, -200000 });
             try dock.freighter_model.parts.fit(std.testing.allocator, dock.game.slot(freighter.*));
         }
     }
@@ -823,12 +823,12 @@ test "Style.of" {
     // A limpet car docks in its own style, at the Czar docked in another, and a limpet pod in its
     // own, wherever they dock; any other ship in the Nanny's at a Nanny, and in the station's
     // anywhere else.
-    try std.testing.expectEqual(Style.limpet_car, Style.of(.limpet_car, .predator));
-    try std.testing.expectEqual(Style.limpet_car_czar, Style.of(.limpet_car, .czar_docked));
-    try std.testing.expectEqual(Style.limpet_car, Style.of(.limpet_car, .nanny));
-    try std.testing.expectEqual(Style.limpet_pod, Style.of(.limpet_pod, .nanny));
-    try std.testing.expectEqual(Style.nanny, Style.of(.predator, .nanny));
-    try std.testing.expectEqual(Style.station, Style.of(.predator, .czar_docked));
+    try std.testing.expectEqual(Style.limpet_car, Style.of(.of(.limpet_car), .of(.predator)));
+    try std.testing.expectEqual(Style.limpet_car_czar, Style.of(.of(.limpet_car), .of(.czar_docked)));
+    try std.testing.expectEqual(Style.limpet_car, Style.of(.of(.limpet_car), .of(.nanny)));
+    try std.testing.expectEqual(Style.limpet_pod, Style.of(.of(.limpet_pod), .of(.nanny)));
+    try std.testing.expectEqual(Style.nanny, Style.of(.of(.predator), .of(.nanny)));
+    try std.testing.expectEqual(Style.station, Style.of(.of(.predator), .of(.czar_docked)));
 }
 
 test Side {
@@ -949,7 +949,7 @@ test "a ship's docking point on a part hung from another berths it as the parts 
         .{ .origin = .{ 0, 0, 1000 } },
         .{ .parent = 0, .origin = .{ 0, 0, 1000 }, .points = &.{.{ 0, 0, 500 }} },
     });
-    const index = try dock.game.add(.predator, .{ 0, 0, -200000 });
+    const index = try dock.game.add(.of(.predator), .{ 0, 0, -200000 });
     try model.parts.fit(std.testing.allocator, dock.game.slot(index));
     try std.testing.expect(try aigeneric.push(dock.orders(), index, .dock, .at(dock.station, 0)));
     aigeneric.objectOrders(dock.orders(), index);
@@ -996,7 +996,7 @@ test "a ship docked at a Nanny passes through nothing more" {
     var dock: TestDock = undefined;
     try dock.init();
     defer dock.deinit();
-    const nanny = try dock.game.add(.nanny, .{ 0, 0, 20000 });
+    const nanny = try dock.game.add(.of(.nanny), .{ 0, 0, 20000 });
     try dock.station_model.parts.fit(std.testing.allocator, dock.game.slot(nanny));
     const index = dock.freighters[0];
     const slot = dock.game.slot(index);
@@ -1015,7 +1015,7 @@ test "a Nanny rearms a ship and releases it after the original waits" {
     defer dock.deinit();
     const index = dock.freighters[0];
     const slot = dock.game.slot(index);
-    dock.game.slot(dock.station).object.type = .nanny;
+    dock.game.slot(dock.station).object.type = .of(.nanny);
     slot.object.bounds_max.y = 100;
     slot.object.countermeasures = 0;
     slot.object.afterburner_fuel = 0;
@@ -1055,7 +1055,7 @@ test "a limpet car slides in, transfers its pod and clears attachment on departu
     defer dock.deinit();
     const index = dock.freighters[0];
     const slot = dock.game.slot(index);
-    slot.object.type = .limpet_car;
+    slot.object.type = .of(.limpet_car);
     var ctx = dock.orders();
     ctx.world.spawn = dock.game.spawn(create.testing.no_models);
     _ = try aigeneric.pushShip(ctx, index, .dock, dock.station, 0);
@@ -1071,7 +1071,7 @@ test "a limpet car slides in, transfers its pod and clears attachment on departu
     aigeneric.objectOrders(ctx, index);
     try std.testing.expect(slot.model.?.parts[0].hidden);
     const pod = slot.object.passes_through[1].index().?;
-    try std.testing.expectEqual(gameobj.Type.limpet_pod, dock.game.slot(pod).object.type);
+    try std.testing.expectEqual(gameobj.Type.of(.limpet_pod), dock.game.slot(pod).object.type);
     try std.testing.expect(dock.game.slot(pod).object.flags.attached);
     try std.testing.expectEqual(gameobj.Slot.of(index), dock.game.slot(pod).object.passes_through[1]);
     for (0..3) |_| {
@@ -1092,9 +1092,9 @@ test "an attached limpet pod is destroyed when its carrier explodes" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.predator, @splat(0));
-    const pod = try mission.add(.limpet_pod, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.predator), @splat(0));
+    const pod = try mission.add(.of(.limpet_pod), @splat(0));
     const ctx = mission.orders();
     _ = try aigeneric.pushShip(ctx, pod, .dock, carrier, 0);
     aigeneric.objectOrders(ctx, pod);

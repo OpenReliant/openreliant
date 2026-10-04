@@ -207,7 +207,7 @@ pub const Events = struct {
             for (ships, 0..) |ship, index| {
                 if (ship.flags.destroyed or index >= all.slots.len) continue;
                 const object = &all.slots[index].object;
-                if (object.type == .stand_in) continue;
+                if (object.type.base() == .stand_in) continue;
                 const id: u16 = @truncate(ship.object_id);
                 switch (watched) {
                     .close => {
@@ -245,7 +245,7 @@ pub const Events = struct {
         for (ships, 0..) |ship, index| {
             if (ship.flags.destroyed or index == subject or index >= all.slots.len) continue;
             const other = &all.slots[index].object;
-            if (other.type == .stand_in) continue;
+            if (other.type.base() == .stand_in) continue;
             const apart = gameobj.vector(own.root.position) - gameobj.vector(other.root.position);
             const squared = apart * apart;
             const distance = squared[2] + squared[1] + squared[0];
@@ -506,7 +506,7 @@ const TestMission = struct {
         try mission.game.init(gpa, parts, records);
         errdefer mission.game.deinit();
         for (at) |place| {
-            const index = try mission.game.mission.add(.predator, place);
+            const index = try mission.game.mission.add(.of(.predator), place);
             mission.game.mission.slot(index).object.radius = test_radius;
         }
         mission.events = .init(gpa, &mission.game.fixture.machine);

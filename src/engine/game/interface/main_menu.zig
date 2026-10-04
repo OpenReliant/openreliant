@@ -163,7 +163,7 @@ pub const Flight = struct {
 /// then comes back to itself. It keeps the mission's number and the pilot's kills as they were.
 pub const instant_action: Flight = .{
     .mission = create.instant_action_mission,
-    .ship = @intFromEnum(gameobj.Type.grendel),
+    .ship = @intFromEnum(gameobj.GameType.grendel),
     .simulator = .{ .mode = .instant_action, .instant_action = true },
     .flier = .main_menu,
 };

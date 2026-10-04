@@ -27,8 +27,8 @@ test addKills {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const other = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     addKills(&mission.player, mission.objects, player, 1);
     addKills(&mission.player, mission.objects, player, 2);
     // Another player's kills are not the local pilot's.

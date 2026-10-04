@@ -272,7 +272,7 @@ test "a script's state, its timers and its game sections go with a saved game an
     var mission: @import("openreliant").engine.game.gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
     var storage: Storage = .{ .gpa = gpa };
     defer storage.deinit();
 

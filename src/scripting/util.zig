@@ -111,7 +111,7 @@ test "scripts read objects' orientations, and give util whole ones" {
     var mission: openreliant.engine.game.gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    const player = try mission.add(.predator, .{ 0, 0, 0 });
+    const player = try mission.add(.of(.predator), .{ 0, 0, 0 });
     const scripts = try runtime.Runtime.create(gpa, std.testing.io, &.{}, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
     defer scripts.destroy();
     objects.register(scripts);

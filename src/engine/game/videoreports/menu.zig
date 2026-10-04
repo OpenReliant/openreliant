@@ -670,7 +670,7 @@ test "the wingman's status" {
     defer test_menu.deinit();
     const heard = &test_menu.heard;
     const all = ctx.world.objects;
-    const combat = &heard.mission.tables.combat[@intFromEnum(gameobj.Type.predator)];
+    const combat = &heard.mission.tables.combat[@intFromEnum(gameobj.GameType.predator)];
     combat.armor_class = 10;
     all.slots[heard.wingman].object.armor = .all(armour_per_class * 10 - 1);
     all.pilots.pilots[videoreports.testing.Heard.bandit]._unknown_1e = 1;

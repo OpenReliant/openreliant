@@ -345,8 +345,8 @@ test "handles name objects until they are removed" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    _ = try mission.add(.predator, .{ 0, 0, 0 });
-    const sabre = try mission.add(.sabre, .{ 0, 100, 0 });
+    _ = try mission.add(.of(.predator), .{ 0, 0, 0 });
+    const sabre = try mission.add(.of(.sabre), .{ 0, 100, 0 });
 
     const scripts = try Runtime.create(gpa, std.testing.io, &.{}, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
     defer scripts.destroy();

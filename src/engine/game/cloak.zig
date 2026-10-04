@@ -125,7 +125,7 @@ fn cloakOn(world: gameobj.World, index: u16) void {
     slot.object.flags.cloaked = true;
     slot.cloak = .{ .came_at = world.clock.frame_start };
     const model = if (slot.model) |*live| live else return;
-    seeThrough(model, slot.object.type == .kafelnikof);
+    seeThrough(model, slot.object.type.base() == .kafelnikof);
     shimmerOn(model, world.random);
     sound3d.playIn(world, null, null, index, .cloak01, 1, sound3d.fxClass(all, index));
 }
@@ -197,7 +197,7 @@ const shear_starts = [3]f32{ 0, 2.8, 0.9 };
 /// changes, its frame, as drawn, shears a little and back, three ways at their own rates, swelling
 /// and dying away over the change.
 pub fn wobble(slot: *create.Slot, now: i32) void {
-    if (slot.object.type == .kafelnikof) return;
+    if (slot.object.type.base() == .kafelnikof) return;
     const cloak = slot.cloak orelse return;
     const since = cloak.since(now);
     if (since > change_ticks) return;
@@ -232,7 +232,7 @@ pub fn reveal(world: gameobj.World, index: u16, at: Vector) void {
     cloak.struck_at = world.clock.frame_start;
     const model = if (slot.model) |*live| live else return;
     const Struck = struct { at: Vector, radius: f32, kafelnikof: bool };
-    eachCloaking(model, Struck{ .at = at, .radius = slot.object.radius, .kafelnikof = slot.object.type == .kafelnikof }, struct {
+    eachCloaking(model, Struck{ .at = at, .radius = slot.object.radius, .kafelnikof = slot.object.type.base() == .kafelnikof }, struct {
         fn visit(struck: Struck, part: *objects.Model.Part, effect: *PartCloak) void {
             if (!effect.cloaks) return;
             const shown = part.object.shown();
@@ -498,7 +498,7 @@ const TestStage = struct {
         stage.image = .{ .levels = &.{} };
         try stage.model.withCloak(gpa, &stage.image);
         const mission = &stage.mission;
-        stage.index = try mission.addWith(stage.model.types(), .predator, @splat(0));
+        stage.index = try mission.addWith(stage.model.types(), .of(.predator), @splat(0));
     }
 
     pub fn deinit(stage: *TestStage, gpa: Allocator) void {
@@ -585,7 +585,7 @@ test wobble {
     wobble(slot, change_ticks + 1);
     try std.testing.expectEqual(math.identity, slot.drawn.orientation);
     // The Kafelnikof never wobbles.
-    slot.object.type = .kafelnikof;
+    slot.object.type = .of(.kafelnikof);
     wobble(slot, change_ticks / 3);
     try std.testing.expectEqual(math.identity, slot.drawn.orientation);
 }

@@ -78,11 +78,11 @@ pub const Style = enum(i32) {
     /// types; other ships use the carrier's type and gate. Returns null for an unsupported
     /// carrier, which the original rejects with "Error: Trying to launch from %s".
     pub fn of(ship: gameobj.Type, carrier: gameobj.Type, gate: i16) ?Style {
-        return switch (ship) {
+        return switch (ship.base()) {
             .torpedo, .russian_torpedo => .torpedo,
             .escape_pod => .escape_pod,
             .other_escape_pod => .other_escape_pod,
-            else => switch (carrier) {
+            else => switch (carrier.base()) {
                 .reliant => .reliant,
                 .yamato => .yamato,
                 .victorious, .endeavour, .mitchell, .bremen, .ramases, .pukov, .kronstadt, .krasnaya, .varyag, .other_ramases, .other_mitchell, .kiev => .bay,
@@ -319,7 +319,7 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
     if (!state.step.isStyled()) {
         const carrier = entry.target.slotIn(all) orelse return letGo(ctx, index);
         const from = &all.slots[carrier].object;
-        if (from.gone() and !(from.type == .ulysses and slot.object.type == .escape_pod)) {
+        if (from.gone() and !(from.type.base() == .ulysses and slot.object.type.base() == .escape_pod)) {
             ai.objectDestroyed(ctx, index, false, false);
             return;
         }
@@ -479,17 +479,17 @@ test "Step.as" {
 
 test "Style.of" {
     // Torpedoes and escape pods go by their own type, whatever launches them.
-    try std.testing.expectEqual(Style.torpedo, Style.of(.russian_torpedo, .reliant, 0));
-    try std.testing.expectEqual(Style.other_escape_pod, Style.of(.other_escape_pod, .kamov, 0));
+    try std.testing.expectEqual(Style.torpedo, Style.of(.of(.russian_torpedo), .of(.reliant), 0));
+    try std.testing.expectEqual(Style.other_escape_pod, Style.of(.of(.other_escape_pod), .of(.kamov), 0));
     // Any other ship by its carrier's.
-    try std.testing.expectEqual(Style.reliant, Style.of(.predator, .reliant, 3));
-    try std.testing.expectEqual(Style.badanov, Style.of(.sabre, .krasny, 0));
-    try std.testing.expectEqual(Style.bay, Style.of(.sabre, .kiev, 0));
+    try std.testing.expectEqual(Style.reliant, Style.of(.of(.predator), .of(.reliant), 3));
+    try std.testing.expectEqual(Style.badanov, Style.of(.of(.sabre), .of(.krasny), 0));
+    try std.testing.expectEqual(Style.bay, Style.of(.of(.sabre), .of(.kiev), 0));
     // The rogue base's first six gates have a style of their own.
-    try std.testing.expectEqual(Style.rogue_base, Style.of(.sabre, .rogue_base, 5));
-    try std.testing.expectEqual(Style.bay, Style.of(.sabre, .rogue_base, 6));
+    try std.testing.expectEqual(Style.rogue_base, Style.of(.of(.sabre), .of(.rogue_base), 5));
+    try std.testing.expectEqual(Style.bay, Style.of(.of(.sabre), .of(.rogue_base), 6));
     // Nothing launches from a fighter.
-    try std.testing.expectEqual(null, Style.of(.sabre, .predator, 0));
+    try std.testing.expectEqual(null, Style.of(.of(.sabre), .of(.predator), 0));
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Style.reliant}));
     try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @enumFromInt(12))}));
@@ -603,11 +603,11 @@ test "a launch stands its ship at its gate's point, riding it, until it starts" 
     defer mission.deinit();
     var carrier_model: testing.Carrier = undefined;
     carrier_model.init();
-    _ = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.kamov, .{ 1000, 0, 0 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.kamov), .{ 1000, 0, 0 });
     try carrier_model.parts.fit(gpa, mission.slot(carrier));
     mission.slot(carrier).object.velocity = .{ .x = 0, .y = 0, .z = 5 };
-    const torpedo_slot = try mission.add(.torpedo, @splat(0));
+    const torpedo_slot = try mission.add(.of(.torpedo), @splat(0));
     const ctx = mission.orders();
 
     // Through its second gate, the second part's second point: its centre there, turned as the
@@ -647,8 +647,8 @@ test "a launch's search for a gate counts the launch points on" {
     defer mission.deinit();
     var carrier_model: testing.Carrier = undefined;
     carrier_model.init();
-    const first = try mission.add(.kamov, @splat(0));
-    const second = try mission.add(.kamov, .{ 5000, 0, 0 });
+    const first = try mission.add(.of(.kamov), @splat(0));
+    const second = try mission.add(.of(.kamov), .{ 5000, 0, 0 });
     for ([_]u16{ first, second }) |index| try carrier_model.parts.fit(gpa, mission.slot(index));
     var state = std.mem.zeroes(State);
     var search: GateSearch = .{ .all = mission.objects, .state = &state };
@@ -670,10 +670,10 @@ test "a launch ends with its carrier, and an unknown style lets the ship go" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.yamato, .{ 0, 0, 5000 });
-    const ship = try mission.add(.sabre, .{ 0, 0, 5000 });
-    const lost = try mission.add(.sabre, .{ 0, 0, 5000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.yamato), .{ 0, 0, 5000 });
+    const ship = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
+    const lost = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
     const ctx = mission.orders();
     for ([_]u16{ ship, lost }) |index| {
         _ = try aigeneric.pushShip(ctx, index, .launch, carrier, 0);
@@ -699,7 +699,7 @@ test dropping {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
     try std.testing.expect(!dropping(mission.objects, player));
     _ = try aigeneric.pushShip(mission.orders(), player, .launch, player, 0);
     const state = &mission.slot(player).state.launch;
@@ -714,9 +714,9 @@ test "an unsupported carrier waits for StartLaunch and releases without running 
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    _ = try mission.add(.predator, @splat(0));
-    const carrier = try mission.add(.kamov, .{ 0, 0, 10000 });
-    const ship = try mission.add(.sabre, .{ 0, 0, 10500 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.kamov), .{ 0, 0, 10000 });
+    const ship = try mission.add(.of(.sabre), .{ 0, 0, 10500 });
     const ctx = mission.orders();
     _ = try aigeneric.pushShip(ctx, ship, .launch, carrier, 0);
     aigeneric.objectOrders(ctx, ship);

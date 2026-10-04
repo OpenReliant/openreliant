@@ -132,7 +132,7 @@ test "a shot holds its ships still while it is on screen" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ship = try mission.addOther(@splat(0));
-    const other = try mission.add(.predator, @splat(0));
+    const other = try mission.add(.of(.predator), @splat(0));
     const held: Held = .of(mission.world(), .at(ship, null));
     held.hold(true);
     try std.testing.expect(mission.slot(ship).object.flags.jumping);

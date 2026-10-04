@@ -523,10 +523,10 @@ const Fixture = struct {
         fixture.held = try load.testing.records3(fixture.arena.allocator());
         try fixture.mission.init(gpa);
         errdefer fixture.mission.deinit();
-        _ = try fixture.mission.add(.predator, @splat(0));
+        _ = try fixture.mission.add(.of(.predator), @splat(0));
         if (shared.settings != null) try load.run(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared);
         fixture.game = (try Game.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, shared, false)).?;
-        fixture.sabre = try fixture.mission.add(.sabre, .{ 0, 0, 1000 });
+        fixture.sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, 1000 });
     }
 
     fn deinit(fixture: *Fixture) void {
@@ -971,7 +971,7 @@ test "object scripts run on the objects their manifest names, each with its own 
     defer fixture.deinit();
     fixture.begin();
     // The Sabre made before the mission began has no scripts; one made now has both.
-    const sabre = try fixture.mission.add(.sabre, .{ 0, 0, 2000 });
+    const sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, 2000 });
     const all = fixture.mission.objects;
     try std.testing.expectEqual(2, fixture.game.onObject(sabre).items.len);
     try std.testing.expectEqual(1, all.slots[sabre].object.yaw_input);
@@ -1107,8 +1107,8 @@ test "object scripts read the world around them, and give their object orders" {
     });
     defer fixture.deinit();
     fixture.begin();
-    const sabre = try fixture.mission.add(.sabre, .{ 0, 0, -1000 });
-    _ = try fixture.mission.add(.sabre, .{ 0, 0, 50000 });
+    const sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, -1000 });
+    _ = try fixture.mission.add(.of(.sabre), .{ 0, 0, 50000 });
     fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
     fixture.game.scripts.update(0.1);
     try std.testing.expectEqual(openreliant.engine.game.ai.orders.Order.run_away, fixture.mission.objects.slots[sabre].current().?.order);
@@ -1135,7 +1135,7 @@ test "the wingmen example: a badly damaged wingman runs from its attacker, and r
     try std.testing.expectEqual(3, pages.page("wingmen").?.options.len);
     try std.testing.expectEqual(mod_options.Value{ .number = 0.3 }, pages.value("wingmen", "pull_out_below").?);
     fixture.begin();
-    const wingman = try fixture.mission.add(.wolverine, .{ 0, 0, -1000 });
+    const wingman = try fixture.mission.add(.of(.wolverine), .{ 0, 0, -1000 });
     const scripts = &fixture.game.scripts;
     scripts.started(.{ .number = 5, .file = "mission5.dte" });
     const slot = &fixture.mission.objects.slots[wingman];

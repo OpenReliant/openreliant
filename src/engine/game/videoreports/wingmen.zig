@@ -329,7 +329,7 @@ test "HELP ME" {
     const wingman = &all.slots[heard.wingman];
 
     // An enemy fighting the player's ship draws the wingman the game picks.
-    const attacker = try heard.mission.add(.predator, .{ 0, 0, 3000 });
+    const attacker = try heard.mission.add(.of(.predator), .{ 0, 0, 3000 });
     all.slots[attacker].object.side = .hostile;
     all.slots[attacker].object.flags.targetable = true;
     _ = try aigeneric.pushShip(heard.mission.orders(), attacker, .fight, 0, null);

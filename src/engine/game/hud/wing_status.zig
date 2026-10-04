@@ -57,7 +57,7 @@ pub fn entries(all: *const create.Objects, out: *[mission.wing_size]Entry) []Ent
     for (all.wing, bars_at, 1..) |listed, at, number| {
         const slot = &all.slots[listed orelse continue];
         const object = &slot.object;
-        if (object.type == .stand_in or object.wing != .player or object.flags.ejected) continue;
+        if (object.type.base() == .stand_in or object.wing != .player or object.flags.ejected) continue;
         const combat = slot.combat orelse continue;
         out[count] = .{
             .number = @intCast(number),
@@ -102,10 +102,10 @@ test entries {
     try fixture.init(std.testing.allocator);
     defer fixture.deinit();
     const all = fixture.objects;
-    const player = try fixture.add(.predator, @splat(0));
-    const hurt = try fixture.add(.grendel, .{ 1000, 0, 0 });
-    const ejected = try fixture.add(.wolverine, .{ 2000, 0, 0 });
-    const outsider = try fixture.add(.sabre, .{ 0, 0, 5000 });
+    const player = try fixture.add(.of(.predator), @splat(0));
+    const hurt = try fixture.add(.of(.grendel), .{ 1000, 0, 0 });
+    const ejected = try fixture.add(.of(.wolverine), .{ 2000, 0, 0 });
+    const outsider = try fixture.add(.of(.sabre), .{ 0, 0, 5000 });
     mission.listPlayerWing(all, &.{ player, hurt, ejected });
     all.wing[4] = outsider;
     all.slots[player].object.wing_icon = 0xFC;

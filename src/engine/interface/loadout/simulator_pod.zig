@@ -77,7 +77,7 @@ pub const Mission = struct {
     pub fn flight(mission: Mission) main_menu.Flight {
         return .{
             .mission = mission.number,
-            .ship = @intFromEnum(gameobj.Type.grendel),
+            .ship = @intFromEnum(gameobj.GameType.grendel),
             .simulator = mission.simulator,
             .flier = .simulator_pod,
         };
@@ -325,7 +325,7 @@ test items {
     const flight = instant_action.flight();
     try std.testing.expectEqual(29, flight.mission);
     try std.testing.expectEqual(main_menu.instant_action.simulator, flight.simulator);
-    try std.testing.expectEqual(@intFromEnum(gameobj.Type.grendel), flight.ship.?);
+    try std.testing.expectEqual(@intFromEnum(gameobj.GameType.grendel), flight.ship.?);
     try std.testing.expect(!flight.byWinMain());
     try std.testing.expectEqual(create.Simulator.Mode.training, training(30).flight().simulator.mode);
 }

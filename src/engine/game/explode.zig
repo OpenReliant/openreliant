@@ -490,9 +490,9 @@ pub const Debris = struct {
     /// Each type's model, counted as used so that it stays loaded (`ship_type_first_levels`).
     pub fn load(all: *create.Objects, types: create.Types) Debris {
         var debris: Debris = .{};
-        loadEach(&debris.pieces, all, types, gameobj.Type.debris, stretch);
-        loadEach(&debris.bodies, all, types, gameobj.Type.crewman, body_stretch);
-        loadEach(&debris.rock_chunks, all, types, gameobj.Type.rock_chunk, 1);
+        loadEach(&debris.pieces, all, types, gameobj.Type.of(.debris), stretch);
+        loadEach(&debris.bodies, all, types, gameobj.Type.of(.crewman), body_stretch);
+        loadEach(&debris.rock_chunks, all, types, gameobj.Type.of(.rock_chunk), 1);
         return debris;
     }
 
@@ -1015,7 +1015,7 @@ pub fn blast(world: gameobj.World, index: u16) void {
     cloak.drop(slot);
     const at = slot.drawn.position;
     const velocity = gameobj.vector(slot.object.velocity);
-    const small = slot.object.flags.ejected or switch (slot.object.type) {
+    const small = slot.object.flags.ejected or switch (slot.object.type.base()) {
         .escape_pod, .other_escape_pod, .late_escape_pod, .other_late_escape_pod, .proximity_mine => true,
         else => false,
     };
@@ -1169,7 +1169,7 @@ pub fn loseHull(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
     const object = &all.slots[index].object;
-    const credited = switch (object.type) {
+    const credited = switch (object.type.base()) {
         .kurgan, .antanov, .gurevich => true,
         else => false,
     };
@@ -1429,7 +1429,7 @@ test burnPart {
     defer rays.deinit(gpa);
     var world = stage.world();
     world.rays = &rays.rays;
-    const index = try stage.mission.add(.kamov, @splat(0));
+    const index = try stage.mission.add(.of(.kamov), @splat(0));
     const slot = stage.mission.slot(index);
     var burning: testing.Burning = undefined;
     try burning.init(gpa, "Wreck");
@@ -1487,11 +1487,11 @@ test burnPart {
 }
 
 test ComponentLoss {
-    try std.testing.expectEqual(.capital_ship, ComponentLoss.of(.badanov));
+    try std.testing.expectEqual(.capital_ship, ComponentLoss.of(.of(.badanov)));
     // A type under another number has the routine of the type it takes its stats from.
     try std.testing.expectEqual(.capital_ship, ComponentLoss.of(@enumFromInt(0xDB)));
-    try std.testing.expectEqual(.ulysses, ComponentLoss.of(.ulysses));
-    try std.testing.expectEqual(null, ComponentLoss.of(.sabre));
+    try std.testing.expectEqual(.ulysses, ComponentLoss.of(.of(.ulysses)));
+    try std.testing.expectEqual(null, ComponentLoss.of(.of(.sabre)));
     try std.testing.expectEqual(null, ComponentLoss.of(@enumFromInt(0x1234)));
 }
 
@@ -1500,17 +1500,17 @@ test loseHull {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const ctx = mission.orders();
-    const player = try mission.add(.predator, @splat(0));
+    const player = try mission.add(.of(.predator), @splat(0));
 
     // The player's taking a Kurgan's hull is a kill; any ship so ends, its orders cleared.
-    const kurgan = try mission.add(.kurgan, .{ 0, 0, 1000 });
+    const kurgan = try mission.add(.of(.kurgan), .{ 0, 0, 1000 });
     mission.slot(kurgan).object.last_attacker = .of(player);
     loseHull(ctx, kurgan);
     try std.testing.expectEqual(1, mission.player.kills.count);
     try std.testing.expect(mission.slot(kurgan).object.flags.exploding);
 
     // A Badanov's is not.
-    const badanov = try mission.add(.badanov, .{ 0, 0, 2000 });
+    const badanov = try mission.add(.of(.badanov), .{ 0, 0, 2000 });
     mission.slot(badanov).object.last_attacker = .of(player);
     loseHull(ctx, badanov);
     try std.testing.expectEqual(1, mission.player.kills.count);
@@ -1605,8 +1605,8 @@ test burst {
     defer explosions.deinit();
     var world = mission.world();
     world.explosions = &explosions;
-    const player = try mission.add(.predator, .{ 0, 0, 0 });
-    const other = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), .{ 0, 0, 0 });
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     mission.objects.slots[player].object.velocity = .{ .x = 0, .y = 0, .z = 40 };
 
     // Another ship's burst leaves no marker, but 18 lit fireballs, each up to a tenth of a second
@@ -1673,8 +1673,8 @@ test blast {
     world.camera = &watching;
     world.explosions = &explosions;
     mission.clock.frame_start = 10;
-    _ = try mission.add(.predator, @splat(0));
-    const ship = try mission.add(.sabre, @splat(0));
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.sabre), @splat(0));
     mission.objects.slots[ship].drawn.position = .{ 0, 0, 5000 };
     mission.objects.slots[ship].object.flags.cloaked = true;
     mission.objects.slots[ship].cloak = .{ .came_at = 0 };
@@ -1868,8 +1868,8 @@ test "a blast's bits" {
     explosions.debris = testing.debris(&mesh);
     var world = mission.world();
     world.explosions = &explosions;
-    const ship = try mission.add(.sabre, @splat(0));
-    const pod = try mission.add(.escape_pod, @splat(0));
+    const ship = try mission.add(.of(.sabre), @splat(0));
+    const pod = try mission.add(.of(.escape_pod), @splat(0));
 
     // A ship throws 25, an escape pod 5, and a burst 25.
     blast(world, ship);
@@ -1891,7 +1891,7 @@ test "a blast's shockwave" {
     var world = mission.world();
     world.camera = &watching;
     world.shockwaves = &built.waves;
-    const ship = try mission.add(.sabre, @splat(0));
+    const ship = try mission.add(.of(.sabre), @splat(0));
     mission.objects.slots[ship].object.velocity = .{ .x = 0, .y = 0, .z = 8 };
 
     // Now and then a blast sets one off, of one of its three looks, ten times the ship's radius

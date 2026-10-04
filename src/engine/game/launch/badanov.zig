@@ -161,7 +161,7 @@ test openDoors {
     var badanov_model: TestBadanov = undefined;
     try badanov_model.init(gpa, test_bounds);
     defer badanov_model.deinit(gpa);
-    const badanov = try mission.add(.badanov, .{ 0, 0, 10000 });
+    const badanov = try mission.add(.of(.badanov), .{ 0, 0, 10000 });
     try badanov_model.parts.fit(gpa, mission.slot(badanov));
     const model = &mission.slot(badanov).model.?;
     // Both doors play their track forward, from its start.
@@ -189,12 +189,12 @@ test "a ship launches from the Badanov's bay" {
     var badanov_model: TestBadanov = undefined;
     try badanov_model.init(gpa, test_bounds);
     defer badanov_model.deinit(gpa);
-    _ = try mission.add(.predator, @splat(0));
-    const badanov = try mission.add(.badanov, .{ 0, 0, 10000 });
+    _ = try mission.add(.of(.predator), @splat(0));
+    const badanov = try mission.add(.of(.badanov), .{ 0, 0, 10000 });
     try badanov_model.parts.fit(gpa, mission.slot(badanov));
     mission.slot(badanov).object.velocity = .{ .x = 0, .y = 0, .z = 5 };
-    const ship = try mission.add(.sabre, @splat(0));
-    const far = try mission.add(.sabre, @splat(0));
+    const ship = try mission.add(.of(.sabre), @splat(0));
+    const far = try mission.add(.of(.sabre), @splat(0));
     const ctx = mission.orders();
     for ([_]u16{ ship, far }, [_]u16{ 1, 7 }) |each, gate| {
         _ = try aigeneric.pushShip(ctx, each, .launch, badanov, gate);

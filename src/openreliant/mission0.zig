@@ -118,19 +118,19 @@ const field_size = field_rows * field_columns;
 /// The ships before the rocks: the player's ship first, whose slot is the player's. The wing is
 /// placed at the Reliant, whose tubes the launch puts it in.
 const ships = [_]Placed{
-    .{ .name = "Player", .kind = .predator, .group = .alpha, .at = @splat(0), .gate = 0 },
-    .{ .name = "(A2)Grendel", .kind = .grendel, .group = .alpha, .at = @splat(0), .gate = 1 },
-    .{ .name = "(A3)Wolverine", .kind = .wolverine, .group = .alpha, .at = @splat(0), .gate = 2 },
-    .{ .name = "(A4)Reaper", .kind = .reaper, .group = .alpha, .at = @splat(0), .gate = 3 },
-    .{ .name = "The Reliant", .kind = .reliant, .group = .reliant, .at = @splat(0) },
-    .{ .name = "The Badanov", .kind = .badanov, .group = .badanov, .at = .{ 6000, -9000, 190000 }, .yaw = across_yaw },
+    .{ .name = "Player", .kind = .of(.predator), .group = .alpha, .at = @splat(0), .gate = 0 },
+    .{ .name = "(A2)Grendel", .kind = .of(.grendel), .group = .alpha, .at = @splat(0), .gate = 1 },
+    .{ .name = "(A3)Wolverine", .kind = .of(.wolverine), .group = .alpha, .at = @splat(0), .gate = 2 },
+    .{ .name = "(A4)Reaper", .kind = .of(.reaper), .group = .alpha, .at = @splat(0), .gate = 3 },
+    .{ .name = "The Reliant", .kind = .of(.reliant), .group = .reliant, .at = @splat(0) },
+    .{ .name = "The Badanov", .kind = .of(.badanov), .group = .badanov, .at = .{ 6000, -9000, 190000 }, .yaw = across_yaw },
 } ++ sabres;
 
 const sabres = sabres: {
     var placed: [wing_size]Placed = undefined;
     for (&placed, 0..) |*sabre, n| {
         const across = (@as(f32, @floatFromInt(n)) - @as(f32, wing_size - 1) / 2) * wing_spacing;
-        sabre.* = .{ .name = std.fmt.comptimePrint("Sabre {d}", .{n + 1}), .kind = .sabre, .group = .sabres, .pilot = wing_pilot, .at = .{ across, 0, wing_ahead }, .yaw = 180 };
+        sabre.* = .{ .name = std.fmt.comptimePrint("Sabre {d}", .{n + 1}), .kind = .of(.sabre), .group = .sabres, .pilot = wing_pilot, .at = .{ across, 0, wing_ahead }, .yaw = 180 };
     }
     break :sabres placed;
 };
@@ -152,7 +152,7 @@ fn rocks() [field_size]Placed {
         const middle: [2]f32 = .{ @as(f32, field_columns - 1) / 2, @as(f32, field_rows - 1) / 2 };
         rock.* = .{
             .name = rock_names[n],
-            .kind = .asteroid(n * field_step),
+            .kind = .of(.asteroid(n * field_step)),
             .group = .rocks,
             .at = .{
                 field_centre[0] + (column - middle[0]) * field_spacing + (random.float(f32) * 2 - 1) * field_stray,
@@ -263,7 +263,7 @@ fn shipRecord(ship: Placed, id: u32, name_at: u16) dte.Ship {
     record.flight_group = @intFromEnum(ship.group);
     record.pilot = ship.pilot;
     record.kind = @intCast(ship.kind.number());
-    record.launch_from = if (ship.gate != null) @intCast(Type.reliant.number()) else std.math.maxInt(u16);
+    record.launch_from = if (ship.gate != null) @intCast(Type.of(.reliant).number()) else std.math.maxInt(u16);
     record._unknown_2a = 0xFF;
     record.launch_gate = ship.gate orelse dte.Ship.no_launch;
     record.runtime_yaw = ship.yaw;
@@ -402,7 +402,7 @@ test write {
     const records = try mission.ships();
     try std.testing.expectEqual(ships.len + field_size, records.len);
     try std.testing.expectEqualStrings("Player", mission.file.name((try mission.file.player()).?.name));
-    try std.testing.expectEqual(@as(u16, @intCast(Type.sabre.number())), records[first_sabre].kind);
+    try std.testing.expectEqual(@as(u16, @intCast(Type.of(.sabre).number())), records[first_sabre].kind);
     try std.testing.expectEqual(wing_pilot, records[first_sabre].pilot);
     // Each flight group lists its ships, the player's in the player's wing.
     const groups = try mission.flightGroups();
@@ -421,7 +421,7 @@ test write {
     // The wing launches through the Reliant's first four tubes; the rest launch from nothing.
     for (records[0..4], 0..) |record, gate| {
         try std.testing.expectEqual(gate, record.launchGate().?);
-        try std.testing.expectEqual(Type.reliant.number(), record.launch_from);
+        try std.testing.expectEqual(Type.of(.reliant).number(), record.launch_from);
     }
     try std.testing.expectEqual(null, records[4].launchGate());
 }

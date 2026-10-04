@@ -167,7 +167,7 @@ pub const Trail = struct {
         const glow = trail.glow.?;
         glow.shown = false;
         const slot = followed(trail, world.objects) orelse return;
-        if (trail.follows == .object and slot.object.type != .russian_torpedo) return;
+        if (trail.follows == .object and slot.object.type.base() != .russian_torpedo) return;
         const width = slot.object.bounds_max.x * 2;
         const flickered = (world.random.fraction() * glow_flicker + 1) * width;
         glow.sprites[0].half_size = .{ flickered, flickered };
@@ -400,7 +400,7 @@ const hostile_torpedo: [3]f32 = .{ 227.0 / 255.0, 199.0 / 255.0, 139.0 / 255.0 }
 fn followed(trail: *const Trail, all: *Objects) ?*const Slot {
     return switch (trail.follows) {
         .missile => |at| if (all.missiles.get(at)) |missile| &missile.slot else null,
-        .object => |slot| if (all.slots[slot].object.type == .stand_in) null else &all.slots[slot],
+        .object => |slot| if (all.slots[slot].object.type.base() == .stand_in) null else &all.slots[slot],
         .nothing => null,
     };
 }

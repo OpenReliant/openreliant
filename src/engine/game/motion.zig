@@ -72,7 +72,7 @@ pub const Motion = enum {
                 object.last_throttle = 0;
             },
             .plain => {
-                plain(object, if (object.type == .ripper) flight.own else flight.fighter orelse flight.own, .z);
+                plain(object, if (object.type.base() == .ripper) flight.own else flight.fighter orelse flight.own, .z);
                 object.last_throttle = object.throttle;
             },
             .brake => {
@@ -541,7 +541,7 @@ test "the plain motions push along the ship's own axes, a fighter by the first t
     try std.testing.expectApproxEqAbs(200, boosting.velocity.z, 0.5);
     try std.testing.expectEqual(2, boosting.last_throttle);
     // The Ripper flies by its own flight model, and so does what is no fighter.
-    boosting.type = .ripper;
+    boosting.type = .of(.ripper);
     for (0..400) |_| Motion.plain.run(&boosting, flight, .chase, .{});
     try std.testing.expectApproxEqAbs(640, boosting.velocity.z, 0.5);
     var other = gameobj.testing.object();
@@ -555,9 +555,9 @@ test "a fighter moves by the first ship type's flight where the stats are at han
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     mission.tables.flight[fighters_flight_type].max_speed = 100;
-    const fighter = try mission.add(.sabre, @splat(0));
-    const other = try mission.add(.sabre, .{ 0, 0, 5000 });
-    mission.tables.combat[@intFromEnum(gameobj.Type.sabre)].class = .fighter;
+    const fighter = try mission.add(.of(.sabre), @splat(0));
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
+    mission.tables.combat[@intFromEnum(gameobj.GameType.sabre)].class = .fighter;
     var world = mission.world();
     world.spawn = mission.spawn(create.testing.no_models);
     for ([_]u16{ fighter, other }) |index| {
@@ -692,8 +692,8 @@ test moveSlot {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const player = try mission.add(.predator, @splat(0));
-    const other = try mission.add(.predator, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.predator), .{ 0, 0, 1000 });
     for ([_]u16{ player, other }) |index| {
         const slot = mission.slot(index);
         slot.motion = null;

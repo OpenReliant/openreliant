@@ -41,7 +41,7 @@ pub const Kind = enum(i32) {
     /// What a shot leaves on a component of an object of `object_type` (`bullet_hit`,
     /// `0x0047B840`): `rock` on what is made of rock (`gameobj.Type.rock`).
     pub fn onComponentOf(object_type: gameobj.Type) Kind {
-        return if (object_type.rock() != null) .rock else .component;
+        return if (object_type.base().rock() != null) .rock else .component;
     }
 };
 
@@ -159,8 +159,8 @@ test hullHit {
     defer mission.deinit();
     var world = mission.world();
     world.hearing = speaker.hearing(&mission.clock);
-    const player = try mission.add(.predator, @splat(0));
-    const other = try mission.add(.sabre, .{ 0, 0, 1000 });
+    const player = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
 
     // The player's hull sounds a hit, then none for thirty ticks.
     mission.clock.frame_start = 100;
@@ -189,7 +189,7 @@ test componentHit {
     world.particles = &pool;
     world.camera = &watching;
     mission.clock.frame_start = 10;
-    const index = try mission.add(.kamov, .{ 0, 0, 1000 });
+    const index = try mission.add(.of(.kamov), .{ 0, 0, 1000 });
     var parts: [1]objects.Model.Part = .{.{ .hidden = false, .parent = null, .origin = @splat(0), .object = .{ .flags = .{}, .position = .{ 0, 0, 1000 }, .radius = 100, .levels = &.{} } }};
     var model: objects.Model = .{ .parts = &parts, .order = &.{}, .lights = &.{}, .glows = &.{}, .mounts = &.{} };
     const crossing: objects.Crossing = .{ .part = .{ .model = &model, .index = 0 }, .face = 0, .point = .{ 0, 0, -50 }, .normal = .{ 0, 0, -1 } };
