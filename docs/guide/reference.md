@@ -126,10 +126,15 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 
 | Name | Type | What it is |
 |---|---|---|
+| `pointer` | [Pointer](#pointer), or nil | Where the pointer is, in pixels from the window's top left corner, and whether its left button is down; nil before it has been over the window. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
 | `register_screen(name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?})` | string | Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen. |
+| `replace_screen(screen: FrontEndScreen, name: string?)` | boolean | Makes the calling mod's registered screen `name` stand in for the front end's own `screen`, such as `"main_menu"`: while the front end shows `screen`, it runs and draws the mod's screen in its place, over its background. nil gives `screen` back to the front end. Only menu scripts can use it. Returns whether the screen is registered. |
+| `go_to(screen: FrontEndScreen)` | nothing | Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it. |
+| `start_game_mode(name: string)` | boolean | Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered. |
+| `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
 | `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
@@ -398,10 +403,15 @@ These groups reuse existing API declarations beneath mod overrides. Context perm
 
 | Member | Type or returns | Description |
 |---|---|---|
+| `pointer` | [Pointer](#pointer), or nil | Where the pointer is, in pixels from the window's top left corner, and whether its left button is down; nil before it has been over the window. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
 | `register_screen(name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?})` | string | Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen. |
+| `replace_screen(screen: FrontEndScreen, name: string?)` | boolean | Makes the calling mod's registered screen `name` stand in for the front end's own `screen`, such as `"main_menu"`: while the front end shows `screen`, it runs and draws the mod's screen in its place, over its background. nil gives `screen` back to the front end. Only menu scripts can use it. Returns whether the screen is registered. |
+| `go_to(screen: FrontEndScreen)` | nothing | Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it. |
+| `start_game_mode(name: string)` | boolean | Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered. |
+| `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
 | `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
@@ -983,6 +993,13 @@ A table a script gives, which may leave out any field.
 | `width` | number |
 | `height` | number |
 
+### Pointer
+
+| Field | Type |
+|---|---|
+| `at` | vector |
+| `down` | boolean |
+
 ### Definition
 
 A table a script gives, which may leave out a field with a default.
@@ -1093,6 +1110,10 @@ number. A script can set a field to either.
 ### Align
 
 `left`, `centre`, `right`, or a number.
+
+### FrontEndScreen
+
+`main_menu`, `game_options`, `audio`, `briefing`, `landing_movie`, `pilot_roster`, `saved_games`, `connection`, `video`, `controls`, `mods`, `mod_options`, `game_modes`, or a number.
 
 ### Key
 

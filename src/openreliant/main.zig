@@ -674,6 +674,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         // The mods screen, which with `--no-mods` stays shut.
         .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
         .modes = game_modes.shown.items,
+        // The menu scripts' screens that stand in for the front end's own.
+        .scripted = if (presentation) |shown| shown.scripted() else null,
     };
     // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
     // play and draw with: made as the front end's resources open.
@@ -1659,6 +1661,8 @@ const FrontEndDisplay = struct {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
         try drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string));
         if (shown.presentation) |scripts| try scripts.draw(.ui, shown.target, null);
+        // The pointer over a mod's screen that stands in for the front end's own.
+        try drawn(shown.front.drawPointer(shown.resources, shown.target, shown.window, shown.strings));
         if (shown.console) |console| try console.draw(shown.target, shown.window, shown.strings, .menus);
     }
 };

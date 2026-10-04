@@ -31,6 +31,8 @@ const mod_options = engine.game.interface.mod_options;
 const postprocessing = @import("postprocessing.zig");
 const shaders = @import("shaders.zig");
 const game_modes = @import("game_modes.zig");
+const front_end = @import("front_end.zig");
+const interf = engine.genilib.interf;
 const srtexture = engine.surrender.surrenderlib.srtexture;
 const controls = engine.input.controls;
 const device = engine.surrender.srd3d.device;
@@ -94,6 +96,8 @@ pub const Presentation = struct {
     lists: std.EnumArray(Place, running.List) = .initFill(.empty),
     layers: std.EnumArray(drawing.Which, drawing.Layer) = .initFill(.{}),
     assets: drawing.Assets = .{},
+    /// The menu scripts' screens that stand in for the front end's own (`front_end.zig`).
+    standing: front_end.Standing = .{},
     /// What each layer is drawn on this frame.
     views: std.EnumArray(drawing.Which, ?drawing.View) = .initFill(null),
     /// What the driver told of the last frame, which the packages reach the game through.
@@ -143,6 +147,7 @@ pub const Presentation = struct {
         shown.runner.deinit();
         for (&shown.layers.values) |*layer| layer.deinit(shown.gpa);
         shown.assets.deinit(shown.gpa);
+        shown.standing.deinit(shown.gpa);
         shown.runtime.destroy();
         shown.gpa.destroy(shown);
     }
@@ -214,6 +219,12 @@ pub const Presentation = struct {
     /// (`postprocessing.Registry.setHost`). Call it with null before the host is destroyed.
     pub fn setEffectHost(shown: *Presentation, host: ?postprocessing.EffectHost) void {
         shown.runtime.post_effects.setHost(host);
+    }
+
+    /// The menu scripts' screens that stand in for the front end's own, as the front end reaches
+    /// them (`front_end.scripted`).
+    pub fn scripted(shown: *Presentation) @import("openreliant").engine.genilib.interf.Scripted {
+        return front_end.scripted(shown);
     }
 
     /// Sets what compiles and draws the scripts' surface and lighting functions, or null for nothing
@@ -1185,4 +1196,58 @@ test "the arena example registers its game mode, and its board runs within it" {
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     fixture.frame(0.016, .{ 800, 600 });
     for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
+}
+
+test "a menu script's screen stands in for the front end's own, and asks it to go on" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" },
+            .{
+                "menu.luau",
+                \\local ui = require("openreliant.ui")
+                \\local frames = 0
+                \\local screen = ui.register_screen("main", { frame = function()
+                \\    frames += 1
+                \\    if frames == 2 then ui.go_to("pilot_roster") end
+                \\end })
+                \\assert(ui.replace_screen("main_menu", screen))
+                \\assert(not ui.replace_screen("game_options", "nothing"))
+                \\assert(ui.pointer == nil)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const scripted = fixture.shown.scripted();
+    try std.testing.expect(scripted.vtable.replaces(scripted.context, .main_menu));
+    try std.testing.expect(!scripted.vtable.replaces(scripted.context, .game_options));
+    scripted.vtable.show(scripted.context, .main_menu);
+    try std.testing.expect(fixture.shown.runtime.registries.selected_screen != null);
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(null, scripted.vtable.take(scripted.context));
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(interf.Request{ .go = .pilot_roster }, scripted.vtable.take(scripted.context).?);
+    try std.testing.expectEqual(null, scripted.vtable.take(scripted.context));
+    scripted.vtable.show(scripted.context, null);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.selected_screen);
+}
+
+test "the main menu example stands in for the game's" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "main-menu", &.{
+        .{ "mod.ini", @embedFile("main-menu/mod.ini") },
+        .{ "menu.luau", @embedFile("main-menu/menu.luau") },
+    } }});
+    defer fixture.deinit();
+    const scripted = fixture.shown.scripted();
+    try std.testing.expect(scripted.vtable.replaces(scripted.context, .main_menu));
+    scripted.vtable.show(scripted.context, .main_menu);
+    fixture.frame(0.016, .{ 640, 480 });
+    // Down twice and Enter choose OPTIONS.
+    for ([_]input.Key{ .down, .down, .enter }) |key| {
+        fixture.shown.key(key, true);
+        fixture.shown.key(key, false);
+    }
+    try std.testing.expectEqual(interf.Request{ .go = .game_options }, scripted.vtable.take(scripted.context).?);
 }

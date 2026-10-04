@@ -84,7 +84,8 @@ pub const Registry = struct {
         registry.closed = true;
     }
 
-    fn find(registry: *const Registry, name: []const u8) ?usize {
+    /// The place of the mode called `name`, if one is.
+    pub fn find(registry: *const Registry, name: []const u8) ?usize {
         for (registry.modes.items, 0..) |mode, at| if (std.mem.eql(u8, mode.name, name)) return at;
         return null;
     }
