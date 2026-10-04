@@ -211,10 +211,8 @@ pub fn addNames(arena: Allocator, text: []const []const u8) Allocator.Error![]co
     for (registered) |*each| {
         const label = each.label orelse continue;
         try made.append(arena, label);
-        each.label_string = std.math.cast(u16, made.items.len) orelse {
-            each.label_string = null;
-            continue;
-        };
+        // Past the string ids a word holds, the type keeps its base's name.
+        each.label_string = std.math.cast(u16, made.items.len);
     }
     return made.items;
 }
