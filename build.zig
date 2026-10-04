@@ -59,6 +59,14 @@ pub fn build(b: *std.Build) void {
     for ([_][]const u8{ "LICENSE-glslang.txt", "LICENSE-spirv-cross.txt" }) |notice| {
         b.getInstallStep().dependOn(&b.addInstallFile(shader_dependency.namedLazyPath(notice), notice).step);
     }
+    // Mods' pictures are compressed for the GPU with bc7enc and rgbcx, built optimized whatever the
+    // game's mode, as compressing a large picture is slow otherwise.
+    const texture_dependency = b.dependency("texture_compressor", .{ .target = target, .optimize = .ReleaseFast });
+    const texture_library = texture_dependency.artifact("texture-compressor");
+    platform.linkLibrary(texture_library);
+    platform.addIncludePath(texture_library.getEmittedIncludeTree());
+    platform.addCSourceFile(.{ .file = b.path("src/platform/texture_compressor.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
+    b.getInstallStep().dependOn(&b.addInstallFile(texture_dependency.namedLazyPath("LICENSE-bc7enc.txt"), "LICENSE-bc7enc.txt").step);
     // The sound: OpenAL Soft in place of Miles's 3D providers, which deps/openal-soft builds from
     // source for the target and the platform renders through its loopback device. It is built
     // optimized whatever the game's own mode: its mixer runs in the audio device's callback and has
