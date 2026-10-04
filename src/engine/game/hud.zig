@@ -2023,7 +2023,7 @@ pub fn blindFire(state: *const State, slot: *const create.Slot) BlindFire {
     if (!state.blind_fire_fitted or !state.blind_fire) return .off;
     const groups = if (slot.combat) |combat| combat.gun_groups else 0;
     if (slot.object.gun_mode.all and groups != 1) return .off;
-    return if (groupLead(slot) == .nova_cannon) .excluded else .on;
+    return if ((if (groupLead(slot)) |held| held.base() == .nova_cannon else false)) .excluded else .on;
 }
 
 /// Whether the charge arc shows the Nova Cannon's charge: on a Phoenix firing one group, which the
@@ -2031,12 +2031,12 @@ pub fn blindFire(state: *const State, slot: *const create.Slot) BlindFire {
 pub fn novaShown(slot: *const create.Slot) bool {
     const object = &slot.object;
     if (!object.type.base().carriesNova()) return false;
-    return !object.gun_mode.all and groupLead(slot) == .nova_cannon;
+    return !object.gun_mode.all and (if (groupLead(slot)) |held| held.base() == .nova_cannon else false);
 }
 
 test "blind fire, and the charge arc for the Nova Cannon" {
     const barrel = guns.testing.barrel;
-    var fitted = [_]guns.Fitted{ barrel(.pulse_cannon), barrel(.nova_cannon) };
+    var fitted = [_]guns.Fitted{ barrel(.of(.pulse_cannon)), barrel(.of(.nova_cannon)) };
     const table: [guns.max_groups]guns.Group = table: {
         var groups = guns.no_groups;
         groups[0] = .{ .first = 0 };
@@ -4954,7 +4954,7 @@ test "a hostile target ahead gets the lead cursor, whose point blind fire aims a
     defer t.deinit();
     const all = t.mission.objects;
     // The player's guns lead a target up to 100 ticks of flight away.
-    const laser = &all.gun_stats.types[guns.GunType.laser_cannon.number()];
+    const laser = &all.gun_stats.types[guns.GunType.of(.laser_cannon).number()];
     laser.speed = 100;
     laser.lifetime = 400;
     const ahead = try t.add(.of(.sabre), .{ 0, 0, 5000 });

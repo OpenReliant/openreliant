@@ -161,7 +161,7 @@ pub const Set = enum {
                     const number = @intFromEnum(ship);
                     if (number < stats.Table.ships.load().capacity()) named = named ++ .{Named{ .name = @tagName(ship), .number = number }};
                 },
-                .guns => for (std.enums.values(game.guns.GunType)) |gun| {
+                .guns => for (std.enums.values(game.guns.GameGun)) |gun| {
                     named = named ++ .{Named{ .name = @tagName(gun), .number = gun.number() }};
                 },
                 .missiles => for (std.enums.values(game.missiles.Type)) |missile| {

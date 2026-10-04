@@ -140,7 +140,7 @@ const lead_range: f32 = 0.25;
 /// a Laser Cannon's; OpenReliant leads by the fastest gun's own type.
 pub fn leadAim(all: *const create.Objects, index: u16, target: ValidTarget, lead: f32) ?Vector {
     const slot = &all.slots[index];
-    var fastest: guns.GunType = .laser_cannon;
+    var fastest: guns.GunType = .of(.laser_cannon);
     var best: f32 = -1;
     var chosen: guns.Chosen = .of(&slot.object, slot.guns, slot.gun_groups);
     while (chosen.next()) |gun| {
@@ -165,7 +165,7 @@ pub fn leadAim(all: *const create.Objects, index: u16, target: ValidTarget, lead
 /// flak past the life of its own shells; OpenReliant the flak's own.
 pub fn leadAimWithGun(all: *const create.Objects, from: Vector, target: ValidTarget, gun: guns.GunType, lead: f32) ?Vector {
     const record = gun.stats(&all.gun_stats);
-    const lifetime = @as(f32, @floatFromInt(record.lifetime)) * @as(f32, if (gun == .turret_flak) flak_lead else 1);
+    const lifetime = @as(f32, @floatFromInt(record.lifetime)) * @as(f32, if (gun.base() == .turret_flak) flak_lead else 1);
     const met = intercept(all, target, from, record.speed, lead);
     if (!(met.ticks <= lifetime * lead_range)) return null;
     return met.at;
@@ -1572,7 +1572,7 @@ test "aiming at a target" {
     try std.testing.expectEqual(Vector{ 0, 0, 1000 }, aimedAt(all, aimed).position);
 
     // With no gun fast enough to reach it in a quarter of its life, it isn't led.
-    const laser = &all.gun_stats.types[guns.GunType.laser_cannon.number()];
+    const laser = &all.gun_stats.types[guns.GunType.of(.laser_cannon).number()];
     laser.speed = 100;
     laser.lifetime = 20;
     try std.testing.expectEqual(null, leadAim(all, ship, aimed, 1));
@@ -1583,12 +1583,12 @@ test "aiming at a target" {
     try std.testing.expectApproxEqAbs(1000, led[2], 1e-3);
 
     // A Turret Flak's shot is led within three of its lifetimes.
-    const flak = &all.gun_stats.types[guns.GunType.turret_flak.number()];
+    const flak = &all.gun_stats.types[guns.GunType.of(.turret_flak).number()];
     flak.speed = 100;
     flak.lifetime = 13;
-    try std.testing.expectEqual(null, leadAimWithGun(all, @splat(0), aimed, .turret_flak, 1));
+    try std.testing.expectEqual(null, leadAimWithGun(all, @splat(0), aimed, .of(.turret_flak), 1));
     flak.lifetime = 14;
-    try std.testing.expect(leadAimWithGun(all, @splat(0), aimed, .turret_flak, 1) != null);
+    try std.testing.expect(leadAimWithGun(all, @splat(0), aimed, .of(.turret_flak), 1) != null);
 }
 
 test collisionCourse {

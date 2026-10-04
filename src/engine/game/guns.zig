@@ -46,10 +46,11 @@ pub const Gun = extern struct {
 /// to 15 a muzzle can name.
 pub const max_types = 16;
 
-/// A gun type. The tag is the type's number less one, which is how a shot keeps its type
-/// (`Bullet.kind`) and what `bullet_build` and `bullets_frame` switch on; a muzzle names it by its
-/// number, which `gun_stats` holds it under.
-pub const GunType = enum(u4) {
+/// The game's gun types. The tag is the type's number less one, which is how the game keeps a
+/// shot's type and what `bullet_build` and `bullets_frame` switch on; a muzzle names it by its
+/// number, which `gun_stats` holds it under. A gun holds its type as a `GunType`, whose `base` is
+/// one of these.
+pub const GameGun = enum(u4) {
     laser_cannon,
     pulse_cannon,
     messon_blaster,
@@ -66,15 +67,8 @@ pub const GunType = enum(u4) {
     allied_huge_gun,
     coalition_huge_gun,
 
-    /// The type a muzzle's number names. One that names none, 0 or past the last, fires the
-    /// Laser Cannon, as `object_collect_guns` does after warning about it.
-    pub fn fromNumber(named: u32) GunType {
-        if (named == 0 or named >= max_types) return .laser_cannon;
-        return @enumFromInt(named - 1);
-    }
-
     /// Whether it is one of the Huge Guns, which the turrets aim by rules of their own.
-    pub fn huge(gun_type: GunType) bool {
+    pub fn huge(gun_type: GameGun) bool {
         return switch (gun_type) {
             .allied_huge_gun, .coalition_huge_gun => true,
             else => false,
@@ -83,7 +77,7 @@ pub const GunType = enum(u4) {
 
     /// Whether this is a turret gun (the Turret Flak, the Turret Lasers or a Huge Gun) rather than
     /// a fighter gun (the Laser Cannon to the Nova Cannon).
-    pub fn onTurrets(gun_type: GunType) bool {
+    pub fn onTurrets(gun_type: GameGun) bool {
         return switch (gun_type) {
             .turret_flak, .turret_lasers, .allied_huge_gun, .coalition_huge_gun => true,
             else => false,
@@ -91,13 +85,61 @@ pub const GunType = enum(u4) {
     }
 
     /// The number a muzzle names it by, and its record in `gun_stats`.
-    pub fn number(gun_type: GunType) u8 {
+    pub fn number(gun_type: GameGun) u8 {
         return @as(u8, @intFromEnum(gun_type)) + 1;
+    }
+};
+
+/// A gun type by its number, as a muzzle names it and `gun_stats` holds it: one of the game's
+/// (`GameGun`). The code that singles out a gun asks for its base (`base`), the game's gun it is.
+pub const GunType = enum(u8) {
+    /// The name scripts know these values by, and the names they know.
+    pub const script_name = "GunType";
+    pub const Named = GameGun;
+
+    _,
+
+    /// The game's gun `game`.
+    pub fn of(game: GameGun) GunType {
+        return @enumFromInt(game.number());
+    }
+
+    /// The type a muzzle's number names. One that names none, 0 or past the last, fires the
+    /// Laser Cannon, as `object_collect_guns` does after warning about it.
+    pub fn fromNumber(named: u32) GunType {
+        if (named == 0 or named >= max_types) return .of(.laser_cannon);
+        return @enumFromInt(named);
+    }
+
+    /// The game's gun it is.
+    pub fn base(gun_type: GunType) GameGun {
+        const at = gun_type.number();
+        if (at == 0 or at >= max_types) return .laser_cannon;
+        return @enumFromInt(at - 1);
+    }
+
+    /// The number a muzzle names it by, and its record in `gun_stats`.
+    pub fn number(gun_type: GunType) u8 {
+        return @intFromEnum(gun_type);
     }
 
     /// Its figures.
     pub fn stats(gun_type: GunType, table: *const Stats) Gun {
         return table.types[gun_type.number()];
+    }
+
+    /// The name scripts know it by, if it has one.
+    pub fn scriptName(gun_type: GunType) ?[]const u8 {
+        return @tagName(gun_type.base());
+    }
+
+    /// The type scripts name `text`, if there is one.
+    pub fn fromScriptName(text: []const u8) ?GunType {
+        return .of(std.meta.stringToEnum(GameGun, text) orelse return null);
+    }
+
+    pub fn format(gun_type: GunType, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        return writer.writeAll(@tagName(gun_type.base()));
     }
 };
 
@@ -460,9 +502,9 @@ test fit {
     const fitted = try fit(gpa, &live, .{});
     defer gpa.free(fitted);
     try std.testing.expectEqual(2, fitted.len);
-    try std.testing.expectEqual(GunType.messon_blaster, fitted[0].barrel().?.type);
+    try std.testing.expectEqual(GunType.of(.messon_blaster), fitted[0].barrel().?.type);
     // A muzzle that names no type fires type 1.
-    try std.testing.expectEqual(GunType.laser_cannon, fitted[1].barrel().?.type);
+    try std.testing.expectEqual(GunType.of(.laser_cannon), fitted[1].barrel().?.type);
     try std.testing.expectEqual(0, fitted[0].turret.fixed.muzzle.part);
     try std.testing.expectEqual(&muzzles[1], fitted[1].turret.fixed.muzzle.attachment);
 }
@@ -520,7 +562,7 @@ const blind_refire: i32 = 135;
 
 /// The gun type that charges up before it fires, the Nova Cannon. The trigger passes it over and
 /// charges it instead (`nova.charge`), and it fires as the trigger is let go (`nova.release`).
-const charging_type: GunType = .nova_cannon;
+const charging_type: GunType = .of(.nova_cannon);
 
 const Clock = @import("main.zig").Clock;
 
@@ -603,7 +645,7 @@ test nextGroup {
 
 test fullGuns {
     var object = std.mem.zeroes(gameobj.GameObject);
-    const barrel: Barrel = .{ .muzzle = undefined, .type = .laser_cannon };
+    const barrel: Barrel = .{ .muzzle = undefined, .type = .of(.laser_cannon) };
     var fitted = [_]Fitted{
         .{ .turret = .{ .fixed = barrel }, .next_shot = 30 },
         .{ .turret = .{ .fixed = barrel }, .next_shot = 10 },
@@ -823,7 +865,7 @@ pub fn heard(world: gameobj.World, owner: u16, gun: *const Fitted) bool {
 test fire {
     var object = gameobj.testing.object();
     // The trigger reads nothing of where the guns stand.
-    var fitted = [_]Fitted{ testing.barrel(.laser_cannon), testing.barrel(.laser_cannon), testing.barrel(.pulse_cannon), testing.barrel(charging_type) };
+    var fitted = [_]Fitted{ testing.barrel(.of(.laser_cannon)), testing.barrel(.of(.laser_cannon)), testing.barrel(.of(.pulse_cannon)), testing.barrel(charging_type) };
     fitted[1].side = .second;
     var groups: [max_groups]Group = @splat(.{});
     groups[0] = .{ .first = 0, .second = 1 };
@@ -855,7 +897,7 @@ test fire {
 /// A world with one ship of two guns, one either side of its nose, for the tests here. Its type
 /// costs 2 a shot and fires every 20 ticks.
 pub const testing = struct {
-    const gun_type: GunType = .laser_cannon;
+    const gun_type: GunType = .of(.laser_cannon);
     const ship_type: u32 = 7;
 
     /// A fixed gun of `kind` whose muzzle nothing reads.
@@ -987,7 +1029,7 @@ test step {
     // A gun that fires rounds takes one instead of the charge.
     object.gun_charge = 50;
     object.rounds = 2;
-    const rounds: GunType = .collapser_guns;
+    const rounds: GunType = .of(.collapser_guns);
     world.objects.gun_stats.types[rounds.number()] = testing.gun_type.stats(&world.objects.gun_stats);
     world.objects.gun_stats.types[rounds.number()].kind = .rounds;
     for (ship.guns()) |*gun| gun.turret.fixed.type = rounds;
@@ -1091,8 +1133,8 @@ test blindAim {
     try math.testing.expectVectorWithin(toward, aimed.velocity, 1e-3);
 
     // The Nova Cannon and the turrets' guns fire along their muzzles, and so does another ship.
-    try std.testing.expectEqual(null, blindAim(world, ship.index, .nova_cannon));
-    try std.testing.expectEqual(null, blindAim(world, ship.index, .turret_flak));
+    try std.testing.expectEqual(null, blindAim(world, ship.index, .of(.nova_cannon)));
+    try std.testing.expectEqual(null, blindAim(world, ship.index, .of(.turret_flak)));
     const other = try ship.add(@enumFromInt(testing.ship_type), .{ 0, 0, 1000 });
     world.objects.slots[other].object.blind_fire_aim = 1;
     try std.testing.expectEqual(null, blindAim(world, other, barrel.type));
@@ -1160,7 +1202,7 @@ pub const Bullet = struct {
     /// Whether the record is in use.
     live: bool = false,
     /// Its gun type (`+0x00`), which the game keeps as the type's number less one.
-    kind: GunType = .laser_cannon,
+    kind: GunType = .of(.laser_cannon),
     /// The tick it dies (`+0x04`), which is `spent` once it has struck something.
     dies_at: i32 = 0,
     /// The tick it was fired (`+0x08`).
@@ -1314,7 +1356,7 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
     // The shot's own type, which is its gun's but for a Turret Flak's two times in five
     // (`bullet_fire`); its figures follow it.
     var kind = gun_type;
-    if (kind == .turret_flak and @rem(world.random.rand(), flak_lasers.in) < flak_lasers.times) kind = .turret_lasers;
+    if (kind.base() == .turret_flak and @rem(world.random.rand(), flak_lasers.in) < flak_lasers.times) kind = .of(.turret_lasers);
     const record = kind.stats(&all.gun_stats);
 
     // The muzzle stands where the step is taking the ship, on the part that carries it. A shot
@@ -1351,14 +1393,14 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
     };
 
     var lifetime = record.lifetime;
-    if (kind == .turret_flak) {
+    if (kind.base() == .turret_flak) {
         const share = world.random.fraction() * flak_life_share + flak_life_least;
         lifetime = std.math.lossyCast(i32, share * @as(f32, @floatFromInt(lifetime)));
     }
     bullet.dies_at = clock.mission_ticks + lifetime;
 
     bullet.velocity = math.transform(turn, .{ 0, 0, record.speed });
-    if (kind == .turret_flak) {
+    if (kind.base() == .turret_flak) {
         // Drawn roll, yaw and pitch in that order, each a share of `flak_scatter` either way.
         const scatter = math.fromAngleVector(world.random.centredVector(@splat(flak_scatter)));
         bullet.velocity = math.transform(scatter, bullet.velocity);
@@ -1380,7 +1422,7 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
 fn blindAim(world: gameobj.World, owner: u16, kind: GunType) ?Vector {
     const all = world.objects;
     if (all.slots[owner].object.blind_fire_aim == 0) return null;
-    if (kind == .nova_cannon or kind.onTurrets()) return null;
+    if (kind.base() == .nova_cannon or kind.base().onTurrets()) return null;
     if (owner != all.player) return null;
     const display = world.display orelse return null;
     return display.lead_point;
@@ -1423,28 +1465,29 @@ pub fn clipEventMuzzles(world: gameobj.World, owner: u16, model: *const objects.
 /// Cannon's effect, and its own, `prc.frc`, which the game reads, never plays.
 fn forceEffect(kind: GunType) input.force.Effect {
     comptime {
-        assert(@intFromEnum(input.force.Effect.nc) == @intFromEnum(GunType.nova_cannon));
+        assert(@intFromEnum(input.force.Effect.nc) == @intFromEnum(GameGun.nova_cannon));
         // The turrets' guns come after the Nova Cannon, and so past the effects.
-        for (std.enums.values(GunType)) |gun_type| {
-            assert(gun_type.onTurrets() == (@intFromEnum(gun_type) > @intFromEnum(GunType.nova_cannon)));
+        for (std.enums.values(GameGun)) |gun_type| {
+            assert(gun_type.onTurrets() == (@intFromEnum(gun_type) > @intFromEnum(GameGun.nova_cannon)));
         }
     }
-    if (kind.onTurrets()) return .lc;
-    return @enumFromInt(@intFromEnum(kind));
+    const game = kind.base();
+    if (game.onTurrets()) return .lc;
+    return @enumFromInt(@intFromEnum(game));
 }
 
 test forceEffect {
-    try std.testing.expectEqual(.lc, forceEffect(.laser_cannon));
-    try std.testing.expectEqual(.prc, forceEffect(.proton_cannon));
-    try std.testing.expectEqual(.nc, forceEffect(.nova_cannon));
-    try std.testing.expectEqual(.lc, forceEffect(.turret_lasers));
+    try std.testing.expectEqual(.lc, forceEffect(.of(.laser_cannon)));
+    try std.testing.expectEqual(.prc, forceEffect(.of(.proton_cannon)));
+    try std.testing.expectEqual(.nc, forceEffect(.of(.nova_cannon)));
+    try std.testing.expectEqual(.lc, forceEffect(.of(.turret_lasers)));
 }
 
 /// The sound a shot makes as it is fired (`bullet_fire`), its gun type's, following it: on a voice
 /// of the player's guns for the player's shots, and on a guaranteed one for the huge guns'.
 fn shotSound(world: gameobj.World, index: u8, kind: GunType, sound: i32, player: bool) void {
     const which = std.enums.fromInt(sound3d.sounds.Sound, sound) orelse return;
-    const class: sound3d.Class = switch (kind) {
+    const class: sound3d.Class = switch (kind.base()) {
         .allied_huge_gun, .coalition_huge_gun => .guaranteed,
         else => if (player) .player_guns else .not_reserved,
     };
@@ -1526,7 +1569,7 @@ const turret_damage_to_players: f32 = 2.5;
 /// Whether the shot is a Turret Flak's or a Turret Lasers', which hurts a player's ship more
 /// (`turret_damage_to_players`); a Huge Gun's does not.
 fn hurtsPlayersMore(kind: GunType) bool {
-    return kind == .turret_flak or kind == .turret_lasers;
+    return kind.base() == .turret_flak or kind.base() == .turret_lasers;
 }
 
 /// What a shot of `kind` does of `value` to the object in slot `index`: a turret's shot does more
@@ -1540,16 +1583,16 @@ test dealt {
     const all = try create.Objects.create(std.testing.allocator, &random);
     defer all.destroy();
     all.players = 1;
-    try std.testing.expectEqual(25, dealt(all, 0, .turret_flak, 10));
-    try std.testing.expectEqual(10, dealt(all, 0, .laser_cannon, 10));
-    try std.testing.expectEqual(10, dealt(all, 0, .allied_huge_gun, 10));
-    try std.testing.expectEqual(10, dealt(all, 1, .turret_lasers, 10));
+    try std.testing.expectEqual(25, dealt(all, 0, .of(.turret_flak), 10));
+    try std.testing.expectEqual(10, dealt(all, 0, .of(.laser_cannon), 10));
+    try std.testing.expectEqual(10, dealt(all, 0, .of(.allied_huge_gun), 10));
+    try std.testing.expectEqual(10, dealt(all, 1, .of(.turret_lasers), 10));
 }
 
 /// How much farther a Huge Gun's shot reaches than the objects it may hit stand
 /// (`0x004DC758`, `0x004DC508`, and written into `bullet_hit`).
 fn hugeReach(kind: GunType) f32 {
-    return switch (kind) {
+    return switch (kind.base()) {
         .allied_huge_gun => 1200,
         .coalition_huge_gun => 3000,
         else => 0,
@@ -1611,7 +1654,7 @@ pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) vo
                 continue;
             }
         }
-        if (bullet.kind == .turret_flak) effects.flakBurst(world, @intCast(index), bullet.place);
+        if (bullet.kind.base() == .turret_flak) effects.flakBurst(world, @intCast(index), bullet.place);
         bullets.release(@intCast(index));
     }
     bullets.beams.frame(world.objects, clock.frame_start);
@@ -1673,7 +1716,7 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
         const point = segment.point(segment.sphereEntry(slot.drawn.position, reach));
         const struck = collision.quadrant(object, slot.drawn.inverse(point));
 
-        if (!bullet.kind.huge() and (object.shields.get(struck) <= 0 or object.invulnerable == ._unknown_4 or object.invulnerable == ._unknown_5)) {
+        if (!bullet.kind.base().huge() and (object.shields.get(struck) <= 0 or object.invulnerable == ._unknown_4 or object.invulnerable == ._unknown_5)) {
             hullHit(world, bullet, candidate.object, struck);
             return;
         }
@@ -1743,7 +1786,7 @@ fn componentHit(world: gameobj.World, bullet: *Bullet, index: u16, crossing: obj
     shieldfx.componentHit(world, index, crossing, .onComponentOf(world.objects.slots[index].object.type));
     const at = crossing.inWorld();
     const normal = math.transform(crossing.part.part().drawn().orientation, crossing.normal);
-    const huge: ?sparks.Kind = switch (bullet.kind) {
+    const huge: ?sparks.Kind = switch (bullet.kind.base()) {
         .allied_huge_gun => .allied_huge_gun,
         .coalition_huge_gun => .coalition_huge_gun,
         else => null,
@@ -1927,7 +1970,7 @@ test "the Nova Cannon strikes what stands ahead, and its beam shows" {
     const mission = &ship.mission;
     const all = mission.objects;
     all.bullets.looks = fixture.looks;
-    all.gun_stats.types[GunType.nova_cannon.number()].damage = .{ .shield = 40, .hull = 20 };
+    all.gun_stats.types[GunType.of(.nova_cannon).number()].damage = .{ .shield = 40, .hull = 20 };
     const shooter = ship.object();
     shooter.gun_condition = 1;
     // A ship straight ahead, and one off to the side.
@@ -1963,7 +2006,7 @@ test "the Nova Cannon strikes a ship's components leaf by leaf" {
     defer ship.deinit(gpa);
     const world = ship.world();
     const mission = &ship.mission;
-    mission.objects.gun_stats.types[GunType.nova_cannon.number()].damage = .{ .shield = 40, .hull = 20 };
+    mission.objects.gun_stats.types[GunType.of(.nova_cannon).number()].damage = .{ .shield = 40, .hull = 20 };
     // A ship that lists its one part as a component: a square facing the shooter, 500 ahead.
     var hull: create.testing.Model = undefined;
     try hull.init(gpa);
@@ -2021,7 +2064,7 @@ test "a shot strikes a component of a ship that lists them" {
     const armor = part.armor;
     ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const huge = &world.objects.bullets.pool[0];
-    huge.kind = .coalition_huge_gun;
+    huge.kind = .of(.coalition_huge_gun);
     huge.last = .{ -100, 0, 0 };
     huge.at = .{ -100, 0, 600 };
     bulletsFrame(world, &mission.clock, 0);
@@ -2183,19 +2226,19 @@ test "a Turret Flak shot bursts at a random range, scatters, and is at times a l
     defer ship.deinit(gpa);
     const world = ship.world();
     const types = &world.objects.gun_stats.types;
-    for ([_]GunType{ .turret_flak, .turret_lasers }) |kind| {
+    for ([_]GunType{ .of(.turret_flak), .of(.turret_lasers) }) |kind| {
         types[kind.number()].lifetime = 100;
         types[kind.number()].speed = 500;
     }
     var gun = ship.guns()[0].turret.fixed;
-    gun.type = .turret_flak;
+    gun.type = .of(.turret_flak);
 
     var flak: usize = 0;
     var lasers: usize = 0;
     for (0..40) |_| {
         gun.fire(world, ship.index, false);
         const bullet = &world.objects.bullets.pool[0];
-        if (bullet.kind == .turret_lasers) {
+        if (bullet.kind.base() == .turret_lasers) {
             // A laser's shot flies straight, for its type's whole life.
             lasers += 1;
             try std.testing.expectEqual(@as(Vector, .{ 0, 0, 500 }), bullet.velocity);
@@ -2218,9 +2261,9 @@ test "a Huge Gun's shot reaches farther, and always through the shields" {
     try ship.init(gpa);
     defer ship.deinit(gpa);
     const world = ship.world();
-    world.objects.gun_stats.types[GunType.coalition_huge_gun.number()] = testing.gun_type.stats(&world.objects.gun_stats);
+    world.objects.gun_stats.types[GunType.of(.coalition_huge_gun).number()] = testing.gun_type.stats(&world.objects.gun_stats);
     var gun = ship.guns()[0].turret.fixed;
-    gun.type = .coalition_huge_gun;
+    gun.type = .of(.coalition_huge_gun);
 
     // A ship off to the side of the shot's path by more than its radius, but within 3000.
     const target = try ship.add(@enumFromInt(9), .{ 1500, 0, 500 });
@@ -2343,7 +2386,7 @@ const tachyon_until: f32 = 1_000_000;
 /// What each shape is built from.
 const recipes: std.EnumArray(Shape, Recipe) = .init(.{
     // `0x00478460` sizes the Laser Cannon's by its record, the others write theirs in.
-    .laser = .{ .bolt = .{ .size = gun_stats.gun_types[GunType.laser_cannon.number()].bolt } },
+    .laser = .{ .bolt = .{ .size = gun_stats.gun_types[GunType.of(.laser_cannon).number()].bolt } },
     .messon_0 = messon(0),
     .messon_1 = messon(1),
     .messon_2 = messon(2),
@@ -2780,7 +2823,7 @@ fn dress(bullet: *Bullet, looks: *const Looks, random: *libcmt.Rand, turn: math.
     for (0..max_corners / 4) |at| bullet.uv[at * 4 ..][0..4].* = quad;
 
     var pieces: [max_pieces]Piece = @splat(.{});
-    const count: u8 = switch (bullet.kind) {
+    const count: u8 = switch (bullet.kind.base()) {
         .laser_cannon => one(&pieces, meshPiece(looks, .laser, shot_flags)),
         .pulse_cannon => pulse: {
             const image: Image = if (other) .pulse_other else .pulse;
@@ -2875,7 +2918,7 @@ fn dress(bullet: *Bullet, looks: *const Looks, random: *libcmt.Rand, turn: math.
             break :lasers one(&pieces, meshPiece(looks, if (other) .turret_lasers_other else .turret_lasers, faded_flags));
         },
         .allied_huge_gun, .coalition_huge_gun => huge: {
-            const allied = bullet.kind == .allied_huge_gun;
+            const allied = bullet.kind.base() == .allied_huge_gun;
             const look = if (allied) huge_look.allied else huge_look.coalition;
             // Each of its squares takes the whole texture.
             for (0..3) |at| bullet.uv[at * 4 ..][0..4].* = .{ .{ 0, 1 }, .{ 1, 1 }, .{ 1, 0 }, .{ 0, 0 } };
@@ -2913,7 +2956,7 @@ fn animate(bullet: *Bullet, clock: *const Clock, record: Gun, random: *libcmt.Ra
     const friendly = bullet.side == .friendly;
     const ticks: f32 = @floatFromInt(clock.frame_duration);
     const pieces = &bullet.pieces;
-    switch (bullet.kind) {
+    switch (bullet.kind.base()) {
         .pulse_cannon => {
             pieces[0].sprite[0].colour = if (friendly) .{ 0.5, left, 1 } else @splat(left);
             pieces[1].sprite[0].colour = if (friendly) .{ 0, left, 1 } else @splat(left);
@@ -3110,7 +3153,7 @@ test dress {
     var random: libcmt.Rand = .{};
 
     // What each gun type's shot is drawn with: how many pieces, and what the first two are.
-    const Expect = struct { kind: GunType, count: u8, first: std.meta.Tag(Piece.Drawn), second: ?std.meta.Tag(Piece.Drawn) = null };
+    const Expect = struct { kind: GameGun, count: u8, first: std.meta.Tag(Piece.Drawn), second: ?std.meta.Tag(Piece.Drawn) = null };
     const expected = [_]Expect{
         .{ .kind = .laser_cannon, .count = 1, .first = .mesh },
         .{ .kind = .pulse_cannon, .count = 2, .first = .sprites, .second = .sprites },
@@ -3128,9 +3171,9 @@ test dress {
         .{ .kind = .allied_huge_gun, .count = 4, .first = .frame, .second = .mesh },
         .{ .kind = .coalition_huge_gun, .count = 4, .first = .frame, .second = .mesh },
     };
-    comptime std.debug.assert(expected.len == std.enums.values(GunType).len);
+    comptime std.debug.assert(expected.len == std.enums.values(GameGun).len);
     for (expected) |want| {
-        var bullet: Bullet = .{ .kind = want.kind, .side = .friendly };
+        var bullet: Bullet = .{ .kind = .of(want.kind), .side = .friendly };
         dress(&bullet, built.looks, &random, math.identity);
         try std.testing.expectEqual(want.count, bullet.piece_count);
         if (want.count == 0) continue;
@@ -3139,16 +3182,16 @@ test dress {
     }
 
     // The Gattling Lasers' three bolts stand 30 off the axis, a third of a turn apart.
-    var gattling: Bullet = .{ .kind = .gattling_lasers };
+    var gattling: Bullet = .{ .kind = .of(.gattling_lasers) };
     dress(&gattling, built.looks, &random, math.identity);
     try std.testing.expectApproxEqAbs(30, math.length(gattling.pieces[2].offset), 1e-3);
     try std.testing.expectApproxEqAbs(-15, gattling.pieces[2].offset[0], 1e-3);
     // A Huge Gun's third piece is its light.
-    var huge: Bullet = .{ .kind = .allied_huge_gun };
+    var huge: Bullet = .{ .kind = .of(.allied_huge_gun) };
     dress(&huge, built.looks, &random, math.identity);
     try std.testing.expectEqual(huge_light_range, huge.pieces[2].drawn.light.kind.point.range);
     // A friendly shot takes the top half of the shot texture, a hostile one the bottom.
-    var hostile: Bullet = .{ .kind = .laser_cannon, .side = .hostile };
+    var hostile: Bullet = .{ .kind = .of(.laser_cannon), .side = .hostile };
     dress(&hostile, built.looks, &random, math.identity);
     try std.testing.expectEqual([2]f32{ 0, 255.0 / 256.0 }, hostile.uv[0]);
     try std.testing.expectEqual([2]f32{ 32.0 / 256.0, 0.5 }, hostile.uv[2]);
@@ -3165,14 +3208,14 @@ test "a shot's pieces wheel, spin and fade as it flies" {
 
     // Halfway through its life, a Collapser Guns' flares are at half their brightness, and its
     // frame has spun a tick's worth times the frame's ticks.
-    var collapser: Bullet = .{ .kind = .collapser_guns, .fired_at = 100 };
+    var collapser: Bullet = .{ .kind = .of(.collapser_guns), .fired_at = 100 };
     dress(&collapser, built.looks, &random, math.identity);
     animate(&collapser, &clock, record, &random);
     try std.testing.expectEqual([3]f32{ 0.5, 0.5, 0.5 }, collapser.pieces[1].sprite[0].colour);
     try std.testing.expectEqual(math.turned(math.identity, .z, 5 * 0.2), collapser.pieces[0].turn);
 
     // A Vulcan Battery's two pairs wheel about the flight in opposite ways.
-    var vulcan: Bullet = .{ .kind = .vulcan_battery, .fired_at = 100 };
+    var vulcan: Bullet = .{ .kind = .of(.vulcan_battery), .fired_at = 100 };
     dress(&vulcan, built.looks, &random, math.identity);
     const before = vulcan.pieces[1].offset;
     animate(&vulcan, &clock, record, &random);
@@ -3181,7 +3224,7 @@ test "a shot's pieces wheel, spin and fade as it flies" {
     try std.testing.expect(turned_first * turned_third < 0);
 
     // A Tachyon Cannon's blades are bright down their middles and dark at their ends.
-    var tachyon: Bullet = .{ .kind = .tachyon_cannon, .fired_at = 100 };
+    var tachyon: Bullet = .{ .kind = .of(.tachyon_cannon), .fired_at = 100 };
     dress(&tachyon, built.looks, &random, math.identity);
     animate(&tachyon, &clock, record, &random);
     try std.testing.expectEqual(0, tachyon.pieces[0].colours[0][0]);
@@ -3205,7 +3248,7 @@ test drawBullets {
 
     // A Huge Gun's shot: its mesh and its glow drawn, its light cast.
     const bullet = &bullets.pool[0];
-    bullet.* = .{ .live = true, .kind = .coalition_huge_gun };
+    bullet.* = .{ .live = true, .kind = .of(.coalition_huge_gun) };
     dress(bullet, built.looks, &random, math.identity);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);

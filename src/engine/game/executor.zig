@@ -1772,7 +1772,7 @@ test "the commands of Instant Action's bosses and its end" {
     var muzzle = std.mem.zeroes(shp.Attachment);
     const model = &slot.model.?;
     try guns.testing.fitTo(slot, gpa, &.{.{ .turret = .{ .aimed = .{
-        .barrel = .{ .muzzle = .{ .model = model, .part = 4, .attachment = &muzzle }, .type = .turret_lasers },
+        .barrel = .{ .muzzle = .{ .model = model, .part = 4, .attachment = &muzzle }, .type = .of(.turret_lasers) },
         .model = model,
         .base = 4,
         .pitch = 4,
@@ -1826,7 +1826,7 @@ test "Scanner looks for a ship, and Fire holds its trigger" {
     const sabre = try world.add(.of(.sabre), .{ 0, 0, 5000 });
     // The Sabre fires its one gun with every group.
     const slot = world.slot(sabre);
-    try guns.testing.fitTo(slot, gpa, &.{guns.testing.barrel(.laser_cannon)});
+    try guns.testing.fitTo(slot, gpa, &.{guns.testing.barrel(.of(.laser_cannon))});
     slot.object.gun_mode.all = true;
     world.clock.frame_start = 700;
     // The display's scanner stands at a later frame, which the command starts again.

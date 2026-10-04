@@ -42,7 +42,8 @@ const charged_shake: f32 = 0.6;
 pub fn charges(object: *const gameobj.GameObject, trigger: guns.Trigger) bool {
     if (!object.type.base().carriesNova()) return false;
     if (object.gun_mode.all) return false;
-    return guns.groupLead(trigger.fitted, trigger.groups, object.gun_mode.group) == .nova_cannon;
+    const lead = guns.groupLead(trigger.fitted, trigger.groups, object.gun_mode.group) orelse return false;
+    return lead.base() == .nova_cannon;
 }
 
 /// `object_fire_guns`'s charge: `charge_per_hold` more for each share of the power the guns take,
@@ -322,7 +323,7 @@ fn strike(world: gameobj.World, owner: u16, fired: f32) void {
     const shooter = &all.slots[owner];
     const from = shooter.drawn.position;
     const to = shooter.drawn.point(.{ 0, 0, beam_reach });
-    const record = guns.GunType.nova_cannon.stats(&all.gun_stats);
+    const record = guns.GunType.of(.nova_cannon).stats(&all.gun_stats);
     const strength = shooter.object.gun_condition * fired;
     var walk = all.walk();
     while (walk.next()) |index| {
@@ -398,7 +399,7 @@ test charge {
 }
 
 test charges {
-    var fitted = [_]guns.Fitted{ guns.testing.barrel(.pulse_cannon), guns.testing.barrel(.nova_cannon) };
+    var fitted = [_]guns.Fitted{ guns.testing.barrel(.of(.pulse_cannon)), guns.testing.barrel(.of(.nova_cannon)) };
     var groups = guns.no_groups;
     groups[0] = .{ .first = 0 };
     groups[1] = .{ .first = 1 };

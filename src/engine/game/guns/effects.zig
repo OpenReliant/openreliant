@@ -78,7 +78,7 @@ pub const Trail = struct {
 
     /// The trail of a shot of `kind`, where it leaves one: the Huge Guns'.
     pub fn of(kind: guns.GunType) ?*const Trail {
-        return switch (kind) {
+        return switch (kind.base()) {
             .allied_huge_gun => &allied_trail,
             .coalition_huge_gun => &coalition_trail,
             else => null,
@@ -338,8 +338,8 @@ test flakBurst {
 
 test Trail {
     // Only the Huge Guns' shots leave one, pointing back along the shot at a speed below nothing.
-    try std.testing.expectEqual(null, Trail.of(.laser_cannon));
-    const trail = Trail.of(.coalition_huge_gun).?;
+    try std.testing.expectEqual(null, Trail.of(.of(.laser_cannon)));
+    const trail = Trail.of(.of(.coalition_huge_gun)).?;
     var streaming = trail.start(100);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, -1 }), streaming.emitter.direction);
     try std.testing.expect(streaming.emitter.speed < 0);

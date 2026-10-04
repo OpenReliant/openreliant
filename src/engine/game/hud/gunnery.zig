@@ -25,8 +25,9 @@ const full_guns_name = 0x297;
 /// The string naming gun type `kind`, for the types the display names: the fighters' guns, the
 /// Laser Cannon to the Nova Cannon.
 fn gunName(kind: guns.GunType) ?u16 {
-    if (kind.onTurrets()) return null;
-    return first_gun_name + @as(u16, @intFromEnum(kind));
+    const game = kind.base();
+    if (game.onTurrets()) return null;
+    return first_gun_name + @as(u16, @intFromEnum(game));
 }
 
 /// The shapes that show a pair of guns firing together and firing in turn.
@@ -82,7 +83,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
             out[count] = .{ .shape = .{ .index = frame + @as(usize, mode.group) + 1, .at = frame_at } };
             count += 1;
         }
-        if (slot.gun_groups[mode.group].paired() and lead != .nova_cannon) {
+        if (slot.gun_groups[mode.group].paired() and (if (lead) |held| held.base() != .nova_cannon else true)) {
             out[count] = .{ .shape = .{ .index = if (mode.synchronised) together_shape else in_turn_shape, .at = pairing_at } };
             count += 1;
         }
@@ -90,7 +91,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
         out[count] = .{ .string = .{ .id = full_guns_name, .at = name_at } };
         count += 1;
         if (groups > 1) for (0..@min(groups, guns.max_groups)) |group| {
-            if (slot.groupLead(group) == .nova_cannon) continue;
+            if ((if (slot.groupLead(group)) |held| held.base() == .nova_cannon else false)) continue;
             out[count] = .{ .shape = .{ .index = frame + group + 1, .at = frame_at } };
             count += 1;
         };
@@ -126,9 +127,9 @@ const testing = struct {
     const barrel = guns.testing.barrel;
 
     const fitted = [_]guns.Fitted{
-        barrel(.pulse_cannon),    barrel(.pulse_cannon),
-        barrel(.gattling_lasers), barrel(.gattling_lasers),
-        barrel(.nova_cannon),     barrel(.nova_cannon),
+        barrel(.of(.pulse_cannon)),    barrel(.of(.pulse_cannon)),
+        barrel(.of(.gattling_lasers)), barrel(.of(.gattling_lasers)),
+        barrel(.of(.nova_cannon)),     barrel(.of(.nova_cannon)),
     };
 
     const table: [guns.max_groups]guns.Group = table: {
@@ -155,7 +156,7 @@ test items {
     const first = items(&slot, frame, &buffer);
     try std.testing.expectEqualDeep(&[_]Item{
         .{ .shape = .{ .index = frame, .at = frame_at } },
-        .{ .string = .{ .id = gunName(.pulse_cannon).?, .at = name_at } },
+        .{ .string = .{ .id = gunName(.of(.pulse_cannon)).?, .at = name_at } },
         .{ .shape = .{ .index = frame + 1, .at = frame_at } },
         .{ .shape = .{ .index = in_turn_shape, .at = pairing_at } },
     }, first);
@@ -168,7 +169,7 @@ test items {
     slot.object.gun_mode.group = 2;
     const nova = items(&slot, frame, &buffer);
     try std.testing.expectEqual(3, nova.len);
-    try std.testing.expectEqual(gunName(.nova_cannon).?, nova[1].string.id);
+    try std.testing.expectEqual(gunName(.of(.nova_cannon)).?, nova[1].string.id);
     try std.testing.expectEqual(frame + 3, nova[2].shape.index);
 
     // FULL GUNS: its name, and every group lit but the Nova Cannons'.
@@ -183,7 +184,7 @@ test items {
     slot.object.type = .of(.reaper);
     slot.object.rounds = 250;
     const reaper = items(&slot, frame, &buffer);
-    try std.testing.expectEqual(null, gunName(.turret_lasers));
+    try std.testing.expectEqual(null, gunName(.of(.turret_lasers)));
     try std.testing.expectEqual(rounds_shape, reaper[4].shape.index);
     try std.testing.expectEqual(250, reaper[5].rounds.count);
 }

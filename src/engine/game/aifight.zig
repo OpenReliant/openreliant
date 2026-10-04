@@ -610,7 +610,7 @@ fn fire(fighter: Fighter) void {
     const aimed = fighter.aimed();
     const radius = if (fighter.target().part() == null) fighter.enemy().object.radius else aimed.radius;
     if (fighter.now() > ship.fire_at) {
-        const laser = guns.GunType.laser_cannon.stats(&all.gun_stats);
+        const laser = guns.GunType.of(.laser_cannon).stats(&all.gun_stats);
         const range = @as(f32, @floatFromInt(laser.lifetime)) * laser.speed * fire_range;
         if (ai.alongNose(fighter.slot.drawn, gameobj.vector(fighter.state.aim), radius * fighter.pilot.fire_spread) and
             math.distance(fighter.position(), aimed.position) < range and
@@ -953,10 +953,10 @@ test fire {
     ship.root.next_orientation = turned;
     fighter.state.aim = .{ .x = 0, .y = 0, .z = 0 };
     all.slots[0].object.radius = 100;
-    const laser = &all.gun_stats.types[guns.GunType.laser_cannon.number()];
+    const laser = &all.gun_stats.types[guns.GunType.of(.laser_cannon).number()];
     laser.lifetime = 100;
     laser.speed = 1000;
-    try guns.testing.fitTo(fighter.slot, gpa, &.{guns.testing.barrel(.laser_cannon)});
+    try guns.testing.fitTo(fighter.slot, gpa, &.{guns.testing.barrel(.of(.laser_cannon))});
     ship.gun_mode.all = true;
     const gun = &fighter.slot.guns[0];
     mission.clock.frame_start = 100;
