@@ -29,6 +29,8 @@ const hog_snd = engine.game.hog_snd;
 const input = engine.input;
 const mod_options = engine.game.interface.mod_options;
 const postprocessing = @import("postprocessing.zig");
+const shaders = @import("shaders.zig");
+const srtexture = engine.surrender.surrenderlib.srtexture;
 const controls = engine.input.controls;
 const device = engine.surrender.srd3d.device;
 const engine_hooks = engine.hooks;
@@ -211,6 +213,12 @@ pub const Presentation = struct {
     /// (`postprocessing.Registry.setHost`). Call it with null before the host is destroyed.
     pub fn setEffectHost(shown: *Presentation, host: ?postprocessing.EffectHost) void {
         shown.runtime.post_effects.setHost(host);
+    }
+
+    /// Sets what compiles and draws the scripts' surface and lighting functions, or null for nothing
+    /// (`shaders.Registry.setHost`). Call it with null before the host is destroyed.
+    pub fn setShaderHost(shown: *Presentation, host: ?shaders.ShaderHost) void {
+        shown.runtime.mod_shaders.setHost(host);
     }
 
     /// The passes of the post effects the scripts have enabled, in the order they draw.
@@ -1016,4 +1024,97 @@ test "the CRT example registers its effect, and Shift F8 and Shift F7 change it"
     try std.testing.expectEqual(0.5, passes[0].parameters[0]);
     fixture.shown.key(.f8, true);
     try std.testing.expectEqual(0, fixture.shown.effectPasses(&buffer).len);
+}
+
+test "player scripts register surface and lighting functions, which the host draws and objects take" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "cel",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=cel.luau, failing.luau\n" },
+            .{ "bands.glsl", "float lighting(float cosine, vec4 parameters) { return cosine; }" },
+            .{ "ink.glsl", "void surface(inout Surface s, vec4 parameters, float time) {}" },
+            .{ "broken.glsl", "broken" },
+            .{
+                "cel.luau",
+                \\local shaders = require("openreliant.shaders")
+                \\assert(shaders.register_lighting({ name = "bands", shader = "bands.glsl", parameters = { 3 } }) == "cel:bands")
+                \\shaders.register_surface({ name = "ink", shader = "ink.glsl", textures = { "hull.tga" }, everywhere = true, parameters = { 2, 8 } })
+                \\local ok, message = pcall(shaders.register_surface, { name = "ink", shader = "ink.glsl" })
+                \\assert(not ok and string.find(message, "registered already", 1, true), message)
+                \\ok, message = pcall(shaders.register_surface, { name = "bad", shader = "broken.glsl" })
+                \\assert(not ok and string.find(message, "broken.glsl:2", 1, true), message)
+                \\ok, message = pcall(shaders.register_lighting, { name = "gone", shader = "missing.glsl" })
+                \\assert(not ok and string.find(message, "no file missing.glsl", 1, true), message)
+                \\assert(shaders.set_parameters("ink", { 4 }) and shaders.set_enabled("cel:bands", false))
+                \\assert(not shaders.set_enabled("nothing", true))
+                \\local player = require("openreliant.self")
+                \\assert(player:set_surface("ink", { 1, 2 }))
+                \\assert(not player:set_surface("nothing"))
+                \\ok, message = pcall(player.set_surface, player, "bands")
+                \\assert(not ok and string.find(message, "lighting function", 1, true), message)
+            },
+            .{
+                "failing.luau",
+                \\require("openreliant.shaders").register_surface({ name = "rolled_back", shader = "ink.glsl" })
+                \\error("this script fails to load")
+            },
+        },
+    }});
+    defer fixture.deinit();
+    // The player's ship has a model of two parts, which take the surface function.
+    var model: engine.game.objects.testing.Parts(2) = undefined;
+    model.init();
+    try model.fit(gpa, fixture.mission.slot(0));
+    var host: shaders.testing.Host = .{};
+    defer host.deinit();
+    fixture.shown.setShaderHost(host.shaderHost());
+    defer fixture.shown.setShaderHost(null);
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    // The failing script's function was taken back as it failed to load.
+    try std.testing.expectEqual(3, host.added);
+    try std.testing.expectEqualSlices(u16, &.{3}, host.removed.items);
+    // The host draws both, the lighting function turned off, the surface function's parameters
+    // changed.
+    try std.testing.expectEqual(2, host.drawn.items.len);
+    const bands = host.drawn.items[0];
+    try std.testing.expect(bands.kind == .lighting and bands.function == 1 and !bands.enabled);
+    const ink = host.drawn.items[1];
+    try std.testing.expect(ink.kind == .surface and ink.enabled and ink.everywhere);
+    try std.testing.expectEqual([4]f32{ 4, 0, 0, 0 }, ink.parameters);
+    try std.testing.expectEqualStrings("hull.tga", ink.textures[0]);
+    for (fixture.mission.slot(0).model.?.parts) |part| {
+        try std.testing.expectEqual(srtexture.ModSurface{ .function = 2, .parameters = .{ 1, 2, 0, 0 } }, part.object.surface.?);
+    }
+    // The game's end stops the player scripts, and their functions go.
+    fixture.shown.endGame();
+    try std.testing.expectEqual(0, host.drawn.items.len);
+    try std.testing.expectEqualSlices(u16, &.{ 3, 1, 2 }, host.removed.items);
+}
+
+test "the cel-shading example registers its functions, and Shift F6 and Shift F5 change them" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "cel-shading", &.{
+        .{ "mod.ini", @embedFile("cel-shading/mod.ini") },
+        .{ "cel.luau", @embedFile("cel-shading/cel.luau") },
+        .{ "bands.glsl", @embedFile("cel-shading/bands.glsl") },
+        .{ "ink.glsl", @embedFile("cel-shading/ink.glsl") },
+    } }});
+    defer fixture.deinit();
+    var host: shaders.testing.Host = .{};
+    defer host.deinit();
+    fixture.shown.setShaderHost(host.shaderHost());
+    defer fixture.shown.setShaderHost(null);
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    fixture.frame(0.016, .{ 800, 600 });
+    try std.testing.expectEqual(2, host.drawn.items.len);
+    try std.testing.expectEqual(3, host.drawn.items[0].parameters[0]);
+    try std.testing.expect(host.drawn.items[1].everywhere and host.drawn.items[1].enabled);
+    // Shift F5 steps to four bands; Shift F6 turns both off.
+    fixture.devices.keyboard.down[@intFromEnum(input.Key.left_shift)] = true;
+    fixture.shown.key(.f5, true);
+    try std.testing.expectEqual(4, host.drawn.items[0].parameters[0]);
+    fixture.shown.key(.f6, true);
+    for (host.drawn.items) |function| try std.testing.expect(!function.enabled);
 }

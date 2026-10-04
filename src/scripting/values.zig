@@ -51,6 +51,13 @@ pub fn List(comptime T: type, comptime capacity: usize) type {
         pub fn slice(list: *const Self) []const T {
             return list.items[0..list.len];
         }
+
+        /// Its items, and `fill` in the places after them.
+        pub fn padded(list: *const Self, fill: T) [capacity]T {
+            var all: [capacity]T = @splat(fill);
+            @memcpy(all[0..list.len], list.slice());
+            return all;
+        }
     };
 }
 
@@ -353,6 +360,14 @@ fn choices(comptime T: type) []const u8 {
         }
         return if (numbers) text ++ " or a number" else text;
     }
+}
+
+test "a list padded to its capacity" {
+    var numbers: List(f32, 4) = .{};
+    numbers.append(1);
+    numbers.append(2);
+    try std.testing.expectEqual([4]f32{ 1, 2, 0, 0 }, numbers.padded(0));
+    try std.testing.expectEqual([4]f32{ 5, 5, 5, 5 }, (List(f32, 4){}).padded(5));
 }
 
 test choices {

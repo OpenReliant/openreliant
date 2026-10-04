@@ -2,9 +2,10 @@
 //! in the game folder's `cache/shaders`, so that a mod's shader compiles again only when it
 //! changes.
 //!
-//! Each shader has one file, named by a hash of the shader's name, such as `crt/crt.frag`. The file
-//! holds a `Header`, then the SPIR-V, then Metal's source. The header's key is a hash of the
-//! shader's name and source and of the compiler: the pinned versions of glslang and SPIRV-Cross
+//! Each shader has one file, named by a hash of the shader's name, such as `crt/crt.frag` for a
+//! post effect. The file holds a `Header`, then the SPIR-V, then Metal's source. The header's key
+//! is a hash of what was compiled (its kind, its definitions, and each part's name and source) and
+//! of the compiler: the pinned versions of glslang and SPIRV-Cross
 //! (`deps/shader-compiler/build.zig.zon`) and OpenReliant's wrapper (`shader_compiler.cpp`). A
 //! changed shader or a new compiler doesn't match the key, so the shader compiles again and its
 //! file is replaced. A file that is damaged or can't be read is ignored, and one that can't be
@@ -20,6 +21,7 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const shader_compiler = @import("shader_compiler.zig");
 const Code = shader_compiler.Code;
+const Part = shader_compiler.Part;
 
 const log = std.log.scoped(.shaders);
 
@@ -33,7 +35,7 @@ const extension = ".bin";
 const magic = "ORSH".*;
 
 /// The version of the cache files' layout. Change it when `Header` or what follows it changes.
-const format_version: u32 = 1;
+const format_version: u32 = 2;
 
 /// The largest cache file read.
 const max_file_bytes = 16 * 1024 * 1024;
@@ -65,13 +67,20 @@ pub const Cache = struct {
     /// The game folder, or null to compile without the cache.
     root: ?Io.Dir,
 
-    /// Compiles the fragment shader `source`, called `name` (`shader_compiler.compile`), or reads
-    /// it from the cache if it was compiled already. A shader that compiles is kept in the cache.
+    /// Compiles the post effect `source`, called `name` (`shader_compiler.compile`), or reads it
+    /// from the cache if it was compiled already.
     pub fn compile(cache: Cache, gpa: Allocator, name: []const u8, source: []const u8) Allocator.Error!shader_compiler.Result {
-        const key = keyOf(name, source);
+        return cache.compileParts(gpa, name, .post_effect, &.{.{ .name = name, .source = source }}, "");
+    }
+
+    /// Compiles the shader called `name` (`shader_compiler.compileParts`), or reads it from the
+    /// cache if it was compiled already. A shader that compiles is kept in the cache, in place of
+    /// what was kept under `name` before.
+    pub fn compileParts(cache: Cache, gpa: Allocator, name: []const u8, kind: shader_compiler.Kind, parts: []const Part, preamble: []const u8) Allocator.Error!shader_compiler.Result {
+        const key = keyOf(kind, parts, preamble);
         const path = pathOf(name);
         if (try cache.load(gpa, &path, key)) |code| return .{ .compiled = code };
-        const result = try shader_compiler.compile(gpa, name, source);
+        const result = try shader_compiler.compileParts(gpa, kind, parts, preamble);
         switch (result) {
             .compiled => |code| cache.store(&path, key, code) catch |err| {
                 log.warn("can't keep the compiled shader {s} in {s}: {s}", .{ name, folder, @errorName(err) });
@@ -109,14 +118,28 @@ pub const Cache = struct {
     }
 };
 
-/// The key of the shader `name` with the source `source`, compiled by this compiler.
-fn keyOf(name: []const u8, source: []const u8) Hash {
+/// The key of a shader of `kind` made of `parts` after `preamble`, compiled by this compiler. Each
+/// text goes in with its length, so that no two different shaders run together alike.
+fn keyOf(kind: shader_compiler.Kind, parts: []const Part, preamble: []const u8) Hash {
     var hash: Sha256 = .init(.{});
     for (compiler_files) |file| hash.update(file);
-    hash.update(name);
-    hash.update(&.{0});
-    hash.update(source);
+    hash.update(std.mem.asBytes(&@intFromEnum(kind)));
+    update(&hash, preamble);
+    for (parts) |part| {
+        update(&hash, part.name);
+        update(&hash, part.source);
+    }
     return hash.finalResult();
+}
+
+fn update(hash: *Sha256, text: []const u8) void {
+    hash.update(std.mem.asBytes(&@as(u64, text.len)));
+    hash.update(text);
+}
+
+/// The key of the post effect `name` with the source `source`.
+fn effectKey(name: []const u8, source: []const u8) Hash {
+    return keyOf(.post_effect, &.{.{ .name = name, .source = source }}, "");
 }
 
 /// The hash of a cache file's code.
@@ -170,7 +193,7 @@ test Cache {
     // The first compile keeps the shader, and the cache gives back the same code.
     const compiled = try cache.compile(gpa, "mod/a.frag", fixture);
     defer compiled.deinit(gpa);
-    const kept = (try cache.load(gpa, &path, keyOf("mod/a.frag", fixture))).?;
+    const kept = (try cache.load(gpa, &path, effectKey("mod/a.frag", fixture))).?;
     defer kept.deinit(gpa);
     try std.testing.expectEqualSlices(u32, compiled.compiled.spirv, kept.spirv);
     try std.testing.expectEqualStrings(compiled.compiled.metal, kept.metal);
@@ -180,10 +203,10 @@ test Cache {
 
     // A changed source doesn't match the key, and replaces the file.
     const changed = fixture ++ "\n// changed\n";
-    try std.testing.expectEqual(null, try cache.load(gpa, &path, keyOf("mod/a.frag", changed)));
+    try std.testing.expectEqual(null, try cache.load(gpa, &path, effectKey("mod/a.frag", changed)));
     const recompiled = try cache.compile(gpa, "mod/a.frag", changed);
     defer recompiled.deinit(gpa);
-    const replaced = (try cache.load(gpa, &path, keyOf("mod/a.frag", changed))).?;
+    const replaced = (try cache.load(gpa, &path, effectKey("mod/a.frag", changed))).?;
     replaced.deinit(gpa);
 
     // A shader that doesn't compile isn't kept.
@@ -200,7 +223,7 @@ test Cache {
 
 test decode {
     const gpa = std.testing.allocator;
-    const key = keyOf("a.frag", "source");
+    const key = effectKey("a.frag", "source");
     const spirv = [_]u32{ 0x07230203, 1, 2 };
     const metal = "fragment";
     const header: Header = .{ .key = key, .check = checkOf(std.mem.sliceAsBytes(&spirv), metal), .spirv_bytes = spirv.len * 4, .metal_bytes = metal.len };
@@ -214,7 +237,7 @@ test decode {
     try std.testing.expectEqualSlices(u32, &spirv, code.spirv);
     try std.testing.expectEqualStrings(metal, code.metal);
     // Another key, a cut file and a changed byte are each ignored.
-    try std.testing.expectEqual(null, try decode(gpa, &file, keyOf("a.frag", "other")));
+    try std.testing.expectEqual(null, try decode(gpa, &file, effectKey("a.frag", "other")));
     try std.testing.expectEqual(null, try decode(gpa, file[0 .. file.len - 1], key));
     try std.testing.expectEqual(null, try decode(gpa, file[0..10], key));
     var damaged = file;

@@ -60,8 +60,10 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 
 ## Runtime shader compilation
 
-**Improvement:** `platform.shader_compiler` compiles post-effect fragment GLSL into owned SPIR-V
-and Metal code (#621). The platform links glslang 16.1.0 and SPIRV-Cross
+**Improvement:** `platform.shader_compiler` compiles fragment GLSL into owned SPIR-V and Metal
+code: mods' post effects (#621), and variants of the device shader with mods' functions in them
+([Surface and lighting functions](#surface-and-lighting-functions)). A shader can be made of
+several parts, each named in the messages (`compileParts`), after a preamble of definitions. The platform links glslang 16.1.0 and SPIRV-Cross
 vulkan-sdk-1.4.357.0 from pinned source packages. The existing built-in shaders still use their
 committed outputs. A C++ boundary catches compiler exceptions; Zig owns copies of successful
 code or diagnostics. Compiler calls serialize glslang initialization and shutdown.
@@ -73,25 +75,26 @@ textures at set 2, distinct bindings 0 and 1. An optional std140 uniform block a
 binding 0 contains exactly two `vec4` fields at offsets 0 and 16. This matches SDL GPU's fragment
 resource sets and Metal binding indices. Arrays, storage resources, push constants and
 specialization constants are rejected. Reflection checks these requirements before Metal
-translation. Source is limited to 1 MiB; includes and embedded NUL bytes are rejected.
+translation. Source is limited to 1 MiB; includes and embedded NUL bytes are rejected. A device
+variant skips these checks: its resources are those of OpenReliant's own shader.
 
 Compilation failures retain glslang's filename and line diagnostics. Resource-layout failures
-identify the source filename and incompatible interface. Surface functions
-([#629](https://github.com/OpenReliant/openreliant/issues/629)) and whole-shader overrides
+identify the source filename and incompatible interface. Whole-shader overrides
 ([#630](https://github.com/OpenReliant/openreliant/issues/630)) remain.
 
 ### Shader cache
 
 **Improvement:** [`shader_cache.zig`](../../src/platform/shader_cache.zig) keeps each compiled
 shader in the game folder's `cache/shaders`, one file for each shader, named by the SHA-256 of the
-shader's name (such as `crt/crt.frag`). A file holds an 80-byte header, then the SPIR-V, then the
-Metal source:
+shader's name: `crt/crt.frag` for a post effect, or `variant cel-shading/bands.glsl
+cel-shading/ink.glsl` for a variant of the device shader. A file holds an 80-byte header, then the
+SPIR-V, then the Metal source:
 
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 4 | `ORSH` |
-| 4 | 4 | The layout's version, 1 |
-| 8 | 32 | The key: SHA-256 of the compiler's pinned versions (`deps/shader-compiler/build.zig.zon`), its wrapper (`shader_compiler.cpp`), the shader's name and its source |
+| 4 | 4 | The layout's version, 2 |
+| 8 | 32 | The key: SHA-256 of the compiler's pinned versions (`deps/shader-compiler/build.zig.zon`), its wrapper (`shader_compiler.cpp`), and the shader: its kind, its definitions, and each part's name and source |
 | 40 | 32 | SHA-256 of the SPIR-V and the Metal source |
 | 72 | 4 | The SPIR-V's size in bytes |
 | 76 | 4 | The Metal source's size in bytes |
@@ -121,6 +124,32 @@ uniform block. What the last pass wrote is what the window shows and a screensho
 without passes is drawn as before, without the extra targets. An effect's pipeline is made the
 first time it draws; if it can't be made, the error is logged and the effect is left out. A frame
 draws at most 64 passes, as many as the scripts can register.
+
+## Surface and lighting functions
+
+**Improvement:** the mods' surface and lighting functions
+([`gpu/variants.zig`](../../src/platform/gpu/variants.zig),
+[Surface and lighting functions](../guide/scripting.md#surface-and-lighting-functions)). Each is a
+variant of the device's fragment shader, `shaders/device.glsl` compiled with a mod's lighting
+function (`MOD_LIGHTING`), its surface function (`MOD_SURFACE`) or both, inserted where the line
+`// mod_functions` stands. `variants.parts` cuts the shader there and where it includes
+`colour.glsl`, so the parts need no copying. Without either definition the shader is
+OpenReliant's own, which `make shaders` compiles as before.
+
+- Each variant has an id, and each pipeline carries the variant it draws with in its key
+  (`PipelineKey.variant`), 0 for OpenReliant's own. A draw takes its object's surface function
+  (`srapiext.MeshObject.surface`), else its texture's (`srtexture.Image.surface`), else, where it
+  is lit for each pixel and drawn into the scene, `Variants.every`'s. A draw without one takes
+  `Variants.base`, the variant with the lighting function where one draws (`Variants.pick`).
+- A surface function's variant has the function's id, and the lighting function's variant without
+  a surface function has the lighting function's. The driver compiles each with the lighting
+  function that draws, and again when that changes (`mod_shaders.zig`). Replacing or removing a
+  variant releases its pipelines (`Gpu.removeVariant`).
+- The variants read one more uniform block (`variants.Uniforms`, set 3, binding 3): the surface
+  function's parameters, which each run pushes where they change, the lighting function's, and
+  the seconds passed. Runs with different parameters don't join.
+- While MOD EFFECTS is off (`Variants.on`), every draw takes OpenReliant's own shader and no post
+  effect draws.
 
 ## Improvements
 

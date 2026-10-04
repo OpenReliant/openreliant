@@ -41,7 +41,7 @@ const Movies = @import("movies.zig").Movies;
 const presenting = @import("presenter.zig");
 const Presenter = presenting.Presenter;
 const Screen = presenting.Screen;
-const PostEffects = @import("post_effects.zig").PostEffects;
+const ModShaders = @import("mod_shaders.zig").ModShaders;
 const drawn = presenting.drawn;
 const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
@@ -278,17 +278,22 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     };
     var driver: srd3d.srd3d.Driver = try .init(arena, screen.interface());
     defer driver.deinit();
-    // The mods' post effects: the player scripts register them, and the GPU draws them while MOD
+    // The mods' shaders: the player scripts register them, and the GPU draws them while MOD
     // EFFECTS is on. `stop` removes them before the GPU is destroyed.
-    var post_effects: PostEffects = .{
+    var mod_shaders: ModShaders = .{
         .gpa = gpa,
         .screen = screen,
         .cache = .{ .io = io, .root = directory },
         .presentation = presentation,
-        .drawn = options.mod_effects,
+        .textures = &textures,
     };
-    post_effects.start();
-    defer post_effects.stop();
+    mod_shaders.start();
+    defer mod_shaders.stop();
+    const mod_effects: ?*bool = switch (screen.*) {
+        .gpu => |*device| &device.mod_shaders.on,
+        .software => null,
+    };
+    if (mod_effects) |on| on.* = options.mod_effects;
     var pacer: platform.window.Pacer = .{};
     // How the frames are paced, which the settings screen changes as the game plays.
     var pacing = options.pacing();
@@ -340,7 +345,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         .display = .{ .window = &window, .presenter = &presenter },
         .graphics = settings_module.graphicsOf(options, details),
         .smooth_motion = &smooth_motion,
-        .mod_effects = &post_effects.drawn,
+        .mod_effects = mod_effects,
     };
     // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
     var screenshots: game.xtrabits.screenshot.Screenshots = .{ .io = io, .directory = directory };
@@ -1884,7 +1889,7 @@ const Display = struct {
 };
 
 test {
-    _ = @import("post_effects.zig");
+    _ = @import("mod_shaders.zig");
     _ = options_page;
     _ = settings_module;
     _ = install;

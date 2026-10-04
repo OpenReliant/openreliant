@@ -35,6 +35,16 @@ pub const Call = struct {
         call.state.raise(format, arguments);
     }
 
+    /// The calling mod's name `local` qualified with the mod's own, in `buffer`: `crt` in the mod
+    /// `retro` is `retro:crt`, and `retro:crt` stays as it is. Raises an error, starting with
+    /// `label`, if the name isn't an identifier.
+    pub fn qualified(call: Call, comptime label: []const u8, local: []const u8, buffer: *[runtime_module.max_name]u8) []const u8 {
+        const mod = call.context.modOf().name;
+        const own = if (std.mem.startsWith(u8, local, mod) and local.len > mod.len and local[mod.len] == ':') local[mod.len + 1 ..] else local;
+        if (!@import("openreliant").dte.source.validId(own)) call.raise(label ++ ": a name must be an identifier, not '{s}'", .{local});
+        return std.fmt.bufPrint(buffer, "{s}:{s}", .{ mod, own }) catch call.raise(label ++ ": the name '{s}' is too long", .{local});
+    }
+
     /// The call of the script running on `state`. Raises an error if no mod's script runs there.
     pub fn of(state: *State, label: []const u8) Call {
         const context = state.threadData(Context) orelse state.raise("{s} can only be used by mod scripts", .{label});

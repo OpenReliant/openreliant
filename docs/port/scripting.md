@@ -47,10 +47,29 @@ package and the registry of the effects (`Runtime.post_effects`), on the present
 - Each entry keeps its script's context, its qualified name, its stage, its order, its four
   parameters, whether it is on, and the host's effect. `Runtime.close` and a failed load
   (`Runtime.run`) remove a context's effects, and the host removes them from the GPU.
-- The driver's [`post_effects.zig`](../../src/openreliant/post_effects.zig) is the host. It is the
+- The driver's [`mod_shaders.zig`](../../src/openreliant/mod_shaders.zig) is the host. It is the
   GPU's effect source (`Gpu.effect_source`): as each frame is finished, it gives the GPU the passes
-  of the enabled effects (`Registry.passes`), sorted by stage, then order, then registration, and
-  none while MOD EFFECTS is off. The driver removes the host before the GPU is destroyed.
+  of the enabled effects (`Registry.passes`), sorted by stage, then order, then registration. The
+  driver removes the host before the GPU is destroyed.
+
+## Surface and lighting functions
+
+[`shaders.zig`](../../src/scripting/shaders.zig) is the `openreliant.shaders` package and the
+registry of the functions (`Runtime.mod_shaders`), on the presentation side, set up as the post
+effects' is.
+
+- `register_surface` and `register_lighting` read the function's file and hand it to the shader
+  host (`shaders.ShaderHost`, `Presentation.setShaderHost`), which compiles it on its own in a
+  variant of the device shader to find its mistakes, and keeps it. A compile error is raised in
+  the script.
+- After each change (a registration, `set_enabled`, `set_parameters`, a removal), the registry
+  gives the host every function it has, in the order they were registered (`ShaderHost.update`).
+  The driver's host (`mod_shaders.zig`) compiles the variants the lighting function that draws
+  needs, gives the textures named their surface function by `srtexture.Table.find`, and sets the
+  surface function of every lit surface.
+- `object:set_surface` sets the surface function and parameters of each part of the object's model
+  (`srapiext.MeshObject.surface`). An object whose function is removed draws without it.
+- `Runtime.close` and a failed load remove a context's functions, as they remove its effects.
 
 ## Luau implementation
 

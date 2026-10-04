@@ -188,7 +188,7 @@ pub const Own = struct {
             smooth_motion: bool = true,
             /// Whether the interface's text is drawn from outline fonts.
             outline_fonts: bool = true,
-            /// Whether the mods' post effects are drawn. The presets leave it alone, since a mod's
+            /// Whether the mods' shaders draw. The presets leave it alone, since a mod's
             /// effects are part of the mod, like its textures.
             mod_effects: bool = true,
 

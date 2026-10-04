@@ -1,5 +1,6 @@
-// Improvement: runtime compilation for mod post effects (#621). Exceptions from the shader
-// libraries stay here; Zig receives an owned result or an allocation failure.
+// Improvement: runtime compilation for mods' post effects (#621) and for the variants of the
+// device shader with mods' functions in them (#629). Exceptions from the shader libraries stay
+// here; Zig receives an owned result or an allocation failure.
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Public/ResourceLimits.h>
 #include <SPIRV/GlslangToSpv.h>
@@ -92,7 +93,16 @@ static void check(spirv_cross::CompilerMSL &compiler) {
     }
 }
 
-extern "C" void *openreliant_compile_post_effect(const char *name, const char *source, int length) noexcept {
+// What a shader is compiled as: a mod's post effect, checked against the post effects' resources,
+// or a variant of OpenReliant's device shader with mods' functions in it, which OpenReliant's
+// own source lays out.
+enum Kind { post_effect = 0, device_variant = 1 };
+
+// Compiles the fragment shader made of `count` parts, each with its name for the messages, after
+// `preamble`'s definitions.
+extern "C" void *openreliant_compile_fragment(int kind, int count, const char *const *names,
+                                              const char *const *sources, const int *lengths,
+                                              const char *preamble) noexcept {
     try {
         auto result = std::make_unique<Result>();
         try {
@@ -102,7 +112,8 @@ extern "C" void *openreliant_compile_post_effect(const char *name, const char *s
             require(glslang::InitializeProcess(), "glslang initialization failed");
             struct Process { ~Process() { glslang::FinalizeProcess(); } } process;
             glslang::TShader shader(EShLangFragment);
-            shader.setStringsWithLengthsAndNames(&source, &length, &name, 1);
+            shader.setStringsWithLengthsAndNames(sources, lengths, names, count);
+            shader.setPreamble(preamble);
             shader.setEnvInput(glslang::EShSourceGlsl, EShLangFragment, glslang::EShClientVulkan, 450);
             shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_0);
             shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
@@ -118,7 +129,7 @@ extern "C" void *openreliant_compile_post_effect(const char *name, const char *s
                     options.disableOptimizer = true;
                     glslang::GlslangToSpv(*program.getIntermediate(EShLangFragment), result->spirv, &options);
                     spirv_cross::CompilerMSL compiler(result->spirv);
-                    check(compiler);
+                    if (kind == post_effect) check(compiler);
                     auto metal_options = compiler.get_msl_options();
                     metal_options.set_msl_version(2, 2);
                     metal_options.enable_decoration_binding = true;
@@ -129,7 +140,7 @@ extern "C" void *openreliant_compile_post_effect(const char *name, const char *s
         } catch (const std::bad_alloc &) {
             throw;
         } catch (const std::exception &error) {
-            result->diagnostic = std::string(name) + ": " + error.what();
+            result->diagnostic = std::string(names[0]) + ": " + error.what();
         }
         return result.release();
     } catch (...) { return nullptr; }

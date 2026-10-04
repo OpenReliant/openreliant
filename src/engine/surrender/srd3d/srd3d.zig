@@ -451,6 +451,7 @@ pub const Driver = struct {
         const material = surface.material;
         var st = driver.state(surface, pass, layer);
         st.soft_terminator = drawn.object.soft_terminator;
+        st.surface = drawn.object.surface;
         driver.vertices.clearRetainingCapacity();
         driver.indices.clearRetainingCapacity();
         var start: usize = 0;
@@ -519,10 +520,11 @@ pub const Driver = struct {
     }
 
     fn drawDeferred(driver: *Driver, item: srcore.Deferred, pass: u1, layer: Layer) void {
-        const st = driver.state(item.surface, pass, layer);
+        var st = driver.state(item.surface, pass, layer);
         const material = item.surface.material;
         switch (item.item) {
             .polygon => |p| {
+                st.surface = p.drawn.object.surface;
                 if (p.visible.clip.any()) {
                     driver.drawClipped(p.drawn, p.visible, material, pass, st) catch {};
                 } else {

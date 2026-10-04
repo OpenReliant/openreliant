@@ -1,7 +1,9 @@
 // The device's shader: what Direct3D 7's fixed function did with the vertices Surrender's driver
-// hands over, for SDL's GPU interface, with OpenReliant's lighting of each pixel and its shadows. `make shaders` compiles the vertex stage, with VERTEX
-// defined, and the fragment stage, with FRAGMENT, into SPIR-V, and from that into Metal's
-// language. The platform layer embeds what it makes (src/platform/gpu.zig).
+// hands over, for SDL's GPU interface, with OpenReliant's lighting of each pixel and its shadows.
+// `make shaders` compiles the vertex stage, with VERTEX defined, and the fragment stage, with
+// FRAGMENT, into SPIR-V, and from that into Metal's language. The platform layer embeds what it
+// makes (src/platform/gpu.zig). The variants with mods' functions in them are compiled from this
+// file as OpenReliant runs (src/platform/gpu/variants.zig).
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
@@ -102,7 +104,42 @@ struct Light {
 layout(set = 3, binding = 1) uniform Lighting {
     uvec4 count;
     Light lights[64];
-} lighting;
+} frameLights;
+
+// OpenReliant's shaders from mods (gpu/variants.zig): a variant of this shader compiled with a mod's
+// lighting function, MOD_LIGHTING, and a mod's surface function, MOD_SURFACE, inserted where
+// `mod_functions` stands below. What they read: the surface function's parameters, the lighting
+// function's, and in time's x the seconds passed.
+layout(set = 3, binding = 3) uniform Custom {
+    vec4 surface;
+    vec4 lighting;
+    vec4 time;
+} custom;
+
+// The pixel as a mod's surface function reads and sets it. Its colours are encoded, as a picture
+// holds them, whether or not the frame lights in linear light.
+struct Surface {
+    // The texture's colour and alpha.
+    vec3 colour;
+    float alpha;
+    // The normal in the camera's frame, a unit long, or none where the pixel takes no lights.
+    vec3 normal;
+    float roughness;
+    float metallic;
+    // Light the surface gives off, added after it is lit.
+    vec3 glow;
+    // Read only: the texture coordinates, where the pixel stands in the camera's frame, and the
+    // direction toward the eye.
+    vec2 uv;
+    vec3 position;
+    vec3 toEye;
+};
+
+#ifdef MOD_LIGHTING
+// The mod's lighting function: how much of a light reaches a pixel at `cosine`, from 0 to 1, between
+// its normal and the light, where it would otherwise take `cosine`.
+float lighting(float cosine, vec4 parameters);
+#endif
 
 layout(location = 0) in vec4 colour;
 layout(location = 1) in vec2 uv;
@@ -189,7 +226,7 @@ float sunlit(vec3 n) {
 // The surface a pixel shows the lights: its normal, a unit long or none, toward the eye, how much of
 // the ambient light reaches it, and, for a material's, how much of its surroundings' light reaches
 // it, how rough it is, how metallic, and the share of light it reflects straight back.
-struct Surface {
+struct Lit {
     vec3 normal;
     vec3 toEye;
     float ambient;
@@ -221,7 +258,7 @@ float widened(float roughness, float mean) {
 // What a light of unit strength along `l` adds as a highlight to a material's pixel, in the diffuse
 // light's units, which fold in pi as Lambert's does: GGX's microfacets, Smith's shadowing as
 // Schlick fits it to GGX, and Schlick's Fresnel, times the cosine.
-vec3 highlight(Surface s, vec3 l) {
+vec3 highlight(Lit s, vec3 l) {
     float nl = dot(s.normal, l);
     if (nl <= 0.0) return vec3(0.0);
     vec3 h = normalize(l + s.toEye);
@@ -245,15 +282,15 @@ vec3 highlight(Surface s, vec3 l) {
 // gives go to `highlights`.
 const float terminatorWrap = 0.25;
 
-vec3 lights(Surface s, out vec3 highlights) {
+vec3 lights(Lit s, out vec3 highlights) {
     highlights = vec3(0.0);
     if (mask == 0xFFFFFFFFu || dot(s.normal, s.normal) < 0.5) return vec3(0.0);
     vec3 n = s.normal;
     vec3 sum = vec3(0.0);
     bool shaded = receives() != 0u && shadows.enabled != 0u;
     float sun = -1.0;
-    for (uint i = 0u; i < lighting.count.x; i++) {
-        Light light = lighting.lights[i];
+    for (uint i = 0u; i < frameLights.count.x; i++) {
+        Light light = frameLights.lights[i];
         if ((light.mask & mask) != 0u) continue;
         if (light.kind == 0u) {
             float amount = dot(n, light.vector.xyz);
@@ -264,6 +301,9 @@ vec3 lights(Surface s, out vec3 highlights) {
                 amount = (amount / strength + terminatorWrap) / (1.0 + terminatorWrap) * strength;
             }
             if (amount <= 0.0) continue;
+#ifdef MOD_LIGHTING
+            amount = lighting(min(amount / strength, 1.0), custom.lighting) * strength;
+#endif
             // In linear light the key light falls off as light does. A fill light, the nebula's
             // glow, falls off as the original's did, which its colour and strength were chosen
             // for: otherwise the side of a ship away from the sun glows with it.
@@ -291,6 +331,9 @@ vec3 lights(Surface s, out vec3 highlights) {
         float along = dot(d, n);
         if (along <= 0.0) continue;
         float r = sqrt(r2);
+#ifdef MOD_LIGHTING
+        along = lighting(min(along / r, 1.0), custom.lighting) * r;
+#endif
         // (1 - r / reach)^2 times the cosine, as the pipeline works it out.
         sum += (1.0 / r + r / (reach * reach) - 2.0 / reach) * along * light.colour.rgb;
         if (s.material) {
@@ -318,7 +361,7 @@ vec3 reflectedShare(vec3 reflectance, float roughness, float nv) {
 // along the eye's reflection off it, the rougher the blurrier, from its sharpest level for no
 // roughness to its last, a pixel a face, for the roughest, weighed by its share and shaded by its
 // occlusion.
-vec3 surroundings(Surface s) {
+vec3 surroundings(Lit s) {
     if (frame.reflection.x <= 0.0) return vec3(0.0);
     vec3 r = reflect(-s.toEye, s.normal);
     float nv = max(dot(s.normal, s.toEye), 1e-4);
@@ -350,8 +393,8 @@ mat3 textureFrame(vec3 n, vec3 p, vec2 at) {
 // The surface the pixel shows the lights, of texel `texel`: its normal, bent by its texture's
 // normal map where it is shaded, through `onTexture` (`textureFrame`), which shades the ambient
 // light too, and its material, where it has one, its roughness widened by the map (`widened`).
-Surface surfaceOf(vec4 texel, mat3 onTexture) {
-    Surface s;
+Lit litOf(vec4 texel, mat3 onTexture) {
+    Lit s;
     float length = length(facing);
     s.normal = length < 1e-6 ? vec3(0.0) : facing / length;
     s.toEye = normalize(-place);
@@ -615,6 +658,28 @@ vec4 sampled(float texels) {
     return texture(images, vec3(uv, layer));
 }
 
+// mod_functions
+
+#ifdef MOD_SURFACE
+// Runs the mod's surface function on the pixel: on its texel and its lit surface `s`, which take
+// what it sets, and the glow it gives off, in `glow`. A material's own values change only where
+// the function changes them; a surface without one becomes one where it does.
+void modSurface(inout vec4 texel, inout Lit s, out vec3 glow) {
+    bool linear = frame.settings.w > 0.0;
+    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, vec3(0.0), uv, place, s.toEye);
+    surface(m, custom.surface, custom.time.x);
+    texel = vec4(linear ? decoded(m.colour) : m.colour, m.alpha);
+    if (dot(s.normal, s.normal) > 0.5 && dot(m.normal, m.normal) > 1e-12) s.normal = normalize(m.normal);
+    if (m.roughness != s.roughness || m.metallic != s.metallic) {
+        s.material = true;
+        s.roughness = clamp(m.roughness, leastRoughness, 1.0);
+        s.metallic = clamp(m.metallic, 0.0, 1.0);
+        s.reflectance = mix(vec3(dielectricReflectance), linear ? texel.rgb : decoded(texel.rgb), s.metallic);
+    }
+    glow = m.glow;
+}
+#endif
+
 void main() {
     // Worked out here, where every pixel of a quad reaches it, as a derivative needs: the texels a
     // pixel spans for every pixel, and the texture's frame where its normal map is shaded, which
@@ -627,7 +692,11 @@ void main() {
         onTexture = textureFrame(unbent, place, uv);
     }
     vec4 texel = image < 0 ? vec4(1.0) : sampled(max(span.x, span.y));
-    Surface s = surfaceOf(texel, onTexture);
+    Lit s = litOf(texel, onTexture);
+    vec3 glow = vec3(0.0);
+#ifdef MOD_SURFACE
+    modSurface(texel, s, glow);
+#endif
     vec3 highlights;
     vec3 added = lights(s, highlights);
     if (s.material) highlights += surroundings(s);
@@ -648,6 +717,7 @@ void main() {
     } else {
         c.rgb = min(texel.rgb * colour.rgb * s.ambient + diffuse * added + highlights, vec3(1.0));
     }
+    c.rgb = min(c.rgb + glow, vec3(1.0));
     if (frame.settings.x > 0.0 || frame.settings.z > 0.0) {
         // To the levels the frame is kept in: five bits of red and blue and six of green in 16-bit
         // colour, eight bits a channel otherwise.

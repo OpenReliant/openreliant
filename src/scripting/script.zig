@@ -304,9 +304,8 @@ pub const Package = enum {
             .self => family == .object or family == .player,
             .nearby => family == .object or family == .player,
             .orders => family == .global or family == .object,
-            .hud, .camera, .postprocessing, .debug => family == .player,
+            .hud, .camera, .postprocessing, .shaders, .debug => family == .player,
             .ui, .input, .audio => family == .player or family == .menu,
-            .shaders => family == .load or family == .player,
         };
     }
 
@@ -326,7 +325,7 @@ pub const Package = enum {
             .camera => "Original and mod-qualified camera views, switching views and registering player-script views.",
             .audio => "Interface sounds, music and Betty's lines.",
             .postprocessing => "Post effects: GLSL fragment shaders from the mod, drawn over the whole frame, before the flight display or after it.",
-            .shaders => "Functions that change how surfaces look.",
+            .shaders => "Surface and lighting functions: GLSL functions from the mod that change how surfaces are lit.",
             .storage => "Sections of plain data for each mod: kept with the saved game, or in the game folder across every game.",
             .async => "Timers, kept with the saved game: game time for global and object scripts, real time for player and menu scripts.",
             .interfaces => "The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers.",
@@ -340,8 +339,7 @@ pub const Package = enum {
     /// Whether this version implements this package.
     pub fn ready(package: Package) bool {
         return switch (package) {
-            .core, .records, .hooks, .world, .self, .nearby, .orders, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .util, .vfs, .settings, .postprocessing => true,
-            .shaders => false,
+            .core, .records, .hooks, .world, .self, .nearby, .orders, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .util, .vfs, .settings, .postprocessing, .shaders => true,
         };
     }
 };
@@ -406,7 +404,7 @@ test Package {
     try std.testing.expect(Package.records.ready());
     try std.testing.expect(Package.hooks.ready());
     try std.testing.expect(Package.world.ready());
-    try std.testing.expect(!Package.shaders.ready());
+    try std.testing.expect(Package.shaders.ready());
 }
 
 test Offer {

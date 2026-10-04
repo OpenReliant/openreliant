@@ -27,6 +27,7 @@ const srgb = openreliant.engine.surrender.colour;
 const Geometry = @import("gpu/geometry.zig").Geometry;
 const shadow = @import("gpu/shadows.zig");
 pub const effects = @import("gpu/effects.zig");
+pub const variants = @import("gpu/variants.zig");
 const sdl = @import("sdl.zig");
 
 const log = std.log.scoped(.gpu);
@@ -148,6 +149,10 @@ const Shading = packed struct(u32) {
 /// array's normal maps and material maps, and the reflections' cube.
 const fragment_samplers = 5;
 
+/// The uniform buffers the device's fragment shader reads: the frame's settings, its lights, its
+/// shadows, and what the variants with mods' functions read (`variants.Uniforms`).
+const fragment_uniforms = 4;
+
 /// The most lights the shader takes in a frame. The driver lights the vertices with the rest.
 const max_lights = 64;
 
@@ -215,12 +220,14 @@ const Lighting = extern struct {
 /// The primitives the shader draws; strips and fans go as lists.
 const Topology = enum { points, lines, triangles };
 
-/// What picks a pipeline: the topology and the render states.
+/// What picks a pipeline: the topology, the render states and the variant of the fragment shader
+/// (`gpu/variants.zig`), 0 for OpenReliant's own.
 const PipelineKey = struct {
     topology: Topology,
     depth: srd3d.Depth,
     blend: ?srd3d.Factors,
     into: Into = .scene,
+    variant: u16 = 0,
 };
 
 /// What a pass of the device's shader draws into: the scene, in floats where the device lights in
@@ -335,6 +342,8 @@ const Slot = packed struct(u32) {
 /// A run of the frame's indices drawn with one pipeline and one array.
 const Run = struct {
     key: PipelineKey,
+    /// Its surface function's parameters, where its variant has one.
+    parameters: [4]f32 = @splat(0),
     /// The face of the reflections' cube it is drawn into, or null for the frame.
     face: ?u3 = null,
     /// Null while no vertex of the run has a texture.
@@ -434,6 +443,8 @@ pub const Gpu = struct {
     shown: ?*c.SDL_GPUTexture = null,
     /// Where each frame's post effects come from, if anywhere.
     effect_source: ?EffectSource = null,
+    /// The variants of the fragment shader with mods' functions in them.
+    mod_shaders: variants.Variants = .{},
 
     /// Gives the passes of the mods' post effects for a frame, in order, in `buffer`.
     pub const EffectSource = struct {
@@ -494,7 +505,7 @@ pub const Gpu = struct {
         }
         const vertex_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_VERTEX, if (spirv) shaders.vertex_spirv else shaders.vertex_msl, 0, 1);
         errdefer c.SDL_ReleaseGPUShader(handle, vertex_shader);
-        const fragment_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) shaders.fragment_spirv else shaders.fragment_msl, fragment_samplers, 3);
+        const fragment_shader = try shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (spirv) shaders.fragment_spirv else shaders.fragment_msl, fragment_samplers, fragment_uniforms);
         errdefer c.SDL_ReleaseGPUShader(handle, fragment_shader);
         // Shadows darken what each pixel is lit by, so they need each pixel lit.
         var shadows: shadow.Shadows = try .init(handle, spirv, if (settings.pixel_lighting) settings.shadows else .off);
@@ -733,6 +744,7 @@ pub const Gpu = struct {
         Geometry.release(&gpu.geometry, gpu.handle);
         gpu.shadows.deinit(gpu.handle);
         gpu.post.deinit(gpu.handle);
+        gpu.mod_shaders.deinit(gpu.gpa, gpu.handle);
         gpu.releaseTargets();
         if (gpu.bloom_pipeline) |p| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, p);
         if (gpu.finish_pipeline) |p| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, p);
@@ -918,6 +930,9 @@ pub const Gpu = struct {
     fn record(gpu: *Gpu, state: device.State, primitive: device.Primitive, vertices: []const device.Vertex, indices: ?[]const u16) Error!void {
         const slot: ?Slot = if (state.texture) |image| try gpu.slotOf(image) else null;
         const shading: Shading = .of(state, gpu.shadesMaterials());
+        const into: Into = if (gpu.face != null) .reflections else if (gpu.overlay_from == null) .scene else .finished;
+        const lit = into != .finished and vertices.len > 0 and vertices[0].light_mask != device.no_lights;
+        const picked = gpu.mod_shaders.pick(state.surface, if (state.texture) |image| image.surface else null, lit);
         const base: u32 = @intCast(gpu.vertices.items.len);
         try gpu.vertices.ensureUnusedCapacity(gpu.gpa, vertices.len);
         for (vertices) |v| gpu.vertices.appendAssumeCapacity(.{
@@ -939,8 +954,10 @@ pub const Gpu = struct {
                 .topology = topology(primitive),
                 .depth = state.depth,
                 .blend = state.blend,
-                .into = if (gpu.face != null) .reflections else if (gpu.overlay_from == null) .scene else .finished,
+                .into = into,
+                .variant = picked.variant,
             },
+            .parameters = picked.parameters,
             .face = gpu.face,
             .array = if (slot) |s| s.array else null,
             .held = state.filter == .point,
@@ -1130,8 +1147,8 @@ pub const Gpu = struct {
         var shown = finished;
         if (gpu.effect_source) |source| {
             var buffer: [effects.max_passes]effects.Pass = undefined;
-            const seconds = @as(f64, @floatFromInt(c.SDL_GetTicks())) / std.time.ms_per_s;
-            gpu.post.set(source.passes(source.context, &buffer), @floatCast(seconds));
+            const shown_passes = if (gpu.mod_shaders.on) source.passes(source.context, &buffer) else &.{};
+            gpu.post.set(shown_passes, seconds());
         }
         const screen = if (gpu.post.passes.items.len > 0) try gpu.effectScreen(targets) else null;
         if (screen) |drawn| shown = gpu.post.draw(commands, drawn, .before_hud, shown, finished);
@@ -1162,6 +1179,34 @@ pub const Gpu = struct {
     /// Removes a mod's post effect.
     pub fn removeEffect(gpu: *Gpu, id: effects.Id) void {
         gpu.post.remove(gpu.handle, id);
+    }
+
+    /// Makes `variant`, above 0, a variant of the device's fragment shader compiled for both kinds
+    /// of device (`gpu/variants.zig`), in place of what it was.
+    pub fn setVariant(gpu: *Gpu, variant: u16, spirv_words: []const u32, metal: []const u8) Error!void {
+        std.debug.assert(variant != 0);
+        try gpu.mod_shaders.shaders.ensureUnusedCapacity(gpu.gpa, 1);
+        const made = try shader(gpu.handle, gpu.spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (gpu.spirv) std.mem.sliceAsBytes(spirv_words) else metal, fragment_samplers, fragment_uniforms);
+        gpu.removeVariant(variant);
+        gpu.mod_shaders.shaders.putAssumeCapacity(variant, made);
+    }
+
+    /// Removes `variant` and the pipelines that draw with it, including any made with
+    /// OpenReliant's own shader while it had none. SDL frees them once the frames that use them are
+    /// done.
+    pub fn removeVariant(gpu: *Gpu, variant: u16) void {
+        std.debug.assert(variant != 0);
+        // One at a time, as removing an entry moves the others.
+        while (true) {
+            var it = gpu.pipelines.iterator();
+            const entry = while (it.next()) |entry| {
+                if (entry.key_ptr.variant == variant) break entry;
+            } else break;
+            c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, entry.value_ptr.*);
+            gpu.pipelines.removeByPtr(entry.key_ptr);
+        }
+        const removed = gpu.mod_shaders.shaders.fetchRemove(variant) orelse return;
+        c.SDL_ReleaseGPUShader(gpu.handle, removed.value);
     }
 
     /// Finishes the frame into `composed`, where it has one: its bright parts taken into a
@@ -1243,6 +1288,12 @@ pub const Gpu = struct {
         c.SDL_PushGPUFragmentUniformData(commands, 0, &frame_settings, @sizeOf(@TypeOf(frame_settings)));
         c.SDL_PushGPUFragmentUniformData(commands, 1, &gpu.lighting, @sizeOf(Lighting));
         c.SDL_PushGPUFragmentUniformData(commands, 2, &gpu.shadows.uniforms, @sizeOf(shadow.Uniforms));
+        var custom: variants.Uniforms = .{
+            .surface = @splat(0),
+            .lighting = gpu.mod_shaders.lighting,
+            .time = .{ seconds(), 0, 0, 0 },
+        };
+        c.SDL_PushGPUFragmentUniformData(commands, variants.uniform_slot, &custom, @sizeOf(variants.Uniforms));
         const geometry = gpu.geometry orelse return;
         geometry.bind(pass);
         // The scene's textures wrap; the images drawn over the finished frame are held at their
@@ -1255,6 +1306,10 @@ pub const Gpu = struct {
         for (runs) |run| {
             if (run.face != face) continue;
             c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(run.key).?);
+            if (!std.meta.eql(custom.surface, run.parameters)) {
+                custom.surface = run.parameters;
+                c.SDL_PushGPUFragmentUniformData(commands, variants.uniform_slot, &custom, @sizeOf(variants.Uniforms));
+            }
             const array = gpu.arrays.items[run.array orelse gpu.blank.array];
             const read = if (run.held) gpu.edge_sampler else sampler;
             const bindings = [fragment_samplers]c.SDL_GPUTextureSamplerBinding{
@@ -1451,7 +1506,7 @@ pub const Gpu = struct {
         }
         var info = std.mem.zeroes(c.SDL_GPUGraphicsPipelineCreateInfo);
         info.vertex_shader = gpu.vertex_shader;
-        info.fragment_shader = gpu.fragment_shader;
+        info.fragment_shader = if (key.variant == 0) gpu.fragment_shader else gpu.mod_shaders.shaders.get(key.variant) orelse gpu.fragment_shader;
         info.vertex_input_state = .{ .vertex_buffer_descriptions = &buffer, .num_vertex_buffers = 1, .vertex_attributes = &attributes, .num_vertex_attributes = attributes.len };
         info.primitive_type = switch (key.topology) {
             .points => c.SDL_GPU_PRIMITIVETYPE_POINTLIST,
@@ -1563,6 +1618,7 @@ fn appendList(gpa: Allocator, list: *std.ArrayList(u32), primitive: device.Primi
 /// texture joins any.
 fn join(last: *Run, next: Run) bool {
     if (!std.meta.eql(last.key, next.key) or last.held != next.held or last.face != next.face) return false;
+    if (!std.meta.eql(last.parameters, next.parameters)) return false;
     if (last.array != null and next.array != null and last.array.? != next.array.?) return false;
     if (last.first + last.count != next.first) return false;
     last.count += next.count;
@@ -1577,6 +1633,12 @@ fn blendFactor(factor: srd3d.BlendFactor) c.SDL_GPUBlendFactor {
         .source_alpha => c.SDL_GPU_BLENDFACTOR_SRC_ALPHA,
         .inverse_source_alpha => c.SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
     };
+}
+
+/// The seconds since SDL started, which the mods' shaders get as the time. Worked out in `f64`, as
+/// the milliseconds outgrow an `f32`'s precision within hours.
+fn seconds() f32 {
+    return @floatCast(@as(f64, @floatFromInt(c.SDL_GetTicks())) / std.time.ms_per_s);
 }
 
 /// Draws the screen-wide triangle into `into` with `pipeline`, reading `source` and `frame_image`
@@ -1759,6 +1821,7 @@ test "Lighting.take" {
 test {
     _ = shadow;
     _ = effects;
+    _ = variants;
 }
 
 test "Lighting.take in linear light" {

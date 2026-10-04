@@ -176,6 +176,17 @@ Post effects: GLSL fragment shaders from the mod, drawn over the whole frame, be
 | `set_enabled(name: string, enabled: boolean)` | boolean | Turns the calling mod's effect `name` on or off, by its own name or the qualified one. Returns whether the mod has it. |
 | `set_parameters(name: string, parameters: { number })` | boolean | Sets the numbers the calling mod's effect `name` reads, up to four; those left out are 0. Returns whether the mod has it. |
 
+### `openreliant.shaders`
+
+Surface and lighting functions: GLSL functions from the mod that change how surfaces are lit. For player scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `register_surface(definition: SurfaceFunction)` | string | Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets. |
+| `register_lighting(definition: LightingFunction)` | string | Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. |
+| `set_enabled(name: string, enabled: boolean)` | boolean | Turns the calling mod's function `name` on or off, by its own name or the qualified one. Returns whether the mod has it. |
+| `set_parameters(name: string, parameters: { number })` | boolean | Sets the numbers the calling mod's function `name` reads on its textures and everywhere it draws, up to four; those left out are 0. Returns whether the mod has it. |
+
 ### `openreliant.storage`
 
 Sections of plain data for each mod: kept with the saved game, or in the game folder across every game. For load, global, object, player and menu scripts.
@@ -276,6 +287,7 @@ scripts on their object.
 | `send_event(name: string, data: any)` | nothing | Sends the event `name` to the object's scripts, with `data`, which must be plain data. It arrives at the next update. |
 | `add_script(name: string, data: any?)` | boolean | Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts. |
 | `hook(name: string, handler: (e: any) -> boolean?, filter: (Filter \| (e: any) -> boolean)?)` | HookHandle | `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own. |
+| `set_surface(name: string?, parameters: { number }?)` | boolean | Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it. |
 | `remove_script(name: string)` | boolean | Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts. |
 
 ## Built-in interfaces
@@ -978,6 +990,30 @@ A table a script gives, which may leave out a field with a default.
 | `shader` | string | needed |
 | `stage` | [EffectStage](#effectstage) | `"before_hud"` |
 | `order` | number | 0 |
+| `parameters` | list of number | none |
+| `enabled` | boolean | true |
+
+### SurfaceFunction
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `name` | string | needed |
+| `shader` | string | needed |
+| `textures` | list of string | none |
+| `everywhere` | boolean | false |
+| `parameters` | list of number | none |
+| `enabled` | boolean | true |
+
+### LightingFunction
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `name` | string | needed |
+| `shader` | string | needed |
 | `parameters` | list of number | none |
 | `enabled` | boolean | true |
 

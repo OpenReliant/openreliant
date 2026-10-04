@@ -24,6 +24,14 @@ pub const Level = struct {
     rgba: []const u8,
 };
 
+/// Added by OpenReliant: a mod's surface function that a draw is shaded with, and the parameters it
+/// reads (`scripting.shaders`). A device that can't run it draws as if there were none.
+pub const ModSurface = struct {
+    /// The function, as the device knows it.
+    function: u16,
+    parameters: [4]f32 = @splat(0),
+};
+
 /// An image as OpenReliant holds it, the counterpart of `TextureImage`.
 pub const Image = struct {
     /// The full-size level first.
@@ -39,6 +47,8 @@ pub const Image = struct {
     /// Added by OpenReliant: the material maps for physically based shading, if a mod has them
     /// (`Table.maps`).
     maps: Maps = .{},
+    /// Added by OpenReliant: the mod's surface function its draws are shaded with, if any.
+    surface: ?ModSurface = null,
 
     /// The maps of a material, each as many levels as its image and of its size, in linear values;
     /// either may be missing.

@@ -1,11 +1,12 @@
-//! Improvement: GLSL post-effect compilation for Vulkan and Metal (#621). The C++ boundary
+//! Improvement: compiles GLSL fragment shaders at runtime for Vulkan and Metal: mods' post effects
+//! (#621), and variants of the device shader with mods' functions in them (#629). The C++ boundary
 //! catches library exceptions and owns temporary allocations. Results here use the caller's
 //! allocator; neither success nor diagnostics borrow compiler memory.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const Native = opaque {};
-extern fn openreliant_compile_post_effect(name: [*:0]const u8, source: [*]const u8, length: c_int) ?*Native;
+extern fn openreliant_compile_fragment(kind: Kind, count: c_int, names: [*]const [*:0]const u8, sources: [*]const [*]const u8, lengths: [*]const c_int, preamble: [*:0]const u8) ?*Native;
 extern fn openreliant_shader_spirv(result: *const Native, count: *usize) [*]const u32;
 extern fn openreliant_shader_metal(result: *const Native) [*:0]const u8;
 extern fn openreliant_shader_diagnostic(result: *const Native) [*:0]const u8;
@@ -13,6 +14,16 @@ extern fn openreliant_shader_free(result: *Native) void;
 
 /// Bounds compiler input before copying it or entering the native libraries.
 pub const max_source_bytes = 1024 * 1024;
+
+/// The most parts a shader is compiled from.
+pub const max_parts = 8;
+
+/// What a shader is compiled as: a mod's post effect, checked against the resources post effects
+/// get, or a variant of the device shader (`gpu/variants.zig`), whose resources are OpenReliant's.
+pub const Kind = enum(c_int) { post_effect = 0, device_variant = 1 };
+
+/// A part of a shader's source, and the name its messages give it, such as `crt/crt.frag`.
+pub const Part = struct { name: []const u8, source: []const u8 };
 
 /// A compiled shader: SPIR-V for Vulkan, and Metal's source.
 pub const Code = struct {
@@ -37,15 +48,36 @@ pub const Result = union(enum) {
     }
 };
 
-/// Compiles one fragment source. Includes are unavailable; callers resolve mod files themselves.
+/// Compiles a mod's post effect. Includes are unavailable; callers resolve mod files themselves.
 /// Texture slots 0/1 use set 2, and optional two-vec4 uniforms use set 3, slot 0.
 pub fn compile(gpa: Allocator, name: []const u8, source: []const u8) Allocator.Error!Result {
-    if (source.len > max_source_bytes) return .{ .diagnostic = try gpa.dupe(u8, "shader source exceeds 1 MiB") };
-    if (std.mem.indexOfScalar(u8, source, 0) != null or std.mem.indexOfScalar(u8, name, 0) != null)
-        return .{ .diagnostic = try gpa.dupe(u8, "shader source and filename cannot contain NUL") };
-    const filename = try gpa.dupeZ(u8, name);
-    defer gpa.free(filename);
-    const native = openreliant_compile_post_effect(filename, source.ptr, @intCast(source.len)) orelse return error.OutOfMemory;
+    return compileParts(gpa, .post_effect, &.{.{ .name = name, .source = source }}, "");
+}
+
+/// Compiles the fragment shader made of `parts`, in order, as `kind`, after the definitions in
+/// `preamble`, such as `#define FRAGMENT`. Messages name the part they are about.
+pub fn compileParts(gpa: Allocator, kind: Kind, parts: []const Part, preamble: []const u8) Allocator.Error!Result {
+    std.debug.assert(parts.len > 0 and parts.len <= max_parts);
+    for (parts) |part| {
+        if (part.source.len > max_source_bytes) return .{ .diagnostic = try std.fmt.allocPrint(gpa, "{s}: shader source exceeds 1 MiB", .{part.name}) };
+        if (std.mem.indexOfScalar(u8, part.source, 0) != null or std.mem.indexOfScalar(u8, part.name, 0) != null)
+            return .{ .diagnostic = try gpa.dupe(u8, "shader source and filename cannot contain NUL") };
+    }
+    if (std.mem.indexOfScalar(u8, preamble, 0) != null) return .{ .diagnostic = try gpa.dupe(u8, "shader source and filename cannot contain NUL") };
+    var names: [max_parts][*:0]const u8 = undefined;
+    var sources: [max_parts][*]const u8 = undefined;
+    var lengths: [max_parts]c_int = undefined;
+    var made: usize = 0;
+    defer for (names[0..made]) |name| gpa.free(std.mem.span(name));
+    for (parts) |part| {
+        names[made] = try gpa.dupeZ(u8, part.name);
+        sources[made] = part.source.ptr;
+        lengths[made] = @intCast(part.source.len);
+        made += 1;
+    }
+    const definitions = try gpa.dupeZ(u8, preamble);
+    defer gpa.free(definitions);
+    const native = openreliant_compile_fragment(kind, @intCast(parts.len), &names, &sources, &lengths, definitions) orelse return error.OutOfMemory;
     defer openreliant_shader_free(native);
     const diagnostic = std.mem.span(openreliant_shader_diagnostic(native));
     if (diagnostic.len != 0) return .{ .diagnostic = try gpa.dupe(u8, diagnostic) };

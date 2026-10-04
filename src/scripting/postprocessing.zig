@@ -17,7 +17,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.scripts);
 
-const openreliant = @import("openreliant");
 const api = @import("api.zig");
 const Call = api.Call;
 const values = @import("values.zig");
@@ -183,21 +182,12 @@ fn registryOf(call: Call) *Registry {
     return &call.runtime().post_effects;
 }
 
-/// The calling mod's effect `local` with its name qualified with the mod's: an identifier, such as
-/// `crt`, or the name `register` returned, such as `retro:crt`.
-fn qualified(call: Call, local: []const u8, buffer: *[runtime_module.max_name]u8) []const u8 {
-    const mod = call.context.modOf().name;
-    const own = if (std.mem.startsWith(u8, local, mod) and local.len > mod.len and local[mod.len] == ':') local[mod.len + 1 ..] else local;
-    if (!openreliant.dte.source.validId(own)) call.raise("postprocessing: an effect's name must be an identifier, not '{s}'", .{local});
-    return std.fmt.bufPrint(buffer, "{s}:{s}", .{ mod, own }) catch call.raise("postprocessing: the name '{s}' is too long", .{local});
-}
-
 fn registerEffect(call: Call, given: Definition) []const u8 {
     if (call.context.family != .player) call.raise("postprocessing: only player scripts can register effects", .{});
     const scripts = call.runtime();
     const registry = &scripts.post_effects;
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const name = runtime_module.Name.of(qualified(call, given.name, &buffer)).?;
+    const name = runtime_module.Name.of(call.qualified("postprocessing", given.name, &buffer)).?;
     if (registry.find(name.slice()) != null) call.raise("postprocessing: the effect '{s}' is registered already", .{name.slice()});
     if (registry.entries.items.len == max_effects) call.raise("postprocessing: at most {d} effects can be registered", .{max_effects});
     registry.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("postprocessing: out of memory", .{});
@@ -212,14 +202,12 @@ fn registerEffect(call: Call, given: Definition) []const u8 {
         .effect => |made| made,
         .failed => |message| call.raise("postprocessing: {s}", .{message}),
     } else null;
-    var parameters: [parameter_count]f32 = @splat(0);
-    @memcpy(parameters[0..given.parameters.len], given.parameters.slice());
     registry.entries.appendAssumeCapacity(.{
         .context = call.context,
         .name = name,
         .stage = given.stage,
         .order = given.order,
-        .parameters = parameters,
+        .parameters = given.parameters.padded(0),
         .enabled = given.enabled,
         .effect = effect,
     });
@@ -229,16 +217,15 @@ fn registerEffect(call: Call, given: Definition) []const u8 {
 
 fn setEnabled(call: Call, local: []const u8, enabled: bool) bool {
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const entry = registryOf(call).find(qualified(call, local, &buffer)) orelse return false;
+    const entry = registryOf(call).find(call.qualified("postprocessing", local, &buffer)) orelse return false;
     entry.enabled = enabled;
     return true;
 }
 
 fn setParameters(call: Call, local: []const u8, given: Parameters) bool {
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const entry = registryOf(call).find(qualified(call, local, &buffer)) orelse return false;
-    entry.parameters = @splat(0);
-    @memcpy(entry.parameters[0..given.len], given.slice());
+    const entry = registryOf(call).find(call.qualified("postprocessing", local, &buffer)) orelse return false;
+    entry.parameters = given.padded(0);
     return true;
 }
 

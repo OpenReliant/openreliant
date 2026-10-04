@@ -7,7 +7,8 @@ events. Object scripts run on the ships and other objects of a mission, each on 
 Player and menu scripts decide what the player sees, hears and does: they draw over the flight
 display and the menus, and react to the keys. This page explains how to write them; the
 [scripting reference](reference.md) lists everything they can use, and
-[`examples/mods`](../../examples/mods) holds complete example mods.
+[`examples/mods`](../../examples/mods) holds example mods for mod makers. They show how the
+scripting works, and aren't supported mods.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
 
@@ -140,7 +141,8 @@ post.set_enabled("crt", false)
 - In the developer mode, saving a folder mod's shader reloads its scripts, which compiles the
   shader again ([Reloading](#reloading)).
 - MOD EFFECTS on the VIDEO tab, `ModEffects` in `starlancer.ini` and `--no-mod-effects` turn all
-  the mods' effects off. GRAPHICS' presets leave the setting as it is.
+  the mods' shaders off: their post effects, and their surface and lighting functions. GRAPHICS'
+  presets leave the setting as it is.
 
 The shader is GLSL 450, and reads:
 
@@ -165,6 +167,85 @@ void main() {
 A shader file's name ends in `.frag` or `.glsl`. Like scripts, shader files belong to the mod and
 don't replace game files. [`examples/mods/crt`](../../examples/mods/crt) draws an old curved
 monitor over the game: Shift F8 turns it on and off, and Shift F7 changes the scanlines.
+
+## Surface and lighting functions
+
+A player script can change how surfaces are lit, with GLSL functions from its mod that
+`openreliant.shaders` registers. OpenReliant compiles each into a variant of its own surface
+shader.
+
+- A **surface function** changes a pixel's colour, normal, roughness, metalness, glow and alpha
+  before it is lit. It draws on the textures it names, by file name as the models name them, such
+  as `Pred_cp01`, and in any case. With `everywhere = true` it also draws on every lit surface in
+  the scene that has no surface function of its own. `object:set_surface(name, parameters)` gives
+  an object's model one, which comes before its textures'; `object:set_surface(nil)` takes it away.
+- A **lighting function** changes how much of each light reaches a pixel, on every surface lit for
+  each pixel. One draws at a time: the enabled one registered last.
+
+```lua
+local shaders = require("openreliant.shaders")
+
+shaders.register_lighting({ name = "bands", shader = "bands.glsl", parameters = { 3 } })
+shaders.register_surface({
+    name = "ink",
+    shader = "ink.glsl",
+    textures = { "Pred_cp01" },
+    everywhere = false,
+    parameters = { 3, 8 },
+})
+require("openreliant.self"):set_surface("ink", { 2, 8 })
+shaders.set_enabled("bands", false)
+```
+
+The file holds the function alone, without `#version`, and can define helpers before it. A
+surface function is called `surface`, and a lighting function `lighting`:
+
+```glsl
+// The pixel, which the function reads and sets.
+struct Surface {
+    vec3 colour;     // the texture's colour, encoded as a picture holds it
+    float alpha;
+    vec3 normal;     // in the camera's frame, a unit long, or none for a pixel without lights
+    float roughness; // 1 and 0 where the texture has no material maps
+    float metallic;
+    vec3 glow;       // light it gives off, added after it is lit; none to start with
+    vec2 uv;         // read only: the texture coordinates
+    vec3 position;   // read only: where it stands in the camera's frame
+    vec3 toEye;      // read only: the direction toward the eye
+};
+
+void surface(inout Surface s, vec4 parameters, float time) {
+    s.glow = vec3(0.0, 0.2, 0.0) * (0.5 + 0.5 * sin(time));
+}
+
+// cosine: from 0 to 1, between the pixel's normal and the light. Returns how much of the light
+// reaches the pixel; `return cosine;` changes nothing.
+float lighting(float cosine, vec4 parameters) {
+    return ceil(cosine * parameters.x) / parameters.x;
+}
+```
+
+- `time` is the seconds passed, and `parameters` the script's numbers. Those left out are 0.
+- The functions can read the shader's own helpers, such as `encoded` and `decoded`, which turn a
+  colour into and out of linear light.
+- A surface that has no material maps becomes a material where the function changes its roughness
+  or metalness.
+- Alpha only shows on surfaces the game blends, such as glass and effects
+  ([#632](https://github.com/OpenReliant/openreliant/issues/632)).
+- A lighting function only changes surfaces lit for each pixel, with PER-PIXEL LIGHTING. It changes
+  the light falling on them, not their highlights.
+- Give helpers names your mod alone uses: the lighting function and a surface function, which can
+  come from two mods, are compiled together. If they don't compile together, the log says so, and
+  that surface function's surfaces draw without it.
+- Each registration compiles the function on its own, and a mistake in it is an error in the
+  script, with the file and the line. Compiled variants are kept in the shader cache.
+- The rules for names, removal, reloading and MOD EFFECTS are those of [post effects](#post-effects).
+  The mods can register at most 64 functions at once.
+
+[`examples/mods/cel-shading`](../../examples/mods/cel-shading) draws the ships as a cartoon: a
+lighting function makes each light fall in flat bands, and a surface function on every lit surface
+draws a dark line round the outlines. Shift F6 turns it on and off, and Shift F5 changes the
+number of bands.
 
 ## Pictures, shapes and fonts
 

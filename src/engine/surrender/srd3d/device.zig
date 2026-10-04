@@ -130,6 +130,9 @@ pub const State = struct {
     /// OpenReliant's: the key lights reach a little way past the terminator of what it draws
     /// (`srapiext.MeshObject.soft_terminator`), where the device lights each pixel.
     soft_terminator: bool = false,
+    /// OpenReliant's: the mod's surface function of the object it draws
+    /// (`srapiext.MeshObject.surface`), which comes before its texture's.
+    surface: ?srtexture.ModSurface = null,
     /// How its texture is filtered (`D3DTSS_MAGFILTER`, `D3DTSS_MINFILTER`, `D3DTSS_MIPFILTER`).
     filter: Filter = .linear,
 };

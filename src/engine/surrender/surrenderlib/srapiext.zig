@@ -447,6 +447,9 @@ pub const MeshObject = struct {
     /// atmosphere carries the sun round into its night side, where the device lights each pixel
     /// (`atmosphere.Style.haze`). Its surfaces drawn in order take it; the sorted ones do not.
     soft_terminator: bool = false,
+    /// OpenReliant's: the mod's surface function its surfaces are shaded with, in place of their
+    /// textures' (`srtexture.ModSurface`), where a script gave it one.
+    surface: ?srtexture.ModSurface = null,
 
     /// The mesh of the level drawn, or of the coarsest where the level is past them; it has one
     /// at least.

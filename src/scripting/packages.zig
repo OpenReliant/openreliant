@@ -21,6 +21,7 @@ const util = @import("util.zig");
 const orders = @import("orders.zig");
 const settings = @import("settings.zig");
 const postprocessing = @import("postprocessing.zig");
+const shaders = @import("shaders.zig");
 
 /// The namespace that declares `package`; null for a package made otherwise, or not made yet.
 pub fn namespace(comptime package: script.Package) ?type {
@@ -41,7 +42,8 @@ pub fn namespace(comptime package: script.Package) ?type {
         .orders => orders.package,
         .settings => settings.package,
         .postprocessing => postprocessing.package,
-        .records, .hooks, .self, .interfaces, .shaders => null,
+        .shaders => shaders.package,
+        .records, .hooks, .self, .interfaces => null,
     };
 }
 

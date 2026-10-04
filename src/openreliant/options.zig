@@ -120,7 +120,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--baked-lights" = .{ .section = .graphics, .text = "bake the steady lights of ships and stations into their hulls, as the original does, rather than shine them as lights on what stands near" },
     .@"--launch-steam" = .{ .section = .graphics, .value = "<original|soft>", .text = "the Yamato's launch steam: original brightness or softer jets with less glare; soft by default" },
     .@"--bitmap-fonts" = .{ .section = .graphics, .text = "draw the interface text with the original bitmap fonts, scaled up to the window, instead of outline fonts drawn at the window's resolution (the built-in Newtown, or a font from a mod)" },
-    .@"--no-mod-effects" = .{ .section = .graphics, .text = "don't draw the post effects of the mods' scripts" },
+    .@"--no-mod-effects" = .{ .section = .graphics, .text = "don't draw the mods' shaders: their post effects, and their surface and lighting functions" },
     .@"--hrtf" = .{ .section = .sound, .text = "place the sounds for headphones whatever the output; by default they are while the output is headphones" },
     .@"--no-hrtf" = .{ .section = .sound, .text = "place the sounds for speakers whatever the output" },
     .@"--no-reverb" = .{ .section = .sound, .text = "play the sounds around you, the cockpit's voice and the Reliant's rooms without reverb" },
@@ -298,8 +298,8 @@ pub const Options = struct {
     /// Whether the interface's text is drawn in outline fonts at the window's resolution
     /// (`game.hud.outline`), or in the game's bitmap fonts alone.
     outline_fonts: bool = true,
-    /// Whether the mods' post effects are drawn (`scripting.postprocessing`). `--original` leaves
-    /// them on, as it leaves the mods on.
+    /// Whether the mods' shaders draw (`scripting.postprocessing`, `scripting.shaders`).
+    /// `--original` leaves them on, as it leaves the mods on.
     mod_effects: bool = true,
     /// How the sound plays, or null for none.
     sound: ?platform.audio.Options = .{},
