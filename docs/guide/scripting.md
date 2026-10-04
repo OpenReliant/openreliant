@@ -98,9 +98,10 @@ including retired entries in one runtime. Registering beyond that limit raises a
 These tables contain no separate engine logic. Their context permissions remain those of the
 underlying APIs; unavailable groups are nil. Mods override them through the normal
 `interface_name`/`interface` mechanism and receive the built-in base in `on_interface_override`.
-Stopping the override restores the base. The groups do not add campaign progression or menu-flow
-APIs; those features remain in #442 and #560. Their editor definitions come from the reused API
-declarations.
+Stopping the override restores the base. The groups don't include game modes, campaigns or the
+menu flow, which are in `openreliant.core` and `openreliant.ui`
+([Menus, game modes and campaigns](#menus-game-modes-and-campaigns)). Their editor definitions come
+from the reused API declarations.
 
 [`examples/mods/strafe-run`](../../examples/mods/strafe-run) combines a custom order, HUD display,
 chase camera, selectable help panel and rebindable actions.
@@ -425,7 +426,8 @@ end
 - A wrong field name or a value of the wrong type is an error.
 - Text is UTF-8; characters the game can't show become `?`.
 - Records can't be removed, because missions refer to them by number, and adding new ones isn't
-  supported yet ([#560](https://github.com/OpenReliant/openreliant/issues/560)).
+  supported yet ([#333](https://github.com/OpenReliant/openreliant/issues/333),
+  [#640](https://github.com/OpenReliant/openreliant/issues/640)).
 
 A load script that fails has its changes undone, and the next one runs.
 
@@ -930,8 +932,10 @@ core.register_game_mode({
 ```
 
 The missions are flown as INSTANT ACTION flies its mission: without the game's rooms, ITAC,
-medals or saved games. New ships, guns and pilots for a mod's campaign are planned
-([#333](https://github.com/OpenReliant/openreliant/issues/333)).
+medals or saved games ([#641](https://github.com/OpenReliant/openreliant/issues/641)). New ships,
+guns, missiles and pilots are planned
+([#333](https://github.com/OpenReliant/openreliant/issues/333),
+[#640](https://github.com/OpenReliant/openreliant/issues/640)).
 
 [`examples/mods/campaign`](../../examples/mods/campaign) is a short campaign of the game's first
 three missions, with a briefing and a movie.
