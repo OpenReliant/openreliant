@@ -76,9 +76,30 @@ specialization constants are rejected. Reflection checks these requirements befo
 translation. Source is limited to 1 MiB; includes and embedded NUL bytes are rejected.
 
 Compilation failures retain glslang's filename and line diagnostics. Resource-layout failures
-identify the source filename and incompatible interface. The disk cache and reload remain in
-[#559](https://github.com/OpenReliant/openreliant/issues/559), along with surface functions and
-whole-shader overrides.
+identify the source filename and incompatible interface. Surface functions
+([#629](https://github.com/OpenReliant/openreliant/issues/629)) and whole-shader overrides
+([#630](https://github.com/OpenReliant/openreliant/issues/630)) remain.
+
+### Shader cache
+
+**Improvement:** [`shader_cache.zig`](../../src/platform/shader_cache.zig) keeps each compiled
+shader in the game folder's `cache/shaders`, one file for each shader, named by the SHA-256 of the
+shader's name (such as `crt/crt.frag`). A file holds an 80-byte header, then the SPIR-V, then the
+Metal source:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | `ORSH` |
+| 4 | 4 | The layout's version, 1 |
+| 8 | 32 | The key: SHA-256 of the compiler's pinned versions (`deps/shader-compiler/build.zig.zon`), its wrapper (`shader_compiler.cpp`), the shader's name and its source |
+| 40 | 32 | SHA-256 of the SPIR-V and the Metal source |
+| 72 | 4 | The SPIR-V's size in bytes |
+| 76 | 4 | The Metal source's size in bytes |
+
+A file whose key doesn't match, whose sizes don't add up or whose hash is wrong is ignored, and the
+shader compiles again and replaces it. Files are written to a temporary file first and then renamed
+into place. A file that can't be written is logged, and the shader is used anyway. Shaders that
+don't compile aren't kept.
 
 ## Post effects
 

@@ -14,16 +14,24 @@ extern fn openreliant_shader_free(result: *Native) void;
 /// Bounds compiler input before copying it or entering the native libraries.
 pub const max_source_bytes = 1024 * 1024;
 
+/// A compiled shader: SPIR-V for Vulkan, and Metal's source.
+pub const Code = struct {
+    spirv: []u32,
+    metal: [:0]u8,
+
+    pub fn deinit(code: Code, gpa: Allocator) void {
+        gpa.free(code.spirv);
+        gpa.free(code.metal);
+    }
+};
+
 pub const Result = union(enum) {
-    compiled: struct { spirv: []u32, metal: [:0]u8 },
+    compiled: Code,
     diagnostic: []u8,
 
     pub fn deinit(result: Result, gpa: Allocator) void {
         switch (result) {
-            .compiled => |code| {
-                gpa.free(code.spirv);
-                gpa.free(code.metal);
-            },
+            .compiled => |code| code.deinit(gpa),
             .diagnostic => |text| gpa.free(text),
         }
     }

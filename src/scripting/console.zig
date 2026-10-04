@@ -447,7 +447,8 @@ pub const Console = struct {
     }
 };
 
-/// Watches the folder mods' scripts, so that they're reloaded as they're saved.
+/// Watches the folder mods' scripts and shaders, so that the scripts reload when either is saved.
+/// A player script registers its post effects again as it starts, which compiles a changed shader.
 pub const Watch = struct {
     /// When the newest of them last changed, as last seen; null before the first look.
     newest: ?i96 = null,
@@ -457,8 +458,8 @@ pub const Watch = struct {
     /// How often it looks.
     pub const interval = std.time.ns_per_s;
 
-    /// Whether a folder mod's script has changed since the last look, at `now`. It looks at most
-    /// every `interval`; the first look sees what there is.
+    /// Whether a folder mod's script or shader has changed since the last look, at `now`. It
+    /// looks at most every `interval`. The first look only notes what is there.
     pub fn changed(watch: *Watch, io: Io, opened: []const Mod, now: u64) bool {
         if (now < watch.next_at) return false;
         watch.next_at = now + interval;
@@ -468,10 +469,12 @@ pub const Watch = struct {
                 .folder => |*folder| folder,
                 .archive => continue,
             };
-            var names = mod.scripts();
-            while (names.next()) |name| {
-                const stat = folder.dir.statFile(io, name, .{}) catch continue;
-                newest = @max(newest, stat.mtime.nanoseconds);
+            for ([_]Mod.Names{ mod.scripts(), mod.shaders() }) |listed| {
+                var names = listed;
+                while (names.next()) |name| {
+                    const stat = folder.dir.statFile(io, name, .{}) catch continue;
+                    newest = @max(newest, stat.mtime.nanoseconds);
+                }
             }
         }
         defer watch.newest = newest;
@@ -535,6 +538,21 @@ test Watch {
     try std.testing.expect(!watch.changed(io, opened.list, Watch.interval - 1));
     try std.testing.expect(watch.changed(io, opened.list, Watch.interval));
     try std.testing.expect(!watch.changed(io, opened.list, 2 * Watch.interval));
+}
+
+test "the watch sees a folder mod's shaders" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const load = @import("load.zig");
+    try load.testing.makeMods(io, tmp.dir, &.{.{ "a", &.{ .{ "mod.ini", "[Mod]\nName=A\n" }, .{ "crt.frag", "" } } }});
+    var opened: engine.game.bigfile.Mods = try .open(std.testing.allocator, io, tmp.dir, null);
+    defer opened.close(std.testing.allocator);
+    var watch: Watch = .{};
+    // The mod has no script, so what the watch saw is the shader.
+    _ = watch.changed(io, opened.list, 0);
+    const stat = try tmp.dir.statFile(io, "mods/a/crt.frag", .{});
+    try std.testing.expectEqual(stat.mtime.nanoseconds, watch.newest.?);
 }
 
 test "the console runs its commands, and Luau in a mod's context" {

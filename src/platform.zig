@@ -8,6 +8,7 @@ pub const fonts = @import("platform/fonts.zig");
 pub const gpu = @import("platform/gpu.zig");
 pub const joystick = @import("platform/joystick.zig");
 pub const keyboard = @import("platform/keyboard.zig");
+pub const shader_cache = @import("platform/shader_cache.zig");
 pub const shader_compiler = @import("platform/shader_compiler.zig");
 pub const video = @import("platform/video.zig");
 pub const window = @import("platform/window.zig");

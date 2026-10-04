@@ -1,8 +1,8 @@
 //! The driver's side of the mods' post effects ([#559](https://github.com/OpenReliant/openreliant/issues/559)).
-//! It compiles the shaders the player scripts register (`platform.shader_compiler`), adds them to
-//! the GPU (`platform.gpu.effects`), and gives the GPU each frame's passes from the scripts
-//! (`scripting.postprocessing`). Effects draw on the GPU only: with the software device the scripts
-//! have no host, and their effects draw nothing.
+//! It compiles the shaders the player scripts register, or reads them from the shader cache
+//! (`platform.shader_cache`), adds them to the GPU (`platform.gpu.effects`), and gives the GPU each
+//! frame's passes from the scripts (`scripting.postprocessing`). Effects draw on the GPU only: with
+//! the software device the scripts have no host, and their effects draw nothing.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -16,6 +16,8 @@ const Screen = @import("presenter.zig").Screen;
 pub const PostEffects = struct {
     gpa: Allocator,
     screen: *Screen,
+    /// The compiled shaders kept in the game folder.
+    cache: platform.shader_cache.Cache,
     /// The scripts that register the effects, if any run.
     presentation: ?*scripting.Presentation,
     /// Whether the effects are drawn: the MOD EFFECTS setting (`--no-mod-effects`).
@@ -59,7 +61,7 @@ pub const PostEffects = struct {
 
     fn compile(context: *anyopaque, name: []const u8, source: []const u8) postprocessing.EffectHost.Compiled {
         const effects = from(context);
-        const result = platform.shader_compiler.compile(effects.gpa, name, source) catch return effects.failed("out of memory compiling the shader");
+        const result = effects.cache.compile(effects.gpa, name, source) catch return effects.failed("out of memory compiling the shader");
         defer result.deinit(effects.gpa);
         const code = switch (result) {
             .diagnostic => |text| return effects.failed(text),

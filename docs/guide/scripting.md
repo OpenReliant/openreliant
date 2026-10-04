@@ -135,6 +135,10 @@ post.set_enabled("crt", false)
   effects it registered are removed.
 - The mods can register at most 64 effects at once.
 - Effects draw on the GPU only. With `--software` they register and draw nothing.
+- Compiled shaders are kept in the game folder's `cache/shaders`, so a shader compiles again only
+  when it or OpenReliant's shader compiler changes. The folder can be deleted at any time.
+- In the developer mode, saving a folder mod's shader reloads its scripts, which compiles the
+  shader again ([Reloading](#reloading)).
 - MOD EFFECTS on the VIDEO tab, `ModEffects` in `starlancer.ini` and `--no-mod-effects` turn all
   the mods' effects off. GRAPHICS' presets leave the setting as it is.
 
@@ -806,15 +810,18 @@ wingmen global> exit
 
 ### Reloading
 
-In the developer mode, a folder mod's scripts reload as soon as one of them is saved, as `reload`
-reloads them:
+In the developer mode, a folder mod's scripts reload as soon as one of them or one of its shaders
+is saved, as `reload` reloads them:
 
 - Global and player scripts start again from their state, as a saved game would keep it
   ([Saved games](#saved-games)): `on_save` runs, and the new scripts get `on_load`.
 - Partway through a mission, its mission scripts start again, and so do the scripts on each of its
   objects, with `on_init` and then `on_added`, but no `on_mission_start` or `on_object_added`.
 - Menu scripts start again with `on_init`.
-- Load scripts and `mod.ini` are read only as OpenReliant starts, so they need a restart.
+- Player scripts register their post effects again, so a changed shader compiles and draws
+  ([Post effects](#post-effects)).
+- Load scripts and `mod.ini` are read only as OpenReliant starts, so they need a restart. So does
+  a file added to a folder mod.
 
 ## Values
 

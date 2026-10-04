@@ -54,6 +54,8 @@ pub fn build(b: *std.Build) void {
     platform.linkLibrary(shader_library);
     platform.addIncludePath(shader_library.getEmittedIncludeTree());
     platform.addCSourceFile(.{ .file = b.path("src/platform/shader_compiler.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
+    // The pinned versions of the libraries, which the shader cache's key covers.
+    platform.addAnonymousImport("shader-compiler.zon", .{ .root_source_file = b.path("deps/shader-compiler/build.zig.zon") });
     for ([_][]const u8{ "LICENSE-glslang.txt", "LICENSE-spirv-cross.txt" }) |notice| {
         b.getInstallStep().dependOn(&b.addInstallFile(shader_dependency.namedLazyPath(notice), notice).step);
     }

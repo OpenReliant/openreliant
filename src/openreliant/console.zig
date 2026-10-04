@@ -28,7 +28,7 @@ pub const Driver = struct {
     paused_mission: bool = false,
     /// The window's ticks at the last pass, which the pointer's animation runs by.
     ticks: u64 = 0,
-    /// The folder mods' scripts, which reload as they're saved.
+    /// Watches the folder mods' scripts and shaders, which reload the scripts when saved.
     watch: console_module.Watch = .{},
 
     /// The console, where a mod of `opened` has scripts.

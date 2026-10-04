@@ -166,6 +166,11 @@ pub const Mod = struct {
         return .{ .mod = mod, .keeps = isScript };
     }
 
+    /// The names of the mod's shaders (`shader_extensions`), in order.
+    pub fn shaders(mod: *const Mod) Names {
+        return .{ .mod = mod, .keeps = isShader };
+    }
+
     pub const Names = struct {
         mod: *const Mod,
         /// Which files to list.

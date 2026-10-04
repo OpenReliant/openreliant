@@ -280,7 +280,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     defer driver.deinit();
     // The mods' post effects: the player scripts register them, and the GPU draws them while MOD
     // EFFECTS is on. `stop` removes them before the GPU is destroyed.
-    var post_effects: PostEffects = .{ .gpa = gpa, .screen = screen, .presentation = presentation, .drawn = options.mod_effects };
+    var post_effects: PostEffects = .{
+        .gpa = gpa,
+        .screen = screen,
+        .cache = .{ .io = io, .root = directory },
+        .presentation = presentation,
+        .drawn = options.mod_effects,
+    };
     post_effects.start();
     defer post_effects.stop();
     var pacer: platform.window.Pacer = .{};
@@ -747,8 +753,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
         try game.winmain.followActivation(&app, pausing, play.loaded != null);
         if (output) |open| open.update();
         const size = try presenter.size();
-        // The scripting console, which takes the keys while it's up; the scripts reload as it
-        // asks, and as a folder mod's script is saved.
+        // The scripting console, which takes the keys while it's up. The scripts reload when it
+        // asks, and when a folder mod's script or shader is saved.
         if (console) |*shown| {
             devices.keyboard.read();
             const mission = !flow.in_front_end and play.loaded != null;
