@@ -5,9 +5,6 @@
 const std = @import("std");
 const libcmt = @import("../../libcmt.zig");
 const math = @import("../../surrender/math.zig");
-const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
-const srmesh = @import("../../surrender/surrenderlib/srmesh.zig");
-const shp = @import("../../../formats/shp.zig");
 const aigeneric = @import("../aigeneric.zig");
 const camera = @import("../camera.zig");
 const create = @import("../create.zig");
@@ -29,7 +26,8 @@ pub const Step = enum(i32) {
     end = 7,
     _,
 
-    /// Delay before the next step (`launch_yamato_run`, `0x00419840`).
+    /// How long the step waits for the next, in ticks (`launch_yamato_run`, `0x00419840`). The
+    /// last step waits for nothing.
     fn wait(step: Step) i32 {
         return switch (step) {
             .release => 100,
@@ -37,28 +35,23 @@ pub const Step = enum(i32) {
             .accelerate => 50,
             .clear => 150,
             .fly => 300,
-            .end, _ => unreachable,
-        };
-    }
-
-    /// Engine shake for the player's release, door opening and acceleration (`0x00419840`).
-    fn shake(step: Step) f32 {
-        return switch (step) {
-            .release => 0.1,
-            .open => 0.2,
-            .accelerate => 0.3,
-            .clear, .fly, .end, _ => unreachable,
+            .end, _ => 0,
         };
     }
 };
+
+/// The engine's shake as the player's ship lets go, as the hangar's doors open, and as it speeds
+/// up (`0x00419840`).
+const release_shake: f32 = 0.1;
+const open_shake: f32 = 0.2;
+const accelerate_shake: f32 = 0.3;
 
 /// The bay is child gate + 3; its doors are children gate * 2 + 31 and + 32
 /// (`0x00419339`, `0x0041935F`). Gates below 8 face the opposite side (`0x004193A6`).
 const first_bay = 3;
 const first_door = 31;
 const side_split = 8;
-/// **Improvement:** an exact quarter turn replaces the original's rounded angle (`0x004193AF`).
-const quarter_turn: f32 = std.math.pi / 2.0;
+const quarter_turn = launch.quarter_turn;
 /// Each bay has two doors (`0x0041935F`, `0x0041937D`), and the cutaway uses parts 0 and 1
 /// (`0x004198FD`). Its sound plays at the second door (`0x00419954`).
 const door_count = 2;
@@ -260,7 +253,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
                     emitter.born = now;
                     emitter.life = central_ticks;
                 }
-                world.shake.* = Step.release.shake();
+                world.shake.* = release_shake;
             }
             advance(state, .release, now);
         },
@@ -269,14 +262,14 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
                 world.player.showing = .launch;
                 const hangar = &all.slots[create.cutaway_slot];
                 playDoors(world, hangar, hangar_first_door, .{ .part = hangar_sound_door, .kind = .dooropen });
-                world.shake.* = Step.open.shake();
+                world.shake.* = open_shake;
                 sound3d.playIn(world, null, null, index, sound3d.engineSound(slot.object.type), 0, .player_engines);
             }
             advance(state, .open, now);
         },
         .accelerate => {
             slot.object.throttle = out_throttle;
-            if (player) world.shake.* = Step.accelerate.shake();
+            if (player) world.shake.* = accelerate_shake;
             if (slot.orders[0].target.slotIn(all)) |carrier| {
                 if (std.math.cast(usize, slot.orders[0].target.component)) |gate| {
                     const first = gate * door_count + first_door;
@@ -327,7 +320,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
 }
 
 fn advance(state: *launch.State, step: Step, now: i32) void {
-    state.advance(@enumFromInt(@intFromEnum(step) + 1), now, step.wait());
+    state.moveOn(step, now, step.wait());
 }
 
 fn switchView(world: gameobj.World, view: camera.View) void {
@@ -355,30 +348,10 @@ fn setMarker(world: gameobj.World, slot: *create.Slot) void {
     };
 }
 
-/// A Yamato model with bounds on every part and tracks on both tested bays' doors.
-/// Initialize it in place because its levels and tracks point into the fixture.
-const TestCarrier = struct {
-    mesh: srapiext.Mesh,
-    levels: [1]srapiext.Level,
-    tracks: [1]shp.Track,
-    parts: objects.testing.Parts(49),
-
-    fn init(carrier: *TestCarrier, gpa: std.mem.Allocator) !void {
-        carrier.mesh = try srmesh.testing.square(gpa);
-        carrier.mesh.bounds = .{ .{ -100, -200, -300 }, .{ 400, 600, 700 } };
-        carrier.levels = .{.{ .mesh = &carrier.mesh, .until = std.math.inf(f32) }};
-        carrier.tracks = .{.{ .clip = objects.testing.clip(100, .once, bay_style.door_track), .keyframes = &.{}, .events = &.{} }};
-        carrier.parts.init();
-        for (&carrier.parts.loaded_parts, &carrier.parts.data) |*part, *data| {
-            part.levels = &carrier.levels;
-            data.tracks = &carrier.tracks;
-        }
-    }
-
-    fn deinit(carrier: *TestCarrier, gpa: std.mem.Allocator) void {
-        carrier.mesh.deinit(gpa);
-    }
-};
+/// A Yamato's model for the tests: every part's level has these bounds, and every part the doors'
+/// track.
+const TestCarrier = launch.testing.Bounded(49);
+const test_bounds: [2]math.Vector = .{ .{ -100, -200, -300 }, .{ 400, 600, 700 } };
 
 test "the Yamato's bays place fighters on both sides and release them on schedule" {
     const gpa = std.testing.allocator;
@@ -386,7 +359,7 @@ test "the Yamato's bays place fighters on both sides and release them on schedul
     try mission.init(gpa);
     defer mission.deinit();
     var carrier_model: TestCarrier = undefined;
-    try carrier_model.init(gpa);
+    try carrier_model.init(gpa, test_bounds);
     defer carrier_model.deinit(gpa);
     _ = try mission.add(.predator, @splat(0));
     const carrier = try mission.add(.yamato, .{ 1000, 0, 10000 });
@@ -443,7 +416,7 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     try mission.init(gpa);
     defer mission.deinit();
     var carrier_model: TestCarrier = undefined;
-    try carrier_model.init(gpa);
+    try carrier_model.init(gpa, test_bounds);
     defer carrier_model.deinit(gpa);
     const player = try mission.add(.predator, @splat(0));
     const carrier = try mission.add(.yamato, .{ 1000, 0, 10000 });
@@ -467,11 +440,11 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
         try std.testing.expectEqual(central_ticks, emitter.life);
         try std.testing.expectEqual(mission.clock.frame_start, emitter.born);
     }
-    try std.testing.expectEqual(Step.release.shake(), mission.shake);
+    try std.testing.expectEqual(release_shake, mission.shake);
     launch.testing.pastDue(&mission, ctx, player);
-    try std.testing.expectEqual(Step.open.shake(), mission.shake);
+    try std.testing.expectEqual(open_shake, mission.shake);
     launch.testing.pastDue(&mission, ctx, player);
-    try std.testing.expectEqual(Step.accelerate.shake(), mission.shake);
+    try std.testing.expectEqual(accelerate_shake, mission.shake);
     launch.testing.pastDue(&mission, ctx, player);
     try std.testing.expect(display.caption.on);
     try std.testing.expectEqual(.everything, mission.player.showing);

@@ -171,10 +171,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             slot.object.pitch_input = 0;
         },
         .end => if (state.due < now) {
-            slot.object.throttle = 0;
-            slot.object.pitch_input = 0;
-            slot.object.yaw_input = 0;
-            slot.object.roll_input = 0;
+            slot.object.letGo();
             slot.motion = .forward;
             launch.letGo(ctx, index);
         },
@@ -329,7 +326,7 @@ test "a ship launches out of a bay, its doors opening and closing behind it" {
     launch.testing.pastDue(&bay.mission, ctx, bay.first);
     try std.testing.expectEqual(.forward, slot.motion.?);
     try std.testing.expectEqual(0, slot.object.throttle);
-    try std.testing.expect(slot.current() == null or slot.current().?.order != .launch);
+    try std.testing.expect(launch.testing.ended(slot));
     try std.testing.expectEqual(null, slot.riding);
 }
 

@@ -11,7 +11,7 @@
 //! ([`launch/rogue_base.zig`](launch/rogue_base.zig)), the Stork
 //! ([`launch/stork.zig`](launch/stork.zig)) and the Zakov ([`launch/zakov.zig`](launch/zakov.zig)).
 //! **Unverified:** the source-file assignment of the adjacent gate search, StartLaunch handler,
-//! style routines and launch-point placement. Their behavior matches this file's known code;
+//! style routines and launch-point placement. Their behaviour matches this file's known code;
 //! the next known source file is `tractor.cpp`.
 //! [Launches](../../../docs/engine/launch.md) describes them.
 
@@ -31,6 +31,8 @@ const gameobj = @import("gameobj.zig");
 const objects = @import("objects.zig");
 const videoreports = @import("videoreports.zig");
 const xtrabits = @import("xtrabits.zig");
+const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
+const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
 
 pub const badanov = @import("launch/badanov.zig");
 pub const bay = @import("launch/bay.zig");
@@ -157,7 +159,16 @@ pub const Step = enum(i32) {
         comptime assert(@typeInfo(@TypeOf(own)).@"enum".tag_type == i32);
         return @enumFromInt(@intFromEnum(own));
     }
+
+    /// The step after it.
+    pub fn next(step: Step) Step {
+        return @enumFromInt(@intFromEnum(step) + 1);
+    }
 };
+
+/// The quarter turn the Yamato's and the Badanov's styles turn a ship by about its Y axis
+/// (`0x004193AF`, `0x0041A00C`): the float nearest to half of pi, `0x3FC90FDB`.
+pub const quarter_turn: f32 = std.math.pi / 2.0;
 
 comptime {
     // Each style's own steps begin where the launch's leave off.
@@ -217,6 +228,12 @@ pub const State = extern struct {
     pub fn advance(state: *State, next: Step, now: i32, wait: i32) void {
         state.step = next;
         state.due = now + wait;
+    }
+
+    /// Moves on from the style's own step `from` to the one after it, which runs once `wait` more
+    /// ticks have passed from `now`.
+    pub fn moveOn(state: *State, from: anytype, now: i32, wait: i32) void {
+        state.advance(Step.of(from).next(), now, wait);
     }
 };
 
@@ -282,17 +299,17 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     ai.setTargetable(&slot.object, slot.combat, false);
 }
 
-/// `order_launch` (`0x004191C0`): the launch of the ship in slot `index`, an update at a time.
-/// Before its style's steps, a carrier gone, a stand-in or exploding, ends the ship with it
-/// (`ai.objectDestroyed`), save an escape pod leaving the Ulysses as it is lost. Once StartLaunch
-/// has it go (`Data.go`), the launch waits a random moment of up to `most_delay` ticks, drawn from
-/// the ship's own numbers (`xtrabits.objectRandom15`), then its style runs it from step 2. As the
-/// player's launch goes, the radio has its words (`videoreports.launchLine`).
+/// `order_launch` (`0x004191C0`): runs the launch of the ship in slot `index`, once an update.
+/// Until the style's own steps begin, a ship whose carrier is gone (a stand-in or exploding) is
+/// destroyed with it (`ai.objectDestroyed`). The exception is an escape pod leaving the Ulysses.
+/// Once StartLaunch sets `Data.go`, the launch waits a random delay of up to `most_delay` ticks,
+/// drawn from the ship's own numbers (`xtrabits.objectRandom15`), and then the style runs it from
+/// step 2. When the player's launch starts, the radio plays its line (`videoreports.launchLine`).
 ///
-/// **Fix:** the game reads the carrier of a Launch aimed at nothing through the word before its
-/// objects (`0x00587CDC`, `mission25_second_part`): its check for one, the assertion "Launch Crash
-/// Imminent" (`0x004191E6`), compares the sign-extended index with 0xFFFF and never stops it.
-/// OpenReliant lets the ship go (`letGo`).
+/// **Fix:** for a Launch aimed at nothing, the game reads the carrier from the word before its
+/// object table (`0x00587CDC`, `mission25_second_part`). Its assertion "Launch Crash Imminent"
+/// (`0x004191E6`) compares the sign-extended index with 0xFFFF, so it never fires. OpenReliant lets
+/// the ship go (`letGo`).
 pub fn update(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
@@ -332,15 +349,16 @@ pub fn finish(ctx: aigeneric.Context, index: u16) void {
     events.launched(ctx.world, index);
 }
 
-/// `launch_start` (`0x00418DB0`): the first Launch among the orders of the ship in slot `index`
-/// goes (`Data.go`), as StartLaunch has it; a ship with none is left as it is.
+/// `launch_start` (`0x00418DB0`): starts the first Launch among the orders of the ship in slot
+/// `index` (`Data.go`), as StartLaunch and the Kamov's LAUNCH MISSILE do. A ship without one is
+/// left alone.
 pub fn start(all: *create.Objects, index: u16) void {
     if (all.slots[index].firstOrder(.launch)) |entry| entry.data.launch.go = true;
 }
 
-/// Whether the ship in slot `index` drops out of its carrier's bay, or is about to: its current
-/// order is Launch, in the Reliant's style, its tube's lower door opened (`reliant.Step.drop` and
-/// on), as `camera_frame` reads the step for the bay's view.
+/// Whether the ship in slot `index` is dropping out of the Reliant, or about to: its current order
+/// is Launch in the Reliant's style, at `reliant.Step.drop` or later. `camera_frame` reads this for
+/// the bay's view.
 pub fn dropping(all: *const create.Objects, index: u16) bool {
     const slot = &all.slots[index];
     if (slot.running(.launch) == null) return false;
@@ -348,10 +366,10 @@ pub fn dropping(all: *const create.Objects, index: u16) bool {
     return state.style == .reliant and @intFromEnum(state.step) >= @intFromEnum(Step.of(reliant.Step.drop));
 }
 
-/// `mission_frame`'s placing of a ship riding its node (`0x00492C14`), once a frame before the
-/// ship's frame is drawn (`main.frameObjects`): where the current order of the ship in slot
-/// `index` is Launch, its carrier is not exploding and the ship rides its node, it stands on the
-/// node where its launch put it, turned as it was there. Whether it stood the ship there.
+/// `mission_frame`'s placing of a ship that rides a node (`0x00492C14`), once a frame before the
+/// ship is drawn (`main.frameObjects`). If the current order of the ship in slot `index` is Launch,
+/// its carrier isn't exploding and the ship rides its node, the ship is put back where the launch
+/// placed it on the node, turned as it was. Returns whether it placed the ship.
 pub fn hold(all: *create.Objects, index: u16) bool {
     const slot = &all.slots[index];
     const entry = slot.running(.launch) orelse return false;
@@ -367,12 +385,12 @@ pub fn hold(all: *create.Objects, index: u16) bool {
 
 // --- Launch points ------------------------------------------------------------------------------
 
-/// The launch points of a model (`launch_find_gate`, `launch_attach`): part by part as the root's
-/// child list holds them, each part's attachments in order, of kind `launch_point`, or of kind
-/// `pod` where the pod table holds no model at the part's own place.
+/// The launch points of a model (`launch_find_gate`, `launch_attach`), part by part in the order of
+/// the root's child list, and each part's attachments in order. A launch point is an attachment of
+/// kind `launch_point`, or of kind `pod` where the pod table has no model at the part's index.
 ///
-/// **Quirk:** the game looks the pods up by the place of the part that holds the attachment,
-/// rather than by the attachment's id, which names the pod it mounts.
+/// **Quirk:** the game looks pods up by the index of the part that holds the attachment, not by
+/// the attachment's id, which names the pod it mounts.
 pub const Points = objects.Model.RootAttachments(isPoint);
 
 /// A launch point, and the part that holds it.
@@ -386,19 +404,19 @@ fn isPoint(attachment: shp.Attachment, part: usize) bool {
     };
 }
 
-/// Whether the pod table holds no model at `place` (`attachment_models`, kind 5), which past its
-/// ids reads on into the next kinds', none of which holds one.
+/// Whether the pod table has no model at `place` (`attachment_models`, kind 5). Past the pods' ids
+/// the game reads on into the next kinds' entries, none of which has a model.
 fn podless(place: usize) bool {
     const id = std.math.cast(u32, place) orelse return true;
     const entry = models.attachment(.pod, id) orelse return true;
     return entry.model == null;
 }
 
-/// `launch_find_gate` (`0x00418DF0`), the search for a gate that `init` runs over each ship its
-/// order's target names (`ai.eachShip`): each ship it visits becomes the carrier, its gate
-/// starting again from 0, and each of the ship's launch points (`Points`) takes one off the
-/// sequence, which counts on from ship to ship. The point that takes it below 0 ends the search,
-/// its place among the ship's points the gate.
+/// `launch_find_gate` (`0x00418DF0`): the search for a gate that `init` runs over each ship the
+/// order's target names (`ai.eachShip`). Each ship it visits becomes the carrier, with the gate
+/// counted from 0 again, and each of its launch points (`Points`) takes one off the sequence, which
+/// carries on from ship to ship. The point that takes the sequence below 0 ends the search, and its
+/// index among that ship's points is the gate.
 const GateSearch = struct {
     all: *const create.Objects,
     state: *State,
@@ -420,12 +438,12 @@ const GateSearch = struct {
 };
 
 /// `launch_attach` (`0x0041B9F0`): places the ship in slot `index` at launch point `gate` of the
-/// object in slot `on`, counting from 0 over the object's points (`Points`): its centre of mass
-/// stands at the point, and it is turned as the point is. The part holding the point becomes the
-/// node the ship rides (`State.node`, `create.Slot.riding`). Where the object has no such point,
-/// the ship stays where it is. The game reads the gate from the component of the ship's order's
-/// target, which `launch_reliant_init` overwrites with the hangar's point and restores after
-/// (`0x0041B15E`, `0x0041B174`, `0x0041B206`); OpenReliant passes it.
+/// object in slot `on`, counting from 0 over its points (`Points`). The ship's centre of mass stands
+/// at the point and it is turned as the point is, and it rides the part that holds the point
+/// (`State.node`, `create.Slot.riding`). If the object has no such point, the ship stays where it
+/// is. The game reads the gate from the component of the ship's order's target, which
+/// `launch_reliant_init` overwrites with the hangar's point and then restores (`0x0041B15E`,
+/// `0x0041B174`, `0x0041B206`). OpenReliant passes the gate instead.
 pub fn attach(all: *create.Objects, index: u16, on: u16, gate: i16) void {
     const slot = &all.slots[index];
     const holder = &all.slots[on];
@@ -512,6 +530,42 @@ pub const testing = struct {
             carrier.parts.data[2].attachments = carrier.attachments[4..5];
         }
     };
+
+    /// A carrier's model of `count` parts, each drawing a level with the bounds `init` gives and
+    /// holding the doors' track (`objects.door_track`), for the styles that place a ship by a
+    /// part's bounds. Set it up where it stays, as its records point into it.
+    pub fn Bounded(comptime count: usize) type {
+        return struct {
+            mesh: srapiext.Mesh,
+            levels: [1]srapiext.Level,
+            tracks: [1]shp.Track,
+            parts: objects.testing.Parts(count),
+
+            const Model = @This();
+
+            pub fn init(model: *Model, gpa: std.mem.Allocator, bounds: [2]math.Vector) !void {
+                model.mesh = try srmesh.testing.square(gpa);
+                model.mesh.bounds = bounds;
+                model.levels = .{.{ .mesh = &model.mesh, .until = std.math.inf(f32) }};
+                model.tracks = .{.{ .clip = objects.testing.clip(100, .once, objects.door_track), .keyframes = &.{}, .events = &.{} }};
+                model.parts.init();
+                for (&model.parts.loaded_parts, &model.parts.data) |*part, *data| {
+                    part.levels = &model.levels;
+                    data.tracks = &model.tracks;
+                }
+            }
+
+            pub fn deinit(model: *Model, gpa: std.mem.Allocator) void {
+                model.mesh.deinit(gpa);
+            }
+        };
+    }
+
+    /// Whether the launch of the ship in `slot` is over: its current order is no longer Launch.
+    pub fn ended(slot: *const create.Slot) bool {
+        const entry = slot.current() orelse return true;
+        return entry.order != .launch;
+    }
 
     /// Moves the clock past the wait of the launch of the ship in slot `index`, and runs its
     /// orders once.

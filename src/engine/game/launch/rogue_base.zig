@@ -101,5 +101,5 @@ test "a ship backs out of the rogue base" {
     try std.testing.expectEqual(0, slot.object.throttle);
     try std.testing.expectEqual(0, slot.object.yaw_input);
     try std.testing.expectEqual(null, slot.object.passes_through[0].index());
-    try std.testing.expect(slot.current() == null or slot.current().?.order != .launch);
+    try std.testing.expect(launch.testing.ended(slot));
 }

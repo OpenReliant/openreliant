@@ -1,6 +1,6 @@
 //! A torpedo's launch from its tube (`launch_torpedo_init`, `0x0041A360`, and `launch_torpedo_run`,
-//! `0x0041A390`), whatever launches it: it waits at one of its carrier's launch points, then boosts
-//! away at twice its speed, trailing, before it flies itself.
+//! `0x0041A390`), whatever launches it. It waits at one of its carrier's launch points, boosts away
+//! at throttle 2 trailing smoke, and then flies itself.
 
 const std = @import("std");
 const log = std.log.scoped(.launch);
@@ -26,10 +26,10 @@ const boost_ticks = 200;
 /// The throttle it boosts at (`0x0041A454`).
 const boost_throttle: f32 = 2;
 
-/// The sound it leaves the tube with, as loud as it goes (`0x0041A410`).
+/// The sound it leaves the tube with, at full volume (`0x0041A410`).
 const fire_sound: sound3d.sounds.Sound = .missile10;
 
-/// The look of its trail, a torpedo's (`0x0041A49C`).
+/// Its trail: a torpedo's (`0x0041A49C`).
 const trail_look: missiles.Type = .torpedo;
 
 /// `launch_torpedo_init` (`0x0041A360`): the torpedo in slot `index` collides with nothing, and
@@ -40,11 +40,10 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     launch.attachAtGate(ctx, index, carrier);
 }
 
-/// `launch_torpedo_run` (`0x0041A390`): as its launch reaches step 2, the torpedo in slot `index`
-/// lets go of its tube, heard, and boosts away along its nose at `boost_throttle`
-/// (`motion.Motion.plain`), steering nothing, from its carrier's velocity, trailing smoke as a
-/// torpedo does. Once the boost has lasted `boost_ticks`, it flies itself, collides again, and
-/// its launch ends (`launch.finish`).
+/// `launch_torpedo_run` (`0x0041A390`): at step 2 the torpedo in slot `index` leaves its tube with a
+/// sound and boosts away along its nose at `boost_throttle` (`motion.Motion.plain`). It starts with
+/// its carrier's velocity, doesn't steer and trails a torpedo's smoke. Once the boost has lasted
+/// `boost_ticks`, it flies itself, collides again and the launch ends (`launch.finish`).
 pub fn run(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;

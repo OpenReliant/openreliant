@@ -167,7 +167,7 @@ test run {
     launch.testing.pastDue(&mission, ctx, pod);
     try std.testing.expectEqual(0, slot.object.throttle);
     try std.testing.expectEqual(.forward, slot.motion.?);
-    try std.testing.expect(slot.current() == null or slot.current().?.order != .launch);
+    try std.testing.expect(launch.testing.ended(slot));
     try std.testing.expectEqual(null, slot.riding);
     try std.testing.expect(slot.object.flags.targetable);
     try std.testing.expect(slot.object.passes_through[0].index() != null);
@@ -200,6 +200,6 @@ test runOther {
     try std.testing.expectEqual(0, slot.object.throttle);
     try std.testing.expectEqual(0, slot.object.yaw_input);
     try std.testing.expectEqual(.forward, slot.motion.?);
-    try std.testing.expect(slot.current() == null or slot.current().?.order != .launch);
+    try std.testing.expect(launch.testing.ended(slot));
     try std.testing.expect(slot.object.passes_through[0].index() != null);
 }

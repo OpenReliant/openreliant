@@ -1,6 +1,6 @@
 //! A ship's launch from the Zakov (`launch_zakov_init`, `0x0041B8B0`, and `launch_zakov_run`,
-//! `0x0041B940`): it waits on one of the Zakov's launch points, then flies straight out along its
-//! nose at twice its throttle for a second before it flies itself.
+//! `0x0041B940`). The ship waits at one of the Zakov's launch points, flies straight out along its
+//! nose at throttle 2 for a second, and then flies itself.
 
 const std = @import("std");
 
@@ -13,7 +13,7 @@ const launch = @import("../launch.zig");
 pub const Step = enum(i32) {
     /// It lets go of the Zakov.
     leave = 2,
-    /// It flies straight out, until it has for `out_ticks`.
+    /// It flies straight out until `out_ticks` have passed.
     out = 3,
     _,
 };
@@ -34,10 +34,10 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     objects.setPosition(&slot.object, &slot.drawn, slot.drawn.point(.{ 0, 0, -slot.object.bounds_min.z }));
 }
 
-/// `launch_zakov_run` (`0x0041B940`): as its launch reaches step 2, the ship in slot `index` lets
-/// go of the Zakov and flies straight out along its nose at `out_throttle` (`motion.Motion.plain`).
-/// Once it has flown out for longer than `out_ticks`, it flies itself, with its throttle and its
-/// yaw input zeroed, and its launch ends (`launch.finish`).
+/// `launch_zakov_run` (`0x0041B940`): at step 2 the ship in slot `index` lets go of the Zakov and
+/// flies straight out along its nose at `out_throttle` (`motion.Motion.plain`). After `out_ticks`, it
+/// flies itself with its throttle and yaw input at 0, and the launch ends (`launch.finish`). It keeps
+/// passing through the Zakov.
 pub fn run(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];

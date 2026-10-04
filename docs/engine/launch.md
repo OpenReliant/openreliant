@@ -18,14 +18,16 @@ runs all ten styles.
 ## How a launch is given
 
 A mission's ship record that names a gate (`launch_gate`, [DTE](../formats/dte.md)) launches from
-the first of the mission's ships of the kind it names (`launch_from`): as the ship is made
-(`mission_ship_create`), it takes a Launch order aimed at that ship through the gate, which starts at
-once ([Missions](missions.md#the-ships)). Every campaign mission launches the player's wing so, from
-the Reliant or the Yamato, and the Badanov too in missions 27 and 271. A mission's script gives a
-launch with `SetupLaunch` (command `0x13`): each ship its first argument names takes a Launch aimed
-at what the second names. A ship there goes through the gate the third gives, one on for each ship
-the command reached before it; a flight group or a squad is searched for a gate (below), each order
-numbered in turn as it is given ([Orders](orders.md#the-stack)).
+the first of the mission's ships of the kind it names (`launch_from`). When the ship is made
+(`mission_ship_create`), it gets a Launch order aimed at that ship through the gate, which starts at
+once ([Missions](missions.md#the-ships)). Every campaign mission launches the player's wing this way,
+from the Reliant or the Yamato, and from the Badanov too in missions 27 and 271.
+
+A mission's script gives a launch with `SetupLaunch` (command `0x13`). Each ship its first argument
+names gets a Launch aimed at what the second names. If that is a ship, the gate is the third
+argument plus one for each ship the command reached before. If it is a flight group or a squad,
+the launch searches it for a gate (below), using the order's number among those the command gave
+([Orders](orders.md#the-stack)).
 
 A launch waits until `StartLaunch` (command `0x14`) starts it: `launch_start` (`0x00418DB0`) sets
 the first byte of the data of the first Launch among the ship's orders. In mission 25 the player's
@@ -41,15 +43,15 @@ then runs again with the push of its argument before it.
 
 `order_launch_init`:
 
-1. Where the order is aimed at a flight group or a squad, or at a ship with no gate, the search for a
-   gate walks the ships the target names (`order_target_walk`, `0x00401CB0`, and `squad_walk`,
-   `0x00401D80`, [Orders](orders.md#targets-that-name-several-ships)) with `launch_find_gate`
-   (`0x00418DF0`): each ship it reaches becomes the carrier, its gate counted from 0 again, and each
-   of its [launch points](#launch-points) takes one off the order's number, which counts on from
-   ship to ship. The point that takes it below 0 is the gate. The carrier's slot and the gate go
-   into the order's target, whose kind stays as it was: from then on the launch takes the target's
-   index for the carrier's slot.
-2. The style follows from the ship's type and its carrier's:
+1. If the order is aimed at a flight group, a squad or a ship without a gate, `launch_find_gate`
+   (`0x00418DF0`) searches the ships the target names (`order_target_walk`, `0x00401CB0`, and
+   `squad_walk`, `0x00401D80`, [Orders](orders.md#targets-that-name-several-ships)). Each ship it
+   reaches becomes the carrier, with the gate counted from 0 again, and each of its
+   [launch points](#launch-points) takes one off the order's number, which carries on from ship to
+   ship. The point that takes the number below 0 is the gate. The carrier's slot and the gate are
+   written into the order's target, whose kind stays as it was, and the launch reads the carrier's
+   slot from the target's index from then on.
+2. The ship's type and its carrier's pick the style:
 
    | Style | Of | Routines |
    |---|---|---|
@@ -62,28 +64,28 @@ then runs again with the push of its argument before it.
    | 6 | A ship from the Reliant | `launch_reliant_init` (`0x0041AE20`), `launch_reliant_run` (`0x0041B240`) |
    | 7 | The other escape pod (`0x90`) | `launch_point_init` (`0x0041A4B0`), `launch_pod_other_run` (`0x0041B690`) |
    | 8 | A ship from the rogue base's first six gates | `launch_rogue_init` (`0x0041B770`), `launch_rogue_run` (`0x0041B7F0`) |
-   | 9 | A ship from the Zakov | `0x0041B8B0`, `0x0041B940` |
+   | 9 | A ship from the Zakov | `launch_zakov_init` (`0x0041B8B0`), `launch_zakov_run` (`0x0041B940`) |
 
    The table of the styles' routines is at `0x004E3C98`, 24 bytes a style. From any other carrier,
    the game stops with the assertion "Error: Trying to launch from %s".
-3. The style's first routine places the ship and names the node it rides: its carrier's root, or the
+3. The style's first routine places the ship and picks the node it rides: its carrier's root, or the
    part of a model that holds a launch point.
-4. The ship rides the node: the order keeps where it stands in the node's frame and how it is turned
-   there, it passes through its carrier (its first pass-through slot), and it cannot be targeted.
+4. The ship rides the node. The order keeps the ship's position and orientation in the node's frame,
+   the ship passes through its carrier (its first pass-through slot), and it can't be targeted.
 
-`order_launch`, before the style's own steps: a carrier gone, a stand-in or exploding, ends the ship
-with it (`object_destroyed_net`), save an escape pod leaving the Ulysses as it is lost. Once
-`StartLaunch` has it go, the launch waits a moment, up to 200 ticks, drawn from the ship's own
-numbers (`object_random15`), and then the style runs it from step 2. As the player's launch goes,
-the radio has its words (`radio_launch_line`, `0x00456E50`, [The radio](radio.md#remarks)): the
-flight instructor's in training, and otherwise those of the carrier's bridge officer, the
-Reliant's or the Yamato's.
+Until the style's own steps begin, `order_launch` destroys a ship whose carrier is gone (a stand-in
+or exploding) along with it (`object_destroyed_net`). The exception is an escape pod leaving the
+Ulysses. Once `StartLaunch` starts the launch, it waits a random delay of up to 200 ticks, drawn
+from the ship's own numbers (`object_random15`), and then the style runs it from step 2. When the
+player's launch starts, the radio plays a line (`radio_launch_line`, `0x00456E50`,
+[The radio](radio.md#remarks)): the flight instructor's in training, and otherwise the bridge
+officer's of the carrier, the Reliant or the Yamato.
 
-Each frame, `mission_frame`'s pass over the objects places a ship that rides its node (`0x00492C14`),
-where its current order is Launch and its carrier is not exploding: it stands on the node where its
-launch put it, turned as it was there. The pass takes the objects in slot order, so a ship riding a
-node that the pass frames after it stands where the node was the frame before: the player's ship
-trails the hangar's retainer as it lowers the ship. **Improvement:** OpenReliant places each riding
+Each frame, `mission_frame`'s pass over the objects places each ship that rides a node
+(`0x00492C14`), if its current order is Launch and its carrier isn't exploding. The ship goes back
+to where the launch placed it on the node, turned as it was. The pass takes the objects in slot
+order, so a ship riding a node that is updated after it stands where the node was the frame
+before: the player's ship trails a frame behind the hangar's retainer as it lowers the ship. **Improvement:** OpenReliant places each riding
 ship on its node again once every object is framed, so that it keeps with the retainer;
 `--original` leaves it a frame behind.
 
@@ -96,25 +98,25 @@ order's number the search counts down at `+0x44`, and the carrier and the gate t
 ## Launch points
 
 A launch point is a model's attachment of kind 8 ([SHP](../formats/shp.md#attachment-point-tag-0x09)),
-or of kind 5, a pod's, where the pod table holds no model for the place of the part that holds it.
-**Quirk:** the game looks the pod table up by the part's place rather than by the attachment's id,
-which names the pod it mounts. The points are counted part by part as the root's child list holds
-them, each part's attachments in order.
+or of kind 5 (a pod's) where the pod table has no model at the index of the part that holds it.
+**Quirk:** the game looks the pod table up by the part's index, not by the attachment's id, which
+names the pod it mounts. The points are counted part by part in the order of the root's child list,
+and each part's attachments in order.
 
-`launch_attach` (`0x0041B9F0`) places a ship at the point of an object that its order's target names
-by its component: the ship's centre of mass stands at the point, and it is turned as the point is.
-The part that holds the point becomes the node the ship rides. The styles of the torpedoes, the
-hangar bays, the escape pods, the Stork and the Zakov place their ships this way, and so does the
-Reliant's style for the player's ship.
+`launch_attach` (`0x0041B9F0`) places a ship at the launch point that the component of its order's
+target names. The ship's centre of mass stands at the point and it is turned as the point is, and it
+rides the part that holds the point. The styles of the torpedoes, the hangar bays, the escape pods,
+the Stork, the rogue base and the Zakov place their ships this way, and so does the Reliant's style
+for the player's ship in the hangar.
 
 ## The Reliant's launch
 
 The Reliant has six tubes, each between a door below and a door above: parts `gate` and `gate + 6` of
-its root's child list. `launch_reliant_init` stands the ship halfway between the middles of the two
-doors, each the middle of the bounds of the level its part last drew, moved 400 across in the door's
-frame (`0x004DC5A8`), to the right for a gate of even number and to the left for an odd, and turns
-it as the Reliant turns next. The ship rides the Reliant's root, its steering and its throttle
-nothing.
+its root's child list. `launch_reliant_init` places the ship halfway between the middles of the two
+doors. Each door's middle is the middle of the bounds of the level its part last drew, moved 400 to
+the side in the door's frame (`0x004DC5A8`): to the right for an even gate and to the left for an
+odd one. The ship is turned as the Reliant will be next, and rides the Reliant's root with its
+throttle and steering at 0.
 
 For the player's ship, the Reliant becomes the ship the player launched from (`0x0057E05C`). When
 that ship explodes, the first Yamato among the objects takes its place (`mission_frame`,
@@ -284,9 +286,8 @@ With `size` as the bounds' extent and `middle` as their midpoint, its local coor
   `middle.z + (gate - 7) * size.z / 5` for gates 5 to 9.
 
 It starts with the part's orientation, turns a quarter turn about Y (positive for gates
-below 5, negative otherwise), then tilts its nose down by 0.37699112 radians about X.
-**Improvement:** OpenReliant uses an exact quarter turn in this style and the Yamato's,
-instead of the original's rounded angle.
+below 5, negative otherwise), then tilts its nose down by 0.37699112 radians about X. The quarter
+turn here and in the Yamato's style is `0x3FC90FDB`, the float nearest to half of pi.
 
 From step 2 (`launch_badanov_run`, `0x0041A100`):
 

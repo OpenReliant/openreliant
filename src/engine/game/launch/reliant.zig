@@ -19,8 +19,8 @@ const objects = @import("../objects.zig");
 const sound3d = @import("../sound3d.zig");
 const launch = @import("../launch.zig");
 
-/// A launch's steps from the Reliant, each named for what it does as it runs, once the wait the
-/// step before set has passed (`launch.State.due`).
+/// The steps of a launch from the Reliant, each named for what it does. Each runs once the wait set
+/// by the step before has passed (`launch.State.due`).
 pub const Step = enum(i32) {
     /// The ship's engine starts, for the player's with a shake, the cutaway is picked, and the
     /// tube's upper door shows.
@@ -42,11 +42,6 @@ pub const Step = enum(i32) {
     /// The launch ends.
     end = 10,
     _,
-
-    /// The step after it.
-    fn next(step: Step) Step {
-        return @enumFromInt(@intFromEnum(step) + 1);
-    }
 };
 
 /// How long each step waits for the next, in ticks (`launch_reliant_run`, `0x0041B287`,
@@ -160,12 +155,12 @@ const opened_sample = 5;
 const sample_volume = 127;
 
 /// `launch_reliant_init` (`0x0041AE20`): readies the ship in slot `index` to launch from the
-/// Reliant in slot `carrier`, through the gate its order's target names by its component. It
-/// rides the Reliant's root, its steering and its throttle nothing, and stands in its tube
-/// (`tube`), turned as the Reliant turns next. The player's ship's launch shows the hangar
-/// (`showHangar`), in which it rides the retainer; the Reliant becomes the ship the player launched
-/// from (`input.Player.carrier`), which the cutaway leaves out, and the camera takes view 0 in the
-/// cockpit mode, locked.
+/// Reliant in slot `carrier`, through the gate the component of its order's target names. The ship
+/// rides the Reliant's root with its throttle and steering at 0, standing in its tube (`tube`) and
+/// turned as the Reliant will be next. For the player's ship, the hangar shows (`showHangar`) and
+/// the ship rides its retainer; the Reliant becomes the ship the player launched from
+/// (`input.Player.carrier`), which the cutaway leaves out; and the camera is locked in view 0 in
+/// the cockpit mode.
 ///
 /// **Fix:** the game reads through a tube door the Reliant's model lacks; OpenReliant leaves the
 /// ship where it stands.
@@ -194,17 +189,17 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     world.player.showing = .launch;
 }
 
-/// Where a ship launching through `gate` stands in `reliant`: in the middle of the gate's tube
-/// (`tubeMiddle`), `tube_offset` across. Null where the gate is none, or the Reliant's model lacks
-/// either door, or its part has no level.
+/// Where a ship launching through `gate` stands in `reliant`: the middle of the gate's tube
+/// (`tubeMiddle`), `tube_offset` to the side. Null if the gate is negative, the Reliant's model
+/// lacks either door, or a door's part has no level.
 fn tube(reliant: *const create.Slot, gate: i16) ?math.Vector {
     const number = std.math.cast(usize, gate) orelse return null;
     const across: f32 = if (evenGate(gate)) tube_offset else -tube_offset;
     return tubeMiddle(reliant, number, across);
 }
 
-/// Whether `gate` is of even number: its tube's middle lies to the right (`0x0041AF2D`), the
-/// hangar turns half a turn with it (`0x0041B0FC`), and the bay's view stands on the ship's left
+/// Whether `gate` is even. For an even gate the tube's middle lies to the right (`0x0041AF2D`), the
+/// hangar is turned half a turn (`0x0041B0FC`), and the bay's view stands on the ship's left
 /// (`camera.Camera.setLaunch`).
 fn evenGate(gate: i16) bool {
     return @mod(gate, 2) == 0;
@@ -260,8 +255,8 @@ fn showHangar(ctx: aigeneric.Context, index: u16, gate: i16, in_tube: math.Vecto
     launch.attach(all, index, hangar, point);
 }
 
-/// `launch_reliant_run` (`0x0041B240`): the launch of the ship in slot `index` from the Reliant, a
-/// step (`Step`) each time the wait the last set has passed:
+/// `launch_reliant_run` (`0x0041B240`): runs the launch of the ship in slot `index` from the
+/// Reliant, one step (`Step`) each time the last step's wait has passed:
 ///
 /// 1. `start`: for the player's ship, the engine starts sounding with a shake, one of the three
 ///    cutaways is picked from the runtime's numbers (`Cutaway.pick`), the bay's view taking the
@@ -373,7 +368,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
 
 /// Moves on from step `from` to the next, which runs once `from`'s wait has passed from `now`.
 fn moveOn(state: *launch.State, from: Step, now: i32) void {
-    state.advance(.of(from.next()), now, wait(from));
+    state.moveOn(from, now, wait(from));
 }
 
 /// The door `door` of the tube the ship in `slot` launches through, its order's gate, in its

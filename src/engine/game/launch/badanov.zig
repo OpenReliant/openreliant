@@ -7,13 +7,10 @@ const std = @import("std");
 const log = std.log.scoped(.launch);
 
 const math = @import("../../surrender/math.zig");
-const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
-const srmesh = @import("../../surrender/surrenderlib/srmesh.zig");
 const aigeneric = @import("../aigeneric.zig");
 const create = @import("../create.zig");
 const gameobj = @import("../gameobj.zig");
 const objects = @import("../objects.zig");
-const shp = @import("../../../formats/shp.zig");
 const sound3d = @import("../sound3d.zig");
 const xtrabits = @import("../xtrabits.zig");
 const bay = @import("bay.zig");
@@ -48,10 +45,10 @@ const along_share: f32 = 0.2;
 const first_gate_near: f32 = 2;
 const first_gate_far: f32 = 7;
 
-/// The ship's nose is turned a quarter turn about the part's Y axis, one way for each side, then
-/// down about its X axis by `tilt` (`0x0041A00C`, `0x0041A051`, `0x0041A09D`): 21.6 degrees.
-/// **Improvement:** use an exact quarter turn instead of the original's rounded angle.
-const quarter_turn: f32 = std.math.pi / 2.0;
+/// The ship's nose is turned a quarter turn about the part's Y axis (`launch.quarter_turn`), one way
+/// for each side, then down about its X axis by `tilt` (`0x0041A00C`, `0x0041A051`, `0x0041A09D`):
+/// 21.6 degrees.
+const quarter_turn = launch.quarter_turn;
 const tilt: f32 = -0.37699112;
 
 /// How long the doors take to open, in ticks: `open_ticks` and up to `open_spread` more, drawn from
@@ -151,38 +148,18 @@ fn openDoors(world: gameobj.World, carrier: *create.Slot) void {
     sound3d.playFrom(world, first.drawn(), .dooropen, .not_reserved);
 }
 
-const testing = struct {
-    /// A five-part model: bay 4 has bounds 200 wide and high, 600 long; doors 1 and 2 have
-    /// an opening track. Initialize it in place because its records point into it.
-    const Badanov = struct {
-        mesh: srapiext.Mesh,
-        levels: [1]srapiext.Level,
-        tracks: [1]shp.Track,
-        parts: objects.testing.Parts(5),
-
-        fn init(badanov: *Badanov, gpa: std.mem.Allocator) !void {
-            badanov.mesh = try srmesh.testing.square(gpa);
-            badanov.mesh.bounds = .{ .{ -100, -100, -300 }, .{ 100, 100, 300 } };
-            badanov.levels = .{.{ .mesh = &badanov.mesh, .until = std.math.inf(f32) }};
-            badanov.tracks = .{.{ .clip = objects.testing.clip(100, .once, bay.door_track), .keyframes = &.{}, .events = &.{} }};
-            badanov.parts.init();
-            badanov.parts.loaded_parts[bay_part].levels = &badanov.levels;
-            for (doors) |door| badanov.parts.data[door].tracks = &badanov.tracks;
-        }
-
-        fn deinit(badanov: *Badanov, gpa: std.mem.Allocator) void {
-            badanov.mesh.deinit(gpa);
-        }
-    };
-};
+/// A Badanov's model for the tests: its bay (part 4) 200 wide and high and 600 long, and its
+/// doors (parts 1 and 2) with the doors' track.
+const TestBadanov = launch.testing.Bounded(5);
+const test_bounds: [2]math.Vector = .{ .{ -100, -100, -300 }, .{ 100, 100, 300 } };
 
 test openDoors {
     const gpa = std.testing.allocator;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    var badanov_model: testing.Badanov = undefined;
-    try badanov_model.init(gpa);
+    var badanov_model: TestBadanov = undefined;
+    try badanov_model.init(gpa, test_bounds);
     defer badanov_model.deinit(gpa);
     const badanov = try mission.add(.badanov, .{ 0, 0, 10000 });
     try badanov_model.parts.fit(gpa, mission.slot(badanov));
@@ -209,8 +186,8 @@ test "a ship launches from the Badanov's bay" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    var badanov_model: testing.Badanov = undefined;
-    try badanov_model.init(gpa);
+    var badanov_model: TestBadanov = undefined;
+    try badanov_model.init(gpa, test_bounds);
     defer badanov_model.deinit(gpa);
     _ = try mission.add(.predator, @splat(0));
     const badanov = try mission.add(.badanov, .{ 0, 0, 10000 });
@@ -268,5 +245,5 @@ test "a ship launches from the Badanov's bay" {
     try std.testing.expectEqual(0, slot.object.throttle);
     try std.testing.expectEqual(0, slot.object.yaw_input);
     try std.testing.expectEqual(null, slot.object.passes_through[0].index());
-    try std.testing.expect(slot.current() == null or slot.current().?.order != .launch);
+    try std.testing.expect(launch.testing.ended(slot));
 }
