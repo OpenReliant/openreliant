@@ -17,7 +17,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Sha256 = std.crypto.hash.sha2.Sha256;
+const XxHash3 = std.hash.XxHash3;
 
 const png = @import("../../../../formats/png.zig");
 const dds = @import("../../../../formats/dds.zig");
@@ -83,7 +83,7 @@ const Read = struct {
 
     /// The key of what these files make at the longest side `longest`.
     fn key(read: *const Read, longest: u32) Compressor.Key {
-        var hash: Sha256 = .init(.{});
+        var hash: XxHash3 = .init(0);
         hash.update(std.mem.asBytes(&kept_version));
         hash.update(std.mem.asBytes(&longest));
         const files = [_]?File{read.picture} ++ read.maps.values;
@@ -94,7 +94,7 @@ const Read = struct {
             hash.update(std.mem.asBytes(&@as(u64, file.bytes.len)));
             hash.update(file.bytes);
         }
-        return hash.finalResult();
+        return hash.final();
     }
 };
 
@@ -388,10 +388,7 @@ fn compressLevels(gpa: Allocator, compressor: Compressor, levels: *[]const Level
     return true;
 }
 
-fn freeLevels(gpa: Allocator, levels: []const Level) void {
-    for (levels) |level| gpa.free(level.texels);
-    gpa.free(levels);
-}
+const freeLevels = srtexture.freeLevels;
 
 /// A PNG file `side` pixels square, every pixel `rgba`, for the tests.
 fn testPng(gpa: Allocator, side: u32, rgba: [4]u8) ![]u8 {

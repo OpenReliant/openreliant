@@ -169,7 +169,8 @@ pub const Image = struct {
     }
 };
 
-fn freeLevels(gpa: Allocator, levels: []const Level) void {
+/// Frees `levels` and their pixels.
+pub fn freeLevels(gpa: Allocator, levels: []const Level) void {
     for (levels) |l| gpa.free(l.texels);
     gpa.free(levels);
 }
@@ -270,7 +271,7 @@ pub const Compressor = struct {
     };
 
     /// What `load` and `store` check a kept picture by: a hash of its files and the texture detail.
-    pub const Key = [32]u8;
+    pub const Key = u64;
 
     pub const VTable = struct {
         /// `level`, 8-bit RGBA, compressed as `kind`, its texels in `gpa`.

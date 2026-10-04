@@ -23,6 +23,7 @@ const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
 const Level = srtexture.Level;
 const Image = srtexture.Image;
 const Compressor = srtexture.Compressor;
+const texels = openreliant.texels;
 const texture_compressor = @import("texture_compressor.zig");
 
 const log = std.log.scoped(.textures);
@@ -53,7 +54,7 @@ const Header = extern struct {
     size: u64,
 
     comptime {
-        std.debug.assert(@sizeOf(Header) == 56);
+        std.debug.assert(@sizeOf(Header) == 32);
     }
 };
 
@@ -109,8 +110,8 @@ pub const Store = struct {
         const sets = setsOf(image);
         var check: XxHash3 = .init(0);
         var size: u64 = 0;
-        var table: [set_count * (1 + 17 * 2)][]const u8 = undefined;
-        var headers: [set_count][17]LevelHeader = undefined;
+        var table: [set_count * (1 + texels.max_levels * 2)][]const u8 = undefined;
+        var headers: [set_count][texels.max_levels]LevelHeader = undefined;
         var counts: [set_count]u32 = undefined;
         var parts: usize = 0;
         for (sets, &headers, &counts) |levels, *made, *count| {
@@ -157,7 +158,7 @@ fn decode(gpa: Allocator, bytes: []const u8, key: *const Compressor.Key, takes: 
     if (bytes.len < @sizeOf(Header)) return null;
     const header = std.mem.bytesToValue(Header, bytes[0..@sizeOf(Header)]);
     if (!std.mem.eql(u8, &header.magic, &magic) or header.version != format_version) return null;
-    if (!std.mem.eql(u8, &header.key, key)) return null;
+    if (header.key != key.*) return null;
     const body = bytes[@sizeOf(Header)..];
     if (header.size != body.len or XxHash3.hash(0, body) != header.check) return null;
     var reader: Reader = .{ .bytes = body };
@@ -199,7 +200,7 @@ const Reader = struct {
     /// a format the GPU doesn't take.
     fn levels(reader: *Reader, gpa: Allocator, takes: std.EnumSet(Level.Format)) Allocator.Error!?[]const Level {
         const count = std.mem.readInt(u32, (reader.take(4) orelse return null)[0..4], .little);
-        if (count > 17) return null;
+        if (count > texels.max_levels) return null;
         const made = try gpa.alloc(Level, count);
         var done: usize = 0;
         errdefer {
@@ -225,10 +226,7 @@ const Reader = struct {
     }
 };
 
-fn freeLevels(gpa: Allocator, levels: []const Level) void {
-    for (levels) |level| gpa.free(level.texels);
-    gpa.free(levels);
-}
+const freeLevels = srtexture.freeLevels;
 
 test Store {
     const gpa = std.testing.allocator;
@@ -237,7 +235,7 @@ test Store {
     defer tmp.cleanup();
     var store: Store = .{ .io = io, .root = tmp.dir, .takes = .initMany(&.{ .bc5, .bc7 }) };
     const held = store.compressor();
-    const key: Compressor.Key = @splat(7);
+    const key: Compressor.Key = 7;
 
     // A 4 by 4 picture in BC7 with a normal map in BC5, kept and given back.
     var picture_texels: [16]u8 = @splat(1);
@@ -252,7 +250,7 @@ test Store {
     try std.testing.expectEqual(null, kept.maps.orm);
 
     // Another key, a picture the GPU no longer takes, and none kept at all.
-    try std.testing.expectEqual(null, try held.load(gpa, "hull", &@as(Compressor.Key, @splat(8))));
+    try std.testing.expectEqual(null, try held.load(gpa, "hull", &@as(Compressor.Key, 8)));
     store.takes = .initOne(.bc5);
     try std.testing.expectEqual(null, try store.compressor().load(gpa, "hull", &key));
     try std.testing.expectEqual(null, try held.load(gpa, "other", &key));
@@ -260,7 +258,7 @@ test Store {
 
 test decode {
     const gpa = std.testing.allocator;
-    const key: Compressor.Key = @splat(1);
+    const key: Compressor.Key = 1;
     const takes: std.EnumSet(Level.Format) = .initFull();
     // A file of one 1 by 1 RGBA level and no maps, then cut short and changed.
     var body: [4 + @sizeOf(LevelHeader) + 4 + 4 + 4]u8 = undefined;
