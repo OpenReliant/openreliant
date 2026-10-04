@@ -24,6 +24,7 @@ const canvas = interface.canvas;
 const main_menu = interface.main_menu;
 const mod_manager = interface.mod_manager;
 const mod_options = interface.mod_options;
+const game_modes = interface.game_modes;
 const game_options = interface.game_options;
 const pilot_roster = interface.pilot_roster;
 const saved_games = interface.saved_games;
@@ -54,6 +55,8 @@ pub const Screen = enum(u8) {
     mods = 100,
     /// The page of options a mod's scripts offer (`mod_options`), which the mods screen opens.
     mod_options = 101,
+    /// OpenReliant's game modes screen (`game_modes`), which the main menu's GAME MODES opens.
+    game_modes = 102,
     _,
 
     pub fn format(screen: Screen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -82,6 +85,9 @@ pub const Outcome = union(enum) {
     /// LOAD GAME's saved game loaded: 1, which `WinMain` takes as START GAME's, into the Reliant's
     /// rooms before the loaded campaign's mission (`0x004AA1AB` on).
     loaded,
+    /// OpenReliant's: the game mode of this place in `Context.modes`, which PLAY on the game modes
+    /// screen starts.
+    game_mode: u8,
 };
 
 /// The mission a new campaign starts with (`campaign_new` sets `mission_number` to 1).
@@ -194,6 +200,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
         .controls => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .controls).?.background },
         .video => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .video).?.background },
         .mods, .mod_options => .{ .shapes = settings.shapes_name, .background = mod_manager.opening.background },
+        .game_modes => .{ .shapes = settings.shapes_name, .background = game_modes.opening.background },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
         .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
         else => null,
@@ -228,6 +235,9 @@ pub const Context = struct {
     /// The mods OpenReliant started with and where to find them again, which the mods screen lists
     /// and orders; none leaves the screen shut.
     mods: ?mod_manager.Source = null,
+    /// The game modes the mods' scripts registered, which GAME MODES lists; none leaves it off the
+    /// main menu.
+    modes: []const game_modes.Mode = &.{},
 };
 
 /// The front end's state, which the game keeps in globals.
@@ -241,6 +251,7 @@ pub const Interface = struct {
     settings: settings.Settings = .{},
     mod_manager: mod_manager.ModManager = .{},
     mod_options: mod_options.ModOptions = .{},
+    game_modes: game_modes.GameModes = .{},
     /// The mod the mods screen has opened the options of, while they are shown.
     options_of: []const u8 = "",
     pilot_roster: pilot_roster.Roster = .{},
@@ -281,6 +292,7 @@ pub const Interface = struct {
                     .keyboard = &context.devices.keyboard,
                     .sound = context.sound,
                     .bank = context.bank,
+                    .game_modes = context.modes.len > 0,
                 }) orelse return null;
                 return switch (choice) {
                     .quit => .quit,
@@ -295,6 +307,10 @@ pub const Interface = struct {
                         return null;
                     },
                     .instant_action => .{ .fly = main_menu.instant_action },
+                    .game_modes => {
+                        front.screen = .game_modes;
+                        return null;
+                    },
                     .game_options => {
                         front.screen = .game_options;
                         front.movie = movie.main_to_options;
@@ -348,6 +364,18 @@ pub const Interface = struct {
                         front.entered = .mods;
                     },
                     .main_menu => front.leaveToMenus(end),
+                }
+                return null;
+            },
+            .game_modes => {
+                const left = front.game_modes.frame(modesContext(front, context, pointer)) orelse return null;
+                switch (left) {
+                    .main_menu => front.screen = .main_menu,
+                    .play => |mode| {
+                        front.leave(context);
+                        front.screen = .main_menu;
+                        return .{ .game_mode = mode };
+                    },
                 }
                 return null;
             },
@@ -441,6 +469,7 @@ pub const Interface = struct {
                 if (!shown) front.screen = .mods;
             },
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
+            .game_modes => front.game_modes.enter(modesContext(front, context, front.pointer)),
             .saved_games => if (context.saves) |saves| front.saved_games.enter(.load, .roster, savesContext(front, context, saves, front.pointer)),
             else => {},
         }
@@ -513,6 +542,7 @@ pub const Interface = struct {
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown, front.pointer),
             .mods => try front.mod_manager.draw(drawn, art, front.pointer),
             .mod_options => try front.mod_options.draw(drawn, art, front.pointer),
+            .game_modes => try front.game_modes.draw(drawn, art, front.pointer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
             .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
             else => {},
@@ -528,6 +558,11 @@ fn settingsContext(front: *const Interface, context: Context, settings_file: *pr
 /// What a pass of the mods screen reads, with the pointer at `pointer`.
 fn modsContext(front: *const Interface, context: Context, settings_file: *profile.File, source: mod_manager.Source, pointer: canvas.Pointer) mod_manager.Context {
     return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .settings_file = settings_file, .ticks = front.ticks, .source = source };
+}
+
+/// What a pass of the game modes screen reads, with the pointer at `pointer`.
+fn modesContext(front: *const Interface, context: Context, pointer: canvas.Pointer) game_modes.Context {
+    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .ticks = front.ticks, .modes = context.modes };
 }
 
 /// What a pass of a mod's options reads, with the pointer at `pointer`.

@@ -56,6 +56,8 @@ OpenReliant's version, and events for the global scripts. For load, global, obje
 | Name | Type | What it is |
 |---|---|---|
 | `version` | string | The version of OpenReliant, such as `0.7.0`. |
+| `game_mode` | string, or nil | The qualified name of the game mode that runs, such as `arena:arena`; nil in the campaign, INSTANT ACTION and anywhere else. |
+| `register_game_mode(definition: GameMode)` | string | Registers a game mode, which the main menu's GAME MODES lists: a `name`, which the mod's name qualifies; a `label` and a `description` for the screen; the `missions` it flies in turn, by their numbers, each a standard `.DTE` file of the game's or a mod's; the `ship` the player flies them in, or the ship each mission gives; and whether it starts again after its last mission (`loop`). Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name. |
 | `send_global_event(name: string, data: any)` | nothing | Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update. |
 
 ### `openreliant.records`
@@ -885,6 +887,19 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 | `right` | number |
 | `fore` | number |
 | `aft` | number |
+
+### GameMode
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `name` | string | needed |
+| `label` | string | needed |
+| `description` | string | `""` |
+| `missions` | list of number | needed |
+| `ship` | [ShipType](#shiptype), or nil | nil |
+| `loop` | boolean | false |
 
 ### Mission
 

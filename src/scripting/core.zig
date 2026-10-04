@@ -5,6 +5,7 @@ const api = @import("api.zig");
 const Call = api.Call;
 const data = @import("data.zig");
 const game = @import("game.zig");
+const game_modes = @import("game_modes.zig");
 
 /// What `openreliant.core` holds.
 pub const package = struct {
@@ -13,6 +14,9 @@ pub const package = struct {
             return call.runtime().options.version;
         }
     });
+
+    pub const register_game_mode = game_modes.functions.register_game_mode;
+    pub const game_mode = game_modes.functions.game_mode;
 
     pub const send_global_event = api.Function("Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update.", &.{ "name", "data" }, game.sendGlobalEvent);
 };

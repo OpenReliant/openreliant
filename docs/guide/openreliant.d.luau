@@ -41,6 +41,14 @@ type Quadrants = {
     fore: number,
     aft: number,
 }
+type GameMode = {
+    name: string,
+    label: string,
+    description: string?,
+    missions: { number },
+    ship: ShipType?,
+    loop: boolean?,
+}
 type Mission = {
     number: number,
     file: string,
@@ -261,6 +269,10 @@ type Records = {
 type Core = {
     -- The version of OpenReliant, such as `0.7.0`.
     version: string,
+    -- The qualified name of the game mode that runs, such as `arena:arena`; nil in the campaign, INSTANT ACTION and anywhere else.
+    game_mode: string?,
+    -- Registers a game mode, which the main menu's GAME MODES lists: a `name`, which the mod's name qualifies; a `label` and a `description` for the screen; the `missions` it flies in turn, by their numbers, each a standard `.DTE` file of the game's or a mod's; the `ship` the player flies them in, or the ship each mission gives; and whether it starts again after its last mission (`loop`). Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name.
+    register_game_mode: (definition: GameMode) -> string,
     -- Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update.
     send_global_event: (name: string, data: any) -> (),
 }

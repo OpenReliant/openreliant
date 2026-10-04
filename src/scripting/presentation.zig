@@ -30,6 +30,7 @@ const input = engine.input;
 const mod_options = engine.game.interface.mod_options;
 const postprocessing = @import("postprocessing.zig");
 const shaders = @import("shaders.zig");
+const game_modes = @import("game_modes.zig");
 const srtexture = engine.surrender.surrenderlib.srtexture;
 const controls = engine.input.controls;
 const device = engine.surrender.srd3d.device;
@@ -1117,4 +1118,71 @@ test "the cel-shading example registers its functions, and Shift F6 and Shift F5
     try std.testing.expectEqual(4, host.drawn.items[0].parameters[0]);
     fixture.shown.key(.f6, true);
     for (host.drawn.items) |function| try std.testing.expect(!function.enabled);
+}
+
+test "menu scripts register game modes as OpenReliant starts, and player scripts read the one that runs" {
+    const gpa = std.testing.allocator;
+    var modes: game_modes.Registry = .init(gpa);
+    defer modes.deinit();
+    var fixture: Fixture = undefined;
+    try fixture.initShared(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=menu.luau\nPlayer=player.luau\n" },
+            .{
+                "menu.luau",
+                \\local core = require("openreliant.core")
+                \\assert(core.register_game_mode({ name = "arena", label = "ARENA", missions = { 29, 30 }, ship = "phoenix", loop = true }) == "a:arena")
+                \\local ok, message = pcall(core.register_game_mode, { name = "arena", label = "AGAIN", missions = { 1 } })
+                \\assert(not ok and string.find(message, "registered already", 1, true), message)
+                \\ok, message = pcall(core.register_game_mode, { name = "empty", label = "EMPTY", missions = {} })
+                \\assert(not ok and string.find(message, "needs missions", 1, true), message)
+                \\assert(core.game_mode == nil)
+            },
+            .{
+                "player.luau",
+                \\local core = require("openreliant.core")
+                \\assert(core.game_mode == "a:arena", tostring(core.game_mode))
+                \\local ok, message = pcall(core.register_game_mode, { name = "late", label = "LATE", missions = { 1 } })
+                \\assert(not ok and string.find(message, "player scripts can't register", 1, true), message)
+            },
+        },
+    }}, .{ .modes = &modes });
+    defer fixture.deinit();
+    modes.close();
+    try std.testing.expectEqual(1, modes.modes.items.len);
+    const arena = modes.modes.items[0];
+    try std.testing.expectEqualStrings("a:arena", arena.name);
+    try std.testing.expectEqualSlices(u16, &.{ 29, 30 }, arena.missions);
+    try std.testing.expectEqual(engine.game.gameobj.Type.phoenix, arena.ship.?);
+    try std.testing.expect(arena.loop);
+    try std.testing.expectEqualStrings("ARENA", modes.shown.items[0].label);
+    try std.testing.expectEqual(2, modes.shown.items[0].missions);
+    // The player scripts start knowing the mode; their own asserts would have failed them.
+    modes.running = 0;
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    try std.testing.expect(fixture.shown.runtime.contexts.items.len > 0);
+    for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
+}
+
+test "the arena example registers its game mode, and its board runs within it" {
+    const gpa = std.testing.allocator;
+    var storage: @import("storage.zig").Storage = .{ .gpa = gpa };
+    defer storage.deinit();
+    var modes: game_modes.Registry = .init(gpa);
+    defer modes.deinit();
+    var fixture: Fixture = undefined;
+    try fixture.initShared(&.{.{ "arena", &.{
+        .{ "mod.ini", @embedFile("arena/mod.ini") },
+        .{ "menu.luau", @embedFile("arena/menu.luau") },
+        .{ "board.luau", @embedFile("arena/board.luau") },
+    } }}, .{ .storage = &storage, .modes = &modes });
+    defer fixture.deinit();
+    try std.testing.expectEqualStrings("arena:arena", modes.modes.items[0].name);
+    try std.testing.expectEqualSlices(u16, &.{29}, modes.modes.items[0].missions);
+    try std.testing.expectEqual(engine.game.gameobj.Type.phoenix, modes.modes.items[0].ship.?);
+    modes.running = 0;
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    fixture.frame(0.016, .{ 800, 600 });
+    for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
 }

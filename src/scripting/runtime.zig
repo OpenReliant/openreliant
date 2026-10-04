@@ -92,6 +92,8 @@ pub const Shared = struct {
     bindings_file: ?*@import("openreliant").engine.profile.File = null,
     /// The pages of options the mods offer (`settings.zig`); null if there are none.
     settings: ?*settings_module.Registry = null,
+    /// The game modes the mods register (`game_modes.zig`); null if they aren't kept.
+    modes: ?*@import("game_modes.zig").Registry = null,
 };
 
 /// The interrupt callback reads the clock on every this many calls, since reading it on every call
