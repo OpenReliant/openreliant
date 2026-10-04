@@ -1,11 +1,11 @@
-//! A cache of the mods' compiled shaders ([#628](https://github.com/OpenReliant/openreliant/issues/628)),
-//! in the game folder's `cache/shaders`, so that a mod's shader compiles again only when it
-//! changes.
+//! A cache of the shaders compiled as OpenReliant runs ([#628](https://github.com/OpenReliant/openreliant/issues/628)),
+//! in the game folder's `cache/shaders`, so that a shader compiles again only when it changes: the
+//! mods' shaders, and OpenReliant's own that their replacements are checked against.
 //!
 //! Each shader has one file, named by a hash of the shader's name, such as `crt/crt.frag` for a
 //! post effect. The file holds a `Header`, then the SPIR-V, then Metal's source. The header's key
-//! is a hash of what was compiled (its kind, its definitions, and each part's name and source) and
-//! of the compiler: the pinned versions of glslang and SPIRV-Cross
+//! is a hash of what was compiled (its kind, its stage, its definitions, and each part's name and
+//! source) and of the compiler: the pinned versions of glslang and SPIRV-Cross
 //! (`deps/shader-compiler/build.zig.zon`) and OpenReliant's wrapper (`shader_compiler.cpp`). A
 //! changed shader or a new compiler doesn't match the key, so the shader compiles again and its
 //! file is replaced. A file that is damaged or can't be read is ignored, and one that can't be
@@ -70,17 +70,17 @@ pub const Cache = struct {
     /// Compiles the post effect `source`, called `name` (`shader_compiler.compile`), or reads it
     /// from the cache if it was compiled already.
     pub fn compile(cache: Cache, gpa: Allocator, name: []const u8, source: []const u8) Allocator.Error!shader_compiler.Result {
-        return cache.compileParts(gpa, name, .post_effect, &.{.{ .name = name, .source = source }}, "");
+        return cache.compileParts(gpa, name, .post_effect, .fragment, &.{.{ .name = name, .source = source }}, "");
     }
 
     /// Compiles the shader called `name` (`shader_compiler.compileParts`), or reads it from the
     /// cache if it was compiled already. A shader that compiles is kept in the cache, in place of
     /// what was kept under `name` before.
-    pub fn compileParts(cache: Cache, gpa: Allocator, name: []const u8, kind: shader_compiler.Kind, parts: []const Part, preamble: []const u8) Allocator.Error!shader_compiler.Result {
-        const key = keyOf(kind, parts, preamble);
+    pub fn compileParts(cache: Cache, gpa: Allocator, name: []const u8, kind: shader_compiler.Kind, stage: shader_compiler.Stage, parts: []const Part, preamble: []const u8) Allocator.Error!shader_compiler.Result {
+        const key = keyOf(kind, stage, parts, preamble);
         const path = pathOf(name);
         if (try cache.load(gpa, &path, key)) |code| return .{ .compiled = code };
-        const result = try shader_compiler.compileParts(gpa, kind, parts, preamble);
+        const result = try shader_compiler.compileParts(gpa, kind, stage, parts, preamble);
         switch (result) {
             .compiled => |code| cache.store(&path, key, code) catch |err| {
                 log.warn("can't keep the compiled shader {s} in {s}: {s}", .{ name, folder, @errorName(err) });
@@ -118,12 +118,14 @@ pub const Cache = struct {
     }
 };
 
-/// The key of a shader of `kind` made of `parts` after `preamble`, compiled by this compiler. Each
-/// text goes in with its length, so that no two different shaders run together alike.
-fn keyOf(kind: shader_compiler.Kind, parts: []const Part, preamble: []const u8) Hash {
+/// The key of a shader of `kind` for `stage` made of `parts` after `preamble`, compiled by this
+/// compiler. Each text goes in with its length, so that no two different shaders run together
+/// alike.
+fn keyOf(kind: shader_compiler.Kind, stage: shader_compiler.Stage, parts: []const Part, preamble: []const u8) Hash {
     var hash: Sha256 = .init(.{});
     for (compiler_files) |file| hash.update(file);
     hash.update(std.mem.asBytes(&@intFromEnum(kind)));
+    hash.update(std.mem.asBytes(&@intFromEnum(stage)));
     update(&hash, preamble);
     for (parts) |part| {
         update(&hash, part.name);
@@ -139,7 +141,7 @@ fn update(hash: *Sha256, text: []const u8) void {
 
 /// The key of the post effect `name` with the source `source`.
 fn effectKey(name: []const u8, source: []const u8) Hash {
-    return keyOf(.post_effect, &.{.{ .name = name, .source = source }}, "");
+    return keyOf(.post_effect, .fragment, &.{.{ .name = name, .source = source }}, "");
 }
 
 /// The hash of a cache file's code.

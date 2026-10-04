@@ -247,6 +247,39 @@ lighting function makes each light fall in flat bands, and a surface function on
 draws a dark line round the outlines. Shift F6 turns it on and off, and Shift F5 changes the
 number of bands.
 
+## Replacing OpenReliant's shaders
+
+A mod can replace one of OpenReliant's shaders with its own, without a script: a file at the
+mod's top level named as OpenReliant's.
+
+| File | What it draws |
+|---|---|
+| `device.glsl` | The scene, the flight display and the menus |
+| `bloom.glsl` | The bloom, the frame's finish and the gamma ramp, and the vertex stage of post effects |
+| `shadow.glsl` | The shadow maps |
+
+Start from OpenReliant's own, in [`src/platform/shaders`](../../src/platform/shaders) of the
+version you play. A replacement is at your mod's risk: OpenReliant's shaders change between
+versions, and a replacement made for one can stop fitting the next.
+
+- Each file holds a vertex stage and a fragment stage, which it picks with `#ifdef VERTEX` and
+  `#ifdef FRAGMENT`, as OpenReliant's do. `#include "colour.glsl"` takes the mod's own
+  `colour.glsl`, or OpenReliant's where it has none. Other includes are errors.
+- The last mod in the load order that has the file replaces OpenReliant's.
+- Both stages compile as OpenReliant starts, through the shader cache, and are checked against
+  OpenReliant's own. A replacement may use only the textures and uniform blocks OpenReliant's
+  binds, of the same types and no larger, read only the inputs it reads, and write every output it
+  writes. A fragment stage writes no others, and the fragment stage reads only what the vertex
+  stage writes.
+- A replacement that doesn't compile or doesn't fit is left out, and OpenReliant's own draws. The
+  log says which file, which stage, and why, with the line of a compile error.
+- A replaced `device.glsl` is also the shader the mods' surface and lighting functions are
+  compiled into. Keep its hooks (`MOD_SURFACE`, `MOD_LIGHTING`) and the line `// mod_functions`
+  for them; without that line the functions draw nothing, which the log says.
+- Replacements are chosen as OpenReliant starts, while MOD EFFECTS is on. Changing MOD EFFECTS
+  takes effect for them at the next start.
+- They draw on the GPU only. The software device ignores them.
+
 ## Pictures, shapes and fonts
 
 The `hud` and `ui` packages can draw mod pictures and the game's shapes (#590):
