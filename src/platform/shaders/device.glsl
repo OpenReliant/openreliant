@@ -88,8 +88,8 @@ layout(set = 3, binding = 0) uniform Frame {
     // a dark gradient, such as the nebula or a light's falloff, from banding. w: 1 to light in
     // linear light: the colours are decoded, lit, and encoded again as they are written.
     vec4 settings;
-    // x: the reflections' levels, where they were drawn this frame, and 0 otherwise. y: the
-    // frame's height in pixels.
+    // x: the reflections' levels, where they were drawn this frame, and 0 otherwise. y and z: the
+    // frame's height and width in pixels.
     vec4 reflection;
 } frame;
 
@@ -133,11 +133,13 @@ struct Surface {
     float metallic;
     // Light the surface gives off, added after it is lit: its texture's emissive map's, or none.
     vec3 glow;
-    // Read only: the texture coordinates, where the pixel stands in the camera's frame, and the
-    // direction toward the eye.
+    // Read only: the texture coordinates, where the pixel stands in the camera's frame, the
+    // direction toward the eye, and the width and height in pixels of the frame it is drawn into,
+    // which `gl_FragCoord` counts in.
     vec2 uv;
     vec3 position;
     vec3 toEye;
+    vec2 frameSize;
 };
 
 #ifdef MOD_LIGHTING
@@ -713,7 +715,7 @@ vec4 hologram(vec4 c, float alpha) {
 // function changes them; a surface without one becomes one where it does.
 void modSurface(inout vec4 texel, inout Lit s, inout vec3 glow) {
     bool linear = frame.settings.w > 0.0;
-    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, uv, place, s.toEye);
+    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, uv, place, s.toEye, frame.reflection.zy);
     surface(m, custom.surface, custom.time.x);
     texel = vec4(linear ? decoded(m.colour) : m.colour, m.alpha);
     if (dot(s.normal, s.normal) > 0.5 && dot(m.normal, m.normal) > 1e-12) s.normal = normalize(m.normal);

@@ -1356,7 +1356,7 @@ pub const Gpu = struct {
             @floatFromInt(@intFromBool(gpu.linear)),
             if (reflecting) reflection_levels else 0,
             target_size[1],
-            0,
+            target_size[0],
             0,
         };
         c.SDL_PushGPUFragmentUniformData(commands, 0, &frame_settings, @sizeOf(@TypeOf(frame_settings)));
