@@ -206,9 +206,9 @@ fn readStats(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigf
 /// `settings_file`, which the pause menu's screens write to.
 fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []const u8, directory: Io.Dir, settings_file: *engine.profile.File) !void {
     // OpenReliant's mods, whose files take priority over the game's files wherever they are; none
-    // with `--no-mods`. The mods screen sets which are on and the order they load in, which a
-    // screenshot doesn't read, so that it comes out the same each time.
-    const mods_order: game.bigfile.mods.Order = if (options.screenshot == null) .{ .profile = settings_file.profile } else .none;
+    // with `--no-mods`. The mods screen sets which are on and the order they load in, for a
+    // screenshot too.
+    const mods_order: game.bigfile.mods.Order = .{ .profile = settings_file.profile };
     var mods: game.bigfile.Mods = if (options.mods) try .openOrdered(arena, io, directory, version.semantic, mods_order) else .none;
     defer mods.close(arena);
     // The ship types, guns, missiles and pilots the mods add, each numbered from where the game's
