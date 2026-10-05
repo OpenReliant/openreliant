@@ -1404,6 +1404,7 @@ struct Surface {
     vec2 uv;         // read only: the texture coordinates
     vec3 position;   // read only: its position in camera space
     vec3 toEye;      // read only: the direction toward the eye
+    vec2 frameSize;  // read only: the frame's width and height in pixels
 };
 
 void surface(inout Surface s, vec4 parameters, float time) {
@@ -1418,6 +1419,9 @@ float lighting(float cosine, vec4 parameters) {
 ```
 
 - `time` is the seconds passed, and `parameters` the script's numbers. Those left out are 0.
+- `s.frameSize` is the size of the frame the pixel is drawn into, which `gl_FragCoord` counts in.
+  An effect in screen space, such as scan lines, divides by it to look the same at any resolution:
+  `gl_FragCoord.y / s.frameSize.y` runs from 0 to 1 up the frame.
 - The functions can call the shader's own helpers, such as `encoded` and `decoded`, which turn a
   colour into and out of linear light.
 - If the function sets roughness or metalness on a surface without material maps, the surface is lit
