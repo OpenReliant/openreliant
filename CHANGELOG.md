@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.5](https://github.com/OpenReliant/openreliant/compare/v0.6.4...v0.6.5) (2026-10-05)
+
+
+### Fixes
+
+* flush sltool output when a command fails ([#614](https://github.com/OpenReliant/openreliant/issues/614)) ([7b79493](https://github.com/OpenReliant/openreliant/commit/7b79493ba89325d514062e6314675f5344537fe8))
+* openreliant joysticks says which settings it read ([#660](https://github.com/OpenReliant/openreliant/issues/660)) ([7b79493](https://github.com/OpenReliant/openreliant/commit/7b79493ba89325d514062e6314675f5344537fe8))
+* ships with retro thrusters can use reverse thrust ([#658](https://github.com/OpenReliant/openreliant/issues/658)) ([7b79493](https://github.com/OpenReliant/openreliant/commit/7b79493ba89325d514062e6314675f5344537fe8))
+* the cockpit's shadows are dark enough to see ([#659](https://github.com/OpenReliant/openreliant/issues/659)) ([7b79493](https://github.com/OpenReliant/openreliant/commit/7b79493ba89325d514062e6314675f5344537fe8))
+* the display marks the player's nav point, and keeps its message lines ([#654](https://github.com/OpenReliant/openreliant/issues/654)) ([7b79493](https://github.com/OpenReliant/openreliant/commit/7b79493ba89325d514062e6314675f5344537fe8))
+* the pointer is cut at the screen's edges, as the game's screen cut it ([#656](https://github.com/OpenReliant/openreliant/issues/656)) ([7b79493](https://github.com/OpenReliant/openreliant/commit/7b79493ba89325d514062e6314675f5344537fe8))
+* the target camera goes round the player's target ([#652](https://github.com/OpenReliant/openreliant/issues/652)) ([7b79493](https://github.com/OpenReliant/openreliant/commit/7b79493ba89325d514062e6314675f5344537fe8))
+
+
+### Documentation
+
+* plain wording in the briefing, the induction and the sound timer's comments ([#578](https://github.com/OpenReliant/openreliant/issues/578)) ([7b79493](https://github.com/OpenReliant/openreliant/commit/7b79493ba89325d514062e6314675f5344537fe8))
+
 ## [0.6.4](https://github.com/OpenReliant/openreliant/compare/v0.6.3...v0.6.4) (2026-10-03)
 
 
