@@ -1,0 +1,36 @@
+# Publishes the website, website/, on GitHub Pages: what OpenReliant is, the latest release's
+# downloads, the roadmap and the mods. The page reads the release and the milestones from GitHub
+# as it opens, so it needs publishing again only when it changes.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: [website/**, docs/images/predator-wireframe.svg, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      # The Predator's wire frame from the docs, drawn in the page's orange.
+      - run: sed 's/#7d8590/#f08a2c/g' docs/images/predator-wireframe.svg > website/predator.svg
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website
+      - id: deploy
+        uses: actions/deploy-pages@v4
