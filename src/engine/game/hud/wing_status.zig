@@ -44,6 +44,9 @@ pub const Entry = struct {
     bar_at: Offset,
     lost: i32,
     icon: ?u16,
+    /// The display's shapes with the pictures its type gives for its icon
+    /// (`create.Type.wing_icon`), where a mod's type gives them.
+    own_icon: ?hud.TypeArt = null,
 };
 
 /// The wing's ships the window shows, into `out`: each slot's ship that is still there, is in the
@@ -64,6 +67,7 @@ pub fn entries(all: *const create.Objects, out: *[mission.wing_size]Entry) []Ent
             .bar_at = at,
             .lost = lostRows(object.armor, combat.startingArmor()),
             .icon = if (object.wing_icon != 0) object.wing_icon else null,
+            .own_icon = if (slot.type) |loaded| loaded.wing_icon else null,
         };
         count += 1;
     }
@@ -92,7 +96,10 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
         const left = shapes[0];
         try canvas.shapeIn(level_shape, shapes, .{ left, at[1] + entry.lost, left + bar_reach, at[1] + bar_height });
         if (entry.lost != 0) try canvas.shapeIn(lost_shape, shapes, .{ left, at[1], left + bar_reach, at[1] + entry.lost });
-        if (entry.icon) |icon| try canvas.shaky(icon, at + icon_offset);
+        if (entry.icon) |icon| {
+            const drawing = if (entry.own_icon) |own| canvas.drawing(own) else canvas;
+            try drawing.shaky(icon, at + icon_offset);
+        }
         try canvas.print("{d}", .{entry.number}, at + number_offset, .left);
     }
 }

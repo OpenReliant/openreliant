@@ -45,7 +45,9 @@ pub const max_items = 2 + guns.max_groups + 2;
 
 /// A piece of the window, where it stands from the window's place.
 pub const Item = union(enum) {
-    shape: struct { index: usize, at: [2]i32 },
+    /// A shape of the display's set; `own` for the wire frame's, which a ship type's own pictures
+    /// can stand in for (`create.Type.wire_frame`).
+    shape: struct { index: usize, at: [2]i32, own: bool = false },
     string: struct { id: u16, at: [2]i32 },
     rounds: struct { count: i32, at: [2]i32 },
 };
@@ -72,7 +74,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
     const object = &slot.object;
     const groups: usize = @intCast(@max(slot.groupCount(), 0));
     var count: usize = 0;
-    out[count] = .{ .shape = .{ .index = frame, .at = frame_at } };
+    out[count] = .{ .shape = .{ .index = frame, .at = frame_at, .own = true } };
     count += 1;
     const mode = object.gun_mode;
     if (!mode.all) {
@@ -82,7 +84,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
             count += 1;
         };
         if (groups > 1) {
-            out[count] = .{ .shape = .{ .index = frame + @as(usize, mode.group) + 1, .at = frame_at } };
+            out[count] = .{ .shape = .{ .index = frame + @as(usize, mode.group) + 1, .at = frame_at, .own = true } };
             count += 1;
         }
         if (slot.gun_groups[mode.group].paired() and (if (lead) |held| held.base() != .nova_cannon else true)) {
@@ -94,7 +96,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
         count += 1;
         if (groups > 1) for (0..@min(groups, guns.max_groups)) |group| {
             if ((if (slot.groupLead(group)) |held| held.base() == .nova_cannon else false)) continue;
-            out[count] = .{ .shape = .{ .index = frame + group + 1, .at = frame_at } };
+            out[count] = .{ .shape = .{ .index = frame + group + 1, .at = frame_at, .own = true } };
             count += 1;
         };
     }
@@ -111,10 +113,18 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
 
 /// `hud_window_draw`'s window 1, in the view ahead: each of the window's `items`, the text
 /// left-aligned.
+///
+/// **Improvement:** a mod's ship type draws its wire frame with pictures of its own, where it gives
+/// them (`create.Type.wire_frame`).
 pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!void {
     var buffer: [max_items]Item = undefined;
+    const own_frame: ?hud.TypeArt = if (shown.slot.type) |loaded| loaded.wire_frame else null;
     for (items(shown.slot, shown.wire_frame, &buffer)) |item| switch (item) {
-        .shape => |shape| try canvas.shaky(shape.index, shape.at),
+        .shape => |shape| {
+            const own = if (shape.own) own_frame else null;
+            const drawing = if (own) |art| canvas.drawing(art) else canvas;
+            try drawing.shaky(shape.index, shape.at);
+        },
         .string => |string| try canvas.string(string.id, string.at, .left),
         .rounds => |rounds| try canvas.print("{d}", .{rounds.count}, rounds.at, .left),
     };
@@ -157,9 +167,9 @@ test items {
     // The first group: its gun's name, the group lit, and its two guns firing in turn.
     const first = items(&slot, frame, &buffer);
     try std.testing.expectEqualDeep(&[_]Item{
-        .{ .shape = .{ .index = frame, .at = frame_at } },
+        .{ .shape = .{ .index = frame, .at = frame_at, .own = true } },
         .{ .string = .{ .id = gunName(.of(.pulse_cannon)).?, .at = name_at } },
-        .{ .shape = .{ .index = frame + 1, .at = frame_at } },
+        .{ .shape = .{ .index = frame + 1, .at = frame_at, .own = true } },
         .{ .shape = .{ .index = in_turn_shape, .at = pairing_at } },
     }, first);
 

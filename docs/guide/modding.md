@@ -429,9 +429,13 @@ Schematic=teapotscem.spr
 Name=Teapot
 Guns=banana_gun
 Missiles=banana
+Cockpit=temg_frm.shp
+WireFrame=teapotwire
+WingIcon=teapoticon
+EngineSound=kettle.wav
 ```
 
-- A ship type based on the Predator has the Predator's cockpit, engine sound and display.
+- A ship type has its base's cockpit, engine sound and display, but for those it gives of its own.
 - `Model` is the type's model, a `.shp` file in the mod or the game ([`.SHP`
   models](../formats/shp.md)). It can be one of the game's models under the new type's own stats.
 - `Schematic` is the sprite set the display shows the ship in, as the player's ship and as a target.
@@ -442,6 +446,22 @@ Missiles=banana
 - `Guns` is the gun every gun of the model fires, and `Missiles` the missile every hardpoint holds,
   whatever the model names: one of the game's by its name, one a mod adds by its qualified name, or
   one this mod adds by its own name.
+
+Flown by the player, a ship type based on one of the twelve ships the player can fly can also give:
+
+- `Cockpit`, the model of the cockpit's frame, a `.shp` file in the mod or the game, such as the
+  Tempest's `temg_frm.shp`.
+- `WireFrame`, the name of the pictures the gunnery display shows the ship as, in place of its
+  base's wire frame: `teapotwire_000.png` is the ship, and `teapotwire_001.png` on the ship with
+  its first, second and later group of guns lit, which the display shows over it for a ship of more
+  than one group. Each is drawn over the base's wire frame's rectangle, so make them all the same
+  size, in the shape of the base's: the Predator's is 92 by 108 of the display's pixels, and a
+  picture at two or four times that keeps it sharp. A picture left out keeps the base's shape.
+- `WingIcon`, the name of the picture the wing's window shows the ship as, `teapoticon_000.png`,
+  drawn over the base's icon's rectangle.
+- `EngineSound`, a WAV file, PCM or IMA ADPCM, that loops as the engine's sound, pitched and
+  loudened by the throttle as the base's is. Give it whole cycles of each tone, so that its loop
+  doesn't click.
 
 ### Guns
 

@@ -339,10 +339,10 @@ pub const Canvas = struct {
 
     pub const Error = hud.Error;
 
-    /// The canvas, drawing a ship's `schematic` in place of the display's shapes.
-    pub fn drawing(canvas: Canvas, schematic: hud.Schematic) Canvas {
+    /// The canvas, drawing a ship type's own shapes, `own`, in place of the display's.
+    pub fn drawing(canvas: Canvas, own: hud.TypeArt) Canvas {
         var other = canvas;
-        other.pen = canvas.pen.drawing(schematic);
+        other.pen = canvas.pen.drawing(own);
         return other;
     }
 

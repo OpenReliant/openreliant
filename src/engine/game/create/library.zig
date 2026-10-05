@@ -15,6 +15,7 @@ const additions = @import("../additions.zig");
 const hud = @import("../hud.zig");
 const objects = @import("../objects.zig");
 const srofiles = @import("../srofiles.zig");
+const main = @import("../main.zig");
 
 const log = std.log.scoped(.library);
 
@@ -79,6 +80,9 @@ pub const TypeCache = struct {
     looks: objects.Effects,
     /// VFX's global palette, which the schematics are drawn with.
     global_palette: ?*const [spr.palette_size]u8,
+    /// The display's shapes (`hud.hardware_shapes`), which a mod's type's own wire frame and wing
+    /// icon draw over (`ownShapes`); none without them.
+    display_shapes: ?spr.Sprite = null,
     loaded: [create.max_ship_types]?*Cached = @splat(null),
     /// Types the game names no model for, or whose files it lacks, looked for once.
     missing: std.StaticBitSet(create.max_ship_types) = .initEmpty(),
@@ -89,6 +93,9 @@ pub const TypeCache = struct {
         mounted: MountCache,
         /// The schematic the display's ship status indicator draws, where the game has one.
         schematic: ?hud.Art,
+        /// The display's shapes with a mod's type's own pictures (`ownShapes`).
+        wire_frame: ?hud.Art,
+        wing_icon: ?hud.Art,
     };
 
     pub fn types(cache: *TypeCache) create.Types {
@@ -106,7 +113,7 @@ pub const TypeCache = struct {
             cache.missing.set(ship_type);
             return null;
         };
-        const cached = cache.build(name, schematicOf(cache.resources, ship_type, files.schematic)) catch |err| {
+        const cached = cache.build(ship_type, name, schematicOf(cache.resources, ship_type, files.schematic)) catch |err| {
             log.warn("ship type {d} has no model: {s}", .{ ship_type, @errorName(err) });
             cache.missing.set(ship_type);
             return null;
@@ -115,7 +122,7 @@ pub const TypeCache = struct {
         return &cached.type;
     }
 
-    fn build(cache: *TypeCache, name: []const u8, schematic: ?Schematic) !*Cached {
+    fn build(cache: *TypeCache, ship_type: create.TypeIndex, name: []const u8, schematic: ?Schematic) !*Cached {
         const cached = try cache.gpa.create(Cached);
         errdefer cache.gpa.destroy(cached);
         cached.arena = .init(std.heap.page_allocator);
@@ -130,6 +137,8 @@ pub const TypeCache = struct {
             };
             break :found try .init(gpa, try spr.Sprite.parse(bytes), cache.global_palette, .of(cache.resources.mods, files.pictures));
         } else null;
+        cached.wire_frame = try cache.ownShapes(gpa, ship_type, .wire_frame);
+        cached.wing_icon = try cache.ownShapes(gpa, ship_type, .wing_icon);
         var effects = cache.looks;
         effects.mounts = cached.mounted.mounts();
         cached.type = .{
@@ -137,8 +146,29 @@ pub const TypeCache = struct {
             .loaded = file.loaded,
             .effects = effects,
             .schematic = if (cached.schematic) |*art| .{ .art = art, .gpa = gpa } else null,
+            .wire_frame = if (cached.wire_frame) |*art| .{ .art = art, .gpa = gpa } else null,
+            .wing_icon = if (cached.wing_icon) |*art| .{ .art = art, .gpa = gpa } else null,
         };
         return cached;
+    }
+
+    /// The display's shapes, with the pictures a mod's ship type gives in place of its base's
+    /// `which` (`additions.ShipExtra`): the picture numbered 0 stands for the base's shape
+    /// (`main.PlayerShip`), and for the wire frame, those after it for the shapes after it, the
+    /// groups of guns lit, each drawn over the whole frame. Null for a type that gives none, or a
+    /// base the player can't fly.
+    fn ownShapes(cache: *const TypeCache, gpa: std.mem.Allocator, ship_type: create.TypeIndex, comptime which: enum { wire_frame, wing_icon }) std.mem.Allocator.Error!?hud.Art {
+        const added = additions.ships.get(ship_type) orelse return null;
+        const set = @field(added.extra, @tagName(which)) orelse return null;
+        const shapes = cache.display_shapes orelse return null;
+        const player = main.playerShip(.of(added.base)) orelse return null;
+        const pictures: hud.Art.Pictures = .{
+            .files = cache.resources.mods.pictures(),
+            .set = set,
+            .first = @field(player, @tagName(which)),
+            .over_first = which == .wire_frame,
+        };
+        return try .init(gpa, shapes, cache.global_palette, pictures);
     }
 
     /// Lets go of each type no object is of any more, by the objects' count of each (`uses`).

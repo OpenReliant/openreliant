@@ -469,12 +469,12 @@ test globalPalette {
     try std.testing.expectEqual(@intFromPtr(&bytes[palette_at]), @intFromPtr(global));
 
     // Every line is drawn in its entry's colour, 6-bit levels widened; white without a palette.
-    const art: Art = .{ .set = undefined, .images = &.{}, .global = global };
+    const art: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{}, .global = global };
     const entry = art.paletteColour(1);
     try std.testing.expectEqual(@as(f32, @floatFromInt(spr.expandLevel(3))) / 255, entry[0]);
     try std.testing.expectEqual(@as(f32, @floatFromInt(spr.expandLevel(5))) / 255, entry[2]);
     try std.testing.expectEqual(1, entry[3]);
-    const bare: Art = .{ .set = undefined, .images = &.{} };
+    const bare: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{} };
     try std.testing.expectEqual([4]f32{ 1, 1, 1, 1 }, bare.paletteColour(1));
 
     // A set too short to hold the block has none.
@@ -490,6 +490,8 @@ test globalPalette {
 pub const Art = struct {
     set: spr.Sprite,
     images: []?srtexture.Image,
+    /// Whether each of `images` was made from a picture (`Pictures`).
+    pictured: []bool,
     /// The palette every shape is drawn with: VFX's global palette.
     global: ?*const [spr.palette_size]u8 = null,
     /// OpenReliant's: where the pictures that stand in for the shapes are read from; the shapes
@@ -520,6 +522,14 @@ pub const Art = struct {
         files: srtexture.Files,
         /// The set's file name, which the pictures' names start from, and which outlives them.
         set: []const u8,
+        /// The shape the first picture, numbered 0, stands for: a picture numbered `n` stands for
+        /// shape `first + n`. A ship type's own pictures for some of the display's shapes start
+        /// from the first of them (`create.Type.wire_frame`).
+        first: usize = 0,
+        /// Whether every picture is drawn over the rectangle of shape `first`, rather than its
+        /// own shape's: a wire frame's pictures of its groups of guns lit, each the size of the
+        /// whole frame.
+        over_first: bool = false,
 
         /// The pictures in `mods` that replace the shapes of the set `set`.
         pub fn of(mods: *const bigfile.Mods, set: []const u8) Pictures {
@@ -529,13 +539,25 @@ pub const Art = struct {
 
     pub fn init(gpa: Allocator, set: spr.Sprite, global: ?*const [spr.palette_size]u8, pictures: ?Pictures) Allocator.Error!Art {
         const images = try gpa.alloc(?srtexture.Image, set.count());
+        errdefer gpa.free(images);
         @memset(images, null);
-        return .{ .set = set, .images = images, .global = global, .pictures = pictures };
+        const pictured = try gpa.alloc(bool, set.count());
+        @memset(pictured, false);
+        return .{ .set = set, .images = images, .pictured = pictured, .global = global, .pictures = pictures };
     }
 
     pub fn deinit(art: *Art, gpa: Allocator) void {
         for (art.images) |held| if (held) |made| made.deinit(gpa);
         gpa.free(art.images);
+        gpa.free(art.pictured);
+    }
+
+    /// The shape whose rectangle the shape at `index` is drawn over: its own, or for a picture
+    /// that `Pictures.over_first` places, the first's.
+    fn placedAs(art: Art, index: usize) ?spr.Shape {
+        const pictures = art.pictures orelse return art.shape(index);
+        if (!pictures.over_first or index >= art.pictured.len or !art.pictured[index]) return art.shape(index);
+        return art.shape(pictures.first);
     }
 
     /// Entry `index` of the palette every shape is drawn with, the colour `VFX_line_draw` draws a
@@ -565,6 +587,7 @@ pub const Art = struct {
         const found = art.shape(index) orelse return null;
         if (try art.picture(gpa, index)) |made| {
             art.images[index] = made;
+            art.pictured[index] = true;
             return &art.images[index].?;
         }
         const palette = art.global orelse art.set.paletteFor(index) orelse return null;
@@ -596,8 +619,9 @@ pub const Art = struct {
     /// where there is none.
     fn picture(art: Art, gpa: Allocator, index: usize) Allocator.Error!?srtexture.Image {
         const pictures = art.pictures orelse return null;
+        if (index < pictures.first) return null;
         var buffer: [files.max_path]u8 = undefined;
-        const name = spr.pictureName(&buffer, pictures.set, index) catch return null;
+        const name = spr.pictureName(&buffer, pictures.set, index - pictures.first) catch return null;
         const read = try pictures.files.picture(gpa, name) orelse return null;
         return try srtexture.mipmapped(gpa, read);
     }
@@ -771,8 +795,9 @@ pub fn drawShapeWith(
     scale: f32,
     how: Draw,
 ) Error!void {
-    const found = art.shape(index) orelse return;
+    _ = art.shape(index) orelse return;
     const image = try art.image(gpa, index) orelse return;
+    const found = art.placedAs(index) orelse return;
     const corner: [2]f32 = .{
         @as(f32, @floatFromInt(at[0])) + @as(f32, @floatFromInt(found.header.x1)) * scale,
         @as(f32, @floatFromInt(at[1])) + @as(f32, @floatFromInt(found.header.y1)) * scale,
@@ -1797,8 +1822,10 @@ pub const Resources = struct {
     }
 };
 
-/// A ship's schematic, the ship status indicator's picture of it, and what its images are made in.
-pub const Schematic = struct {
+/// A ship type's own shapes, which the display draws in place of its own set's, and what their
+/// images are made in: its schematic, the ship status indicator's picture of it; and for a mod's
+/// type, its wire frame and its wing icon (`create.Type`).
+pub const TypeArt = struct {
     art: *Art,
     gpa: Allocator,
 };
@@ -1830,11 +1857,11 @@ pub const Pen = struct {
         return other;
     }
 
-    /// The pen, drawing a ship's `schematic` in place of the display's shapes.
-    pub fn drawing(pen: Pen, schematic: Schematic) Pen {
+    /// The pen, drawing a ship type's own shapes, `own`, in place of the display's.
+    pub fn drawing(pen: Pen, own: TypeArt) Pen {
         var other = pen;
-        other.art = schematic.art;
-        other.gpa = schematic.gpa;
+        other.art = own.art;
+        other.gpa = own.gpa;
         return other;
     }
 
@@ -3939,7 +3966,7 @@ pub const ShipStatus = struct {
     /// can close with it.
     pub const Shown = struct {
         /// The ship's schematic, where its type has one and the mode draws it.
-        schematic: ?Schematic = null,
+        schematic: ?TypeArt = null,
         /// Whether the schematic and the hits on it are drawn mirrored across.
         mirrored: bool = false,
         /// The quadrants that flash on the schematic, shapes 1 to 4 of it.
@@ -5237,7 +5264,7 @@ test "the sight glides back to the middle" {
     // middle, and rests within two of it.
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
-    var art: Art = .{ .set = undefined, .images = &.{} };
+    var art: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{} };
     const pen = testing.pen(&art, std.testing.allocator, recorder.interface());
     const aims = try drawReticle(&state, pen, .chase, .{ .at = .{ 600, 400 } }, .on, 10);
     try std.testing.expect(!aims);
@@ -5401,6 +5428,22 @@ test "a mod's picture replaces a shape, drawn over the shape's rectangle" {
     const before = recorder.draws.items.len;
     try drawShapeWith(&art, gpa, into, 1, .{ 10, 20 }, .{ 1, 1, 1, 1 }, 2, .{ .shake = .{ .hit_shake = 1, .interference = 0, .random = &random } });
     try std.testing.expectEqual(before + 2, recorder.draws.items.len);
+}
+
+test "Art.Pictures.first" {
+    const gpa = std.testing.allocator;
+    const bytes = try spr.testing.paletteAndShape(gpa);
+    defer gpa.free(bytes);
+    // A ship type's pictures, numbered from the shape they start at: picture 0 for shape 1.
+    var written: std.Io.Writer.Allocating = .init(gpa);
+    defer written.deinit();
+    try png.writeRgba(gpa, &written.writer, 12, 8, &(@as([12 * 8 * 4]u8, @splat(0xFF))));
+    const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "wire_000.png", .bytes = written.written() }} };
+    var art: Art = try .init(gpa, try .parse(bytes), null, .{ .files = pictures.files(), .set = "wire", .first = 1 });
+    defer art.deinit(gpa);
+    try std.testing.expectEqual(12, (try art.image(gpa, 1)).?.width());
+    // A shape before the first has no picture.
+    try std.testing.expectEqual(null, try art.picture(gpa, 0));
 }
 
 test "a shape's pixels of index 0 show as the art has them" {

@@ -154,7 +154,7 @@ fn pilotName(slot: *const create.Slot) ?u16 {
 /// What the large form shows.
 pub const Large = struct {
     /// The type's own picture: its sprite's first shape, the schematic the small form draws.
-    picture: ?hud.Schematic = null,
+    picture: ?hud.TypeArt = null,
     subtarget: ?Subtarget = null,
     hull: ?Bar = null,
     facts: Facts,
