@@ -30,7 +30,7 @@ const boost_throttle: f32 = 2;
 const fire_sound: sound3d.sounds.Sound = .missile10;
 
 /// Its trail: a torpedo's (`0x0041A49C`).
-const trail_look: missiles.Type = .torpedo;
+const trail_look: missiles.Type = .of(.torpedo);
 
 /// `launch_torpedo_init` (`0x0041A360`): the torpedo in slot `index` collides with nothing, and
 /// stands at the launch point of its carrier, in slot `carrier`, that its gate names

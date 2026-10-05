@@ -21,6 +21,7 @@ const create = @import("create.zig");
 const explode = @import("explode.zig");
 const gameobj = @import("gameobj.zig");
 const hooks = @import("../hooks.zig");
+const additions = @import("additions.zig");
 const motion = @import("motion.zig");
 const objects = @import("objects.zig");
 const shield = @import("shield.zig");
@@ -35,9 +36,13 @@ const GameObject = gameobj.GameObject;
 /// How many missile types the tables hold: the loader reads no more records than this.
 pub const type_count = 11;
 
-/// A missile type: the id of a missile hardpoint (attachment kind 0), the type of a missile's
-/// object, and the index into every missile table.
-pub const Type = enum(i16) {
+/// The missile types the tables hold rows for: the game's, then the types mods add
+/// (`additions.missiles`).
+pub const max_types = additions.missiles.end;
+
+/// The game's missile types, and none. A missile holds its type as a `Type`, whose `base` is one of
+/// these.
+pub const GameMissile = enum(i16) {
     /// A hardpoint that holds none, where a player's loadout leaves it empty.
     none = -1,
     screamer = 0,
@@ -52,18 +57,10 @@ pub const Type = enum(i16) {
     /// Only the torpedoes' trail and sound: nothing launches a missile of this type.
     torpedo = 9,
     fuel_pod = 10,
-    _,
-
-    /// Its index into the tables, or null for none or a type past them.
-    pub fn index(missile: Type) ?usize {
-        const number = @intFromEnum(missile);
-        if (number < 0 or number >= type_count) return null;
-        return @intCast(number);
-    }
 
     /// Whether the player needs a lock to launch it: not for a Screamer or a Solomon, which fly
     /// without one (`player_launch_missile`).
-    pub fn needsLock(missile: Type) bool {
+    pub fn needsLock(missile: GameMissile) bool {
         return switch (missile) {
             .raptor, .havoc, .jack_hammer, .bandit, .vagabond, .imp, .hawk => true,
             else => false,
@@ -72,17 +69,94 @@ pub const Type = enum(i16) {
 
     /// The shockwave a Havoc's or an Imp's end sets off, which does all it does: their hits do
     /// no damage, and they end where they touch anything.
-    pub fn shockwave(missile: Type) ?shockwave_mod.Kind {
+    pub fn shockwave(missile: GameMissile) ?shockwave_mod.Kind {
         return switch (missile) {
             .havoc => .havoc,
             .imp => .imp,
             else => null,
         };
     }
+};
+
+/// A missile type by its number: the id of a missile hardpoint (attachment kind 0), the type of a
+/// missile's object, and the index into every missile table. One of the game's (`GameMissile`), or
+/// none. The code that singles out a missile asks for its base (`base`), the game's missile it is.
+pub const Type = enum(i16) {
+    /// The name scripts know these values by, and the names they know.
+    pub const script_name = "MissileType";
+    pub const Named = GameMissile;
+
+    /// A hardpoint that holds none, where a player's loadout leaves it empty.
+    none = -1,
+    _,
+
+    /// The game's missile `game`.
+    pub fn of(game: GameMissile) Type {
+        return @enumFromInt(@intFromEnum(game));
+    }
 
     /// The type a hardpoint's id names.
-    pub fn of(id: u16) Type {
+    pub fn fromId(id: u16) Type {
         return @enumFromInt(@as(i16, @bitCast(id)));
+    }
+
+    /// The game's missile it is: itself for one of the game's, and for one a mod adds, the
+    /// missile it is based on; none for none, and for a number that names no missile.
+    pub fn base(missile: Type) GameMissile {
+        if (missile.added()) |from_mod| return from_mod.base;
+        const number = @intFromEnum(missile);
+        if (number < 0 or number >= type_count) return .none;
+        return @enumFromInt(number);
+    }
+
+    /// The missile a mod adds that it is, if it is one.
+    pub fn added(missile: Type) ?*const additions.missiles.Added {
+        const number = @intFromEnum(missile);
+        if (number < 0) return null;
+        return additions.missiles.get(@intCast(number));
+    }
+
+    /// Its index into the tables, the game's types' and the mods', or null for none or a type
+    /// past them.
+    pub fn index(missile: Type) ?usize {
+        const number = @intFromEnum(missile);
+        if (number < 0 or number >= additions.missiles.count()) return null;
+        return @intCast(number);
+    }
+
+    /// Its base's index, into the tables that hold the game's types alone: the models, the
+    /// trails and the flight display's shapes. Null for none.
+    pub fn baseIndex(missile: Type) ?usize {
+        return Type.of(missile.base()).index();
+    }
+
+    /// What its hardpoint mounts (`models.attachment`): its base's, with the models a mod gives it
+    /// of its own. For a missile whose base hangs in a pod, the pod and the missile that flies from
+    /// it; for any other, the missile that hangs on the rail and flies.
+    pub fn mounted(missile: Type) ?create.models.Attachment {
+        var held = create.models.attachment(.missile, @intCast(missile.baseIndex() orelse return null)) orelse return null;
+        const from_mod = missile.added() orelse return held;
+        if (held.second_model != null) {
+            if (from_mod.extra.pod) |pod| held.model = pod;
+            if (from_mod.extra.model) |model| held.second_model = model;
+        } else if (from_mod.extra.model) |model| held.model = model;
+        return held;
+    }
+
+    /// The name scripts know it by: its qualified name for a type a mod adds.
+    pub fn scriptName(missile: Type) ?[]const u8 {
+        if (missile.added()) |from_mod| return from_mod.name;
+        return @tagName(missile.base());
+    }
+
+    /// The type scripts name `text`, if there is one.
+    pub fn fromScriptName(text: []const u8) ?Type {
+        if (additions.missiles.find(text)) |found| return @enumFromInt(found);
+        return .of(std.meta.stringToEnum(GameMissile, text) orelse return null);
+    }
+
+    pub fn format(missile: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        return writer.writeAll(missile.scriptName().?);
     }
 };
 
@@ -139,14 +213,27 @@ pub const Stats = extern struct {
 
 /// `missile_stats` and `missile_flight_stats` (`0x005035E8`): every missile type's figures.
 pub const Table = struct {
-    stats: [type_count]Stats,
-    flight: [type_count]FlightModel,
+    stats: [max_types]Stats,
+    flight: [max_types]FlightModel,
+
+    /// OpenReliant's: gives each type the mods add (`additions.missiles`) a copy of its base's
+    /// rows, which its record then fills in (`load`).
+    pub fn addTypes(table: *Table) void {
+        for (additions.missiles.all(), additions.missiles.first..) |added_type, number| {
+            const base: usize = @intCast(@intFromEnum(added_type.base));
+            table.stats[number] = table.stats[base];
+            table.flight[number] = table.flight[base];
+        }
+    }
 
     /// The tables as the executable holds them before `stats_load_missiles` runs.
     pub const initial: Table = built: {
-        var table: Table = undefined;
-        for (&table.stats, &table.flight, 0..) |*record, *flight, number| {
-            const missile: Type = @enumFromInt(number);
+        var table: Table = .{
+            .stats = @splat(std.mem.zeroes(Stats)),
+            .flight = @splat(std.mem.zeroes(FlightModel)),
+        };
+        for (table.stats[0..type_count], table.flight[0..type_count], 0..) |*record, *flight, number| {
+            const missile: GameMissile = @enumFromInt(number);
             record.* = .{
                 ._unknown_00 = 30,
                 .launch_sound = switch (missile) {
@@ -201,7 +288,7 @@ pub const Table = struct {
     /// last type, keeping in whole numbers what the runtime's `__ftol` cuts down. The flight model
     /// takes the speed, and the turn rate for all three rates.
     pub fn load(table: *Table, file: []align(1) const formats.Missile) void {
-        const count = @min(file.len, type_count);
+        const count = @min(file.len, max_types);
         for (table.stats[0..count], table.flight[0..count], file[0..count]) |*record, *flight, missile| {
             flight.max_speed = missile.speed;
             flight.pitch_rate = missile.turn_rate;
@@ -310,12 +397,12 @@ pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneri
     const carrier = &all.slots[launcher];
     if (carrier.object.flags.missiles_disabled or missiles.full()) return;
     const racked = &carrier.object.racks[rack];
-    const number = racked.type.index() orelse return;
+    if (racked.type.index() == null) return;
     const model = if (carrier.model) |*carried| carried else return;
     if (rack >= model.hung.len) return;
     const hung = if (model.hung[rack]) |*mount| mount else return;
     const places = hungPlaces(carrier, model, hung);
-    const held = create.models.attachment(.missile, @intCast(number)) orelse create.models.Attachment{};
+    const held = racked.type.mounted() orelse create.models.Attachment{};
     const pod = held.second_model != null;
     const built: objects.Model = if (pod and racked.count > 0)
         (buildModel(all.gpa, carrier, held.second_model.?) catch return) orelse return
@@ -331,7 +418,7 @@ pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneri
     const which: sound3d.sounds.Sound = @enumFromInt(missiles.records[at].?.stats(&all.missile_stats).launch_sound);
     sound3d.playIn(world, null, null, at, which, 1, class);
     racked.count -= 1;
-    const order: Order = if (pod and racked.count < 0) .jettison else if (pod) .pod_launch else if (racked.type == .fuel_pod) .jettison else .rail_launch;
+    const order: Order = if (pod and racked.count < 0) .jettison else if (pod) .pod_launch else if (racked.type.base() == .fuel_pod) .jettison else .rail_launch;
     // The game lays a rail's trail after the launch's first run, and a pod's before it.
     if (order == .pod_launch) startTrail(world, at);
     setOrder(world, at, order);
@@ -358,9 +445,9 @@ pub fn launchFromTurret(world: gameobj.World, ship: u16, model: *const objects.M
         .next = top.partAt(carrier.object.placeAt(.next), model, launcher, .next) orelse return,
         .drawn = model.parts[launcher].drawn(),
     };
-    const held = create.models.attachment(.missile, comptime Type.screamer.index().?) orelse return;
+    const held = create.models.attachment(.missile, @intFromEnum(GameMissile.screamer)) orelse return;
     const built = (buildModel(all.gpa, carrier, held.second_model orelse return) catch return) orelse return;
-    const at = spawn(world, ship, .screamer, built, places) orelse return;
+    const at = spawn(world, ship, .of(.screamer), built, places) orelse return;
     startTrail(world, at);
     setOrder(world, at, .pod_launch);
     if (all.missiles.get(at)) |live| live.target = target;
@@ -377,7 +464,8 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     const all = world.objects;
     const carrier = &all.slots[launcher];
     const number = kind.index() orelse return null;
-    var slot: create.Slot = .{ .object = gameobj.objectAlloc(@enumFromInt(number), world.random), .model = built };
+    // A missile a mod adds is an object of its base's type, which the game's code knows.
+    var slot: create.Slot = .{ .object = gameobj.objectAlloc(@enumFromInt(kind.baseIndex().?), world.random), .model = built };
     const object = &slot.object;
     slot.flight = &all.missile_stats.flight[number];
     object.side = carrier.object.side;
@@ -536,7 +624,7 @@ fn home(world: gameobj.World, at: u8) void {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return;
     const object = missile.object();
-    const allowed: GameObject.Flags = if (missile.type == .vagabond) .{ .cloaked = true } else .{};
+    const allowed: GameObject.Flags = if (missile.type.base() == .vagabond) .{ .cloaked = true } else .{};
     if (ai.ValidTarget.of(all, missile.target, allowed)) |valid| {
         const from = missile.slot.drawn.position;
         const aim = if (decoyAt(world, missile)) |decoy| decoyed: {
@@ -550,7 +638,7 @@ fn home(world: gameobj.World, at: u8) void {
         if (math.lengthSquared(toward) <= lost_range * lost_range) return steer(object, missile.slot.drawn.orientation, toward);
     }
     // The game asks whether the missile's trail has the Solomon's look.
-    if (missile.type == .solomon) return steady(object, 1);
+    if (missile.type.base() == .solomon) return steady(object, 1);
     end(world, at);
 }
 
@@ -730,7 +818,7 @@ pub fn frame(world: gameobj.World, fraction: f32) void {
         if (collide(world, index)) continue;
         objects.frameTree(&live.object().root, if (live.slot.model) |*model| model else null, &live.slot.drawn, fraction, null);
         live.shown = true;
-        const warns = live.type != .screamer or live.launcher >= all.players;
+        const warns = live.type.base() != .screamer or live.launcher >= all.players;
         if (live.decoy == null and warns) if (live.target.slot()) |target| {
             all.slots[target].object.missile_homing = 1;
         };
@@ -763,7 +851,7 @@ pub fn end(world: gameobj.World, at: u8) void {
     const missile = all.missiles.get(at) orelse return;
     const object = missile.object();
     if (object.sound_voice.index()) |voice| if (world.hearing) |hearing| hearing.sound.end3D(voice);
-    if (missile.type.shockwave()) |kind| shockwave_mod.setOff(world, missile.slot.drawn, .{
+    if (missile.type.base().shockwave()) |kind| shockwave_mod.setOff(world, missile.slot.drawn, .{
         .kind = kind,
         .size = end_wave_size,
         .life = end_wave_life,
@@ -821,7 +909,7 @@ fn collide(world: gameobj.World, at: u8) bool {
         const to = slot.drawn.position - from;
         const when = std.math.clamp(math.dot(span, to) * along, 0, 1);
         if (math.lengthSquared(span * @as(Vector, @splat(when)) - to) >= object.radius * object.radius) continue;
-        if (missile.type.shockwave() != null) return stop(world, at);
+        if (missile.type.base().shockwave() != null) return stop(world, at);
         const point = segment.point(segment.sphereEntry(slot.drawn.position, object.radius));
         const struck = collision.quadrant(object, slot.drawn.inverse(point));
         if (object.shields.get(struck) < 0 or object.invulnerable == ._unknown_4) return hitHull(world, at, index, struck);
@@ -838,7 +926,7 @@ fn collide(world: gameobj.World, at: u8) bool {
 
 /// What a missile's hit counts as: a Screamer's apart from the rest.
 fn damageKind(missile: Type) collision.Kind {
-    return if (missile == .screamer) .screamer else .missile;
+    return if (missile.base() == .screamer) .screamer else .missile;
 }
 
 /// The missile stopped where it touched, and ended: true, for `collide`.
@@ -863,7 +951,7 @@ fn hitHull(world: gameobj.World, at: u8, index: u16, struck: collision.Quadrant)
     const from = missile.slot.drawn.position;
     const to = gameobj.vector(missile.object().root.next_position);
     const entry = objects.partEntry(model, from, to, .first) orelse return false;
-    if (missile.type.shockwave() == null) {
+    if (missile.type.base().shockwave() == null) {
         collision.armorDamage(world, index, struck, missile.stats(&all.missile_stats).damage.hull, missile.launcher, damageKind(missile.type));
         shieldfx.hullHit(world, index, from + (to - from) * @as(Vector, @splat(entry)));
     }
@@ -880,7 +968,7 @@ fn hitComponents(world: gameobj.World, at: u8, index: u16) bool {
     const slot = &all.slots[index];
     const model = if (slot.model) |*live| live else return false;
     const hit = objects.hitSegment(model, slot.object.placeAt(.next), missile.slot.drawn.position, gameobj.vector(missile.object().root.next_position)) orelse return false;
-    if (missile.type.shockwave() == null) {
+    if (missile.type.base().shockwave() == null) {
         shieldfx.componentHit(world, index, hit, .component);
         collision.componentDamage(world, index, hit.part, missile.stats(&all.missile_stats).component_damage, missile.launcher, damageKind(missile.type));
     }
@@ -890,12 +978,12 @@ fn hitComponents(world: gameobj.World, at: u8, index: u16) bool {
 test "Table.initial" {
     const table = Table.initial;
     // The executable's own words: the launch sounds, the orders, and the torpedo's flight model.
-    try std.testing.expectEqual(15, table.of(.screamer).?.launch_sound);
-    try std.testing.expectEqual(24, table.of(.torpedo).?.launch_sound);
-    try std.testing.expectEqual(0, table.of(.fuel_pod).?.launch_sound);
-    try std.testing.expectEqual(Order.hawk, table.of(.hawk).?.order);
-    try std.testing.expectEqual(Order.pod_launch, table.of(.torpedo).?.order);
-    try std.testing.expectEqual(Order.jettison, table.of(.fuel_pod).?.order);
+    try std.testing.expectEqual(15, table.of(.of(.screamer)).?.launch_sound);
+    try std.testing.expectEqual(24, table.of(.of(.torpedo)).?.launch_sound);
+    try std.testing.expectEqual(0, table.of(.of(.fuel_pod)).?.launch_sound);
+    try std.testing.expectEqual(Order.hawk, table.of(.of(.hawk)).?.order);
+    try std.testing.expectEqual(Order.pod_launch, table.of(.of(.torpedo)).?.order);
+    try std.testing.expectEqual(Order.jettison, table.of(.of(.fuel_pod)).?.order);
     try std.testing.expectEqual(50, table.flight[9].max_speed);
     try std.testing.expectEqual(0.84, table.flight[0].inertia);
     try std.testing.expectEqual(0, table.flight[10].inertia);
@@ -914,14 +1002,14 @@ test "Table.load" {
     record.lock_range = 160000;
     record.component_damage = 120;
     table.load(&.{ record, record });
-    const raptor = table.of(.raptor).?;
+    const raptor = table.of(.of(.raptor)).?;
     try std.testing.expectEqual(5000, raptor.flight_time);
     try std.testing.expectEqual(300, raptor.lock_time);
     try std.testing.expectEqual(30, raptor.decoy_chance);
     try std.testing.expectEqual(120, raptor.component_damage);
     try std.testing.expectEqual(0.2, table.flight[1].roll_rate);
     // What the file doesn't reach keeps the executable's figures, and its own words stay.
-    try std.testing.expectEqual(1000, table.of(.havoc).?.flight_time);
+    try std.testing.expectEqual(1000, table.of(.of(.havoc)).?.flight_time);
     try std.testing.expectEqual(Order.raptor, raptor.order);
 }
 
@@ -940,7 +1028,7 @@ pub const testing = struct {
             errdefer armed.mission.deinit();
             try armed.model.init(gpa);
             armed.points = @splat(std.mem.zeroes(shp.Attachment));
-            for (&armed.points, [_]Type{ .raptor, .havoc }) |*point, held| {
+            for (&armed.points, [_]Type{ .of(.raptor), .of(.havoc) }) |*point, held| {
                 point.kind = .missile;
                 point.id = @intCast(@intFromEnum(held));
                 point.orientation = math.identity;
@@ -991,7 +1079,7 @@ test launchFromTurret {
     // from where the launcher stands.
     launchFromTurret(world, ship, model, 0, target);
     const missile = armed.missile(0);
-    try std.testing.expectEqual(Type.screamer, missile.type);
+    try std.testing.expectEqual(Type.of(.screamer), missile.type);
     try std.testing.expectEqual(Order.pod_launch, missile.order);
     try std.testing.expectEqual(target, missile.target);
     try std.testing.expectEqual(ship, missile.launcher);
@@ -1021,7 +1109,7 @@ test launch {
     try std.testing.expectEqual(2, object.racks[0].count);
     try std.testing.expect(hung[0] != null);
     const first = armed.missile(0);
-    try std.testing.expectEqual(Type.raptor, first.type);
+    try std.testing.expectEqual(Type.of(.raptor), first.type);
     try std.testing.expectEqual(Order.pod_launch, first.order);
     try std.testing.expectEqual(target, first.target);
     try std.testing.expectEqual(2, first.object().throttle);
@@ -1100,7 +1188,7 @@ test "a player's Screamer flies straight" {
     var armed: testing.Armed = undefined;
     try armed.init(std.testing.allocator);
     defer armed.deinit();
-    armed.points[0].id = @intCast(@intFromEnum(Type.screamer));
+    armed.points[0].id = @intCast(@intFromEnum(Type.of(.screamer)));
     const world = armed.mission.world();
     const player = try armed.add(.friendly, @splat(0));
     const other = try armed.add(.hostile, .{ 0, 0, 50000 });
@@ -1187,7 +1275,7 @@ test choose {
     var armed: testing.Armed = undefined;
     try armed.init(std.testing.allocator);
     defer armed.deinit();
-    armed.points[0].id = @intCast(@intFromEnum(Type.solomon));
+    armed.points[0].id = @intCast(@intFromEnum(Type.of(.solomon)));
     const world = armed.mission.world();
     const player = try armed.add(.friendly, @splat(0));
     const behind = try armed.add(.hostile, .{ 0, 0, -3000 });
@@ -1260,4 +1348,29 @@ test collide {
 
 test {
     std.testing.refAllDecls(@This());
+}
+
+test "Type.mounted" {
+    var list = [_]additions.missiles.Added{
+        .{ .name = "a:rail", .mod = "a", .base = .bandit, .extra = .{ .model = "banana.shp" } },
+        .{ .name = "a:pod", .mod = "a", .base = .raptor, .extra = .{ .model = "banana.shp", .pod = "bunch.shp" } },
+        .{ .name = "a:plain", .mod = "a", .base = .raptor },
+    };
+    additions.missiles.install(&list);
+    defer additions.missiles.reset();
+    const first: Type = @enumFromInt(additions.missiles.first);
+    // A rail missile's own model hangs on the hardpoint and flies.
+    const rail = first.mounted().?;
+    try std.testing.expectEqualStrings("banana.shp", rail.model.?);
+    try std.testing.expectEqual(null, rail.second_model);
+    // A pod missile's pod hangs, and its missile flies from it.
+    const pod: Type = @enumFromInt(additions.missiles.first + 1);
+    try std.testing.expectEqualStrings("bunch.shp", pod.mounted().?.model.?);
+    try std.testing.expectEqualStrings("banana.shp", pod.mounted().?.second_model.?);
+    // Without models of its own, it mounts its base's.
+    const plain: Type = @enumFromInt(additions.missiles.first + 2);
+    try std.testing.expectEqualStrings(Type.of(.raptor).mounted().?.model.?, plain.mounted().?.model.?);
+    try std.testing.expectEqual(GameMissile.raptor, plain.base());
+    try std.testing.expectEqual(@as(?usize, additions.missiles.first + 2), plain.index());
+    try std.testing.expectEqual(@as(?usize, 1), plain.baseIndex());
 }

@@ -274,6 +274,7 @@ scripts on their object.
 | `slot` | number | The slot it fills in the mission, from 0. |
 | `type` | [ShipType](#shiptype) | Its type, such as `predator`. |
 | `class` | [ShipClass](#shipclass), or nil | Its class, such as `fighter`; nil for an object without stats, such as a nav point. |
+| `pilot` | [PilotNumber](#pilotnumber) | *Changes.* The pilot flying it, whose record sets how it flies and fights: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`. |
 | `side` | [Side](#side) | The side it's on. |
 | `position` | vector | Where it is. |
 | `orientation` | [Orientation](#orientation) | Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). |
@@ -1114,6 +1115,10 @@ number. A script can set a field to either.
 
 `fighter`, `capital`, `support`, `other`, `torpedo`, `debris`, `mine`, `planet`, or a number.
 
+### PilotNumber
+
+`none`, or a number.
+
 ### Side
 
 `friendly`, `hostile`, `neutral`, or a number.
@@ -1176,7 +1181,7 @@ number. A script can set a field to either.
 
 ### GunType
 
-`laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`.
+`laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`, or a number.
 
 ### Order
 

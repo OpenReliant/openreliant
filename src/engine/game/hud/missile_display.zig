@@ -75,7 +75,7 @@ pub const Ring = struct {
         ring.entries = @splat(.{});
         var count: usize = 0;
         for (object.fittedRacks()) |rack| {
-            if (rack.type == .fuel_pod) continue;
+            if (rack.type.base() == .fuel_pod) continue;
             const left: i16 = @truncate(rack.count);
             for (ring.entries[0..count]) |*entry| {
                 if (entry.type == rack.type) {
@@ -84,12 +84,14 @@ pub const Ring = struct {
                 }
             } else {
                 if (count == max_entries) continue;
-                const index = rack.type.index() orelse 0;
+                // A missile a mod adds shows as its base, under its own name where it has one.
+                const index = rack.type.baseIndex() orelse 0;
+                const own_name = if (rack.type.added()) |added| added.label_string else null;
                 ring.entries[count] = .{
                     .count = left,
                     .place = @intCast(count),
                     .shape = if (index < shapes.len) shapes[index] else 0,
-                    .name = if (index < names.len) names[index] else 0,
+                    .name = if (own_name) |name| std.math.cast(i16, name) orelse 0 else if (index < names.len) names[index] else 0,
                     .type = rack.type,
                 };
                 count += 1;
@@ -144,7 +146,7 @@ pub const Turn = enum { clockwise, anticlockwise };
 
 /// Betty's name of a missile type, the Screamer to the Hawk, which is her line of the same name.
 fn bettyName(missile: missiles.Type) ?betty.Line {
-    return switch (missile) {
+    return switch (missile.base()) {
         inline .screamer, .raptor, .havoc, .jack_hammer, .bandit, .vagabond, .solomon, .imp, .hawk => |named| @field(betty.Line, @tagName(named)),
         else => null,
     };
@@ -178,13 +180,13 @@ test "Ring.build" {
     var object = gameobj.testing.object();
     // Screamers on two racks, a fuel pod, a Havoc and a Raptor pod.
     object.rack_count = 5;
-    const loadout = [_]struct { Type, i32 }{ .{ .screamer, 20 }, .{ .fuel_pod, 1 }, .{ .havoc, 1 }, .{ .screamer, 20 }, .{ .raptor, 3 } };
+    const loadout = [_]struct { Type, i32 }{ .{ .of(.screamer), 20 }, .{ .of(.fuel_pod), 1 }, .{ .of(.havoc), 1 }, .{ .of(.screamer), 20 }, .{ .of(.raptor), 3 } };
     for (loadout, 0..) |rack, i| object.racks[i] = .{ .type = rack[0], .count = rack[1] };
     var ring: Ring = .{};
     ring.build(&object);
     // One entry a type, their missiles together, the fuel pod left out.
     try std.testing.expectEqual(40, ring.entries[0].count);
-    try std.testing.expectEqual(Type.havoc, ring.entries[1].type);
+    try std.testing.expectEqual(Type.of(.havoc), ring.entries[1].type);
     try std.testing.expectEqual(3, ring.entries[2].count);
     try std.testing.expectEqual(-1, ring.entries[3].count);
     try std.testing.expectEqual(44, ring.left);
@@ -200,7 +202,7 @@ test "Ring.build" {
 test "Ring.turn" {
     var object = gameobj.testing.object();
     object.rack_count = 3;
-    for ([_]Type{ .screamer, .havoc, .raptor }, 0..) |missile, i| object.racks[i] = .{ .type = missile, .count = 1 };
+    for ([_]Type{ .of(.screamer), .of(.havoc), .of(.raptor) }, 0..) |missile, i| object.racks[i] = .{ .type = missile, .count = 1 };
     var ring: Ring = .{};
     ring.build(&object);
     try std.testing.expectEqual(1, ring.armed);

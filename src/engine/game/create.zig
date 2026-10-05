@@ -45,7 +45,7 @@ const smoke = @import("main/smoke.zig");
 const srofiles = @import("srofiles.zig");
 const wgate = @import("wgate.zig");
 const xtrabits = @import("xtrabits.zig");
-const added_types = @import("added_types.zig");
+const additions = @import("additions.zig");
 
 pub const models = @import("create/models.zig");
 pub const flight_stats = @import("create/flight.zig");
@@ -60,8 +60,8 @@ pub const escort = @import("create/escort.zig");
 pub const ship_type_count = 256;
 
 /// The ship types the tables hold rows for: the game's, then the types mods add, up to the
-/// markers (`added_types`).
-pub const max_ship_types = added_types.end;
+/// markers (`additions.ships`).
+pub const max_ship_types = additions.ships.end;
 
 /// A ship type's row in the tables, the game's types' and the mods'.
 pub const TypeIndex = u16;
@@ -69,9 +69,9 @@ pub const TypeIndex = u16;
 /// The files of ship type `number`'s model and schematic: the game's (`models.ship_types`), or a
 /// mod's type's, whose schematic is its base's where it names none.
 pub fn shipFiles(number: TypeIndex) models.ShipType {
-    if (added_types.get(number)) |added| return .{
-        .model = added.model,
-        .schematic = added.schematic orelse models.ship_types[@intFromEnum(added.base)].schematic,
+    if (additions.ships.get(number)) |added| return .{
+        .model = added.extra.model,
+        .schematic = added.extra.schematic orelse models.ship_types[@intFromEnum(added.base)].schematic,
     };
     return if (number < models.ship_types.len) models.ship_types[number] else .{ .model = null, .schematic = null };
 }
@@ -127,11 +127,11 @@ pub const Stats = struct {
         for (&tables.flight) |*flight| flight.speed_per_pitch_rate = flight.max_speed / flight.pitch_rate;
     }
 
-    /// OpenReliant's: gives each type the mods add (`added_types`) its base's words that the
+    /// OpenReliant's: gives each type the mods add (`additions.ships`) its base's words that the
     /// executable holds, as `initial` has them, and its own name where it has one. Its figures come
     /// from its record (`load`).
     pub fn addTypes(tables: *Stats) void {
-        for (added_types.all(), added_types.first..) |added, number| {
+        for (additions.ships.all(), additions.ships.first..) |added, number| {
             const base = @intFromEnum(added.base);
             tables.flight[number].turns = tables.flight[base].turns;
             const record = &tables.combat[number];
@@ -1176,6 +1176,8 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         .components = slot.listed(),
         .arcs = if (slot.type) |loaded| loaded.model.firing_arcs else &.{},
     });
+    // OpenReliant's: a ship type a mod adds can name the gun all its guns fire.
+    if (ship_type.added()) |added| if (added.extra.gun) |gun_type| guns.refit(slot.guns, gun_type);
     object.gun_count = @intCast(slot.guns.len);
     // The type's gun groups follow from this object's guns, and each gun learns its side.
     // `gun_groups_build` leaves a type with no model alone.
@@ -1235,7 +1237,7 @@ pub fn arm(gpa: Allocator, slot: *Slot, fit: Fit) Allocator.Error!void {
     object.countermeasures = gameobj.countermeasures_when_created;
     object.afterburner_fuel = combat.afterburner_fuel * 100;
     for (object.fittedRacks()) |rack| {
-        if (rack.type == .fuel_pod) object.afterburner_fuel += fuel_pod_fuel;
+        if (rack.type.base() == .fuel_pod) object.afterburner_fuel += fuel_pod_fuel;
     }
     object.gun_charge = combat.gun_energy;
     object.rounds = combat.rounds;
@@ -1293,16 +1295,18 @@ fn isHardpoint(attachment: shp.Attachment, _: usize) bool {
 }
 
 /// `object_loadout_by_tier` (`0x0045E500`): each missile hardpoint, in turn, takes a rack of the
-/// missile its attachment names for `tier`.
+/// missile its attachment names for `tier`. A ship type a mod adds can name the missile all its
+/// hardpoints take, at every tier.
 ///
 /// Not ported: the player's own ship in the simulator and in missions 30 to 35, which takes a
 /// Vagabond, a Jack Hammer and a Raptor in turn.
 pub fn loadoutByTier(object: *GameObject, model: *const objects.Model, tier: u2) void {
     object.rack_count = 0;
+    const named: ?missiles.Type = if (object.type.added()) |added| added.extra.missile else null;
     var each = hardpoints(model);
     while (each.next()) |hardpoint| {
         if (object.rack_count == gameobj.max_racks) break;
-        object.racks[@intCast(object.rack_count)] = .{ .type = .of(hardpoint.attachment.idFor(tier)) };
+        object.racks[@intCast(object.rack_count)] = .{ .type = named orelse .fromId(hardpoint.attachment.idFor(tier)) };
         object.rack_count += 1;
     }
 }
@@ -1334,12 +1338,12 @@ pub fn fitRacks(gpa: Allocator, object: *GameObject, model: *objects.Model, effe
         if (object.rack_count == gameobj.max_racks) break;
         const at: usize = @intCast(object.rack_count);
         const rack = &object.racks[at];
-        const number = rack.type.index() orelse {
+        if (rack.type.index() == null) {
             std.mem.copyForwards(gameobj.Rack, object.racks[at .. gameobj.max_racks - 1], object.racks[at + 1 ..]);
             object.racks[gameobj.max_racks - 1] = .{ .type = .none };
             continue;
-        };
-        const held = models.attachment(.missile, @intCast(number)) orelse models.Attachment{};
+        }
+        const held = rack.type.mounted() orelse models.Attachment{};
         rack.count = @intCast(held.count);
         model.hung[at] = try hang(gpa, effects, hardpoint, held.model);
         object.rack_count += 1;
@@ -2009,12 +2013,12 @@ test "a ship's racks are fitted by its tier" {
     var index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
     var object = &all.slots[index].object;
     try std.testing.expectEqual(3, object.rack_count);
-    try std.testing.expectEqual(missiles.Type.screamer, object.racks[0].type);
+    try std.testing.expectEqual(missiles.Type.of(.screamer), object.racks[0].type);
     try std.testing.expectEqual(20, object.racks[0].count);
-    try std.testing.expectEqual(missiles.Type.havoc, object.racks[1].type);
+    try std.testing.expectEqual(missiles.Type.of(.havoc), object.racks[1].type);
     try std.testing.expectEqual(1, object.racks[1].count);
     // The gap's hardpoint stays bare, and the Raptor pod after it hangs on its own.
-    try std.testing.expectEqual(missiles.Type.raptor, object.racks[2].type);
+    try std.testing.expectEqual(missiles.Type.of(.raptor), object.racks[2].type);
     try std.testing.expectEqual(3, object.racks[2].count);
     const hung = all.slots[index].model.?.hung;
     try std.testing.expectEqual(0, hung[0].?.attachment);
@@ -2027,7 +2031,7 @@ test "a ship's racks are fitted by its tier" {
     const fuel = object.afterburner_fuel;
     index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
     object = &all.slots[index].object;
-    try std.testing.expectEqual(missiles.Type.fuel_pod, object.racks[0].type);
+    try std.testing.expectEqual(missiles.Type.of(.fuel_pod), object.racks[0].type);
     try std.testing.expectEqual(fuel + fuel_pod_fuel, object.afterburner_fuel);
 }
 
@@ -2044,18 +2048,18 @@ test "a player's ship takes the racks its loadout fitted" {
     for (&points) |*point| point.kind = .missile;
     model.data[0].attachments = &points;
     var racks: Racks = @splat(.none);
-    racks[0] = .imp;
-    racks[1] = .fuel_pod;
-    racks[2] = .raptor;
+    racks[0] = .of(.imp);
+    racks[1] = .of(.fuel_pod);
+    racks[2] = .of(.raptor);
     all.loadout_racks[0] = racks;
     // The player's slot takes the loadout's, whatever its hardpoints name.
     const index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
     const object = &all.slots[index].object;
     try std.testing.expectEqual(0, index);
     try std.testing.expectEqual(3, object.rack_count);
-    try std.testing.expectEqual(missiles.Type.imp, object.racks[0].type);
-    try std.testing.expectEqual(missiles.Type.fuel_pod, object.racks[1].type);
-    try std.testing.expectEqual(missiles.Type.raptor, object.racks[2].type);
+    try std.testing.expectEqual(missiles.Type.of(.imp), object.racks[0].type);
+    try std.testing.expectEqual(missiles.Type.of(.fuel_pod), object.racks[1].type);
+    try std.testing.expectEqual(missiles.Type.of(.raptor), object.racks[2].type);
     // Rearming restores the selected racks even if the ship's default tier differs.
     var clock: main.Clock = .{};
     var player: @import("../input.zig").Player = .{};
@@ -2065,9 +2069,9 @@ test "a player's ship takes the racks its loadout fitted" {
     object.racks[0].count = 0;
     object.countermeasures = 0;
     try rearm(world, index);
-    try std.testing.expectEqual(missiles.Type.imp, object.racks[0].type);
+    try std.testing.expectEqual(missiles.Type.of(.imp), object.racks[0].type);
     try std.testing.expect(object.racks[0].count > 0);
-    try std.testing.expectEqual(missiles.Type.fuel_pod, object.racks[1].type);
+    try std.testing.expectEqual(missiles.Type.of(.fuel_pod), object.racks[1].type);
     try std.testing.expectEqual(gameobj.countermeasures_when_created, object.countermeasures);
     // Not in the simulator, nor in mission 25's first part.
     try std.testing.expect(all.createdRacks(0) != null);
@@ -2096,15 +2100,15 @@ test "a rack left empty on the loadout leaves its hardpoint bare" {
     model.hangsItself();
     // The first rack and the third taken off.
     var racks: Racks = @splat(.none);
-    racks[1] = .imp;
-    racks[3] = .raptor;
+    racks[1] = .of(.imp);
+    racks[3] = .of(.raptor);
     all.loadout_racks[0] = racks;
     const index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
     const object = &all.slots[index].object;
     // Each missile flies, on the hardpoint the loadout hung it on.
     try std.testing.expectEqual(2, object.rack_count);
-    try std.testing.expectEqual(missiles.Type.imp, object.racks[0].type);
-    try std.testing.expectEqual(missiles.Type.raptor, object.racks[1].type);
+    try std.testing.expectEqual(missiles.Type.of(.imp), object.racks[0].type);
+    try std.testing.expectEqual(missiles.Type.of(.raptor), object.racks[1].type);
     const hung = all.slots[index].model.?.hung;
     try std.testing.expectEqual(1, hung[0].?.attachment);
     try std.testing.expectEqual(3, hung[1].?.attachment);

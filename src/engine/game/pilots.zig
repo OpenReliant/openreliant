@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const stats = @import("../../formats/stats.zig");
+const additions = @import("additions.zig");
 const Pointer = @import("../../engine.zig").Pointer;
 const gameobj = @import("gameobj.zig");
 const GameObject = gameobj.GameObject;
@@ -113,18 +114,23 @@ pub const Pilot = extern struct {
 /// `pilot_stats` (`0x0058A968`): every pilot, which `stats_load_pilots` (`0x0049CAE0`) fills:
 /// the defaults in every slot, then `pilotstats.bin`'s records in order.
 pub const Table = struct {
-    pilots: [count]Pilot = @splat(.default),
+    pilots: [max_pilots]Pilot = @splat(.default),
 
+    /// The game's pilots.
     pub const count = 194;
 
+    /// The pilots the table holds: the game's, then the pilots mods add (`additions.pilots`).
+    pub const max_pilots = additions.pilots.end;
+
+    /// Each record of `records` in turn, the game's pilots' and then the mods'.
     pub fn load(table: *Table, records: []align(1) const stats.Pilot) void {
-        const loaded = @min(records.len, count);
+        const loaded = @min(records.len, max_pilots);
         for (table.pilots[0..loaded], records[0..loaded]) |*pilot, record| pilot.* = .of(record);
     }
 
     /// The pilot numbered `pilot`, or the defaults for a number past the table.
     pub fn get(table: *const Table, pilot: i32) *const Pilot {
-        if (pilot < 0 or pilot >= count) return &Pilot.default;
+        if (pilot < 0 or pilot >= max_pilots) return &Pilot.default;
         return &table.pilots[@intCast(pilot)];
     }
 };
@@ -164,6 +170,35 @@ test Table {
     try std.testing.expectEqual(Pilot.default, table.get(1).*);
     try std.testing.expectEqual(Pilot.Skill.medium, table.get(Table.count).skill);
 }
+
+/// A pilot by its number, as scripts know it: none, a pilot a mod adds by its qualified name, and
+/// any other by its number.
+pub const Number = enum(u8) {
+    /// The name scripts know these values by.
+    pub const script_name = "PilotNumber";
+
+    /// No pilot of the table: a mission's ship record's `dte.Ship.no_pilot`.
+    none = 0xFF,
+    _,
+
+    /// The pilot an object flown by `pilot` (`GameObject.pilot`) has.
+    pub fn of(pilot: i32) Number {
+        return if (std.math.cast(u8, pilot)) |number| @enumFromInt(number) else .none;
+    }
+
+    /// The name scripts know it by: `none`, or a pilot a mod adds by its qualified name.
+    pub fn scriptName(pilot: Number) ?[]const u8 {
+        if (pilot == .none) return "none";
+        const added = additions.pilots.get(@intFromEnum(pilot)) orelse return null;
+        return added.name;
+    }
+
+    /// The pilot scripts name `text`, if there is one.
+    pub fn fromScriptName(text: []const u8) ?Number {
+        if (std.mem.eql(u8, text, "none")) return .none;
+        return @enumFromInt(additions.pilots.find(text) orelse return null);
+    }
+};
 
 /// `object_set_pilot` (`0x0049CCE0`): gives the object pilot `pilot`, a record of `pilot_stats`.
 /// The game points the object at the record and at the pilot's face as well
@@ -286,7 +321,10 @@ comptime {
 
 /// The face of pilot `pilot`, or null for a number past the table, which the game reads beside it.
 pub fn faceOf(pilot: i32) ?*const Face {
-    if (pilot < 0 or pilot >= faces.len) return null;
+    if (pilot < 0) return null;
+    // A pilot a mod adds has its base's face, under its own name where it has one.
+    if (additions.pilots.get(@intCast(pilot))) |added| return &added.extra.face;
+    if (pilot >= faces.len) return null;
     return &faces[@intCast(pilot)];
 }
 

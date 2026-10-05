@@ -52,8 +52,8 @@ pub const Guns = enum {
 
     /// How long a flash lasts after a shot of `kind` (`gun_flash_ticks`).
     fn ticks(which: Guns, kind: guns.GunType) i32 {
-        if (which == .turrets_too and kind.onTurrets()) return turret_ticks;
-        return stats.flash_ticks[kind.number()];
+        if (which == .turrets_too and kind.base().onTurrets()) return turret_ticks;
+        return stats.flash_ticks[kind.base().number()];
     }
 };
 
@@ -76,8 +76,8 @@ pub const Look = enum {
     /// each type, all alike but the Gattling Plasma Cannon's; OpenReliant builds the ones that
     /// differ.
     pub fn of(gun_type: guns.GunType, which: Guns) Look {
-        if (which == .turrets_too and gun_type.onTurrets()) return .turret;
-        return if (gun_type == .gattling_plasma_cannon) .sheet else .flare;
+        if (which == .turrets_too and gun_type.base().onTurrets()) return .turret;
+        return if (gun_type.base() == .gattling_plasma_cannon) .sheet else .flare;
     }
 
     /// The textures it draws with across the muzzle and down the flare.
@@ -93,7 +93,7 @@ pub const Look = enum {
     /// (`muzzle_flash_mesh_build`), the Laser Cannon's or the Turret Lasers'.
     fn size(look: Look) Vector {
         const bolt: Vector = switch (look) {
-            .flare, .sheet => stats.gun_types[guns.GunType.laser_cannon.number()].bolt,
+            .flare, .sheet => stats.gun_types[guns.GunType.of(.laser_cannon).number()].bolt,
             .turret => guns.turret_lasers_bolt,
         };
         return bolt * Vector{ 2, 2, 0.5 };
@@ -115,7 +115,7 @@ pub const Look = enum {
 /// The gun type a muzzle naming `number` flashes as: its number clamped to the types there are, as
 /// `muzzle_flash_create` and `muzzle_flash_draw` clamp it.
 pub fn typeOf(number: u32) guns.GunType {
-    return @enumFromInt(std.math.clamp(number, 1, guns.max_types - 1) - 1);
+    return @enumFromInt(std.math.clamp(number, 1, guns.max_types - 1));
 }
 
 /// How far a flash's light reaches at its brightest, for each unit of its flare's length.
@@ -370,23 +370,23 @@ test Looks {
 }
 
 test Look {
-    try std.testing.expectEqual(Look.sheet, Look.of(.gattling_plasma_cannon, .turrets_too));
-    try std.testing.expectEqual(Look.flare, Look.of(.laser_cannon, .turrets_too));
-    try std.testing.expectEqual(Look.turret, Look.of(.turret_lasers, .turrets_too));
-    try std.testing.expectEqual(Look.turret, Look.of(.allied_huge_gun, .turrets_too));
-    try std.testing.expectEqual(Look.flare, Look.of(.turret_lasers, .original));
+    try std.testing.expectEqual(Look.sheet, Look.of(.of(.gattling_plasma_cannon), .turrets_too));
+    try std.testing.expectEqual(Look.flare, Look.of(.of(.laser_cannon), .turrets_too));
+    try std.testing.expectEqual(Look.turret, Look.of(.of(.turret_lasers), .turrets_too));
+    try std.testing.expectEqual(Look.turret, Look.of(.of(.allied_huge_gun), .turrets_too));
+    try std.testing.expectEqual(Look.flare, Look.of(.of(.turret_lasers), .original));
     // A muzzle's number is clamped to the types there are.
-    try std.testing.expectEqual(guns.GunType.laser_cannon, typeOf(0));
-    try std.testing.expectEqual(guns.GunType.gattling_plasma_cannon, typeOf(9));
-    try std.testing.expectEqual(guns.GunType.coalition_huge_gun, typeOf(99));
+    try std.testing.expectEqual(guns.GunType.of(.laser_cannon), typeOf(0));
+    try std.testing.expectEqual(guns.GunType.of(.gattling_plasma_cannon), typeOf(9));
+    try std.testing.expectEqual(guns.GunType.of(.coalition_huge_gun), typeOf(99));
 }
 
 test Guns {
     // The turrets' guns flash where OpenReliant lets them; the Nova Cannon's never does.
-    try std.testing.expectEqual(turret_ticks, Guns.turrets_too.ticks(.turret_flak));
-    try std.testing.expectEqual(0, Guns.original.ticks(.turret_flak));
-    try std.testing.expectEqual(0, Guns.turrets_too.ticks(.nova_cannon));
-    try std.testing.expectEqual(30, Guns.original.ticks(.messon_blaster));
+    try std.testing.expectEqual(turret_ticks, Guns.turrets_too.ticks(.of(.turret_flak)));
+    try std.testing.expectEqual(0, Guns.original.ticks(.of(.turret_flak)));
+    try std.testing.expectEqual(0, Guns.turrets_too.ticks(.of(.nova_cannon)));
+    try std.testing.expectEqual(30, Guns.original.ticks(.of(.messon_blaster)));
 }
 
 test flareColour {
@@ -440,7 +440,7 @@ test Flash {
     // Full size as it is lit, standing where the muzzle does on its part, its light as bright and
     // its flares' colour whatever the shot's.
     const colour = flash.light.?.colour;
-    flash.fire(.laser_cannon, 100, .{ 1, 0.5, 0 });
+    flash.fire(.of(.laser_cannon), 100, .{ 1, 0.5, 0 });
     try std.testing.expectEqual(colour, flash.light.?.colour);
     try std.testing.expect(flash.show(100, carrier));
     try std.testing.expectEqual(1, flash.object.scale);
@@ -462,7 +462,7 @@ test "a turret's flash takes its shot's colour" {
     const built: testing.Built = try .init(gpa, .{});
     defer built.deinit(gpa);
     var attachment = std.mem.zeroes(shp.Attachment);
-    attachment.gun_type = guns.GunType.turret_lasers.number();
+    attachment.gun_type = guns.GunType.of(.turret_lasers).number();
     attachment.orientation = math.identity;
     var flash: Flash = undefined;
     flash.init(&built.looks, 0, &attachment);
@@ -472,7 +472,7 @@ test "a turret's flash takes its shot's colour" {
     try std.testing.expectEqual(3000, flash.light.?.kind.point.range);
 
     // Orange from a hostile ship, paler across the muzzle; its light the same.
-    flash.fire(.turret_lasers, 10, .{ 1, 0.5, 0 });
+    flash.fire(.of(.turret_lasers), 10, .{ 1, 0.5, 0 });
     try std.testing.expectEqual(10 + turret_ticks, flash.until);
     try std.testing.expectEqual([4]f32{ 1, 0.75, 0.5, 1 }, flash.object.baked.?[0]);
     try std.testing.expectEqual([4]f32{ 1, 0.5, 0, 1 }, flash.object.baked.?[4]);
@@ -486,14 +486,14 @@ test "a flash of a gun type that lasts no time shows at no size" {
     const built: testing.Built = try .init(gpa, .original);
     defer built.deinit(gpa);
     var attachment = std.mem.zeroes(shp.Attachment);
-    attachment.gun_type = guns.GunType.turret_lasers.number();
+    attachment.gun_type = guns.GunType.of(.turret_lasers).number();
     attachment.orientation = math.identity;
     var flash: Flash = undefined;
     flash.init(&built.looks, 0, &attachment);
     // And casts no light where the flashes cast none.
     try std.testing.expectEqual(null, flash.light);
     try std.testing.expectEqual(Look.flare, flash.look);
-    flash.fire(.turret_lasers, 10, .{ 0, 0.5, 1 });
+    flash.fire(.of(.turret_lasers), 10, .{ 0, 0.5, 1 });
     try std.testing.expect(flash.show(10, .{}));
     try std.testing.expectEqual(0, flash.object.scale);
     try std.testing.expect(!flash.show(11, .{}));

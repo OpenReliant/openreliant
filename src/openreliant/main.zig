@@ -203,8 +203,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     const mods_order: game.bigfile.mods.Order = if (options.screenshot == null) .{ .profile = settings_file.profile } else .none;
     var mods: game.bigfile.Mods = if (options.mods) try .openOrdered(arena, io, directory, version.semantic, mods_order) else .none;
     defer mods.close(arena);
-    // The ship types the mods add, each numbered from where the game's end.
-    game.added_types.install(try game.added_types.read(arena, mods.list));
+    // The ship types, guns, missiles and pilots the mods add, each numbered from where the game's
+    // end.
+    try game.additions.read(arena, mods.list);
     // What `WinMain` opens at start-up, and the texture cache `renderer_start` opens.
     var resources: game.bigfile.Hog = try .open(arena, io, directory, game.bigfile.resource_name);
     defer resources.close(arena);
@@ -233,11 +234,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // from `language.dll` at startup, and the ITAC's strings from `itaclang.dll` (without it the
     // ITAC shows no text). The mods' load scripts can change them before the game uses them.
     var records: scripting.Records = try .init(arena, .{
-        .ships = try game.added_types.ships(arena, try readStats(io, arena, directory, &mods, .ships)),
-        .guns = try readStats(io, arena, directory, &mods, .guns),
-        .missiles = try readStats(io, arena, directory, &mods, .missiles),
-        .pilots = try readStats(io, arena, directory, &mods, .pilots),
-        .text = try game.added_types.addNames(arena, (try readStrings(io, arena, directory, &mods, game.language.file_name)).strings),
+        .ships = try game.additions.ships.records(stats.Ship, arena, try readStats(io, arena, directory, &mods, .ships), 0),
+        .guns = try game.additions.guns.records(stats.Gun, arena, try readStats(io, arena, directory, &mods, .guns), 1),
+        .missiles = try game.additions.missiles.records(stats.Missile, arena, try readStats(io, arena, directory, &mods, .missiles), 0),
+        .pilots = try game.additions.pilots.records(stats.Pilot, arena, try readStats(io, arena, directory, &mods, .pilots), 0),
+        .text = try game.additions.addNames(arena, (try readStrings(io, arena, directory, &mods, game.language.file_name)).strings),
         .itac_text = if (readStrings(io, arena, directory, &mods, game.itac.strings_name)) |read| read.strings else |err| blank: {
             std.log.warn("can't read {s}: {s}", .{ game.itac.strings_name, @errorName(err) });
             break :blank &.{};
@@ -460,7 +461,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // missile's and pilot's figures; the loadout's ship, where one is chosen.
     const objects = try game.create.Objects.create(gpa, &rand);
     defer objects.destroy();
+    objects.gun_stats.addTypes();
     objects.gun_stats.load(gun_stats);
+    objects.missile_stats.addTypes();
     objects.missile_stats.load(missile_stats);
     objects.pilots.load(pilot_stats);
     if (options.ship) |ship| objects.loadout_ships[objects.player] = @enumFromInt(ship);
@@ -1863,7 +1866,7 @@ fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const ga
     const path = game.winmain.missionPath(&path_buffer, number, second_part, false);
     if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| {
         // A mod's mission names the ship types the mod adds by the numbers its manifest gives them.
-        if (file.source == .mod) if (resources.mods.holder(std.fs.path.basenameWindows(path))) |mod| game.added_types.remapMission(file.image, mod.name);
+        if (file.source == .mod) if (resources.mods.holder(std.fs.path.basenameWindows(path))) |mod| game.additions.remapMission(file.image, mod.name);
         return file.image;
     }
     if (number == mission0.number) return @embedFile("mission0.dte");

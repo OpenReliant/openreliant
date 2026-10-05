@@ -335,7 +335,7 @@ pub const Missile = enum(u4) {
     /// but for the fuel pod, which is type 10.
     pub fn missileType(missile: Missile) missiles_mod.Type {
         return switch (missile) {
-            .fuel_pod => .fuel_pod,
+            .fuel_pod => .of(.fuel_pod),
             else => @enumFromInt(@intFromEnum(missile)),
         };
     }
@@ -345,7 +345,7 @@ pub const missile_count = @typeInfo(Missile).@"enum".fields.len;
 
 comptime {
     // Each of the loadout's missiles flies as the missile type of its name.
-    for (std.enums.values(Missile)) |missile| assert(std.mem.eql(u8, @tagName(missile), @tagName(missile.missileType())));
+    for (std.enums.values(Missile)) |missile| assert(std.mem.eql(u8, @tagName(missile), @tagName(@as(missiles_mod.GameMissile, @enumFromInt(@intFromEnum(missile.missileType()))))));
 }
 
 /// A missile's record (`loadout_missiles`, `0x004EDAA0`, `0x110` bytes a missile). The four

@@ -14,6 +14,7 @@ const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("bigfile.zig");
+const additions = @import("additions.zig");
 const gameobj = @import("gameobj.zig");
 const matmanager = @import("matmanager.zig");
 const Material = srapiext.Material;
@@ -548,6 +549,8 @@ pub const ModelFile = struct {
 pub fn readModel(gpa: Allocator, resources: *const bigfile.Hog, textures: *srtexture.Table, file: []const u8, settings: Settings) !ModelFile {
     const model = try gpa.create(shp.Model);
     model.* = try .parse(gpa, try resources.readFile(gpa, file));
+    // A mod's own model names the guns and missiles it adds by numbers of its own.
+    if (resources.mods.holder(file)) |mod| additions.remapModel(model.parts, mod.name);
     const loaded = try gpa.create(Loaded);
     loaded.* = try modelLoad(gpa, textures, model, settings, false);
     return .{ .model = model, .loaded = loaded };

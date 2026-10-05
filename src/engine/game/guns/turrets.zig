@@ -358,7 +358,7 @@ fn aimAngles(aimed: *const Aimed, aim: Vector) ?Angles {
     const least = pitching.animation.angles_min[1];
     const most = pitching.animation.angles_max[1];
     var degrees = pitch * std.math.deg_per_rad;
-    if (aimed.barrel.type.huge()) {
+    if (aimed.barrel.type.base().huge()) {
         if (most < degrees and degrees < most + huge_overshoot) {
             degrees = most;
             pitch = most * std.math.rad_per_deg;
@@ -401,7 +401,7 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
     const all = world.objects;
     const own = &all.slots[index].object;
     aimed.to_turn = .{};
-    const huge = aimed.barrel.type.huge();
+    const huge = aimed.barrel.type.base().huge();
     const from = aimed.model.parts[aimed.base].object.position;
     const components_aimed = own.flags.components and switch (own.type.base()) {
         .kurgan, .antanov, .nanny, .prowler => false,
@@ -521,7 +521,7 @@ fn missileStep(world: gameobj.World, index: u16, launcher: *Launcher) void {
     const now = world.clock.frame_start;
     const model = launcher.model;
     const from = model.parts[launcher.launcher].drawn();
-    const reach = all.missile_stats.of(.screamer).?.lock_range;
+    const reach = all.missile_stats.of(.of(.screamer)).?.lock_range;
     switch (launcher.state) {
         .searching => {
             if (launcher.missiles == 0) return empty(launcher, now);
@@ -658,7 +658,7 @@ test fit {
     try std.testing.expectEqual(2, aimed.pitch);
     try std.testing.expectEqual([3]?usize{ null, null, null }, aimed.slots);
     try std.testing.expectEqual(3, aimed.barrel.muzzle.part);
-    try std.testing.expectEqual(guns.GunType.turret_lasers, aimed.barrel.type);
+    try std.testing.expectEqual(guns.GunType.of(.turret_lasers), aimed.barrel.type);
     try std.testing.expect(model.parts[1].turret and !model.parts[2].turret);
     try std.testing.expectEqual(null, aimed.target.ship());
     try std.testing.expectEqual(null, aimed.arc);
@@ -722,7 +722,7 @@ const Stage = struct {
         stage.mission.slot(stage.target).drawn.position = .{ 0, 0, 3000 };
         stage.mission.slot(stage.ship).object.side = .friendly;
         stage.mission.clock = .{ .frame_start = 1000, .frame_duration = 10 };
-        const turret_lasers = &stage.mission.objects.gun_stats.types[guns.GunType.turret_lasers.number()];
+        const turret_lasers = &stage.mission.objects.gun_stats.types[guns.GunType.of(.turret_lasers).number()];
         turret_lasers.speed = 1000;
         turret_lasers.lifetime = 100;
     }
@@ -776,10 +776,10 @@ test aimAngles {
     aimed.model.parts[0].animation.angles_max[0] = 30;
     try std.testing.expectEqual(null, aimAngles(aimed, .{ 0, 1000, -1000 }));
     // A Huge Gun up to 20 degrees past its pitch limit aims at the limit.
-    aimed.barrel.type = .allied_huge_gun;
+    aimed.barrel.type = .of(.allied_huge_gun);
     const past = aimAngles(aimed, .{ 1000, 0, -500 }).?;
     try std.testing.expectApproxEqAbs(-60 * std.math.rad_per_deg, past.pitch, 1e-6);
-    aimed.barrel.type = .turret_lasers;
+    aimed.barrel.type = .of(.turret_lasers);
     aimed.model.parts[0].animation.angles_min[0] = 0;
     aimed.model.parts[0].animation.angles_max[0] = 0;
     // A firing arc with nothing open lets it fire nowhere; one open straight back from Z, toward

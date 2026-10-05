@@ -11,7 +11,7 @@ const spr = @import("../../../formats/spr.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
 const create = @import("../create.zig");
-const added_types = @import("../added_types.zig");
+const additions = @import("../additions.zig");
 const hud = @import("../hud.zig");
 const objects = @import("../objects.zig");
 const srofiles = @import("../srofiles.zig");
@@ -59,7 +59,7 @@ const Schematic = struct {
 /// names `teapotscem.spr`. A mod can so give its type a schematic without writing a sprite set.
 fn schematicOf(resources: *const bigfile.Hog, ship_type: create.TypeIndex, named: ?[]const u8) ?Schematic {
     const own = named orelse return null;
-    const added = added_types.get(ship_type) orelse return .{ .layout = own, .pictures = own };
+    const added = additions.ships.get(ship_type) orelse return .{ .layout = own, .pictures = own };
     if (resources.has(own)) return .{ .layout = own, .pictures = own };
     const base = create.models.ship_types[@intFromEnum(added.base)].schematic orelse return null;
     return .{ .layout = base, .pictures = own };

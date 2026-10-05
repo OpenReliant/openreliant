@@ -610,7 +610,7 @@ fn fire(fighter: Fighter) void {
     const aimed = fighter.aimed();
     const radius = if (fighter.target().part() == null) fighter.enemy().object.radius else aimed.radius;
     if (fighter.now() > ship.fire_at) {
-        const laser = guns.GunType.laser_cannon.stats(&all.gun_stats);
+        const laser = guns.GunType.of(.laser_cannon).stats(&all.gun_stats);
         const range = @as(f32, @floatFromInt(laser.lifetime)) * laser.speed * fire_range;
         if (ai.alongNose(fighter.slot.drawn, gameobj.vector(fighter.state.aim), radius * fighter.pilot.fire_spread) and
             math.distance(fighter.position(), aimed.position) < range and
@@ -643,7 +643,7 @@ fn aimMissile(fighter: Fighter) void {
     state.missile_ready = false;
     const now = fighter.now();
     for (ship.fittedRacks(), 0..) |rack, at| {
-        if (rack.count <= 0 or rack.type == .jack_hammer) continue;
+        if (rack.count <= 0 or rack.type.base() == .jack_hammer) continue;
         const stats = all.missile_stats.of(rack.type) orelse break;
         if (!missiles.inLockReach(stats, fighter.aimed().position - fighter.position(), fighter.heading())) state.locked_at = stats.lock_time + now;
         if (state.locked_at < now) state.missile_ready = true;
@@ -953,10 +953,10 @@ test fire {
     ship.root.next_orientation = turned;
     fighter.state.aim = .{ .x = 0, .y = 0, .z = 0 };
     all.slots[0].object.radius = 100;
-    const laser = &all.gun_stats.types[guns.GunType.laser_cannon.number()];
+    const laser = &all.gun_stats.types[guns.GunType.of(.laser_cannon).number()];
     laser.lifetime = 100;
     laser.speed = 1000;
-    try guns.testing.fitTo(fighter.slot, gpa, &.{guns.testing.barrel(.laser_cannon)});
+    try guns.testing.fitTo(fighter.slot, gpa, &.{guns.testing.barrel(.of(.laser_cannon))});
     ship.gun_mode.all = true;
     const gun = &fighter.slot.guns[0];
     mission.clock.frame_start = 100;
@@ -1088,8 +1088,8 @@ test aimMissile {
     const fighter = try testFight(&mission, 20000);
     const ship = fighter.ship();
     ship.rack_count = 2;
-    ship.racks[0] = .{ .type = .jack_hammer, .count = 1 };
-    ship.racks[1] = .{ .type = .raptor, .count = 3 };
+    ship.racks[0] = .{ .type = .of(.jack_hammer), .count = 1 };
+    ship.racks[1] = .{ .type = .of(.raptor), .count = 3 };
     ship.root.next_orientation = math.rotation(.y, std.math.pi);
     mission.clock.frame_start = 10;
 
@@ -1101,5 +1101,5 @@ test aimMissile {
     ship.root.next_orientation = math.identity;
     aimMissile(fighter);
     try std.testing.expect(!fighter.state.missile_ready);
-    try std.testing.expectEqual(10 + mission.objects.missile_stats.of(.raptor).?.lock_time, fighter.state.locked_at);
+    try std.testing.expectEqual(10 + mission.objects.missile_stats.of(.of(.raptor)).?.lock_time, fighter.state.locked_at);
 }

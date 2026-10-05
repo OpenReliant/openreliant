@@ -3266,7 +3266,7 @@ test "a model draws the muzzle flashes a shot has lit" {
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
 
     // Lit, it stands on its muzzle, in the world's layer whatever the part's, and casts its light.
-    flashes[0].fire(.laser_cannon, 10, .{ 0, 0.5, 1 });
+    flashes[0].fire(.of(.laser_cannon), 10, .{ 0, 0.5, 1 });
     try model.draw(gpa, &scene, .overlay, .{ .frame_start = 10 });
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 1050 }), flashes[0].object.position);
