@@ -24,6 +24,7 @@ const gameobj = @import("gameobj.zig");
 const hog_snd = @import("hog_snd.zig");
 const hudmovie = @import("hudmovie.zig");
 const pilots = @import("pilots.zig");
+const additions = @import("additions.zig");
 const Windows = @import("hud/windows.zig").Windows;
 const input = @import("../input.zig");
 const vm = @import("../vm.zig");
@@ -392,7 +393,8 @@ const ship_line_size = 0x80;
 /// in slot `ship` says, written into `buffer`: in the pilot's voice for the friendly side
 /// (`pilots.Face.allied_voice`) where the ship is friendly, and in its voice for the other
 /// (`pilots.Face.voice`) where the ship is hostile. A pilot the game gives no voice there has none,
-/// and its line is left out.
+/// and its line is left out. A mod's pilot with a voice of its own speaks in it on either side
+/// (`pilots.Face.own_voice`).
 ///
 /// **Fix:** the game gives a ship on any other side whatever line it made last; OpenReliant gives
 /// it none.
@@ -400,8 +402,8 @@ pub fn shipLine(buffer: []u8, all: *const create.Objects, ship: u16, suffix: []c
     const object = &all.slots[ship].object;
     const face = pilots.faceOf(object.pilot) orelse return null;
     const prefix = switch (object.side) {
-        .friendly => @tagName(face.allied_voice orelse return null),
-        .hostile => face.voice.prefix() orelse return null,
+        .friendly => face.own_voice orelse @tagName(face.allied_voice orelse return null),
+        .hostile => face.own_voice orelse face.voice.prefix() orelse return null,
         else => return null,
     };
     return std.fmt.bufPrint(buffer, "{s}{s}", .{ prefix, suffix }) catch null;
@@ -1600,6 +1602,16 @@ test shipLine {
     object.side = .friendly;
     object.pilot = pilots.faces.len;
     try std.testing.expectEqual(null, shipLine(&buffer, mission.objects, ship, "tnt_001.ut"));
+    // A mod's pilot with a voice of its own speaks in it on either side, though its base has none.
+    var face = pilots.faces[21];
+    face.own_voice = "trp";
+    var list = [_]additions.pilots.Added{.{ .name = "a:trooper", .mod = "a", .base = 21, .extra = .{ .face = face } }};
+    additions.pilots.install(&list);
+    defer additions.pilots.reset();
+    object.pilot = additions.pilots.first;
+    try std.testing.expectEqualStrings("trpres_001.ut", shipLine(&buffer, mission.objects, ship, "res_001.ut").?);
+    object.side = .hostile;
+    try std.testing.expectEqualStrings("trptnt_001.ut", shipLine(&buffer, mission.objects, ship, "tnt_001.ut").?);
 }
 
 test "the missile warning and the landing reminder" {
