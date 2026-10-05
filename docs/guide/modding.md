@@ -456,8 +456,9 @@ What all four have in common:
   name.
 - When it starts, OpenReliant numbers what the mods add after the game's own records, mod by mod in
   load order, so the numbers depend on which mods are on. Scripts therefore use names: the mod's
-  folder or archive name, a colon, and the name in the manifest, such as `bananas:banana_gun` for
-  the gun `banana_gun` of the mod in the folder `bananas`.
+  folder name or its archive's name without `.hog`, a colon, and the name in the manifest, such as
+  `bananas:banana_gun` for the gun `banana_gun` of the mod in the folder `bananas` or in
+  `bananas.hog`.
 - The number after a name in the list is the number the mod's own files, such as its missions and
   models, use for it. When OpenReliant loads one of the mod's files, it replaces that number with the
   one it gave, so the files stay in the game's formats. Leave the number empty when the mod's files

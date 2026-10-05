@@ -131,7 +131,7 @@ fn registerOrder(state: *State) i32 {
     const key = runtime.Name.of(name) orelse call.raise("order name is too long", .{});
     if (!openreliant.dte.source.validId(name)) call.raise("order name must be an identifier", .{});
     var qualified_buffer: [runtime.max_name]u8 = undefined;
-    const qualified = runtime.Name.of(std.fmt.bufPrint(&qualified_buffer, "{s}:{s}", .{ call.context.modOf().name, name }) catch call.raise("qualified order name is too long", .{})).?;
+    const qualified = runtime.Name.of(std.fmt.bufPrint(&qualified_buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch call.raise("qualified order name is too long", .{})).?;
     if (state.typeOf(2) != .table) call.raise("orders.register expects a definition table", .{});
     var flags: orders.Flags = .{};
     var priority: i32 = 0;

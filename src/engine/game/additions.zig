@@ -93,7 +93,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
 
         /// A record a mod adds.
         pub const Added = struct {
-            /// Its qualified name: the name of the mod's folder or archive, and its own.
+            /// Its qualified name: the mod's (`Mod.qualifier`), a colon, and its own.
             name: []const u8,
             /// The name of the mod it comes from (`Mod.name`).
             mod: []const u8,
@@ -109,9 +109,9 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             /// none is left undefined.
             extra: Extra,
 
-            /// Its name without the mod's.
+            /// Its name without the mod's, which can't hold a colon (`parse`).
             pub fn own(added: Added) []const u8 {
-                return added.name[added.mod.len + 1 ..];
+                return added.name[std.mem.lastIndexOfScalar(u8, added.name, ':').? + 1 ..];
             }
         };
 
@@ -161,9 +161,10 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             return null;
         }
 
-        /// The number of what `text` names, for a record of the mod called `mod`: one of the
-        /// game's by its name or number (`Spec.baseOf`), one the mods add by its qualified name,
-        /// or one `mod` adds by its own name.
+        /// The number of what `text` names, for a record of the mod whose qualified names start
+        /// with `mod` (`Mod.qualifier`): one of the game's by its name or number
+        /// (`Spec.baseOf`), one the mods add by its qualified name, or one `mod` adds by its own
+        /// name.
         pub fn named(text: []const u8, mod: []const u8) ?u32 {
             if (spec.baseOf(text)) |base| return spec.baseNumber(base);
             if (find(text)) |number| return number;
@@ -201,7 +202,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
                 context.warn(spec.noun, "needs a name without spaces or colons", .{});
                 return null;
             }
-            const name = try std.fmt.allocPrint(context.arena, "{s}:{s}", .{ context.mod.name, own });
+            const name = try std.fmt.allocPrint(context.arena, "{s}:{s}", .{ context.mod.qualifier(), own });
             for (earlier) |each| if (std.ascii.eqlIgnoreCase(each.name, name)) {
                 context.warn(spec.noun, "is listed twice", .{});
                 return null;
@@ -303,14 +304,14 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
     if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "ship type", text) orelse return null;
     if (manifest.value(section, "Schematic")) |text| made.schematic = try context.arena.dupe(u8, text);
     if (manifest.value(section, "Guns")) |text| {
-        const number = guns.named(text, context.mod.name) orelse {
+        const number = guns.named(text, context.mod.qualifier()) orelse {
             context.warn("ship type", "fires the gun '{s}', which isn't one of the game's or the mods'", .{text});
             return null;
         };
         made.gun = @enumFromInt(number);
     }
     if (manifest.value(section, "Missiles")) |text| {
-        const number = missiles.named(text, context.mod.name) orelse {
+        const number = missiles.named(text, context.mod.qualifier()) orelse {
             context.warn("ship type", "carries the missile '{s}', which isn't one of the game's or the mods'", .{text});
             return null;
         };
@@ -640,7 +641,8 @@ test "a family reads what each mod lists" {
         \\[ShipType nobase]
         \\Model=x.shp
     ;
-    const mod: Mod = .{ .name = "bananas", .source = undefined, .manifest = .{ .text = manifest } };
+    // An archive's qualified names leave out `.hog`.
+    const mod: Mod = .{ .name = "bananas.HOG", .source = undefined, .manifest = .{ .text = manifest } };
     try read(arena.allocator(), &.{mod});
     defer reset();
 

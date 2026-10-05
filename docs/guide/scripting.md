@@ -169,9 +169,10 @@ that needs to know which features it has.
 
 ### Qualified names
 
-What a mod registers or adds gets a qualified name: the mod's folder or archive name, a colon, and
-the name the mod gave it. A gun `banana_gun` in the mod folder `bananas` is `bananas:banana_gun`,
-and the camera view `chase` of the mod `strafe-run` is `strafe-run:chase`.
+What a mod registers or adds gets a qualified name: the mod's folder name, or its archive's name
+without `.hog`, a colon, and the name the mod gave it. A gun `banana_gun` in the mod folder
+`bananas`, or in `bananas.hog`, is `bananas:banana_gun`, and the camera view `chase` of the mod
+`strafe-run` is `strafe-run:chase`. A mod's names stay the same whether it's packed or not.
 
 - Two mods can use the same name for their own things; the qualified names keep them apart.
 - The functions that register something return its qualified name. Within the mod, most of them

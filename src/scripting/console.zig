@@ -413,8 +413,7 @@ pub const Console = struct {
     /// The mod named `name`, in any case, with or without its archive's extension.
     fn modNamed(console: *const Console, name: []const u8) ?u16 {
         for (console.mods, 0..) |mod, at| {
-            const stem = if (std.ascii.endsWithIgnoreCase(mod.name, archive_extension)) mod.name[0 .. mod.name.len - archive_extension.len] else mod.name;
-            if (std.ascii.eqlIgnoreCase(mod.name, name) or std.ascii.eqlIgnoreCase(stem, name)) return @intCast(at);
+            if (std.ascii.eqlIgnoreCase(mod.name, name) or std.ascii.eqlIgnoreCase(mod.qualifier(), name)) return @intCast(at);
         }
         return null;
     }
@@ -485,10 +484,6 @@ pub const Watch = struct {
 
 /// The room a prompt takes: a mod's name, a family and the mark after them.
 pub const prompt_room = 96;
-
-/// The extension of a mod's archive, which `global`, `player` and `menu` take its name with or
-/// without.
-const archive_extension = ".hog";
 
 /// The context of `target`'s scripts, where they run.
 fn contextOf(target: Target, scripts: Scripts) ?*Context {

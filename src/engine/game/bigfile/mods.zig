@@ -133,6 +133,13 @@ pub const Mod = struct {
         }
     };
 
+    /// What its qualified names start with, such as `bananas` in `bananas:banana_gun`: its folder's
+    /// name, or its archive's without `.hog`, so that a mod names its things the same way packed or
+    /// not.
+    pub fn qualifier(mod: Mod) []const u8 {
+        return if (isArchive(mod.name)) mod.name[0 .. mod.name.len - archive_extension.len] else mod.name;
+    }
+
     /// The value of `field` in its manifest; null if it's missing or empty.
     pub fn about(mod: Mod, field: Field) ?[]const u8 {
         const text = mod.manifest.value(manifest_section, field.key()) orelse return null;
