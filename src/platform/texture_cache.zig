@@ -32,6 +32,11 @@ pub const folder = "cache/textures";
 /// The cache's files. Change the version when the payload's layout changes.
 const Files = cache_file.Files(.{ .folder = folder, .magic = "ORTX".*, .version = 2, .Key = Compressor.Key, .max_bytes = 1 << 30, .any_case = true });
 
+comptime {
+    // The layout the files of version 2 were written with, before the caches shared their files.
+    std.debug.assert(@sizeOf(Files.Header) == 32);
+}
+
 /// A level as `Store.write` lays it out before its texels.
 const LevelHeader = extern struct {
     width: u32,
