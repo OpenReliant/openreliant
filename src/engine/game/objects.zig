@@ -1224,6 +1224,13 @@ pub const Model = struct {
             if (!(lit > 0)) return null;
             return lit * flicker(random);
         }
+
+        /// Whether an `engine_glow` attachment burns forward: its plume reaches the way the model
+        /// faces, so it is a retro thruster, and pushes the ship back. `node_mount_glow` lets the
+        /// ship that carries one use reverse thrust (`can_reverse`).
+        pub fn burnsForward(attachment: *const shp.Attachment) bool {
+            return attachment.orientation[8] * attachment.size[2] > 0;
+        }
     };
 
     /// A model an attachment point holds: a gun or a pod, which `node_mount` (`0x00499A10`) mounts
@@ -1947,9 +1954,7 @@ pub const Model = struct {
                 .origin = gameobj.vector(attachment.position),
                 .orientation = attachment.orientation,
                 .size = size,
-                // Its plume burns the way the attachment's Z axis points, so a plume that
-                // reaches forward pushes the ship back.
-                .retro = size[2] * attachment.orientation[8] > 0,
+                .retro = Glow.burnsForward(attachment),
                 .steady = attachment.id == steady_glow,
                 .level = .{.{ .mesh = built.mesh(attachment.id), .until = std.math.inf(f32) }},
                 .object = .{
