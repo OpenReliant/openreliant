@@ -15,6 +15,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const layout = @import("layout.zig");
+/// A model built from a Wavefront OBJ file, for mods.
+pub const from_obj = @import("shp/from_obj.zig");
 const models = @import("../engine/game/create/models.zig");
 
 pub const Vec3 = extern struct {
@@ -1978,4 +1980,8 @@ test "a model that mounts itself stops at the depth limit" {
     var gun = [_]PartData{testPart("Barrel", true, &mounts_on_gun)};
     const model = testModel(&gun, true);
     try std.testing.expectError(error.MountsTooDeep, components(gpa, model, TestMounts.gun_file, TestMounts{ .gun = model }));
+}
+
+test {
+    _ = from_obj;
 }

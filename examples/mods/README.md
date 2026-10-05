@@ -21,6 +21,7 @@ or go away in any release. Copy one as a starting point for your own mod.
 | [`rules`](rules) | Hooks on the game's functions |
 | [`strafe-run`](strafe-run) | A custom order with a HUD display, a chase camera and rebindable actions |
 | [`tally`](tally) | Storage kept with each saved game and across every game |
+| [`teapot`](teapot) | A ship type with a model of its own, built from OBJ (`sltool shp from-obj`), and its own cockpit, display pictures and engine sound |
 | [`wingmen`](wingmen) | Object scripts, events, interfaces and a mod's options page |
 
 To try one, copy its folder into the `mods` folder of your game directory

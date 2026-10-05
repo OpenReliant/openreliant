@@ -50,10 +50,12 @@
 *.[sS][aA][vV]
 *.[zZ][iI][pP]
 # Except the example mods' manifests, which are OpenReliant's own format, not the game's settings,
-# and their own pictures and sounds, which are original work (CONTRIBUTING.md).
+# and their own pictures, sounds and models, which are original work (CONTRIBUTING.md).
 !/examples/mods/*/mod.ini
 !/examples/mods/*/*.png
 !/examples/mods/*/*.wav
+!/examples/mods/*/*.obj
+!/examples/mods/*/*.shp
 
 # Other people's repositories, cloned for reading.
 /references/
