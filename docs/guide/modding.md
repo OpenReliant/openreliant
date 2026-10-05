@@ -524,8 +524,11 @@ the loadout screen too, after the game's ships:
 - `Class`, `Access` and `Crew` set what the panel says about it. `Class` is one of `light`,
   `light_medium`, `medium`, `heavy`, `advanced_heavy`, `prototype_medium` and `prototype_light`,
   `Access` one of `bronze`, `silver`, `gold` and `platinum`, and `Crew` a number. Without them, the
-  panel shows its base's. Its specials and guns, and the gun model the guns view shows, are its
-  base's.
+  panel shows its base's. Its specials and guns are its base's.
+- `GunsModel` is the model the guns view shows in place of the ship, a `.shp` file in the mod or the
+  game, in the same units as `Model`. Make it as the game's are, such as `predator_gun.shp`: the hull
+  in lines, which only the ambient light reaches, and the guns as solid parts. Without it, the guns
+  view shows its base's gun model.
 - The arc holds twelve ships. When the game's ships leave no room, the mods' ship types that don't
   fit aren't offered, and the log says so.
 - A saved game keeps a mod's ship type as its base, so that the original can still load it.
@@ -561,8 +564,8 @@ A ship type can leave out `Base`. It then behaves like no ship the game treats s
   `Crew` say otherwise.
 - The loadout reads its guns and specials from its model: each kind of gun its gun muzzles fire,
   or the gun `Guns` names, up to four kinds; the Nova Cannon if it fires one; the cloaking device
-  if the model can cloak; and reverse thrust if an engine glow points forward. The guns view shows
-  its own model, all in red ([#711](https://github.com/OpenReliant/openreliant/issues/711)).
+  if the model can cloak; and reverse thrust if an engine glow points forward. Without a
+  `GunsModel`, the guns view shows its own model, all in red.
 - Its cockpit, engine sound and display pictures are the Predator's unless it gives its own.
 - A saved game keeps it as the Predator.
 

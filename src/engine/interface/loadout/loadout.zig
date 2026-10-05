@@ -778,11 +778,10 @@ pub const Loadout = struct {
     }
 
     /// The scale the offered ship `index`'s gunship shows at: its own, but for a mod's ship type
-    /// with a base, whose gun model is its base's, the base's (`fitScale`). One without a base
-    /// shows its own model there (`tables.modRecord`).
+    /// that shows its base's gun model, the base's (`tables.ownGunsModel`, `fitScale`).
     fn gunshipScale(loadout: *const Loadout, index: usize) f32 {
         const mod = additions.ships.get(loadout.offers[index].ship_type) orelse return loadout.shipRecord(index).scale;
-        if (!mod.based) return loadout.shipRecord(index).scale;
+        if (tables.ownGunsModel(mod)) return loadout.shipRecord(index).scale;
         return tables.ships[@intFromEnum(mod.base)].scale;
     }
 
