@@ -89,10 +89,13 @@ pub fn main(init: std.process.Init) !u8 {
             return 2;
         },
     };
-    const directory = switch (try install.openGame(io, .cwd(), asked.directory)) {
+    // Without a folder named, the first that holds the game, else the current one, to say what it
+    // lacks.
+    const game_path = asked.directory orelse try install.findGame(io, arena, .cwd()) orelse ".";
+    const directory = switch (try install.openGame(io, .cwd(), game_path)) {
         .game => |opened| opened,
-        .no_folder => return missingGameFiles(asked.directory, null),
-        .missing => |name| return missingGameFiles(asked.directory, name),
+        .no_folder => return missingGameFiles(game_path, null, asked.directory == null),
+        .missing => |name| return missingGameFiles(game_path, name, asked.directory == null),
     };
     defer directory.close(io);
     // The game's settings file, which `load_key_config` reads the input settings from and the pause
@@ -102,11 +105,12 @@ pub fn main(init: std.process.Init) !u8 {
     // screenshot leaves the file's out, so that it comes out the same for everyone.
     var kept: Options = .{};
     if (asked.screenshot == null) settings_module.read(settings_file.profile, &kept);
-    const options = switch (Options.parse(args[1..], kept)) {
+    var options = switch (Options.parse(args[1..], kept)) {
         .play => |options| options,
         // Read the same way again, the command line asks for nothing else.
         .help, .version, .wrong => asked,
     };
+    options.directory = game_path;
     run(io, init.gpa, arena, options, directory, &settings_file) catch |err| switch (err) {
         error.MissingMission => return 1,
         else => return err,
@@ -141,24 +145,28 @@ fn connectController(arena: Allocator, devices: *engine.input.Devices, controlle
 }
 
 /// Says that `directory` holds no installed copy of the game, and what the engine needs; exit
-/// status 1.
-fn missingGameFiles(directory: []const u8, file: ?[]const u8) u8 {
-    if (file) |name| {
+/// status 1. Where no folder was named (`searched`), it says where OpenReliant looked
+/// (`install.findGame`).
+fn missingGameFiles(directory: []const u8, file: ?[]const u8, searched: bool) u8 {
+    if (searched) {
+        std.debug.print("openreliant: the game isn't in the current directory, in a directory in it, or beside openreliant.\n", .{});
+    } else if (file) |name| {
         std.debug.print("openreliant: {s} is missing from {s}.\n", .{ name, directory });
     } else {
         std.debug.print("openreliant: there is no directory {s}.\n", .{directory});
     }
     std.debug.print(
         \\OpenReliant is an engine only: it plays the files of a legally obtained copy of
-        \\StarLancer. Run it in the directory the game is installed in, or name that directory:
+        \\StarLancer. Name the directory the game is installed in:
         \\
         \\    openreliant <game-directory>
         \\
+        \\or install it in a directory beside openreliant, where it is found without a name.
         \\To install the game's files from your StarLancer discs:
         \\
-        \\    openreliant install <game-directory>
+        \\    openreliant install {s}
         \\
-    , .{});
+    , .{install.suggested_folder});
     return 1;
 }
 
@@ -480,7 +488,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
     // whenever a controller is connected or disconnected.
     try platform.joystick.init(.game);
     defer platform.joystick.deinit();
-    _ = platform.joystick.addMappings(try std.fs.path.joinZ(arena, &.{ options.directory, platform.joystick.mappings_name }));
+    _ = platform.joystick.addMappings(try std.fs.path.joinZ(arena, &.{ options.directory.?, platform.joystick.mappings_name }));
     var controller: ?platform.joystick.Controller = null;
     defer if (controller) |*open| open.close();
     // A screenshot reads no controls, so that it comes out the same whatever is plugged in.

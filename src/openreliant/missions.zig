@@ -12,6 +12,7 @@ const Allocator = std.mem.Allocator;
 const openreliant = @import("openreliant");
 const version = @import("version");
 const help = @import("help.zig");
+const install = @import("install.zig");
 const mission0 = @import("mission0.zig");
 const engine = openreliant.engine;
 const game = engine.game;
@@ -19,7 +20,8 @@ const files = engine.files;
 
 pub const usage =
     \\usage: openreliant missions [<game-directory>] [--no-mods]
-    \\  <game-directory>  the folder StarLancer is installed in; the current directory by default
+    \\  <game-directory>  the folder StarLancer is installed in; found as openreliant finds it by
+    \\                    default
     \\  --no-mods         only the game's missions, without the mods in its mods folder
     \\  -h, --help        show this page
     \\
@@ -53,7 +55,9 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
             return 2;
         } else directory_name = arg;
     }
-    const directory_path = directory_name orelse ".";
+    var found_path: std.heap.ArenaAllocator = .init(gpa);
+    defer found_path.deinit();
+    const directory_path = directory_name orelse try install.findGame(io, found_path.allocator(), .cwd()) orelse ".";
     var directory = Io.Dir.cwd().openDir(io, directory_path, .{ .iterate = true }) catch |err| {
         std.debug.print("openreliant: {s} can't be opened: {s}\n", .{ directory_path, @errorName(err) });
         return 1;

@@ -12,6 +12,7 @@ const Allocator = std.mem.Allocator;
 const openreliant = @import("openreliant");
 const platform = @import("platform");
 const help = @import("help.zig");
+const install = @import("install.zig");
 const joystick = platform.joystick;
 const input = openreliant.engine.input;
 const interface = openreliant.engine.game.interface;
@@ -21,14 +22,15 @@ const settings_name = openreliant.engine.profile.settings_name;
 pub const usage =
     \\usage: openreliant joysticks [<game-directory>] [--watch]
     \\  <game-directory>  the folder StarLancer is installed in, for the settings in its
-    \\                    starlancer.ini; the current directory by default
+    \\                    starlancer.ini; found as openreliant finds it by default
     \\  --watch           show live input from the controller the game uses, until Ctrl+C
     \\  -h, --help        show this page
     \\
 ;
 
 pub const Options = struct {
-    directory: []const u8 = ".",
+    /// The game's folder as given; null to look for it (`install.findGame`).
+    directory: ?[]const u8 = null,
     watch: bool = false,
 
     pub fn parse(args: []const [:0]const u8) error{Usage}!Options {
@@ -43,7 +45,7 @@ pub const Options = struct {
                 directory = arg;
             }
         }
-        if (directory) |given| options.directory = given;
+        options.directory = directory;
         return options;
     }
 };
@@ -62,17 +64,18 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
         std.debug.print("{s}", .{usage});
         return 2;
     };
+    const game_path = options.directory orelse try install.findGame(io, arena, .cwd()) orelse ".";
     const settings_file: Profile = settings: {
-        var directory = Io.Dir.cwd().openDir(io, options.directory, .{}) catch break :settings .empty;
+        var directory = Io.Dir.cwd().openDir(io, game_path, .{}) catch break :settings .empty;
         defer directory.close(io);
         break :settings .read(io, arena, directory);
     };
     const setup: joystick.Setup = .read(settings_file);
-    try writeSettingsSource(out, options.directory, settings_file);
+    try writeSettingsSource(out, game_path, settings_file);
 
     try joystick.init(.tool);
     defer joystick.deinit();
-    const mappings = joystick.addMappings(try std.fs.path.joinZ(arena, &.{ options.directory, joystick.mappings_name }));
+    const mappings = joystick.addMappings(try std.fs.path.joinZ(arena, &.{ game_path, joystick.mappings_name }));
     if (mappings > 0) try out.print("Read {d} gamepad {s} from {s}.\n", .{ mappings, if (mappings == 1) "mapping" else "mappings", joystick.mappings_name });
     joystick.update();
     const found = try joystick.attached(arena);
@@ -368,9 +371,9 @@ test writeSettingsSource {
 }
 
 test Options {
-    try std.testing.expectEqualStrings(".", (try Options.parse(&.{})).directory);
+    try std.testing.expectEqual(null, (try Options.parse(&.{})).directory);
     const given = try Options.parse(&.{ "game", "--watch" });
-    try std.testing.expectEqualStrings("game", given.directory);
+    try std.testing.expectEqualStrings("game", given.directory.?);
     try std.testing.expect(given.watch);
     try std.testing.expectError(error.Usage, Options.parse(&.{"--bogus"}));
     try std.testing.expectError(error.Usage, Options.parse(&.{ "a", "b" }));
