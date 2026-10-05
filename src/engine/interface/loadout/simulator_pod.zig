@@ -291,7 +291,7 @@ pub const Pod = struct {
             .simulator => try canvas.string(&file.font, title_at, simulator_title, simulator_title_colour, .left),
             .training => try canvas.string(&file.font, title_at, training_title, training_title_colour, .left),
         };
-        if (pod.pointer_shapes) |*shapes| try canvas.shape(&shapes.art, pod.pointerShape(), pod.pointer.at);
+        if (pod.pointer_shapes) |*shapes| try canvas.onScreen().shape(&shapes.art, pod.pointerShape(), pod.pointer.at);
     }
 
     /// The pointer's shape.

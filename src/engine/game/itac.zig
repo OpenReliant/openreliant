@@ -828,7 +828,7 @@ pub const Itac = struct {
     fn drawPointer(itac: *Itac, canvas: Canvas) canvas_module.Error!void {
         const shapes = &(itac.shapes orelse return);
         shapes.usePalette(pointer_palette);
-        try canvas.shape(&shapes.art, itac.pointerShape(), itac.pointer.at);
+        try canvas.onScreen().shape(&shapes.art, itac.pointerShape(), itac.pointer.at);
     }
 };
 

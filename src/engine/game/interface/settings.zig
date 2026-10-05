@@ -545,7 +545,7 @@ pub const Settings = struct {
         }
         if (screen.question) |question| try question.draw(canvas, dialog_art);
         try canvas.drawVersion();
-        try canvas.shape(art, pointer.shape(), pointer.at);
+        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 
