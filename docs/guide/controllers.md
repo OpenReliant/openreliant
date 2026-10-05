@@ -66,7 +66,7 @@ These are StarLancer's own defaults, from `DEFAULT.TXT` in the game's folder. Bu
 ./openreliant joysticks StarLancer
 ```
 
-On Windows, use `.\openreliant.exe` instead of `./openreliant`. `StarLancer` is the folder the game is installed in; the tool reads your settings from there. Without it, the tool looks in the current folder. Its first line says which `starlancer.ini` it read, or that it found none, in which case none of your settings are used. For a joystick it then prints something like this:
+On Windows, use `.\openreliant.exe` instead of `./openreliant`. `StarLancer` is the folder the game is installed in; the tool reads your settings from there. Without it, the tool finds the game as `openreliant` does ([Installation](installation.md#4-launch-the-game)). Its first line says which `starlancer.ini` it read, or that it found none, in which case none of your settings are used. For a joystick it then prints something like this:
 
 ```text
 Settings from StarLancer/starlancer.ini.

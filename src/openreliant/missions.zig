@@ -57,7 +57,7 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
     }
     var found_path: std.heap.ArenaAllocator = .init(gpa);
     defer found_path.deinit();
-    const directory_path = directory_name orelse try install.findGame(io, found_path.allocator(), .cwd()) orelse ".";
+    const directory_path = try install.gameFolder(io, found_path.allocator(), directory_name);
     var directory = Io.Dir.cwd().openDir(io, directory_path, .{ .iterate = true }) catch |err| {
         std.debug.print("openreliant: {s} can't be opened: {s}\n", .{ directory_path, @errorName(err) });
         return 1;

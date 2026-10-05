@@ -110,11 +110,17 @@ pub fn openGame(io: Io, parent: Io.Dir, path: []const u8) Io.Dir.OpenError!Found
 /// before the other folders beside it.
 pub const suggested_folder = "StarLancer";
 
+/// The folder the game is played from: `given`, the one the command line names, else the one
+/// `findGame` finds, else the current folder, for the caller to say what it lacks.
+pub fn gameFolder(io: Io, arena: Allocator, given: ?[]const u8) Allocator.Error![]const u8 {
+    return given orelse try findGame(io, arena, .cwd()) orelse ".";
+}
+
 /// The folder OpenReliant plays the game from when it isn't given one: the current folder, else a
 /// folder in it, else the executable's own folder, else a folder beside the executable, the first
-/// that holds an installed copy of the game (`missingGameFile`), as a path in `arena`; null where
-/// none does. Of the folders in one, `suggested_folder` comes first and the rest by name. So a
-/// shortcut, or a double-click, finds the game wherever it starts from.
+/// that holds an installed copy of the game (`missingGameFile`), as a path that lasts as long as
+/// `arena`; null where none does. Of the folders in one, `suggested_folder` comes first and the
+/// rest by name. So a shortcut, or a double-click, finds the game wherever it starts from.
 pub fn findGame(io: Io, arena: Allocator, cwd: Io.Dir) Allocator.Error!?[]const u8 {
     const own: ?[]const u8 = std.process.executableDirPathAlloc(io, arena) catch |err| switch (err) {
         error.OutOfMemory => |oom| return oom,
@@ -145,15 +151,15 @@ fn holdsGame(io: Io, cwd: Io.Dir, path: []const u8) bool {
     }
 }
 
-/// The first folder in the folder `path` that holds an installed copy of the game:
-/// `suggested_folder`, then the others by name.
+/// The first folder in the folder `path` that holds an installed copy of the game, a link to one
+/// too: `suggested_folder`, then the others by name.
 fn gameInside(io: Io, arena: Allocator, cwd: Io.Dir, path: []const u8) Allocator.Error!?[]const u8 {
     var dir = cwd.openDir(io, path, .{ .iterate = true }) catch return null;
     defer dir.close(io);
     var names: std.ArrayList([]const u8) = .empty;
     var entries = dir.iterate();
     while (entries.next(io) catch null) |entry| {
-        if (entry.kind != .directory) continue;
+        if (entry.kind != .directory and entry.kind != .sym_link) continue;
         try names.append(arena, try arena.dupe(u8, entry.name));
     }
     std.mem.sort([]const u8, names.items, {}, firstToTry);

@@ -64,7 +64,7 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
         std.debug.print("{s}", .{usage});
         return 2;
     };
-    const game_path = options.directory orelse try install.findGame(io, arena, .cwd()) orelse ".";
+    const game_path = try install.gameFolder(io, arena, options.directory);
     const settings_file: Profile = settings: {
         var directory = Io.Dir.cwd().openDir(io, game_path, .{}) catch break :settings .empty;
         defer directory.close(io);
