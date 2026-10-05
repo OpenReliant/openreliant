@@ -113,3 +113,6 @@ footer p { margin: 0 0 8px; }
 @media (max-width: 520px) { nav .links a:not(.keep) { display: none; } }
 nav .links a.current { color: var(--accent); }
 .page-head { padding: 32px 0 8px; }
+/* The war's story, with Captain Foster's words as the manual's command transmission gives them. */
+.lore blockquote { margin: 18px 0; padding: 4px 0 4px 18px; border-left: 3px solid var(--accent); font-family: var(--title); font-size: 24px; letter-spacing: 0.02em; color: var(--text); }
+.lore cite { display: block; margin-top: 6px; font-family: var(--display); font-style: normal; font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
