@@ -1050,9 +1050,14 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
                 .engine => object.engines += 1,
                 else => {},
             }
-            for (part.attachments) |attachment| {
-                if (attachment.kind == .eject_point) object.flags.eject_point = true;
-            }
+            for (part.attachments) |*attachment| switch (attachment.kind) {
+                .eject_point => object.flags.eject_point = true,
+                // `node_mount_glow` (`0x00499540`): a ship with a retro thruster can reverse.
+                .engine_glow => if (objects.Model.Glow.burnsForward(attachment)) {
+                    object.flags.can_reverse = true;
+                },
+                else => {},
+            };
         }
         gameobj.linkParts(&model, loaded.model);
         slot.model = model;
@@ -2117,6 +2122,30 @@ test "an object is created with the guns its model holds" {
     // One group of guns fires them in step (`GunMode.created`).
     try std.testing.expect(slot.object.gun_mode.synchronised);
     try std.testing.expect(!slot.object.gun_mode.all);
+}
+
+test "a ship with a retro thruster can reverse" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const all = mission.objects;
+    var model: testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    // A main engine, whose plume reaches back, and a retro thruster, whose plume reaches forward.
+    var glows: [2]shp.Attachment = @splat(std.mem.zeroes(shp.Attachment));
+    for (&glows, [_]f32{ -40, 40 }) |*glow, length| {
+        glow.kind = .engine_glow;
+        glow.orientation = math.identity;
+        glow.size = .{ 10, 10, length };
+    }
+    model.data[0].attachments = glows[0..1];
+    const plain = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
+    try std.testing.expect(!all.slots[plain].object.flags.can_reverse);
+    model.data[0].attachments = &glows;
+    const retro = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
+    try std.testing.expect(all.slots[retro].object.flags.can_reverse);
 }
 
 test "a type under another number takes its stats, then its number" {
