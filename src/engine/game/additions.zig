@@ -35,7 +35,6 @@ const assert = std.debug.assert;
 const dte = @import("../../formats/dte.zig");
 const shp = @import("../../formats/shp.zig");
 const stats = @import("../../formats/stats.zig");
-const profile = @import("../profile.zig");
 const gameobj = @import("gameobj.zig");
 const guns_module = @import("guns.zig");
 const missiles_module = @import("missiles.zig");
@@ -189,8 +188,9 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             return list.items;
         }
 
-        /// The record `context.own` of `context.mod`, as its manifest describes it, or null where it
-        /// gets it wrong, which the log says. `earlier` holds the records read before it.
+        /// The record `context.own` of `context.mod`, as its manifest describes it, or null
+        /// where it gets it wrong, which the log says. `earlier` holds the records read before
+        /// it.
         fn parse(context: Context, earlier: []const Added) Allocator.Error!?Added {
             const manifest = context.mod.manifest;
             const own = context.own;

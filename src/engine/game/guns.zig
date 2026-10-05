@@ -359,8 +359,8 @@ fn collect(gpa: Allocator, made: *std.ArrayList(Fitted), model: *objects.Model, 
     }
 }
 
-/// OpenReliant's: makes every gun of `fitted` that fires shots fire `gun_type`, as a ship type a mod
-/// adds can ask (`additions.ShipExtra.gun`).
+/// OpenReliant's: makes every gun of `fitted` that fires shots fire `gun_type`, as a ship type a
+/// mod adds can ask (`additions.ShipExtra.gun`).
 pub fn refit(fitted: []Fitted, gun_type: GunType) void {
     for (fitted) |*gun| switch (gun.turret) {
         .fixed => |*fixed| fixed.type = gun_type,
