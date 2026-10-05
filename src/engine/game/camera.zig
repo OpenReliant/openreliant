@@ -1620,6 +1620,13 @@ test Camera {
     // The target view needs a target; without one it asks for the cockpit.
     _ = camera.setView(.target, 0, false, false, 50);
     try std.testing.expectEqual(View.cockpit, camera.frame(.{ .object = ship, .player = ship, .ticks = 3 }).?);
+    // With one, it goes round the target at the nearest it may.
+    var target = ship;
+    target.position = .{ 5000, 0, 0 };
+    target.radius = 100;
+    _ = camera.setView(.target, 0, false, false, 60);
+    try std.testing.expectEqual(null, camera.frame(.{ .object = ship, .player = ship, .target = target, .ticks = 3 }));
+    try expectVector(.{ 5000, 0, 100 * Orbit.near }, camera.place.position);
 }
 
 test View {
