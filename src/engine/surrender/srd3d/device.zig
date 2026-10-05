@@ -136,6 +136,10 @@ pub const State = struct {
     /// OpenReliant's: what it draws is a hologram (`srapiext.Surface.hologram`), which a device that
     /// can draws see-through, with faint scan lines.
     hologram: bool = false,
+    /// OpenReliant's: a mod's surface function makes what it draws see-through
+    /// (`srtexture.ModSurface.see_through`), so its alpha is the texture's as the function leaves
+    /// it, whatever the vertices' colours.
+    see_through: bool = false,
     /// How its texture is filtered (`D3DTSS_MAGFILTER`, `D3DTSS_MINFILTER`, `D3DTSS_MIPFILTER`).
     filter: Filter = .linear,
 };

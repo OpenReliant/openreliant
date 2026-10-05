@@ -1426,8 +1426,12 @@ float lighting(float cosine, vec4 parameters) {
   colour into and out of linear light.
 - If the function sets roughness or metalness on a surface without material maps, the surface is lit
   as a material ([Material maps](modding.md#material-maps)).
-- Alpha only shows on surfaces the game blends, such as glass and effects
-  ([#632](https://github.com/OpenReliant/openreliant/issues/632)).
+- Alpha shows on surfaces the game blends, such as glass and effects. A function registered with
+  `see_through = true` also makes the solid surfaces it draws on objects and textures blend by the
+  alpha it sets, sorted with the game's other blended draws. They still write depth, as a solid
+  model does, so that of two models that cut into each other the nearer hides the other. Set
+  `writes_depth = false` for something with no solid shape, such as a glow or a cloud. A function
+  that applies `everywhere` leaves the surfaces solid.
 - A lighting function only changes surfaces lit for each pixel, with PER-PIXEL LIGHTING. It changes
   the light falling on them, not their highlights.
 - Give helper functions names unique to your mod. The lighting function and a surface function can

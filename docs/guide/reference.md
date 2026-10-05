@@ -1062,6 +1062,8 @@ A table a script gives, which may leave out a field with a default.
 | `shader` | string | needed |
 | `textures` | list of string | none |
 | `everywhere` | boolean | false |
+| `see_through` | boolean | false |
+| `writes_depth` | boolean | true |
 | `parameters` | list of number | none |
 | `enabled` | boolean | true |
 

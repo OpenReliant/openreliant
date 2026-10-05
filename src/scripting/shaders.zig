@@ -58,6 +58,13 @@ pub const SurfaceDefinition = struct {
     textures: values.List([]const u8, max_textures) = .{},
     /// Whether it draws on every lit surface in the scene that has no surface function of its own.
     everywhere: bool = false,
+    /// Whether the surfaces it draws on objects and textures blend by the alpha it sets, even where
+    /// the game draws them solid. They then draw sorted with the game's other blended draws.
+    see_through: bool = false,
+    /// Whether see-through surfaces still write depth, as a solid model does: true for a solid
+    /// model made see-through, so that of two models that cut into each other the nearer hides the
+    /// other; false for something like a glow or a cloud.
+    writes_depth: bool = true,
     /// The numbers it reads as `parameters`; those left out are 0.
     parameters: Parameters = .{},
     enabled: bool = true,
@@ -105,6 +112,8 @@ pub const Function = struct {
     parameters: [parameter_count]f32,
     enabled: bool,
     everywhere: bool,
+    see_through: bool,
+    writes_depth: bool,
     textures: []const []const u8,
 };
 
@@ -116,6 +125,8 @@ const Entry = struct {
     parameters: [parameter_count]f32,
     enabled: bool,
     everywhere: bool,
+    see_through: bool = false,
+    writes_depth: bool = true,
     /// Owned copies of the texture names.
     textures: []const []const u8,
     /// The host's function, or null if there is no host.
@@ -194,6 +205,8 @@ pub const Registry = struct {
                 .parameters = entry.parameters,
                 .enabled = entry.enabled,
                 .everywhere = entry.everywhere,
+                .see_through = entry.see_through,
+                .writes_depth = entry.writes_depth,
                 .textures = entry.textures,
             };
             count += 1;
@@ -220,14 +233,28 @@ fn registryOf(call: Call) *Registry {
 }
 
 fn registerSurface(call: Call, given: SurfaceDefinition) []const u8 {
-    return register(call, .surface, given.name, given.shader, given.parameters, given.enabled, given.everywhere, given.textures.slice());
+    return register(call, .surface, given.name, given.shader, given.parameters, given.enabled, .{
+        .everywhere = given.everywhere,
+        .see_through = given.see_through,
+        .writes_depth = given.writes_depth,
+        .textures = given.textures.slice(),
+    });
 }
 
 fn registerLighting(call: Call, given: LightingDefinition) []const u8 {
-    return register(call, .lighting, given.name, given.shader, given.parameters, given.enabled, false, &.{});
+    return register(call, .lighting, given.name, given.shader, given.parameters, given.enabled, .{});
 }
 
-fn register(call: Call, kind: Kind, local: []const u8, shader: []const u8, parameters: Parameters, enabled: bool, everywhere: bool, textures: []const []const u8) []const u8 {
+/// Where a surface function draws and how its surfaces blend (`SurfaceDefinition`); a lighting
+/// function's are the defaults.
+const Drawing = struct {
+    everywhere: bool = false,
+    see_through: bool = false,
+    writes_depth: bool = true,
+    textures: []const []const u8 = &.{},
+};
+
+fn register(call: Call, kind: Kind, local: []const u8, shader: []const u8, parameters: Parameters, enabled: bool, drawing: Drawing) []const u8 {
     if (call.context.family != .player) call.raise("shaders: only player scripts can register functions", .{});
     const scripts = call.runtime();
     const gpa = scripts.gpa;
@@ -249,7 +276,7 @@ fn register(call: Call, kind: Kind, local: []const u8, shader: []const u8, param
         .failed => |message| call.raise("shaders: {s}", .{message}),
     } else null;
     // Copied last, as raising an error skips what would free them.
-    const owned = copyTextures(gpa, textures) catch {
+    const owned = copyTextures(gpa, drawing.textures) catch {
         if (registry.host) |host| if (function) |made| host.vtable.remove(host.context, made);
         call.raise("shaders: out of memory", .{});
     };
@@ -259,7 +286,9 @@ fn register(call: Call, kind: Kind, local: []const u8, shader: []const u8, param
         .kind = kind,
         .parameters = parameters.padded(0),
         .enabled = enabled,
-        .everywhere = everywhere,
+        .everywhere = drawing.everywhere,
+        .see_through = drawing.see_through,
+        .writes_depth = drawing.writes_depth,
         .textures = owned,
         .function = function,
     });
@@ -314,7 +343,7 @@ pub fn setSurface(call: Call, object: Object, name: ?[]const u8, given: ?Paramet
         if (entry.kind != .surface) call.raise("set_surface: {s} is a lighting function", .{qualified});
         const parameters = (given orelse Parameters{}).padded(0);
         // Without a host the function draws nothing, and the object draws as it is.
-        if (entry.function) |function| surface = .{ .function = function, .parameters = parameters };
+        if (entry.function) |function| surface = .{ .function = function, .parameters = parameters, .see_through = entry.see_through, .writes_depth = entry.writes_depth };
     }
     if (all.slots[object.slot()].model) |*model| for (model.parts) |*part| {
         part.object.surface = surface;

@@ -387,13 +387,28 @@ pub const Driver = struct {
             defer at += count;
             if (count == 0) continue;
             const visible = drawn.visible[at..][0..count];
-            if (surface.material.blend[0] == .off) {
+            if (surface.material.blend[0] == .off and seeThrough(drawn, surface) == null) {
                 try driver.drawPass(drawn, visible, surface, 0, layer);
                 if (driver.drawsSecond(surface)) try driver.drawPass(drawn, visible, surface, 1, layer);
             } else {
                 for (visible) |v| try blended.add(polygonDeferred(drawn, surface, @intCast(index), v));
             }
         }
+    }
+
+    /// OpenReliant's: the surface function that makes `surface` of `drawn` see-through
+    /// (`srtexture.ModSurface.see_through`), the object's, else its texture's, as the device picks
+    /// them; null where neither does, or where the game blends the surface already. A see-through
+    /// surface is put aside with the blended ones and blends by the alpha its function sets
+    /// (`drawDeferred`).
+    fn seeThrough(drawn: *const srmesh.Drawn, surface: *const srapiext.Surface) ?srtexture.ModSurface {
+        if (surface.material.blend[0] != .off) return null;
+        const texture = switch (surface.textures[0]) {
+            .image => |image| image.surface,
+            .none, .highlight => null,
+        };
+        const function = drawn.object.surface orelse texture orelse return null;
+        return if (function.see_through) function else null;
     }
 
     /// `draw_mesh_sorted` (`0x10002D10`).
@@ -556,6 +571,11 @@ pub const Driver = struct {
         switch (item.item) {
             .polygon => |p| {
                 st.surface = p.drawn.object.surface;
+                if (seeThrough(p.drawn, item.surface)) |function| {
+                    st.see_through = true;
+                    st.blend = factors(.alpha);
+                    st.depth = if (function.writes_depth) hologramDepth(layer) else depth(layer, .alpha);
+                }
                 if (p.visible.clip.any()) {
                     driver.drawClipped(p.drawn, p.visible, material, pass, st) catch {};
                 } else {
@@ -839,6 +859,52 @@ test "a frame from the scene to the device" {
     var lit: usize = 0;
     for (screen.colour) |c| lit += @intFromBool(c[0] > 0);
     try std.testing.expect(lit > 0);
+}
+
+test "a surface function makes a solid surface see-through" {
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    var driver: Driver = try .init(gpa, recorder.interface());
+    defer driver.deinit();
+
+    const mesh = try srmesh.testing.square(gpa);
+    defer mesh.deinit(gpa);
+    const levels = [_]srapiext.Level{.{ .mesh = &mesh, .until = 50000 }};
+    var object: srapiext.MeshObject = .{ .flags = .{ .lit = true }, .position = .{ 0, 0, 1000 }, .radius = mesh.radius, .levels = &levels };
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    try scene.layers.getPtr(.world).append(gpa, .{ .mesh = &object });
+    var context: srapi.Context = .{ .projection = .init(64, 48, srapi.full_screen, .{ 0.6, 0.8 }) };
+
+    // Solid, it draws unblended and writes depth.
+    try srcore.render(arena, &context, &scene, driver.interface(), null);
+    const solid = recorder.draws.items[recorder.draws.items.len - 1].state;
+    try std.testing.expectEqual(null, solid.blend);
+    try std.testing.expect(solid.depth.writing);
+    // With a see-through function, it blends by alpha and still writes depth.
+    object.surface = .{ .function = 1, .see_through = true };
+    recorder.clear();
+    try srcore.render(arena, &context, &scene, driver.interface(), null);
+    const see_through = recorder.draws.items[recorder.draws.items.len - 1].state;
+    try std.testing.expectEqual(factors(.alpha), see_through.blend);
+    try std.testing.expect(see_through.depth.writing and see_through.depth.testing);
+    try std.testing.expectEqual(1, see_through.surface.?.function);
+    try std.testing.expect(see_through.see_through and !solid.see_through);
+    // Without its depth, as a glow is drawn.
+    object.surface.?.writes_depth = false;
+    recorder.clear();
+    try srcore.render(arena, &context, &scene, driver.interface(), null);
+    const glow = recorder.draws.items[recorder.draws.items.len - 1].state;
+    try std.testing.expect(!glow.depth.writing and glow.depth.testing);
+    // A function that isn't see-through leaves the surface solid.
+    object.surface = .{ .function = 1 };
+    recorder.clear();
+    try srcore.render(arena, &context, &scene, driver.interface(), null);
+    try std.testing.expectEqual(null, recorder.draws.items[recorder.draws.items.len - 1].state.blend);
 }
 
 test "a pass keeps what it gathers while it clips a polygon" {

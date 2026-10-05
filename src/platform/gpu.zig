@@ -125,8 +125,9 @@ const Vertex = extern struct {
 /// in the low byte, how its texture is magnified in the next two bits, whether the key lights reach
 /// past its terminator in the one after, whether its texture's normal map and material map are
 /// shaded in the two after that, whether the normal map holds two channels (BC5 or RG16) in the
-/// one after that, whether it is drawn as a hologram in the one after that, and whether its
-/// texture's emissive map is shaded in the one after that.
+/// one after that, whether it is drawn as a hologram in the one after that, whether its
+/// texture's emissive map is shaded in the one after that, and whether a mod's surface function
+/// makes it see-through in the one after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,
@@ -139,7 +140,9 @@ const Shading = packed struct(u32) {
     /// It is drawn as a hologram (`device.State.hologram`).
     hologram: bool = false,
     emissive_map: bool = false,
-    _unused: u16 = 0,
+    /// A mod's surface function makes it see-through (`device.State.see_through`).
+    see_through: bool = false,
+    _unused: u15 = 0,
 
     /// A draw's shading, its texture's maps shaded where `materials` (`Gpu.shadesMaterials`).
     fn of(state: device.State, materials: bool) Shading {
@@ -154,6 +157,7 @@ const Shading = packed struct(u32) {
             .hologram = state.hologram,
             // The loadout's holograms don't glow.
             .emissive_map = maps.emissive != null and !state.hologram,
+            .see_through = state.see_through,
         };
     }
 };
@@ -1830,6 +1834,10 @@ test Shading {
     var shown = state;
     shown.hologram = true;
     try std.testing.expectEqual(0x4001, @as(u32, @bitCast(Shading.of(shown, true))));
+    // A surface a mod's function makes see-through in the bit after the emissive map.
+    shown.hologram = false;
+    shown.see_through = true;
+    try std.testing.expectEqual(0x10001, @as(u32, @bitCast(Shading.of(shown, false))));
 }
 
 test appendList {
