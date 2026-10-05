@@ -97,6 +97,7 @@ h2 span { color: var(--accent); }
 .three p { margin: 0; color: #cfd3dd; }
 .story { margin-top: 8px; max-width: 820px; }
 .story p { font-size: 18px; color: #d6dae3; margin: 0 0 14px; }
+.about { margin: 6px 0 0; color: #cfd3dd; max-width: 820px; }
 .status p { margin: 6px 0 0; color: #cfd3dd; max-width: 820px; }
 .step { font-family: var(--display); font-weight: 700; font-size: 40px; line-height: 1; color: var(--accent-dim); margin-bottom: 6px; }
 .milestone { margin-bottom: 14px; }
@@ -133,7 +134,7 @@ footer p { margin: 0 0 8px; }
   <div>
     <div class="eyebrow">Open-source StarLancer</div>
     <h1>OpenReliant</h1>
-    <p class="lead">An open-source reimplementation of StarLancer, the space combat game from 2000. It plays your own copy of the game on today's Windows, macOS and Linux, and adds what the original never had: any resolution, modern lighting and shadows, and mods.</p>
+    <p class="lead">OpenReliant is a free, open-source reimplementation of StarLancer's engine. It runs StarLancer on modern Windows, macOS and Linux, using the files from your copy of the game. It also adds things the original didn't have, like any screen resolution, better lighting and shadows, and mods.</p>
     <div class="actions">
       <a class="button primary" id="hero-download" href="#download">Download</a>
       <a class="button" href="#start">How to start</a>
@@ -144,69 +145,69 @@ footer p { margin: 0 0 8px; }
 </div>
 
 <section id="story" class="story">
-  <p>StarLancer came out in 2000, made by Warthog and Digital Anvil and published by Microsoft. It put you in the cockpit of a fighter flying from the carrier Reliant, through a war told in briefings, radio chatter and cinematics. Today it's hard to play: its copy protection no longer runs on Windows, and it was built for the screens and graphics cards of its time.</p>
-  <p>OpenReliant brings it back. It's a new, open-source engine, rebuilt from the original program one piece at a time, that reads the files of your own copy and plays the game the way the original does. And because it's open, it can go further than the original ever did.</p>
+  <p>StarLancer is a space combat game from 2000, made by Warthog and Digital Anvil and published by Microsoft. You fly fighters from the carrier Reliant in a war told through briefings, radio messages and cutscenes. The game is hard to run today: its copy protection doesn't work on current Windows, and it was made for the computers of its time.</p>
+  <p>OpenReliant fixes that. It's a new engine, rebuilt piece by piece to work like the original. Give it the files from your copy of StarLancer, and it runs the game.</p>
 </section>
 
 <section id="download" class="panel">
   <h2>Get <span id="version">OpenReliant</span></h2>
-  <p class="small" id="release-note">Free, for Windows, macOS and Linux. You also need your own copy of StarLancer.</p>
+  <p class="small" id="release-note">Free for Windows, macOS and Linux. You also need a copy of StarLancer.</p>
   <div class="builds" id="builds">
     <a class="build" href="https://github.com/OpenReliant/openreliant/releases/latest">All downloads</a>
   </div>
-  <p class="small">Looking for new ships and other mods? <a href="https://openreliant.github.io/openreliant-mods/">Browse the mods</a>.</p>
+  <p class="small">Looking for mods? <a href="https://openreliant.github.io/openreliant-mods/">Browse the mods site</a>.</p>
 </section>
 
 <section id="status" class="panel status">
   <h2>Where it <span>stands</span></h2>
-  <p>OpenReliant is in active development. The first campaign mission plays from start to finish, with the main menu, the Reliant's rooms, briefings and the loadout around it. The rest of the campaign is on the way, and multiplayer comes after it. <a href="#roadmap">See the roadmap</a>.</p>
+  <p>OpenReliant is still in development. Right now you can play the first campaign mission from start to finish, with the menus, briefings and loadout. The rest of the campaign is next, then multiplayer. <a href="#roadmap">See the roadmap</a>.</p>
 </section>
 
 <section id="start">
   <h2>Start <span>flying</span></h2>
-  <p class="intro">You need your StarLancer discs, or images of them. OpenReliant does the rest.</p>
+  <p class="intro">You need your StarLancer discs or disc images.</p>
   <div class="steps">
-    <div class="panel"><div class="step">1</div><h3>Download</h3><p>Get OpenReliant for your computer from the button above and unpack it anywhere.</p></div>
-    <div class="panel"><div class="step">2</div><h3>Install the game</h3><p>Run <code>openreliant install</code> with your first disc in the drive, or point it at your disc images. It copies the game's files into a folder of their own.</p></div>
-    <div class="panel"><div class="step">3</div><h3>Fly</h3><p>Start OpenReliant, sign in as a new pilot, and report to the Reliant.</p></div>
+    <div class="panel"><div class="step">1</div><h3>Download</h3><p>Download OpenReliant for your computer and unpack it.</p></div>
+    <div class="panel"><div class="step">2</div><h3>Install</h3><p>Run <code>openreliant install</code> with your first StarLancer disc in the drive, or point it at your disc images. It copies the game files to a new folder.</p></div>
+    <div class="panel"><div class="step">3</div><h3>Fly</h3><p>Start OpenReliant, create a pilot and start the campaign.</p></div>
   </div>
-  <p class="small">The <a href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/installation.md">installation guide</a> walks through each step for Windows, macOS and Linux.</p>
+  <p class="small">The <a href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/installation.md">installation guide</a> has the details for each system.</p>
 </section>
 
 <section id="adds">
   <h2>What it <span>adds</span></h2>
-  <p class="intro">OpenReliant rebuilds StarLancer's own engine piece by piece, so the ships, missions, wingmen and rules are the ones you know. Around them, it brings the game up to date.</p>
+  <p class="intro">The ships, missions and rules are the same as in the original. Everything else is updated for modern computers.</p>
   <div class="three">
     <div class="panel">
       <h3>Any resolution</h3>
-      <p>The game renders at your screen's full resolution, widescreen included, in full colour and with smooth edges, and moves smoothly at high frame rates instead of the original's fixed ticks.</p>
+      <p>The game runs at your screen's full resolution, including widescreen, with smooth edges and high frame rates.</p>
     </div>
     <div class="panel">
-      <h3>Light and shadow</h3>
-      <p>Every pixel is lit, ships cast real-time shadows on each other and into the cockpit, and bright lights bloom. Mods can add surface detail that catches the light.</p>
+      <h3>Lighting and shadows</h3>
+      <p>Lighting is calculated per pixel, and ships cast real-time shadows, also into the cockpit. Mods can add surface detail with normal maps.</p>
     </div>
     <div class="panel">
-      <h3>Richer effects</h3>
-      <p>Explosions, shields, engine plumes, planets and their atmospheres have more to them, and the movies are upscaled for today's screens.</p>
+      <h3>Better effects</h3>
+      <p>Explosions, shields, engine trails and planets look more detailed. The movies are upscaled for modern screens.</p>
     </div>
     <div class="panel">
-      <h3>Sound around you</h3>
-      <p>Every engine, shot and explosion comes from where it is, with reverb, and headphones get a mix of their own.</p>
+      <h3>3D sound</h3>
+      <p>Sound comes from the direction of its source, with reverb. There's a separate mix for headphones.</p>
     </div>
     <div class="panel">
       <h3>Any controller</h3>
-      <p>Keyboard and mouse, flight sticks, HOTAS setups and gamepads, with rumble for every hit, set up from the game's own controls screen.</p>
+      <p>Keyboard and mouse, joysticks, HOTAS and gamepads all work, with rumble. You set them up in the game's controls screen.</p>
     </div>
     <div class="panel">
       <h3>Mods</h3>
-      <p>New ships, guns and missiles, high-resolution textures, models from today's 3D tools, and scripts that change how the game plays. <a href="#mods">More below</a>.</p>
+      <p>Add new ships, weapons, textures, models and scripts. <a href="#mods">See below</a>.</p>
     </div>
   </div>
 </section>
 
 <section id="mods">
-  <h2>Mods, <span>built in</span></h2>
-  <p class="intro">Drop a mod into the game's <code>mods</code> folder and turn it on from the main menu. Mods can sharpen the game with high-resolution textures, add new ships, guns and missiles, bring models from today's 3D tools, replace sounds, music and missions, and change how the game plays with scripts. Nothing of the game's own files is touched, so turning a mod off brings the game back as it was.</p>
+  <h2><span>Mods</span></h2>
+  <p class="intro">Put a mod in the game's <code>mods</code> folder and turn it on from the main menu. Mods can add high-resolution textures, new ships, guns and missiles, and 3D models made in modern tools. They can also replace sounds, music and missions, or change the game with scripts. Mods don't change the game files, so you can turn them off at any time.</p>
   <div class="actions">
     <a class="button primary" href="https://openreliant.github.io/openreliant-mods/">Browse the mods</a>
     <a class="button" href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/modding.md">Make a mod</a>
@@ -215,34 +216,26 @@ footer p { margin: 0 0 8px; }
 
 <section id="roadmap">
   <h2>The <span>road ahead</span></h2>
-  <p class="intro">Each release brings more of the game. Here's where it goes next.</p>
+  <p class="intro">What's coming next.</p>
   <div class="timeline">
-    <div class="panel"><div class="when">Now · 0.7</div><h3>Mods</h3><p>The game opens up: new ships, textures, models and scripts, from the mods folder.</p></div>
-    <div class="panel"><div class="when">Next · 1.0</div><h3>The whole campaign</h3><p>Every mission from the first to the last, with saved games, as the original plays it.</p></div>
-    <div class="panel"><div class="when">Then · 1.1</div><h3>Multiplayer</h3><p>The original's modes and rules over today's networks: no port forwarding to join a game, and servers that run on their own.</p></div>
+    <div class="panel"><div class="when">Now · 0.7</div><h3>Mods</h3><p>Mod support: new ships, textures, models and scripts.</p></div>
+    <div class="panel"><div class="when">Next · 1.0</div><h3>The whole campaign</h3><p>The full campaign, from the first mission to the last, with saved games.</p></div>
+    <div class="panel"><div class="when">Then · 1.1</div><h3>Multiplayer</h3><p>Multiplayer with the original game modes, and a public matchmaking server to find games. Join without port forwarding, or run your own dedicated server.</p></div>
   </div>
-  <p class="intro" style="margin-top: 20px">Along the way, more of the game gets the modern touch. The bars show how far each part has come.</p>
+  <p class="intro" style="margin-top: 20px">The rest of the game keeps improving too. The bars below show the progress of each part.</p>
   <div class="panel" id="milestones">
     <p class="small"><a href="https://github.com/OpenReliant/openreliant/milestones">See the progress on GitHub</a>.</p>
   </div>
 </section>
 
-<section id="about">
-  <div class="two">
-    <div class="panel">
-      <h3>The game</h3>
-      <p>StarLancer is a space combat game by Warthog and Digital Anvil, published by Microsoft in 2000. You join a squadron of volunteers flying from the carrier Reliant, through a campaign of missions with wingmen, briefings and cinematics.</p>
-    </div>
-    <div class="panel">
-      <h3>The project</h3>
-      <p>OpenReliant is a free, open-source fan project, made by people who love the game. It contains none of the game's files, so you need your own copy. Anyone can <a href="https://github.com/OpenReliant/openreliant/blob/main/CONTRIBUTING.md">help out</a>, <a href="https://github.com/OpenReliant/openreliant/issues">report a bug</a>, or read <a href="https://github.com/OpenReliant/openreliant">the code</a>.</p>
-    </div>
-  </div>
+<section id="about" class="panel">
+  <h2>About the <span>project</span></h2>
+  <p class="about">OpenReliant is a free, open-source fan project. It doesn't include any game files, so you need your own copy of StarLancer. You can <a href="https://github.com/OpenReliant/openreliant/blob/main/CONTRIBUTING.md">help</a>, <a href="https://github.com/OpenReliant/openreliant/issues">report a bug</a> or <a href="https://github.com/OpenReliant/openreliant">read the code</a> on GitHub.</p>
 </section>
 
 <footer>
-  <p>OpenReliant is an independent, non-commercial open-source project. It isn't affiliated with, endorsed by, or associated with Warthog Games, Digital Anvil or Microsoft. StarLancer is a trademark of its owner.</p>
-  <p>The source code is under the <a href="https://github.com/OpenReliant/openreliant/blob/main/LICENSE">Mozilla Public License 2.0</a>, and the documentation under CC BY-SA 4.0. No game files are included.</p>
+  <p>OpenReliant is a non-commercial fan project. It isn't connected to or endorsed by Warthog, Digital Anvil or Microsoft. StarLancer is a trademark of its owner.</p>
+  <p>The code is licensed under the <a href="https://github.com/OpenReliant/openreliant/blob/main/LICENSE">Mozilla Public License 2.0</a> and the documentation under CC BY-SA 4.0.</p>
 </footer>
 </main>
 
