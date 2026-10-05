@@ -747,6 +747,7 @@ pub const Loadout = struct {
     fn makeShip(loadout: *Loadout, ship: *Ship, index: u8) !void {
         const arena = loadout.arena.allocator();
         const file = try loadout.loadModel(loadout.shipRecord(index).model, .loadout_ships);
+        try loadout.offers[index].fitModel(file.model, arena);
         ship.* = .{
             .model = try .create(arena, file.model, file.loaded, .{}),
             .loaded = file.loaded,
@@ -776,10 +777,12 @@ pub const Loadout = struct {
         return loadout.offers[loadout.chosen].ship_type;
     }
 
-    /// The scale the offered ship `index`'s gunship shows at: a mod's ship type's its base's, as
-    /// its gun model is its base's (`fitScale`).
+    /// The scale the offered ship `index`'s gunship shows at: its own, but for a mod's ship type
+    /// with a base, whose gun model is its base's, the base's (`fitScale`). One without a base
+    /// shows its own model there (`tables.modRecord`).
     fn gunshipScale(loadout: *const Loadout, index: usize) f32 {
         const mod = additions.ships.get(loadout.offers[index].ship_type) orelse return loadout.shipRecord(index).scale;
+        if (!mod.based) return loadout.shipRecord(index).scale;
         return tables.ships[@intFromEnum(mod.base)].scale;
     }
 

@@ -40,6 +40,7 @@ const gameobj = @import("gameobj.zig");
 const guns_module = @import("guns.zig");
 const missiles_module = @import("missiles.zig");
 const pilots_module = @import("pilots.zig");
+const loadout = @import("../interface/loadout/tables.zig");
 const mods_module = @import("bigfile/mods.zig");
 const Mod = mods_module.Mod;
 
@@ -63,6 +64,9 @@ pub fn Spec(comptime Base: type, comptime Extra: type) type {
         baseNumber: fn (Base) u32,
         /// What the mod's own files that use the number after a record's name are, for the log.
         numbered_in: []const u8,
+        /// The game's record one without a `Base` starts from, where the family takes one without:
+        /// one the game singles out nowhere. Null where every record needs a `Base`.
+        template: ?Base = null,
         /// Reads what a record has besides its base and its name from its section, or null where
         /// the section gets it wrong, which it logs.
         readExtra: ?fn (Context, []const u8, Base) Allocator.Error!?Extra = null,
@@ -97,8 +101,12 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             name: []const u8,
             /// The name of the mod it comes from (`Mod.name`).
             mod: []const u8,
-            /// The game's record it acts as, and starts from.
+            /// The game's record it acts as, and starts from: the one its `Base` names, else the
+            /// family's `Spec.template`.
             base: Base,
+            /// Whether its manifest names a base. Without one, it takes only the template's
+            /// records, and none of what the game gives the template in particular.
+            based: bool = true,
             /// What the game calls it, else what it calls its base; and once the strings are read,
             /// the language string that holds it (`addNames`).
             label: ?[]const u8 = null,
@@ -208,12 +216,12 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
                 return null;
             };
             const section = try std.fmt.allocPrint(context.arena, "{s}{s}", .{ spec.item_section, own });
-            const base_text = manifest.value(section, "Base") orelse {
-                context.warn(spec.noun, "needs a Base in [{s}]", .{section});
+            const base_text = manifest.value(section, "Base");
+            const base = if (base_text) |text| spec.baseOf(text) orelse {
+                context.warn(spec.noun, "has the base '{s}', which isn't one of the game's", .{text});
                 return null;
-            };
-            const base = spec.baseOf(base_text) orelse {
-                context.warn(spec.noun, "has the base '{s}', which isn't one of the game's", .{base_text});
+            } else spec.template orelse {
+                context.warn(spec.noun, "needs a Base in [{s}]", .{section});
                 return null;
             };
             const extra: Extra = if (spec.readExtra) |readExtra| try readExtra(context, section, base) orelse return null else {};
@@ -221,6 +229,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
                 .name = name,
                 .mod = context.mod.name,
                 .base = base,
+                .based = base_text != null,
                 .label = if (manifest.value(section, "Name")) |text| try context.arena.dupe(u8, text) else null,
                 .extra = extra,
             };
@@ -285,9 +294,24 @@ pub const ShipExtra = struct {
     wire_frame: ?[]const u8 = null,
     wing_icon: ?[]const u8 = null,
     engine_sound: ?[]const u8 = null,
-    /// The campaign tier from which the loadout screen offers it, else whenever it offers its
-    /// base (`loadout.tables.offers`).
+    /// The campaign tier from which the loadout screen offers it; without one, 0, the start of the
+    /// campaign (`loadout.tables.offers`).
     tier: ?u2 = null,
+    /// Whether it carries blind fire and spectral shields when the player flies it
+    /// (`main.playerShip`). Without the keys, it carries what its base carries, or neither
+    /// without a base.
+    blind_fire: ?bool = null,
+    spectral_shields: ?bool = null,
+    /// What the loadout's panel shows for it (`loadout.tables.Ship`). Without the keys, the panel
+    /// shows its base's, or `default_class`, `default_access` and `default_crew` without a base.
+    class: ?loadout.Class = null,
+    access: ?loadout.Access = null,
+    crew: ?u8 = null,
+
+    /// What the loadout's panel shows for a ship type without a base, unless its manifest says.
+    pub const default_class: loadout.Class = .light;
+    pub const default_access: loadout.Access = .bronze;
+    pub const default_crew: u8 = 1;
 };
 
 fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocator.Error!?ShipExtra {
@@ -302,6 +326,16 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
     if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, std.fs.path.stem(text));
     if (manifest.value(section, "EngineSound")) |name| made.engine_sound = try readSound(context, "ship type", name) orelse return null;
     if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "ship type", text) orelse return null;
+    if (manifest.value(section, "BlindFire")) |text| made.blind_fire = readSwitch(context, "BlindFire", text) orelse return null;
+    if (manifest.value(section, "SpectralShields")) |text| made.spectral_shields = readSwitch(context, "SpectralShields", text) orelse return null;
+    if (manifest.value(section, "Class")) |text| made.class = readNamed(loadout.Class, context, "Class", text) orelse return null;
+    if (manifest.value(section, "Access")) |text| made.access = readNamed(loadout.Access, context, "Access", text) orelse return null;
+    if (manifest.value(section, "Crew")) |text| {
+        made.crew = std.fmt.parseInt(u8, std.mem.trim(u8, text, " \t"), 10) catch {
+            context.warn("ship type", "gives the Crew '{s}', which isn't a number from 0 to 255", .{text});
+            return null;
+        };
+    }
     if (manifest.value(section, "Schematic")) |text| made.schematic = try context.arena.dupe(u8, text);
     if (manifest.value(section, "Guns")) |text| {
         const number = guns.named(text, context.mod.qualifier()) orelse {
@@ -342,6 +376,30 @@ fn readMissile(context: Context, section: []const u8, _: missiles_module.GameMis
     return made;
 }
 
+/// `text` as a switch: `yes`, `true`, `on` or `1`, or `no`, `false`, `off` or `0`, in any case;
+/// null where it is none of them, which the log says.
+fn readSwitch(context: Context, comptime key: []const u8, text: []const u8) ?bool {
+    const trimmed = std.mem.trim(u8, text, " \t");
+    for ([_][]const u8{ "yes", "true", "on", "1" }) |word| if (std.ascii.eqlIgnoreCase(trimmed, word)) return true;
+    for ([_][]const u8{ "no", "false", "off", "0" }) |word| if (std.ascii.eqlIgnoreCase(trimmed, word)) return false;
+    context.warn("ship type", "gives " ++ key ++ " the value '{s}', which isn't yes or no", .{text});
+    return null;
+}
+
+/// `text` as a value of `Named`, by its name in any case or by its number (`gameNamed`); null
+/// where it is neither, which the log says with the names it takes.
+fn readNamed(comptime Named: type, context: Context, comptime key: []const u8, text: []const u8) ?Named {
+    const end = std.math.maxInt(@typeInfo(Named).@"enum".tag_type) + 1;
+    if (gameNamed(Named, text, end)) |named| return named;
+    const names = comptime names: {
+        var list: []const u8 = "";
+        for (@typeInfo(Named).@"enum".fields, 0..) |field, at| list = list ++ (if (at == 0) "" else ", ") ++ field.name;
+        break :names list;
+    };
+    context.warn("ship type", "gives " ++ key ++ " the value '{s}', which isn't one of " ++ names, .{text});
+    return null;
+}
+
 /// The campaign tier `text` names, for a record of `noun`; null where it isn't one, which the log
 /// says.
 fn readTier(context: Context, comptime noun: []const u8, text: []const u8) Allocator.Error!?u2 {
@@ -369,6 +427,8 @@ pub const ships = Family(gameobj.GameType, ShipExtra, .{
         }
     }.number,
     .numbered_in = "its missions",
+    // A fighter the game singles out nowhere.
+    .template = .predator,
     .readExtra = readShip,
 });
 
@@ -628,6 +688,7 @@ test "a family reads what each mod lists" {
         \\kettle=
         \\bad name=
         \\nobase=
+        \\wrong=
         \\[ShipType teapot]
         \\Base=predator
         \\Model=teapot.shp
@@ -640,6 +701,15 @@ test "a family reads what each mod lists" {
         \\Guns=nova_cannon
         \\[ShipType nobase]
         \\Model=x.shp
+        \\BlindFire=Yes
+        \\SpectralShields=off
+        \\Class=Light_Medium
+        \\Access=gold
+        \\Crew=2
+        \\[ShipType wrong]
+        \\Base=predator
+        \\Model=y.shp
+        \\Class=enormous
     ;
     // An archive's qualified names leave out `.hog`.
     const mod: Mod = .{ .name = "bananas.HOG", .source = undefined, .manifest = .{ .text = manifest } };
@@ -665,8 +735,9 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqualStrings(pilots_module.faces[0].film(.laughing).?, face.film(.laughing).?);
     try std.testing.expectEqualStrings("trp", face.own_voice.?);
 
+    // A ship type with a class that isn't one is left out.
     const list = ships.all();
-    try std.testing.expectEqual(2, list.len);
+    try std.testing.expectEqual(3, list.len);
     try std.testing.expectEqualStrings("bananas:teapot", list[0].name);
     try std.testing.expectEqualStrings("teapot", list[0].own());
     try std.testing.expectEqual(gameobj.GameType.predator, list[0].base);
@@ -679,9 +750,19 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqual(null, list[1].own_number);
     try std.testing.expectEqual(ships.first + 1, ships.find("BANANAS:kettle").?);
     try std.testing.expectEqualStrings("bananas:teapot", ships.get(ships.first).?.name);
-    try std.testing.expectEqual(null, ships.get(ships.first + 2));
+    try std.testing.expect(list[0].based);
+    // Without a base, the template, and the devices and figures it gives.
+    try std.testing.expectEqual(gameobj.GameType.predator, list[2].base);
+    try std.testing.expect(!list[2].based);
+    try std.testing.expect(list[2].extra.blind_fire.?);
+    try std.testing.expect(!list[2].extra.spectral_shields.?);
+    try std.testing.expectEqual(loadout.Class.light_medium, list[2].extra.class.?);
+    try std.testing.expectEqual(loadout.Access.gold, list[2].extra.access.?);
+    try std.testing.expectEqual(2, list[2].extra.crew.?);
+    try std.testing.expectEqual(null, list[0].extra.class);
+    try std.testing.expectEqual(null, ships.get(ships.first + 3));
     try std.testing.expectEqual(null, ships.get(0x0B));
-    try std.testing.expectEqual(ships.first + 2, ships.count());
+    try std.testing.expectEqual(ships.first + 3, ships.count());
 }
 
 test "Family.records" {

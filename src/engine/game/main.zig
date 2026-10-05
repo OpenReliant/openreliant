@@ -1619,16 +1619,23 @@ pub const player_ships = [_]PlayerShip{
     .{ .cockpit = "phe2_frm.shp", .wire_frame = 0x112, .wing_icon = 0x104, .blind_fire = true },
 };
 
-/// The player's ship of `ship_type`, a twin as the ship it twins (`gameobj.GameType.untwinned`) and a
-/// type a mod adds as its base, with its own cockpit where it gives one, or null for a type the
-/// start has none for.
+/// The player's ship of `ship_type`, a twin as the ship it twins (`gameobj.GameType.untwinned`), or
+/// null for a type the start has none for. A type a mod adds is its base, or its template where it
+/// names no base, with the cockpit, blind fire and spectral shields its manifest gives
+/// (`additions.ShipExtra`); without a base it carries no device its manifest doesn't give.
 pub fn playerShip(ship_type: gameobj.Type) ?PlayerShip {
     const index = @intFromEnum(ship_type.base().untwinned());
     if (index >= player_ships.len) return null;
     var ship = player_ships[index];
-    if (ship_type.added()) |mod| if (mod.extra.cockpit) |own| {
-        ship.cockpit = own;
-    };
+    const mod = ship_type.added() orelse return ship;
+    // A type without a base carries none of its template's devices.
+    if (!mod.based) {
+        ship.blind_fire = false;
+        ship.spectral_shields = false;
+    }
+    if (mod.extra.cockpit) |own| ship.cockpit = own;
+    if (mod.extra.blind_fire) |own| ship.blind_fire = own;
+    if (mod.extra.spectral_shields) |own| ship.spectral_shields = own;
     return ship;
 }
 
@@ -1907,11 +1914,15 @@ test fitDevices {
     try std.testing.expectEqual(null, playerShip(.of(.yamato)));
 }
 
-test "a mod's ship type has its own cockpit" {
+test "a mod's ship type has its own cockpit and devices" {
     const additions = @import("additions.zig");
     var list = [_]additions.ships.Added{
         .{ .name = "a:pot", .mod = "a", .base = .predator, .extra = .{ .model = "pot.shp", .cockpit = "pot_frm.shp" } },
         .{ .name = "a:plain", .mod = "a", .base = .predator, .extra = .{ .model = "plain.shp" } },
+        // The Phoenix without its blind fire.
+        .{ .name = "a:dim", .mod = "a", .base = .phoenix, .extra = .{ .model = "dim.shp", .blind_fire = false } },
+        // Without a base: no device but those it gives.
+        .{ .name = "a:bare", .mod = "a", .base = .predator, .based = false, .extra = .{ .model = "bare.shp", .blind_fire = true } },
     };
     additions.ships.install(&list);
     defer additions.ships.reset();
@@ -1920,6 +1931,11 @@ test "a mod's ship type has its own cockpit" {
     // The rest is its base's, as is all of a type that gives no cockpit.
     try std.testing.expectEqual(player_ships[0].wire_frame, own.wire_frame);
     try std.testing.expectEqualDeep(player_ships[0], playerShip(@enumFromInt(additions.ships.first + 1)).?);
+    // Its own devices, where it gives them.
+    const dim = playerShip(@enumFromInt(additions.ships.first + 2)).?;
+    try std.testing.expect(!dim.blind_fire and player_ships[11].blind_fire);
+    const bare = playerShip(@enumFromInt(additions.ships.first + 3)).?;
+    try std.testing.expect(bare.blind_fire and !bare.spectral_shields);
 }
 
 test startMission {

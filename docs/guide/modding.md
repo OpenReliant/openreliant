@@ -429,7 +429,8 @@ what it adds in sections such as `[ShipTypes]`
 
 ## New ships, guns, missiles and pilots
 
-A mod can add ship types, guns, missiles and pilots. Each one is based on one of the game's:
+A mod can add ship types, guns, missiles and pilots. Each one is based on one of the game's (a
+ship type can also have no base, see [Ship types without a base](#ship-types-without-a-base)):
 
 - It starts with a copy of its base's stats, which a load script can change
   ([The records](scripting.md#the-records)).
@@ -451,7 +452,7 @@ Name=Banana Gun
 What all four have in common:
 
 - `Base` is the game's record the new one is based on, by OpenReliant's name for it, such as
-  `predator` or `pulse_cannon`, or by its number.
+  `predator` or `pulse_cannon`, or by its number. Guns, missiles and pilots need one.
 - `Name` is what the game calls it, such as on the flight display. Without it, it takes its base's
   name.
 - When it starts, OpenReliant numbers what the mods add after the game's own records, mod by mod in
@@ -512,22 +513,26 @@ EngineSound=kettle.wav
   whatever the model names: one of the game's by its name, one a mod adds by its qualified name, or
   one this mod adds by its own name.
 
-A ship type based on one of the twelve ships the player can fly is offered on the loadout screen
-too, after the game's ships:
+A ship type based on one of the twelve ships the player can fly, or without a base, is offered on
+the loadout screen too, after the game's ships:
 
-- `Tier` is the campaign tier from which it is offered, 0 at the start to 3 after mission 21. Without
-  it, it is offered wherever the game offers its base, by the tier or the pilot's rank.
+- `Tier` is the campaign tier from which it is offered, 0 at the start to 3 after mission 21.
+  Without it, it is offered from the start of the campaign.
 - Its name and its model are its own, drawn in green (see
   [Textures in the loadout](#textures-in-the-loadout)), and shown as large as its base whatever
-  its model's size. Its panel's figures are its own stats', measured against the game's fighters;
-  its class, access, crew, specials and guns, and the gun model the guns view shows, are its base's.
+  its model's size. The bars on its panel show its own stats, measured against the game's fighters.
+- `Class`, `Access` and `Crew` set what the panel says about it. `Class` is one of `light`,
+  `light_medium`, `medium`, `heavy`, `advanced_heavy`, `prototype_medium` and `prototype_light`,
+  `Access` one of `bronze`, `silver`, `gold` and `platinum`, and `Crew` a number. Without them, the
+  panel shows its base's. Its specials and guns, and the gun model the guns view shows, are its
+  base's.
 - The arc holds twelve ships. When the game's ships leave no room, the mods' ship types that don't
   fit aren't offered, and the log says so.
 - A saved game keeps a mod's ship type as its base, so that the original can still load it.
   OpenReliant keeps the mod's own beside the save ([Saved games](../formats/save.md#in-openreliant)),
   and puts it back when the save is loaded with the mod still on.
 
-Flown by the player, such a ship type can also give:
+When the player flies it, it can also give:
 
 - `Cockpit`, the model of the cockpit's frame, a `.shp` file in the mod or the game, such as the
   Tempest's `temg_frm.shp`.
@@ -542,6 +547,24 @@ Flown by the player, such a ship type can also give:
 - `EngineSound`, a WAV file, PCM or IMA ADPCM, that loops as the engine's sound, pitched and
   loudened by the throttle as the base's is. Give it whole cycles of each tone, so that its loop
   doesn't click.
+- `BlindFire` and `SpectralShields`, `yes` or `no`, whether it carries blind fire and spectral
+  shields. Without them, it carries what its base carries. The loadout lists them with its specials.
+
+#### Ship types without a base
+
+A ship type can leave out `Base`. It then behaves like no ship the game treats specially:
+
+- Its stats start as a copy of the Predator's, which a load script can change
+  ([The records](scripting.md#the-records)). The loadout shows it at the Predator's size.
+- It carries blind fire or spectral shields only if `BlindFire` or `SpectralShields` says so.
+- On the loadout's panel, it is `light`, `bronze` and has a crew of 1, unless `Class`, `Access` and
+  `Crew` say otherwise.
+- The loadout reads its guns and specials from its model: each kind of gun its gun muzzles fire,
+  or the gun `Guns` names, up to four kinds; the Nova Cannon if it fires one; the cloaking device
+  if the model can cloak; and reverse thrust if an engine glow points forward. The guns view shows
+  its own model, all in red ([#711](https://github.com/OpenReliant/openreliant/issues/711)).
+- Its cockpit, engine sound and display pictures are the Predator's unless it gives its own.
+- A saved game keeps it as the Predator.
 
 ### Guns
 
