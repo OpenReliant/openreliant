@@ -42,3 +42,12 @@ hooks.add("destroyed", function(e)
         end
     end
 end)
+
+-- The simulator's long talk about the display (ms_hudtr_001.ut on), which mission 29 starts with,
+-- is skipped in the arena. Its script waits for each line, so with none said, the fight starts at
+-- once.
+hooks.add("radio_say", function(e)
+    if in_arena() and e.speech:find("ms_hudtr", 1, true) then
+        return false
+    end
+end)

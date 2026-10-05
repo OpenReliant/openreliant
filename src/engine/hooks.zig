@@ -31,6 +31,7 @@ const gameobj = @import("game/gameobj.zig");
 const guns = @import("game/guns.zig");
 const main = @import("game/main.zig");
 const objects = @import("game/objects.zig");
+const videoreports = @import("game/videoreports.zig");
 const orders = ai.orders;
 const routines = ai.routines;
 
@@ -149,6 +150,19 @@ pub const functions = struct {
             heard: bool,
         },
         .subject = "owner",
+    };
+
+    pub const radio_say: Declaration = .{
+        .address = 0x004562D0,
+        .about = "The radio says a line: the speech file `speech`, its speaker's face playing the film `film`, as `mode` has it, at once (`now`), queued, or queued unless the radio is busy (`if_idle`). A handler can change the names, to say another line, or stop it, so that nothing is said and what waits for it goes on.",
+        .Fields = struct {
+            _radio: *videoreports.Radio,
+            speech: videoreports.LineName,
+            film: videoreports.LineName,
+            _line: videoreports.Line,
+            mode: videoreports.Mode,
+        },
+        .subject = null,
     };
 
     pub const missile_launch: Declaration = .{
@@ -657,6 +671,7 @@ fn scriptsOf(source: anytype) ?*Scripts {
     return switch (@TypeOf(source)) {
         gameobj.World => source.objects.scripts,
         aigeneric.Context => source.world.objects.scripts,
+        videoreports.Context => source.all.scripts,
         *create.Objects => source.scripts,
         else => @compileError("no scripts in a " ++ @typeName(@TypeOf(source))),
     };

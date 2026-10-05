@@ -749,6 +749,52 @@ test "handlers run newest mod first, in the order each mod added them" {
     try std.testing.expectEqual(100, shields.get(.fore));
 }
 
+test "a script stops or changes the radio's lines" {
+    const videoreports = openreliant.engine.game.videoreports;
+    const hog_snd = openreliant.engine.game.hog_snd;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\hooks.add("radio_say", function(e)
+                \\    if e.speech:find("ms_hudtr", 1, true) then return false end
+                \\    if e.speech == "plck_001.ut" then e.speech = "moolnd_001.ut" end
+                \\end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var archives: videoreports.testing.Archives = undefined;
+    try archives.init(gpa, io, &.{}, &.{});
+    defer archives.deinit();
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    defer speaker.sound.shutdown();
+    var radio = archives.radio(gpa, io);
+    defer radio.deinit(&speaker.sound);
+    const ctx: videoreports.Context = .{ .sound = &speaker.sound, .windows = null, .all = fixture.mission.objects, .frame_start = 0 };
+    var line: videoreports.Line = .{ .film = "pilots\\static.fm8", .speech = "ms_speech\\ms_hudtr_001.ut", .name = null, .object = videoreports.nobody };
+
+    // The simulator's line is stopped: nothing waits.
+    radio.say(ctx, line, .queued);
+    try std.testing.expectEqual(0, radio.count);
+    // Another is said in place of the one asked for, and the rest as they are.
+    line.speech = "plck_001.ut";
+    radio.say(ctx, line, .queued);
+    line.speech = "mphud_001.ut";
+    radio.say(ctx, line, .queued);
+    try std.testing.expectEqual(2, radio.count);
+    try std.testing.expectEqualStrings("moolnd_001.ut", radio.queue[0].speech.slice());
+    try std.testing.expectEqualStrings("pilots\\static.fm8", radio.queue[0].film.slice());
+    try std.testing.expectEqualStrings("mphud_001.ut", radio.queue[1].speech.slice());
+}
+
 test "built-in interfaces provide existing APIs beneath mod overrides" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{

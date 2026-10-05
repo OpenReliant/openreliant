@@ -499,6 +499,16 @@ The end of `object`: its pilot ejects, or it explodes. With `may_spin`, it may s
 | `gun_type` | [GunType](#guntype) |
 | `heard` | boolean |
 
+### radio_say
+
+The radio says a line: the speech file `speech`, its speaker's face playing the film `film`, as `mode` has it, at once (`now`), queued, or queued unless the radio is busy (`if_idle`). A handler can change the names, to say another line, or stop it, so that nothing is said and what waits for it goes on.
+
+| Field | Type |
+|---|---|
+| `speech` | string |
+| `film` | string |
+| `mode` | [RadioMode](#radiomode) |
+
 ### missile_launch
 
 `launcher` launches a missile from one of its racks.
@@ -1182,6 +1192,10 @@ number. A script can set a field to either.
 ### GunType
 
 `laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`, or a number.
+
+### RadioMode
+
+`now`, `queued`, `if_idle`, or a number.
 
 ### Order
 
