@@ -1,7 +1,10 @@
-//! How a picture's levels hold their pixels: 8-bit RGBA, or blocks of 4 by 4 pixels compressed for
-//! a GPU, as DDS and KTX2 files hold them and OpenReliant keeps mods' pictures (#503).
+//! How a picture's levels hold their pixels: 8-bit or 16-bit samples, or blocks of 4 by 4 pixels
+//! compressed for a GPU, as DDS and KTX2 files hold them and OpenReliant keeps mods' pictures
+//! (#503).
 
 const std = @import("std");
+
+pub const bc5 = @import("texels/bc5.zig");
 
 /// How a level holds its pixels.
 pub const Format = enum {
@@ -15,26 +18,32 @@ pub const Format = enum {
     bc5,
     /// BC7: colour and alpha in 16 bytes a block, finer than BC3.
     bc7,
+    /// 16-bit red, green, blue and alpha a pixel, in the machine's byte order: a 16-bit normal map
+    /// as it is read and mipmapped (#688).
+    rgba16,
+    /// 16-bit red and green a pixel, in the machine's byte order: a normal map's x and y, kept at
+    /// 16 bits for a GPU that draws it uncompressed.
+    rg16,
 
     /// Whether it holds blocks of 4 by 4 pixels.
     pub fn compressed(format: Format) bool {
-        return format != .rgba8;
+        return switch (format) {
+            .rgba8, .rgba16, .rg16 => false,
+            .bc1, .bc3, .bc5, .bc7 => true,
+        };
     }
 
     /// The bytes a level `width` by `height` takes: its rows of blocks, the last ones partly
     /// filled, for a compressed format.
     pub fn size(format: Format, width: u32, height: u32) usize {
-        return switch (format) {
-            .rgba8 => @as(usize, width) * height * 4,
-            .bc1, .bc3, .bc5, .bc7 => blocks(width) * blocks(height) * format.blockBytes(),
-        };
+        return if (format.compressed()) blocks(width) * blocks(height) * format.blockBytes() else @as(usize, width) * height * format.blockBytes();
     }
 
-    /// The bytes of a block of 4 by 4 pixels; for 8-bit RGBA, of a pixel.
+    /// The bytes of a block of 4 by 4 pixels; for an uncompressed format, of a pixel.
     pub fn blockBytes(format: Format) usize {
         return switch (format) {
-            .rgba8 => 4,
-            .bc1 => 8,
+            .rgba8, .rg16 => 4,
+            .bc1, .rgba16 => 8,
             .bc3, .bc5, .bc7 => 16,
         };
     }
@@ -84,6 +93,10 @@ test Format {
     try std.testing.expectEqual(4 * 16, Format.bc7.size(5, 5));
     try std.testing.expectEqual(8, Format.bc1.size(1, 1));
     try std.testing.expect(!Format.rgba8.compressed() and Format.bc5.compressed());
+    // 16-bit samples: eight bytes a pixel of RGBA, four of RG.
+    try std.testing.expectEqual(3 * 8, Format.rgba16.size(3, 1));
+    try std.testing.expectEqual(3 * 4, Format.rg16.size(1, 3));
+    try std.testing.expect(!Format.rg16.compressed());
 }
 
 test cut {
@@ -94,4 +107,8 @@ test cut {
     try std.testing.expectEqual(32, levels[0].len);
     try std.testing.expectEqual(16, levels[2].len);
     try std.testing.expectEqual(null, cut(data[0..60], 8, 4, .bc7, 3, &buffer));
+}
+
+test {
+    _ = bc5;
 }

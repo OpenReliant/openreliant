@@ -119,16 +119,19 @@ original size, which you can use as a template.
 ### Compression
 
 Where the GPU takes compressed textures, as desktop GPUs do, OpenReliant compresses mods' pictures
-as today's games do: colours, material maps and emissive maps in BC7, normal maps in BC5. A 4096x4096 picture then
+as today's games do: colours, material maps and emissive maps in BC7, normal maps in BC5. A
+4096x4096 picture then
 takes about 21 MB of GPU memory with its mipmaps, a quarter of the 85 MB it takes uncompressed, and
 the computer lets go of its own copy once the GPU holds it.
 
 - Compressing a large picture takes a few seconds, once. The result is kept in the game folder's
   `cache/textures`, one file for each texture, and later starts read it in a moment. A changed
   picture, or another texture detail, compresses again. The folder can be deleted at any time.
-- A BC5 normal map only has two channels, so the extra value OpenReliant keeps for each normal map
-  pixel (how much the normals spread out, which widens the highlights on fine details) moves to the
-  material map's alpha channel.
+- A normal map keeps only two channels, x and y, in BC5 and uncompressed alike, so the extra value
+  OpenReliant keeps for each normal map pixel (how much the normals spread out, which widens the
+  highlights on fine details) moves to the material map's alpha channel.
+- A 16-bit normal map is compressed from its 16 bits, which keeps more of a shallow slope than an
+  8-bit picture can ([16-bit normal maps](#16-bit-normal-maps)).
 - `TextureCompression=0` in `starlancer.ini`, or `--uncompressed-textures`, keeps the pictures as
   they are ([Configuration](configuration.md)).
 
@@ -173,9 +176,8 @@ own adds surface detail to the lighting, a material map on its own gives the sur
 highlights, and an emissive map on its own makes parts of it glow. Without a map, the surface is
 treated as flat, without occlusion, rough, non-metallic and giving off no light. Normal and material
 maps hold linear values, not colours, and their mipmaps are computed that way. An emissive map holds
-colours, like the texture itself. For
-normal maps, each mipmap level renormalizes the normals and stores in its alpha channel how much the
-normals it averages spread out, so the alpha channel of a normal map is ignored.
+colours, like the texture itself. For normal maps, each mipmap level renormalizes the normals and
+keeps how much the normals it averages spread out, so the alpha channel of a normal map is ignored.
 
 OpenReliant lights each pixel according to the maps:
 
@@ -208,6 +210,20 @@ instead of darkening the colour.
 
 **Improvement:** the original lights every surface the same way, with a highlight pass on top, and
 only its light maps make a surface glow.
+
+### 16-bit normal maps
+
+A normal map can be a 16-bit PNG, as Blender, Substance and most baking tools can write it.
+OpenReliant keeps its 16 bits: a very shallow slope, such as a gently curved plate or a soft dent,
+then lights smoothly instead of in bands. An 8-bit normal map has only 256 steps in each direction,
+so a slope that changes by less than a step across many pixels comes out in stripes.
+
+- Uncompressed, the normal map's x and y stay at 16 bits on the GPU, which takes no more memory
+  than an 8-bit normal map.
+- Compressed, OpenReliant makes the BC5 blocks from the 16-bit values. BC5 holds values between
+  its 8-bit endpoints finer than 8 bits, so a shallow slope keeps much of its smoothness.
+- Only normal maps are read at 16 bits. Other 16-bit pictures are read at 8 bits, which is all
+  that colours, material maps and emissive maps need.
 
 ## The interface
 

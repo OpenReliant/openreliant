@@ -75,8 +75,8 @@ pub const Image = struct {
         /// The surface's normal in the texture's own frame, as OpenGL's normal maps hold it: its
         /// x toward the texture's right, its y toward its top and its z out of the surface, each
         /// from -1 to 1 in red, green and blue; in alpha, how long the mean of the normals each
-        /// texel stands for is (`Content.normal`). Compressed in BC5, it holds x and y alone, and
-        /// the length is in the material map's alpha.
+        /// texel stands for is (`Content.normal`). Made ready for the device, in BC5 or 16-bit RG,
+        /// it holds x and y alone, and the length is in the material map's alpha.
         normal: ?[]const Level = null,
         /// How much of the ambient light reaches the surface, how rough it is, and how metallic, in
         /// red, green and blue, as glTF packs them.
@@ -510,16 +510,43 @@ pub fn mipmapped(gpa: Allocator, picture: png.Picture) Allocator.Error!Image {
 /// its finest levels given up while it is longer than `longest`. Where it fails, it lets the
 /// picture go.
 pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content, longest: u32) Allocator.Error![]const Level {
+    return mipmapLevels(gpa, .{ .width = picture.width, .height = picture.height, .texels = picture.rgba }, content, longest);
+}
+
+/// The mipmap levels of the 16-bit `picture`, which it takes, as `mipmaps` makes them, in 16-bit
+/// RGBA (`rgba16`), so that a 16-bit normal map keeps its precision (#688).
+pub fn mipmapsWide(gpa: Allocator, picture: png.WidePicture, content: Content, longest: u32) Allocator.Error![]const Level {
+    // The level's texels are bytes, which the table frees as bytes.
+    const bytes = gpa.dupe(u8, std.mem.sliceAsBytes(picture.rgba)) catch |err| {
+        picture.deinit(gpa);
+        return err;
+    };
+    picture.deinit(gpa);
+    return mipmapLevels(gpa, .{ .width = picture.width, .height = picture.height, .format = .rgba16, .texels = bytes }, content, longest);
+}
+
+/// The mipmap levels of `picture`, a level of 8-bit or 16-bit RGBA whose texels it takes, made for
+/// `content`.
+fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) Allocator.Error![]const Level {
     var levels: std.ArrayList(Level) = .empty;
     errdefer {
         for (levels.items) |l| gpa.free(l.texels);
         levels.deinit(gpa);
     }
     // Each of a normal map's own normals stands for itself alone, at its full length.
-    if (content == .normal) for (std.mem.bytesAsSlice([4]u8, picture.rgba)) |*texel| {
-        texel[3] = std.math.maxInt(u8);
-    };
-    var finest: Level = .{ .width = picture.width, .height = picture.height, .texels = picture.rgba };
+    if (content == .normal) {
+        const bytes: []u8 = @constCast(picture.texels);
+        switch (picture.format) {
+            .rgba8 => for (std.mem.bytesAsSlice([4]u8, bytes)) |*texel| {
+                texel[3] = std.math.maxInt(u8);
+            },
+            .rgba16 => for (std.mem.bytesAsSlice([8]u8, bytes)) |*texel| {
+                std.mem.writeInt(u16, texel[6..8], std.math.maxInt(u16), .native);
+            },
+            else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+        }
+    }
+    var finest = picture;
     {
         errdefer gpa.free(finest.texels);
         while (@max(finest.width, finest.height) > longest) {
@@ -540,13 +567,14 @@ pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content, longest: 
     return levels.toOwnedSlice(gpa);
 }
 
-/// The level after `level`: each side half its own, rounding down, at least a pixel, and each pixel
-/// the mean of the up to four it covers, as `content` takes it.
+/// The level after `level`, in 8-bit or 16-bit RGBA as it is: each side half its own, rounding
+/// down, at least a pixel, and each pixel the mean of the up to four it covers, as `content` takes
+/// it.
 fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level {
     const Rgb = @Vector(3, f32);
     const width = @max(level.width / 2, 1);
     const height = @max(level.height / 2, 1);
-    const rgba = try gpa.alloc(u8, @as(usize, width) * height * 4);
+    const made: Level = .{ .width = width, .height = height, .format = level.format, .texels = try gpa.alloc(u8, level.format.size(width, height)) };
     for (0..height) |y| for (0..width) |x| {
         var sum: Rgb = @splat(0);
         var weighted: Rgb = @splat(0);
@@ -554,40 +582,91 @@ fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level 
         const columns = [2]usize{ @min(2 * x, level.width - 1), @min(2 * x + 1, level.width - 1) };
         const rows = [2]usize{ @min(2 * y, level.height - 1), @min(2 * y + 1, level.height - 1) };
         for (rows) |row| for (columns) |column| {
-            const texel = level.texels[(row * level.width + column) * 4 ..][0..4];
+            const at = row * level.width + column;
+            const texel = unitsAt(level, at);
             const value: Rgb = switch (content) {
-                .colour => .{ colour.light(texel[0]), colour.light(texel[1]), colour.light(texel[2]) },
-                .normal => direction(Rgb{ unit(texel[0]), unit(texel[1]), unit(texel[2]) } * @as(Rgb, @splat(2)) - @as(Rgb, @splat(1))),
-                .data => .{ unit(texel[0]), unit(texel[1]), unit(texel[2]) },
+                .colour => lightAt(level, at),
+                .normal => direction(Rgb{ texel[0], texel[1], texel[2] } * @as(Rgb, @splat(2)) - @as(Rgb, @splat(1))),
+                .data => .{ texel[0], texel[1], texel[2] },
             };
-            const weight = unit(texel[3]);
+            const weight = texel[3];
             sum += value;
             weighted += value * @as(Rgb, @splat(weight));
             alpha += weight;
         };
-        const out = rgba[(y * width + x) * 4 ..][0..4];
-        const mean_alpha = level8(alpha / 4);
+        const out = y * width + x;
+        const mean_alpha = alpha / 4;
         switch (content) {
             .colour => {
                 // Weighted by alpha, so that a clear pixel lends its colour nothing; where the four
                 // are all clear, the mean of their colours, which filtering may still reach.
                 const mean = if (alpha > 0) weighted / @as(Rgb, @splat(alpha)) else sum / @as(Rgb, @splat(4));
-                out.* = .{ colour.level(mean[0]), colour.level(mean[1]), colour.level(mean[2]), mean_alpha };
+                storeLight(made, out, mean, mean_alpha);
             },
             .normal => {
                 // The mean of the vectors at the lengths their alpha keeps: its direction, and its
                 // own length in alpha.
                 const mean = weighted / @as(Rgb, @splat(4));
                 const encoded = (direction(mean) + @as(Rgb, @splat(1))) / @as(Rgb, @splat(2));
-                out.* = .{ level8(encoded[0]), level8(encoded[1]), level8(encoded[2]), level8(math.length(mean)) };
+                store(made, out, .{ encoded[0], encoded[1], encoded[2], math.length(mean) });
             },
             .data => {
                 const mean = sum / @as(Rgb, @splat(4));
-                out.* = .{ level8(mean[0]), level8(mean[1]), level8(mean[2]), mean_alpha };
+                store(made, out, .{ mean[0], mean[1], mean[2], mean_alpha });
             },
         }
     };
-    return .{ .width = width, .height = height, .texels = rgba };
+    return made;
+}
+
+/// The samples of texel `at` of `level`, 8-bit or 16-bit RGBA, each from 0 to 1.
+pub fn unitsAt(level: Level, at: usize) [4]f32 {
+    var units: [4]f32 = undefined;
+    switch (level.format) {
+        .rgba8 => for (&units, level.texels[at * 4 ..][0..4]) |*value, sample| {
+            value.* = unit(sample);
+        },
+        .rgba16 => for (&units, 0..) |*value, channel| {
+            value.* = unit16(std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native));
+        },
+        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+    }
+    return units;
+}
+
+/// The light of texel `at` of `level`, 8-bit or 16-bit RGBA, whose colours are sRGB-encoded.
+fn lightAt(level: Level, at: usize) @Vector(3, f32) {
+    if (level.format == .rgba8) {
+        const texel = level.texels[at * 4 ..][0..4];
+        return .{ colour.light(texel[0]), colour.light(texel[1]), colour.light(texel[2]) };
+    }
+    const units = unitsAt(level, at);
+    return .{ colour.decoded(units[0]), colour.decoded(units[1]), colour.decoded(units[2]) };
+}
+
+/// Sets texel `at` of `level`, 8-bit or 16-bit RGBA, to `units`, each from 0 to 1.
+fn store(level: Level, at: usize, units: [4]f32) void {
+    const bytes: []u8 = @constCast(level.texels);
+    switch (level.format) {
+        .rgba8 => for (bytes[at * 4 ..][0..4], units) |*sample, value| {
+            sample.* = level8(value);
+        },
+        .rgba16 => for (units, 0..) |value, channel| {
+            std.mem.writeInt(u16, bytes[(at * 4 + channel) * 2 ..][0..2], level16(value), .native);
+        },
+        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+    }
+}
+
+/// Sets texel `at` of `level` to the light `light`, sRGB-encoded, and `alpha`.
+fn storeLight(level: Level, at: usize, light: @Vector(3, f32), alpha: f32) void {
+    if (level.format == .rgba8) {
+        // The 8-bit level nearest each light, exactly as the table finds it.
+        const bytes: []u8 = @constCast(level.texels);
+        bytes[at * 4 ..][0..4].* = .{ colour.level(light[0]), colour.level(light[1]), colour.level(light[2]), level8(alpha) };
+        return;
+    }
+    store(level, at, .{ colour.encoded(light[0]), colour.encoded(light[1]), colour.encoded(light[2]), alpha });
 }
 
 /// `normal` a unit long; straight out of the surface where it has no length.
@@ -602,8 +681,18 @@ fn unit(level: u8) f32 {
 }
 
 /// The 8-bit level nearest a value from 0 to 1, held to the range.
-fn level8(value: f32) u8 {
+pub fn level8(value: f32) u8 {
     return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(u8)));
+}
+
+/// A 16-bit level as a value from 0 to 1.
+fn unit16(level: u16) f32 {
+    return @as(f32, @floatFromInt(level)) / std.math.maxInt(u16);
+}
+
+/// The 16-bit level nearest a value from 0 to 1, held to the range.
+pub fn level16(value: f32) u16 {
+    return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(u16)));
 }
 
 fn decode(gpa: Allocator, texture: tcache.Texture, palette: *const tga.Palette) Allocator.Error!Image {
@@ -807,8 +896,12 @@ test "material maps come beside a picture" {
     defer table.deinit();
     table.files = .{ .context = &separate, .readFn = Pictures.read };
     const hull = (try table.find("hull")).?;
+    // Drawn uncompressed, the normal map keeps its x and y at 16 bits.
     try std.testing.expectEqual(2, hull.maps.normal.?.len);
-    try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 255 }, hull.maps.normal.?[1].texels);
+    try std.testing.expectEqual(Level.Format.rg16, hull.maps.normal.?[1].format);
+    const xy = hull.maps.normal.?[1].texels;
+    try std.testing.expectEqual(128 * 257, std.mem.readInt(u16, xy[0..2], .native));
+    try std.testing.expectEqual(128 * 257, std.mem.readInt(u16, xy[2..4], .native));
     try std.testing.expectEqualSlices(u8, &.{ 255, 64, 255, 255 }, hull.maps.orm.?[0].texels[0..4]);
     // An emissive map is a picture's colours, mipmapped as they are.
     try std.testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, hull.maps.emissive.?[1].texels);
@@ -845,6 +938,21 @@ test "mipmaps of normals and of values" {
     const data = try mipmaps(gpa, .{ .width = 2, .height = 1, .rgba = values }, .data, max_side);
     defer freeLevels(gpa, data);
     try std.testing.expectEqualSlices(u8, &.{ 128, 128, 128, 255 }, data[1].texels);
+}
+
+test mipmapsWide {
+    const gpa = std.testing.allocator;
+    // A normal leaning a hair along x, finer than 8 bits tell apart from straight out: 16-bit
+    // levels keep the lean, at the finest level and in the mean of the next.
+    const lean: u16 = 0x8040;
+    const rgba = try gpa.dupe(u16, &.{ lean, 0x8000, 0xFFFF, 0, lean, 0x8000, 0xFFFF, 0 });
+    const normals = try mipmapsWide(gpa, .{ .width = 2, .height = 1, .rgba = rgba }, .normal, max_side);
+    defer freeLevels(gpa, normals);
+    try std.testing.expectEqual(Level.Format.rgba16, normals[0].format);
+    try std.testing.expectEqual([4]f32{ unit16(lean), unit16(0x8000), 1, 1 }, unitsAt(normals[0], 0));
+    const mean = unitsAt(normals[1], 0);
+    try std.testing.expect(mean[0] > unit16(0x8020));
+    try std.testing.expectApproxEqAbs(1, mean[3], 1e-4);
 }
 
 test mipmapped {

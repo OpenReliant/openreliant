@@ -1,7 +1,8 @@
 //! Compresses mods' pictures for the GPU ([#503](https://github.com/OpenReliant/openreliant/issues/503)),
 //! with bc7enc and rgbcx (`texture_compressor.cpp`, `deps/texture-compressor`): colours and
-//! material maps in BC7, normal maps in BC5. A level's rows of blocks are shared out between
-//! threads, as a large picture has a million blocks.
+//! material maps in BC7, normal maps in BC5. A 16-bit normal map goes to BC5 from its 16-bit
+//! samples instead (`texels.bc5`). A level's rows of blocks are shared out between threads, as a
+//! large picture has a million blocks.
 //!
 //! **Improvement:** the original's textures are small, and kept as they are.
 
@@ -11,6 +12,7 @@ const Allocator = std.mem.Allocator;
 const openreliant = @import("openreliant");
 const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
 const Level = srtexture.Level;
+const bc5 = openreliant.texels.bc5;
 
 extern fn openreliant_texture_compressor_init() void;
 extern fn openreliant_compress_rows(rgba: [*]const u8, width: u32, height: u32, first: u32, count: u32, kind: c_int, out: [*]u8) void;
@@ -45,9 +47,10 @@ fn prepare() void {
     while (readiness.load(.acquire) != .ready) std.atomic.spinLoopHint();
 }
 
-/// `level`, 8-bit RGBA, compressed as `kind`, its texels allocated in `gpa`.
+/// `level`, 8-bit RGBA, or a normal map in 16-bit RGBA, compressed as `kind`, its texels allocated
+/// in `gpa`.
 pub fn compress(gpa: Allocator, level: Level, kind: Kind) Allocator.Error!Level {
-    std.debug.assert(level.format == .rgba8);
+    std.debug.assert(level.format == .rgba8 or (level.format == .rgba16 and kind == .normals));
     prepare();
     const format = kind.format();
     const out = try gpa.alloc(u8, format.size(level.width, level.height));
@@ -71,6 +74,7 @@ pub fn compress(gpa: Allocator, level: Level, kind: Kind) Allocator.Error!Level 
 }
 
 fn compressRows(level: Level, first: u32, count: u32, kind: Kind, out: []u8) void {
+    if (level.format == .rgba16) return bc5.encodeRows(level.texels, level.width, level.height, first, count, out);
     openreliant_compress_rows(level.texels.ptr, level.width, level.height, first, count, native(kind), out.ptr);
 }
 
@@ -87,4 +91,11 @@ test compress {
         try std.testing.expectEqual(2 * 2 * 16, made.texels.len);
         try std.testing.expectEqual(6, made.width);
     }
+    // A 16-bit normal map, of the same size, to BC5.
+    var rgba16: [6 * 5 * 4 * 2]u8 = @splat(0x80);
+    const wide: Level = .{ .width = 6, .height = 5, .format = .rgba16, .texels = &rgba16 };
+    const normals = try compress(gpa, wide, .normals);
+    defer gpa.free(normals.texels);
+    try std.testing.expectEqual(Level.Format.bc5, normals.format);
+    try std.testing.expectEqual(2 * 2 * 16, normals.texels.len);
 }

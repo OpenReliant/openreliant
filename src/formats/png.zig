@@ -200,16 +200,25 @@ fn writeScanlines(gpa: Allocator, out: *Writer, raw: []const u8) (Allocator.Erro
     try writeChunk(out, "IEND", &.{});
 }
 
-/// A picture read from a PNG file: 8-bit red, green, blue and alpha, row by row from the top.
-pub const Picture = struct {
-    width: u32,
-    height: u32,
-    rgba: []u8,
+/// A picture read from a PNG file: red, green, blue and alpha samples of `Sample`, `u8` or `u16`,
+/// row by row from the top.
+pub fn PictureOf(comptime Sample: type) type {
+    return struct {
+        width: u32,
+        height: u32,
+        rgba: []Sample,
 
-    pub fn deinit(picture: Picture, gpa: Allocator) void {
-        gpa.free(picture.rgba);
-    }
-};
+        pub fn deinit(picture: @This(), gpa: Allocator) void {
+            gpa.free(picture.rgba);
+        }
+    };
+}
+
+/// A picture with 8-bit samples, as `read` gives it.
+pub const Picture = PictureOf(u8);
+
+/// A picture with 16-bit samples, as `readWide` gives it, for a map that needs the precision.
+pub const WidePicture = PictureOf(u16);
 
 /// The longest side `read` takes: a picture larger is refused rather than made.
 pub const max_side = 16384;
@@ -292,14 +301,24 @@ const Pass = struct {
     }
 };
 
-/// The width and height of the picture the PNG file `bytes` holds, from its header alone.
-pub fn size(bytes: []const u8) ReadError![2]u32 {
+/// The header of the PNG file `bytes`, which comes first.
+fn headerOf(bytes: []const u8) ReadError!Header {
     if (!std.mem.startsWith(u8, bytes, signature)) return error.NotAPng;
     const at = signature.len;
     if (bytes.len < at + chunk_overhead + 13) return error.Corrupt;
     if (std.mem.readInt(u32, bytes[at..][0..4], .big) != 13 or !std.mem.eql(u8, bytes[at + 4 ..][0..4], "IHDR")) return error.Corrupt;
-    const header: Header = try .parse(bytes[at + 8 ..][0..13]);
+    return .parse(bytes[at + 8 ..][0..13]);
+}
+
+/// The width and height of the picture the PNG file `bytes` holds, from its header alone.
+pub fn size(bytes: []const u8) ReadError![2]u32 {
+    const header = try headerOf(bytes);
     return .{ header.width, header.height };
+}
+
+/// Whether the PNG file `bytes` holds samples of 16 bits, more than `read` keeps.
+pub fn wide(bytes: []const u8) ReadError!bool {
+    return (try headerOf(bytes)).depth == 16;
 }
 
 /// The picture the PNG file `bytes` holds, as 8-bit RGBA, which the caller owns: a picture of any
@@ -312,6 +331,18 @@ pub fn read(gpa: Allocator, bytes: []const u8) ReadError!Picture {
 
 /// Reads a picture only when its decoded RGBA pixels fit `max_rgba_bytes`.
 pub fn readLimited(gpa: Allocator, bytes: []const u8, max_rgba_bytes: usize) ReadError!Picture {
+    return readAs(u8, gpa, bytes, max_rgba_bytes);
+}
+
+/// The picture the PNG file `bytes` holds, as `read` reads it, but each sample scaled to 16 bits,
+/// so that a 16-bit picture keeps its precision.
+pub fn readWide(gpa: Allocator, bytes: []const u8) ReadError!WidePicture {
+    return readAs(u16, gpa, bytes, std.math.maxInt(usize));
+}
+
+/// The picture the PNG file `bytes` holds, its samples scaled to `Sample`, where its decoded RGBA
+/// pixels fit `max_rgba_bytes`.
+fn readAs(comptime Sample: type, gpa: Allocator, bytes: []const u8, max_rgba_bytes: usize) ReadError!PictureOf(Sample) {
     if (!std.mem.startsWith(u8, bytes, signature)) return error.NotAPng;
     var header: ?Header = null;
     // Each palette entry's red, green, blue and alpha; entries past the palette's end are black.
@@ -333,7 +364,7 @@ pub fn readLimited(gpa: Allocator, bytes: []const u8, max_rgba_bytes: usize) Rea
         const body = named[4..];
         if (std.mem.eql(u8, name, "IHDR")) {
             header = try .parse(body);
-            if (@as(usize, header.?.width) * header.?.height * 4 > max_rgba_bytes) return error.BadSize;
+            if (@as(usize, header.?.width) * header.?.height * 4 * @sizeOf(Sample) > max_rgba_bytes) return error.BadSize;
             continue;
         }
         const head = header orelse return error.Corrupt;
@@ -386,7 +417,7 @@ pub fn readLimited(gpa: Allocator, bytes: []const u8, max_rgba_bytes: usize) Rea
     _ = decompress.reader.streamRemaining(&inflating) catch return error.Corrupt;
     if (inflating.end != filtered.len) return error.Corrupt;
 
-    const rgba = try gpa.alloc(u8, @as(usize, head.width) * head.height * 4);
+    const rgba = try gpa.alloc(Sample, @as(usize, head.width) * head.height * 4);
     errdefer gpa.free(rgba);
     var lines = filtered;
     for (passes) |pass| {
@@ -401,7 +432,7 @@ pub fn readLimited(gpa: Allocator, bytes: []const u8, max_rgba_bytes: usize) Rea
             const y = pass.first[1] + row * pass.step[1];
             for (0..across) |column| {
                 const x = pass.first[0] + column * pass.step[0];
-                rgba[(y * head.width + x) * 4 ..][0..4].* = pixel(head, samples, column, &palette, transparent);
+                rgba[(y * head.width + x) * 4 ..][0..4].* = pixel(Sample, head, samples, column, &palette, transparent);
             }
         }
     }
@@ -453,28 +484,34 @@ fn paeth(left: u8, above: u8, corner: u8) u8 {
     return corner;
 }
 
-/// The pixel `column` of the unfiltered scanline `samples`, as 8-bit RGBA.
-fn pixel(header: Header, samples: []const u8, column: usize, palette: *const [256][4]u8, transparent: ?[3]u16) [4]u8 {
+/// The pixel `column` of the unfiltered scanline `samples`, as RGBA samples of `Sample`.
+fn pixel(comptime Sample: type, header: Header, samples: []const u8, column: usize, palette: *const [256][4]u8, transparent: ?[3]u16) [4]Sample {
     const channels = header.colour.channels();
     var raw: [4]u16 = undefined;
     for (raw[0..channels], 0..) |*value, channel| value.* = sample(samples, header.depth, column * channels + channel);
-    const full = std.math.maxInt(u8);
+    const full = std.math.maxInt(Sample);
+    const depth = header.depth;
     return switch (header.colour) {
-        .indexed => palette[@min(raw[0], palette.len - 1)],
+        .indexed => indexed: {
+            const entry = palette[@min(raw[0], palette.len - 1)];
+            var out: [4]Sample = undefined;
+            for (&out, entry) |*channel, level| channel.* = scaled(Sample, level, 8);
+            break :indexed out;
+        },
         .grey => grey: {
-            const level = eightBit(raw[0], header.depth);
+            const level = scaled(Sample, raw[0], depth);
             const clear = if (transparent) |key| key[0] == raw[0] else false;
             break :grey .{ level, level, level, if (clear) 0 else full };
         },
         .rgb => rgb: {
             const clear = if (transparent) |key| std.mem.eql(u16, &key, raw[0..3]) else false;
-            break :rgb .{ eightBit(raw[0], header.depth), eightBit(raw[1], header.depth), eightBit(raw[2], header.depth), if (clear) 0 else full };
+            break :rgb .{ scaled(Sample, raw[0], depth), scaled(Sample, raw[1], depth), scaled(Sample, raw[2], depth), if (clear) 0 else full };
         },
         .grey_alpha => grey: {
-            const level = eightBit(raw[0], header.depth);
-            break :grey .{ level, level, level, eightBit(raw[1], header.depth) };
+            const level = scaled(Sample, raw[0], depth);
+            break :grey .{ level, level, level, scaled(Sample, raw[1], depth) };
         },
-        .rgba => .{ eightBit(raw[0], header.depth), eightBit(raw[1], header.depth), eightBit(raw[2], header.depth), eightBit(raw[3], header.depth) },
+        .rgba => .{ scaled(Sample, raw[0], depth), scaled(Sample, raw[1], depth), scaled(Sample, raw[2], depth), scaled(Sample, raw[3], depth) },
     };
 }
 
@@ -493,10 +530,10 @@ fn sample(samples: []const u8, depth: u8, index: usize) u16 {
     };
 }
 
-/// A sample of `depth` bits scaled to 8, rounded to the nearest.
-fn eightBit(value: u16, depth: u8) u8 {
+/// A sample of `depth` bits scaled to the range of `Sample`, rounded to the nearest.
+fn scaled(comptime Sample: type, value: u16, depth: u8) Sample {
     const most = (@as(u32, 1) << @intCast(depth)) - 1;
-    return @intCast((@as(u32, value) * std.math.maxInt(u8) + most / 2) / most);
+    return @intCast((@as(u32, value) * std.math.maxInt(Sample) + most / 2) / most);
 }
 
 /// The least room the compressor asks of what it writes into.
@@ -651,6 +688,22 @@ fn handMade(gpa: Allocator, fields: Header, chunks: []const Chunk, scanlines: []
     return out.toOwnedSlice();
 }
 
+/// Helpers for other modules' tests.
+pub const testing = struct {
+    /// A PNG file of 16-bit RGB samples, `width` by `height`, three to a pixel, row by row.
+    pub fn rgb16(gpa: Allocator, width: u32, height: u32, samples: []const u16) ![]u8 {
+        const stride = @as(usize, width) * 3 * 2;
+        const scanlines = try gpa.alloc(u8, height * (1 + stride));
+        defer gpa.free(scanlines);
+        for (0..height) |row| {
+            const line = scanlines[row * (1 + stride) ..][0 .. 1 + stride];
+            line[0] = @intFromEnum(Filter.none);
+            for (samples[row * width * 3 ..][0 .. width * 3], 0..) |value, at| std.mem.writeInt(u16, line[1 + at * 2 ..][0..2], value, .big);
+        }
+        return handMade(gpa, .{ .width = width, .height = height, .depth = 16, .colour = .rgb, .interlaced = false }, &.{}, scanlines);
+    }
+};
+
 test read {
     const gpa = std.testing.allocator;
     // What the writer writes reads back.
@@ -718,6 +771,29 @@ test "read takes every colour type and depth" {
         defer picture.deinit(gpa);
         try std.testing.expectEqualSlices(u8, case.rgba, picture.rgba);
     }
+}
+
+test readWide {
+    const gpa = std.testing.allocator;
+    // RGB of 16 bits keeps every sample, where read rounds them to 8 bits.
+    const deep = try handMade(gpa, .{ .width = 1, .height = 1, .depth = 16, .colour = .rgb, .interlaced = false }, &.{}, &.{ 0, 0x12, 0x34, 0x80, 0x01, 0x00, 0x7F });
+    defer gpa.free(deep);
+    try std.testing.expect(try wide(deep));
+    const kept = try readWide(gpa, deep);
+    defer kept.deinit(gpa);
+    try std.testing.expectEqualSlices(u16, &.{ 0x1234, 0x8001, 0x007F, 0xFFFF }, kept.rgba);
+    // Samples of 8 bits and palette entries are scaled up to 16 bits.
+    const grey = try handMade(gpa, .{ .width = 1, .height = 1, .depth = 8, .colour = .grey_alpha, .interlaced = false }, &.{}, &.{ 0, 0x40, 0x80 });
+    defer gpa.free(grey);
+    try std.testing.expect(!try wide(grey));
+    const scaled_up = try readWide(gpa, grey);
+    defer scaled_up.deinit(gpa);
+    try std.testing.expectEqualSlices(u16, &.{ 0x4040, 0x4040, 0x4040, 0x8080 }, scaled_up.rgba);
+    const indexed = try handMade(gpa, .{ .width = 1, .height = 1, .depth = 8, .colour = .indexed, .interlaced = false }, &.{.{ .name = "PLTE", .data = &.{ 10, 20, 30 } }}, &.{ 0, 0 });
+    defer gpa.free(indexed);
+    const looked_up = try readWide(gpa, indexed);
+    defer looked_up.deinit(gpa);
+    try std.testing.expectEqualSlices(u16, &.{ 10 * 257, 20 * 257, 30 * 257, 0xFFFF }, looked_up.rgba);
 }
 
 test "read takes interlaced pictures" {

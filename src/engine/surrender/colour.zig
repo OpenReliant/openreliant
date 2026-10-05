@@ -21,6 +21,12 @@ fn decode(value: f64) f64 {
     return if (value <= knee) value / slope else std.math.pow(f64, (value + offset) / (1 + offset), exponent);
 }
 
+/// The encoded value of the light `value`.
+pub fn encoded(value: f32) f32 {
+    const light_value: f64 = value;
+    return @floatCast(if (light_value <= knee / slope) light_value * slope else (1 + offset) * std.math.pow(f64, light_value, 1.0 / exponent) - offset);
+}
+
 /// The light of the 8-bit level `of`.
 pub fn light(of: u8) f32 {
     return lights[of];
@@ -53,6 +59,11 @@ const bounds: [255]f32 = table: {
     for (&out, 0..) |*bound, at| bound.* = @floatCast(decode((@as(f64, @floatFromInt(at)) + 0.5) / 255));
     break :table out;
 };
+
+test encoded {
+    // It undoes decoded, along the straight line and past the knee.
+    for ([_]f32{ 0, 0.02, 0.5, 1 }) |value| try std.testing.expectApproxEqAbs(value, encoded(decoded(value)), 1e-6);
+}
 
 test decoded {
     try std.testing.expectEqual(0, decoded(0));

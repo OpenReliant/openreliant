@@ -124,17 +124,17 @@ const Vertex = extern struct {
 /// A draw's shading as the shader reads it from each vertex, one word: the shadows its pixels take
 /// in the low byte, how its texture is magnified in the next two bits, whether the key lights reach
 /// past its terminator in the one after, whether its texture's normal map and material map are
-/// shaded in the two after that, whether the normal map holds two channels (BC5) in the one after
-/// that, whether it is drawn as a hologram in the one after that, and whether its texture's
-/// emissive map is shaded in the one after that.
+/// shaded in the two after that, whether the normal map holds two channels (BC5 or RG16) in the
+/// one after that, whether it is drawn as a hologram in the one after that, and whether its
+/// texture's emissive map is shaded in the one after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,
     soft_terminator: bool,
     normal_map: bool = false,
     material_map: bool = false,
-    /// The normal map holds x and y alone, z left for the shader to work out, and the length of
-    /// the normals' mean is in the material map's alpha (`srtexture.Image.Maps`).
+    /// The normal map holds x and y alone, in BC5 or at 16 bits, z left for the shader to work out,
+    /// and the length of the normals' mean is in the material map's alpha (`srtexture.Image.Maps`).
     two_channel_normals: bool = false,
     /// It is drawn as a hologram (`device.State.hologram`).
     hologram: bool = false,
@@ -150,7 +150,7 @@ const Shading = packed struct(u32) {
             .soft_terminator = state.soft_terminator,
             .normal_map = maps.normal != null,
             .material_map = maps.orm != null,
-            .two_channel_normals = if (maps.normal) |levels| levels[0].format == .bc5 else false,
+            .two_channel_normals = if (maps.normal) |levels| levels[0].format == .bc5 or levels[0].format == .rg16 else false,
             .hologram = state.hologram,
             // The loadout's holograms don't glow.
             .emissive_map = maps.emissive != null and !state.hologram,
@@ -331,6 +331,8 @@ fn sdlFormat(format: srtexture.Level.Format, decoded: bool) c.SDL_GPUTextureForm
         .bc3 => if (decoded) c.SDL_GPU_TEXTUREFORMAT_BC3_RGBA_UNORM_SRGB else c.SDL_GPU_TEXTUREFORMAT_BC3_RGBA_UNORM,
         .bc5 => c.SDL_GPU_TEXTUREFORMAT_BC5_RG_UNORM,
         .bc7 => if (decoded) c.SDL_GPU_TEXTUREFORMAT_BC7_RGBA_UNORM_SRGB else c.SDL_GPU_TEXTUREFORMAT_BC7_RGBA_UNORM,
+        .rgba16 => c.SDL_GPU_TEXTUREFORMAT_R16G16B16A16_UNORM,
+        .rg16 => c.SDL_GPU_TEXTUREFORMAT_R16G16_UNORM,
     };
 }
 
@@ -354,11 +356,11 @@ pub const compressed_materials: srtexture.Level.Format = .bc7;
 pub const compressed_emissive: srtexture.Level.Format = .bc7;
 
 /// The SDL format of the maps of `kind` beside images of `format`. Normal and material maps hold
-/// linear values; an emissive map holds colours, read decoded from sRGB where `decoded`, as the
-/// images are.
+/// linear values, an uncompressed normal map two channels of 16 bits; an emissive map holds
+/// colours, read decoded from sRGB where `decoded`, as the images are.
 fn mapFormat(kind: MapKind, format: srtexture.Level.Format, decoded: bool) c.SDL_GPUTextureFormat {
     return switch (kind) {
-        .normal => if (format.compressed()) sdlFormat(compressed_normals, false) else map_format,
+        .normal => sdlFormat(if (format.compressed()) compressed_normals else .rg16, false),
         .orm => if (format.compressed()) sdlFormat(compressed_materials, false) else map_format,
         .emissive => sdlFormat(if (format.compressed()) compressed_emissive else .rgba8, decoded),
     };
