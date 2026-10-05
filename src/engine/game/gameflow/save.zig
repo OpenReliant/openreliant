@@ -14,9 +14,12 @@ const Io = std.Io;
 
 const files = @import("../../files.zig");
 const input = @import("../../input.zig");
+const profile = @import("../../profile.zig");
 const loadout = @import("../../interface/loadout/loadout.zig");
 const loadout_tables = @import("../../interface/loadout/tables.zig");
+const additions = @import("../additions.zig");
 const collision = @import("../collision.zig");
+const create = @import("../create.zig");
 const gameflow = @import("../gameflow.zig");
 const iff = @import("../iff.zig");
 const pilot_roster = @import("../interface/pilot_roster.zig");
@@ -204,7 +207,8 @@ pub const Wing = pilots.Wing;
 pub const Name = pilot_roster.Text(name_room);
 pub const name_room = 47;
 
-/// What a saved game holds: its name, and the records its chunks keep.
+/// What a saved game holds: its name, the records its chunks keep, and what OpenReliant keeps
+/// beside it of the mods' ship types and missiles (`ModChoice`).
 pub const Save = struct {
     name: Name = .{},
     miss: Miss,
@@ -212,7 +216,95 @@ pub const Save = struct {
     vars: Vars,
     pilo: Replacement,
     alph: Wing,
+    mods: ModChoice = .{},
 };
+
+/// OpenReliant's: the mods' ship type and missiles in the loadout's saved choice
+/// ([#673](https://github.com/OpenReliant/openreliant/issues/673)). The save's own records keep
+/// them as their bases, so that the original can still read it (`tables.savedShip`,
+/// `tables.Missile.savedId`). OpenReliant keeps them beside it, in its `.mods` file, by their
+/// qualified names, and loading the save puts each back where its mod is still on.
+///
+/// **Improvement:** the original has no mods.
+pub const ModChoice = struct {
+    /// The ship type chosen, where a mod adds it.
+    ship: ?create.TypeIndex = null,
+    /// Each rack's missile, where a mod adds it.
+    racks: [Miss.racks]?loadout_tables.Missile = @splat(null),
+
+    /// The `.mods` file's section and keys: `Ship=`, and `Rack1=` on, each a qualified name.
+    const section = "Loadout";
+    const ship_key = "Ship";
+    const rack_key = "Rack";
+    /// The most digits a rack's number takes.
+    const rack_digits = 2;
+
+    comptime {
+        assert(Miss.racks < std.math.pow(usize, 10, rack_digits));
+    }
+
+    /// The mods' ship type and missiles in `saved`, the loadout's choice.
+    fn of(saved: loadout.Saved) ModChoice {
+        var choice: ModChoice = .{};
+        if (additions.ships.get(saved.ship) != null) choice.ship = saved.ship;
+        for (&choice.racks, saved.racks) |*rack, missile| {
+            const kind = missile orelse continue;
+            if (kind.added() != null) rack.* = kind;
+        }
+        return choice;
+    }
+
+    /// Puts the mods' ship type and missiles back into `saved` over their bases.
+    fn apply(choice: ModChoice, saved: *loadout.Saved) void {
+        if (choice.ship) |ship| saved.ship = ship;
+        for (&saved.racks, choice.racks) |*rack, missile| {
+            if (missile) |kind| rack.* = kind;
+        }
+    }
+
+    /// Whether it holds neither a mod's ship type nor a mod's missile.
+    fn empty(choice: ModChoice) bool {
+        if (choice.ship != null) return false;
+        for (choice.racks) |rack| if (rack != null) return false;
+        return true;
+    }
+
+    /// The `.mods` file's text.
+    fn text(choice: ModChoice, gpa: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
+        var out: std.Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        writeText(choice, &out.writer) catch return error.OutOfMemory;
+        return out.toOwnedSlice();
+    }
+
+    fn writeText(choice: ModChoice, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        try w.print("[{s}]\n", .{section});
+        if (choice.ship) |ship| if (additions.ships.get(ship)) |added| try w.print("{s}={s}\n", .{ ship_key, added.name });
+        for (choice.racks, 1..) |rack, number| {
+            const added = (rack orelse continue).added() orelse continue;
+            try w.print("{s}{d}={s}\n", .{ rack_key, number, added.name });
+        }
+    }
+
+    /// What the `.mods` file `contents` keeps, of the mods that are on.
+    fn read(contents: []const u8) ModChoice {
+        const file: profile.Profile = .{ .text = contents };
+        var choice: ModChoice = .{};
+        if (file.value(section, ship_key)) |name| choice.ship = if (additions.ships.find(name)) |number| @intCast(number) else null;
+        for (&choice.racks, 1..) |*rack, number| {
+            var key: [rack_key.len + rack_digits]u8 = undefined;
+            const named = std.fmt.bufPrint(&key, "{s}{d}", .{ rack_key, number }) catch unreachable;
+            if (file.value(section, named)) |name| rack.* = loadout_tables.Missile.named(name);
+        }
+        return choice;
+    }
+};
+
+/// The extension of the file that keeps a saved game's `ModChoice`.
+const mods_extension = ".mods";
+
+/// The most OpenReliant reads of a `.mods` file.
+const most_mods_read = 1 << 12;
 
 /// The chunks after the name, in the order `game_save` writes them, each with the field of
 /// `Save` whose bytes it holds (`save_chunks`, `0x00500A20`: an id, an address and a size a chunk).
@@ -342,6 +434,7 @@ pub const Game = struct {
         miss.saved_ship = loadout_tables.savedShip(game.saved.ship);
         // A mod's missile as its base, which the original knows (`tables.Missile.savedId`).
         for (&miss.saved_racks, game.saved.racks) |*rack, missile| rack.* = if (missile) |kind| @intCast(kind.savedId()) else no_missile;
+        save.mods = .of(game.saved.*);
         for (kept_variables, save.vars[0..kept_variables.len]) |number, *value| value.* = @bitCast(campaign.variables.slot(number).*);
         return save;
     }
@@ -378,6 +471,7 @@ pub const Game = struct {
         game.pilot.female = miss.female != 0;
         game.saved.ship = if (miss.saved_ship >= 0 and miss.saved_ship < loadout_tables.ship_count) @intCast(miss.saved_ship) else (loadout.Saved{}).ship;
         for (&game.saved.racks, miss.saved_racks) |*rack, missile| rack.* = if (std.math.cast(u32, missile)) |id| loadout_tables.Missile.ofId(id) else null;
+        save.mods.apply(game.saved);
         game.wingmen.pool[0] = save.pilo;
         game.wingmen.alpha = save.alph;
         const variables = &campaign.variables;
@@ -480,6 +574,7 @@ pub const Folder = struct {
     /// Removes saved game `slot` of `call_sign`, where there is one, and what goes with it.
     pub fn remove(folder: Folder, call_sign: []const u8, slot: u8) void {
         folder.removeCompanion(call_sign, slot, file_extension);
+        folder.removeCompanion(call_sign, slot, mods_extension);
         if (folder.extra) |extra| extra.vtable.removed(extra.context, folder, call_sign, slot);
     }
 
@@ -510,19 +605,34 @@ pub const Folder = struct {
         return stat.mtime.nanoseconds;
     }
 
-    /// Reads saved game `slot` of `call_sign` into `save`; false where there is none, or it holds
-    /// no `SAVE` form.
+    /// Reads saved game `slot` of `call_sign` into `save`, with its `.mods` file where it has
+    /// one (`ModChoice`); false where there is none, or it holds no `SAVE` form.
     pub fn load(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8, save: *Save) bool {
         const bytes = folder.file(gpa, call_sign, slot) orelse return false;
         defer gpa.free(bytes);
-        return read(bytes, save);
+        if (!read(bytes, save)) return false;
+        const mods = folder.companion(gpa, call_sign, slot, mods_extension, most_mods_read) orelse {
+            save.mods = .{};
+            return true;
+        };
+        defer gpa.free(mods);
+        save.mods = .read(mods);
+        return true;
     }
 
-    /// Writes `save` as saved game `slot` of `call_sign` (`game_save`).
+    /// Writes `save` as saved game `slot` of `call_sign` (`game_save`), with its `.mods` file
+    /// where the loadout's choice holds a mod's ship type or missile (`ModChoice`).
     pub fn store(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8, save: *const Save) (Error || std.mem.Allocator.Error)!void {
         const bytes = try write(gpa, save);
         defer gpa.free(bytes);
         try folder.put(call_sign, slot, bytes);
+        if (save.mods.empty()) {
+            folder.removeCompanion(call_sign, slot, mods_extension);
+        } else {
+            const text = try save.mods.text(gpa);
+            defer gpa.free(text);
+            try folder.putCompanion(call_sign, slot, mods_extension, text);
+        }
         if (folder.extra) |extra| extra.vtable.stored(extra.context, folder, call_sign, slot);
     }
 
@@ -761,6 +871,60 @@ test restartLoad {
     try std.testing.expectEqual(12, state.player.kills.count);
     try std.testing.expectEqual(3, state.saved.ship);
     try std.testing.expectEqual(.raptor, state.saved.racks[0].?);
+}
+
+test ModChoice {
+    const gpa = std.testing.allocator;
+    var ships = [_]additions.ships.Added{.{ .name = "pot:pot", .mod = "pot", .base = .predator, .extra = .{ .model = "pot.shp" } }};
+    var missiles = [_]additions.missiles.Added{.{ .name = "pot:banana", .mod = "pot", .base = .bandit, .extra = .{} }};
+    additions.ships.install(&ships);
+    defer additions.ships.reset();
+    additions.missiles.install(&missiles);
+    defer additions.missiles.reset();
+    const banana = loadout_tables.Missile.named("pot:banana").?;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const folder: Folder = .{ .io = std.testing.io, .dir = tmp.dir };
+    var state: TestGame = .{};
+    state.pilot.call_sign.set("Ace");
+    state.saved.ship = additions.ships.first;
+    state.saved.racks[1] = banana;
+    state.saved.racks[2] = .havoc;
+    const save = state.game().capture("Pot");
+    // The save keeps their bases, which the original reads, and the .mods file their names.
+    try std.testing.expectEqual(0, save.miss.saved_ship);
+    try std.testing.expectEqual(@intFromEnum(loadout_tables.Missile.bandit), save.miss.saved_racks[1]);
+    try folder.store(gpa, "Ace", 1, &save);
+    const text = folder.companion(gpa, "Ace", 1, mods_extension, most_mods_read).?;
+    defer gpa.free(text);
+    try std.testing.expectEqualStrings("[Loadout]\nShip=pot:pot\nRack2=pot:banana\n", text);
+
+    // Loaded while the mod is on, the choice comes back whole.
+    var back = empty();
+    try std.testing.expect(folder.load(gpa, "Ace", 1, &back));
+    var other: TestGame = .{};
+    other.game().apply(&back);
+    try std.testing.expectEqual(additions.ships.first, other.saved.ship);
+    try std.testing.expectEqual(banana, other.saved.racks[1].?);
+    try std.testing.expectEqual(.havoc, other.saved.racks[2].?);
+
+    // With the mod off, the bases stay.
+    additions.ships.reset();
+    additions.missiles.reset();
+    var without = empty();
+    try std.testing.expect(folder.load(gpa, "Ace", 1, &without));
+    var plain: TestGame = .{};
+    plain.game().apply(&without);
+    try std.testing.expectEqual(0, plain.saved.ship);
+    try std.testing.expectEqual(.bandit, plain.saved.racks[1].?);
+
+    // A save without the mods' choices leaves no .mods file, and removing a save removes it.
+    try folder.store(gpa, "Ace", 1, &without);
+    try std.testing.expectEqual(null, folder.companion(gpa, "Ace", 1, mods_extension, most_mods_read));
+    try folder.store(gpa, "Ace", 2, &save);
+    folder.remove("Ace", 2);
+    try std.testing.expectEqual(null, folder.companion(gpa, "Ace", 2, mods_extension, most_mods_read));
 }
 
 test Folder {

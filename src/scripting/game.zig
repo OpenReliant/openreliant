@@ -220,7 +220,7 @@ pub const Game = struct {
             var keys = mod.manifest.keys(script.section);
             var context: ?*Context = null;
             while (keys.next()) |key| {
-                const attachment = script.Attachment.parse(key) orelse continue;
+                const attachment = script.Attachment.parse(key, mod.name) orelse continue;
                 const matches = switch (attachment) {
                     .kind => |kind| kind.runs() and kind.class() != null and kind.class() == class,
                     .object_type => |object_type| object_type == slot.object.type,
@@ -380,7 +380,7 @@ fn globalScripts(mod: *const Mod) script.List {
 fn attachesScripts(mod: *const Mod) bool {
     var keys = mod.manifest.keys(script.section);
     while (keys.next()) |key| {
-        const attachment = script.Attachment.parse(key) orelse continue;
+        const attachment = script.Attachment.parse(key, mod.name) orelse continue;
         switch (attachment) {
             .kind => |kind| if (kind.runs() and kind.family() == .object) return true,
             .object_type => return true,

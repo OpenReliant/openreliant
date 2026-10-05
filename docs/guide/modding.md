@@ -523,6 +523,8 @@ too, after the game's ships:
 - The arc holds twelve ships. When the game's ships leave no room, the mods' ship types that don't
   fit aren't offered, and the log says so.
 - A saved game keeps a mod's ship type as its base, so that the original can still load it.
+  OpenReliant keeps the mod's own beside the save ([Saved games](../formats/save.md#in-openreliant)),
+  and puts it back when the save is loaded with the mod still on.
 
 Flown by the player, such a ship type can also give:
 
@@ -552,6 +554,8 @@ Name=Banana Gun
 Shot=banana_shot.png
 ShotSize=40
 Sound=boing.wav
+Flash=banana_shot.png
+FlashSize=300
 ```
 
 A gun uses its base's shots, flashes and sounds, except for the ones it gives itself:
@@ -563,6 +567,13 @@ A gun uses its base's shots, flashes and sounds, except for the ones it gives it
   is 60, the size of the Pulse Cannon's flare.
 - `Sound` is a WAV file in the mod, PCM or IMA ADPCM, that each shot makes in place of its base's.
   It is heard as its base's sound is: as far, as loud, and following the shot.
+- `Flash` is a picture in the mod, which the muzzle flash is drawn with as each shot leaves the
+  gun, in place of its base's flares: across the muzzle and in three blades along the flash, added
+  to what's behind it, shrinking away as its base's does. It is found as `Shot` is. Black is
+  see-through, so draw it on black. Where flashes light the ship, its light takes the picture's
+  colour.
+- `FlashSize` is how far the flash reaches forward of the muzzle, its width keeping its base's
+  proportions. The default is its base's flash, 600 for the guns based on the fighters' guns.
 
 A gun whose `Sound` is missing from the mod, or isn't a WAV file, is left out, and the log says so.
 A model gives each gun muzzle a gun type by number, so a mod's own model fires the mod's guns by the
@@ -608,6 +619,8 @@ The loadout screen offers it on its missile page too, with the game's missiles:
   mods' missiles take the free places in the order the mods load; the log says when some don't
   fit.
 - A saved game keeps a mod's missile on a rack as its base, so that the original can still load it.
+  OpenReliant keeps the mod's own beside the save, and puts it back when the save is loaded with
+  the mod still on.
 
 ### Pilots
 

@@ -93,7 +93,7 @@ fn loadScripts(mod: *const Mod) script.List {
 fn tellLeftOut(mod: *const Mod) void {
     var keys = mod.manifest.keys(script.section);
     while (keys.next()) |key| {
-        const attachment = script.Attachment.parse(key) orelse {
+        const attachment = script.Attachment.parse(key, mod.name) orelse {
             log.warn("{s}: unknown script kind '{s}' in [{s}]", .{ mod.name, key, script.section });
             continue;
         };

@@ -405,6 +405,13 @@ pub const Missile = enum(u8) {
         return null;
     }
 
+    /// The missile a mod adds under the qualified name `name`, such as `bananas:banana`, where its
+    /// mod is on.
+    pub fn named(name: []const u8) ?Missile {
+        const number = additions.missiles.find(name) orelse return null;
+        return @enumFromInt(missile_count + number - additions.missiles.first);
+    }
+
     /// Every missile the loadout knows: the game's, then those of the mods whose base it offers.
     pub fn all(buffer: *[max_missiles]Missile) []const Missile {
         var count: usize = 0;
@@ -841,6 +848,9 @@ test "the mods' missiles" {
     // It flies as its own type, and a saved game keeps its base.
     try std.testing.expectEqual(@as(missiles_mod.Type, @enumFromInt(additions.missiles.first + 1)), rail.missileType());
     try std.testing.expectEqual(@intFromEnum(Missile.bandit), rail.savedId());
+    // Found again by its qualified name, while its mod is on.
+    try std.testing.expectEqual(rail, Missile.named("A:RAIL").?);
+    try std.testing.expectEqual(null, Missile.named("b:rail"));
     // Offered from its own tier, else its base's, with its base's limit.
     try std.testing.expectEqual(2, rail.firstTier());
     try std.testing.expect(!rail.offeredAt(1) and rail.offeredAt(3));

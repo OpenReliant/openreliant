@@ -127,9 +127,9 @@ mission2.dte=escort.luau
   global scripts in everything else.
 - The classes are `Fighter`, `Capital`, `Support`, `Torpedo`, `Mine`, `Planet`, `Debris` and
   `Other`. A type is `Type.` and its name ([ShipType](reference.md#shiptype)) or its number, such as
-  `Type.12`. A type a mod adds can't be named here yet
-  ([#684](https://github.com/OpenReliant/openreliant/issues/684)): start its scripts from a global
-  script instead ([Object scripts](#object-scripts)).
+  `Type.12`. A ship type a mod adds is named by its qualified name, `Type.teapot:teapot`, or in
+  the mod that adds it by its own name, `Type.teapot`. Its number changes with the mods that are
+  on, so don't name it by number.
 - Each script has its own global variables, and the scripts on each object have their own.
 - Scripts on missiles and turrets are planned
   ([#587](https://github.com/OpenReliant/openreliant/issues/587)); this version skips them, and
@@ -502,7 +502,8 @@ return {
 - `require("openreliant.nearby").objects(radius)` gives the objects within `radius` of the script's
   object, nearest first.
 
-To run a script on a ship type a mod adds, start it from a global script:
+A global script can start an object script on any object it chooses, such as each ship of a type
+a mod adds:
 
 ```lua
 return {

@@ -8,6 +8,7 @@ const std = @import("std");
 
 const openreliant = @import("openreliant");
 const gameobj = openreliant.engine.game.gameobj;
+const additions = openreliant.engine.game.additions;
 const create = openreliant.engine.game.create;
 const engine_hooks = openreliant.engine.hooks;
 const input = openreliant.engine.input;
@@ -24,7 +25,9 @@ pub const section = "Scripts";
 pub const missions_section = "Missions";
 
 /// A key in `[Scripts]`: a script kind (`Kind.key`), or an object type written as `Type.` followed
-/// by OpenReliant's name for it (`Type.predator`) or its number (`Type.12` or `Type.0x0C`).
+/// by OpenReliant's name for it (`Type.predator`), its number (`Type.12` or `Type.0x0C`), or a ship
+/// type a mod adds by its qualified name (`Type.teapot:teapot`) or, in the mod that adds it, by its
+/// own (`Type.teapot`).
 pub const Attachment = union(enum) {
     kind: Kind,
     object_type: gameobj.Type,
@@ -32,15 +35,14 @@ pub const Attachment = union(enum) {
     /// The prefix of keys that name an object type.
     pub const type_prefix = "Type.";
 
-    /// Parses a key, ignoring case. Returns null for an unknown key.
-    pub fn parse(key: []const u8) ?Attachment {
+    /// Parses a key of the manifest of the mod called `mod`, ignoring case. Returns null for an
+    /// unknown key. The ship types mods add must be read first (`additions.read`).
+    pub fn parse(key: []const u8, mod: []const u8) ?Attachment {
         if (key.len > type_prefix.len and std.ascii.eqlIgnoreCase(key[0..type_prefix.len], type_prefix)) {
             const named = key[type_prefix.len..];
             if (std.fmt.parseInt(u32, named, 0)) |number| return .{ .object_type = @enumFromInt(number) } else |_| {}
-            inline for (comptime std.enums.values(gameobj.GameType)) |object_type| {
-                if (std.ascii.eqlIgnoreCase(named, @tagName(object_type))) return .{ .object_type = .of(object_type) };
-            }
-            return null;
+            const number = additions.ships.named(named, mod) orelse return null;
+            return .{ .object_type = @enumFromInt(number) };
         }
         inline for (comptime std.enums.values(Kind)) |kind| {
             if (std.ascii.eqlIgnoreCase(key, kind.key())) return .{ .kind = kind };
@@ -357,16 +359,24 @@ comptime {
 }
 
 test "Attachment.parse" {
-    try std.testing.expectEqual(Attachment{ .kind = .load }, Attachment.parse("Load").?);
-    try std.testing.expectEqual(Attachment{ .kind = .fighter }, Attachment.parse("FIGHTER").?);
-    try std.testing.expectEqual(Attachment{ .object_type = .of(.predator) }, Attachment.parse("Type.predator").?);
-    try std.testing.expectEqual(Attachment{ .object_type = .of(.reliant) }, Attachment.parse("type.0x0C").?);
-    try std.testing.expectEqual(Attachment{ .object_type = @enumFromInt(200) }, Attachment.parse("Type.200").?);
-    try std.testing.expectEqual(null, Attachment.parse("Loads"));
-    try std.testing.expectEqual(null, Attachment.parse("predator"));
-    try std.testing.expectEqual(null, Attachment.parse("Type.nothing"));
-    try std.testing.expectEqual(Family.object, Attachment.parse("Missile").?.family());
-    try std.testing.expectEqual(Family.object, Attachment.parse("Type.reliant").?.family());
+    try std.testing.expectEqual(Attachment{ .kind = .load }, Attachment.parse("Load", "a").?);
+    try std.testing.expectEqual(Attachment{ .kind = .fighter }, Attachment.parse("FIGHTER", "a").?);
+    try std.testing.expectEqual(Attachment{ .object_type = .of(.predator) }, Attachment.parse("Type.predator", "a").?);
+    try std.testing.expectEqual(Attachment{ .object_type = .of(.reliant) }, Attachment.parse("type.0x0C", "a").?);
+    try std.testing.expectEqual(Attachment{ .object_type = @enumFromInt(200) }, Attachment.parse("Type.200", "a").?);
+    try std.testing.expectEqual(null, Attachment.parse("Loads", "a"));
+    try std.testing.expectEqual(null, Attachment.parse("predator", "a"));
+    // A ship type a mod adds, by its qualified name, or in its own mod by its own.
+    var ships = [_]additions.ships.Added{.{ .name = "pot:teapot", .mod = "pot", .base = .predator, .extra = .{ .model = "teapot.shp" } }};
+    additions.ships.install(&ships);
+    defer additions.ships.reset();
+    const teapot: Attachment = .{ .object_type = @enumFromInt(additions.ships.first) };
+    try std.testing.expectEqual(teapot, Attachment.parse("Type.pot:teapot", "a").?);
+    try std.testing.expectEqual(teapot, Attachment.parse("Type.Teapot", "pot").?);
+    try std.testing.expectEqual(null, Attachment.parse("Type.teapot", "a"));
+    try std.testing.expectEqual(null, Attachment.parse("Type.nothing", "a"));
+    try std.testing.expectEqual(Family.object, Attachment.parse("Missile", "a").?.family());
+    try std.testing.expectEqual(Family.object, Attachment.parse("Type.reliant", "a").?.family());
 }
 
 test Kind {
