@@ -33,7 +33,7 @@ pub const Command = union(enum) {
         \\                                  finding mounted models beside it
         \\  shp obj <model> <out.obj> [--lod <n>] [--model-space]
         \\                                  export geometry as Wavefront OBJ, righted to Y-up
-        \\  shp from-obj <in.obj> <out.shp> [--two-sided] [--density <d>]
+        \\  shp from-obj <in.obj> <out.shp> [--two-sided] [--cloak] [--density <d>]
         \\                                  build a model for a mod from Wavefront OBJ: objects
         \\                                  named cockpit, gun_muzzle:<gun type>,
         \\                                  missile:<missile>, engine_glow:<glow>, light,
@@ -68,6 +68,9 @@ pub const Command = union(enum) {
                 while (i < operands.len) {
                     if (std.mem.eql(u8, operands[i], "--two-sided")) {
                         command.@"from-obj".options.two_sided = true;
+                        i += 1;
+                    } else if (std.mem.eql(u8, operands[i], "--cloak")) {
+                        command.@"from-obj".options.cloak = true;
                         i += 1;
                     } else if (std.mem.eql(u8, operands[i], "--density") and i + 1 < operands.len) {
                         command.@"from-obj".options.density = std.fmt.parseFloat(f32, operands[i + 1]) catch return error.Usage;
@@ -552,9 +555,9 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP", "ship.obj", "--lod", "two" }));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP", "ship.obj", "--flat" }));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP" }));
-    const built = try Command.parse(&.{ "from-obj", "pot.obj", "pot.shp", "--two-sided", "--density", "0.5" });
+    const built = try Command.parse(&.{ "from-obj", "pot.obj", "pot.shp", "--two-sided", "--cloak", "--density", "0.5" });
     try std.testing.expectEqualStrings("pot.obj", built.@"from-obj".model);
-    try std.testing.expect(built.@"from-obj".options.two_sided);
+    try std.testing.expect(built.@"from-obj".options.two_sided and built.@"from-obj".options.cloak);
     try std.testing.expectEqual(0.5, built.@"from-obj".options.density);
     try std.testing.expectError(error.Usage, Command.parse(&.{ "from-obj", "pot.obj", "pot.shp", "--density", "-1" }));
 }

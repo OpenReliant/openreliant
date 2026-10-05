@@ -575,7 +575,7 @@ after a name is left out:
 | `gun_muzzle:<gun type>` | Where a gun fires from, a gun of that type, by its number in `gunstats.bin` (1, the Laser Cannon, without one) |
 | `missile:<missile>` | A missile hardpoint, holding that missile type for every loadout tier (0 without one) |
 | `engine_glow:<glow>` | An engine's glow, burning backward |
-| `light:<colour>` | A light |
+| `light:<colour>` | A light: a sprite as large as its box, which lights nothing round it |
 | `eject_point` | Where the pilot's pod is thrown up from, on the cockpit where there is one |
 | `launch_point`, `dock_point` | Where a ship launches from or docks |
 | anything else | The body |
@@ -584,9 +584,9 @@ An attachment stands at the middle of its object's corners, and is as large as t
 box or triangle marks one. The body and the cockpit take the textures their faces' `usemtl` names,
 by the texture's name without its extension, such as `teapot` for `teapot.png`, and are lit; a face
 without one is drawn untextured. A vertex takes the normal the file gives it, else the average of the
-faces round it. `--two-sided` draws every face from behind as well, for a model with open edges,
-and `--density` sets how heavy each part is for its size, 0.1 by default, about as heavy as the
-Predator for a ship of its size.
+faces round it. `--two-sided` draws every face from behind as well, for a model with open edges;
+`--cloak` makes the meshes a ship that cloaks needs; and `--density` sets how heavy each part is for
+its size, 0.1 by default, about as heavy as the Predator for a ship of its size.
 
 The file is read as Blender exports it, Y up and the nose toward +Z, which `sltool shp obj` writes
 the game's models as too, so a model exported from the game comes back in the same place. Each part
