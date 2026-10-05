@@ -38,7 +38,7 @@ const extension = ".bin";
 const magic = "ORTX".*;
 
 /// The version of the cache files' layout. Change it when `Header` or `encode` changes.
-const format_version: u32 = 1;
+const format_version: u32 = 2;
 
 /// The largest cache file read.
 const max_file_bytes = 1 << 30;
@@ -65,9 +65,9 @@ const LevelHeader = extern struct {
     format: u32,
 };
 
-/// The sets of levels a kept picture holds: the picture's, then its normal map's and its material
-/// map's, each with as many levels as it has, 0 where it has none.
-const set_count = 3;
+/// The sets of levels a kept picture holds: the picture's, then each of its maps' in the order of
+/// `Image.Maps`' fields, each with as many levels as it has, 0 where it has none.
+const set_count = 1 + Image.Maps.count;
 
 pub const Store = struct {
     io: Io,
@@ -139,9 +139,12 @@ pub const Store = struct {
     }
 };
 
-/// A kept picture's sets of levels, in order: its own, its normal map's, its material map's.
+/// A kept picture's sets of levels, in order: its own, then its maps'.
 fn setsOf(image: Image) [set_count][]const Level {
-    return .{ image.levels, image.maps.normal orelse &.{}, image.maps.orm orelse &.{} };
+    var sets: [set_count][]const Level = undefined;
+    sets[0] = image.levels;
+    for (image.maps.list(), sets[1..]) |map, *set| set.* = map orelse &.{};
+    return sets;
 }
 
 /// The path of the texture `name`'s cache file in the game folder.
@@ -172,17 +175,13 @@ fn decode(gpa: Allocator, bytes: []const u8, key: *const Compressor.Key, takes: 
         for (sets) |found| if (found) |levels| freeLevels(gpa, levels);
         return null;
     }
-    const maps: Image.Maps = .{
-        .normal = if (sets[1].?.len > 0) sets[1].? else blk: {
-            gpa.free(sets[1].?);
-            break :blk null;
-        },
-        .orm = if (sets[2].?.len > 0) sets[2].? else blk: {
-            gpa.free(sets[2].?);
-            break :blk null;
-        },
-    };
-    return .{ .levels = sets[0].?, .maps = maps };
+    // A map with no levels is one the picture doesn't have.
+    var maps: [Image.Maps.count]?[]const Level = undefined;
+    for (sets[1..], &maps) |set, *map| {
+        map.* = if (set.?.len > 0) set.? else null;
+        if (map.* == null) gpa.free(set.?);
+    }
+    return .{ .levels = sets[0].?, .maps = .fromList(maps) };
 }
 
 /// Reads the sets of levels of a cache file's body, checking each as it goes.
@@ -237,17 +236,20 @@ test Store {
     const held = store.compressor();
     const key: Compressor.Key = 7;
 
-    // A 4 by 4 picture in BC7 with a normal map in BC5, kept and given back.
+    // A 4 by 4 picture in BC7 with a normal map in BC5 and an emissive map in BC7, kept and given
+    // back.
     var picture_texels: [16]u8 = @splat(1);
     var normal_texels: [16]u8 = @splat(2);
     var picture = [_]Level{.{ .width = 4, .height = 4, .format = .bc7, .texels = &picture_texels }};
     var normal = [_]Level{.{ .width = 4, .height = 4, .format = .bc5, .texels = &normal_texels }};
-    held.store("Hull", &key, .{ .levels = &picture, .maps = .{ .normal = &normal } });
+    var emissive = [_]Level{.{ .width = 4, .height = 4, .format = .bc7, .texels = &picture_texels }};
+    held.store("Hull", &key, .{ .levels = &picture, .maps = .{ .normal = &normal, .emissive = &emissive } });
     const kept = (try held.load(gpa, "hull", &key)).?;
     defer kept.deinit(gpa);
     try std.testing.expectEqualSlices(u8, &picture_texels, kept.levels[0].texels);
     try std.testing.expectEqual(Level.Format.bc5, kept.maps.normal.?[0].format);
     try std.testing.expectEqual(null, kept.maps.orm);
+    try std.testing.expectEqualSlices(u8, &picture_texels, kept.maps.emissive.?[0].texels);
 
     // Another key, a picture the GPU no longer takes, and none kept at all.
     try std.testing.expectEqual(null, try held.load(gpa, "hull", &@as(Compressor.Key, 8)));
@@ -260,12 +262,13 @@ test decode {
     const gpa = std.testing.allocator;
     const key: Compressor.Key = 1;
     const takes: std.EnumSet(Level.Format) = .initFull();
-    // A file of one 1 by 1 RGBA level and no maps, then cut short and changed.
-    var body: [4 + @sizeOf(LevelHeader) + 4 + 4 + 4]u8 = undefined;
+    // A file of one 1 by 1 RGBA level and no maps, each map's count 0, then cut short and changed.
+    const map_counts = 4 * Image.Maps.count;
+    var body: [4 + @sizeOf(LevelHeader) + 4 + map_counts]u8 = undefined;
     std.mem.writeInt(u32, body[0..4], 1, .little);
     @memcpy(body[4..][0..@sizeOf(LevelHeader)], std.mem.asBytes(&LevelHeader{ .width = 1, .height = 1, .format = @intFromEnum(Level.Format.rgba8) }));
     @memcpy(body[4 + @sizeOf(LevelHeader) ..][0..4], &[_]u8{ 1, 2, 3, 4 });
-    @memset(body[body.len - 8 ..], 0);
+    @memset(body[body.len - map_counts ..], 0);
     const header: Header = .{ .key = key, .check = XxHash3.hash(0, &body), .size = body.len };
     var file: [@sizeOf(Header) + body.len]u8 = undefined;
     @memcpy(file[0..@sizeOf(Header)], std.mem.asBytes(&header));
@@ -275,6 +278,6 @@ test decode {
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, image.levels[0].texels);
     try std.testing.expectEqual(null, try decode(gpa, file[0 .. file.len - 1], &key, takes));
     var damaged = file;
-    damaged[damaged.len - 9] ^= 1;
+    damaged[damaged.len - map_counts - 1] ^= 1;
     try std.testing.expectEqual(null, try decode(gpa, &damaged, &key, takes));
 }

@@ -119,7 +119,7 @@ original size, which you can use as a template.
 ### Compression
 
 Where the GPU takes compressed textures, as desktop GPUs do, OpenReliant compresses mods' pictures
-as today's games do: colours and material maps in BC7, normal maps in BC5. A 4096x4096 picture then
+as today's games do: colours, material maps and emissive maps in BC7, normal maps in BC5. A 4096x4096 picture then
 takes about 21 MB of GPU memory with its mipmaps, a quarter of the 85 MB it takes uncompressed, and
 the computer lets go of its own copy once the GPU holds it.
 
@@ -166,11 +166,14 @@ material, such as metal or paint, rough or polished. They follow the metallic wo
 | `yank_2_normal.png` | The surface normals, in OpenGL's convention: green points to the top of the picture |
 | `yank_2_orm.png` | Occlusion, roughness and metallic in the red, green and blue channels, as in glTF |
 | `yank_2_occlusion.png`, `yank_2_roughness.png`, `yank_2_metallic.png` | The same three as separate greyscale pictures, if there's no `_orm` map |
+| `yank_2_emissive.png` | The light the surface gives off by itself, such as glowing vents or lit windows, in colour, as glTF's emissive texture: black where it gives off none |
 
-Each map must be the same size as its texture, and either kind can be left out: a normal map on its
-own adds surface detail to the lighting, and a material map on its own gives the surface its
-highlights. Without a map, the surface is treated as flat, without occlusion, rough and
-non-metallic. Maps hold linear values, not colours, and their mipmaps are computed that way. For
+Each map must be the same size as its texture, and any of them can be left out: a normal map on its
+own adds surface detail to the lighting, a material map on its own gives the surface its
+highlights, and an emissive map on its own makes parts of it glow. Without a map, the surface is
+treated as flat, without occlusion, rough, non-metallic and giving off no light. Normal and material
+maps hold linear values, not colours, and their mipmaps are computed that way. An emissive map holds
+colours, like the texture itself. For
 normal maps, each mipmap level renormalizes the normals and stores in its alpha channel how much the
 normals it averages spread out, so the alpha channel of a normal map is ignored.
 
@@ -188,6 +191,10 @@ OpenReliant lights each pixel according to the maps:
 - Occlusion darkens the ambient light and the reflections.
 - Where the normal map has details smaller than a pixel, the surface looks correspondingly rougher
   (Toksvig's method), instead of its highlights sparkling.
+- The emissive map's colour is added once the pixel is lit: on the dark side of a ship it shows as
+  painted, and on the lit side it brightens the surface. Keep it dark and soft for a gentle glow; a
+  bright emissive map washes the surface out. The loadout draws its ships and weapons without their
+  emissive maps.
 
 The base texture should hold only the surface's colour, with no shading painted in, or the lighting
 will show twice. The MATERIALS setting under VIDEO and `--no-materials` turn the maps off, as
@@ -199,7 +206,8 @@ reflections. Real metals reflect at least half the light: steel about 56 percent
 right. Put dirt and wear in the roughness map, or make those areas non-metallic in the metallic map,
 instead of darkening the colour.
 
-**Improvement:** the original lights every surface the same way, with a highlight pass on top.
+**Improvement:** the original lights every surface the same way, with a highlight pass on top, and
+only its light maps make a surface glow.
 
 ## The interface
 

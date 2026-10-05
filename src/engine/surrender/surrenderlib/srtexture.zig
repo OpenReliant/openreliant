@@ -81,10 +81,29 @@ pub const Image = struct {
         /// How much of the ambient light reaches the surface, how rough it is, and how metallic, in
         /// red, green and blue, as glTF packs them.
         orm: ?[]const Level = null,
+        /// The light the surface gives off by itself, sRGB-encoded like its image's colours, as
+        /// glTF's emissive texture holds it: added after the surface is lit.
+        emissive: ?[]const Level = null,
+
+        /// How many maps there are, one for each field.
+        pub const count = @typeInfo(Maps).@"struct".fields.len;
+
+        /// Each map, in the order of the fields.
+        pub fn list(maps: Maps) [count]?[]const Level {
+            var listed: [count]?[]const Level = undefined;
+            inline for (@typeInfo(Maps).@"struct".fields, &listed) |field, *map| map.* = @field(maps, field.name);
+            return listed;
+        }
+
+        /// The maps `listed` gives, in the order of the fields.
+        pub fn fromList(listed: [count]?[]const Level) Maps {
+            var maps: Maps = .{};
+            inline for (@typeInfo(Maps).@"struct".fields, listed) |field, map| @field(maps, field.name) = map;
+            return maps;
+        }
 
         fn deinit(maps: Maps, gpa: Allocator) void {
-            if (maps.normal) |levels| freeLevels(gpa, levels);
-            if (maps.orm) |levels| freeLevels(gpa, levels);
+            for (maps.list()) |map| if (map) |levels| freeLevels(gpa, levels);
         }
     };
 
@@ -227,6 +246,8 @@ pub const MapFile = enum {
     occlusion,
     roughness,
     metallic,
+    /// The light the surface gives off by itself.
+    emissive,
 
     /// What its name adds to the picture's: `_` and the map's name.
     pub fn suffix(map_file: MapFile) []const u8 {
@@ -243,6 +264,7 @@ pub const MapFile = enum {
             .occlusion => "occlusion map",
             .roughness => "roughness map",
             .metallic => "metallic map",
+            .emissive => "emissive map",
         };
     }
 };
@@ -436,8 +458,7 @@ pub const Table = struct {
                 continue;
             }
             releasePixels(table.gpa, image.levels);
-            if (image.maps.normal) |levels| releasePixels(table.gpa, levels);
-            if (image.maps.orm) |levels| releasePixels(table.gpa, levels);
+            for (image.maps.list()) |map| if (map) |levels| releasePixels(table.gpa, levels);
         }
         table.unreleased.shrinkRetainingCapacity(kept);
     }
@@ -780,6 +801,7 @@ test "material maps come beside a picture" {
         .{ .name = "hull_roughness.png", .rgba = .{ 64, 64, 64, 255 } },
         .{ .name = "hull_metallic.png", .rgba = .{ 255, 255, 255, 255 } },
         .{ .name = "hull_occlusion.png", .rgba = .{ 0, 0, 0, 255 }, .side = 4 },
+        .{ .name = "hull_emissive.png", .rgba = .{ 255, 0, 0, 255 } },
     } };
     var table: Table = .init(gpa, cache, std.mem.zeroes(tga.Palette));
     defer table.deinit();
@@ -788,6 +810,8 @@ test "material maps come beside a picture" {
     try std.testing.expectEqual(2, hull.maps.normal.?.len);
     try std.testing.expectEqualSlices(u8, &.{ 128, 128, 255, 255 }, hull.maps.normal.?[1].texels);
     try std.testing.expectEqualSlices(u8, &.{ 255, 64, 255, 255 }, hull.maps.orm.?[0].texels[0..4]);
+    // An emissive map is a picture's colours, mipmapped as they are.
+    try std.testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, hull.maps.emissive.?[1].texels);
 
     // A material map packed already takes the place of the three; without maps, there are none.
     const packed_maps: Pictures = .{ .files = &.{
@@ -800,6 +824,7 @@ test "material maps come beside a picture" {
     other.files = .{ .context = &packed_maps, .readFn = Pictures.read };
     const packed_hull = (try other.find("hull")).?;
     try std.testing.expectEqual(null, packed_hull.maps.normal);
+    try std.testing.expectEqual(null, packed_hull.maps.emissive);
     try std.testing.expectEqualSlices(u8, &.{ 10, 20, 30, 255 }, packed_hull.maps.orm.?[1].texels);
 }
 

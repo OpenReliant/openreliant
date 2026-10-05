@@ -125,7 +125,8 @@ const Vertex = extern struct {
 /// in the low byte, how its texture is magnified in the next two bits, whether the key lights reach
 /// past its terminator in the one after, whether its texture's normal map and material map are
 /// shaded in the two after that, whether the normal map holds two channels (BC5) in the one after
-/// that, and whether it is drawn as a hologram in the one after that.
+/// that, whether it is drawn as a hologram in the one after that, and whether its texture's
+/// emissive map is shaded in the one after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,
@@ -137,7 +138,8 @@ const Shading = packed struct(u32) {
     two_channel_normals: bool = false,
     /// It is drawn as a hologram (`device.State.hologram`).
     hologram: bool = false,
-    _unused: u17 = 0,
+    emissive_map: bool = false,
+    _unused: u16 = 0,
 
     /// A draw's shading, its texture's maps shaded where `materials` (`Gpu.shadesMaterials`).
     fn of(state: device.State, materials: bool) Shading {
@@ -150,13 +152,15 @@ const Shading = packed struct(u32) {
             .material_map = maps.orm != null,
             .two_channel_normals = if (maps.normal) |levels| levels[0].format == .bc5 else false,
             .hologram = state.hologram,
+            // The loadout's holograms don't glow.
+            .emissive_map = maps.emissive != null and !state.hologram,
         };
     }
 };
 
 /// The textures the device's fragment shader reads: the texture array, the shadows' maps, the
-/// array's normal maps and material maps, and the reflections' cube.
-const fragment_samplers = 5;
+/// array's normal maps and material maps, the reflections' cube, and the array's emissive maps.
+const fragment_samplers = 6;
 
 /// The uniform buffers the device's fragment shader reads: the frame's settings, its lights, its
 /// shadows, and what the variants with mods' functions read (`variants.Uniforms`).
@@ -307,11 +311,13 @@ const Array = struct {
     texture: *c.SDL_GPUTexture,
     capacity: u32,
     count: u32,
-    /// Its textures' normal maps and material maps, each at its texture's layer, in linear values
-    /// (`map_format`): made as the first texture with such a map goes up.
-    normals: ?*c.SDL_GPUTexture = null,
-    materials: ?*c.SDL_GPUTexture = null,
+    /// Its textures' maps of each kind, each at its texture's layer (`mapFormat`): made as the
+    /// first texture with such a map goes up.
+    maps: std.EnumArray(MapKind, ?*c.SDL_GPUTexture) = .initFill(null),
 };
+
+/// The kinds of map a texture can have (`srtexture.Image.Maps`).
+const MapKind = std.meta.FieldEnum(srtexture.Image.Maps);
 
 /// The format of the arrays of material maps, whose values are linear.
 const map_format = c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -341,18 +347,21 @@ fn compressedFormats(handle: *c.SDL_GPUDevice) std.EnumSet(srtexture.Level.Forma
     return taken;
 }
 
-/// The formats of a compressed array's maps: normal maps in two channels, material maps in four.
+/// The formats of a compressed array's maps: normal maps in two channels, material maps and
+/// emissive maps in four.
 pub const compressed_normals: srtexture.Level.Format = .bc5;
 pub const compressed_materials: srtexture.Level.Format = .bc7;
+pub const compressed_emissive: srtexture.Level.Format = .bc7;
 
-/// The SDL format of the normal maps beside images of `format`.
-fn normalsFormat(format: srtexture.Level.Format) c.SDL_GPUTextureFormat {
-    return if (format.compressed()) sdlFormat(compressed_normals, false) else map_format;
-}
-
-/// The SDL format of the material maps beside images of `format`.
-fn materialsFormat(format: srtexture.Level.Format) c.SDL_GPUTextureFormat {
-    return if (format.compressed()) sdlFormat(compressed_materials, false) else map_format;
+/// The SDL format of the maps of `kind` beside images of `format`. Normal and material maps hold
+/// linear values; an emissive map holds colours, read decoded from sRGB where `decoded`, as the
+/// images are.
+fn mapFormat(kind: MapKind, format: srtexture.Level.Format, decoded: bool) c.SDL_GPUTextureFormat {
+    return switch (kind) {
+        .normal => if (format.compressed()) sdlFormat(compressed_normals, false) else map_format,
+        .orm => if (format.compressed()) sdlFormat(compressed_materials, false) else map_format,
+        .emissive => sdlFormat(if (format.compressed()) compressed_emissive else .rgba8, decoded),
+    };
 }
 
 /// The reflections' cube's side in pixels, and its mipmap levels, down to a pixel.
@@ -782,9 +791,8 @@ pub const Gpu = struct {
         while (pipelines.next()) |made| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made.*);
         gpu.pipelines.deinit(gpu.gpa);
         for (gpu.arrays.items) |array| {
-            for ([_]?*c.SDL_GPUTexture{ array.texture, array.normals, array.materials }) |texture| {
-                if (texture) |made| c.SDL_ReleaseGPUTexture(gpu.handle, made);
-            }
+            c.SDL_ReleaseGPUTexture(gpu.handle, array.texture);
+            for (array.maps.values) |texture| if (texture) |made| c.SDL_ReleaseGPUTexture(gpu.handle, made);
         }
         c.SDL_ReleaseGPUTexture(gpu.handle, gpu.no_maps);
         if (gpu.reflections) |cube| c.SDL_ReleaseGPUTexture(gpu.handle, cube);
@@ -1379,9 +1387,10 @@ pub const Gpu = struct {
             const bindings = [fragment_samplers]c.SDL_GPUTextureSamplerBinding{
                 .{ .texture = array.texture, .sampler = read },
                 gpu.shadows.binding(),
-                .{ .texture = array.normals orelse gpu.no_maps, .sampler = read },
-                .{ .texture = array.materials orelse gpu.no_maps, .sampler = read },
+                .{ .texture = array.maps.get(.normal) orelse gpu.no_maps, .sampler = read },
+                .{ .texture = array.maps.get(.orm) orelse gpu.no_maps, .sampler = read },
                 .{ .texture = around, .sampler = gpu.reflection_sampler },
+                .{ .texture = array.maps.get(.emissive) orelse gpu.no_maps, .sampler = read },
             };
             c.SDL_BindGPUFragmentSamplers(pass, 0, &bindings, bindings.len);
             c.SDL_DrawGPUIndexedPrimitives(pass, run.count, 1, run.first, 0, 0);
@@ -1423,16 +1432,18 @@ pub const Gpu = struct {
             if (array.count <= array.capacity) continue;
             const capacity = @min(std.math.ceilPowerOfTwoAssert(u32, array.count), max_layers);
             array.texture = try gpu.grown(copy, array.*, array.texture, capacity, sdlFormat(array.shape.format, gpu.linear));
-            if (array.normals) |texture| array.normals = try gpu.grown(copy, array.*, texture, capacity, normalsFormat(array.shape.format));
-            if (array.materials) |texture| array.materials = try gpu.grown(copy, array.*, texture, capacity, materialsFormat(array.shape.format));
+            for (&array.maps.values, 0..) |*map, kind| {
+                if (map.*) |texture| map.* = try gpu.grown(copy, array.*, texture, capacity, mapFormat(@enumFromInt(kind), array.shape.format, gpu.linear));
+            }
             array.capacity = capacity;
         }
         var bytes: usize = 0;
         for (gpu.uploads.items) |item| {
             const array = &gpu.arrays.items[item.slot.array];
-            if (item.maps.normal != null and array.normals == null) array.normals = try gpu.arrayTexture(array.shape, array.capacity, normalsFormat(array.shape.format));
-            if (item.maps.orm != null and array.materials == null) array.materials = try gpu.arrayTexture(array.shape, array.capacity, materialsFormat(array.shape.format));
-            for ([_]?[]const srtexture.Level{ item.levels, item.maps.normal, item.maps.orm }) |each| {
+            for (item.maps.list(), &array.maps.values, 0..) |levels, *map, kind| {
+                if (levels != null and map.* == null) map.* = try gpu.arrayTexture(array.shape, array.capacity, mapFormat(@enumFromInt(kind), array.shape.format, gpu.linear));
+            }
+            for ([_]?[]const srtexture.Level{item.levels} ++ item.maps.list()) |each| {
                 for (each orelse &.{}) |level| bytes += level.texels.len;
             }
         }
@@ -1444,8 +1455,9 @@ pub const Gpu = struct {
         for (gpu.uploads.items) |item| {
             const array = gpu.arrays.items[item.slot.array];
             uploadLevels(copy, transfer, mapped, &at, array.texture, item.slot.layer, item.levels);
-            if (item.maps.normal) |levels| if (array.normals) |texture| uploadLevels(copy, transfer, mapped, &at, texture, item.slot.layer, levels);
-            if (item.maps.orm) |levels| if (array.materials) |texture| uploadLevels(copy, transfer, mapped, &at, texture, item.slot.layer, levels);
+            for (item.maps.list(), array.maps.values) |map, made| {
+                if (map) |levels| if (made) |texture| uploadLevels(copy, transfer, mapped, &at, texture, item.slot.layer, levels);
+            }
             if (item.image) |image| image.held = true;
         }
         c.SDL_UnmapGPUTransferBuffer(gpu.handle, transfer);
@@ -1808,6 +1820,14 @@ test Shading {
     try std.testing.expectEqual(0x001, @as(u32, @bitCast(Shading.of(state, false))));
     material.maps.normal = null;
     try std.testing.expectEqual(0x1001, @as(u32, @bitCast(Shading.of(state, true))));
+    // Its emissive map in the bit after the hologram.
+    material.maps = .{ .emissive = &level };
+    try std.testing.expectEqual(0x8001, @as(u32, @bitCast(Shading.of(state, true))));
+    try std.testing.expectEqual(0x001, @as(u32, @bitCast(Shading.of(state, false))));
+    // Not on a hologram.
+    var shown = state;
+    shown.hologram = true;
+    try std.testing.expectEqual(0x4001, @as(u32, @bitCast(Shading.of(shown, true))));
 }
 
 test appendList {

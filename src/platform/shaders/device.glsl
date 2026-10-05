@@ -78,6 +78,9 @@ layout(set = 2, binding = 3) uniform sampler2DArray materialMaps;
 // The reflections' cube (srcore.zig's cube_faces): the surroundings, the sky dome and the nebula,
 // encoded as the frame is, in the camera's axes, its down axis turned up.
 layout(set = 2, binding = 4) uniform samplerCube reflections;
+// The array's emissive maps, each at its texture's layer, its colours read as the images' are:
+// read only where the shading says the texture has one.
+layout(set = 2, binding = 5) uniform sampler2DArray emissiveMaps;
 
 layout(set = 3, binding = 0) uniform Frame {
     // x: 1 to draw in 16-bit colour, dithered. y: 1 to magnify textures with a Catmull-Rom filter
@@ -128,7 +131,7 @@ struct Surface {
     vec3 normal;
     float roughness;
     float metallic;
-    // Light the surface gives off, added after it is lit.
+    // Light the surface gives off, added after it is lit: its texture's emissive map's, or none.
     vec3 glow;
     // Read only: the texture coordinates, where the pixel stands in the camera's frame, and the
     // direction toward the eye.
@@ -705,12 +708,12 @@ vec4 hologram(vec4 c, float alpha) {
 // mod_functions
 
 #ifdef MOD_SURFACE
-// Runs the mod's surface function on the pixel: on its texel and its lit surface `s`, which take
-// what it sets, and the glow it gives off, in `glow`. A material's own values change only where
-// the function changes them; a surface without one becomes one where it does.
-void modSurface(inout vec4 texel, inout Lit s, out vec3 glow) {
+// Runs the mod's surface function on the pixel: on its texel, its lit surface `s` and the glow it
+// gives off, `glow`, which take what it sets. A material's own values change only where the
+// function changes them; a surface without one becomes one where it does.
+void modSurface(inout vec4 texel, inout Lit s, inout vec3 glow) {
     bool linear = frame.settings.w > 0.0;
-    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, vec3(0.0), uv, place, s.toEye);
+    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, uv, place, s.toEye);
     surface(m, custom.surface, custom.time.x);
     texel = vec4(linear ? decoded(m.colour) : m.colour, m.alpha);
     if (dot(s.normal, s.normal) > 0.5 && dot(m.normal, m.normal) > 1e-12) s.normal = normalize(m.normal);
@@ -737,7 +740,13 @@ void main() {
     }
     vec4 texel = image < 0 ? vec4(1.0) : sampled(max(span.x, span.y));
     Lit s = litOf(texel, onTexture);
+    // The light the texture's emissive map gives off, encoded as the frame is, added unchanged once
+    // the pixel is lit.
     vec3 glow = vec3(0.0);
+    if ((shade & 0x8000u) != 0u && image >= 0) {
+        vec3 emitted = texture(emissiveMaps, vec3(uv, image)).rgb;
+        glow = frame.settings.w > 0.0 ? encoded(emitted) : emitted;
+    }
 #ifdef MOD_SURFACE
     modSurface(texel, s, glow);
 #endif
