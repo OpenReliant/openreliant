@@ -411,8 +411,9 @@ What all four have in common:
 | Pilots | `[Pilots]` | `[Pilot name]` | 194 | 61 | missions' ships' pilots |
 
 [`examples/mods/interceptor`](../../examples/mods/interceptor) adds a faster Predator under a name
-of its own, and [`examples/mods/bananas`](../../examples/mods/bananas) a gun, a missile, a pilot and
-a ship that carries them.
+of its own, [`examples/mods/bananas`](../../examples/mods/bananas) a gun, a missile, a pilot and a
+ship that carries them, and [`examples/mods/teapot`](../../examples/mods/teapot) a ship with a model
+of its own, made from an OBJ file ([Models from OBJ](#models-from-obj)).
 
 **Improvement:** the original's ship types, guns, missiles and pilots are its own.
 
@@ -555,6 +556,42 @@ Making face films and lines of your own needs encoders OpenReliant doesn't have 
 ([#353](https://github.com/OpenReliant/openreliant/issues/353),
 [#351](https://github.com/OpenReliant/openreliant/issues/351)); the game's own work in the
 meantime.
+
+## Models from OBJ
+
+`sltool shp from-obj` builds a model for a mod from a Wavefront OBJ file, which Blender and most
+modelling tools export, with nothing of the game's in it:
+
+```bash
+sltool shp from-obj teapot.obj teapot.shp --two-sided
+```
+
+Each object of the file becomes part of the model by its name, case aside; a modelling tool's `.001`
+after a name is left out:
+
+| Object | What it becomes |
+|---|---|
+| `cockpit` | The cockpit, a part of its own, which leaves the ship as the pilot's pod when the pilot ejects |
+| `gun_muzzle:<gun type>` | Where a gun fires from, a gun of that type, by its number in `gunstats.bin` (1, the Laser Cannon, without one) |
+| `missile:<missile>` | A missile hardpoint, holding that missile type for every loadout tier (0 without one) |
+| `engine_glow:<glow>` | An engine's glow, burning backward |
+| `light:<colour>` | A light |
+| `eject_point` | Where the pilot's pod is thrown up from, on the cockpit where there is one |
+| `launch_point`, `dock_point` | Where a ship launches from or docks |
+| anything else | The body |
+
+An attachment stands at the middle of its object's corners, and is as large as their box: a small
+box or triangle marks one. The body and the cockpit take the textures their faces' `usemtl` names,
+by the texture's name without its extension, such as `teapot` for `teapot.png`, and are lit; a face
+without one is drawn untextured. A vertex takes the normal the file gives it, else the average of the
+faces round it. `--two-sided` draws every face from behind as well, for a model with open edges,
+and `--density` sets how heavy each part is for its size, 0.1 by default, about as heavy as the
+Predator for a ship of its size.
+
+The file is read as Blender exports it, Y up and the nose toward +Z, which `sltool shp obj` writes
+the game's models as too, so a model exported from the game comes back in the same place. Each part
+gets one level of detail, a collision tree of boxes round its faces, and its mass as though it filled
+its box. [`examples/mods/teapot`](../../examples/mods/teapot) builds its ship this way.
 
 ## The thumbnail
 

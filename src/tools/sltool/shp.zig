@@ -21,6 +21,8 @@ pub const Command = union(enum) {
     components: struct { model: []const u8 },
     /// Writes Wavefront OBJ, one object per part.
     obj: struct { model: []const u8, out: []const u8, lod: u32 = 0, model_space: bool = false },
+    /// Builds a model from Wavefront OBJ (`shp.from_obj`), for a mod.
+    @"from-obj": struct { model: []const u8, out: []const u8, options: shp.from_obj.Options = .{} },
 
     pub const usage =
         \\  shp info <model>                parts, meshes, materials and bounds
@@ -31,6 +33,12 @@ pub const Command = union(enum) {
         \\                                  finding mounted models beside it
         \\  shp obj <model> <out.obj> [--lod <n>] [--model-space]
         \\                                  export geometry as Wavefront OBJ, righted to Y-up
+        \\  shp from-obj <in.obj> <out.shp> [--two-sided] [--density <d>]
+        \\                                  build a model for a mod from Wavefront OBJ: objects
+        \\                                  named cockpit, gun_muzzle:<gun type>,
+        \\                                  missile:<missile>, engine_glow:<glow>, light,
+        \\                                  eject_point, launch_point or dock_point become those,
+        \\                                  the rest the body (docs/guide/modding.md)
         \\
     ;
 
@@ -48,6 +56,22 @@ pub const Command = union(enum) {
                         i += 1;
                     } else if (std.mem.eql(u8, operands[i], "--lod") and i + 1 < operands.len) {
                         command.obj.lod = std.fmt.parseInt(u32, operands[i + 1], 10) catch return error.Usage;
+                        i += 2;
+                    } else return error.Usage;
+                }
+                return command;
+            },
+            .@"from-obj" => {
+                if (operands.len < 2) return error.Usage;
+                var command: Command = .{ .@"from-obj" = .{ .model = operands[0], .out = operands[1] } };
+                var i: usize = 2;
+                while (i < operands.len) {
+                    if (std.mem.eql(u8, operands[i], "--two-sided")) {
+                        command.@"from-obj".options.two_sided = true;
+                        i += 1;
+                    } else if (std.mem.eql(u8, operands[i], "--density") and i + 1 < operands.len) {
+                        command.@"from-obj".options.density = std.fmt.parseFloat(f32, operands[i + 1]) catch return error.Usage;
+                        if (!(command.@"from-obj".options.density > 0)) return error.Usage;
                         i += 2;
                     } else return error.Usage;
                 }
@@ -74,6 +98,7 @@ pub const Command = union(enum) {
                 operands.lod,
                 operands.model_space,
             ),
+            .@"from-obj" => |operands| try buildFromObj(ctx, data, operands.out, operands.options),
         }
     }
 };
@@ -437,6 +462,20 @@ fn writeFaces(out: *Io.Writer, mesh: shp.Mesh, vertex_base: usize, uv_base: usiz
 /// merge into larger polygons in the engine, but each record is already a complete triangle of
 /// that polygon, so triangulating them is equivalent and avoids relying on the coplanarity test
 /// the loader applies.
+/// Builds a model from the OBJ file `text` (`shp.from_obj`) and writes it to `out_path`.
+fn buildFromObj(ctx: Context, text: []const u8, out_path: []const u8, options: shp.from_obj.Options) !void {
+    const model = try shp.from_obj.build(ctx.arena, try openreliant.obj.parse(ctx.arena, text), options);
+    const file = try Io.Dir.cwd().createFile(ctx.io, out_path, .{});
+    defer file.close(ctx.io);
+    var buffer: [64 * 1024]u8 = undefined;
+    var writer = file.writer(ctx.io, &buffer);
+    try model.write(&writer.interface);
+    try writer.interface.flush();
+    var faces: usize = 0;
+    for (model.parts) |part| faces += part.meshes[0].faces.len;
+    try ctx.stdout.print("wrote {s}: {d} parts, {d} faces\n", .{ out_path, model.parts.len, faces });
+}
+
 fn writeObj(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, model_space: bool) !void {
     // The model frame is Y-down, Z-forward; OBJ readers assume Y-up. `--model-space` keeps the
     // coordinates exactly as the file stores them.
@@ -513,6 +552,11 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP", "ship.obj", "--lod", "two" }));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP", "ship.obj", "--flat" }));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP" }));
+    const built = try Command.parse(&.{ "from-obj", "pot.obj", "pot.shp", "--two-sided", "--density", "0.5" });
+    try std.testing.expectEqualStrings("pot.obj", built.@"from-obj".model);
+    try std.testing.expect(built.@"from-obj".options.two_sided);
+    try std.testing.expectEqual(0.5, built.@"from-obj".options.density);
+    try std.testing.expectError(error.Usage, Command.parse(&.{ "from-obj", "pot.obj", "pot.shp", "--density", "-1" }));
 }
 
 test writeFaces {
