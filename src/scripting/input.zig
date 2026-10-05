@@ -34,7 +34,7 @@ fn registerAction(call: Call, name: []const u8, definition: Definition) []const 
     }
     if (definition.button) |button| if (button >= engine_input.JoystickState.max_buttons) call.raise("action button is out of range", .{});
     var buffer: [engine_input.actions.name_size]u8 = undefined;
-    const qualified = std.fmt.bufPrint(&buffer, "{s}:{s}", .{ call.context.modOf().name, name }) catch call.raise("qualified action name is too long", .{});
+    const qualified = std.fmt.bufPrint(&buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch call.raise("qualified action name is too long", .{});
     const index = scripts.input_actions.add(call.context, qualified, definition.label, .{ .name = "", .string = 0, .key = if (definition.key) |key| @intFromEnum(key) else 0, .modifier = definition.modifier, .button = definition.button }) catch |err| call.raise("input.register_action: {s}", .{@errorName(err)});
     scripts.input_actions.entries[index].gamepad_button = if (definition.gamepad_button) |button| @intFromEnum(button) else null;
     var devices: engine_input.Devices = .{ .mod_actions = &scripts.input_actions };

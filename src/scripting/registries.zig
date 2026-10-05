@@ -237,7 +237,7 @@ pub fn register(comptime kind: Kind, state: *luau.State) i32 {
     const local = values.read(state, []const u8, 1, "name");
     if (!@import("openreliant").dte.source.validId(local)) call.raise("registry name must be an identifier", .{});
     var buffer: [runtime.max_name]u8 = undefined;
-    const name = runtime.Name.of(std.fmt.bufPrint(&buffer, "{s}:{s}", .{ call.context.modOf().name, local }) catch call.raise("qualified name is too long", .{})).?;
+    const name = runtime.Name.of(std.fmt.bufPrint(&buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), local }) catch call.raise("qualified name is too long", .{})).?;
     if (scripts.registries.find(kind, name.slice()) != null) call.raise("this name is already registered", .{});
     if (scripts.registries.entries.items.len == max_registered) call.raise("the presentation registry is full", .{});
     if (state.typeOf(2) != .table) call.raise("registration expects a definition table", .{});
