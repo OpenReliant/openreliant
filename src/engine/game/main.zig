@@ -781,9 +781,9 @@ fn objectsPass(orders: aigeneric.Context) void {
 ///   moves on to the next one within it: the next hostile one for a hostile target, the next
 ///   friendly one for any other.
 ///
-/// Not ported: then, in view 0, the subtarget's parts picked out in red where the target or its
-/// component changed (`hud_subtarget`, `0x0048CC30`,
-/// [#531](https://github.com/OpenReliant/openreliant/issues/531)).
+/// Then, in view 0, where the target or its component is not the one picked out in red, the
+/// subtarget's parts are picked out (`hud.subtarget.Subtarget.pick`, `hud_subtarget`): those of the
+/// new one, or none.
 fn keepPlayerTarget(world: gameobj.World) void {
     const all = world.objects;
     const entry = ai.playerControlEntry(all) orelse return;
@@ -795,10 +795,13 @@ fn keepPlayerTarget(world: gameobj.World) void {
             _ = input.cycleTarget(world.display, all, .next, .hostile, false);
         }
     }
-    const index = entry.target.slotIn(all) orelse return;
-    const target = &all.slots[index].object;
-    const away = math.distance(all.slots[all.player].object.nextPosition(), target.nextPosition());
-    if (away > hud.pick_reach) _ = input.cycleTarget(world.display, all, .next, if (target.side == .hostile) .hostile else .friendly, false);
+    if (entry.target.slotIn(all)) |index| {
+        const target = &all.slots[index].object;
+        const away = math.distance(all.slots[all.player].object.nextPosition(), target.nextPosition());
+        if (away > hud.pick_reach) _ = input.cycleTarget(world.display, all, .next, if (target.side == .hostile) .hostile else .friendly, false);
+    }
+    const display = world.display orelse return;
+    if (!display.subtarget.shows(entry.target) and world.view == .cockpit) display.subtarget.pick(all);
 }
 
 test keepPlayerTarget {
@@ -1775,6 +1778,9 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     start.display.messages = .{};
     start.display.objectives.reset(number, all.mission25_second_part);
     if (world.countermeasures) |dropped| dropped.reset();
+    // The subtarget's parts picked out in red are put back before the objects go, which the game
+    // does as the mission before ends (`mission_run`, `0x00494260`).
+    start.display.subtarget.clear(all);
     all.reset(world.random);
     // The shell and the debris, counted as used so the sweep below keeps them.
     if (all.bullets.looks) |looks| looks.loadShell(all, types);

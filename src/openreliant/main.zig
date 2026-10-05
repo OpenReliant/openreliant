@@ -614,6 +614,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         },
     };
     world.display = &display.state;
+    // A switch of view picks the subtarget's parts out in red or puts them back (`camera_set_view`).
+    view.subtarget = .{ .shown = &display.state.subtarget, .all = objects };
 
     // The mods' global scripts, which run while a game runs: from the front end's start of a game,
     // or `--mission`'s, to the main menu or the end. They stop after the mission's end below.

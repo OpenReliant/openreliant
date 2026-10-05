@@ -16,7 +16,7 @@ The display's elements as the game's manual names them, with where the code that
 | Missile lock ring | round the target | | a ring that closes in round the target and turns white once a missile has locked, with a tone | `hud_missile_lock` (`0x00491520`), whose count dims the target's brackets as a lock builds ([The lock](missiles.md#the-lock)) |
 | Jump icon | above the middle | J | the prompt to press JUMP DRIVE, once the mission has a jump ready | [The jump prompt](#the-jump-prompt-the-eject-marker-and-the-scanner) |
 | Target display | foot, right | | the target's image with its shields and armour in a ring, its name, its type, its range and its speed; a larger form for a big target, with its current subtarget and a bar for each | [Windows](#the-windows) 3 and 8, [The target display](#the-target-display) |
-| Subtarget | on the target's model | S, SHIFT+S | the parts of the subtarget picked out in red | `hud_subtarget` (`0x0048CC30`), which walks the target's assembly by `link_id`. Not ported ([#531](https://github.com/OpenReliant/openreliant/issues/531)) |
+| Subtarget | on the target's model | S, SHIFT+S | the parts of the subtarget picked out in red | `hud_subtarget` (`0x0048CC30`), which walks the target's assembly by `link_id` ([The subtarget in red](#the-subtarget-in-red)) |
 | Radar | foot, middle | V | three rings with the ship at their middle and a wedge for its view ahead; each object a dot, red for hostile, green for friendly, blue for one calling on the radio, on a line up or down from the rings by its height. V narrows and widens its range, the middle ring filling the display at the narrowest | `hud_radar` (`0x00488BD0`), [The radar](#the-radar) |
 | Ship status | foot, left of middle | always shown | the ship's image in two rings of segments, forward, aft and the two sides: shields outside, armour inside. A shield dims as it wears; an armour segment goes as it is lost. Shifting power fore or aft doubles the shields there | `hud_ship_status` (`0x00489350`). For the player's own ship, what [SHIELD BALANCING](controls.md#the-shield-balance) shifted beyond the fore and aft shields shows as a second arc outside each: shapes `0xB2` less the level at `(-0x1A, -0x24)` from the point for the fore reserve, and `0xB7` less the level at `(-0x26, 0x1D)` for the aft one, the level worked out as for a shield. [The ship status indicator](#the-ship-status-indicator) |
 | Missile display | top, middle | M | the missile's name, the ship's missiles in a ring, how many of the chosen one are left, and the one armed at six o'clock. Comma and full stop turn the ring | [Window](#the-windows) 2: the ring (`hud_missile_ring`, `0x00501CC8`, ten entries of five halfwords), its keys and what it shows ([The ring](missiles.md#the-ring)). LAUNCH MISSILE and the ring's keys open it held |
@@ -310,10 +310,42 @@ Each frame, after the objects' pass, `mission_frame` keeps the player's target i
   never passes.
 - A target more than 660000 from the player's ship, between where the two are next, steps to the
   next one within it: hostile for a hostile target, friendly for any other.
+- In view 0, where the target or its component is not the one picked out in red, the subtarget's
+  parts are picked out ([The subtarget in red](#the-subtarget-in-red)).
 
 So a target the player flies away from is dropped once it is out of reach, and TARGET UNDER
 RETICULE, which takes the object under the reticle at any distance, holds a target past the reach
 for one frame only.
+
+### The subtarget in red
+
+`hud_subtarget` (`0x0048CC30`) picks the player's subtarget out on its target's model. It first puts
+back what is picked out, then, for a valid target that names a component, keeps the object and the
+component (`0x0057999C`, `0x0057999E`) and walks the parts of the model holding the component's part
+that share its `link_id`, up to 10. Each part:
+
+- shows a copy of its mesh (`mesh_copy`) or of its levels (`levels_copy`), whose surfaces are drawn
+  in one pass and lit, since every object of a type shares the meshes;
+- is out of reach of the first six lights (light mask `0x3F`);
+- has red for its own colour, its alpha nothing.
+
+The lighting then draws the parts red over their textures. `hud_subtarget_clear` (`0x0048CA80`)
+walks the parts again, lets the copies go and gives back their meshes, light masks and colours.
+
+They are picked out as the camera switches to view 0, and put back as it switches to any other
+(`camera_set_view`); in view 0 by `mission_frame` where the target or its component changed; and
+put back as a component of the target is lost (`node_draw`), and as the mission ends (`mission_run`).
+After a component is lost, `node_draw` tries to pick them out again, but it has just put them back,
+so `mission_frame` does it on its next frame.
+
+**Fix:** the game saves each part's scene object to one place (`0x005656C0`), each over the last,
+but gives back part `n`'s colour and light mask from `0x00565780` plus `0x174` times `n`: the first
+part gets the last one's and the others what lies past the copy. It also gives back only three of
+the colour's four values. OpenReliant keeps and gives back each part's own. Where the target has left
+its slot by the time they are put back, the game would write into what took its place; OpenReliant
+only lets the copies go.
+
+[`hud/subtarget.zig`](../../src/engine/game/hud/subtarget.zig) ports both.
 
 `player_subtarget_cycle` first gives both forms of the target display their full time again. For a
 target that lists components and is not friendly, it opens the target's form if it is shut and

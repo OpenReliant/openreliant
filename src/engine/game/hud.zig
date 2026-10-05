@@ -6,11 +6,10 @@
 //! the clock, the status lights with the devices' charges, the jump prompt, the player's target
 //! with the keys that pick it (`targetKeys`, `drawTarget`), the eject marker, the scanner, the
 //! ship status indicator in both its modes, the targeting cluster, the radar's rings, ranges and
-//! contacts, and the windows and what they show ([`hud/windows.zig`](hud/windows.zig)). Not yet:
-//! the rest of `hud_draw`, whose other elements [`hud.md`](../../../docs/engine/hud.md) lists, what
-//! a multiplayer game adds ([#55](https://github.com/OpenReliant/openreliant/issues/55)), and the
-//! subtarget's parts picked out in red
-//! ([#531](https://github.com/OpenReliant/openreliant/issues/531)).
+//! contacts, the windows and what they show ([`hud/windows.zig`](hud/windows.zig)), and the
+//! subtarget's parts picked out in red ([`hud/subtarget.zig`](hud/subtarget.zig)). Not yet: the
+//! rest of `hud_draw`, whose other elements [`hud.md`](../../../docs/engine/hud.md) lists, and what
+//! a multiplayer game adds ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 //!
 //! **Improvement.** The game draws the display with the processor, whichever renderer is running:
 //! `hud_text` hands its line to `VFX_string_draw`, out of `vfx.dll`, which blits each glyph into a
@@ -72,6 +71,7 @@ pub const objectives_window = @import("hud/objectives_window.zig");
 pub const power = @import("hud/power.zig");
 pub const radio = @import("hud/radio.zig");
 pub const target_display = @import("hud/target_display.zig");
+pub const subtarget = @import("hud/subtarget.zig");
 pub const wing_status = @import("hud/wing_status.zig");
 
 test {
@@ -2870,6 +2870,8 @@ pub const State = struct {
         .cloak = .full(.cloak),
         .spectral_shields = .full(.spectral_shields),
     }),
+    /// The player's subtarget picked out in red on its target's model (`hud_subtarget`).
+    subtarget: subtarget.Subtarget = .{},
     /// `blind_fire_fitted` (`0x00566F8C`): whether the ship carries blind fire.
     blind_fire_fitted: bool = false,
     /// The gunnery display's wire frame of the player's ship (`0x005883C0`), which the mission's
