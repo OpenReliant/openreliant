@@ -136,11 +136,19 @@ pub const Type = enum(i16) {
     pub fn mounted(missile: Type) ?create.models.Attachment {
         var held = create.models.attachment(.missile, @intCast(missile.baseIndex() orelse return null)) orelse return null;
         const from_mod = missile.added() orelse return held;
-        if (held.second_model != null) {
-            if (from_mod.extra.pod) |pod| held.model = pod;
-            if (from_mod.extra.model) |model| held.second_model = model;
-        } else if (from_mod.extra.model) |model| held.model = model;
+        if (missile.hungModel()) |hung| held.model = hung;
+        if (held.second_model != null) if (from_mod.extra.model) |model| {
+            held.second_model = model;
+        };
         return held;
+    }
+
+    /// The model of its own a mod gives what hangs on its hardpoint: the pod, for a missile whose
+    /// base hangs in one, else the missile itself; null for none, or a type of the game's.
+    pub fn hungModel(missile: Type) ?[]const u8 {
+        const from_mod = missile.added() orelse return null;
+        const base_held = create.models.attachment(.missile, @intCast(missile.baseIndex() orelse return null)) orelse return null;
+        return if (base_held.second_model != null) from_mod.extra.pod else from_mod.extra.model;
     }
 
     /// The name scripts know it by: its qualified name for a type a mod adds.

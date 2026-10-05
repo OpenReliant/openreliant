@@ -11,6 +11,7 @@ const Vector = math.Vector;
 const gameflow = @import("../../game/gameflow.zig");
 const hud = @import("../../game/hud.zig");
 const missiles_mod = @import("../../game/missiles.zig");
+const additions = @import("../../game/additions.zig");
 
 /// A ship the loadout offers: its record (`loadout_ships`, `0x004EC080`, `0x22C` bytes a ship) and
 /// its scale. A ship's index is its ship type.
@@ -306,8 +307,11 @@ pub fn gunDescription(gun: u16) ?GunDescription {
 }
 
 /// A missile the loadout offers, and its place in the loadout's missile tables: the missile type
-/// of the same number (`missiles.Type`), but for the fuel pod, which is type 10.
-pub const Missile = enum(u4) {
+/// of the same number (`missiles.Type`), but for the fuel pod, which is type 10. From
+/// `missile_count` on, the missiles mods add (`additions.missiles`), in their order.
+///
+/// **Improvement:** the original offers its own ten alone.
+pub const Missile = enum(u8) {
     screamer = 0,
     raptor = 1,
     havoc = 2,
@@ -318,10 +322,72 @@ pub const Missile = enum(u4) {
     imp = 7,
     hawk = 8,
     fuel_pod = 9,
+    _,
 
-    /// Its record.
+    /// Its record. A mod's missile takes its name and its description where it gives them, its
+    /// model where it gives one of what hangs on a hardpoint (`additions.MissileExtra`), and the
+    /// rest from its base's.
     pub fn record(missile: Missile) MissileRecord {
-        return missiles[@intFromEnum(missile)];
+        const mod = missile.added() orelse return missiles[@intFromEnum(missile)];
+        var made = missile.base().record();
+        if (mod.label_string) |name| made.name = name;
+        if (mod.extra.description_string) |description| made.description = description;
+        if (missile.missileType().hungModel()) |model| made.model = model;
+        return made;
+    }
+
+    /// The mod's record of it, for a missile a mod adds.
+    pub fn added(missile: Missile) ?*const additions.missiles.Added {
+        if (@intFromEnum(missile) < missile_count) return null;
+        return missile.missileType().added();
+    }
+
+    /// The loadout's missile a mod's missile starts from, which the loadout takes its record and
+    /// its limit from; the missile itself for the game's.
+    pub fn base(missile: Missile) Missile {
+        const mod = missile.added() orelse return missile;
+        return ofType(mod.base).?;
+    }
+
+    /// The loadout's missile that flies as the game's missile type `game`, if it offers one: the
+    /// torpedo it never does.
+    pub fn ofType(game: missiles_mod.GameMissile) ?Missile {
+        for (std.enums.values(Missile)) |missile| {
+            if (missile.missileType() == missiles_mod.Type.of(game)) return missile;
+        }
+        return null;
+    }
+
+    /// Every missile the loadout knows: the game's, then those of the mods whose base it offers.
+    pub fn all(buffer: *[max_missiles]Missile) []const Missile {
+        var count: usize = 0;
+        for (0..missile_count + additions.missiles.all().len) |index| {
+            const missile: Missile = @enumFromInt(index);
+            if (missile.added()) |mod| if (ofType(mod.base) == null) continue;
+            buffer[count] = missile;
+            count += 1;
+        }
+        return buffer[0..count];
+    }
+
+    /// The first campaign tier that offers it (`missiles_by_tier`): a mod's where it gives one,
+    /// else its base's. Null for none.
+    pub fn firstTier(missile: Missile) ?u2 {
+        if (missile.added()) |mod| return mod.extra.tier orelse missile.base().firstTier();
+        for (missiles_by_tier, 0..) |set, tier| if (set.has(missile)) return @intCast(tier);
+        return null;
+    }
+
+    /// Whether the campaign's `tier` offers it.
+    pub fn offeredAt(missile: Missile, tier: u2) bool {
+        const first = missile.firstTier() orelse return false;
+        return tier >= first;
+    }
+
+    /// The most of it a ship carries and has in flight at once (`missile_limits`): a mod's its
+    /// base's.
+    pub fn limit(missile: Missile) u16 {
+        return missile_limits[@intFromEnum(missile.base())];
     }
 
     /// The missile a hardpoint's id names for the loadout, which takes the id's word as its own
@@ -332,16 +398,28 @@ pub const Missile = enum(u4) {
     }
 
     /// The missile type the flight fits for it (`loadout_leave`, `0x00442D8C`): its own number,
-    /// but for the fuel pod, which is type 10.
+    /// but for the fuel pod, which is type 10, and a mod's missiles, which are the types mods add.
     pub fn missileType(missile: Missile) missiles_mod.Type {
+        const index = @intFromEnum(missile);
+        if (index >= missile_count) return @enumFromInt(additions.missiles.first + index - missile_count);
         return switch (missile) {
             .fuel_pod => .of(.fuel_pod),
-            else => @enumFromInt(@intFromEnum(missile)),
+            else => @enumFromInt(index),
         };
+    }
+
+    /// The id a saved game keeps for it (`campaign_saved_racks`): a mod's missile its base's, so
+    /// that the save stays one the original reads.
+    pub fn savedId(missile: Missile) u16 {
+        return @intFromEnum(missile.base());
     }
 };
 
+/// The game's own missiles.
 pub const missile_count = @typeInfo(Missile).@"enum".fields.len;
+
+/// The most missiles the loadout knows: the game's, and as many as mods can add.
+pub const max_missiles = missile_count + additions.missiles.capacity;
 
 comptime {
     // Each of the loadout's missiles flies as the missile type of its name.
@@ -387,13 +465,10 @@ pub const MissileSet = packed struct(u32) {
     fuel_pod: bool = false,
     _unused: u22 = 0,
 
+    /// Whether it holds `missile`: never a mod's, which it has no bit for.
     pub fn has(set: MissileSet, missile: Missile) bool {
-        return @as(u32, @bitCast(set)) >> @intFromEnum(missile) & 1 != 0;
-    }
-
-    /// The set with `missile` in it too.
-    pub fn with(set: MissileSet, missile: Missile) MissileSet {
-        return @bitCast(@as(u32, @bitCast(set)) | @as(u32, 1) << @intFromEnum(missile));
+        const bit = std.math.cast(u5, @intFromEnum(missile)) orelse return false;
+        return @as(u32, @bitCast(set)) >> bit & 1 != 0;
     }
 };
 
@@ -501,6 +576,48 @@ pub const missile_slots = [tier_count][missile_count]?u8{
     .{ 1, 8, 2, 3, 7, 5, null, 6, 9, 4 },
     .{ 1, 8, 2, 3, 7, 5, 10, 6, 9, 4 },
 };
+
+/// The slot of `arc_slots` the icon of each of `known` takes on the missiles page at the
+/// campaign's `tier`, in `slots`, or null where the tier doesn't offer it: the game's missiles
+/// their slots of `missile_slots`, and the mods' in turn the free slot nearest the arc's middle,
+/// so that they carry on the game's row either side. Returns how many of the mods' missiles the
+/// tier offers that found no slot.
+///
+/// **Improvement:** the original has no missiles but its own (`Missile`).
+pub fn arcSlots(tier: u2, known: []const Missile, slots: []?u8) usize {
+    var taken: [arc_slot_count]bool = @splat(false);
+    for (known, slots) |missile, *slot| {
+        const index = @intFromEnum(missile);
+        slot.* = if (index < missile_count) missile_slots[tier][index] else null;
+        if (slot.*) |at| taken[at] = true;
+    }
+    var left_out: usize = 0;
+    for (known, slots) |missile, *slot| {
+        if (missile.added() == null or !missile.offeredAt(tier)) continue;
+        const free = nearestMiddle(&taken) orelse {
+            left_out += 1;
+            continue;
+        };
+        slot.* = free;
+        taken[free] = true;
+    }
+    return left_out;
+}
+
+/// The slot of the arc not `taken` nearest its middle, the left one of two as near; null for none.
+fn nearestMiddle(taken: *const [arc_slot_count]bool) ?u8 {
+    var best: ?u8 = null;
+    for (taken, 0..) |is_taken, at| {
+        if (is_taken) continue;
+        if (best == null or fromMiddle(at) < fromMiddle(best.?)) best = @intCast(at);
+    }
+    return best;
+}
+
+/// How far slot `at` is from the arc's middle, in half slots.
+fn fromMiddle(at: usize) usize {
+    return @abs(@as(isize, @intCast(at * 2)) - (arc_slot_count - 1));
+}
 
 /// The levels of coverage a remap table colours: those of the loadout's fonts, 0 for none to 15.
 pub const remap_length = 16;
@@ -614,6 +731,67 @@ test gunDescription {
     for (ships) |ship| for (ship.guns) |mount| {
         try std.testing.expectEqual(mount.gun < first_rear_turret, gunDescription(mount.gun) != null);
     };
+}
+
+test "the mods' missiles" {
+    var list = [_]additions.missiles.Added{
+        // On a pod's base, a missile of its own still hangs in its base's pod.
+        .{ .name = "a:pod", .mod = "a", .base = .raptor, .extra = .{ .model = "banana.shp" } },
+        .{ .name = "a:rail", .mod = "a", .base = .bandit, .label_string = 900, .extra = .{ .model = "banana.shp", .tier = 2, .description_string = 901 } },
+        // The torpedo the loadout never offers.
+        .{ .name = "a:torpedo", .mod = "a", .base = .torpedo, .extra = .{} },
+    };
+    additions.missiles.install(&list);
+    defer additions.missiles.reset();
+    const pod: Missile = @enumFromInt(missile_count);
+    const rail: Missile = @enumFromInt(missile_count + 1);
+    // The game's ten, then those of the mods whose base the loadout offers.
+    var buffer: [max_missiles]Missile = undefined;
+    const known = Missile.all(&buffer);
+    try std.testing.expectEqual(missile_count + 2, known.len);
+    try std.testing.expectEqual(rail, known[known.len - 1]);
+    // Its record: its own name, description and model, else its base's.
+    try std.testing.expectEqual(Missile.raptor, pod.base());
+    try std.testing.expectEqualDeep(Missile.raptor.record(), pod.record());
+    const record = rail.record();
+    try std.testing.expectEqual(900, record.name);
+    try std.testing.expectEqual(901, record.description);
+    try std.testing.expectEqualStrings("banana.shp", record.model);
+    // It flies as its own type, and a saved game keeps its base.
+    try std.testing.expectEqual(@as(missiles_mod.Type, @enumFromInt(additions.missiles.first + 1)), rail.missileType());
+    try std.testing.expectEqual(@intFromEnum(Missile.bandit), rail.savedId());
+    // Offered from its own tier, else its base's, with its base's limit.
+    try std.testing.expectEqual(2, rail.firstTier());
+    try std.testing.expect(!rail.offeredAt(1) and rail.offeredAt(3));
+    try std.testing.expectEqual(Missile.raptor.firstTier(), pod.firstTier());
+    try std.testing.expectEqual(missile_limits[@intFromEnum(Missile.bandit)], rail.limit());
+    // On the arc, in the slots the game's missiles leave free.
+    var slots: [missile_count + 2]?u8 = undefined;
+    try std.testing.expectEqual(0, arcSlots(3, known, &slots));
+    try std.testing.expectEqual(missile_slots[3][0], slots[0]);
+    try std.testing.expectEqual(@as(?u8, 0), slots[missile_count]);
+    try std.testing.expectEqual(@as(?u8, 11), slots[missile_count + 1]);
+    // At the second tier the game's take slots 2 to 9, and the mods' carry on beside them, the
+    // left of two as near the middle first.
+    _ = arcSlots(1, known, &slots);
+    try std.testing.expectEqual(@as(?u8, 1), slots[missile_count]);
+    try std.testing.expectEqual(null, slots[missile_count + 1]);
+    // Before its tier, a missile has no slot.
+    _ = arcSlots(1, known, &slots);
+    try std.testing.expectEqual(null, slots[missile_count + 1]);
+}
+
+test arcSlots {
+    // More of the mods' missiles than the tier leaves free slots: the rest are left out.
+    var list: [arc_slot_count]additions.missiles.Added = undefined;
+    for (&list) |*each| each.* = .{ .name = "a:m", .mod = "a", .base = .screamer, .extra = .{} };
+    additions.missiles.install(&list);
+    defer additions.missiles.reset();
+    var buffer: [max_missiles]Missile = undefined;
+    const known = Missile.all(&buffer);
+    var slots: [missile_count + arc_slot_count]?u8 = undefined;
+    // The last tier offers all ten of the game's, which leave two slots.
+    try std.testing.expectEqual(arc_slot_count - 2, arcSlots(3, known, &slots));
 }
 
 test missiles_by_tier {

@@ -339,7 +339,8 @@ pub const Game = struct {
         miss.difficulty = game.pilot.difficulty;
         miss.female = @intFromBool(game.pilot.female);
         miss.saved_ship = game.saved.ship;
-        for (&miss.saved_racks, game.saved.racks) |*rack, missile| rack.* = if (missile) |kind| @intFromEnum(kind) else no_missile;
+        // A mod's missile as its base, which the original knows (`tables.Missile.savedId`).
+        for (&miss.saved_racks, game.saved.racks) |*rack, missile| rack.* = if (missile) |kind| @intCast(kind.savedId()) else no_missile;
         for (kept_variables, save.vars[0..kept_variables.len]) |number, *value| value.* = @bitCast(campaign.variables.slot(number).*);
         return save;
     }

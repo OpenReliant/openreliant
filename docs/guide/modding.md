@@ -459,15 +459,30 @@ banana=
 Base=bandit
 Name=Banana
 Model=banana.shp
+Description=A homing banana. It locks on slowly, but nothing outruns it.
+Tier=0
 ```
 
 A missile takes its base's trail, sounds and flight display picture. `Model` is the missile: for a
 base that hangs on a rail, as the Havoc, the Jack Hammer, the Bandit, the Vagabond and the Imp do,
 the missile that hangs on the hardpoint and launches from it. For a base that hangs in a pod, as the
 Screamer, the Raptor, the Solomon and the Hawk do, `Model` is the missile that flies from the pod,
-and `Pod` is the pod that hangs on the hardpoint, else its base's. A missile is offered
-by what holds it: a mod's own model's hardpoints, or a ship type's `Missiles`. The loadout screen
-offers the game's missiles only.
+and `Pod` is the pod that hangs on the hardpoint, else its base's. A mod's own model's hardpoints
+or a ship type's `Missiles` can hold it.
+
+The loadout screen offers it on its missile page too, with the game's missiles:
+
+- `Tier` is the campaign tier from which it is offered, 0 at the start to 3 after mission 21, else
+  its base's. A missile based on the torpedo, which the loadout never offers, isn't offered.
+- `Description` is what its panel says of it, else what it says of its base. The panel's figures
+  are its own, measured against the game's missiles, and as many can be carried as of its base.
+- Its icon on the arc is the model that hangs on the hardpoint: `Model`, or `Pod` for a base that
+  hangs in a pod, else its base's loadout model. Its red copy is made from its picture (see
+  [Textures in the loadout](#textures-in-the-loadout)).
+- The arc has twelve places, and the game's missiles take five to ten of them by the tier. The
+  mods' missiles take the free places in the order the mods load; the log says when some don't
+  fit.
+- A saved game keeps a mod's missile on a rack as its base, so that the original can still load it.
 
 ### Pilots
 

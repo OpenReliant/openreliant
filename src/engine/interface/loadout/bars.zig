@@ -313,14 +313,19 @@ fn lockSeconds(ticks: i32) i32 {
 /// ten records, over `0x004EE640` to `0x004EE64F`, in the table at `0x004EE5B0` that the code after
 /// this file reads (`0x00450A90`). OpenReliant fills the ten; the eleventh type still counts in the
 /// ranges.
-pub fn missileFigures(table: *const missiles.Table) [tables.missile_count]tables.MissileFigures {
+///
+/// A mod's missile takes its figures from its own type the same way, the ranges still the game's
+/// alone. Its bars are kept to the panel's ten segments, as its figures can lie past the game's.
+pub fn missileFigures(table: *const missiles.Table, known: []const tables.Missile, figures: []tables.MissileFigures) void {
     const ranges: MissileRanges = .init(table);
-    var figures: [tables.missile_count]tables.MissileFigures = undefined;
-    for (&figures, 0..) |*figure, index| {
-        const missile: missiles.Type = @enumFromInt(@as(i16, @intCast(index)));
-        figure.* = MissileBars.of(ranges, table, missile).figures();
+    for (known, figures) |missile, *figure| {
+        // The game's of the type of their own number, a mod's of its own type.
+        const kind: missiles.Type = if (missile.added() != null) missile.missileType() else @enumFromInt(@intFromEnum(missile));
+        figure.* = MissileBars.of(ranges, table, kind).figures();
+        if (missile.added() != null) for (figure[1..]) |*bar| {
+            bar.* = std.math.clamp(bar.*, 0, most_segments);
+        };
     }
-    return figures;
 }
 
 test Range {
@@ -418,7 +423,8 @@ test missileFigures {
     table.stats[10].flight_time = 0;
     table.stats[10].damage = .{ .shield = 0, .hull = 0 };
 
-    const figures = missileFigures(&table);
+    var figures: [tables.missile_count]tables.MissileFigures = undefined;
+    missileFigures(&table, std.enums.values(tables.Missile), &figures);
     // A whole number of seconds, or its whole part.
     try std.testing.expectEqual(4, figures[4][0]);
     try std.testing.expectEqual(2, figures[2][0]);
