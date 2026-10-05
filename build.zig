@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
     });
     // The outline font OpenReliant carries built in, Newtown, which deps/newtown describes.
     lib.addAnonymousImport("Newtown.ttf", .{ .root_source_file = b.path("deps/newtown/Newtown.ttf") });
+    addZlib(b, lib, target);
 
     // The game: SDL3 in place of Win32 and DirectX, from the SDL package, which builds SDL from
     // source for the target.
@@ -191,15 +192,17 @@ pub fn build(b: *std.Build) void {
     // Mission 0, OpenReliant's own: the sandbox as a standard mission file, which a tool built for
     // the host writes (`src/openreliant/mission0.zig`). The game plays it as its default mission,
     // from the copy it carries, and the build installs it too, for `sltool` and the original.
+    const host_lib = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = b.graph.host,
+    });
+    addZlib(b, host_lib, b.graph.host);
     const mission0 = b.addExecutable(.{
         .name = "mission0",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/openreliant/mission0.zig"),
             .target = b.graph.host,
-            .imports = &.{.{ .name = "openreliant", .module = b.createModule(.{
-                .root_source_file = b.path("src/root.zig"),
-                .target = b.graph.host,
-            }) }},
+            .imports = &.{.{ .name = "openreliant", .module = host_lib }},
         }),
     });
     const mission0_file = b.addRunArtifact(mission0).addOutputFileArg("mission0.dte");
@@ -296,6 +299,20 @@ pub fn build(b: *std.Build) void {
 
 /// Gives `module` the macOS SDK's headers, frameworks and libraries at `sdk`, which a build for a
 /// Mac other than the host does not find by itself.
+/// Gives `module`, the library built from `src/root.zig`, zlib for `target`, which the PNG reader
+/// inflates with (`src/formats/png.zig`): several times faster than `std.compress.flate`. It is
+/// built optimized whatever mode the rest is built in, as the other C libraries are.
+fn addZlib(b: *std.Build, module: *std.Build.Module, target: std.Build.ResolvedTarget) void {
+    const zlib = b.dependency("zlib", .{ .target = target, .optimize = .ReleaseFast }).artifact("z");
+    const zlib_c = b.addTranslateC(.{
+        .root_source_file = zlib.getEmittedIncludeTree().path(b, "zlib.h"),
+        .target = target,
+        .optimize = .ReleaseFast,
+    });
+    module.addImport("zlib", zlib_c.createModule());
+    module.linkLibrary(zlib);
+}
+
 fn addMacosSdk(b: *std.Build, module: *std.Build.Module, sdk: []const u8) void {
     module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
     module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });

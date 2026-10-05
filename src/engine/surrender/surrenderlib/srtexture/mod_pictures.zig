@@ -128,33 +128,101 @@ fn first(gpa: Allocator, files: srtexture.Files, name: []const u8, suffix: []con
 /// it keeps; `compressor` compresses it, where the device takes compressed textures. With `copy`,
 /// it is that copy of the picture (`copies`), kept by the compressor under the copy's own name.
 pub fn load(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor, copy: ?Copy) Allocator.Error!?Image {
-    var read: Read = .{};
-    defer read.deinit(gpa);
-    try read.fill(gpa, files, name);
-    if (read.picture == null) return null;
-    const key = read.key(longest, copy);
-    const kept_name = if (copy) |made| try std.fmt.allocPrint(gpa, "{c}{s}", .{ made.letter(), name }) else name;
-    defer if (copy != null) gpa.free(kept_name);
-    if (compressor) |held| if (try held.load(gpa, kept_name, &key)) |kept| return kept;
-    var made = try decodeAll(gpa, &read, longest) orelse return null;
-    errdefer made.deinit(gpa);
-    if (copy) |wanted| {
-        if (made.levels[0].format != .rgba8) {
-            log.info("no {t} copy of {s} is made: it is compressed already", .{ wanted, read.picture.?.name });
+    var started = try start(gpa, files, name, longest, compressor, copy);
+    switch (started) {
+        .none => return null,
+        .kept => |kept| return kept,
+        .loading => |*loading| {
+            defer loading.deinit(gpa);
+            loading.decode();
+            return loading.finish();
+        },
+    }
+}
+
+/// How a picture's loading starts (`start`).
+pub const Started = union(enum) {
+    /// The files give no picture of the name.
+    none,
+    /// The compressor kept it from an earlier run.
+    kept: Image,
+    /// Its files are read, to be decoded and finished.
+    loading: Loading,
+};
+
+/// Starts loading the picture `name` as `load` loads it: reads its files, and takes it from the
+/// compressor where it kept it. What's left, decoding the files, can then run on a thread of its
+/// own (`Loading.decode`), beside other pictures', as `srtexture.Table.prefetch` runs it.
+pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor, copy: ?Copy) Allocator.Error!Started {
+    var loading: Loading = .{ .gpa = gpa, .longest = longest, .compressor = compressor, .copy = copy };
+    errdefer loading.deinit(gpa);
+    try loading.read.fill(gpa, files, name);
+    if (loading.read.picture == null) {
+        loading.deinit(gpa);
+        return .none;
+    }
+    loading.key = loading.read.key(longest, copy);
+    loading.kept_name = if (copy) |made| try std.fmt.allocPrint(gpa, "{c}{s}", .{ made.letter(), name }) else try gpa.dupe(u8, name);
+    if (compressor) |held| if (try held.load(gpa, loading.kept_name, &loading.key)) |kept| {
+        loading.deinit(gpa);
+        return .{ .kept = kept };
+    };
+    return .{ .loading = loading };
+}
+
+/// A picture whose files are read (`start`): `decode` decodes them, on any thread, and `finish`
+/// makes the image ready for the device, on the thread that started it.
+pub const Loading = struct {
+    gpa: Allocator,
+    longest: u32,
+    compressor: ?Compressor,
+    copy: ?Copy,
+    read: Read = .{},
+    /// The key and the name the compressor keeps it under.
+    key: Compressor.Key = 0,
+    kept_name: []u8 = &.{},
+    /// What `decode` made: the image, null where the files can't be read, or the error.
+    decoded: Allocator.Error!?Image = null,
+
+    pub fn deinit(loading: *Loading, gpa: Allocator) void {
+        loading.read.deinit(gpa);
+        gpa.free(loading.kept_name);
+        if (loading.decoded) |found| {
+            if (found) |image| image.deinit(gpa);
+        } else |_| {}
+        loading.decoded = null;
+    }
+
+    /// Decodes the picture's files (`decodeAll`), which touches nothing but the loading itself.
+    pub fn decode(loading: *Loading) void {
+        loading.decoded = decodeAll(loading.gpa, &loading.read, loading.longest);
+    }
+
+    /// The decoded picture made ready for the device: made its `copy`, made to fit the device and
+    /// kept by the compressor (`conform`). Null where it can't be used, which the log says.
+    pub fn finish(loading: *Loading) Allocator.Error!?Image {
+        const gpa = loading.gpa;
+        var made = try loading.decoded orelse return null;
+        loading.decoded = null;
+        errdefer made.deinit(gpa);
+        if (loading.copy) |wanted| {
+            if (made.levels[0].format != .rgba8) {
+                log.info("no {t} copy of {s} is made: it is compressed already", .{ wanted, loading.read.picture.?.name });
+                made.deinit(gpa);
+                return null;
+            }
+            wanted.tint(made.levels);
+            if (made.maps.emissive) |levels| freeLevels(gpa, levels);
+            made.maps.emissive = null;
+        }
+        const compressed = try conform(gpa, &made, &loading.read, loading.compressor) orelse {
             made.deinit(gpa);
             return null;
-        }
-        wanted.tint(made.levels);
-        if (made.maps.emissive) |levels| freeLevels(gpa, levels);
-        made.maps.emissive = null;
+        };
+        if (compressed) if (loading.compressor) |held| held.store(loading.kept_name, &loading.key, made);
+        return made;
     }
-    const compressed = try conform(gpa, &made, &read, compressor) orelse {
-        made.deinit(gpa);
-        return null;
-    };
-    if (compressed) if (compressor) |held| held.store(kept_name, &key, made);
-    return made;
-}
+};
 
 /// The picture's files decoded, each on a thread of its own: the picture and its maps, a map of
 /// another size than the picture's left out, which the log says.
@@ -386,7 +454,7 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
     if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (!normals[0].format.compressed() and orm[0].format == .rgba8) {
         for (normals, orm) |normal, values| {
             const into: []u8 = @constCast(values.texels);
-            for (0..@as(usize, normal.width) * normal.height) |at| into[at * 4 + 3] = srtexture.level8(srtexture.unitsAt(normal, at)[3]);
+            for (0..@as(usize, normal.width) * normal.height) |at| into[at * 4 + 3] = srtexture.sample8(srtexture.samplesAt(normal, at)[3]);
         }
     };
     if (!compressing) {
@@ -445,9 +513,9 @@ fn twoChannels(gpa: Allocator, levels: *[]const Level) Allocator.Error!void {
     for (levels.*, made) |level, *into| {
         const out = try gpa.alloc(u8, Level.Format.rg16.size(level.width, level.height));
         for (0..@as(usize, level.width) * level.height) |at| {
-            const units = srtexture.unitsAt(level, at);
-            std.mem.writeInt(u16, out[at * 4 ..][0..2], srtexture.level16(units[0]), .native);
-            std.mem.writeInt(u16, out[at * 4 + 2 ..][0..2], srtexture.level16(units[1]), .native);
+            const samples = srtexture.samplesAt(level, at);
+            std.mem.writeInt(u16, out[at * 4 ..][0..2], samples[0], .native);
+            std.mem.writeInt(u16, out[at * 4 + 2 ..][0..2], samples[1], .native);
         }
         into.* = .{ .width = level.width, .height = level.height, .format = .rg16, .texels = out };
         done += 1;

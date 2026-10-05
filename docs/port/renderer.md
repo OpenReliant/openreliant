@@ -60,6 +60,13 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   (`srtexture.Compressor`), with bc7enc and rgbcx from bc7enc_rdo, built from a pinned source
   package (`deps/texture-compressor`), the rows of blocks shared out between threads
   (`platform/texture_compressor.zig`).
+- **Improvement:** a model's mods' pictures load together (`srtexture.Table.prefetch`, called by
+  `srofiles.modelLoad`). Their files are read on the game's thread, decoded on as many threads as
+  the computer has cores, each picture's maps on threads of their own, and made ready for the
+  device on the game's thread again. PNG files inflate with zlib, built from a pinned package,
+  which is several times faster than `std.compress.flate`, and each mipmap level's rows are shared
+  out between threads (`srtexture.shareRows`). The original finds each texture as it builds the
+  mesh that shows it.
 - What it compressed is kept in the game folder's `cache/textures` (`platform/texture_cache.zig`):
   a file for each texture, named by a hash of its name, with a 32-byte header (`ORTX`, the layout's
   version, the table's key of the picture's files and the texture detail, an XxHash3 of the rest
