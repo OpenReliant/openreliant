@@ -171,7 +171,7 @@ commands and their like set; the names in quotes are the developers' labels for 
 | `0x10` | `frozen` | `object_move` isn't run for it. |
 | `0x20` | `stand_in` | Set on objects of types above 255, such as the type-1001 stand-in an empty slot holds. The per-object loops skip them. |
 | `0x40` | `exploding` | Set as it starts to explode (`object_destroyed`). It takes no more orders. |
-| `0x80` | `can_reverse` | Reverse thrust works only while it is set. |
+| `0x80` | `can_reverse` | Reverse thrust works only while it is set. Set for a ship with an engine glow that burns forward (`node_mount_glow`). |
 | `0x100` | `cloaked` | Set by `object_cloak` (`0x00463640`), which posts the Cloaked event ([The cloak](cloak.md)). |
 | `0x200` | `targetable` | `SetTargetable` for the whole object, which sets it only when the word at `+0x24` of its combat stats is nonzero. |
 | `0x400` | `disabled` | Not processed: `DisableObject`, "Stops entities from being processed", and `DisableObjectAtNextJump` at the next jump. |

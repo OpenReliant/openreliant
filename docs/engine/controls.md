@@ -261,7 +261,11 @@ once for each press, set the ship's `afterburner`. REVERSE THRUST, while held, s
 `reverse_thrust`. `object_orders` clears both before each order update, so each lasts until the
 order next runs unless set again. After the update it clears both when the ship has no afterburner
 fuel, both and the throttle while its engines are disabled (`DisableEngines`), and `reverse_thrust`
-unless the ship has the `can_reverse` flag.
+unless the ship has the `can_reverse` flag. `node_mount_glow` (`0x00499540`) sets that flag when it
+mounts an engine glow that burns forward: one whose attachment's Z axis and length point the same
+way ([rendering](rendering.md)). Of the player's ships, only the Wolverine, the Shroud and the
+Phoenix carry such a retro thruster, which matches the reverse thrust the loadout screen lists for
+them.
 
 While the player asks for either, a warning sounds when fewer than 20 seconds of fuel are left and
 another when it is out, each at most once every 1000 ticks, ten seconds; `fuel_warning_tick`
