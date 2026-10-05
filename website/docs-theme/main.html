@@ -1,0 +1,59 @@
+{#- The docs' page, in the website's style: its header, the docs' tree on the left, the page with
+    its own contents, and links to the pages before and after it. -#}
+{%- macro tree(items) -%}
+<ul>
+{%- for item in items %}
+  {%- if item.children %}
+  <li class="section{% if item.active %} open{% endif %}"><span>{{ item.title }}</span>{{ tree(item.children) }}</li>
+  {%- else %}
+  <li><a href="{{ item.url|url }}"{% if item.active %} class="active"{% endif %}>{{ item.title }}</a></li>
+  {%- endif %}
+{%- endfor %}
+</ul>
+{%- endmacro -%}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if page.title and not page.is_homepage %}{{ page.title }} · {% endif %}OpenReliant docs</title>
+<meta name="description" content="{{ config.site_description }}">
+{%- if page.canonical_url %}<link rel="canonical" href="{{ page.canonical_url }}">{% endif %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ 'assets/docs.css'|url }}">
+</head>
+<body>
+<header>
+  <nav>
+    <a class="brand" href="https://openreliant.github.io/openreliant/">Open<span>Reliant</span></a>
+    <div class="links">
+      <a href="https://openreliant.github.io/openreliant/#download">Download</a>
+      <a class="current" href="{{ nav.homepage.url|url }}">Docs</a>
+      <a href="https://openreliant.github.io/openreliant-mods/">Mods</a>
+      <a href="https://github.com/OpenReliant/openreliant">GitHub</a>
+    </div>
+  </nav>
+</header>
+<div class="layout">
+  <aside>
+    <details open>
+      <summary>Contents</summary>
+      <a class="home{% if page.is_homepage %} active{% endif %}" href="{{ nav.homepage.url|url }}">Overview</a>
+      {{ tree(nav.items | rejectattr('is_homepage') | list) }}
+    </details>
+  </aside>
+  <main>
+    <article class="page">
+      {{ page.content }}
+    </article>
+    <div class="pager">
+      {%- if page.previous_page %}<a class="previous" href="{{ page.previous_page.url|url }}"><small>Previous</small>{{ page.previous_page.title }}</a>{% else %}<span></span>{% endif %}
+      {%- if page.next_page %}<a class="next" href="{{ page.next_page.url|url }}"><small>Next</small>{{ page.next_page.title }}</a>{% endif %}
+    </div>
+    <p class="edit">{% if page.edit_url %}<a href="{{ page.edit_url }}">Edit this page on GitHub</a>. {% endif %}The documentation is under CC BY-SA 4.0.</p>
+  </main>
+</div>
+</body>
+</html>

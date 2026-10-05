@@ -69,5 +69,6 @@
 /.claude/settings.local.json
 .DS_Store
 
-# Drawn by the Pages workflow from docs/images/predator-wireframe.svg.
+# Made by the Pages workflow: the Predator drawn orange, and the rendered documentation.
 website/predator.svg
+website/docs/
