@@ -70,6 +70,8 @@ The ships' models load with the `g` texture prefix, the missiles' and the gunshi
 
 The loadout's textures are indexed into `palette3.tga` ([Texture caches](../formats/tcache.md)), which the loadout gives the device as it loads and enters (`loadout_palette`, `0x004436B0`): the ships come out green, the missiles red. OpenReliant decodes the loadout's textures with it.
 
+**Improvement:** the texture cache holds the `g` and `r` copy of every ship texture, the same picture in shades of green or red. Where neither a mod nor the cache gives a copy, or a mod gives a picture for the texture but no copy of it, OpenReliant makes the copy from the picture (`srtexture.Table.findCopy`, [#664](https://github.com/OpenReliant/openreliant/issues/664)). It stretches the picture's brightness over its own range, leaving out the darkest and the brightest hundredth. The green copy is that brightness raised to the power 0.6, in green, with red and blue at 9.2% and 5.1% of the green. The red copy goes from 50 to full red with the brightness raised to the power 0.5. These are fitted to the cache's own copies of `yank_1`, `yank_2`, `sam_3` and `wolver`, which are dithered into 256 colours round the same curves.
+
 | Light | Kind | Place or direction | Intensity | Colour | Reaches |
 |---|---|---|---|---|---|
 | Loadout green light | point | (15, -15, -10), range 100000 | 2 | white | the ships |
