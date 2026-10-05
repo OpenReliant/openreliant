@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenReliant</title>
-<meta name="description" content="OpenReliant is an open-source reimplementation of StarLancer's engine, in Zig on SDL3, for Linux, macOS and Windows. Bring your own copy of the game.">
+<meta name="description" content="OpenReliant is an open-source reimplementation of StarLancer for today's Windows, macOS and Linux, with any resolution, modern lighting and shadows, and mods. Bring your own copy of the game.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
@@ -79,11 +79,27 @@ h2 span { color: var(--accent); }
 .build.yours::before { content: "For this computer: "; }
 .small { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.two h3, .grid h3 { font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
-.two p, .grid p { margin: 0; color: #cfd3dd; }
+.two h3 { font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
+.two p { margin: 0; color: #cfd3dd; }
 .two p + p { margin-top: 10px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; }
-.grid .panel { padding: 20px; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.steps .panel { padding: 20px; }
+.steps h3 { font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
+.steps p { margin: 0; color: #cfd3dd; }
+.timeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.timeline .panel { padding: 20px; }
+.timeline h3 { font-family: var(--display); font-size: 22px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; }
+.timeline p { margin: 0; color: #cfd3dd; }
+.when { font-family: var(--display); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-size: 14px; margin-bottom: 4px; }
+.three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.three .panel { padding: 20px; }
+.three h3 { font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
+.three p { margin: 0; color: #cfd3dd; }
+.story { margin-top: 8px; max-width: 820px; }
+.story p { font-size: 18px; color: #d6dae3; margin: 0 0 14px; }
+.about { margin: 6px 0 0; color: #cfd3dd; max-width: 820px; }
+.status p { margin: 6px 0 0; color: #cfd3dd; max-width: 820px; }
+.step { font-family: var(--display); font-weight: 700; font-size: 40px; line-height: 1; color: var(--accent-dim); margin-bottom: 6px; }
 .milestone { margin-bottom: 14px; }
 .milestone .label { display: flex; justify-content: space-between; font-family: var(--display); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
 .milestone .label span:last-child { color: var(--muted); }
@@ -93,7 +109,7 @@ code { background: #1a1f2c; padding: 1px 6px; border-radius: 4px; font-size: 14p
 footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--card-edge); color: var(--muted); font-size: 14px; }
 footer p { margin: 0 0 8px; }
 @media (max-width: 820px) {
-  .hero, .two { grid-template-columns: 1fr; }
+  .hero, .two, .three, .steps, .timeline { grid-template-columns: 1fr; }
   .hero { padding-top: 16px; }
   nav .links a { margin-left: 14px; }
 }
@@ -106,8 +122,10 @@ footer p { margin: 0 0 8px; }
   <a class="brand" href="./">Open<span>Reliant</span></a>
   <div class="links">
     <a class="keep" href="#download">Download</a>
-    <a href="#features">Features</a>
+    <a href="#start">How to start</a>
+    <a href="#adds">What it adds</a>
     <a href="#roadmap">Roadmap</a>
+    <a href="docs/">Docs</a>
     <a class="keep" href="https://openreliant.github.io/openreliant-mods/">Mods</a>
     <a href="https://github.com/OpenReliant/openreliant">GitHub</a>
   </div>
@@ -115,83 +133,110 @@ footer p { margin: 0 0 8px; }
 
 <div class="hero">
   <div>
-    <div class="eyebrow">StarLancer, rebuilt in the open</div>
+    <div class="eyebrow">Open-source StarLancer</div>
     <h1>OpenReliant</h1>
-    <p class="lead">An open-source reimplementation of StarLancer's engine, so the 2000 space combat classic runs natively on today's Linux, macOS and Windows. Bring your own copy of the game.</p>
+    <p class="lead">OpenReliant is a free, open-source reimplementation of StarLancer's engine. It runs StarLancer on modern Windows, macOS and Linux, using the files from your copy of the game. It also adds things the original didn't have, like any screen resolution, better lighting and shadows, and mods.</p>
     <div class="actions">
       <a class="button primary" id="hero-download" href="#download">Download</a>
-      <a class="button" href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/installation.md">Installation guide</a>
+      <a class="button" href="#start">How to start</a>
       <a class="button" href="https://openreliant.github.io/openreliant-mods/">Mods</a>
     </div>
   </div>
   <img src="predator.svg" alt="Wireframe of the Predator light fighter, from its model">
 </div>
 
+<section id="story" class="story">
+  <p>StarLancer is a space combat game from 2000, made by Warthog and Digital Anvil and published by Microsoft. You fly fighters from the carrier Reliant in a war told through briefings, radio messages and cutscenes. The game is hard to run today: its copy protection doesn't work on current Windows, and it was made for the computers of its time.</p>
+  <p>OpenReliant fixes that. It's a new engine, rebuilt piece by piece to work like the original. Give it the files from your copy of StarLancer, and it runs the game.</p>
+</section>
+
 <section id="download" class="panel">
   <h2>Get <span id="version">OpenReliant</span></h2>
-  <p class="small" id="release-note">The latest release, for every system. You also need your own copy of StarLancer: <a href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/installation.md">the installation guide</a> sets it up from your discs or disc images.</p>
+  <p class="small" id="release-note">Free for Windows, macOS and Linux. You also need a copy of StarLancer.</p>
   <div class="builds" id="builds">
     <a class="build" href="https://github.com/OpenReliant/openreliant/releases/latest">All downloads</a>
   </div>
-  <p class="small">Looking for ships, textures and scripts? <a href="https://openreliant.github.io/openreliant-mods/">Browse the mods</a>.</p>
+  <p class="small">Looking for mods? <a href="https://openreliant.github.io/openreliant-mods/">Browse the mods site</a>.</p>
 </section>
 
-<section>
-  <div class="two">
+<section id="status" class="panel status">
+  <h2>Where it <span>stands</span></h2>
+  <p>OpenReliant is still in development. Right now you can play the first campaign mission from start to finish, with the menus, briefings and loadout. The rest of the campaign is next, then multiplayer. <a href="#roadmap">See the roadmap</a>.</p>
+</section>
+
+<section id="start">
+  <h2>Start <span>flying</span></h2>
+  <p class="intro">You need your StarLancer discs or disc images.</p>
+  <div class="steps">
+    <div class="panel"><div class="step">1</div><h3>Download</h3><p>Download OpenReliant for your computer and unpack it.</p></div>
+    <div class="panel"><div class="step">2</div><h3>Install</h3><p>Run <code>openreliant install</code> with your first StarLancer disc in the drive, or point it at your disc images. It copies the game files to a new folder.</p></div>
+    <div class="panel"><div class="step">3</div><h3>Fly</h3><p>Start OpenReliant, create a pilot and start the campaign.</p></div>
+  </div>
+  <p class="small">The <a href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/installation.md">installation guide</a> has the details for each system.</p>
+</section>
+
+<section id="adds">
+  <h2>What it <span>adds</span></h2>
+  <p class="intro">The ships, missions and rules are the same as in the original. Everything else is updated for modern computers.</p>
+  <div class="three">
     <div class="panel">
-      <h3>The game</h3>
-      <p>StarLancer is a space combat simulator by Warthog and Digital Anvil, published by Microsoft in 2000. You fly fighters from the carrier Reliant through a campaign of missions, with a full cast of wingmen, briefings and cinematics.</p>
-      <p>OpenReliant isn't affiliated with any of them. It needs the game's files from a copy you own, and holds none of them.</p>
+      <h3>Any resolution</h3>
+      <p>The game runs at your screen's full resolution, including widescreen, with smooth edges and high frame rates. Direct3D 7 is gone: OpenReliant draws with Vulkan, or Metal on macOS, using modern shaders on your graphics card.</p>
     </div>
     <div class="panel">
-      <h3>The engine</h3>
-      <p>OpenReliant reimplements the original engine function by function from the original executable, in <a href="https://ziglang.org">Zig</a> on <a href="https://libsdl.org">SDL3</a>, and draws with Vulkan, or Metal on macOS. It plays the game as the original does by default.</p>
-      <p>Where it improves on the original, such as widescreen or per-pixel lighting, <code>--original</code> brings back the original's look and sound.</p>
+      <h3>Lighting and shadows</h3>
+      <p>Lighting is calculated per pixel, and ships cast real-time shadows, also into the cockpit. Mods can add surface detail with normal maps.</p>
+    </div>
+    <div class="panel">
+      <h3>Better effects</h3>
+      <p>Explosions, shields, engine trails and planets look more detailed. The movies are upscaled for modern screens.</p>
+    </div>
+    <div class="panel">
+      <h3>3D sound</h3>
+      <p>Sound comes from the direction of its source, with reverb. There's a separate mix for headphones.</p>
+    </div>
+    <div class="panel">
+      <h3>Any controller</h3>
+      <p>Keyboard and mouse, joysticks, HOTAS and gamepads all work, with rumble. You set them up in the game's controls screen.</p>
+    </div>
+    <div class="panel">
+      <h3>Mods</h3>
+      <p>Add new ships, weapons, textures, models and scripts. <a href="#mods">See below</a>.</p>
     </div>
   </div>
 </section>
 
-<section id="features">
-  <h2>What <span>works</span></h2>
-  <p class="intro">The first campaign mission plays from start to finish. The rest of the campaign and multiplayer are in progress.</p>
-  <div class="grid">
-    <div class="panel"><h3>Flight and combat</h3><p>Every ship, with the original flight model, weapons, damage, AI and cockpit displays, and eight camera views including 3D cockpits.</p></div>
-    <div class="panel"><h3>Missions</h3><p>The game's missions and custom ones load as the original loads them. Mission 1's script runs in full; the commands later missions use are coming.</p></div>
-    <div class="panel"><h3>Graphics</h3><p>Native resolution in 32-bit colour, per-pixel lighting, real-time shadows, bloom, anti-aliasing, smooth motion at high frame rates, and richer explosions, shields and planets.</p></div>
-    <div class="panel"><h3>Sound</h3><p>3D positional sound with reverb, and HRTF for headphones.</p></div>
-    <div class="panel"><h3>Controls</h3><p>Mouse and keyboard, flight sticks, HOTAS and gamepads, force feedback as rumble, and the bindings of the game's controls screen.</p></div>
-    <div class="panel"><h3>Front end</h3><p>The main menu, settings, pilot roster and saved games, and the Reliant's rooms: briefings, the loadout, the news and the ITAC's debriefings.</p></div>
-    <div class="panel"><h3>Mods</h3><p>Replace or add any game file, PNG textures of any size with normal, material and glow maps, new ships, guns and missiles, models from OBJ and glTF, and Luau scripts. <a href="https://openreliant.github.io/openreliant-mods/">Browse the mods</a>.</p></div>
-    <div class="panel"><h3>Tools</h3><p><code>sltool</code> comes with every release: it inspects, exports and packs the game's formats, from archives and models to missions and sound banks.</p></div>
+<section id="mods">
+  <h2><span>Mods</span></h2>
+  <p class="intro">Put a mod in the game's <code>mods</code> folder and turn it on from the main menu. Mods can add high-resolution textures, new ships, guns and missiles, and 3D models made in modern tools. They can also replace sounds, music and missions, or change the game with scripts. Mods don't change the game files, so you can turn them off at any time.</p>
+  <div class="actions">
+    <a class="button primary" href="https://openreliant.github.io/openreliant-mods/">Browse the mods</a>
+    <a class="button" href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/modding.md">Make a mod</a>
   </div>
 </section>
 
 <section id="roadmap">
-  <h2>The <span>roadmap</span></h2>
-  <p class="intro">Each milestone groups the work on one part of the game, with its issues on GitHub. The bars show how many of them are done.</p>
+  <h2>The <span>road ahead</span></h2>
+  <p class="intro">What's coming next.</p>
+  <div class="timeline">
+    <div class="panel"><div class="when">Now · 0.7</div><h3>Mods</h3><p>Mod support: new ships, textures, models and scripts.</p></div>
+    <div class="panel"><div class="when">Next · 1.0</div><h3>The whole campaign</h3><p>The full campaign, from the first mission to the last, with saved games.</p></div>
+    <div class="panel"><div class="when">Then · 1.1</div><h3>Multiplayer</h3><p>Multiplayer with the original game modes, and a public matchmaking server to find games. Join without port forwarding, or run your own dedicated server.</p></div>
+  </div>
+  <p class="intro" style="margin-top: 20px">The rest of the game keeps improving too. The bars below show the progress of each part.</p>
   <div class="panel" id="milestones">
-    <p class="small"><a href="https://github.com/OpenReliant/openreliant/milestones">See the milestones on GitHub</a>.</p>
+    <p class="small"><a href="https://github.com/OpenReliant/openreliant/milestones">See the progress on GitHub</a>.</p>
   </div>
 </section>
 
-<section id="modding">
-  <h2>Make <span>mods</span></h2>
-  <p class="intro">Mods are folders or <code>.hog</code> archives in the game's <code>mods</code> folder, described by a <code>mod.ini</code>. The guides cover textures, models, ship types and scripts, and the <a href="https://openreliant.github.io/openreliant-mods/">mods site</a> has mods checked to work and to be free to share.</p>
-  <div class="actions">
-    <a class="button primary" href="https://openreliant.github.io/openreliant-mods/">Browse the mods</a>
-    <a class="button" href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/modding.md">Modding guide</a>
-    <a class="button" href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/scripting.md">Scripting guide</a>
-  </div>
-</section>
-
-<section id="involved">
-  <h2>Get <span>involved</span></h2>
-  <p class="intro">OpenReliant is built in the open. Read <a href="https://github.com/OpenReliant/openreliant/blob/main/CONTRIBUTING.md">how to contribute</a>, the <a href="https://github.com/OpenReliant/openreliant/blob/main/docs/README.md">developer documentation</a> on the engine and the file formats, or <a href="https://github.com/OpenReliant/openreliant/issues">report a bug</a>.</p>
+<section id="about" class="panel">
+  <h2>About the <span>project</span></h2>
+  <p class="about">OpenReliant is a free, open-source fan project. It doesn't include any game files, so you need your own copy of StarLancer. You can <a href="https://github.com/OpenReliant/openreliant/blob/main/CONTRIBUTING.md">help</a>, <a href="https://github.com/OpenReliant/openreliant/issues">report a bug</a>, <a href="https://github.com/OpenReliant/openreliant">read the code</a> on GitHub, or read <a href="docs/">the documentation</a>.</p>
 </section>
 
 <footer>
-  <p>OpenReliant is an independent, non-commercial open-source project. It isn't affiliated with, endorsed by, or associated with Warthog Games, Digital Anvil or Microsoft. StarLancer is a trademark of its owner.</p>
-  <p>The source code is under the <a href="https://github.com/OpenReliant/openreliant/blob/main/LICENSE">Mozilla Public License 2.0</a>, and the documentation under CC BY-SA 4.0. No game files are included.</p>
+  <p>OpenReliant is a non-commercial fan project. It isn't connected to or endorsed by Warthog, Digital Anvil or Microsoft. StarLancer is a trademark of its owner.</p>
+  <p>The code is licensed under the <a href="https://github.com/OpenReliant/openreliant/blob/main/LICENSE">Mozilla Public License 2.0</a> and the documentation under CC BY-SA 4.0.</p>
 </footer>
 </main>
 
