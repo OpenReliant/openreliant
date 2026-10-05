@@ -387,8 +387,8 @@ You can also edit it by hand.
 - The screen lists up to 255 mods, and leaves out the ones that need a newer OpenReliant
   ([The manifest](#the-manifest)).
 - `--no-mods` loads none, and keeps the screen shut.
-- A screenshot taken with `--screenshot` ignores the section, so that it comes out the same for
-  everyone.
+- A screenshot taken with `--screenshot` follows the section too, so it loads only the mods that
+  are on.
 
 ## Folder mods
 
