@@ -104,7 +104,9 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             label_string: ?u16 = null,
             /// The number the mod's own files use for it, if they do.
             own_number: ?u32 = null,
-            extra: Extra = if (Extra == void) {} else undefined,
+            /// What its kind has besides, which every record must give (`{}` for a gun), so that
+            /// none is left undefined.
+            extra: Extra,
 
             /// Its name without the mod's.
             pub fn own(added: Added) []const u8 {
@@ -212,13 +214,14 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
                 context.warn(spec.noun, "has the base '{s}', which isn't one of the game's", .{base_text});
                 return null;
             };
+            const extra: Extra = if (spec.readExtra) |readExtra| try readExtra(context, section, base) orelse return null else {};
             var made: Added = .{
                 .name = name,
                 .mod = context.mod.name,
                 .base = base,
                 .label = if (manifest.value(section, "Name")) |text| try context.arena.dupe(u8, text) else null,
+                .extra = extra,
             };
-            if (spec.readExtra) |readExtra| made.extra = try readExtra(context, section, base) orelse return null;
             const number_text = std.mem.trim(u8, manifest.value(spec.list_section, own) orelse "", " \t");
             if (number_text.len > 0) {
                 const number = std.fmt.parseInt(u32, number_text, 0) catch 0;
@@ -559,7 +562,7 @@ test "a family reads what each mod lists" {
 test "Family.records" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
-    var list = [_]guns.Added{.{ .name = "a:b", .mod = "a", .base = .pulse_cannon }};
+    var list = [_]guns.Added{.{ .name = "a:b", .mod = "a", .base = .pulse_cannon, .extra = {} }};
     guns.install(&list);
     defer guns.reset();
     var game: [3]stats.Gun = @splat(std.mem.zeroes(stats.Gun));
@@ -579,7 +582,7 @@ test addNames {
         .{ .name = "a:c", .mod = "a", .base = .phoenix, .extra = .{ .model = "c.shp" } },
     };
     ships.install(&list);
-    var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .label = "Gee" }};
+    var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .label = "Gee", .extra = {} }};
     guns.install(&gun_list);
     defer reset();
     const text = try addNames(arena.allocator(), &.{ "one", "two" });
@@ -628,9 +631,9 @@ test remapMission {
 }
 
 test remapModel {
-    var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .own_number = 20 }};
+    var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .own_number = 20, .extra = {} }};
     guns.install(&gun_list);
-    var missile_list = [_]missiles.Added{.{ .name = "a:m", .mod = "a", .base = .raptor, .own_number = 30 }};
+    var missile_list = [_]missiles.Added{.{ .name = "a:m", .mod = "a", .base = .raptor, .own_number = 30, .extra = .{} }};
     missiles.install(&missile_list);
     defer reset();
     var attachments = [_]shp.Attachment{ std.mem.zeroes(shp.Attachment), std.mem.zeroes(shp.Attachment), std.mem.zeroes(shp.Attachment) };

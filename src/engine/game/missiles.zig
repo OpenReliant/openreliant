@@ -1354,7 +1354,7 @@ test "Type.mounted" {
     var list = [_]additions.missiles.Added{
         .{ .name = "a:rail", .mod = "a", .base = .bandit, .extra = .{ .model = "banana.shp" } },
         .{ .name = "a:pod", .mod = "a", .base = .raptor, .extra = .{ .model = "banana.shp", .pod = "bunch.shp" } },
-        .{ .name = "a:plain", .mod = "a", .base = .raptor },
+        .{ .name = "a:plain", .mod = "a", .base = .raptor, .extra = .{} },
     };
     additions.missiles.install(&list);
     defer additions.missiles.reset();
