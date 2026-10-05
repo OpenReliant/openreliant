@@ -304,10 +304,15 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
 }
 
 /// What a missile type has besides: the model it flies as, and for a missile whose base hangs in a
-/// pod, the pod's model; each else its base's.
+/// pod, the pod's model; each else its base's. And for the loadout screen: the campaign tier from
+/// which it offers it, else its base's, and what its panel says of it, under its own name where it
+/// has one (`addNames`), else what it says of its base.
 pub const MissileExtra = struct {
     model: ?[]const u8 = null,
     pod: ?[]const u8 = null,
+    tier: ?u2 = null,
+    description: ?[]const u8 = null,
+    description_string: ?u16 = null,
 };
 
 fn readMissile(context: Context, section: []const u8, _: missiles_module.GameMissile) Allocator.Error!?MissileExtra {
@@ -315,6 +320,14 @@ fn readMissile(context: Context, section: []const u8, _: missiles_module.GameMis
     var made: MissileExtra = .{};
     if (manifest.value(section, "Model")) |model| made.model = try context.arena.dupe(u8, model);
     if (manifest.value(section, "Pod")) |pod| made.pod = try context.arena.dupe(u8, pod);
+    if (manifest.value(section, "Description")) |text| made.description = try context.arena.dupe(u8, text);
+    if (manifest.value(section, "Tier")) |text| {
+        const trimmed = std.mem.trim(u8, text, " \t");
+        made.tier = std.fmt.parseInt(u2, trimmed, 10) catch {
+            context.warn("missile", "gives the tier '{s}', which isn't from 0 to 3", .{text});
+            return null;
+        };
+    }
     return made;
 }
 
@@ -452,6 +465,10 @@ pub fn addNames(arena: Allocator, text: []const []const u8) Allocator.Error![]co
     for (pilots.all()) |*each| if (each.label_string) |name| {
         each.extra.face.name = name;
     };
+    for (missiles.all()) |*each| if (each.extra.description) |description| {
+        try made.append(arena, description);
+        each.extra.description_string = std.math.cast(u16, made.items.len);
+    };
     return made.items;
 }
 
@@ -501,10 +518,16 @@ test "a family reads what each mod lists" {
         \\Name=Banana Gun
         \\[Missiles]
         \\banana=30
+        \\late=
         \\[Missile banana]
         \\Base=raptor
         \\Model=banana.shp
         \\Pod=bunch.shp
+        \\Description=Yellow.
+        \\Tier= 2
+        \\[Missile late]
+        \\Base=raptor
+        \\Tier=4
         \\[Pilots]
         \\trooper=200
         \\[Pilot trooper]
@@ -538,6 +561,10 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqual(guns.first, guns.find("bananas:banana").?);
     try std.testing.expectEqualStrings("banana.shp", missiles.all()[0].extra.model.?);
     try std.testing.expectEqualStrings("bunch.shp", missiles.all()[0].extra.pod.?);
+    try std.testing.expectEqualStrings("Yellow.", missiles.all()[0].extra.description.?);
+    try std.testing.expectEqual(2, missiles.all()[0].extra.tier.?);
+    // A tier past the campaign's last is left out, with the missile.
+    try std.testing.expectEqual(1, missiles.all().len);
     try std.testing.expectEqual(0, pilots.all()[0].base);
 
     const list = ships.all();
@@ -584,13 +611,17 @@ test addNames {
     ships.install(&list);
     var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .label = "Gee", .extra = {} }};
     guns.install(&gun_list);
+    var missile_list = [_]missiles.Added{.{ .name = "a:m", .mod = "a", .base = .raptor, .extra = .{ .description = "Yellow." } }};
+    missiles.install(&missile_list);
     defer reset();
     const text = try addNames(arena.allocator(), &.{ "one", "two" });
-    try std.testing.expectEqual(4, text.len);
+    try std.testing.expectEqual(5, text.len);
     try std.testing.expectEqual(3, list[0].label_string.?);
     try std.testing.expectEqualStrings("Bee", text[list[0].label_string.? - 1]);
     try std.testing.expectEqual(null, list[1].label_string);
     try std.testing.expectEqualStrings("Gee", text[gun_list[0].label_string.? - 1]);
+    // A missile's description comes after the names.
+    try std.testing.expectEqualStrings("Yellow.", text[missile_list[0].extra.description_string.? - 1]);
 }
 
 test remapMission {

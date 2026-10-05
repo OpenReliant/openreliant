@@ -75,13 +75,20 @@ pub const Racks = struct {
     }
 };
 
-/// The missiles `missiles_available` (`0x0044B870`) shows the icons of: those the campaign's
-/// `tier` offers, each while fewer than its limit (`tables.missile_limits`) are `carried`, on the
-/// ship or flying to it.
-pub fn available(tier: u2, carried: [tables.missile_count]u16) tables.MissileSet {
-    var set: tables.MissileSet = .{};
-    for (std.enums.values(tables.Missile), carried, tables.missile_limits) |missile, count, limit| {
-        if (tables.missiles_by_tier[tier].has(missile) and count < limit) set = set.with(missile);
+/// The missiles the loadout shows the icons of, by `tables.Missile`.
+pub const Offered = std.StaticBitSet(tables.max_missiles);
+
+/// How many of each missile, by `tables.Missile`, are on the ship or flying to it.
+pub const Carried = [tables.max_missiles]u16;
+
+/// The missiles `missiles_available` (`0x0044B870`) shows the icons of: those of `known` the
+/// campaign's `tier` offers, each while fewer than its limit (`tables.Missile.limit`) are
+/// `carried`.
+pub fn available(tier: u2, known: []const tables.Missile, carried: *const Carried) Offered {
+    var set: Offered = .initEmpty();
+    for (known) |missile| {
+        const index = @intFromEnum(missile);
+        if (missile.offeredAt(tier) and carried[index] < missile.limit()) set.set(index);
     }
     return set;
 }
@@ -125,13 +132,17 @@ test "Racks.saved and Racks.flown" {
 }
 
 test available {
-    var carried: [tables.missile_count]u16 = @splat(0);
+    var carried: Carried = @splat(0);
+    const known = std.enums.values(tables.Missile);
     // Tier 0 offers the Screamer, the Havoc, the Jack Hammer, the Bandit and the fuel pod.
-    try std.testing.expectEqual(@as(u32, 0x21D), @as(u32, @bitCast(available(0, carried))));
+    const first = available(0, known, &carried);
+    try std.testing.expectEqual(5, first.count());
+    for (known) |missile| try std.testing.expectEqual(tables.missiles_by_tier[0].has(missile), first.isSet(@intFromEnum(missile)));
     // Three Jack Hammers are the most a ship takes.
-    carried[@intFromEnum(tables.Missile.jack_hammer)] = 3;
-    try std.testing.expect(!available(0, carried).has(.jack_hammer));
-    carried[@intFromEnum(tables.Missile.jack_hammer)] = 2;
-    try std.testing.expect(available(0, carried).has(.jack_hammer));
-    try std.testing.expect(available(3, carried).has(.solomon));
+    const jack_hammer = @intFromEnum(tables.Missile.jack_hammer);
+    carried[jack_hammer] = 3;
+    try std.testing.expect(!available(0, known, &carried).isSet(jack_hammer));
+    carried[jack_hammer] = 2;
+    try std.testing.expect(available(0, known, &carried).isSet(jack_hammer));
+    try std.testing.expect(available(3, known, &carried).isSet(@intFromEnum(tables.Missile.solomon)));
 }

@@ -509,13 +509,19 @@ pub const Loadout = struct {
     /// Each ship's figures as the loadout works them out as it loads (`loadout_ship_stats`,
     /// `0x004EC278`).
     figures: [tables.ship_count]tables.ShipFigures = undefined,
+    /// The missiles the loadout knows (`tables.Missile.all`): the game's, then the mods'. The
+    /// slices after it hold one for each, in its order (`missilePlace`).
+    known: []const tables.Missile = &.{},
     /// Each missile's figures, worked out as it loads (`loadout_missile_bars_init`, `0x0044B680`).
-    missile_figures: [tables.missile_count]tables.MissileFigures = undefined,
+    missile_figures: []tables.MissileFigures = &.{},
     /// The missiles' models (`0x00524450`), loaded with their red textures
     /// (`loadout_weapon_models`, `0x00524977`), whose meshes their icons and the missiles hung on
     /// the chosen ship share; and their icons on the arc.
-    missile_models: [tables.missile_count]srofiles.ModelFile = undefined,
-    icons: [tables.missile_count]Icon = undefined,
+    missile_models: []srofiles.ModelFile = &.{},
+    icons: []Icon = &.{},
+    /// The slot of `tables.arc_slots` each missile's icon takes at the loadout's tier, null where
+    /// the tier offers it none (`tables.arcSlots`).
+    missile_slots: []?u8 = &.{},
     /// The Ship Missile objects (`0x00524228`): each stands for the missile hung on a rack of the
     /// chosen ship's, whose press flies it back to its icon.
     ship_missiles: [racks.max_hardpoints]i3d.Object = undefined,
@@ -636,8 +642,18 @@ pub const Loadout = struct {
             for (ship.model.parts) |*part| part.object.light_mask = ship_light_mask;
         }
         // The missiles' models with their red textures (`0x00441D84` on), and their icons
-        // (`missiles_create`, `0x004447F0`).
-        for (&loadout.missile_models, &loadout.icons, tables.missiles) |*file, *icon, record| {
+        // (`missiles_create`, `0x004447F0`), the mods' missiles' after the game's.
+        var known: [tables.max_missiles]tables.Missile = undefined;
+        loadout.known = try arena.dupe(tables.Missile, tables.Missile.all(&known));
+        const count = loadout.known.len;
+        loadout.missile_models = try arena.alloc(srofiles.ModelFile, count);
+        loadout.icons = try arena.alloc(Icon, count);
+        loadout.missile_figures = try arena.alloc(tables.MissileFigures, count);
+        loadout.missile_slots = try arena.alloc(?u8, count);
+        const left_out = tables.arcSlots(loadout.tier, loadout.known, loadout.missile_slots);
+        if (left_out > 0) log.warn("{d} of the mods' missiles are left out of the loadout: the arc has no room for them", .{left_out});
+        for (loadout.known, loadout.missile_models, loadout.icons) |missile, *file, *icon| {
+            const record = missile.record();
             file.* = try loadout.loadModel(record.model, .loadout_weapons);
             try loadout.makeIcon(icon, file.*, record);
         }
@@ -674,10 +690,10 @@ pub const Loadout = struct {
             }
         }
         loadout.figures = bars.shipFigures(context.stats);
-        loadout.missile_figures = bars.missileFigures(context.missile_stats);
+        bars.missileFigures(context.missile_stats, loadout.known, loadout.missile_figures);
 
         for (loadout.ships) |*ship| try loadout.interface.addObject(&ship.object, "");
-        for (&loadout.icons) |*icon| try loadout.interface.addObject(&icon.object, "");
+        for (loadout.icons) |*icon| try loadout.interface.addObject(&icon.object, "");
         for (loadout.ships) |*ship| try loadout.interface.addObject(&ship.gunship.object, "");
         for (&loadout.ship_missiles) |*object| try loadout.interface.addObject(object, ship_missile_name);
         const glow = try matmanager.textureRequire(textures, glow_name);
@@ -702,7 +718,7 @@ pub const Loadout = struct {
         for (loadout.ships, 0..) |*ship, index| {
             try anims.sinkShip(&ship.sink, &loadout.interface, &ship.object, loadout.arcSlot(@intCast(index)), sinkShipShare, sinkShipEnded);
         }
-        for (&loadout.icons, tables.missile_slots[loadout.tier]) |*icon, slot| {
+        for (loadout.icons, loadout.missile_slots) |*icon, slot| {
             try anims.sinkMissile(&icon.sink, &loadout.interface, &icon.object, loadout.missileSlot(slot), sinkMissileShare, sinkMissileEnded);
         }
         loadout.hideMissiles();
@@ -933,7 +949,7 @@ pub const Loadout = struct {
         const texture = loadout.info_textures.getPtr(face);
         switch (info) {
             .ship => |ship| panels.drawStats(texture.pixels, loadout.kit(), ship, loadout.figures[ship]),
-            .missile => |missile| panels.drawMissile(texture.pixels, loadout.kit(), missile, loadout.missile_figures[@intFromEnum(missile)]),
+            .missile => |missile| panels.drawMissile(texture.pixels, loadout.kit(), missile, loadout.missile_figures[loadout.missilePlace(missile)]),
             .guns => |ship| panels.drawGuns(texture.pixels, loadout.kit(), ship),
         }
         texture.image.changed = true;
@@ -1107,10 +1123,10 @@ pub const Loadout = struct {
     /// icons and the missiles hung on the ship share their models' meshes, so a missile under the
     /// pointer lights up with every other of its kind.
     fn highlightMissile(loadout: *Loadout, hovered: ?*i3d.Object) void {
-        for (&loadout.icons, &loadout.missile_models) |*icon, file| litSolid(file.loaded, hovered != &icon.object, loadout.context.look);
+        for (loadout.icons, loadout.missile_models) |*icon, file| litSolid(file.loaded, hovered != &icon.object, loadout.context.look);
         for (&loadout.ship_missiles, loadout.fitted.racks[0..racks.max_hardpoints]) |*object, rack| {
             if (object.target == .none or hovered != object) continue;
-            litSolid(loadout.missile_models[@intFromEnum(rack.missile)].loaded, false, loadout.context.look);
+            litSolid(loadout.missile_models[loadout.missilePlace(rack.missile)].loaded, false, loadout.context.look);
         }
     }
 
@@ -1225,7 +1241,7 @@ pub const Loadout = struct {
             if (index != loadout.chosen) ship.showLevel(0);
             loadout.clipToDisc(&ship.model);
         }
-        for (&loadout.icons) |*icon| loadout.clipToDisc(&icon.model);
+        for (loadout.icons) |*icon| loadout.clipToDisc(&icon.model);
         _ = try loadout.step(.{ .now = loadout.now, .mouse = loadout.interface.last });
         try loadout.grabShipPage(true);
         const arena = loadout.arena.allocator();
@@ -1552,7 +1568,7 @@ pub const Loadout = struct {
         const now = loadout.now;
         loadout.interface.busy = true;
         loadout.missilesAvailable();
-        for (&loadout.icons) |*icon| icon.object.clickable = false;
+        for (loadout.icons) |*icon| icon.object.clickable = false;
         for (loadout.ships, 0..) |*ship, index| {
             if (loadout.showsShip(index)) {
                 ship.object.clickable = true;
@@ -1603,7 +1619,7 @@ pub const Loadout = struct {
         belly_up.play(.forward, now);
         loadout.missilesAvailable();
         loadout.placeMissiles();
-        for (&loadout.icons) |*icon| icon.object.setPosition(icon.object.position() + Vector{ 0, anims.sink_depth, 0 });
+        for (loadout.icons) |*icon| icon.object.setPosition(icon.object.position() + Vector{ 0, anims.sink_depth, 0 });
         if (loadout.last_page == .ships) loadout.nextShipSinks(null, .forward) else loadout.nextMissileRises(null);
     }
 
@@ -1793,7 +1809,7 @@ pub const Loadout = struct {
     fn placeMissiles(loadout: *Loadout) void {
         const disc = &loadout.disc.scene_object;
         const across = if (loadout.spin_disc.stopped()) hologram.slot_unit else disc.scale * hologram.slot_unit;
-        for (&loadout.icons, tables.missile_slots[loadout.tier]) |*icon, slot| {
+        for (loadout.icons, loadout.missile_slots) |*icon, slot| {
             const at = slot orelse continue;
             const placed = hologram.slotPlace(disc.place(), tables.arc_slots[at], true, across);
             icon.object.setPosition(placed.position);
@@ -1803,7 +1819,7 @@ pub const Loadout = struct {
 
     /// `missiles_hide` (`0x00447130`): every missile's icon put away.
     fn hideMissiles(loadout: *Loadout) void {
-        for (&loadout.icons) |*icon| icon.object.shown = false;
+        for (loadout.icons) |*icon| icon.object.shown = false;
     }
 
     /// `missiles_available` (`0x0044B870`): the icon of each missile the tier offers shown and
@@ -1813,7 +1829,7 @@ pub const Loadout = struct {
     /// **Fix:** the game frees the data of a missile flying back to its icon as its flight begins,
     /// and counts it by what the freed memory holds. OpenReliant counts it as the missile it is.
     fn missilesAvailable(loadout: *Loadout) void {
-        var carried: [tables.missile_count]u16 = @splat(0);
+        var carried: racks.Carried = @splat(0);
         for (&loadout.ship_missiles, loadout.fitted.racks[0..racks.max_hardpoints]) |*object, rack| {
             if (object.clickable) carried[@intFromEnum(rack.missile)] += 1;
         }
@@ -1821,10 +1837,12 @@ pub const Loadout = struct {
             const flight = maybe orelse continue;
             if (flight.object.shown) carried[@intFromEnum(flight.missile)] += 1;
         }
-        const offered = racks.available(loadout.tier, carried);
-        for (&loadout.icons, std.enums.values(tables.Missile)) |*icon, missile| {
-            icon.object.shown = offered.has(missile);
-            icon.object.clickable = offered.has(missile);
+        const offered = racks.available(loadout.tier, loadout.known, &carried);
+        for (loadout.icons, loadout.known, loadout.missile_slots) |*icon, missile, slot| {
+            // A mod's missile the arc has no room for stays put away.
+            const shown = offered.isSet(@intFromEnum(missile)) and slot != null;
+            icon.object.shown = shown;
+            icon.object.clickable = shown;
         }
     }
 
@@ -1867,7 +1885,7 @@ pub const Loadout = struct {
 
     /// Which missile's sinking `anim` is.
     fn missileSinking(loadout: *Loadout, anim: *const i3d.Anim) ?usize {
-        for (&loadout.icons, 0..) |*icon, index| {
+        for (loadout.icons, 0..) |*icon, index| {
             if (&icon.sink.anim == anim) return index;
         }
         return null;
@@ -2088,9 +2106,14 @@ pub const Loadout = struct {
         }
     }
 
+    /// Where `missile` is in `known`, and in the slices beside it.
+    fn missilePlace(loadout: *const Loadout, missile: tables.Missile) usize {
+        return std.mem.indexOfScalar(tables.Missile, loadout.known, missile).?;
+    }
+
     /// The missile the icon `object` stands for.
     fn iconMissile(loadout: *Loadout, object: *const i3d.Object) ?tables.Missile {
-        for (&loadout.icons, std.enums.values(tables.Missile)) |*icon, missile| {
+        for (loadout.icons, loadout.known) |*icon, missile| {
             if (&icon.object == object) return missile;
         }
         return null;
@@ -2180,7 +2203,7 @@ pub const Loadout = struct {
         const ship = &loadout.ships[loadout.chosen];
         const hardpoint = loadout.flightHardpoint(route) orelse return null;
         const scale = tables.ships[loadout.chosen].scale;
-        const icon = &loadout.icons[@intFromEnum(missile)];
+        const icon = &loadout.icons[loadout.missilePlace(missile)];
         const lift = icon.model.centre * @as(Vector, @splat(scale));
         const at = hologram.hardpointPlace(ship.model.parts[hardpoint.part].drawn(), hardpoint.attachment, lift, scale);
         loadout.attaching += 1;
@@ -2222,7 +2245,7 @@ pub const Loadout = struct {
     /// clickable, its tooltip empty.
     fn makeFlight(loadout: *Loadout, missile: tables.Missile) !*Flight {
         const gpa = loadout.context.rooms.gpa;
-        const file = loadout.missile_models[@intFromEnum(missile)];
+        const file = loadout.missile_models[loadout.missilePlace(missile)];
         const flight = try gpa.create(Flight);
         errdefer gpa.destroy(flight);
         flight.loaded = try srofiles.modelLoad(gpa, &loadout.textures.?, file.model, loadout.modelSettings(.loadout_weapons), false);
@@ -2314,7 +2337,7 @@ pub const Loadout = struct {
         const ship = &loadout.ships[loadout.chosen];
         const hardpoint = hardpointOfRack(ship, rack) orelse return;
         const gpa = loadout.context.rooms.gpa;
-        const file = loadout.missile_models[@intFromEnum(missile)];
+        const file = loadout.missile_models[loadout.missilePlace(missile)];
         var model: objects.Model = try .create(gpa, file.model, file.loaded, .{});
         gameobj.linkParts(&model, file.model);
         litSolid(file.loaded, true, loadout.context.look);
