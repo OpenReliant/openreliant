@@ -14,11 +14,17 @@ const Vector = math.Vector;
 const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
 const srlight = @import("../../surrender/surrenderlib/srlight.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
+const additions = @import("../additions.zig");
 const environfx = @import("../environfx.zig");
 const guns = @import("../guns.zig");
 const matmanager = @import("../matmanager.zig");
 const objects = @import("../objects.zig");
 const stats = @import("stats.zig");
+
+const log = std.log.scoped(.guns);
+
+/// A light that takes no colour of its own.
+const white: [3]f32 = .{ 1, 1, 1 };
 
 /// How the flashes are drawn where OpenReliant does more than the game.
 pub const Settings = struct {
@@ -130,10 +136,27 @@ pub const Looks = struct {
     meshes: std.EnumArray(Look, srapiext.Mesh),
     colours: std.EnumArray(Look, [3]f32),
     settings: Settings,
+    /// OpenReliant's: the flash of each gun a mod adds, in their order (`additions.GunExtra.flash`);
+    /// null for one that flashes as its base does, or whose picture can't be found.
+    mods: []?Own = &.{},
 
-    /// Builds them all (`guns_init`): each a plume (`environfx.plumeMesh`) of its look's size.
+    /// A mod gun's own flash: its flare, drawn as the game's are, its light's colour, and its
+    /// length.
+    pub const Own = struct {
+        mesh: srapiext.Mesh,
+        colour: [3]f32,
+        length: f32,
+    };
+
+    /// Builds them all (`guns_init`): each a plume (`environfx.plumeMesh`) of its look's size; and
+    /// for each gun a mod adds with a flash picture, a plume of that picture, its base's size or as
+    /// long as the gun gives, in proportion.
+    ///
+    /// **Improvement:** the original's guns are its own.
     pub fn create(gpa: Allocator, textures: *srtexture.Table, settings: Settings) (Allocator.Error || matmanager.Error)!Looks {
         var looks: Looks = .{ .meshes = undefined, .colours = undefined, .settings = settings };
+        errdefer looks.deinitOwn(gpa);
+        try looks.createOwn(gpa, textures);
         var made: usize = 0;
         errdefer for (std.enums.values(Look)[0..made]) |look| looks.meshes.get(look).deinit(gpa);
         for (std.enums.values(Look)) |look| {
@@ -152,6 +175,56 @@ pub const Looks = struct {
 
     pub fn deinit(looks: *const Looks, gpa: Allocator) void {
         for (looks.meshes.values) |mesh| mesh.deinit(gpa);
+        looks.deinitOwn(gpa);
+    }
+
+    /// The mods' guns' own flashes (`mods`).
+    fn createOwn(looks: *Looks, gpa: Allocator, textures: *srtexture.Table) Allocator.Error!void {
+        const all = additions.guns.all();
+        looks.mods = try gpa.alloc(?Own, all.len);
+        @memset(looks.mods, null);
+        for (looks.mods, all, additions.guns.first..) |*slot, gun, number| {
+            const name = gun.extra.flash orelse continue;
+            const image = try textures.find(name) orelse {
+                log.warn("{s}: the gun's flash {s} is left out: the mod has no picture of that name", .{ gun.name, name });
+                continue;
+            };
+            const base = Look.of(@enumFromInt(number), looks.settings.guns).size();
+            const size = if (gun.extra.flash_size) |length| base * @as(Vector, @splat(length / base[2])) else base;
+            slot.* = .{
+                .mesh = try environfx.plumeMesh(gpa, size, Look.flare.material(), image, image),
+                .colour = try ownColour(gpa, textures, name, image),
+                .length = size[2],
+            };
+        }
+    }
+
+    /// The colour of the light of a mod gun's own flash, whose picture `name` the table found as
+    /// `image` (`flareColour`): read from the mod's PNG file of the name where the table holds the
+    /// picture compressed. White where there's none.
+    fn ownColour(gpa: Allocator, textures: *srtexture.Table, name: []const u8, image: *const srtexture.Image) Allocator.Error![3]f32 {
+        if (image.levels[0].format == .rgba8) return flareColour(&.{.{ .image = image }});
+        const files = textures.files orelse return white;
+        const file = try std.fmt.allocPrint(gpa, "{s}{s}", .{ name, srtexture.picture_extension });
+        defer gpa.free(file);
+        const picture = try files.picture(gpa, file) orelse return white;
+        defer picture.deinit(gpa);
+        const level = [1]srtexture.Level{.{ .width = picture.width, .height = picture.height, .texels = picture.rgba }};
+        const decoded: srtexture.Image = .{ .levels = &level };
+        return flareColour(&.{.{ .image = &decoded }});
+    }
+
+    fn deinitOwn(looks: *const Looks, gpa: Allocator) void {
+        for (looks.mods) |slot| if (slot) |made| made.mesh.deinit(gpa);
+        gpa.free(looks.mods);
+    }
+
+    /// The own flash of `kind`, a gun a mod adds with a flash picture.
+    pub fn own(looks: *const Looks, kind: guns.GunType) ?*const Own {
+        if (kind.added() == null) return null;
+        const at = kind.number() - additions.guns.first;
+        if (at >= looks.mods.len) return null;
+        return if (looks.mods[at]) |*made| made else null;
     }
 };
 
@@ -163,12 +236,14 @@ pub const Region = struct {
 };
 
 /// OpenReliant's: the colour of a flash's light, what its flare adds over `regions` brought up to
-/// full brightness, so that the light is the flare's own colour. White, for a flare that adds
-/// nothing.
+/// full brightness, so that the light is the flare's own colour. A region whose texture isn't held
+/// as 8-bit RGBA, such as a mod's picture the table holds compressed, adds nothing. White, for a
+/// flare that adds nothing.
 pub fn flareColour(regions: []const Region) [3]f32 {
     var sum: Vector = @splat(0);
     for (regions) |region| {
         const level = region.image.levels[0];
+        if (level.format != .rgba8 or level.texels.len < level.format.size(level.width, level.height)) continue;
         const x = texels(region.low[0], region.high[0], level.width);
         const y = texels(region.low[1], region.high[1], level.height);
         for (y[0]..y[1]) |row| {
@@ -179,7 +254,7 @@ pub fn flareColour(regions: []const Region) [3]f32 {
         }
     }
     const most = @reduce(.Max, sum);
-    if (!(most > 0)) return .{ 1, 1, 1 };
+    if (!(most > 0)) return white;
     return sum / @as(Vector, @splat(most));
 }
 
@@ -240,6 +315,11 @@ pub const Flash = struct {
     part: usize,
     attachment: *const shp.Attachment,
     look: Look,
+    /// The flares it's drawn with.
+    looks: *const Looks,
+    /// OpenReliant's: the own flash of the mod's gun the last shot was of, which it's drawn as in
+    /// place of `look`; null for a gun that flashes as its base does.
+    own: ?*const Looks.Own = null,
     /// Which guns flash, which says how long a shot lights it for.
     guns: Guns,
     /// How long it takes to shrink away, the ticks of the gun type its muzzle names.
@@ -267,6 +347,7 @@ pub const Flash = struct {
             .part = part,
             .attachment = attachment,
             .look = look,
+            .looks = looks,
             .guns = which,
             .ticks = which.ticks(gun_type),
             .level = .{.{ .mesh = mesh, .until = std.math.inf(f32) }},
@@ -289,9 +370,13 @@ pub const Flash = struct {
     /// `bullet_fire`'s: lights the flash for a shot of `kind` fired at `now`, to go out once the
     /// shot's type's ticks have passed. A turret's flash, and its light, take `colour`, the shot's
     /// light's, the flare paler across the muzzle.
+    ///
+    /// **Improvement:** a shot of a gun a mod adds with a flash of its own draws that flash, in its
+    /// own colour (`Looks.own`).
     pub fn fire(flash: *Flash, kind: guns.GunType, now: i32, colour: [3]f32) void {
         flash.until = now + flash.guns.ticks(kind);
-        if (flash.look != .turret) return;
+        flash.drawAs(flash.looks.own(kind));
+        if (flash.own != null or flash.look != .turret) return;
         const full: Vector = colour;
         const pale = math.lerp(full, @as(Vector, @splat(1)), turret_core_paling);
         for (&flash.colours, 0..) |*corner, at| {
@@ -299,6 +384,22 @@ pub const Flash = struct {
             corner.* = .{ shade[0], shade[1], shade[2], 1 };
         }
         if (flash.light) |*light| light.colour = colour;
+    }
+
+    /// Draws the flash with the mod gun's own flash `own`, or with its look's flare where it's null.
+    fn drawAs(flash: *Flash, own: ?*const Looks.Own) void {
+        if (own == flash.own) return;
+        flash.own = own;
+        const shown: Look = if (own != null) .flare else flash.look;
+        const mesh = if (own) |made| &made.mesh else flash.looks.meshes.getPtrConst(flash.look);
+        flash.level[0].mesh = mesh;
+        flash.object.radius = mesh.radius;
+        flash.object.flags = shown.flags();
+        flash.object.baked = if (shown == .turret) &flash.colours else null;
+        if (flash.light) |*light| {
+            light.colour = if (own) |made| made.colour else flash.looks.colours.get(flash.look);
+            light.kind.point.range = reach_per_length * if (own) |made| made.length else flash.look.size()[2];
+        }
     }
 
     /// `muzzle_flash_draw`: readies the flash to be drawn at `now`, standing on its part at
@@ -319,7 +420,7 @@ pub const Flash = struct {
         flash.object.position = place.position;
         flash.object.orientation = place.orientation;
         flash.object.scale = share;
-        if (flash.look == .sheet) animate(&flash.uv, now);
+        if (flash.own == null and flash.look == .sheet) animate(&flash.uv, now);
         if (flash.light) |*light| {
             light.intensity = share;
             light.kind.point.position = place.position;
@@ -399,6 +500,27 @@ test flareColour {
     try std.testing.expectEqual([3]f32{ 1, 1, 0 }, flareColour(&.{.{ .image = &image, .high = .{ 0.5, 1 } }}));
     // Nothing added, white.
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, flareColour(&.{.{ .image = &image, .high = .{ 0, 1 } }}));
+    // A texture held compressed, or whose pixels the device took, adds nothing.
+    const blocks: [16]u8 = @splat(0xFF);
+    const compressed: srtexture.Image = .{ .levels = &.{.{ .width = 4, .height = 4, .format = .bc7, .texels = &blocks }} };
+    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, flareColour(&.{.{ .image = &compressed }}));
+    const released: srtexture.Image = .{ .levels = &.{.{ .width = 2, .height = 1, .texels = &.{} }} };
+    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, flareColour(&.{.{ .image = &released }}));
+}
+
+test "a mod's flash held compressed takes its light's colour from its PNG file" {
+    const gpa = std.testing.allocator;
+    var written: std.Io.Writer.Allocating = .init(gpa);
+    defer written.deinit();
+    try @import("../../../formats/png.zig").writeRgba(gpa, &written.writer, 2, 1, &.{ 200, 100, 0, 255, 0, 0, 0, 255 });
+    const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "peel.png", .bytes = written.written() }} };
+    const textures = try srtexture.testing.Textures.init(gpa, &.{});
+    defer textures.deinit(gpa);
+    textures.table.files = pictures.files();
+    const blocks: [16]u8 = @splat(0xFF);
+    const compressed: srtexture.Image = .{ .levels = &.{.{ .width = 4, .height = 4, .format = .bc7, .texels = &blocks }} };
+    try std.testing.expectEqual([3]f32{ 1, 0.5, 0 }, try Looks.ownColour(gpa, &textures.table, "peel", &compressed));
+    try std.testing.expectEqual(white, try Looks.ownColour(gpa, &textures.table, "missing", &compressed));
 }
 
 test animate {
@@ -455,6 +577,44 @@ test Flash {
     try std.testing.expectEqual(0, flash.object.scale);
     try std.testing.expect(!flash.show(151, carrier));
     try std.testing.expectEqual(null, flash.until);
+}
+
+test "a mod's gun flashes with a picture of its own" {
+    const gpa = std.testing.allocator;
+    var list = [_]additions.guns.Added{
+        .{ .name = "a:peel", .mod = "a", .base = .laser_cannon, .extra = .{ .flash = "peel", .flash_size = 300 } },
+        .{ .name = "a:plain", .mod = "a", .base = .laser_cannon, .extra = .{} },
+    };
+    additions.guns.install(&list);
+    defer additions.guns.reset();
+    const textures = try srtexture.testing.Textures.init(gpa, &.{ "matflarea3", "matflareb3", "sfxalpha1", "matflarea7", "matflareb7", "peel" });
+    defer textures.deinit(gpa);
+    const looks: Looks = try .create(gpa, &textures.table, .{});
+    defer looks.deinit(gpa);
+
+    // Its own flare, of its own length and in its base's proportions; none for a gun without one,
+    // nor for the game's.
+    const peel: guns.GunType = @enumFromInt(additions.guns.first);
+    const own = looks.own(peel).?;
+    try std.testing.expectEqual(@as(Vector, .{ 30, 30, 300 }), own.mesh.bounds[1]);
+    try std.testing.expectEqual(null, looks.own(@enumFromInt(additions.guns.first + 1)));
+    try std.testing.expectEqual(null, looks.own(.of(.laser_cannon)));
+
+    // A muzzle draws it for a shot of the mod's gun, its light reaching as far as its length
+    // says, and its flare again for a shot of the game's.
+    var attachment = std.mem.zeroes(shp.Attachment);
+    attachment.kind = .gun_muzzle;
+    attachment.gun_type = 1;
+    attachment.orientation = math.identity;
+    var flash: Flash = undefined;
+    flash.init(&looks, 0, &attachment);
+    flash.fire(peel, 100, .{ 1, 1, 1 });
+    try std.testing.expectEqual(&own.mesh, flash.level[0].mesh);
+    try std.testing.expectEqual(own.colour, flash.light.?.colour);
+    try std.testing.expectEqual(reach_per_length * 300, flash.light.?.kind.point.range);
+    flash.fire(.of(.laser_cannon), 200, .{ 1, 1, 1 });
+    try std.testing.expectEqual(looks.meshes.getPtrConst(.flare), flash.level[0].mesh);
+    try std.testing.expectEqual(1500, flash.light.?.kind.point.range);
 }
 
 test "a turret's flash takes its shot's colour" {

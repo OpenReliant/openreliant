@@ -371,14 +371,17 @@ pub const ships = Family(gameobj.GameType, ShipExtra, .{
     .readExtra = readShip,
 });
 
-/// The gun types mods add, after the game's 15, up to the most a muzzle's byte holds.
 /// What a gun type has besides, each else its base's: the picture its shots are drawn with, by its
-/// texture's name, as one flare `shot_size` across either way of its middle; and the sound a shot
-/// makes, a WAV file's bytes.
+/// texture's name, as one flare `shot_size` across either way of its middle; the sound a shot
+/// makes, a WAV file's bytes; and the picture its muzzle flash is drawn with, by its texture's
+/// name, `flash_size` long, else as long as its base's
+/// ([#675](https://github.com/OpenReliant/openreliant/issues/675)).
 pub const GunExtra = struct {
     shot: ?[]const u8 = null,
     shot_size: f32 = default_shot_size,
     sound: ?[]const u8 = null,
+    flash: ?[]const u8 = null,
+    flash_size: ?f32 = null,
 
     /// How far a shot's picture reaches either way of its middle, without `ShotSize`: the Pulse
     /// Cannon's flare's.
@@ -390,15 +393,20 @@ fn readGun(context: Context, section: []const u8, _: guns_module.GameGun) Alloca
     var made: GunExtra = .{};
     // A picture is found by its texture's name, as the mods' pictures are (`srtexture.Files`).
     if (manifest.value(section, "Shot")) |name| made.shot = try context.arena.dupe(u8, std.fs.path.stem(name));
-    if (manifest.value(section, "ShotSize")) |text| {
-        made.shot_size = std.fmt.parseFloat(f32, std.mem.trim(u8, text, " \t")) catch 0;
-        if (!(made.shot_size > 0)) {
-            context.warn("gun", "gives the shot size '{s}', which isn't a size", .{text});
-            return null;
-        }
-    }
+    if (manifest.value(section, "ShotSize")) |text| made.shot_size = readSize(context, "shot", text) orelse return null;
+    if (manifest.value(section, "Flash")) |name| made.flash = try context.arena.dupe(u8, std.fs.path.stem(name));
+    if (manifest.value(section, "FlashSize")) |text| made.flash_size = readSize(context, "flash", text) orelse return null;
     if (manifest.value(section, "Sound")) |name| made.sound = try readSound(context, "gun", name) orelse return null;
     return made;
+}
+
+/// The size `text` gives a gun's `what`, a number above zero; null where it isn't one, which the
+/// log says.
+fn readSize(context: Context, comptime what: []const u8, text: []const u8) ?f32 {
+    const size = std.fmt.parseFloat(f32, std.mem.trim(u8, text, " \t")) catch 0;
+    if (size > 0) return size;
+    context.warn("gun", "gives the " ++ what ++ " size '{s}', which isn't a size", .{text});
+    return null;
 }
 
 /// The bytes of the WAV file `name` in the mod, for a record of `noun`; null where the mod doesn't
@@ -418,6 +426,7 @@ fn readSound(context: Context, comptime noun: []const u8, name: []const u8) Allo
     return bytes;
 }
 
+/// The gun types mods add, after the game's 15, up to the most a muzzle's byte holds.
 pub const guns = Family(guns_module.GameGun, GunExtra, .{
     .noun = "gun",
     .list_section = "Guns",
@@ -688,7 +697,7 @@ test "Family.records" {
     try std.testing.expectEqual(0, made[guns.first - 2].range);
 }
 
-test "a gun's shot and sound, and a ship type's cockpit, pictures and sound" {
+test "a gun's shot, sound and flash, and a ship type's cockpit, pictures and sound" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -699,16 +708,22 @@ test "a gun's shot and sound, and a ship type's cockpit, pictures and sound" {
         \\peel=
         \\quiet=
         \\noisy=
+        \\flat=
         \\[Gun peel]
         \\Base=pulse_cannon
         \\Shot=peel_shot.png
         \\ShotSize=25
         \\Sound=peel.wav
+        \\Flash=peel_flash.png
+        \\FlashSize=30
         \\[Gun quiet]
         \\Base=laser_cannon
         \\[Gun noisy]
         \\Base=laser_cannon
         \\Sound=noise.wav
+        \\[Gun flat]
+        \\Base=laser_cannon
+        \\FlashSize=0
         \\[ShipTypes]
         \\peeler=
         \\[ShipType peeler]
@@ -728,14 +743,19 @@ test "a gun's shot and sound, and a ship type's cockpit, pictures and sound" {
     defer arena.deinit();
     try read(arena.allocator(), mods.list);
     defer reset();
-    // A gun with a sound that isn't one is left out; the others keep what they give.
+    // A gun with a sound that isn't one, or a flash size that isn't one, is left out; the others
+    // keep what they give.
     try std.testing.expectEqual(2, guns.all().len);
     const peel = guns.all()[0].extra;
     try std.testing.expectEqualStrings("peel_shot", peel.shot.?);
     try std.testing.expectEqual(25, peel.shot_size);
     try std.testing.expectEqualSlices(u8, peel_sound, peel.sound.?);
+    try std.testing.expectEqualStrings("peel_flash", peel.flash.?);
+    try std.testing.expectEqual(30, peel.flash_size.?);
     const quiet = guns.all()[1].extra;
     try std.testing.expectEqual(null, quiet.shot);
+    try std.testing.expectEqual(null, quiet.flash);
+    try std.testing.expectEqual(null, quiet.flash_size);
     try std.testing.expectEqual(GunExtra.default_shot_size, quiet.shot_size);
     try std.testing.expectEqual(null, quiet.sound);
     // A ship type's cockpit, its pictures by their names' start, and its engine's sound.

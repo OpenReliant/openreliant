@@ -9,7 +9,7 @@ or go away in any release. Copy one as a starting point for your own mod.
 |---|---|
 | [`arena`](arena) | A game mode with its own rules and HUD, which skips the simulator's radio talk (`radio_say`) |
 | [`balance`](balance) | Changing the game's records from a load script |
-| [`bananas`](bananas) | A new gun with its own shot picture and sound, a missile with a model built from OBJ, a pilot with a voice, a ship that carries them, and a pilot set by a script |
+| [`bananas`](bananas) | A new gun with its own shot picture, sound and muzzle flash, a missile with a model built from OBJ, a pilot with a voice, a ship that carries them, and a pilot set by a script |
 | [`campaign`](campaign) | A campaign with a briefing screen and a movie |
 | [`cel-shading`](cel-shading) | A lighting function and a surface function (`openreliant.shaders`) |
 | [`crt`](crt) | A post effect (`openreliant.postprocessing`) |
