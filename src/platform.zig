@@ -4,6 +4,7 @@
 const std = @import("std");
 
 pub const audio = @import("platform/audio.zig");
+pub const cache_file = @import("platform/cache_file.zig");
 pub const fonts = @import("platform/fonts.zig");
 pub const gpu = @import("platform/gpu.zig");
 pub const joystick = @import("platform/joystick.zig");
