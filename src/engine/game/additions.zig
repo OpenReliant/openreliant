@@ -279,15 +279,20 @@ fn gameNamed(comptime Named: type, text: []const u8, comptime below: comptime_in
     return null;
 }
 
-/// What a ship type has besides: its model and the schematic the display shows of it, else its
-/// base's; and the gun every muzzle of its model fires and the missile every hardpoint holds, else
-/// those its model names. Flown by the player, each else its base's: its cockpit's model; the
-/// pictures that stand in for its wire frame on the gunnery display and its icon in the wing's
-/// window, by the name their files start with (`hud.Art.Pictures`); and its engine's sound, a WAV
-/// file's bytes.
+/// What a ship type has besides its base and its name. Where the manifest leaves one out, the
+/// ship type takes its base's:
+/// - its model, and the schematic the display shows of it;
+/// - the model the loadout's guns view shows (`loadout.tables.modRecord`), or its own model
+///   without a base;
+/// - the gun every muzzle of its model fires and the missile every hardpoint holds, or those its
+///   model names;
+/// - when the player flies it: its cockpit's model, the pictures for its wire frame on the gunnery
+///   display and its icon in the wing's window, by the name their files start with
+///   (`hud.Art.Pictures`), and its engine's sound, a WAV file's bytes.
 pub const ShipExtra = struct {
     model: []const u8,
     schematic: ?[]const u8 = null,
+    guns_model: ?[]const u8 = null,
     gun: ?guns_module.GunType = null,
     missile: ?missiles_module.Type = null,
     cockpit: ?[]const u8 = null,
@@ -337,6 +342,7 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
         };
     }
     if (manifest.value(section, "Schematic")) |text| made.schematic = try context.arena.dupe(u8, text);
+    if (manifest.value(section, "GunsModel")) |text| made.guns_model = try context.arena.dupe(u8, text);
     if (manifest.value(section, "Guns")) |text| {
         const number = guns.named(text, context.mod.qualifier()) orelse {
             context.warn("ship type", "fires the gun '{s}', which isn't one of the game's or the mods'", .{text});
@@ -701,6 +707,7 @@ test "a family reads what each mod lists" {
         \\Guns=nova_cannon
         \\[ShipType nobase]
         \\Model=x.shp
+        \\GunsModel=x_gun.shp
         \\BlindFire=Yes
         \\SpectralShields=off
         \\Class=Light_Medium
@@ -759,6 +766,7 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqual(loadout.Class.light_medium, list[2].extra.class.?);
     try std.testing.expectEqual(loadout.Access.gold, list[2].extra.access.?);
     try std.testing.expectEqual(2, list[2].extra.crew.?);
+    try std.testing.expectEqualStrings("x_gun.shp", list[2].extra.guns_model.?);
     try std.testing.expectEqual(null, list[0].extra.class);
     try std.testing.expectEqual(null, ships.get(ships.first + 3));
     try std.testing.expectEqual(null, ships.get(0x0B));

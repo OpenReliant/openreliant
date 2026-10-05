@@ -146,6 +146,13 @@ pub fn savedShip(ship_type: create.TypeIndex) u8 {
     return @intCast(@intFromEnum(mod.base));
 }
 
+/// Whether a mod's ship type shows a gun model of its own on the guns page, in its own model's
+/// units: the one it gives, or without a base its own model. One with a base and no gun model of
+/// its own shows its base's.
+pub fn ownGunsModel(mod: *const additions.ships.Added) bool {
+    return !mod.based or mod.extra.guns_model != null;
+}
+
 /// The ships the loadout offers, into `buffer`: the game's first `game_count`, then the mods' ship
 /// types the player can fly, those based on one of the twelve or on none, that the campaign's
 /// `tier` offers, from the tier a mod gives, else from its start. Returns them, and how many of
@@ -178,6 +185,7 @@ pub fn offers(tier: u2, game_count: usize, buffer: *[arc_slot_count]Offer) struc
 /// (`main.playerShip`); and the rest its base's. One without a base takes only its template's
 /// scale: it has `additions.ShipExtra`'s defaults for the figures, no specials, and its own model
 /// on the guns page, with its guns and the rest of its specials from its model (`Offer.fitModel`).
+/// A gun model the type gives (`GunsModel`) shows on the guns page in place of either.
 pub fn modRecord(mod: *const additions.ships.Added) Ship {
     var record = ships[@intFromEnum(mod.base)];
     if (mod.label_string) |name| record.name = name;
@@ -190,6 +198,7 @@ pub fn modRecord(mod: *const additions.ships.Added) Ship {
         record.specials = .{};
         record.guns = &.{};
     }
+    if (mod.extra.guns_model) |own| record.guns_model = own;
     if (mod.extra.class) |own| record.class = own;
     if (mod.extra.access) |own| record.access = own;
     if (mod.extra.crew) |own| record.crew = own;
@@ -910,7 +919,13 @@ test modRecord {
         .{ .name = "a:own", .mod = "a", .base = .phoenix, .extra = .{ .model = "own.shp", .class = .heavy, .crew = 3, .blind_fire = false } },
         // Without a base: the defaults, its model on the guns page, and the shields it gives.
         .{ .name = "a:bare", .mod = "a", .base = .predator, .based = false, .extra = .{ .model = "bare.shp", .access = .gold, .spectral_shields = true } },
+        // Based on the Predator, with a gun model of its own.
+        .{ .name = "a:armed", .mod = "a", .base = .predator, .extra = .{ .model = "armed.shp", .guns_model = "armed_gun.shp" } },
     };
+    // Which show a gun model of their own: the one without a base and the one that gives one.
+    try std.testing.expect(!ownGunsModel(&list[0]) and ownGunsModel(&list[1]) and ownGunsModel(&list[2]));
+    try std.testing.expectEqualStrings("armed_gun.shp", modRecord(&list[2]).guns_model);
+    try std.testing.expectEqualStrings(ships[11].guns_model, modRecord(&list[0]).guns_model);
     const own = modRecord(&list[0]);
     try std.testing.expectEqual(Class.heavy, own.class);
     try std.testing.expectEqual(3, own.crew);
