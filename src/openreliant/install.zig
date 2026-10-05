@@ -106,6 +106,77 @@ pub fn openGame(io: Io, parent: Io.Dir, path: []const u8) Io.Dir.OpenError!Found
     return .{ .game = dir };
 }
 
+/// The name of the folder the installation guide installs the game in, which `findGame` tries
+/// before the other folders beside it.
+pub const suggested_folder = "StarLancer";
+
+/// The folder the game is played from: `given`, the one the command line names, else the one
+/// `findGame` finds, else the current folder, for the caller to say what it lacks.
+pub fn gameFolder(io: Io, arena: Allocator, given: ?[]const u8) Allocator.Error![]const u8 {
+    return given orelse try findGame(io, arena, .cwd()) orelse ".";
+}
+
+/// The folder OpenReliant plays the game from when it isn't given one: the current folder, else a
+/// folder in it, else the executable's own folder, else a folder beside the executable, the first
+/// that holds an installed copy of the game (`missingGameFile`), as a path that lasts as long as
+/// `arena`; null where none does. Of the folders in one, `suggested_folder` comes first and the
+/// rest by name. So a shortcut, or a double-click, finds the game wherever it starts from.
+pub fn findGame(io: Io, arena: Allocator, cwd: Io.Dir) Allocator.Error!?[]const u8 {
+    const own: ?[]const u8 = std.process.executableDirPathAlloc(io, arena) catch |err| switch (err) {
+        error.OutOfMemory => |oom| return oom,
+        else => null,
+    };
+    return findGameIn(io, arena, cwd, own);
+}
+
+/// `findGame`, with the executable in the folder `own`, if it is known.
+fn findGameIn(io: Io, arena: Allocator, cwd: Io.Dir, own: ?[]const u8) Allocator.Error!?[]const u8 {
+    for ([_]?[]const u8{ ".", own }) |known| {
+        const place = known orelse continue;
+        if (holdsGame(io, cwd, place)) return place;
+        if (try gameInside(io, arena, cwd, place)) |found| return found;
+    }
+    return null;
+}
+
+/// Whether the folder `path` in `cwd` holds an installed copy of the game.
+fn holdsGame(io: Io, cwd: Io.Dir, path: []const u8) bool {
+    const found = openGame(io, cwd, path) catch return false;
+    switch (found) {
+        .game => |dir| {
+            dir.close(io);
+            return true;
+        },
+        .no_folder, .missing => return false,
+    }
+}
+
+/// The first folder in the folder `path` that holds an installed copy of the game, a link to one
+/// too: `suggested_folder`, then the others by name.
+fn gameInside(io: Io, arena: Allocator, cwd: Io.Dir, path: []const u8) Allocator.Error!?[]const u8 {
+    var dir = cwd.openDir(io, path, .{ .iterate = true }) catch return null;
+    defer dir.close(io);
+    var names: std.ArrayList([]const u8) = .empty;
+    var entries = dir.iterate();
+    while (entries.next(io) catch null) |entry| {
+        if (entry.kind != .directory and entry.kind != .sym_link) continue;
+        try names.append(arena, try arena.dupe(u8, entry.name));
+    }
+    std.mem.sort([]const u8, names.items, {}, firstToTry);
+    for (names.items) |name| {
+        if (holdsGame(io, dir, name)) return try std.fs.path.join(arena, &.{ path, name });
+    }
+    return null;
+}
+
+/// Whether the folder `a` is tried before `b`: `suggested_folder` first, then by name.
+fn firstToTry(_: void, a: []const u8, b: []const u8) bool {
+    const a_suggested = std.ascii.eqlIgnoreCase(a, suggested_folder);
+    const b_suggested = std.ascii.eqlIgnoreCase(b, suggested_folder);
+    if (a_suggested != b_suggested) return a_suggested;
+    return std.mem.lessThan(u8, a, b);
+}
+
 /// A release whose disc 1 the installer knows.
 const Release = struct {
     name: []const u8,
@@ -1606,4 +1677,40 @@ test openGame {
     for (game_files) |name| try folder.writeFile(io, .{ .sub_path = name, .data = "" });
     const found = try openGame(io, tmp.dir, "StarLancer");
     found.game.close(io);
+}
+
+test findGameIn {
+    const io = std.testing.io;
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const sep = [1]u8{std.fs.path.sep};
+    // Nothing anywhere, and a folder without the game's files.
+    try tmp.dir.createDirPath(io, "bin/Other");
+    try std.testing.expectEqual(null, try findGameIn(io, arena, tmp.dir, "bin"));
+    // The game in a folder of any name beside the executable, and the suggested name first.
+    for ([_][]const u8{ "bin/Lancer", "bin/StarLancer" }) |path| {
+        var game_dir = try tmp.dir.createDirPathOpen(io, path, .{});
+        defer game_dir.close(io);
+        for (game_files) |name| try game_dir.writeFile(io, .{ .sub_path = name, .data = "" });
+    }
+    try std.testing.expectEqualStrings("bin" ++ sep ++ "StarLancer", (try findGameIn(io, arena, tmp.dir, "bin")).?);
+    // The executable's folder isn't known: not found.
+    try std.testing.expectEqual(null, try findGameIn(io, arena, tmp.dir, null));
+    // A folder in the current one comes before those beside the executable.
+    var here = try tmp.dir.createDirPathOpen(io, "Games", .{});
+    defer here.close(io);
+    for (game_files) |name| try here.writeFile(io, .{ .sub_path = name, .data = "" });
+    try std.testing.expectEqualStrings("." ++ sep ++ "Games", (try findGameIn(io, arena, tmp.dir, "bin")).?);
+    // And the current folder itself before both.
+    for (game_files) |name| try tmp.dir.writeFile(io, .{ .sub_path = name, .data = "" });
+    try std.testing.expectEqualStrings(".", (try findGameIn(io, arena, tmp.dir, "bin")).?);
+}
+
+test firstToTry {
+    try std.testing.expect(firstToTry({}, "starlancer", "A"));
+    try std.testing.expect(!firstToTry({}, "A", "StarLancer"));
+    try std.testing.expect(firstToTry({}, "A", "B"));
 }

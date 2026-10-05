@@ -148,7 +148,7 @@ pub const help_page = page: {
         \\       openreliant hooks [<hook>] [--definitions]
         \\
         \\
-    ++ help.table(&.{.{ .typed = "<game-directory>", .text = "where StarLancer is installed, with resource.hog and tcachehw.dat; the current directory by default" }}) ++
+    ++ help.table(&.{.{ .typed = "<game-directory>", .text = "where StarLancer is installed, with resource.hog and tcachehw.dat; by default the first that holds the game of the current directory, the directories in it, the directory openreliant is in and the directories beside it" }}) ++
         "\n" ++ help.paragraph("The game keeps its settings in starlancer.ini in its directory, and OpenReliant its own in that file's [OpenReliant] section. The options below change them for the run.", 0);
     for (std.enums.values(Section)) |section| {
         out = out ++ "\n" ++ section.title() ++ ":\n";
@@ -207,7 +207,9 @@ pub const Problem = union(enum) {
 };
 
 pub const Options = struct {
-    directory: []const u8 = ".",
+    /// The folder the game is installed in, as the command line names it; null to look for it
+    /// (`install.findGame`).
+    directory: ?[]const u8 = null,
     /// The mission to play at once, by its number, or null to open the front end.
     mission: ?u16 = null,
     /// The ship the player flies, in place of the loadout screen's choice; null for the mission's
@@ -524,9 +526,9 @@ pub const testing = struct {
 const parsed = testing.parsed;
 
 test Options {
-    try std.testing.expectEqualStrings(".", (try parsed(&.{})).directory);
+    try std.testing.expectEqual(null, (try parsed(&.{})).directory);
     const given = try parsed(&.{ "game/install", "--ship", "3" });
-    try std.testing.expectEqualStrings("game/install", given.directory);
+    try std.testing.expectEqualStrings("game/install", given.directory.?);
     try std.testing.expectEqual(3, given.ship);
     try std.testing.expectEqual(null, given.cockpit);
     try std.testing.expectEqual(camera.CockpitSetting.chase, (try parsed(&.{ "--view", "1" })).cockpit.?);
