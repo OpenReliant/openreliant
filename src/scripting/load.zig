@@ -326,6 +326,8 @@ test "the bananas example adds a gun, a missile, a pilot and a ship that names t
         .{ "records.luau", @embedFile("bananas/records.luau") },
         .{ "menu.luau", @embedFile("bananas/menu.luau") },
         .{ "troopers.luau", @embedFile("bananas/troopers.luau") },
+        .{ "banana_shot.png", @embedFile("bananas/banana_shot.png") },
+        .{ "boing.wav", @embedFile("bananas/boing.wav") },
     } }});
     var opened: mods.Mods = try .open(gpa, io, tmp.dir, null);
     defer opened.close(gpa);
@@ -338,6 +340,10 @@ test "the bananas example adds a gun, a missile, a pilot and a ship that names t
     try std.testing.expectEqualStrings("bananas:banana_gun", boat.extra.gun.?.scriptName().?);
     try std.testing.expectEqualStrings("bananas:banana", boat.extra.missile.?.scriptName().?);
     try std.testing.expectEqual(game.guns.GameGun.pulse_cannon, boat.extra.gun.?.base());
+    // The gun's shot is the example's picture, and its sound the example's WAV file.
+    const gun = boat.extra.gun.?.added().?.extra;
+    try std.testing.expectEqualStrings("banana_shot", gun.shot.?);
+    try std.testing.expectEqualSlices(u8, @embedFile("bananas/boing.wav"), gun.sound.?);
     try std.testing.expectEqual(game.missiles.GameMissile.bandit, boat.extra.missile.?.base());
     try std.testing.expectEqual(21, game.additions.pilots.all()[0].base);
 

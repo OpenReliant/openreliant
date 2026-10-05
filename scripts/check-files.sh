@@ -6,9 +6,11 @@
 # the next commit holds, as the pre-commit hook does. Each file is read where it lies.
 #
 # A file fails when it lies in one of the git-ignored directories for the game's files, has the
-# extension of one of the game's file types or of what the extractors write (except the example
-# mods' manifests, `mod.ini`), starts with the signature of an executable, archive, image, sound or
-# document, holds binary data anywhere but the compiled shaders, or is over 1 MiB.
+# extension of one of the game's file types or of what the extractors write, starts with the
+# signature of an executable, archive, image, sound or document, holds binary data anywhere but the
+# compiled shaders, or is over 1 MiB. The example mods' manifests, `mod.ini`, and their own pictures
+# and sounds, PNG and WAV files directly in an example mod's folder, are OpenReliant's own: they
+# pass all but the size.
 set -euo pipefail
 # Bytes as they are, which the signatures and the binary data are told by.
 export LC_ALL=C
@@ -25,8 +27,9 @@ cd "$(git rev-parse --show-toplevel)"
 allowed_binary='^(src/platform/shaders/[^/]+\.spv|deps/newtown/Newtown\.ttf)$'
 game_dirs='^(game|references|tools|ghidra/projects|ghidra/export)/'
 game_types='hog|shp|spr|dte|fat|fnt|frc|tga|bik|icd|exe|dll|m3d|asi|ccb|cab|bin|dat|iso|cue|mdf|mds|nrg|img|wav|mp3|ogg|png|jpg|jpeg|gif|bmp|pcx|ppm|obj|pdf|rtf|doc|ini|sav|zip'
-# Files of OpenReliant's own that share an extension with the game's: the example mods' manifests.
-own_files='^examples/mods/[^/]+/mod\.ini$'
+# Files of OpenReliant's own that share an extension with the game's: the example mods' manifests,
+# and their own pictures and sounds, which are original work (CONTRIBUTING.md).
+own_files='^examples/mods/[^/]+/(mod\.ini|[^/]+\.(png|wav))$'
 max_size=$((1024 * 1024))
 
 failed=0
@@ -73,6 +76,12 @@ for ((at = 0; at < ${#files[@]}; at++)); do
         fail "$path" "is over 1 MiB"
         continue
     fi
+    shopt -s nocasematch
+    if [[ $path =~ $own_files ]]; then
+        shopt -u nocasematch
+        continue
+    fi
+    shopt -u nocasematch
     # Its first four bytes, or as many as come before a NUL.
     IFS= read -r -n 4 -d '' start <"$path" || true
     case $start in

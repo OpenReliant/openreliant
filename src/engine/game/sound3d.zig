@@ -248,6 +248,12 @@ pub fn endAll(sound: *Sound) void {
 ///
 /// The game passes a fourth argument it never reads.
 pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, volume: f32, class: Class) ?u8 {
+    return playFile(sound, scene, at, facing, owner, which, null, volume, class);
+}
+
+/// `play` of `which`, its sample the WAV file `file` in place of its bank's where it is given: a
+/// mod's sound of its own, heard as `which` is. **Improvement:** the game plays its banks' alone.
+pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, file: ?[]const u8, volume: f32, class: Class) ?u8 {
     const driver = sound.driver orelse return null;
     if (!sound.effects.ready) return null;
     const bank = sound.effects.bank orelse return null;
@@ -309,7 +315,7 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u
         voice.position = gameobj.vec3(position);
         voice.direction = gameobj.vec3(direction.?);
     }
-    const file = bank.sound(definition.entry) orelse return null;
+    const sample = file orelse bank.sound(definition.entry) orelse return null;
     voice.follows = definition.follows;
     voice.owner = if (owner) |held| held else -1;
     voice.priority = @intCast(bank.entries[definition.entry].priority);
@@ -321,7 +327,7 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u
     // A sound that faces nowhere faces away from the listener; its cone is whole anyway.
     const heading = if (direction) |d| math.transformTransposed(scene.camera.orientation, d) else math.normalize(turned);
     const moving = math.transformTransposed(scene.camera.orientation, velocity);
-    if (!driver.set3DSampleFile(voice.sample, file)) return null;
+    if (!driver.set3DSampleFile(voice.sample, sample)) return null;
     driver.set3DSampleLoopCount(voice.sample, definition.loop_count);
     driver.set3DSampleVolume(voice.sample, math.ftol(level));
     driver.set3DPosition(voice.sample, hog_snd.miles(turned));
@@ -344,8 +350,13 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u
 
 /// `play` where `world` is heard, in its scene; nothing where it is not.
 pub fn playIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, volume: f32, class: Class) void {
+    playFileIn(world, at, facing, owner, which, null, volume, class);
+}
+
+/// `playFile` where `world` is heard, in its scene; nothing where it is not.
+pub fn playFileIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, file: ?[]const u8, volume: f32, class: Class) void {
     const hearing = world.hearing orelse return;
-    _ = play(hearing.sound, hearing.scene(world), at, facing, owner, which, volume, class);
+    _ = playFile(hearing.sound, hearing.scene(world), at, facing, owner, which, file, volume, class);
 }
 
 /// `playIn` of `which` from where `at` stands, facing along its Z axis, owned by nothing, at its

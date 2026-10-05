@@ -445,9 +445,31 @@ Missiles=banana
 
 ### Guns
 
-A gun takes its base's shots, flashes and sounds. A model names its guns on its gun muzzles, so a
-mod's own model fires the mod's guns by the numbers in `[Guns]`, and a ship type can fire one with
-`Guns`.
+```ini
+[Guns]
+banana_gun=
+
+[Gun banana_gun]
+Base=pulse_cannon
+Name=Banana Gun
+Shot=banana_shot.png
+ShotSize=40
+Sound=boing.wav
+```
+
+A gun takes its base's shots, flashes and sounds, but for those it gives of its own:
+
+- `Shot` is a picture in the mod, which each shot is drawn as: one flare of it, facing the camera,
+  fading with the shot's life. It is found as the mods' textures are, by its name without the
+  extension, so a PNG, DDS or KTX2 file works. Give it a transparent background.
+- `ShotSize` is how far the picture reaches either way of the shot's middle, 60 by default, the
+  Pulse Cannon's flare.
+- `Sound` is a WAV file in the mod, PCM or IMA ADPCM, that each shot makes in place of its base's.
+  It is heard as its base's sound is: as far, as loud, and following the shot.
+
+A gun with a `Sound` the mod doesn't have, or that isn't a WAV file, is left out, which the log says.
+A model names its guns on its gun muzzles, so a mod's own model fires the mod's guns by the numbers
+in `[Guns]`, and a ship type can fire one with `Guns`.
 
 ### Missiles
 
