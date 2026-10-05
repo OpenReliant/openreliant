@@ -338,7 +338,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .projection = (camera.Camera{}).projection(initial_size[0], initial_size[1]),
         .detail = game.main.detailDivisor(details.graphic),
         .finer = options.detail_reach.finer(),
-        .budget = options.draw_budget.limit(),
     };
     var devices: engine.input.Devices = .{};
     if (presentation) |shown| devices.mod_actions = &shown.runtime.input_actions;

@@ -1051,25 +1051,6 @@ pub const DetailReach = enum {
     }
 };
 
-/// How much a frame may draw (`srapi.Context.budget`).
-pub const DrawBudget = enum {
-    /// **Improvement:** ten times the original's, 200000 vertices and as many polygons, which
-    /// a current computer draws with ease. OpenReliant keeps up to 4000 burning bits where the
-    /// original keeps 500 (`explode.BitPool`), and a view full of them and of a split's bodies
-    /// takes the original's budget; since the layers are drawn from what went in last, the bits
-    /// then crowd out the ships' parts, which vanish while the view is full.
-    roomy,
-    /// The original's, 19999 of each (`srapi.original_budget`).
-    original,
-
-    pub fn limit(budget: DrawBudget) usize {
-        return switch (budget) {
-            .roomy => 200_000,
-            .original => srapi.original_budget,
-        };
-    }
-};
-
 /// `mission_frame`'s pass that draws the objects: each live object, save stand-ins and disabled
 /// and jumping ones, has its cloak's frame run where it has one (`cloak.frame`), and is drawn with
 /// `object_draw` (`objects.Model.draw`), with its own offset into its lights' blinks, its lights
