@@ -118,9 +118,9 @@ test "Racks.saved and Racks.flown" {
     try std.testing.expectEqual(null, saved[3]);
     // The flight takes the fuel pod as its own type 10, and none where the rack holds nothing.
     const flown = racks.flown();
-    try std.testing.expectEqual(missiles.Type.jack_hammer, flown[0]);
-    try std.testing.expectEqual(missiles.Type.raptor, flown[1]);
-    try std.testing.expectEqual(missiles.Type.fuel_pod, flown[2]);
+    try std.testing.expectEqual(missiles.Type.of(.jack_hammer), flown[0]);
+    try std.testing.expectEqual(missiles.Type.of(.raptor), flown[1]);
+    try std.testing.expectEqual(missiles.Type.of(.fuel_pod), flown[2]);
     try std.testing.expectEqual(missiles.Type.none, flown[19]);
 }
 

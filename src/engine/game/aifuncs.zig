@@ -747,7 +747,7 @@ fn launchFrom(ctx: Context, index: u16, jack_hammer: bool) void {
     const slot = &ctx.world.objects.slots[index];
     const ship = &slot.object;
     for (ship.fittedRacks(), 0..) |rack, at| {
-        if (rack.count < 1 or (rack.type == .jack_hammer) != jack_hammer) continue;
+        if (rack.count < 1 or (rack.type.base() == .jack_hammer) != jack_hammer) continue;
         missiles.launch(ctx.world, index, at, slot.orders[0].target);
         return;
     }
@@ -1274,7 +1274,7 @@ test launchMissile {
     const ctx = armed.mission.orders();
     // The first rack with missiles, the Raptor pod, at the order's target.
     launchMissile(ctx, ship);
-    try std.testing.expectEqual(missiles.Type.raptor, armed.missile(0).type);
+    try std.testing.expectEqual(missiles.Type.of(.raptor), armed.missile(0).type);
     try std.testing.expectEqual(@as(i16, @intCast(target)), armed.missile(0).target.index);
     // The fixture carries no Jack Hammer.
     launchJackHammer(ctx, ship);

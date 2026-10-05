@@ -226,7 +226,7 @@ pub const MissileRanges = struct {
         for (0..missiles.type_count) |index| {
             ranges.speed.widen(table.flight[index].max_speed);
             ranges.range.widen(flightRange(table, index));
-            if (index != @intFromEnum(missiles.Type.jack_hammer)) ranges.damage.widen(damageOf(table, index));
+            if (index != @intFromEnum(missiles.Type.of(.jack_hammer))) ranges.damage.widen(damageOf(table, index));
         }
         return ranges;
     }
@@ -277,7 +277,7 @@ pub const MissileBars = extern struct {
             .range = ranges.range.scale(least_segments, most_segments, bar_exponent, flightRange(table, index)),
             .damage = ranges.damage.scale(least_damage_segments, most_damage_segments, bar_exponent, damageOf(table, index)),
         };
-        switch (missile) {
+        switch (missile.base()) {
             .screamer, .solomon => bars.lock_seconds = none,
             .jack_hammer => bars.damage = jack_hammer_damage,
             .fuel_pod => {
@@ -438,7 +438,7 @@ test missileFigures {
     try std.testing.expectEqual(7, figures[9][1]);
 
     // The eleventh type, which only the game works out, has none of the bars.
-    const fuel_pod: MissileBars = .of(.init(&table), &table, .fuel_pod);
+    const fuel_pod: MissileBars = .of(.init(&table), &table, .of(.fuel_pod));
     try std.testing.expectEqual(MissileBars{ .lock_seconds = 10, .speed = -1, .range = -1, .damage = -1 }, fuel_pod);
 }
 

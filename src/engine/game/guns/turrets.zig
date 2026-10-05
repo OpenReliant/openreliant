@@ -521,7 +521,7 @@ fn missileStep(world: gameobj.World, index: u16, launcher: *Launcher) void {
     const now = world.clock.frame_start;
     const model = launcher.model;
     const from = model.parts[launcher.launcher].drawn();
-    const reach = all.missile_stats.of(.screamer).?.lock_range;
+    const reach = all.missile_stats.of(.of(.screamer)).?.lock_range;
     switch (launcher.state) {
         .searching => {
             if (launcher.missiles == 0) return empty(launcher, now);

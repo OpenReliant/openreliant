@@ -1761,7 +1761,7 @@ pub fn launchMissile(world: gameobj.World, index: u16) void {
     const armed = ring.armedEntry();
     const locked = display.lock.locked();
     const sound = if (world.hearing) |hearing| hearing.sound else null;
-    if (armed.type.needsLock() and !locked) {
+    if (armed.type.base().needsLock() and !locked) {
         if (sound) |player| _ = player.playStandard(refused_sample, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         if (armed.count != 0 or world.clock.game_ticks <= ring.empty_warned_until) return;
         if (sound) |player| _ = betty.say(player, .missiles_gone);

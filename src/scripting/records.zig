@@ -164,8 +164,8 @@ pub const Set = enum {
                 .guns => for (std.enums.values(game.guns.GameGun)) |gun| {
                     named = named ++ .{Named{ .name = @tagName(gun), .number = gun.number() }};
                 },
-                .missiles => for (std.enums.values(game.missiles.Type)) |missile| {
-                    if (missile.index()) |number| named = named ++ .{Named{ .name = @tagName(missile), .number = number }};
+                .missiles => for (std.enums.values(game.missiles.GameMissile)) |missile| {
+                    if (game.missiles.Type.of(missile).index()) |number| named = named ++ .{Named{ .name = @tagName(missile), .number = number }};
                 },
                 .pilots, .text, .itac_text => {},
             }

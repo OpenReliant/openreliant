@@ -198,12 +198,12 @@ pub fn possible(world: gameobj.World, ring: *missile_display.Ring, target: aigen
     const all = world.objects;
     const armed = ring.armedEntry();
     if (armed.count < 1 and !guiding(all)) return null;
-    if (armed.type == .solomon) return null;
+    if (armed.type.base() == .solomon) return null;
     const aimed = ai.ValidTarget.of(all, target, .{}) orelse return null;
     const ship = &all.slots[all.player].object;
     if (ship.flags.missiles_disabled) return null;
     if (all.slots[aimed.slot].object.side != .hostile) return null;
-    if (armed.type == .screamer) return null;
+    if (armed.type.base() == .screamer) return null;
     const stats = all.missile_stats.of(armed.type) orelse return null;
     return if (missiles.inLockReach(stats, ai.aimedAt(all, aimed).position - ship.nextPosition(), ship.nextHeading())) aimed else null;
 }
@@ -372,7 +372,7 @@ test possible {
     try stage.init(20000);
     defer stage.deinit();
     const world = stage.armed.mission.world();
-    try std.testing.expectEqual(missiles.Type.havoc, stage.ring.armedEntry().type);
+    try std.testing.expectEqual(missiles.Type.of(.havoc), stage.ring.armedEntry().type);
     try std.testing.expect(possible(world, &stage.ring, stage.target()) != null);
     // Not beyond the type's lock range, nor off to the side, nor on a friend.
     const enemy = stage.armed.mission.slot(stage.enemy);
@@ -385,7 +385,7 @@ test possible {
     try std.testing.expectEqual(null, possible(world, &stage.ring, stage.target()));
     enemy.object.side = .hostile;
     // Nor with a Screamer or a Solomon armed.
-    stage.ring.armedEntry().type = .solomon;
+    stage.ring.armedEntry().type = .of(.solomon);
     try std.testing.expectEqual(null, possible(world, &stage.ring, stage.target()));
 }
 
@@ -400,7 +400,7 @@ test "Lock.frame" {
     lock.frame(world, &stage.ring);
     try std.testing.expectEqual(Phase.closing, lock.phase);
     try std.testing.expectEqual(-200, lock.ticks);
-    try std.testing.expectEqual(missiles.Type.havoc, lock.type);
+    try std.testing.expectEqual(missiles.Type.of(.havoc), lock.type);
     // The rings close over 100 ticks, and the lock holds once its time has run out.
     for (0..10) |_| lock.frame(world, &stage.ring);
     try std.testing.expectEqual(Phase.waiting, lock.phase);

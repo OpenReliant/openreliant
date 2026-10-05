@@ -430,7 +430,7 @@ fn sideCount(style: *const Look) usize {
 /// The ribbon's colour: its look's, but a hostile torpedo's own.
 fn ribbonColour(trail: *const Trail, all: *const Objects) [3]f32 {
     return switch (trail.follows) {
-        .object => |slot| if (trail.type == .torpedo and all.slots[slot].object.side == .hostile) hostile_torpedo else trail.looked().colour,
+        .object => |slot| if (trail.type.base() == .torpedo and all.slots[slot].object.side == .hostile) hostile_torpedo else trail.looked().colour,
         .missile, .nothing => trail.looked().colour,
     };
 }
