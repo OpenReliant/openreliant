@@ -77,6 +77,12 @@ pub const fields = struct {
         }
     });
 
+    pub const pilot = api.Field(openreliant.engine.game.pilots.Number, "The pilot flying it: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`.", struct {
+        pub fn get(all: *const create.Objects, index: u16) openreliant.engine.game.pilots.Number {
+            return .of(all.slots[index].object.pilot);
+        }
+    });
+
     pub const side = api.Field(gameobj.Side(i32), "The side it's on.", struct {
         pub fn get(all: *const create.Objects, index: u16) gameobj.Side(i32) {
             return all.slots[index].object.side;

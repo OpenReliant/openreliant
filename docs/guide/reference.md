@@ -274,6 +274,7 @@ scripts on their object.
 | `slot` | number | The slot it fills in the mission, from 0. |
 | `type` | [ShipType](#shiptype) | Its type, such as `predator`. |
 | `class` | [ShipClass](#shipclass), or nil | Its class, such as `fighter`; nil for an object without stats, such as a nav point. |
+| `pilot` | [PilotNumber](#pilotnumber) | The pilot flying it: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`. |
 | `side` | [Side](#side) | The side it's on. |
 | `position` | vector | Where it is. |
 | `orientation` | [Orientation](#orientation) | Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). |
@@ -1113,6 +1114,10 @@ number. A script can set a field to either.
 ### ShipClass
 
 `fighter`, `capital`, `support`, `other`, `torpedo`, `debris`, `mine`, `planet`, or a number.
+
+### PilotNumber
+
+`none`, or a number.
 
 ### Side
 

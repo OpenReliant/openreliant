@@ -84,12 +84,14 @@ pub const Ring = struct {
                 }
             } else {
                 if (count == max_entries) continue;
-                const index = rack.type.index() orelse 0;
+                // A missile a mod adds shows as its base, under its own name where it has one.
+                const index = rack.type.baseIndex() orelse 0;
+                const own_name = if (rack.type.added()) |added| added.label_string else null;
                 ring.entries[count] = .{
                     .count = left,
                     .place = @intCast(count),
                     .shape = if (index < shapes.len) shapes[index] else 0,
-                    .name = if (index < names.len) names[index] else 0,
+                    .name = if (own_name) |name| std.math.cast(i16, name) orelse 0 else if (index < names.len) names[index] else 0,
                     .type = rack.type,
                 };
                 count += 1;

@@ -46,6 +46,10 @@ pub const Gun = extern struct {
 /// to 15 a muzzle can name.
 pub const max_types = 16;
 
+/// The gun types the table holds rows for: the game's, then the types mods add
+/// (`additions.guns`).
+pub const max_gun_types = additions.guns.end;
+
 /// The game's gun types. The tag is the type's number less one, which is how the game keeps a
 /// shot's type and what `bullet_build` and `bullets_frame` switch on; a muzzle names it by its
 /// number, which `gun_stats` holds it under. A gun holds its type as a `GunType`, whose `base` is
@@ -107,15 +111,22 @@ pub const GunType = enum(u8) {
     /// The type a muzzle's number names. One that names none, 0 or past the last, fires the
     /// Laser Cannon, as `object_collect_guns` does after warning about it.
     pub fn fromNumber(named: u32) GunType {
-        if (named == 0 or named >= max_types) return .of(.laser_cannon);
+        if (named == 0 or (named >= max_types and additions.guns.get(named) == null)) return .of(.laser_cannon);
         return @enumFromInt(named);
     }
 
-    /// The game's gun it is.
+    /// The game's gun it is: itself for one of the game's, and for one a mod adds, the gun it is
+    /// based on.
     pub fn base(gun_type: GunType) GameGun {
+        if (gun_type.added()) |from_mod| return from_mod.base;
         const at = gun_type.number();
         if (at == 0 or at >= max_types) return .laser_cannon;
         return @enumFromInt(at - 1);
+    }
+
+    /// The gun a mod adds that it is, if it is one.
+    pub fn added(gun_type: GunType) ?*const additions.guns.Added {
+        return additions.guns.get(gun_type.number());
     }
 
     /// The number a muzzle names it by, and its record in `gun_stats`.
@@ -128,30 +139,32 @@ pub const GunType = enum(u8) {
         return table.types[gun_type.number()];
     }
 
-    /// The name scripts know it by, if it has one.
+    /// The name scripts know it by: its qualified name for a gun a mod adds.
     pub fn scriptName(gun_type: GunType) ?[]const u8 {
+        if (gun_type.added()) |from_mod| return from_mod.name;
         return @tagName(gun_type.base());
     }
 
     /// The type scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?GunType {
+        if (additions.guns.find(text)) |found| return @enumFromInt(found);
         return .of(std.meta.stringToEnum(GameGun, text) orelse return null);
     }
 
     pub fn format(gun_type: GunType, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return writer.writeAll(@tagName(gun_type.base()));
+        return writer.writeAll(gun_type.scriptName().?);
     }
 };
 
 /// `gun_stats` (`0x00500CA4`): every gun type's figures at run time.
 pub const Stats = struct {
-    types: [max_types]Gun,
+    types: [max_gun_types]Gun,
 
     /// The table as the executable holds it before `stats_load_guns` runs: each type's own words,
     /// and no figures from the file.
     pub const initial: Stats = built: {
         var table: Stats = .{ .types = @splat(std.mem.zeroes(Gun)) };
-        for (&table.types, gun_stats.gun_types) |*gun, static| {
+        for (table.types[0..max_types], gun_stats.gun_types) |*gun, static| {
             gun.kind = static.kind;
             gun.bolt = static.bolt;
             gun.sound = static.sound;
@@ -159,10 +172,21 @@ pub const Stats = struct {
         break :built table;
     };
 
+    /// OpenReliant's: gives each gun the mods add (`additions.guns`) its base's words that the
+    /// executable holds, as `initial` has them. Its figures come from its record (`load`).
+    pub fn addTypes(stats: *Stats) void {
+        for (additions.guns.all(), additions.guns.first..) |added_gun, number| {
+            const base = stats.types[added_gun.base.number()];
+            stats.types[number].kind = base.kind;
+            stats.types[number].bolt = base.bolt;
+            stats.types[number].sound = base.sound;
+        }
+    }
+
     /// `stats_load_guns` (`0x004788F0`): each record of `gunstats.bin` in turn, the first into
     /// type 1, keeping in whole numbers what the runtime's `__ftol` cuts down.
     pub fn load(stats: *Stats, file: []align(1) const formats.Gun) void {
-        const count = @min(file.len, max_types - 1);
+        const count = @min(file.len, max_gun_types - 1);
         for (stats.types[1..][0..count], file[0..count]) |*gun, record| {
             gun.lifetime = std.math.lossyCast(i32, record.range);
             gun.speed = record.speed;
@@ -333,6 +357,17 @@ fn collect(gpa: Allocator, made: *std.ArrayList(Fitted), model: *objects.Model, 
             mount += 1;
         }
     }
+}
+
+/// OpenReliant's: makes every gun of `fitted` that fires shots fire `gun_type`, as a ship type a mod
+/// adds can ask (`additions.ShipExtra.gun`).
+pub fn refit(fitted: []Fitted, gun_type: GunType) void {
+    for (fitted) |*gun| switch (gun.turret) {
+        .fixed => |*fixed| fixed.type = gun_type,
+        .aimed => |*aimed| aimed.barrel.type = gun_type,
+        .spin => |*spin| spin.barrel.type = gun_type,
+        .missile, .gone => {},
+    };
 }
 
 /// Whether `mount` stands on an attachment before attachment `at` of part `index`.
@@ -783,7 +818,7 @@ pub fn step(world: gameobj.World, clock: *const Clock, index: u16) void {
         // 0, which no gun has, has a period of zero.
         const is_heard = heard(world, index, gun);
         if (record.kind == .energy or record.kind == .rounds) {
-            gun.sounded = @rem(gun.sounded + 1, @max(1, gun_stats.sound_periods[barrel.type.number()]));
+            gun.sounded = @rem(gun.sounded + 1, @max(1, gun_stats.sound_periods[barrel.type.base().number()]));
         }
         switch (gun.turret) {
             .fixed => {
@@ -2816,7 +2851,7 @@ fn dress(bullet: *Bullet, looks: *const Looks, random: *libcmt.Rand, turn: math.
     const other = bullet.side != .friendly;
     const hostile = bullet.side == .hostile;
     const rows: [2]f32 = if (hostile) hostile_rows else friendly_rows;
-    const span = gun_stats.atlas[bullet.kind.number()];
+    const span = gun_stats.atlas[bullet.kind.base().number()];
     const left = @as(f32, @floatFromInt(span[0])) / atlas_size;
     const right = @as(f32, @floatFromInt(span[0] + span[1])) / atlas_size;
     const quad = [4][2]f32{ .{ left, rows[1] }, .{ right, rows[1] }, .{ right, rows[0] }, .{ left, rows[0] } };
@@ -3282,6 +3317,7 @@ const ShipTypes = create.Types;
 const Objects = create.Objects;
 const formats = @import("../../formats/stats.zig");
 const gameobj = @import("gameobj.zig");
+const additions = @import("additions.zig");
 const gun_stats = @import("guns/stats.zig");
 const hooks = @import("../hooks.zig");
 const hud = @import("hud.zig");

@@ -53,7 +53,7 @@ pub const Guns = enum {
     /// How long a flash lasts after a shot of `kind` (`gun_flash_ticks`).
     fn ticks(which: Guns, kind: guns.GunType) i32 {
         if (which == .turrets_too and kind.base().onTurrets()) return turret_ticks;
-        return stats.flash_ticks[kind.number()];
+        return stats.flash_ticks[kind.base().number()];
     }
 };
 

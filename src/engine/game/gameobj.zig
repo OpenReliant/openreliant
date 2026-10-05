@@ -20,7 +20,7 @@ const objects = @import("objects.zig");
 const Node = objects.Node;
 const Pointer = engine.Pointer;
 const create = @import("create.zig");
-const added_types = @import("added_types.zig");
+const additions = @import("additions.zig");
 const guns = @import("guns.zig");
 const missiles = @import("missiles.zig");
 const libcmt = @import("../libcmt.zig");
@@ -603,7 +603,7 @@ pub const GameType = enum(u32) {
 };
 
 /// An object's type by its number (`GameObject.type`): one of the game's (`GameType`), or one a mod
-/// adds past them (`added_types`). The code that singles out a type asks for its base (`base`), so
+/// adds past them (`additions.ships`). The code that singles out a type asks for its base (`base`), so
 /// that a type a mod adds acts as the game's type it is based on.
 pub const Type = enum(u32) {
     /// The name scripts know these values by, and the names they know: the game's types', and the
@@ -621,13 +621,13 @@ pub const Type = enum(u32) {
     /// The game's type it acts as: itself for one of the game's, and for one a mod adds, the type
     /// it is based on.
     pub fn base(object_type: Type) GameType {
-        const from_mod = added_types.get(object_type.number()) orelse return @enumFromInt(object_type.number());
+        const from_mod = additions.ships.get(object_type.number()) orelse return @enumFromInt(object_type.number());
         return from_mod.base;
     }
 
     /// The type a mod adds that it is, if it is one.
-    pub fn added(object_type: Type) ?*const added_types.Added {
-        return added_types.get(object_type.number());
+    pub fn added(object_type: Type) ?*const additions.ships.Added {
+        return additions.ships.get(object_type.number());
     }
 
     pub fn number(object_type: Type) u32 {
@@ -667,7 +667,7 @@ pub const Type = enum(u32) {
 
     /// The type scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?Type {
-        if (added_types.find(text)) |found| return @enumFromInt(found);
+        if (additions.ships.find(text)) |found| return @enumFromInt(found);
         return .of(std.meta.stringToEnum(GameType, text) orelse return null);
     }
 

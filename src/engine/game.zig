@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-pub const added_types = @import("game/added_types.zig");
+pub const additions = @import("game/additions.zig");
 pub const ai = @import("game/ai.zig");
 pub const aidefend = @import("game/aidefend.zig");
 pub const aidock = @import("game/aidock.zig");

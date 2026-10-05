@@ -134,7 +134,7 @@ pub const Trail = struct {
     older: ?u8 = null,
 
     fn looked(trail: *const Trail) *const Look {
-        return &looks[trail.type.index().?];
+        return &looks[trail.type.baseIndex().?];
     }
 
     /// `missile_plume_update` (`0x00497DE0`): while its missile lives, the plume stands at the
@@ -239,7 +239,7 @@ pub const Trails = struct {
     /// **Fix:** with every trail taken, the game takes the record past the last, and writes past
     /// its pool; OpenReliant leaves the missile without a trail.
     pub fn start(trails: *Trails, world: gameobj.World, follows: Follows, missile_type: missiles.Type) Allocator.Error!?u8 {
-        const style = &looks[missile_type.index() orelse return null];
+        const style = &looks[missile_type.baseIndex() orelse return null];
         const at = trails.list.add(.{ .type = missile_type, .follows = follows, .scrolled = world.clock.frame_start }) orelse return null;
         const trail = trails.get(at).?;
         errdefer trails.list.remove(trails.gpa, at);

@@ -78,11 +78,17 @@ pub const Records = struct {
     }
 
     /// The number of records in `set` that scripts can access: as many as the game reads from the
-    /// file, and for the ships, then those of the types mods add (`added_types`).
+    /// file, and for the ships, then those of the types mods add (`additions.ships`).
     pub fn count(records: Records, comptime set: Set) usize {
         const held = @field(records, @tagName(set)).len;
         const table = (comptime set.table()) orelse return held;
-        const added = if (set == .ships) game.added_types.all().len else 0;
+        const added = switch (set) {
+            .ships => game.additions.ships.all().len,
+            .guns => game.additions.guns.all().len,
+            .missiles => game.additions.missiles.all().len,
+            .pilots => game.additions.pilots.all().len,
+            .text, .itac_text => 0,
+        };
         return @min(held, table.load().capacity() + added);
     }
 
@@ -165,7 +171,7 @@ pub const Set = enum {
                     named = named ++ .{Named{ .name = @tagName(gun), .number = gun.number() }};
                 },
                 .missiles => for (std.enums.values(game.missiles.GameMissile)) |missile| {
-                    if (game.missiles.Type.of(missile).index()) |number| named = named ++ .{Named{ .name = @tagName(missile), .number = number }};
+                    if (missile != .none) named = named ++ .{Named{ .name = @tagName(missile), .number = @intCast(@intFromEnum(missile)) }};
                 },
                 .pilots, .text, .itac_text => {},
             }
@@ -309,8 +315,15 @@ fn placeOf(state: *State, records: Records, comptime set: Set, key: i32) ?usize 
         inline for (comptime set.names()) |named| {
             if (std.mem.eql(u8, name, named.name)) break :named named.number;
         }
-        // The ship types the mods add, by their qualified names.
-        if (set == .ships) if (game.added_types.find(name)) |number| break :named number;
+        // What the mods add, by its qualified name.
+        const found = switch (set) {
+            .ships => game.additions.ships.find(name),
+            .guns => game.additions.guns.find(name),
+            .missiles => game.additions.missiles.find(name),
+            .pilots => game.additions.pilots.find(name),
+            .text, .itac_text => null,
+        };
+        if (found) |number| break :named number;
         return null;
     } else return null;
     if (number < set.first()) return null;
@@ -406,14 +419,14 @@ test "records can be read and changed by number and by name" {
 test "ship records by the game's names and by the qualified names of the types mods add" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
-    const added_types = game.added_types;
-    var list = [_]added_types.Added{.{ .name = "pots:teapot", .mod = "pots", .base = .phoenix, .model = "teapot.shp" }};
-    added_types.testing.use(&list);
-    defer added_types.testing.reset();
+    const ships = game.additions.ships;
+    var list = [_]ships.Added{.{ .name = "pots:teapot", .mod = "pots", .base = .phoenix, .extra = .{ .model = "teapot.shp" } }};
+    ships.install(&list);
+    defer ships.reset();
     var game_ships: [12]stats.Ship = @splat(std.mem.zeroes(stats.Ship));
     game_ships[@intFromEnum(game.gameobj.GameType.phoenix)].max_speed = 300;
     var records: Records = try .init(arena.allocator(), .{
-        .ships = try added_types.ships(arena.allocator(), &game_ships),
+        .ships = try ships.records(stats.Ship, arena.allocator(), &game_ships, 0),
         .guns = &.{},
         .missiles = &.{},
         .pilots = &.{},
@@ -438,7 +451,7 @@ test "ship records by the game's names and by the qualified names of the types m
         \\teapot.max_speed = 150
         \\assert(ships.phoenix.max_speed == 300 and ships["nobody:teapot"] == nil)
     );
-    try std.testing.expectEqual(150, records.ships[added_types.first].max_speed);
+    try std.testing.expectEqual(150, records.ships[ships.first].max_speed);
 }
 
 test "read-only records" {

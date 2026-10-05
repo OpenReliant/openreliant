@@ -27,6 +27,8 @@ const full_guns_name = 0x297;
 fn gunName(kind: guns.GunType) ?u16 {
     const game = kind.base();
     if (game.onTurrets()) return null;
+    // A gun a mod adds shows its own name where it has one.
+    if (kind.added()) |added| if (added.label_string) |name| return name;
     return first_gun_name + @as(u16, @intFromEnum(game));
 }
 

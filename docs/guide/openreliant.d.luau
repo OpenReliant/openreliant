@@ -8,6 +8,7 @@
 
 type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "reliant" | "yamato" | "victorious" | "endeavour" | "mitchell" | "bremen" | "ulysses" | "nanny" | "limpet_car" | "prowler" | "ripper" | "mammoth" | "stork" | "sabre" | "kamov" | "scimitar" | "ramases" | "badanov" | "pukov" | "kurgan" | "sharov" | "gurevich" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "escape_pod" | "debris" | "crewman" | "russian_torpedo" | "neptune_hi" | "uranus_hi" | "jupiter_hi" | "venus_hi" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "latov" | "czar_docked" | "dm_beacon" | "kafelnikof" | "krasny" | "varyag" | "other_ramases" | "other_mitchell" | "rogue_base" | "boridin_breakaway" | "other_escape_pod" | "cargo_pod" | "zakov" | "shell" | "rock_chunk" | "limpet_pod" | "kiev" | "neptune_lo" | "uranus_lo" | "jupiter_lo" | "venus_lo" | "yamato_hangar" | "reliant_hangar" | "comms_relay" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "t_phoenix" | "sun_marker" | "nebula_marker" | "marker" | "stand_in" | number
 type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debris" | "mine" | "planet" | number
+type PilotNumber = "none" | number
 type Side = "friendly" | "hostile" | "neutral" | number
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
@@ -170,6 +171,8 @@ declare class Object
     type: ShipType
     -- Its class, such as `fighter`; nil for an object without stats, such as a nav point.
     class: ShipClass?
+    -- The pilot flying it: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`.
+    pilot: PilotNumber
     -- The side it's on.
     side: Side
     -- Where it is.

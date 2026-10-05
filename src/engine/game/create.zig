@@ -45,7 +45,7 @@ const smoke = @import("main/smoke.zig");
 const srofiles = @import("srofiles.zig");
 const wgate = @import("wgate.zig");
 const xtrabits = @import("xtrabits.zig");
-const added_types = @import("added_types.zig");
+const additions = @import("additions.zig");
 
 pub const models = @import("create/models.zig");
 pub const flight_stats = @import("create/flight.zig");
@@ -60,8 +60,8 @@ pub const escort = @import("create/escort.zig");
 pub const ship_type_count = 256;
 
 /// The ship types the tables hold rows for: the game's, then the types mods add, up to the
-/// markers (`added_types`).
-pub const max_ship_types = added_types.end;
+/// markers (`additions.ships`).
+pub const max_ship_types = additions.ships.end;
 
 /// A ship type's row in the tables, the game's types' and the mods'.
 pub const TypeIndex = u16;
@@ -69,9 +69,9 @@ pub const TypeIndex = u16;
 /// The files of ship type `number`'s model and schematic: the game's (`models.ship_types`), or a
 /// mod's type's, whose schematic is its base's where it names none.
 pub fn shipFiles(number: TypeIndex) models.ShipType {
-    if (added_types.get(number)) |added| return .{
-        .model = added.model,
-        .schematic = added.schematic orelse models.ship_types[@intFromEnum(added.base)].schematic,
+    if (additions.ships.get(number)) |added| return .{
+        .model = added.extra.model,
+        .schematic = added.extra.schematic orelse models.ship_types[@intFromEnum(added.base)].schematic,
     };
     return if (number < models.ship_types.len) models.ship_types[number] else .{ .model = null, .schematic = null };
 }
@@ -127,11 +127,11 @@ pub const Stats = struct {
         for (&tables.flight) |*flight| flight.speed_per_pitch_rate = flight.max_speed / flight.pitch_rate;
     }
 
-    /// OpenReliant's: gives each type the mods add (`added_types`) its base's words that the
+    /// OpenReliant's: gives each type the mods add (`additions.ships`) its base's words that the
     /// executable holds, as `initial` has them, and its own name where it has one. Its figures come
     /// from its record (`load`).
     pub fn addTypes(tables: *Stats) void {
-        for (added_types.all(), added_types.first..) |added, number| {
+        for (additions.ships.all(), additions.ships.first..) |added, number| {
             const base = @intFromEnum(added.base);
             tables.flight[number].turns = tables.flight[base].turns;
             const record = &tables.combat[number];
@@ -1176,6 +1176,8 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         .components = slot.listed(),
         .arcs = if (slot.type) |loaded| loaded.model.firing_arcs else &.{},
     });
+    // OpenReliant's: a ship type a mod adds can name the gun all its guns fire.
+    if (ship_type.added()) |added| if (added.extra.gun) |gun_type| guns.refit(slot.guns, gun_type);
     object.gun_count = @intCast(slot.guns.len);
     // The type's gun groups follow from this object's guns, and each gun learns its side.
     // `gun_groups_build` leaves a type with no model alone.
@@ -1293,16 +1295,18 @@ fn isHardpoint(attachment: shp.Attachment, _: usize) bool {
 }
 
 /// `object_loadout_by_tier` (`0x0045E500`): each missile hardpoint, in turn, takes a rack of the
-/// missile its attachment names for `tier`.
+/// missile its attachment names for `tier`. A ship type a mod adds can name the missile all its
+/// hardpoints take, at every tier.
 ///
 /// Not ported: the player's own ship in the simulator and in missions 30 to 35, which takes a
 /// Vagabond, a Jack Hammer and a Raptor in turn.
 pub fn loadoutByTier(object: *GameObject, model: *const objects.Model, tier: u2) void {
     object.rack_count = 0;
+    const named: ?missiles.Type = if (object.type.added()) |added| added.extra.missile else null;
     var each = hardpoints(model);
     while (each.next()) |hardpoint| {
         if (object.rack_count == gameobj.max_racks) break;
-        object.racks[@intCast(object.rack_count)] = .{ .type = .fromId(hardpoint.attachment.idFor(tier)) };
+        object.racks[@intCast(object.rack_count)] = .{ .type = named orelse .fromId(hardpoint.attachment.idFor(tier)) };
         object.rack_count += 1;
     }
 }
@@ -1334,12 +1338,12 @@ pub fn fitRacks(gpa: Allocator, object: *GameObject, model: *objects.Model, effe
         if (object.rack_count == gameobj.max_racks) break;
         const at: usize = @intCast(object.rack_count);
         const rack = &object.racks[at];
-        const number = rack.type.index() orelse {
+        if (rack.type.index() == null) {
             std.mem.copyForwards(gameobj.Rack, object.racks[at .. gameobj.max_racks - 1], object.racks[at + 1 ..]);
             object.racks[gameobj.max_racks - 1] = .{ .type = .none };
             continue;
-        };
-        const held = models.attachment(.missile, @intCast(number)) orelse models.Attachment{};
+        }
+        const held = rack.type.mounted() orelse models.Attachment{};
         rack.count = @intCast(held.count);
         model.hung[at] = try hang(gpa, effects, hardpoint, held.model);
         object.rack_count += 1;
