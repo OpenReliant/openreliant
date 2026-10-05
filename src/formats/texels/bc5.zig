@@ -13,6 +13,16 @@ const texels = @import("../texels.zig");
 /// The bytes of a BC4 block: two endpoints, then 16 indices of 3 bits.
 const bc4_bytes = 8;
 
+/// The pixels of a block.
+const pixels = texels.block_side * texels.block_side;
+
+/// The highest level of an 8-bit endpoint.
+const top = std.math.maxInt(u8);
+
+/// The steps from the first endpoint to the second, the six values between them included, where
+/// the first is the higher.
+const steps = 7;
+
 /// How far the encoder moves each endpoint from the block's own extremes, either way, as it looks
 /// for the pair that fits the block best.
 const reach = 1;
@@ -23,8 +33,8 @@ const reach = 1;
 pub fn encodeRows(rgba16: []const u8, width: u32, height: u32, first: u32, count: u32, out: []u8) void {
     const across = texels.blocks(width);
     for (first..first + count) |row| for (0..across) |column| {
-        var x: [16]f32 = undefined;
-        var y: [16]f32 = undefined;
+        var x: [pixels]f32 = undefined;
+        var y: [pixels]f32 = undefined;
         for (0..texels.block_side) |down| for (0..texels.block_side) |side| {
             const pixel_x = @min(column * texels.block_side + side, width - 1);
             const pixel_y = @min(row * texels.block_side + down, height - 1);
@@ -45,11 +55,11 @@ fn unit(bytes: *const [2]u8) f32 {
 
 /// The BC4 block that fits `values`, each from 0 to 1, best: of the endpoints near their extremes,
 /// the pair whose eight values leave the least squared error.
-fn bc4(values: [16]f32) [bc4_bytes]u8 {
+fn bc4(values: [pixels]f32) [bc4_bytes]u8 {
     const lowest = std.mem.min(f32, &values);
     const highest = std.mem.max(f32, &values);
-    const low: i32 = @intFromFloat(@round(lowest * 255));
-    const high: i32 = @intFromFloat(@round(highest * 255));
+    const low: i32 = @intFromFloat(@round(lowest * top));
+    const high: i32 = @intFromFloat(@round(highest * top));
     var best: [bc4_bytes]u8 = undefined;
     var least = std.math.inf(f32);
     var from = high - reach;
@@ -57,7 +67,7 @@ fn bc4(values: [16]f32) [bc4_bytes]u8 {
         var to = low - reach;
         while (to <= low + reach) : (to += 1) {
             // The first endpoint above the second picks the block's eight evenly spaced values.
-            if (from > 255 or to < 0 or from <= to) continue;
+            if (from > top or to < 0 or from <= to) continue;
             const made = fit(values, @intCast(from), @intCast(to));
             if (made.error_sum < least) {
                 least = made.error_sum;
@@ -72,28 +82,28 @@ fn bc4(values: [16]f32) [bc4_bytes]u8 {
 
 /// The BC4 block of endpoints `from` above `to`, each of `values` given the index of the nearest
 /// of its eight values, and the block's squared error.
-fn fit(values: [16]f32, from: u8, to: u8) struct { block: [bc4_bytes]u8, error_sum: f32 } {
-    const start = @as(f32, @floatFromInt(from)) / 255;
-    const end = @as(f32, @floatFromInt(to)) / 255;
+fn fit(values: [pixels]f32, from: u8, to: u8) struct { block: [bc4_bytes]u8, error_sum: f32 } {
+    const start = @as(f32, @floatFromInt(from)) / top;
+    const end = @as(f32, @floatFromInt(to)) / top;
     var indices: u48 = 0;
     var error_sum: f32 = 0;
     for (values, 0..) |value, at| {
-        // The step from `from` toward `to`, 0 to 7, of the nearest value.
-        const step: u3 = @intFromFloat(@round(std.math.clamp((start - value) / (start - end), 0, 1) * 7));
-        const decoded = start + (end - start) * @as(f32, @floatFromInt(step)) / 7;
+        // The step from `from` toward `to`, 0 to `steps`, of the nearest value.
+        const step: u3 = @intFromFloat(@round(std.math.clamp((start - value) / (start - end), 0, 1) * steps));
+        const decoded = start + (end - start) * @as(f32, @floatFromInt(step)) / steps;
         error_sum += (value - decoded) * (value - decoded);
         // BC4 numbers the endpoints 0 and 1, and the six values between them 2 to 7.
         const index: u48 = switch (step) {
             0 => 0,
-            7 => 1,
+            steps => 1,
             else => @as(u48, step) + 1,
         };
-        indices |= index << @intCast(at * 3);
+        indices |= index << @intCast(at * @bitSizeOf(u3));
     }
     var block: [bc4_bytes]u8 = undefined;
     block[0] = from;
     block[1] = to;
-    std.mem.writeInt(u48, block[2..8], indices, .little);
+    std.mem.writeInt(u48, block[2..bc4_bytes], indices, .little);
     return .{ .block = block, .error_sum = error_sum };
 }
 
@@ -105,14 +115,14 @@ fn decode(block: [bc4_bytes]u8, index: u3) f32 {
     const value = switch (index) {
         0 => from,
         1 => to,
-        else => (from * @as(f32, @floatFromInt(8 - @as(u4, index))) + to * @as(f32, @floatFromInt(index - 1))) / 7,
+        else => (from * @as(f32, @floatFromInt(steps + 1 - @as(u4, index))) + to * @as(f32, @floatFromInt(index - 1))) / steps,
     };
-    return value / 255;
+    return value / top;
 }
 
 test bc4 {
     // A gentle ramp across a level and a half of 8 bits: the block keeps steps between the levels.
-    var values: [16]f32 = undefined;
+    var values: [pixels]f32 = undefined;
     for (&values, 0..) |*value, at| value.* = (128 + @as(f32, @floatFromInt(at)) * 0.1) / 255;
     const block = bc4(values);
     var worst: f32 = 0;

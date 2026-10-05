@@ -125,8 +125,8 @@ const Vertex = extern struct {
 /// in the low byte, how its texture is magnified in the next two bits, whether the key lights reach
 /// past its terminator in the one after, whether its texture's normal map and material map are
 /// shaded in the two after that, whether the normal map holds two channels (BC5 or RG16) in the
-/// one after that, whether it is drawn as a hologram in the one after that, and whether its texture's
-/// emissive map is shaded in the one after that.
+/// one after that, whether it is drawn as a hologram in the one after that, and whether its
+/// texture's emissive map is shaded in the one after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,

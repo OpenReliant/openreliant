@@ -9,10 +9,14 @@
 //! - The loadout's green and red copies of a picture keep its normal and material maps, but not
 //!   its emissive map, whose own colours would show through the copy's.
 //! - Its files are read one after another, then decoded and mipmapped each on a thread of its own.
+//!   A 16-bit PNG normal map is read and mipmapped at 16 bits
+//!   ([#688](https://github.com/OpenReliant/openreliant/issues/688)).
+//! - A normal map keeps its x and y alone: in BC5 where the picture is compressed, at 16 bits
+//!   otherwise. The length of its mean moves into the material map's alpha.
 //! - For a device that takes compressed textures (`Compressor`), the picture is compressed:
-//!   colours, material maps and emissive maps in BC7, normal maps in BC5, the length of a normal
-//!   map's mean moved into the material map's alpha. What it compressed is kept between runs,
-//!   keyed by the files and the texture detail, so that a picture is compressed once.
+//!   colours, material maps and emissive maps in BC7, normal maps in BC5, a 16-bit one from its
+//!   16 bits. What it compressed is kept between runs, keyed by the files and the texture detail,
+//!   so that a picture is compressed once.
 //! - A picture compressed already, in a DDS or KTX2 file, draws as it is where the device takes its
 //!   format, and is left out otherwise, as is a map whose format doesn't go with its picture's.
 //!

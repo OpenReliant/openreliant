@@ -34,7 +34,7 @@ play: | $(GAME_DIR)/.stamp-install ## Build OpenReliant optimized and run it on 
 SHADER_DIR   := $(ROOT)/src/platform/shaders
 SHADER_NAMES := device bloom shadow
 SHADERS      := $(foreach name,$(SHADER_NAMES),$(foreach stage,vert frag,$(SHADER_DIR)/$(name).$(stage).spv $(SHADER_DIR)/$(name).$(stage).msl) $(SHADER_DIR)/$(name).sha256)
-GLSLC      ?= glslc
+GLSLC        ?= glslc
 
 .PHONY: shaders
 shaders: $(SHADERS) ## Compile the game's shader for Vulkan and Metal (needs glslc)

@@ -75,8 +75,8 @@ pub const Image = struct {
         /// The surface's normal in the texture's own frame, as OpenGL's normal maps hold it: its
         /// x toward the texture's right, its y toward its top and its z out of the surface, each
         /// from -1 to 1 in red, green and blue; in alpha, how long the mean of the normals each
-        /// texel stands for is (`Content.normal`). Compressed in BC5, it holds x and y alone, and
-        /// the length is in the material map's alpha.
+        /// texel stands for is (`Content.normal`). Made ready for the device, in BC5 or 16-bit RG,
+        /// it holds x and y alone, and the length is in the material map's alpha.
         normal: ?[]const Level = null,
         /// How much of the ambient light reaches the surface, how rough it is, and how metallic, in
         /// red, green and blue, as glTF packs them.
@@ -534,11 +534,18 @@ fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) 
         levels.deinit(gpa);
     }
     // Each of a normal map's own normals stands for itself alone, at its full length.
-    if (content == .normal) for (0..@as(usize, picture.width) * picture.height) |at| {
-        var texel = unitsAt(picture, at);
-        texel[3] = 1;
-        store(picture, at, texel);
-    };
+    if (content == .normal) {
+        const bytes: []u8 = @constCast(picture.texels);
+        switch (picture.format) {
+            .rgba8 => for (std.mem.bytesAsSlice([4]u8, bytes)) |*texel| {
+                texel[3] = std.math.maxInt(u8);
+            },
+            .rgba16 => for (std.mem.bytesAsSlice([8]u8, bytes)) |*texel| {
+                std.mem.writeInt(u16, texel[6..8], std.math.maxInt(u16), .native);
+            },
+            else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+        }
+    }
     var finest = picture;
     {
         errdefer gpa.free(finest.texels);
