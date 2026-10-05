@@ -1,9 +1,14 @@
 /* The docs in the website's style (website/index.html): the game's orange on a dark blue-black,
-   condensed uppercase headings, and the display's corner brackets round the code. */
+   headings in the game's menu font, and the display's corner brackets round the code. */
+
+/* Newtown, as on the website (style.css), from website/fonts. */
+@font-face { font-family: "Newtown"; src: url("../../fonts/Newtown.ttf") format("truetype"); font-display: swap; }
+
 :root {
   --bg: #07080c; --card: #10131b; --card-edge: #232938; --text: #e8eaf0; --muted: #9aa3b5;
   --body: #cfd3dd; --accent: #f08a2c; --accent-dim: #8a4a14;
   --display: "Rajdhani", system-ui, sans-serif;
+  --title: "Newtown", "Rajdhani", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); }
@@ -20,7 +25,7 @@ body {
 a { color: var(--accent); text-underline-offset: 2px; }
 header { border-bottom: 1px solid var(--card-edge); background: #07080ce6; position: sticky; top: 0; z-index: 2; backdrop-filter: blur(6px); }
 nav { max-width: 1280px; margin: 0 auto; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; font-family: var(--display); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
-nav .brand { color: var(--text); text-decoration: none; font-weight: 700; font-size: 20px; }
+nav .brand { color: var(--text); text-decoration: none; font-family: var(--title); font-weight: normal; font-size: 19px; letter-spacing: 0.03em; }
 nav .brand span, nav .links a.current { color: var(--accent); }
 nav .links a { color: var(--muted); text-decoration: none; margin-left: 22px; font-size: 15px; }
 nav .links a:hover { color: var(--accent); }
@@ -37,7 +42,7 @@ aside .section > span { display: block; margin: 16px 0 4px; padding-left: 10px; 
 aside .section .section > span { color: var(--text); letter-spacing: 0.06em; margin-top: 8px; }
 main { padding: 28px 0 64px; min-width: 0; }
 .page { color: var(--body); max-width: 860px; }
-.page h1, .page h2, .page h3, .page h4 { font-family: var(--display); color: var(--text); letter-spacing: 0.04em; line-height: 1.15; scroll-margin-top: 80px; }
+.page h1, .page h2, .page h3, .page h4 { font-family: var(--title); font-weight: normal; color: var(--text); letter-spacing: 0.04em; line-height: 1.15; scroll-margin-top: 80px; }
 .page h1 { font-size: 40px; text-transform: uppercase; color: var(--accent); margin: 0 0 18px; }
 .page h2 { font-size: 27px; text-transform: uppercase; margin: 40px 0 12px; padding-top: 14px; border-top: 1px solid var(--card-edge); }
 .page h3 { font-size: 21px; margin: 28px 0 8px; }

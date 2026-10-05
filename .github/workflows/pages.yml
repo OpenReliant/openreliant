@@ -34,6 +34,9 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install "mkdocs>=1.6,<2" pymdown-extensions
+      # The game's menu font, which the headings use, in a form browsers accept.
+      - run: pip install fonttools
+      - run: mkdir -p website/fonts && python3 .github/scripts/web_font.py deps/newtown/Newtown.ttf website/fonts/Newtown.ttf
       - run: mkdocs build --strict --config-file website/mkdocs.yml
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

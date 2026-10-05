@@ -1,9 +1,16 @@
-/* The website's style, shared by its pages: the game's orange on a dark blue-black, condensed
-   uppercase headings, the display's corner brackets and cut corners. */
+/* The website's style, shared by its pages: the game's orange on a dark blue-black, headings in
+   the game's menu font, the display's corner brackets and cut corners. */
+
+/* Newtown, by Roger White, from Roger's Fonts: the face OpenReliant draws the game's menus in
+   (deps/newtown), which the Pages workflow writes into website/fonts in a form browsers accept
+   (.github/scripts/web_font.py). */
+@font-face { font-family: "Newtown"; src: url("fonts/Newtown.ttf") format("truetype"); font-display: swap; }
+
 :root {
   --bg: #07080c; --card: #10131b; --card-edge: #232938; --text: #e8eaf0; --muted: #9aa3b5;
   --accent: #f08a2c; --accent-dim: #8a4a14;
   --display: "Rajdhani", system-ui, sans-serif;
+  --title: "Newtown", "Rajdhani", system-ui, sans-serif;
   /* The display's corner brackets, as round the wing's icons in the game. */
   --brackets:
     linear-gradient(var(--accent), var(--accent)) top left / 18px 2px,
@@ -37,13 +44,12 @@ body {
 main { max-width: 1040px; margin: 0 auto; padding: 0 16px 64px; }
 a { color: var(--accent); text-underline-offset: 2px; }
 nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; font-family: var(--display); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
-nav .brand { color: var(--text); text-decoration: none; font-weight: 700; font-size: 20px; }
+nav .brand { color: var(--text); text-decoration: none; font-family: var(--title); font-weight: normal; font-size: 19px; letter-spacing: 0.03em; }
 nav .brand span { color: var(--accent); }
 nav .links a { color: var(--muted); text-decoration: none; margin-left: 22px; font-size: 15px; }
 nav .links a:hover { color: var(--accent); }
 .hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; align-items: center; padding: 40px 0 48px; }
-.eyebrow { font-family: var(--display); color: var(--accent); letter-spacing: 0.3em; font-size: 15px; font-weight: 700; text-transform: uppercase; }
-h1 { font-family: var(--display); margin: 4px 0 14px; font-size: clamp(44px, 8vw, 76px); line-height: 0.95; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 700; }
+h1 { font-family: var(--title); font-weight: normal; margin: 4px 0 14px; font-size: clamp(44px, 8vw, 76px); line-height: 0.95; letter-spacing: 0.02em; text-transform: uppercase; }
 .lead { font-size: 19px; color: #cfd3dd; margin: 0 0 24px; max-width: 560px; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .button {
@@ -55,8 +61,8 @@ h1 { font-family: var(--display); margin: 4px 0 14px; font-size: clamp(44px, 8vw
 .button:hover { filter: brightness(1.12); }
 .hero img { width: 100%; height: auto; }
 section { margin-top: 56px; }
-h2 { font-family: var(--display); font-size: 30px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; }
-h2 span { color: var(--accent); }
+h2 { font-family: var(--title); font-weight: normal; font-size: 30px; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 6px; }
+h1 span, h2 span { color: var(--accent); }
 .intro { color: var(--muted); margin: 0 0 20px; max-width: 720px; }
 .panel { padding: 22px; background: var(--brackets), linear-gradient(180deg, #141824, var(--card)); background-repeat: no-repeat; box-shadow: inset 0 0 0 1px var(--card-edge); }
 .builds { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
@@ -70,21 +76,21 @@ h2 span { color: var(--accent); }
 .build.yours::before { content: "For this computer: "; }
 .small { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.two h3 { font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
+.two h3 { font-family: var(--title); font-weight: normal; font-size: 17px; letter-spacing: 0.03em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
 .two p { margin: 0; color: #cfd3dd; }
 .two p + p { margin-top: 10px; }
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .steps .panel { padding: 20px; }
-.steps h3 { font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
+.steps h3 { font-family: var(--title); font-weight: normal; font-size: 17px; letter-spacing: 0.03em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
 .steps p { margin: 0; color: #cfd3dd; }
 .timeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .timeline .panel { padding: 20px; }
-.timeline h3 { font-family: var(--display); font-size: 22px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; }
+.timeline h3 { font-family: var(--title); font-weight: normal; font-size: 19px; letter-spacing: 0.03em; text-transform: uppercase; margin: 0 0 6px; }
 .timeline p { margin: 0; color: #cfd3dd; }
 .when { font-family: var(--display); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-size: 14px; margin-bottom: 4px; }
 .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .three .panel { padding: 20px; }
-.three h3 { font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
+.three h3 { font-family: var(--title); font-weight: normal; font-size: 17px; letter-spacing: 0.03em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
 .three p { margin: 0; color: #cfd3dd; }
 .story { margin-top: 8px; max-width: 820px; }
 .story p { font-size: 18px; color: #d6dae3; margin: 0 0 14px; }
@@ -107,3 +113,6 @@ footer p { margin: 0 0 8px; }
 @media (max-width: 520px) { nav .links a:not(.keep) { display: none; } }
 nav .links a.current { color: var(--accent); }
 .page-head { padding: 32px 0 8px; }
+/* The war's story, with Captain Foster's words as the manual's command transmission gives them. */
+.lore blockquote { margin: 18px 0; padding: 4px 0 4px 18px; border-left: 3px solid var(--accent); font-family: var(--title); font-size: 24px; letter-spacing: 0.02em; color: var(--text); }
+.lore cite { display: block; margin-top: 6px; font-family: var(--display); font-style: normal; font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
