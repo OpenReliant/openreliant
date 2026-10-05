@@ -312,7 +312,7 @@ pub const Package = enum {
     /// What it gives, for the reference.
     pub fn about(package: Package) []const u8 {
         return switch (package) {
-            .core => "OpenReliant's version, and events for the global scripts.",
+            .core => "OpenReliant's version, events for the global scripts, and game modes.",
             .records => "The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them.",
             .hooks => "Handlers on the game's functions and events.",
             .world => "The mission's objects, the player's ship and the mission itself.",
@@ -322,7 +322,7 @@ pub const Package = enum {
             .hud => "Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels.",
             .ui => "Drawing over the menus, the front end's screens and the pause menu, while they're shown: text, lines and rectangles, in the window's pixels.",
             .input => "Whether keys are held, and the controls bound to actions.",
-            .camera => "Original and mod-qualified camera views, switching views and registering player-script views.",
+            .camera => "The camera's view: which it is, switching it, and registering views of the mod's own.",
             .audio => "Interface sounds, music and Betty's lines.",
             .postprocessing => "Post effects: GLSL fragment shaders from the mod, drawn over the whole frame, before the flight display or after it.",
             .shaders => "Surface and lighting functions: GLSL functions from the mod that change how surfaces are lit.",

@@ -350,13 +350,13 @@ fn recordLine(call: Call, which: Which, from: Where, to: Where, given: ?LineStyl
 /// `openreliant.ui`).
 pub fn Package(comptime which: Which) type {
     return struct {
-        pub const register_display = if (which == .hud) api.Native("Registers an enabled mod-qualified HUD display for this player context. Its frame callback draws through the HUD package while shown; failure disables only that display.", "name: string, definition: {frame: (seconds: number) -> ()}", "string", @import("registries.zig").registration(.display)) else {};
+        pub const register_display = if (which == .hud) api.Native("Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> ()}", "string", @import("registries.zig").registration(.display)) else {};
         pub const set_display_enabled = if (which == .hud) api.Function("Enables or disables a registered HUD display by qualified name. Returns whether it exists.", &.{ "name", "enabled" }, struct {
             fn set(call: Call, name: []const u8, enabled: bool) bool {
                 return @import("registries.zig").show(call, .display, name, enabled);
             }
         }.set) else {};
-        pub const register_screen = if (which == .ui) api.Native("Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen.", "name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}", "string", @import("registries.zig").registration(.screen)) else {};
+        pub const register_screen = if (which == .ui) api.Native("Registers a screen, which `name` qualified with the mod's name names. While it's shown (`show_screen`), `frame` draws it with this package's functions each frame, and `key` gets each key as it goes down and up. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}", "string", @import("registries.zig").registration(.screen)) else {};
         pub const replace_screen = if (which == .ui) front_end.functions.replace_screen else {};
         pub const go_to = if (which == .ui) front_end.functions.go_to else {};
         pub const start_game_mode = if (which == .ui) front_end.functions.start_game_mode else {};
@@ -379,7 +379,7 @@ pub fn Package(comptime which: Which) type {
             }
         }.draw);
 
-        pub const shape = api.Function("Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices.", &.{ "at", "index", "style" }, struct {
+        pub const shape = api.Function("Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own.", &.{ "at", "index", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), index: u32, given: ?ShapeStyle) void {
                 const view = viewOf(call);
                 const art = view.art orelse call.raise("this layer has no sprite set this frame", .{});
@@ -427,7 +427,7 @@ pub fn Package(comptime which: Which) type {
             }
         }.draw);
 
-        pub const measure = api.Function("Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing.", &.{ "text", "style" }, struct {
+        pub const measure = api.Function("The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.", &.{ "text", "style" }, struct {
             fn measure(call: Call, words: []const u8, given: ?union(enum) { scale: f32, style: TextStyle }) Size {
                 const view = viewOf(call);
                 const style: TextStyle = if (given) |asked| switch (asked) {

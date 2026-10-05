@@ -1,3 +1,7 @@
+-- A chase camera and a line of status text on the flight display, through the built-in interfaces
+-- I.Camera and I.HUD. This is a player script: Shift F12 asks the global script for a strafe run,
+-- and Shift F10 switches between the chase camera and the cockpit.
+
 local I = require("openreliant.interfaces")
 local core = require("openreliant.core")
 local active = false

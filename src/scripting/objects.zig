@@ -124,7 +124,7 @@ pub const fields = struct {
         }
     });
 
-    pub const order = api.Field(?@import("orders.zig").Identifier, "The order it's following: an original name or a mod-qualified custom name; nil for none.", struct {
+    pub const order = api.Field(?@import("orders.zig").Identifier, "The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none.", struct {
         pub fn get(all: *const create.Objects, index: u16) ?@import("orders.zig").Identifier {
             const entry = all.slots[index].current() orelse return null;
             return @import("orders.zig").identifierOf(all, entry.order);

@@ -14,8 +14,8 @@ pub const Identifier = union(enum) { name: []const u8, number: u32 };
 
 /// What `openreliant.camera` holds.
 pub const package = struct {
-    pub const register_view = api.Native("Registers a mod-qualified camera view for this player context. frame returns position and orthonormal orientation; a failed callback returns to cockpit. Mission camera locks take precedence.", "name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?}", "string", registries.registration(.camera));
-    pub const view = api.Field(?Identifier, "The original or mod-qualified view the camera shows; nil while no mission is shown.", struct {
+    pub const register_view = api.Native("Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name.", "name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?}", "string", registries.registration(.camera));
+    pub const view = api.Field(?Identifier, "The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown.", struct {
         pub fn get(call: Call) ?Identifier {
             const held = Presentation.hostOf(call, "camera.view").camera orelse return null;
             if (call.runtime().registries.cameraName(held.camera.view)) |name| return .{ .name = name };
@@ -24,7 +24,7 @@ pub const package = struct {
         }
     });
 
-    pub const set_view = api.Function("Switches to an original or mod-qualified view of object, or the player's ship where nil. Returns whether it switched; mission locks and cutaways take precedence.", &.{ "view", "object" }, setView);
+    pub const set_view = api.Function("Switches to `view`, one of the game's or a mod's by its qualified name, looking at `object`, or at the player's ship where it's nil. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it.", &.{ "view", "object" }, setView);
 };
 
 /// `camera.set_view(view, object)`.

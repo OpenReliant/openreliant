@@ -189,13 +189,13 @@ a script is converted back, with characters the code page doesn't have replaced 
 opens. Mods run in load order, and each mod's scripts in the order its manifest lists them. After
 all of them, each script's `on_records_loaded` handler runs, in the same order. The table a script
 returns is checked: a load script may only return `engine_handlers`, and the only engine handler it
-may give is `on_records_loaded`. Scripts of other kinds, which this version doesn't run yet, and
-unknown kinds are reported in the log.
+may give is `on_records_loaded`. The log reports scripts of a kind this version doesn't run yet
+(`Missile` and `Turret`) and keys that aren't a script kind.
 
 ## Script definitions
 
-[`script.zig`](../../src/scripting/script.zig) defines the complete scripting API from #498, so
-scripts written now keep working as later versions fill it in:
+[`script.zig`](../../src/scripting/script.zig) defines the whole scripting API, including the parts
+that don't run yet, so that scripts written now keep working as later versions fill them in:
 
 - The script kinds that `[Scripts]` accepts: `Load`, `Global`, `Player`, `Menu`, each object class
   (`create.ShipCombat.Class`), `Missile`, `Turret`, and an object type as `Type.` followed by its
@@ -206,10 +206,9 @@ scripts written now keep working as later versions fill it in:
 - The engine handlers, which families may use each one, what the engine passes each
   (`Handler.Arguments`), and what it takes from what each returns (`Handler.Result`).
 - The packages, which families may require each one, and which are implemented in this version
-  (`Package.ready`): all but `postprocessing` and `shaders`.
-  `Kind.runs` says which kinds of script run: load, global, and the object kinds but `Missile` and
-  `Turret`, whose objects aren't objects in the mission's slots
-  ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
+  (`Package.ready`): all of them.
+- `Kind.runs` says which kinds of script run: all but `Missile` and `Turret`, whose objects aren't
+  objects in the mission's slots ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
 
 ## Declarations
 
@@ -409,9 +408,7 @@ the presentation state into the game's (`data.transfer`), as an event would be s
 machine. Handles cross as handles of the same object, and a handle that's no longer valid stays so.
 
 Not ported yet: menu scripts in the rooms, the movies and the loading screens, which have loops of
-their own ([#589](https://github.com/OpenReliant/openreliant/issues/589)); and pictures, shapes
-and a choice of fonts for the drawing packages
-([#590](https://github.com/OpenReliant/openreliant/issues/590)).
+their own ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
 
 ## Saved games
 

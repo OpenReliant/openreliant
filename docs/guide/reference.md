@@ -10,6 +10,7 @@ This page is generated from OpenReliant's code by `make definitions`, so don't c
 - [Engine handlers](#engine-handlers)
 - [Packages](#packages)
 - [Objects](#objects)
+- [Built-in interfaces](#built-in-interfaces)
 - [The game's functions](#the-games-functions)
 - [The order routines](#the-order-routines)
 - [The mission's events](#the-missions-events)
@@ -51,7 +52,7 @@ What `require("openreliant.<name>")` gives.
 
 ### `openreliant.core`
 
-OpenReliant's version, and events for the global scripts. For load, global, object, player and menu scripts.
+OpenReliant's version, events for the global scripts, and game modes. For load, global, object, player and menu scripts.
 
 | Name | Type | What it is |
 |---|---|---|
@@ -97,8 +98,8 @@ What the order table says of each order, the orders each object has, and ending 
 
 | Name | Type | What it is |
 |---|---|---|
-| `register(name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?})` | string | Registers a custom order for this global script's mod. Returns its qualified name, which give_order and orders.info accept. The update callback returns false to finish; callbacks cannot change order stacks. Registrations stop with their script context. |
-| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The metadata of an original order or mod-qualified custom order: name, priority and flags. Nil for an unknown or disabled registration. |
+| `register(name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?})` | string | Registers an order, which `name` qualified with the mod's name names. `update` runs each frame on each ship that follows it, and returns false to end the order; `init` runs as it starts, and `exit` as it ends. They can't give or end orders. Returns the qualified name, which `give_order` and `orders.info` take. The order goes away when the scripts that registered it stop. |
+| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The name, priority and flags of `order`, one of the game's or a mod's by its qualified name. Nil for an order that doesn't exist, or a mod's that failed. |
 | `stack(object: Object)` | list of [OrderEntry](#orderentry) | The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends. |
 | `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
 | `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
@@ -112,14 +113,14 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
-| `register_display(name: string, definition: {frame: (seconds: number) -> ()})` | string | Registers an enabled mod-qualified HUD display for this player context. Its frame callback draws through the HUD package while shown; failure disables only that display. |
+| `register_display(name: string, definition: {frame: (seconds: number) -> ()})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. Returns the qualified name. |
 | `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
 
 ### `openreliant.ui`
 
@@ -131,7 +132,7 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
-| `register_screen(name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?})` | string | Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen. |
+| `register_screen(name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?})` | string | Registers a screen, which `name` qualified with the mod's name names. While it's shown (`show_screen`), `frame` draws it with this package's functions each frame, and `key` gets each key as it goes down and up. Returns the qualified name. |
 | `replace_screen(screen: FrontEndScreen, name: string?)` | boolean | Makes the calling mod's registered screen `name` stand in for the front end's own `screen`, such as `"main_menu"`: while the front end shows `screen`, it runs and draws the mod's screen in its place, over its background. nil gives `screen` back to the front end. Only menu scripts can use it. Returns whether the screen is registered. |
 | `go_to(screen: FrontEndScreen)` | nothing | Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it. |
 | `start_game_mode(name: string)` | boolean | Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered. |
@@ -140,11 +141,11 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
 | `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
 
 ### `openreliant.input`
 
@@ -152,19 +153,19 @@ Whether keys are held, and the controls bound to actions. For player and menu sc
 
 | Name | Type | What it is |
 |---|---|---|
-| `register_action(name: string, definition: Definition)` | string | Registers a mod-qualified action from a menu script. Its label appears in controls; conflicting defaults stay unassigned. Returns its name for action_down and on_action. Bindings are saved by name. |
+| `register_action(name: string, definition: Definition)` | string | Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it. |
 | `key_down(key: Key)` | boolean | Whether `key` is held down. |
 | `action_down(action: string \| number)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. |
 
 ### `openreliant.camera`
 
-Original and mod-qualified camera views, switching views and registering player-script views. For player scripts.
+The camera's view: which it is, switching it, and registering views of the mod's own. For player scripts.
 
 | Name | Type | What it is |
 |---|---|---|
-| `view` | string \| number, or nil | The original or mod-qualified view the camera shows; nil while no mission is shown. |
-| `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a mod-qualified camera view for this player context. frame returns position and orthonormal orientation; a failed callback returns to cockpit. Mission camera locks take precedence. |
-| `set_view(view: string \| number, object: Object?)` | boolean | Switches to an original or mod-qualified view of object, or the player's ship where nil. Returns whether it switched; mission locks and cutaways take precedence. |
+| `view` | string \| number, or nil | The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown. |
+| `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name. |
+| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, one of the game's or a mod's by its qualified name, looking at `object`, or at the player's ship where it's nil. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it. |
 
 ### `openreliant.audio`
 
@@ -212,7 +213,7 @@ Timers, kept with the saved game: game time for global and object scripts, real 
 
 | Name | Type | What it is |
 |---|---|---|
-| `register_timer(name: string, handler: (data: any) -> ())` | nothing | Registers `handler` under `name` for the script's mod, for timers to run. Register it as the script runs, so that a timer kept with a saved game finds it again after the game is loaded. |
+| `register_timer(name: string, handler: (data: any) -> ())` | nothing | Registers `handler` under `name`, for the timers of the mod's scripts of the same kind (and on the same object) to run. Register it as the script runs, so that a timer kept with a saved game finds it again after the game is loaded. |
 | `after(seconds: number, name: string, data: any?)` | nothing | Runs the function registered under `name` once `seconds` have passed, with `data`, which must be plain data: seconds of game time for global and object scripts, and of real time for player and menu scripts. |
 
 ### `openreliant.interfaces`
@@ -281,7 +282,7 @@ scripts on their object.
 | `velocity` | vector | How far it moves in a simulation step, of which there are 25 a second. |
 | `speed` | number | How fast it moves: the length of its velocity. |
 | `is_player` | boolean | Whether it's the player's ship. |
-| `order` | string \| number, or nil | The order it's following: an original name or a mod-qualified custom name; nil for none. |
+| `order` | string \| number, or nil | The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none. |
 | `last_attacker` | [object](#objects), or nil | The object that last hit it; nil for none, or once that one has left the mission. |
 | `throttle` | number | *Changes.* Its throttle: 1 is full, 2 the afterburner's and -1 reverse thrust's. Its order or its pilot usually sets it each frame. |
 | `roll_input` | number | *Changes.* How hard it rolls, from -1 to 1. Its order or its pilot usually sets it each frame. |
@@ -303,7 +304,7 @@ scripts on their object.
 
 ## Built-in interfaces
 
-These groups reuse existing API declarations beneath mod overrides. Context permissions still apply.
+`require("openreliant.interfaces")` gives these groups of the packages' functions, unless a mod offers an interface of the same name. A group a script's packages don't allow is nil.
 
 ### I.Flight
 
@@ -319,8 +320,8 @@ These groups reuse existing API declarations beneath mod overrides. Context perm
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `register(name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?})` | string | Registers a custom order for this global script's mod. Returns its qualified name, which give_order and orders.info accept. The update callback returns false to finish; callbacks cannot change order stacks. Registrations stop with their script context. |
-| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The metadata of an original order or mod-qualified custom order: name, priority and flags. Nil for an unknown or disabled registration. |
+| `register(name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?})` | string | Registers an order, which `name` qualified with the mod's name names. `update` runs each frame on each ship that follows it, and returns false to end the order; `init` runs as it starts, and `exit` as it ends. They can't give or end orders. Returns the qualified name, which `give_order` and `orders.info` take. The order goes away when the scripts that registered it stop. |
+| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The name, priority and flags of `order`, one of the game's or a mod's by its qualified name. Nil for an order that doesn't exist, or a mod's that failed. |
 | `stack(object: Object)` | list of [OrderEntry](#orderentry) | The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends. |
 | `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
 | `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
@@ -330,37 +331,37 @@ These groups reuse existing API declarations beneath mod overrides. Context perm
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds a handler through the existing hooks package. |
-| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds an after handler through the existing hooks package. |
+| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.add`: adds a handler to the hook `name`. |
+| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.after`: adds a handler that runs after the function `name`. |
 
 ### I.Weapons
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds a handler through the existing hooks package. |
-| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds an after handler through the existing hooks package. |
+| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.add`: adds a handler to the hook `name`. |
+| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.after`: adds a handler that runs after the function `name`. |
 
 ### I.Carriers
 
 | Member | Type or returns | Description |
 |---|---|---|
 | `give_order(self: Object, order: string \| number, target: Object?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
-| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds a handler through the existing hooks package. |
-| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | Adds an after handler through the existing hooks package. |
+| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.add`: adds a handler to the hook `name`. |
+| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.after`: adds a handler that runs after the function `name`. |
 
 ### I.Camera
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `view` | string \| number, or nil | The original or mod-qualified view the camera shows; nil while no mission is shown. |
-| `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a mod-qualified camera view for this player context. frame returns position and orthonormal orientation; a failed callback returns to cockpit. Mission camera locks take precedence. |
-| `set_view(view: string \| number, object: Object?)` | boolean | Switches to an original or mod-qualified view of object, or the player's ship where nil. Returns whether it switched; mission locks and cutaways take precedence. |
+| `view` | string \| number, or nil | The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown. |
+| `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name. |
+| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, one of the game's or a mod's by its qualified name, looking at `object`, or at the player's ship where it's nil. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it. |
 
 ### I.Controls
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `register_action(name: string, definition: Definition)` | string | Registers a mod-qualified action from a menu script. Its label appears in controls; conflicting defaults stay unassigned. Returns its name for action_down and on_action. Bindings are saved by name. |
+| `register_action(name: string, definition: Definition)` | string | Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it. |
 | `key_down(key: Key)` | boolean | Whether `key` is held down. |
 | `action_down(action: string \| number)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. |
 
@@ -371,14 +372,14 @@ These groups reuse existing API declarations beneath mod overrides. Context perm
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
-| `register_display(name: string, definition: {frame: (seconds: number) -> ()})` | string | Registers an enabled mod-qualified HUD display for this player context. Its frame callback draws through the HUD package while shown; failure disables only that display. |
+| `register_display(name: string, definition: {frame: (seconds: number) -> ()})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. Returns the qualified name. |
 | `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
 
 ### I.Audio
 
@@ -411,7 +412,7 @@ These groups reuse existing API declarations beneath mod overrides. Context perm
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
-| `register_screen(name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?})` | string | Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen. |
+| `register_screen(name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?})` | string | Registers a screen, which `name` qualified with the mod's name names. While it's shown (`show_screen`), `frame` draws it with this package's functions each frame, and `key` gets each key as it goes down and up. Returns the qualified name. |
 | `replace_screen(screen: FrontEndScreen, name: string?)` | boolean | Makes the calling mod's registered screen `name` stand in for the front end's own `screen`, such as `"main_menu"`: while the front end shows `screen`, it runs and draws the mod's screen in its place, over its background. nil gives `screen` back to the front end. Only menu scripts can use it. Returns whether the screen is registered. |
 | `go_to(screen: FrontEndScreen)` | nothing | Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it. |
 | `start_game_mode(name: string)` | boolean | Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered. |
@@ -420,11 +421,11 @@ These groups reuse existing API declarations beneath mod overrides. Context perm
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
 | `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
 
 ## The game's functions
 
@@ -1119,7 +1120,7 @@ number. A script can set a field to either.
 
 ### ShipType
 
-`predator`, `grendel`, `wolverine`, `reaper`, `phoenix`, `reliant`, `yamato`, `victorious`, `endeavour`, `mitchell`, `bremen`, `ulysses`, `nanny`, `limpet_car`, `prowler`, `ripper`, `mammoth`, `stork`, `sabre`, `kamov`, `scimitar`, `ramases`, `badanov`, `pukov`, `kurgan`, `sharov`, `gurevich`, `saladin`, `darkreign`, `stalag`, `antanov`, `kronstadt`, `boridin`, `troop_car`, `torpedo`, `escape_pod`, `debris`, `crewman`, `russian_torpedo`, `neptune_hi`, `uranus_hi`, `jupiter_hi`, `venus_hi`, `proto_gate`, `advanced_gate`, `proximity_mine`, `black_box`, `satellite`, `mammoth_wreck_front`, `mammoth_wreck_back`, `badanov_wreck_back`, `badanov_wreck_front`, `kurgan_wreck`, `krasnaya`, `latov`, `czar_docked`, `dm_beacon`, `kafelnikof`, `krasny`, `varyag`, `other_ramases`, `other_mitchell`, `rogue_base`, `boridin_breakaway`, `other_escape_pod`, `cargo_pod`, `zakov`, `shell`, `rock_chunk`, `limpet_pod`, `kiev`, `neptune_lo`, `uranus_lo`, `jupiter_lo`, `venus_lo`, `yamato_hangar`, `reliant_hangar`, `comms_relay`, `late_escape_pod`, `other_late_escape_pod`, `fuel_pod`, `t_phoenix`, `sun_marker`, `nebula_marker`, `marker`, `stand_in`, or a number.
+`predator`, `grendel`, `wolverine`, `reaper`, `phoenix`, `reliant`, `yamato`, `victorious`, `endeavour`, `mitchell`, `bremen`, `ulysses`, `nanny`, `limpet_car`, `prowler`, `ripper`, `mammoth`, `stork`, `sabre`, `kamov`, `scimitar`, `ramases`, `badanov`, `pukov`, `kurgan`, `sharov`, `gurevich`, `saladin`, `darkreign`, `stalag`, `antanov`, `kronstadt`, `boridin`, `troop_car`, `torpedo`, `escape_pod`, `debris`, `crewman`, `russian_torpedo`, `neptune_hi`, `uranus_hi`, `jupiter_hi`, `venus_hi`, `proto_gate`, `advanced_gate`, `proximity_mine`, `black_box`, `satellite`, `mammoth_wreck_front`, `mammoth_wreck_back`, `badanov_wreck_back`, `badanov_wreck_front`, `kurgan_wreck`, `krasnaya`, `latov`, `czar_docked`, `dm_beacon`, `kafelnikof`, `krasny`, `varyag`, `other_ramases`, `other_mitchell`, `rogue_base`, `boridin_breakaway`, `other_escape_pod`, `cargo_pod`, `zakov`, `shell`, `rock_chunk`, `limpet_pod`, `kiev`, `neptune_lo`, `uranus_lo`, `jupiter_lo`, `venus_lo`, `yamato_hangar`, `reliant_hangar`, `comms_relay`, `late_escape_pod`, `other_late_escape_pod`, `fuel_pod`, `t_phoenix`, `sun_marker`, `nebula_marker`, `marker`, `stand_in`, the qualified name of one a mod adds, or a number.
 
 ### ShipClass
 
@@ -1127,7 +1128,7 @@ number. A script can set a field to either.
 
 ### PilotNumber
 
-`none`, or a number.
+`none`, the qualified name of one a mod adds, or a number.
 
 ### Side
 
@@ -1191,7 +1192,7 @@ number. A script can set a field to either.
 
 ### GunType
 
-`laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`, or a number.
+`laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`, the qualified name of one a mod adds, or a number.
 
 ### RadioMode
 
@@ -1212,3 +1213,11 @@ number. A script can set a field to either.
 ### PilotSkill
 
 `low`, `medium`, `high`, or a number.
+
+### Action
+
+`cockpit_camera`, `left_view_camera`, `right_view_camera`, `rear_view_camera`, `flyby_camera`, `target_camera`, `external_camera`, `missile_camera`, `next_enemy_target`, `previous_enemy_target`, `next_friendly_target`, `previous_friendly_target`, `next_subtarget`, `previous_subtarget`, `target_under_reticule`, `target_nearest_enemy`, `target_nearest_friendly`, `target_torpedo`, `smart_target`, `primary_target`, `afterburners`, `afterburner_toggle`, `reverse_thrust`, `jump_drive`, `match_speed`, `accelerate`, `decelerate`, `zero_throttle`, `full_throttle`, `roll_ship_clockwise`, `roll_ship_anti_clockwise`, `nose_up`, `nose_down`, `rotate_clockwise`, `rotate_anti_clockwise`, `strafe_left`, `strafe_right`, `joystick_roll`, `fire_lasers`, `full_guns`, `gunnery_window`, `gunnery_window_locked`, `synchronise_guns`, `toggle_blindfire`, `launch_missile`, `missile_window`, `rotate_missiles_clockwise`, `rotate_missiles_anticlockwise`, `comms_window`, `powerball_window`, `powerball_window_locked`, `full_power_to_gunnery`, `full_power_to_engines`, `full_power_to_shields`, `equalize_power`, `objectives_window`, `wing_status_window`, `wing_status_window_locked`, `damage_window`, `damage_window_locked`, `radar_ranges`, `shield_balancing`, `countermeasures`, `eject`, `cloak_ship`, `ecm`, `spectral_shields`, `attack_my_target`, `back_off`, `help_me`, `permission_to_land`, `display_kills`, `send_comms_message`, `key_config`.
+
+### View
+
+`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.

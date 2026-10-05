@@ -13,8 +13,8 @@ const world = @import("world.zig");
 const core = @import("core.zig");
 
 const HookFunctions = struct {
-    pub const add_hook = api.Native("Adds a handler through the existing hooks package.", "name: string, handler: (e: any) -> boolean?, filter: any?", "HookHandle", forward("add"));
-    pub const after_hook = api.Native("Adds an after handler through the existing hooks package.", "name: string, handler: (e: any) -> boolean?, filter: any?", "HookHandle", forward("after"));
+    pub const add_hook = api.Native("`hooks.add`: adds a handler to the hook `name`.", "name: string, handler: (e: any) -> boolean?, filter: any?", "HookHandle", forward("add"));
+    pub const after_hook = api.Native("`hooks.after`: adds a handler that runs after the function `name`.", "name: string, handler: (e: any) -> boolean?, filter: any?", "HookHandle", forward("after"));
 };
 
 fn forward(comptime name: [:0]const u8) fn (*@import("luau.zig").State) i32 {

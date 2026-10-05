@@ -1,3 +1,7 @@
+-- The mod's three actions, which the player can rebind on the controls screen, and a help panel,
+-- a registered screen that Shift F9 shows and Escape closes. This is a menu script: actions are
+-- registered from menu scripts.
+
 local input = require("openreliant.input")
 local ui = require("openreliant.ui")
 input.register_action("start", { label = "Start strafe run", key = "f12", modifier = "shift" })
