@@ -564,6 +564,8 @@ pub fn controlsFrame(controls: Controls) void {
     if (view.frame(.{
         .object = seen,
         .player = subject,
+        // The target view goes round the player's target.
+        .target = if (controls.display.target) |aimed| camera.Subject.of(&all.slots[aimed.slot]) else null,
         .ticks = ticks,
         .now = at,
         .ahead = objects.pastTick(clock, controls.smooth_motion),
