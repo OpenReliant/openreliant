@@ -1398,7 +1398,7 @@ struct Surface {
     vec3 normal;     // in camera space, unit length; zero for an unlit pixel
     float roughness; // 1 and 0 where the texture has no material maps
     float metallic;
-    vec3 glow;       // emitted light, added after lighting; starts at zero
+    vec3 glow;       // emitted light, added after lighting; starts as the emissive map's
     vec2 uv;         // read only: the texture coordinates
     vec3 position;   // read only: its position in camera space
     vec3 toEye;      // read only: the direction toward the eye

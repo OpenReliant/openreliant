@@ -3,13 +3,16 @@
 //! ([#503](https://github.com/OpenReliant/openreliant/issues/503)).
 //!
 //! - A picture or a map is read from the first file of its name the mods give: `<name>.ktx2`,
-//!   `<name>.dds` or `<name>.png` (`containers`). A map is `<name>_normal`, `<name>_orm`, or the
-//!   occlusion, roughness and metallic maps alone, packed into one as glTF packs them.
+//!   `<name>.dds` or `<name>.png` (`containers`). A map is `<name>_normal`, `<name>_orm`, the
+//!   occlusion, roughness and metallic maps alone, packed into one as glTF packs them, or
+//!   `<name>_emissive`.
+//! - The loadout's green and red copies of a picture keep its normal and material maps, but not
+//!   its emissive map, whose own colours would show through the copy's.
 //! - Its files are read one after another, then decoded and mipmapped each on a thread of its own.
 //! - For a device that takes compressed textures (`Compressor`), the picture is compressed:
-//!   colours and material maps in BC7, normal maps in BC5, the length of a normal map's mean moved
-//!   into the material map's alpha. What it compressed is kept between runs, keyed by the files
-//!   and the texture detail, so that a picture is compressed once.
+//!   colours, material maps and emissive maps in BC7, normal maps in BC5, the length of a normal
+//!   map's mean moved into the material map's alpha. What it compressed is kept between runs,
+//!   keyed by the files and the texture detail, so that a picture is compressed once.
 //! - A picture compressed already, in a DDS or KTX2 file, draws as it is where the device takes its
 //!   format, and is left out otherwise, as is a map whose format doesn't go with its picture's.
 //!
@@ -52,7 +55,7 @@ pub const containers = std.enums.values(Container);
 
 /// What changes the key of what the compressor keeps: change it when what `load` makes of the
 /// same files changes.
-const kept_version: u32 = 1;
+const kept_version: u32 = 2;
 
 /// A file of a picture, read: its kind, its name and its bytes, owned.
 const File = struct {
@@ -138,6 +141,8 @@ pub fn load(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u
             return null;
         }
         wanted.tint(made.levels);
+        if (made.maps.emissive) |levels| freeLevels(gpa, levels);
+        made.maps.emissive = null;
     }
     const compressed = try conform(gpa, &made, &read, compressor) orelse {
         made.deinit(gpa);
@@ -155,6 +160,7 @@ fn decodeAll(gpa: Allocator, read: *const Read, longest: u32) Allocator.Error!?I
         .{ .read = read, .role = .picture, .longest = longest, .gpa = gpa },
         .{ .read = read, .role = .normal, .longest = longest, .gpa = gpa },
         .{ .read = read, .role = .orm, .longest = longest, .gpa = gpa, .size = size },
+        .{ .read = read, .role = .emissive, .longest = longest, .gpa = gpa },
     };
     var threads: [tasks.len]?std.Thread = @splat(null);
     for (tasks[1..], threads[1..]) |*task, *thread| {
@@ -170,17 +176,18 @@ fn decodeAll(gpa: Allocator, read: *const Read, longest: u32) Allocator.Error!?I
     for (tasks) |task| failed = failed or task.failed;
     const picture = tasks[0].made;
     var made: Image = .{ .levels = picture orelse &.{} };
-    made.maps = .{ .normal = tasks[1].made, .orm = tasks[2].made };
+    made.maps = .{ .normal = tasks[1].made, .orm = tasks[2].made, .emissive = tasks[3].made };
     if (failed or picture == null) {
         made.deinit(gpa);
         return if (failed) error.OutOfMemory else null;
     }
     // A map of another size than the picture's is left out.
-    inline for (.{ "normal", "orm" }, .{ MapFile.normal, MapFile.orm }) |field, map| {
-        if (@field(made.maps, field)) |levels| if (levels[0].width != made.width() or levels[0].height != made.height()) {
+    inline for (@typeInfo(Image.Maps).@"struct".fields) |field| {
+        if (@field(made.maps, field.name)) |levels| if (levels[0].width != made.width() or levels[0].height != made.height()) {
+            const map = @field(MapFile, field.name);
             log.warn("the {s} of {s} is left out: it is {d}x{d} and its picture {d}x{d}", .{ map.label(), read.picture.?.name, levels[0].width, levels[0].height, made.width(), made.height() });
             freeLevels(gpa, levels);
-            @field(made.maps, field) = null;
+            @field(made.maps, field.name) = null;
         };
     }
     return made;
@@ -189,7 +196,7 @@ fn decodeAll(gpa: Allocator, read: *const Read, longest: u32) Allocator.Error!?I
 /// What a file of the picture is decoded as, on a thread of its own.
 const Task = struct {
     read: *const Read,
-    role: enum { picture, normal, orm },
+    role: enum { picture, normal, orm, emissive },
     longest: u32,
     gpa: Allocator,
     /// The picture's own size, which a map packed from parts must have.
@@ -205,6 +212,7 @@ const Task = struct {
             .orm => for ([_]MapFile{ .orm, .occlusion, .roughness, .metallic }) |map| {
                 if (task.read.maps.get(map) != null) break true;
             } else false,
+            .emissive => task.read.maps.get(.emissive) != null,
         };
     }
 
@@ -222,6 +230,7 @@ const Task = struct {
             .picture => decodeFile(task.gpa, read.picture.?, .colour, task.longest),
             .normal => decodeFile(task.gpa, read.maps.get(.normal).?, .normal, task.longest),
             .orm => if (read.maps.get(.orm)) |file| decodeFile(task.gpa, file, .data, task.longest) else packedMap(task.gpa, read, task.size, task.longest),
+            .emissive => decodeFile(task.gpa, read.maps.get(.emissive).?, .colour, task.longest),
         };
     }
 };
@@ -354,8 +363,10 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
     const compressed = format.compressed() or compressing;
     const normal_format: Level.Format = if (compressed) Compressor.Kind.normals.format() else .rgba8;
     const orm_format: Level.Format = if (compressed) Compressor.Kind.data.format() else .rgba8;
+    const emissive_format: Level.Format = if (compressed) Compressor.Kind.colour.format() else .rgba8;
     leaveOut(gpa, &made.maps.normal, normal_format, compressing, name, .normal);
     leaveOut(gpa, &made.maps.orm, orm_format, compressing, name, .orm);
+    leaveOut(gpa, &made.maps.emissive, emissive_format, compressing, name, .emissive);
     if (!compressing) return false;
     // The length of the normals' mean goes to the material map's alpha, as BC5 keeps two channels.
     if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (normals[0].format == .rgba8 and orm[0].format == .rgba8) {
@@ -369,6 +380,7 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
     any = try compressLevels(gpa, held, &made.levels, .colour) or any;
     if (made.maps.normal) |*levels| any = try compressLevels(gpa, held, levels, .normals) or any;
     if (made.maps.orm) |*levels| any = try compressLevels(gpa, held, levels, .data) or any;
+    if (made.maps.emissive) |*levels| any = try compressLevels(gpa, held, levels, .colour) or any;
     return any;
 }
 
@@ -450,10 +462,9 @@ const TestCompressor = struct {
         held.loads += 1;
         const kept = held.kept orelse return null;
         if (!std.mem.eql(u8, name, held.kept_name[0..held.kept_name_len]) or key.* != held.kept_key) return null;
-        return .{ .levels = try copy(gpa, kept.levels), .maps = .{
-            .normal = if (kept.maps.normal) |levels| try copy(gpa, levels) else null,
-            .orm = if (kept.maps.orm) |levels| try copy(gpa, levels) else null,
-        } };
+        var maps: [Image.Maps.count]?[]const Level = @splat(null);
+        for (kept.maps.list(), &maps) |kept_map, *map| map.* = if (kept_map) |levels| try copy(gpa, levels) else null;
+        return .{ .levels = try copy(gpa, kept.levels), .maps = .fromList(maps) };
     }
 
     fn store(context: *anyopaque, name: []const u8, key: *const Compressor.Key, image: Image) void {
@@ -462,13 +473,9 @@ const TestCompressor = struct {
         @memcpy(held.kept_name[0..name.len], name);
         held.kept_name_len = name.len;
         held.kept_key = key.*;
-        held.kept = .{
-            .levels = copy(std.testing.allocator, image.levels) catch return,
-            .maps = .{
-                .normal = if (image.maps.normal) |levels| copy(std.testing.allocator, levels) catch null else null,
-                .orm = if (image.maps.orm) |levels| copy(std.testing.allocator, levels) catch null else null,
-            },
-        };
+        var maps: [Image.Maps.count]?[]const Level = @splat(null);
+        for (image.maps.list(), &maps) |given, *map| map.* = if (given) |levels| copy(std.testing.allocator, levels) catch null else null;
+        held.kept = .{ .levels = copy(std.testing.allocator, image.levels) catch return, .maps = .fromList(maps) };
     }
 
     fn copy(gpa: Allocator, levels: []const Level) Allocator.Error![]const Level {
@@ -490,10 +497,13 @@ test "a picture and its maps are compressed for the device, and kept for the nex
     defer gpa.free(normal);
     const roughness = try testPng(gpa, 4, .{ 64, 64, 64, 255 });
     defer gpa.free(roughness);
+    const emissive = try testPng(gpa, 4, .{ 255, 160, 0, 255 });
+    defer gpa.free(emissive);
     const pictures: srtexture.testing.Pictures = .{ .held = &.{
         .{ .name = "hull.png", .bytes = picture },
         .{ .name = "hull_normal.png", .bytes = normal },
         .{ .name = "hull_roughness.png", .bytes = roughness },
+        .{ .name = "hull_emissive.png", .bytes = emissive },
     } };
     var compressor: TestCompressor = .{};
     defer compressor.deinit();
@@ -502,14 +512,16 @@ test "a picture and its maps are compressed for the device, and kept for the nex
     try std.testing.expectEqual(Level.Format.bc7, made.levels[0].format);
     try std.testing.expectEqual(Level.Format.bc5, made.maps.normal.?[0].format);
     try std.testing.expectEqual(Level.Format.bc7, made.maps.orm.?[0].format);
-    // Three levels of each of the three, the normals' mean length in the material map's alpha:
+    try std.testing.expectEqual(Level.Format.bc7, made.maps.emissive.?[0].format);
+    // Three levels of each of the four, the normals' mean length in the material map's alpha:
     // 255 at the finest level, where each normal stands for itself.
-    try std.testing.expectEqual(9, compressor.compressed);
+    try std.testing.expectEqual(12, compressor.compressed);
     try std.testing.expectEqual(255, compressor.material_alpha.?);
     // The next run reads what was kept, and compresses nothing.
     const again = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), null)).?;
     defer again.deinit(gpa);
-    try std.testing.expectEqual(9, compressor.compressed);
+    try std.testing.expectEqual(12, compressor.compressed);
+    try std.testing.expectEqualSlices(u8, made.maps.emissive.?[0].texels, again.maps.emissive.?[0].texels);
     try std.testing.expectEqual(2, compressor.loads);
     try std.testing.expectEqualSlices(u8, made.levels[0].texels, again.levels[0].texels);
 }
@@ -518,22 +530,28 @@ test "a copy of a picture is tinted, and kept apart from the picture" {
     const gpa = std.testing.allocator;
     const picture = try testPng(gpa, 4, .{ 200, 100, 50, 255 });
     defer gpa.free(picture);
-    const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "hull.png", .bytes = picture }} };
+    const pictures: srtexture.testing.Pictures = .{ .held = &.{
+        .{ .name = "hull.png", .bytes = picture },
+        .{ .name = "hull_emissive.png", .bytes = picture },
+    } };
     var compressor: TestCompressor = .{};
     defer compressor.deinit();
     const plain = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), null)).?;
     defer plain.deinit(gpa);
+    try std.testing.expect(plain.maps.emissive != null);
     // The test compressor keeps the first byte, the red: a picture of one colour is at the top of
     // its range, so its green copy has the little red of full green.
     const green = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), .green)).?;
     defer green.deinit(gpa);
     try std.testing.expectEqual(200, plain.levels[0].texels[0]);
     try std.testing.expectEqual(23, green.levels[0].texels[0]);
+    // The copy has no emissive map, whose own colours would show through it.
+    try std.testing.expectEqual(null, green.maps.emissive);
     // It is kept under its own name, and read back from there.
     try std.testing.expectEqualStrings("ghull", compressor.kept_name[0..compressor.kept_name_len]);
     const again = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), .green)).?;
     defer again.deinit(gpa);
-    try std.testing.expectEqual(6, compressor.compressed);
+    try std.testing.expectEqual(9, compressor.compressed);
 }
 
 test "a DDS picture draws as it is where the device takes its format, and not otherwise" {
