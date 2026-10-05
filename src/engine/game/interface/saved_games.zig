@@ -617,7 +617,7 @@ pub const SavedGames = struct {
         if (screen.confirm) |confirm| try confirm.draw(canvas, dialog_art);
         if (screen.save_error) |box| try box.draw(canvas, dialog_art);
         try canvas.drawVersion();
-        try canvas.shape(art, pointer.shape(), pointer.at);
+        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 

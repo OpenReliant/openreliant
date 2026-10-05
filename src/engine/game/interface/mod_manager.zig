@@ -433,7 +433,7 @@ pub const ModManager = struct {
         }
         try movers.draw(canvas, art, screen.litArrow(.move));
         try canvas.drawVersion();
-        try canvas.shape(art, pointer.shape(), pointer.at);
+        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 
     /// The rows shown, each a check box and the mod's name, the chosen one white, a mod that is off
