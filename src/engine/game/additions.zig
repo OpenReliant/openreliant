@@ -449,8 +449,20 @@ pub const PilotExtra = struct {
     face: pilots_module.Face,
 };
 
-fn readPilot(_: Context, _: []const u8, base: u8) Allocator.Error!?PilotExtra {
-    return .{ .face = pilots_module.faces[base] };
+/// A pilot's face, its base's but for the films and the voice its section gives: `Talking`,
+/// `Laughing` and `Dying` name the films its face plays (`pilots\<film>.fm8`, which a mod gives as
+/// `<film>.fm8`), and `Voice` the start of its lines' names.
+fn readPilot(context: Context, section: []const u8, base: u8) Allocator.Error!?PilotExtra {
+    const manifest = context.mod.manifest;
+    var face = pilots_module.faces[base];
+    const film_keys = [_]struct { []const u8, pilots_module.Head }{ .{ "Talking", .talking }, .{ "Laughing", .laughing }, .{ "Dying", .dying } };
+    for (film_keys) |entry| {
+        const key, const head = entry;
+        const film = manifest.value(section, key) orelse continue;
+        face.films[@intFromEnum(head)] = try context.arena.dupe(u8, std.fs.path.stem(film));
+    }
+    if (manifest.value(section, "Voice")) |voice| face.own_voice = try context.arena.dupe(u8, std.mem.trim(u8, voice, " \t"));
+    return .{ .face = face };
 }
 
 /// The pilots mods add, after the game's 194, up to the one a mission's ship record keeps for
@@ -576,6 +588,9 @@ test "a family reads what each mod lists" {
         \\trooper=200
         \\[Pilot trooper]
         \\Base=0
+        \\Talking=trooper.fm8
+        \\Dying=trooper_d
+        \\Voice=trp
         \\[ShipTypes]
         \\teapot=300
         \\kettle=
@@ -610,6 +625,12 @@ test "a family reads what each mod lists" {
     // A tier past the campaign's last is left out, with the missile.
     try std.testing.expectEqual(1, missiles.all().len);
     try std.testing.expectEqual(0, pilots.all()[0].base);
+    // Its own films and voice, and its base's films for the rest.
+    const face = pilots.all()[0].extra.face;
+    try std.testing.expectEqualStrings("trooper", face.film(.talking).?);
+    try std.testing.expectEqualStrings("trooper_d", face.film(.dying).?);
+    try std.testing.expectEqualStrings(pilots_module.faces[0].film(.laughing).?, face.film(.laughing).?);
+    try std.testing.expectEqualStrings("trp", face.own_voice.?);
 
     const list = ships.all();
     try std.testing.expectEqual(2, list.len);

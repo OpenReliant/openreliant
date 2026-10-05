@@ -508,10 +508,33 @@ The loadout screen offers it on its missile page too, with the game's missiles:
 
 ### Pilots
 
-A pilot takes its base's face and voice on the radio. `Base` is a pilot's number in
-`pilotstats.bin`. A mission names its ships' pilots by number, so a mod's own missions fly the mod's
-pilots by the numbers in `[Pilots]`, and a script can set any object's pilot
+```ini
+[Pilots]
+trooper=
+
+[Pilot trooper]
+Base=21
+Name=Trooper
+Voice=rus
+```
+
+A pilot takes its base's face and voice on the radio, but for those it gives of its own. `Base` is a
+pilot's number in `pilotstats.bin`. A mission names its ships' pilots by number, so a mod's own
+missions fly the mod's pilots by the numbers in `[Pilots]`, and a script can set any object's pilot
 ([Objects](scripting.md#objects)).
+
+- `Talking`, `Laughing` and `Dying` name the face films the radio's window plays as the pilot speaks,
+  laughs and dies: a film of the game's, such as `45volntrs_plt` from `pilots.hog`, or a `.fm8`
+  file in the mod. The film every pilot shares in the 45th's place stays the game's.
+- `Voice` is the start of the names of the pilot's lines, which it speaks in on any side, in place
+  of its base's two voices: one of the game's, such as `ban` for Bandit's or `rus` for the
+  Coalition's, or a mod's own, whose lines it gives as files of those names, such as
+  `trpres_001.ut`.
+
+Making face films and lines of your own needs encoders OpenReliant doesn't have yet
+([#353](https://github.com/OpenReliant/openreliant/issues/353),
+[#351](https://github.com/OpenReliant/openreliant/issues/351)); the game's own work in the
+meantime.
 
 ## The thumbnail
 

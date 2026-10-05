@@ -235,6 +235,9 @@ pub const Face = struct {
     /// (`0x004539A0`, whose table at `0x004539D0` marks Bandit, Diceman, Viper, Enriquez and
     /// Hawkeye).
     full_replies: bool = false,
+    /// OpenReliant's: the voice a mod's pilot speaks in on any side, the start of its lines' names,
+    /// in place of `voice` and `allied_voice` (`videoreports.shipLine`).
+    own_voice: ?[]const u8 = null,
 
     pub const heads = 4;
 
