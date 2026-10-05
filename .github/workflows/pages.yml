@@ -29,6 +29,8 @@ jobs:
       - uses: actions/checkout@v5
       # The Predator's wire frame from the docs, drawn in the page's orange.
       - run: sed 's/#7d8590/#f08a2c/g' docs/images/predator-wireframe.svg > website/predator.svg
+      # The game's menu font, which the headings use.
+      - run: mkdir -p website/fonts && cp deps/newtown/Newtown.ttf website/fonts/
       # The documentation, rendered by MkDocs in the website's style into website/docs.
       - uses: actions/setup-python@v6
         with:
