@@ -232,7 +232,11 @@ pub const Polygon = struct {
     /// Records of the same strip or fan still to come, from the `.SHP` face: the driver draws a
     /// polygon with those after it in one go.
     continues: u16,
-    first: u16,
+    /// Where its corners start in the mesh's indices.
+    ///
+    /// **Improvement:** 32 bits, where the game keeps 16, so that a mod's model of more than
+    /// 65,535 corners, three to a triangle, draws whole.
+    first: u32,
     count: u16,
 };
 

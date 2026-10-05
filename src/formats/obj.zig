@@ -25,6 +25,10 @@ pub const Triangle = struct {
 pub const Object = struct {
     name: []const u8,
     triangles: []Triangle,
+    /// No faces of its own: the place of a glTF file's node without a mesh, as three corners round
+    /// it (`gltf.triangles`), which the model builder makes an attachment or a point where its name
+    /// says, and leaves out otherwise.
+    marker: bool = false,
 };
 
 pub const File = struct {

@@ -96,7 +96,7 @@ const Doc = struct {
 const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no material maps, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, the loadout's ships and missiles solid, the interface's text in the game's bitmap fonts, and the sound mixed plainly in stereo" },
     .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "start this mission right away instead of opening the main menu. The number is the one in the mission's file name, mission<number>.dte, loaded from a mod, the game's missions folder or resource.hog. Mission 0 is OpenReliant's sandbox, which is built into openreliant for games without a mission 0" },
-    .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
+    .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin or its name, such as predator or a mod's teapot:teapot, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
     .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes" },
     .@"--difficulty" = .{ .section = .mission, .value = "<easy|medium|hard>", .text = "the game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with --mission, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it" },
     .@"--music" = .{ .section = .mission, .value = "<file>", .text = "a piece from the game's music folder to play from the start, until the mission's script plays its own; none by default" },
@@ -212,9 +212,10 @@ pub const Options = struct {
     directory: ?[]const u8 = null,
     /// The mission to play at once, by its number, or null to open the front end.
     mission: ?u16 = null,
-    /// The ship the player flies, in place of the loadout screen's choice; null for the mission's
-    /// own.
-    ship: ?u8 = null,
+    /// The ship the player flies, in place of the loadout screen's choice, as the command line
+    /// names it: a ship type's number, or its name, which may be a mod's (`main.shipNamed`); null
+    /// for the mission's own.
+    ship: ?[]const u8 = null,
     /// The options' cockpit setting, for the run; the ini's `[Device] View` without it.
     cockpit: ?camera.CockpitSetting = null,
     /// The game's difficulty, for the run; null for medium with `--mission`, and for the game's
@@ -396,11 +397,8 @@ pub const Options = struct {
                 options.missile_sound = .stays;
             },
             .@"--mission" => options.mission = std.fmt.parseInt(u16, value, 10) catch return error.BadValue,
-            .@"--ship" => {
-                const ship = std.fmt.parseInt(u8, value, 0) catch return error.BadValue;
-                if (game.create.models.ship_types[ship].model == null) return error.BadValue;
-                options.ship = ship;
-            },
+            // Checked once the mods' ship types are read (`main.shipNamed`).
+            .@"--ship" => options.ship = value,
             .@"--view" => {
                 const number = std.fmt.parseInt(u32, value, 10) catch return error.BadValue;
                 options.cockpit = switch (@as(camera.CockpitSetting, @enumFromInt(number))) {
@@ -529,7 +527,7 @@ test Options {
     try std.testing.expectEqual(null, (try parsed(&.{})).directory);
     const given = try parsed(&.{ "game/install", "--ship", "3" });
     try std.testing.expectEqualStrings("game/install", given.directory.?);
-    try std.testing.expectEqual(3, given.ship);
+    try std.testing.expectEqualStrings("3", given.ship.?);
     try std.testing.expectEqual(null, given.cockpit);
     try std.testing.expectEqual(camera.CockpitSetting.chase, (try parsed(&.{ "--view", "1" })).cockpit.?);
     try std.testing.expectError(error.Usage, parsed(&.{ "--view", "3" }));
@@ -539,7 +537,8 @@ test Options {
     try std.testing.expectEqual(25, (try parsed(&.{ "--mission", "25" })).mission);
     try std.testing.expectEqual(null, (try parsed(&.{})).ship);
     try std.testing.expectError(error.Usage, parsed(&.{ "--mission", "x" }));
-    try std.testing.expectError(error.Usage, parsed(&.{ "--ship", "0x0E" }));
+    // A ship by its name, which `main` looks up once the mods are read.
+    try std.testing.expectEqualStrings("predator", (try parsed(&.{ "--ship", "predator" })).ship.?);
     try std.testing.expectError(error.Usage, parsed(&.{"--bogus"}));
     try std.testing.expectEqualStrings("shot.png", (try parsed(&.{ "--screenshot", "shot.png" })).screenshot.?);
     try std.testing.expect((try parsed(&.{})).intro);

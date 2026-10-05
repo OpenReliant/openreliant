@@ -34,8 +34,10 @@ pub const dds = @import("formats/dds.zig");
 pub const ktx2 = @import("formats/ktx2.zig");
 pub const texels = @import("formats/texels.zig");
 
-/// Models from modelling tools, which `sltool shp from-obj` builds the game's models from.
+/// Models from modelling tools, which `sltool shp from-obj` and `from-gltf` build the game's
+/// models from.
 pub const obj = @import("formats/obj.zig");
+pub const gltf = @import("formats/gltf.zig");
 
 /// Checksum files, used to check mod archives.
 pub const checksums = @import("formats/checksums.zig");

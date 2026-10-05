@@ -214,6 +214,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The ship types, guns, missiles and pilots the mods add, each numbered from where the game's
     // end.
     try game.additions.read(arena, mods.list);
+    const asked_ship: ?game.create.TypeIndex = if (options.ship) |named| shipNamed(named) orelse {
+        std.log.err("--ship takes a ship type's number or name, such as 0 or predator, not '{s}'", .{named});
+        return error.UnknownShip;
+    } else null;
     // What `WinMain` opens at start-up, and the texture cache `renderer_start` opens.
     var resources: game.bigfile.Hog = try .open(arena, io, directory, game.bigfile.resource_name);
     defer resources.close(arena);
@@ -475,7 +479,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     objects.missile_stats.addTypes();
     objects.missile_stats.load(missile_stats);
     objects.pilots.load(pilot_stats);
-    if (options.ship) |ship| objects.loadout_ships[objects.player] = @enumFromInt(ship);
+    if (asked_ship) |chosen| objects.loadout_ships[objects.player] = @enumFromInt(chosen);
     // What the shots are drawn with, built once (`guns_init`); the Turret Flak's shell is loaded as
     // each mission starts.
     objects.bullets.looks = try game.guns.Looks.create(arena, &textures);
@@ -919,7 +923,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         flow.campaign = .begin();
                         saving.gameOf(&flow.campaign.?).clearPilot();
                         objects.mission25_second_part = false;
-                        const flight = briefedFlight(try through.campaign(mission) orelse return, objects, options.ship) orelse {
+                        const flight = briefedFlight(try through.campaign(mission) orelse return, objects, asked_ship) orelse {
                             flow.toFrontEnd(&front);
                             continue;
                         };
@@ -931,7 +935,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         flow.campaign = flow.loading;
                         flow.loading = .begin();
                         objects.mission25_second_part = false;
-                        const flight = briefedFlight(try through.campaign(flow.campaign.?.mission) orelse return, objects, options.ship) orelse {
+                        const flight = briefedFlight(try through.campaign(flow.campaign.?.mission) orelse return, objects, asked_ship) orelse {
                             flow.toFrontEnd(&front);
                             continue;
                         };
@@ -962,8 +966,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             };
             // The flight's ship, else the one `--ship` names, else the mission's ship; and the
             // simulator it runs in; and the campaign whose variables each attempt starts from.
-            const asked: ?game.create.TypeIndex = if (options.ship) |ship| ship else null;
-            objects.loadout_ships[objects.player] = if (flight.ship orelse asked) |ship| @enumFromInt(ship) else null;
+            objects.loadout_ships[objects.player] = if (flight.ship orelse asked_ship) |ship| @enumFromInt(ship) else null;
             objects.loadout_racks[objects.player] = flight.racks;
             objects.simulator = flight.simulator;
             // The simulator pod's missions run on the campaign's variables too, as the game's are
@@ -1034,7 +1037,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 if (over) {
                     game.main.missionRunEnd(world.player, objects.mission_number);
                     if (flow.from_front_end) {
-                        if (!try missionEnded(&flow, &front, &play, &rooms.?, objects, world.player, saving, options.ship, sound, &movies, &resources)) return;
+                        if (!try missionEnded(&flow, &front, &play, &rooms.?, objects, world.player, saving, asked_ship, sound, &movies, &resources)) return;
                         continue;
                     } else if (endsInPauseMenu(options, frames_left)) {
                         play.over = true;
@@ -1195,7 +1198,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .leave_mission => {
                         if (!flow.from_front_end) return;
                         player.ending = .left;
-                        if (!try missionEnded(&flow, &front, &play, &rooms.?, objects, world.player, saving, options.ship, sound, &movies, &resources)) return;
+                        if (!try missionEnded(&flow, &front, &play, &rooms.?, objects, world.player, saving, asked_ship, sound, &movies, &resources)) return;
                         continue;
                     },
                 }
@@ -1232,6 +1235,28 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         textures.releaseHeld();
         if (pacing.rate(window)) |rate| pacer.wait(rate);
     }
+}
+
+/// The ship type `--ship` names: by its number, one the game has a model for or a mod adds; or
+/// by its name, one of the game's (`predator`) or a mod's (`teapot:teapot`). Null for none.
+fn shipNamed(text: []const u8) ?game.create.TypeIndex {
+    const object_type: game.gameobj.Type = if (std.fmt.parseInt(u16, text, 0)) |number|
+        @enumFromInt(number)
+    else |_|
+        game.gameobj.Type.fromScriptName(text) orelse return null;
+    if (object_type.added() == null) {
+        const number = object_type.number();
+        if (number >= game.create.models.ship_types.len or game.create.models.ship_types[number].model == null) return null;
+    }
+    return @intCast(object_type.number());
+}
+
+test shipNamed {
+    // The Predator by its number or its name; a number without a model, and a name no type has.
+    try std.testing.expectEqual(0, shipNamed("0"));
+    try std.testing.expectEqual(0, shipNamed("predator"));
+    try std.testing.expectEqual(null, shipNamed("999"));
+    try std.testing.expectEqual(null, shipNamed("viper:viper"));
 }
 
 /// The view a ship that does not launch is shown in at first: view 0, as a launch ends in, in
@@ -1531,7 +1556,7 @@ const Launch = struct {
 /// (`campaignGoesOn`), to the flight it leads to or to the main menu; outside it, the mission is
 /// let go, with the landing where it plays one, and the front end's main menu entered again. False
 /// where the game quits meanwhile.
-fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Play, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, saving: Saving, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !bool {
+fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Play, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, saving: Saving, ship: ?game.create.TypeIndex, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !bool {
     if (flow.flown.flier == .simulator_pod) {
         // The pod's mission leaves the game's variables, which are the campaign's, as it ended
         // them: the pod runs it on the game's own (`0x0044F6EF`).
@@ -1584,7 +1609,7 @@ fn letGo(play: *Play, all: *game.create.Objects, sound: *game.hog_snd.Sound, lan
 /// the briefing leads to, which a game loaded on the way may have changed, in the ship its loadout
 /// chose and its racks, but where `--ship` names a `ship`, which is then fitted by its tier, and
 /// the campaign's tier as the loadout raised it. Null where they led to the main menu.
-fn briefedFlight(end: RoomsEnd, all: *game.create.Objects, ship: ?u8) ?game.interface.main_menu.Flight {
+fn briefedFlight(end: RoomsEnd, all: *game.create.Objects, ship: ?game.create.TypeIndex) ?game.interface.main_menu.Flight {
     const flown = switch (end) {
         .fly => |flown| flown,
         .simulator => |flight| return flight,
@@ -1605,7 +1630,7 @@ const CampaignNext = union(enum) {
     main_menu,
 
     /// Where a briefing leads as it `end`s (`briefedFlight`).
-    fn briefed(end: RoomsEnd, all: *game.create.Objects, ship: ?u8) CampaignNext {
+    fn briefed(end: RoomsEnd, all: *game.create.Objects, ship: ?game.create.TypeIndex) CampaignNext {
         const flight = briefedFlight(end, all, ship) orelse return .main_menu;
         return .{ .fly = .{ .flight = flight } };
     }
@@ -1627,7 +1652,7 @@ const CampaignNext = union(enum) {
 /// game's variables as the second part began.
 ///
 /// Not ported: the story's end ([#416](https://github.com/OpenReliant/openreliant/issues/416)).
-fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, saving: Saving, flown: game.interface.main_menu.Flight, restart_point: ?*const save.Save, ship: ?u8, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !?CampaignNext {
+fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, saving: Saving, flown: game.interface.main_menu.Flight, restart_point: ?*const save.Save, ship: ?game.create.TypeIndex, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !?CampaignNext {
     const loaded = play.loaded orelse return .main_menu;
     const variables = &loaded.script.variables;
     const landing = play.landing(player.ending, all.mission25_second_part);

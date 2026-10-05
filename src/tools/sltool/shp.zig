@@ -23,6 +23,8 @@ pub const Command = union(enum) {
     obj: struct { model: []const u8, out: []const u8, lod: u32 = 0, model_space: bool = false },
     /// Builds a model from Wavefront OBJ (`shp.from_obj`), for a mod.
     @"from-obj": struct { model: []const u8, out: []const u8, options: shp.from_obj.Options = .{} },
+    /// Builds a model from glTF 2.0 (`gltf`), for a mod, with its materials' textures.
+    @"from-gltf": struct { model: []const u8, out: []const u8, options: shp.from_obj.Options = .{}, scale: f32 = 1 },
 
     pub const usage =
         \\  shp info <model>                parts, meshes, materials and bounds
@@ -37,8 +39,15 @@ pub const Command = union(enum) {
         \\                                  build a model for a mod from Wavefront OBJ: objects
         \\                                  named cockpit, gun_muzzle:<gun type>,
         \\                                  missile:<missile>, engine_glow:<glow>, light,
-        \\                                  eject_point, launch_point or dock_point become those,
-        \\                                  the rest the body (docs/guide/modding.md)
+        \\                                  eject_point, launch_point, dock_point, jump_trail or
+        \\                                  jump_light become those, the rest the body
+        \\                                  (docs/guide/modding.md)
+        \\  shp from-gltf <in.gltf|in.glb> <out.shp> [--two-sided] [--cloak] [--density <d>]
+        \\                [--scale <s>]
+        \\                                  build a model for a mod from glTF 2.0, its nodes
+        \\                                  named as from-obj's objects are, and write each
+        \\                                  material's textures beside it as <out>_<n>.png,
+        \\                                  with its material, normal and emissive maps
         \\
     ;
 
@@ -64,20 +73,13 @@ pub const Command = union(enum) {
             .@"from-obj" => {
                 if (operands.len < 2) return error.Usage;
                 var command: Command = .{ .@"from-obj" = .{ .model = operands[0], .out = operands[1] } };
-                var i: usize = 2;
-                while (i < operands.len) {
-                    if (std.mem.eql(u8, operands[i], "--two-sided")) {
-                        command.@"from-obj".options.two_sided = true;
-                        i += 1;
-                    } else if (std.mem.eql(u8, operands[i], "--cloak")) {
-                        command.@"from-obj".options.cloak = true;
-                        i += 1;
-                    } else if (std.mem.eql(u8, operands[i], "--density") and i + 1 < operands.len) {
-                        command.@"from-obj".options.density = std.fmt.parseFloat(f32, operands[i + 1]) catch return error.Usage;
-                        if (!(command.@"from-obj".options.density > 0)) return error.Usage;
-                        i += 2;
-                    } else return error.Usage;
-                }
+                try buildOptions(operands[2..], &command.@"from-obj".options, null);
+                return command;
+            },
+            .@"from-gltf" => {
+                if (operands.len < 2) return error.Usage;
+                var command: Command = .{ .@"from-gltf" = .{ .model = operands[0], .out = operands[1] } };
+                try buildOptions(operands[2..], &command.@"from-gltf".options, &command.@"from-gltf".scale);
                 return command;
             },
         }
@@ -102,9 +104,31 @@ pub const Command = union(enum) {
                 operands.model_space,
             ),
             .@"from-obj" => |operands| try buildFromObj(ctx, data, operands.out, operands.options),
+            .@"from-gltf" => |operands| try buildFromGltf(ctx, path, data, operands.out, operands.options, operands.scale),
         }
     }
 };
+
+/// Reads the options `from-obj` and `from-gltf` share into `options`, and `--scale` into `scale`
+/// where the command takes it.
+fn buildOptions(operands: []const [:0]const u8, options: *shp.from_obj.Options, scale: ?*f32) error{Usage}!void {
+    var i: usize = 0;
+    while (i < operands.len) {
+        const option = operands[i];
+        if (std.mem.eql(u8, option, "--two-sided")) {
+            options.two_sided = true;
+            i += 1;
+        } else if (std.mem.eql(u8, option, "--cloak")) {
+            options.cloak = true;
+            i += 1;
+        } else if (i + 1 < operands.len and (std.mem.eql(u8, option, "--density") or (scale != null and std.mem.eql(u8, option, "--scale")))) {
+            const value = std.fmt.parseFloat(f32, operands[i + 1]) catch return error.Usage;
+            if (!(value > 0)) return error.Usage;
+            if (std.mem.eql(u8, option, "--density")) options.density = value else scale.?.* = value;
+            i += 2;
+        } else return error.Usage;
+    }
+}
 
 fn listComponents(ctx: Context, path: []const u8) !void {
     var library: Library = try .beside(ctx, path);
@@ -233,8 +257,8 @@ fn info(ctx: Context, model: shp.Model) !void {
                 attachment.position.z,
             });
             if (attachment.kind == .engine_glow) {
-                try ctx.stdout.print("  size ({d:.0},{d:.0},{d:.0})", .{
-                    attachment.size[0], attachment.size[1], attachment.size[2],
+                try ctx.stdout.print("  id {d} size ({d:.0},{d:.0},{d:.0})", .{
+                    attachment.id, attachment.size[0], attachment.size[1], attachment.size[2],
                 });
             }
             if (attachment.kind == .light) {
@@ -459,15 +483,13 @@ fn writeFaces(out: *Io.Writer, mesh: shp.Mesh, vertex_base: usize, uv_base: usiz
     return triangles;
 }
 
-/// Writes the requested level of every part as one OBJ object each.
-///
-/// Every face record is emitted as its own triangle. Records carrying fan or strip grouping would
-/// merge into larger polygons in the engine, but each record is already a complete triangle of
-/// that polygon, so triangulating them is equivalent and avoids relying on the coplanarity test
-/// the loader applies.
 /// Builds a model from the OBJ file `text` (`shp.from_obj`) and writes it to `out_path`.
 fn buildFromObj(ctx: Context, text: []const u8, out_path: []const u8, options: shp.from_obj.Options) !void {
-    const model = try shp.from_obj.build(ctx.arena, try openreliant.obj.parse(ctx.arena, text), options);
+    try writeModel(ctx, try shp.from_obj.build(ctx.arena, try openreliant.obj.parse(ctx.arena, text), options), out_path);
+}
+
+/// Writes a model `from-obj` or `from-gltf` built to `out_path`, and says so.
+fn writeModel(ctx: Context, model: shp.Model, out_path: []const u8) !void {
     const file = try Io.Dir.cwd().createFile(ctx.io, out_path, .{});
     defer file.close(ctx.io);
     var buffer: [64 * 1024]u8 = undefined;
@@ -479,6 +501,56 @@ fn buildFromObj(ctx: Context, text: []const u8, out_path: []const u8, options: s
     try ctx.stdout.print("wrote {s}: {d} parts, {d} faces\n", .{ out_path, model.parts.len, faces });
 }
 
+/// Builds the model the glTF file `bytes` at `path` makes, as `buildFromObj` builds one, scaled by
+/// `scale`, and writes its materials' textures beside it, each called after the model and the
+/// material's number (`gltf.maps`). Where any material is double-sided, every face is drawn
+/// from both sides.
+fn buildFromGltf(ctx: Context, path: []const u8, bytes: []const u8, out_path: []const u8, given: shp.from_obj.Options, scale: f32) !void {
+    const gltf = openreliant.gltf;
+    const beside: Beside = .{ .ctx = ctx, .dir = std.fs.path.dirname(path) orelse "." };
+    const document = try gltf.read(ctx.arena, bytes, .{ .context = &beside, .readFn = Beside.read });
+    const materials = try gltf.materials(ctx.arena, document);
+    const stem = std.fs.path.stem(out_path);
+    const names = try ctx.arena.alloc([]const u8, materials.len);
+    for (names, 0..) |*name, at| name.* = try std.fmt.allocPrint(ctx.arena, "{s}_{d}", .{ stem, at });
+    var options = given;
+    for (materials) |material| options.two_sided = options.two_sided or material.double_sided;
+    try writeModel(ctx, try shp.from_obj.build(ctx.arena, try gltf.triangles(ctx.arena, document, scale, names), options), out_path);
+
+    const dir = try ctx.outputDir(std.fs.path.dirname(out_path) orelse ".");
+    defer dir.close(ctx.io);
+    for (materials, names) |material, name| {
+        for (try gltf.maps.of(ctx.arena, material, name)) |texture| {
+            try dir.writeFile(ctx.io, .{ .sub_path = texture.name, .data = texture.bytes });
+            try ctx.stdout.print("wrote {s} ({s})\n", .{ texture.name, material.name });
+        }
+    }
+}
+
+/// The files beside a glTF file, which its buffers and images may be.
+const Beside = struct {
+    ctx: Context,
+    dir: []const u8,
+
+    fn read(context: *const anyopaque, arena: std.mem.Allocator, name: []const u8) std.mem.Allocator.Error!?[]u8 {
+        const beside: *const Beside = @ptrCast(@alignCast(context));
+        const path = try std.fs.path.join(arena, &.{ beside.dir, name });
+        return Io.Dir.cwd().readFileAlloc(beside.ctx.io, path, arena, .limited(max_resource)) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => null,
+        };
+    }
+
+    /// The largest buffer or picture read beside a glTF file.
+    const max_resource = 1 << 30;
+};
+
+/// Writes the requested level of every part as one OBJ object each.
+///
+/// Every face record is emitted as its own triangle. Records carrying fan or strip grouping would
+/// merge into larger polygons in the engine, but each record is already a complete triangle of
+/// that polygon, so triangulating them is equivalent and avoids relying on the coplanarity test
+/// the loader applies.
 fn writeObj(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, model_space: bool) !void {
     // The model frame is Y-down, Z-forward; OBJ readers assume Y-up. `--model-space` keeps the
     // coordinates exactly as the file stores them.
