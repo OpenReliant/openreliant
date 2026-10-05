@@ -7,8 +7,8 @@ and `CLAUDE.md` point agents here.
 
 ## Getting started
 
-- Install [Zig 0.16](https://ziglang.org). `zig build` builds everything, and `zig build test`
-  runs the tests.
+- Install [Zig 0.16](https://ziglang.org). `zig build` builds everything, `zig build sltool`
+  builds `sltool` alone, and `zig build test` runs the tests.
 - Run `make hooks` once. It installs a pre-commit hook that keeps the game's files out of the
   repository.
 - `make help` lists every workflow, and `make doctor` reports which parts of the environment are

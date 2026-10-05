@@ -57,7 +57,7 @@ Building OpenReliant needs [Zig 0.16](https://ziglang.org): see [Building from s
 
 The repository includes tools used during reverse engineering. `make help` lists the workflows, and [CONTRIBUTING](CONTRIBUTING.md#getting-started) and the [toolchain](docs/toolchain.md) describe them.
 
-The `sltool` utility, included with `openreliant` in each release, inspects, exports and packs the game's file formats. It exits with 0 on success, 2 for an unknown command (after printing its usage) and 1 on failure (with the error on stderr), so a mod's build scripts can use it:
+The `sltool` utility, included with `openreliant` in each release, inspects, exports and packs the game's file formats. `zig build sltool` builds it alone from the sources, without the game. It exits with 0 on success, 2 for an unknown command (after printing its usage) and 1 on failure (with the error on stderr), so a mod's build scripts can use it:
 
 | Command | Description | Documentation |
 |---|---|---|

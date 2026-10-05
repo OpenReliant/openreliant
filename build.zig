@@ -229,6 +229,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(sltool);
+    // `zig build sltool` installs sltool alone, without the game and the libraries only it needs,
+    // as the mods' release pipeline does to pack mods.
+    const sltool_step = b.step("sltool", "Build and install sltool alone");
+    sltool_step.dependOn(&b.addInstallArtifact(sltool, .{}).step);
 
     // Derives the engine's static tables from the game binary: the script VM's opcodes, commands
     // and conditions, and the models it loads. Not installed: it is a development tool, run by the
