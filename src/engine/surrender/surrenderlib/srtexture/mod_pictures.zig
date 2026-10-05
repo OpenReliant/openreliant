@@ -29,6 +29,7 @@ const Image = srtexture.Image;
 const MapFile = srtexture.MapFile;
 const Compressor = srtexture.Compressor;
 const Content = srtexture.Content;
+const Copy = srtexture.Copy;
 
 const log = std.log.scoped(.textures);
 
@@ -81,11 +82,12 @@ const Read = struct {
         for (std.enums.values(MapFile)) |map| read.maps.set(map, try first(gpa, files, name, map.suffix()));
     }
 
-    /// The key of what these files make at the longest side `longest`.
-    fn key(read: *const Read, longest: u32) Compressor.Key {
+    /// The key of what these files make at the longest side `longest`, or of their `copy`.
+    fn key(read: *const Read, longest: u32, copy: ?Copy) Compressor.Key {
         var hash: XxHash3 = .init(0);
         hash.update(std.mem.asBytes(&kept_version));
         hash.update(std.mem.asBytes(&longest));
+        if (copy) |made| hash.update(&[_]u8{made.letter()});
         const files = [_]?File{read.picture} ++ read.maps.values;
         for (files, 0..) |found, role| {
             const file = found orelse continue;
@@ -116,21 +118,32 @@ fn first(gpa: Allocator, files: srtexture.Files, name: []const u8, suffix: []con
 
 /// The picture the files give for the texture `name`, with its maps, ready for the device; null
 /// where they give none, or it can't be used, which the log says. `longest` is the longest side
-/// it keeps; `compressor` compresses it, where the device takes compressed textures.
-pub fn load(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor) Allocator.Error!?Image {
+/// it keeps; `compressor` compresses it, where the device takes compressed textures. With `copy`,
+/// it is that copy of the picture (`copies`), kept by the compressor under the copy's own name.
+pub fn load(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor, copy: ?Copy) Allocator.Error!?Image {
     var read: Read = .{};
     defer read.deinit(gpa);
     try read.fill(gpa, files, name);
     if (read.picture == null) return null;
-    const key = read.key(longest);
-    if (compressor) |held| if (try held.load(gpa, name, &key)) |kept| return kept;
+    const key = read.key(longest, copy);
+    const kept_name = if (copy) |made| try std.fmt.allocPrint(gpa, "{c}{s}", .{ made.letter(), name }) else name;
+    defer if (copy != null) gpa.free(kept_name);
+    if (compressor) |held| if (try held.load(gpa, kept_name, &key)) |kept| return kept;
     var made = try decodeAll(gpa, &read, longest) orelse return null;
     errdefer made.deinit(gpa);
+    if (copy) |wanted| {
+        if (made.levels[0].format != .rgba8) {
+            log.info("no {t} copy of {s} is made: it is compressed already", .{ wanted, read.picture.?.name });
+            made.deinit(gpa);
+            return null;
+        }
+        wanted.tint(made.levels);
+    }
     const compressed = try conform(gpa, &made, &read, compressor) orelse {
         made.deinit(gpa);
         return null;
     };
-    if (compressed) if (compressor) |held| held.store(name, &key, made);
+    if (compressed) if (compressor) |held| held.store(kept_name, &key, made);
     return made;
 }
 
@@ -402,12 +415,16 @@ fn testPng(gpa: Allocator, side: u32, rgba: [4]u8) ![]u8 {
 }
 
 /// A compressor for the tests: it "compresses" a level into blocks of its first byte, notes the
-/// alpha of each material map's first pixel as it takes it, and keeps one picture.
+/// alpha of each material map's first pixel as it takes it, and keeps one picture, which it gives
+/// back for the same name and key alone.
 const TestCompressor = struct {
     takes: std.EnumSet(Level.Format) = .initMany(&.{ .bc5, .bc7 }),
     compressed: usize = 0,
     material_alpha: ?u8 = null,
     kept: ?Image = null,
+    kept_name: [16]u8 = undefined,
+    kept_name_len: usize = 0,
+    kept_key: Compressor.Key = 0,
     loads: usize = 0,
 
     fn compressor(held: *TestCompressor) Compressor {
@@ -428,18 +445,23 @@ const TestCompressor = struct {
         return .{ .width = level.width, .height = level.height, .format = format, .texels = out };
     }
 
-    fn loadKept(context: *anyopaque, gpa: Allocator, _: []const u8, _: *const Compressor.Key) Allocator.Error!?Image {
+    fn loadKept(context: *anyopaque, gpa: Allocator, name: []const u8, key: *const Compressor.Key) Allocator.Error!?Image {
         const held = from(context);
         held.loads += 1;
         const kept = held.kept orelse return null;
+        if (!std.mem.eql(u8, name, held.kept_name[0..held.kept_name_len]) or key.* != held.kept_key) return null;
         return .{ .levels = try copy(gpa, kept.levels), .maps = .{
             .normal = if (kept.maps.normal) |levels| try copy(gpa, levels) else null,
             .orm = if (kept.maps.orm) |levels| try copy(gpa, levels) else null,
         } };
     }
 
-    fn store(context: *anyopaque, _: []const u8, _: *const Compressor.Key, image: Image) void {
+    fn store(context: *anyopaque, name: []const u8, key: *const Compressor.Key, image: Image) void {
         const held = from(context);
+        if (held.kept) |kept| kept.deinit(std.testing.allocator);
+        @memcpy(held.kept_name[0..name.len], name);
+        held.kept_name_len = name.len;
+        held.kept_key = key.*;
         held.kept = .{
             .levels = copy(std.testing.allocator, image.levels) catch return,
             .maps = .{
@@ -475,7 +497,7 @@ test "a picture and its maps are compressed for the device, and kept for the nex
     } };
     var compressor: TestCompressor = .{};
     defer compressor.deinit();
-    const made = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor())).?;
+    const made = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), null)).?;
     defer made.deinit(gpa);
     try std.testing.expectEqual(Level.Format.bc7, made.levels[0].format);
     try std.testing.expectEqual(Level.Format.bc5, made.maps.normal.?[0].format);
@@ -485,11 +507,33 @@ test "a picture and its maps are compressed for the device, and kept for the nex
     try std.testing.expectEqual(9, compressor.compressed);
     try std.testing.expectEqual(255, compressor.material_alpha.?);
     // The next run reads what was kept, and compresses nothing.
-    const again = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor())).?;
+    const again = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), null)).?;
     defer again.deinit(gpa);
     try std.testing.expectEqual(9, compressor.compressed);
     try std.testing.expectEqual(2, compressor.loads);
     try std.testing.expectEqualSlices(u8, made.levels[0].texels, again.levels[0].texels);
+}
+
+test "a copy of a picture is tinted, and kept apart from the picture" {
+    const gpa = std.testing.allocator;
+    const picture = try testPng(gpa, 4, .{ 200, 100, 50, 255 });
+    defer gpa.free(picture);
+    const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "hull.png", .bytes = picture }} };
+    var compressor: TestCompressor = .{};
+    defer compressor.deinit();
+    const plain = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), null)).?;
+    defer plain.deinit(gpa);
+    // The test compressor keeps the first byte, the red: a picture of one colour is at the top of
+    // its range, so its green copy has the little red of full green.
+    const green = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), .green)).?;
+    defer green.deinit(gpa);
+    try std.testing.expectEqual(200, plain.levels[0].texels[0]);
+    try std.testing.expectEqual(23, green.levels[0].texels[0]);
+    // It is kept under its own name, and read back from there.
+    try std.testing.expectEqualStrings("ghull", compressor.kept_name[0..compressor.kept_name_len]);
+    const again = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), .green)).?;
+    defer again.deinit(gpa);
+    try std.testing.expectEqual(6, compressor.compressed);
 }
 
 test "a DDS picture draws as it is where the device takes its format, and not otherwise" {
@@ -508,13 +552,13 @@ test "a DDS picture draws as it is where the device takes its format, and not ot
     // compressed to go with them.
     var compressor: TestCompressor = .{};
     defer compressor.deinit();
-    const made = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor())).?;
+    const made = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), null)).?;
     defer made.deinit(gpa);
     try std.testing.expectEqual(Level.Format.bc7, made.levels[0].format);
     try std.testing.expectEqualSlices(u8, data[0..16], made.levels[0].texels);
     try std.testing.expectEqual(Level.Format.bc5, made.maps.normal.?[0].format);
     // Without a device that takes BC7, the picture is left out.
-    try std.testing.expectEqual(null, try load(gpa, pictures.files(), "hull", srtexture.max_side, null));
+    try std.testing.expectEqual(null, try load(gpa, pictures.files(), "hull", srtexture.max_side, null, null));
 }
 
 test "a KTX2 picture of one level is mipmapped, and its finest levels go past the longest side" {
@@ -523,7 +567,7 @@ test "a KTX2 picture of one level is mipmapped, and its finest levels go past th
     const file = try ktx2.testing.file(gpa, 37, 8, 8, &.{&pixels});
     defer gpa.free(file);
     const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "hull.ktx2", .bytes = file }} };
-    const made = (try load(gpa, pictures.files(), "hull", 4, null)).?;
+    const made = (try load(gpa, pictures.files(), "hull", 4, null, null)).?;
     defer made.deinit(gpa);
     try std.testing.expectEqual(4, made.width());
     try std.testing.expectEqual(3, made.levels.len);

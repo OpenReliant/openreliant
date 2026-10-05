@@ -23,6 +23,15 @@ pub fn textureRequire(table: *srtexture.Table, name: []const u8) Error!*srtextur
     };
 }
 
+/// `textureRequire` of the `copy` of the texture `name` that the loadout draws, found or made
+/// (`srtexture.Table.findCopy`).
+pub fn copyRequire(table: *srtexture.Table, name: []const u8, copy: srtexture.Copy) Error!*srtexture.Image {
+    return try table.findCopy(name, copy) orelse {
+        log.err("Could not find image {c}{s}", .{ copy.letter(), name });
+        return error.ImageMissing;
+    };
+}
+
 /// The picture the device shows behind a frame: `background_set` (`0x00494B50`) names it, and
 /// `background_load` (`0x00494A70`) reads it from the archive as a TGA and hands it to the device
 /// (`sr + 0x50`), which draws it behind the frame (`srd3d.backgroundEdges`). The front end's screens

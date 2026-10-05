@@ -16,6 +16,8 @@ const tcache = @import("../../../formats/tcache.zig");
 const tga = @import("../../../formats/tga.zig");
 const srimage = @import("srimage.zig");
 pub const mod_pictures = @import("srtexture/mod_pictures.zig");
+pub const copies = @import("srtexture/copies.zig");
+pub const Copy = copies.Copy;
 
 const log = std.log.scoped(.textures);
 
@@ -348,8 +350,27 @@ pub const Table = struct {
     /// The image the engine finds for `name` (`texture_find`), or null when the cache has none: a
     /// picture of the name from `files` first (`picture`).
     pub fn find(table: *Table, name: []const u8) Allocator.Error!?*Image {
-        const key = try table.gpa.dupe(u8, tcache.fileName(name));
-        for (key) |*c| c.* = std.ascii.toLower(c.*);
+        return table.lookUp(name, null);
+    }
+
+    /// The `copy` of the texture `name` that the loadout draws (`texture_find` of the name after
+    /// the copy's letter), or null when there is none and none can be made. In order: a picture of
+    /// the copy's name from `files`; the copy made from a picture of `name` from `files`; the
+    /// cache's copy; the copy made from the cache's image of `name`.
+    ///
+    /// **Improvement:** the game finds the cache's copy alone, so a mod's picture showed in the
+    /// loadout only with a copy of its own (`copies`).
+    pub fn findCopy(table: *Table, name: []const u8, copy: Copy) Allocator.Error!?*Image {
+        return table.lookUp(name, copy);
+    }
+
+    /// `find`, or `findCopy` of `copy`.
+    fn lookUp(table: *Table, name: []const u8, copy: ?Copy) Allocator.Error!?*Image {
+        const plain = tcache.fileName(name);
+        const start: usize = @intFromBool(copy != null);
+        const key = try table.gpa.alloc(u8, start + plain.len);
+        if (copy) |made| key[0] = made.letter();
+        for (key[start..], plain) |*into, c| into.* = std.ascii.toLower(c);
         const entry = table.images.getOrPut(table.gpa, key) catch |err| {
             table.gpa.free(key);
             return err;
@@ -359,20 +380,32 @@ pub const Table = struct {
             return entry.value_ptr.*;
         }
         entry.value_ptr.* = null;
-        if (try table.picture(key)) |image| {
-            entry.value_ptr.* = image;
-            // An image the table can't track keeps its pixels, which costs memory alone.
-            table.track(image) catch {};
-            return image;
-        }
-        const found = table.cache.find(key) orelse return null;
+        const image = try table.make(key, copy) orelse return null;
+        entry.value_ptr.* = image;
+        // An image the table can't track keeps its pixels, which costs memory alone.
+        table.track(image) catch {};
+        return image;
+    }
+
+    /// The image of `key`, the lower-case name after the letter of `copy`, if any; as `findCopy`
+    /// and `find` order them.
+    fn make(table: *Table, key: []const u8, copy: ?Copy) Allocator.Error!?*Image {
+        if (try table.picture(key, null)) |image| return image;
+        const plain = key[@intFromBool(copy != null)..];
+        if (copy) |made| if (try table.picture(plain, made)) |image| return image;
+        if (table.cache.find(key)) |found| return try table.decoded(found, null);
+        const made = copy orelse return null;
+        return try table.decoded(table.cache.find(plain) orelse return null, made);
+    }
+
+    /// The cache's image `found`, decoded and fitted to the texture detail, or its `copy`.
+    fn decoded(table: *Table, found: tcache.Texture, copy: ?Copy) Allocator.Error!*Image {
         const image = try table.gpa.create(Image);
         errdefer table.gpa.destroy(image);
         image.* = try decode(table.gpa, found, &table.palette);
         errdefer image.deinit(table.gpa);
+        if (copy) |made| made.tint(image.levels);
         try fit(table.gpa, image, table.largest);
-        entry.value_ptr.* = image;
-        table.track(image) catch {};
         return image;
     }
 
@@ -382,10 +415,10 @@ pub const Table = struct {
     }
 
     /// The picture `files` give the texture `name`, with its material maps, made ready for the
-    /// device (`mod_pictures.load`); null where they give none, or it can't be used.
-    fn picture(table: *Table, name: []const u8) Allocator.Error!?*Image {
+    /// device (`mod_pictures.load`), or its `copy`; null where they give none, or it can't be used.
+    fn picture(table: *Table, name: []const u8, copy: ?Copy) Allocator.Error!?*Image {
         const files = table.files orelse return null;
-        var made = try mod_pictures.load(table.gpa, files, name, table.longest(), table.compressor) orelse return null;
+        var made = try mod_pictures.load(table.gpa, files, name, table.longest(), table.compressor, copy) orelse return null;
         errdefer made.deinit(table.gpa);
         const image = try table.gpa.create(Image);
         image.* = made;
@@ -665,6 +698,54 @@ test "pictures stand in for the cache's images" {
     try std.testing.expectEqual(2, hull.width());
 }
 
+test "Table.findCopy" {
+    const gpa = std.testing.allocator;
+    const bytes = try tcache.testing.build(gpa, &.{
+        .{ .name = "hull", .encoding = .index8, .width = 2, .height = 2 },
+        .{ .name = "wing", .encoding = .index8, .width = 2, .height = 2 },
+        .{ .name = "gwing", .encoding = .index8, .width = 2, .height = 2 },
+        .{ .name = "tail", .encoding = .index8, .width = 2, .height = 2 },
+        .{ .name = "gnose", .encoding = .index8, .width = 2, .height = 2 },
+    });
+    defer gpa.free(bytes);
+    const cache: tcache.Cache = try .parse(gpa, bytes);
+    defer cache.deinit(gpa);
+    var palette: tga.Palette = undefined;
+    for (&palette, 0..) |*c, i| c.* = .{ @truncate(i), 0, 0 };
+
+    // A mod's picture of the tail, all red, and of the nose's copy.
+    var written: std.Io.Writer.Allocating = .init(gpa);
+    defer written.deinit();
+    var red: [4 * 2 * 4]u8 = undefined;
+    for (0..8) |at| red[at * 4 ..][0..4].* = .{ 0xFF, 0, 0, 0xFF };
+    try png.writeRgba(gpa, &written.writer, 4, 2, &red);
+    const pictures: testing.Pictures = .{ .held = &.{
+        .{ .name = "tail.png", .bytes = written.written() },
+        .{ .name = "gnose.png", .bytes = written.written() },
+    } };
+
+    var table: Table = .init(gpa, cache, palette);
+    defer table.deinit();
+    table.files = pictures.files();
+    // The cache's own copy, which is the image of its name.
+    const wing = (try table.findCopy("WING", .green)).?;
+    try std.testing.expectEqual(wing, (try table.find("gwing")).?);
+    // A copy made from the cache's image where it has none: its red palette turned green.
+    const hull = (try table.findCopy("hull", .green)).?;
+    try std.testing.expect(hull != (try table.find("hull")).?);
+    try std.testing.expectEqual(hull, (try table.findCopy("hull", .green)).?);
+    for (0..4) |at| try std.testing.expect(hull.levels[0].texels[at * 4 + 1] >= hull.levels[0].texels[at * 4]);
+    // A copy made from the mod's picture rather than the cache's image, and the mod's own copy as
+    // it is.
+    const tail = (try table.findCopy("tail", .red)).?;
+    try std.testing.expectEqual(4, tail.width());
+    try std.testing.expectEqual([4]u8{ 0xFF, 0, 0, 0xFF }, tail.levels[0].texels[0..4].*);
+    const nose = (try table.findCopy("nose", .green)).?;
+    try std.testing.expectEqual([4]u8{ 0xFF, 0, 0, 0xFF }, nose.levels[0].texels[0..4].*);
+    // Nothing to make a copy from.
+    try std.testing.expectEqual(null, try table.findCopy("missing", .green));
+}
+
 test "material maps come beside a picture" {
     const gpa = std.testing.allocator;
     const bytes = try tcache.testing.build(gpa, &.{.{ .name = "hull", .encoding = .index8, .width = 2, .height = 2 }});
@@ -818,6 +899,7 @@ pub const testing = struct {
 test {
     _ = srimage;
     _ = mod_pictures;
+    _ = copies;
 }
 
 test "the table lets go of the pixels the device holds" {

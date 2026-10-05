@@ -113,6 +113,15 @@ without KTX2's supercompression. Its colours are taken as sRGB-encoded, as a PNG
 
 **Improvement:** the original only uses the textures in its cache, at most 256x256.
 
+### Textures in the loadout
+
+The loadout draws the ships in green and the missiles and guns in red. The game keeps a green and a
+red copy of each ship texture, named with a `g` or an `r` in front: `gyank_2` and `ryank_2` for
+`yank_2`. You don't need to make them. Where your mod gives a picture but no copy, OpenReliant makes
+the copy from the picture, in the same shades as the game's own copies. To draw something else in
+the loadout, give the copy as a picture of its own, such as `gyank_2.png`. A picture that comes
+compressed already, in a DDS or KTX2 file, can't be turned green, so give its copies as files too.
+
 ## Material maps
 
 A texture can come with the extra maps that modern tools produce, which describe the surface's

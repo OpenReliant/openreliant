@@ -167,12 +167,19 @@ pub const Prefix = enum {
     /// `r`, while it loads the missiles and guns (`loadout_weapon_models`, `0x00524977`).
     loadout_weapons,
 
-    fn letter(prefix: Prefix) ?u8 {
+    /// The copy of each texture it finds instead (`srtexture.Copy`), if any.
+    fn copy(prefix: Prefix) ?srtexture.Copy {
         return switch (prefix) {
             .none => null,
-            .loadout_ships => 'g',
-            .loadout_weapons => 'r',
+            .loadout_ships => .green,
+            .loadout_weapons => .red,
         };
+    }
+
+    /// The texture `name`, or its copy that the prefix finds.
+    fn texture(prefix: Prefix, textures: *srtexture.Table, name: []const u8) matmanager.Error!*srtexture.Image {
+        const wanted = prefix.copy() orelse return matmanager.textureRequire(textures, name);
+        return matmanager.copyRequire(textures, name, wanted);
     }
 };
 
@@ -314,7 +321,7 @@ pub fn build(
         } else false;
         if (!shown) continue;
         var buffer: [1 + @sizeOf(shp.Material)]u8 = undefined;
-        images.material = try matmanager.textureRequire(textures, prefixed(&buffer, settings.prefix.letter(), m.name()));
+        images.material = try settings.prefix.texture(textures, m.name());
         if (light_mapped) images.light_map = try matmanager.textureRequire(textures, prefixed(&buffer, 'l', m.name()));
     }
 
@@ -594,8 +601,7 @@ pub fn modelLoad(gpa: Allocator, textures: *srtexture.Table, model: *const shp.M
     }
     if (!settings.real_lights) staticLightsBake(model, parts);
     if (level_settings.cloak) {
-        var buffer: [1 + Cloaking.image.len]u8 = undefined;
-        const shimmer = try matmanager.textureRequire(textures, prefixed(&buffer, settings.prefix.letter(), Cloaking.image));
+        const shimmer = try settings.prefix.texture(textures, Cloaking.image);
         // A part with no meshes has none for the cloak either.
         for (parts) |*part| {
             if (part.levels.len > 0) part.cloaking = try .build(gpa, part.levels, shimmer, settings.hardware);
@@ -812,14 +818,11 @@ fn highlightTexture(index: u3) srapiext.Texture {
     return .{ .highlight = index };
 }
 
-/// A texture's `name` after a letter, if any, in `buffer`.
-fn prefixed(buffer: []u8, letter: ?u8, name: []const u8) []const u8 {
-    const start: usize = if (letter) |l| blk: {
-        buffer[0] = l;
-        break :blk 1;
-    } else 0;
-    @memcpy(buffer[start..][0..name.len], name);
-    return buffer[0 .. start + name.len];
+/// A texture's `name` after `letter`, in `buffer`.
+fn prefixed(buffer: []u8, letter: u8, name: []const u8) []const u8 {
+    buffer[0] = letter;
+    @memcpy(buffer[1..][0..name.len], name);
+    return buffer[0 .. 1 + name.len];
 }
 
 fn testShading(mode: u4, sub_mode: u4) shp.Face.Shading {

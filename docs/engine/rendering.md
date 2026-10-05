@@ -67,7 +67,8 @@ fog.
 - Each material that a face of mode 3 or above uses has its texture looked up by name
   (`texture_require`, `0x00494A30`): after `g` while the loadout screen loads the ships, after `r`
   while it loads the missiles and guns, and as it is in flight. The light map is `l` and the name.
-  A name the cache lacks stops the game.
+  A name the cache lacks stops the game. **Improvement:** OpenReliant makes a missing `g` or `r`
+  copy from the texture's own picture ([The loadout](loadout.md)).
 - The bounding box, and the radius, the farthest vertex's distance from the origin, come from the
   vertices (`SR_mesh_find_bounding_box`, `0x004C3F10`). `mesh_texel_areas` (`0x004C4090`) finds
   each textured polygon's area in texels, which only the software driver reads.
