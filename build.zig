@@ -136,11 +136,17 @@ pub fn build(b: *std.Build) void {
     // against.
     scripting.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
     scripting.addAnonymousImport("reference.md", .{ .root_source_file = b.path("docs/guide/reference.md") });
-    // The example mods whose scripts the tests run as they ship.
-    const example_files = [_][]const u8{ "wingmen/mod.ini", "wingmen/options.luau", "wingmen/wingman.luau", "wingmen/wingmen.luau", "wingmen/status.luau", "dvd/mod.ini", "dvd/dvd.luau", "custom-order/mod.ini", "custom-order/pulse.luau", "custom-order/action.luau", "drawing-assets/mod.ini", "drawing-assets/drawing.luau", "strafe-run/mod.ini", "strafe-run/order.luau", "strafe-run/actions.luau", "strafe-run/display.luau", "crt/mod.ini", "crt/crt.luau", "crt/crt.frag", "cel-shading/mod.ini", "cel-shading/cel.luau", "cel-shading/bands.glsl", "cel-shading/ink.glsl", "arena/mod.ini", "arena/menu.luau", "arena/rules.luau", "arena/board.luau", "main-menu/mod.ini", "main-menu/menu.luau", "campaign/mod.ini", "campaign/menu.luau", "interceptor/mod.ini", "interceptor/records.luau", "interceptor/menu.luau", "bananas/mod.ini", "bananas/records.luau", "bananas/menu.luau", "bananas/troopers.luau", "bananas/banana_shot.png", "bananas/boing.wav" };
-    for (example_files) |file| {
+    // The example mods' files, which the tests run as they ship, and the list of their scripts,
+    // which a test compiles one by one.
+    const examples = exampleFiles(b);
+    for (examples) |file| {
         scripting.addAnonymousImport(file, .{ .root_source_file = b.path(b.fmt("examples/mods/{s}", .{file})) });
     }
+    const example_scripts = b.addOptions();
+    var scripts: std.ArrayList([]const u8) = .empty;
+    for (examples) |file| if (std.mem.endsWith(u8, file, ".luau")) scripts.append(b.allocator, file) catch @panic("out of memory");
+    example_scripts.addOption([]const []const u8, "scripts", scripts.items);
+    scripting.addOptions("example_scripts", example_scripts);
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
     const archive_library = b.dependency("libarchive", .{ .target = target, .optimize = optimize }).artifact("archive");
@@ -302,4 +308,30 @@ fn describe(b: *std.Build) []const u8 {
     var code: u8 = undefined;
     const out = b.runAllowFail(&.{ "git", "-C", b.build_root.path orelse ".", "describe", "--tags", "--match", "v*", "--long", "--dirty", "--abbrev=7" }, &code, .ignore) catch return "";
     return std.mem.trimEnd(u8, out, "\n");
+}
+
+/// Every file of the example mods, as `<mod>/<file>`, sorted: a mod's files are directly in its
+/// folder.
+fn exampleFiles(b: *std.Build) []const []const u8 {
+    const io = b.graph.io;
+    var mods = b.build_root.handle.openDir(io, "examples/mods", .{ .iterate = true }) catch |err| std.debug.panic("can't open examples/mods: {t}", .{err});
+    defer mods.close(io);
+    var found: std.ArrayList([]const u8) = .empty;
+    var each_mod = mods.iterate();
+    while (each_mod.next(io) catch |err| std.debug.panic("can't list examples/mods: {t}", .{err})) |mod| {
+        if (mod.kind != .directory) continue;
+        var folder = mods.openDir(io, mod.name, .{ .iterate = true }) catch |err| std.debug.panic("can't open examples/mods/{s}: {t}", .{ mod.name, err });
+        defer folder.close(io);
+        var each_file = folder.iterate();
+        while (each_file.next(io) catch |err| std.debug.panic("can't list examples/mods/{s}: {t}", .{ mod.name, err })) |file| {
+            if (file.kind != .file) continue;
+            found.append(b.allocator, b.fmt("{s}/{s}", .{ mod.name, file.name })) catch @panic("out of memory");
+        }
+    }
+    std.mem.sort([]const u8, found.items, {}, struct {
+        fn less(_: void, left: []const u8, right: []const u8) bool {
+            return std.mem.lessThan(u8, left, right);
+        }
+    }.less);
+    return found.items;
 }
