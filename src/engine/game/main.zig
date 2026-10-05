@@ -1562,10 +1562,16 @@ pub const player_ships = [_]PlayerShip{
 };
 
 /// The player's ship of `ship_type`, a twin as the ship it twins (`gameobj.GameType.untwinned`) and a
-/// type a mod adds as its base, or null for a type the start has none for.
+/// type a mod adds as its base, with its own cockpit where it gives one, or null for a type the
+/// start has none for.
 pub fn playerShip(ship_type: gameobj.Type) ?PlayerShip {
     const index = @intFromEnum(ship_type.base().untwinned());
-    return if (index < player_ships.len) player_ships[index] else null;
+    if (index >= player_ships.len) return null;
+    var ship = player_ships[index];
+    if (ship_type.added()) |mod| if (mod.extra.cockpit) |own| {
+        ship.cockpit = own;
+    };
+    return ship;
 }
 
 /// `mission_start`'s part in the player's wing, once the mission has listed it: the player's ship
@@ -1838,6 +1844,21 @@ test fitDevices {
     try std.testing.expect(!display.blind_fire_fitted);
     // A capital ship is none of the player's.
     try std.testing.expectEqual(null, playerShip(.of(.yamato)));
+}
+
+test "a mod's ship type has its own cockpit" {
+    const additions = @import("additions.zig");
+    var list = [_]additions.ships.Added{
+        .{ .name = "a:pot", .mod = "a", .base = .predator, .extra = .{ .model = "pot.shp", .cockpit = "pot_frm.shp" } },
+        .{ .name = "a:plain", .mod = "a", .base = .predator, .extra = .{ .model = "plain.shp" } },
+    };
+    additions.ships.install(&list);
+    defer additions.ships.reset();
+    const own = playerShip(@enumFromInt(additions.ships.first)).?;
+    try std.testing.expectEqualStrings("pot_frm.shp", own.cockpit);
+    // The rest is its base's, as is all of a type that gives no cockpit.
+    try std.testing.expectEqual(player_ships[0].wire_frame, own.wire_frame);
+    try std.testing.expectEqualDeep(player_ships[0], playerShip(@enumFromInt(additions.ships.first + 1)).?);
 }
 
 test startMission {

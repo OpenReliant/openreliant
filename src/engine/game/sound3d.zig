@@ -415,6 +415,13 @@ pub fn engineSound(ship_type: gameobj.Type) sounds.Sound {
     return .pship01;
 }
 
+/// The engine's sound a mod gives its ship type, a WAV file's bytes, which plays as its base's would,
+/// pitched and loudened by the throttle the same way; null for its base's.
+fn ownEngineSound(ship_type: gameobj.Type) ?[]const u8 {
+    const mod = ship_type.added() orelse return null;
+    return mod.extra.engine_sound;
+}
+
 /// The engine tables' row for the Kamov, their last (an immediate in `sound3d_engine_update`).
 const kamov_row = sounds.engines.len - 1;
 
@@ -472,7 +479,7 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             driver.set3DSamplePlaybackRate(sample, if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - math.ftol(grown * burner_pitch_step)));
         } else if (sound.burner_voice == null) {
             effects.engine_changed_at = -1;
-            _ = play(sound, scene, null, null, all.player, engineSound(player.type), 0, .player_engines);
+            _ = playFile(sound, scene, null, null, all.player, engineSound(player.type), ownEngineSound(player.type), 0, .player_engines);
             effects.engine = .idle;
         } else {
             effects.engine = .cooling;
@@ -694,6 +701,18 @@ test MissileSound {
     missile.slot.drawn.position = .{ 0, 0, 20000 };
     sound.update3D(scene);
     try std.testing.expectEqual(started, placed(&speaker.mixer, sound.voices_3d[still]));
+}
+
+test ownEngineSound {
+    const additions = @import("additions.zig");
+    var list = [_]additions.ships.Added{.{ .name = "a:pot", .mod = "a", .base = .predator, .extra = .{ .model = "pot.shp", .engine_sound = "RIFF" } }};
+    additions.ships.install(&list);
+    defer additions.ships.reset();
+    // A mod's type sounds as its base, from its own file.
+    const pot: gameobj.Type = @enumFromInt(additions.ships.first);
+    try std.testing.expectEqual(engineSound(.of(.predator)), engineSound(pot));
+    try std.testing.expectEqualStrings("RIFF", ownEngineSound(pot).?);
+    try std.testing.expectEqual(null, ownEngineSound(.of(.predator)));
 }
 
 test engineSound {

@@ -376,7 +376,12 @@ pub const Type = struct {
     effects: objects.Effects = .{},
     /// The type's own sprite (`GameObject.type_data`), which for a ship is its schematic, where
     /// the game has one: the ship status indicator and the target display draw it.
-    schematic: ?@import("hud.zig").Schematic = null,
+    schematic: ?@import("hud.zig").TypeArt = null,
+    /// OpenReliant's: the display's shapes, with the pictures a mod's type gives in place of its
+    /// base's wire frame on the gunnery display (`gunnery`) and of its icon in the wing's window
+    /// (`wing_status`); null for a type that gives none.
+    wire_frame: ?@import("hud.zig").TypeArt = null,
+    wing_icon: ?@import("hud.zig").TypeArt = null,
 };
 
 /// Where ship types' models come from: whoever has the game's files answers, as for

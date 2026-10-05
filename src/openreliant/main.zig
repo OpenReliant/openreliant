@@ -463,6 +463,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .models = models,
         .looks = .{ .light_sprites = try .load(&textures), .glows = &glows, .flashes = &flashes },
         .global_palette = global_palette,
+        .display_shapes = shapes,
     };
     defer types.deinit();
     // The objects, every slot standing in until a mission's start makes them, with every gun's,
