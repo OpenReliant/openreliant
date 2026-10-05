@@ -1692,6 +1692,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     if (world.flash) |lit| lit.* = .{};
     start.display.interference = .{};
     start.display.caption = .{};
+    start.display.messages = .{};
     start.display.objectives.reset(number, all.mission25_second_part);
     if (world.countermeasures) |dropped| dropped.reset();
     all.reset(world.random);
