@@ -366,7 +366,7 @@ pub const ModOptions = struct {
             try canvas.wrapped(canvas.fonts.small, descriptionAt(screen.pane), description, canvas_module.blue, .centre, description_lines);
         };
         try canvas.drawVersion();
-        try canvas.shape(art, pointer.shape(), pointer.at);
+        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 

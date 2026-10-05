@@ -257,7 +257,7 @@ pub const InGameOptions = struct {
         if (menu.about) |about| if (about_art) |shapes| try about.draw(canvas, shapes);
         if (menu.confirm) |confirm| try confirm.draw(canvas, dialog_art);
         try canvas.drawVersion();
-        try canvas.shape(art, pointer.shape(), pointer.at);
+        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 

@@ -1073,8 +1073,11 @@ pub const Rooms = struct {
         rooms.fish.feeding = if (moved > Fish.falling_ticks) null else moved;
     }
 
-    fn drawPointer(rooms: *Rooms, target: canvas.Canvas) canvas.Error!void {
+    /// The pointer, cut to the screen: its straight shape stands 19 to the right of its point, as
+    /// `vrgfx.spr` places it, and the game's screen cut off what reached past its right edge.
+    fn drawPointer(rooms: *Rooms, whole: canvas.Canvas) canvas.Error!void {
         const shapes = if (rooms.shapes) |*loaded| &loaded.art else return;
+        const target = whole.onScreen();
         const pointer = rooms.pointer;
         const skip_at: [2]i32 = .{ pointer.at[0] + Pointer.skip_offset, pointer.at[1] };
         if (rooms.phase == .way_in) {

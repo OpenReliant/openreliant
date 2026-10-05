@@ -21,6 +21,9 @@ const log = std.log.scoped(.interface);
 /// (`0x004AD2E0`).
 pub const size: [2]u32 = .{ 640, 480 };
 
+/// The whole of the front end's screen.
+pub const whole_screen: Rect = .{ .x = 0, .y = 0, .width = size[0], .height = size[1] };
+
 pub const Error = spr.Error || Allocator.Error;
 
 /// The colours the front end ramps its text through (`interface_palette_ramp`, `0x004287C0`),
@@ -86,6 +89,13 @@ pub const Canvas = struct {
     /// Draws `index` of `art` with its anchor at `at` (`VFX_shape_draw`).
     pub fn shape(canvas: Canvas, art: *hud.Art, index: usize, at: [2]i32) Error!void {
         try hud.drawShapeWith(art, canvas.gpa, canvas.target, index, canvas.point(at), hud.atBrightness(.{ 1, 1, 1 }, canvas.brightness), canvas.scale(), .{ .clip = canvas.cut() });
+    }
+
+    /// The canvas cut to the front end's screen, where the pointer is drawn: a pointer's shape
+    /// stands off its point, and past the screen's edge the game's screen cut it off, where a
+    /// window wider or taller than the screen would show it beside it.
+    pub fn onScreen(canvas: Canvas) Canvas {
+        return canvas.within(whole_screen);
     }
 
     /// The canvas cut to `rect` of the front end's screen, within any cut it has already.
@@ -563,6 +573,19 @@ test scaleFor {
     try std.testing.expectEqual([2]f32{ 240, 0 }, cornerFor(.{ 1920, 1080 }));
     try std.testing.expectEqual([2]f32{ 0, 180 }, cornerFor(.{ 960, 1080 }));
     try std.testing.expectEqual([2]f32{ 0, 0 }, cornerFor(.{ 640, 480 }));
+}
+
+test "Canvas.onScreen" {
+    const strings: language.Language = .{ .strings = &.{} };
+    var font: hud.Opened = undefined;
+    var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
+    defer recorder.deinit();
+    const drawn: Canvas = .{ .gpa = std.testing.allocator, .target = recorder.interface(), .window = .{ 1280, 720 }, .fonts = .{ .large = &font, .small = &font }, .strings = &strings };
+    // In a window wider than the screen, a pointer is cut where the screen ends, not the window.
+    try std.testing.expectEqual(hud.Clip{ .left = 160, .top = 0, .right = 1120, .bottom = 720 }, drawn.onScreen().cut().?);
+    // Within a cut already, it stays within it.
+    const inside = drawn.within(.{ .x = 10, .y = 20, .width = 100, .height = 50 }).onScreen();
+    try std.testing.expectEqual(hud.Clip{ .left = 175, .top = 30, .right = 325, .bottom = 105 }, inside.cut().?);
 }
 
 test "Canvas.fill" {

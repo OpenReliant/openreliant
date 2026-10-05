@@ -195,7 +195,7 @@ pub const GameModes = struct {
             try shown.draw(canvas.dimmedUnless(playable), art, settings.button_shapes, std.meta.eql(screen.lit, Item{ .button = button }));
         }
         try canvas.drawVersion();
-        try canvas.shape(art, pointer.shape(), pointer.at);
+        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 
     /// The rows shown, each a mode's label, the chosen one white, and the arrows, the one under the

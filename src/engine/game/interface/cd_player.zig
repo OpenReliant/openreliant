@@ -380,7 +380,7 @@ pub const CdPlayer = struct {
             try canvas.string(canvas.fonts.small, .{ name_x, y }, piece.name, colour, .left);
         }
         if (button) |over| try canvas.label(buttons.get(over).name);
-        if (player.shapes) |*shapes| try canvas.shape(&shapes.art, pointer_shape, player.pointer.at);
+        if (player.shapes) |*shapes| try canvas.onScreen().shape(&shapes.art, pointer_shape, player.pointer.at);
     }
 
     /// The button under the pointer; null over a row, or over nothing.

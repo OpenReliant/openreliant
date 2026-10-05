@@ -709,7 +709,7 @@ pub const Interface = struct {
             .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
             .strings = strings,
         };
-        try drawn.shape(art, front.pointer.shape(), front.pointer.at);
+        try drawn.onScreen().shape(art, front.pointer.shape(), front.pointer.at);
     }
 };
 
