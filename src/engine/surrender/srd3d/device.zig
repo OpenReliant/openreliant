@@ -133,6 +133,9 @@ pub const State = struct {
     /// OpenReliant's: the mod's surface function of the object it draws
     /// (`srapiext.MeshObject.surface`), which comes before its texture's.
     surface: ?srtexture.ModSurface = null,
+    /// OpenReliant's: what it draws is a hologram (`srapiext.Surface.hologram`), which a device that
+    /// can draws see-through, with faint scan lines.
+    hologram: bool = false,
     /// How its texture is filtered (`D3DTSS_MAGFILTER`, `D3DTSS_MINFILTER`, `D3DTSS_MIPFILTER`).
     filter: Filter = .linear,
 };
