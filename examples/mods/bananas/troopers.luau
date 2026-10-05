@@ -26,6 +26,15 @@ for _, name in { "object_damage", "object_armor_damage", "component_damage" } do
     end)
 end
 
+-- Mission 29 starts with the simulator's long talk about the display (ms_hudtr_001.ut and the
+-- lines after it), which is skipped in the arena. The mission's script waits for each line, so with
+-- none said, the fight starts at once.
+hooks.add("radio_say", function(e)
+    if in_arena() and e.speech:find("ms_hudtr", 1, true) then
+        return false
+    end
+end)
+
 return {
     engine_handlers = {
         -- Every enemy fighter gets a Trooper. A mission gives each of its ships the pilot its record
@@ -47,12 +56,3 @@ return {
         end,
     },
 }
-
--- Mission 29 starts with the simulator's long talk about the display (ms_hudtr_001.ut and the
--- lines after it), which is skipped in the arena. The mission's script waits for each line, so with
--- none said, the fight starts at once.
-hooks.add("radio_say", function(e)
-    if in_arena() and e.speech:find("ms_hudtr", 1, true) then
-        return false
-    end
-end)

@@ -550,6 +550,20 @@ test "a syntax error is reported when loading" {
     try std.testing.expect(std.mem.startsWith(u8, state.toString(-1).?, "broken:1:"));
 }
 
+test "every script of the example mods compiles" {
+    const state = State.create(testing.allocate, null).?;
+    defer state.close();
+    inline for (@import("example_scripts").scripts) |path| {
+        const bytecode = compile(@embedFile(path)).?;
+        defer bytecode.free();
+        if (state.load("=" ++ path, bytecode.bytes) != .ok) {
+            std.debug.print("{s}\n", .{state.toString(-1).?});
+            return error.TestUnexpectedResult;
+        }
+        state.pop(1);
+    }
+}
+
 test "vectors and closures" {
     const state = State.create(testing.allocate, null).?;
     defer state.close();
