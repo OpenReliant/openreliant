@@ -35,6 +35,7 @@ const assert = std.debug.assert;
 const dte = @import("../../formats/dte.zig");
 const shp = @import("../../formats/shp.zig");
 const stats = @import("../../formats/stats.zig");
+const wave = @import("../../formats/wave.zig");
 const gameobj = @import("gameobj.zig");
 const guns_module = @import("guns.zig");
 const missiles_module = @import("missiles.zig");
@@ -353,7 +354,49 @@ pub const ships = Family(gameobj.GameType, ShipExtra, .{
 });
 
 /// The gun types mods add, after the game's 15, up to the most a muzzle's byte holds.
-pub const guns = Family(guns_module.GameGun, void, .{
+/// What a gun type has besides, each else its base's: the picture its shots are drawn with, by its
+/// texture's name, as one flare `shot_size` across either way of its middle; and the sound a shot
+/// makes, a WAV file's bytes.
+pub const GunExtra = struct {
+    shot: ?[]const u8 = null,
+    shot_size: f32 = default_shot_size,
+    sound: ?[]const u8 = null,
+
+    /// How far a shot's picture reaches either way of its middle, without `ShotSize`: the Pulse
+    /// Cannon's flare's.
+    pub const default_shot_size: f32 = 60;
+};
+
+fn readGun(context: Context, section: []const u8, _: guns_module.GameGun) Allocator.Error!?GunExtra {
+    const manifest = context.mod.manifest;
+    var made: GunExtra = .{};
+    // A picture is found by its texture's name, as the mods' pictures are (`srtexture.Files`).
+    if (manifest.value(section, "Shot")) |name| made.shot = try context.arena.dupe(u8, std.fs.path.stem(name));
+    if (manifest.value(section, "ShotSize")) |text| {
+        made.shot_size = std.fmt.parseFloat(f32, std.mem.trim(u8, text, " \t")) catch 0;
+        if (!(made.shot_size > 0)) {
+            context.warn("gun", "gives the shot size '{s}', which isn't a size", .{text});
+            return null;
+        }
+    }
+    if (manifest.value(section, "Sound")) |name| {
+        const bytes = context.mod.readFile(context.arena, name) catch |err| switch (err) {
+            error.OutOfMemory => |oom| return oom,
+            else => null,
+        } orelse {
+            context.warn("gun", "sounds as {s}, which the mod doesn't have", .{name});
+            return null;
+        };
+        _ = wave.Wave.parse(bytes) catch {
+            context.warn("gun", "sounds as {s}, which isn't a WAV file of PCM or IMA ADPCM", .{name});
+            return null;
+        };
+        made.sound = bytes;
+    }
+    return made;
+}
+
+pub const guns = Family(guns_module.GameGun, GunExtra, .{
     .noun = "gun",
     .list_section = "Guns",
     .item_section = "Gun ",
@@ -374,6 +417,7 @@ pub const guns = Family(guns_module.GameGun, void, .{
             return base.number();
         }
     }.number,
+    .readExtra = readGun,
     .numbered_in = "its models' muzzles",
 });
 
@@ -589,7 +633,7 @@ test "a family reads what each mod lists" {
 test "Family.records" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
-    var list = [_]guns.Added{.{ .name = "a:b", .mod = "a", .base = .pulse_cannon, .extra = {} }};
+    var list = [_]guns.Added{.{ .name = "a:b", .mod = "a", .base = .pulse_cannon, .extra = .{} }};
     guns.install(&list);
     defer guns.reset();
     var game: [3]stats.Gun = @splat(std.mem.zeroes(stats.Gun));
@@ -601,6 +645,49 @@ test "Family.records" {
     try std.testing.expectEqual(0, made[guns.first - 2].range);
 }
 
+test "a gun's shot and sound" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "mods/bananas");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/bananas/mod.ini", .data =
+        \\[Guns]
+        \\peel=
+        \\quiet=
+        \\noisy=
+        \\[Gun peel]
+        \\Base=pulse_cannon
+        \\Shot=peel_shot.png
+        \\ShotSize=25
+        \\Sound=peel.wav
+        \\[Gun quiet]
+        \\Base=laser_cannon
+        \\[Gun noisy]
+        \\Base=laser_cannon
+        \\Sound=noise.wav
+    });
+    const peel_sound = comptime wave.testing.pcm("\x00\x00");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/bananas/peel.wav", .data = peel_sound });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/bananas/noise.wav", .data = "not a sound" });
+    var mods: mods_module.Mods = try .open(gpa, io, tmp.dir, null);
+    defer mods.close(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try read(arena.allocator(), mods.list);
+    defer reset();
+    // A gun with a sound that isn't one is left out; the others keep what they give.
+    try std.testing.expectEqual(2, guns.all().len);
+    const peel = guns.all()[0].extra;
+    try std.testing.expectEqualStrings("peel_shot", peel.shot.?);
+    try std.testing.expectEqual(25, peel.shot_size);
+    try std.testing.expectEqualSlices(u8, peel_sound, peel.sound.?);
+    const quiet = guns.all()[1].extra;
+    try std.testing.expectEqual(null, quiet.shot);
+    try std.testing.expectEqual(GunExtra.default_shot_size, quiet.shot_size);
+    try std.testing.expectEqual(null, quiet.sound);
+}
+
 test addNames {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
@@ -609,7 +696,7 @@ test addNames {
         .{ .name = "a:c", .mod = "a", .base = .phoenix, .extra = .{ .model = "c.shp" } },
     };
     ships.install(&list);
-    var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .label = "Gee", .extra = {} }};
+    var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .label = "Gee", .extra = .{} }};
     guns.install(&gun_list);
     var missile_list = [_]missiles.Added{.{ .name = "a:m", .mod = "a", .base = .raptor, .extra = .{ .description = "Yellow." } }};
     missiles.install(&missile_list);
@@ -662,7 +749,7 @@ test remapMission {
 }
 
 test remapModel {
-    var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .own_number = 20, .extra = {} }};
+    var gun_list = [_]guns.Added{.{ .name = "a:g", .mod = "a", .base = .pulse_cannon, .own_number = 20, .extra = .{} }};
     guns.install(&gun_list);
     var missile_list = [_]missiles.Added{.{ .name = "a:m", .mod = "a", .base = .raptor, .own_number = 30, .extra = .{} }};
     missiles.install(&missile_list);

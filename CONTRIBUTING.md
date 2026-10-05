@@ -342,6 +342,11 @@ The repository holds the engine and its tools. The game's files, and everything 
 derived from them, live in the git-ignored `game/` directory. The pre-commit hook, `make
 check-files` and CI keep it that way.
 
+The example mods can hold pictures and sounds of their own, PNG and WAV files directly in a mod's
+folder, such as the bananas example's shot. Only original work goes there, made for the example and
+under a licence compatible with the MPL 2.0: never the game's art or sounds, or anything made from
+them.
+
 ## Commits and pull requests
 
 - **Branches.** Branch from `main` (`feat/blind-fire`, `fix/...`, `docs/...`) and open a pull

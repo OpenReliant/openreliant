@@ -1261,6 +1261,8 @@ pub const Bullet = struct {
     /// first `piece_count` of them.
     pieces: [max_pieces]Piece = @splat(.{}),
     piece_count: u8 = 0,
+    /// OpenReliant's: drawn as one flare of its gun's picture from a mod (`Looks.modShot`).
+    mod_shot: bool = false,
     /// The texture coordinates its meshes take as their own (`MeshObject.own_uv`).
     uv: [max_corners][2]f32 = @splat(.{ 0, 0 }),
     /// The light it casts (`+0x60`), while it is one of the latest two of its ring
@@ -1526,7 +1528,9 @@ fn shotSound(world: gameobj.World, index: u8, kind: GunType, sound: i32, player:
         .allied_huge_gun, .coalition_huge_gun => .guaranteed,
         else => if (player) .player_guns else .not_reserved,
     };
-    sound3d.playIn(world, null, null, index, which, 1, class);
+    // A gun a mod gives a sound of its own plays it as its base's would be heard.
+    const own: ?[]const u8 = if (kind.added()) |gun| gun.extra.sound else null;
+    sound3d.playFileIn(world, null, null, index, which, own, 1, class);
 }
 
 /// The objects `bullet_place` gives a new shot: those its path comes near enough to over its life,
@@ -2494,6 +2498,10 @@ pub const Looks = struct {
     /// `shell_type`'s model, drawn at every distance. Null until it is loaded, or where the model
     /// cannot be, and a Turret Flak shot is then not drawn.
     shell: ?srapiext.Level = null,
+    /// OpenReliant's: the picture each gun a mod adds draws its shots with, in their order
+    /// (`additions.GunExtra.shot`); null for one that takes its base's shots, or whose picture
+    /// can't be found.
+    mod_shots: []?*srtexture.Image = &.{},
 
     pub fn create(gpa: Allocator, textures: *srtexture.Table) (Allocator.Error || matmanager.Error)!*Looks {
         const looks = try gpa.create(Looks);
@@ -2508,8 +2516,27 @@ pub const Looks = struct {
             made += 1;
         }
         looks.nova = try .create(gpa, textures);
+        errdefer looks.nova.deinit(gpa);
         looks.shell = null;
+        looks.mod_shots = try gpa.alloc(?*srtexture.Image, additions.guns.all().len);
+        for (looks.mod_shots, additions.guns.all()) |*shot, gun| {
+            const name = gun.extra.shot orelse {
+                shot.* = null;
+                continue;
+            };
+            shot.* = try textures.find(name);
+            if (shot.* == null) log.warn("{s}: the gun's shot {s} is left out: the mod has no picture of that name", .{ gun.name, name });
+        }
         return looks;
+    }
+
+    /// The picture a shot of `kind` is drawn with, and how far it reaches either way of its middle,
+    /// for a gun a mod gives a picture of its own.
+    fn modShot(looks: *const Looks, kind: GunType) ?struct { image: *srtexture.Image, half: f32 } {
+        const gun = kind.added() orelse return null;
+        const at = kind.number() - additions.guns.first;
+        if (at >= looks.mod_shots.len) return null;
+        return .{ .image = looks.mod_shots[at] orelse return null, .half = gun.extra.shot_size };
     }
 
     /// `guns_load_shell` (`0x00479140`), as a mission starts, once the objects are reset: the
@@ -2523,6 +2550,7 @@ pub const Looks = struct {
     pub fn destroy(looks: *Looks, gpa: Allocator) void {
         for (&looks.shapes.values) |*built| built.deinit(gpa);
         looks.nova.deinit(gpa);
+        gpa.free(looks.mod_shots);
         gpa.destroy(looks);
     }
 };
@@ -2745,9 +2773,14 @@ fn meshPiece(looks: *const Looks, shape: Shape, flags: srapiext.ObjectFlags) Pie
 /// A set of one sprite on `image`, `half` across either way and sorted as if it stood that much
 /// nearer (`sprite_set_create` with one sprite): coloured by its colour, and added.
 fn flarePiece(looks: *const Looks, image: Image, half: f32, offset: Vector) Piece {
+    return flareOf(looks.images.get(image), half, offset);
+}
+
+/// A flare of `image`, `half` across either way, `offset` off the first piece.
+fn flareOf(image: *srtexture.Image, half: f32, offset: Vector) Piece {
     var set: srapiext.SpriteSet = .{ .sprites = &.{} };
     set.surface.material.lit[0] = true;
-    set.surface.textures = .{ .{ .image = looks.images.get(image) }, .none };
+    set.surface.textures = .{ .{ .image = image }, .none };
     return .{
         .offset = offset,
         .drawn = .{ .sprites = set },
@@ -2858,7 +2891,13 @@ fn dress(bullet: *Bullet, looks: *const Looks, random: *libcmt.Rand, turn: math.
     for (0..max_corners / 4) |at| bullet.uv[at * 4 ..][0..4].* = quad;
 
     var pieces: [max_pieces]Piece = @splat(.{});
-    const count: u8 = switch (bullet.kind.base()) {
+    // **Improvement:** a gun a mod gives a picture draws its shot as one flare of it.
+    const own_shot = looks.modShot(bullet.kind);
+    bullet.mod_shot = own_shot != null;
+    const count: u8 = if (own_shot) |shot| own: {
+        pieces[0] = flareOf(shot.image, shot.half, @splat(0));
+        break :own 1;
+    } else switch (bullet.kind.base()) {
         .laser_cannon => one(&pieces, meshPiece(looks, .laser, shot_flags)),
         .pulse_cannon => pulse: {
             const image: Image = if (other) .pulse_other else .pulse;
@@ -2991,6 +3030,12 @@ fn animate(bullet: *Bullet, clock: *const Clock, record: Gun, random: *libcmt.Ra
     const friendly = bullet.side == .friendly;
     const ticks: f32 = @floatFromInt(clock.frame_duration);
     const pieces = &bullet.pieces;
+    // A shot drawn with a mod's picture, its one flare fading with its life, as the Pulse
+    // Cannon's other sides' do.
+    if (bullet.mod_shot) {
+        pieces[0].sprite[0].colour = @splat(left);
+        return;
+    }
     switch (bullet.kind.base()) {
         .pulse_cannon => {
             pieces[0].sprite[0].colour = if (friendly) .{ 0.5, left, 1 } else @splat(left);
@@ -3068,6 +3113,8 @@ fn placePieces(bullet: *Bullet) void {
 /// The texels across the shot texture, which the spans are counted in (`0x004DC818` is one over
 /// it).
 const atlas_size: f32 = 256;
+
+const log = std.log.scoped(.guns);
 
 /// The two halves of the shot texture, top and bottom, as `bullet_build` takes them: each stops a
 /// texel short of the half it ends at.
@@ -3230,6 +3277,41 @@ test dress {
     dress(&hostile, built.looks, &random, math.identity);
     try std.testing.expectEqual([2]f32{ 0, 255.0 / 256.0 }, hostile.uv[0]);
     try std.testing.expectEqual([2]f32{ 32.0 / 256.0, 0.5 }, hostile.uv[2]);
+}
+
+test "a mod's gun draws its shot with its own picture" {
+    const gpa = std.testing.allocator;
+    const built: test_looks.Fixture = try .init(gpa);
+    defer built.deinit(gpa);
+    var list = [_]additions.guns.Added{.{ .name = "a:peel", .mod = "a", .base = .laser_cannon, .extra = .{ .shot = "peel", .shot_size = 25 } }};
+    additions.guns.install(&list);
+    defer additions.guns.reset();
+    // The picture the mod's gun found, as `Looks.create` finds it.
+    var shots = [_]?*srtexture.Image{built.looks.images.get(.sun)};
+    const kept = built.looks.mod_shots;
+    built.looks.mod_shots = &shots;
+    defer built.looks.mod_shots = kept;
+    var random: libcmt.Rand = .{};
+
+    // One flare of it, as large as the mod gives, in place of its base's bolt.
+    var bullet: Bullet = .{ .kind = @enumFromInt(additions.guns.first), .side = .friendly, .fired_at = 100 };
+    dress(&bullet, built.looks, &random, math.identity);
+    try std.testing.expect(bullet.mod_shot);
+    try std.testing.expectEqual(1, bullet.piece_count);
+    try std.testing.expectEqual(built.looks.images.get(.sun), bullet.pieces[0].drawn.sprites.surface.textures[0].image);
+    try std.testing.expectEqual([2]f32{ 25, 25 }, bullet.pieces[0].sprite[0].half_size);
+    // It fades with its life.
+    var clock: Clock = .{ .frame_start = 150, .frame_duration = 5 };
+    var record = std.mem.zeroes(Gun);
+    record.lifetime = 100;
+    animate(&bullet, &clock, record, &random);
+    try std.testing.expectEqual([3]f32{ 0.5, 0.5, 0.5 }, bullet.pieces[0].sprite[0].colour);
+    // Without a picture, its base's.
+    shots[0] = null;
+    var plain: Bullet = .{ .kind = @enumFromInt(additions.guns.first), .side = .friendly };
+    dress(&plain, built.looks, &random, math.identity);
+    try std.testing.expect(!plain.mod_shot);
+    try std.testing.expectEqual(.mesh, std.meta.activeTag(plain.pieces[0].drawn));
 }
 
 test "a shot's pieces wheel, spin and fade as it flies" {
