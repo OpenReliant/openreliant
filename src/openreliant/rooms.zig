@@ -88,6 +88,8 @@ pub const Driver = struct {
     details: game.winmain.Details,
     /// What the game's models are built with (`game.srofiles.Settings`).
     models: game.srofiles.Settings,
+    /// How the loadout draws the models the original draws solid.
+    loadout_look: loadout.Look,
     /// The campaign's saved loadout, which the loadout starts from and keeps the ship chosen and
     /// its racks in.
     saved: *loadout.Saved,
@@ -274,6 +276,8 @@ pub const Driver = struct {
             .detail = driver.details.graphic,
             .largest_texture = driver.details.texture.largest(),
             .models = driver.models,
+            // The software device draws no holograms.
+            .look = if (driver.movies.presenter.screen.* == .software) .original else driver.loadout_look,
         };
     }
 

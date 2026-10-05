@@ -37,6 +37,14 @@ pub fn depth(layer: Layer, mode: Material.Blend) Depth {
     };
 }
 
+/// OpenReliant's: the depth a hologram's surfaces draw with on `layer` (`srapiext.Surface.hologram`).
+/// Though blended, they write depth as a solid surface does, so that of two models that cut into
+/// each other, such as a ship and the missiles on its racks, the one in front hides the other, as
+/// it did while they were solid.
+pub fn hologramDepth(layer: Layer) Depth {
+    return depth(layer, .off);
+}
+
 /// Direct3D 7's blend factors (`D3DBLEND`), those the driver uses.
 pub const BlendFactor = enum(u32) {
     zero = 1,
@@ -351,9 +359,10 @@ pub const Driver = struct {
                 .highlight => |index| &driver.highlights[index],
                 .image => |image| image,
             },
-            .depth = depth(layer, material.blend[pass]),
+            .depth = if (surface.hologram) hologramDepth(layer) else depth(layer, material.blend[pass]),
             .blend = factors(material.blend[pass]),
             .receives = receives(layer),
+            .hologram = surface.hologram,
         };
     }
 
@@ -954,6 +963,8 @@ test depth {
     try std.testing.expectEqual(Depth{ .testing = true, .writing = false }, depth(.world, .add));
     try std.testing.expectEqual(Depth{ .testing = false, .writing = false }, depth(.background, .off));
     try std.testing.expectEqual(Depth{ .testing = false, .writing = false }, depth(.overlay, .alpha));
+    // A hologram writes depth in the world, though it is blended.
+    try std.testing.expectEqual(Depth{ .testing = true, .writing = true }, hologramDepth(.world));
 }
 
 test factors {

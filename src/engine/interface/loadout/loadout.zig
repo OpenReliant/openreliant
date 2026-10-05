@@ -89,6 +89,8 @@ pub const Context = struct {
     largest_texture: ?u32 = null,
     /// What the game's models are built with: the light maps (`Lmaps`) and the lights.
     models: srofiles.Settings = .{},
+    /// How it draws the models the original draws solid.
+    look: Look = .original,
 };
 
 /// The campaign's saved loadout (`0x00562F18`): the ship the pilot last chose and the missiles on
@@ -335,6 +337,18 @@ fn unhang(gpa: Allocator, held: *?objects.Model.Mount) void {
     held.* = null;
 }
 
+/// How the loadout draws the models the original draws solid: the ships, and the missiles on the
+/// arc and on the racks.
+pub const Look = enum {
+    /// Solid, as the original draws them.
+    original,
+    /// **Improvement:** as a hologram (`srapiext.Surface.hologram`): a little see-through, with
+    /// faint scan lines drifting down them, and every few seconds a thin band that flares for a
+    /// moment, as a projector does when it slips its sync. A device that can't draw it draws them
+    /// solid.
+    hologram,
+};
+
 /// `node_tree_lit_blend` (`0x00445FE0`): every surface of the mesh each part of a model loaded as
 /// `loaded` draws, its finest, made one pass, lit or not, and blended as `blend` says. The parts of
 /// every tree made of `loaded` share its meshes.
@@ -345,7 +359,19 @@ fn litBlend(loaded: *const srofiles.Loaded, lit: bool, blend: srapiext.Material.
             surface.material.two_pass = false;
             surface.material.lit[0] = lit;
             surface.material.blend[0] = blend;
+            surface.hologram = false;
         }
+    }
+}
+
+/// `litBlend` of a model the original draws solid, drawn as `look` says: solid, or as a hologram,
+/// blended by alpha.
+fn litSolid(loaded: *const srofiles.Loaded, lit: bool, look: Look) void {
+    if (look == .original) return litBlend(loaded, lit, .off);
+    litBlend(loaded, lit, .alpha);
+    for (loaded.parts) |part| {
+        if (part.meshes.len == 0) continue;
+        for (part.meshes[0].surfaces) |*surface| surface.hologram = true;
     }
 }
 
@@ -707,7 +733,7 @@ pub const Loadout = struct {
         @memset(ship.model.hung, null);
         gameobj.linkParts(&ship.model, file.model);
         ship.model.place(@splat(0), math.identity);
-        litBlend(file.loaded, true, .off);
+        litSolid(file.loaded, true, loadout.context.look);
         ship.showLevel(0);
     }
 
@@ -741,7 +767,7 @@ pub const Loadout = struct {
         icon.model = try .create(loadout.arena.allocator(), file.model, file.loaded, .{});
         gameobj.linkParts(&icon.model, file.model);
         icon.model.place(@splat(0), math.identity);
-        litBlend(file.loaded, true, .off);
+        litSolid(file.loaded, true, loadout.context.look);
         i3d.scaleTree(&icon.model, anims.missile_scale);
         icon.object = .create(0, loadout.context.strings.string(record.name), false);
         icon.object.press = pressIcon;
@@ -1081,10 +1107,10 @@ pub const Loadout = struct {
     /// icons and the missiles hung on the ship share their models' meshes, so a missile under the
     /// pointer lights up with every other of its kind.
     fn highlightMissile(loadout: *Loadout, hovered: ?*i3d.Object) void {
-        for (&loadout.icons, &loadout.missile_models) |*icon, file| litBlend(file.loaded, hovered != &icon.object, .off);
+        for (&loadout.icons, &loadout.missile_models) |*icon, file| litSolid(file.loaded, hovered != &icon.object, loadout.context.look);
         for (&loadout.ship_missiles, loadout.fitted.racks[0..racks.max_hardpoints]) |*object, rack| {
             if (object.target == .none or hovered != object) continue;
-            litBlend(loadout.missile_models[@intFromEnum(rack.missile)].loaded, false, .off);
+            litSolid(loadout.missile_models[@intFromEnum(rack.missile)].loaded, false, loadout.context.look);
         }
     }
 
@@ -2230,7 +2256,7 @@ pub const Loadout = struct {
     fn attachEnded(context: *anyopaque, anim: *i3d.Anim) void {
         const loadout = of(context);
         const flight = loadout.flightOf(anim) orelse return;
-        litBlend(&flight.loaded, true, .off);
+        litSolid(&flight.loaded, true, loadout.context.look);
         loadout.attaching -= 1;
         switch (anim.direction) {
             .forward => {
@@ -2291,7 +2317,7 @@ pub const Loadout = struct {
         const file = loadout.missile_models[@intFromEnum(missile)];
         var model: objects.Model = try .create(gpa, file.model, file.loaded, .{});
         gameobj.linkParts(&model, file.model);
-        litBlend(file.loaded, true, .off);
+        litSolid(file.loaded, true, loadout.context.look);
         const scale = tables.ships[loadout.chosen].scale;
         i3d.scaleTree(&model, scale * hung_share);
         model.centre *= @as(Vector, @splat(scale));
@@ -2842,4 +2868,11 @@ test litBlend {
     const material = meshes[0].surfaces[0].material;
     try std.testing.expect(!material.two_pass and !material.lit[0]);
     try std.testing.expectEqual(srapiext.Material.Blend.add, material.blend[0]);
+    // A model the original draws solid: as a hologram, blended by alpha, and solid again.
+    litSolid(&loaded, true, .hologram);
+    try std.testing.expectEqual(srapiext.Material.Blend.alpha, meshes[0].surfaces[0].material.blend[0]);
+    try std.testing.expect(meshes[0].surfaces[0].hologram);
+    litSolid(&loaded, true, .original);
+    try std.testing.expectEqual(srapiext.Material.Blend.off, meshes[0].surfaces[0].material.blend[0]);
+    try std.testing.expect(!meshes[0].surfaces[0].hologram);
 }

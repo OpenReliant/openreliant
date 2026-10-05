@@ -124,8 +124,8 @@ const Vertex = extern struct {
 /// A draw's shading as the shader reads it from each vertex, one word: the shadows its pixels take
 /// in the low byte, how its texture is magnified in the next two bits, whether the key lights reach
 /// past its terminator in the one after, whether its texture's normal map and material map are
-/// shaded in the two after that, and whether the normal map holds two channels (BC5) in the one
-/// after that.
+/// shaded in the two after that, whether the normal map holds two channels (BC5) in the one after
+/// that, and whether it is drawn as a hologram in the one after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,
@@ -135,7 +135,9 @@ const Shading = packed struct(u32) {
     /// The normal map holds x and y alone, z left for the shader to work out, and the length of
     /// the normals' mean is in the material map's alpha (`srtexture.Image.Maps`).
     two_channel_normals: bool = false,
-    _unused: u18 = 0,
+    /// It is drawn as a hologram (`device.State.hologram`).
+    hologram: bool = false,
+    _unused: u17 = 0,
 
     /// A draw's shading, its texture's maps shaded where `materials` (`Gpu.shadesMaterials`).
     fn of(state: device.State, materials: bool) Shading {
@@ -147,6 +149,7 @@ const Shading = packed struct(u32) {
             .normal_map = maps.normal != null,
             .material_map = maps.orm != null,
             .two_channel_normals = if (maps.normal) |levels| levels[0].format == .bc5 else false,
+            .hologram = state.hologram,
         };
     }
 };
@@ -1342,7 +1345,7 @@ pub const Gpu = struct {
             @floatFromInt(@intFromBool(!floats and gpu.settings.dither)),
             @floatFromInt(@intFromBool(gpu.linear)),
             if (reflecting) reflection_levels else 0,
-            0,
+            target_size[1],
             0,
             0,
         };
@@ -1794,6 +1797,9 @@ test Shading {
     // A planet's soft terminator in the bit after.
     const planet: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .world, .soft_terminator = true }, false));
     try std.testing.expectEqual(0x401, planet);
+    // A hologram in the bit after the two-channel normals.
+    const hologram: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .nothing, .hologram = true }, false));
+    try std.testing.expectEqual(0x4000, hologram);
     // A texture's normal map and material map in the two bits after, where materials are shaded.
     const level = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &.{ 0, 0, 0, 0 } }};
     var material: srtexture.Image = .{ .levels = &level, .maps = .{ .normal = &level, .orm = &level } };

@@ -29,8 +29,8 @@ layout(location = 6) in uint lightMask;
 // how its texture is magnified, 0 by the settings' filter, 1 smoothly, 2 by FSR 1's edge-adaptive
 // upscale, 3 as a glyph's coverage (srtexture.zig's Magnify); in the one after, 1 for the key
 // lights to reach past its terminator, as a planet's atmosphere carries them; in the two after
-// that, 1 where its texture's normal map and its material map are shaded; and in the one after, 1
-// where the normal map holds two channels (BC5).
+// that, 1 where its texture's normal map and its material map are shaded; in the one after, 1
+// where the normal map holds two channels (BC5); and in the one after, 1 for a hologram.
 layout(location = 7) in uint shading;
 
 layout(set = 1, binding = 0) uniform Target {
@@ -85,7 +85,8 @@ layout(set = 3, binding = 0) uniform Frame {
     // a dark gradient, such as the nebula or a light's falloff, from banding. w: 1 to light in
     // linear light: the colours are decoded, lit, and encoded again as they are written.
     vec4 settings;
-    // x: the reflections' levels, where they were drawn this frame, and 0 otherwise.
+    // x: the reflections' levels, where they were drawn this frame, and 0 otherwise. y: the
+    // frame's height in pixels.
     vec4 reflection;
 } frame;
 
@@ -665,6 +666,42 @@ vec4 sampled(float texels) {
     return texture(images, vec3(uv, layer));
 }
 
+// OpenReliant's hologram, which the loadout draws its models as (loadout.zig's Look): a little
+// see-through, with faint scan lines at half the original's 480 lines, drifting slowly down the
+// screen. Every few seconds, for a moment, a thin band of it flares and fades, as a projector does
+// when it slips its sync. Each is kept faint, so that the model still reads as it is.
+const float hologramOpacity = 0.9;
+const float hologramLines = 240.0;
+// How far the scan lines darken the pixels between them, and how many lines a second they drift.
+const float hologramScan = 0.05;
+const float hologramDrift = 1.5;
+// The slips: the seconds of each slot a slip may start in, the chance that one does, and how long
+// it lasts; how tall its band is, as a share of the frame's height; how much brighter its band
+// draws, and how much more see-through.
+const float hologramSlot = 0.5;
+const float hologramSlipChance = 0.08;
+const float hologramSlipTime = 0.12;
+const float hologramBand = 0.04;
+const float hologramFlare = 0.3;
+const float hologramFade = 0.35;
+
+// A number from 0 to 1 that looks random, the same for the same n.
+float hologramHash(float n) {
+    return fract(sin(n * 12.9898) * 43758.5453);
+}
+
+// The hologram's look on the pixel's colour c, whose texel's alpha is alpha.
+vec4 hologram(vec4 c, float alpha) {
+    float t = custom.time.x;
+    float y = gl_FragCoord.y / max(frame.reflection.y, 1.0);
+    float line = 0.5 + 0.5 * cos(6.2831853 * (y * hologramLines - t * hologramDrift));
+    float slot = floor(t / hologramSlot);
+    bool slipping = hologramHash(slot) < hologramSlipChance && t - slot * hologramSlot < hologramSlipTime;
+    float band = slipping ? 1.0 - smoothstep(0.0, hologramBand, abs(y - hologramHash(slot + 0.5))) : 0.0;
+    vec3 rgb = c.rgb * (1.0 - hologramScan * (1.0 + band) * (1.0 - line)) * (1.0 + hologramFlare * band);
+    return vec4(min(rgb, vec3(1.0)), alpha * hologramOpacity * (1.0 - hologramFade * band));
+}
+
 // mod_functions
 
 #ifdef MOD_SURFACE
@@ -725,6 +762,7 @@ void main() {
         c.rgb = min(texel.rgb * colour.rgb * s.ambient + diffuse * added + highlights, vec3(1.0));
     }
     c.rgb = min(c.rgb + glow, vec3(1.0));
+    if ((shade & 0x4000u) != 0u) c = hologram(c, texel.a);
     if (frame.settings.x > 0.0 || frame.settings.z > 0.0) {
         // To the levels the frame is kept in: five bits of red and blue and six of green in 16-bit
         // colour, eight bits a channel otherwise.

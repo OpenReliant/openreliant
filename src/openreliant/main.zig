@@ -839,6 +839,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, directory: Io
                     .cache = cache,
                     .details = details,
                     .models = models,
+                    .loadout_look = options.loadout_look,
                     .saved = &saved_loadout,
                     .stats = tables,
                     .missile_stats = &objects.missile_stats,

@@ -206,6 +206,9 @@ pub const Surface = struct {
     polygons: u32 = 0,
     material: Material,
     textures: [2]Texture = .{ .none, .none },
+    /// OpenReliant's: drawn as a hologram, a little see-through with faint scan lines, where the
+    /// device can (`loadout.Look.hologram`). It goes with a material blended by alpha.
+    hologram: bool = false,
 
     /// A glowing sprite's: `image` added over what is behind it, lit by the sprite's own colour, as
     /// the sun's sprites, the lights and the glows of the explosions and the missiles' trails are.
