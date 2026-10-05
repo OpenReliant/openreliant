@@ -25,6 +25,7 @@ const hog_snd = @import("hog_snd.zig");
 const hudmovie = @import("hudmovie.zig");
 const pilots = @import("pilots.zig");
 const additions = @import("additions.zig");
+const hooks = @import("../hooks.zig");
 const Windows = @import("hud/windows.zig").Windows;
 const input = @import("../input.zig");
 const vm = @import("../vm.zig");
@@ -781,7 +782,26 @@ pub const Mode = enum(u32) {
     /// Queued unless a line plays or waits (`radio_busy`, `0x004561A0`).
     if_idle = 2,
     _,
+
+    /// What scripts call it, in the hook on `radio_say`.
+    pub const script_name = "RadioMode";
 };
+
+/// A line's speech or film, by name, as the scripts' hook on `radio_say` sees it: up to
+/// `line_name_size` bytes, the rest zeros.
+pub const LineName = [line_name_size]u8;
+
+/// The longest name of a line's speech or film the scripts' hook keeps whole, which holds the
+/// game's (`ship_line_size`, `film_path_size`).
+const line_name_size = 0x80;
+
+/// `name` as a `LineName`, cut short where it is longer.
+fn keptName(name: []const u8) LineName {
+    var made: LineName = @splat(0);
+    const kept = @min(name.len, line_name_size - 1);
+    @memcpy(made[0..kept], name[0..kept]);
+    return made;
+}
 
 /// A line as `radio_say` takes it.
 pub const Line = struct {
@@ -979,10 +999,21 @@ pub const Radio = struct {
     /// dropped past its expiry from the frame's start where it has one, or where the queue is
     /// full.
     pub fn say(radio: *Radio, ctx: Context, line: Line, mode: Mode) void {
+        sayIn(ctx, radio, keptName(line.speech), keptName(line.film), line, mode);
+    }
+
+    /// `say` as the scripts hook it (`hooks.functions.radio_say`): the line's `speech` and `film`
+    /// apart, which a handler can change, or the line stopped, so that nothing is said. Names
+    /// longer than `LineName` holds are cut short.
+    fn sayIn(ctx: Context, radio: *Radio, speech: LineName, film: LineName, line: Line, mode: Mode) void {
+        if (hooks.enter(.radio_say, sayIn, .{ ctx, radio, speech, film, line, mode })) |_| return;
+        var said = line;
+        said.speech = std.mem.sliceTo(&speech, 0);
+        said.film = std.mem.sliceTo(&film, 0);
         switch (mode) {
-            .now => radio.sayNow(ctx, line),
-            .queued => radio.enqueue(line, ctx.frame_start),
-            .if_idle => if (!radio.busy(ctx.sound)) radio.enqueue(line, ctx.frame_start),
+            .now => radio.sayNow(ctx, said),
+            .queued => radio.enqueue(said, ctx.frame_start),
+            .if_idle => if (!radio.busy(ctx.sound)) radio.enqueue(said, ctx.frame_start),
             _ => {},
         }
     }
