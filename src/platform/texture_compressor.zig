@@ -1,8 +1,8 @@
 //! Compresses mods' pictures for the GPU ([#503](https://github.com/OpenReliant/openreliant/issues/503)),
 //! with bc7enc and rgbcx (`texture_compressor.cpp`, `deps/texture-compressor`): colours and
 //! material maps in BC7, normal maps in BC5. A 16-bit normal map goes to BC5 from its 16-bit
-//! samples instead (`texels.bc5`). A level's rows of blocks are shared out between threads, as a
-//! large picture has a million blocks.
+//! samples instead (`texels.bc5`). A level's rows of blocks are shared out between threads
+//! (`srtexture.shareRows`), as a large picture has a million blocks.
 //!
 //! **Improvement:** the original's textures are small, and kept as they are.
 
@@ -28,8 +28,9 @@ fn native(kind: Kind) c_int {
     };
 }
 
-/// The most threads a level is shared out between.
-const max_threads = 16;
+/// The least rows of blocks worth a thread of their own: fewer would cost more to start than they
+/// save.
+const least_rows = 16;
 
 /// How far the encoders are from ready.
 const Readiness = enum(u8) { not_ready, making_ready, ready };
@@ -54,29 +55,23 @@ pub fn compress(gpa: Allocator, level: Level, kind: Kind) Allocator.Error!Level 
     prepare();
     const format = kind.format();
     const out = try gpa.alloc(u8, format.size(level.width, level.height));
-    const rows: u32 = @intCast(Level.blocks(level.height));
-    const wanted: u32 = @intCast(@min(std.Thread.getCpuCount() catch 1, max_threads, rows));
-    const share = (rows + wanted - 1) / wanted;
-    var threads: [max_threads]?std.Thread = @splat(null);
-    var first: u32 = 0;
-    for (&threads) |*thread| {
-        if (first >= rows) break;
-        const count = @min(share, rows - first);
-        // A thread that can't start leaves its rows to this one.
-        thread.* = std.Thread.spawn(.{}, compressRows, .{ level, first, count, kind, out }) catch blk: {
-            compressRows(level, first, count, kind, out);
-            break :blk null;
-        };
-        first += count;
-    }
-    for (threads) |thread| if (thread) |started| started.join();
+    const compressing: Compressing = .{ .level = level, .kind = kind, .out = out };
+    srtexture.shareRows(Level.blocks(level.height), least_rows, compressing, Compressing.rows);
     return .{ .width = level.width, .height = level.height, .format = format, .texels = out };
 }
 
-fn compressRows(level: Level, first: u32, count: u32, kind: Kind, out: []u8) void {
-    if (level.format == .rgba16) return bc5.encodeRows(level.texels, level.width, level.height, first, count, out);
-    openreliant_compress_rows(level.texels.ptr, level.width, level.height, first, count, native(kind), out.ptr);
-}
+/// A level being compressed, whose rows of blocks each thread compresses some of.
+const Compressing = struct {
+    level: Level,
+    kind: Kind,
+    out: []u8,
+
+    fn rows(compressing: Compressing, first: usize, count: usize) void {
+        const level = compressing.level;
+        if (level.format == .rgba16) return bc5.encodeRows(level.texels, level.width, level.height, @intCast(first), @intCast(count), compressing.out);
+        openreliant_compress_rows(level.texels.ptr, level.width, level.height, @intCast(first), @intCast(count), native(compressing.kind), compressing.out.ptr);
+    }
+};
 
 test compress {
     const gpa = std.testing.allocator;
