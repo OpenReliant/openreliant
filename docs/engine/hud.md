@@ -300,6 +300,21 @@ TARGET.
 can aim at, not the player's own ship, one ejected from included and, for a friendly one, one
 cloaked: a hostile one within 660000 for the enemy keys, a friendly one for the friendly keys. The
 component goes. With none to be found the player is left without a target.
+Each frame, after the objects' pass, `mission_frame` keeps the player's target in check
+(`0x004931AD` to `0x004932C1`, `keepPlayerTarget` in
+[`main.zig`](../../src/engine/game/main.zig)):
+
+- A whole target that is exploding stops MATCH SPEED and steps the target to the next hostile one.
+- A subtarget whose component has no part steps to the next component. The game also tests the
+  part's node for the destroyed flag, which it only ever sets on a model's root, so that test
+  never passes.
+- A target more than 660000 from the player's ship, between where the two are next, steps to the
+  next one within it: hostile for a hostile target, friendly for any other.
+
+So a target the player flies away from is dropped once it is out of reach, and TARGET UNDER
+RETICULE, which takes the object under the reticle at any distance, holds a target past the reach
+for one frame only.
+
 `player_subtarget_cycle` first gives both forms of the target display their full time again. For a
 target that lists components and is not friendly, it opens the target's form if it is shut and
 steps the component round to the next that is targetable and not hidden, or to none.

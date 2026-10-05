@@ -1908,15 +1908,15 @@ pub const Step = enum {
 /// at, which no key asks for.
 pub const Among = enum { any, hostile, friendly, torpedo };
 
-/// `0x004150D0`: steps the player's target through the objects to the next one `among` takes
-/// (`seekTarget`), losing its component, or leaves the player without a target where none is to
-/// be found. The display follows either way. Returns whether one was found. Not yet ported: what
-/// it tells a multiplayer game.
-pub fn cycleTarget(display: *hud.State, all: *create.Objects, step: Step, among: Among, multiplayer: bool) bool {
+/// `player_target_cycle` (`0x004150D0`): steps the player's target through the objects to the next
+/// one `among` takes (`seekTarget`), losing its component, or leaves the player without a target
+/// where none is to be found. The display follows either way, where there is one. Returns whether
+/// one was found. Not yet ported: what it tells a multiplayer game.
+pub fn cycleTarget(display: ?*hud.State, all: *create.Objects, step: Step, among: Among, multiplayer: bool) bool {
     const entry = ai.playerControlEntry(all) orelse return true;
     const found = seekTarget(all, &entry.target, step, among);
     if (!found) entry.target.index = -1;
-    display.targetChanged(all, multiplayer);
+    if (display) |shown| shown.targetChanged(all, multiplayer);
     return found;
 }
 
@@ -1949,19 +1949,22 @@ pub fn seekTarget(all: *const create.Objects, target: *aigeneric.Target, step: S
     return false;
 }
 
-/// `0x00414F90`: steps the player's target's component round its components to the next the player
-/// can aim at, targetable and neither hidden nor spent, or to none when it finds none. It first
-/// gives both forms of the target display their full time again, and does nothing more for a target
-/// that lists no components, or a friendly one; otherwise it opens the target's form of the
-/// display, if that is shut. The display follows the new component on its next frame. Not yet
-/// ported: what it tells a multiplayer game.
-pub fn cycleSubtarget(display: *hud.State, all: *create.Objects, step: Step, multiplayer: bool) void {
+/// `player_subtarget_cycle` (`0x00414F90`): steps the player's target's component round its
+/// components to the next the player can aim at, targetable and neither hidden nor spent, or to
+/// none when it finds none. It first gives both forms of the target display their full time
+/// again, where there is a display, and does nothing more for a target that lists no components,
+/// or a friendly one; otherwise it opens the target's form of the display, if that is shut. The
+/// display follows the new component on its next frame. Not yet ported: what it tells a
+/// multiplayer game.
+pub fn cycleSubtarget(display: ?*hud.State, all: *create.Objects, step: Step, multiplayer: bool) void {
     const entry = ai.playerControlEntry(all) orelse return;
-    for ([_]hud.windows.Window{ .big_target, .target }) |window| display.windows.renew(window);
+    if (display) |shown| for ([_]hud.windows.Window{ .big_target, .target }) |window| shown.windows.renew(window);
     const slot = &all.slots[entry.target.slot() orelse return];
     if (!slot.object.flags.components or slot.object.side == .friendly) return;
     const window = hud.targetWindow(slot);
-    if (display.windows.status.get(window).phase == .shut) _ = display.windows.open(window, multiplayer);
+    if (display) |shown| if (shown.windows.status.get(window).phase == .shut) {
+        _ = shown.windows.open(window, multiplayer);
+    };
 
     const count = slot.object.component_count;
     if (count <= 0) return;

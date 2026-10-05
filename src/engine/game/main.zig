@@ -651,6 +651,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.gun_particles) |pools| pools.frame(orders.world.clock);
     smoke.frame(orders.world);
     objectsPass(orders);
+    keepPlayerTarget(orders.world);
     followCarrier(orders.world);
     if (orders.world.forces) |forces| forces.pushFrame(orders.world.clock.frame_start);
     orders.world.objects.exhaust.burn(orders.world);
@@ -764,6 +765,79 @@ fn objectsPass(orders: aigeneric.Context) void {
         avoidanceScan(world, index);
     }
     if (world.display) |display| display.enemy_lock = enemy_lock;
+}
+
+/// `mission_frame`'s upkeep of the player's target after the objects' pass (`0x004931AD` to
+/// `0x004932C1`), for the player's Player Control order (`player_control_entry`), where it has one:
+///
+/// - A whole target that is exploding stops MATCH SPEED (`matching_speed`) and moves on to the
+///   next hostile one (`input.cycleTarget`).
+/// - A subtarget whose component has no part (`ai_target_node`) moves on to the next component
+///   (`input.cycleSubtarget`). The game also moves on from a part whose node is flagged
+///   destroyed, but it only ever sets that flag on a model's root (`node_holder`, from
+///   `component_damage` and `explode_component_init`), never on a component's own node, so the test
+///   never passes.
+/// - A target more than `hud.pick_reach` from the player's ship, between where the two are next,
+///   moves on to the next one within it: the next hostile one for a hostile target, the next
+///   friendly one for any other.
+///
+/// Not ported: then, in view 0, the subtarget's parts picked out in red where the target or its
+/// component changed (`hud_subtarget`, `0x0048CC30`,
+/// [#531](https://github.com/OpenReliant/openreliant/issues/531)).
+fn keepPlayerTarget(world: gameobj.World) void {
+    const all = world.objects;
+    const entry = ai.playerControlEntry(all) orelse return;
+    if (entry.target.slotIn(all)) |index| {
+        if (entry.target.part()) |component| {
+            if (all.slots[index].component(component) == null) input.cycleSubtarget(world.display, all, .next, false);
+        } else if (all.slots[index].object.flags.exploding) {
+            world.player.matching_speed = false;
+            _ = input.cycleTarget(world.display, all, .next, .hostile, false);
+        }
+    }
+    const index = entry.target.slotIn(all) orelse return;
+    const target = &all.slots[index].object;
+    const away = math.distance(all.slots[all.player].object.nextPosition(), target.nextPosition());
+    if (away > hud.pick_reach) _ = input.cycleTarget(world.display, all, .next, if (target.side == .hostile) .hostile else .friendly, false);
+}
+
+test keepPlayerTarget {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const player = try mission.add(.of(.predator), @splat(0));
+    try std.testing.expect(try aigeneric.push(mission.orders(), player, .player_control, .none));
+    const near = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
+    const far = try mission.add(.of(.sabre), .{ 0, 0, hud.pick_reach + 1000 });
+    for ([_]u16{ near, far }) |index| {
+        mission.slot(index).object.flags.targetable = true;
+        mission.slot(index).object.side = .hostile;
+    }
+    const entry = ai.playerControlEntry(all).?;
+
+    // A target past the reach moves on to the next hostile one within it.
+    entry.target = .at(far, null);
+    keepPlayerTarget(mission.world());
+    try std.testing.expectEqual(near, entry.target.slot().?);
+    // One within it stays.
+    keepPlayerTarget(mission.world());
+    try std.testing.expectEqual(near, entry.target.slot().?);
+
+    // An exploding one stops MATCH SPEED and moves on too: here to none, the other being past
+    // the reach.
+    mission.player.matching_speed = true;
+    mission.slot(near).object.flags.exploding = true;
+    keepPlayerTarget(mission.world());
+    try std.testing.expect(!mission.player.matching_speed);
+    try std.testing.expectEqual(null, entry.target.slot());
+
+    // A subtarget whose component has no part moves on; a ship that lists no components keeps it,
+    // as the game's step does.
+    mission.slot(near).object.flags.exploding = false;
+    entry.target = .at(near, 3);
+    keepPlayerTarget(mission.world());
+    try std.testing.expectEqual(3, entry.target.part().?);
 }
 
 /// How much wider than the two objects' spheres an object that lists components is watched for
