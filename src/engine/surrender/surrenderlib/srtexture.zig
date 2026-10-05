@@ -419,7 +419,7 @@ pub const Table = struct {
                 .kept => |image| try table.keep(key, image),
                 .loading => |loading| started.append(table.gpa, .{ .key = key, .loading = loading }) catch |err| {
                     var unwanted = loading;
-                    unwanted.deinit(table.gpa);
+                    unwanted.deinit();
                     table.gpa.free(key);
                     return err;
                 },
@@ -440,7 +440,7 @@ pub const Table = struct {
         loading: mod_pictures.Loading,
 
         fn deinit(item: *Prefetched, gpa: Allocator) void {
-            item.loading.deinit(gpa);
+            item.loading.deinit();
             gpa.free(item.key);
         }
 

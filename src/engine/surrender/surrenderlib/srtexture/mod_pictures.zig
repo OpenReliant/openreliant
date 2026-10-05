@@ -9,6 +9,9 @@
 //! - The loadout's green and red copies of a picture keep its normal and material maps, but not
 //!   its emissive map, whose own colours would show through the copy's.
 //! - Its files are read one after another, then decoded and mipmapped each on a thread of its own.
+//!   A model's pictures are decoded together, as many at once as there are cores
+//!   (`srtexture.Table.prefetch`, [#692](https://github.com/OpenReliant/openreliant/issues/692)):
+//!   loading runs in stages for it (`start`, `Loading.decode`, `Loading.finish`).
 //!   A 16-bit PNG normal map is read and mipmapped at 16 bits
 //!   ([#688](https://github.com/OpenReliant/openreliant/issues/688)).
 //! - A normal map keeps its x and y alone: in BC5 where the picture is compressed, at 16 bits
@@ -133,7 +136,7 @@ pub fn load(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u
         .none => return null,
         .kept => |kept| return kept,
         .loading => |*loading| {
-            defer loading.deinit(gpa);
+            defer loading.deinit();
             loading.decode();
             return loading.finish();
         },
@@ -155,16 +158,16 @@ pub const Started = union(enum) {
 /// own (`Loading.decode`), beside other pictures', as `srtexture.Table.prefetch` runs it.
 pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor, copy: ?Copy) Allocator.Error!Started {
     var loading: Loading = .{ .gpa = gpa, .longest = longest, .compressor = compressor, .copy = copy };
-    errdefer loading.deinit(gpa);
+    errdefer loading.deinit();
     try loading.read.fill(gpa, files, name);
     if (loading.read.picture == null) {
-        loading.deinit(gpa);
+        loading.deinit();
         return .none;
     }
     loading.key = loading.read.key(longest, copy);
     loading.kept_name = if (copy) |made| try std.fmt.allocPrint(gpa, "{c}{s}", .{ made.letter(), name }) else try gpa.dupe(u8, name);
     if (compressor) |held| if (try held.load(gpa, loading.kept_name, &loading.key)) |kept| {
-        loading.deinit(gpa);
+        loading.deinit();
         return .{ .kept = kept };
     };
     return .{ .loading = loading };
@@ -184,7 +187,8 @@ pub const Loading = struct {
     /// What `decode` made: the image, null where the files can't be read, or the error.
     decoded: Allocator.Error!?Image = null,
 
-    pub fn deinit(loading: *Loading, gpa: Allocator) void {
+    pub fn deinit(loading: *Loading) void {
+        const gpa = loading.gpa;
         loading.read.deinit(gpa);
         gpa.free(loading.kept_name);
         if (loading.decoded) |found| {

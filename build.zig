@@ -297,8 +297,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(version_tests).step);
 }
 
-/// Gives `module` the macOS SDK's headers, frameworks and libraries at `sdk`, which a build for a
-/// Mac other than the host does not find by itself.
 /// Gives `module`, the library built from `src/root.zig`, zlib for `target`, which the PNG reader
 /// inflates with (`src/formats/png.zig`): several times faster than `std.compress.flate`. It is
 /// built optimized whatever mode the rest is built in, as the other C libraries are.
@@ -313,6 +311,8 @@ fn addZlib(b: *std.Build, module: *std.Build.Module, target: std.Build.ResolvedT
     module.linkLibrary(zlib);
 }
 
+/// Gives `module` the macOS SDK's headers, frameworks and libraries at `sdk`, which a build for a
+/// Mac other than the host does not find by itself.
 fn addMacosSdk(b: *std.Build, module: *std.Build.Module, sdk: []const u8) void {
     module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
     module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
