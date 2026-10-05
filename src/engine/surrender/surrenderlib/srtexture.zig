@@ -571,52 +571,100 @@ fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) 
 /// down, at least a pixel, and each pixel the mean of the up to four it covers, as `content` takes
 /// it.
 fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level {
-    const Rgb = @Vector(3, f32);
     const width = @max(level.width / 2, 1);
     const height = @max(level.height / 2, 1);
     const made: Level = .{ .width = width, .height = height, .format = level.format, .texels = try gpa.alloc(u8, level.format.size(width, height)) };
-    for (0..height) |y| for (0..width) |x| {
-        var sum: Rgb = @splat(0);
-        var weighted: Rgb = @splat(0);
-        var alpha: f32 = 0;
-        const columns = [2]usize{ @min(2 * x, level.width - 1), @min(2 * x + 1, level.width - 1) };
-        const rows = [2]usize{ @min(2 * y, level.height - 1), @min(2 * y + 1, level.height - 1) };
-        for (rows) |row| for (columns) |column| {
-            const at = row * level.width + column;
-            const texel = unitsAt(level, at);
-            const value: Rgb = switch (content) {
-                .colour => lightAt(level, at),
-                .normal => direction(Rgb{ texel[0], texel[1], texel[2] } * @as(Rgb, @splat(2)) - @as(Rgb, @splat(1))),
-                .data => .{ texel[0], texel[1], texel[2] },
-            };
-            const weight = texel[3];
-            sum += value;
-            weighted += value * @as(Rgb, @splat(weight));
-            alpha += weight;
-        };
-        const out = y * width + x;
-        const mean_alpha = alpha / 4;
-        switch (content) {
-            .colour => {
-                // Weighted by alpha, so that a clear pixel lends its colour nothing; where the four
-                // are all clear, the mean of their colours, which filtering may still reach.
-                const mean = if (alpha > 0) weighted / @as(Rgb, @splat(alpha)) else sum / @as(Rgb, @splat(4));
-                storeLight(made, out, mean, mean_alpha);
-            },
-            .normal => {
-                // The mean of the vectors at the lengths their alpha keeps: its direction, and its
-                // own length in alpha.
-                const mean = weighted / @as(Rgb, @splat(4));
-                const encoded = (direction(mean) + @as(Rgb, @splat(1))) / @as(Rgb, @splat(2));
-                store(made, out, .{ encoded[0], encoded[1], encoded[2], math.length(mean) });
-            },
-            .data => {
-                const mean = sum / @as(Rgb, @splat(4));
-                store(made, out, .{ mean[0], mean[1], mean[2], mean_alpha });
-            },
-        }
-    };
+    const halving: Halving = .{ .level = level, .made = made, .content = content };
+    shareRows(height, least_rows, halving, Halving.rows);
     return made;
+}
+
+/// The least rows of a level worth a thread of their own as it is halved: fewer would cost more to
+/// start than they save.
+const least_rows = 64;
+
+/// A level being halved (`halved`), whose rows each thread makes some of.
+const Halving = struct {
+    level: Level,
+    made: Level,
+    content: Content,
+
+    /// Makes `count` rows of `made` from `first`.
+    fn rows(halving: Halving, first: usize, count: usize) void {
+        const Rgb = @Vector(3, f32);
+        const level = halving.level;
+        const made = halving.made;
+        for (first..first + count) |y| for (0..made.width) |x| {
+            var sum: Rgb = @splat(0);
+            var weighted: Rgb = @splat(0);
+            var alpha: f32 = 0;
+            const columns = [2]usize{ @min(2 * x, level.width - 1), @min(2 * x + 1, level.width - 1) };
+            const from = [2]usize{ @min(2 * y, level.height - 1), @min(2 * y + 1, level.height - 1) };
+            for (from) |row| for (columns) |column| {
+                const at = row * level.width + column;
+                const texel = unitsAt(level, at);
+                const value: Rgb = switch (halving.content) {
+                    .colour => lightAt(level, at),
+                    .normal => direction(Rgb{ texel[0], texel[1], texel[2] } * @as(Rgb, @splat(2)) - @as(Rgb, @splat(1))),
+                    .data => .{ texel[0], texel[1], texel[2] },
+                };
+                const weight = texel[3];
+                sum += value;
+                weighted += value * @as(Rgb, @splat(weight));
+                alpha += weight;
+            };
+            const out = y * made.width + x;
+            const mean_alpha = alpha / 4;
+            switch (halving.content) {
+                .colour => {
+                    // Weighted by alpha, so that a clear pixel lends its colour nothing; where the
+                    // four are all clear, the mean of their colours, which filtering may still
+                    // reach.
+                    const mean = if (alpha > 0) weighted / @as(Rgb, @splat(alpha)) else sum / @as(Rgb, @splat(4));
+                    storeLight(made, out, mean, mean_alpha);
+                },
+                .normal => {
+                    // The mean of the vectors at the lengths their alpha keeps: its direction, and
+                    // its own length in alpha.
+                    const mean = weighted / @as(Rgb, @splat(4));
+                    const encoded = (direction(mean) + @as(Rgb, @splat(1))) / @as(Rgb, @splat(2));
+                    store(made, out, .{ encoded[0], encoded[1], encoded[2], math.length(mean) });
+                },
+                .data => {
+                    const mean = sum / @as(Rgb, @splat(4));
+                    store(made, out, .{ mean[0], mean[1], mean[2], mean_alpha });
+                },
+            }
+        };
+    }
+};
+
+/// The most threads `shareRows` shares a picture's rows between.
+pub const max_threads = 16;
+
+/// OpenReliant's: runs `work(context, first, count)` over `rows` rows of a picture, shared out in
+/// runs between as many threads as the computer has cores, at most `max_threads`, each taking at
+/// least `least` rows. The caller's thread takes the first run. A thread that can't start leaves
+/// its run to the caller.
+///
+/// **Improvement:** the original works on one core; a large mod picture's mipmaps and compression
+/// are shared between them all.
+pub fn shareRows(rows: usize, least: usize, context: anytype, comptime work: fn (@TypeOf(context), usize, usize) void) void {
+    const wanted = @max(@min(std.Thread.getCpuCount() catch 1, max_threads, rows / @max(least, 1)), 1);
+    const share = (rows + wanted - 1) / wanted;
+    var threads: [max_threads]?std.Thread = @splat(null);
+    var first: usize = @min(share, rows);
+    for (threads[1..wanted]) |*thread| {
+        if (first >= rows) break;
+        const count = @min(share, rows - first);
+        thread.* = std.Thread.spawn(.{}, work, .{ context, first, count }) catch blk: {
+            work(context, first, count);
+            break :blk null;
+        };
+        first += count;
+    }
+    work(context, 0, @min(share, rows));
+    for (threads) |thread| if (thread) |started| started.join();
 }
 
 /// The samples of texel `at` of `level`, 8-bit or 16-bit RGBA, each from 0 to 1.
@@ -919,6 +967,39 @@ test "material maps come beside a picture" {
     try std.testing.expectEqual(null, packed_hull.maps.normal);
     try std.testing.expectEqual(null, packed_hull.maps.emissive);
     try std.testing.expectEqualSlices(u8, &.{ 10, 20, 30, 255 }, packed_hull.maps.orm.?[1].texels);
+}
+
+test shareRows {
+    // Every row is done once, however the rows are shared out.
+    const Count = struct {
+        done: *[1000]std.atomic.Value(u32),
+
+        fn rows(count: @This(), first: usize, many: usize) void {
+            for (first..first + many) |row| _ = count.done[row].fetchAdd(1, .monotonic);
+        }
+    };
+    for ([_]usize{ 0, 1, 7, 1000 }) |rows| for ([_]usize{ 1, 64 }) |least| {
+        var done: [1000]std.atomic.Value(u32) = @splat(.init(0));
+        shareRows(rows, least, Count{ .done = &done }, Count.rows);
+        for (done, 0..) |row, at| try std.testing.expectEqual(@intFromBool(at < rows), row.load(.monotonic));
+    };
+}
+
+test "a level halved between threads is the level halved on one" {
+    const gpa = std.testing.allocator;
+    const side = 512;
+    const rgba = try gpa.alloc(u8, side * side * 4);
+    defer gpa.free(rgba);
+    for (rgba, 0..) |*sample, at| sample.* = @truncate(at *% 2654435761 >> 13);
+    const level: Level = .{ .width = side, .height = side, .texels = rgba };
+    for (std.enums.values(Content)) |content| {
+        const shared = try halved(gpa, level, content);
+        defer gpa.free(shared.texels);
+        const alone: Level = .{ .width = side / 2, .height = side / 2, .texels = try gpa.alloc(u8, side / 2 * side / 2 * 4) };
+        defer gpa.free(alone.texels);
+        Halving.rows(.{ .level = level, .made = alone, .content = content }, 0, side / 2);
+        try std.testing.expectEqualSlices(u8, alone.texels, shared.texels);
+    }
 }
 
 test "mipmaps of normals and of values" {
