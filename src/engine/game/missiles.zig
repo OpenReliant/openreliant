@@ -130,13 +130,16 @@ pub const Type = enum(i16) {
         return Type.of(missile.base()).index();
     }
 
-    /// What its hardpoint mounts (`models.attachment`): its base's, with the model of the missile
-    /// that flies its own where a mod gives it one. A pod stays its base's.
+    /// What its hardpoint mounts (`models.attachment`): its base's, with the models a mod gives it
+    /// of its own. For a missile whose base hangs in a pod, the pod and the missile that flies from
+    /// it; for any other, the missile that hangs on the rail and flies.
     pub fn mounted(missile: Type) ?create.models.Attachment {
         var held = create.models.attachment(.missile, @intCast(missile.baseIndex() orelse return null)) orelse return null;
-        if (missile.added()) |from_mod| if (from_mod.extra.model) |model| {
-            if (held.second_model != null) held.second_model = model else held.model = model;
-        };
+        const from_mod = missile.added() orelse return held;
+        if (held.second_model != null) {
+            if (from_mod.extra.pod) |pod| held.model = pod;
+            if (from_mod.extra.model) |model| held.second_model = model;
+        } else if (from_mod.extra.model) |model| held.model = model;
         return held;
     }
 
@@ -1345,4 +1348,29 @@ test collide {
 
 test {
     std.testing.refAllDecls(@This());
+}
+
+test "Type.mounted" {
+    var list = [_]additions.missiles.Added{
+        .{ .name = "a:rail", .mod = "a", .base = .bandit, .extra = .{ .model = "banana.shp" } },
+        .{ .name = "a:pod", .mod = "a", .base = .raptor, .extra = .{ .model = "banana.shp", .pod = "bunch.shp" } },
+        .{ .name = "a:plain", .mod = "a", .base = .raptor },
+    };
+    additions.missiles.install(&list);
+    defer additions.missiles.reset();
+    const first: Type = @enumFromInt(additions.missiles.first);
+    // A rail missile's own model hangs on the hardpoint and flies.
+    const rail = first.mounted().?;
+    try std.testing.expectEqualStrings("banana.shp", rail.model.?);
+    try std.testing.expectEqual(null, rail.second_model);
+    // A pod missile's pod hangs, and its missile flies from it.
+    const pod: Type = @enumFromInt(additions.missiles.first + 1);
+    try std.testing.expectEqualStrings("bunch.shp", pod.mounted().?.model.?);
+    try std.testing.expectEqualStrings("banana.shp", pod.mounted().?.second_model.?);
+    // Without models of its own, it mounts its base's.
+    const plain: Type = @enumFromInt(additions.missiles.first + 2);
+    try std.testing.expectEqualStrings(Type.of(.raptor).mounted().?.model.?, plain.mounted().?.model.?);
+    try std.testing.expectEqual(GameMissile.raptor, plain.base());
+    try std.testing.expectEqual(@as(?usize, additions.missiles.first + 2), plain.index());
+    try std.testing.expectEqual(@as(?usize, 1), plain.baseIndex());
 }

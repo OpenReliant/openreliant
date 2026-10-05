@@ -447,13 +447,16 @@ mod's own model fires the mod's guns by the numbers in `[Guns]`, and a ship type
 banana=
 
 [Missile banana]
-Base=raptor
+Base=bandit
 Name=Banana
 Model=banana.shp
 ```
 
-A missile takes its base's trail, sounds and flight display picture. `Model` is the missile that
-flies; a missile that hangs in a pod, as the Raptor does, keeps its base's pod. A missile is offered
+A missile takes its base's trail, sounds and flight display picture. `Model` is the missile: for a
+base that hangs on a rail, as the Havoc, the Jack Hammer, the Bandit, the Vagabond and the Imp do,
+the missile that hangs on the hardpoint and launches from it. For a base that hangs in a pod, as the
+Screamer, the Raptor, the Solomon and the Hawk do, `Model` is the missile that flies from the pod,
+and `Pod` is the pod that hangs on the hardpoint, else its base's. A missile is offered
 by what holds it: a mod's own model's hardpoints, or a ship type's `Missiles`. The loadout screen
 offers the game's missiles only.
 

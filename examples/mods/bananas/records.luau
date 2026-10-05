@@ -10,7 +10,7 @@ gun.speed *= 1.5
 gun.damage.shield *= 1.5
 gun.damage.hull *= 1.5
 
--- A Banana locks on in half the time of a Raptor.
+-- A Banana locks on in half the time of a Bandit.
 local missile = records.missiles["bananas:banana"]
 missile.lock_time = math.floor(missile.lock_time / 2)
 

@@ -300,14 +300,19 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
     return made;
 }
 
-/// What a missile type has besides: the model it flies as, else its base's.
+/// What a missile type has besides: the model it flies as, and for a missile whose base hangs in a
+/// pod, the pod's model; each else its base's.
 pub const MissileExtra = struct {
     model: ?[]const u8 = null,
+    pod: ?[]const u8 = null,
 };
 
 fn readMissile(context: Context, section: []const u8, _: missiles_module.GameMissile) Allocator.Error!?MissileExtra {
-    const model = context.mod.manifest.value(section, "Model") orelse return .{};
-    return .{ .model = try context.arena.dupe(u8, model) };
+    const manifest = context.mod.manifest;
+    var made: MissileExtra = .{};
+    if (manifest.value(section, "Model")) |model| made.model = try context.arena.dupe(u8, model);
+    if (manifest.value(section, "Pod")) |pod| made.pod = try context.arena.dupe(u8, pod);
+    return made;
 }
 
 /// The ship types mods add, from 256 to the markers (`GameType.sun_marker`).
@@ -496,6 +501,7 @@ test "a family reads what each mod lists" {
         \\[Missile banana]
         \\Base=raptor
         \\Model=banana.shp
+        \\Pod=bunch.shp
         \\[Pilots]
         \\trooper=200
         \\[Pilot trooper]
@@ -528,6 +534,7 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqual(20, guns.all()[0].own_number.?);
     try std.testing.expectEqual(guns.first, guns.find("bananas:banana").?);
     try std.testing.expectEqualStrings("banana.shp", missiles.all()[0].extra.model.?);
+    try std.testing.expectEqualStrings("bunch.shp", missiles.all()[0].extra.pod.?);
     try std.testing.expectEqual(0, pilots.all()[0].base);
 
     const list = ships.all();
