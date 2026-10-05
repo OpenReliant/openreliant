@@ -284,6 +284,9 @@ pub const ShipExtra = struct {
     wire_frame: ?[]const u8 = null,
     wing_icon: ?[]const u8 = null,
     engine_sound: ?[]const u8 = null,
+    /// The campaign tier from which the loadout screen offers it, else whenever it offers its
+    /// base (`loadout.tables.offers`).
+    tier: ?u2 = null,
 };
 
 fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocator.Error!?ShipExtra {
@@ -297,6 +300,7 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
     if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, std.fs.path.stem(text));
     if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, std.fs.path.stem(text));
     if (manifest.value(section, "EngineSound")) |name| made.engine_sound = try readSound(context, "ship type", name) orelse return null;
+    if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "ship type", text) orelse return null;
     if (manifest.value(section, "Schematic")) |text| made.schematic = try context.arena.dupe(u8, text);
     if (manifest.value(section, "Guns")) |text| {
         const number = guns.named(text, context.mod.name) orelse {
@@ -333,14 +337,17 @@ fn readMissile(context: Context, section: []const u8, _: missiles_module.GameMis
     if (manifest.value(section, "Model")) |model| made.model = try context.arena.dupe(u8, model);
     if (manifest.value(section, "Pod")) |pod| made.pod = try context.arena.dupe(u8, pod);
     if (manifest.value(section, "Description")) |text| made.description = try context.arena.dupe(u8, text);
-    if (manifest.value(section, "Tier")) |text| {
-        const trimmed = std.mem.trim(u8, text, " \t");
-        made.tier = std.fmt.parseInt(u2, trimmed, 10) catch {
-            context.warn("missile", "gives the tier '{s}', which isn't from 0 to 3", .{text});
-            return null;
-        };
-    }
+    if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "missile", text) orelse return null;
     return made;
+}
+
+/// The campaign tier `text` names, for a record of `noun`; null where it isn't one, which the log
+/// says.
+fn readTier(context: Context, comptime noun: []const u8, text: []const u8) Allocator.Error!?u2 {
+    return std.fmt.parseInt(u2, std.mem.trim(u8, text, " \t"), 10) catch {
+        context.warn(noun, "gives the tier '{s}', which isn't from 0 to 3", .{text});
+        return null;
+    };
 }
 
 /// The ship types mods add, from 256 to the markers (`GameType.sun_marker`).

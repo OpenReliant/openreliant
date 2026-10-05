@@ -112,7 +112,7 @@ pub const ShipRanges = struct {
     }
 
     /// `loadout_ship_widen_ranges` (`0x00426700`): takes a fighter's figures in.
-    fn widen(ranges: *ShipRanges, stats: *const create.Stats, ship_type: u8) void {
+    fn widen(ranges: *ShipRanges, stats: *const create.Stats, ship_type: create.TypeIndex) void {
         const flight = stats.flight[ship_type];
         const combat = stats.combat[ship_type];
         ranges.speed.widen(flight.max_speed);
@@ -148,7 +148,7 @@ pub const ShipBars = extern struct {
     armor: i16,
 
     /// `loadout_ship_bars`: a fighter of `ship_type`'s.
-    pub fn of(ranges: ShipRanges, stats: *const create.Stats, ship_type: u8) ShipBars {
+    pub fn of(ranges: ShipRanges, stats: *const create.Stats, ship_type: create.TypeIndex) ShipBars {
         const flight = stats.flight[ship_type];
         const combat = stats.combat[ship_type];
         return .{
@@ -174,13 +174,20 @@ pub const ShipBars = extern struct {
 };
 
 /// The figures `loadout_load` gives the loadout's ships (`0x00441B12` to `0x00441B94`), after
-/// `loadout_ship_bars_init` has worked out the fighters' bars: each ship takes those of its
-/// fighter (`fighterFor`), and keeps its crew.
-pub fn shipFigures(stats: *const create.Stats) [tables.ship_count]tables.ShipFigures {
+/// `loadout_ship_bars_init` has worked out the fighters' bars, into `figures`: each of the game's
+/// `offered` ships takes those of its fighter (`fighterFor`), and keeps its crew.
+///
+/// A mod's ship type takes its own type's the same way, against the game's fighters' ranges, its
+/// bars kept to the panel's ten segments.
+pub fn shipFigures(stats: *const create.Stats, offered: []const tables.Offer, figures: []tables.ShipFigures) void {
     const ranges: ShipRanges = .init(stats);
-    var figures: [tables.ship_count]tables.ShipFigures = undefined;
-    for (&figures, tables.ships, 0..) |*figure, ship, index| {
-        const bars: ShipBars = .of(ranges, stats, fighterFor(index));
+    for (figures, offered) |*figure, offer| {
+        const own = offer.ship_type >= tables.ship_count;
+        var bars: ShipBars = .of(ranges, stats, if (own) offer.ship_type else fighterFor(offer.ship_type));
+        const ship = offer.record;
+        if (own) inline for (.{ "speed", "agility", "acceleration", "shield_power", "shield_recharge", "armor" }) |name| {
+            @field(bars, name) = std.math.clamp(@field(bars, name), 0, most_segments);
+        };
         figure.* = .{
             bars.speed,
             bars.acceleration,
@@ -192,13 +199,12 @@ pub fn shipFigures(stats: *const create.Stats) [tables.ship_count]tables.ShipFig
             ship.crew,
         };
     }
-    return figures;
 }
 
 /// The ship type of the fighter whose bars `loadout_load` gives the loadout's ship `index`
 /// (`0x00441B19`): the first of the alliance's whose type is `index`, or, where there is none, the
 /// fighter after the alliance's last, the Coalition's first.
-fn fighterFor(index: usize) u8 {
+fn fighterFor(index: usize) create.TypeIndex {
     for (alliance_fighters) |ship_type| {
         if (ship_type == index) return ship_type;
     }
@@ -384,7 +390,10 @@ test shipFigures {
     stats.combat[3].shield_power = 28;
     stats.combat[2].afterburner_fuel = 0x12345;
     stats.combat[7].armor_class = 30;
-    const figures = shipFigures(&stats);
+    var offered: [tables.arc_slot_count]tables.Offer = undefined;
+    const game, _ = tables.offers(3, tables.ship_count, &offered);
+    var figures: [tables.ship_count]tables.ShipFigures = undefined;
+    shipFigures(&stats, game, &figures);
     // Ship 0 is the fastest, ship 5 halfway, the rest the slowest.
     try std.testing.expectEqual(10, figures[0][0]);
     try std.testing.expectEqual(6, figures[5][0]);

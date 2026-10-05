@@ -31,6 +31,7 @@ const i3d = @import("../../genilib/interf/i3d.zig");
 const camera = @import("../../game/camera.zig");
 const cbox = @import("../../game/cbox.zig");
 const create = @import("../../game/create.zig");
+const additions = @import("../../game/additions.zig");
 const explode = @import("../../game/explode.zig");
 const gameflow = @import("../../game/gameflow.zig");
 const gameobj = @import("../../game/gameobj.zig");
@@ -96,7 +97,8 @@ pub const Context = struct {
 /// The campaign's saved loadout (`0x00562F18`): the ship the pilot last chose and the missiles on
 /// its racks (`0x00562F1A`), which `campaign_new` makes the Predator with none, and a restart keeps.
 pub const Saved = struct {
-    ship: u8 = predator,
+    /// The ship type chosen: one of the game's twelve, or a mod's (`tables.Offer`).
+    ship: create.TypeIndex = predator,
     racks: racks.Saved = @splat(null),
 };
 
@@ -105,7 +107,7 @@ pub const Saved = struct {
 /// (`create.Objects.loadout_racks`); and the campaign's tier as it raised it, which the mission's
 /// fighters are armed by (`campaign_tier`).
 pub const Result = struct {
-    ship: u8,
+    ship: create.TypeIndex,
     racks: create.Racks,
     tier: u2,
 };
@@ -457,6 +459,10 @@ pub const Loadout = struct {
     /// The campaign's tier as the loadout raises it (`campaign_tier`, `0x00441AA9`).
     tier: u2,
     /// The ship chosen (`loadout_ship`, `0x00523E68`), a ship type.
+    /// The ships the loadout offers (`tables.offers`), the first `offer_count`, in the order of
+    /// `ships`; and which of them is chosen.
+    offers: [tables.arc_slot_count]tables.Offer = undefined,
+    offer_count: usize = 0,
     chosen: u8,
     /// The ships the tier or the rank offers (`0x00523E84`), from the Predator on, and the first
     /// slot of the arc they stand in (`0x00524754`).
@@ -508,7 +514,7 @@ pub const Loadout = struct {
     panels_art: *panels.Image = undefined,
     /// Each ship's figures as the loadout works them out as it loads (`loadout_ship_stats`,
     /// `0x004EC278`).
-    figures: [tables.ship_count]tables.ShipFigures = undefined,
+    figures: []tables.ShipFigures = &.{},
     /// The missiles the loadout knows (`tables.Missile.all`): the game's, then the mods'. The
     /// slices after it hold one for each, in its order (`missilePlace`).
     known: []const tables.Missile = &.{},
@@ -598,6 +604,9 @@ pub const Loadout = struct {
         const gpa = context.rooms.gpa;
         const loadout = try gpa.create(Loadout);
         const tier = @max(context.tier, tierBefore(context.mission));
+        var offers: [tables.arc_slot_count]tables.Offer = undefined;
+        const offered, const left_out = tables.offers(tier, offeredShips(tier, context.rank), &offers);
+        if (left_out > 0) log.warn("{d} of the mods' ship types are left out of the loadout: the arc has no room for them", .{left_out});
         loadout.* = .{
             .context = context,
             .arena = .init(gpa),
@@ -606,7 +615,9 @@ pub const Loadout = struct {
             .view = .{ .projection = canvas.projection(canvas.size, camera.factors), .hardware = context.hardware },
             .interface = .create(gpa, loadout),
             .tier = tier,
-            .chosen = chosenFor(context, offeredShips(tier, context.rank)),
+            .offers = offers,
+            .offer_count = offered.len,
+            .chosen = chosenFor(context, offered),
             .lights = hologram.lights(context.hardware),
         };
         errdefer loadout.destroy();
@@ -629,14 +640,14 @@ pub const Loadout = struct {
         // The ships the tier or the rank offers (`loadout_ships_create`, `0x00444760`), each an
         // object of the interface whose tooltip is its name (`0x00441E43` on), reached by the green
         // and the ambient lights alone (`0x00446070`).
-        const offered = offeredShips(loadout.tier, context.rank);
+        const offered = loadout.offer_count;
         loadout.first_slot = (tables.arc_slot_count - offered) / 2;
         loadout.ships = try arena.alloc(Ship, offered);
         // Nothing hung on any ship yet, as `destroy` finds them should the loading stop part way.
         for (loadout.ships) |*ship| ship.model.hung = &.{};
         for (loadout.ships, 0..) |*ship, index| {
             try loadout.makeShip(ship, @intCast(index));
-            ship.object = .create(0, context.strings.string(tables.ships[index].name), true);
+            ship.object = .create(0, context.strings.string(loadout.shipRecord(index).name), true);
             ship.object.press = pressShip;
             ship.object.target = .{ .tree = &ship.model };
             for (ship.model.parts) |*part| part.object.light_mask = ship_light_mask;
@@ -668,7 +679,7 @@ pub const Loadout = struct {
         }
         // Every ship but the chosen shrunk to the arc's share of its scale (`0x00442240` on).
         for (loadout.ships, 0..) |*ship, index| {
-            if (index != loadout.chosen) i3d.scaleTree(&ship.model, arc_share * tables.ships[index].scale);
+            if (index != loadout.chosen) i3d.scaleTree(&ship.model, arc_share * loadout.shipRecord(index).scale);
         }
 
         const backdrop_name = if (context.mission <= last_reliant_mission) reliant_backdrop else yamato_backdrop;
@@ -689,7 +700,8 @@ pub const Loadout = struct {
                 texture.image = .{ .levels = levels };
             }
         }
-        loadout.figures = bars.shipFigures(context.stats);
+        loadout.figures = try arena.alloc(tables.ShipFigures, offered);
+        bars.shipFigures(context.stats, loadout.offers[0..offered], loadout.figures);
         bars.missileFigures(context.missile_stats, loadout.known, loadout.missile_figures);
 
         for (loadout.ships) |*ship| try loadout.interface.addObject(&ship.object, "");
@@ -734,7 +746,7 @@ pub const Loadout = struct {
     /// the models take already, their textures named with the prefix.
     fn makeShip(loadout: *Loadout, ship: *Ship, index: u8) !void {
         const arena = loadout.arena.allocator();
-        const file = try loadout.loadModel(tables.ships[index].model, .loadout_ships);
+        const file = try loadout.loadModel(loadout.shipRecord(index).model, .loadout_ships);
         ship.* = .{
             .model = try .create(arena, file.model, file.loaded, .{}),
             .loaded = file.loaded,
@@ -751,6 +763,36 @@ pub const Loadout = struct {
         ship.model.place(@splat(0), math.identity);
         litSolid(file.loaded, true, loadout.context.look);
         ship.showLevel(0);
+        try loadout.fitScale(index, file.model);
+    }
+
+    /// The record of the offered ship `index`.
+    fn shipRecord(loadout: *const Loadout, index: usize) tables.Ship {
+        return loadout.offers[index].record;
+    }
+
+    /// The ship type chosen.
+    fn chosenType(loadout: *const Loadout) create.TypeIndex {
+        return loadout.offers[loadout.chosen].ship_type;
+    }
+
+    /// The scale the offered ship `index`'s gunship shows at: a mod's ship type's its base's, as
+    /// its gun model is its base's (`fitScale`).
+    fn gunshipScale(loadout: *const Loadout, index: usize) f32 {
+        const mod = additions.ships.get(loadout.offers[index].ship_type) orelse return loadout.shipRecord(index).scale;
+        return tables.ships[@intFromEnum(mod.base)].scale;
+    }
+
+    /// A mod's ship type, whose model `own` can be of any size, shown as large as its base: its
+    /// base's scale, times how much farther the base's model reaches than its own (`reach`).
+    fn fitScale(loadout: *Loadout, index: u8, own: *const shp.Model) !void {
+        const offer = &loadout.offers[index];
+        const mod = additions.ships.get(offer.ship_type) orelse return;
+        const arena = loadout.arena.allocator();
+        const base = tables.ships[@intFromEnum(mod.base)];
+        const base_model = try shp.Model.parse(arena, try loadout.context.rooms.resources.readFile(arena, base.model));
+        const own_reach = reach(own);
+        if (own_reach > 0) offer.record.scale = base.scale * reach(&base_model) / own_reach;
     }
 
     /// What the loadout's models are built with: the game's settings (`Context.models`), on the
@@ -801,13 +843,13 @@ pub const Loadout = struct {
     /// (`0x00442103`), a name nothing looks for, and makes the gunships of all twelve ships, where
     /// OpenReliant makes those of the ships offered, the only ones the view shows.
     fn makeGunship(loadout: *Loadout, gunship: *Gunship, index: u8) !void {
-        const file = try loadout.loadModel(tables.ships[index].guns_model, .loadout_weapons);
+        const file = try loadout.loadModel(loadout.shipRecord(index).guns_model, .loadout_weapons);
         gunship.model = try .create(loadout.arena.allocator(), file.model, file.loaded, .{});
         gameobj.linkParts(&gunship.model, file.model);
         gunship.model.place(@splat(0), math.identity);
         gunshipLightMasks(&gunship.model, file.loaded);
         for (gunship.model.parts) |*part| part.object.colour = gunship_colour;
-        gunship.object = .create(0, loadout.context.strings.string(tables.ships[index].name), false);
+        gunship.object = .create(0, loadout.context.strings.string(loadout.shipRecord(index).name), false);
         gunship.object.target = .{ .tree = &gunship.model };
         gunship.object.shown = false;
     }
@@ -931,8 +973,8 @@ pub const Loadout = struct {
         loadout.drawInfo(.front, .{ .ship = front });
         loadout.drawInfo(.back, .{ .ship = back });
         const title = &loadout.title_textures;
-        panels.drawTitle(title.get(.front).pixels, loadout.panels_art, loadout.kit(), front);
-        panels.drawTitle(title.get(.back).pixels, loadout.panels_art, loadout.kit(), back);
+        panels.drawTitle(title.get(.front).pixels, loadout.panels_art, loadout.kit(), loadout.shipRecord(front));
+        panels.drawTitle(title.get(.back).pixels, loadout.panels_art, loadout.kit(), loadout.shipRecord(back));
         for (&title.values) |*texture| texture.image.changed = true;
     }
 
@@ -948,9 +990,9 @@ pub const Loadout = struct {
     fn drawInfo(loadout: *Loadout, face: panels.Face, info: Info) void {
         const texture = loadout.info_textures.getPtr(face);
         switch (info) {
-            .ship => |ship| panels.drawStats(texture.pixels, loadout.kit(), ship, loadout.figures[ship]),
+            .ship => |ship| panels.drawStats(texture.pixels, loadout.kit(), loadout.shipRecord(ship), loadout.figures[ship]),
             .missile => |missile| panels.drawMissile(texture.pixels, loadout.kit(), missile, loadout.missile_figures[loadout.missilePlace(missile)]),
-            .guns => |ship| panels.drawGuns(texture.pixels, loadout.kit(), ship),
+            .guns => |ship| panels.drawGuns(texture.pixels, loadout.kit(), loadout.shipRecord(ship)),
         }
         texture.image.changed = true;
     }
@@ -975,7 +1017,7 @@ pub const Loadout = struct {
         loadout.last = now;
         loadout.now = now;
         loadout.turned_back = false;
-        loadout.chosen = chosenFor(loadout.context, loadout.ships.len);
+        loadout.chosen = chosenFor(loadout.context, loadout.offers[0..loadout.ships.len]);
         loadout.page = .ships;
         loadout.last_page = .ships;
         loadout.last_hovered = null;
@@ -992,10 +1034,10 @@ pub const Loadout = struct {
         chosen.object.shown = false;
         try loadout.interface.scene(loadout.context.rooms.gpa, &loadout.scene, false, treeToScene);
         for (loadout.ships, 0..) |*ship, index| {
-            if (index != loadout.chosen) i3d.scaleTree(&ship.model, enter_scale / (anims.arc_unit * tables.ships[index].scale));
+            if (index != loadout.chosen) i3d.scaleTree(&ship.model, enter_scale / (anims.arc_unit * loadout.shipRecord(index).scale));
         }
         // Each gunship at its ship's own scale (`0x00442BD0` on).
-        for (loadout.ships, 0..) |*ship, index| i3d.scaleTree(&ship.gunship.model, tables.ships[index].scale);
+        for (loadout.ships, 0..) |*ship, index| i3d.scaleTree(&ship.gunship.model, loadout.gunshipScale(index));
         chosen.object.shown = true;
         loadout.button_appears.getPtr(.missiles).play(.forward, now);
         loadout.intro(now);
@@ -1015,7 +1057,7 @@ pub const Loadout = struct {
         loadout.interface.busy = true;
         for (loadout.ships, 0..) |*ship, index| {
             ship.showLevel(loadout.coarse);
-            const scale = tables.ships[index].scale;
+            const scale = loadout.shipRecord(index).scale;
             i3d.scaleTree(&ship.model, if (index == loadout.chosen) scale * anims.zoomed_out else arc_share * scale * anims.zoomed_out);
             if (index == loadout.chosen) ship.showLevel(0);
         }
@@ -1261,7 +1303,7 @@ pub const Loadout = struct {
     /// ship's.
     fn fitStartingRacks(loadout: *Loadout) Allocator.Error!void {
         const mission = loadout.context.mission;
-        if (mission == first_mission or mission == shroud_mission or loadout.context.saved.ship != loadout.chosen) {
+        if (mission == first_mission or mission == shroud_mission or loadout.context.saved.ship != loadout.chosenType()) {
             return loadout.fitTierDefault();
         }
         try loadout.fitSaved();
@@ -1410,14 +1452,14 @@ pub const Loadout = struct {
         if (loadout.select) |*select| loadout.interface.removeAnim(&select.anim);
         loadout.select = @as(anims.Pair, undefined);
         const select = &loadout.select.?;
-        try anims.selectShip(select, &loadout.interface, &loadout.ships[new].object, arc, arc_share * tables.ships[new].scale, loadout.spotPlace(), tables.ships[new].scale, selectEnded);
+        try anims.selectShip(select, &loadout.interface, &loadout.ships[new].object, arc, arc_share * loadout.shipRecord(new).scale, loadout.spotPlace(), loadout.shipRecord(new).scale, selectEnded);
         select.play(.forward, now);
         loadout.flip_name.play(.forward, now);
         loadout.flip_info.play(.forward, now);
         if (loadout.deselect) |*deselect| loadout.interface.removeAnim(&deselect.anim);
         loadout.deselect = @as(anims.Pair, undefined);
         const deselect = &loadout.deselect.?;
-        try anims.deselectShip(deselect, &loadout.interface, &loadout.ships[old].object, loadout.spin, tables.ships[old].scale, loadout.arcSlot(old), arc_share * tables.ships[old].scale, deselectEnded);
+        try anims.deselectShip(deselect, &loadout.interface, &loadout.ships[old].object, loadout.spin, loadout.shipRecord(old).scale, loadout.arcSlot(old), arc_share * loadout.shipRecord(old).scale, deselectEnded);
         deselect.play(.forward, now);
         loadout.chosen = new;
         _ = loadout.playSound(.select, quiet, hog_snd.once, hog_snd.own_pitch);
@@ -1615,7 +1657,7 @@ pub const Loadout = struct {
         loadout.missileButtonsAppear(.forward);
         loadout.belly_up = @as(anims.Pair, undefined);
         const belly_up = &loadout.belly_up.?;
-        try anims.bellyUp(belly_up, &loadout.interface, &loadout.ships[loadout.chosen].object, loadout.spin, tables.ships[loadout.chosen].scale, bellyUpEnded);
+        try anims.bellyUp(belly_up, &loadout.interface, &loadout.ships[loadout.chosen].object, loadout.spin, loadout.shipRecord(loadout.chosen).scale, bellyUpEnded);
         belly_up.play(.forward, now);
         loadout.missilesAvailable();
         loadout.placeMissiles();
@@ -1667,7 +1709,7 @@ pub const Loadout = struct {
         loadout.spin_disc.play(.back, now);
         loadout.glow_appears.play(.back, now);
         if (loadout.page == .missiles) loadout.missileButtonsAppear(.back);
-        loadout.context.saved.ship = loadout.chosen;
+        loadout.context.saved.ship = loadout.chosenType();
         if (loadout.hum) |voice| loadout.context.rooms.sound.endVoice(voice);
         loadout.hum = null;
         _ = loadout.playSound(.exit, hog_snd.loudest, hog_snd.once, hog_snd.own_pitch);
@@ -1706,7 +1748,7 @@ pub const Loadout = struct {
             loadout.context.saved.racks = loadout.fitted.saved();
         }
         loadout.entered = false;
-        return .{ .ship = loadout.chosen, .racks = loadout.fitted.flown(), .tier = loadout.tier };
+        return .{ .ship = loadout.chosenType(), .racks = loadout.fitted.flown(), .tier = loadout.tier };
     }
 
     /// Lets go of everything the loadout holds.
@@ -2078,7 +2120,7 @@ pub const Loadout = struct {
     fn makeMarkers(loadout: *Loadout) Allocator.Error!void {
         const arena = loadout.arena.allocator();
         const ship = &loadout.ships[loadout.chosen];
-        const scale = tables.ships[loadout.chosen].scale;
+        const scale = loadout.shipRecord(loadout.chosen).scale;
         loadout.counted = .{ .markers = 0 };
         var each = create.hardpoints(&ship.model);
         while (each.next()) |hardpoint| {
@@ -2202,7 +2244,7 @@ pub const Loadout = struct {
     fn fly(loadout: *Loadout, missile: tables.Missile, route: Route) !?*Flight {
         const ship = &loadout.ships[loadout.chosen];
         const hardpoint = loadout.flightHardpoint(route) orelse return null;
-        const scale = tables.ships[loadout.chosen].scale;
+        const scale = loadout.shipRecord(loadout.chosen).scale;
         const icon = &loadout.icons[loadout.missilePlace(missile)];
         const lift = icon.model.centre * @as(Vector, @splat(scale));
         const at = hologram.hardpointPlace(ship.model.parts[hardpoint.part].drawn(), hardpoint.attachment, lift, scale);
@@ -2341,7 +2383,7 @@ pub const Loadout = struct {
         var model: objects.Model = try .create(gpa, file.model, file.loaded, .{});
         gameobj.linkParts(&model, file.model);
         litSolid(file.loaded, true, loadout.context.look);
-        const scale = tables.ships[loadout.chosen].scale;
+        const scale = loadout.shipRecord(loadout.chosen).scale;
         i3d.scaleTree(&model, scale * hung_share);
         model.centre *= @as(Vector, @splat(scale));
         for (model.parts) |*part| part.object.light_mask = hung_light_mask;
@@ -2592,19 +2634,29 @@ fn offeredShips(tier: u2, rank: gameflow.Rank) usize {
     return @max(tables.ships_by_tier[tier], tables.ships_by_rank[rank]);
 }
 
-/// The ship the loadout starts on, of the first `offered` (`loadout_reset`, `0x004439D0`): the
-/// Shroud in mission 23, the Predator in the first, and the campaign's saved one otherwise.
+/// How far `model` reaches from its origin: its parts' boxes' farthest corner.
+fn reach(model: *const shp.Model) f32 {
+    var farthest: f32 = 0;
+    for (model.parts) |part| for ([_]shp.Vec3{ part.part.bounds_min, part.part.bounds_max }) |corner| {
+        farthest = @max(farthest, @abs(corner.x), @abs(corner.y), @abs(corner.z));
+    };
+    return farthest;
+}
+
+/// Which of the `offered` ships the loadout starts on (`loadout_reset`, `0x004439D0`): the Shroud
+/// in mission 23, the Predator in the first, and the campaign's saved one otherwise.
 ///
 /// **Fix:** a saved ship the loadout does not offer, as a campaign begun again at an earlier
 /// mission leaves it, leaves the game without the chosen ship's object, which it then writes to.
-/// OpenReliant starts on the Predator.
-fn chosenFor(context: Context, offered: usize) u8 {
-    const chosen: u8 = switch (context.mission) {
+/// OpenReliant starts on the Predator, the first offered.
+fn chosenFor(context: Context, offered: []const tables.Offer) u8 {
+    const wanted: create.TypeIndex = switch (context.mission) {
         shroud_mission => shroud,
         first_mission => predator,
         else => context.saved.ship,
     };
-    return if (chosen < offered) chosen else predator;
+    for (offered, 0..) |offer, at| if (offer.ship_type == wanted) return @intCast(at);
+    return 0;
 }
 
 /// The level of detail the ships on the arc are drawn at while they move, at the options' `detail`
@@ -2765,14 +2817,16 @@ test tierBefore {
 test chosenFor {
     var saved: Saved = .{ .ship = 7 };
     var context: Context = .{ .rooms = undefined, .cache = undefined, .strings = undefined, .stats = undefined, .missile_stats = undefined, .mission = 5, .saved = &saved };
-    try std.testing.expectEqual(7, chosenFor(context, 12));
+    var buffer: [tables.arc_slot_count]tables.Offer = undefined;
+    const every, _ = tables.offers(3, tables.ship_count, &buffer);
+    try std.testing.expectEqual(7, chosenFor(context, every));
     // A saved ship the loadout does not offer starts it on the Predator.
-    try std.testing.expectEqual(predator, chosenFor(context, 4));
+    try std.testing.expectEqual(predator, chosenFor(context, every[0..4]));
     // The first mission starts on the Predator, and mission 23 on the Shroud, whatever was saved.
     context.mission = first_mission;
-    try std.testing.expectEqual(predator, chosenFor(context, 12));
+    try std.testing.expectEqual(predator, chosenFor(context, every));
     context.mission = shroud_mission;
-    try std.testing.expectEqual(shroud, chosenFor(context, 12));
+    try std.testing.expectEqual(shroud, chosenFor(context, every));
 }
 
 test offeredShips {

@@ -12,6 +12,7 @@ const gameflow = @import("../../game/gameflow.zig");
 const hud = @import("../../game/hud.zig");
 const missiles_mod = @import("../../game/missiles.zig");
 const additions = @import("../../game/additions.zig");
+const create = @import("../../game/create.zig");
 
 /// A ship the loadout offers: its record (`loadout_ships`, `0x004EC080`, `0x22C` bytes a ship) and
 /// its scale. A ship's index is its ship type.
@@ -120,6 +121,52 @@ pub const Mount = struct {
 pub const gun_slots = 4;
 
 pub const ship_count = 12;
+
+/// A ship the loadout offers: its ship type, and its record. A mod's ship type takes its own name
+/// and model, and the rest from its base's: its class, access, crew, specials, guns, guns' model and
+/// scale, which the loadout fits to its model's size.
+pub const Offer = struct {
+    ship_type: create.TypeIndex,
+    record: Ship,
+};
+
+/// The ship a saved game keeps for the loadout's chosen `ship_type` (`campaign_saved_ship`): a
+/// mod's ship type as its base, so that the save stays one the original reads.
+pub fn savedShip(ship_type: create.TypeIndex) u8 {
+    const mod = additions.ships.get(ship_type) orelse return @intCast(ship_type);
+    return @intCast(@intFromEnum(mod.base));
+}
+
+/// The ships the loadout offers, into `buffer`: the game's first `game_count`, then those of the
+/// mods' ship types based on one of them that the campaign's `tier` offers, from the tier a mod
+/// gives, else wherever the game's offer their base. Returns them, and how many of the mods' the
+/// arc had no room for.
+///
+/// **Improvement:** the original offers its own twelve alone.
+pub fn offers(tier: u2, game_count: usize, buffer: *[arc_slot_count]Offer) struct { []Offer, usize } {
+    var count: usize = 0;
+    for (ships[0..game_count], 0..) |record, index| {
+        buffer[count] = .{ .ship_type = @intCast(index), .record = record };
+        count += 1;
+    }
+    var left_out: usize = 0;
+    for (additions.ships.all(), additions.ships.first..) |mod, number| {
+        const base: usize = @intFromEnum(mod.base);
+        if (base >= ship_count) continue;
+        const offered = if (mod.extra.tier) |first| tier >= first else base < game_count;
+        if (!offered) continue;
+        if (count == arc_slot_count) {
+            left_out += 1;
+            continue;
+        }
+        var record = ships[base];
+        if (mod.label_string) |name| record.name = name;
+        record.model = mod.extra.model;
+        buffer[count] = .{ .ship_type = @intCast(number), .record = record };
+        count += 1;
+    }
+    return .{ buffer[0..count], left_out };
+}
 
 /// `loadout_ships` (`0x004EC080`), with each ship's scale (`0x004EA2D8`).
 pub const ships = [ship_count]Ship{
@@ -731,6 +778,40 @@ test gunDescription {
     for (ships) |ship| for (ship.guns) |mount| {
         try std.testing.expectEqual(mount.gun < first_rear_turret, gunDescription(mount.gun) != null);
     };
+}
+
+test "the mods' ship types" {
+    var list = [_]additions.ships.Added{
+        // Offered where its base, the Predator, is, under a name of its own.
+        .{ .name = "a:pot", .mod = "a", .base = .predator, .label_string = 900, .extra = .{ .model = "pot.shp" } },
+        // Offered from the tier it gives, though its base, the Phoenix, comes later.
+        .{ .name = "a:early", .mod = "a", .base = .phoenix, .extra = .{ .model = "early.shp", .tier = 1 } },
+        // A capital ship's type, which the player can't fly.
+        .{ .name = "a:big", .mod = "a", .base = .yamato, .extra = .{ .model = "big.shp" } },
+    };
+    additions.ships.install(&list);
+    defer additions.ships.reset();
+    var buffer: [arc_slot_count]Offer = undefined;
+    // The first tier's four of the game's, then the pot; the early one waits for its tier.
+    const first, const left_out = offers(0, 4, &buffer);
+    try std.testing.expectEqual(5, first.len);
+    try std.testing.expectEqual(0, left_out);
+    const pot = first[4];
+    try std.testing.expectEqual(additions.ships.first, pot.ship_type);
+    try std.testing.expectEqual(900, pot.record.name);
+    try std.testing.expectEqualStrings("pot.shp", pot.record.model);
+    try std.testing.expectEqual(ships[0].class, pot.record.class);
+    // At the second tier, the game's seven, the pot, and the early one from its own tier.
+    const second, _ = offers(1, 7, &buffer);
+    try std.testing.expectEqual(9, second.len);
+    try std.testing.expectEqual(additions.ships.first + 1, second[8].ship_type);
+    // With every place of the arc taken by the game's twelve, the mods' are left out.
+    const full, const dropped = offers(3, ship_count, &buffer);
+    try std.testing.expectEqual(ship_count, full.len);
+    try std.testing.expectEqual(2, dropped);
+    // A saved game keeps a mod's ship type as its base.
+    try std.testing.expectEqual(0, savedShip(additions.ships.first));
+    try std.testing.expectEqual(11, savedShip(11));
 }
 
 test "the mods' missiles" {
