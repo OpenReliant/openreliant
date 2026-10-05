@@ -13,6 +13,9 @@ const hud = @import("../../game/hud.zig");
 const missiles_mod = @import("../../game/missiles.zig");
 const additions = @import("../../game/additions.zig");
 const create = @import("../../game/create.zig");
+const guns = @import("../../game/guns.zig");
+const objects = @import("../../game/objects.zig");
+const shp = @import("../../../formats/shp.zig");
 
 /// A ship the loadout offers: its record (`loadout_ships`, `0x004EC080`, `0x22C` bytes a ship) and
 /// its scale. A ship's index is its ship type.
@@ -122,12 +125,18 @@ pub const gun_slots = 4;
 
 pub const ship_count = 12;
 
-/// A ship the loadout offers: its ship type, and its record. A mod's ship type takes its own name
-/// and model, and the rest from its base's: its class, access, crew, specials, guns, guns' model and
-/// scale, which the loadout fits to its model's size.
+/// A ship the loadout offers: its ship type, and its record (`modRecord` for a mod's).
 pub const Offer = struct {
     ship_type: create.TypeIndex,
     record: Ship,
+
+    /// Fills in what a mod's ship type without a base takes from its model, once the loadout has
+    /// loaded it (`withModel`); every other ship's record stays as it is.
+    pub fn fitModel(offer: *Offer, model: *const shp.Model, gpa: std.mem.Allocator) std.mem.Allocator.Error!void {
+        const mod = additions.ships.get(offer.ship_type) orelse return;
+        if (mod.based) return;
+        offer.record = try withModel(offer.record, mod.extra.gun, model, gpa);
+    }
 };
 
 /// The ship a saved game keeps for the loadout's chosen `ship_type` (`campaign_saved_ship`): a
@@ -137,10 +146,10 @@ pub fn savedShip(ship_type: create.TypeIndex) u8 {
     return @intCast(@intFromEnum(mod.base));
 }
 
-/// The ships the loadout offers, into `buffer`: the game's first `game_count`, then those of the
-/// mods' ship types based on one of them that the campaign's `tier` offers, from the tier a mod
-/// gives, else wherever the game's offer their base. Returns them, and how many of the mods' the
-/// arc had no room for.
+/// The ships the loadout offers, into `buffer`: the game's first `game_count`, then the mods' ship
+/// types the player can fly, those based on one of the twelve or on none, that the campaign's
+/// `tier` offers, from the tier a mod gives, else from its start. Returns them, and how many of
+/// the mods' the arc had no room for.
 ///
 /// **Improvement:** the original offers its own twelve alone.
 pub fn offers(tier: u2, game_count: usize, buffer: *[arc_slot_count]Offer) struct { []Offer, usize } {
@@ -153,19 +162,93 @@ pub fn offers(tier: u2, game_count: usize, buffer: *[arc_slot_count]Offer) struc
     for (additions.ships.all(), additions.ships.first..) |mod, number| {
         const base: usize = @intFromEnum(mod.base);
         if (base >= ship_count) continue;
-        const offered = if (mod.extra.tier) |first| tier >= first else base < game_count;
-        if (!offered) continue;
+        if (tier < mod.extra.tier orelse 0) continue;
         if (count == arc_slot_count) {
             left_out += 1;
             continue;
         }
-        var record = ships[base];
-        if (mod.label_string) |name| record.name = name;
-        record.model = mod.extra.model;
-        buffer[count] = .{ .ship_type = @intCast(number), .record = record };
+        buffer[count] = .{ .ship_type = @intCast(number), .record = modRecord(&mod) };
         count += 1;
     }
     return .{ buffer[0..count], left_out };
+}
+
+/// The record of a mod's ship type the player can fly: its own name and model; its class, access
+/// and crew where its manifest gives them; its blind fire and spectral shields as it is fitted
+/// (`main.playerShip`); and the rest its base's. One without a base takes only its template's
+/// scale: it has `additions.ShipExtra`'s defaults for the figures, no specials, and its own model
+/// on the guns page, with its guns and the rest of its specials from its model (`Offer.fitModel`).
+pub fn modRecord(mod: *const additions.ships.Added) Ship {
+    var record = ships[@intFromEnum(mod.base)];
+    if (mod.label_string) |name| record.name = name;
+    record.model = mod.extra.model;
+    if (!mod.based) {
+        record.guns_model = mod.extra.model;
+        record.class = additions.ShipExtra.default_class;
+        record.access = additions.ShipExtra.default_access;
+        record.crew = additions.ShipExtra.default_crew;
+        record.specials = .{};
+        record.guns = &.{};
+    }
+    if (mod.extra.class) |own| record.class = own;
+    if (mod.extra.access) |own| record.access = own;
+    if (mod.extra.crew) |own| record.crew = own;
+    if (mod.extra.blind_fire) |own| record.specials.blind_fire = own;
+    if (mod.extra.spectral_shields) |own| record.specials.spectral_shields = own;
+    return record;
+}
+
+/// `record` with what `model` gives it, for a mod's ship type without a base: its guns, each kind
+/// its muzzles fire with how many, or every muzzle firing `gun` where the type gives one, at most
+/// `gun_slots` kinds; and among its specials, the Nova Cannon where a muzzle fires one, the cloak
+/// where the model can cloak, and reverse thrust where it has an engine glow that burns forward
+/// (`objects.Model.Glow.burnsForward`).
+pub fn withModel(record: Ship, gun: ?guns.GunType, model: *const shp.Model, gpa: std.mem.Allocator) std.mem.Allocator.Error!Ship {
+    var made = record;
+    var mounts: std.ArrayList(Mount) = .empty;
+    errdefer mounts.deinit(gpa);
+    for (model.parts) |part| for (part.attachments) |*attachment| switch (attachment.kind) {
+        .gun_muzzle => {
+            const fired = gun orelse guns.GunType.fromNumber(attachment.gun_type);
+            if (fired.base() == .nova_cannon) made.specials.nova_cannon = true;
+            const name = gunString(fired) orelse continue;
+            for (mounts.items) |*mount| {
+                if (mount.gun != name) continue;
+                mount.count += 1;
+                break;
+            } else if (mounts.items.len < gun_slots) try mounts.append(gpa, .{ .gun = name, .count = 1 });
+        },
+        .engine_glow => if (objects.Model.Glow.burnsForward(attachment)) {
+            made.specials.reverse_thrust = true;
+        },
+        else => {},
+    };
+    made.guns = try mounts.toOwnedSlice(gpa);
+    if (model.header.flags.cloak) made.specials.cloaking_device = true;
+    return made;
+}
+
+/// The string the loadout names `gun` by: a mod's own name, else its base's string, which the
+/// guns page also finds its description by (`gunDescription`). Null for the turrets' guns: the
+/// game's records name a fighter's rear turret by strings of their own (`first_rear_turret` on).
+pub fn gunString(gun: guns.GunType) ?u16 {
+    if (gun.added()) |mod| if (mod.label_string) |name| return name;
+    // The strings name the fighters' guns in this order, from `first_described_gun`.
+    const order: u16 = switch (gun.base()) {
+        .laser_cannon => 0,
+        .pulse_cannon => 1,
+        .messon_blaster => 2,
+        .proton_cannon => 3,
+        .gattling_lasers => 4,
+        .tachyon_cannon => 5,
+        .neutron_particle_gun => 6,
+        .nova_cannon => 7,
+        .collapser_guns => 8,
+        .gattling_plasma_cannon => 9,
+        .vulcan_battery => 10,
+        .turret_flak, .turret_lasers, .allied_huge_gun, .coalition_huge_gun => return null,
+    };
+    return first_described_gun + order;
 }
 
 /// `loadout_ships` (`0x004EC080`), with each ship's scale (`0x004EA2D8`).
@@ -789,7 +872,7 @@ test gunDescription {
 
 test "the mods' ship types" {
     var list = [_]additions.ships.Added{
-        // Offered where its base, the Predator, is, under a name of its own.
+        // Offered from the campaign's start, as it gives no tier, under a name of its own.
         .{ .name = "a:pot", .mod = "a", .base = .predator, .label_string = 900, .extra = .{ .model = "pot.shp" } },
         // Offered from the tier it gives, though its base, the Phoenix, comes later.
         .{ .name = "a:early", .mod = "a", .base = .phoenix, .extra = .{ .model = "early.shp", .tier = 1 } },
@@ -819,6 +902,69 @@ test "the mods' ship types" {
     // A saved game keeps a mod's ship type as its base.
     try std.testing.expectEqual(0, savedShip(additions.ships.first));
     try std.testing.expectEqual(11, savedShip(11));
+}
+
+test modRecord {
+    var list = [_]additions.ships.Added{
+        // Based on the Phoenix, with its own figures and without its blind fire.
+        .{ .name = "a:own", .mod = "a", .base = .phoenix, .extra = .{ .model = "own.shp", .class = .heavy, .crew = 3, .blind_fire = false } },
+        // Without a base: the defaults, its model on the guns page, and the shields it gives.
+        .{ .name = "a:bare", .mod = "a", .base = .predator, .based = false, .extra = .{ .model = "bare.shp", .access = .gold, .spectral_shields = true } },
+    };
+    const own = modRecord(&list[0]);
+    try std.testing.expectEqual(Class.heavy, own.class);
+    try std.testing.expectEqual(3, own.crew);
+    try std.testing.expectEqual(ships[11].access, own.access);
+    try std.testing.expect(!own.specials.blind_fire and ships[11].specials.blind_fire);
+    try std.testing.expect(own.specials.nova_cannon);
+    try std.testing.expectEqual(ships[11].guns.ptr, own.guns.ptr);
+    const bare = modRecord(&list[1]);
+    try std.testing.expectEqual(additions.ShipExtra.default_class, bare.class);
+    try std.testing.expectEqual(Access.gold, bare.access);
+    try std.testing.expectEqual(additions.ShipExtra.default_crew, bare.crew);
+    try std.testing.expectEqualStrings("bare.shp", bare.guns_model);
+    try std.testing.expectEqual(0, bare.guns.len);
+    try std.testing.expectEqual(Specials{ .spectral_shields = true }, bare.specials);
+    try std.testing.expectEqual(ships[0].scale, bare.scale);
+}
+
+test gunString {
+    // As the game's records name them: the Predator's Proton Cannon and the Phoenix's Nova Cannon.
+    try std.testing.expectEqual(ships[0].guns[0].gun, gunString(.of(.proton_cannon)).?);
+    try std.testing.expectEqual(ships[11].guns[2].gun, gunString(.of(.nova_cannon)).?);
+    try std.testing.expectEqual(null, gunString(.of(.turret_flak)));
+    // Every fighter's gun has a description.
+    for (std.enums.values(guns.GameGun)) |gun| {
+        if (gunString(.of(gun))) |name| try std.testing.expect(gunDescription(name) != null);
+    }
+}
+
+test withModel {
+    const gpa = std.testing.allocator;
+    var buffer: [1024]u8 = undefined;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    var model = try shp.Model.parse(arena.allocator(), shp.testing.buildModel(&buffer));
+    // Two Pulse Cannons, a Nova Cannon, a turret's gun the list leaves out, and a glow that burns
+    // forward. The test model can cloak.
+    var attachments = std.mem.zeroes([5]shp.Attachment);
+    for (&attachments, [_]u32{ 2, 2, 11, 12, 0 }) |*attachment, number| {
+        attachment.kind = .gun_muzzle;
+        attachment.gun_type = number;
+    }
+    attachments[4].kind = .engine_glow;
+    attachments[4].orientation[8] = 1;
+    attachments[4].size[2] = 1;
+    model.parts[0].attachments = &attachments;
+    const bare: Ship = .{ .name = 0, .model = "", .guns_model = "", .class = .light, .access = .bronze, .crew = 1, .specials = .{}, .guns = &.{}, .scale = 1 };
+    const made = try withModel(bare, null, &model, gpa);
+    defer gpa.free(made.guns);
+    try std.testing.expectEqualSlices(Mount, &.{ .{ .gun = 0x239, .count = 2 }, .{ .gun = 0x23F, .count = 1 } }, made.guns);
+    try std.testing.expectEqual(Specials{ .reverse_thrust = true, .nova_cannon = true, .cloaking_device = true }, made.specials);
+    // A gun the type gives fires from every muzzle, as `guns.refit` fits it.
+    const refit = try withModel(bare, .of(.tachyon_cannon), &model, gpa);
+    defer gpa.free(refit.guns);
+    try std.testing.expectEqualSlices(Mount, &.{.{ .gun = 0x23D, .count = 4 }}, refit.guns);
 }
 
 test "the mods' missiles" {
