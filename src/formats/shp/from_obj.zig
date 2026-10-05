@@ -12,6 +12,9 @@
 //!   default), its missile at every loadout tier, its glow or its colour (0 by default). An engine
 //!   glow burns backward, a light is a sprite that lights nothing round it, and an eject point
 //!   throws the pod up; the cockpit holds it where there is one.
+//! - `jump_trail` and `jump_light`: a point where a jump's trails stream from and one where its
+//!   lights stand along the hull (`shp.PointList.Kind`), at the middle of the object's corners. A
+//!   model without jump trails gets one at each engine glow, so that each engine streams one.
 //! - Anything else: the body, a part of its own.
 //!
 //! Each part is one level of detail, its faces each taking the texture their `usemtl` names (none
@@ -54,8 +57,12 @@ pub fn build(arena: Allocator, file: obj.File, options: Options) Error!shp.Model
     var cockpit: std.ArrayList(obj.Triangle) = .empty;
     var body_attachments: std.ArrayList(shp.Attachment) = .empty;
     var cockpit_attachments: std.ArrayList(shp.Attachment) = .empty;
+    var trails: std.ArrayList(shp.Point) = .empty;
+    var lights: std.ArrayList(shp.Point) = .empty;
     for (file.objects) |object| {
         const role = try Role.of(object.name);
+        // A marker becomes an attachment or a point, or nothing.
+        if (object.marker and (role == .body or role == .cockpit)) continue;
         switch (role) {
             .body => try body.appendSlice(arena, object.triangles),
             .cockpit => try cockpit.appendSlice(arena, object.triangles),
@@ -65,15 +72,28 @@ pub fn build(arena: Allocator, file: obj.File, options: Options) Error!shp.Model
                 const into = if (attachment.kind == .eject_point) &cockpit_attachments else &body_attachments;
                 try into.append(arena, attachment);
             },
+            .point => |kind| {
+                const into = if (kind == .jump_trails) &trails else &lights;
+                try into.append(arena, pointAt(Box.ofCorners(file, object.triangles).centre()));
+            },
         }
     }
     if (body.items.len == 0) return error.NoBody;
+    // Without trails of its own, each engine streams one.
+    if (trails.items.len == 0) for (body_attachments.items) |attachment| {
+        if (attachment.kind == .engine_glow) try trails.append(arena, pointAt(attachment.position));
+    };
+    var point_lists: std.ArrayList(shp.PointList) = .empty;
+    for ([_]struct { shp.PointList.Kind, []shp.Point }{ .{ .jump_trails, trails.items }, .{ .jump_lights, lights.items } }) |entry| {
+        const kind, const points = entry;
+        if (points.len > 0) try point_lists.append(arena, .{ .kind = kind, .points = points });
+    }
     // Without a cockpit, the eject point stays on the body.
     if (cockpit.items.len == 0) try body_attachments.appendSlice(arena, cockpit_attachments.items);
 
     var parts: std.ArrayList(shp.PartData) = .empty;
-    if (cockpit.items.len > 0) try parts.append(arena, try makePart(arena, file, "Cockpit", .cockpit, cockpit.items, cockpit_attachments.items, options));
-    try parts.append(arena, try makePart(arena, file, "Body", .hull, body.items, body_attachments.items, options));
+    if (cockpit.items.len > 0) try parts.append(arena, try makePart(arena, file, "Cockpit", .cockpit, cockpit.items, cockpit_attachments.items, &.{}, options));
+    try parts.append(arena, try makePart(arena, file, "Body", .hull, body.items, body_attachments.items, point_lists.items, options));
 
     var header = std.mem.zeroes(shp.Header);
     header.version = header_version;
@@ -90,11 +110,14 @@ const Role = union(enum) {
     body,
     cockpit,
     attachment: shp.Attachment,
+    point: shp.PointList.Kind,
 
     fn of(full: []const u8) Error!Role {
         const name = full[0 .. std.mem.indexOfScalar(u8, full, '.') orelse full.len];
         const kind_name, const number_text = if (std.mem.indexOfScalar(u8, name, ':')) |at| .{ name[0..at], name[at + 1 ..] } else .{ name, "" };
         if (std.ascii.eqlIgnoreCase(kind_name, "cockpit")) return .cockpit;
+        if (std.ascii.eqlIgnoreCase(kind_name, "jump_trail")) return .{ .point = .jump_trails };
+        if (std.ascii.eqlIgnoreCase(kind_name, "jump_light")) return .{ .point = .jump_lights };
         const kinds = [_]struct { []const u8, shp.Attachment.Kind }{
             .{ "gun_muzzle", .gun_muzzle }, .{ "missile", .missile },         .{ "engine_glow", .engine_glow },
             .{ "light", .light },           .{ "eject_point", .eject_point }, .{ "launch_point", .launch_point },
@@ -143,6 +166,26 @@ fn place(attachment: *shp.Attachment, file: obj.File, triangles: []const obj.Tri
     }
 }
 
+/// A point at `position`; `makePart` sets its vertex once the part's mesh exists.
+fn pointAt(position: Vec3) shp.Point {
+    return .{ ._unknown_00 = 0, .vertex = 0, .position = position };
+}
+
+/// The vertex of `mesh` nearest `position`.
+fn nearestVertex(mesh: shp.Mesh, position: Vec3) u32 {
+    var best: u32 = 0;
+    var least = std.math.inf(f32);
+    for (mesh.vertices, 0..) |vertex, at| {
+        const away = [3]f32{ vertex.position.x - position.x, vertex.position.y - position.y, vertex.position.z - position.z };
+        const distance = away[0] * away[0] + away[1] * away[1] + away[2] * away[2];
+        if (distance < least) {
+            least = distance;
+            best = @intCast(at);
+        }
+    }
+    return best;
+}
+
 /// A position of the file, turned into the model's frame.
 fn positionOf(file: obj.File, index: u32) Vec3 {
     const p = file.positions[index];
@@ -176,9 +219,13 @@ const Box = struct {
     }
 };
 
-/// A part of `class`, named `name`, of `triangles` and holding `attachments`.
-fn makePart(arena: Allocator, file: obj.File, name: []const u8, class: shp.Part.Class, triangles: []const obj.Triangle, attachments: []const shp.Attachment, options: Options) Error!shp.PartData {
+/// A part of `class` named `name`, made of `triangles`, with `attachments` and `point_lists`.
+/// Each point is tied to the vertex nearest it.
+fn makePart(arena: Allocator, file: obj.File, name: []const u8, class: shp.Part.Class, triangles: []const obj.Triangle, attachments: []const shp.Attachment, point_lists: []shp.PointList, options: Options) Error!shp.PartData {
     const mesh = try makeMesh(arena, file, triangles, options);
+    for (point_lists) |list| for (list.points) |*point| {
+        point.vertex = nearestVertex(mesh, point.position);
+    };
     const box = Box.ofCorners(file, triangles);
     var part = std.mem.zeroes(shp.Part);
     @memcpy(part.name_bytes[0..name.len], name);
@@ -196,6 +243,7 @@ fn makePart(arena: Allocator, file: obj.File, name: []const u8, class: shp.Part.
         .part = part,
         .meshes = meshes,
         .attachments = try arena.dupe(shp.Attachment, attachments),
+        .point_lists = point_lists,
         .tracks = &.{},
         .nodes = tree.nodes,
         .node_faces = tree.faces,
@@ -435,6 +483,8 @@ test build {
         \\f 1 2 6
         \\o eject_point
         \\f 5 6 7
+        \\o jump_light
+        \\f 3 3 3
     );
     const model = try build(arena, file, .{});
     // The cockpit first, then the body.
@@ -460,6 +510,14 @@ test build {
     try std.testing.expect(body.attachments[1].size[2] < 0);
     try std.testing.expectEqual(shp.Attachment.Kind.eject_point, model.parts[0].attachments[0].kind);
     try std.testing.expectEqual(-1, model.parts[0].attachments[0].orientation[5]);
+    // A jump trail at the engine glow, which gave none of its own, and the jump light, each on the
+    // vertex nearest it.
+    const trails = body.pointList(.jump_trails).?.points;
+    try std.testing.expectEqual(1, trails.len);
+    try std.testing.expectEqual(body.attachments[1].position, trails[0].position);
+    const lights = body.pointList(.jump_lights).?.points;
+    try std.testing.expectEqual(Vec3{ .x = -100, .y = -50, .z = -200 }, lights[0].position);
+    try std.testing.expectEqual(lights[0].position, mesh.vertices[lights[0].vertex].position);
     // A collision tree whose boxes hold every face once.
     var counted: usize = 0;
     for (body.node_faces) |held| counted += held.len;
@@ -475,6 +533,7 @@ test build {
     const again = try shp.Model.parse(arena, written.written());
     try std.testing.expectEqual(2, again.parts.len);
     try std.testing.expectEqual(12, again.parts[1].meshes[0].faces.len);
+    try std.testing.expectEqual(2, again.parts[1].point_lists.len);
 
     // A hardpoint holds its missile at every tier; an untextured face names the material `none`,
     // so that the model checks out; and the cloak's meshes where asked for.
@@ -483,6 +542,20 @@ test build {
     for (0..5) |tier| try std.testing.expectEqual(4, hardpoint.idFor(@intCast(tier)));
     try std.testing.expectEqualStrings("none", plain.parts[0].meshes[0].materials[plain.parts[0].meshes[0].faces[0].material].name());
     try std.testing.expect(plain.header.flags.cloak and !model.header.flags.cloak);
+
+    // A marker, as a glTF file's node without a mesh makes one, becomes a point or an attachment,
+    // and one with another name nothing.
+    var marked = try obj.parse(arena, "v 0 0 0\nv 1 0 0\nv 0 1 1\no Hull\nf 1 2 3\n");
+    const marker_triangles = marked.objects[0].triangles;
+    var objects = [_]obj.Object{
+        marked.objects[0],
+        .{ .name = "jump_trail", .triangles = marker_triangles, .marker = true },
+        .{ .name = "empty", .triangles = marker_triangles, .marker = true },
+    };
+    marked.objects = &objects;
+    const from_markers = try build(arena, marked, .{});
+    try std.testing.expectEqual(1, from_markers.parts[0].pointList(.jump_trails).?.points.len);
+    try std.testing.expectEqual(1, from_markers.parts[0].meshes[0].faces.len);
 
     // No body, and an attachment's number that isn't one.
     try std.testing.expectError(error.NoBody, build(arena, try obj.parse(arena, "v 0 0 0\nv 1 0 0\nv 0 1 0\no cockpit\nf 1 2 3\n"), .{}));

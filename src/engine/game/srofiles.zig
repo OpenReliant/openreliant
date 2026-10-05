@@ -355,7 +355,7 @@ pub fn build(
             for (0..face.vertices.len) |edge| {
                 if (!edgeDrawn(face, edge)) continue;
                 const ends = [2]usize{ edge, (edge + 1) % face.vertices.len };
-                polygons[polygon] = .{ .kind = .lines, .continues = 0, .first = @truncate(index), .count = 2 };
+                polygons[polygon] = .{ .kind = .lines, .continues = 0, .first = @intCast(index), .count = 2 };
                 for (ends, 0..) |corner, k| {
                     indices[index + k] = @truncate(face.vertices[corner]);
                     uv[index + k] = .{ face.u[corner], face.v[corner] };
@@ -371,9 +371,9 @@ pub fn build(
         }
         const extra = step.extra;
         polygons[polygon] = if (step.merged)
-            .{ .kind = .triangle, .continues = 0, .first = @truncate(index), .count = @truncate(extra + 3) }
+            .{ .kind = .triangle, .continues = 0, .first = @intCast(index), .count = @truncate(extra + 3) }
         else
-            .{ .kind = @enumFromInt(@as(u16, @truncate(@intFromEnum(face.polygon)))), .continues = @truncate(face.remaining), .first = @truncate(index), .count = 3 };
+            .{ .kind = @enumFromInt(@as(u16, @truncate(@intFromEnum(face.polygon)))), .continues = @truncate(face.remaining), .first = @intCast(index), .count = 3 };
         for (0..3) |corner| {
             indices[index + corner] = @truncate(face.vertices[corner]);
             uv[index + corner] = .{ face.u[corner], face.v[corner] };

@@ -92,10 +92,10 @@ with another mod's files.
 
 Mod files use the game's formats, which the [developer documentation](../README.md) describes, with
 two exceptions covered below: textures and interface pictures can be PNG files of any size, and
-interface fonts can be TrueType or OpenType. `sltool shp from-obj` turns an OBJ file into a model
-in the game's format ([Models from OBJ](#models-from-obj)). Support for more modern formats is
-planned: glTF models ([#359](https://github.com/OpenReliant/openreliant/issues/359)), and sounds,
-music, speech and movies ([#496](https://github.com/OpenReliant/openreliant/issues/496)).
+interface fonts can be TrueType or OpenType. `sltool shp from-obj` and `sltool shp from-gltf` turn
+an OBJ or glTF file into a model in the game's format ([Models from OBJ](#models-from-obj),
+[Models from glTF](#models-from-gltf)). Support for modern sounds, music, speech and movies is
+planned ([#496](https://github.com/OpenReliant/openreliant/issues/496)).
 
 ## Textures
 
@@ -668,10 +668,12 @@ suffix such as `.001`, which modelling tools add to copies, is ignored:
 | `cockpit` | The cockpit, a part of its own, which leaves the ship as the pilot's pod when the pilot ejects |
 | `gun_muzzle:<gun type>` | Where a gun fires from, a gun of that type, by its number in `gunstats.bin` (1, the Laser Cannon, without one) |
 | `missile:<missile>` | A missile hardpoint, holding that missile type for every loadout tier (0 without one) |
-| `engine_glow:<glow>` | An engine's glow, burning backward |
+| `engine_glow:<glow>` | An engine's glow, burning backward from the middle of its box: the box's width and height are the plume's, half its length how far the plume reaches at full throttle. The number picks one of the game's seven glows; the player's ships use 1 |
 | `light:<colour>` | A light: a sprite as large as its box, which lights nothing round it |
 | `eject_point` | Where the pilot's pod is thrown up from, on the cockpit where there is one |
 | `launch_point`, `dock_point` | Where a ship launches from or docks |
+| `jump_trail` | Where one of the trails streams from when the ship jumps |
+| `jump_light` | Where one of the lights flashes along the hull when the ship jumps |
 | anything else | The body |
 
 An attachment sits at the middle of its object's corners, and is as large as their bounding box, so
@@ -708,11 +710,44 @@ f 825 826 827
 - **Axes.** The file is read as Blender exports it, with Y up and the nose toward +Z. `sltool shp
   obj` exports the game's models the same way, so a game model exported and built again comes back
   in the same place.
+- **Size.** A part holds at most 65,535 vertices and 65,535 triangles, the format's limit, and
+  `sltool` stops with an error past it. The game's fighters have a few hundred triangles; OpenReliant
+  draws tens of thousands, but each one costs time in every frame, shadows included.
 - **What is generated.** Each part gets one level of detail, a collision tree of boxes around its
-  faces, and a mass as though it filled its bounding box.
+  faces, and a mass as though it filled its bounding box. A model without `jump_trail` objects gets
+  a jump trail at each engine glow, so that each engine streams one when the ship jumps.
 
 [`examples/mods/teapot`](../../examples/mods/teapot) builds its ship this way, and
 [`examples/mods/bananas`](../../examples/mods/bananas) its missile.
+
+## Models from glTF
+
+`sltool shp from-gltf` builds a model for a mod from a glTF 2.0 file, the format Blender and most
+modelling tools export and most model sites offer. It reads a `.gltf` file with its buffers in files
+beside it or inside it, or a binary `.glb` file:
+
+```bash
+sltool shp from-gltf viper.gltf mods/viper/viper.shp --scale 2
+```
+
+The model is built as from an OBJ file ([Models from OBJ](#models-from-obj)), with the same names
+and options:
+
+- **Nodes.** Each node with a mesh becomes an object of its name, and each node without a mesh or
+  children, such as Blender's empty, marks an attachment or a jump point by its name, such as
+  `gun_muzzle:1`. A marker is a cube two units across, scaled, turned and moved as its node is, so
+  scale an engine glow's marker along its length to give its plume that length. Every node's
+  transform is applied, and `--scale` scales the whole model.
+- **Materials.** Each material becomes a texture called after the model and its number, such as
+  `viper_0.png` for `viper.shp`, written beside the model with its maps ([Material
+  maps](#material-maps)): its colour, its colour texture times its colour where it has one; its
+  roughness and metalness, from its textures and values; its normal map; and its emissive map where
+  it glows, `KHR_materials_emissive_strength` included. Every map takes the colour texture's size.
+  Textures must be PNG files; any other is left out, and the log says so.
+- **What isn't read.** Animations, skins, morph targets, cameras, lights, sparse accessors, a second
+  set of texture coordinates, and the extensions beyond the emissive strength. A file that requires
+  an extension other than `KHR_materials_emissive_strength`, `KHR_materials_specular` or
+  `KHR_texture_transform`, which it can be drawn without, isn't read.
 
 ## The thumbnail
 

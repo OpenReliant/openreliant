@@ -21,7 +21,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | Option | Description |
 |---|---|
 | `--mission <number>` | Start this mission right away instead of opening the main menu. The number is the one in the mission's file name, `mission<number>.dte`, loaded from a mod, the game's `missions` folder or `resource.hog`. Mission 0 is OpenReliant's sandbox, which is built into `openreliant` for games without a mission 0 |
-| `--ship <type>` | The ship type to fly, by its number in `shipstats.bin`, in place of the loadout screen's choice, with its default missiles; the mission's own by default, the Predator in mission 0 |
+| `--ship <type>` | The ship type to fly, by its number in `shipstats.bin` or its name, such as `predator` or a mod's `teapot:teapot` ([The records](scripting.md#the-records)), in place of the loadout screen's choice, with its default missiles; the mission's own by default, the Predator in mission 0 |
 | `--view <0\|1\|2>` | The view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes, or 0 without them |
 | `--difficulty <easy\|medium\|hard>` | The game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with `--mission`, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it |
 | `--music <file>` | A piece from the game's music folder to play from the start, until the mission's script plays its own; none by default |

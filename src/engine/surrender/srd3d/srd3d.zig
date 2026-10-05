@@ -454,6 +454,10 @@ pub const Driver = struct {
     /// `draw_pass` (`0x10002920`): a surface's visible polygons for one pass. A polygon runs on
     /// into the records of its strip or fan after it, while they are visible and unclipped; the lot
     /// is drawn as one list of triangles. Clipped polygons are drawn on their own as they come.
+    ///
+    /// **Improvement:** the list is drawn and begun again before its corners outrun its 16-bit
+    /// indices (`batch_corners`), so that a mod's model of more corners than the game's draws
+    /// whole.
     fn drawPass(driver: *Driver, drawn: *const srmesh.Drawn, visible: []const srmesh.Visible, surface: *const srapiext.Surface, pass: u1, layer: Layer) Allocator.Error!void {
         const gpa = driver.gpa;
         const mesh = drawn.mesh;
@@ -470,6 +474,10 @@ pub const Driver = struct {
                 try driver.drawClipped(drawn, visible[k], material, pass, st);
                 k += 1;
                 continue;
+            }
+            if (driver.vertices.items.len > batch_corners) {
+                driver.drawBatch(drawn, material, pass, st);
+                start = 0;
             }
             var q = visible[k].polygon;
             const kind = mesh.polygons[q].kind;
@@ -506,6 +514,20 @@ pub const Driver = struct {
                 _ => {},
             }
             start = driver.vertices.items.len;
+        }
+        driver.drawBatch(drawn, material, pass, st);
+    }
+
+    /// The corners `drawPass` gathers before it draws them and begins again: as many as 16-bit
+    /// indices reach, less room for the longest strip or fan to finish.
+    const batch_corners = std.math.maxInt(u16) - 4096;
+
+    /// Draws the triangles `drawPass` has gathered, testing them against the sun first where the
+    /// surface hides it, and empties the lists.
+    fn drawBatch(driver: *Driver, drawn: *const srmesh.Drawn, material: Material, pass: u1, st: device.State) void {
+        defer {
+            driver.vertices.clearRetainingCapacity();
+            driver.indices.clearRetainingCapacity();
         }
         if (driver.indices.items.len == 0) return;
         if (hidesSun(drawn, material, pass)) {
