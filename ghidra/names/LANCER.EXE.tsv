@@ -2704,3 +2704,11 @@ address	kind	name	type	comment
 0041b690	function	launch_pod_other_run	void __fastcall (int slot)	Plays sound 0x33 at the other escape pod, then releases it on the next update at throttle 2 with plain motion. After 200 ticks, clears throttle and yaw, restores forward motion and ends the order. Carrier pass-through remains unchanged
 0041b770	function	launch_rogue_init	void __fastcall (int slot)	Places the ship at its gate's launch point on the rogue base, riding the part that holds it, then moves it 500 behind the point along its forward axis
 0041b7f0	function	launch_rogue_run	void __fastcall (int slot)	Releases a ship from the rogue base with downward motion at throttle -2. After 100 ticks, clears throttle and yaw, restores forward motion, clears carrier pass-through, pops the order, restores targeting and posts Launched
+004adac0	function	frame_camera_place	void __fastcall (SurrenderFrame *frame)	Puts frame in the camera's frame: its position less the camera's, turned into the camera's axes, at +0xA0, and the camera's orientation transposed, at +0x7C. hud_draw reads +0xA8, the depth, to tell whether a nav point stands in front of the camera
+0048ceb0	function	hud_message_add	void __fastcall (char *text)	Adds text to the display's message lines, dropping the oldest first where there are four already, each shown until 1000 ticks after it was added. The multiplayer kill messages come through it, and in a network session one message of mission_frame's, language string 0x558, once the local player is the first player still flying but not the first slot
+0048cf20	function	hud_messages_draw	void __fastcall (int x, int y)	Draws the display's message lines, each as - %s in font_new, from x, y down, 11 pixels apart. hud_draw draws them in every view, placed (-110, -140) from the middle
+0048cf90	function	hud_message_drop	void __cdecl (void)	Drops the oldest of the display's message lines, moving the others up
+0048d010	function	hud_messages_expire	void __cdecl (void)	Drops the oldest of the display's message lines once its time is up
+0057bc5c	data	hud_messages	char[4][100]	The display's message lines, oldest first, which hud_init clears
+0057bf48	data	hud_message_count	int	How many of the display's message lines there are, at most four
+0056679c	data	hud_message_until	int[4]	The tick each of the display's message lines goes at

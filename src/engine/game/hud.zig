@@ -1970,6 +1970,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
         .scale = scaleFor(frame.screen),
         .shake = state.interference.shake(frame.hit_shake, frame.random),
     };
+    state.messages.expire(frame.clock.frame_start);
     state.followTarget(frame.all, frame.multiplayer);
     if (frame.sound) |sound| state.lock.sound(sound, frame.view);
     state.runCharges(live, frame_duration, frame.multiplayer);
@@ -1994,6 +1995,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     if (frame.sound) |sound| state.warnOfLock(sound, lock_lit, live.missile_homing != 0);
     if (frame.radio) |on_air| on_air.waitForWindow(frame.sound, frame_duration);
     try drawViewName(pen, frame.last_view);
+    try state.messages.draw(pen, &resources.target_fonts.new);
     if (ahead) try state.drawInstruments(pen, frame, lead, speaker);
     const contents: windows.Contents = .{
         .radio = if (frame.radio) |on_air| .{ .radio = on_air, .sound = frame.sound, .hit_shake = frame.hit_shake, .random = frame.random } else null,
@@ -2177,6 +2179,101 @@ pub fn drawViewName(pen: Pen, last_view: camera.View) Allocator.Error!void {
 /// ticks have passed, with a cursor after it until the whole date shows. The Reliant's launch puts
 /// it on as the player's ship drops out (`launch.reliant`), and off as the launch ends. It shows in
 /// every view.
+/// The display's message lines (`hud_messages`, `0x0057BC5C`, and `hud_message_count`,
+/// `0x0057BF48`): up to four, oldest first, each shown until its time is up
+/// (`hud_message_until`, `0x0056679C`). The multiplayer kill messages come through them, and a
+/// message of `mission_frame`'s in a network session; nothing adds one in a single-player game.
+///
+/// **Fix:** the game copies a line whole into its hundred bytes, and so runs into the next line, or
+/// past the last, with a longer one. OpenReliant keeps a line's first 99 bytes.
+pub const Messages = struct {
+    lines: [capacity][line_size]u8 = @splat(@splat(0)),
+    lens: [capacity]u8 = @splat(0),
+    count: u8 = 0,
+    until: [capacity]i32 = @splat(0),
+
+    /// The most lines there are, and the bytes each holds with its end.
+    pub const capacity = 4;
+    pub const line_size = 100;
+
+    /// The ticks a line is shown for (`hud_message_add`).
+    pub const shown_for = 1000;
+
+    /// Where the lines stand, from the middle of the screen, and how far apart (`hud_draw`,
+    /// `hud_messages_draw`).
+    pub const offset: [2]i32 = .{ -0x6E, -0x8C };
+    pub const spacing: i32 = 0xB;
+
+    /// `hud_message_add` (`0x0048CEB0`): adds `text`, shown until `shown_for` ticks after
+    /// `frame_start`, dropping the oldest first where there are `capacity` already.
+    pub fn add(messages: *Messages, text: []const u8, frame_start: i32) void {
+        if (messages.count == capacity) messages.drop();
+        const kept = @min(text.len, line_size - 1);
+        @memcpy(messages.lines[messages.count][0..kept], text[0..kept]);
+        messages.lens[messages.count] = @intCast(kept);
+        messages.until[messages.count] = frame_start +% shown_for;
+        messages.count += 1;
+    }
+
+    /// `hud_message_drop` (`0x0048CF90`): drops the oldest, moving the others up.
+    pub fn drop(messages: *Messages) void {
+        if (messages.count == 0) return;
+        std.mem.copyForwards([line_size]u8, messages.lines[0 .. capacity - 1], messages.lines[1..]);
+        std.mem.copyForwards(u8, messages.lens[0 .. capacity - 1], messages.lens[1..]);
+        std.mem.copyForwards(i32, messages.until[0 .. capacity - 1], messages.until[1..]);
+        messages.lens[capacity - 1] = 0;
+        messages.count -= 1;
+    }
+
+    /// `hud_messages_expire` (`0x0048D010`), as the display is drawn: drops the oldest once its
+    /// time is up, one a frame.
+    pub fn expire(messages: *Messages, frame_start: i32) void {
+        if (messages.count != 0 and messages.until[0] < frame_start) messages.drop();
+    }
+
+    /// The line at `at`, oldest first.
+    pub fn line(messages: *const Messages, at: usize) []const u8 {
+        return messages.lines[at][0..messages.lens[at]];
+    }
+
+    /// `hud_messages_draw` (`0x0048CF20`): each line as `- %s` (`0x00502570`) in `font`, from
+    /// `offset` down, `spacing` apart, lined up on the left.
+    pub fn draw(messages: *const Messages, pen: Pen, font: *Opened) Allocator.Error!void {
+        var at = pen.placed(offset, 0.5, 0.5);
+        for (0..messages.count) |index| {
+            var buffer: [line_size + 2]u8 = undefined;
+            const text = std.fmt.bufPrint(&buffer, "- {s}", .{messages.line(index)}) catch unreachable;
+            _ = try pen.textIn(font, at, text, .left);
+            at = pen.moved(at, .{ 0, spacing });
+        }
+    }
+};
+
+test Messages {
+    var messages: Messages = .{};
+    messages.add("one", 0);
+    messages.add("two", 10);
+    try std.testing.expectEqual(2, messages.count);
+    try std.testing.expectEqualStrings("one", messages.line(0));
+    // A fifth drops the first.
+    messages.add("three", 20);
+    messages.add("four", 30);
+    messages.add("five", 40);
+    try std.testing.expectEqual(Messages.capacity, messages.count);
+    try std.testing.expectEqualStrings("two", messages.line(0));
+    try std.testing.expectEqualStrings("five", messages.line(3));
+    try std.testing.expectEqual(10 + Messages.shown_for, messages.until[0]);
+    // The oldest goes once its time is up, one a frame.
+    messages.expire(10 + Messages.shown_for);
+    try std.testing.expectEqual(4, messages.count);
+    messages.expire(10 + Messages.shown_for + 1);
+    try std.testing.expectEqual(3, messages.count);
+    try std.testing.expectEqualStrings("three", messages.line(0));
+    // A long line keeps its first 99 bytes.
+    messages.add("x" ** 150, 50);
+    try std.testing.expectEqual(Messages.line_size - 1, messages.line(3).len);
+}
+
 pub const Caption = struct {
     /// `launch_caption_on` (`0x00569934`).
     on: bool = false,
@@ -2766,6 +2863,8 @@ pub const State = struct {
     interference: Interference = .{},
     /// The date the player's launch types out.
     caption: Caption = .{},
+    /// The message lines.
+    messages: Messages = .{},
     /// The mission's objectives.
     objectives: Objectives = .{},
     /// `target_under_reticle` (`0x00566550`): whether the reticle was drawn bright, a target under
@@ -3023,6 +3122,7 @@ pub const State = struct {
         const live = &slot.object;
         const flight = slot.flight orelse return;
         const combat = slot.combat orelse return;
+        if (frame.sight) |sight| try drawNavMarker(pen, sight, frame.all);
         for (std.enums.values(Readout)) |readout| {
             if (!state.shows(readout, frame_duration)) continue;
             const value: i32 = switch (readout) {
@@ -4344,6 +4444,27 @@ pub const range_offset: [2]i32 = .{ 10, 9 };
 /// The lead cursor's shape, and how far from its middle its line starts toward the target, in
 /// the display's own pixels (`0x004DC56C`).
 pub const lead_shape: u16 = 0x12F;
+
+/// The orange cross the display shows on the player's nav point (`hud_draw`).
+pub const nav_marker_shape: u16 = 0x15F;
+
+/// `hud_draw`'s marker on the player's nav point (`0x00485461` to `0x0048552B`): where the
+/// player's ship points to one (`GameObject.nav_point`, a flyback marker), and the nav point stands
+/// in front of the camera, `nav_marker_shape` at the pixel it falls on. The camera's frame of it is
+/// `frame_camera_place` (`0x004ADAC0`), and its pixel the projection's, rounded (`sr_round`).
+fn drawNavMarker(pen: Pen, sight: Sight, all: *const create.Objects) Error!void {
+    try pen.shape(nav_marker_shape, navMarkerAt(sight, all) orelse return);
+}
+
+/// Where the marker on the player's nav point stands, or null where it shows none (`drawNavMarker`).
+fn navMarkerAt(sight: Sight, all: *const create.Objects) ?[2]i32 {
+    const ship = &all.slots[all.player];
+    const nav = ship.object.nav_point.index() orelse return null;
+    if (nav >= all.slots.len) return null;
+    const seen = sight.view(all.slots[nav].drawn.position);
+    if (!(seen[2] > 0)) return null;
+    return sight.pixel(seen);
+}
 pub const lead_gap: f32 = 5;
 /// The palette entries the arrow for a target out of sight is drawn in, the hostile one also the
 /// lead cursor's line's: red, and green.
@@ -4923,6 +5044,24 @@ const TargetDrawing = struct {
         return count;
     }
 };
+
+test "the player's nav point gets its marker where it stands, when it stands ahead" {
+    var t: TargetingTest = undefined;
+    try t.init();
+    defer t.deinit();
+    const all = t.mission.objects;
+    const sight = testSight();
+    // No nav point, no marker.
+    try std.testing.expectEqual(null, navMarkerAt(sight, all));
+    // Straight ahead, the marker is in the middle of the screen.
+    const ahead = try t.add(.of(.marker), .{ 0, 0, 5000 });
+    all.slots[all.player].object.nav_point = .of(@intCast(ahead));
+    try std.testing.expectEqual(sight.middle(), navMarkerAt(sight, all).?);
+    // Behind, none.
+    const behind = try t.add(.of(.marker), .{ 0, 0, -5000 });
+    all.slots[all.player].object.nav_point = .of(@intCast(behind));
+    try std.testing.expectEqual(null, navMarkerAt(sight, all));
+}
 
 test "a target out of sight gets an arrow and a marker" {
     var t: TargetingTest = undefined;
