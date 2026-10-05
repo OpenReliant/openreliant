@@ -124,6 +124,9 @@ fn connectController(arena: Allocator, devices: *engine.input.Devices, controlle
     const setup: joystick.Setup = .read(settings_file);
     const found = joystick.attached(arena) catch &.{};
     const chosen = joystick.choose(found, setup.preference);
+    if (found.len > 0 and joystick.unmatched(found, setup.preference)) {
+        std.log.warn("no attached controller's name contains '{s}' (Joystick in {s}), so the game uses {s}", .{ setup.preference.?, engine.profile.settings_name, chosen.?.name });
+    }
     if (controller.*) |*open| {
         if (chosen != null and chosen.?.id == open.id() and devices.joystick.device != null) return;
         devices.joystick.close();

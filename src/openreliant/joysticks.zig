@@ -16,6 +16,7 @@ const joystick = platform.joystick;
 const input = openreliant.engine.input;
 const interface = openreliant.engine.game.interface;
 const Profile = openreliant.engine.profile.Profile;
+const settings_name = openreliant.engine.profile.settings_name;
 
 pub const usage =
     \\usage: openreliant joysticks [<game-directory>] [--watch]
@@ -67,6 +68,7 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
         break :settings .read(io, arena, directory);
     };
     const setup: joystick.Setup = .read(settings_file);
+    try writeSettingsSource(out, options.directory, settings_file);
 
     try joystick.init(.tool);
     defer joystick.deinit();
@@ -79,6 +81,9 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
         return 1;
     }
     const chosen = joystick.choose(found, setup.preference).?;
+    if (joystick.unmatched(found, setup.preference)) {
+        try out.print("No controller's name contains \"{s}\" (Joystick in {s}), so the game uses {s}.\n", .{ setup.preference.?, settings_name, chosen.name });
+    }
     for (found, 1..) |each, number| {
         var controller = joystick.Controller.open(each, setup) catch {
             try out.print("{d}. {s}: can't be opened.\n", .{ number, each.name });
@@ -178,6 +183,21 @@ fn writeView(out: *Io.Writer, read: input.Joystick, readings: []const i16, layou
 
 /// Prints a controller's entry in the list: its name, type, axis layout, and the setting that
 /// chooses it.
+/// Says which `starlancer.ini` the settings come from, or that `directory` has none, in which case
+/// every controller setting is left to the automatic choice.
+fn writeSettingsSource(out: *Io.Writer, directory: []const u8, settings_file: Profile) !void {
+    if (settings_file.text.len > 0) {
+        try out.print("Settings from {s}{c}{s}.\n", .{ directory, std.fs.path.sep, settings_name });
+        return;
+    }
+    if (std.mem.eql(u8, directory, ".")) {
+        try out.print("No {s} in the current folder, so its settings aren't used.\n", .{settings_name});
+    } else {
+        try out.print("No {s} in {s}, so its settings aren't used.\n", .{ settings_name, directory });
+    }
+    try out.writeAll("Name the folder the game is installed in: openreliant joysticks <game folder> [--watch]\n\n");
+}
+
 fn describe(out: *Io.Writer, number: usize, found: joystick.Found, controller: *joystick.Controller, setup: joystick.Setup, chosen: bool) !void {
     const plain = controller.sdlJoystick();
     try out.print("{d}. {s}{s}\n   {s}, USB ID {x:0>4}:{x:0>4}", .{
@@ -333,6 +353,18 @@ fn buttonName(button: input.GamepadButton) []const u8 {
         .right_stick_left => "right stick left",
         .right_stick_right => "right stick right",
     };
+}
+
+test writeSettingsSource {
+    var buffer: [512]u8 = undefined;
+    var out: Io.Writer = .fixed(&buffer);
+    try writeSettingsSource(&out, "StarLancer", .{ .text = "[JoyConfig]\r\nJoystick=SideWinder\r\n" });
+    try std.testing.expectEqualStrings("Settings from StarLancer" ++ [1]u8{std.fs.path.sep} ++ "starlancer.ini.\n", out.buffered());
+    // Without the file, it says how to name the game's folder.
+    out = .fixed(&buffer);
+    try writeSettingsSource(&out, ".", .empty);
+    try std.testing.expect(std.mem.startsWith(u8, out.buffered(), "No starlancer.ini in the current folder"));
+    try std.testing.expect(std.mem.indexOf(u8, out.buffered(), "openreliant joysticks <game folder>") != null);
 }
 
 test Options {
