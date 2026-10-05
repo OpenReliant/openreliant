@@ -1,7 +1,8 @@
 -- A panel of the wingmen nearby, over the flight display: how much armour each has left, and
 -- whether it has pulled out of the fight. F9 shows and hides the panel, and Shift+F9, or regroup
--- typed in the console, calls every wingman that pulled out back to the formation at once. This is a player script: it draws
--- what the player sees, and changes the game only through the event it sends the global script.
+-- typed in the console, calls every wingman that pulled out back to the formation at once. This is
+-- a player script: it draws what the player sees, and changes the game only through the event it
+-- sends the global script.
 
 local hud = require("openreliant.hud")
 local nearby = require("openreliant.nearby")

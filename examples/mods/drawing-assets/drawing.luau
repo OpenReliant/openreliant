@@ -1,3 +1,7 @@
+-- Draws a title in a menu font, the mod's picture badge.png and one of the screen's shapes over the
+-- menus. The picture and a font of the mod's own, title.ttf, are optional: add them to the folder
+-- to see them drawn. This is a menu script.
+
 local ui = require("openreliant.ui")
 
 return {

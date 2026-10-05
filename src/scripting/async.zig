@@ -20,7 +20,7 @@ pub const max_timers = 4096;
 
 /// What `openreliant.async` holds.
 pub const package = struct {
-    pub const register_timer = api.Native("Registers `handler` under `name` for the script's mod, for timers to run. Register it as the script runs, so that a timer kept with a saved game finds it again after the game is loaded.", "name: string, handler: (data: any) -> ()", api.nothing, registerTimer);
+    pub const register_timer = api.Native("Registers `handler` under `name`, for the timers of the mod's scripts of the same kind (and on the same object) to run. Register it as the script runs, so that a timer kept with a saved game finds it again after the game is loaded.", "name: string, handler: (data: any) -> ()", api.nothing, registerTimer);
     pub const after = api.Function("Runs the function registered under `name` once `seconds` have passed, with `data`, which must be plain data: seconds of game time for global and object scripts, and of real time for player and menu scripts.", &.{ "seconds", "name", "data" }, startTimer);
 };
 

@@ -353,6 +353,12 @@ pub fn takesNumbers(comptime T: type) bool {
     return !@typeInfo(T).@"enum".is_exhaustive or names(T).len < std.enums.values(T).len;
 }
 
+/// Whether a value of `T` can also be one a mod adds, by its qualified name, such as
+/// `"teapot:teapot"`.
+pub fn takesModNames(comptime T: type) bool {
+    return @hasDecl(T, "fromScriptName");
+}
+
 /// The values an enum field accepts, for error messages.
 fn choices(comptime T: type) []const u8 {
     comptime {

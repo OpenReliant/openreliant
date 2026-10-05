@@ -53,7 +53,7 @@ fn registerAction(call: Call, name: []const u8, definition: Definition) []const 
 
 /// What `openreliant.input` holds.
 pub const package = struct {
-    pub const register_action = api.Function("Registers a mod-qualified action from a menu script. Its label appears in controls; conflicting defaults stay unassigned. Returns its name for action_down and on_action. Bindings are saved by name.", &.{ "name", "definition" }, registerAction);
+    pub const register_action = api.Function("Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it.", &.{ "name", "definition" }, registerAction);
     pub const key_down = api.Function("Whether `key` is held down.", &.{"key"}, keyDown);
     pub const action_down = api.Function("Whether the controls bound to `action` are held: its key, or its joystick button.", &.{"action"}, actionDown);
 };

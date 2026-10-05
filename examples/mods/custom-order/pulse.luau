@@ -1,3 +1,7 @@
+-- A custom AI order: a short pulse of throttle, which ends by itself after two seconds. This is a
+-- global script: it registers the order, gives it to the first fighter other than the player as
+-- each mission starts, and again whenever the menu script's action sends CustomOrderPulse.
+
 local orders = require("openreliant.orders")
 local world = require("openreliant.world")
 local elapsed = {}

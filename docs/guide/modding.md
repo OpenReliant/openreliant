@@ -1,11 +1,42 @@
 # Modding
 
 OpenReliant supports mods: files that replace or add to the game's files, without changing the
-game's files on disk. A mod can replace a model, an interface picture, a sound, a piece of music, a
-line of speech, a pilot's face, a movie, a mission or a stats table. Each file in a mod replaces the
-game file with the same name.
+game's files on disk. A mod can:
+
+- **replace** any game file, such as a model, an interface picture, a sound, a piece of music, a
+  line of speech, a pilot's face, a movie, a mission or a stats table. Each file in a mod replaces
+  the game file with the same name ([How files are replaced](#how-files-are-replaced)).
+- **improve the look** with larger textures, material maps, sharper interface pictures and outline
+  fonts ([Textures](#textures), [The interface](#the-interface)).
+- **add** ship types, guns, missiles and pilots, with models of their own built from OBJ files
+  ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots),
+  [Models from OBJ](#models-from-obj)).
+- **run scripts** that change the game's records, react to what happens in a mission, draw over the
+  display, add game modes and campaigns, and add shader effects ([Scripts](#scripts)).
 
 **Improvement:** the original can't load mods.
+
+## A first mod
+
+1. Make a folder in the game folder's `mods` folder, such as `mods/my-mod`.
+2. Add a manifest, `mod.ini`, which names the mod on the mods screen ([The manifest](#the-manifest)):
+
+   ```ini
+   [Mod]
+   Name=My Mod
+   Version=1.0
+   Author=Me
+   Description=A new main menu theme.
+   ```
+
+3. Put the files the mod replaces or adds in the same folder, such as a `New_Pensive.wav` that
+   replaces the main menu's music.
+4. Start `openreliant`. The log lists each mod and what each of its files does
+   ([Log messages](#log-messages)), and GAME OPTIONS, MODS turns mods on and off
+   ([The mods screen](#the-mods-screen)).
+
+[`examples/mods`](../../examples/mods) holds example mods, each showing one part of modding with
+comments in its files. Copy one as a starting point.
 
 ## Where mods go
 
@@ -61,9 +92,10 @@ with another mod's files.
 
 Mod files use the game's formats, which the [developer documentation](../README.md) describes, with
 two exceptions covered below: textures and interface pictures can be PNG files of any size, and
-interface fonts can be TrueType or OpenType. Support for modern formats is planned: glTF models
-([#359](https://github.com/OpenReliant/openreliant/issues/359)), and sounds, music, speech and
-movies ([#496](https://github.com/OpenReliant/openreliant/issues/496)).
+interface fonts can be TrueType or OpenType. `sltool shp from-obj` turns an OBJ file into a model
+in the game's format ([Models from OBJ](#models-from-obj)). Support for more modern formats is
+planned: glTF models ([#359](https://github.com/OpenReliant/openreliant/issues/359)), and sounds,
+music, speech and movies ([#496](https://github.com/OpenReliant/openreliant/issues/496)).
 
 ## Textures
 
@@ -94,8 +126,9 @@ the computer lets go of its own copy once the GPU holds it.
 - Compressing a large picture takes a few seconds, once. The result is kept in the game folder's
   `cache/textures`, one file for each texture, and later starts read it in a moment. A changed
   picture, or another texture detail, compresses again. The folder can be deleted at any time.
-- A BC5 normal map keeps two channels, so OpenReliant keeps the length of the normals' mean, which
-  widens the highlights on fine details, in the material map's alpha instead.
+- A BC5 normal map only has two channels, so the extra value OpenReliant keeps for each normal map
+  pixel (how much the normals spread out, which widens the highlights on fine details) moves to the
+  material map's alpha channel.
 - `TextureCompression=0` in `starlancer.ini`, or `--uncompressed-textures`, keeps the pictures as
   they are ([Configuration](configuration.md)).
 
@@ -361,22 +394,26 @@ Url=https://example.com/coyote-hd
 OpenReliant=0.7
 ```
 
-Every key is optional, and keys can be written in any case. `Url` is the mod's web page, where
-players can find it and its updates. `OpenReliant` is the OpenReliant version the mod needs:
-OpenReliant skips mods that need a newer version and says so in the log. The game never reads a file
-called `mod.ini`, so the archive still works with the original, and the manifest doesn't replace any
-game file. A mod's scripts are listed in the sections `[Scripts]` and `[Missions]`
-([Scripts](#scripts)), and what it adds in sections such as `[ShipTypes]`
+Keys are optional and can be written in any case. `Url` is the mod's web page, where players can
+find it and its updates. `OpenReliant` is the OpenReliant version the mod needs: OpenReliant skips a
+mod that needs a newer version and says so in the log. The original never reads a file called
+`mod.ini`, so the archive still works with it, and the manifest doesn't replace any game file.
+
+A mod's scripts are listed in the sections `[Scripts]` and `[Missions]` ([Scripts](#scripts)), and
+what it adds in sections such as `[ShipTypes]`
 ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)).
 
 ## New ships, guns, missiles and pilots
 
-A mod can add ship types, guns, missiles and pilots. Each one is based on one of the game's, starts
-with a copy of its base's record, which a load script can change ([The
-records](scripting.md#the-records)), and acts as its base wherever the game treats one specially: a
-ship type based on the Phoenix carries the Nova Cannon, and a missile based on the Havoc sets off its
-shockwave. The manifest lists each kind in a section of its
-own, and describes each one in a section named after it:
+A mod can add ship types, guns, missiles and pilots. Each one is based on one of the game's:
+
+- It starts with a copy of its base's stats, which a load script can change
+  ([The records](scripting.md#the-records)).
+- It behaves like its base wherever the game treats that base specially. A ship type based on the
+  Phoenix carries the Nova Cannon, and a missile based on the Havoc sets off a shockwave.
+
+The manifest lists each kind in a section of its own, and describes each entry in a section named
+after it:
 
 ```ini
 [Guns]
@@ -393,15 +430,16 @@ What all four have in common:
   `predator` or `pulse_cannon`, or by its number.
 - `Name` is what the game calls it, such as on the flight display. Without it, it takes its base's
   name.
-- OpenReliant numbers each kind from the first number after the game's as it starts, mod by mod in
-  load order, so the numbers change with the mods that are on. Scripts name each by the mod's folder
-  or archive name and its own, `bananas:banana_gun` for a gun `banana_gun` in a folder `bananas`.
-- The number after a name in the list is the number the mod's own files use for it. As OpenReliant
-  loads one of the mod's files, it changes that number to the one OpenReliant gave, so the files stay
-  in the game's formats. Leave it empty where the mod's files don't use it. Files from elsewhere
-  can't use what the mod adds.
-- One that the manifest gets wrong, such as one whose base isn't one of the game's, is left out, and
-  the log says why.
+- When it starts, OpenReliant numbers what the mods add after the game's own records, mod by mod in
+  load order, so the numbers depend on which mods are on. Scripts therefore use names: the mod's
+  folder or archive name, a colon, and the name in the manifest, such as `bananas:banana_gun` for
+  the gun `banana_gun` of the mod in the folder `bananas`.
+- The number after a name in the list is the number the mod's own files, such as its missions and
+  models, use for it. When OpenReliant loads one of the mod's files, it replaces that number with the
+  one it gave, so the files stay in the game's formats. Leave the number empty when the mod's files
+  don't use it. Files from other mods or from the game can't use what the mod adds.
+- An entry with a mistake, such as a base that isn't one of the game's, is left out, and the log says
+  why.
 
 | Kind | List section | Its own section | First number | Most the mods add | Numbered in the mod's |
 |---|---|---|---|---|---|
@@ -436,7 +474,8 @@ WingIcon=teapoticon
 EngineSound=kettle.wav
 ```
 
-- A ship type has its base's cockpit, engine sound and display, but for those it gives of its own.
+- A ship type uses its base's cockpit, engine sound and display pictures, except for the ones it
+  gives itself.
 - `Model` is the type's model, a `.shp` file in the mod or the game ([`.SHP`
   models](../formats/shp.md)). It can be one of the game's models under the new type's own stats.
 - `Schematic` is the sprite set the display shows the ship in, as the player's ship and as a target.
@@ -457,8 +496,8 @@ too, after the game's ships:
   [Textures in the loadout](#textures-in-the-loadout)), and shown as large as its base whatever
   its model's size. Its panel's figures are its own stats', measured against the game's fighters;
   its class, access, crew, specials and guns, and the gun model the guns view shows, are its base's.
-- The arc holds twelve ships. A mod's ship types the game's leave no room for aren't offered, which
-  the log says.
+- The arc holds twelve ships. When the game's ships leave no room, the mods' ship types that don't
+  fit aren't offered, and the log says so.
 - A saved game keeps a mod's ship type as its base, so that the original can still load it.
 
 Flown by the player, such a ship type can also give:
@@ -491,19 +530,19 @@ ShotSize=40
 Sound=boing.wav
 ```
 
-A gun takes its base's shots, flashes and sounds, but for those it gives of its own:
+A gun uses its base's shots, flashes and sounds, except for the ones it gives itself:
 
 - `Shot` is a picture in the mod, which each shot is drawn as: one flare of it, facing the camera,
   fading with the shot's life. It is found as the mods' textures are, by its name without the
   extension, so a PNG, DDS or KTX2 file works. Give it a transparent background.
-- `ShotSize` is how far the picture reaches either way of the shot's middle, 60 by default, the
-  Pulse Cannon's flare.
+- `ShotSize` is how far the picture reaches from the shot's middle in each direction. The default
+  is 60, the size of the Pulse Cannon's flare.
 - `Sound` is a WAV file in the mod, PCM or IMA ADPCM, that each shot makes in place of its base's.
   It is heard as its base's sound is: as far, as loud, and following the shot.
 
-A gun with a `Sound` the mod doesn't have, or that isn't a WAV file, is left out, which the log says.
-A model names its guns on its gun muzzles, so a mod's own model fires the mod's guns by the numbers
-in `[Guns]`, and a ship type can fire one with `Guns`.
+A gun whose `Sound` is missing from the mod, or isn't a WAV file, is left out, and the log says so.
+A model gives each gun muzzle a gun type by number, so a mod's own model fires the mod's guns by the
+numbers in `[Guns]`. A ship type can also fire one with `Guns`, whatever its model says.
 
 ### Missiles
 
@@ -519,19 +558,25 @@ Description=A homing banana. It locks on slowly, but nothing outruns it.
 Tier=0
 ```
 
-A missile takes its base's trail, sounds and flight display picture. `Model` is the missile: for a
-base that hangs on a rail, as the Havoc, the Jack Hammer, the Bandit, the Vagabond and the Imp do,
-the missile that hangs on the hardpoint and launches from it. For a base that hangs in a pod, as the
-Screamer, the Raptor, the Solomon and the Hawk do, `Model` is the missile that flies from the pod,
-and `Pod` is the pod that hangs on the hardpoint, else its base's. A mod's own model's hardpoints
-or a ship type's `Missiles` can hold it.
+A missile uses its base's trail, sounds and flight display picture. What `Model` is depends on the
+base:
+
+- For a base that hangs on a rail (the Havoc, the Jack Hammer, the Bandit, the Vagabond and the
+  Imp), `Model` is the missile that hangs on the hardpoint and launches from it.
+- For a base that hangs in a pod (the Screamer, the Raptor, the Solomon and the Hawk), `Model` is
+  the missile that flies out of the pod, and `Pod` is the pod that hangs on the hardpoint. Without
+  `Pod`, the base's pod is used.
+
+A mod's own model can hold the missile on its hardpoints, and a ship type can carry it with
+`Missiles`.
 
 The loadout screen offers it on its missile page too, with the game's missiles:
 
 - `Tier` is the campaign tier from which it is offered, 0 at the start to 3 after mission 21, else
   its base's. A missile based on the torpedo, which the loadout never offers, isn't offered.
-- `Description` is what its panel says of it, else what it says of its base. The panel's figures
-  are its own, measured against the game's missiles, and as many can be carried as of its base.
+- `Description` is the text on its panel. Without it, the panel shows its base's text. The panel's
+  figures are its own, measured against the game's missiles, and a ship carries as many of it as of
+  its base.
 - Its icon on the arc is the model that hangs on the hardpoint: `Model`, or `Pod` for a base that
   hangs in a pod, else its base's loadout model. Its red copy is made from its picture (see
   [Textures in the loadout](#textures-in-the-loadout)).
@@ -552,23 +597,22 @@ Name=Trooper
 Voice=rus
 ```
 
-A pilot takes its base's face and voice on the radio, but for those it gives of its own. `Base` is a
-pilot's number in `pilotstats.bin`. A mission names its ships' pilots by number, so a mod's own
-missions fly the mod's pilots by the numbers in `[Pilots]`, and a script can set any object's pilot
-([Objects](scripting.md#objects)).
+A pilot uses its base's face and voice on the radio, except for the ones it gives itself. `Base` is
+a pilot's number in `pilotstats.bin`. A mission gives its ships' pilots by number, so a mod's own
+missions use the mod's pilots by the numbers in `[Pilots]`. A script can set the pilot of any ship
+([Objects](scripting.md#objects)), as the `bananas` example does.
 
 - `Talking`, `Laughing` and `Dying` name the face films the radio's window plays as the pilot speaks,
   laughs and dies: a film of the game's, such as `45volntrs_plt` from `pilots.hog`, or a `.fm8`
   file in the mod. The film every pilot shares in the 45th's place stays the game's.
-- `Voice` is the start of the names of the pilot's lines, which it speaks in on any side, in place
-  of its base's two voices: one of the game's, such as `ban` for Bandit's or `rus` for the
-  Coalition's, or a mod's own, whose lines it gives as files of those names, such as
-  `trpres_001.ut`.
+- `Voice` is the prefix of the file names of the pilot's lines. The pilot uses it on either side,
+  in place of its base's two voices. It can be one of the game's, such as `ban` for Bandit's or
+  `rus` for the Coalition's, or a new one whose lines the mod gives as files with those names, such
+  as `trpres_001.ut`.
 
 Making face films and lines of your own needs encoders OpenReliant doesn't have yet
 ([#353](https://github.com/OpenReliant/openreliant/issues/353),
-[#351](https://github.com/OpenReliant/openreliant/issues/351)); the game's own work in the
-meantime.
+[#351](https://github.com/OpenReliant/openreliant/issues/351)); until then, use the game's.
 
 ## Models from OBJ
 
@@ -579,8 +623,8 @@ modelling tools export, with nothing of the game's in it:
 sltool shp from-obj teapot.obj teapot.shp --two-sided
 ```
 
-Each object of the file becomes part of the model by its name, case aside; a modelling tool's `.001`
-after a name is left out:
+Each object in the file becomes a part of the model according to its name, written in any case. A
+suffix such as `.001`, which modelling tools add to copies, is ignored:
 
 | Object | What it becomes |
 |---|---|
@@ -593,18 +637,45 @@ after a name is left out:
 | `launch_point`, `dock_point` | Where a ship launches from or docks |
 | anything else | The body |
 
-An attachment stands at the middle of its object's corners, and is as large as their box: a small
-box or triangle marks one. The body and the cockpit take the textures their faces' `usemtl` names,
-by the texture's name without its extension, such as `teapot` for `teapot.png`, and are lit; a face
-without one is drawn untextured. A vertex takes the normal the file gives it, else the average of the
-faces round it. `--two-sided` draws every face from behind as well, for a model with open edges;
-`--cloak` makes the meshes a ship that cloaks needs; and `--density` sets how heavy each part is for
-its size, 0.1 by default, about as heavy as the Predator for a ship of its size.
+An attachment sits at the middle of its object's corners, and is as large as their bounding box, so
+a small box or a single triangle is enough to mark one. In the teapot's OBJ file, each gun muzzle,
+engine glow and missile hardpoint is one triangle:
 
-The file is read as Blender exports it, Y up and the nose toward +Z, which `sltool shp obj` writes
-the game's models as too, so a model exported from the game comes back in the same place. Each part
-gets one level of detail, a collision tree of boxes round its faces, and its mass as though it filled
-its box. [`examples/mods/teapot`](../../examples/mods/teapot) builds its ship this way.
+```text
+o Teapot
+usemtl teapot
+f 1/1/1 2/2/2 7/7/7
+...
+o cockpit
+usemtl teapot
+f 501/501/501 507/507/507 506/506/506
+...
+o gun_muzzle:1
+f 801 802 803
+o engine_glow:0
+f 807 808 809
+o missile:0
+f 813 814 815
+o eject_point
+f 825 826 827
+```
+
+- **Textures.** Each face of the body and the cockpit takes the texture its `usemtl` names, by the
+  texture's name without its extension, such as `teapot` for `teapot.png` in the mod. A face without
+  a `usemtl` is drawn untextured. The `.mtl` file isn't read.
+- **Normals.** A vertex uses the normal the file gives it. Without one, it gets the average of the
+  normals of the faces around it.
+- **Options.** `--two-sided` draws every face from behind as well, for a model with open edges.
+  `--cloak` adds the meshes a ship needs to cloak. `--density` sets how heavy each part is for its
+  size: the default, 0.1, makes a ship about as heavy as the Predator at the Predator's size.
+- **Axes.** The file is read as Blender exports it, with Y up and the nose toward +Z. `sltool shp
+  obj` exports the game's models the same way, so a game model exported and built again comes back
+  in the same place.
+- **What is generated.** Each part gets one level of detail, a collision tree of boxes around its
+  faces, and a mass as though it filled its bounding box.
+
+[`examples/mods/teapot`](../../examples/mods/teapot) builds its ship this way, and
+[`examples/mods/bananas`](../../examples/mods/bananas) its missile.
 
 ## The thumbnail
 

@@ -1,7 +1,7 @@
 -- Registers the arena game mode, which the main menu's GAME MODES lists. This is a menu script: it
 -- runs as OpenReliant starts, when game modes are registered. The mode flies Instant Action's
 -- mission, 29, in a Phoenix, and starts it again each time it ends, until the player leaves it from
--- the pause menu. Its rules (rules.luau) and its board (board.luau) apply while it runs alone.
+-- the pause menu. Its rules (rules.luau) and its board (board.luau) apply only while it runs.
 
 local core = require("openreliant.core")
 

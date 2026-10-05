@@ -1,3 +1,8 @@
+-- The strafe run: a custom AI order, registered through the built-in interface I.AI. The ship
+-- flies at half throttle and turns gently right for three seconds. This is a global script: it
+-- gives the order to the first fighter other than the player when the player script sends
+-- StrafeRunStart.
+
 local I = require("openreliant.interfaces")
 local world = require("openreliant.world")
 local elapsed = {}

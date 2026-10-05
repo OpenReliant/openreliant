@@ -57,7 +57,9 @@ const roots: []const type = list: {
         for (values.shownFields(declared.Fields)) |field| found = found ++ .{field.type};
         if (declared.Result != void) found = found ++ .{declared.Result};
     }
-    break :list found ++ records.Values.kinds;
+    // The game's actions (`on_action`) and camera views (`camera.view`), which scripts pass and get
+    // as strings, since mods add their own.
+    break :list found ++ records.Values.kinds ++ .{ engine.input.controls.Action, engine.game.camera.View };
 };
 
 /// The types of what scripts pass the functions and methods declared, which `given` follows.
@@ -268,6 +270,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
             try w.print("\"{s}\"", .{name});
         }
         if (comptime values.takesNumbers(T)) try w.writeAll(" | number");
+        if (comptime values.takesModNames(T)) try w.writeAll(" | string");
         try w.writeAll("\n");
     }
 
@@ -490,6 +493,7 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         \\- [Engine handlers](#engine-handlers)
         \\- [Packages](#packages)
         \\- [Objects](#objects)
+        \\- [Built-in interfaces](#built-in-interfaces)
         \\- [The game's functions](#the-games-functions)
         \\- [The order routines](#the-order-routines)
         \\- [The mission's events](#the-missions-events)
@@ -553,7 +557,7 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(method, 1)), comptime markdownResult(method), method.description });
     }
 
-    try w.writeAll("\n## Built-in interfaces\n\nThese groups reuse existing API declarations beneath mod overrides. Context permissions still apply.\n");
+    try w.writeAll("\n## Built-in interfaces\n\n`require(\"openreliant.interfaces\")` gives these groups of the packages' functions, unless a mod offers an interface of the same name. A group a script's packages don't allow is nil.\n");
     inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
         const tag: @import("builtin_interfaces.zig").Group = @enumFromInt(group.value);
         const Namespace = comptime tag.namespace();
@@ -652,6 +656,7 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
     inline for (gathered.enums) |T| {
         try w.print("\n### {s}\n\n", .{comptime bind.noun(T)});
         inline for (comptime values.names(T), 0..) |name, at| try w.print("{s}`{s}`", .{ if (at == 0) "" else ", ", name });
+        if (comptime values.takesModNames(T)) try w.writeAll(", the qualified name of one a mod adds");
         try w.writeAll(if (comptime values.takesNumbers(T)) ", or a number.\n" else ".\n");
     }
 }
@@ -849,6 +854,7 @@ fn writeChoices(w: *Writer, comptime T: type) Writer.Error!void {
     if (names.len > listed_names) return;
     try w.writeAll(" (");
     inline for (names, 0..) |name, at| try w.print("{s}\"{s}\"", .{ if (at == 0) "" else ", ", name });
+    if (comptime values.takesModNames(Plain)) try w.writeAll(", a mod's qualified name");
     if (comptime values.takesNumbers(Plain)) try w.writeAll(", or a number");
     try w.writeAll(")");
 }

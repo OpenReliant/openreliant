@@ -6,9 +6,9 @@
 
 -- Names of values. A value without a name is a number.
 
-type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "reliant" | "yamato" | "victorious" | "endeavour" | "mitchell" | "bremen" | "ulysses" | "nanny" | "limpet_car" | "prowler" | "ripper" | "mammoth" | "stork" | "sabre" | "kamov" | "scimitar" | "ramases" | "badanov" | "pukov" | "kurgan" | "sharov" | "gurevich" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "escape_pod" | "debris" | "crewman" | "russian_torpedo" | "neptune_hi" | "uranus_hi" | "jupiter_hi" | "venus_hi" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "latov" | "czar_docked" | "dm_beacon" | "kafelnikof" | "krasny" | "varyag" | "other_ramases" | "other_mitchell" | "rogue_base" | "boridin_breakaway" | "other_escape_pod" | "cargo_pod" | "zakov" | "shell" | "rock_chunk" | "limpet_pod" | "kiev" | "neptune_lo" | "uranus_lo" | "jupiter_lo" | "venus_lo" | "yamato_hangar" | "reliant_hangar" | "comms_relay" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "t_phoenix" | "sun_marker" | "nebula_marker" | "marker" | "stand_in" | number
+type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "reliant" | "yamato" | "victorious" | "endeavour" | "mitchell" | "bremen" | "ulysses" | "nanny" | "limpet_car" | "prowler" | "ripper" | "mammoth" | "stork" | "sabre" | "kamov" | "scimitar" | "ramases" | "badanov" | "pukov" | "kurgan" | "sharov" | "gurevich" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "escape_pod" | "debris" | "crewman" | "russian_torpedo" | "neptune_hi" | "uranus_hi" | "jupiter_hi" | "venus_hi" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "latov" | "czar_docked" | "dm_beacon" | "kafelnikof" | "krasny" | "varyag" | "other_ramases" | "other_mitchell" | "rogue_base" | "boridin_breakaway" | "other_escape_pod" | "cargo_pod" | "zakov" | "shell" | "rock_chunk" | "limpet_pod" | "kiev" | "neptune_lo" | "uranus_lo" | "jupiter_lo" | "venus_lo" | "yamato_hangar" | "reliant_hangar" | "comms_relay" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "t_phoenix" | "sun_marker" | "nebula_marker" | "marker" | "stand_in" | number | string
 type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debris" | "mine" | "planet" | number
-type PilotNumber = "none" | number
+type PilotNumber = "none" | number | string
 type Side = "friendly" | "hostile" | "neutral" | number
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
@@ -24,12 +24,14 @@ type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
 type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
-type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number
+type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type RadioMode = "now" | "queued" | "if_idle" | number
 type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "unnamed_3" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_40" | "jump_out_41" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "eject_106" | "scoop_up" | "eject_spin" | "dock" | "dark_reign_shoot_110" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | "unnamed_200" | number
 type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
 type PilotTier = "level_0" | "level_1" | "level_2" | number
 type PilotSkill = "low" | "medium" | "high" | number
+type Action = "cockpit_camera" | "left_view_camera" | "right_view_camera" | "rear_view_camera" | "flyby_camera" | "target_camera" | "external_camera" | "missile_camera" | "next_enemy_target" | "previous_enemy_target" | "next_friendly_target" | "previous_friendly_target" | "next_subtarget" | "previous_subtarget" | "target_under_reticule" | "target_nearest_enemy" | "target_nearest_friendly" | "target_torpedo" | "smart_target" | "primary_target" | "afterburners" | "afterburner_toggle" | "reverse_thrust" | "jump_drive" | "match_speed" | "accelerate" | "decelerate" | "zero_throttle" | "full_throttle" | "roll_ship_clockwise" | "roll_ship_anti_clockwise" | "nose_up" | "nose_down" | "rotate_clockwise" | "rotate_anti_clockwise" | "strafe_left" | "strafe_right" | "joystick_roll" | "fire_lasers" | "full_guns" | "gunnery_window" | "gunnery_window_locked" | "synchronise_guns" | "toggle_blindfire" | "launch_missile" | "missile_window" | "rotate_missiles_clockwise" | "rotate_missiles_anticlockwise" | "comms_window" | "powerball_window" | "powerball_window_locked" | "full_power_to_gunnery" | "full_power_to_engines" | "full_power_to_shields" | "equalize_power" | "objectives_window" | "wing_status_window" | "wing_status_window_locked" | "damage_window" | "damage_window_locked" | "radar_ranges" | "shield_balancing" | "countermeasures" | "eject" | "cloak_ship" | "ecm" | "spectral_shields" | "attack_my_target" | "back_off" | "help_me" | "permission_to_land" | "display_kills" | "send_comms_message" | "key_config"
+type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "chase_too" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | "nanny_dock" | "warp_prepare" | "warp_depart" | "warp_arrive" | "yamato_beside" | "yamato_ahead" | "yamato_aside" | number
 
 -- Tables of values, which scripts can only read.
 
@@ -186,7 +188,7 @@ declare class Object
     speed: number
     -- Whether it's the player's ship.
     is_player: boolean
-    -- The order it's following: an original name or a mod-qualified custom name; nil for none.
+    -- The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none.
     order: (string | number)?
     -- The object that last hit it; nil for none, or once that one has left the mission.
     last_attacker: Object?
@@ -281,7 +283,7 @@ type Records = {
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.
 
--- OpenReliant's version, and events for the global scripts.
+-- OpenReliant's version, events for the global scripts, and game modes.
 type Core = {
     -- The version of OpenReliant, such as `0.7.0`.
     version: string,
@@ -313,9 +315,9 @@ type Nearby = {
 
 -- What the order table says of each order, the orders each object has, and ending them. An object's give_order gives orders.
 type Orders = {
-    -- Registers a custom order for this global script's mod. Returns its qualified name, which give_order and orders.info accept. The update callback returns false to finish; callbacks cannot change order stacks. Registrations stop with their script context.
+    -- Registers an order, which `name` qualified with the mod's name names. `update` runs each frame on each ship that follows it, and returns false to end the order; `init` runs as it starts, and `exit` as it ends. They can't give or end orders. Returns the qualified name, which `give_order` and `orders.info` take. The order goes away when the scripts that registered it stop.
     register: (name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?}) -> string,
-    -- The metadata of an original order or mod-qualified custom order: name, priority and flags. Nil for an unknown or disabled registration.
+    -- The name, priority and flags of `order`, one of the game's or a mod's by its qualified name. Nil for an order that doesn't exist, or a mod's that failed.
     info: (order: string | number) -> OrderInfo?,
     -- The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends.
     stack: (object: Object) -> { OrderEntry },
@@ -333,13 +335,13 @@ type Hud = {
     width: number,
     -- The window's height, in pixels.
     height: number,
-    -- Registers an enabled mod-qualified HUD display for this player context. Its frame callback draws through the HUD package while shown; failure disables only that display.
+    -- Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. Returns the qualified name.
     register_display: (name: string, definition: {frame: (seconds: number) -> ()}) -> string,
     -- Enables or disables a registered HUD display by qualified name. Returns whether it exists.
     set_display_enabled: (name: string, enabled: boolean) -> boolean,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
-    -- Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices.
+    -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     -- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),
@@ -347,7 +349,7 @@ type Hud = {
     line: (from: vector, to: vector, style: LineStyle?) -> (),
     -- Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.
     rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
-    -- Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing.
+    -- The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.
     measure: (text: string, style: (number | TextStyle)?) -> Size,
 }
 
@@ -361,7 +363,7 @@ type Ui = {
     width: number,
     -- The window's height, in pixels.
     height: number,
-    -- Registers a mod-qualified scripted screen. frame draws through ui, and optional key receives key presses/releases while selected. Show it with show_screen; closing its context closes the screen.
+    -- Registers a screen, which `name` qualified with the mod's name names. While it's shown (`show_screen`), `frame` draws it with this package's functions each frame, and `key` gets each key as it goes down and up. Returns the qualified name.
     register_screen: (name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}) -> string,
     -- Makes the calling mod's registered screen `name` stand in for the front end's own `screen`, such as `"main_menu"`: while the front end shows `screen`, it runs and draws the mod's screen in its place, over its background. nil gives `screen` back to the front end. Only menu scripts can use it. Returns whether the screen is registered.
     replace_screen: (screen: FrontEndScreen, name: string?) -> boolean,
@@ -379,7 +381,7 @@ type Ui = {
     show_screen: (name: string?) -> boolean,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
-    -- Draws an existing shape from this layer's game sprite set at its anchor in window pixels. style.scale multiplies the game's scale; shape IDs are the existing set indices.
+    -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     -- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),
@@ -387,13 +389,13 @@ type Ui = {
     line: (from: vector, to: vector, style: LineStyle?) -> (),
     -- Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.
     rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
-    -- Measures text in window pixels. style may be a numeric scale (existing API) or a TextStyle selecting the same font and scale as drawing.
+    -- The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.
     measure: (text: string, style: (number | TextStyle)?) -> Size,
 }
 
 -- Whether keys are held, and the controls bound to actions.
 type Input = {
-    -- Registers a mod-qualified action from a menu script. Its label appears in controls; conflicting defaults stay unassigned. Returns its name for action_down and on_action. Bindings are saved by name.
+    -- Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it.
     register_action: (name: string, definition: Definition) -> string,
     -- Whether `key` is held down.
     key_down: (key: Key) -> boolean,
@@ -401,13 +403,13 @@ type Input = {
     action_down: (action: string | number) -> boolean,
 }
 
--- Original and mod-qualified camera views, switching views and registering player-script views.
+-- The camera's view: which it is, switching it, and registering views of the mod's own.
 type Camera = {
-    -- The original or mod-qualified view the camera shows; nil while no mission is shown.
+    -- The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown.
     view: (string | number)?,
-    -- Registers a mod-qualified camera view for this player context. frame returns position and orthonormal orientation; a failed callback returns to cockpit. Mission camera locks take precedence.
+    -- Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name.
     register_view: (name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?}) -> string,
-    -- Switches to an original or mod-qualified view of object, or the player's ship where nil. Returns whether it switched; mission locks and cutaways take precedence.
+    -- Switches to `view`, one of the game's or a mod's by its qualified name, looking at `object`, or at the player's ship where it's nil. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it.
     set_view: (view: string | number, object: Object?) -> boolean,
 }
 
@@ -453,7 +455,7 @@ type Storage = {
 
 -- Timers, kept with the saved game: game time for global and object scripts, real time for player and menu scripts.
 type Async = {
-    -- Registers `handler` under `name` for the script's mod, for timers to run. Register it as the script runs, so that a timer kept with a saved game finds it again after the game is loaded.
+    -- Registers `handler` under `name`, for the timers of the mod's scripts of the same kind (and on the same object) to run. Register it as the script runs, so that a timer kept with a saved game finds it again after the game is loaded.
     register_timer: (name: string, handler: (data: any) -> ()) -> (),
     -- Runs the function registered under `name` once `seconds` have passed, with `data`, which must be plain data: seconds of game time for global and object scripts, and of real time for player and menu scripts.
     after: (seconds: number, name: string, data: any?) -> (),
