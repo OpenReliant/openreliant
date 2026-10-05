@@ -94,7 +94,7 @@ const Doc = struct {
 
 /// Every option's help, which the compiler holds to having one for each.
 const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
-    .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no material maps, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, as little drawn a frame as the original allows, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, the loadout's ships and missiles solid, the interface's text in the game's bitmap fonts, and the sound mixed plainly in stereo" },
+    .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no material maps, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, the loadout's ships and missiles solid, the interface's text in the game's bitmap fonts, and the sound mixed plainly in stereo" },
     .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "start this mission right away instead of opening the main menu. The number is the one in the mission's file name, mission<number>.dte, loaded from a mod, the game's missions folder or resource.hog. Mission 0 is OpenReliant's sandbox, which is built into openreliant for games without a mission 0" },
     .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin or its name, such as predator or a mod's teapot:teapot, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
     .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes" },
@@ -297,7 +297,6 @@ pub const Options = struct {
     /// How far the finer levels of detail reach.
     detail_reach: game.main.DetailReach = .far,
     /// How much a frame may draw.
-    draw_budget: game.main.DrawBudget = .roomy,
     /// Where the line starts that places the marker for a target out of sight.
     edge_line: game.hud.EdgeLine = .from_tip,
     /// How the loadout draws its ships and missiles.
@@ -389,7 +388,6 @@ pub const Options = struct {
                 options.ice_field = .original;
                 options.gates = .original;
                 options.detail_reach = .original;
-                options.draw_budget = .original;
                 options.edge_line = .original;
                 options.loadout_look = .original;
                 options.outline_fonts = false;
@@ -627,8 +625,6 @@ test Options {
     try std.testing.expectEqual(.none, retro.jump_light);
     try std.testing.expectEqual(.far, plain.detail_reach);
     try std.testing.expectEqual(.original, retro.detail_reach);
-    try std.testing.expectEqual(.roomy, plain.draw_budget);
-    try std.testing.expectEqual(.original, retro.draw_budget);
     try std.testing.expect(!(try parsed(&.{"--no-smooth-motion"})).smooth_motion);
     try std.testing.expectEqual(.latest_two, (try parsed(&.{"--few-shot-lights"})).shot_lights);
     try std.testing.expect(!(try parsed(&.{"--baked-lights"})).real_lights);

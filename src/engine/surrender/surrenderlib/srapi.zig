@@ -161,6 +161,15 @@ pub const full_screen = [4]f32{ 0, 0, 1, 1 };
 /// (`0x005E82F4`, `0x005E82F8` against 19999).
 pub const original_budget = 19999;
 
+/// **Improvement:** the vertices and the polygons OpenReliant lets a frame take, ten times
+/// `original_budget`, which a current computer draws with ease. The layers are drawn from what
+/// went into them last, so past the budget the objects that went in first are left out, and those
+/// are the ships' parts. OpenReliant keeps up to 4000 burning bits where the original keeps 500
+/// (`explode.BitPool`), and a view full of them and of a split's bodies takes the original's
+/// budget; and a mod's ship can have a model larger than the whole of it. `--original` keeps this
+/// budget, since the original's would leave such a ship out without a word.
+pub const budget = 200_000;
+
 /// Surrender's state, `sr` (`0x005E6B50`), as OpenReliant keeps it: the camera and its projection,
 /// the level-of-detail divisor, and the sun's point the driver checks triangles against.
 pub const Context = struct {
@@ -177,8 +186,8 @@ pub const Context = struct {
     /// where `detail` has it, and the object leaves sight there. 1 is the original's.
     finer: f32 = 1,
     /// How many vertices, and how many polygons, the objects drawn in a frame may take
-    /// (`srmesh.Budget`): the original's `original_budget` unless set.
-    budget: usize = original_budget,
+    /// (`srmesh.Budget`), in a mission and in the loadout alike.
+    budget: usize = budget,
     /// A hardware renderer (`sr + 0x1AC`).
     hardware: bool = true,
     /// The sun's point on the screen (`sr + 0x173E`), and how much of it shows (`sr + 0x1746`):
