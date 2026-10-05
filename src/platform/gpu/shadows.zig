@@ -93,15 +93,16 @@ pub const Uniforms = extern struct {
 /// How dark and how soft a map's shadows are: how much of the sun a full shadow takes away, and how
 /// much wider than the quality's the lookup's taps spread.
 ///
-/// **Improvement:** the cockpit's shadows are kept faint and soft, so that the struts' shadows
-/// sweep across the dashboard without blacking it out. The cockpit takes both key lights, and its
-/// map's texels are so fine that its shadows' edges would otherwise be razor sharp.
+/// **Improvement:** the cockpit's shadows are a little lighter and softer than the world's, so
+/// that the struts' shadows show clearly on the dashboard without blacking it out. The cockpit
+/// takes both key lights, and its map's texels are so fine that its shadows' edges would otherwise
+/// be razor sharp.
 const Look = struct {
     depth: f32,
     spread: f32,
 
     const world: Look = .{ .depth = 1, .spread = 1 };
-    const cockpit: Look = .{ .depth = 0.4, .spread = 3 };
+    const cockpit: Look = .{ .depth = 0.7, .spread = 3 };
 };
 
 /// How the depth pass keeps a surface from shadowing itself: a little farther from the sun, and
@@ -282,5 +283,5 @@ test "Uniforms.of" {
     const inside: Uniforms = .of(&frame, high);
     try std.testing.expectEqual(1, inside.cockpit);
     const cockpit = inside.boxes[srshadow.cockpit_map];
-    try std.testing.expectEqual([3]f32{ 0.01, 0.4, 3 * 1.4 / 4096.0 }, [3]f32{ cockpit.texel, cockpit.depth, cockpit.step });
+    try std.testing.expectEqual([3]f32{ 0.01, 0.7, 3 * 1.4 / 4096.0 }, [3]f32{ cockpit.texel, cockpit.depth, cockpit.step });
 }
