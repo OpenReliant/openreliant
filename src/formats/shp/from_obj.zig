@@ -9,8 +9,9 @@
 //! - `gun_muzzle:<gun type>`, `missile:<missile>`, `engine_glow:<glow>`, `light:<colour>`,
 //!   `eject_point`, `launch_point` and `dock_point`: an attachment of that kind, standing at the
 //!   middle of the object's corners, as large as their box. The number is its gun type (1 by
-//!   default), its missile, glow or colour (0 by default). An engine glow burns backward, and an
-//!   eject point throws the pod up; the cockpit holds it where there is one.
+//!   default), its missile at every loadout tier, its glow or its colour (0 by default). An engine
+//!   glow burns backward, a light is a sprite that lights nothing round it, and an eject point
+//!   throws the pod up; the cockpit holds it where there is one.
 //! - Anything else: the body, a part of its own.
 //!
 //! Each part is one level of detail, its faces each taking the texture their `usemtl` names (none
@@ -32,6 +33,9 @@ pub const Options = struct {
     /// Whether every face is drawn from behind too (`shp.Face.Flags.two_sided`), for a model with
     /// open edges.
     two_sided: bool = false,
+    /// Whether the loader builds the second set of meshes the cloak is drawn with
+    /// (`shp.Header.Flags.cloak`), as for a ship that cloaks.
+    cloak: bool = false,
 
     /// Makes a fighter as large as the Predator about as heavy.
     pub const default_density: f32 = 0.1;
@@ -74,6 +78,7 @@ pub fn build(arena: Allocator, file: obj.File, options: Options) Error!shp.Model
     var header = std.mem.zeroes(shp.Header);
     header.version = header_version;
     header.eye = eyePoint(parts.items);
+    header.flags.cloak = options.cloak;
     return .{ .header = header, .parts = parts.items, .trailing_bytes = 0 };
 }
 
@@ -106,6 +111,8 @@ const Role = union(enum) {
             attachment.kind = kind;
             attachment.orientation = identity;
             if (kind == .gun_muzzle) attachment.gun_type = number else attachment.id = number;
+            // A hardpoint holds its missile at every loadout tier (`shp.Attachment.wordFor`).
+            if (kind == .missile) attachment.later_tiers = @splat(number);
             return .{ .attachment = attachment };
         }
         return .body;
@@ -246,7 +253,12 @@ fn makeMesh(arena: Allocator, file: obj.File, triangles: []const obj.Triangle, o
         if (triangle.material) |name| {
             face.material = try materialIndex(arena, &materials, name);
             face.shading.mode = .lit;
-        } else face.shading.mode = .untextured;
+        } else {
+            // An untextured face reads no texture, but its material must be one the level has
+            // (`sltool shp check`): `none`, as `sltool shp obj` names a material without a name.
+            face.material = try materialIndex(arena, &materials, untextured);
+            face.shading.mode = .untextured;
+        }
         for (triangle.corners, 0..) |corner, at| {
             // The file's V runs up the picture, the game's down it.
             const uv = if (corner.uv) |n| file.uvs[n] else [2]f32{ 0, 0 };
@@ -256,6 +268,9 @@ fn makeMesh(arena: Allocator, file: obj.File, triangles: []const obj.Triangle, o
     }
     return .{ .lod = .{ .switch_distance = 0 }, .vertices = vertices.items, .faces = faces, .materials = materials.items };
 }
+
+/// The material an untextured face names.
+const untextured = "none";
 
 /// The index of the texture `name` among `materials`, added where it isn't yet.
 fn materialIndex(arena: Allocator, materials: *std.ArrayList(shp.Material), name: []const u8) Allocator.Error!u32 {
@@ -460,6 +475,14 @@ test build {
     const again = try shp.Model.parse(arena, written.written());
     try std.testing.expectEqual(2, again.parts.len);
     try std.testing.expectEqual(12, again.parts[1].meshes[0].faces.len);
+
+    // A hardpoint holds its missile at every tier; an untextured face names the material `none`,
+    // so that the model checks out; and the cloak's meshes where asked for.
+    const plain = try build(arena, try obj.parse(arena, "v 0 0 0\nv 1 0 0\nv 0 1 1\no Hull\nf 1 2 3\no missile:4\nf 1 2 3\n"), .{ .cloak = true });
+    const hardpoint = plain.parts[0].attachments[0];
+    for (0..5) |tier| try std.testing.expectEqual(4, hardpoint.idFor(@intCast(tier)));
+    try std.testing.expectEqualStrings("none", plain.parts[0].meshes[0].materials[plain.parts[0].meshes[0].faces[0].material].name());
+    try std.testing.expect(plain.header.flags.cloak and !model.header.flags.cloak);
 
     // No body, and an attachment's number that isn't one.
     try std.testing.expectError(error.NoBody, build(arena, try obj.parse(arena, "v 0 0 0\nv 1 0 0\nv 0 1 0\no cockpit\nf 1 2 3\n"), .{}));

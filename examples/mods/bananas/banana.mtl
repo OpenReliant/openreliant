@@ -1,0 +1,5 @@
+newmtl banana
+map_Kd banana.png
+
+newmtl bananatip
+map_Kd bananatip.png
