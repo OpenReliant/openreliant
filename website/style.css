@@ -49,7 +49,6 @@ nav .brand span { color: var(--accent); }
 nav .links a { color: var(--muted); text-decoration: none; margin-left: 22px; font-size: 15px; }
 nav .links a:hover { color: var(--accent); }
 .hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; align-items: center; padding: 40px 0 48px; }
-.eyebrow { font-family: var(--display); color: var(--accent); letter-spacing: 0.3em; font-size: 15px; font-weight: 700; text-transform: uppercase; }
 h1 { font-family: var(--title); font-weight: normal; margin: 4px 0 14px; font-size: clamp(44px, 8vw, 76px); line-height: 0.95; letter-spacing: 0.02em; text-transform: uppercase; }
 .lead { font-size: 19px; color: #cfd3dd; margin: 0 0 24px; max-width: 560px; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; }
