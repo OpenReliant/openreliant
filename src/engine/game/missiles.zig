@@ -130,12 +130,12 @@ pub const Type = enum(i16) {
         return Type.of(missile.base()).index();
     }
 
-    /// What its hardpoint mounts (`models.attachment`): its base's, with its own model where a
-    /// mod gives it one.
+    /// What its hardpoint mounts (`models.attachment`): its base's, with the model of the missile
+    /// that flies its own where a mod gives it one. A pod stays its base's.
     pub fn mounted(missile: Type) ?create.models.Attachment {
         var held = create.models.attachment(.missile, @intCast(missile.baseIndex() orelse return null)) orelse return null;
         if (missile.added()) |from_mod| if (from_mod.extra.model) |model| {
-            held.model = model;
+            if (held.second_model != null) held.second_model = model else held.model = model;
         };
         return held;
     }

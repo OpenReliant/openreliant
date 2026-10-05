@@ -357,14 +357,57 @@ players can find it and its updates. `OpenReliant` is the OpenReliant version th
 OpenReliant skips mods that need a newer version and says so in the log. The game never reads a file
 called `mod.ini`, so the archive still works with the original, and the manifest doesn't replace any
 game file. A mod's scripts are listed in the sections `[Scripts]` and `[Missions]`
-([Scripts](#scripts)), and the ship types it adds in `[ShipTypes]` ([Ship types](#ship-types)).
+([Scripts](#scripts)), and what it adds in sections such as `[ShipTypes]`
+([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)).
 
-## Ship types
+## New ships, guns, missiles and pilots
 
-A mod can add new ship types. Each one is based on one of the game's types, and acts as that type
-wherever the game treats a type specially: a type based on the Phoenix carries the Nova Cannon, and
-one based on the Predator has the Predator's cockpit, engine sound and display. The manifest lists
-the types and describes each in a section of its own:
+A mod can add ship types, guns, missiles and pilots. Each one is based on one of the game's, starts
+with a copy of its base's record, which a load script can change ([The
+records](scripting.md#the-records)), and acts as its base wherever the game treats one specially: a
+ship type based on the Phoenix carries the Nova Cannon, and a missile based on the Havoc sets off its
+shockwave. The manifest lists each kind in a section of its
+own, and describes each one in a section named after it:
+
+```ini
+[Guns]
+banana_gun=
+
+[Gun banana_gun]
+Base=pulse_cannon
+Name=Banana Gun
+```
+
+What all four have in common:
+
+- `Base` is the game's record the new one is based on, by OpenReliant's name for it, such as
+  `predator` or `pulse_cannon`, or by its number.
+- `Name` is what the game calls it, such as on the flight display. Without it, it takes its base's
+  name.
+- OpenReliant numbers each kind from the first number after the game's as it starts, mod by mod in
+  load order, so the numbers change with the mods that are on. Scripts name each by the mod's folder
+  or archive name and its own, `bananas:banana_gun` for a gun `banana_gun` in a folder `bananas`.
+- The number after a name in the list is the number the mod's own files use for it. As OpenReliant
+  loads one of the mod's files, it changes that number to the one OpenReliant gave, so the files stay
+  in the game's formats. Leave it empty where the mod's files don't use it. Files from elsewhere
+  can't use what the mod adds.
+- One that the manifest gets wrong, such as one whose base isn't one of the game's, is left out, and
+  the log says why.
+
+| Kind | List section | Its own section | First number | Most the mods add | Numbered in the mod's |
+|---|---|---|---|---|---|
+| Ship types | `[ShipTypes]` | `[ShipType name]` | 256 | 732 | missions' ships |
+| Guns | `[Guns]` | `[Gun name]` | 16 | 240 | models' gun muzzles |
+| Missiles | `[Missiles]` | `[Missile name]` | 11 | 245 | models' missile hardpoints, for every loadout tier |
+| Pilots | `[Pilots]` | `[Pilot name]` | 194 | 61 | missions' ships' pilots |
+
+[`examples/mods/interceptor`](../../examples/mods/interceptor) adds a faster Predator under a name
+of its own, and [`examples/mods/bananas`](../../examples/mods/bananas) a gun, a missile, a pilot and
+a ship that carries them.
+
+**Improvement:** the original's ship types, guns, missiles and pilots are its own.
+
+### Ship types
 
 ```ini
 [ShipTypes]
@@ -375,12 +418,11 @@ Base=predator
 Model=teapot.shp
 Schematic=teapotscem.spr
 Name=Teapot
+Guns=banana_gun
+Missiles=banana
 ```
 
-- `Base` is the game's type the new one is based on, by OpenReliant's name for it, such as
-  `predator`, `phoenix` or `sabre`, or by its number below 256. The type starts with a copy of the
-  base's record in `shipstats.bin`, which a load script can change
-  ([The records](scripting.md#the-records)).
+- A ship type based on the Predator has the Predator's cockpit, engine sound and display.
 - `Model` is the type's model, a `.shp` file in the mod or the game ([`.SHP`
   models](../formats/shp.md)). It can be one of the game's models under the new type's own stats.
 - `Schematic` is the sprite set the display shows the ship in, as the player's ship and as a target.
@@ -388,22 +430,39 @@ Name=Teapot
   base's sprite set as a template, and the mod's pictures named after the schematic draw over its
   shapes ([Shapes](#shapes)): `teapotscem_000.png` is the ship, and `teapotscem_001.png` to
   `teapotscem_004.png` the hit markers of its four quadrants, which otherwise stay the base's.
-- `Name` is what the game calls the type, such as on the target display. Without it, the type takes
-  its base's name.
-- OpenReliant numbers the types from 256 as it starts, mod by mod in load order, so a type's number
-  changes with the mods that are on. Scripts name a type by the mod's folder or archive name and the
-  type's own, `teapot:teapot` for a type `teapot` in a folder `teapot`.
-- The number after a type's name in `[ShipTypes]` is the number the mod's own missions use for it,
-  from 256 to 987. As OpenReliant loads one of the mod's missions, it changes that number in the
-  mission's ships to the type's, so the mission file stays a standard `.DTE`. Leave it empty for a
-  type the mod's missions don't use. A mission from elsewhere can't use the mod's types.
-- A type the manifest gets wrong, such as one whose base isn't one of the game's types, is left out,
-  and the log says why. The mods can add up to 732 types in all.
+- `Guns` is the gun every gun of the model fires, and `Missiles` the missile every hardpoint holds,
+  whatever the model names: one of the game's by its name, one a mod adds by its qualified name, or
+  one this mod adds by its own name.
 
-[`examples/mods/interceptor`](../../examples/mods/interceptor) adds a faster Predator under a name
-of its own, and flies it in a game mode.
+### Guns
 
-**Improvement:** the original's ship types are its own 256.
+A gun takes its base's shots, flashes and sounds. A model names its guns on its gun muzzles, so a
+mod's own model fires the mod's guns by the numbers in `[Guns]`, and a ship type can fire one with
+`Guns`.
+
+### Missiles
+
+```ini
+[Missiles]
+banana=
+
+[Missile banana]
+Base=raptor
+Name=Banana
+Model=banana.shp
+```
+
+A missile takes its base's trail, sounds and flight display picture. `Model` is the missile that
+flies; a missile that hangs in a pod, as the Raptor does, keeps its base's pod. A missile is offered
+by what holds it: a mod's own model's hardpoints, or a ship type's `Missiles`. The loadout screen
+offers the game's missiles only.
+
+### Pilots
+
+A pilot takes its base's face and voice on the radio. `Base` is a pilot's number in
+`pilotstats.bin`. A mission names its ships' pilots by number, so a mod's own missions fly the mod's
+pilots by the numbers in `[Pilots]`, and a script can set any object's pilot
+([Objects](scripting.md#objects)).
 
 ## The thumbnail
 

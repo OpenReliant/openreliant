@@ -9,6 +9,7 @@ or go away in any release. Copy one as a starting point for your own mod.
 |---|---|
 | [`arena`](arena) | A game mode with its own rules and HUD |
 | [`balance`](balance) | Changing the game's records from a load script |
+| [`bananas`](bananas) | A new gun, missile, pilot and ship, and a pilot set by a script |
 | [`campaign`](campaign) | A campaign with a briefing screen and a movie |
 | [`cel-shading`](cel-shading) | A lighting function and a surface function (`openreliant.shaders`) |
 | [`crt`](crt) | A post effect (`openreliant.postprocessing`) |

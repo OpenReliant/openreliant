@@ -313,3 +313,53 @@ test "the interceptor example adds a ship type, and its load script changes its 
     try std.testing.expectApproxEqAbs(130, held.ships[game.additions.ships.first].max_speed, 1e-3);
     try std.testing.expectApproxEqAbs(6, held.ships[game.additions.ships.first].shield_power, 1e-3);
 }
+
+test "the bananas example adds a gun, a missile, a pilot and a ship that names them" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const game = openreliant.engine.game;
+    const stats = openreliant.stats;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try testing.makeMods(io, tmp.dir, &.{.{ "bananas", &.{
+        .{ "mod.ini", @embedFile("bananas/mod.ini") },
+        .{ "records.luau", @embedFile("bananas/records.luau") },
+        .{ "menu.luau", @embedFile("bananas/menu.luau") },
+        .{ "troopers.luau", @embedFile("bananas/troopers.luau") },
+    } }});
+    var opened: mods.Mods = try .open(gpa, io, tmp.dir, null);
+    defer opened.close(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try game.additions.read(arena.allocator(), opened.list);
+    defer game.additions.reset();
+    const boat = game.additions.ships.all()[0];
+    try std.testing.expectEqualStrings("bananas:banana_boat", boat.name);
+    try std.testing.expectEqualStrings("bananas:banana_gun", boat.extra.gun.?.scriptName().?);
+    try std.testing.expectEqualStrings("bananas:banana", boat.extra.missile.?.scriptName().?);
+    try std.testing.expectEqual(game.guns.GameGun.pulse_cannon, boat.extra.gun.?.base());
+    try std.testing.expectEqual(game.missiles.GameMissile.raptor, boat.extra.missile.?.base());
+    try std.testing.expectEqual(21, game.additions.pilots.all()[0].base);
+
+    var guns: [15]stats.Gun = @splat(std.mem.zeroes(stats.Gun));
+    guns[1].speed = 1000;
+    var missiles: [11]stats.Missile = @splat(std.mem.zeroes(stats.Missile));
+    missiles[1].lock_time = 300;
+    var held: records.Records = try .init(arena.allocator(), .{
+        .ships = try game.additions.ships.records(stats.Ship, arena.allocator(), &.{}, 0),
+        .guns = try game.additions.guns.records(stats.Gun, arena.allocator(), &guns, 1),
+        .missiles = try game.additions.missiles.records(stats.Missile, arena.allocator(), &missiles, 0),
+        .pilots = try game.additions.pilots.records(stats.Pilot, arena.allocator(), &.{}, 0),
+        .text = &.{},
+        .itac_text = &.{},
+    });
+    try run(gpa, io, opened.list, &held, "0.7.0", .{});
+    // The Banana Gun is a faster Pulse Cannon, the Banana a quicker Raptor, and the Trooper a
+    // beginner who fires at anything near the nose.
+    try std.testing.expectApproxEqAbs(1500, held.guns[game.additions.guns.first - 1].speed, 1e-3);
+    try std.testing.expectEqual(1000, held.guns[1].speed);
+    try std.testing.expectEqual(150, held.missiles[game.additions.missiles.first].lock_time);
+    const trooper = held.pilots[game.additions.pilots.first];
+    try std.testing.expectEqual(stats.Pilot.Tier.level_0, trooper.tier_b);
+    try std.testing.expectEqual(stats.Pilot.Skill.low, trooper.skill);
+}

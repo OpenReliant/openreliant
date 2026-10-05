@@ -171,7 +171,7 @@ declare class Object
     type: ShipType
     -- Its class, such as `fighter`; nil for an object without stats, such as a nav point.
     class: ShipClass?
-    -- The pilot flying it: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`.
+    -- The pilot flying it, whose record sets how it flies and fights: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`.
     pilot: PilotNumber
     -- The side it's on.
     side: Side

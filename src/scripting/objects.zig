@@ -13,6 +13,7 @@
 const std = @import("std");
 
 const openreliant = @import("openreliant");
+const pilots = openreliant.engine.game.pilots;
 const engine = openreliant.engine;
 const gameobj = engine.game.gameobj;
 const create = engine.game.create;
@@ -77,9 +78,13 @@ pub const fields = struct {
         }
     });
 
-    pub const pilot = api.Field(openreliant.engine.game.pilots.Number, "The pilot flying it: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`.", struct {
-        pub fn get(all: *const create.Objects, index: u16) openreliant.engine.game.pilots.Number {
+    pub const pilot = api.Field(pilots.Number, "The pilot flying it, whose record sets how it flies and fights: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`.", struct {
+        pub fn get(all: *const create.Objects, index: u16) pilots.Number {
             return .of(all.slots[index].object.pilot);
+        }
+
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: pilots.Number) void {
+            pilots.setPilot(&all.slots[index].object, if (value == .none) -1 else @intFromEnum(value));
         }
     });
 
