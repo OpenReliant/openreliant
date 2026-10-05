@@ -448,7 +448,20 @@ EngineSound=kettle.wav
   whatever the model names: one of the game's by its name, one a mod adds by its qualified name, or
   one this mod adds by its own name.
 
-Flown by the player, a ship type based on one of the twelve ships the player can fly can also give:
+A ship type based on one of the twelve ships the player can fly is offered on the loadout screen
+too, after the game's ships:
+
+- `Tier` is the campaign tier from which it is offered, 0 at the start to 3 after mission 21. Without
+  it, it is offered wherever the game offers its base, by the tier or the pilot's rank.
+- Its name and its model are its own, drawn in green (see
+  [Textures in the loadout](#textures-in-the-loadout)), and shown as large as its base whatever
+  its model's size. Its panel's figures are its own stats', measured against the game's fighters;
+  its class, access, crew, specials and guns, and the gun model the guns view shows, are its base's.
+- The arc holds twelve ships. A mod's ship types the game's leave no room for aren't offered, which
+  the log says.
+- A saved game keeps a mod's ship type as its base, so that the original can still load it.
+
+Flown by the player, such a ship type can also give:
 
 - `Cockpit`, the model of the cockpit's frame, a `.shp` file in the mod or the game, such as the
   Tempest's `temg_frm.shp`.

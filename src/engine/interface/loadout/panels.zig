@@ -106,16 +106,16 @@ const title_string = 0x222;
 const title_at: [2]i32 = .{ 17, 4 };
 const name_at: [2]i32 = .{ 17, 28 };
 
-/// `panel_title_draw` (`0x00444D60`): the title panel's texture for `ships[ship]`. `panels`, the
+/// `panel_title_draw` (`0x00444D60`): the title panel's texture for the ship of `record`. `panels`, the
 /// pixels of `fpanels.tga` from the top row down, which the game keeps as `SR_TGA_allocate_raw`
 /// gives them (`0x00523960`), then `SHIPS AND LOADOUT` and the ship's name in capitals, in the
 /// title's font and colours (`tables.title_remap`).
-pub fn drawTitle(image: *Image, panels: *const Image, kit: Kit, ship: usize) void {
+pub fn drawTitle(image: *Image, panels: *const Image, kit: Kit, record: tables.Ship) void {
     image.* = panels.*;
     const pane: hud.Pane = .{ .rgba = image, .size = .{ size, size } };
     const remap: hud.Remap = .{ .table = &tables.title_remap, .palette = kit.palette };
     _ = hud.drawTextInto(pane, kit.title_font, title_at, kit.string(title_string), remap, .left);
-    var name = kit.capitals(tables.ships[ship].name);
+    var name = kit.capitals(record.name);
     _ = hud.drawTextInto(pane, kit.title_font, name_at, name.slice(), remap, .left);
 }
 
@@ -144,14 +144,13 @@ const specials_lines = 3;
 /// What stands between two specials (`0x004E5A1C`).
 const specials_separator = ", ";
 
-/// `loadout_draw_stats` (`0x00444F20`): the info panel's texture for `ships[ship]`'s stats, on a
+/// `loadout_draw_stats` (`0x00444F20`): the info panel's texture for the stats of `record`'s ship, on a
 /// clear image, in the info panel's font and colours (`tables.text_remap`). Its class and its
 /// access after their labels; its rows (`tables.ship_rows`), each label in capitals and the
 /// figure of `figures` beside it, as a number and its suffix or as a bar (`drawBar`); and the
 /// specials it has, in capitals, one after another (`specialsLine`).
-pub fn drawStats(image: *Image, kit: Kit, ship: usize, figures: tables.ShipFigures) void {
+pub fn drawStats(image: *Image, kit: Kit, record: tables.Ship, figures: tables.ShipFigures) void {
     const page: InfoPage = .begin(image, kit);
-    const record = tables.ships[ship];
 
     var class: Line = .{};
     class.append(kit.string(class_label));
@@ -248,16 +247,16 @@ const gun_description_gap = 10;
 /// What ends the description of a gun that drains no energy (`0x004EAEA8`).
 const no_drain = ",";
 
-/// `guns_draw` (`0x00445490`): the info panel's texture for `ships[ship]`'s guns, on a clear image,
+/// `guns_draw` (`0x00445490`): the info panel's texture for the guns of `record`'s ship, on a clear image,
 /// in the info panel's font and colours (`tables.text_remap`), from the top down: for each kind of
 /// its guns, its name and how many the ship has in capitals (`%s X %d`, `0x004EAEAC`), and under
 /// it, but for a rear turret (`tables.first_rear_turret` on), its description wrapped: its power,
 /// kind, range, rate and drain run together (`%s%s%s%s%s`, `0x004EAE9C`), in the strings' own
 /// case.
-pub fn drawGuns(image: *Image, kit: Kit, ship: usize) void {
+pub fn drawGuns(image: *Image, kit: Kit, record: tables.Ship) void {
     const page: InfoPage = .begin(image, kit);
     var y: i32 = 0;
-    for (tables.ships[ship].guns) |mount| {
+    for (record.guns) |mount| {
         var line: Line = .{};
         line.print("{s} X {d}", .{ kit.string(mount.gun), mount.count });
         language.upperCase(line.slice());
@@ -399,7 +398,7 @@ test drawTitle {
     panels.* = @splat(.{ 1, 2, 3, 4 });
     const image = try std.testing.allocator.create(Image);
     defer std.testing.allocator.destroy(image);
-    drawTitle(image, panels, kit, 0);
+    drawTitle(image, panels, kit, tables.ships[0]);
 
     // The title's letters' tops in black, their edges bright, and the panel's own pixels where
     // they are clear.
@@ -423,7 +422,7 @@ test drawStats {
     const image = try std.testing.allocator.create(Image);
     defer std.testing.allocator.destroy(image);
     image.* = @splat(.{ 9, 9, 9, 9 });
-    drawStats(image, kit, 0, .{ 6, 6, 10, 5, 3, 5, 100, 2 });
+    drawStats(image, kit, tables.ships[0], .{ 6, 6, 10, 5, 3, 5, 100, 2 });
     const top = colourOf(&palette, tables.text_remap[15]);
     const bar = colourOf(&palette, tables.bar_colour);
     const clear: [4]u8 = .{ 0, 0, 0, 0 };
@@ -503,7 +502,7 @@ test drawGuns {
     const clear: [4]u8 = .{ 0, 0, 0, 0 };
 
     // The Predator's guns: two lasers, `LASER X 2`, nine letters at the top, on a clear image.
-    drawGuns(image, kit, 0);
+    drawGuns(image, kit, tables.ships[0]);
     try std.testing.expectEqual(top, image[gun_x + 8 * 2]);
     try std.testing.expectEqual(clear, image[gun_x + 9 * 2]);
     // Their description, one line of seven letters.
