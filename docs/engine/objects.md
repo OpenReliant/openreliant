@@ -734,8 +734,10 @@ that has no flag `0x10`, in part order:
    (`0x00401F00`) gives its order way as to Explode, empties its stack and marks it exploding.
    Each hidden part of the assembly, its damaged model, is shown.
 
-Then the player's subtarget's red parts are put back and picked out again where the object is the
-player's target, and the flag is cleared.
+Where the object's parts are the player's subtarget picked out in red, they are put back before the
+pass and picked out again after it; since putting them back leaves none picked out, the second never
+runs, and `mission_frame` picks them out on its next frame ([The subtarget in
+red](hud.md#the-subtarget-in-red)). Then the flag is cleared.
 
 `node_forget` (`0x00499BB0`), as a node is destroyed, stops for good each of the owner's turrets
 whose base the node is (turret kind -1) and takes the node out of the owner's components and the
@@ -752,8 +754,7 @@ Each part the pass takes out that the object lists as a component posts the comp
 event first ([Script VM](script-vm.md#events)).
 
 [`objects.zig`](../../src/engine/game/objects.zig) ports the pass as `loseComponents` and
-`node_destroy` as `destroyPart`. Not ported: the subtarget's red parts
-([#531](https://github.com/OpenReliant/openreliant/issues/531)), the types' own extras
+`node_destroy` as `destroyPart`. Not ported: the types' own extras
 ([#238](https://github.com/OpenReliant/openreliant/issues/238)) and the Ulysses' routine
 ([#232](https://github.com/OpenReliant/openreliant/issues/232)).
 

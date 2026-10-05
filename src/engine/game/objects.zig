@@ -935,9 +935,11 @@ pub fn frameTree(root: *Node, model: ?*Model, drawn: *Model.Local, fraction: f32
 ///
 /// Then the root's flag is cleared.
 ///
-/// Not ported: the subtarget's parts picked out in red again where the object is the player's
-/// target (`hud_subtarget_clear`, `hud_subtarget`,
-/// [#531](https://github.com/OpenReliant/openreliant/issues/531)).
+/// Around the pass, where the object's parts are the player's subtarget picked out in red, they
+/// are put back first (`hud_subtarget_clear`, `0x0049ACED`) and picked out again after
+/// (`hud_subtarget`, `0x0049B302`), as the game does. Putting them back leaves no object picked
+/// out, so the second never runs: `mission_frame` picks them out again on its next frame
+/// (`hud.subtarget`).
 pub fn loseComponents(ctx: aigeneric.Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const model = if (slot.model) |*live| live else return;
@@ -957,6 +959,8 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
     const world = ctx.world;
     const slot = &world.objects.slots[index];
     const object = &slot.object;
+    const shown = if (world.display) |display| &display.subtarget else null;
+    if (shown) |subtarget| if (subtarget.object == index) subtarget.clear(world.objects);
     for (model.parts) |*part| {
         if (part.removed or part.spent or !(part.armor < 0)) continue;
         part.spent = true;
@@ -982,6 +986,7 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
             destroyPart(slot, .{ .model = model, .index = at });
         }
     }
+    if (shown) |subtarget| if (subtarget.object == index) subtarget.pick(world.objects);
     model.destroyed = false;
 }
 
@@ -2692,6 +2697,9 @@ pub const testing = struct {
     /// A part with no mesh, no mass and no tracks, standing unturned at the model's origin.
     pub const part = testingPart;
 
+    /// A model of three parts showing one mesh, each hanging from the one before.
+    pub const Three = Animated;
+
     /// A node of a model's part with no mesh, hanging from the root unturned at its origin, its
     /// record's flags all clear, for a model built by hand.
     pub fn node() Model.Part {
@@ -3565,7 +3573,7 @@ const Animated = struct {
     loaded: srofiles.Loaded,
     source: shp.Model,
 
-    fn init(animated: *Animated, mesh: *const srapiext.Mesh, tracks: []shp.Track) void {
+    pub fn init(animated: *Animated, mesh: *const srapiext.Mesh, tracks: []shp.Track) void {
         animated.levels = .{.{ .mesh = mesh, .until = std.math.inf(f32) }};
         for (&animated.data, &animated.loaded_parts, 0..) |*data, *loaded, index| {
             data.* = testingPart();

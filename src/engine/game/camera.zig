@@ -10,6 +10,7 @@ const input = @import("../input.zig");
 const controls = @import("../input/controls.zig");
 const libcmt = @import("../libcmt.zig");
 const create = @import("create.zig");
+const hud = @import("hud.zig");
 const gameobj = @import("gameobj.zig");
 const missiles = @import("missiles.zig");
 const yamato_launch = @import("launch/yamato.zig");
@@ -419,6 +420,14 @@ pub const Camera = struct {
     /// Set as the view switches, which resets the star streaks (`backdrop_reset_streaks`), so that
     /// the frame drawn next draws none, even where the view switches back to what it was.
     cut: bool = false,
+    /// The player's subtarget picked out in red, which a switch of view picks out or puts back,
+    /// with the objects it is picked out of; null where there is no display.
+    subtarget: ?Subtarget = null,
+
+    pub const Subtarget = struct {
+        shown: *hud.subtarget.Subtarget,
+        all: *create.Objects,
+    };
 
     /// Bars grow this share of the screen a tick, times their speed (`camera_frame`, `0x004DC418`).
     pub const bar_rate: f32 = 0.001;
@@ -445,6 +454,9 @@ pub const Camera = struct {
             camera.bars = 0;
             camera.bar_speed = 0;
         }
+        // The subtarget's parts are picked out in view 0 and put back in any other (`0x0045F42D`,
+        // `0x0045F397`).
+        if (camera.subtarget) |sub| if (view == .cockpit) sub.shown.pick(sub.all) else sub.shown.clear(sub.all);
         if (view == .chase and (camera.view != .chase or camera.object != object)) {
             camera.chase.distance = Chase.start_distance;
         }
