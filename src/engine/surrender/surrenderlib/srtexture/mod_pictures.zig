@@ -55,7 +55,7 @@ pub const containers = std.enums.values(Container);
 
 /// What changes the key of what the compressor keeps: change it when what `load` makes of the
 /// same files changes.
-const kept_version: u32 = 2;
+const kept_version: u32 = 3;
 
 /// A file of a picture, read: its kind, its name and its bytes, owned.
 const File = struct {
@@ -236,13 +236,22 @@ const Task = struct {
 };
 
 /// `file`'s levels: a compressed file's or one with its levels as they are, its finest given up
-/// while longer than `longest`; otherwise decoded and mipmapped for `content`. Null where it can't
-/// be read, which the log says.
+/// while longer than `longest`; otherwise decoded and mipmapped for `content`, a 16-bit PNG normal
+/// map at 16 bits. Null where it can't be read, which the log says.
 fn decodeFile(gpa: Allocator, file: File, content: Content, longest: u32) Allocator.Error!?[]const Level {
     if (file.container != .png) {
         var buffer: [texels.max_levels][]const u8 = undefined;
         const contained = contain(file, &buffer) orelse return null;
         if (contained.format.compressed() or contained.levels.len > 1) return try copied(gpa, contained, longest);
+    } else if (content == .normal and png.wide(file.bytes) catch false) {
+        const picture = png.readWide(gpa, file.bytes) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.NotAPng, error.Corrupt, error.Unsupported, error.BadSize => {
+                log.warn("{s} is left out: {s}", .{ file.name, @errorName(err) });
+                return null;
+            },
+        };
+        return try srtexture.mipmapsWide(gpa, picture, content, longest);
     }
     const picture = try pictureOf(gpa, file) orelse return null;
     return try srtexture.mipmaps(gpa, picture, content, longest);
@@ -359,22 +368,27 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
         log.warn("{s} is left out: it is compressed in {t}, which the device doesn't take", .{ name, format });
         return null;
     }
-    // What the maps must be: compressed beside a compressed picture, and as they are otherwise.
+    // What the maps must be: compressed beside a compressed picture, and otherwise as they are, but
+    // for a normal map, which keeps two channels of 16 bits.
     const compressed = format.compressed() or compressing;
-    const normal_format: Level.Format = if (compressed) Compressor.Kind.normals.format() else .rgba8;
+    const normal_format: Level.Format = if (compressed) Compressor.Kind.normals.format() else .rg16;
     const orm_format: Level.Format = if (compressed) Compressor.Kind.data.format() else .rgba8;
     const emissive_format: Level.Format = if (compressed) Compressor.Kind.colour.format() else .rgba8;
     leaveOut(gpa, &made.maps.normal, normal_format, compressing, name, .normal);
     leaveOut(gpa, &made.maps.orm, orm_format, compressing, name, .orm);
     leaveOut(gpa, &made.maps.emissive, emissive_format, compressing, name, .emissive);
-    if (!compressing) return false;
-    // The length of the normals' mean goes to the material map's alpha, as BC5 keeps two channels.
-    if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (normals[0].format == .rgba8 and orm[0].format == .rgba8) {
+    // The length of the normals' mean goes to the material map's alpha, as BC5 and RG16 keep two
+    // channels.
+    if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (!normals[0].format.compressed() and orm[0].format == .rgba8) {
         for (normals, orm) |normal, values| {
             const into: []u8 = @constCast(values.texels);
-            for (0..@as(usize, normal.width) * normal.height) |at| into[at * 4 + 3] = normal.texels[at * 4 + 3];
+            for (0..@as(usize, normal.width) * normal.height) |at| into[at * 4 + 3] = srtexture.level8(srtexture.unitsAt(normal, at)[3]);
         }
     };
+    if (!compressing) {
+        if (made.maps.normal) |*levels| if (!levels.*[0].format.compressed()) try twoChannels(gpa, levels);
+        return false;
+    }
     const held = compressor.?;
     var any = false;
     any = try compressLevels(gpa, held, &made.levels, .colour) or any;
@@ -384,20 +398,22 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
     return any;
 }
 
-/// Leaves out the map `levels` where it isn't of `wanted`, and can't be compressed into it: a map
-/// in 8-bit RGBA can be, while `compressing`.
+/// Leaves out the map `levels` where it isn't of `wanted`, and can't be made into it: a map in
+/// 8-bit or 16-bit RGBA can be compressed while `compressing`, and made into an uncompressed
+/// format.
 fn leaveOut(gpa: Allocator, levels: *?[]const Level, wanted: Level.Format, compressing: bool, name: []const u8, map: MapFile) void {
     const found = levels.* orelse return;
     const format = found[0].format;
-    if (format == wanted or (format == .rgba8 and compressing)) return;
+    const makes = (format == .rgba8 or format == .rgba16) and (compressing or !wanted.compressed());
+    if (format == wanted or makes) return;
     log.warn("the {s} of {s} is left out: it is in {t}, and goes with a picture in {t}", .{ map.label(), name, format, wanted });
     freeLevels(gpa, found);
     levels.* = null;
 }
 
-/// Compresses `levels` as `kind`, where they are 8-bit RGBA. Returns whether it did.
+/// Compresses `levels` as `kind`, where they are uncompressed. Returns whether it did.
 fn compressLevels(gpa: Allocator, compressor: Compressor, levels: *[]const Level, kind: Compressor.Kind) Allocator.Error!bool {
-    if (levels.*[0].format != .rgba8) return false;
+    if (levels.*[0].format.compressed()) return false;
     const made = try gpa.alloc(Level, levels.len);
     var done: usize = 0;
     errdefer {
@@ -411,6 +427,29 @@ fn compressLevels(gpa: Allocator, compressor: Compressor, levels: *[]const Level
     freeLevels(gpa, levels.*);
     levels.* = made;
     return true;
+}
+
+/// Makes the normal map `levels`, 8-bit or 16-bit RGBA, its x and y alone at 16 bits (`rg16`),
+/// for a GPU that draws it uncompressed.
+fn twoChannels(gpa: Allocator, levels: *[]const Level) Allocator.Error!void {
+    const made = try gpa.alloc(Level, levels.len);
+    var done: usize = 0;
+    errdefer {
+        for (made[0..done]) |level| gpa.free(level.texels);
+        gpa.free(made);
+    }
+    for (levels.*, made) |level, *into| {
+        const out = try gpa.alloc(u8, Level.Format.rg16.size(level.width, level.height));
+        for (0..@as(usize, level.width) * level.height) |at| {
+            const units = srtexture.unitsAt(level, at);
+            std.mem.writeInt(u16, out[at * 4 ..][0..2], srtexture.level16(units[0]), .native);
+            std.mem.writeInt(u16, out[at * 4 + 2 ..][0..2], srtexture.level16(units[1]), .native);
+        }
+        into.* = .{ .width = level.width, .height = level.height, .format = .rg16, .texels = out };
+        done += 1;
+    }
+    freeLevels(gpa, levels.*);
+    levels.* = made;
 }
 
 const freeLevels = srtexture.freeLevels;
@@ -427,12 +466,14 @@ fn testPng(gpa: Allocator, side: u32, rgba: [4]u8) ![]u8 {
 }
 
 /// A compressor for the tests: it "compresses" a level into blocks of its first byte, notes the
-/// alpha of each material map's first pixel as it takes it, and keeps one picture, which it gives
-/// back for the same name and key alone.
+/// alpha of the first material map's first pixel and the format of the first normal map as it
+/// takes them, and keeps one picture, which it gives back for the same name and key alone.
 const TestCompressor = struct {
     takes: std.EnumSet(Level.Format) = .initMany(&.{ .bc5, .bc7 }),
     compressed: usize = 0,
     material_alpha: ?u8 = null,
+    /// The format of the first normal map it takes.
+    normals_format: ?Level.Format = null,
     kept: ?Image = null,
     kept_name: [16]u8 = undefined,
     kept_name_len: usize = 0,
@@ -451,6 +492,7 @@ const TestCompressor = struct {
         const held = from(context);
         held.compressed += 1;
         if (kind == .data and held.material_alpha == null) held.material_alpha = level.texels[3];
+        if (kind == .normals and held.normals_format == null) held.normals_format = level.format;
         const format = kind.format();
         const out = try gpa.alloc(u8, format.size(level.width, level.height));
         @memset(out, level.texels[0]);
@@ -552,6 +594,40 @@ test "a copy of a picture is tinted, and kept apart from the picture" {
     const again = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), .green)).?;
     defer again.deinit(gpa);
     try std.testing.expectEqual(9, compressor.compressed);
+}
+
+test "a 16-bit normal map keeps its precision, compressed or not" {
+    const gpa = std.testing.allocator;
+    const picture = try testPng(gpa, 4, .{ 200, 100, 50, 255 });
+    defer gpa.free(picture);
+    // A normal leaning a hair along x, finer than 8 bits tell apart from straight out.
+    const lean: u16 = 0x8040;
+    var samples: [4 * 4 * 3]u16 = undefined;
+    for (0..4 * 4) |at| samples[at * 3 ..][0..3].* = .{ lean, 0x8000, 0xFFFF };
+    const normal = try png.testing.rgb16(gpa, 4, 4, &samples);
+    defer gpa.free(normal);
+    const roughness = try testPng(gpa, 4, .{ 64, 64, 64, 255 });
+    defer gpa.free(roughness);
+    const pictures: srtexture.testing.Pictures = .{ .held = &.{
+        .{ .name = "hull.png", .bytes = picture },
+        .{ .name = "hull_normal.png", .bytes = normal },
+        .{ .name = "hull_roughness.png", .bytes = roughness },
+    } };
+    // Uncompressed, its x and y stay at 16 bits, and the normals' mean length goes to the material
+    // map's alpha: 255 at the finest level.
+    const plain = (try load(gpa, pictures.files(), "hull", srtexture.max_side, null, null)).?;
+    defer plain.deinit(gpa);
+    const finest = plain.maps.normal.?[0];
+    try std.testing.expectEqual(Level.Format.rg16, finest.format);
+    try std.testing.expectEqual(lean, std.mem.readInt(u16, finest.texels[0..2], .native));
+    try std.testing.expectEqual(255, plain.maps.orm.?[0].texels[3]);
+    // Compressed, it goes to BC5 from its 16-bit samples.
+    var compressor: TestCompressor = .{};
+    defer compressor.deinit();
+    const made = (try load(gpa, pictures.files(), "hull", srtexture.max_side, compressor.compressor(), null)).?;
+    defer made.deinit(gpa);
+    try std.testing.expectEqual(Level.Format.bc5, made.maps.normal.?[0].format);
+    try std.testing.expectEqual(Level.Format.rgba16, compressor.normals_format.?);
 }
 
 test "a DDS picture draws as it is where the device takes its format, and not otherwise" {

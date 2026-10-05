@@ -39,7 +39,7 @@ The GPU device draws what the driver hands over with SDL's GPU interface: Metal 
 
 The brightness ([Video](../engine/front-end.md#video)) is the display's gamma ramp, which the original's driver set (`set_gamma`, `0x10005270`): the driver hands it to the device as each frame begins. Where it is other than 1, the GPU device puts the finished frame on the window through it, in a last pass of [`bloom.glsl`](../../src/platform/shaders/bloom.glsl), each channel at its power 1 over the brightness, so that the ramp takes in the display and the menus as the original's did; a screenshot keeps the frame as drawn, as the original's did. The software device has no ramp, and the brightness is hidden, as on hardware without one.
 
-The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), takes the driver's vertices as they are: screen positions with pixel centres at whole numbers, reversed depth, and `rhw`, whose inverse as the clip-space `w` makes colours and texture coordinates vary in perspective. The fragment is the texel times the vertex colour, or the vertex colour alone. For a lit mesh, the shader first adds the frame's directional and point lights to the vertex colour for the pixel, the key lights' share scaled by the [shadows](#shadows) ([Improvements](#improvements)). `make shaders` compiles it and the shadows' depth pass, [`shadow.glsl`](../../src/platform/shaders/shadow.glsl), with `glslc` into SPIR-V, and from that into Metal's language with SPIRV-Cross, which `make` builds; the outputs are committed, so building the game needs neither.
+The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), takes the driver's vertices as they are: screen positions with pixel centres at whole numbers, reversed depth, and `rhw`, whose inverse as the clip-space `w` makes colours and texture coordinates vary in perspective. The fragment is the texel times the vertex colour, or the vertex colour alone. For a lit mesh, the shader first adds the frame's directional and point lights to the vertex colour for the pixel, the key lights' share scaled by the [shadows](#shadows) ([Improvements](#improvements)). `make shaders` compiles it and the shadows' depth pass, [`shadow.glsl`](../../src/platform/shaders/shadow.glsl), with `glslc` into SPIR-V, and from that into Metal's language with SPIRV-Cross, which `make` builds; the outputs are committed, so building the game needs neither. Beside them it writes the SHA-256 of each shader's source, and a test fails when a shader's source no longer matches it, so that a changed shader isn't left uncompiled (`programs.zig`).
 
 ### Compressed textures
 
@@ -47,8 +47,11 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 ([Compression](../guide/modding.md#compression),
 [`mod_pictures.zig`](../../src/engine/surrender/surrenderlib/srtexture/mod_pictures.zig)).
 
-- A level says how it holds its pixels (`srtexture.Level.Format`, `formats/texels.zig`): 8-bit RGBA
-  or BC1, BC3, BC5 or BC7 blocks. A texture array holds textures of one format as well as one size
+- A level says how it holds its pixels (`srtexture.Level.Format`, `formats/texels.zig`): 8-bit RGBA,
+  16-bit RGBA or RG, or BC1, BC3, BC5 or BC7 blocks. A 16-bit PNG normal map is read and mipmapped
+  in 16-bit RGBA (`png.readWide`, `srtexture.mipmapsWide`), then kept as 16-bit RG on the GPU, or
+  compressed to BC5 by OpenReliant's own encoder from its 16-bit samples (`texels.bc5`), which picks
+  each block's endpoints and indices for the least squared error. A texture array holds textures of one format as well as one size
   and number of levels (`Shape`). Its images are read decoded from sRGB in linear light, as 8-bit
   ones are; its normal maps are BC5 and its material maps and emissive maps BC7, beside a
   compressed picture.

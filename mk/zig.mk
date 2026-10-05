@@ -28,9 +28,12 @@ play: | $(GAME_DIR)/.stamp-install ## Build OpenReliant optimized and run it on 
 
 # The game's shaders, for each GPU interface SDL runs on: SPIR-V for Vulkan, and Metal's
 # language from that. The outputs are committed, so building needs neither tool; regenerating needs
-# glslc (from shaderc) on the PATH, and SPIRV-Cross, which this builds.
-SHADER_DIR := $(ROOT)/src/platform/shaders
-SHADERS    := $(foreach name,device bloom shadow,$(foreach stage,vert frag,$(SHADER_DIR)/$(name).$(stage).spv $(SHADER_DIR)/$(name).$(stage).msl))
+# glslc (from shaderc) on the PATH, and SPIRV-Cross, which this builds. Each shader's .sha256 holds
+# the SHA-256 of the source it was compiled from, which a test checks against the source
+# (src/platform/gpu/programs.zig), so that a shader changed without `make shaders` fails the tests.
+SHADER_DIR   := $(ROOT)/src/platform/shaders
+SHADER_NAMES := device bloom shadow
+SHADERS      := $(foreach name,$(SHADER_NAMES),$(foreach stage,vert frag,$(SHADER_DIR)/$(name).$(stage).spv $(SHADER_DIR)/$(name).$(stage).msl) $(SHADER_DIR)/$(name).sha256)
 GLSLC      ?= glslc
 
 .PHONY: shaders
@@ -47,6 +50,9 @@ $(SHADER_DIR)/%.frag.spv: $(SHADER_DIR)/%.glsl $(SHADER_COMMON)
 
 $(SHADER_DIR)/%.msl: $(SHADER_DIR)/%.spv | $(SPIRV_CROSS)
 	$(SPIRV_CROSS) $< --msl --msl-version 20200 --msl-decoration-binding --output $@
+
+$(SHADER_DIR)/%.sha256: $(SHADER_DIR)/%.glsl $(SHADER_COMMON)
+	cat $< $(SHADER_COMMON) | shasum -a 256 | cut -c1-64 > $@
 
 .PHONY: test
 test: ## Run the unit tests

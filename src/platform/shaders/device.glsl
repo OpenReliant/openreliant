@@ -418,8 +418,8 @@ Lit litOf(vec4 texel, mat3 onTexture) {
         vec3 bent = map.xyz * 2.0 - 1.0;
         mean = map.a;
         if ((shade & 0x2000u) != 0u) {
-            // A normal map compressed in two channels (BC5): its z, out of the surface, from x and
-            // y; the length of the normals' mean in the material map's alpha.
+            // A normal map in two channels (BC5, or 16 bits uncompressed): its z, out of the
+            // surface, from x and y; the length of the normals' mean in the material map's alpha.
             bent.z = sqrt(max(1.0 - dot(bent.xy, bent.xy), 0.0));
             mean = (shade & 0x1000u) != 0u ? texture(materialMaps, vec3(uv, image)).a : 1.0;
         }

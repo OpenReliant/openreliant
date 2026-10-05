@@ -8,6 +8,7 @@
 //! **Improvement:** the original has no shaders, and nothing to replace them with.
 
 const std = @import("std");
+const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const shader_compiler = @import("../shader_compiler.zig");
 const Code = shader_compiler.Code;
@@ -54,6 +55,14 @@ pub const Name = enum {
                     return if (spirv) @embedFile(base ++ ".spv") else @embedFile(base ++ ".msl");
                 },
             },
+        };
+    }
+
+    /// The SHA-256 of the source `make shaders` compiled `builtin` from: its file, then
+    /// `colour_file`, in hexadecimal.
+    fn compiledFrom(name: Name) *const [Sha256.digest_length * 2]u8 {
+        return switch (name) {
+            inline else => |tag| @embedFile("../shaders/" ++ @tagName(tag) ++ ".sha256")[0 .. Sha256.digest_length * 2],
         };
     }
 
@@ -133,6 +142,19 @@ pub fn lineAt(source: []const u8, line: []const u8) ?usize {
         if (starts_line and ends_line) return at;
     }
     return null;
+}
+
+test "the compiled shaders are compiled from their source" {
+    for (std.enums.values(Name)) |name| {
+        var hash: Sha256 = .init(.{});
+        hash.update(name.source());
+        hash.update(colour_source);
+        const source = std.fmt.bytesToHex(hash.finalResult(), .lower);
+        if (!std.mem.eql(u8, &source, name.compiledFrom())) {
+            std.debug.print("{s} changed since it was compiled: run make shaders\n", .{name.file()});
+            return error.TestUnexpectedResult;
+        }
+    }
 }
 
 test parts {
