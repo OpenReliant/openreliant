@@ -332,16 +332,14 @@ pub const Missile = enum(u8) {
         var made = missile.base().record();
         if (mod.label_string) |name| made.name = name;
         if (mod.extra.description_string) |description| made.description = description;
-        const in_pod = missile.base().missileType().mounted().?.second_model != null;
-        if (if (in_pod) mod.extra.pod else mod.extra.model) |model| made.model = model;
+        if (missile.missileType().hungModel()) |model| made.model = model;
         return made;
     }
 
     /// The mod's record of it, for a missile a mod adds.
     pub fn added(missile: Missile) ?*const additions.missiles.Added {
-        const index = @intFromEnum(missile);
-        if (index < missile_count) return null;
-        return additions.missiles.get(@intCast(additions.missiles.first + index - missile_count));
+        if (@intFromEnum(missile) < missile_count) return null;
+        return missile.missileType().added();
     }
 
     /// The loadout's missile a mod's missile starts from, which the loadout takes its record and
