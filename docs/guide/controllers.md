@@ -66,9 +66,10 @@ These are StarLancer's own defaults, from `DEFAULT.TXT` in the game's folder. Bu
 ./openreliant joysticks StarLancer
 ```
 
-On Windows, use `.\openreliant.exe` instead of `./openreliant`. `StarLancer` is the folder the game is installed in; the tool reads your settings from there. For a joystick it prints something like this:
+On Windows, use `.\openreliant.exe` instead of `./openreliant`. `StarLancer` is the folder the game is installed in; the tool reads your settings from there. Without it, the tool looks in the current folder. Its first line says which `starlancer.ini` it read, or that it found none, in which case none of your settings are used. For a joystick it then prints something like this:
 
 ```text
+Settings from StarLancer/starlancer.ini.
 1. Logitech Extreme 3D (used by the game)
    joystick, USB ID 046d:c215, 4 axes, 12 buttons, 1 hat
    X: axis 0, Y: axis 1, throttle: axis 3 (automatic), twist: axis 2 (automatic)
@@ -169,7 +170,7 @@ For example, `STRAFE LEFT=JOY BUTTON 13` and `STRAFE RIGHT=JOY BUTTON 14` strafe
 
 ### Choosing a controller
 
-If several controllers are connected, `Joystick` selects the first one whose name contains the given text (not case-sensitive). For example, `Joystick=xbox` uses an Xbox controller even when a stick is connected.
+If several controllers are connected, `Joystick` selects the first one whose name contains the given text (not case-sensitive). For example, `Joystick=xbox` uses an Xbox controller even when a stick is connected. If no connected controller's name contains it, the game picks a controller as it would without the setting, and says so in its log; `openreliant joysticks` says so too.
 
 ## Common controllers
 
