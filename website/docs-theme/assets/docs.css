@@ -25,7 +25,7 @@ body {
 a { color: var(--accent); text-underline-offset: 2px; }
 header { border-bottom: 1px solid var(--card-edge); background: #07080ce6; position: sticky; top: 0; z-index: 2; backdrop-filter: blur(6px); }
 nav { max-width: 1280px; margin: 0 auto; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; font-family: var(--display); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
-nav .brand { color: var(--text); text-decoration: none; font-weight: 700; font-size: 20px; }
+nav .brand { color: var(--text); text-decoration: none; font-family: var(--title); font-weight: normal; font-size: 19px; letter-spacing: 0.03em; }
 nav .brand span, nav .links a.current { color: var(--accent); }
 nav .links a { color: var(--muted); text-decoration: none; margin-left: 22px; font-size: 15px; }
 nav .links a:hover { color: var(--accent); }
