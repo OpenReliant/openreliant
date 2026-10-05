@@ -29,13 +29,14 @@ jobs:
       - uses: actions/checkout@v5
       # The Predator's wire frame from the docs, drawn in the page's orange.
       - run: sed 's/#7d8590/#f08a2c/g' docs/images/predator-wireframe.svg > website/predator.svg
-      # The game's menu font, which the headings use.
-      - run: mkdir -p website/fonts && cp deps/newtown/Newtown.ttf website/fonts/
       # The documentation, rendered by MkDocs in the website's style into website/docs.
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - run: pip install "mkdocs>=1.6,<2" pymdown-extensions
+      # The game's menu font, which the headings use, in a form browsers accept.
+      - run: pip install fonttools
+      - run: mkdir -p website/fonts && python3 .github/scripts/web_font.py deps/newtown/Newtown.ttf website/fonts/Newtown.ttf
       - run: mkdocs build --strict --config-file website/mkdocs.yml
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

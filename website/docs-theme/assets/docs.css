@@ -42,7 +42,7 @@ aside .section > span { display: block; margin: 16px 0 4px; padding-left: 10px; 
 aside .section .section > span { color: var(--text); letter-spacing: 0.06em; margin-top: 8px; }
 main { padding: 28px 0 64px; min-width: 0; }
 .page { color: var(--body); max-width: 860px; }
-.page h1, .page h2, .page h3, .page h4 { font-family: var(--title); font-weight: normal; -webkit-text-stroke: 0.5px currentColor; color: var(--text); letter-spacing: 0.04em; line-height: 1.15; scroll-margin-top: 80px; }
+.page h1, .page h2, .page h3, .page h4 { font-family: var(--title); font-weight: normal; color: var(--text); letter-spacing: 0.04em; line-height: 1.15; scroll-margin-top: 80px; }
 .page h1 { font-size: 40px; text-transform: uppercase; color: var(--accent); margin: 0 0 18px; }
 .page h2 { font-size: 27px; text-transform: uppercase; margin: 40px 0 12px; padding-top: 14px; border-top: 1px solid var(--card-edge); }
 .page h3 { font-size: 21px; margin: 28px 0 8px; }
