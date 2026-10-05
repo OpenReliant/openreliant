@@ -562,6 +562,8 @@ pub fn controlsFrame(controls: Controls) void {
     if (view.frame(.{
         .object = seen,
         .player = subject,
+        // The target view goes round the player's target.
+        .target = if (controls.display.target) |aimed| camera.Subject.of(&all.slots[aimed.slot]) else null,
         .ticks = ticks,
         .now = at,
         .ahead = objects.pastTick(clock, controls.smooth_motion),
@@ -1675,6 +1677,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     if (world.flash) |lit| lit.* = .{};
     start.display.interference = .{};
     start.display.caption = .{};
+    start.display.messages = .{};
     start.display.objectives.reset(number, all.mission25_second_part);
     if (world.countermeasures) |dropped| dropped.reset();
     all.reset(world.random);

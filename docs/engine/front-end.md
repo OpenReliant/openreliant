@@ -81,6 +81,8 @@ The front end writes with `hud_text` and `hud_text_wrapped` through `interface_t
 - `interface_pointer_ticks` (`0x0051DABC`) runs on by the ticks since the last call, back to 0 once it reaches 64. The pointer is shape 1 + ticks / 4 of the screen's set: 16 shapes, 4 ticks each.
 - `interface_pointer_down` (`0x0051DA0C`) is whether the left button is down; `0x0051D9D4` whether the right is.
 
+The pointer stays on the screen, but its shape stands off its point by the offset its sprite gives: the front end's arrow (`frontend.spr`) 2 right and 2 down, and the rooms' straight arrow (`vrgfx.spr`'s shape 12) 19 right and 6 down. At the right and bottom edges the shape reaches past the screen, where the game's screen cuts it off. OpenReliant fits the screen into a window of any size, so it cuts the pointer at the screen's edges the same way, rather than showing it beside the screen (`canvas.Canvas.onScreen`).
+
 A screen chooses what lies under the pointer while the left button is down, rather than as it goes down. `interface_hit` (`0x0043EB30`) finds the first of a list of rectangles, each four shorts (corner and size), that holds the pointer, the edges left out.
 
 ## The main menu

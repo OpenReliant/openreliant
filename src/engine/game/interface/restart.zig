@@ -105,7 +105,7 @@ pub const Restart = struct {
         try faded.shape(art, picture_shape, picture_at);
         if (screen.under) |under| try faded.shape(art, lit_shape, lit_at.get(under));
         for (labels.values) |label| try label.write(faded, faded.fonts.small, label_colour);
-        if (screen.chosen == null) try faded.shape(art, pointer.shape(), pointer.at);
+        if (screen.chosen == null) try faded.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 

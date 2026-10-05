@@ -108,6 +108,9 @@ fn connectController(arena: Allocator, devices: *engine.input.Devices, controlle
     const setup: joystick.Setup = .read(settings_file);
     const found = joystick.attached(arena) catch &.{};
     const chosen = joystick.choose(found, setup.preference);
+    if (found.len > 0 and joystick.unmatched(found, setup.preference)) {
+        std.log.warn("no attached controller's name contains '{s}' (Joystick in {s}), so the game uses {s}", .{ setup.preference.?, engine.profile.settings_name, chosen.?.name });
+    }
     if (controller.*) |*open| {
         if (chosen != null and chosen.?.id == open.id() and devices.joystick.device != null) return;
         devices.joystick.close();
@@ -1025,9 +1028,9 @@ test endsInPauseMenu {
     try std.testing.expect(!endsInPauseMenu(try options_page.testing.parsed(&.{ "--mission", "1" }), 2));
 }
 
-/// `WinMain`'s second before the hangar's movie (`game.winmain.launchFade`), the timer run on
-/// through it from the flight's start, as it fades the music out. The window waits as the game's
-/// does, its messages left for the movie's loop.
+/// `WinMain`'s one-second wait before the hangar's movie (`game.winmain.launchFade`), with the
+/// timer running from the start of the flight, so the music fades out during it. Like the game's,
+/// the window waits without reading its messages, which the movie's loop then reads.
 fn waitBeforeLaunch(clock: *game.main.Clock, sound: *game.hog_snd.Sound) void {
     const start = platform.window.nanoseconds();
     clock.start(platform.window.ticks());

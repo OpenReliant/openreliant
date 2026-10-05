@@ -118,7 +118,7 @@ pub fn main(init: std.process.Init) !u8 {
         std.debug.print("{s}", .{Command.usage});
         return 2;
     };
-    run(command, init, arena, &stdout) catch |err| switch (err) {
+    run(command, init.io, arena, &stdout) catch |err| switch (err) {
         // The reader went away, as `sltool ... | head` does: stop quietly, not with a trace.
         error.WriteFailed => {
             const cause = stdout.err orelse return err;
@@ -129,9 +129,43 @@ pub fn main(init: std.process.Init) !u8 {
     return 0;
 }
 
-fn run(command: Command, init: std.process.Init, arena: std.mem.Allocator, stdout: *Io.File.Writer) !void {
-    try command.run(.{ .io = init.io, .arena = arena, .stdout = &stdout.interface });
+fn run(command: Command, io: Io, arena: std.mem.Allocator, stdout: *Io.File.Writer) !void {
+    // Keep the command's explanation on failure without replacing its error with a flush error.
+    errdefer stdout.interface.flush() catch {};
+    try command.run(.{ .io = io, .arena = arena, .stdout = &stdout.interface });
     try stdout.interface.flush();
+}
+
+test "a failing check flushes its buffered explanation" {
+    const format = @import("openreliant").dte;
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const sections: format.write.Sections = @splat(.{});
+    const image = try format.write.write(arena, &sections, .{});
+    // An unused directory slot differs from the writer's template. The check reports it.
+    image[32 * @sizeOf(format.DirectoryEntry)] = 1;
+    try tmp.dir.writeFile(io, .{ .sub_path = "input.dte", .data = image });
+    const input = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}/input.dte", .{tmp.sub_path});
+    const output = try tmp.dir.createFile(io, "output.txt", .{});
+    defer output.close(io);
+    var buffer: [4096]u8 = undefined;
+    var stdout: Io.File.Writer = .initStreaming(output, io, &buffer);
+    try std.testing.expectError(error.Differs, run(.{ .dte = .{ .check = .{ .mission = input } } }, io, arena, &stdout));
+    const text = try tmp.dir.readFileAlloc(io, "output.txt", arena, .limited(buffer.len));
+    try std.testing.expectEqualStrings("written again from its rooms, the file differs\n", text);
+
+    // A failed flush must not hide the command error. On success, it must be reported.
+    const read_only = try tmp.dir.openFile(io, "input.dte", .{});
+    defer read_only.close(io);
+    var failed_stdout: Io.File.Writer = .initStreaming(read_only, io, &buffer);
+    try std.testing.expectError(error.Differs, run(.{ .dte = .{ .check = .{ .mission = input } } }, io, arena, &failed_stdout));
+    try std.testing.expect(failed_stdout.err != null);
+    var successful_stdout: Io.File.Writer = .initStreaming(read_only, io, &buffer);
+    try std.testing.expectError(error.WriteFailed, run(.@"--version", io, arena, &successful_stdout));
 }
 
 test Command {

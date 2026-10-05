@@ -93,8 +93,8 @@ pub const Movies = struct {
     /// again, where it did.
     pub const Pumped = struct { active: ?bool = null };
 
-    /// Runs the loop of `player`, the movie `name` names, until it ends; null where the window was
-    /// closed meanwhile.
+    /// Runs the loop of `player`, which plays the movie `name`, until it ends; null if the window
+    /// was closed meanwhile.
     fn run(movies: *Movies, player: *movie.Player, name: []const u8) !?movie.End {
         const devices = movies.devices;
         while (true) {

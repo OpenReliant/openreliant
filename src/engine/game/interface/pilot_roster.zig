@@ -495,7 +495,7 @@ pub const Roster = struct {
         if (roster.difficulty) |box| try box.draw(canvas, art, pilot.difficulty);
         if (roster.confirm) |confirm| try confirm.draw(canvas, dialog_art);
         try canvas.drawVersion();
-        try canvas.shape(art, pointer.shape(), pointer.at);
+        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 

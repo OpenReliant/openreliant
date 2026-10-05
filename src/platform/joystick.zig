@@ -122,11 +122,7 @@ pub fn attached(arena: std.mem.Allocator) ![]Found {
 /// first gamepad; then any controller. The original game picks the first joystick with force
 /// feedback, then the first of any kind.
 pub fn choose(found: []const Found, preference: ?[]const u8) ?Found {
-    if (preference) |text| {
-        if (text.len > 0) for (found) |each| {
-            if (std.ascii.indexOfIgnoreCase(each.name, text) != null) return each;
-        };
-    }
+    if (preferred(found, preference)) |each| return each;
     for (found) |each| {
         if (each.kind == .joystick and each.sdl_type != c.SDL_JOYSTICK_TYPE_THROTTLE) return each;
     }
@@ -134,6 +130,24 @@ pub fn choose(found: []const Found, preference: ?[]const u8) ?Found {
         if (each.kind == .gamepad) return each;
     }
     return if (found.len > 0) found[0] else null;
+}
+
+/// The first controller whose name contains `preference` (`Joystick` in `JoyConfig`), in any case;
+/// null when no preference is set or no controller matches it.
+pub fn preferred(found: []const Found, preference: ?[]const u8) ?Found {
+    const text = preference orelse return null;
+    if (text.len == 0) return null;
+    for (found) |each| {
+        if (std.ascii.indexOfIgnoreCase(each.name, text) != null) return each;
+    }
+    return null;
+}
+
+/// Whether `preference` is set but matches none of the controllers in `found`, so that `choose`
+/// falls back to its automatic choice.
+pub fn unmatched(found: []const Found, preference: ?[]const u8) bool {
+    const text = preference orelse return false;
+    return text.len > 0 and preferred(found, text) == null;
 }
 
 /// Added by OpenReliant: an optional file in the game folder with extra gamepad mappings in SDL's
@@ -647,6 +661,11 @@ test choose {
     // `Joystick` in `starlancer.ini` selects by name.
     try std.testing.expectEqual(1, choose(&.{ pad, stick }, "xbox").?.id);
     try std.testing.expectEqual(3, choose(&.{ pad, stick }, "nothing like it").?.id);
+    // A preference that matches nothing is reported, and an empty one counts as none.
+    try std.testing.expect(unmatched(&.{ pad, stick }, "nothing like it"));
+    try std.testing.expect(!unmatched(&.{ pad, stick }, "XBOX"));
+    try std.testing.expect(!unmatched(&.{ pad, stick }, ""));
+    try std.testing.expect(!unmatched(&.{ pad, stick }, null));
 }
 
 /// Initializes SDL's joystick support for the tests; null if the system doesn't support it.

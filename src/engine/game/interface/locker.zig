@@ -321,7 +321,7 @@ pub const Locker = struct {
             }
         }
         if (locker.lid == .up and locker.arrived) try canvas.label(locker.label());
-        if (locker.pointer_shapes) |*shapes| try canvas.shape(&shapes.art, locker.pointer.shape(), locker.pointer.at);
+        if (locker.pointer_shapes) |*shapes| try canvas.onScreen().shape(&shapes.art, locker.pointer.shape(), locker.pointer.at);
     }
 
     /// What the pointer's place names (`0x00436F31` on): the award under it, where the pilot has it;

@@ -34,9 +34,10 @@ Each panel but the ship status is one of the display's [windows](#the-windows), 
 
 ## How it is reached
 
-`hud_draw` (`0x004843B0`) draws the display once a frame. `mission_run` puts it in `sr + 0x88` and Surrender calls it while it renders, so no call reaches it in the listing and Ghidra does not find it without being told; `make ghidra-run SCRIPT=DefineFunctions.java ARGS="0x004843b0"` does that. `hud_init` (`0x00483150`) sets the display up once, from the device reset at `0x004AD0A0` rather than per frame: it copies the element names into the table at `0x0057BC5C`, a hundred bytes each, allocates the file's work buffer, takes `oldpalette.tga` and `powerball.tga`, and works out the tables the [power ball](#the-power-distribution) is drawn from.
+`hud_draw` (`0x004843B0`) draws the display once a frame. `mission_run` puts it in `sr + 0x88` and Surrender calls it while it renders, so no call reaches it in the listing and Ghidra does not find it without being told; `make ghidra-run SCRIPT=DefineFunctions.java ARGS="0x004843b0"` does that. `hud_init` (`0x00483150`) sets the display up once, from the device reset at `0x004AD0A0` rather than per frame: it clears the display's message lines (`hud_messages`, `0x0057BC5C`), allocates the file's work buffer, takes `oldpalette.tga` and `powerball.tga`, and works out the tables the [power ball](#the-power-distribution) is drawn from.
 
-`mission_frame` itself calls only three of the file's routines: the windows' `hud_window_open` (`0x0048B510`) and `hud_window_close` (`0x0048B590`); the subtarget (`0x0048CC30`), which walks the target's assembly by `link_id`; and a utility (`0x0048CEB0`).
+`mission_frame` itself calls only three of the file's routines: the windows' `hud_window_open` (`0x0048B510`) and `hud_window_close` (`0x0048B590`); the subtarget (`0x0048CC30`), which walks the target's assembly by `link_id`; and `hud_message_add`
+(`0x0048CEB0`), which adds one of the display's message lines.
 
 ## Where an element stands
 
@@ -119,7 +120,7 @@ views, 1 to 3, do not. In its order:
 | the jump prompt, the target, the radar, the eject marker, the scanner and the status lights | view 0 |
 | the view's name, centred half of the way across and 10 down: the view table's string for it | every view but 0, and but the fly-bys, `0x24` to `0x26` |
 | a string of `0x0057BF34`'s, `0x3C` above the foot, unless it is `0x90` | view `0xD` |
-| the table of lines `0x0048CF20` draws, placed `(-110, -140)` from the middle | every view |
+| the message lines (`hud_messages_draw`, `0x0048CF20`), placed `(-110, -140)` from the middle | every view |
 | the readouts, the ship status indicator, the targeting cluster's arcs and markers, the radar and the clock | view 0 |
 | the reticle (`0xD7`) at the middle, and the blind fire sight (`0xD8`) that closes on a target | view 0, but not in the chase mode |
 | in a multiplayer game, a shape of `dmicons.spr` for the player's power-up at the middle | view 0 |
@@ -391,6 +392,12 @@ them as each mission loads. Once a frame, before its work, `mission_frame` runs 
 marker's reach (`GameObject.nav_point`, `+0x720`), or to none, and a marker whose object has become
 a stand-in is dropped for good. **Fix:** past the tenth marker the game stops with the assertion
 "Run out of flyback markers"; OpenReliant marks no more.
+
+Besides the arrow `hud_target` draws its way ([Drawing it](#drawing-it)), `hud_draw` marks the nav
+point on the screen in the cockpit view, before the readouts (`0x00485461` to `0x0048552B`):
+`frame_camera_place` (`0x004ADAC0`) puts its root's frame in the camera's frame, and where it
+stands in front of the camera, shape `0x15F`, an orange cross, stands at the pixel the projection
+gives it, rounded (`sr_round`). It shows no range.
 
 ## The ship status indicator
 
@@ -689,8 +696,19 @@ display is drawn with block `0x77`'s palette, those after the set's second palet
 included, and the ships' schematics, whose sets carry none, too. Nothing in the display makes
 another block the global palette. OpenReliant does the same.
 
-The element names `hud_init` copies come from `0x00515D70`, which the decrypted dump holds as
-zeroes, so they are not readable from it.
+The display's message lines (`hud_messages`, `0x0057BC5C`) are up to four lines of a hundred bytes
+each, oldest first, which `hud_init` clears by copying the empty string at `0x00515D70` into each.
+`hud_message_add` (`0x0048CEB0`) adds one, dropping the oldest first where there are four already
+(`hud_message_drop`, `0x0048CF90`), and each goes 1000 ticks after it was added
+(`hud_messages_expire`, `0x0048D010`). `hud_messages_draw` (`0x0048CF20`) draws them, each as
+`- %s` in `newfont.fnt`, 11 pixels apart and lined up on the left, and `hud_draw` expires them
+before anything else, one a frame. The multiplayer kill messages come through them, and in a network
+session one message of `mission_frame`'s, language string `0x558`, once the local player is the
+first player still flying but not the first player slot: nothing adds one in a single-player game.
+OpenReliant keeps the lines and draws them as the game does (`hud.Messages`).
+
+**Fix:** the game copies a line whole into its hundred bytes, and so runs into the next line, or
+past the last, with a longer one. OpenReliant keeps a line's first 99 bytes.
 
 ## The windows
 
