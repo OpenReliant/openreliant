@@ -316,10 +316,7 @@ pub fn build(
     defer gpa.free(found);
     for (source.materials, found, 0..) |*m, *images, i| {
         images.* = .{};
-        const shown = for (faces) |face| {
-            if (face.material == i and showsTexture(face.shading.mode)) break true;
-        } else false;
-        if (!shown) continue;
+        if (!shown(faces, i)) continue;
         var buffer: [1 + @sizeOf(shp.Material)]u8 = undefined;
         images.material = try settings.prefix.texture(textures, m.name());
         if (light_mapped) images.light_map = try matmanager.textureRequire(textures, prefixed(&buffer, 'l', m.name()));
@@ -563,6 +560,28 @@ pub fn readModel(gpa: Allocator, resources: *const bigfile.Hog, textures: *srtex
     return .{ .model = model, .loaded = loaded };
 }
 
+/// Whether a textured face of `faces` shows the texture of material number `index`, which `build`
+/// finds.
+fn shown(faces: []const shp.Face, index: usize) bool {
+    for (faces) |face| {
+        if (face.material == index and showsTexture(face.shading.mode)) return true;
+    }
+    return false;
+}
+
+/// Finds the textures every level of every part of `model` shows, as `build` finds them, all at
+/// once, so that the mods' pictures among them decode together (`srtexture.Table.prefetch`).
+///
+/// **Improvement:** the original finds each texture as it builds the mesh that shows it.
+fn prefetchTextures(gpa: Allocator, textures: *srtexture.Table, model: *const shp.Model, prefix: Prefix) Allocator.Error!void {
+    var names: std.ArrayList([]const u8) = .empty;
+    defer names.deinit(gpa);
+    for (model.parts) |part| for (part.meshes) |mesh| for (mesh.materials, 0..) |*named, at| {
+        if (shown(mesh.faces, at)) try names.append(gpa, named.name());
+    };
+    try textures.prefetch(names.items, prefix.copy());
+}
+
 /// Builds every level of every part of `model` (`model_load`), and bakes the static lights it
 /// carries into their vertex colours. `multiplayer_ship` is a ship type's model in a multiplayer
 /// mission, which with the model's header flag `cloak` gives its objects colours of their own and
@@ -577,6 +596,7 @@ pub fn modelLoad(gpa: Allocator, textures: *srtexture.Table, model: *const shp.M
         gpa.free(parts);
     }
     const lit_classes = staticLightsMark(model);
+    try prefetchTextures(gpa, textures, model, settings.prefix);
     for (model.parts, parts) |*part, *loaded| {
         var part_settings = level_settings;
         part_settings.static_light = lit_classes[@intFromBool(part.part.flags.damaged)];

@@ -11,6 +11,7 @@
 //! far smaller; indices are left as they are, which a filter does not help.
 
 const std = @import("std");
+const zlib = @import("zlib");
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
@@ -411,11 +412,7 @@ fn readAs(comptime Sample: type, gpa: Allocator, bytes: []const u8, max_rgba_byt
     }
     const filtered = try gpa.alloc(u8, filtered_size);
     defer gpa.free(filtered);
-    var input: std.Io.Reader = .fixed(data.items);
-    var decompress: std.compress.flate.Decompress = .init(&input, .zlib, &.{});
-    var inflating: std.Io.Writer = .fixed(filtered);
-    _ = decompress.reader.streamRemaining(&inflating) catch return error.Corrupt;
-    if (inflating.end != filtered.len) return error.Corrupt;
+    try inflate(data.items, filtered);
 
     const rgba = try gpa.alloc(Sample, @as(usize, head.width) * head.height * 4);
     errdefer gpa.free(rgba);
@@ -430,6 +427,8 @@ fn readAs(comptime Sample: type, gpa: Allocator, bytes: []const u8, max_rgba_byt
         for (0..rows) |row| {
             const samples = scanlines[row * (1 + stride) + 1 ..][0..stride];
             const y = pass.first[1] + row * pass.step[1];
+            // A whole row of a picture not interlaced lies together.
+            if (pass.step[0] == 1 and wholeRow(Sample, head, samples, rgba[y * head.width * 4 ..][0 .. across * 4], transparent)) continue;
             for (0..across) |column| {
                 const x = pass.first[0] + column * pass.step[0];
                 rgba[(y * head.width + x) * 4 ..][0..4].* = pixel(Sample, head, samples, column, &palette, transparent);
@@ -453,6 +452,14 @@ test "bounded PNG decoding rejects large dimensions before pixel allocation" {
 /// A chunk's bytes besides its data: its length, its name and its checksum.
 const chunk_overhead = 12;
 
+/// Inflates the zlib stream `data` into `into`, which it must fill exactly, with zlib's own
+/// inflate (`uncompress2`), which is several times faster than `std.compress.flate`'s.
+fn inflate(data: []const u8, into: []u8) error{Corrupt}!void {
+    var made: zlib.uLongf = std.math.cast(zlib.uLongf, into.len) orelse return error.Corrupt;
+    var taken: zlib.uLong = std.math.cast(zlib.uLong, data.len) orelse return error.Corrupt;
+    if (zlib.uncompress2(into.ptr, &made, data.ptr, &taken) != zlib.Z_OK or made != into.len) return error.Corrupt;
+}
+
 /// Undoes the filters of `rows`, scanlines of `stride` bytes each behind its filter type, in place.
 /// `step` is the bytes from one pixel's to the next (`Header.filterStep`).
 fn unfilter(rows: []u8, stride: usize, step: usize) error{Corrupt}!void {
@@ -461,12 +468,15 @@ fn unfilter(rows: []u8, stride: usize, step: usize) error{Corrupt}!void {
     while (at < rows.len) : (at += 1 + stride) {
         const line = rows[at + 1 ..][0..stride];
         const filter = std.enums.fromInt(Filter, rows[at]) orelse return error.Corrupt;
-        for (line, 0..) |*byte, i| {
-            byte.* +%= filter.predict(
-                if (i >= step) line[i - step] else 0,
-                if (previous.len > 0) previous[i] else 0,
-                if (previous.len > 0 and i >= step) previous[i - step] else 0,
-            );
+        // A loop for each filter, rather than a choice of filter for each byte.
+        switch (filter) {
+            inline else => |kind| for (line, 0..) |*byte, i| {
+                byte.* +%= kind.predict(
+                    if (i >= step) line[i - step] else 0,
+                    if (previous.len > 0) previous[i] else 0,
+                    if (previous.len > 0 and i >= step) previous[i - step] else 0,
+                );
+            },
         }
         previous = line;
     }
@@ -513,6 +523,31 @@ fn pixel(comptime Sample: type, header: Header, samples: []const u8, column: usi
         },
         .rgba => .{ scaled(Sample, raw[0], depth), scaled(Sample, raw[1], depth), scaled(Sample, raw[2], depth), scaled(Sample, raw[3], depth) },
     };
+}
+
+/// Turns the unfiltered scanline `samples` into the RGBA samples `out` at once, for the pictures
+/// most mods' maps are: RGB or RGBA of 8 or 16 bits, without a transparent colour. Returns false
+/// for any other, which `pixel` then takes pixel by pixel.
+fn wholeRow(comptime Sample: type, header: Header, samples: []const u8, out: []Sample, transparent: ?[3]u16) bool {
+    if (transparent != null) return false;
+    switch (header.depth) {
+        inline 8, 16 => |depth| switch (header.colour) {
+            inline .rgb, .rgba => |colour| {
+                const channels = comptime colour.channels();
+                for (0..out.len / 4) |column| {
+                    var texel: [4]Sample = @splat(std.math.maxInt(Sample));
+                    inline for (texel[0..channels], 0..) |*channel, at| {
+                        const raw: u16 = if (depth == 16) std.mem.readInt(u16, samples[(column * channels + at) * 2 ..][0..2], .big) else samples[column * channels + at];
+                        channel.* = if (depth == @bitSizeOf(Sample)) @intCast(raw) else scaled(Sample, raw, depth);
+                    }
+                    out[column * 4 ..][0..4].* = texel;
+                }
+                return true;
+            },
+            else => return false,
+        },
+        else => return false,
+    }
 }
 
 /// The `index`th sample of a scanline of samples `depth` bits each, packed from the high bits of

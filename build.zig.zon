@@ -25,6 +25,10 @@
         .luau = .{
             .path = "deps/luau",
         },
+        .zlib = .{
+            .url = "git+https://github.com/allyourcodebase/zlib.git?ref=v1.3.2#d3b5519d3b73616a6bfece0712f080029d2a9244",
+            .hash = "zlib-1.3.2-ZZQ7lc8NAAAHm9MDfplvwoesXvk4tVm6VCsiI8KnIbT0",
+        },
     },
     .paths = .{
         "build.zig",

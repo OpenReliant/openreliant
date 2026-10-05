@@ -386,13 +386,99 @@ pub const Table = struct {
         return table.lookUp(name, copy);
     }
 
-    /// `find`, or `findCopy` of `copy`.
-    fn lookUp(table: *Table, name: []const u8, copy: ?Copy) Allocator.Error!?*Image {
+    /// OpenReliant's: finds the textures `names`, or their `copy`, as `find` and `findCopy` do, but
+    /// decodes the mods' pictures among them together, as many at once as the computer has cores
+    /// (`shareRows`), so that a model's textures load in about the time of the slowest rather than
+    /// the sum of them all ([#692](https://github.com/OpenReliant/openreliant/issues/692)). A name
+    /// found before is passed over, and one without a mod picture is left to `find`. The files are
+    /// read, and the pictures made ready for the device, on the caller's thread.
+    pub fn prefetch(table: *Table, names: []const []const u8, copy: ?Copy) Allocator.Error!void {
+        const files = table.files orelse return;
+        var started: std.ArrayList(Prefetched) = .empty;
+        defer {
+            for (started.items) |*item| item.deinit(table.gpa);
+            started.deinit(table.gpa);
+        }
+        for (names) |name| {
+            const key = try table.keyOf(name, copy);
+            const known = table.images.contains(key) or for (started.items) |item| {
+                if (std.mem.eql(u8, item.key, key)) break true;
+            } else false;
+            if (known) {
+                table.gpa.free(key);
+                continue;
+            }
+            // As `make` orders them: a picture of the key's own name, then, for a copy, the copy
+            // made from a picture of the name alone.
+            var outcome = try mod_pictures.start(table.gpa, files, key, table.longest(), table.compressor, null);
+            if (outcome == .none) if (copy) |made| {
+                outcome = try mod_pictures.start(table.gpa, files, key[1..], table.longest(), table.compressor, made);
+            };
+            switch (outcome) {
+                .none => table.gpa.free(key),
+                .kept => |image| try table.keep(key, image),
+                .loading => |loading| started.append(table.gpa, .{ .key = key, .loading = loading }) catch |err| {
+                    var unwanted = loading;
+                    unwanted.deinit();
+                    table.gpa.free(key);
+                    return err;
+                },
+            }
+        }
+        shareRows(started.items.len, 1, started.items, Prefetched.decode);
+        for (started.items) |*item| {
+            const image = try item.loading.finish() orelse continue;
+            const key = item.key;
+            item.key = &.{};
+            try table.keep(key, image);
+        }
+    }
+
+    /// A mod's picture `prefetch` decodes, and the key it's kept under.
+    const Prefetched = struct {
+        key: []u8,
+        loading: mod_pictures.Loading,
+
+        fn deinit(item: *Prefetched, gpa: Allocator) void {
+            item.loading.deinit();
+            gpa.free(item.key);
+        }
+
+        /// Decodes `count` of `items` from `first`, on a thread of its own.
+        fn decode(items: []Prefetched, first: usize, count: usize) void {
+            for (items[first..][0..count]) |*item| item.loading.decode();
+        }
+    };
+
+    /// Keeps `image`, the image of `key`, which it takes, as `lookUp` keeps what it makes.
+    fn keep(table: *Table, key: []u8, image: Image) Allocator.Error!void {
+        var made = image;
+        errdefer {
+            made.deinit(table.gpa);
+            table.gpa.free(key);
+        }
+        const kept = try table.gpa.create(Image);
+        errdefer table.gpa.destroy(kept);
+        try table.images.putNoClobber(table.gpa, key, kept);
+        kept.* = made;
+        // An image the table can't track keeps its pixels, which costs memory alone.
+        table.track(kept) catch {};
+    }
+
+    /// The key the table keeps the texture `name`, or its `copy`, under: the name in lower case,
+    /// after the copy's letter, which the caller owns.
+    fn keyOf(table: *Table, name: []const u8, copy: ?Copy) Allocator.Error![]u8 {
         const plain = tcache.fileName(name);
         const start: usize = @intFromBool(copy != null);
         const key = try table.gpa.alloc(u8, start + plain.len);
         if (copy) |made| key[0] = made.letter();
         for (key[start..], plain) |*into, c| into.* = std.ascii.toLower(c);
+        return key;
+    }
+
+    /// `find`, or `findCopy` of `copy`.
+    fn lookUp(table: *Table, name: []const u8, copy: ?Copy) Allocator.Error!?*Image {
+        const key = try table.keyOf(name, copy);
         const entry = table.images.getOrPut(table.gpa, key) catch |err| {
             table.gpa.free(key);
             return err;
@@ -668,7 +754,7 @@ pub fn shareRows(rows: usize, least: usize, context: anytype, comptime work: fn 
 }
 
 /// The samples of texel `at` of `level`, 8-bit or 16-bit RGBA, each from 0 to 1.
-pub fn unitsAt(level: Level, at: usize) [4]f32 {
+fn unitsAt(level: Level, at: usize) [4]f32 {
     var units: [4]f32 = undefined;
     switch (level.format) {
         .rgba8 => for (&units, level.texels[at * 4 ..][0..4]) |*value, sample| {
@@ -681,6 +767,30 @@ pub fn unitsAt(level: Level, at: usize) [4]f32 {
     }
     return units;
 }
+
+/// The samples of texel `at` of `level`, 8-bit or 16-bit RGBA, at 16 bits, an 8-bit sample
+/// scaled up exactly.
+pub fn samplesAt(level: Level, at: usize) [4]u16 {
+    var samples: [4]u16 = undefined;
+    switch (level.format) {
+        .rgba8 => for (&samples, level.texels[at * 4 ..][0..4]) |*wide, sample| {
+            wide.* = @as(u16, sample) * eight_to_sixteen;
+        },
+        .rgba16 => for (&samples, 0..) |*wide, channel| {
+            wide.* = std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native);
+        },
+        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+    }
+    return samples;
+}
+
+/// The 8-bit sample nearest the 16-bit `sample`.
+pub fn sample8(sample: u16) u8 {
+    return @intCast((@as(u32, sample) + eight_to_sixteen / 2) / eight_to_sixteen);
+}
+
+/// What an 8-bit sample is multiplied by to scale it to 16 bits: 65535 / 255.
+const eight_to_sixteen = std.math.maxInt(u16) / std.math.maxInt(u8);
 
 /// The light of texel `at` of `level`, 8-bit or 16-bit RGBA, whose colours are sRGB-encoded.
 fn lightAt(level: Level, at: usize) @Vector(3, f32) {
@@ -729,7 +839,7 @@ fn unit(level: u8) f32 {
 }
 
 /// The 8-bit level nearest a value from 0 to 1, held to the range.
-pub fn level8(value: f32) u8 {
+fn level8(value: f32) u8 {
     return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(u8)));
 }
 
@@ -739,7 +849,7 @@ fn unit16(level: u16) f32 {
 }
 
 /// The 16-bit level nearest a value from 0 to 1, held to the range.
-pub fn level16(value: f32) u16 {
+fn level16(value: f32) u16 {
     return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(u16)));
 }
 
@@ -854,6 +964,46 @@ test "pictures stand in for the cache's images" {
     // The cache's where the picture can't be read.
     const hull = (try table.find("hull")).?;
     try std.testing.expectEqual(2, hull.width());
+}
+
+test "Table.prefetch" {
+    const gpa = std.testing.allocator;
+    const bytes = try tcache.testing.build(gpa, &.{
+        .{ .name = "wing", .encoding = .index8, .width = 2, .height = 2 },
+        .{ .name = "tail", .encoding = .index8, .width = 2, .height = 2 },
+    });
+    defer gpa.free(bytes);
+    const cache: tcache.Cache = try .parse(gpa, bytes);
+    defer cache.deinit(gpa);
+
+    // Mods' pictures of the tail and of the nose's green copy, all red.
+    var written: std.Io.Writer.Allocating = .init(gpa);
+    defer written.deinit();
+    var red: [4 * 2 * 4]u8 = undefined;
+    for (0..8) |at| red[at * 4 ..][0..4].* = .{ 0xFF, 0, 0, 0xFF };
+    try png.writeRgba(gpa, &written.writer, 4, 2, &red);
+    const pictures: testing.Pictures = .{ .held = &.{
+        .{ .name = "tail.png", .bytes = written.written() },
+        .{ .name = "gnose.png", .bytes = written.written() },
+    } };
+    var table: Table = .init(gpa, cache, std.mem.zeroes(tga.Palette));
+    defer table.deinit();
+    table.files = pictures.files();
+
+    // The mod's picture of the tail is decoded once, whatever the case of its names, and find
+    // gives it; the wing, which has none, and a name nothing has are left to find.
+    try table.prefetch(&.{ "TAIL", "tail", "wing", "missing" }, null);
+    try std.testing.expectEqual(1, table.images.count());
+    const tail = (try table.find("tail")).?;
+    try std.testing.expectEqual(4, tail.width());
+    try std.testing.expectEqual(tail, table.images.get("tail").?.?);
+    try std.testing.expectEqual(2, (try table.find("wing")).?.width());
+
+    // Copies, as findCopy orders them: the picture of the copy's own name, as it is, and the copy
+    // made from the picture of the name alone.
+    try table.prefetch(&.{ "nose", "tail" }, .green);
+    try std.testing.expectEqual([4]u8{ 0xFF, 0, 0, 0xFF }, (try table.findCopy("nose", .green)).?.levels[0].texels[0..4].*);
+    try std.testing.expectEqual([4]u8{ 23, 255, 13, 0xFF }, (try table.findCopy("tail", .green)).?.levels[0].texels[0..4].*);
 }
 
 test "Table.findCopy" {
