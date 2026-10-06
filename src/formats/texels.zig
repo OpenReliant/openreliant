@@ -87,6 +87,24 @@ pub fn cut(data: []const u8, width: u32, height: u32, format: Format, count: usi
     return buffer[0..count];
 }
 
+/// A sample of `Sample`, `u8` or `u16`, as a value from 0 to 1.
+pub fn unit(comptime Sample: type, sample: Sample) f32 {
+    return @as(f32, @floatFromInt(sample)) / std.math.maxInt(Sample);
+}
+
+/// The sample of `Sample` nearest `value`, a value from 0 to 1 held to that range.
+pub fn nearest(comptime Sample: type, value: f32) Sample {
+    return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(Sample)));
+}
+
+test unit {
+    try std.testing.expectEqual(1, unit(u8, 255));
+    try std.testing.expectApproxEqAbs(0.5, unit(u16, 0x8000), 1e-4);
+    try std.testing.expectEqual(128, nearest(u8, 0.5));
+    try std.testing.expectEqual(0xFFFF, nearest(u16, 2));
+    try std.testing.expectEqual(0, nearest(u8, -1));
+}
+
 test Format {
     try std.testing.expectEqual(4 * 4 * 4, Format.rgba8.size(4, 4));
     // 5 by 5 pixels take 2 by 2 blocks; 1 by 1, one.

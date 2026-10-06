@@ -127,18 +127,22 @@ fn extract(
     for (chosen.items) |texture| {
         // Every loadable texture has a level 0.
         const level = texture.level(0) orelse continue;
-        const pixels = try level.rgba(ctx.arena, &palette);
-        defer ctx.arena.free(pixels);
-
-        const file_name = try std.fmt.allocPrint(ctx.arena, "{s}.png", .{texture.name()});
-        const file = try out_dir.createFile(io, file_name, .{});
-        defer file.close(io);
-        var buffer: [32 * 1024]u8 = undefined;
-        var writer = file.writer(io, &buffer);
-        try png.writeRgba(ctx.arena, &writer.interface, level.width, level.height, pixels);
-        try writer.interface.flush();
+        try savePng(ctx, out_dir, texture.name(), level, &palette);
     }
     try ctx.stdout.print("wrote {d} textures to {s}\n", .{ chosen.items.len, out_path });
+}
+
+/// Saves `level`, in `palette`'s colours, as the PNG file `<name>.png` in `dir`.
+pub fn savePng(ctx: Context, dir: std.Io.Dir, name: []const u8, level: tcache.Level, palette: *const tga.Palette) !void {
+    const pixels = try level.rgba(ctx.arena, palette);
+    defer ctx.arena.free(pixels);
+    const file_name = try std.fmt.allocPrint(ctx.arena, "{s}.png", .{name});
+    const file = try dir.createFile(ctx.io, file_name, .{});
+    defer file.close(ctx.io);
+    var buffer: [32 * 1024]u8 = undefined;
+    var writer = file.writer(ctx.io, &buffer);
+    try png.writeRgba(ctx.arena, &writer.interface, level.width, level.height, pixels);
+    try writer.interface.flush();
 }
 
 test Command {
