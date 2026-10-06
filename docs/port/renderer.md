@@ -58,7 +58,8 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   each block's endpoints and indices for the least squared error. A texture array holds textures of one format as well as one size
   and number of levels (`Shape`). Its images are read decoded from sRGB in linear light, as 8-bit
   ones are; its normal maps are BC5 and its material maps and emissive maps BC7, beside a
-  compressed picture.
+  compressed picture. The maps go into the picture's levels, so `mod_pictures.decodeAll` gives each
+  map exactly the picture's levels: it drops a map's extra levels, and leaves out a map with fewer.
 - The GPU says which compressed formats it takes for arrays, plain and sRGB alike (`Gpu.compressed`,
   `Gpu.takes`). The texture table compresses a mod's picture only where it takes BC5 and BC7
   (`srtexture.Compressor`), with bc7enc and rgbcx from bc7enc_rdo, built from a pinned source
