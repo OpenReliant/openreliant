@@ -27,6 +27,8 @@ const builtin = @import("builtin");
 
 const shp = @import("../shp.zig");
 const Vec3 = shp.Vec3;
+const gltf = @import("../gltf.zig");
+const math = @import("../../engine/surrender/math.zig");
 
 /// What a model is written as: the glTF file's JSON, its buffer's bytes, which the JSON names as
 /// the file `bin_name`, and the names of the materials whose pictures it names, `<name>.png`, all
@@ -130,7 +132,7 @@ const Material = struct {
 
 const Accessor = struct {
     bufferView: u32,
-    componentType: u32 = float_component,
+    componentType: u32 = @intFromEnum(gltf.Component.float),
     count: usize,
     type: []const u8,
     min: ?[3]f32 = null,
@@ -148,8 +150,7 @@ comptime {
     std.debug.assert(builtin.cpu.arch.endian() == .little);
 }
 
-/// glTF's numbers for a 32-bit float component and a buffer of vertex attributes.
-const float_component = 5126;
+/// glTF's number for a buffer of vertex attributes.
 const array_buffer = 34962;
 
 const Making = struct {
@@ -230,16 +231,17 @@ const Making = struct {
             if (!drawn(face) or face.material != taken) continue;
             // Odd strip members list their last two corners the other way round (`sltool shp obj`).
             const corners: [3]usize = if (face.polygon == .strip_odd) .{ 0, 2, 1 } else .{ 0, 1, 2 };
-            var places: [3][3]f32 = undefined;
-            for (&places, corners) |*place, corner| place.* = vector(level.vertices[face.vertices[corner]].position.toYUp());
-            for (corners, places) |corner, at| {
+            var places: [3]Vec3 = undefined;
+            for (&places, corners) |*place, corner| place.* = level.vertices[face.vertices[corner]].position;
+            for (corners, places) |corner, place| {
+                const at = vector(place.toYUp());
                 const vertex = level.vertices[face.vertices[corner]];
                 for (&lo, &hi, at) |*low, *high, value| {
                     low.* = @min(low.*, value);
                     high.* = @max(high.*, value);
                 }
                 try positions.append(made.arena, at);
-                try normals.append(made.arena, unitNormal(vector(vertex.normal.toYUp()), places));
+                try normals.append(made.arena, vector(unitNormal(vertex.normal, places).toYUp()));
                 try uvs.append(made.arena, .{ face.u[corner], face.v[corner] });
             }
         }
@@ -319,26 +321,19 @@ fn vector(v: Vec3) [3]f32 {
     return .{ v.x, v.y, v.z };
 }
 
-/// `normal` made a unit long, as glTF holds normals; where it has no length, as some of the
-/// game's models leave it, the normal of the triangle with corners `corners`, or straight up for a
-/// triangle with no area.
-fn unitNormal(normal: [3]f32, corners: [3][3]f32) [3]f32 {
-    const given: @Vector(3, f32) = normal;
-    const length = @sqrt(@reduce(.Add, given * given));
-    if (length > least_length) return given / @as(@Vector(3, f32), @splat(length));
-    const a: @Vector(3, f32) = corners[1];
-    const b: @Vector(3, f32) = corners[2];
-    const first = a - @as(@Vector(3, f32), corners[0]);
-    const second = b - @as(@Vector(3, f32), corners[0]);
-    const across: @Vector(3, f32) = .{
-        first[1] * second[2] - first[2] * second[1],
-        first[2] * second[0] - first[0] * second[2],
-        first[0] * second[1] - first[1] * second[0],
-    };
-    const area = @sqrt(@reduce(.Add, across * across));
-    if (area > least_length) return across / @as(@Vector(3, f32), @splat(area));
-    return .{ 0, 1, 0 };
+/// `normal`, in the model's frame, made a unit long, as glTF holds normals; where it has no
+/// length, as some of the game's models leave it, the normal of the triangle with corners
+/// `corners`, or straight up for a triangle with no area.
+fn unitNormal(normal: Vec3, corners: [3]Vec3) Vec3 {
+    const given = normal.vector();
+    if (math.length(given) > least_length) return .of(math.normalize(given));
+    const across = shp.front(corners);
+    if (math.length(across) > least_length) return .of(math.normalize(across));
+    return straight_up;
 }
+
+/// Straight up in the model's frame, whose Y points down.
+const straight_up: Vec3 = .{ .x = 0, .y = -1, .z = 0 };
 
 /// The shortest normal, or cross product, taken to have a direction.
 const least_length = 1e-6;
@@ -392,15 +387,11 @@ fn rotation(orientation: [9]f32) ?[4]f32 {
 
 /// Whether the row-major 3x3 `m` turns without stretching or mirroring: its rows each a unit long
 /// and square to one another, and its determinant 1, to within `rotation_slack`.
-fn isRotation(m: [9]f32) bool {
-    for (0..3) |row| for (0..3) |other| {
-        var dot: f32 = 0;
-        for (0..3) |column| dot += m[row * 3 + column] * m[other * 3 + column];
-        const expected: f32 = if (row == other) 1 else 0;
-        if (@abs(dot - expected) > rotation_slack) return false;
-    };
-    const determinant = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
-    return @abs(determinant - 1) <= rotation_slack;
+fn isRotation(m: math.Matrix) bool {
+    for (math.product(m, math.transpose(m)), math.identity) |got, expected| {
+        if (@abs(got - expected) > rotation_slack) return false;
+    }
+    return @abs(math.determinant(m) - 1) <= rotation_slack;
 }
 
 /// How far a matrix's rows may stray from a rotation's, which the game's rounded matrices do.
@@ -420,16 +411,15 @@ test rotation {
 }
 
 test unitNormal {
-    const flat = [3][3]f32{ .{ 0, 0, 0 }, .{ 1, 0, 0 }, .{ 0, 0, -1 } };
+    const flat = [3]Vec3{ .zero, .{ .x = 1, .y = 0, .z = 0 }, .{ .x = 0, .y = 0, .z = 1 } };
     // A normal is made a unit long; one without length is the triangle's.
-    try std.testing.expectEqual([3]f32{ 0, 0, 1 }, unitNormal(.{ 0, 0, 3 }, flat));
-    try std.testing.expectEqual([3]f32{ 0, 1, 0 }, unitNormal(.{ 0, 0, 0 }, flat));
+    try std.testing.expectEqual(Vec3{ .x = 0, .y = 0, .z = 1 }, unitNormal(.{ .x = 0, .y = 0, .z = 3 }, flat));
+    try std.testing.expectEqual(Vec3{ .x = 0, .y = -1, .z = 0 }, unitNormal(.zero, flat));
     // A triangle without area points up.
-    try std.testing.expectEqual([3]f32{ 0, 1, 0 }, unitNormal(.{ 0, 0, 0 }, .{ .{ 0, 0, 0 }, .{ 1, 0, 0 }, .{ 2, 0, 0 } }));
+    try std.testing.expectEqual(straight_up, unitNormal(.zero, .{ .zero, .{ .x = 1, .y = 0, .z = 0 }, .{ .x = 2, .y = 0, .z = 0 } }));
 }
 
 test write {
-    const gltf = @import("../gltf.zig");
     const obj = @import("../obj.zig");
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();

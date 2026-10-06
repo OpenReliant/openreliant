@@ -29,6 +29,7 @@ const Allocator = std.mem.Allocator;
 const obj = @import("../obj.zig");
 const shp = @import("../shp.zig");
 const Vec3 = shp.Vec3;
+const math = @import("../../engine/surrender/math.zig");
 
 pub const Options = struct {
     /// The mass of a unit of a part's box (`shp.Part.density`).
@@ -132,7 +133,7 @@ const Role = union(enum) {
                 std.fmt.parseInt(u32, number_text, 10) catch return error.BadAttachment;
             var attachment = std.mem.zeroes(shp.Attachment);
             attachment.kind = kind;
-            attachment.orientation = identity;
+            attachment.orientation = math.identity;
             if (kind == .gun_muzzle) attachment.gun_type = number else attachment.id = number;
             // A hardpoint holds its missile at every loadout tier (`shp.Attachment.wordFor`).
             if (kind == .missile) attachment.later_tiers = @splat(number);
@@ -144,8 +145,6 @@ const Role = union(enum) {
 
 /// The gun type a gun muzzle fires without a number: the Laser Cannon.
 const default_gun_type = 1;
-
-const identity = [9]f32{ 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 
 /// A quarter turn about X, which points an eject point's Z axis, the way it throws the pod, up:
 /// the model's Y points down.
@@ -233,7 +232,7 @@ fn makePart(arena: Allocator, file: obj.File, name: []const u8, class: shp.Part.
     part.bounds_min = box.lo;
     part.bounds_max = box.hi;
     part.parent = shp.no_index;
-    part.orientation = identity;
+    part.orientation = math.identity;
     part.turret_slot = -1;
     fillMass(&part, box, options.density);
     const tree = try makeTree(arena, mesh);
@@ -332,37 +331,29 @@ fn materialIndex(arena: Allocator, materials: *std.ArrayList(shp.Material), name
     return @intCast(materials.items.len - 1);
 }
 
-/// `(v1 - v0) x (v2 - v0)` of a triangle's corners `p`: out of its front, and as long as twice its
-/// area.
-fn frontOf(p: [3]Vec3) [3]f32 {
-    const a = [3]f32{ p[1].x - p[0].x, p[1].y - p[0].y, p[1].z - p[0].z };
-    const b = [3]f32{ p[2].x - p[0].x, p[2].y - p[0].y, p[2].z - p[0].z };
-    return .{ a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
-}
-
 /// `n` a unit long, or along Z where it has no length.
-fn unit(n: [3]f32) Vec3 {
-    const length = @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+fn unit(n: math.Vector) Vec3 {
+    const length = math.length(n);
     if (length == 0) return .{ .x = 0, .y = 0, .z = 1 };
-    return .{ .x = n[0] / length, .y = n[1] / length, .z = n[2] / length };
+    return .of(n / @as(math.Vector, @splat(length)));
 }
 
-/// The face's normal, a unit long, out of its front (`frontOf`).
+/// The face's normal, a unit long, out of its front (`shp.front`).
 fn faceNormal(p: [3]Vec3) Vec3 {
-    return unit(frontOf(p));
+    return unit(shp.front(p));
 }
 
 /// Each position's normal as the faces round it make it, each weighted by its area.
 fn smoothNormals(arena: Allocator, file: obj.File, triangles: []const obj.Triangle) Allocator.Error!std.AutoHashMapUnmanaged(u32, Vec3) {
-    var sums: std.AutoHashMapUnmanaged(u32, [3]f32) = .empty;
+    var sums: std.AutoHashMapUnmanaged(u32, math.Vector) = .empty;
     for (triangles) |triangle| {
         var p: [3]Vec3 = undefined;
         for (triangle.corners, &p) |corner, *at| at.* = positionOf(file, corner.position);
-        const n = frontOf(p);
+        const n = shp.front(p);
         for (triangle.corners) |corner| {
             const entry = try sums.getOrPut(arena, corner.position);
-            if (!entry.found_existing) entry.value_ptr.* = .{ 0, 0, 0 };
-            for (entry.value_ptr, n) |*sum, add| sum.* += add;
+            if (!entry.found_existing) entry.value_ptr.* = @splat(0);
+            entry.value_ptr.* += n;
         }
     }
     var normals: std.AutoHashMapUnmanaged(u32, Vec3) = .empty;
@@ -400,7 +391,7 @@ fn split(arena: Allocator, mesh: shp.Mesh, held: []u32, nodes: *std.ArrayList(sh
     const at = nodes.items.len;
     try nodes.append(arena, .{
         ._unknown_00 = 0,
-        .orientation = identity,
+        .orientation = math.identity,
         .half_size = box.half(),
         .centre = box.centre(),
         .children = .{ shp.no_index, shp.no_index },

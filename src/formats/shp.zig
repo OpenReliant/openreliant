@@ -19,6 +19,7 @@ const layout = @import("layout.zig");
 pub const from_obj = @import("shp/from_obj.zig");
 pub const to_gltf = @import("shp/to_gltf.zig");
 const models = @import("../engine/game/create/models.zig");
+const math = @import("../engine/surrender/math.zig");
 
 pub const Vec3 = extern struct {
     x: f32,
@@ -53,10 +54,25 @@ pub const Vec3 = extern struct {
     pub fn sub(a: Vec3, b: Vec3) Vec3 {
         return .{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z };
     }
+
+    /// As the engine's math holds a vector.
+    pub fn vector(v: Vec3) math.Vector {
+        return .{ v.x, v.y, v.z };
+    }
+
+    pub fn of(v: math.Vector) Vec3 {
+        return .{ .x = v[0], .y = v[1], .z = v[2] };
+    }
 };
 
 /// The corners of a box along the axes: its least and its greatest.
 pub const Bounds = struct { Vec3, Vec3 };
+
+/// `(p1 - p0) x (p2 - p0)` of a triangle's corners `p`: out of its front, and as long as twice its
+/// area.
+pub fn front(p: [3]Vec3) math.Vector {
+    return math.cross(p[1].vector() - p[0].vector(), p[2].vector() - p[0].vector());
+}
 
 /// Chunk tags, in the order the loader requests them.
 pub const Tag = enum(u16) {
