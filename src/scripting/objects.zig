@@ -355,10 +355,10 @@ fn describe(state: *State) i32 {
     const text = if (valid) text: {
         const object_type = runtime.objects.?.slots[handle.slot].object.type;
         break :text if (values.name(gameobj.Type, object_type)) |type_name|
-            std.fmt.bufPrint(&buffer, "object {d} ({s})", .{ handle.slot, type_name })
+            std.mem.print(&buffer, "object {d} ({s})", .{ handle.slot, type_name })
         else
-            std.fmt.bufPrint(&buffer, "object {d} (type {d})", .{ handle.slot, @backingInt(object_type) });
-    } else std.fmt.bufPrint(&buffer, "object {d} (gone)", .{handle.slot});
+            std.mem.print(&buffer, "object {d} (type {d})", .{ handle.slot, @backingInt(object_type) });
+    } else std.mem.print(&buffer, "object {d} (gone)", .{handle.slot});
     state.pushString(text catch "object");
     return 1;
 }

@@ -165,8 +165,8 @@ fn parseNumber(text: []const u8) ?i64 {
 }
 
 fn parseAddress(text: []const u8, width: u8) ?Address {
-    const open = std.mem.indexOfScalar(u8, text, '[') orelse return null;
-    const close = std.mem.lastIndexOfScalar(u8, text, ']') orelse return null;
+    const open = std.mem.findScalar(u8, text, '[') orelse return null;
+    const close = std.mem.findScalarLast(u8, text, ']') orelse return null;
     if (close < open) return null;
 
     var address: Address = .{ .width = width };
@@ -174,7 +174,7 @@ fn parseAddress(text: []const u8, width: u8) ?Address {
     while (terms.next()) |raw| {
         const term = std.mem.trim(u8, raw, " ");
         if (term.len == 0) continue;
-        if (std.mem.indexOfScalar(u8, term, '*')) |star| {
+        if (std.mem.findScalar(u8, term, '*')) |star| {
             // `EAX*0x4`: an index term.
             address.index = Register.parse(std.mem.trim(u8, term[0..star], " ")) orelse return null;
             const scale = parseNumber(std.mem.trim(u8, term[star + 1 ..], " ")) orelse return null;
@@ -204,7 +204,7 @@ fn parseOperand(text: []const u8) Operand {
     }
     if (Register.parse(text)) |register| return .{ .register = register };
     if (Register.parseByte(text)) |byte| return .{ .byte_register = byte };
-    if (std.mem.indexOfScalar(u8, text, '[') != null) {
+    if (std.mem.findScalar(u8, text, '[') != null) {
         // A bare `[0x00537570]`: Ghidra omits the size prefix on some absolute moves.
         return if (parseAddress(text, 4)) |address| .{ .memory = address } else .other;
     }
@@ -238,9 +238,9 @@ pub const Line = union(enum) {
     pub fn parse(line: []const u8) error{BadBanner}!Line {
         if (std.mem.startsWith(u8, line, banner_start)) {
             const body = line[banner_start.len..];
-            const at = std.mem.lastIndexOf(u8, body, banner_address) orelse return error.BadBanner;
+            const at = std.mem.findLast(u8, body, banner_address) orelse return error.BadBanner;
             const start = at + banner_address.len;
-            const end = std.mem.indexOfScalarPos(u8, body, start, ' ') orelse body.len;
+            const end = std.mem.findScalarPos(u8, body, start, ' ') orelse body.len;
             const address = std.fmt.parseInt(u32, body[start..end], 16) catch return error.BadBanner;
             return .{ .banner = .{ .name = body[0..at], .address = address } };
         }

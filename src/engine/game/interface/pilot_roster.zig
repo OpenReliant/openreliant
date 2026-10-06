@@ -191,7 +191,7 @@ pub const CallSigns = struct {
         const place = for (&list.names, 0..) |*name, place| {
             if (name.len == 0) break place;
         } else full: {
-            std.mem.copyForwards(ListedCallSign, list.names[0 .. list_rows - 1], list.names[1..]);
+            @memmove(list.names[0 .. list_rows - 1], list.names[1..]);
             break :full list_rows - 1;
         };
         list.names[place].set(call_sign);
@@ -536,7 +536,7 @@ test CallSigns {
     // Full, the first is let go and the rest move up.
     for (2..list_rows) |place| {
         var buffer: [8]u8 = undefined;
-        try std.testing.expect(list.add(try std.fmt.bufPrint(&buffer, "pilot{d}", .{place})));
+        try std.testing.expect(list.add(try std.mem.print(&buffer, "pilot{d}", .{place})));
     }
     try std.testing.expect(list.add("Ace"));
     try std.testing.expectEqualStrings("Maverick", list.names[0].slice());

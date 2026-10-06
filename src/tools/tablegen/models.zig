@@ -374,5 +374,5 @@ test "emit writes Zig that parses" {
     defer out.deinit();
     try emit(&out.writer, tables);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".{ .model = \"GUN.SHP\", .sprite = \"gun.spr\", .count = 2 },") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".{ .model = \"GUN.SHP\", .sprite = \"gun.spr\", .count = 2 },") != null);
 }

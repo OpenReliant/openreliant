@@ -2851,8 +2851,8 @@ test lightMask {
 
 test "Node.Kind" {
     var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("muzzle", try std.fmt.bufPrint(&buffer, "{f}", .{Node.Kind.muzzle}));
-    try std.testing.expectEqualStrings("node kind 9", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Node.Kind, @fromBackingInt(@intCast(9)))}));
+    try std.testing.expectEqualStrings("muzzle", try std.mem.print(&buffer, "{f}", .{Node.Kind.muzzle}));
+    try std.testing.expectEqualStrings("node kind 9", try std.mem.print(&buffer, "{f}", .{@as(Node.Kind, @fromBackingInt(@intCast(9)))}));
 }
 
 test "Model.Attached" {

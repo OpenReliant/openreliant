@@ -65,7 +65,7 @@ pub const Window = struct {
     /// A window of `width` by `height` points, or filling the display, drawn into at the display's
     /// own density.
     pub fn open(title: [*:0]const u8, width: u32, height: u32, fullscreen: bool) Error!Window {
-        if (builtin.os.tag == .macos) macos.ignoreSavedState();
+        if (builtin.target.os.tag == .macos) macos.ignoreSavedState();
         if (!c.SDL_Init(c.SDL_INIT_VIDEO)) return fail("SDL_Init");
         errdefer c.SDL_Quit();
         var flags: c.SDL_WindowFlags = c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_HIGH_PIXEL_DENSITY;
@@ -177,7 +177,8 @@ pub const Window = struct {
             }
             const bytes = window.text_left[0..length];
             window.text_left = window.text_left[length..];
-            return std.unicode.utf8Decode(bytes) catch continue;
+            var code_points = (std.unicode.Utf8View.init(bytes) catch continue).iterator();
+            return code_points.nextCodepoint();
         }
         return null;
     }

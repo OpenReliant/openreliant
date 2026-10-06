@@ -42,7 +42,7 @@ pub const Call = struct {
         const mod = call.context.modOf().qualifier();
         const own = if (std.mem.startsWith(u8, local, mod) and local.len > mod.len and local[mod.len] == ':') local[mod.len + 1 ..] else local;
         if (!@import("openreliant").dte.source.validId(own)) call.raise(label ++ ": a name must be an identifier, not '{s}'", .{local});
-        return std.fmt.bufPrint(buffer, "{s}:{s}", .{ mod, own }) catch call.raise(label ++ ": the name '{s}' is too long", .{local});
+        return std.mem.print(buffer, "{s}:{s}", .{ mod, own }) catch call.raise(label ++ ": the name '{s}' is too long", .{local});
     }
 
     /// The call of the script running on `state`. Raises an error if no mod's script runs there.

@@ -278,7 +278,7 @@ fn Few(comptime T: type, comptime capacity: usize) type {
         len: usize = 0,
 
         fn has(few: *const @This(), value: T) bool {
-            return std.mem.indexOfScalar(T, few.items[0..few.len], value) != null;
+            return std.mem.findScalar(T, few.items[0..few.len], value) != null;
         }
     };
 }
@@ -460,7 +460,7 @@ fn describeEvent(state: *State) i32 {
         return 1;
     };
     var buffer: [80]u8 = undefined;
-    state.pushString(std.fmt.bufPrint(&buffer, "e of {s}", .{dispatch.access.name}) catch "e");
+    state.pushString(std.mem.print(&buffer, "e of {s}", .{dispatch.access.name}) catch "e");
     return 1;
 }
 
@@ -507,7 +507,7 @@ fn removeHandle(state: *State) i32 {
 fn describeHandle(state: *State) i32 {
     const handle = state.toUserdata(Handle, 1, Handle.tag).?;
     var buffer: [80]u8 = undefined;
-    state.pushString(std.fmt.bufPrint(&buffer, "handler of {t}", .{handle.hook}) catch "handler");
+    state.pushString(std.mem.print(&buffer, "handler of {t}", .{handle.hook}) catch "handler");
     return 1;
 }
 

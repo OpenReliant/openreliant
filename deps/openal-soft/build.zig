@@ -64,7 +64,7 @@ pub fn build(b: *std.Build) void {
         .HAVE_SDL3 = false,
         .HAVE_SDL2 = false,
     });
-    const neon = arch.isAARCH64();
+    const neon = arch.isAarch64();
     const simd = b.addConfigHeader(.{ .style = .{ .cmake = upstream.path("config_simd.h.in") }, .include_path = "config_simd.h" }, .{
         .HAVE_SSE = x86,
         .HAVE_SSE2 = x86,

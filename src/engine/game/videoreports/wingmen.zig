@@ -210,7 +210,7 @@ fn standing(all: *const create.Objects, command: Command, index: u16, aim: Aim) 
     return switch (command) {
         .attack_my_target => if (aigeneric.prioritised(all, current.order)) .busy else if (target.index == aim.target.index and target.component == aim.target.component) .done else .free,
         .back_off => if (target.index == aim.target.index and current.order == .fight) .free else .done,
-        .help_me => if (aigeneric.prioritised(all, current.order)) .busy else if (current.order == .fight and std.mem.indexOfScalar(u16, aim.attackers, @bitCast(target.index)) != null) .done else .free,
+        .help_me => if (aigeneric.prioritised(all, current.order)) .busy else if (current.order == .fight and std.mem.findScalar(u16, aim.attackers, @bitCast(target.index)) != null) .done else .free,
     };
 }
 

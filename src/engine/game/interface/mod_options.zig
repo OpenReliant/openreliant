@@ -190,7 +190,7 @@ pub const Option = struct {
             .toggle, .heading => return "",
             .text => return if (value == .text) value.text else "",
             .choice => return if (option.indexOf(value)) |at| option.control.choice[at].label else "",
-            .number, .slider => return if (value == .number) std.fmt.bufPrint(buffer, "{d}", .{value.number}) catch "" else "",
+            .number, .slider => return if (value == .number) std.mem.print(buffer, "{d}", .{value.number}) catch "" else "",
         }
     }
 

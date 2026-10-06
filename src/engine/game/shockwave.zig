@@ -189,7 +189,7 @@ pub const Shockwave = struct {
     fn harm(wave: *const Shockwave, all: *const create.Objects, left: f32) f32 {
         if (wave.kind != .split) return left * wave.size * torpedo_harm;
         const owner = all.slots[wave.owner].object.type;
-        const scale = if (std.mem.indexOfScalar(gameobj.Type, &lighter_splits, owner) != null) lighter_split_harm else split_harm;
+        const scale = if (std.mem.findScalar(gameobj.Type, &lighter_splits, owner) != null) lighter_split_harm else split_harm;
         return left * wave.size * left * left * scale;
     }
 

@@ -341,8 +341,8 @@ pub fn noun(comptime T: type) []const u8 {
                 }
                 const full = @typeName(T);
                 // Without the arguments of a generic type, such as `Side(i32)`.
-                const plain = full[0 .. std.mem.indexOfScalar(u8, full, '(') orelse full.len];
-                return if (std.mem.lastIndexOfScalar(u8, plain, '.')) |dot| plain[dot + 1 ..] else plain;
+                const plain = full[0 .. std.mem.findScalar(u8, full, '(') orelse full.len];
+                return if (std.mem.findScalarLast(u8, plain, '.')) |dot| plain[dot + 1 ..] else plain;
             },
         };
     }
@@ -460,7 +460,7 @@ fn expectError(state: *State, source: []const u8, message: []const u8) !void {
     try std.testing.expectEqual(luau.Status.ok, state.load("=test", bytecode.bytes));
     try std.testing.expectEqual(luau.Status.runtime_error, state.protectedCall(0, 0));
     const raised = state.toString(-1).?;
-    if (std.mem.indexOf(u8, raised, message) == null) {
+    if (std.mem.find(u8, raised, message) == null) {
         std.debug.print("expected '{s}' in '{s}'\n", .{ message, raised });
         return error.TestUnexpectedResult;
     }

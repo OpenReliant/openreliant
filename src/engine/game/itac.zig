@@ -818,7 +818,7 @@ pub const Itac = struct {
     pub fn drawMore(itac: *Itac, canvas: Canvas, box: ScrollBox) canvas_module.Error!void {
         const font = &(itac.small orelse return).font;
         var text: [32]u8 = undefined;
-        const more = std.fmt.bufPrint(&text, "({s})", .{itac.string(more_string)}) catch return;
+        const more = std.mem.print(&text, "({s})", .{itac.string(more_string)}) catch return;
         try canvas.text(font, .{ box.rect.x + box.rect.width, box.rect.y + box.rect.height + more_below }, more, text_colour, .right);
     }
 

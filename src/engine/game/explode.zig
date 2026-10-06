@@ -1120,7 +1120,7 @@ pub const ComponentLoss = enum {
     /// The types, by the type whose stats they take, that `create_object` gives
     /// `explode_capship_component`.
     const capital_ships = types: {
-        var set: std.StaticBitSet(256) = .empty;
+        var set: std.bit_set.Static(256) = .empty;
         for ([_]u8{
             0x0C, 0x0D, 0x0F, 0x11, 0x13, 0x14, 0x18, 0x1E, 0x20, 0x21, 0x34, 0x36, 0x37, 0x38,
             0x3A, 0x3C, 0x3D, 0x3E, 0x3F, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x5E, 0x78,
@@ -1899,7 +1899,7 @@ test "a blast's shockwave" {
     var blasts: usize = 0;
     while (built.waves.waves[0] == null and blasts < 100) : (blasts += 1) blast(world, ship);
     const wave = built.waves.waves[0].?;
-    try std.testing.expect(std.mem.indexOfScalar(shockwave.Kind, &shockwave.Kind.blasts, wave.kind) != null);
+    try std.testing.expect(std.mem.findScalar(shockwave.Kind, &shockwave.Kind.blasts, wave.kind) != null);
     try std.testing.expectEqual(mission.objects.slots[ship].object.radius * blast_shockwave_size, wave.size);
     try std.testing.expect(wave.life >= blast_shockwave_life and wave.life < blast_shockwave_life + blast_shockwave_life_range);
     try std.testing.expect(wave.velocity[2] >= 2 and wave.velocity[2] <= 4);

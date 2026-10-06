@@ -207,7 +207,7 @@ pub const Looks = struct {
     fn ownColour(gpa: Allocator, textures: *srtexture.Table, name: []const u8, image: *const srtexture.Image) Allocator.Error![3]f32 {
         if (image.levels[0].format == .rgba8) return flareColour(&.{.{ .image = image }});
         const files = textures.files orelse return white;
-        const file = try std.fmt.allocPrint(gpa, "{s}{s}", .{ name, srtexture.picture_extension });
+        const file = try gpa.print("{s}{s}", .{ name, srtexture.picture_extension });
         defer gpa.free(file);
         const picture = try files.picture(gpa, file) orelse return white;
         defer picture.deinit(gpa);

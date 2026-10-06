@@ -374,7 +374,7 @@ fn playCommsMovie(call: Call, game: aigeneric.Context) void {
     const film = machine.mission.text(call.args[0]) catch return;
     const speech = machine.mission.text(call.args[1]) catch return;
     var buffer: [comms_movie_path_size]u8 = undefined;
-    const path = std.fmt.bufPrint(&buffer, "pilots\\{s}", .{film}) catch return;
+    const path = std.mem.print(&buffer, "pilots\\{s}", .{film}) catch return;
     if (speech.len >= comms_movie_path_size or path.len >= comms_movie_path_size) return;
     radio.say(ctx, .{ .film = path, .speech = speech, .name = @truncate(call.args[2]), .flags = .looping, .object = videoreports.nobody }, .now);
 }
@@ -486,7 +486,7 @@ fn playMusic(call: Call, game: aigeneric.Context) void {
 /// **Fix:** the game writes a path longer than its buffer past it; OpenReliant plays nothing.
 pub fn playPiece(sound: *hog_snd.Sound, name: []const u8, when: hog_snd.Sound.When) void {
     var buffer: [music_path_size]u8 = undefined;
-    const path = std.fmt.bufPrint(&buffer, music_folder ++ "{s}", .{name}) catch {
+    const path = std.mem.print(&buffer, music_folder ++ "{s}", .{name}) catch {
         log.warn("the music {s} is left out: its path is too long", .{name});
         return;
     };

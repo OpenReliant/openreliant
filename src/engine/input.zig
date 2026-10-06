@@ -930,17 +930,17 @@ test "the keys 1 to 8 while the radio's menu has them" {
 
 test "Key.format" {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("f2", try std.fmt.bufPrint(&buffer, "{f}", .{Key.f2}));
-    try std.testing.expectEqualStrings("key 0xFF", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Key, @fromBackingInt(@intCast(0xFF)))}));
+    try std.testing.expectEqualStrings("f2", try std.mem.print(&buffer, "{f}", .{Key.f2}));
+    try std.testing.expectEqualStrings("key 0xFF", try std.mem.print(&buffer, "{f}", .{@as(Key, @fromBackingInt(@intCast(0xFF)))}));
     try std.testing.expectEqual(0xCB, scan.left);
 }
 
 test "ControlBinding.Modifier.format and ControlMode.format" {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("alt", try std.fmt.bufPrint(&buffer, "{f}", .{ControlBinding.Modifier.alt}));
-    try std.testing.expectEqualStrings("modifier 9", try std.fmt.bufPrint(&buffer, "{f}", .{@as(ControlBinding.Modifier, @fromBackingInt(@intCast(9)))}));
-    try std.testing.expectEqualStrings("mouse", try std.fmt.bufPrint(&buffer, "{f}", .{ControlMode.mouse}));
-    try std.testing.expectEqualStrings("controller 7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(ControlMode, @fromBackingInt(@intCast(7)))}));
+    try std.testing.expectEqualStrings("alt", try std.mem.print(&buffer, "{f}", .{ControlBinding.Modifier.alt}));
+    try std.testing.expectEqualStrings("modifier 9", try std.mem.print(&buffer, "{f}", .{@as(ControlBinding.Modifier, @fromBackingInt(@intCast(9)))}));
+    try std.testing.expectEqualStrings("mouse", try std.mem.print(&buffer, "{f}", .{ControlMode.mouse}));
+    try std.testing.expectEqualStrings("controller 7", try std.mem.print(&buffer, "{f}", .{@as(ControlMode, @fromBackingInt(@intCast(7)))}));
 }
 
 test "JoystickState.hat" {

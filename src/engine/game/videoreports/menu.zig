@@ -99,7 +99,7 @@ pub const Label = union(enum) {
             .pilot => |pilot| {
                 const call_sign = said.string(pilot.call_sign) orelse "";
                 const name = said.string(pilot.name orelse return call_sign) orelse "";
-                return std.fmt.bufPrint(buffer, "{s} ({s})", .{ name, call_sign }) catch call_sign;
+                return std.mem.print(buffer, "{s} ({s})", .{ name, call_sign }) catch call_sign;
             },
         };
     }

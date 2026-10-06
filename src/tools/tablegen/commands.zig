@@ -375,6 +375,6 @@ test "emit writes Zig that parses" {
     defer out.deinit();
     try emit(&out.writer, &listed);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".per_ship = 0x0045D300,") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".per_ship = null,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".per_ship = 0x0045D300,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".per_ship = null,") != null);
 }

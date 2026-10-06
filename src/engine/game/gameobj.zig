@@ -1408,8 +1408,8 @@ test "GameObject.width" {
 
 test "Type.format" {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Type.of(.reliant)}));
-    try std.testing.expectEqualStrings("type 4096", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Type, @fromBackingInt(@intCast(0x1000)))}));
+    try std.testing.expectEqualStrings("reliant", try std.mem.print(&buffer, "{f}", .{Type.of(.reliant)}));
+    try std.testing.expectEqualStrings("type 4096", try std.mem.print(&buffer, "{f}", .{@as(Type, @fromBackingInt(@intCast(0x1000)))}));
 }
 
 test "Type.twin" {

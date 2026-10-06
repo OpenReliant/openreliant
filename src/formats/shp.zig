@@ -1834,9 +1834,9 @@ test "indices and none" {
 
 test Tag {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("tree_node", try std.fmt.bufPrint(&buffer, "{f}", .{Tag.tree_node}));
+    try std.testing.expectEqualStrings("tree_node", try std.mem.print(&buffer, "{f}", .{Tag.tree_node}));
     // A tag the format does not name prints as its number.
-    try std.testing.expectEqualStrings("17", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Tag, @fromBackingInt(@intCast(0x11)))}));
+    try std.testing.expectEqualStrings("17", try std.mem.print(&buffer, "{f}", .{@as(Tag, @fromBackingInt(@intCast(0x11)))}));
 
     try std.testing.expect(Tag.firing_arc.isNamed());
     try std.testing.expect(Tag.end.isNamed());

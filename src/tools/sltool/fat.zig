@@ -51,7 +51,7 @@ fn ls(ctx: Context, bank: fat.Bank) !void {
         // A custom formatter does not pad, so render into a buffer to keep the columns straight.
         var format: [16]u8 = undefined;
         try ctx.stdout.print("{s:<10}  {d:>2}  {d:>5}", .{
-            std.fmt.bufPrint(&format, "{f}", .{wave.format}) catch "?",
+            std.mem.print(&format, "{f}", .{wave.format}) catch "?",
             wave.channels,
             wave.rate,
         });
@@ -65,9 +65,9 @@ fn extract(ctx: Context, bank: fat.Bank, source: []const u8, out_path: []const u
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
 
-    const stem = std.fs.path.stem(std.fs.path.basename(source));
+    const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basename(source));
     for (0..bank.entries.len) |i| {
-        const name = try std.fmt.allocPrint(ctx.arena, "{s}_{d:0>3}.wav", .{ stem, i });
+        const name = try ctx.arena.print("{s}_{d:0>3}.wav", .{ stem, i });
         try out_dir.writeFile(io, .{ .sub_path = name, .data = bank.sound(i).? });
     }
     try ctx.stdout.print("wrote {d} sounds to {s}\n", .{ bank.entries.len, out_path });

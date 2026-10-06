@@ -580,7 +580,7 @@ pub const Interface = struct {
     /// `iinterface_remove_object` (`0x00427D90`): `object` out of the list, and no longer the one
     /// hovered or pressed.
     pub fn removeObject(interface: *Interface, object: *Object) void {
-        if (std.mem.indexOfScalar(*Object, interface.objects.items, object)) |at| _ = interface.objects.orderedRemove(at);
+        if (std.mem.findScalar(*Object, interface.objects.items, object)) |at| _ = interface.objects.orderedRemove(at);
         if (interface.hovered == object) interface.hovered = null;
         if (interface.pressed == object) interface.pressed = null;
     }
@@ -588,7 +588,7 @@ pub const Interface = struct {
     /// `iinterface_object_index` (`0x00427E50`): `object`'s place in the list, -1 where it is not
     /// in it.
     pub fn indexOf(interface: Interface, object: *Object) i32 {
-        const at = std.mem.indexOfScalar(*Object, interface.objects.items, object) orelse return -1;
+        const at = std.mem.findScalar(*Object, interface.objects.items, object) orelse return -1;
         return @intCast(at);
     }
 
@@ -599,7 +599,7 @@ pub const Interface = struct {
 
     /// `iinterface_remove_anim` (`0x00427E10`).
     pub fn removeAnim(interface: *Interface, anim: *Anim) void {
-        if (std.mem.indexOfScalar(*Anim, interface.anims.items, anim)) |at| _ = interface.anims.orderedRemove(at);
+        if (std.mem.findScalar(*Anim, interface.anims.items, anim)) |at| _ = interface.anims.orderedRemove(at);
     }
 
     /// `iinterface_frame` (`0x00427C40`): every animation stepped to `now`

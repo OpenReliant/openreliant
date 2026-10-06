@@ -38,7 +38,7 @@ pub const ModShaders = struct {
     /// Why the last shader didn't compile, which is passed on to the script.
     message: [max_message]u8 = undefined,
     /// The surface and lighting functions, by the number the GPU knows their variants by.
-    functions: std.AutoArrayHashMapUnmanaged(u16, Function) = .empty,
+    functions: std.array_hash_map.Auto(u16, Function) = .empty,
     /// The number the next function gets. 0 is the device shader the GPU started with.
     next_function: u16 = 1,
     /// The lighting function the variants are compiled with, or 0 for none.
@@ -115,7 +115,7 @@ pub const ModShaders = struct {
     /// The message the script gets when the GPU can't make what it compiled.
     fn gpuFailed(host: *ModShaders, err: anyerror) []const u8 {
         var buffer: [max_message]u8 = undefined;
-        return host.keep(std.fmt.bufPrint(&buffer, "the GPU can't make the shader: {s}", .{@errorName(err)}) catch "the GPU can't make the shader");
+        return host.keep(std.mem.print(&buffer, "the GPU can't make the shader: {s}", .{@errorName(err)}) catch "the GPU can't make the shader");
     }
 
     fn compileEffect(context: *anyopaque, name: []const u8, source: []const u8) postprocessing.EffectHost.Compiled {
@@ -159,7 +159,7 @@ pub const ModShaders = struct {
         const lit = if (lighting) |function| function.part() else null;
         const surfaced = if (surface) |function| function.part() else null;
         var name_buffer: [512]u8 = undefined;
-        const name = std.fmt.bufPrint(&name_buffer, "variant {s} {s} {s}", .{
+        const name = std.mem.print(&name_buffer, "variant {s} {s} {s}", .{
             template.after.name,
             if (lit) |part| part.name else "-",
             if (surfaced) |part| part.name else "-",

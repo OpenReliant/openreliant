@@ -57,9 +57,9 @@ pub const Mode = struct {
     fn missionsText(mode: Mode, buffer: []u8) []const u8 {
         const plural = if (mode.missions == 1) "" else "S";
         return switch (mode.kind) {
-            .once => std.fmt.bufPrint(buffer, "{d} MISSION{s}", .{ mode.missions, plural }),
-            .loop => std.fmt.bufPrint(buffer, "{d} MISSION{s}, AGAIN AND AGAIN", .{ mode.missions, plural }),
-            .campaign => std.fmt.bufPrint(buffer, "CAMPAIGN, MISSION {d} OF {d}", .{ mode.reached + 1, mode.missions }),
+            .once => std.mem.print(buffer, "{d} MISSION{s}", .{ mode.missions, plural }),
+            .loop => std.mem.print(buffer, "{d} MISSION{s}, AGAIN AND AGAIN", .{ mode.missions, plural }),
+            .campaign => std.mem.print(buffer, "CAMPAIGN, MISSION {d} OF {d}", .{ mode.reached + 1, mode.missions }),
         } catch "";
     }
 };
@@ -226,7 +226,7 @@ pub const GameModes = struct {
         var buffer: [mod_manager.name_buffer]u8 = undefined;
         try canvas.wrapped(font, .{ x, y }, mode.label, canvas_module.white, .left, lines);
         y += lines.height;
-        const from = std.fmt.bufPrint(&buffer, "FROM {s}", .{mode.mod}) catch mode.mod;
+        const from = std.mem.print(&buffer, "FROM {s}", .{mode.mod}) catch mode.mod;
         try canvas.wrapped(font, .{ x, y }, from, canvas_module.blue, .left, lines);
         y += lines.height;
         try canvas.wrapped(font, .{ x, y }, mode.missionsText(&buffer), canvas_module.blue, .left, lines);

@@ -48,7 +48,7 @@ pub const restart_name = "restart";
 
 /// The file of saved game `slot` of the pilot `call_sign` (`0x004756FD`, `0x004E86E4`), in the
 /// game's folder: `saves\<call sign>GAME<slot>.IFF`, the slot in two digits at least.
-pub fn fileName(buffer: []u8, call_sign: []const u8, slot: u8) std.fmt.BufPrintError![]const u8 {
+pub fn fileName(buffer: []u8, call_sign: []const u8, slot: u8) std.mem.PrintError![]const u8 {
     return companionName(buffer, call_sign, slot, file_extension);
 }
 
@@ -58,8 +58,8 @@ const file_extension = ".IFF";
 /// OpenReliant's: the file that goes with saved game `slot` of `call_sign` beside its own, of
 /// `extension`, such as the mods' scripts' state (`Extra`): `saves\<call sign>GAME<slot>` and
 /// the extension.
-pub fn companionName(buffer: []u8, call_sign: []const u8, slot: u8, extension: []const u8) std.fmt.BufPrintError![]const u8 {
-    return std.fmt.bufPrint(buffer, folder_name ++ "\\{s}GAME{d:0>2}{s}", .{ call_sign, slot, extension });
+pub fn companionName(buffer: []u8, call_sign: []const u8, slot: u8, extension: []const u8) std.mem.PrintError![]const u8 {
+    return std.mem.print(buffer, folder_name ++ "\\{s}GAME{d:0>2}{s}", .{ call_sign, slot, extension });
 }
 
 /// OpenReliant's: what else is kept with each saved game beside its file, such as the mods'
@@ -293,7 +293,7 @@ pub const ModChoice = struct {
         if (file.value(section, ship_key)) |name| choice.ship = if (additions.ships.find(name)) |number| @intCast(number) else null;
         for (&choice.racks, 1..) |*rack, number| {
             var key: [rack_key.len + rack_digits]u8 = undefined;
-            const named = std.fmt.bufPrint(&key, "{s}{d}", .{ rack_key, number }) catch unreachable;
+            const named = std.mem.print(&key, "{s}{d}", .{ rack_key, number }) catch unreachable;
             if (file.value(section, named)) |name| rack.* = loadout_tables.Missile.named(name);
         }
         return choice;
@@ -487,8 +487,8 @@ const no_missile = -1;
 /// The autosave's name (`0x00475BF6` to `0x00475C1A`): the game's string `AUTOSAVE: Mission `
 /// (`autosave_string`) and the number the player sees for `mission`, the mission the campaign has
 /// moved on to (`gameflow.displayNumber`).
-pub fn autosaveName(buffer: []u8, prefix: []const u8, mission: u16) std.fmt.BufPrintError![]const u8 {
-    return std.fmt.bufPrint(buffer, "{s}{d}", .{ prefix, gameflow.displayNumber(mission) });
+pub fn autosaveName(buffer: []u8, prefix: []const u8, mission: u16) std.mem.PrintError![]const u8 {
+    return std.mem.print(buffer, "{s}{d}", .{ prefix, gameflow.displayNumber(mission) });
 }
 
 pub const autosave_string = 0x18A;
@@ -556,7 +556,7 @@ pub const Folder = struct {
     /// Writes `bytes` as the file of `extension` that goes with saved game `slot` of `call_sign`,
     /// as `put` writes the saved game's own.
     pub fn putCompanion(folder: Folder, call_sign: []const u8, slot: u8, extension: []const u8, bytes: []const u8) Error!void {
-        if (std.mem.indexOfAny(u8, call_sign, winmain.Typed.file_name_refused) != null) return error.BadCallSign;
+        if (std.mem.findAny(u8, call_sign, winmain.Typed.file_name_refused) != null) return error.BadCallSign;
         var spelled: [files.max_path]u8 = undefined;
         const saves = files.find(folder.io, folder.dir, folder_name, &spelled) orelse made: {
             try folder.dir.createDirPath(folder.io, folder_name);
@@ -567,7 +567,7 @@ pub const Folder = struct {
         var found: [files.max_path]u8 = undefined;
         var joined: [files.max_path]u8 = undefined;
         const written = files.find(folder.io, folder.dir, path, &found) orelse
-            try std.fmt.bufPrint(&joined, "{s}/{s}", .{ saves, path[folder_name.len + 1 ..] });
+            try std.mem.print(&joined, "{s}/{s}", .{ saves, path[folder_name.len + 1 ..] });
         try folder.dir.writeFile(folder.io, .{ .sub_path = written, .data = bytes });
     }
 

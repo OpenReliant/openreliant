@@ -610,7 +610,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     var protected = object.invulnerable.protects(player_hit);
     // The original checks the armor-bearing part, after resolving a linked assembly
     // (`0x00464800`), rather than the part that the shot first hit.
-    if (std.mem.indexOfScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
+    if (std.mem.findScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
         const protection: gameobj.Invulnerability = @fromBackingInt(@intCast(slot.object.components[n].invulnerable));
         protected = protected or protection.protects(player_hit);
     }
@@ -624,7 +624,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     }
     const display = smartTargeting(world, attacker, kind) orelse return;
     if (object.side != .hostile) return;
-    if (std.mem.indexOfScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
+    if (std.mem.findScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
         input.setPlayerTarget(display, all, @intCast(index), @intCast(n), false);
     } else if (all.slots[all.player].orders[0].target.slot() != index) {
         input.setPlayerTarget(display, all, @intCast(index), aigeneric.Target.whole, false);

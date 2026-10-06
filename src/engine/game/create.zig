@@ -1349,7 +1349,7 @@ pub fn fitRacks(gpa: Allocator, object: *GameObject, model: *objects.Model, effe
         const at: usize = @intCast(object.rack_count);
         const rack = &object.racks[at];
         if (rack.type.index() == null) {
-            std.mem.copyForwards(gameobj.Rack, object.racks[at .. gameobj.max_racks - 1], object.racks[at + 1 ..]);
+            @memmove(object.racks[at .. gameobj.max_racks - 1], object.racks[at + 1 ..]);
             object.racks[gameobj.max_racks - 1] = .{ .type = .none };
             continue;
         }

@@ -207,7 +207,7 @@ test read {
     var out: Io.Writer = .fixed(&buffer);
     try emit(&out, tables);
     try testing.expectZig(out.buffered());
-    try std.testing.expect(std.mem.indexOf(u8, out.buffered(), "explosion01 = 1,") != null);
+    try std.testing.expect(std.mem.find(u8, out.buffered(), "explosion01 = 1,") != null);
 
     // A class past the last the engine names.
     classes[1][3] = @backingInt(sound3d.Class.flyby) + 1;

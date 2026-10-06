@@ -33,7 +33,7 @@ pub const name_size = std.fmt.count(name_format, .{std.math.maxInt(u32)});
 
 /// The name of screenshot `number`, written into `buffer`.
 pub fn name(buffer: *[name_size]u8, number: u32) []const u8 {
-    return std.fmt.bufPrint(buffer, name_format, .{number}) catch unreachable;
+    return std.mem.print(buffer, name_format, .{number}) catch unreachable;
 }
 
 /// A frame to save: rows of red, green, blue and alpha from the top, `size` pixels across and down.
@@ -128,7 +128,7 @@ test Screenshots {
     try std.testing.expectEqualStrings("earlier", earlier);
     for ([_][]const u8{ "screenshot0002.png", "screenshot0003.png" }) |taken| {
         var buffer: [folder.len + 1 + name_size]u8 = undefined;
-        const path = try std.fmt.bufPrint(&buffer, "{s}/{s}", .{ folder, taken });
+        const path = try std.mem.print(&buffer, "{s}/{s}", .{ folder, taken });
         const file = try tmp.dir.readFileAlloc(io, path, gpa, .unlimited);
         defer gpa.free(file);
         try std.testing.expectEqualSlices(u8, png.signature, file[0..png.signature.len]);

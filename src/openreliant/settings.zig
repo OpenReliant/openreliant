@@ -145,7 +145,7 @@ fn keyValue(arena: Allocator, value: anytype) Allocator.Error![]const u8 {
     return switch (@TypeOf(value)) {
         bool => if (value) "1" else "0",
         engine.game.guns.ShotLights => if (value == .every_shot) "1" else "0",
-        u8 => std.fmt.allocPrint(arena, "{d}", .{value}),
+        u8 => arena.print("{d}", .{value}),
         else => @tagName(value),
     };
 }
@@ -164,12 +164,12 @@ fn onOrOff(value: []const u8) error{BadValue}!bool {
 
 /// The field of `T` that `path` names, through the fields that hold it, such as `settings.bloom`.
 fn FieldAt(comptime T: type, comptime path: []const u8) type {
-    const dot = std.mem.indexOfScalar(u8, path, '.') orelse return @FieldType(T, path);
+    const dot = std.mem.findScalar(u8, path, '.') orelse return @FieldType(T, path);
     return FieldAt(@FieldType(T, path[0..dot]), path[dot + 1 ..]);
 }
 
 fn fieldAt(comptime path: []const u8, of: anytype) *FieldAt(@typeInfo(@TypeOf(of)).pointer.child, path) {
-    const dot = comptime std.mem.indexOfScalar(u8, path, '.');
+    const dot = comptime std.mem.findScalar(u8, path, '.');
     if (dot) |at| return fieldAt(path[at + 1 ..], &@field(of, path[0..at]));
     return &@field(of, path);
 }
@@ -398,7 +398,7 @@ pub const Own = struct {
         if (!std.meta.eql(chosen.frame_rate, current.frame_rate)) {
             // The display's rate is what the file says without the key.
             if (chosen.frame_rate) |rate| {
-                try file.write(section, frame_rate_key, try std.fmt.allocPrint(file.arena, "{d}", .{rate}));
+                try file.write(section, frame_rate_key, try file.arena.print("{d}", .{rate}));
             } else try file.remove(section, frame_rate_key);
             if (own.pacing) |pacing| pacing.fps = chosen.frame_rate;
         }
@@ -465,8 +465,8 @@ pub const Own = struct {
 /// `Size`'s value for `size`, as `--size` takes it, in `arena`.
 fn sizeText(arena: Allocator, size: FrameSize) Allocator.Error![]const u8 {
     return switch (size) {
-        .share => |share| std.fmt.allocPrint(arena, "{d}%", .{share}),
-        .pixels => |pixels| std.fmt.allocPrint(arena, "{d}x{d}", .{ pixels[0], pixels[1] }),
+        .share => |share| arena.print("{d}%", .{share}),
+        .pixels => |pixels| arena.print("{d}x{d}", .{ pixels[0], pixels[1] }),
     };
 }
 

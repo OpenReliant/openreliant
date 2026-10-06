@@ -20,7 +20,7 @@ pub const Library = struct {
 
     /// The directory holding the file at `path`.
     pub fn beside(ctx: Context, path: []const u8) !Library {
-        return open(ctx, std.fs.path.dirname(path) orelse ".");
+        return open(ctx, std.Io.Dir.path.dirname(path) orelse ".");
     }
 
     pub fn open(ctx: Context, dir_path: []const u8) !Library {
@@ -76,7 +76,7 @@ test Library {
 
     var out: Io.Writer.Allocating = .init(arena);
     const ctx: Context = .{ .io = std.testing.io, .arena = arena, .stdout = &out.writer };
-    const beside_path = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}/MISSION.DTE", .{tmp.sub_path});
+    const beside_path = try arena.print(".zig-cache/tmp/{s}/MISSION.DTE", .{tmp.sub_path});
     var library: Library = try .beside(ctx, beside_path);
     defer library.deinit();
 

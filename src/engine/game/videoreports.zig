@@ -96,7 +96,7 @@ pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
                 .about = all.player,
                 .name = instructor_name,
                 .due = game_ticks + report_delay,
-                .film = .of(std.fmt.bufPrint(&film, "pilots\\{s}.fm8", .{instructor_film}) catch hudmovie.static_film),
+                .film = .of(std.mem.print(&film, "pilots\\{s}.fm8", .{instructor_film}) catch hudmovie.static_film),
                 .speech = .of(instructor_line),
             };
         }
@@ -224,7 +224,7 @@ fn bridgeLine(buffer: []u8, all: *const create.Objects, carrier: u16, suffix: []
     const yamato = object.type.base() == .yamato or object.flags.exploding;
     const prefix = if (yamato) "yam" else "rel";
     return .{
-        .speech = std.fmt.bufPrint(buffer, "{s}{s}", .{ prefix, suffix }) catch suffix,
+        .speech = std.mem.print(buffer, "{s}{s}", .{ prefix, suffix }) catch suffix,
         .film = if (yamato) "pilots\\Yam_Brdge_Off.fm8" else "pilots\\Rel_Brdge_Off.fm8",
     };
 }
@@ -237,7 +237,7 @@ pub fn playerSays(world: gameobj.World, line: []const u8) void {
     const radio = world.radio orelse return;
     const hearing = world.hearing orelse return;
     var buffer: [report_text_size]u8 = undefined;
-    const speech = std.fmt.bufPrint(&buffer, "{s}{s}", .{ if (world.player.female) "fp" else "mp", line }) catch return;
+    const speech = std.mem.print(&buffer, "{s}{s}", .{ if (world.player.female) "fp" else "mp", line }) catch return;
     radio.playSpeech(hearing.sound, speech);
 }
 
@@ -407,7 +407,7 @@ pub fn shipLine(buffer: []u8, all: *const create.Objects, ship: u16, suffix: []c
         .hostile => face.own_voice orelse face.voice.prefix() orelse return null,
         else => return null,
     };
-    return std.fmt.bufPrint(buffer, "{s}{s}", .{ prefix, suffix }) catch null;
+    return std.mem.print(buffer, "{s}{s}", .{ prefix, suffix }) catch null;
 }
 
 /// `radio_remarks_frame` (`0x00456B90`), each frame after the reports (`Radio.stepReports`): the
@@ -869,7 +869,7 @@ pub const Queued = struct {
 /// from its last backslash on, less an extension beginning `ut`.
 pub fn lineName(name: []const u8) []const u8 {
     const after = hudmovie.memberName(name);
-    const dot = std.mem.lastIndexOfScalar(u8, after, '.') orelse return after;
+    const dot = std.mem.findScalarLast(u8, after, '.') orelse return after;
     return if (std.ascii.startsWithIgnoreCase(after[dot + 1 ..], "ut")) after[0..dot] else after;
 }
 
@@ -902,7 +902,7 @@ pub fn readLine(gpa: Allocator, mods: *const bigfile.Mods, archive: ?hog.Archive
 fn modLine(gpa: Allocator, mods: *const bigfile.Mods, name: []const u8) bigfile.ReadError!?[]u8 {
     if (try mods.readFile(gpa, name)) |bytes| return bytes;
     var buffer: [line_name_size + cbox.extension.len]u8 = undefined;
-    const named = std.fmt.bufPrint(&buffer, "{s}" ++ cbox.extension, .{name}) catch return null;
+    const named = std.mem.print(&buffer, "{s}" ++ cbox.extension, .{name}) catch return null;
     return mods.readFile(gpa, named);
 }
 
@@ -913,7 +913,7 @@ const film_path_size = 128;
 /// `buffer`; or the dead channel's film where there is no face, no film for `head`, or no room.
 fn filmPath(buffer: []u8, face: ?*const pilots.Face, head: pilots.Head) []const u8 {
     const film = (face orelse return hudmovie.static_film).film(head) orelse return hudmovie.static_film;
-    return std.fmt.bufPrint(buffer, "pilots\\{s}.fm8", .{film}) catch hudmovie.static_film;
+    return std.mem.print(buffer, "pilots\\{s}.fm8", .{film}) catch hudmovie.static_film;
 }
 
 /// The radio: the archive its lines come from, the line playing and the lines waiting, and the

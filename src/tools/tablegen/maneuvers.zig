@@ -332,7 +332,7 @@ test "emit writes Zig that parses" {
     defer out.deinit();
     try emit(&out.writer, arena.allocator(), read_table);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "    run_to_ship = 1,\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "            \"\\tGoto loop\",\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "        &.{ .defend_dodge1, .run_to_ship },\n") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "    run_to_ship = 1,\n") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "            \"\\tGoto loop\",\n") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "        &.{ .defend_dodge1, .run_to_ship },\n") != null);
 }

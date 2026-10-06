@@ -230,8 +230,8 @@ fn pack(ctx: Context, dir_path: []const u8, path: []const u8, flags: Command.Pac
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = bytes });
     if (flags.checksum) {
         var line: Io.Writer.Allocating = .init(ctx.arena);
-        try checksums.writeLine(&line.writer, checksums.digest(bytes), std.fs.path.basename(path));
-        const checksum_path = try std.fmt.allocPrint(ctx.arena, "{s}" ++ checksums.extension, .{path});
+        try checksums.writeLine(&line.writer, checksums.digest(bytes), std.Io.Dir.path.basename(path));
+        const checksum_path = try ctx.arena.print("{s}" ++ checksums.extension, .{path});
         try Io.Dir.cwd().writeFile(io, .{ .sub_path = checksum_path, .data = line.written() });
         try ctx.stdout.print("wrote {s}\n", .{checksum_path});
     }
@@ -247,8 +247,8 @@ fn pack(ctx: Context, dir_path: []const u8, path: []const u8, flags: Command.Pac
 
 /// `dest.SHP` becomes `dest~2.SHP`, keeping the extension so the file still opens as its type.
 fn disambiguate(gpa: std.mem.Allocator, name: []const u8, index: usize) ![]const u8 {
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse name.len;
-    return std.fmt.allocPrint(gpa, "{s}~{d}{s}", .{ name[0..dot], index, name[dot..] });
+    const dot = std.mem.findScalarLast(u8, name, '.') orelse name.len;
+    return gpa.print("{s}~{d}{s}", .{ name[0..dot], index, name[dot..] });
 }
 
 test Command {
@@ -299,10 +299,10 @@ test pack {
 
     var out: Io.Writer.Allocating = .init(arena);
     const ctx: Context = .{ .io = io, .arena = arena, .stdout = &out.writer };
-    const base = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    const archive_path = try std.fmt.allocPrint(arena, "{s}/MOD.HOG", .{base});
-    try pack(ctx, try std.fmt.allocPrint(arena, "{s}/mod", .{base}), archive_path, .{ .checksum = true });
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "1 compressed, 1 already compressed, 1 stored") != null);
+    const base = try arena.print(".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const archive_path = try arena.print("{s}/MOD.HOG", .{base});
+    try pack(ctx, try arena.print("{s}/mod", .{base}), archive_path, .{ .checksum = true });
+    try std.testing.expect(std.mem.find(u8, out.written(), "1 compressed, 1 already compressed, 1 stored") != null);
 
     // The archive reads back as the files it was packed from, in name order.
     var archive: hog.Archive = try .open(arena, io, tmp.dir, "MOD.HOG");

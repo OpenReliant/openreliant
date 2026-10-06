@@ -310,7 +310,7 @@ pub const Opened = struct {
     ink: ?[3]u8 = null,
     /// The codes whose glyphs keep their bitmaps under an outline font, drawn in colours beside its
     /// ink (`standIn`).
-    own_colours: std.StaticBitSet(cached_codes) = .empty,
+    own_colours: std.bit_set.Static(cached_codes) = .empty,
 
     pub const Paint = enum {
         /// Through the font's palette, or else VFX's global one, as the display's text is.
@@ -912,12 +912,12 @@ const Ink = struct {
     /// How far each of the palette's colours comes towards it, as the bitmap's pixels cover.
     cover: outline.Cover,
     /// The codes drawn in colours its digits and letters aren't.
-    own_colours: std.StaticBitSet(cached_codes),
+    own_colours: std.bit_set.Static(cached_codes),
 
     /// The ink of `font` drawn through `palette`; none where its digits and letters are all
     /// black.
     fn of(font: fnt.Font, palette: *const [spr.palette_size]u8) ?Ink {
-        var inks: std.StaticBitSet(256) = .empty;
+        var inks: std.bit_set.Static(256) = .empty;
         for (outline.letters_and_digits) |code| {
             const glyph = font.glyph(code) orelse continue;
             for (glyph.pixels) |index| if (index != 0) inks.set(index);
@@ -1124,7 +1124,7 @@ fn inked(colour: [4]f32, ink: [3]u8) [4]f32 {
 /// rooms, which are gameplay.
 pub fn drawVersion(font: *Opened, gpa: Allocator, into: device.Device, screen: [2]u32, version: []const u8) Allocator.Error!void {
     var buffer: [64]u8 = undefined;
-    const text = std.fmt.bufPrint(&buffer, "OpenReliant {s}", .{version}) catch version;
+    const text = std.mem.print(&buffer, "OpenReliant {s}", .{version}) catch version;
     const scale = scaleFor(screen);
     const height: i32 = @intCast(font.font.header.height);
     const at: [2]i32 = .{
@@ -1188,7 +1188,7 @@ pub const WrappedText = struct {
         const line = wrapped.lines.next() orelse return null;
         wrapped.left -= 1;
         if (!line.hyphen) return line.text;
-        return std.fmt.bufPrint(&wrapped.buffer, "{s}-", .{line.text}) catch line.text;
+        return std.mem.print(&wrapped.buffer, "{s}-", .{line.text}) catch line.text;
     }
 };
 
@@ -2144,7 +2144,7 @@ pub const Readout = enum {
         try pen.shaky(at.shape, pen.moved(point, at.shape_offset));
 
         var buffer: [16]u8 = undefined;
-        const text = std.fmt.bufPrint(&buffer, "{d}", .{value}) catch return;
+        const text = std.mem.print(&buffer, "{d}", .{value}) catch return;
         _ = try pen.text(pen.moved(point, at.text_offset), text, .centre);
     }
 };
@@ -2243,9 +2243,9 @@ pub const Messages = struct {
     /// `hud_message_drop` (`0x0048CF90`): drops the oldest, moving the others up.
     pub fn drop(messages: *Messages) void {
         if (messages.count == 0) return;
-        std.mem.copyForwards([line_size]u8, messages.lines[0 .. capacity - 1], messages.lines[1..]);
-        std.mem.copyForwards(u8, messages.lens[0 .. capacity - 1], messages.lens[1..]);
-        std.mem.copyForwards(i32, messages.until[0 .. capacity - 1], messages.until[1..]);
+        @memmove(messages.lines[0 .. capacity - 1], messages.lines[1..]);
+        @memmove(messages.lens[0 .. capacity - 1], messages.lens[1..]);
+        @memmove(messages.until[0 .. capacity - 1], messages.until[1..]);
         messages.lens[capacity - 1] = 0;
         messages.count -= 1;
     }
@@ -2491,7 +2491,7 @@ pub fn clockTime(all: *const create.Objects, play: main.PlayTime, variables: ?*c
 /// centred at its place.
 pub fn drawClock(pen: Pen, minutes: u16, seconds: u16) Allocator.Error!void {
     var buffer: [16]u8 = undefined;
-    const text = std.fmt.bufPrint(&buffer, "{d:0>2}:{d:0>2}", .{ minutes, seconds }) catch return;
+    const text = std.mem.print(&buffer, "{d:0>2}:{d:0>2}", .{ minutes, seconds }) catch return;
     _ = try pen.text(pen.placed(clock_offset, clock_across, clock_down), text, .centre);
 }
 
@@ -2522,7 +2522,7 @@ test drawClock {
 
     // The figures are padded to two as "%02d:%02d" does.
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("09:06", try std.fmt.bufPrint(&buffer, "{d:0>2}:{d:0>2}", .{ @as(u16, 9), @as(u16, 6) }));
+    try std.testing.expectEqualStrings("09:06", try std.mem.print(&buffer, "{d:0>2}:{d:0>2}", .{ @as(u16, 9), @as(u16, 6) }));
 }
 
 test Caption {
@@ -3273,7 +3273,7 @@ pub fn kilometres(all: *const create.Objects, index: u16) i32 {
 
 /// A range as the display writes it, `%dk`.
 pub fn rangeText(buffer: *[16]u8, km: i32) []const u8 {
-    return std.fmt.bufPrint(buffer, "{d}k", .{km}) catch "";
+    return std.mem.print(buffer, "{d}k", .{km}) catch "";
 }
 
 /// How much shorter each unit the missile lock's count is short of 100 makes the lead cursor's
@@ -4289,14 +4289,14 @@ pub fn drawCluster(pen: Pen, gauges: Cluster.Gauges) Error!void {
         const dim = pen.dimmed(brightness);
         const marker = pen.moved(centre, Cluster.markerOffset(throttle));
         try dim.shape(Cluster.marker_shape, marker);
-        const asked = std.fmt.bufPrint(&buffer, "{d}", .{round(gauges.max_speed * gauges.throttle)}) catch return;
+        const asked = std.mem.print(&buffer, "{d}", .{round(gauges.max_speed * gauges.throttle)}) catch return;
         _ = try dim.text(pen.moved(marker, Cluster.figure_offset), asked, .right);
     }
 
     const offset = Cluster.markerOffset(speed);
     const marker = pen.moved(centre, offset);
     try pen.shape(Cluster.marker_shape, marker);
-    const made = std.fmt.bufPrint(&buffer, "{d}", .{round(gauges.speed)}) catch return;
+    const made = std.mem.print(&buffer, "{d}", .{round(gauges.speed)}) catch return;
     _ = try pen.text(pen.moved(marker, Cluster.figure_offset), made, .right);
 
     // The speed's fill is lit below its marker, the charge's below its level.

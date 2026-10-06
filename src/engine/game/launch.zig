@@ -278,7 +278,7 @@ pub fn launchesAsBase(carrier: gameobj.Type) bool {
     const added = carrier.added() orelse return true;
     const base_number = std.math.cast(create.TypeIndex, @backingInt(added.base)) orelse return false;
     const base = create.shipFiles(base_number).model orelse return false;
-    return std.ascii.eqlIgnoreCase(std.fs.path.basename(added.extra.model), base);
+    return std.ascii.eqlIgnoreCase(std.Io.Dir.path.basename(added.extra.model), base);
 }
 
 /// `order_launch_init` (`0x00418EB0`): prepares the ship in slot `index` to launch. For a flight
@@ -520,8 +520,8 @@ test "Style.of" {
     try std.testing.expectEqual(null, Style.ofCarrier(.of(.kurgan), 0));
     try std.testing.expectEqual(Style.bay, Style.of(.of(.sabre), .of(.kurgan), 0));
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Style.reliant}));
-    try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @fromBackingInt(@intCast(12)))}));
+    try std.testing.expectEqualStrings("reliant", try std.mem.print(&buffer, "{f}", .{Style.reliant}));
+    try std.testing.expectEqualStrings("style 12", try std.mem.print(&buffer, "{f}", .{@as(Style, @fromBackingInt(@intCast(12)))}));
     // Every named style has its original pair of routines.
     for (std.enums.values(Style)) |style| {
         const runs = switch (style) {

@@ -6,7 +6,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 comptime {
-    if (builtin.cpu.arch.endian() != .little) @compileError("the game's layouts are read in place, which needs a little-endian host");
+    if (builtin.target.cpu.arch.endian() != .little) @compileError("the game's layouts are read in place, which needs a little-endian host");
 }
 
 pub const Error = error{Truncated};

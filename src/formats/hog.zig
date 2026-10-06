@@ -184,7 +184,7 @@ fn parseEntry(directory: []const u8, file_size: u32) ?ParsedEntry {
     if (offset > file_size or size > file_size - offset) return null;
 
     const rest = directory[@sizeOf(Record)..];
-    const end = std.mem.indexOfScalar(u8, rest, 0) orelse return null;
+    const end = std.mem.findScalar(u8, rest, 0) orelse return null;
     const name = rest[0..end];
     if (!validName(name)) return null;
     return .{ .name = name, .offset = offset, .size = size, .encoded_len = @sizeOf(Record) + end + 1 };
@@ -280,7 +280,7 @@ const opened_in_place = [_][]const u8{ ".bik", ".fm8" };
 
 /// Whether the game opens the member `name` where it lies (`opened_in_place`).
 pub fn opensInPlace(name: []const u8) bool {
-    const extension = std.fs.path.extension(name);
+    const extension = std.Io.Dir.path.extension(name);
     for (opened_in_place) |candidate| {
         if (std.ascii.eqlIgnoreCase(extension, candidate)) return true;
     }

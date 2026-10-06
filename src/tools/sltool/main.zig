@@ -149,7 +149,7 @@ test "a failing check flushes its buffered explanation" {
     // An unused directory slot differs from the writer's template. The check reports it.
     image[32 * @sizeOf(format.DirectoryEntry)] = 1;
     try tmp.dir.writeFile(io, .{ .sub_path = "input.dte", .data = image });
-    const input = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}/input.dte", .{tmp.sub_path});
+    const input = try arena.print(".zig-cache/tmp/{s}/input.dte", .{tmp.sub_path});
     const output = try tmp.dir.createFile(io, "output.txt", .{});
     defer output.close(io);
     var buffer: [4096]u8 = undefined;
@@ -206,11 +206,11 @@ test Context {
 
     var out: Io.Writer.Allocating = .init(arena);
     const ctx: Context = .{ .io = std.testing.io, .arena = arena, .stdout = &out.writer };
-    const base = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    var made = try ctx.outputDir(try std.fmt.allocPrint(arena, "{s}/a/b", .{base}));
+    const base = try arena.print(".zig-cache/tmp/{s}", .{tmp.sub_path});
+    var made = try ctx.outputDir(try arena.print("{s}/a/b", .{base}));
     defer made.close(ctx.io);
     try made.writeFile(ctx.io, .{ .sub_path = "f.txt", .data = "hello" });
-    try std.testing.expectEqualStrings("hello", try ctx.readInput(try std.fmt.allocPrint(arena, "{s}/a/b/f.txt", .{base})));
+    try std.testing.expectEqualStrings("hello", try ctx.readInput(try arena.print("{s}/a/b/f.txt", .{base})));
 }
 
 test {

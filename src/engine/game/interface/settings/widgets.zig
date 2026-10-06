@@ -41,7 +41,7 @@ pub fn steppedIndex(at: ?usize, count: usize, step: Step) usize {
 /// The choice of `E` a step from `current`, in its order, round from the last to the first.
 pub fn steppedChoice(comptime E: type, current: E, step: Step) E {
     const choices = comptime std.enums.values(E);
-    return choices[steppedIndex(std.mem.indexOfScalar(E, choices, current), choices.len, step)];
+    return choices[steppedIndex(std.mem.findScalar(E, choices, current), choices.len, step)];
 }
 
 /// A row, as the game's video screen lays one out (`video_screen_draw`, `0x0042F440`): its label to

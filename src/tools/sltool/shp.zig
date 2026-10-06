@@ -158,7 +158,7 @@ fn buildOptions(operands: []const [:0]const u8, options: *shp.from_obj.Options, 
 fn listComponents(ctx: Context, path: []const u8) !void {
     var library: Library = try .beside(ctx, path);
     defer library.deinit();
-    const name = std.fs.path.basename(path);
+    const name = std.Io.Dir.path.basename(path);
     const model = try library.load(name) orelse return error.FileNotFound;
     if (!model.header.flags.components) {
         try ctx.stdout.writeAll("the model's header does not ask for components, so its objects list none\n");
@@ -175,7 +175,7 @@ fn listComponents(ctx: Context, path: []const u8) !void {
             component.part_index,
             @backingInt(component.part.class),
             component.part.link_id,
-            std.fmt.bufPrint(&armor, "{d}", .{component.part.component_armor}) catch unreachable,
+            std.mem.print(&armor, "{d}", .{component.part.component_armor}) catch unreachable,
             component.model,
             component.part.name(),
         });
@@ -305,7 +305,7 @@ fn info(ctx: Context, model: shp.Model) !void {
     }
 
     // Materials are per mesh, but the set across the model is what matters for texturing.
-    var seen: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var seen: std.array_hash_map.String(void) = .empty;
     for (model.parts) |entry| {
         for (entry.meshes) |mesh| {
             for (mesh.materials) |*material| {
@@ -473,7 +473,7 @@ fn check(ctx: Context, data: []const u8) !void {
 
     var written: Io.Writer.Allocating = .init(ctx.arena);
     try model.write(&written.writer);
-    if (std.mem.indexOfDiff(u8, data, written.written())) |offset| {
+    if (std.mem.findDiff(u8, data, written.written())) |offset| {
         try ctx.stdout.print("written again, it differs from offset {x:0>8}\n", .{offset});
         return error.Differs;
     }
@@ -532,17 +532,17 @@ fn writeModel(ctx: Context, model: shp.Model, out_path: []const u8) !void {
 /// from both sides.
 fn buildFromGltf(ctx: Context, path: []const u8, bytes: []const u8, out_path: []const u8, given: shp.from_obj.Options, scale: f32) !void {
     const gltf = openreliant.gltf;
-    const beside: Beside = .{ .ctx = ctx, .dir = std.fs.path.dirname(path) orelse "." };
+    const beside: Beside = .{ .ctx = ctx, .dir = std.Io.Dir.path.dirname(path) orelse "." };
     const document = try gltf.read(ctx.arena, bytes, .{ .context = &beside, .readFn = Beside.read });
     const materials = try gltf.materials(ctx.arena, document);
-    const stem = std.fs.path.stem(out_path);
+    const stem = std.Io.Dir.path.stem(out_path);
     const names = try ctx.arena.alloc([]const u8, materials.len);
-    for (names, 0..) |*name, at| name.* = try std.fmt.allocPrint(ctx.arena, "{s}_{d}", .{ stem, at });
+    for (names, 0..) |*name, at| name.* = try ctx.arena.print("{s}_{d}", .{ stem, at });
     var options = given;
     for (materials) |material| options.two_sided = options.two_sided or material.double_sided;
     try writeModel(ctx, try shp.from_obj.build(ctx.arena, try gltf.triangles(ctx.arena, document, scale, names), options), out_path);
 
-    const dir = try ctx.outputDir(std.fs.path.dirname(out_path) orelse ".");
+    const dir = try ctx.outputDir(std.Io.Dir.path.dirname(out_path) orelse ".");
     defer dir.close(ctx.io);
     for (materials, names) |material, name| {
         for (try gltf.maps.of(ctx.arena, material, name)) |texture| {
@@ -559,7 +559,7 @@ const Beside = struct {
 
     fn read(context: *const anyopaque, arena: std.mem.Allocator, name: []const u8) std.mem.Allocator.Error!?[]u8 {
         const beside: *const Beside = @ptrCast(@alignCast(context));
-        const path = try std.fs.path.join(arena, &.{ beside.dir, name });
+        const path = try std.Io.Dir.path.join(arena, &.{ beside.dir, name });
         return Io.Dir.cwd().readFileAlloc(beside.ctx.io, path, arena, .limited(max_resource)) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => null,
@@ -575,12 +575,12 @@ const Beside = struct {
 /// palette, the materials' pictures are written beside it too, `<material>.png`; a picture the
 /// cache doesn't hold is said and passed over.
 fn writeGltf(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, cache_path: ?[]const u8, palette_path: ?[]const u8) !void {
-    const stem = std.fs.path.stem(out_path);
-    const bin_name = try std.fmt.allocPrint(ctx.arena, "{s}.bin", .{stem});
+    const stem = std.Io.Dir.path.stem(out_path);
+    const bin_name = try ctx.arena.print("{s}.bin", .{stem});
     const written = try shp.to_gltf.write(ctx.arena, model, lod, bin_name);
-    const dir = try ctx.outputDir(std.fs.path.dirname(out_path) orelse ".");
+    const dir = try ctx.outputDir(std.Io.Dir.path.dirname(out_path) orelse ".");
     defer dir.close(ctx.io);
-    try dir.writeFile(ctx.io, .{ .sub_path = std.fs.path.basename(out_path), .data = written.json });
+    try dir.writeFile(ctx.io, .{ .sub_path = std.Io.Dir.path.basename(out_path), .data = written.json });
     try dir.writeFile(ctx.io, .{ .sub_path = bin_name, .data = written.bin });
     try ctx.stdout.print("wrote {s} and {s}: {d} parts, {d} materials\n", .{ out_path, bin_name, model.parts.len, written.materials.len });
 

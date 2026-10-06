@@ -164,7 +164,7 @@ pub const Output = struct {
 /// Whether the default playback device is a pair of headphones, as far as the system says: Core
 /// Audio on macOS, and everywhere the device's name.
 fn headphones() bool {
-    if (builtin.os.tag == .macos and macos.outputIsHeadphones()) return true;
+    if (builtin.target.os.tag == .macos and macos.outputIsHeadphones()) return true;
     const name = c.SDL_GetAudioDeviceName(c.SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK) orelse return false;
     return namesHeadphones(std.mem.span(name));
 }

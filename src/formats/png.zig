@@ -112,7 +112,7 @@ const ColourType = enum(u8) {
             .indexed => &.{ 1, 2, 4, 8 },
             .rgb, .grey_alpha, .rgba => &.{ 8, 16 },
         };
-        return std.mem.indexOfScalar(u8, depths, depth) != null;
+        return std.mem.findScalar(u8, depths, depth) != null;
     }
 };
 

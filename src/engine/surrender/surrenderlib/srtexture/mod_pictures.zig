@@ -114,7 +114,7 @@ const Read = struct {
 /// The first file the files give as `name` and `suffix`, in the order of `containers`.
 fn first(gpa: Allocator, files: srtexture.Files, name: []const u8, suffix: []const u8) Allocator.Error!?File {
     for (containers) |container| {
-        const file_name = try std.fmt.allocPrint(gpa, "{s}{s}{s}", .{ name, suffix, container.extension() });
+        const file_name = try gpa.print("{s}{s}{s}", .{ name, suffix, container.extension() });
         const bytes = files.read(gpa, file_name) catch |err| {
             gpa.free(file_name);
             return err;
@@ -189,7 +189,7 @@ pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: 
         return .none;
     }
     loading.key = loading.read.key(longest, copy);
-    loading.kept_name = if (copy) |made| try std.fmt.allocPrint(gpa, "{c}{s}", .{ made.letter(), name }) else try gpa.dupe(u8, name);
+    loading.kept_name = if (copy) |made| try gpa.print("{c}{s}", .{ made.letter(), name }) else try gpa.dupe(u8, name);
     if (compressor) |held| if (try held.load(gpa, loading.kept_name, &loading.key)) |kept| {
         loading.deinit();
         return .{ .kept = kept };

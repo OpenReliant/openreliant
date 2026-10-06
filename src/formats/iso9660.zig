@@ -329,7 +329,7 @@ pub const Walker = struct {
 
 /// Drops the `;1` version suffix, and the `.` ISO 9660 leaves on names without an extension.
 fn stripVersion(name: []const u8) []const u8 {
-    var end = std.mem.lastIndexOfScalar(u8, name, ';') orelse name.len;
+    var end = std.mem.findScalarLast(u8, name, ';') orelse name.len;
     if (end > 0 and name[end - 1] == '.') end -= 1;
     return name[0..end];
 }

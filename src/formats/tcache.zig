@@ -215,7 +215,7 @@ pub fn pixelCount(width: u32, height: u32, levels: u32) u64 {
 /// The part of `path` the engine matches entry names against: what follows its last `\`, `/` or
 /// `:` (`path_file_name`, `0x004C9DF0`).
 pub fn fileName(path: []const u8) []const u8 {
-    const start = if (std.mem.lastIndexOfAny(u8, path, "\\/:")) |i| i + 1 else 0;
+    const start = if (std.mem.findLastAny(u8, path, "\\/:")) |i| i + 1 else 0;
     return path[start..];
 }
 
@@ -342,7 +342,7 @@ pub const Cache = struct {
 };
 
 fn textureOf(entry: *align(1) const Entry, bytes: []const u8) Error!Texture {
-    if (std.mem.indexOfScalar(u8, &entry.image.name, 0) == null or entry.name().len == 0) return error.BadEntry;
+    if (std.mem.findScalar(u8, &entry.image.name, 0) == null or entry.name().len == 0) return error.BadEntry;
     const encoding = Encoding.of(entry.stored_format) orelse return error.UnsupportedFormat;
     const width = entry.stored_width;
     const height = entry.stored_height;

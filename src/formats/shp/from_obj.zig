@@ -114,8 +114,8 @@ const Role = union(enum) {
     point: shp.PointList.Kind,
 
     fn of(full: []const u8) Error!Role {
-        const name = full[0 .. std.mem.indexOfScalar(u8, full, '.') orelse full.len];
-        const kind_name, const number_text = if (std.mem.indexOfScalar(u8, name, ':')) |at| .{ name[0..at], name[at + 1 ..] } else .{ name, "" };
+        const name = full[0 .. std.mem.findScalar(u8, full, '.') orelse full.len];
+        const kind_name, const number_text = if (std.mem.findScalar(u8, name, ':')) |at| .{ name[0..at], name[at + 1 ..] } else .{ name, "" };
         if (std.ascii.eqlIgnoreCase(kind_name, "cockpit")) return .cockpit;
         if (std.ascii.eqlIgnoreCase(kind_name, "jump_trail")) return .{ .point = .jump_trails };
         if (std.ascii.eqlIgnoreCase(kind_name, "jump_light")) return .{ .point = .jump_lights };

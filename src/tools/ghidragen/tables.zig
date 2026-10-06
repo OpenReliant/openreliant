@@ -42,7 +42,7 @@ pub const header = "address\tkind\tname\ttype\tcomment";
 pub fn parseLine(line: []const u8) Error!?Row {
     if (line.len == 0 or line[0] == '#' or std.mem.eql(u8, line, header)) return null;
     // The project writes no en or em dashes, in these tables either.
-    if (std.mem.indexOf(u8, line, "\u{2013}") != null or std.mem.indexOf(u8, line, "\u{2014}") != null)
+    if (std.mem.find(u8, line, "\u{2013}") != null or std.mem.find(u8, line, "\u{2014}") != null)
         return error.BadCharacter;
 
     var fields: [5][]const u8 = @splat("");
@@ -78,7 +78,7 @@ pub fn parseLine(line: []const u8) Error!?Row {
 /// which GitHub reads as quoting.
 pub fn handRow(line: []const u8) Error!Row {
     if (std.mem.count(u8, line, "\t") != 4) return error.Malformed;
-    if (std.mem.indexOfScalar(u8, line, '"') != null) return error.BadCharacter;
+    if (std.mem.findScalar(u8, line, '"') != null) return error.BadCharacter;
     return try parseLine(line) orelse error.Malformed;
 }
 

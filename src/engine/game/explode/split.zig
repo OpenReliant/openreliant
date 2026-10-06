@@ -213,7 +213,7 @@ pub const Split = struct {
         const object = &world.objects.slots[split.object].object;
         const direction = if (random.rand() % 2 == 0) math.normalize(at - root.position) else -math.forward(object.root.orientation);
         if (object.type.base() == .latov) {
-            if (sequence.bits > 0 and std.mem.indexOfScalar(usize, &latov_flash_steps, split.step) != null) flash(world);
+            if (sequence.bits > 0 and std.mem.findScalar(usize, &latov_flash_steps, split.step) != null) flash(world);
             const out = math.normalize(at - root.position);
             for (0..@intCast(@max(sequence.bits, 0))) |_| explode.throwChunk(world, at, out, .large);
         } else {

@@ -111,10 +111,10 @@ pub const testing = struct {
         for (made) |mod| {
             for (mod[1]) |file| {
                 var path_buffer: [128]u8 = undefined;
-                const folder = try std.fmt.bufPrint(&path_buffer, "mods/{s}", .{mod[0]});
+                const folder = try std.mem.print(&path_buffer, "mods/{s}", .{mod[0]});
                 try dir.createDirPath(io, folder);
                 var file_buffer: [128]u8 = undefined;
-                const path = try std.fmt.bufPrint(&file_buffer, "mods/{s}/{s}", .{ mod[0], file[0] });
+                const path = try std.mem.print(&file_buffer, "mods/{s}/{s}", .{ mod[0], file[0] });
                 try dir.writeFile(io, .{ .sub_path = path, .data = file[1] });
             }
         }

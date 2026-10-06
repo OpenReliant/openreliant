@@ -235,7 +235,7 @@ pub const Volumes = struct {
     /// The volumes `settings` keeps, each at most `loudest`, and the defaults for any it lacks.
     pub fn read(settings: profile.Profile) Volumes {
         var volumes: Volumes = .{};
-        inline for (comptime std.meta.fieldNames(Volumes)) |name| {
+        inline for (@typeInfo(Volumes).@"struct".field_names) |name| {
             const kept = settings.int(section, keys.get(@field(std.meta.FieldEnum(Volumes), name)), @intCast(@field(volumes, name)));
             @field(volumes, name) = @intCast(@min(kept, loudest));
         }
@@ -1033,7 +1033,7 @@ pub fn pitchFactor(n: i32) f32 {
 /// The byte a piece of music loops back to (`music_play`): the loop table's, for the piece whose
 /// name starts what follows the path's first `\`, ignoring case, or 0.
 pub fn musicLoopStart(path: []const u8) i32 {
-    const name = if (std.mem.indexOfScalar(u8, path, '\\')) |at| path[at + 1 ..] else path;
+    const name = if (std.mem.findScalar(u8, path, '\\')) |at| path[at + 1 ..] else path;
     for (music_loops) |piece| {
         if (name.len >= piece.name.len and std.ascii.eqlIgnoreCase(name[0..piece.name.len], piece.name)) return piece.loop_start;
     }

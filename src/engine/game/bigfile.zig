@@ -93,10 +93,10 @@ pub fn memberName(buffer: *[member_name_room]u8, name: []const u8) []const u8 {
     const length = @min(name.len, buffer.len);
     @memcpy(buffer[0..length], name[0..length]);
     var copy: []const u8 = buffer[0..length];
-    if (std.mem.indexOfScalar(u8, copy, '.')) |dot| {
+    if (std.mem.findScalar(u8, copy, '.')) |dot| {
         if (std.mem.startsWith(u8, copy[dot + 1 ..], "ut")) copy = copy[0..dot];
     }
-    if (std.mem.lastIndexOfScalar(u8, copy, '\\')) |slash| copy = copy[slash + 1 ..];
+    if (std.mem.findScalarLast(u8, copy, '\\')) |slash| copy = copy[slash + 1 ..];
     return copy;
 }
 

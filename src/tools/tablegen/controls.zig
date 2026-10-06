@@ -303,10 +303,10 @@ test "emit writes Zig that parses" {
     const source = out.written();
     try testing.expectZig(source);
 
-    try std.testing.expect(std.mem.indexOf(u8, source, "    reverse_thrust = 1,\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".modifier = .shift, .button = null },\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".modifier = .none, .button = 2 },\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".string = 0x35C,") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".{ .code = 0x2B, .name = \"\\\\\" },\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, "    .afterburners,\n    null,\n    .reverse_thrust,\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, "    reverse_thrust = 1,\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".modifier = .shift, .button = null },\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".modifier = .none, .button = 2 },\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".string = 0x35C,") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".{ .code = 0x2B, .name = \"\\\\\" },\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, "    .afterburners,\n    null,\n    .reverse_thrust,\n") != null);
 }

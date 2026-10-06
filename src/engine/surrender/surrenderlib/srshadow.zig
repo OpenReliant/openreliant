@@ -25,7 +25,7 @@ pub const map_count = cascade_count + 1;
 pub const cockpit_map = cascade_count;
 
 /// A set of maps.
-pub const Maps = std.bit_set.IntegerBitSet(map_count);
+pub const Maps = std.bit_set.Integer(map_count);
 
 /// How a device draws shadows: its maps' texels across, how far from the camera each cascade
 /// reaches in view depth, the first from the near plane, and whether the cockpit gets a map of

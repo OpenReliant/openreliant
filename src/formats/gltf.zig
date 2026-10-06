@@ -127,7 +127,7 @@ pub fn read(arena: Allocator, bytes: []const u8, files: Files) Error!Document {
 /// The bytes `uri` names: a `data:` URI's, base64, or a file's beside the glTF file.
 fn resource(arena: Allocator, files: Files, uri: []const u8) Error![]const u8 {
     if (std.mem.startsWith(u8, uri, "data:")) {
-        const comma = std.mem.indexOfScalar(u8, uri, ',') orelse return error.BadIndex;
+        const comma = std.mem.findScalar(u8, uri, ',') orelse return error.BadIndex;
         const encoded = uri[comma + 1 ..];
         const decoder = std.base64.standard.Decoder;
         const size = decoder.calcSizeForSlice(encoded) catch return error.BadIndex;
@@ -547,7 +547,7 @@ pub fn materials(arena: Allocator, document: Document) Error![]Material {
         if (value != .object) return error.BadIndex;
         const object = value.object;
         material.* = .{ .name = if (object.get("name")) |name| string(name) orelse "" else "" };
-        if (material.name.len == 0) material.name = try std.fmt.allocPrint(arena, "material {d}", .{at});
+        if (material.name.len == 0) material.name = try arena.print("material {d}", .{at});
         if (object.get("pbrMetallicRoughness")) |pbr| if (pbr == .object) {
             material.colour = numbers(4, pbr.object, "baseColorFactor", material.colour);
             material.colour_texture = try image(arena, document, pbr.object, "baseColorTexture");
@@ -598,7 +598,7 @@ fn testFile(arena: Allocator) ![]const u8 {
     const encoder = std.base64.standard.Encoder;
     const encoded = try arena.alloc(u8, encoder.calcSize(buffer.len));
     _ = encoder.encode(encoded, &buffer);
-    return std.fmt.allocPrint(arena,
+    return arena.print(
         \\{{"asset": {{"version": "2.0"}}, "scene": 0,
         \\ "scenes": [{{"nodes": [0, 1, 2, 4]}}],
         \\ "nodes": [{{"name": "hull", "mesh": 0, "translation": [10, 0, 0], "scale": [0.5, 0.5, 0.5]}},

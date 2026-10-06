@@ -102,11 +102,11 @@ pub fn compile(gpa: Allocator, name: []const u8, source: []const u8) Allocator.E
 pub fn compileParts(gpa: Allocator, kind: Kind, stage: Stage, parts: []const Part, preamble: []const u8) Allocator.Error!Result {
     std.debug.assert(parts.len > 0 and parts.len <= max_parts);
     for (parts) |part| {
-        if (part.source.len > max_source_bytes) return .{ .diagnostic = try std.fmt.allocPrint(gpa, "{s}: shader source exceeds 1 MiB", .{part.name}) };
-        if (std.mem.indexOfScalar(u8, part.source, 0) != null or std.mem.indexOfScalar(u8, part.name, 0) != null)
+        if (part.source.len > max_source_bytes) return .{ .diagnostic = try gpa.print("{s}: shader source exceeds 1 MiB", .{part.name}) };
+        if (std.mem.findScalar(u8, part.source, 0) != null or std.mem.findScalar(u8, part.name, 0) != null)
             return .{ .diagnostic = try gpa.dupe(u8, nul_message) };
     }
-    if (std.mem.indexOfScalar(u8, preamble, 0) != null) return .{ .diagnostic = try gpa.dupe(u8, nul_message) };
+    if (std.mem.findScalar(u8, preamble, 0) != null) return .{ .diagnostic = try gpa.dupe(u8, nul_message) };
     // Each part after the first starts with a `#line` directive, so that the messages give its
     // file's own line numbers, and on a line of its own, so that it doesn't run on from the part
     // before. glslang counts each part's lines apart, so the directive goes in the part itself.
@@ -120,7 +120,7 @@ pub fn compileParts(gpa: Allocator, kind: Kind, stage: Stage, parts: []const Par
     };
     for (parts, 0..) |part, at| {
         const name = try gpa.dupeSentinel(u8, part.name, 0);
-        const source = if (at == 0) part.source else std.fmt.allocPrint(gpa, "\n#line {d}\n{s}", .{ part.line, part.source }) catch |err| {
+        const source = if (at == 0) part.source else gpa.print("\n#line {d}\n{s}", .{ part.line, part.source }) catch |err| {
             gpa.free(name);
             return err;
         };
@@ -191,9 +191,9 @@ test "post-effect compilation produces deterministic owned Vulkan and Metal code
     try std.testing.expect(a == .compiled and b == .compiled);
     try std.testing.expectEqualSlices(u32, a.compiled.spirv, b.compiled.spirv);
     try std.testing.expectEqualStrings(a.compiled.metal, b.compiled.metal);
-    try std.testing.expect(std.mem.indexOf(u8, a.compiled.metal, "fragment") != null);
-    try std.testing.expect(std.mem.indexOf(u8, a.compiled.metal, "[[texture(0)]]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, a.compiled.metal, "[[buffer(0)]]") != null);
+    try std.testing.expect(std.mem.find(u8, a.compiled.metal, "fragment") != null);
+    try std.testing.expect(std.mem.find(u8, a.compiled.metal, "[[texture(0)]]") != null);
+    try std.testing.expect(std.mem.find(u8, a.compiled.metal, "[[buffer(0)]]") != null);
 }
 
 test "shader errors retain filenames and lines and reject incompatible resources" {
@@ -201,13 +201,13 @@ test "shader errors retain filenames and lines and reject incompatible resources
     const bad = try compile(gpa, "broken.frag", "#version 450\nvoid main() { broken; }\n");
     defer bad.deinit(gpa);
     try std.testing.expect(bad == .diagnostic);
-    try std.testing.expect(std.mem.indexOf(u8, bad.diagnostic, "broken.frag:2") != null);
+    try std.testing.expect(std.mem.find(u8, bad.diagnostic, "broken.frag:2") != null);
     const wrong = try std.mem.replaceOwned(u8, gpa, fixture, "set=2", "set=0");
     defer gpa.free(wrong);
     const rejected = try compile(gpa, "wrong.frag", wrong);
     defer rejected.deinit(gpa);
     try std.testing.expect(rejected == .diagnostic);
-    try std.testing.expect(std.mem.indexOf(u8, rejected.diagnostic, "set 2") != null);
+    try std.testing.expect(std.mem.find(u8, rejected.diagnostic, "set 2") != null);
 }
 
 test "shader result allocation failures release native and Zig allocations" {
@@ -236,7 +236,7 @@ test "post-effect reflection rejects resource and interface variants" {
         const result = try compile(gpa, "variant.frag", source);
         defer result.deinit(gpa);
         try std.testing.expect(result == .diagnostic);
-        try std.testing.expect(std.mem.indexOf(u8, result.diagnostic, "variant.frag") != null);
+        try std.testing.expect(std.mem.find(u8, result.diagnostic, "variant.frag") != null);
     }
     const duplicate = try compile(gpa, "duplicate.frag", fixture ++
         "\nlayout(set=2, binding=0) uniform sampler2D duplicate_source;\n");
@@ -262,7 +262,7 @@ test "post effects can omit resources and read the second texture slot" {
     const second = try compile(gpa, "second.frag", source);
     defer second.deinit(gpa);
     try std.testing.expect(second == .compiled);
-    try std.testing.expect(std.mem.indexOf(u8, second.compiled.metal, "[[texture(1)]]") != null);
+    try std.testing.expect(std.mem.find(u8, second.compiled.metal, "[[texture(1)]]") != null);
 }
 
 test "shader input bounds and failed diagnostic allocations clean up" {
@@ -294,5 +294,5 @@ test "a part cut from the middle of a file keeps the file's line numbers" {
     const result = try compileParts(gpa, .openreliant, .fragment, &parts, Stage.fragment.definition());
     defer result.deinit(gpa);
     try std.testing.expect(result == .diagnostic);
-    try std.testing.expect(std.mem.indexOf(u8, result.diagnostic, "mod/device.glsl:12") != null);
+    try std.testing.expect(std.mem.find(u8, result.diagnostic, "mod/device.glsl:12") != null);
 }

@@ -33,7 +33,7 @@ fn held(comptime T: type) bool {
 
 /// Whether `T` is one of the records' structs, which the definitions declare as classes.
 fn isRecord(comptime T: type) bool {
-    return std.mem.indexOfScalar(type, records.Values.kinds, T) != null;
+    return std.mem.findScalar(type, records.Values.kinds, T) != null;
 }
 
 /// The types of what a declared function takes and gives; nothing for a native one.
@@ -126,9 +126,9 @@ fn gather(comptime T: type, comptime seen: Gathered) Gathered {
     return switch (@typeInfo(T)) {
         .optional => |optional| gather(optional.child, seen),
         .array => |array| if (array.child == u8) seen else gather(array.child, seen),
-        .@"enum" => if (std.mem.indexOfScalar(type, seen.enums, T) != null) seen else .{ .enums = seen.enums ++ .{T}, .tables = seen.tables },
+        .@"enum" => if (std.mem.findScalar(type, seen.enums, T) != null) seen else .{ .enums = seen.enums ++ .{T}, .tables = seen.tables },
         .@"struct" => fields: {
-            if (std.mem.indexOfScalar(type, seen.tables, T) != null) break :fields seen;
+            if (std.mem.findScalar(type, seen.tables, T) != null) break :fields seen;
             var next = seen;
             if (!isRecord(T)) next.tables = next.tables ++ .{T};
             for (values.shownFields(T)) |field| next = gather(field.type, next);
@@ -447,7 +447,7 @@ fn writeTable(w: *Writer, comptime name: []const u8, comptime T: type) Writer.Er
 
 /// Whether `T` is a table scripts give, such as a style, to a function that takes one.
 fn given(comptime T: type) bool {
-    return std.mem.indexOfScalar(type, given_tables, T) != null;
+    return std.mem.findScalar(type, given_tables, T) != null;
 }
 
 /// How many of the fields scripts see of `T` have a default, which a table scripts give may leave
@@ -753,7 +753,7 @@ fn markdownType(comptime T: type) []const u8 {
         if (Plain == Object or Plain == objects.Handle) return "[object](#objects)" ++ optional;
         if (values.isList(Plain)) return "list of " ++ (if (Plain.Item == Object) "[objects](#objects)" else markdownType(Plain.Item)) ++ optional;
         if (Plain == data.Data) return "plain data";
-        if (std.mem.indexOfScalar(type, gathered.enums ++ gathered.tables, Plain) != null) {
+        if (std.mem.findScalar(type, gathered.enums ++ gathered.tables, Plain) != null) {
             const name = bind.noun(Plain);
             var anchor: []const u8 = "";
             for (name) |c| anchor = anchor ++ .{std.ascii.toLower(c)};
@@ -862,13 +862,13 @@ test writeHelp {
     var buffer: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
     try std.testing.expect(try writeHelp(&buffer.writer, "openreliant.storage"));
-    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "game_section(name: string) -> Section") != null);
+    try std.testing.expect(std.mem.find(u8, buffer.written(), "game_section(name: string) -> Section") != null);
     buffer.clearRetainingCapacity();
     try std.testing.expect(try writeHelp(&buffer.writer, "on_update"));
     try std.testing.expect(std.mem.startsWith(u8, buffer.written(), "on_update(seconds: number) -> ()"));
     buffer.clearRetainingCapacity();
     try std.testing.expect(try writeHelp(&buffer.writer, "object_damage"));
-    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "e.object") != null);
+    try std.testing.expect(std.mem.find(u8, buffer.written(), "e.object") != null);
     try std.testing.expect(!try writeHelp(&buffer.writer, "no_such_thing"));
 }
 
@@ -898,6 +898,6 @@ test writeList {
     var buffer: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
     try std.testing.expect(try writeList(&buffer.writer, "object_damage"));
-    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "e.quadrant: Quadrant (\"left\", \"right\", \"fore\", \"aft\")") != null);
+    try std.testing.expect(std.mem.find(u8, buffer.written(), "e.quadrant: Quadrant (\"left\", \"right\", \"fore\", \"aft\")") != null);
     try std.testing.expect(!try writeList(&buffer.writer, "nothing"));
 }

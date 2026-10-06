@@ -290,7 +290,7 @@ fn readTable(state: *State, comptime T: type, given: i32, comptime label: []cons
     inline for (info.field_names, info.field_types, info.field_attrs) |field_name, Type, attrs| {
         if (attrs.defaultValue(Type)) |default| @field(value, field_name) = default else if (comptime !shown(field_name)) @compileError(field_name ++ " is hidden from scripts, so it needs a default");
     }
-    var named: std.StaticBitSet(fields.len) = .empty;
+    var named: std.bit_set.Static(fields.len) = .empty;
     state.pushNil();
     while (state.next(at)) {
         // The key's type is checked first, as reading a number as a string would change it.

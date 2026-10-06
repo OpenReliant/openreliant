@@ -137,7 +137,7 @@ pub const Routine = struct {
     /// Pushes constant `value`: the index of it in the routine's table, which it joins the first
     /// time, `push_constant` for an index a byte holds and `push_constant_wide` for a larger one.
     pub fn pushConstant(routine: *Routine, value: u32) Error!void {
-        const index = std.mem.indexOfScalar(u32, routine.constants.items, value) orelse index: {
+        const index = std.mem.findScalar(u32, routine.constants.items, value) orelse index: {
             try routine.constants.append(routine.gpa, value);
             break :index routine.constants.items.len - 1;
         };

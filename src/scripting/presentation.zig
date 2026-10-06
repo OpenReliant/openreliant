@@ -105,7 +105,7 @@ pub const Presentation = struct {
     /// The game's scripts while a game runs, which the scripts' events go to.
     game: ?*game_module.Game = null,
     /// The keys held, which presses and releases are told against.
-    keys: std.StaticBitSet(key_codes) = .empty,
+    keys: std.bit_set.Static(key_codes) = .empty,
     /// The actions whose controls were held last frame.
     actions: std.EnumSet(controls.Action) = .empty,
     /// The window's size last frame.

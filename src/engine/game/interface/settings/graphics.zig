@@ -282,7 +282,7 @@ fn presetWords(preset: ?Preset) []const u8 {
 /// The preset a step from `preset`'s, round from the last to the first; from CUSTOM, on to the
 /// first or back to the last.
 fn steppedPreset(preset: ?Preset, step: Step) Preset {
-    const at: ?usize = if (preset) |set| std.mem.indexOfScalar(Preset, presets, set) else null;
+    const at: ?usize = if (preset) |set| std.mem.findScalar(Preset, presets, set) else null;
     return presets[steppedIndex(at, presets.len, step)];
 }
 

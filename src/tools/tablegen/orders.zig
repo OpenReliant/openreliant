@@ -83,7 +83,7 @@ pub fn identifiers(arena: std.mem.Allocator, orders: []const Order) std.mem.Allo
             if (std.mem.eql(u8, earlier, base)) break true;
         } else false;
         identifier.* = if (taken or base.len == 0)
-            try std.fmt.allocPrint(arena, "{s}_{d}", .{ if (base.len == 0) "unnamed" else base, order.number })
+            try arena.print("{s}_{d}", .{ if (base.len == 0) "unnamed" else base, order.number })
         else
             base;
     }
@@ -363,10 +363,10 @@ test "emit writes Zig that parses" {
     defer out.deinit();
     try emit(&out.writer, table, try identifiers(arena.allocator(), &orders));
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "    player_control = 100,\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".init = null, .update = 0x00413410, .exit = null },") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "    player_control = 100,\n") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".init = null, .update = 0x00413410, .exit = null },") != null);
     // The flags by name: Player Control's are its multiplayer's sending alone.
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".name = \"Player Control\", .flags = .{ .send_flight = true },") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".name = \"Player Control\", .flags = .{ .send_flight = true },") != null);
     // The enum is open, so it names its values itself.
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "    pub fn format(order: Order, writer: *std.Io.Writer) std.Io.Writer.Error!void {\n") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "    pub fn format(order: Order, writer: *std.Io.Writer) std.Io.Writer.Error!void {\n") != null);
 }

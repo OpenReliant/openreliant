@@ -88,7 +88,7 @@ fn info(ctx: Context, cache: tcache.Cache) !void {
 fn list(ctx: Context, cache: tcache.Cache) !void {
     try ctx.stdout.writeAll("index  name                              size      levels  encoding       offset\n");
     for (cache.textures) |texture| {
-        const size = try std.fmt.allocPrint(ctx.arena, "{d}x{d}", .{ texture.width, texture.height });
+        const size = try ctx.arena.print("{d}x{d}", .{ texture.width, texture.height });
         try ctx.stdout.print("{d:>5}  {s:<32}  {s:<9}  {d:>5}  {s:<13}  {x:0>8}\n", .{
             texture.entry.image.index,
             texture.name(),
@@ -136,7 +136,7 @@ fn extract(
 pub fn savePng(ctx: Context, dir: std.Io.Dir, name: []const u8, level: tcache.Level, palette: *const tga.Palette) !void {
     const pixels = try level.rgba(ctx.arena, palette);
     defer ctx.arena.free(pixels);
-    const file_name = try std.fmt.allocPrint(ctx.arena, "{s}.png", .{name});
+    const file_name = try ctx.arena.print("{s}.png", .{name});
     const file = try dir.createFile(ctx.io, file_name, .{});
     defer file.close(ctx.io);
     var buffer: [32 * 1024]u8 = undefined;
@@ -185,13 +185,13 @@ test "extracts a texture" {
     };
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "palette.tga", .data = &palette_file });
 
-    const base = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const base = try arena.print(".zig-cache/tmp/{s}", .{tmp.sub_path});
     var out: Io.Writer.Allocating = .init(arena);
     const ctx: Context = .{ .io = std.testing.io, .arena = arena, .stdout = &out.writer };
     const command: Command = .{ .extract = .{
-        .cache = try std.fmt.allocPrint(arena, "{s}/tcachehw.dat", .{base}),
-        .palette = try std.fmt.allocPrint(arena, "{s}/palette.tga", .{base}),
-        .out_dir = try std.fmt.allocPrint(arena, "{s}/out", .{base}),
+        .cache = try arena.print("{s}/tcachehw.dat", .{base}),
+        .palette = try arena.print("{s}/palette.tga", .{base}),
+        .out_dir = try arena.print("{s}/out", .{base}),
         .names = &.{"KIEV_1"},
     } };
     try command.run(ctx);

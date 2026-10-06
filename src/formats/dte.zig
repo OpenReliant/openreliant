@@ -1593,7 +1593,7 @@ pub const Mission = struct {
 
         // Group the triggers that can fire by the block they run. Blocks shared by several
         // triggers are common.
-        var by_block: std.AutoArrayHashMapUnmanaged(usize, std.ArrayList(u16)) = .empty;
+        var by_block: std.array_hash_map.Auto(usize, std.ArrayList(u16)) = .empty;
         defer {
             for (by_block.values()) |*list| list.deinit(allocator);
             by_block.deinit(allocator);
@@ -1640,7 +1640,7 @@ pub const Mission = struct {
         const start = pool.offset + offset;
         if (start >= mission.image.len) return "";
         const rest = mission.image[start..];
-        const end = std.mem.indexOfScalar(u8, rest, 0) orelse return "";
+        const end = std.mem.findScalar(u8, rest, 0) orelse return "";
         return rest[0..end];
     }
 
@@ -1971,8 +1971,8 @@ test "Ship.componentIntact" {
 
 test "FlightGroup.Wing" {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("player", try std.fmt.bufPrint(&buffer, "{f}", .{FlightGroup.Wing.player}));
-    try std.testing.expectEqualStrings("7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(FlightGroup.Wing, @fromBackingInt(@intCast(7)))}));
+    try std.testing.expectEqualStrings("player", try std.mem.print(&buffer, "{f}", .{FlightGroup.Wing.player}));
+    try std.testing.expectEqualStrings("7", try std.mem.print(&buffer, "{f}", .{@as(FlightGroup.Wing, @fromBackingInt(@intCast(7)))}));
     try std.testing.expectEqual(.none, testing.flightGroup(0, .none).wing);
 }
 

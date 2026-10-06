@@ -491,7 +491,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // whenever a controller is connected or disconnected.
     try platform.joystick.init(.game);
     defer platform.joystick.deinit();
-    _ = platform.joystick.addMappings(try std.fs.path.joinZ(arena, &.{ game_path, platform.joystick.mappings_name }));
+    _ = platform.joystick.addMappings(try std.Io.Dir.path.joinZ(arena, &.{ game_path, platform.joystick.mappings_name }));
     var controller: ?platform.joystick.Controller = null;
     defer if (controller) |*open| open.close();
     // A screenshot reads no controls, so that it comes out the same whatever is plugged in.
@@ -738,7 +738,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // A piece of music asked for, as a mission's script plays one (`cmd_PlayMusic`): from `music\`,
     // for ever, at 80.
     if (options.music) |name| {
-        const path = try std.fmt.allocPrint(arena, "music\\{s}", .{name});
+        const path = try arena.print("music\\{s}", .{name});
         sound.playMusic(path, 0, 80, .now);
     }
     // A screenshot waits for the chase view to settle, then runs its ticks, one a frame, at least
@@ -1290,7 +1290,7 @@ fn startingView(slot: *const game.create.Slot, mode: camera.CockpitMode) camera.
 const settling_frames = 200;
 
 fn writeScreenshot(io: Io, gpa: Allocator, path: []const u8, rgba: []const u8, size: [2]u32) !void {
-    if (std.fs.path.dirname(path)) |dir| try Io.Dir.cwd().createDirPath(io, dir);
+    if (std.Io.Dir.path.dirname(path)) |dir| try Io.Dir.cwd().createDirPath(io, dir);
     const file = try Io.Dir.cwd().createFile(io, path, .{});
     defer file.close(io);
     var buffer: [64 * 1024]u8 = undefined;
@@ -2081,11 +2081,11 @@ fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const ga
     const path = game.winmain.missionPath(&path_buffer, number, second_part, false);
     if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| {
         // A mod's mission names the ship types the mod adds by the numbers its manifest gives them.
-        if (file.source == .mod) if (resources.mods.holder(std.fs.path.basenameWindows(path))) |mod| game.additions.remapMission(file.image, mod.name);
+        if (file.source == .mod) if (resources.mods.holder(std.Io.Dir.path.basenameWindows(path))) |mod| game.additions.remapMission(file.image, mod.name);
         return file.image;
     }
     if (number == mission0.number) return @embedFile("mission0.dte");
-    std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, std.fs.path.basenameWindows(path), game.bigfile.resource_name });
+    std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, std.Io.Dir.path.basenameWindows(path), game.bigfile.resource_name });
     return error.MissingMission;
 }
 

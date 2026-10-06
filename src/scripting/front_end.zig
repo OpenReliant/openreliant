@@ -42,7 +42,7 @@ pub const Pointer = struct {
 
 /// The screens that stand in for the front end's own, by the registered screen's place.
 pub const Standing = struct {
-    screens: std.AutoArrayHashMapUnmanaged(interf.Screen, usize) = .empty,
+    screens: std.array_hash_map.Auto(interf.Screen, usize) = .empty,
     /// What the screen shown has asked for, until the front end takes it.
     request: ?interf.Request = null,
     /// The movie a menu script asked for, until the driver plays it (`takeMovie`), and the buffer
@@ -100,7 +100,7 @@ fn startGameMode(call: Call, name: []const u8) bool {
     const shown = menuOf(call, "start_game_mode");
     const modes = call.runtime().options.shared.modes orelse return false;
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const qualified = if (std.mem.indexOfScalar(u8, name, ':') != null) name else call.qualified("ui.start_game_mode", name, &buffer);
+    const qualified = if (std.mem.findScalar(u8, name, ':') != null) name else call.qualified("ui.start_game_mode", name, &buffer);
     const index = modes.find(qualified) orelse return false;
     shown.standing.request = .{ .game_mode = @intCast(index) };
     return true;

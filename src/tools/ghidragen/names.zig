@@ -155,10 +155,10 @@ test write {
     var w: Io.Writer = .fixed(&buffer);
     try write(&w);
     const rows = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tfunction\tvm_return\tVmHandler\topcode 0x43, also 0x25\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "vm_return_alt") == null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "0045d210\tfunction\tcmd_CreateTimer\tVmCommand\t") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "004588e0\tfunction\tcmd_ClearAI_ship\tVmShipCommand\t") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tfunction\tvm_return\tVmHandler\topcode 0x43, also 0x25\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "vm_return_alt") == null);
+    try std.testing.expect(std.mem.find(u8, rows, "0045d210\tfunction\tcmd_CreateTimer\tVmCommand\t") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "004588e0\tfunction\tcmd_ClearAI_ship\tVmShipCommand\t") != null);
 }
 
 test maneuverHandlers {
@@ -167,14 +167,14 @@ test maneuverHandlers {
     try maneuverTables(&w);
     try maneuverHandlers(&w);
     const rows = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tdata\tmaneuvers\tManeuverRecord[") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tdata\tmaneuver_script_loop_the_loop\tManeuverScriptLine[") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tfunction\tmaneuver_set_yaw_start\tManeuverHandler\t") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tdata\tmaneuvers\tManeuverRecord[") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tdata\tmaneuver_script_loop_the_loop\tManeuverScriptLine[") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tfunction\tmaneuver_set_yaw_start\tManeuverHandler\t") != null);
     // The timer that several waiting instructions start with is not named after any one of them.
     const timer = maneuvers.handlers.get(.wait).start.?;
     var address: [8]u8 = undefined;
-    _ = try std.fmt.bufPrint(&address, "{x:0>8}", .{timer});
-    try std.testing.expect(std.mem.indexOf(u8, rows, &address) == null);
+    _ = try std.mem.print(&address, "{x:0>8}", .{timer});
+    try std.testing.expect(std.mem.find(u8, rows, &address) == null);
 }
 
 test orderRoutines {
@@ -183,11 +183,11 @@ test orderRoutines {
     try orderGroups(&w);
     try orderRoutines(&w);
     const rows = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tdata\torders_100\tOrderRecord[") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tfunction\torder_fly_aimlessly_init\tObjectRoutine\tThe init of order 1, Fly Aimlessly\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tdata\torders_100\tOrderRecord[") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tfunction\torder_fly_aimlessly_init\tObjectRoutine\tThe init of order 1, Fly Aimlessly\n") != null);
     // Orders 19 and 40 are both Jump In and share their routines, which take the first's name.
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\torder_jump_in\tObjectRoutine\tThe update of order 19, Jump In, and of order 40\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "order_jump_in_40") == null);
+    try std.testing.expect(std.mem.find(u8, rows, "\torder_jump_in\tObjectRoutine\tThe update of order 19, Jump In, and of order 40\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "order_jump_in_40") == null);
     // The empty routine that differently named orders share gets no order's name.
-    try std.testing.expect(std.mem.indexOf(u8, rows, "004983a0") == null);
+    try std.testing.expect(std.mem.find(u8, rows, "004983a0") == null);
 }

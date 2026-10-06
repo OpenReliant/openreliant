@@ -73,7 +73,7 @@ pub const Command = struct {
                     if (command.nebula >= nebula.nebulae.len) return error.Usage;
                 },
                 .@"--size" => {
-                    const x = std.mem.indexOfScalar(u8, value, 'x') orelse return error.Usage;
+                    const x = std.mem.findScalar(u8, value, 'x') orelse return error.Usage;
                     command.width = std.fmt.parseInt(u32, value[0..x], 10) catch return error.Usage;
                     command.height = std.fmt.parseInt(u32, value[x + 1 ..], 10) catch return error.Usage;
                     if (command.width == 0 or command.height == 0 or command.width > max_side or command.height > max_side) return error.Usage;
@@ -169,7 +169,7 @@ fn draw(ctx: Context, command: Command) !void {
         try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), null);
     }
 
-    if (std.fs.path.dirname(command.out)) |dir| try Io.Dir.cwd().createDirPath(ctx.io, dir);
+    if (std.Io.Dir.path.dirname(command.out)) |dir| try Io.Dir.cwd().createDirPath(ctx.io, dir);
     const file = try Io.Dir.cwd().createFile(ctx.io, command.out, .{});
     defer file.close(ctx.io);
     var buffer: [64 * 1024]u8 = undefined;

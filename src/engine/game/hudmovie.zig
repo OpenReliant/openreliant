@@ -82,7 +82,7 @@ pub fn squadronFilm(name: []const u8, mission: u16) []const u8 {
 /// The member of `pilots.hog` a film's path names: the name from its last backslash on
 /// (`hudmovie_play`, `0x0048D2CA`).
 pub fn memberName(path: []const u8) []const u8 {
-    const at = std.mem.lastIndexOfScalar(u8, path, '\\') orelse return path;
+    const at = std.mem.findScalarLast(u8, path, '\\') orelse return path;
     return path[at + 1 ..];
 }
 

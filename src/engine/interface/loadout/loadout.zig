@@ -1500,7 +1500,7 @@ pub const Loadout = struct {
         loadout.spin_start = loadout.now;
         loadout.interface.busy = false;
         loadout.fitTierDefault() catch |err| log.warn("the ship's missiles are left off: {s}", .{@errorName(err)});
-        const waiting = loadout.interface.stack.getLastOrNull() orelse return;
+        const waiting = loadout.interface.stack.last() orelse return;
         if (waiting.function == &stackGunsView) loadout.interface.runDeferred();
     }
 
@@ -2152,7 +2152,7 @@ pub const Loadout = struct {
 
     /// Where `missile` is in `known`, and in the slices beside it.
     fn missilePlace(loadout: *const Loadout, missile: tables.Missile) usize {
-        return std.mem.indexOfScalar(tables.Missile, loadout.known, missile).?;
+        return std.mem.findScalar(tables.Missile, loadout.known, missile).?;
     }
 
     /// The missile the icon `object` stands for.
@@ -2251,7 +2251,7 @@ pub const Loadout = struct {
         const lift = icon.model.centre * @as(Vector, @splat(scale));
         const at = hologram.hardpointPlace(ship.model.parts[hardpoint.part].drawn(), hardpoint.attachment, lift, scale);
         loadout.attaching += 1;
-        const slot = std.mem.indexOfScalar(?*Flight, &loadout.flights, null) orelse return null;
+        const slot = std.mem.findScalar(?*Flight, &loadout.flights, null) orelse return null;
         const flight = try loadout.makeFlight(missile);
         loadout.flights[slot] = flight;
         try anims.attachMissile(&flight.attach, &loadout.interface, &icon.object, &flight.object, at, attachEnded);
@@ -2756,7 +2756,7 @@ test squareMesh {
     try std.testing.expectEqualSlices(u16, &.{ 3, 2, 0, 2, 1, 0 }, mesh.indices);
     try std.testing.expectEqual([2]f32{ square_span, 0 }, mesh.uv[0].?[4]);
     for (mesh.uv[0].?[0..6], 0..) |pair, corner| {
-        const spans = std.mem.indexOfScalar(usize, &square_span_corners, corner) != null;
+        const spans = std.mem.findScalar(usize, &square_span_corners, corner) != null;
         try std.testing.expectEqual(if (spans) square_span else 0, pair[0]);
     }
     // Spanned whole, those reach the texture's far edge.

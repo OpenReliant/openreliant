@@ -75,7 +75,7 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
 
     try joystick.init(.tool);
     defer joystick.deinit();
-    const mappings = joystick.addMappings(try std.fs.path.joinZ(arena, &.{ game_path, joystick.mappings_name }));
+    const mappings = joystick.addMappings(try std.Io.Dir.path.joinZ(arena, &.{ game_path, joystick.mappings_name }));
     if (mappings > 0) try out.print("Read {d} gamepad {s} from {s}.\n", .{ mappings, if (mappings == 1) "mapping" else "mappings", joystick.mappings_name });
     joystick.update();
     const found = try joystick.attached(arena);
@@ -164,7 +164,7 @@ const line_width = 79;
 fn redraw(out: *Io.Writer, view: []const u8, drawn: usize) Io.Writer.Error!void {
     if (drawn > 0) try out.print(cursor_up, .{drawn});
     var rest = view;
-    while (std.mem.indexOfScalar(u8, rest, '\n')) |end| {
+    while (std.mem.findScalar(u8, rest, '\n')) |end| {
         try out.print("{s}" ++ erase_line ++ "\n", .{rest[0..@min(end, line_width)]});
         rest = rest[end + 1 ..];
     }
@@ -188,7 +188,7 @@ fn writeView(out: *Io.Writer, read: input.Joystick, readings: []const i16, layou
 /// every controller setting is left to the automatic choice.
 fn writeSettingsSource(out: *Io.Writer, directory: []const u8, settings_file: Profile) !void {
     if (settings_file.text.len > 0) {
-        try out.print("Settings from {s}{c}{s}.\n", .{ directory, std.fs.path.sep, settings_name });
+        try out.print("Settings from {s}{c}{s}.\n", .{ directory, std.Io.Dir.path.sep, settings_name });
         return;
     }
     if (std.mem.eql(u8, directory, ".")) {
@@ -362,12 +362,12 @@ test writeSettingsSource {
     var buffer: [512]u8 = undefined;
     var out: Io.Writer = .fixed(&buffer);
     try writeSettingsSource(&out, "StarLancer", .{ .text = "[JoyConfig]\r\nJoystick=SideWinder\r\n" });
-    try std.testing.expectEqualStrings("Settings from StarLancer" ++ [1]u8{std.fs.path.sep} ++ "starlancer.ini.\n", out.buffered());
+    try std.testing.expectEqualStrings("Settings from StarLancer" ++ [1]u8{std.Io.Dir.path.sep} ++ "starlancer.ini.\n", out.buffered());
     // Without the file, it says how to name the game's folder.
     out = .fixed(&buffer);
     try writeSettingsSource(&out, ".", .empty);
     try std.testing.expect(std.mem.startsWith(u8, out.buffered(), "No starlancer.ini in the current folder"));
-    try std.testing.expect(std.mem.indexOf(u8, out.buffered(), "openreliant joysticks <game folder>") != null);
+    try std.testing.expect(std.mem.find(u8, out.buffered(), "openreliant joysticks <game folder>") != null);
 }
 
 test Options {

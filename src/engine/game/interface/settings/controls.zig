@@ -678,7 +678,7 @@ fn joystickLabel(buffer: []u8, joystick: *const input.Joystick, strings: *const 
     var kept = name.len;
     while (true) : (kept -= 1) {
         const cut = if (kept < name.len) "..." else "";
-        const shown = std.fmt.bufPrint(buffer, "{s} ({s}{s})", .{ label, name[0..kept], cut }) catch return label;
+        const shown = std.mem.print(buffer, "{s} ({s}{s})", .{ label, name[0..kept], cut }) catch return label;
         if (kept == 0 or font.textWidth(shown) <= Controller.room) return shown;
     }
 }

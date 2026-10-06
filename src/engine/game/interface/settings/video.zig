@@ -202,7 +202,7 @@ fn steppedSize(display: Display, step: Step) FrameSize {
         }
     }
     const at: ?usize = switch (display.chosen.size) {
-        .share => |share| std.mem.indexOfScalar(u8, offered[0..count], share),
+        .share => |share| std.mem.findScalar(u8, offered[0..count], share),
         .pixels => null,
     };
     return .{ .share = offered[steppedIndex(at, count, step)] };
@@ -214,9 +214,9 @@ fn sizeText(display: Display, buffer: []u8) []const u8 {
     const pixels = display.chosen.size.of(display.told.window);
     const native = std.meta.eql(display.chosen.size, FrameSize.window);
     const written = if (native)
-        std.fmt.bufPrint(buffer, "NATIVE ({d}x{d})", .{ pixels[0], pixels[1] })
+        std.mem.print(buffer, "NATIVE ({d}x{d})", .{ pixels[0], pixels[1] })
     else
-        std.fmt.bufPrint(buffer, "{d}x{d}", .{ pixels[0], pixels[1] });
+        std.mem.print(buffer, "{d}x{d}", .{ pixels[0], pixels[1] });
     return written catch "";
 }
 
@@ -235,10 +235,10 @@ fn steppedRate(rate: ?f32, step: Step) ?f32 {
 fn rateText(rate: ?f32, refresh_rate: ?f32, buffer: []u8) []const u8 {
     const limit = rate orelse {
         const display_rate = refresh_rate orelse return "DISPLAY";
-        return std.fmt.bufPrint(buffer, "DISPLAY ({d})", .{hud.round(display_rate)}) catch "DISPLAY";
+        return std.mem.print(buffer, "DISPLAY ({d})", .{hud.round(display_rate)}) catch "DISPLAY";
     };
     if (limit == 0) return "NONE";
-    return std.fmt.bufPrint(buffer, "{d}", .{hud.round(limit)}) catch "";
+    return std.mem.print(buffer, "{d}", .{hud.round(limit)}) catch "";
 }
 
 /// What the pointer finds on the tab.

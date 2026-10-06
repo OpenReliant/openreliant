@@ -121,7 +121,7 @@ const Schedule = struct {
         for (excitation, out, 0..) |value, *sample, i| {
             var sum = value;
             for (schedule.at(start + i), memory) |weight, before| sum += weight * before;
-            std.mem.copyBackwards(f32, memory[1..], memory[0 .. voice.order - 1]);
+            @memmove(memory[1..], memory[0 .. voice.order - 1]);
             memory[0] = sum;
             sample.* = sum;
         }

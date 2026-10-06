@@ -269,7 +269,7 @@ pub const story_end = 29;
 
 /// The pilot's ribbons, ribbon 1 first: one for each chapter of the story the pilot has come
 /// through (`pilot_ribbons`).
-pub const Ribbons = std.StaticBitSet(save.ribbons);
+pub const Ribbons = std.bit_set.Static(save.ribbons);
 
 /// The ribbon mission `mission` awards as it ends, for the chapter it ends (`ribbon_of_mission`,
 /// `0x0050099F`): missions 7, 11, 19, 21 and 25 award ribbons 1 to 5.

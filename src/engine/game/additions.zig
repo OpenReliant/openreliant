@@ -119,7 +119,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
 
             /// Its name without the mod's, which can't hold a colon (`parse`).
             pub fn own(added: Added) []const u8 {
-                return added.name[std.mem.lastIndexOfScalar(u8, added.name, ':').? + 1 ..];
+                return added.name[std.mem.findScalarLast(u8, added.name, ':').? + 1 ..];
             }
         };
 
@@ -183,7 +183,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             if (spec.baseOf(text)) |base| return spec.baseNumber(base);
             if (find(text)) |number| return number;
             var buffer: [256]u8 = undefined;
-            const qualified = std.fmt.bufPrint(&buffer, "{s}:{s}", .{ mod, text }) catch return null;
+            const qualified = std.mem.print(&buffer, "{s}:{s}", .{ mod, text }) catch return null;
             return find(qualified);
         }
 
@@ -212,16 +212,16 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
         fn parse(context: Context, earlier: []const Added) Allocator.Error!?Added {
             const manifest = context.mod.manifest;
             const own = context.own;
-            if (own.len == 0 or std.mem.indexOfAny(u8, own, ": ") != null) {
+            if (own.len == 0 or std.mem.findAny(u8, own, ": ") != null) {
                 context.warn(spec.noun, "needs a name without spaces or colons", .{});
                 return null;
             }
-            const name = try std.fmt.allocPrint(context.arena, "{s}:{s}", .{ context.mod.qualifier(), own });
+            const name = try context.arena.print("{s}:{s}", .{ context.mod.qualifier(), own });
             for (earlier) |each| if (std.ascii.eqlIgnoreCase(each.name, name)) {
                 context.warn(spec.noun, "is listed twice", .{});
                 return null;
             };
-            const section = try std.fmt.allocPrint(context.arena, "{s}{s}", .{ spec.item_section, own });
+            const section = try context.arena.print("{s}{s}", .{ spec.item_section, own });
             const base_text = manifest.value(section, "Base");
             const base = if (base_text) |text| spec.baseOf(text) orelse {
                 context.warn(spec.noun, "has the base '{s}', which isn't one of the game's", .{text});
@@ -333,8 +333,8 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
     };
     var made: ShipExtra = .{ .model = try context.arena.dupe(u8, model) };
     if (manifest.value(section, "Cockpit")) |text| made.cockpit = try context.arena.dupe(u8, text);
-    if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, std.fs.path.stem(text));
-    if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, std.fs.path.stem(text));
+    if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, std.Io.Dir.path.stem(text));
+    if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, std.Io.Dir.path.stem(text));
     if (manifest.value(section, "EngineSound")) |name| made.engine_sound = try readSound(context, "ship type", name) orelse return null;
     if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "ship type", text) orelse return null;
     if (manifest.value(section, "BlindFire")) |text| made.blind_fire = readSwitch(context, "BlindFire", text) orelse return null;
@@ -465,9 +465,9 @@ fn readGun(context: Context, section: []const u8, _: guns_module.GameGun) Alloca
     const manifest = context.mod.manifest;
     var made: GunExtra = .{};
     // A picture is found by its texture's name, as the mods' pictures are (`srtexture.Files`).
-    if (manifest.value(section, "Shot")) |name| made.shot = try context.arena.dupe(u8, std.fs.path.stem(name));
+    if (manifest.value(section, "Shot")) |name| made.shot = try context.arena.dupe(u8, std.Io.Dir.path.stem(name));
     if (manifest.value(section, "ShotSize")) |text| made.shot_size = readSize(context, "shot", text) orelse return null;
-    if (manifest.value(section, "Flash")) |name| made.flash = try context.arena.dupe(u8, std.fs.path.stem(name));
+    if (manifest.value(section, "Flash")) |name| made.flash = try context.arena.dupe(u8, std.Io.Dir.path.stem(name));
     if (manifest.value(section, "FlashSize")) |text| made.flash_size = readSize(context, "flash", text) orelse return null;
     if (manifest.value(section, "Sound")) |name| made.sound = try readSound(context, "gun", name) orelse return null;
     return made;
@@ -563,7 +563,7 @@ fn readPilot(context: Context, section: []const u8, base: u8) Allocator.Error!?P
     for (film_keys) |entry| {
         const key, const head = entry;
         const film = manifest.value(section, key) orelse continue;
-        face.films[@backingInt(head)] = try context.arena.dupe(u8, std.fs.path.stem(film));
+        face.films[@backingInt(head)] = try context.arena.dupe(u8, std.Io.Dir.path.stem(film));
     }
     if (manifest.value(section, "Voice")) |voice| face.own_voice = try context.arena.dupe(u8, std.mem.trim(u8, voice, " \t"));
     return .{ .face = face };

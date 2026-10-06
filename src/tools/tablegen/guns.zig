@@ -67,7 +67,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
 /// that last check: the executable holds 20 for most types and 3 for the last four.
 fn parse(record: guns.Gun, period: i32, atlas: [2]i32, empty: bool) Error!Static {
     if (empty) {
-        if (std.mem.indexOfNone(u8, std.mem.asBytes(&record), &.{0}) != null) return error.NotZero;
+        if (std.mem.findNone(u8, std.mem.asBytes(&record), &.{0}) != null) return error.NotZero;
         if (period != 0) return error.NotZero;
     } else {
         if (record.kind != .energy and record.kind != .rounds) return error.NotKind;

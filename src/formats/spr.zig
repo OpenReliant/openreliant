@@ -300,8 +300,8 @@ pub fn expandLevel(level: u8) u8 {
 /// the mod pictures that replace shapes: the set's name without its folder or extension, `_`, the
 /// index with at least three digits, and the PNG extension.
 pub fn pictureName(buffer: []u8, set_name: []const u8, index: usize) error{NoSpaceLeft}![]u8 {
-    const stem = std.fs.path.stem(std.fs.path.basenameWindows(set_name));
-    return std.fmt.bufPrint(buffer, "{s}_{d:0>3}" ++ png.extension, .{ stem, index });
+    const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basenameWindows(set_name));
+    return std.mem.print(buffer, "{s}_{d:0>3}" ++ png.extension, .{ stem, index });
 }
 
 test pictureName {

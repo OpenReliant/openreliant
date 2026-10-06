@@ -132,7 +132,7 @@ fn keptTimer(side: Kept, timer: running.Timer) bool {
 /// logged, and what's left of it goes unread.
 pub fn restore(gpa: Allocator, bytes: []const u8, game: ?*Game, shown: ?*Presentation, storage: ?*Storage) Allocator.Error!void {
     const sides = Kept.of(game, shown);
-    var loaded: [sides.len]std.DynamicBitSetUnmanaged = undefined;
+    var loaded: [sides.len]std.bit_set.Dynamic = undefined;
     for (&loaded, sides, 0..) |*set, maybe, at| {
         errdefer for (loaded[0..at]) |*made| made.deinit(gpa);
         set.* = try .initEmpty(gpa, if (maybe) |side| side.list.items.len else 0);
@@ -154,7 +154,7 @@ pub fn restore(gpa: Allocator, bytes: []const u8, game: ?*Game, shown: ?*Present
     }
 }
 
-fn read(r: *Io.Reader, gpa: Allocator, sides: [2]?Kept, loaded: *[2]std.DynamicBitSetUnmanaged, storage: ?*Storage) stored.DecodeError!void {
+fn read(r: *Io.Reader, gpa: Allocator, sides: [2]?Kept, loaded: *[2]std.bit_set.Dynamic, storage: ?*Storage) stored.DecodeError!void {
     const start = r.take(magic.len) catch return error.Damaged;
     if (!std.mem.eql(u8, start, magic)) return error.Damaged;
     if ((r.takeInt(u16, .little) catch return error.Damaged) != version) return error.Damaged;

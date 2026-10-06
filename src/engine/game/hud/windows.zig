@@ -423,7 +423,7 @@ pub const Canvas = struct {
     /// `args` written out in `font` as `format` says.
     pub fn printIn(canvas: Canvas, font: *hud.Opened, comptime format: []const u8, args: anytype, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
         var buffer: [32]u8 = undefined;
-        try canvas.textIn(font, std.fmt.bufPrint(&buffer, format, args) catch return, at, alignment);
+        try canvas.textIn(font, std.mem.print(&buffer, format, args) catch return, at, alignment);
     }
 
     /// `hud_text_wrapped` (`0x00480FD0`): `words` broken into lines at most `width` of the display's

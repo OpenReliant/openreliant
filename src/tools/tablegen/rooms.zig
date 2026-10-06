@@ -21,7 +21,7 @@ pub const Error = image.Error || error{TooManyViews};
 
 /// The views, walked from `entries`.
 pub fn read(arena: std.mem.Allocator, reader: image.Reader, entries: []const u32) (Error || std.mem.Allocator.Error)![]const View {
-    var records: std.AutoArrayHashMapUnmanaged(u32, View.Record) = .empty;
+    var records: std.array_hash_map.Auto(u32, View.Record) = .empty;
     var pending: std.ArrayList(u32) = .empty;
     try pending.appendSlice(arena, entries);
     while (pending.pop()) |address| {
@@ -40,7 +40,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader, entries: []const u32
         var exits: std.ArrayList(u8) = .empty;
         for (exitsOf(record)) |exit| {
             if (exit == .null) continue;
-            try exits.append(arena, @intCast(std.mem.indexOfScalar(u32, addresses, @backingInt(exit)).?));
+            try exits.append(arena, @intCast(std.mem.findScalar(u32, addresses, @backingInt(exit)).?));
         }
         view.* = .{
             .address = address,

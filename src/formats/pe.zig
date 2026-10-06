@@ -322,7 +322,7 @@ pub const Image = struct {
     pub fn stringAt(image: Image, rva: u32) ?[]const u8 {
         const offset = image.fileOffset(rva) orelse return null;
         const rest = image.bytes[offset..];
-        const end = std.mem.indexOfScalar(u8, rest, 0) orelse return null;
+        const end = std.mem.findScalar(u8, rest, 0) orelse return null;
         return rest[0..end];
     }
 

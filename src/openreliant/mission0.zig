@@ -293,7 +293,7 @@ fn addString(gpa: Allocator, strings: *std.ArrayList(u8), text: []const u8) !u16
 const made = [_]Group{ .reliant, .alpha, .badanov, .sabres, .rocks };
 
 comptime {
-    for (std.enums.values(Group)) |group| std.debug.assert(std.mem.indexOfScalar(Group, &made, group) != null);
+    for (std.enums.values(Group)) |group| std.debug.assert(std.mem.findScalar(Group, &made, group) != null);
 }
 
 /// The start part: every flight group made, the ejected pilot's odds each as likely, the rocks
@@ -484,7 +484,7 @@ test "the rocks lie beyond the action's sphere, apart" {
         }
     }
     // Every one of the seven asteroids is among them.
-    var seen = std.StaticBitSet(7).empty;
+    var seen = std.bit_set.Static(7).empty;
     for (placed) |rock| seen.set(rock.kind.number() - Type.asteroid(0).number());
     try std.testing.expectEqual(7, seen.count());
 }

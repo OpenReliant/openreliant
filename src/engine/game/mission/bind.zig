@@ -350,7 +350,7 @@ pub const Mission = struct {
         const image = mission.image;
         if (at >= image.len) return error.OutsideImage;
         const rest = image[at..];
-        return rest[0 .. std.mem.indexOfScalar(u8, rest, 0) orelse return error.OutsideImage];
+        return rest[0 .. std.mem.findScalar(u8, rest, 0) orelse return error.OutsideImage];
     }
 
     /// The members of squad `squad`, reached `depth` squads down a walk, as `squad_walk`
@@ -776,7 +776,7 @@ test read {
     resources.mods = &mods;
     for ([_][]const u8{ "mod one", "archive two", "mod three" }, [_]Source{ .mod, .archive, .mod }, 1..) |image, source, number| {
         var buffer: [32]u8 = undefined;
-        const path = try std.fmt.bufPrint(&buffer, ".\\missions\\mission{d}.dte", .{number});
+        const path = try std.mem.print(&buffer, ".\\missions\\mission{d}.dte", .{number});
         const file = (try read(io, gpa, tmp.dir, &resources, path)).?;
         defer gpa.free(file.image);
         try std.testing.expectEqualStrings(image, file.image);

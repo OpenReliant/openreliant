@@ -41,7 +41,7 @@ pub const Table = enum {
 
     /// Recognises a table by its file name, ignoring case and any directory.
     pub fn fromPath(path: []const u8) ?Table {
-        const base = std.fs.path.basename(path);
+        const base = std.Io.Dir.path.basename(path);
         inline for (comptime std.enums.values(Table)) |table| {
             if (std.ascii.eqlIgnoreCase(base, table.fileName())) return table;
         }

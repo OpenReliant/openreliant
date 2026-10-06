@@ -71,6 +71,6 @@ test read {
     var out: Io.Writer.Allocating = .init(allocator);
     defer out.deinit();
     try emit(&out.writer, pool);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".{ .pilot = 119, .status = .free },") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".{ .pilot = 119, .status = .free },") != null);
     try testing.expectZig(out.written());
 }

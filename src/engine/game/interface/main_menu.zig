@@ -312,7 +312,7 @@ pub const MainMenu = struct {
         try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
         if (menu.developer) if (developer_font) |font| {
             var buffer: [16]u8 = undefined;
-            const number = std.fmt.bufPrint(&buffer, "M{d}", .{menu.mission}) catch return;
+            const number = std.mem.print(&buffer, "M{d}", .{menu.mission}) catch return;
             try canvas.text(font, developer_text_at, number, canvas_module.red, .left);
         };
     }

@@ -382,7 +382,7 @@ fn structRows(comptime T: type, comptime name: []const u8, comptime info: std.la
             else => null,
         };
         if (bytes != null and std.mem.startsWith(u8, field_name, "_unknown")) continue;
-        const field_type = if (bytes != null and std.mem.indexOf(u8, field_name, "name") != null)
+        const field_type = if (bytes != null and std.mem.find(u8, field_name, "name") != null)
             std.fmt.comptimePrint("char[{d}]", .{bytes.?})
         else
             typeString(Field);
@@ -450,15 +450,15 @@ test typeString {
 
 test structRows {
     const rows = comptime Definition(engine.game.objects.Node);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "_unknown_14") == null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "field\tModelNode\t164\tpart\tShpPart *\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, comptime Definition(shp.Part), "\tname_bytes\tchar[64]\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "_unknown_14") == null);
+    try std.testing.expect(std.mem.find(u8, rows, "field\tModelNode\t164\tpart\tShpPart *\n") != null);
+    try std.testing.expect(std.mem.find(u8, comptime Definition(shp.Part), "\tname_bytes\tchar[64]\n") != null);
 }
 
 test schema {
-    try std.testing.expect(std.mem.indexOf(u8, schema, "struct\tVmThread\t184\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "field\tVmThread\t173\tcall_depth\tbyte\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "bits\tMissionPartFlags\t0\t1\t0\t1\tstart\tbyte\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "value\tTriggerRepeat\tcounted\t2\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "member\tVmFunctionEntry\timplementation\tVmCommand *\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "struct\tVmThread\t184\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "field\tVmThread\t173\tcall_depth\tbyte\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "bits\tMissionPartFlags\t0\t1\t0\t1\tstart\tbyte\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "value\tTriggerRepeat\tcounted\t2\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "member\tVmFunctionEntry\timplementation\tVmCommand *\n") != null);
 }

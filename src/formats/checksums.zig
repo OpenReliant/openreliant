@@ -53,7 +53,7 @@ pub fn digestOf(text: []const u8, name: []const u8) ParseError!?Digest {
     var lines = std.mem.tokenizeAny(u8, text, "\r\n");
     while (lines.next()) |line| {
         const entry = try parseLine(line);
-        if (std.ascii.eqlIgnoreCase(std.fs.path.basenameWindows(entry.name), name)) return entry.digest;
+        if (std.ascii.eqlIgnoreCase(std.Io.Dir.path.basenameWindows(entry.name), name)) return entry.digest;
         only = entry.digest;
         count += 1;
     }

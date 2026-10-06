@@ -131,7 +131,7 @@ pub const About = struct {
         const small = canvas.fonts.small;
         var buffer: [192]u8 = undefined;
         const ours = if (canvas.version) |version|
-            std.fmt.bufPrint(&buffer, "OpenReliant {s}. {s}", .{ version, openreliant }) catch openreliant
+            std.mem.print(&buffer, "OpenReliant {s}. {s}", .{ version, openreliant }) catch openreliant
         else
             "OpenReliant. " ++ openreliant;
         const theirs = canvas.strings.string(notice) orelse "";

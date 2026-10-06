@@ -76,7 +76,7 @@ pub const Racks = struct {
 };
 
 /// The missiles the loadout shows the icons of, by `tables.Missile`.
-pub const Offered = std.StaticBitSet(tables.max_missiles);
+pub const Offered = std.bit_set.Static(tables.max_missiles);
 
 /// How many of each missile, by `tables.Missile`, are on the ship or flying to it.
 pub const Carried = [tables.max_missiles]u16;

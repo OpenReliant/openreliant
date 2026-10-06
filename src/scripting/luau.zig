@@ -405,7 +405,7 @@ pub const State = opaque {
     /// returns. Messages longer than `max_message` are cut off.
     pub fn raise(state: *State, comptime format: []const u8, arguments: anytype) noreturn {
         var buffer: [max_message]u8 = undefined;
-        const message = std.fmt.bufPrint(&buffer, format, arguments) catch buffer[0..];
+        const message = std.mem.print(&buffer, format, arguments) catch buffer[0..];
         c.luaL_where(state.raw(), 1);
         state.pushString(message);
         c.lua_concat(state.raw(), 2);
@@ -595,7 +595,7 @@ test "the sandbox makes the standard libraries read-only" {
     defer changing.free();
     try std.testing.expectEqual(Status.ok, thread.load("=changing", changing.bytes));
     try std.testing.expectEqual(Status.runtime_error, thread.protectedCall(0, 0));
-    try std.testing.expect(std.mem.indexOf(u8, thread.toString(-1).?, "readonly") != null);
+    try std.testing.expect(std.mem.find(u8, thread.toString(-1).?, "readonly") != null);
 }
 
 pub const testing = struct {

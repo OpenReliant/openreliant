@@ -640,8 +640,8 @@ test "Environment.setEffect" {
 
 test Effect {
     var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("Ice Field", try std.fmt.bufPrint(&buffer, "{f}", .{Effect.ice_field}));
-    try std.testing.expectEqualStrings("effect 5", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Effect, @fromBackingInt(@intCast(5)))}));
+    try std.testing.expectEqualStrings("Ice Field", try std.mem.print(&buffer, "{f}", .{Effect.ice_field}));
+    try std.testing.expectEqualStrings("effect 5", try std.mem.print(&buffer, "{f}", .{@as(Effect, @fromBackingInt(@intCast(5)))}));
 }
 
 test IceField {

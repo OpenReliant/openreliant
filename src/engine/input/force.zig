@@ -129,7 +129,7 @@ pub fn load(io: Io, arena: Allocator, directory: Io.Dir, mods: *const bigfile.Mo
     var found: Found = .{};
     for (std.enums.values(Effect)) |effect| {
         var path: [files.max_path]u8 = undefined;
-        const name = std.fmt.bufPrint(&path, folder ++ "{s}", .{effect.fileName()}) catch continue;
+        const name = std.mem.print(&path, folder ++ "{s}", .{effect.fileName()}) catch continue;
         const bytes = (mods.readLoose(io, arena, directory, name, .limited(files.max_file_size)) catch continue) orelse continue;
         const file = frc.File.parse(arena, bytes) catch continue;
         found.library.files.set(effect, file);

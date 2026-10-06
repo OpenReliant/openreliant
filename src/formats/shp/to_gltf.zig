@@ -147,7 +147,7 @@ const BufferView = struct {
 };
 
 comptime {
-    std.debug.assert(builtin.cpu.arch.endian() == .little);
+    std.debug.assert(builtin.target.cpu.arch.endian() == .little);
 }
 
 /// glTF's number for a buffer of vertex attributes.
@@ -189,7 +189,7 @@ const Making = struct {
             .translation = vector(data.part.position.sub(from).toYUp()),
             .mesh = if (data.meshes.len > 0) try made.mesh(data, data.meshes[@min(lod, data.meshes.len - 1)]) else null,
             .extras = .{
-                .class = try std.fmt.allocPrint(arena, "{f}", .{data.part.class}),
+                .class = try arena.print("{f}", .{data.part.class}),
                 .component = flags.component,
                 .targetable = flags.targetable,
                 .component_armor = data.part.component_armor,
@@ -209,7 +209,7 @@ const Making = struct {
         var primitives: std.ArrayList(Primitive) = .empty;
         var seen: std.ArrayList(u32) = .empty;
         for (level.faces) |face| {
-            if (!drawn(face) or std.mem.indexOfScalar(u32, seen.items, face.material) != null) continue;
+            if (!drawn(face) or std.mem.findScalar(u32, seen.items, face.material) != null) continue;
             try seen.append(arena, face.material);
             const name = if (face.material < level.materials.len) level.materials[face.material].name() else "";
             try primitives.append(arena, try made.primitive(level, face.material, try made.material(name)));
@@ -274,7 +274,7 @@ const Making = struct {
         for (made.materials.items, 0..) |held, at| {
             if (std.mem.eql(u8, held.name, shown)) return @intCast(at);
         }
-        try made.images.append(made.arena, .{ .uri = try std.fmt.allocPrint(made.arena, "{s}.png", .{shown}) });
+        try made.images.append(made.arena, .{ .uri = try made.arena.print("{s}.png", .{shown}) });
         try made.textures.append(made.arena, .{ .source = @intCast(made.images.items.len - 1) });
         try made.materials.append(made.arena, .{
             .name = shown,
@@ -341,10 +341,10 @@ const least_length = 1e-6;
 /// The node name of `attachment`, as `from-gltf` reads it (`from_obj.Role`).
 fn attachmentName(arena: Allocator, attachment: shp.Attachment) Allocator.Error![]const u8 {
     return switch (attachment.kind) {
-        .gun_muzzle => std.fmt.allocPrint(arena, "gun_muzzle:{d}", .{attachment.gun_type}),
-        inline .missile, .engine_glow, .light, .gun, .pod => |kind| std.fmt.allocPrint(arena, @tagName(kind) ++ ":{d}", .{attachment.id}),
+        .gun_muzzle => arena.print("gun_muzzle:{d}", .{attachment.gun_type}),
+        inline .missile, .engine_glow, .light, .gun, .pod => |kind| arena.print(@tagName(kind) ++ ":{d}", .{attachment.id}),
         inline .eject_point, .launch_point, .dock_point, .case_ejector => |kind| @tagName(kind),
-        _ => std.fmt.allocPrint(arena, "attachment:{d}", .{@backingInt(attachment.kind)}),
+        _ => arena.print("attachment:{d}", .{@backingInt(attachment.kind)}),
     };
 }
 
@@ -470,7 +470,7 @@ test write {
     try std.testing.expectEqual(2, back.objects[2].triangles.len);
     // Each corner keeps its normal, the body's too, after the eject point's marker.
     try std.testing.expectEqual(back.positions.len, back.normals.len);
-    try std.testing.expect(std.mem.indexOf(u8, written.json, "\"yank_1.png\"") != null);
+    try std.testing.expect(std.mem.find(u8, written.json, "\"yank_1.png\"") != null);
     try std.testing.expectEqualStrings("yank_1", written.materials[0]);
     // Built again, the model has its body and its attachments back.
     const again = try shp.from_obj.build(arena, back, .{});

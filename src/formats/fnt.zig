@@ -24,8 +24,8 @@ pub const outline_extensions = [_][]const u8{ ".ttf", ".otf" };
 /// The name of the outline font that stands in for the font `name`, with `outline_extension`: the
 /// font's name without its folder or extension, and `outline_extension`.
 pub fn outlineName(buffer: []u8, name: []const u8, outline_extension: []const u8) error{NoSpaceLeft}![]u8 {
-    const stem = std.fs.path.stem(std.fs.path.basenameWindows(name));
-    return std.fmt.bufPrint(buffer, "{s}{s}", .{ stem, outline_extension });
+    const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basenameWindows(name));
+    return std.mem.print(buffer, "{s}{s}", .{ stem, outline_extension });
 }
 
 test outlineName {

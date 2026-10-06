@@ -158,11 +158,11 @@ test show {
     defer out.deinit();
     try show(&out.writer, &read);
     const text = out.written();
-    try std.testing.expect(std.mem.indexOf(u8, text, "name        Mission02\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "call sign   RA\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "medals      1\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "ship 0 (USLF_prd.SHP), racks 1:havoc\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "name        Mission02\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "call sign   RA\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "medals      1\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "ship 0 (USLF_prd.SHP), racks 1:havoc\n") != null);
     // Mission 1 alone has a record.
-    try std.testing.expect(std.mem.indexOf(u8, text, "   1        rating success, kills 12, pickups 0, promotion 0\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "   2        rating") == null);
+    try std.testing.expect(std.mem.find(u8, text, "   1        rating success, kills 12, pickups 0, promotion 0\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "   2        rating") == null);
 }

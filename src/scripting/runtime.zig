@@ -892,7 +892,7 @@ const offer_stack = 10;
 /// A mod's scripts, compiled (`Runtime.compiled`).
 const Code = struct {
     /// Each script's bytecode, by module name (`moduleName`).
-    modules: std.StringArrayHashMapUnmanaged(Module) = .empty,
+    modules: std.array_hash_map.String(Module) = .empty,
 
     const Module = struct {
         /// The name tracebacks give it, `=` and its mod's name and file's name.
@@ -1046,7 +1046,7 @@ const max_whole: f64 = 1 << std.math.floatMantissaBits(f64);
 /// The module name for a script file: lowercase, without the `.luau` extension. Returns null if it
 /// doesn't fit in `buffer`.
 fn moduleName(buffer: [:0]u8, name: []const u8) ?[:0]const u8 {
-    const extension = std.fs.path.extension(name);
+    const extension = std.Io.Dir.path.extension(name);
     const stem = if (std.ascii.eqlIgnoreCase(extension, mods.script_extension)) name[0 .. name.len - extension.len] else name;
     if (stem.len > buffer.len) return null;
     const lowered = std.ascii.lowerString(buffer, stem);
