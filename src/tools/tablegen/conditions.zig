@@ -14,6 +14,7 @@ const KindSet = openreliant.dte.Object.KindSet;
 const vm = openreliant.engine.vm;
 const Descriptor = vm.ConditionDescriptor;
 const EventValue = vm.EventValue;
+const Kinds = openreliant.engine.game.executor.commands.Kinds;
 
 const image = @import("image.zig");
 const testing = @import("testing.zig");
@@ -203,8 +204,8 @@ pub fn emit(w: *Io.Writer, catalogue: Catalogue) !void {
             try w.writeAll("        .values = &.{\n");
             for (condition.values) |value| {
                 try w.print(
-                    "            .{{ .label = \"{f}\", .kinds = @bitCast(@as(u32, 0x{X:0>8})), .extra = 0x{X:0>2}, .checked = {} }},\n",
-                    .{ std.zig.fmtString(value.label), value.kinds, value.extra, value.checked },
+                    "            .{{ .label = \"{f}\", .kinds = {f}, .extra = 0x{X:0>2}, .checked = {} }},\n",
+                    .{ std.zig.fmtString(value.label), zig_text.flags(@as(Kinds, @bitCast(value.kinds))), value.extra, value.checked },
                 );
             }
             try w.writeAll("        },\n");
@@ -297,7 +298,7 @@ const TestPayload = struct {
             region.putString(label_at, label);
             var value = std.mem.zeroes(EventValue);
             value.label = @fromBackingInt(@intCast(label_at));
-            value.kinds = @bitCast(@as(u32, 0x400));
+            value.kinds = .{ .ship = true };
             value._unknown_08 = 0x02;
             region.putRecord(at, value);
             region.put(at + @offsetOf(EventValue, "checked"), &.{checked});

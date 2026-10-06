@@ -12,8 +12,11 @@ const Io = std.Io;
 const openreliant = @import("openreliant");
 const layout = openreliant.layout;
 
+const Kinds = openreliant.engine.game.executor.commands.Kinds;
+
 const image = @import("image.zig");
 const testing = @import("testing.zig");
+const zig_text = @import("zig_text.zig");
 
 /// Virtual address of the catalogue, which `vm_install_commands` (`0x0045CE30`) installs as the
 /// command table.
@@ -164,29 +167,29 @@ pub fn emit(w: *Io.Writer, commands: []const Command) !void {
         \\/// What a parameter accepts: a mask of the kinds of value it takes. The bit names are read off
         \\/// the labels of the parameters that set them.
         \\pub const Kinds = packed struct(u32) {{
-        \\    _unknown_0: u7,
+        \\    _unknown_0: u7 = 0,
         \\    /// `0x80`: a count, an ID, a number of seconds.
-        \\    number: bool,
+        \\    number: bool = false,
         \\    /// `0x100`: the name of a speech or movie file.
-        \\    file_name: bool,
+        \\    file_name: bool = false,
         \\    /// `0x200`: text, or an animation name.
-        \\    text: bool,
+        \\    text: bool = false,
         \\    /// `0x400`: a ship.
-        \\    ship: bool,
+        \\    ship: bool = false,
         \\    /// `0x800`: a flight group, or a patrol route.
-        \\    flight_group: bool,
-        \\    _unknown_12: u2,
+        \\    flight_group: bool = false,
+        \\    _unknown_12: u2 = 0,
         \\    /// `0x4000`: a function, meaning a part.
-        \\    part: bool,
-        \\    _unknown_15: u4,
+        \\    part: bool = false,
+        \\    _unknown_15: u4 = 0,
         \\    /// `0x80000`: a named constant: a pilot, an AI mode, a text ID.
-        \\    constant: bool,
-        \\    _unknown_20: bool,
+        \\    constant: bool = false,
+        \\    _unknown_20: bool = false,
         \\    /// `0x200000`: a trigger condition.
-        \\    condition: bool,
+        \\    condition: bool = false,
         \\    /// `0x400000`: a camera or flight curve.
-        \\    curve: bool,
-        \\    _unknown_23: u9,
+        \\    curve: bool = false,
+        \\    _unknown_23: u9 = 0,
         \\}};
         \\
         \\pub const Param = struct {{
@@ -224,8 +227,8 @@ pub fn emit(w: *Io.Writer, commands: []const Command) !void {
             try w.writeAll("        .params = &.{\n");
             for (command.params) |param| {
                 try w.print(
-                    "            .{{ .kinds = @bitCast(@as(u32, 0x{X:0>8})), .extra = 0x{X:0>8}, .label = \"{f}\" }},\n",
-                    .{ param.kinds, param.extra, std.zig.fmtString(param.label) },
+                    "            .{{ .kinds = {f}, .extra = 0x{X:0>8}, .label = \"{f}\" }},\n",
+                    .{ zig_text.flags(@as(Kinds, @bitCast(param.kinds))), param.extra, std.zig.fmtString(param.label) },
                 );
             }
             try w.writeAll("        },\n");

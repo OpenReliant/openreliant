@@ -727,7 +727,7 @@ pub const attachments = [9][ids_per_kind]Attachment{
         .{},
         .{},
     },
-    // Kind 8: unknown
+    // Kind 8: launch_point
     .{
         .{},
         .{},

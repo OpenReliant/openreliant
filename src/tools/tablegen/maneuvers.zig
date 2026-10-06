@@ -12,6 +12,7 @@ const openreliant = @import("openreliant");
 const lancer_maneuvers = openreliant.engine.game.aidefend;
 const Record = lancer_maneuvers.Maneuver;
 const Opcode = lancer_maneuvers.Opcode;
+const Mirror = lancer_maneuvers.Mirror;
 
 const image = @import("image.zig");
 const testing = @import("testing.zig");
@@ -154,8 +155,8 @@ pub fn emit(w: *Io.Writer, arena: std.mem.Allocator, table: Table) !void {
     );
     for (table.maneuvers, names) |maneuver, name| {
         try w.print(
-            "    .{{\n        .maneuver = .{f},\n        .name = \"{f}\",\n        .mirror = @bitCast(@as(u8, 0x{X:0>2})),\n        .min_ticks = {d},\n        .max_ticks = {d},\n        .script_address = 0x{X:0>8},\n        .script = &.{{\n",
-            .{ std.zig.fmtId(name), std.zig.fmtString(maneuver.name), maneuver.mirror, maneuver.min_ticks, maneuver.max_ticks, maneuver.script_address },
+            "    .{{\n        .maneuver = .{f},\n        .name = \"{f}\",\n        .mirror = {f},\n        .min_ticks = {d},\n        .max_ticks = {d},\n        .script_address = 0x{X:0>8},\n        .script = &.{{\n",
+            .{ std.zig.fmtId(name), std.zig.fmtString(maneuver.name), zig_text.flags(@as(Mirror, @bitCast(maneuver.mirror))), maneuver.min_ticks, maneuver.max_ticks, maneuver.script_address },
         );
         for (maneuver.script) |line| try w.print("            \"{f}\",\n", .{std.zig.fmtString(line)});
         try w.writeAll("        },\n    },\n");
