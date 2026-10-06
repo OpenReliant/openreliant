@@ -681,8 +681,9 @@ pub const Driver = struct {
     }
 
     /// Reads the window's messages since the last pass, as the message pump does, reads the
-    /// keyboard, moves the pointer on and runs the timer, which steps the fades. Returns false if
-    /// the window was closed, which quits the game (`game_exit`).
+    /// keyboard, moves the pointer on and runs the timer, which steps the fades, and runs the
+    /// scripts' frame (`ScriptFrames.screenFrame`). Returns false if the window was closed, which
+    /// quits the game (`game_exit`).
     fn pump(driver: *Driver) !bool {
         const movies = driver.movies;
         const devices = movies.devices;
@@ -692,8 +693,10 @@ pub const Driver = struct {
         const ticks = platform.window.ticks();
         const elapsed = std.math.cast(i32, ticks -| driver.ticks) orelse std.math.maxInt(i32);
         driver.ticks = ticks;
-        driver.pointer.update(&devices.mouse, try movies.presenter.size(), elapsed);
+        const window = try movies.presenter.size();
+        driver.pointer.update(&devices.mouse, window, elapsed);
         driver.sound.runTimer(driver.clock, ticks);
+        if (movies.scripts) |scripts| scripts.screenFrame(window);
         return true;
     }
 
@@ -874,5 +877,6 @@ const Shown = struct {
             .locker => |case| try drawn(case.draw(target)),
             .cd_player => |player| try drawn(player.draw(target)),
         }
+        if (driver.movies.scripts) |scripts| try scripts.drawUi(target.target);
     }
 };

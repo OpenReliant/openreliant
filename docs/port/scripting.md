@@ -407,8 +407,10 @@ where the camera sees them (`hud.Sight`).
 the presentation state into the game's (`data.transfer`), as an event would be sent to another
 machine. Handles cross as handles of the same object, and a handle that's no longer valid stays so.
 
-Not ported yet: menu scripts in the rooms, the movies and the loading screens, which have loops of
-their own ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
+The rooms, the movies and the loading screens have loops of their own, which run the player and
+menu scripts too (`src/openreliant/script_frames.zig`): each hands them the keys its window reads,
+runs their frame before it draws, with their user interface layer in the menus' small font at the
+front end's scale, and draws that layer last over the screen.
 
 ## Saved games
 

@@ -50,6 +50,7 @@ const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
 const test_keys = @import("test_keys.zig");
 const ScriptConsole = @import("console.zig").Driver;
+const ScriptFrames = @import("script_frames.zig").ScriptFrames;
 const version = @import("version");
 const options_page = @import("options.zig");
 const Options = options_page.Options;
@@ -629,6 +630,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer if (script_small) |*font| font.deinit(gpa);
     var script_large: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(gpa, resources, game.hud.large_menu_font, &outlines) else null;
     defer if (script_large) |*font| font.deinit(gpa);
+    // The player and menu scripts' frames, in the main loop, the rooms and the movies.
+    var script_frames: ?ScriptFrames = if (presentation) |shown| .{ .gpa = gpa, .presentation = shown, .devices = &devices, .sound = sound, .rasterizer = outlines.rasterizer } else null;
+    if (script_frames) |*frames| {
+        frames.fonts.set(.hud, if (script_font) |*font| &font.font else null);
+        frames.fonts.set(.menu_small, if (script_small) |*font| &font.font else null);
+        frames.fonts.set(.menu_large, if (script_large) |*font| &font.font else null);
+        frames.presented_at = platform.window.nanoseconds();
+        movies.scripts = frames;
+        loading.scripts = frames;
+    }
     defer game_scripts.deinit();
     // The scripting console, in the developer mode where a mod has scripts, which F11 brings up
     // over the front end or the mission.
@@ -696,10 +707,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         try game.winmain.saveCallSigns(&front.pilot_roster.list, settings_file);
     }
     var front_ticks = platform.window.ticks();
-    // When the player and menu scripts' last frame ran.
-    var presented_at = platform.window.nanoseconds();
     // When the mods' storage was last written (`storage_interval`).
-    var storage_written_at = presented_at;
+    var storage_written_at = platform.window.nanoseconds();
     // The file's name of the mission the scripts reload in.
     var reload_file: [game.winmain.mission_path_size]u8 = undefined;
     // What the front end's screens run and are entered with, its window and the time since its
@@ -1088,31 +1097,17 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
 
         // The player and menu scripts' frame, before anything is drawn, with what each of their
         // layers is drawn on.
-        if (presentation) |shown| {
-            const now = platform.window.nanoseconds();
-            var host: scripting.presentation.Host = .{
-                .seconds = @as(f32, @floatFromInt(now -| presented_at)) / std.time.ns_per_s,
-                .devices = &devices,
-                .window = size,
-                .sound = sound,
-                .flying = !flow.in_front_end and !clock.paused,
-            };
-            presented_at = now;
+        if (script_frames) |*frames| {
+            const shown = frames.presentation;
+            var host = frames.host(size, !flow.in_front_end and !clock.paused);
             if (flow.in_front_end) {
                 const fonts = &front_resources.?;
-                host.views.set(.ui, .{ .font = &fonts.small.font, .gpa = fonts.gpa, .screen = size, .scale = game.interface.canvas.scaleFor(size) });
+                frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null);
             } else {
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
-                if (script_font) |*file| host.views.set(layer, .{ .font = &file.font, .gpa = gpa, .screen = size, .scale = game.hud.scaleFor(size) });
+                if (script_font) |*file| frames.show(&host, layer, &file.font, game.hud.scaleFor(size), &display.resources.art);
                 host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
             }
-            for (&host.views.values) |*held| if (held.*) |*layer| {
-                layer.rasterizer = outlines.rasterizer;
-                layer.fonts.set(.hud, if (script_font) |*font| &font.font else null);
-                layer.fonts.set(.menu_small, if (script_small) |*font| &font.font else null);
-                layer.fonts.set(.menu_large, if (script_large) |*font| &font.font else null);
-                layer.art = if (flow.in_front_end) if (front_resources.?.shapes) |*art| art else null else &display.resources.art;
-            };
             if (shown.runtime.registries.selected_screen != null and host.views.get(.ui) == null) host.views.set(.ui, host.views.get(.hud));
             shown.frame(host);
             if (host.camera != null) {
@@ -1921,6 +1916,8 @@ const Loading = struct {
     presenter: *Presenter,
     strings: *const game.language.Language,
     splash: game.xtrabits.loading.Splash,
+    /// The player and menu scripts, which draw over the loading screen; null without them.
+    scripts: ?*ScriptFrames = null,
 
     fn close(loading: *Loading) void {
         loading.resources.close();
@@ -1931,16 +1928,18 @@ const Loading = struct {
         return loading.presenter.size();
     }
 
-    /// Draws `frame` and puts it on the window.
+    /// Draws `frame` and puts it on the window, after the scripts' frame.
     fn show(loading: *Loading, frame: game.xtrabits.loading.Frame) !void {
         loading.presenter.window.pump();
         loading.resources.show(loading.archive.*, frame);
         const pixels = try loading.size();
+        if (loading.scripts) |scripts| scripts.screenFrame(pixels);
         var shown: Shown = .{ .loading = loading, .window = pixels, .line = if (frame.line) |id| loading.strings.string(@intFromEnum(id)) else null };
         try loading.presenter.present(pixels, shown.overlay());
     }
 
-    /// A frame's overlay: the loading screen, on the front end's screen fitted to the window.
+    /// A frame's overlay: the loading screen, on the front end's screen fitted to the window, and
+    /// what the scripts drew.
     const Shown = struct {
         loading: *Loading,
         window: [2]u32,
@@ -1953,14 +1952,16 @@ const Loading = struct {
         fn draw(context: *anyopaque) Allocator.Error!void {
             const shown: *Shown = @ptrCast(@alignCast(context));
             const resources = &shown.loading.resources;
+            const target = shown.loading.presenter.screen.interface();
             try resources.draw(.{
                 .gpa = resources.gpa,
-                .target = shown.loading.presenter.screen.interface(),
+                .target = target,
                 .window = shown.window,
                 .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
                 .strings = shown.loading.strings,
                 .version = version.string,
             }, shown.line);
+            if (shown.loading.scripts) |scripts| try scripts.drawUi(target);
         }
     };
 };
@@ -2197,6 +2198,7 @@ const Display = struct {
 
 test {
     _ = @import("mod_shaders.zig");
+    _ = @import("script_frames.zig");
     _ = whole_shaders;
     _ = options_page;
     _ = settings_module;
