@@ -88,7 +88,7 @@ pub fn build(b: *std.Build) void {
     });
     const embed = b.addRunArtifact(bin2h);
     embed.addFileArg(upstream.path("hrtf/Default HRTF.mhr"));
-    const hrtf = embed.addOutputFileArg("default_hrtf.hpp");
+    const hrtf = embed.addOutputFileArg2("default_hrtf.hpp", .{});
     embed.addArg("default_hrtf");
     module.addIncludePath(hrtf.dirname());
 

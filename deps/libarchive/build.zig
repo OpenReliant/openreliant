@@ -9,7 +9,7 @@ const version: std.SemanticVersion = .{
     .minor = 7,
     .patch = 9,
 };
-const version_string = std.fmt.comptimePrint("{}", .{version});
+const version_string = std.fmt.comptimePrint("{f}", .{version});
 
 pub fn build(b: *std.Build) void {
     const upstream = b.dependency("upstream", .{});
