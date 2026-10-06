@@ -2550,7 +2550,7 @@ pub const Looks = struct {
     /// for a gun a mod gives a picture of its own.
     fn modShot(looks: *const Looks, kind: GunType) ?struct { image: *srtexture.Image, half: f32 } {
         const gun = kind.added() orelse return null;
-        const at = kind.number() - additions.guns.first;
+        const at = additions.guns.place(kind.number()) orelse return null;
         if (at >= looks.mod_shots.len) return null;
         return .{ .image = looks.mod_shots[at] orelse return null, .half = gun.extra.shot_size };
     }

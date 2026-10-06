@@ -144,8 +144,14 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
 
         /// The record a mod adds of the number `number`, if there is one.
         pub fn get(number: u32) ?*const Added {
+            return &registered[place(number) orelse return null];
+        }
+
+        /// Where the record a mod adds of the number `number` stands among the mods' records, and
+        /// in any list kept beside them; null for a number no mod's record has.
+        pub fn place(number: u32) ?usize {
             if (number < first or number - first >= registered.len) return null;
-            return &registered[number - first];
+            return number - first;
         }
 
         /// The number of the record a mod adds called `name`, by its qualified name.

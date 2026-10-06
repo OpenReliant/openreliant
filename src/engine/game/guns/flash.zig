@@ -223,8 +223,7 @@ pub const Looks = struct {
 
     /// The own flash of `kind`, a gun a mod adds with a flash picture.
     pub fn own(looks: *const Looks, kind: guns.GunType) ?*const Own {
-        if (kind.added() == null) return null;
-        const at = kind.number() - additions.guns.first;
+        const at = additions.guns.place(kind.number()) orelse return null;
         if (at >= looks.mods.len) return null;
         return if (looks.mods[at]) |*made| made else null;
     }

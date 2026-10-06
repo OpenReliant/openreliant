@@ -134,20 +134,30 @@ pub const Type = enum(i16) {
     /// of its own. For a missile whose base hangs in a pod, the pod and the missile that flies from
     /// it; for any other, the missile that hangs on the rail and flies.
     pub fn mounted(missile: Type) ?create.models.Attachment {
-        var held = create.models.attachment(.missile, @intCast(missile.baseIndex() orelse return null)) orelse return null;
+        var held = missile.baseMount() orelse return null;
         const from_mod = missile.added() orelse return held;
-        if (missile.hungModel()) |hung| held.model = hung;
+        if (ownHung(from_mod, held)) |hung| held.model = hung;
         if (held.second_model != null) if (from_mod.extra.model) |model| {
             held.second_model = model;
         };
         return held;
     }
 
-    /// The model of its own a mod gives what hangs on its hardpoint: the pod, for a missile whose
-    /// base hangs in one, else the missile itself; null for none, or a type of the game's.
+    /// The model a mod gives of its own for what hangs on the missile's hardpoint: the pod, for a
+    /// missile whose base hangs in one, else the missile itself; null for none, or a type of the
+    /// game's.
     pub fn hungModel(missile: Type) ?[]const u8 {
         const from_mod = missile.added() orelse return null;
-        const base_held = create.models.attachment(.missile, @intCast(missile.baseIndex() orelse return null)) orelse return null;
+        return ownHung(from_mod, missile.baseMount() orelse return null);
+    }
+
+    /// What its base's hardpoint mounts (`models.attachment`).
+    fn baseMount(missile: Type) ?create.models.Attachment {
+        return create.models.attachment(.missile, @intCast(missile.baseIndex() orelse return null));
+    }
+
+    /// The model `from_mod` gives for what hangs where its base mounts `base_held`.
+    fn ownHung(from_mod: *const additions.missiles.Added, base_held: create.models.Attachment) ?[]const u8 {
         return if (base_held.second_model != null) from_mod.extra.pod else from_mod.extra.model;
     }
 
