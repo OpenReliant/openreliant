@@ -869,8 +869,10 @@ pub const Queued = struct {
 /// `archive` (`speech_hog`), as `hog_read_file` (`0x004C7F60`) does (`bigfile.memberName` and
 /// `bigfile.readNamed`). A mod's file takes priority (`modLine`). Returns null if there's no
 /// archive and no mod has the file, and also, with a warning, if the archive doesn't have it or it
-/// can't be read. The game stops where a line is missing (`HOG_bigread2`); OpenReliant warns and
-/// leaves the line out.
+/// can't be read.
+///
+/// **Fix:** the game stops with a fatal error where a line is missing (`HOG_bigread2`);
+/// OpenReliant warns and leaves the line out.
 pub fn readLine(gpa: Allocator, mods: *const bigfile.Mods, archive: ?hog.Archive, speech: []const u8) ?[]u8 {
     var buffer: [bigfile.member_name_room]u8 = undefined;
     const name = bigfile.memberName(&buffer, speech);

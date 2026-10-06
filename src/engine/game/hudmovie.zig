@@ -354,6 +354,8 @@ test squadronFilm {
 test memberName {
     try std.testing.expectEqualStrings("BUCC.fm8", memberName("pilots\\BUCC.fm8"));
     try std.testing.expectEqualStrings("static.fm8", memberName("static.fm8"));
+    // What follows the first backslash, as `hudmovie_play` cuts it.
+    try std.testing.expectEqualStrings("sub\\x.fm8", memberName("pilots\\sub\\x.fm8"));
 }
 
 test Movie {

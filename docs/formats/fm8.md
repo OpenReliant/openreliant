@@ -95,16 +95,17 @@ vectors, picks a block given, the whole ones first and then the patterns (`block
 
 ## Playing
 
-`hudmovie_play` (`0x0048D120`) opens a film from `pilots.hog` by what follows the first backslash
-of its path (`0x0048D2CA`), and decodes its first chunk. **Fix:** the game doesn't check that the
-path has a backslash, and crashes where it has none; OpenReliant takes the whole path. Six films of the 45th change with the squadron's name
-(its pilot and Moose, talking, laughing and dying, from tables at `0x005026AC` and `0x00502754`):
-through mission 13 the 45th Tigers' play as the 45th Volunteers', and from mission 14 the reverse,
-the names compared without regard to case. A timer 15 times a second, which stands still while the
-game is paused, decodes the next chunk and copies the frame into the window's image
-(`hudmovie_image`, `0x0057C3BC`), and at the end chunk loops the film or holds it for the line as
-its flags say ([The radio](../engine/radio.md#the-window)). OpenReliant reads the film whole as it
-starts and unscrambles its chunks once ([`hudmovie.zig`](../../src/engine/game/hudmovie.zig)).
+`hudmovie_play` (`0x0048D120`) opens a film from `pilots.hog` by what follows the first backslash of
+its path (`0x0048D2CA`), and decodes its first chunk. **Fix:** the game doesn't check that the path
+has a backslash, and crashes where it has none; OpenReliant takes the whole path. Six films of the
+45th change with the squadron's name (its pilot and Moose, talking, laughing and dying, from tables
+at `0x005026AC` and `0x00502754`): through mission 13 the 45th Tigers' play as the 45th Volunteers',
+and from mission 14 the reverse, the names compared without regard to case. A timer 15 times a
+second, which stands still while the game is paused, decodes the next chunk and copies the frame
+into the window's image (`hudmovie_image`, `0x0057C3BC`), and at the end chunk loops the film or
+holds it for the line as its flags say ([The radio](../engine/radio.md#the-window)). OpenReliant
+reads the film whole as it starts and unscrambles its chunks once
+([`hudmovie.zig`](../../src/engine/game/hudmovie.zig)).
 
 The window draws every pixel of the frame, the see-through colour among them, at the display's
 scale both ways, so a film keeps its shape at any window's size.
