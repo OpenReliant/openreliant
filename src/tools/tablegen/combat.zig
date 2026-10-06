@@ -118,7 +118,7 @@ test parse {
     record.gun_groups = 1;
     try std.testing.expectError(error.NotZero, parse(record));
     record.gun_groups = 0;
-    record.display = @enumFromInt(2);
+    record.display = @fromBackingInt(@intCast(2));
     try std.testing.expectError(error.NotFlag, parse(record));
 }
 
@@ -137,7 +137,7 @@ test read {
     records[12].name = 644;
     records[12].class = .capital;
     records[12].display = .large;
-    records[13].class = @enumFromInt(99);
+    records[13].class = @fromBackingInt(@intCast(99));
     const region: testing.Region = .{ .va = table, .bytes = std.mem.sliceAsBytes(records) };
 
     const payload = try testing.reader(allocator, &.{region});

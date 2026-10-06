@@ -401,8 +401,8 @@ pub const SavedGames = struct {
             return if (answer) screen.leave(context.saves, .quit) else null;
         }
         if (escaped) return screen.leave(context.saves, .back);
-        if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) screen.scrolled.scroll(.down);
-        if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) screen.scrolled.scroll(.up);
+        if (keyboard.pressed(@backingInt(input.Key.down), .none, false)) screen.scrolled.scroll(.down);
+        if (keyboard.pressed(@backingInt(input.Key.up), .none, false)) screen.scrolled.scroll(.up);
         // **Improvement:** the mouse's wheel scrolls the list too.
         screen.scrolled.wheel(context.pointer.wheel);
         defer if (screen.typing and screen.mode == .save) hud.typeInto(context.typed, &screen.name.bytes, &screen.name.len, null);
@@ -412,7 +412,7 @@ pub const SavedGames = struct {
                 screen.cursor_shown = !screen.cursor_shown;
             }
             screen.ok_under = ok.holds(screen.last.at);
-            if (keyboard.pressed(@intFromEnum(input.Key.enter), .none, true) or (screen.ok_under and screen.last.down)) {
+            if (keyboard.pressed(@backingInt(input.Key.enter), .none, true) or (screen.ok_under and screen.last.down)) {
                 return screen.saveAs(context.saves);
             }
         }
@@ -793,7 +793,7 @@ test "a name typed saves the game in the slot chosen" {
         _ = fixture.frame(.{});
     }
     try std.testing.expectEqualStrings("Older", fixture.screen.name.slice());
-    fixture.keyboard.down[@intFromEnum(input.Key.enter)] = true;
+    fixture.keyboard.down[@backingInt(input.Key.enter)] = true;
     try std.testing.expectEqual(End.done, fixture.frame(.{}).?);
     var found = save.empty();
     try std.testing.expect(fixture.folder().load(std.testing.allocator, "Ace", 1, &found));

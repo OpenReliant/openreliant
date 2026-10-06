@@ -22,12 +22,12 @@ const Role = engine.game.ai.routines.Role;
 /// First session-local order number, derived from the original catalogue rather than fixed.
 pub const first_custom: i32 = first: {
     var highest: i32 = 0;
-    for (orders.table) |info| highest = @max(highest, @intFromEnum(info.order));
+    for (orders.table) |info| highest = @max(highest, @backingInt(info.order));
     break :first highest + 1;
 };
 
 fn orderAt(index: usize) orders.Order {
-    return @enumFromInt(first_custom + @as(i32, @intCast(index)));
+    return @fromBackingInt(@intCast(first_custom + @as(i32, @intCast(index))));
 }
 
 fn pushObject(state: *State, object: ?Object) void {
@@ -60,7 +60,7 @@ pub const Registry = struct {
     }
 
     fn position(registry: *Registry, order: orders.Order) ?usize {
-        const index = @as(i32, @intFromEnum(order)) - first_custom;
+        const index = @as(i32, @backingInt(order)) - first_custom;
         if (index < 0 or index >= registry.entries.items.len) return null;
         return @intCast(index);
     }
@@ -176,13 +176,13 @@ pub const Identifier = union(enum) { name: []const u8, number: i16 };
 pub fn identifierOf(all: *const engine.game.create.Objects, order: orders.Order) Identifier {
     if (values.name(orders.Order, order)) |name| return .{ .name = name };
     if (aigeneric.infoOf(all, order)) |info| return .{ .name = info.name };
-    return .{ .number = @intFromEnum(order) };
+    return .{ .number = @backingInt(order) };
 }
 
 fn find(scripts: *runtime.Runtime, identifier: Identifier) ?orders.Order {
     return switch (identifier) {
         .name => |name| values.byName(orders.Order, name) orelse scripts.custom_orders.find(name),
-        .number => |number| if (orders.info(@enumFromInt(number)) != null) @enumFromInt(number) else null,
+        .number => |number| if (orders.info(@fromBackingInt(@intCast(number))) != null) @fromBackingInt(@intCast(number)) else null,
     };
 }
 

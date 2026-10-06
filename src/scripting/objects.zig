@@ -40,7 +40,7 @@ pub const Handle = struct {
     /// The slot's count of reuses when the handle was made.
     count: u32,
 
-    pub const tag = @intFromEnum(runtime_module.Tag.object);
+    pub const tag = @backingInt(runtime_module.Tag.object);
 
     /// Whether its object is still the one in its slot.
     pub fn valid(handle: Handle, all: *const create.Objects) bool {
@@ -84,7 +84,7 @@ pub const fields = struct {
         }
 
         pub fn set(_: Call, all: *create.Objects, index: u16, value: pilots.Number) void {
-            pilots.setPilot(&all.slots[index].object, if (value == .none) -1 else @intFromEnum(value));
+            pilots.setPilot(&all.slots[index].object, if (value == .none) -1 else @backingInt(value));
         }
     });
 
@@ -357,7 +357,7 @@ fn describe(state: *State) i32 {
         break :text if (values.name(gameobj.Type, object_type)) |type_name|
             std.fmt.bufPrint(&buffer, "object {d} ({s})", .{ handle.slot, type_name })
         else
-            std.fmt.bufPrint(&buffer, "object {d} (type {d})", .{ handle.slot, @intFromEnum(object_type) });
+            std.fmt.bufPrint(&buffer, "object {d} (type {d})", .{ handle.slot, @backingInt(object_type) });
     } else std.fmt.bufPrint(&buffer, "object {d} (gone)", .{handle.slot});
     state.pushString(text catch "object");
     return 1;

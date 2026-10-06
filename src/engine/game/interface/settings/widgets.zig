@@ -467,8 +467,8 @@ pub const List = struct {
     /// **Improvement:** the game's lists scroll by their arrows alone.
     pub fn scrollBy(list: *List, notches: i32, keyboard: *input.Keyboard, ticks: u32) void {
         list.rows.wheel(notches);
-        if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) list.scrollHeld(.up, ticks);
-        if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) list.scrollHeld(.down, ticks);
+        if (keyboard.pressed(@backingInt(input.Key.up), .none, false)) list.scrollHeld(.up, ticks);
+        if (keyboard.pressed(@backingInt(input.Key.down), .none, false)) list.scrollHeld(.down, ticks);
     }
 
     /// Where `row` stands among the rows shown, from the top, where it is shown.

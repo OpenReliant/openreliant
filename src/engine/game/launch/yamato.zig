@@ -316,7 +316,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
         },
         _ => {},
     };
-    if (player and @intFromEnum(state.step) < @intFromEnum(Step.fly)) stream(world);
+    if (player and @backingInt(state.step) < @backingInt(Step.fly)) stream(world);
 }
 
 fn advance(state: *launch.State, step: Step, now: i32) void {

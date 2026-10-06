@@ -681,10 +681,10 @@ test Settings {
     try std.testing.expect(screen.controls.waiting != null);
     // A key taken counts as a change, which Escape asks about once the wait is over, the first
     // Escape ending it; NO reads the file again.
-    devices.keyboard.down[@intFromEnum(input.Key.f9)] = true;
+    devices.keyboard.down[@backingInt(input.Key.f9)] = true;
     _ = screen.frame(at(&devices, &file, 10, 10, false));
-    try std.testing.expectEqual(@intFromEnum(input.Key.f9), devices.bindings.get(.cockpit_camera).key);
-    devices.keyboard.down[@intFromEnum(input.Key.f9)] = false;
+    try std.testing.expectEqual(@backingInt(input.Key.f9), devices.bindings.get(.cockpit_camera).key);
+    devices.keyboard.down[@backingInt(input.Key.f9)] = false;
     devices.keyboard.down[input.scan.escape] = true;
     try std.testing.expectEqual(null, screen.frame(at(&devices, &file, 10, 10, false)));
     try std.testing.expect(screen.controls.waiting == null and screen.question == null);

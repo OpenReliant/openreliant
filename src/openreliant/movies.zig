@@ -79,7 +79,7 @@ pub const Movies = struct {
         while (movies.presenter.window.poll()) |event| switch (event) {
             .quit => return null,
             .key => |key| {
-                devices.keyboard.down[@intFromEnum(key.scan)] = key.down;
+                devices.keyboard.down[@backingInt(key.scan)] = key.down;
                 if (movies.scripts) |scripts| scripts.key(key.scan, key.down);
             },
             .pointer => |pointer| devices.mouse.at = pointer.at,

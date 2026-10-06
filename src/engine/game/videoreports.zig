@@ -1249,8 +1249,8 @@ pub fn sideOf(all: *const create.Objects, object: i32) gameobj.Side(u16) {
         return face.side;
     }
     if (object < 0 or object >= all.count) return .friendly;
-    const side = @intFromEnum(all.slots[@intCast(object)].object.side);
-    return @enumFromInt(@as(u16, @truncate(@as(u32, @bitCast(side)))));
+    const side = @backingInt(all.slots[@intCast(object)].object.side);
+    return @fromBackingInt(@intCast(@as(u16, @truncate(@as(u32, @bitCast(side))))));
 }
 
 test Radio {
@@ -1417,7 +1417,7 @@ test filmPath {
     var buffer: [film_path_size]u8 = undefined;
     const bandit = pilots.faceOf(0);
     try std.testing.expectEqualStrings("pilots\\45TigersWL_Bandit_d.fm8", filmPath(&buffer, bandit, .dying));
-    try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, bandit, @enumFromInt(4)));
+    try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, bandit, @fromBackingInt(@intCast(4))));
     try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, null, .talking));
 }
 
@@ -1620,7 +1620,7 @@ pub const testing = struct {
             try mission.init(gpa);
             errdefer mission.deinit();
             mission.objects.mission_number = 1;
-            mission.tables.combat[@intFromEnum(gameobj.GameType.predator)].class = .fighter;
+            mission.tables.combat[@backingInt(gameobj.GameType.predator)].class = .fighter;
             _ = try mission.add(.of(.predator), @splat(0));
             heard.wingman = try mission.add(.of(.predator), .{ 0, 0, 1000 });
             heard.enemy = try mission.add(.of(.predator), .{ 0, 0, 2000 });
@@ -1698,7 +1698,7 @@ test shipLine {
     object.pilot = 0;
     try std.testing.expectEqualStrings("rustnt_001.ut", shipLine(&buffer, mission.objects, ship, "tnt_001.ut").?);
     object.pilot = 21;
-    try std.testing.expectEqual(pilots.Voice.prefix(@enumFromInt(4)), null);
+    try std.testing.expectEqual(pilots.Voice.prefix(@fromBackingInt(@intCast(4))), null);
     try std.testing.expectEqual(null, shipLine(&buffer, mission.objects, ship, "tnt_001.ut"));
     // Any other side's has no line, nor a pilot past the table.
     object.side = .neutral;
@@ -1862,7 +1862,7 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     killRemark(world, enemy);
     try std.testing.expectEqual(0, radio.count);
     // A torpedo's has Moose's words alone; a pilot's pod has Moose's at any time.
-    heard.mission.tables.combat[@intFromEnum(gameobj.GameType.predator)].class = .torpedo;
+    heard.mission.tables.combat[@backingInt(gameobj.GameType.predator)].class = .torpedo;
     clock.game_ticks += 1;
     killRemark(world, enemy);
     try heard.expectLine(0, moose_line, &torpedo_kill_lines);

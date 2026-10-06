@@ -170,29 +170,29 @@ pub fn push(state: *State, value: Value) void {
 /// Writes `value` in the binary form.
 pub fn encode(w: *Io.Writer, value: Value) Io.Writer.Error!void {
     switch (value) {
-        .nil => try w.writeByte(@intFromEnum(Kind.nil)),
-        .boolean => |held| try w.writeByte(@intFromEnum(if (held) Kind.true else Kind.false)),
+        .nil => try w.writeByte(@backingInt(Kind.nil)),
+        .boolean => |held| try w.writeByte(@backingInt(if (held) Kind.true else Kind.false)),
         .number => |number| {
-            try w.writeByte(@intFromEnum(Kind.number));
+            try w.writeByte(@backingInt(Kind.number));
             try w.writeInt(u64, @bitCast(number), .little);
         },
         .string => |bytes| {
-            try w.writeByte(@intFromEnum(Kind.string));
+            try w.writeByte(@backingInt(Kind.string));
             try w.writeInt(u32, @intCast(bytes.len), .little);
             try w.writeAll(bytes);
         },
         .vector => |vector| {
-            try w.writeByte(@intFromEnum(Kind.vector));
+            try w.writeByte(@backingInt(Kind.vector));
             const axes: [3]f32 = vector;
             for (axes) |axis| try w.writeInt(u32, @bitCast(axis), .little);
         },
         .handle => |handle| {
-            try w.writeByte(@intFromEnum(Kind.handle));
+            try w.writeByte(@backingInt(Kind.handle));
             try w.writeInt(u16, handle.slot, .little);
             try w.writeInt(u32, handle.count, .little);
         },
         .table => |pairs| {
-            try w.writeByte(@intFromEnum(Kind.table));
+            try w.writeByte(@backingInt(Kind.table));
             try w.writeInt(u32, @intCast(pairs.len), .little);
             for (pairs) |pair| {
                 try encode(w, pair.key);
@@ -210,7 +210,7 @@ pub fn decode(r: *Io.Reader, gpa: Allocator) DecodeError!Value {
 }
 
 fn decodeAt(r: *Io.Reader, gpa: Allocator, depth: u32) DecodeError!Value {
-    const kind: Kind = @enumFromInt(r.takeByte() catch return error.Damaged);
+    const kind: Kind = @fromBackingInt(@intCast(r.takeByte() catch return error.Damaged));
     return switch (kind) {
         .nil => .nil,
         .false => .{ .boolean = false },

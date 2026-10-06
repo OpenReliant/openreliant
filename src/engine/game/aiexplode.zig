@@ -329,7 +329,7 @@ fn shipInit(ctx: Context, index: u16) void {
     state.style = if (object.type.base().isTorpedo() or (players and cutaway))
         .halt
     else
-        @enumFromInt(xtrabits.objectRandom15(object) % std.enums.values(Style).len);
+        @fromBackingInt(@intCast(xtrabits.objectRandom15(object) % std.enums.values(Style).len));
     killCredit(world, index);
     world.objects.wingmen.lose(object.pilot);
     events.destroyed(world, index, null);

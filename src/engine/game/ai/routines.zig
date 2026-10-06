@@ -44,7 +44,7 @@ pub fn names(entry: orders.Info, role: Role) bool {
         for (std.enums.values(Role)) |other_role| {
             if (address(other, other_role) != own) continue;
             if (other_role != role or !std.mem.eql(u8, other.name, entry.name)) return false;
-            if (@intFromEnum(other.order) < @intFromEnum(entry.order)) return false;
+            if (@backingInt(other.order) < @backingInt(entry.order)) return false;
         }
     }
     return true;

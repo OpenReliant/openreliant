@@ -271,7 +271,7 @@ const torpedo_harm: f32 = 0.05;
 /// heavier for any other (`0x004DC958`).
 const split_harm: f32 = 0.015;
 const lighter_split_harm: f32 = 0.0045;
-const lighter_splits = [_]gameobj.Type{ @enumFromInt(0x36), .of(.darkreign), .of(.stalag), @enumFromInt(0x9B), .of(.boridin_breakaway) };
+const lighter_splits = [_]gameobj.Type{ @fromBackingInt(@intCast(0x36)), .of(.darkreign), .of(.stalag), @fromBackingInt(@intCast(0x9B)), .of(.boridin_breakaway) };
 
 /// A Havoc's shockwave's push: its strength is 1.5 times what is left of its life, up to 1, and
 /// the ticks it disrupts a player's ship and another for at full strength (`0x004DC4E0`,

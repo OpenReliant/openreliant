@@ -340,7 +340,7 @@ pub const Pilot = extern struct {
 
         pub fn index(tier: Tier) ?usize {
             return switch (tier) {
-                .level_0, .level_1, .level_2 => @intFromEnum(tier),
+                .level_0, .level_1, .level_2 => @backingInt(tier),
                 _ => null,
             };
         }
@@ -447,7 +447,7 @@ test Missile {
 test Pilot {
     var pilot = testRecord(Pilot, "Cat Foster");
     pilot.tier_a = .level_2;
-    pilot.tier_b = @enumFromInt(7);
+    pilot.tier_b = @fromBackingInt(@intCast(7));
     try std.testing.expectEqual(@as(?usize, 2), pilot.tier_a.index());
     try std.testing.expectEqual(@as(?usize, null), pilot.tier_b.index());
 

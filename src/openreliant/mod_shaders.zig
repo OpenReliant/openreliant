@@ -127,12 +127,12 @@ pub const ModShaders = struct {
             .compiled => |code| code,
         };
         const id = host.gpu().?.addEffect(code.spirv, code.metal) catch |err| return .{ .failed = host.gpuFailed(err) };
-        return .{ .effect = @intFromEnum(id) };
+        return .{ .effect = @backingInt(id) };
     }
 
     fn removeEffect(context: *anyopaque, effect: u32) void {
         const device = from(context).gpu() orelse return;
-        device.removeEffect(@enumFromInt(effect));
+        device.removeEffect(@fromBackingInt(@intCast(effect)));
     }
 
     /// The passes of the effects the scripts have enabled.
@@ -142,7 +142,7 @@ pub const ModShaders = struct {
         var scripted: [postprocessing.max_effects]postprocessing.Pass = undefined;
         const listed = shown.effectPasses(&scripted);
         for (listed, buffer[0..listed.len]) |pass, *into| into.* = .{
-            .effect = @enumFromInt(pass.effect),
+            .effect = @fromBackingInt(@intCast(pass.effect)),
             .stage = switch (pass.stage) {
                 .before_hud => .before_hud,
                 .after_hud => .after_hud,

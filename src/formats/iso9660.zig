@@ -126,7 +126,7 @@ pub const VolumeDescriptor = extern struct {
     pub fn jolietLevel(descriptor: *const VolumeDescriptor) ?JolietLevel {
         if (descriptor.type != .supplementary) return null;
         inline for (@typeInfo(JolietLevel).@"enum".fields) |field| {
-            const level: JolietLevel = @enumFromInt(field.value);
+            const level: JolietLevel = @fromBackingInt(@intCast(field.value));
             if (std.mem.startsWith(u8, &descriptor.escape_sequences, level.escapeSequence())) return level;
         }
         return null;
@@ -393,7 +393,7 @@ pub const testing = struct {
         primary.root_directory = fixedPart(DirectoryRecord.self_identifier.len, root, .directory);
 
         const terminator = &blocks[VolumeDescriptor.first_lba + 1];
-        terminator[0] = @intFromEnum(VolumeDescriptor.Type.set_terminator);
+        terminator[0] = @backingInt(VolumeDescriptor.Type.set_terminator);
         terminator[1..][0..VolumeDescriptor.magic.len].* = VolumeDescriptor.magic.*;
     }
 };

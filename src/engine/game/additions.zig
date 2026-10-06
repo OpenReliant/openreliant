@@ -280,7 +280,7 @@ fn gameNamed(comptime Named: type, text: []const u8, comptime below: comptime_in
         return std.enums.fromInt(Named, number);
     } else |_| {}
     inline for (comptime std.enums.values(Named)) |each| {
-        if (@intFromEnum(each) >= 0 and @intFromEnum(each) < below and std.ascii.eqlIgnoreCase(trimmed, @tagName(each))) return each;
+        if (@backingInt(each) >= 0 and @backingInt(each) < below and std.ascii.eqlIgnoreCase(trimmed, @tagName(each))) return each;
     }
     return null;
 }
@@ -354,14 +354,14 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
             context.warn("ship type", "fires the gun '{s}', which isn't one of the game's or the mods'", .{text});
             return null;
         };
-        made.gun = @enumFromInt(number);
+        made.gun = @fromBackingInt(@intCast(number));
     }
     if (manifest.value(section, "Missiles")) |text| {
         const number = missiles.named(text, context.mod.qualifier()) orelse {
             context.warn("ship type", "carries the missile '{s}', which isn't one of the game's or the mods'", .{text});
             return null;
         };
-        made.missile = @enumFromInt(number);
+        made.missile = @fromBackingInt(@intCast(number));
     }
     return made;
 }
@@ -427,7 +427,7 @@ pub const ships = Family(gameobj.GameType, ShipExtra, .{
     .list_section = "ShipTypes",
     .item_section = "ShipType ",
     .first = 0x100,
-    .end = @intFromEnum(gameobj.GameType.sun_marker),
+    .end = @backingInt(gameobj.GameType.sun_marker),
     .baseOf = struct {
         fn of(text: []const u8) ?gameobj.GameType {
             return gameNamed(gameobj.GameType, text, 0x100);
@@ -435,7 +435,7 @@ pub const ships = Family(gameobj.GameType, ShipExtra, .{
     }.of,
     .baseNumber = struct {
         fn number(base: gameobj.GameType) u32 {
-            return @intFromEnum(base);
+            return @backingInt(base);
         }
     }.number,
     .numbered_in = "its missions",
@@ -511,7 +511,7 @@ pub const guns = Family(guns_module.GameGun, GunExtra, .{
             const trimmed = std.mem.trim(u8, text, " \t");
             if (std.fmt.parseInt(u32, trimmed, 0)) |number| {
                 if (number == 0 or number >= guns_module.max_types) return null;
-                return @enumFromInt(number - 1);
+                return @fromBackingInt(@intCast(number - 1));
             } else |_| {}
             return gameNamed(guns_module.GameGun, trimmed, guns_module.max_types);
         }
@@ -540,7 +540,7 @@ pub const missiles = Family(missiles_module.GameMissile, MissileExtra, .{
     }.of,
     .baseNumber = struct {
         fn number(base: missiles_module.GameMissile) u32 {
-            return @intCast(@intFromEnum(base));
+            return @intCast(@backingInt(base));
         }
     }.number,
     .numbered_in = "its models' hardpoints",
@@ -563,7 +563,7 @@ fn readPilot(context: Context, section: []const u8, base: u8) Allocator.Error!?P
     for (film_keys) |entry| {
         const key, const head = entry;
         const film = manifest.value(section, key) orelse continue;
-        face.films[@intFromEnum(head)] = try context.arena.dupe(u8, std.fs.path.stem(film));
+        face.films[@backingInt(head)] = try context.arena.dupe(u8, std.fs.path.stem(film));
     }
     if (manifest.value(section, "Voice")) |voice| face.own_voice = try context.arena.dupe(u8, std.mem.trim(u8, voice, " \t"));
     return .{ .face = face };
@@ -900,7 +900,7 @@ test remapMission {
     // A mission of mod `a` naming its types 300 and 301, its pilot 200, and one of the game's.
     var records = [_]dte.Ship{
         dte.testing.ship(0, dte.Ship.no_flight_group, 300),
-        dte.testing.ship(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.phoenix)),
+        dte.testing.ship(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.phoenix)),
         dte.testing.ship(2, dte.Ship.no_flight_group, 301),
         dte.testing.ship(3, dte.Ship.no_flight_group, 302),
     };
@@ -914,7 +914,7 @@ test remapMission {
     const remapped_ships = try (try dte.Mission.parse(image)).ships();
     try std.testing.expectEqual(ships.first, remapped_ships[0].kind);
     try std.testing.expectEqual(pilots.first, remapped_ships[0].pilot);
-    try std.testing.expectEqual(@intFromEnum(gameobj.GameType.phoenix), remapped_ships[1].kind);
+    try std.testing.expectEqual(@backingInt(gameobj.GameType.phoenix), remapped_ships[1].kind);
     try std.testing.expectEqual(12, remapped_ships[1].pilot);
     try std.testing.expectEqual(ships.first + 2, remapped_ships[2].kind);
     try std.testing.expectEqual(302, remapped_ships[3].kind);

@@ -71,7 +71,7 @@ pub const Effect = enum {
 
     /// Whether it is one of the files the game never reads.
     pub fn unread(effect: Effect) bool {
-        return @intFromEnum(effect) > @intFromEnum(Effect.shake);
+        return @backingInt(effect) > @backingInt(Effect.shake);
     }
 };
 

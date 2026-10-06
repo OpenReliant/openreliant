@@ -50,7 +50,7 @@ pub fn read(bytes: []const u8, buffer: *[texels.max_levels][]const u8) Error!tex
     const height = word(bytes, height_at);
     if (width == 0 or height == 0) return error.Corrupt;
     if (word(bytes, depth_at) > 1 or word(bytes, layers_at) > 1 or word(bytes, faces_at) != 1) return error.Unsupported;
-    if (word(bytes, supercompression_at) != @intFromEnum(Supercompression.none)) return error.Unsupported;
+    if (word(bytes, supercompression_at) != @backingInt(Supercompression.none)) return error.Unsupported;
     const format = vulkanFormat(word(bytes, format_at)) orelse return error.Unsupported;
     const count: usize = @max(word(bytes, levels_at), 1);
     if (count > texels.max_levels or bytes.len < index_at + count * entry_size) return error.Corrupt;
@@ -70,7 +70,7 @@ pub fn read(bytes: []const u8, buffer: *[texels.max_levels][]const u8) Error!tex
 /// supercompressed with Zstandard, which `read` takes as it is.
 pub fn inflated(gpa: Allocator, bytes: []const u8) (Error || Allocator.Error)!?[]u8 {
     if (bytes.len < index_at or !std.mem.eql(u8, bytes[0..identifier.len], &identifier)) return error.NotAKtx2;
-    const scheme: Supercompression = @enumFromInt(word(bytes, supercompression_at));
+    const scheme: Supercompression = @fromBackingInt(@intCast(word(bytes, supercompression_at)));
     if (scheme != .zstandard) return null;
     const count: usize = @max(word(bytes, levels_at), 1);
     if (count > texels.max_levels or bytes.len < index_at + count * entry_size) return error.Corrupt;
@@ -81,7 +81,7 @@ pub fn inflated(gpa: Allocator, bytes: []const u8) (Error || Allocator.Error)!?[
     const made = try gpa.alloc(u8, length);
     errdefer gpa.free(made);
     @memcpy(made[0..index_at], bytes[0..index_at]);
-    std.mem.writeInt(u32, made[supercompression_at..][0..4], @intFromEnum(Supercompression.none), .little);
+    std.mem.writeInt(u32, made[supercompression_at..][0..4], @backingInt(Supercompression.none), .little);
     @memset(made[descriptors_at..index_at], 0);
     var at: usize = index_at + index.len;
     for (0..count) |level| {
@@ -163,7 +163,7 @@ pub const testing = struct {
             made += 1;
         }
         const file_made = try file(gpa, vulkan, width, height, frames[0..levels.len]);
-        std.mem.writeInt(u32, file_made[supercompression_at..][0..4], @intFromEnum(Supercompression.zstandard), .little);
+        std.mem.writeInt(u32, file_made[supercompression_at..][0..4], @backingInt(Supercompression.zstandard), .little);
         for (levels, 0..) |level, index| {
             std.mem.writeInt(u64, file_made[index_at + index * entry_size + 16 ..][0..8], level.len, .little);
         }

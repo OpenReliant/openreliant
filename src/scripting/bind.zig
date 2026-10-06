@@ -72,7 +72,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
 
         fn kindOf(comptime T: type) Kind {
             inline for (kinds, 0..) |kind, at| {
-                if (kind == T) return @enumFromInt(at);
+                if (kind == T) return @fromBackingInt(@intCast(at));
             }
             @compileError(@typeName(T) ++ " is not one of the binding's types");
         }
@@ -82,7 +82,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             const proxy = Proxy.of(state, 1);
             switch (proxy.kind) {
                 inline else => |kind| {
-                    const T = kinds[@intFromEnum(kind)];
+                    const T = kinds[@backingInt(kind)];
                     pushKey(state, T, @ptrCast(@alignCast(proxy.address)), proxy.writable, 2);
                 },
             }
@@ -95,7 +95,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             if (!proxy.writable) state.raise("this {s} is read-only", .{name});
             switch (proxy.kind) {
                 inline else => |kind| {
-                    const T = kinds[@intFromEnum(kind)];
+                    const T = kinds[@backingInt(kind)];
                     setKey(state, T, @ptrCast(@alignCast(proxy.address)), 2, 3);
                 },
             }
@@ -115,7 +115,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             const proxy = Proxy.of(state, 1);
             switch (proxy.kind) {
                 inline else => |kind| {
-                    const T = kinds[@intFromEnum(kind)];
+                    const T = kinds[@backingInt(kind)];
                     return pushNext(state, T, @ptrCast(@alignCast(proxy.address)), proxy.writable);
                 },
             }
@@ -126,7 +126,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             const proxy = Proxy.of(state, 1);
             switch (proxy.kind) {
                 inline else => |kind| {
-                    const T = kinds[@intFromEnum(kind)];
+                    const T = kinds[@backingInt(kind)];
                     const len = switch (@typeInfo(T)) {
                         .array => |array| array.len,
                         else => comptime values.shownFields(T).len,
@@ -149,7 +149,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
         fn describe(state: *State) i32 {
             const proxy = Proxy.of(state, 1);
             switch (proxy.kind) {
-                inline else => |kind| state.pushString(comptime noun(kinds[@intFromEnum(kind)])),
+                inline else => |kind| state.pushString(comptime noun(kinds[@backingInt(kind)])),
             }
             return 1;
         }
@@ -418,7 +418,7 @@ test "a proxy reads and writes a struct in place" {
 
     // An open enum accepts numbers without a name.
     try run(thread, "gun.level = 7");
-    try std.testing.expectEqual(@as(Level, @enumFromInt(7)), gun.level);
+    try std.testing.expectEqual(@as(Level, @fromBackingInt(@intCast(7))), gun.level);
 
     // The iterator ignores keys it didn't hand out.
     try run(thread, "local iterate = getmetatable(gun.counts).__iter\nlocal step = iterate(gun.counts)\nassert(step(gun.counts, -5) == nil and step(gun.counts, 1e20) == nil)");

@@ -418,10 +418,10 @@ pub const Game = struct {
         miss.tier = game.tier.*;
         miss.kills = game.player.kills.count;
         miss.mp_deaths = campaign.mp_deaths;
-        for (&miss.medals, 1..) |*flag, medal| flag.* = @intFromBool(campaign.medals.contains(@enumFromInt(medal)));
+        for (&miss.medals, 1..) |*flag, medal| flag.* = @intFromBool(campaign.medals.contains(@fromBackingInt(@intCast(medal))));
         for (&miss.ribbons, 0..) |*flag, ribbon| flag.* = @intFromBool(campaign.ribbons.isSet(ribbon));
         for (campaign.records, 0..) |record, index| {
-            miss.ratings[index] = if (record.rating) |rating| @truncate(@intFromEnum(rating)) else no_rating;
+            miss.ratings[index] = if (record.rating) |rating| @truncate(@backingInt(rating)) else no_rating;
             miss.mission_pickups[index] = record.pickups;
             miss.promotions[index] = record.promotion orelse 0;
             if (index + 1 < missions) miss.mission_kills[index + 1] = @bitCast(record.kills);
@@ -456,11 +456,11 @@ pub const Game = struct {
         game.player.kills.kept = miss.kills;
         campaign.mp_deaths = miss.mp_deaths;
         campaign.medals = .initEmpty();
-        for (miss.medals, 1..) |flag, medal| if (flag != 0) campaign.medals.insert(@enumFromInt(medal));
+        for (miss.medals, 1..) |flag, medal| if (flag != 0) campaign.medals.insert(@fromBackingInt(@intCast(medal)));
         campaign.ribbons = .initEmpty();
         for (miss.ribbons, 0..) |flag, ribbon| campaign.ribbons.setValue(ribbon, flag != 0);
         for (&campaign.records, 0..) |*record, index| record.* = .{
-            .rating = if (miss.ratings[index] == no_rating) null else @enumFromInt(miss.ratings[index]),
+            .rating = if (miss.ratings[index] == no_rating) null else @fromBackingInt(@intCast(miss.ratings[index])),
             .kills = if (index + 1 < missions) @bitCast(miss.mission_kills[index + 1]) else 0,
             .pickups = std.math.lossyCast(u8, miss.mission_pickups[index]),
             .promotion = if (miss.promotions[index] == 0) null else gameflow.rankOf(miss.promotions[index]),
@@ -706,7 +706,7 @@ test read {
     const odd = comptime iff.testing.form(form_type, Chunk("NAME", "x\x00") ++ Chunk("PILO", "\x01\x02\x03\x04\x05\x06") ++ Chunk("ALPH", "\x07") ++ Chunk("PILO", "\x09\x09\x09\x09"));
     try std.testing.expect(read(odd, &back));
     try std.testing.expectEqualStrings("x", back.name.slice());
-    try std.testing.expectEqual(Replacement{ .pilot = 0x0201, .status = @enumFromInt(3), ._unused = 4 }, back.pilo);
+    try std.testing.expectEqual(Replacement{ .pilot = 0x0201, .status = @fromBackingInt(@intCast(3)), ._unused = 4 }, back.pilo);
     try std.testing.expectEqual(Wing{ @bitCast(@as(u16, 0xFF07)), 0x55, 0x6C, 0x56, 0xAC, 7 }, back.alph);
     try std.testing.expectEqual(2, back.miss.mission);
 
@@ -782,7 +782,7 @@ test Game {
     try std.testing.expectEqual(.hard, miss.difficulty);
     try std.testing.expectEqual(1, miss.female);
     try std.testing.expectEqual(-1, miss.saved_racks[0]);
-    try std.testing.expectEqual(@intFromEnum(loadout_tables.Missile.havoc), miss.saved_racks[2]);
+    try std.testing.expectEqual(@backingInt(loadout_tables.Missile.havoc), miss.saved_racks[2]);
     // The variables kept, in their order, and nothing after them.
     try std.testing.expectEqual(0, save.vars[0]);
     try std.testing.expectEqual(1, save.vars[6]);
@@ -894,7 +894,7 @@ test ModChoice {
     const save = state.game().capture("Pot");
     // The save keeps their bases, which the original reads, and the .mods file their names.
     try std.testing.expectEqual(0, save.miss.saved_ship);
-    try std.testing.expectEqual(@intFromEnum(loadout_tables.Missile.bandit), save.miss.saved_racks[1]);
+    try std.testing.expectEqual(@backingInt(loadout_tables.Missile.bandit), save.miss.saved_racks[1]);
     try folder.store(gpa, "Ace", 1, &save);
     const text = folder.companion(gpa, "Ace", 1, mods_extension, most_mods_read).?;
     defer gpa.free(text);

@@ -147,7 +147,7 @@ pub const Device = struct {
 
     pub fn read(settings: Profile) Device {
         return .{
-            .view = @enumFromInt(settings.int(video.section, video.view_key, 0)),
+            .view = @fromBackingInt(@intCast(settings.int(video.section, video.view_key, 0))),
             .brightness = @as(f32, @floatFromInt(settings.int(video.section, gamma_key, default_gamma))) / video.gamma_scale,
             .transitions = settings.int(video.section, video.transitions_key, 1) != 0,
             .details = .read(settings),
@@ -177,10 +177,10 @@ pub const Details = struct {
 
     pub fn read(settings: Profile) Details {
         const section = interface.settings.video.section;
-        const highest = @intFromEnum(explode.Detail.high);
+        const highest = @backingInt(explode.Detail.high);
         return .{
-            .texture = @enumFromInt(settings.int(section, texture_key, @intFromEnum(xtrabits.TextureDetail.high))),
-            .graphic = @enumFromInt(@min(settings.int(section, graphic_key, highest), highest)),
+            .texture = @fromBackingInt(@intCast(settings.int(section, texture_key, @backingInt(xtrabits.TextureDetail.high)))),
+            .graphic = @fromBackingInt(@intCast(@min(settings.int(section, graphic_key, highest), highest))),
             .light_maps = settings.int(section, light_maps_key, 1) != 0,
         };
     }

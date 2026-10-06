@@ -18,7 +18,7 @@ pub const Status = enum(u32) {
 
     pub fn format(status: Status, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (status) {
-            _ => writer.print("status {d}", .{@intFromEnum(status)}),
+            _ => writer.print("status {d}", .{@backingInt(status)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -178,5 +178,5 @@ test Voice {
 test "Status.format" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("stopped", try std.fmt.bufPrint(&buffer, "{f}", .{Status.stopped}));
-    try std.testing.expectEqualStrings("status 16", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Status, @enumFromInt(16))}));
+    try std.testing.expectEqualStrings("status 16", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Status, @fromBackingInt(@intCast(16)))}));
 }

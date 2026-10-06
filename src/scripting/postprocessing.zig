@@ -162,7 +162,7 @@ pub const Registry = struct {
         // A stable sort keeps the effects of the same stage and order as they were registered.
         std.sort.insertion(Entry, drawn[0..count], {}, struct {
             fn lessThan(_: void, a: Entry, b: Entry) bool {
-                if (a.stage != b.stage) return @intFromEnum(a.stage) < @intFromEnum(b.stage);
+                if (a.stage != b.stage) return @backingInt(a.stage) < @backingInt(b.stage);
                 return a.order < b.order;
             }
         }.lessThan);

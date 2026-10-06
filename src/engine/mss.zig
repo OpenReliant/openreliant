@@ -428,7 +428,7 @@ pub const Mixer = struct {
         for (slots, 0..) |*slot, index| {
             if (slot.allocated) continue;
             slot.* = .{ .allocated = true };
-            return @enumFromInt(index);
+            return @fromBackingInt(@intCast(index));
         }
         return null;
     }
@@ -447,7 +447,7 @@ pub const Mixer = struct {
     }
 
     fn sample(mixer: *Mixer, handle: Sample) *SampleState {
-        return &mixer.samples[@intFromEnum(handle)].state;
+        return &mixer.samples[@backingInt(handle)].state;
     }
 
     /// `AIL_init_sample`: back to no sound, full volume and the middle.
@@ -563,11 +563,11 @@ pub const Mixer = struct {
     pub fn release3DSample(mixer: *Mixer, handle: Sample3D) void {
         mixer.lock.acquire();
         defer mixer.lock.release();
-        mixer.samples_3d[@intFromEnum(handle)] = .{};
+        mixer.samples_3d[@backingInt(handle)] = .{};
     }
 
     fn sample3D(mixer: *Mixer, handle: Sample3D) *Sample3DState {
-        return &mixer.samples_3d[@intFromEnum(handle)].state;
+        return &mixer.samples_3d[@backingInt(handle)].state;
     }
 
     /// `AIL_set_3D_sample_file`: its sound, which must outlive it. Miles's 3D samples play PCM
@@ -708,13 +708,13 @@ pub const Mixer = struct {
     }
 
     fn stream(mixer: *Mixer, handle: Stream) *StreamState {
-        return &mixer.streams[@intFromEnum(handle)].state;
+        return &mixer.streams[@backingInt(handle)].state;
     }
 
     pub fn closeStream(mixer: *Mixer, handle: Stream) void {
         mixer.lock.acquire();
         defer mixer.lock.release();
-        mixer.streams[@intFromEnum(handle)] = .{};
+        mixer.streams[@backingInt(handle)] = .{};
     }
 
     pub fn startStream(mixer: *Mixer, handle: Stream) void {

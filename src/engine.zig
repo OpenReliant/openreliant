@@ -58,7 +58,7 @@ test Pointer {
     try std.testing.expect(isPointer(P));
     try std.testing.expect(!isPointer(u32));
     try std.testing.expectEqual(4, @sizeOf(P));
-    try std.testing.expectEqual(0x00525F88, @intFromEnum(@as(P, @enumFromInt(0x00525F88))));
+    try std.testing.expectEqual(0x00525F88, @backingInt(@as(P, @fromBackingInt(@intCast(0x00525F88)))));
     try std.testing.expect(isCode(vm.Handler));
     try std.testing.expect(!isCode(anyopaque));
 }

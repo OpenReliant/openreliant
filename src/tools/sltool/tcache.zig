@@ -80,7 +80,7 @@ fn info(ctx: Context, cache: tcache.Cache) !void {
         cache.header.end,
     });
     for (by_encoding.values, 0..) |count, i| {
-        const encoding: tcache.Encoding = @enumFromInt(i);
+        const encoding: tcache.Encoding = @fromBackingInt(@intCast(i));
         try ctx.stdout.print("  {s:<14}{d}\n", .{ @tagName(encoding), count });
     }
 }

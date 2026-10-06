@@ -90,7 +90,7 @@ fn write(w: *Io.Writer, gpa: Allocator, game: ?*Game, shown: ?*Presentation, sto
     try w.writeInt(u32, @intCast(saved.items.len), .little);
     for (saved.items) |entry| {
         try stored.encode(w, .{ .string = entry.context.modOf().name });
-        try w.writeByte(@intFromEnum(entry.context.family));
+        try w.writeByte(@backingInt(entry.context.family));
         try stored.encode(w, .{ .string = entry.name });
         try stored.encode(w, entry.value);
     }
@@ -108,7 +108,7 @@ fn write(w: *Io.Writer, gpa: Allocator, game: ?*Game, shown: ?*Presentation, sto
             const data: Value = if (timer.data) |ref| side.runner.runtime.keep(timer.context, ref, gpa, "a timer's data") orelse .nil else .nil;
             defer data.deinit(gpa);
             try stored.encode(w, .{ .string = timer.context.modOf().name });
-            try w.writeByte(@intFromEnum(timer.context.family));
+            try w.writeByte(@backingInt(timer.context.family));
             try stored.encode(w, .{ .string = timer.name.slice() });
             try w.writeInt(u64, @bitCast(timer.left), .little);
             try stored.encode(w, data);

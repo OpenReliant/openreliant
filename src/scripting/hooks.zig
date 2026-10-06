@@ -415,7 +415,7 @@ const Dispatch = struct {
 const Event = struct {
     dispatch: ?*Dispatch,
 
-    const tag = @intFromEnum(runtime_module.Tag.hook_event);
+    const tag = @backingInt(runtime_module.Tag.hook_event);
 
     /// Pushes a new `e` for `dispatch` (`Runtime.make`).
     fn make(state: *State, dispatch: *Dispatch) void {
@@ -487,7 +487,7 @@ const Handle = struct {
     hook: Hook,
     id: u32,
 
-    const tag = @intFromEnum(runtime_module.Tag.hook_handle);
+    const tag = @backingInt(runtime_module.Tag.hook_handle);
 };
 
 fn handleField(state: *State) i32 {

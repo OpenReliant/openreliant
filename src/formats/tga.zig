@@ -256,7 +256,7 @@ test "ImageType.colorMapped" {
     try std.testing.expect(ImageType.color_mapped.colorMapped());
     try std.testing.expect(ImageType.rle_color_mapped.colorMapped());
     try std.testing.expect(!ImageType.true_color.colorMapped());
-    try std.testing.expect(!@as(ImageType, @enumFromInt(33)).colorMapped());
+    try std.testing.expect(!@as(ImageType, @fromBackingInt(@intCast(33))).colorMapped());
 }
 
 test decode {

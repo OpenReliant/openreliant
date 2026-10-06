@@ -65,12 +65,12 @@ pub const Routine = struct {
 
     pub fn label(routine: *Routine) Allocator.Error!Label {
         try routine.places.append(routine.gpa, null);
-        return @enumFromInt(routine.places.items.len - 1);
+        return @fromBackingInt(@intCast(routine.places.items.len - 1));
     }
 
     /// Places `at` at the next instruction.
     pub fn place(routine: *Routine, at: Label) void {
-        routine.places.items[@intFromEnum(at)] = routine.code.items.len;
+        routine.places.items[@backingInt(at)] = routine.code.items.len;
     }
 
     /// An instruction of fixed operands: `opcode` and as many operand bytes as it takes, a wide
@@ -82,7 +82,7 @@ pub const Routine = struct {
             .branch, .inline_data => return error.WrongOperands,
         }
         if (opcode == .random_branch or operands.len != info.operands) return error.WrongOperands;
-        try routine.code.append(routine.gpa, @intFromEnum(opcode));
+        try routine.code.append(routine.gpa, @backingInt(opcode));
         try routine.code.appendSlice(routine.gpa, operands);
     }
 
@@ -91,7 +91,7 @@ pub const Routine = struct {
     pub fn branch(routine: *Routine, opcode: Opcode, target: Label) Error!void {
         const info = opcode.info() orelse return error.WrongOperands;
         if (info.form != .branch) return error.WrongOperands;
-        try routine.code.append(routine.gpa, @intFromEnum(opcode));
+        try routine.code.append(routine.gpa, @backingInt(opcode));
         const at = routine.code.items.len;
         try routine.code.appendSlice(routine.gpa, &.{ 0, 0 });
         try routine.fixups.append(routine.gpa, .{ .at = at, .label = target, .from = at });
@@ -103,7 +103,7 @@ pub const Routine = struct {
         const info = opcode.info() orelse return error.WrongOperands;
         if (info.form != .inline_data) return error.WrongOperands;
         const length = std.math.cast(u8, data.len + 1) orelse return error.InlineTooLong;
-        try routine.code.appendSlice(routine.gpa, &.{ @intFromEnum(opcode), length });
+        try routine.code.appendSlice(routine.gpa, &.{ @backingInt(opcode), length });
         try routine.code.appendSlice(routine.gpa, data);
     }
 
@@ -125,7 +125,7 @@ pub const Routine = struct {
     pub fn randomBranch(routine: *Routine, default: Label, arms: []const Arm) Error!void {
         const count = std.math.cast(u8, arms.len) orelse return error.WrongOperands;
         const from = routine.code.items.len;
-        try routine.code.appendSlice(routine.gpa, &.{ @intFromEnum(Opcode.random_branch), count });
+        try routine.code.appendSlice(routine.gpa, &.{ @backingInt(Opcode.random_branch), count });
         try routine.fixups.append(routine.gpa, .{ .at = routine.code.items.len, .label = default, .from = from });
         try routine.code.appendSlice(routine.gpa, &.{ 0, 0 });
         for (arms) |arm| {
@@ -152,7 +152,7 @@ pub const Routine = struct {
     /// padding to four bytes; then the constants, padded to eight bytes. The padding is zero.
     pub fn finish(routine: *Routine) Error![]u8 {
         for (routine.fixups.items) |fixup| {
-            const target = routine.places.items[@intFromEnum(fixup.label)] orelse return error.UnplacedLabel;
+            const target = routine.places.items[@backingInt(fixup.label)] orelse return error.UnplacedLabel;
             if (target < fixup.from) return error.BackwardBranch;
             const displacement = std.math.cast(u16, target - fixup.from) orelse return error.BranchTooFar;
             std.mem.writeInt(u16, routine.code.items[fixup.at..][0..2], displacement, .big);

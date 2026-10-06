@@ -54,9 +54,9 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
     var list: std.ArrayList(Maneuver) = .empty;
     for (0..max_maneuvers) |index| {
         const record = try reader.recordAt(Record, table_address, index);
-        const name = reader.string(@intFromEnum(record.name)) catch break;
+        const name = reader.string(@backingInt(record.name)) catch break;
         if (name.len == 0) break;
-        const script_address = @intFromEnum(record.script);
+        const script_address = @backingInt(record.script);
         try list.append(arena, .{
             .name = name,
             .mirror = @bitCast(record.mirror),
@@ -71,7 +71,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
     var table: Table = .{ .maneuvers = try list.toOwnedSlice(arena), .handlers = undefined, .choices = undefined };
     const handlers = try reader.records(lancer_maneuvers.Handlers, handlers_address, opcode_count);
     for (&table.handlers, handlers) |*pair, record| {
-        pair.* = .{ .start = @intFromEnum(record.start), .run = @intFromEnum(record.run) };
+        pair.* = .{ .start = @backingInt(record.start), .run = @backingInt(record.run) };
     }
     const lists = try reader.records(u32, choices_address, bearings * bearings);
     for (&table.choices, 0..) |*row, ours| {
@@ -92,7 +92,7 @@ fn readScript(arena: std.mem.Allocator, reader: image.Reader, address: u32) (Err
     for (0..max_lines) |index| {
         const line = try reader.recordAt(lancer_maneuvers.ScriptLine, address, index);
         if (line.text == .null) return lines.toOwnedSlice(arena);
-        try lines.append(arena, try reader.string(@intFromEnum(line.text)));
+        try lines.append(arena, try reader.string(@backingInt(line.text)));
     } else return error.ScriptTooLong;
 }
 
@@ -272,24 +272,24 @@ const TestPayload = struct {
             r.putRecord(table_address + @as(u32, @intCast(index)) * record_size, Record{
                 .mirror = .{ .yaw = true, .pitch = false, .roll = true },
                 ._unknown_01 = @splat(0),
-                .script = @enumFromInt(script_at),
-                .name = @enumFromInt(text.put(r, &next_string, name)),
+                .script = @fromBackingInt(@intCast(script_at)),
+                .name = @fromBackingInt(@intCast(text.put(r, &next_string, name))),
                 .min_ticks = 400,
                 .max_ticks = 1000,
             });
             for (lines) |line_text| {
-                r.putRecord(script_at, lancer_maneuvers.ScriptLine{ .text = @enumFromInt(text.put(r, &next_string, line_text)), .instruction = .null });
+                r.putRecord(script_at, lancer_maneuvers.ScriptLine{ .text = @fromBackingInt(@intCast(text.put(r, &next_string, line_text))), .instruction = .null });
                 script_at += @sizeOf(lancer_maneuvers.ScriptLine);
             }
             script_at += @sizeOf(lancer_maneuvers.ScriptLine);
         }
         // The third record's name is text, as after the payload's last.
         var past = std.mem.zeroes(Record);
-        past.name = @enumFromInt(0x6E757220);
+        past.name = @fromBackingInt(@intCast(0x6E757220));
         r.putRecord(table_address + 2 * record_size, past);
         for (0..opcode_count) |index| {
             const routine: u32 = 0x00405000 + @as(u32, @intCast(index));
-            r.putRecord(handlers_address + @as(u32, @intCast(index)) * @sizeOf(lancer_maneuvers.Handlers), lancer_maneuvers.Handlers{ .start = @enumFromInt(routine), .run = .null });
+            r.putRecord(handlers_address + @as(u32, @intCast(index)) * @sizeOf(lancer_maneuvers.Handlers), lancer_maneuvers.Handlers{ .start = @fromBackingInt(@intCast(routine)), .run = .null });
         }
         // Every choice list holds both maneuvers.
         const list_at = text.put(r, &next_string, &.{ 2, 0, 1 });

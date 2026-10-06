@@ -274,7 +274,7 @@ pub const Debriefing = struct {
                 if (n > 0) writer.writeAll(between) catch {};
                 writer.writeAll(itac.string(id)) catch {};
             }
-            if (gameflow.Medal.of(number)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@intFromEnum(medal)]);
+            if (gameflow.Medal.of(number)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
             if (record.promotion) |rank| addParagraph(&writer, itac, promotion_texts[rank]);
             if (landing.chapterOf(number)) |ribbon| addParagraph(&writer, itac, ribbon_texts[ribbon]);
             const tier = gameflow.mission_tiers[number - 1];
@@ -382,7 +382,7 @@ pub const Debriefing = struct {
 /// bonus where it has none (`0x00424DA4`).
 fn ratingOf(record: gameflow.MissionRecord) usize {
     const rating = record.rating orelse return tables.debriefings.len - 1;
-    return @intCast(std.math.clamp(@intFromEnum(rating), 0, tables.debriefings.len - 1));
+    return @intCast(std.math.clamp(@backingInt(rating), 0, tables.debriefings.len - 1));
 }
 
 /// The debriefing of mission `number` as its record has it.

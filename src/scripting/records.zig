@@ -27,7 +27,7 @@ const values = @import("values.zig");
 const runtime = @import("runtime.zig");
 
 /// The proxies for records.
-pub const Values = bind.Binding(&.{ stats.Ship, stats.Gun, stats.Missile, stats.Pilot }, @intFromEnum(runtime.Tag.record_value), "record");
+pub const Values = bind.Binding(&.{ stats.Ship, stats.Gun, stats.Missile, stats.Pilot }, @backingInt(runtime.Tag.record_value), "record");
 
 /// Editable copies of the game's tables.
 pub const Records = struct {
@@ -169,14 +169,14 @@ pub const Set = enum {
             var named: []const Named = &.{};
             switch (set) {
                 .ships => for (std.enums.values(game.gameobj.GameType)) |ship| {
-                    const number = @intFromEnum(ship);
+                    const number = @backingInt(ship);
                     if (number < stats.Table.ships.load().capacity()) named = named ++ .{Named{ .name = @tagName(ship), .number = number }};
                 },
                 .guns => for (std.enums.values(game.guns.GameGun)) |gun| {
                     named = named ++ .{Named{ .name = @tagName(gun), .number = gun.number() }};
                 },
                 .missiles => for (std.enums.values(game.missiles.GameMissile)) |missile| {
-                    if (missile != .none) named = named ++ .{Named{ .name = @tagName(missile), .number = @intCast(@intFromEnum(missile)) }};
+                    if (missile != .none) named = named ++ .{Named{ .name = @tagName(missile), .number = @intCast(@backingInt(missile)) }};
                 },
                 .pilots, .text, .itac_text => {},
             }
@@ -193,7 +193,7 @@ const SetProxy = struct {
     set: Set,
     writable: bool,
 
-    const tag = @intFromEnum(runtime.Tag.record_set);
+    const tag = @backingInt(runtime.Tag.record_set);
 
     fn of(state: *State, at: i32) *const SetProxy {
         return state.toUserdata(SetProxy, at, tag) orelse state.raise("expected a record table", .{});
@@ -423,7 +423,7 @@ test "ship records by the game's names and by the qualified names of the types m
     ships.install(&list);
     defer ships.reset();
     var game_ships: [12]stats.Ship = @splat(std.mem.zeroes(stats.Ship));
-    game_ships[@intFromEnum(game.gameobj.GameType.phoenix)].max_speed = 300;
+    game_ships[@backingInt(game.gameobj.GameType.phoenix)].max_speed = 300;
     var records: Records = try .init(arena.allocator(), .{
         .ships = try ships.records(stats.Ship, arena.allocator(), &game_ships, 0),
         .guns = &.{},

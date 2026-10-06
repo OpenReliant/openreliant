@@ -71,7 +71,7 @@ pub const TypeIndex = u16;
 pub fn shipFiles(number: TypeIndex) models.ShipType {
     if (additions.ships.get(number)) |added| return .{
         .model = added.extra.model,
-        .schematic = added.extra.schematic orelse models.ship_types[@intFromEnum(added.base)].schematic,
+        .schematic = added.extra.schematic orelse models.ship_types[@backingInt(added.base)].schematic,
     };
     return if (number < models.ship_types.len) models.ship_types[number] else .{ .model = null, .schematic = null };
 }
@@ -132,7 +132,7 @@ pub const Stats = struct {
     /// from its record (`load`).
     pub fn addTypes(tables: *Stats) void {
         for (additions.ships.all(), additions.ships.first..) |added, number| {
-            const base = @intFromEnum(added.base);
+            const base = @backingInt(added.base);
             tables.flight[number].turns = tables.flight[base].turns;
             const record = &tables.combat[number];
             const from = tables.combat[base];
@@ -964,7 +964,7 @@ const planet_types = [_][2]u32{ .{ 0x5F, 0x69 }, .{ 0xC9, 0xD3 } };
 
 /// Whether `ship_type` is a planet's (`planet_types`).
 pub fn isPlanet(ship_type: gameobj.Type) bool {
-    const number = @intFromEnum(ship_type.base());
+    const number = @backingInt(ship_type.base());
     for (planet_types) |range| {
         if (number >= range[0] and number <= range[1]) return true;
     }
@@ -1121,7 +1121,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     slot.combat = combat;
     slot.flight = &tables.flight[stats_type];
     slot.motion = .forward;
-    object.side = @enumFromInt(@intFromEnum(combat.side));
+    object.side = @fromBackingInt(@intCast(@backingInt(combat.side)));
 
     slot.type = all.useType(types, stats_type);
     if (slot.type) |loaded| {
@@ -1206,7 +1206,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     try arm(all.gpa, slot, fit);
     ai.setTargetable(object, combat, true);
     all.exhaust.offer(all, index);
-    object.type = @enumFromInt(becomes);
+    object.type = @fromBackingInt(@intCast(becomes));
     hooks.tell(all, .object_added, .{ .object = .of(index) });
     return index;
 }
@@ -1285,7 +1285,7 @@ const last_fighter = 11;
 /// tier 0 with 4 or 5.
 pub fn settledTier(asked: i32, ship_type: gameobj.Type, campaign: u2) u2 {
     var tier: i32 = if (asked == 5) 4 else if (asked < 0 or asked > 4) 0 else asked;
-    if (tier == 0 and @intFromEnum(ship_type.base()) <= last_fighter) tier = campaign;
+    if (tier == 0 and @backingInt(ship_type.base()) <= last_fighter) tier = campaign;
     return if (tier == 4) 0 else @intCast(tier);
 }
 
@@ -1750,7 +1750,7 @@ test planetMade {
     try std.testing.expect(!all.slots[ship].object.flags.no_collisions);
     try std.testing.expectEqual(50, hull.mesh.positions[0][2]);
 
-    const planet = try mission.addWith(hull.types(), @enumFromInt(0x60), @splat(0));
+    const planet = try mission.addWith(hull.types(), @fromBackingInt(@intCast(0x60)), @splat(0));
     const slot = &all.slots[planet];
     slot.model.?.parts[0].origin = .{ 0, 0, 7 };
     planetMade(all, planet);
@@ -2174,7 +2174,7 @@ test createObject {
     try std.testing.expectError(error.Overrun, createObject(all, &mission.tables, model.types(), gameobj.max_objects, .of(.predator), 0, @splat(0), &mission.random));
 
     // Above the last ship type, a stand-in for a marker, at a slot of its own.
-    const marker = try createObject(all, &mission.tables, model.types(), 20, @enumFromInt(1000), 0, @splat(0), &mission.random);
+    const marker = try createObject(all, &mission.tables, model.types(), 20, @fromBackingInt(@intCast(1000)), 0, @splat(0), &mission.random);
     try std.testing.expectEqual(20, marker);
     try std.testing.expectEqual(2, all.count);
     const stand_in = all.slots[marker];
@@ -2226,7 +2226,7 @@ test "an object is created with the guns its model holds" {
     }
     model.data[0].attachments = &muzzles;
 
-    const index = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
+    const index = try mission.addWith(model.types(), @fromBackingInt(@intCast(7)), @splat(0));
     const slot = &all.slots[index];
     // The guns are fitted after the count is cleared, so the object holds them all.
     try std.testing.expectEqual(2, slot.object.gun_count);
@@ -2260,10 +2260,10 @@ test "a ship with a retro thruster can reverse" {
         glow.size = .{ 10, 10, length };
     }
     model.data[0].attachments = glows[0..1];
-    const plain = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
+    const plain = try mission.addWith(model.types(), @fromBackingInt(@intCast(7)), @splat(0));
     try std.testing.expect(!all.slots[plain].object.flags.can_reverse);
     model.data[0].attachments = &glows;
-    const retro = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
+    const retro = try mission.addWith(model.types(), @fromBackingInt(@intCast(7)), @splat(0));
     try std.testing.expect(all.slots[retro].object.flags.can_reverse);
 }
 
@@ -2277,7 +2277,7 @@ test "a type under another number takes its stats, then its number" {
     mission.tables.combat[0x21].shield_power = 30;
     mission.tables.combat[0xE5].name = 1123;
     mission.tables.combat[0xE5].gun_groups = 2;
-    const index = try mission.add(@enumFromInt(0xE5), @splat(0));
+    const index = try mission.add(@fromBackingInt(@intCast(0xE5)), @splat(0));
     const slot = all.slots[index];
     try std.testing.expectEqual(0x21, slot.object.type.number());
     try std.testing.expectEqual(55, slot.flight.?.max_speed);
@@ -2295,7 +2295,7 @@ test "a type with no model still flies" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const index = try mission.add(@enumFromInt(3), @splat(0));
+    const index = try mission.add(@fromBackingInt(@intCast(3)), @splat(0));
     try std.testing.expectEqual(null, all.slots[index].model);
     all.slots[index].object.throttle = 1;
     all.slots[index].object.rotation = math.identity;

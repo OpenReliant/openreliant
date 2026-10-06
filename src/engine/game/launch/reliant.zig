@@ -80,7 +80,7 @@ pub const Cutaway = enum(i32) {
     /// (`0x0041B2C5` to `0x0041B2D6`): the remainder of `random`'s next over `cutaways`, counted
     /// from the first, the bay's.
     pub fn pick(random: *libcmt.Rand) Cutaway {
-        return @enumFromInt(@as(i32, random.rand() % cutaways) + @intFromEnum(Cutaway.bay));
+        return @fromBackingInt(@intCast(@as(i32, random.rand() % cutaways) + @backingInt(Cutaway.bay)));
     }
 };
 
@@ -99,7 +99,7 @@ pub const Door = enum {
 
     /// Its part in the Reliant's root's child list for tube `gate`.
     pub fn part(door: Door, gate: usize) usize {
-        return gate + @as(usize, @intFromEnum(door)) * door_step;
+        return gate + @as(usize, @backingInt(door)) * door_step;
     }
 };
 

@@ -404,7 +404,7 @@ const TestPath = struct {
     /// The records of the player's ship, the follower, and `count - 2` curve points.
     fn ships(comptime count: usize) [count]dte.Ship {
         var made = dte.testing.ships(count, dte.Ship.curve_point_kind);
-        for (made[0..2]) |*ship| ship.kind = @intFromEnum(gameobj.GameType.predator);
+        for (made[0..2]) |*ship| ship.kind = @backingInt(gameobj.GameType.predator);
         return made;
     }
 

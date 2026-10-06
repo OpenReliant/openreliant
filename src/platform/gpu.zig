@@ -885,7 +885,7 @@ pub const Gpu = struct {
         /// The uniforms of `pass`, stepping `texel` along a blur's axis, with the threshold or the
         /// bloom's strength `level`, and `finishing` as `finish`.
         fn of(pass: ScreenPass, texel: [2]f32, level: f32, finishing: [4]f32) ScreenUniforms {
-            return .{ .settings = .{ @floatFromInt(@intFromEnum(pass)), texel[0], texel[1], level }, .finish = finishing };
+            return .{ .settings = .{ @floatFromInt(@backingInt(pass)), texel[0], texel[1], level }, .finish = finishing };
         }
 
         comptime {
@@ -1458,7 +1458,7 @@ pub const Gpu = struct {
             const capacity = @min(std.math.ceilPowerOfTwoAssert(u32, array.count), max_layers);
             array.texture = try gpu.grown(copy, array.*, array.texture, capacity, sdlFormat(array.shape.format, gpu.linear));
             for (&array.maps.values, 0..) |*map, kind| {
-                if (map.*) |texture| map.* = try gpu.grown(copy, array.*, texture, capacity, mapFormat(@enumFromInt(kind), array.shape.format, gpu.linear));
+                if (map.*) |texture| map.* = try gpu.grown(copy, array.*, texture, capacity, mapFormat(@fromBackingInt(@intCast(kind)), array.shape.format, gpu.linear));
             }
             array.capacity = capacity;
         }
@@ -1466,7 +1466,7 @@ pub const Gpu = struct {
         for (gpu.uploads.items) |item| {
             const array = &gpu.arrays.items[item.slot.array];
             for (item.maps.list(), &array.maps.values, 0..) |levels, *map, kind| {
-                if (levels != null and map.* == null) map.* = try gpu.arrayTexture(array.shape, array.capacity, mapFormat(@enumFromInt(kind), array.shape.format, gpu.linear));
+                if (levels != null and map.* == null) map.* = try gpu.arrayTexture(array.shape, array.capacity, mapFormat(@fromBackingInt(@intCast(kind)), array.shape.format, gpu.linear));
             }
             for ([_]?[]const srtexture.Level{item.levels} ++ item.maps.list()) |each| {
                 for (each orelse &.{}) |level| bytes += level.texels.len;

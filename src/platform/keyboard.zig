@@ -150,7 +150,7 @@ const table = table: {
 const scancodes = scancodes: {
     var codes: [256]?u32 = @splat(null);
     for (pairs) |pair| {
-        const code = @intFromEnum(pair[1]);
+        const code = @backingInt(pair[1]);
         if (codes[code] == null) codes[code] = pair[0];
     }
     break :scancodes codes;
@@ -158,8 +158,8 @@ const scancodes = scancodes: {
 
 test directInput {
     try std.testing.expectEqual(Key.one, directInput(c.SDL_SCANCODE_1).?);
-    try std.testing.expectEqual(0x02, @intFromEnum(directInput(c.SDL_SCANCODE_1).?));
-    try std.testing.expectEqual(0xCB, @intFromEnum(directInput(c.SDL_SCANCODE_LEFT).?));
+    try std.testing.expectEqual(0x02, @backingInt(directInput(c.SDL_SCANCODE_1).?));
+    try std.testing.expectEqual(0xCB, @backingInt(directInput(c.SDL_SCANCODE_LEFT).?));
     try std.testing.expectEqual(Key.right_shift, directInput(c.SDL_SCANCODE_RSHIFT).?);
     try std.testing.expectEqual(null, directInput(c.SDL_SCANCODE_F13));
     try std.testing.expectEqual(null, directInput(100_000));
@@ -169,8 +169,8 @@ test nameKeys {
     // SDL's own layout while no keyboard's is known: US, its letters in capitals.
     var names: input.KeyNames = .{};
     nameKeys(&names);
-    try std.testing.expectEqualStrings("Q", names.of(@intFromEnum(Key.q)));
-    try std.testing.expectEqualStrings("1", names.of(@intFromEnum(Key.one)));
+    try std.testing.expectEqualStrings("Q", names.of(@backingInt(Key.q)));
+    try std.testing.expectEqualStrings("1", names.of(@backingInt(Key.one)));
     // A key SDL has no code for.
     try std.testing.expectEqualStrings(input.KeyNames.unknown, names.of(0));
 }

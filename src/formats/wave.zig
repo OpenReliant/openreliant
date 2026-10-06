@@ -31,7 +31,7 @@ pub const Wave = struct {
 
         pub fn format(tag: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             return switch (tag) {
-                _ => writer.print("format {d}", .{@intFromEnum(tag)}),
+                _ => writer.print("format {d}", .{@backingInt(tag)}),
                 inline else => |named| writer.writeAll(@tagName(named)),
             };
         }
@@ -92,7 +92,7 @@ pub const Wave = struct {
     pub fn parse(bytes: []const u8) error{NotAWave}!Wave {
         _ = riff.header(bytes, form) orelse return error.NotAWave;
         var wave: Wave = .{
-            .format = @enumFromInt(0),
+            .format = @fromBackingInt(@intCast(0)),
             .channels = 0,
             .rate = 0,
             .bits = 0,

@@ -114,7 +114,7 @@ pub const Node = extern struct {
 
         pub fn format(kind: Kind, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             return switch (kind) {
-                _ => writer.print("node kind {d}", .{@intFromEnum(kind)}),
+                _ => writer.print("node kind {d}", .{@backingInt(kind)}),
                 inline else => |named| writer.writeAll(@tagName(named)),
             };
         }
@@ -1293,7 +1293,7 @@ pub const Model = struct {
         /// changes.
         targetable: bool = false,
         /// What its part is (part `+0x40`), which the target display names a subtarget by.
-        class: shp.Part.Class = @enumFromInt(0),
+        class: shp.Part.Class = @fromBackingInt(@intCast(0)),
         /// The turret its part makes of its assembly, and which of the turret's parts it is (part
         /// `+0xF4`, `+0xF8`).
         turret_kind: shp.Part.TurretKind = .fixed,
@@ -1817,7 +1817,7 @@ pub const Model = struct {
 
     fn start(model: *Model, index: usize, track: usize, time: f32, mode: ?Mode, speed: f32) void {
         const a = &model.parts[index].animation;
-        const chosen = mode orelse @as(Mode, @enumFromInt(@intFromEnum(a.tracks[track].clip.mode)));
+        const chosen = mode orelse @as(Mode, @fromBackingInt(@intCast(@backingInt(a.tracks[track].clip.mode))));
         a.track = track;
         a.mode = chosen;
         if (time >= 0) a.time = time;
@@ -2852,7 +2852,7 @@ test lightMask {
 test "Node.Kind" {
     var buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("muzzle", try std.fmt.bufPrint(&buffer, "{f}", .{Node.Kind.muzzle}));
-    try std.testing.expectEqualStrings("node kind 9", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Node.Kind, @enumFromInt(9))}));
+    try std.testing.expectEqualStrings("node kind 9", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Node.Kind, @fromBackingInt(@intCast(9)))}));
 }
 
 test "Model.Attached" {
@@ -2959,7 +2959,7 @@ test lightColour {
     try std.testing.expectEqual([3]f32{ 1, 0, 0 }, lightColour(.red));
     try std.testing.expectEqual([3]f32{ 0, 1, 1 }, lightColour(.cyan));
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, lightColour(.white));
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lightColour(@enumFromInt(6)));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lightColour(@fromBackingInt(@intCast(6))));
 }
 
 test lampColour {
@@ -2967,7 +2967,7 @@ test lampColour {
     try std.testing.expectEqual([3]f32{ 0.2, 0.5, 1 }, lampColour(.blue));
     try std.testing.expectEqual([3]f32{ 1, 0.5, 0.2 }, lampColour(.red));
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, lampColour(.white));
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lampColour(@enumFromInt(6)));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lampColour(@fromBackingInt(@intCast(6))));
 }
 
 test "Model.Blink.brightness" {
@@ -3041,7 +3041,7 @@ test "a model's steady lights shine as real lights where it was loaded so" {
         .kind = .light,
         .position = .{ .x = 0, .y = 0, .z = 0 },
         .orientation = math.identity,
-        .id = @intFromEnum(shp.Attachment.Light.blue),
+        .id = @backingInt(shp.Attachment.Light.blue),
         .later_tiers = @splat(0),
         .size = .{ 0, 3, 0 },
         .blink = .{ 0, 0 },
@@ -3052,8 +3052,8 @@ test "a model's steady lights shine as real lights where it was loaded so" {
         .light_range = 50,
         .light_brightness = 1,
     });
-    attachments[1].id = @intFromEnum(shp.Attachment.Light.cyan);
-    attachments[2].id = @intFromEnum(shp.Attachment.Light.red);
+    attachments[1].id = @backingInt(shp.Attachment.Light.cyan);
+    attachments[2].id = @backingInt(shp.Attachment.Light.red);
     attachments[2].blink = .{ 1000, 1000 };
     var hull = [1]shp.PartData{testingPart()};
     hull[0].part.parent = -1;
@@ -3592,7 +3592,7 @@ fn testingKey(time: i32, angles: Vector, offset: Vector) shp.Keyframe {
 }
 
 fn testingClip(length: i32, mode: Model.Mode, name: []const u8) shp.Clip {
-    var made: shp.Clip = .{ .length = length, .mode = @enumFromInt(@intFromEnum(mode)), .name_bytes = @splat(0) };
+    var made: shp.Clip = .{ .length = length, .mode = @fromBackingInt(@intCast(@backingInt(mode))), .name_bytes = @splat(0) };
     @memcpy(made.name_bytes[0..name.len], name);
     return made;
 }
@@ -4035,7 +4035,7 @@ test "a track plays once, round and round, and back and forth" {
     var clip_events = [_]shp.ClipEvent{
         .{ .time = 10, .kind = .muzzles, ._unknown_08 = 0 },
         .{ .time = 90, .kind = .puff, ._unknown_08 = 0 },
-        .{ .time = 50, .kind = @enumFromInt(3), ._unknown_08 = 0 },
+        .{ .time = 50, .kind = @fromBackingInt(@intCast(3)), ._unknown_08 = 0 },
     };
     var tracks = [_]shp.Track{.{ .clip = testingClip(100, .once, "fire"), .keyframes = &keys, .events = &clip_events }};
     var animated: Animated = undefined;

@@ -107,12 +107,12 @@ pub const State = extern struct {
     /// Its effect record's place among `jump_effects`, where it has one: `effect` counts from 1,
     /// with 0 for none, which wraps past what a place can be.
     fn effectPlace(state: *const State) ?u8 {
-        return std.math.cast(u8, @intFromEnum(state.effect) -% 1);
+        return std.math.cast(u8, @backingInt(state.effect) -% 1);
     }
 
     /// Keeps `place` as its effect record's, or none.
     fn keepEffect(state: *State, place: ?u8) void {
-        state.effect = if (place) |kept| @enumFromInt(@as(u32, kept) + 1) else .null;
+        state.effect = if (place) |kept| @fromBackingInt(@intCast(@as(u32, kept) + 1)) else .null;
     }
 };
 
@@ -883,7 +883,7 @@ test "State.effectPlace" {
     var state = std.mem.zeroes(State);
     try std.testing.expectEqual(null, state.effectPlace());
     state.keepEffect(0);
-    try std.testing.expectEqual(1, @intFromEnum(state.effect));
+    try std.testing.expectEqual(1, @backingInt(state.effect));
     try std.testing.expectEqual(0, state.effectPlace());
     state.keepEffect(effect.max_records - 1);
     try std.testing.expectEqual(effect.max_records - 1, state.effectPlace());

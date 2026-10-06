@@ -712,7 +712,7 @@ pub const Object = extern struct {
 
         comptime {
             for (.{ "ship", "flight_group", "squad" }) |name| {
-                assert(@bitOffsetOf(KindSet, name) == @intFromEnum(@field(Kind, name)));
+                assert(@bitOffsetOf(KindSet, name) == @backingInt(@field(Kind, name)));
             }
         }
     };
@@ -894,7 +894,7 @@ pub const Condition = enum(u8) {
 
     /// The condition's entry in the engine's catalogue, or null for a value the catalogue lacks.
     pub fn descriptor(condition: Condition) ?conditions.Condition {
-        return conditions.find(@intFromEnum(condition));
+        return conditions.find(@backingInt(condition));
     }
 
     comptime {
@@ -1064,7 +1064,7 @@ pub const Opcode = enum(u8) {
     /// Its entry in the VM's opcode table (`opcodes.find`): null for an opcode the payload's
     /// handler table does not implement.
     pub fn info(opcode: Opcode) ?opcodes.Info {
-        return opcodes.find(@intFromEnum(opcode));
+        return opcodes.find(@backingInt(opcode));
     }
 
     /// Opcodes the payload's handler table implements.
@@ -1168,7 +1168,7 @@ pub const ArmIterator = struct {
 pub fn decodeAt(code: []const u8, pos: usize) ?Instruction {
     const length = instructionSize(code, pos) orelse return null;
     const info = opcodes.find(code[pos]) orelse return null;
-    const opcode: Opcode = @enumFromInt(code[pos]);
+    const opcode: Opcode = @fromBackingInt(@intCast(code[pos]));
     const operands = code[pos + 1 ..][0 .. length - 1];
 
     const flow: Flow = switch (info.form) {
@@ -1192,14 +1192,14 @@ pub fn decodeAt(code: []const u8, pos: usize) ?Instruction {
 
 /// The name of opcode `byte`, or null when the VM does not implement it.
 pub fn opcodeName(byte: u8) ?[]const u8 {
-    return std.enums.tagName(Opcode, @enumFromInt(byte));
+    return std.enums.tagName(Opcode, @fromBackingInt(@intCast(byte)));
 }
 
 // Every opcode the handler table implements has a name, and every name is one it implements.
 comptime {
     @setEvalBranchQuota(20_000);
     for (opcodes.table) |info| {
-        if (std.enums.tagName(Opcode, @enumFromInt(info.opcode)) == null) {
+        if (std.enums.tagName(Opcode, @fromBackingInt(@intCast(info.opcode))) == null) {
             @compileError(std.fmt.comptimePrint("opcode 0x{X:0>2} has no name", .{info.opcode}));
         }
     }
@@ -1230,7 +1230,7 @@ fn transferKind(opcode: Opcode) ?TransferKind {
 
 comptime {
     for (opcodes.table) |info| {
-        if (info.form == .transfer and transferKind(@enumFromInt(info.opcode)) == null) {
+        if (info.form == .transfer and transferKind(@fromBackingInt(@intCast(info.opcode))) == null) {
             @compileError(std.fmt.comptimePrint("transfer opcode 0x{X:0>2} has no kind", .{info.opcode}));
         }
     }
@@ -1256,7 +1256,7 @@ pub fn instructionSize(code: []const u8, pos: usize) ?usize {
             // The byte counts itself, so a run of 1 is the byte alone.
             break :blk @max(operands[0], 1);
         },
-        else => if (@as(Opcode, @enumFromInt(info.opcode)) == .random_branch) blk: {
+        else => if (@as(Opcode, @fromBackingInt(@intCast(info.opcode))) == .random_branch) blk: {
             const header = layout.view(ArmIterator.Header, operands) catch return null;
             break :blk @sizeOf(ArmIterator.Header) + @sizeOf(ArmIterator.Arm) * @as(usize, header.count);
         } else info.operands,
@@ -1448,7 +1448,7 @@ pub const Mission = struct {
     }
 
     pub fn entry(mission: Mission, section: Section) DirectoryEntry {
-        const index = @intFromEnum(section);
+        const index = @backingInt(section);
         return if (index < mission.directory.len) mission.directory[index] else .{
             .count = 0,
             ._unused = 0,
@@ -1732,7 +1732,7 @@ test "directory and records line up" {
     };
 
     const pool_at = 0x100;
-    directory[@intFromEnum(Section.strings)] = .{
+    directory[@backingInt(Section.strings)] = .{
         .count = 2,
         ._unused = 0,
         .formats = .all,
@@ -1741,7 +1741,7 @@ test "directory and records line up" {
     @memcpy(image[pool_at..][0..12], "Player_Ship\x00");
 
     const ships_at = 0x200;
-    directory[@intFromEnum(Section.ships)] = .{
+    directory[@backingInt(Section.ships)] = .{
         .count = 1,
         ._unused = 0,
         .formats = .all,
@@ -1768,7 +1768,7 @@ test "directory and records line up" {
     // Without OpenReliant's section, the mission has no name of OpenReliant's.
     try std.testing.expectEqual(null, mission.openReliantName());
     const name_at = 0x300;
-    directory[@intFromEnum(Section.openreliant_name)] = .{ .count = 8 + 12, ._unused = 0, .formats = .all, .offset = name_at };
+    directory[@backingInt(Section.openreliant_name)] = .{ .count = 8 + 12, ._unused = 0, .formats = .all, .offset = name_at };
     @as(*align(1) OpenReliantName, @ptrCast(image[name_at..][0..8])).* = .{ .length = 11 };
     @memcpy(image[name_at + 8 ..][0..12], "The Sandbox\x00");
     try std.testing.expectEqualStrings("The Sandbox", (try Mission.parse(&image)).openReliantName().?);
@@ -1785,10 +1785,10 @@ test "Mission.findPart and findShip" {
     for (directory) |*slot| slot.* = .{ .count = 0, ._unused = 0, .formats = .{}, .offset = DirectoryEntry.unused_offset };
     const pool_at = 0x100;
     const names = "<F> Startlaunch\x00<F> SETUP ZAKOV LAUNCH\x00<F> Zakov gone\x00ZAKOV\x00Nav ZAKOV\x00ZAKOV ESCORT\x00";
-    directory[@intFromEnum(Section.strings)] = .{ .count = 6, ._unused = 0, .formats = .all, .offset = pool_at };
+    directory[@backingInt(Section.strings)] = .{ .count = 6, ._unused = 0, .formats = .all, .offset = pool_at };
     @memcpy(image[pool_at..][0..names.len], names);
     const parts_at = 0x200;
-    directory[@intFromEnum(Section.parts)] = .{ .count = 3, ._unused = 0, .formats = .all, .offset = parts_at };
+    directory[@backingInt(Section.parts)] = .{ .count = 3, ._unused = 0, .formats = .all, .offset = parts_at };
     const parts: []align(1) Part = @alignCast(std.mem.bytesAsSlice(Part, image[parts_at..][0 .. 3 * @sizeOf(Part)]));
     for (parts, [_]u16{ 0, 16, 39 }, [_]u16{ 0, 8, Part.no_block }) |*part, name, offset| {
         part.* = std.mem.zeroes(Part);
@@ -1796,7 +1796,7 @@ test "Mission.findPart and findShip" {
         part.offset = offset;
     }
     const ships_at = 0x300;
-    directory[@intFromEnum(Section.ships)] = .{ .count = 3, ._unused = 0, .formats = .all, .offset = ships_at };
+    directory[@backingInt(Section.ships)] = .{ .count = 3, ._unused = 0, .formats = .all, .offset = ships_at };
     const ships: []align(1) Ship = @alignCast(std.mem.bytesAsSlice(Ship, image[ships_at..][0 .. 3 * @sizeOf(Ship)]));
     ships[0] = testing.ship(0, Ship.no_flight_group, 0);
     ships[0].name = 54;
@@ -1845,11 +1845,11 @@ test "rejects a compressed or truncated image" {
 }
 
 test "condition names cover the scriptable range" {
-    try std.testing.expectEqual(@as(u8, 0x20), @intFromEnum(Condition.last_scriptable));
-    try std.testing.expectEqual(Condition.proximity_close, @as(Condition, @enumFromInt(5)));
+    try std.testing.expectEqual(@as(u8, 0x20), @backingInt(Condition.last_scriptable));
+    try std.testing.expectEqual(Condition.proximity_close, @as(Condition, @fromBackingInt(@intCast(5))));
     // The two internal conditions are named; past them the enum stays open.
-    try std.testing.expectEqual(Condition.explosion_ship, @as(Condition, @enumFromInt(0x22)));
-    const internal: Condition = @enumFromInt(0x23);
+    try std.testing.expectEqual(Condition.explosion_ship, @as(Condition, @fromBackingInt(@intCast(0x22))));
+    const internal: Condition = @fromBackingInt(@intCast(0x23));
     try std.testing.expect(std.enums.tagName(Condition, internal) == null);
 }
 
@@ -1971,7 +1971,7 @@ test "Ship.componentIntact" {
 test "FlightGroup.Wing" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("player", try std.fmt.bufPrint(&buffer, "{f}", .{FlightGroup.Wing.player}));
-    try std.testing.expectEqualStrings("7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(FlightGroup.Wing, @enumFromInt(7))}));
+    try std.testing.expectEqualStrings("7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(FlightGroup.Wing, @fromBackingInt(@intCast(7)))}));
     try std.testing.expectEqual(.none, testing.flightGroup(0, .none).wing);
 }
 
@@ -1986,13 +1986,13 @@ test "DirectoryEntry.Formats" {
 test "the implemented opcode range matches the payload's handler table" {
     try std.testing.expect(Opcode.equal.isImplemented());
     try std.testing.expect(Opcode.spawn_part.isImplemented());
-    try std.testing.expect(@as(Opcode, @enumFromInt(0x55)).isImplemented());
+    try std.testing.expect(@as(Opcode, @fromBackingInt(@intCast(0x55))).isImplemented());
     // Null entries in the table: no handler, so the opcode does not exist.
-    try std.testing.expect(!@as(Opcode, @enumFromInt(0x00)).isImplemented());
-    try std.testing.expect(!@as(Opcode, @enumFromInt(0x10)).isImplemented());
-    try std.testing.expect(!@as(Opcode, @enumFromInt(0x56)).isImplemented());
+    try std.testing.expect(!@as(Opcode, @fromBackingInt(@intCast(0x00))).isImplemented());
+    try std.testing.expect(!@as(Opcode, @fromBackingInt(@intCast(0x10))).isImplemented());
+    try std.testing.expect(!@as(Opcode, @fromBackingInt(@intCast(0x56))).isImplemented());
     // Between the second command table and the random branch, the table holds no handler.
-    try std.testing.expect(!@as(Opcode, @enumFromInt(0x50)).isImplemented());
+    try std.testing.expect(!@as(Opcode, @fromBackingInt(@intCast(0x50))).isImplemented());
 }
 
 test "an unnamed value formats as a number instead of panicking" {
@@ -2004,11 +2004,11 @@ test "an unnamed value formats as a number instead of panicking" {
 
     // `{t}` would panic here; this path is generated per tag at comptime and cannot.
     var unnamed: std.Io.Writer = .fixed(&buffer);
-    try unnamed.print("{f}", .{@as(Condition, @enumFromInt(0x23))});
+    try unnamed.print("{f}", .{@as(Condition, @fromBackingInt(@intCast(0x23)))});
     try std.testing.expectEqualStrings("35", unnamed.buffered());
 
     var repeat: std.Io.Writer = .fixed(&buffer);
-    try repeat.print("{f}", .{@as(Trigger.Repeat, @enumFromInt(3))});
+    try repeat.print("{f}", .{@as(Trigger.Repeat, @fromBackingInt(@intCast(3)))});
     try std.testing.expectEqualStrings("3", repeat.buffered());
 }
 
@@ -2088,7 +2088,7 @@ test "maps the script into trigger blocks and parts, with their constants" {
     };
     const place = struct {
         fn at(dir: []align(1) DirectoryEntry, section: Section, count: u16, offset: u32) void {
-            dir[@intFromEnum(section)] = .{ .count = count, ._unused = 0, .formats = .all, .offset = offset };
+            dir[@backingInt(section)] = .{ .count = count, ._unused = 0, .formats = .all, .offset = offset };
         }
     }.at;
 

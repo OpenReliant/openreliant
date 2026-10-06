@@ -45,7 +45,7 @@ pub const Line = enum(u8) {
 /// says it on, or null where her bank isn't loaded or no voice is free.
 pub fn say(sound: *hog_snd.Sound, line: Line) ?u8 {
     const bank = sound.betty orelse return null;
-    return sound.play(bank, @intFromEnum(line), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+    return sound.play(bank, @backingInt(line), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
 }
 
 /// Betty says `line` in `world`, where anything is heard there.
@@ -63,7 +63,7 @@ test say {
     // Without her bank, she says nothing.
     try std.testing.expectEqual(null, say(sound, .cloak_on));
     // With it, her line plays on a voice, as loud as a sound plays.
-    const bytes = comptime hog_snd.testing.bank(@intFromEnum(Line.cloak_on) + 1);
+    const bytes = comptime hog_snd.testing.bank(@backingInt(Line.cloak_on) + 1);
     sound.betty = try fat.Bank.parse(&bytes);
     const voice = say(sound, .cloak_on) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(mss.Status.playing, driver.sampleStatus(sound.voices[voice].sample));

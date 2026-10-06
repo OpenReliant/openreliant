@@ -87,7 +87,7 @@ pub const Carried = [tables.max_missiles]u16;
 pub fn available(tier: u2, known: []const tables.Missile, carried: *const Carried) Offered {
     var set: Offered = .initEmpty();
     for (known) |missile| {
-        const index = @intFromEnum(missile);
+        const index = @backingInt(missile);
         if (missile.offeredAt(tier) and carried[index] < missile.limit()) set.set(index);
     }
     return set;
@@ -137,12 +137,12 @@ test available {
     // Tier 0 offers the Screamer, the Havoc, the Jack Hammer, the Bandit and the fuel pod.
     const first = available(0, known, &carried);
     try std.testing.expectEqual(5, first.count());
-    for (known) |missile| try std.testing.expectEqual(tables.missiles_by_tier[0].has(missile), first.isSet(@intFromEnum(missile)));
+    for (known) |missile| try std.testing.expectEqual(tables.missiles_by_tier[0].has(missile), first.isSet(@backingInt(missile)));
     // Three Jack Hammers are the most a ship takes.
-    const jack_hammer = @intFromEnum(tables.Missile.jack_hammer);
+    const jack_hammer = @backingInt(tables.Missile.jack_hammer);
     carried[jack_hammer] = 3;
     try std.testing.expect(!available(0, known, &carried).isSet(jack_hammer));
     carried[jack_hammer] = 2;
     try std.testing.expect(available(0, known, &carried).isSet(jack_hammer));
-    try std.testing.expect(available(3, known, &carried).isSet(@intFromEnum(tables.Missile.solomon)));
+    try std.testing.expect(available(3, known, &carried).isSet(@backingInt(tables.Missile.solomon)));
 }

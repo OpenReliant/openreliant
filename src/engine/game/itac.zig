@@ -95,7 +95,7 @@ pub const Section = enum(u4) {
 
     /// Its bit in a lit shape's mask of sections.
     fn bit(section: Section) u32 {
-        return @as(u32, 1) << @intFromEnum(section);
+        return @as(u32, 1) << @backingInt(section);
     }
 };
 
@@ -593,7 +593,7 @@ pub const Itac = struct {
 
     fn playVoice(itac: *Itac, sound: Sound, volume: i32, loops: u32) ?u8 {
         const bank = itac.sounds orelse return null;
-        return itac.context.rooms.sound.play(bank.bank, @intFromEnum(sound), volume, loops, hog_snd.centre, hog_snd.own_pitch);
+        return itac.context.rooms.sound.play(bank.bank, @backingInt(sound), volume, loops, hog_snd.centre, hog_snd.own_pitch);
     }
 
     /// `itac_movie_play` (`0x00440010`): the movie `name` from the game's folder, its first frame

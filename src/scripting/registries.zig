@@ -86,11 +86,11 @@ pub const Registry = struct {
     }
 
     pub fn viewId(index: usize) camera.View {
-        return @enumFromInt(first_view + index);
+        return @fromBackingInt(@intCast(first_view + index));
     }
 
     pub fn cameraName(registry: *const Registry, view: camera.View) ?[]const u8 {
-        const number = @intFromEnum(view);
+        const number = @backingInt(view);
         if (number < first_view) return null;
         const index = number - first_view;
         if (index >= registry.entries.items.len) return null;

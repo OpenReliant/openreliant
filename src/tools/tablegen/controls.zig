@@ -234,7 +234,7 @@ pub fn emit(w: *Io.Writer, bindings: []const Binding, keys: []const Key, rows: [
 }
 
 fn testRecord(key: u16, modifier: u16, name: []const u8, button: i16) ControlBinding {
-    var record: ControlBinding = .{ .key = key, .modifier = @enumFromInt(modifier), .name = @splat(0), .string = 0x35C, .key_name = @splat(0), .button = button };
+    var record: ControlBinding = .{ .key = key, .modifier = @fromBackingInt(@intCast(modifier)), .name = @splat(0), .string = 0x35C, .key_name = @splat(0), .button = button };
     @memcpy(record.name[0..name.len], name);
     return record;
 }

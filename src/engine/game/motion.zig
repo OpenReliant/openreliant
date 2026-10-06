@@ -338,7 +338,7 @@ fn plain(object: *GameObject, flight: *const create.FlightModel, axis: math.Axis
     steer(object, flight, false);
     const inertia = flight.inertia;
     var along: [3]f32 = @splat(0);
-    along[@intFromEnum(axis)] = (1 - inertia) * object.throttle * flight.max_speed;
+    along[@backingInt(axis)] = (1 - inertia) * object.throttle * flight.max_speed;
     const kept = gameobj.vector(object.velocity) * @as(math.Vector, @splat(inertia));
     object.velocity = gameobj.vec3(kept + math.transform(object.root.next_orientation, along));
 }
@@ -557,7 +557,7 @@ test "a fighter moves by the first ship type's flight where the stats are at han
     mission.tables.flight[fighters_flight_type].max_speed = 100;
     const fighter = try mission.add(.of(.sabre), @splat(0));
     const other = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
-    mission.tables.combat[@intFromEnum(gameobj.GameType.sabre)].class = .fighter;
+    mission.tables.combat[@backingInt(gameobj.GameType.sabre)].class = .fighter;
     var world = mission.world();
     world.spawn = mission.spawn(create.testing.no_models);
     for ([_]u16{ fighter, other }) |index| {

@@ -350,7 +350,7 @@ test "the bananas example adds a gun, a missile, a pilot and a ship that names t
     var guns: [15]stats.Gun = @splat(std.mem.zeroes(stats.Gun));
     guns[1].speed = 1000;
     var missiles: [11]stats.Missile = @splat(std.mem.zeroes(stats.Missile));
-    missiles[@intFromEnum(game.missiles.GameMissile.bandit)].lock_time = 300;
+    missiles[@backingInt(game.missiles.GameMissile.bandit)].lock_time = 300;
     var held: records.Records = try .init(arena.allocator(), .{
         .ships = try game.additions.ships.records(stats.Ship, arena.allocator(), &.{}, 0),
         .guns = try game.additions.guns.records(stats.Gun, arena.allocator(), &guns, 1),

@@ -8,7 +8,7 @@ pub fn enumValue(w: *Io.Writer, value: anytype) Io.Writer.Error!void {
     if (std.enums.tagName(@TypeOf(value), value)) |name| {
         try w.print(".{s}", .{name});
     } else {
-        try w.print("@enumFromInt({d})", .{@intFromEnum(value)});
+        try w.print("@enumFromInt({d})", .{@backingInt(value)});
     }
 }
 
@@ -28,7 +28,7 @@ test enumValue {
     var w: Io.Writer = .fixed(&buffer);
     try enumValue(&w, Side.hostile);
     try w.writeAll(", ");
-    try enumValue(&w, @as(Side, @enumFromInt(9)));
+    try enumValue(&w, @as(Side, @fromBackingInt(@intCast(9))));
     try std.testing.expectEqualStrings(".hostile, @enumFromInt(9)", w.buffered());
 }
 

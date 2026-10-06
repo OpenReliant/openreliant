@@ -702,7 +702,7 @@ test "the watches look for ships close by, while their triggers are armed" {
     const disarm = try vm.machine.testing.assemble(gpa, struct {
         fn build(r: *vm.machine.testing.Routine) !void {
             try r.op(.push_ship, &.{1});
-            try r.op(.push_byte, &.{@intFromEnum(dte.Condition.proximity_general)});
+            try r.op(.push_byte, &.{@backingInt(dte.Condition.proximity_general)});
             try r.op(.push_byte, &.{0});
             try r.command("SetTriggerState");
             try r.op(.push_byte, &.{1});

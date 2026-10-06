@@ -1131,7 +1131,7 @@ pub const ComponentLoss = enum {
 
     /// The routine an object of `ship_type` has, or none.
     pub fn of(ship_type: gameobj.Type) ?ComponentLoss {
-        const number = std.math.cast(u8, @intFromEnum(ship_type.base())) orelse return null;
+        const number = std.math.cast(u8, @backingInt(ship_type.base())) orelse return null;
         const stats = create.donor(number) orelse number;
         if (capital_ships.isSet(stats)) return .capital_ship;
         return if (stats == 0x16) .ulysses else null;
@@ -1489,10 +1489,10 @@ test burnPart {
 test ComponentLoss {
     try std.testing.expectEqual(.capital_ship, ComponentLoss.of(.of(.badanov)));
     // A type under another number has the routine of the type it takes its stats from.
-    try std.testing.expectEqual(.capital_ship, ComponentLoss.of(@enumFromInt(0xDB)));
+    try std.testing.expectEqual(.capital_ship, ComponentLoss.of(@fromBackingInt(@intCast(0xDB))));
     try std.testing.expectEqual(.ulysses, ComponentLoss.of(.of(.ulysses)));
     try std.testing.expectEqual(null, ComponentLoss.of(.of(.sabre)));
-    try std.testing.expectEqual(null, ComponentLoss.of(@enumFromInt(0x1234)));
+    try std.testing.expectEqual(null, ComponentLoss.of(@fromBackingInt(@intCast(0x1234))));
 }
 
 test loseHull {

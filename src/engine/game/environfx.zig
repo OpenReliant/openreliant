@@ -79,7 +79,7 @@ pub const Environment = struct {
     /// bit it takes from the number's low five bits; OpenReliant takes the effect of those bits
     /// throughout.
     pub fn setEffect(environment: *Environment, number: u32, on: bool) void {
-        const effect: Effect = @enumFromInt(@as(u5, @truncate(number)));
+        const effect: Effect = @fromBackingInt(@intCast(@as(u5, @truncate(number))));
         if (!effect.implemented()) {
             log.info("Environmental Effect \"{f}\" not yet implemented!", .{effect});
             return;
@@ -127,7 +127,7 @@ pub const Effect = enum(u5) {
 
     /// Whether the game has implemented it (`0x004FF748`): the ice field and effect 2.
     pub fn implemented(effect: Effect) bool {
-        return effect == .ice_field or @intFromEnum(effect) == unnamed;
+        return effect == .ice_field or @backingInt(effect) == unnamed;
     }
 
     /// Whether it waits for `environment_update` to turn on or off, as the table's first two do.
@@ -143,7 +143,7 @@ pub const Effect = enum(u5) {
         return switch (effect) {
             .ice_field => writer.writeAll("Ice Field"),
             .planet_bombard => writer.writeAll("Planet Bombard"),
-            _ => writer.print("effect {d}", .{@intFromEnum(effect)}),
+            _ => writer.print("effect {d}", .{@backingInt(effect)}),
         };
     }
 };
@@ -157,7 +157,7 @@ pub const Effects = packed struct(u32) {
 
     /// Turns `effect`'s bit on or off.
     pub fn set(effects: *Effects, effect: Effect, on: bool) void {
-        const bit = @as(u32, 1) << @intFromEnum(effect);
+        const bit = @as(u32, 1) << @backingInt(effect);
         const word: u32 = @bitCast(effects.*);
         effects.* = @bitCast(if (on) word | bit else word & ~bit);
     }
@@ -165,7 +165,7 @@ pub const Effects = packed struct(u32) {
 
 comptime {
     for (std.enums.values(Effect)) |effect| {
-        std.debug.assert(@bitOffsetOf(Effects, @tagName(effect)) == @intFromEnum(effect));
+        std.debug.assert(@bitOffsetOf(Effects, @tagName(effect)) == @backingInt(effect));
     }
 }
 
@@ -641,7 +641,7 @@ test "Environment.setEffect" {
 test Effect {
     var buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("Ice Field", try std.fmt.bufPrint(&buffer, "{f}", .{Effect.ice_field}));
-    try std.testing.expectEqualStrings("effect 5", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Effect, @enumFromInt(5))}));
+    try std.testing.expectEqualStrings("effect 5", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Effect, @fromBackingInt(@intCast(5)))}));
 }
 
 test IceField {

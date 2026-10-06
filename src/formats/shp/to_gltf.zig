@@ -132,7 +132,7 @@ const Material = struct {
 
 const Accessor = struct {
     bufferView: u32,
-    componentType: u32 = @intFromEnum(gltf.Component.float),
+    componentType: u32 = @backingInt(gltf.Component.float),
     count: usize,
     type: []const u8,
     min: ?[3]f32 = null,
@@ -344,7 +344,7 @@ fn attachmentName(arena: Allocator, attachment: shp.Attachment) Allocator.Error!
         .gun_muzzle => std.fmt.allocPrint(arena, "gun_muzzle:{d}", .{attachment.gun_type}),
         inline .missile, .engine_glow, .light, .gun, .pod => |kind| std.fmt.allocPrint(arena, @tagName(kind) ++ ":{d}", .{attachment.id}),
         inline .eject_point, .launch_point, .dock_point, .case_ejector => |kind| @tagName(kind),
-        _ => std.fmt.allocPrint(arena, "attachment:{d}", .{@intFromEnum(attachment.kind)}),
+        _ => std.fmt.allocPrint(arena, "attachment:{d}", .{@backingInt(attachment.kind)}),
     };
 }
 

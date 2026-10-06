@@ -90,7 +90,7 @@ pub const GameGun = enum(u4) {
 
     /// The number a muzzle names it by, and its record in `gun_stats`.
     pub fn number(gun_type: GameGun) u8 {
-        return @as(u8, @intFromEnum(gun_type)) + 1;
+        return @as(u8, @backingInt(gun_type)) + 1;
     }
 };
 
@@ -105,14 +105,14 @@ pub const GunType = enum(u8) {
 
     /// The game's gun `game`.
     pub fn of(game: GameGun) GunType {
-        return @enumFromInt(game.number());
+        return @fromBackingInt(@intCast(game.number()));
     }
 
     /// The type a muzzle's number names. One that names none, 0 or past the last, fires the
     /// Laser Cannon, as `object_collect_guns` does after warning about it.
     pub fn fromNumber(named: u32) GunType {
         if (named == 0 or (named >= max_types and additions.guns.get(named) == null)) return .of(.laser_cannon);
-        return @enumFromInt(named);
+        return @fromBackingInt(@intCast(named));
     }
 
     /// The game's gun it is: itself for one of the game's, and for one a mod adds, the gun it is
@@ -121,7 +121,7 @@ pub const GunType = enum(u8) {
         if (gun_type.added()) |from_mod| return from_mod.base;
         const at = gun_type.number();
         if (at == 0 or at >= max_types) return .laser_cannon;
-        return @enumFromInt(at - 1);
+        return @fromBackingInt(@intCast(at - 1));
     }
 
     /// The gun a mod adds that it is, if it is one.
@@ -143,7 +143,7 @@ pub const GunType = enum(u8) {
 
     /// The number a muzzle names it by, and its record in `gun_stats`.
     pub fn number(gun_type: GunType) u8 {
-        return @intFromEnum(gun_type);
+        return @backingInt(gun_type);
     }
 
     /// Its figures.
@@ -159,7 +159,7 @@ pub const GunType = enum(u8) {
 
     /// The type scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?GunType {
-        if (additions.guns.find(text)) |found| return @enumFromInt(found);
+        if (additions.guns.find(text)) |found| return @fromBackingInt(@intCast(found));
         return .of(std.meta.stringToEnum(GameGun, text) orelse return null);
     }
 
@@ -926,7 +926,7 @@ test fire {
     var list = [_]additions.guns.Added{.{ .name = "a:flare", .mod = "a", .base = .nova_cannon, .extra = .{} }};
     additions.guns.install(&list);
     defer additions.guns.reset();
-    const nova_like: GunType = @enumFromInt(additions.guns.first);
+    const nova_like: GunType = @fromBackingInt(@intCast(additions.guns.first));
     try std.testing.expect(nova_like.charges());
     fitted[3] = testing.barrel(nova_like);
     fire(&object, trigger, held_ticks);
@@ -997,7 +997,7 @@ pub const testing = struct {
             stats.speed = 500;
             stats.lifetime = 100;
             stats.damage = .{ .shield = 10, .hull = 4 };
-            ship.index = try ship.add(@enumFromInt(ship_type), @splat(0));
+            ship.index = try ship.add(@fromBackingInt(@intCast(ship_type)), @splat(0));
             // Its guns hold 100 and charge fully in four seconds, so a step gives them one.
             ship.mission.tables.combat[ship_type].gun_recharge = 4;
             ship.object().gun_charge = 50;
@@ -1188,7 +1188,7 @@ test blindAim {
     // The Nova Cannon and the turrets' guns fire along their muzzles, and so does another ship.
     try std.testing.expectEqual(null, blindAim(world, ship.index, .of(.nova_cannon)));
     try std.testing.expectEqual(null, blindAim(world, ship.index, .of(.turret_flak)));
-    const other = try ship.add(@enumFromInt(testing.ship_type), .{ 0, 0, 1000 });
+    const other = try ship.add(@fromBackingInt(@intCast(testing.ship_type)), .{ 0, 0, 1000 });
     world.objects.slots[other].object.blind_fire_aim = 1;
     try std.testing.expectEqual(null, blindAim(world, other, barrel.type));
 }
@@ -1517,15 +1517,15 @@ pub fn clipEventMuzzles(world: gameobj.World, owner: u16, model: *const objects.
 /// Cannon's effect, and its own, `prc.frc`, which the game reads, never plays.
 fn forceEffect(kind: GunType) input.force.Effect {
     comptime {
-        assert(@intFromEnum(input.force.Effect.nc) == @intFromEnum(GameGun.nova_cannon));
+        assert(@backingInt(input.force.Effect.nc) == @backingInt(GameGun.nova_cannon));
         // The turrets' guns come after the Nova Cannon, and so past the effects.
         for (std.enums.values(GameGun)) |gun_type| {
-            assert(gun_type.onTurrets() == (@intFromEnum(gun_type) > @intFromEnum(GameGun.nova_cannon)));
+            assert(gun_type.onTurrets() == (@backingInt(gun_type) > @backingInt(GameGun.nova_cannon)));
         }
     }
     const game = kind.base();
     if (game.onTurrets()) return .lc;
-    return @enumFromInt(@intFromEnum(game));
+    return @fromBackingInt(@intCast(@backingInt(game)));
 }
 
 test forceEffect {
@@ -1944,7 +1944,7 @@ test "a shot lights its muzzle's flash" {
     defer ship.deinit(gpa);
     // A second ship of the model, made with the flashes, which each of its muzzles carries.
     ship.model.type.effects.flashes = &built.looks;
-    const flashing = try ship.add(@enumFromInt(testing.ship_type), .{ 0, 0, 5000 });
+    const flashing = try ship.add(@fromBackingInt(@intCast(testing.ship_type)), .{ 0, 0, 5000 });
     const world = ship.world();
     const slot = &world.objects.slots[flashing];
     try std.testing.expectEqual(2, slot.model.?.flashes.len);
@@ -1968,7 +1968,7 @@ test bulletsFrame {
     const world = ship.world();
 
     // A ship of the same model, 500 ahead of the one that fires.
-    const target = try ship.add(@enumFromInt(9), .{ 0, 0, 500 });
+    const target = try ship.add(@fromBackingInt(@intCast(9)), .{ 0, 0, 500 });
     const slot = &ship.mission.objects.slots[target];
     slot.drawn = .{ .position = .{ 0, 0, 500 }, .orientation = math.identity };
     const struck = &slot.object;
@@ -2029,8 +2029,8 @@ test "the Nova Cannon strikes what stands ahead, and its beam shows" {
     const shooter = ship.object();
     shooter.gun_condition = 1;
     // A ship straight ahead, and one off to the side.
-    const ahead = try ship.add(@enumFromInt(testing.ship_type), .{ 0, 0, 5000 });
-    const aside = try ship.add(@enumFromInt(testing.ship_type), .{ 5000, 0, 5000 });
+    const ahead = try ship.add(@fromBackingInt(@intCast(testing.ship_type)), .{ 0, 0, 5000 });
+    const aside = try ship.add(@fromBackingInt(@intCast(testing.ship_type)), .{ 5000, 0, 5000 });
     const untouched = all.slots[ahead].object.shields;
 
     // Short of half a charge, nothing fires, and the charge is lost.
@@ -2159,7 +2159,7 @@ test "a shot striking a hull throws sparks from where it struck" {
     var world = ship.world();
     world.sparks = &built.sparks;
     world.camera = &watching;
-    const target = try ship.add(@enumFromInt(9), .{ 0, 0, 500 });
+    const target = try ship.add(@fromBackingInt(@intCast(9)), .{ 0, 0, 500 });
     const slot = &ship.mission.objects.slots[target];
     slot.drawn = .{ .position = .{ 0, 0, 500 }, .orientation = math.identity };
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
@@ -2184,7 +2184,7 @@ test "the player's shifted shields take a hit before the quadrant does" {
     defer ship.deinit(gpa);
     const world = ship.world();
     // The ship that fires is the player's, so the target here is another slot shooting back.
-    const shooter = try ship.add(@enumFromInt(9), .{ 0, 0, 500 });
+    const shooter = try ship.add(@fromBackingInt(@intCast(9)), .{ 0, 0, 500 });
     const player = &ship.mission.objects.slots[ship.mission.objects.player];
     player.drawn = .{ .position = @splat(0), .orientation = math.identity };
     ship.mission.player.shield_reserves = .{ .fore = 25, .aft = 0 };
@@ -2239,7 +2239,7 @@ test "only the latest two shots of a ring cast a light" {
     const world = ship.world();
     const bullets = &world.objects.bullets;
     // The player's ship is the first slot, and a hostile ship fires too.
-    const other = try ship.add(@enumFromInt(9), .{ 0, 0, 5000 });
+    const other = try ship.add(@fromBackingInt(@intCast(9)), .{ 0, 0, 5000 });
     ship.mission.objects.slots[other].object.side = .hostile;
 
     // The player's third shot puts out the first one's light.
@@ -2321,7 +2321,7 @@ test "a Huge Gun's shot reaches farther, and always through the shields" {
     gun.type = .of(.coalition_huge_gun);
 
     // A ship off to the side of the shot's path by more than its radius, but within 3000.
-    const target = try ship.add(@enumFromInt(9), .{ 1500, 0, 500 });
+    const target = try ship.add(@fromBackingInt(@intCast(9)), .{ 1500, 0, 500 });
     const slot = &ship.mission.objects.slots[target];
     slot.drawn = .{ .position = .{ 1500, 0, 500 }, .orientation = math.identity };
     slot.object.shields = .all(0);
@@ -3311,7 +3311,7 @@ test "a mod's gun draws its shot with its own picture" {
     var random: libcmt.Rand = .{};
 
     // One flare of it, as large as the mod gives, in place of its base's bolt.
-    var bullet: Bullet = .{ .kind = @enumFromInt(additions.guns.first), .side = .friendly, .fired_at = 100 };
+    var bullet: Bullet = .{ .kind = @fromBackingInt(@intCast(additions.guns.first)), .side = .friendly, .fired_at = 100 };
     dress(&bullet, built.looks, &random, math.identity);
     try std.testing.expect(bullet.mod_shot);
     try std.testing.expectEqual(1, bullet.piece_count);
@@ -3325,7 +3325,7 @@ test "a mod's gun draws its shot with its own picture" {
     try std.testing.expectEqual([3]f32{ 0.5, 0.5, 0.5 }, bullet.pieces[0].sprite[0].colour);
     // Without a picture, its base's.
     shots[0] = null;
-    var plain: Bullet = .{ .kind = @enumFromInt(additions.guns.first), .side = .friendly };
+    var plain: Bullet = .{ .kind = @fromBackingInt(@intCast(additions.guns.first)), .side = .friendly };
     dress(&plain, built.looks, &random, math.identity);
     try std.testing.expect(!plain.mod_shot);
     try std.testing.expectEqual(.mesh, std.meta.activeTag(plain.pieces[0].drawn));

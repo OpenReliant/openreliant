@@ -559,7 +559,7 @@ pub const Controller = struct {
                 if (!c.SDL_GamepadConnected(gamepad)) return error.Unplugged;
                 for (gamepad_axes) |pair| controller.setAxis(state, pair[0], c.SDL_GetGamepadAxis(gamepad, pair[1]));
                 for (&state.buttons, 0..) |*button, index| {
-                    const down = switch (sources.get(@enumFromInt(index))) {
+                    const down = switch (sources.get(@fromBackingInt(@intCast(index)))) {
                         .button => |which| c.SDL_GetGamepadButton(gamepad, which),
                         .trigger => |which| c.SDL_GetGamepadAxis(gamepad, which) >= trigger_press,
                         .stick => |stick| pushed: {
@@ -774,7 +774,7 @@ test "reading a gamepad" {
     try std.testing.expectEqual(1000, state.rz);
     const button = struct {
         fn down(read: JoystickState, which: GamepadButton) bool {
-            return read.buttons[@intFromEnum(which)] != 0;
+            return read.buttons[@backingInt(which)] != 0;
         }
     }.down;
     try std.testing.expect(button(state, .south));

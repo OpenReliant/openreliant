@@ -133,7 +133,7 @@ pub const Style = enum(i32) {
 
     pub fn format(style: Style, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (style) {
-            _ => writer.print("style {d}", .{@intFromEnum(style)}),
+            _ => writer.print("style {d}", .{@backingInt(style)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -160,28 +160,28 @@ pub const Step = enum(i32) {
 
     /// The first of the style's own steps, which `order_launch` sets once the wait is over
     /// (`0x0041928A`): each style's own step enum starts its steps there.
-    pub const styled: Step = @enumFromInt(2);
+    pub const styled: Step = @fromBackingInt(@intCast(2));
 
     /// Whether the style's own steps have begun.
     pub fn isStyled(step: Step) bool {
-        return @intFromEnum(step) >= @intFromEnum(styled);
+        return @backingInt(step) >= @backingInt(styled);
     }
 
     /// The step as a style's own steps, `Styled`, number it.
     pub fn as(step: Step, comptime Styled: type) Styled {
         comptime assert(@typeInfo(Styled).@"enum".tag_type == i32);
-        return @enumFromInt(@intFromEnum(step));
+        return @fromBackingInt(@intCast(@backingInt(step)));
     }
 
     /// A style's own step as a launch's.
     pub fn of(own: anytype) Step {
         comptime assert(@typeInfo(@TypeOf(own)).@"enum".tag_type == i32);
-        return @enumFromInt(@intFromEnum(own));
+        return @fromBackingInt(@intCast(@backingInt(own)));
     }
 
     /// The step after it.
     pub fn next(step: Step) Step {
-        return @enumFromInt(@intFromEnum(step) + 1);
+        return @fromBackingInt(@intCast(@backingInt(step) + 1));
     }
 };
 
@@ -276,7 +276,7 @@ const init_wait = 200;
 /// hangar bay, without doors.
 pub fn launchesAsBase(carrier: gameobj.Type) bool {
     const added = carrier.added() orelse return true;
-    const base_number = std.math.cast(create.TypeIndex, @intFromEnum(added.base)) orelse return false;
+    const base_number = std.math.cast(create.TypeIndex, @backingInt(added.base)) orelse return false;
     const base = create.shipFiles(base_number).model orelse return false;
     return std.ascii.eqlIgnoreCase(std.fs.path.basename(added.extra.model), base);
 }
@@ -391,7 +391,7 @@ pub fn dropping(all: *const create.Objects, index: u16) bool {
     const slot = &all.slots[index];
     if (slot.running(.launch) == null) return false;
     const state = slot.state.launch;
-    return state.style == .reliant and @intFromEnum(state.step) >= @intFromEnum(Step.of(reliant.Step.drop));
+    return state.style == .reliant and @backingInt(state.step) >= @backingInt(Step.of(reliant.Step.drop));
 }
 
 /// `mission_frame`'s placing of a ship that rides a node (`0x00492C14`), once a frame before the
@@ -521,7 +521,7 @@ test "Style.of" {
     try std.testing.expectEqual(Style.bay, Style.of(.of(.sabre), .of(.kurgan), 0));
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Style.reliant}));
-    try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @enumFromInt(12))}));
+    try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @fromBackingInt(@intCast(12)))}));
     // Every named style has its original pair of routines.
     for (std.enums.values(Style)) |style| {
         const runs = switch (style) {
@@ -711,7 +711,7 @@ test "a launch ends with its carrier, and an unknown style lets the ship go" {
     // A missing bay leaves the ship riding the root. An unknown style still lets it go.
     try std.testing.expectEqual(Style.yamato, mission.slot(ship).state.launch.style);
     try std.testing.expectEqual(objects.NodeOf{ .object = carrier }, mission.slot(ship).riding.?);
-    mission.slot(ship).state.launch.style = @enumFromInt(12);
+    mission.slot(ship).state.launch.style = @fromBackingInt(@intCast(12));
     start(mission.objects, ship);
     aigeneric.objectOrders(ctx, ship);
     testing.pastDue(&mission, ctx, ship);
@@ -769,8 +769,8 @@ test launchesAsBase {
     };
     additions.ships.install(&list);
     defer additions.ships.reset();
-    const refit: gameobj.Type = @enumFromInt(additions.ships.first);
-    const ark: gameobj.Type = @enumFromInt(additions.ships.first + 1);
+    const refit: gameobj.Type = @fromBackingInt(@intCast(additions.ships.first));
+    const ark: gameobj.Type = @fromBackingInt(@intCast(additions.ships.first + 1));
     // The game's types, and a mod's type that keeps its base's model, launch as the base does.
     try std.testing.expect(launchesAsBase(.of(.reliant)));
     try std.testing.expect(launchesAsBase(refit));

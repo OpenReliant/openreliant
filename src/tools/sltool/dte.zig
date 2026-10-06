@@ -100,7 +100,7 @@ fn info(ctx: Context, mission: dte.Mission) !void {
 fn sections(ctx: Context, mission: dte.Mission) !void {
     try ctx.stdout.writeAll("  #  count  flags    offset  section\n");
     for (mission.directory, 0..) |entry, i| {
-        const section: dte.Section = @enumFromInt(i);
+        const section: dte.Section = @fromBackingInt(@intCast(i));
         if (!entry.isUsed()) {
             try ctx.stdout.print("{d:>3}  {s:>5}  {s:>5}  {s:>8}  ", .{ i, "-", "-", "unused" });
         } else {
@@ -168,7 +168,7 @@ fn triggers(ctx: Context, mission: dte.Mission, models: ?*Library) !void {
             try ctx.stdout.writeAll("none, so it never fires\n");
             continue;
         };
-        const kind = if (id < all_objects.len) all_objects[id].kind else @as(dte.Object.Kind, @enumFromInt(0xFF));
+        const kind = if (id < all_objects.len) all_objects[id].kind else @as(dte.Object.Kind, @fromBackingInt(@intCast(0xFF)));
         try ctx.stdout.print("{f} {d}", .{ kind, id });
         if (kind == .ship) {
             for (all_ships) |ship| {
@@ -319,7 +319,7 @@ fn printListing(
         // Long inline runs are shown as their text, so only the head needs a hex column.
         var bytes: [11]u8 = undefined;
         var at: usize = 0;
-        at += (std.fmt.bufPrint(bytes[at..], "{x:0>2}", .{@intFromEnum(instruction.opcode)}) catch break).len;
+        at += (std.fmt.bufPrint(bytes[at..], "{x:0>2}", .{@backingInt(instruction.opcode)}) catch break).len;
         for (instruction.operands) |b| {
             at += (std.fmt.bufPrint(bytes[at..], " {x:0>2}", .{b}) catch break).len;
         }

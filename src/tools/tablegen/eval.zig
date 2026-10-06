@@ -120,11 +120,11 @@ const State = struct {
     consumed: i64 = 0,
 
     fn get(self: State, register: x86.Register) Value {
-        return self.registers[@intFromEnum(register)];
+        return self.registers[@backingInt(register)];
     }
 
     fn set(self: *State, register: x86.Register, value: Value) void {
-        self.registers[@intFromEnum(register)] = value;
+        self.registers[@backingInt(register)] = value;
     }
 
     /// Writes one half of a register, which is how a handler zero extends an operand byte and how

@@ -86,12 +86,12 @@ fn orderRoutines(w: *Io.Writer) Io.Writer.Error!void {
     for (routines.named) |routine| {
         const entry = orders.info(routine.order).?;
         try w.print("{x:0>8}\tfunction\t{s}\tObjectRoutine\tThe {t} of order {d}", .{
-            routine.address, routine.name, routine.role, @intFromEnum(entry.order),
+            routine.address, routine.name, routine.role, @backingInt(entry.order),
         });
         if (entry.name.len != 0) try w.print(", {s}", .{entry.name});
         for (orders.table) |other| {
             if (routines.address(other, routine.role) == routine.address and other.order != entry.order) {
-                try w.print(", and of order {d}", .{@intFromEnum(other.order)});
+                try w.print(", and of order {d}", .{@backingInt(other.order)});
             }
         }
         try w.writeByte('\n');
@@ -110,7 +110,7 @@ fn maneuverTables(w: *Io.Writer) Io.Writer.Error!void {
     for (maneuvers.table) |entry| {
         const identifier = std.enums.tagName(maneuvers.Maneuver, entry.maneuver) orelse continue;
         try w.print("{x:0>8}\tdata\tmaneuver_script_{s}\tManeuverScriptLine[{d}]\tThe script of maneuver {d}, {s}\n", .{
-            entry.script_address, identifier, entry.script.len + 1, @intFromEnum(entry.maneuver), entry.name,
+            entry.script_address, identifier, entry.script.len + 1, @backingInt(entry.maneuver), entry.name,
         });
     }
 }

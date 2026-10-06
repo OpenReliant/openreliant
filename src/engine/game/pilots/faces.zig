@@ -51,7 +51,7 @@ pub const faces = [194]pilots.Face{
     // 20
     .{ .name = 666, .side = .friendly, .films = .{ "Cat_Foster", "45Tigers_Plt_L", "45Tigers_Plt", "45Tigers_Plt_D" }, .voice = .rus },
     // 21
-    .{ .name = 667, .side = .hostile, .films = .{ "COB", "45Tigers_Plt_L", "45Tigers_Plt", "Cobra_Plt_D" }, .voice = @enumFromInt(4) },
+    .{ .name = 667, .side = .hostile, .films = .{ "COB", "45Tigers_Plt_L", "45Tigers_Plt", "Cobra_Plt_D" }, .voice = @fromBackingInt(@intCast(4)) },
     // 22
     .{ .name = 111, .side = .friendly, .films = .{ "Couger_Plt", "Couger_Plt_L", "45Tigers_Plt", "CCouger_Plt_D" }, .voice = .rus },
     // 23
@@ -379,19 +379,19 @@ pub const faces = [194]pilots.Face{
     // 184
     .{ .name = 1286, .side = .friendly, .films = .{ "45Tigers_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "45Tigers_Plt_D" }, .voice = .rus },
     // 185
-    .{ .name = 667, .side = .friendly, .films = .{ "COB", "45Tigers_Plt_L", "45Tigers_Plt", "Cobra_Plt_D" }, .voice = @enumFromInt(0), .allied_voice = .wor },
+    .{ .name = 667, .side = .friendly, .films = .{ "COB", "45Tigers_Plt_L", "45Tigers_Plt", "Cobra_Plt_D" }, .voice = @fromBackingInt(@intCast(0)), .allied_voice = .wor },
     // 186
-    .{ .name = 124, .side = .friendly, .films = .{ "MarauderWL_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "MarauderWL_Plt_d" }, .voice = @enumFromInt(0) },
+    .{ .name = 124, .side = .friendly, .films = .{ "MarauderWL_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "MarauderWL_Plt_d" }, .voice = @fromBackingInt(@intCast(0)) },
     // 187
-    .{ .name = 123, .side = .friendly, .films = .{ "Marauders_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "Marauders_Plt_D" }, .voice = @enumFromInt(0) },
+    .{ .name = 123, .side = .friendly, .films = .{ "Marauders_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "Marauders_Plt_D" }, .voice = @fromBackingInt(@intCast(0)) },
     // 188
-    .{ .name = 1366, .side = .friendly, .films = .{ "Marine_Leader", "45Tigers_Plt_L", "45Tigers_Plt", "Marauders_Plt_D" }, .voice = @enumFromInt(0) },
+    .{ .name = 1366, .side = .friendly, .films = .{ "Marine_Leader", "45Tigers_Plt_L", "45Tigers_Plt", "Marauders_Plt_D" }, .voice = @fromBackingInt(@intCast(0)) },
     // 189
-    .{ .name = 137, .side = .friendly, .films = .{ "Marine_Combat", "45Tigers_Plt_L", "45Tigers_Plt", "Marauders_Plt_D" }, .voice = @enumFromInt(0) },
+    .{ .name = 137, .side = .friendly, .films = .{ "Marine_Combat", "45Tigers_Plt_L", "45Tigers_Plt", "Marauders_Plt_D" }, .voice = @fromBackingInt(@intCast(0)) },
     // 190
-    .{ .name = 122, .side = .friendly, .films = .{ "JaguarWL_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "JaguarWL_Plt_D" }, .voice = @enumFromInt(0) },
+    .{ .name = 122, .side = .friendly, .films = .{ "JaguarWL_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "JaguarWL_Plt_D" }, .voice = @fromBackingInt(@intCast(0)) },
     // 191
-    .{ .name = 1367, .side = .friendly, .films = .{ "BuccnrsWL_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "BUCCDETH" }, .voice = @enumFromInt(0) },
+    .{ .name = 1367, .side = .friendly, .films = .{ "BuccnrsWL_Plt", "45Tigers_Plt_L", "45Tigers_Plt", "BUCCDETH" }, .voice = @fromBackingInt(@intCast(0)) },
     // 192
     .{ .name = 1261, .side = .friendly, .films = .{ "Pukov_Cap", "45Tigers_Plt_L", "45Tigers_Plt", "Pukov_Cap_D" }, .voice = .rus },
     // 193

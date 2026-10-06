@@ -122,8 +122,8 @@ pub const Look = enum {
 /// else its number clamped to the game's types, as `muzzle_flash_create` and `muzzle_flash_draw`
 /// clamp it.
 pub fn typeOf(number: u32) guns.GunType {
-    if (additions.guns.get(number) != null) return @enumFromInt(number);
-    return @enumFromInt(std.math.clamp(number, 1, guns.max_types - 1));
+    if (additions.guns.get(number) != null) return @fromBackingInt(@intCast(number));
+    return @fromBackingInt(@intCast(std.math.clamp(number, 1, guns.max_types - 1)));
 }
 
 /// How far a flash's light reaches at its brightest, for each unit of its flare's length.
@@ -191,7 +191,7 @@ pub const Looks = struct {
                 log.warn("{s}: the gun's flash {s} is left out: the mod has no picture of that name", .{ gun.name, name });
                 continue;
             };
-            const base = Look.of(@enumFromInt(number), looks.settings.guns).size();
+            const base = Look.of(@fromBackingInt(@intCast(number)), looks.settings.guns).size();
             const size = if (gun.extra.flash_size) |length| base * @as(Vector, @splat(length / base[2])) else base;
             // Each part made before the slot holds it, so that a failure leaves the slot empty.
             const mesh = try environfx.plumeMesh(gpa, size, Look.flare.material(), image, image);
@@ -600,10 +600,10 @@ test "a mod's gun flashes with a picture of its own" {
 
     // Its own flare, of its own length and in its base's proportions; none for a gun without one,
     // nor for the game's.
-    const peel: guns.GunType = @enumFromInt(additions.guns.first);
+    const peel: guns.GunType = @fromBackingInt(@intCast(additions.guns.first));
     const own = looks.own(peel).?;
     try std.testing.expectEqual(@as(Vector, .{ 30, 30, 300 }), own.mesh.bounds[1]);
-    try std.testing.expectEqual(null, looks.own(@enumFromInt(additions.guns.first + 1)));
+    try std.testing.expectEqual(null, looks.own(@fromBackingInt(@intCast(additions.guns.first + 1))));
     try std.testing.expectEqual(null, looks.own(.of(.laser_cannon)));
 
     // A muzzle draws it for a shot of the mod's gun, its light reaching as far as its length

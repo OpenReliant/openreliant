@@ -356,7 +356,7 @@ fn roomTable(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType
     const entries = comptime blk: {
         const values = std.enums.values(openreliant.engine.game.interface.rooms.Entry);
         var addresses: [values.len]u32 = undefined;
-        for (&addresses, values) |*address, entry| address.* = @intFromEnum(entry);
+        for (&addresses, values) |*address, entry| address.* = @backingInt(entry);
         break :blk addresses;
     };
     const found = try rooms.read(arena, try loadBinary(init, arena, paths.binary), &entries);

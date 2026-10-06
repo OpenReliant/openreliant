@@ -412,7 +412,7 @@ const Making = struct {
     }
 
     fn primitive(made: *Making, value: json.ObjectMap, world: Matrix, normal_turn: math.Matrix, mirrored: bool, list: *std.ArrayList(obj.Triangle)) Error!void {
-        const mode: Mode = if (index(value, "mode")) |given| @enumFromInt(std.math.cast(u32, given) orelse return) else .triangles;
+        const mode: Mode = if (index(value, "mode")) |given| @fromBackingInt(@intCast(std.math.cast(u32, given) orelse return)) else .triangles;
         switch (mode) {
             .triangles, .triangle_strip, .triangle_fan => {},
             _ => return,

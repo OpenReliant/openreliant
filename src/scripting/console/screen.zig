@@ -186,7 +186,7 @@ pub fn frame(console: *Console, context: Frame) ?Action {
 }
 
 fn pressed(keyboard: *input.Keyboard, key: input.Key) bool {
-    return keyboard.pressed(@intFromEnum(key), .none, true);
+    return keyboard.pressed(@backingInt(key), .none, true);
 }
 
 /// What the pointer finds at `at`.

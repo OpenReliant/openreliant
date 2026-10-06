@@ -301,7 +301,7 @@ test "a still shot stands at its ship, looks at the one it tracks and holds ship
 
 test "a path rides along with its ship, and passes the places points mark" {
     var ships = dte.testing.ships(5, dte.Ship.curve_point_kind);
-    ships[0].kind = @intFromEnum(gameobj.GameType.predator);
+    ships[0].kind = @backingInt(gameobj.GameType.predator);
     ships[0].position = .{ 0, 0, 0 };
     ships[4].kind = dte.Ship.point_kind;
     ships[4].marker_curve = 0;

@@ -214,13 +214,13 @@ fn effect(id: u32, body: []const u8) Error!Effect {
         .pause => .pause,
         .wave => wave: {
             const wave = layout.view(WaveRecord, rest) catch return error.NotAnEffectFile;
-            const shape: Shape = @enumFromInt(record.type);
+            const shape: Shape = @fromBackingInt(@intCast(record.type));
             if (std.enums.tagName(Shape, shape) == null) return error.NotAnEffectFile;
             break :wave .{ .wave = .{ .shape = shape, .frequency = wave.frequency, .high = wave.high, .low = wave.low } };
         },
         .group => group: {
             const group = layout.view(GroupRecord, rest) catch return error.NotAnEffectFile;
-            const order: Group.Order = @enumFromInt(record.type);
+            const order: Group.Order = @fromBackingInt(@intCast(record.type));
             if (std.enums.tagName(Group.Order, order) == null) return error.NotAnEffectFile;
             const ids = layout.array(u32, rest[@sizeOf(GroupRecord)..], group.count) catch return error.NotAnEffectFile;
             break :group .{ .group = .{ .order = order, .ids = ids } };
@@ -267,7 +267,7 @@ pub const testing = struct {
             var record = std.mem.zeroes(Record);
             record.size = @sizeOf(Record);
             @memcpy(record.name[0..made.name.len], made.name);
-            record.kind = @enumFromInt(made.kind);
+            record.kind = @fromBackingInt(@intCast(made.kind));
             record.type = made.type;
             record.axes = 3;
             record.duration = made.duration;

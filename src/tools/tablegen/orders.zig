@@ -60,10 +60,10 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
         for (try reader.records(Record, start, len), 0..) |record, i| {
             try orders.append(arena, .{
                 .number = @intCast(index * group_span + i),
-                .name = try reader.string(@intFromEnum(record.name)),
-                .init = @intFromEnum(record.init),
-                .update = @intFromEnum(record.update),
-                .exit = @intFromEnum(record.exit),
+                .name = try reader.string(@backingInt(record.name)),
+                .init = @backingInt(record.init),
+                .update = @backingInt(record.update),
+                .exit = @backingInt(record.exit),
                 .flags = @bitCast(record.flags),
                 .priority = record.priority,
             });
@@ -263,13 +263,13 @@ const TestPayload = struct {
             const name_at = strings + @as(u32, @intCast(i)) * 0x20;
             r.putString(name_at, name);
             var record = std.mem.zeroes(Record);
-            record.name = @enumFromInt(name_at);
-            record.update = @enumFromInt(0x00401000 + @as(u32, @intCast(i)) * 0x10);
+            record.name = @fromBackingInt(@intCast(name_at));
+            record.update = @fromBackingInt(@intCast(0x00401000 + @as(u32, @intCast(i)) * 0x10));
             record.flags.retaliate = true;
             r.putRecord(at, record);
         }
         var later = std.mem.zeroes(Record);
-        later.init = @enumFromInt(0x00402000);
+        later.init = @fromBackingInt(@intCast(0x00402000));
         later.priority = 0x62;
         r.putRecord(group_starts[1], later);
     }

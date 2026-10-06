@@ -92,26 +92,26 @@ pub const Type = enum(i16) {
 
     /// The game's missile `game`.
     pub fn of(game: GameMissile) Type {
-        return @enumFromInt(@intFromEnum(game));
+        return @fromBackingInt(@intCast(@backingInt(game)));
     }
 
     /// The type a hardpoint's id names.
     pub fn fromId(id: u16) Type {
-        return @enumFromInt(@as(i16, @bitCast(id)));
+        return @fromBackingInt(@intCast(@as(i16, @bitCast(id))));
     }
 
     /// The game's missile it is: itself for one of the game's, and for one a mod adds, the
     /// missile it is based on; none for none, and for a number that names no missile.
     pub fn base(missile: Type) GameMissile {
         if (missile.added()) |from_mod| return from_mod.base;
-        const number = @intFromEnum(missile);
+        const number = @backingInt(missile);
         if (number < 0 or number >= type_count) return .none;
-        return @enumFromInt(number);
+        return @fromBackingInt(@intCast(number));
     }
 
     /// The missile a mod adds that it is, if it is one.
     pub fn added(missile: Type) ?*const additions.missiles.Added {
-        const number = @intFromEnum(missile);
+        const number = @backingInt(missile);
         if (number < 0) return null;
         return additions.missiles.get(@intCast(number));
     }
@@ -119,7 +119,7 @@ pub const Type = enum(i16) {
     /// Its index into the tables, the game's types' and the mods', or null for none or a type
     /// past them.
     pub fn index(missile: Type) ?usize {
-        const number = @intFromEnum(missile);
+        const number = @backingInt(missile);
         if (number < 0 or number >= additions.missiles.count()) return null;
         return @intCast(number);
     }
@@ -168,7 +168,7 @@ pub const Type = enum(i16) {
 
     /// The type scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?Type {
-        if (additions.missiles.find(text)) |found| return @enumFromInt(found);
+        if (additions.missiles.find(text)) |found| return @fromBackingInt(@intCast(found));
         return .of(std.meta.stringToEnum(GameMissile, text) orelse return null);
     }
 
@@ -238,7 +238,7 @@ pub const Table = struct {
     /// rows, which its record then fills in (`load`).
     pub fn addTypes(table: *Table) void {
         for (additions.missiles.all(), additions.missiles.first..) |added_type, number| {
-            const base: usize = @intCast(@intFromEnum(added_type.base));
+            const base: usize = @intCast(@backingInt(added_type.base));
             table.stats[number] = table.stats[base];
             table.flight[number] = table.flight[base];
         }
@@ -251,7 +251,7 @@ pub const Table = struct {
             .flight = @splat(std.mem.zeroes(FlightModel)),
         };
         for (table.stats[0..type_count], table.flight[0..type_count], 0..) |*record, *flight, number| {
-            const missile: GameMissile = @enumFromInt(number);
+            const missile: GameMissile = @fromBackingInt(@intCast(number));
             record.* = .{
                 ._unknown_00 = 30,
                 .launch_sound = switch (missile) {
@@ -268,7 +268,7 @@ pub const Table = struct {
                 .order = switch (missile) {
                     .torpedo => .pod_launch,
                     .fuel_pod => .jettison,
-                    else => @enumFromInt(number + @intFromEnum(Order.screamer)),
+                    else => @fromBackingInt(@intCast(number + @backingInt(Order.screamer))),
                 },
                 .lock_time = 200,
                 .decoy_chance = 50,
@@ -433,7 +433,7 @@ pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneri
     if (launcher == all.player) if (world.forces) |forces| forces.start(.missile, world.clock.frame_start);
 
     const class: sound3d.Class = if (launcher == all.player) .guaranteed else .not_reserved;
-    const which: sound3d.sounds.Sound = @enumFromInt(missiles.records[at].?.stats(&all.missile_stats).launch_sound);
+    const which: sound3d.sounds.Sound = @fromBackingInt(@intCast(missiles.records[at].?.stats(&all.missile_stats).launch_sound));
     sound3d.playIn(world, null, null, at, which, 1, class);
     racked.count -= 1;
     const order: Order = if (pod and racked.count < 0) .jettison else if (pod) .pod_launch else if (racked.type.base() == .fuel_pod) .jettison else .rail_launch;
@@ -463,7 +463,7 @@ pub fn launchFromTurret(world: gameobj.World, ship: u16, model: *const objects.M
         .next = top.partAt(carrier.object.placeAt(.next), model, launcher, .next) orelse return,
         .drawn = model.parts[launcher].drawn(),
     };
-    const held = create.models.attachment(.missile, @intFromEnum(GameMissile.screamer)) orelse return;
+    const held = create.models.attachment(.missile, @backingInt(GameMissile.screamer)) orelse return;
     const built = (buildModel(all.gpa, carrier, held.second_model orelse return) catch return) orelse return;
     const at = spawn(world, ship, .of(.screamer), built, places) orelse return;
     startTrail(world, at);
@@ -483,7 +483,7 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     const carrier = &all.slots[launcher];
     const number = kind.index() orelse return null;
     // A missile a mod adds is an object of its base's type, which the game's code knows.
-    var slot: create.Slot = .{ .object = gameobj.objectAlloc(@enumFromInt(kind.baseIndex().?), world.random), .model = built };
+    var slot: create.Slot = .{ .object = gameobj.objectAlloc(@fromBackingInt(@intCast(kind.baseIndex().?)), world.random), .model = built };
     const object = &slot.object;
     slot.flight = &all.missile_stats.flight[number];
     object.side = carrier.object.side;
@@ -1048,7 +1048,7 @@ pub const testing = struct {
             armed.points = @splat(std.mem.zeroes(shp.Attachment));
             for (&armed.points, [_]Type{ .of(.raptor), .of(.havoc) }) |*point, held| {
                 point.kind = .missile;
-                point.id = @intCast(@intFromEnum(held));
+                point.id = @intCast(@backingInt(held));
                 point.orientation = math.identity;
             }
             armed.model.data[0].attachments = &armed.points;
@@ -1206,7 +1206,7 @@ test "a player's Screamer flies straight" {
     var armed: testing.Armed = undefined;
     try armed.init(std.testing.allocator);
     defer armed.deinit();
-    armed.points[0].id = @intCast(@intFromEnum(Type.of(.screamer)));
+    armed.points[0].id = @intCast(@backingInt(Type.of(.screamer)));
     const world = armed.mission.world();
     const player = try armed.add(.friendly, @splat(0));
     const other = try armed.add(.hostile, .{ 0, 0, 50000 });
@@ -1249,7 +1249,7 @@ test "a torpedo flies at where it meets its target, less its own drift" {
     const fired = try mission.add(.of(.russian_torpedo), @splat(0));
     const twin = try mission.add(.of(.russian_torpedo), @splat(0));
     const mammoth = try mission.add(.of(.mammoth), .{ 0, 0, 20000 });
-    mission.tables.combat[@intFromEnum(gameobj.GameType.russian_torpedo)].class = .torpedo;
+    mission.tables.combat[@backingInt(gameobj.GameType.russian_torpedo)].class = .torpedo;
     // The target crosses ahead, and the torpedoes drift up and on.
     const target = mission.slot(mammoth);
     target.object.flags.targetable = true;
@@ -1293,7 +1293,7 @@ test choose {
     var armed: testing.Armed = undefined;
     try armed.init(std.testing.allocator);
     defer armed.deinit();
-    armed.points[0].id = @intCast(@intFromEnum(Type.of(.solomon)));
+    armed.points[0].id = @intCast(@backingInt(Type.of(.solomon)));
     const world = armed.mission.world();
     const player = try armed.add(.friendly, @splat(0));
     const behind = try armed.add(.hostile, .{ 0, 0, -3000 });
@@ -1376,17 +1376,17 @@ test "Type.mounted" {
     };
     additions.missiles.install(&list);
     defer additions.missiles.reset();
-    const first: Type = @enumFromInt(additions.missiles.first);
+    const first: Type = @fromBackingInt(@intCast(additions.missiles.first));
     // A rail missile's own model hangs on the hardpoint and flies.
     const rail = first.mounted().?;
     try std.testing.expectEqualStrings("banana.shp", rail.model.?);
     try std.testing.expectEqual(null, rail.second_model);
     // A pod missile's pod hangs, and its missile flies from it.
-    const pod: Type = @enumFromInt(additions.missiles.first + 1);
+    const pod: Type = @fromBackingInt(@intCast(additions.missiles.first + 1));
     try std.testing.expectEqualStrings("bunch.shp", pod.mounted().?.model.?);
     try std.testing.expectEqualStrings("banana.shp", pod.mounted().?.second_model.?);
     // Without models of its own, it mounts its base's.
-    const plain: Type = @enumFromInt(additions.missiles.first + 2);
+    const plain: Type = @fromBackingInt(@intCast(additions.missiles.first + 2));
     try std.testing.expectEqualStrings(Type.of(.raptor).mounted().?.model.?, plain.mounted().?.model.?);
     try std.testing.expectEqual(GameMissile.raptor, plain.base());
     try std.testing.expectEqual(@as(?usize, additions.missiles.first + 2), plain.index());

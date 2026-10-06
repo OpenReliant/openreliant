@@ -40,11 +40,11 @@ pub const Object = enum(u16) {
     _,
 
     pub fn of(index: u16) Object {
-        return @enumFromInt(index);
+        return @fromBackingInt(@intCast(index));
     }
 
     pub fn slot(object: Object) u16 {
-        return @intFromEnum(object);
+        return @backingInt(object);
     }
 };
 
@@ -319,7 +319,7 @@ fn routineAbout(comptime routine: Routine) []const u8 {
         for (orders.table) |entry| {
             if (routines.address(entry, routine.role) != routine.address) continue;
             const named = if (entry.name.len > 0) ", " ++ entry.name else "";
-            text = text ++ (if (count == 0) " " else ", and of order ") ++ std.fmt.comptimePrint("{d}", .{@intFromEnum(entry.order)}) ++ named;
+            text = text ++ (if (count == 0) " " else ", and of order ") ++ std.fmt.comptimePrint("{d}", .{@backingInt(entry.order)}) ++ named;
             count += 1;
         }
         return text ++ ", which `object` runs.";
@@ -744,7 +744,7 @@ fn scriptsOf(source: anytype) ?*Scripts {
 /// The hook on the routine of `role` that `order` runs, where it has one: each order that uses a
 /// routine reaches its hook.
 pub fn routineHook(order: orders.Order, role: routines.Role) ?Hook {
-    const number = std.math.cast(usize, @intFromEnum(order)) orelse return null;
+    const number = std.math.cast(usize, @backingInt(order)) orelse return null;
     if (number >= routine_table.len) return null;
     return routine_table[number].get(role);
 }
@@ -768,7 +768,7 @@ const routine_table = table: {
 
 /// The number of an order the table holds, which is never below 0.
 fn orderNumber(order: orders.Order) usize {
-    return @intCast(@intFromEnum(order));
+    return @intCast(@backingInt(order));
 }
 
 comptime {
@@ -798,7 +798,7 @@ test Target {
     const none: Target = .of(.none);
     try std.testing.expect(none.object == null and none.flight_group == null and none.squad == null);
     // Unchanged, each goes back as it was, a kind the scripts can't name too.
-    const odd: aigeneric.Target = .{ .kind = @enumFromInt(7), .index = 4, .component = -1 };
+    const odd: aigeneric.Target = .{ .kind = @fromBackingInt(@intCast(7)), .index = 4, .component = -1 };
     for ([_]aigeneric.Target{ .at(5, 2), .group(.squad, 1), .none, odd }) |held| {
         try std.testing.expectEqual(held, Target.of(held).aimed());
     }
@@ -819,7 +819,7 @@ test routineHook {
     // The empty routine has no hook, nor does an order without the routine.
     try std.testing.expectEqual(null, routineHook(.random_spin_slow, .update));
     try std.testing.expectEqual(null, routineHook(.run_away, .exit));
-    try std.testing.expectEqual(null, routineHook(@enumFromInt(-1), .update));
+    try std.testing.expectEqual(null, routineHook(@fromBackingInt(@intCast(-1)), .update));
 }
 
 test declaration {

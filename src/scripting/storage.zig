@@ -308,7 +308,7 @@ pub const Storage = struct {
 const Handle = struct {
     section: *Section,
 
-    const tag = @intFromEnum(runtime_module.Tag.section);
+    const tag = @backingInt(runtime_module.Tag.section);
 
     fn of(state: *State, at: i32) *Section {
         return (state.toUserdata(Handle, at, tag) orelse state.raise("expected a storage section, got {s}", .{state.typeName(at)})).section;

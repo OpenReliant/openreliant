@@ -197,12 +197,12 @@ pub const GripRef = enum(i32) {
     _,
 
     fn of(at: Place) GripRef {
-        return @enumFromInt(@as(i32, at));
+        return @fromBackingInt(@intCast(@as(i32, at)));
     }
 
     /// Its place among the Rippers' beams, where it names one.
     pub fn place(grip: GripRef) ?usize {
-        return std.math.cast(usize, @intFromEnum(grip));
+        return std.math.cast(usize, @backingInt(grip));
     }
 };
 
@@ -359,7 +359,7 @@ pub const GrabState = extern struct {
 
     /// Keeps the Ripper's motion `kept`, or none.
     fn keepMotion(state: *GrabState, kept: ?motion.Motion) void {
-        state.motion = if (kept) |moving| @intFromEnum(moving) else no_motion;
+        state.motion = if (kept) |moving| @backingInt(moving) else no_motion;
     }
 
     /// The motion it keeps, where it keeps one it knows.
@@ -840,7 +840,7 @@ pub fn grab(ctx: Context, index: u16) void {
 
 /// The order on to its next step, from tick `now`.
 fn next(state: anytype, now: i32) void {
-    state.step = @enumFromInt(@intFromEnum(state.step) + 1);
+    state.step = @fromBackingInt(@intCast(@backingInt(state.step) + 1));
     state.since = now;
 }
 
@@ -1033,9 +1033,9 @@ fn fitTurn(ship: gameobj.Type) math.Axis {
     return switch (ship.base()) {
         .mammoth, .sharov, .boridin => .x,
         else => {
-            const number = std.math.cast(u8, @intFromEnum(ship.base())) orelse return .z;
+            const number = std.math.cast(u8, @backingInt(ship.base())) orelse return .z;
             const under = create.donor(number) orelse return .z;
-            return if (under == @intFromEnum(gameobj.GameType.mammoth)) .x else .z;
+            return if (under == @backingInt(gameobj.GameType.mammoth)) .x else .z;
         },
     };
 }
@@ -1478,7 +1478,7 @@ test "a Ripper's beams are taken, let go, and let go again harmlessly" {
     var unaimed = t.rippers.takeFor(world, t.ripper, null);
     try std.testing.expectEqual(null, t.rippers.gripAt(unaimed).?.targets[0]);
     // A grip past the tables names none, and letting it go leaves them be.
-    var past: GripRef = @enumFromInt(capacity);
+    var past: GripRef = @fromBackingInt(@intCast(capacity));
     try std.testing.expectEqual(null, t.rippers.gripAt(past));
     freeGrip(&t.rippers, &past);
     try std.testing.expectEqual(GripRef.none, past);
@@ -1561,7 +1561,7 @@ test fitTurn {
     try std.testing.expectEqual(math.Axis.x, fitTurn(.of(.sharov)));
     try std.testing.expectEqual(math.Axis.x, fitTurn(.of(.boridin)));
     // The Mammoth under another number.
-    try std.testing.expectEqual(math.Axis.x, fitTurn(@enumFromInt(0xE3)));
+    try std.testing.expectEqual(math.Axis.x, fitTurn(@fromBackingInt(@intCast(0xE3))));
     try std.testing.expectEqual(math.Axis.z, fitTurn(.of(.stalag)));
     try std.testing.expectEqual(math.Axis.z, fitTurn(.of(.stand_in)));
 }

@@ -54,7 +54,7 @@ pub const TextureDetail = enum(u32) {
 
     pub fn format(detail: TextureDetail, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (detail) {
-            _ => writer.print("texture detail {d}", .{@intFromEnum(detail)}),
+            _ => writer.print("texture detail {d}", .{@backingInt(detail)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -277,10 +277,10 @@ test TextureDetail {
     try std.testing.expectEqual(128, TextureDetail.low.largest().?);
     try std.testing.expectEqual(256, TextureDetail.medium.largest().?);
     try std.testing.expectEqual(null, TextureDetail.high.largest());
-    try std.testing.expectEqual(null, @as(TextureDetail, @enumFromInt(7)).largest());
+    try std.testing.expectEqual(null, @as(TextureDetail, @fromBackingInt(@intCast(7))).largest());
     var buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("medium", try std.fmt.bufPrint(&buffer, "{f}", .{TextureDetail.medium}));
-    try std.testing.expectEqualStrings("texture detail 7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(TextureDetail, @enumFromInt(7))}));
+    try std.testing.expectEqualStrings("texture detail 7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(TextureDetail, @fromBackingInt(@intCast(7)))}));
 }
 
 test {

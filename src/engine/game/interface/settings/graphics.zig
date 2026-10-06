@@ -421,7 +421,7 @@ pub const Graphics = struct {
 
 /// The pane's row `row`'s place on the screen, for the tests: its line, scrolled to show it.
 fn lineOf(tab: *Graphics, row: Row) Line {
-    const index = @intFromEnum(row);
+    const index = @backingInt(row);
     while (tab.list.place(index) == null) tab.list.rows.scroll(if (index < tab.list.rows.first) .up else .down);
     return pane.line(tab.list.place(index).?);
 }
@@ -476,12 +476,12 @@ test "the presets set every option, and the rows change them" {
     try std.testing.expect(tab.graphics.waits());
     // With each vertex lit, the shadows can't change, and are dimmed.
     const shadows = lineOf(&tab, .shadows);
-    const on: Item = .{ .pane = .{ .step = .{ .row = @intFromEnum(Row.shadows), .step = .on } } };
+    const on: Item = .{ .pane = .{ .step = .{ .row = @backingInt(Row.shadows), .step = .on } } };
     try std.testing.expectEqual(on, tab.itemAt(.{ 342, shadows.y + 5 }).?);
     _ = tab.choose(on, context);
     try std.testing.expectEqual(Own.Graphics.Shadows.off, recorder.graphics.chosen.shadows);
     // BLOOM's box turns it on, and the options are CUSTOM.
-    const bloom: Item = .{ .pane = .{ .check = @intFromEnum(Row.bloom) } };
+    const bloom: Item = .{ .pane = .{ .check = @backingInt(Row.bloom) } };
     const bloom_line = lineOf(&tab, .bloom);
     try std.testing.expectEqual(bloom, tab.itemAt(.{ 338, bloom_line.y + 8 }).?);
     _ = tab.choose(bloom, context);
@@ -511,7 +511,7 @@ test "the arrows step the choices, and the pane's arrows scroll it" {
     var tab: Graphics = .{};
     tab.enter(context);
     // As many samples as the GPU offers: on from 4 round to OFF, back to 2.
-    const anti_aliasing = @intFromEnum(Row.anti_aliasing);
+    const anti_aliasing = @backingInt(Row.anti_aliasing);
     _ = tab.choose(.{ .pane = .{ .step = .{ .row = anti_aliasing, .step = .on } } }, context);
     try std.testing.expectEqual(1, recorder.graphics.chosen.samples);
     _ = tab.choose(.{ .pane = .{ .step = .{ .row = anti_aliasing, .step = .back } } }, context);
@@ -519,7 +519,7 @@ test "the arrows step the choices, and the pane's arrows scroll it" {
     try std.testing.expectEqual(2, recorder.graphics.chosen.samples);
     try std.testing.expectEqualStrings("2 SAMPLES", Choice.anti_aliasing.value(tab.graphics).words);
     // COLOR DEPTH waits for the next start.
-    _ = tab.choose(.{ .pane = .{ .step = .{ .row = @intFromEnum(Row.color_depth), .step = .on } } }, context);
+    _ = tab.choose(.{ .pane = .{ .step = .{ .row = @backingInt(Row.color_depth), .step = .on } } }, context);
     try std.testing.expect(recorder.graphics.chosen.sixteen_bit and tab.graphics.waits());
     // The pane's down arrow scrolls it a row.
     try std.testing.expectEqual(Item{ .pane = .{ .scroll = .down } }, tab.itemAt(.{ 580, 181 }).?);

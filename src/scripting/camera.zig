@@ -20,7 +20,7 @@ pub const package = struct {
             const held = Presentation.hostOf(call, "camera.view").camera orelse return null;
             if (call.runtime().registries.cameraName(held.camera.view)) |name| return .{ .name = name };
             if (values.name(engine_camera.View, held.camera.view)) |name| return .{ .name = name };
-            return .{ .number = @intFromEnum(held.camera.view) };
+            return .{ .number = @backingInt(held.camera.view) };
         }
     });
 
@@ -36,7 +36,7 @@ fn setView(call: Call, wanted: Identifier, object: ?Object) bool {
             const index = call.runtime().registries.find(.camera, name) orelse return false;
             return call.runtime().registries.selectCamera(call.runtime(), index, object);
         },
-        .number => |number| if (number < engine_camera.views.records.len) @enumFromInt(number) else return false,
+        .number => |number| if (number < engine_camera.views.records.len) @fromBackingInt(@intCast(number)) else return false,
     };
     if (!held.camera.setView(view, of, false, false, held.now)) return false;
     call.runtime().registries.selected_camera = null;

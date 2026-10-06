@@ -322,7 +322,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     }
     try w.print("\n-- {s}\ntype Interfaces = {{\n", .{script.Package.interfaces.about()});
     inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
-        const tag: @import("builtin_interfaces.zig").Group = @enumFromInt(group.value);
+        const tag: @import("builtin_interfaces.zig").Group = @fromBackingInt(@intCast(group.value));
         const Namespace = comptime tag.namespace();
         try w.print("    {s}: {{\n", .{group.name});
         inline for (comptime api.declared(Namespace, .field)) |name| {
@@ -559,7 +559,7 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
 
     try w.writeAll("\n## Built-in interfaces\n\n`require(\"openreliant.interfaces\")` gives these groups of the packages' functions, unless a mod offers an interface of the same name. A group a script's packages don't allow is nil.\n");
     inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
-        const tag: @import("builtin_interfaces.zig").Group = @enumFromInt(group.value);
+        const tag: @import("builtin_interfaces.zig").Group = @fromBackingInt(@intCast(group.value));
         const Namespace = comptime tag.namespace();
         try w.print("\n### I.{s}\n\n| Member | Type or returns | Description |\n|---|---|---|\n", .{group.name});
         inline for (comptime api.declared(Namespace, .field)) |name| {

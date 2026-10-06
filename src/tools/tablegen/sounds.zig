@@ -210,7 +210,7 @@ test read {
     try std.testing.expect(std.mem.indexOf(u8, out.buffered(), "explosion01 = 1,") != null);
 
     // A class past the last the engine names.
-    classes[1][3] = @intFromEnum(sound3d.Class.flyby) + 1;
+    classes[1][3] = @backingInt(sound3d.Class.flyby) + 1;
     const unknown_class = try testing.reader(allocator, &.{
         .{ .va = table, .bytes = std.mem.sliceAsBytes(records[0..]) },
         .{ .va = class_table, .bytes = std.mem.sliceAsBytes(classes[0..]) },
@@ -223,7 +223,7 @@ test read {
 test check {
     try check(testDefinition(1, .object, "PSHIP01"));
     try std.testing.expectError(error.BadDefinition, check(testDefinition(1, .object, "")));
-    try std.testing.expectError(error.BadDefinition, check(testDefinition(1, @enumFromInt(9), "X")));
+    try std.testing.expectError(error.BadDefinition, check(testDefinition(1, @fromBackingInt(@intCast(9)), "X")));
     var near = testDefinition(1, .object, "X");
     near.max_distance = 1;
     try std.testing.expectError(error.BadDefinition, check(near));

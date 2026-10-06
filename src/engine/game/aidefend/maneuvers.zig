@@ -297,7 +297,7 @@ pub const choices = [3][3][]const Maneuver{
 
 /// The maneuver numbered `maneuver`, or null past the table.
 pub fn info(maneuver: Maneuver) ?Info {
-    const index = @intFromEnum(maneuver);
+    const index = @backingInt(maneuver);
     return if (index < table.len) table[index] else null;
 }
 
@@ -314,12 +314,12 @@ pub const compiled = blk: {
 comptime {
     if (table.len != std.enums.values(Maneuver).len) @compileError("one entry per maneuver");
     for (table, 0..) |entry, index| {
-        if (@intFromEnum(entry.maneuver) != index) @compileError("maneuvers out of place");
+        if (@backingInt(entry.maneuver) != index) @compileError("maneuvers out of place");
     }
 }
 
 test info {
     for (table) |entry| try std.testing.expectEqual(entry.maneuver, info(entry.maneuver).?.maneuver);
-    try std.testing.expectEqual(null, info(@enumFromInt(table.len)));
+    try std.testing.expectEqual(null, info(@fromBackingInt(@intCast(table.len))));
     for (compiled, table) |instructions, entry| try std.testing.expectEqual(entry.script.len, instructions.len);
 }

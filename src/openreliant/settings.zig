@@ -325,7 +325,7 @@ pub const Own = struct {
             const value = @field(chosen, key.field);
             if (value != @field(was, key.field)) try file.writeInt(screen.video.section, key.name, switch (@TypeOf(value)) {
                 bool => @intFromBool(value),
-                else => @intFromEnum(value),
+                else => @backingInt(value),
             });
         }
         const whole = chosen.preset() != null or chosen.original != was.original;

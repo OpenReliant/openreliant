@@ -127,7 +127,7 @@ pub const Target = extern struct {
 
     comptime {
         for (std.enums.values(dte.Object.Kind)) |kind| {
-            assert(@intFromEnum(@field(Kind, @tagName(kind))) == @intFromEnum(kind));
+            assert(@backingInt(@field(Kind, @tagName(kind))) == @backingInt(kind));
         }
         assert(@offsetOf(Target, "index") == 0x2);
         assert(@offsetOf(Target, "component") == 0x4);
@@ -362,7 +362,7 @@ pub fn refused(all: *const create.Objects, index: u16, order: Order) bool {
     if (orders.info(order) == null) {
         if (infoOf(all, order)) |info| return index < all.players and !info.flags.players;
     }
-    if (index >= all.players or @intFromEnum(order) >= players_orders) return false;
+    if (index >= all.players or @backingInt(order) >= players_orders) return false;
     const info = infoOf(all, order) orelse return true;
     return !info.flags.players;
 }
@@ -1117,7 +1117,7 @@ test "Named.format" {
     try std.testing.expectEqualStrings("Eject", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = .eject }}));
     // A nameless order goes by OpenReliant's name for it, and one the table lacks by its number.
     try std.testing.expectEqualStrings("unnamed_3", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = .unnamed_3 }}));
-    try std.testing.expectEqualStrings("order 99", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = @enumFromInt(99) }}));
+    try std.testing.expectEqualStrings("order 99", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = @fromBackingInt(@intCast(99)) }}));
 }
 
 test objectOrders {

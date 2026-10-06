@@ -1445,8 +1445,8 @@ fn collapseSteps(run: *testing.Run, gate: u16) ![4]usize {
             .fallen => {},
             _ => return error.TestUnexpectedResult,
         }
-        ticks[@intFromEnum(step)] += 1;
-        if (ticks[@intFromEnum(step)] > 10000) return error.TestUnexpectedResult;
+        ticks[@backingInt(step)] += 1;
+        if (ticks[@backingInt(step)] > 10000) return error.TestUnexpectedResult;
     }
     try std.testing.expect(burnt and faded);
     return ticks;

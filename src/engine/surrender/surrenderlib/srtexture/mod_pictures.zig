@@ -103,7 +103,7 @@ const Read = struct {
         for (files, 0..) |found, role| {
             const file = found orelse continue;
             hash.update(std.mem.asBytes(&@as(u32, @intCast(role))));
-            hash.update(std.mem.asBytes(&@intFromEnum(file.container)));
+            hash.update(std.mem.asBytes(&@backingInt(file.container)));
             hash.update(std.mem.asBytes(&@as(u64, file.bytes.len)));
             hash.update(file.bytes);
         }

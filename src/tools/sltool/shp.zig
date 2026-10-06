@@ -173,7 +173,7 @@ fn listComponents(ctx: Context, path: []const u8) !void {
         try ctx.stdout.print("{d:>5}  {d:>4}  {d:>5}  {d:>4}  {s:>5}  {s:<20}  {s}\n", .{
             index,
             component.part_index,
-            @intFromEnum(component.part.class),
+            @backingInt(component.part.class),
             component.part.link_id,
             std.fmt.bufPrint(&armor, "{d}", .{component.part.component_armor}) catch unreachable,
             component.model,
@@ -191,7 +191,7 @@ fn chunks(ctx: Context, data: []const u8) !void {
     while (try reader.next()) |chunk| {
         const offset = reader.pos - chunk.data.len - @sizeOf(shp.ChunkHeader);
         try ctx.stdout.print("{x:0>8}  {x:0>4} {d:>7} {d:>6}  {f}\n", .{
-            offset, @intFromEnum(chunk.tag), chunk.record_size, chunk.count, chunk.tag,
+            offset, @backingInt(chunk.tag), chunk.record_size, chunk.count, chunk.tag,
         });
     }
     try ctx.stdout.print("{x:0>8}  ffff                 end\n", .{reader.pos});
@@ -226,13 +226,13 @@ fn info(ctx: Context, model: shp.Model) !void {
     for (model.parts, 0..) |entry, index| {
         const part = entry.part;
         try ctx.stdout.print("[{d:>3}] {s:<34} type {d:>2}  parent {d:>3}  link {d}", .{
-            index, part.name(), @intFromEnum(part.class), part.parent, part.link_id,
+            index, part.name(), @backingInt(part.class), part.parent, part.link_id,
         });
         if (part.turret_kind != .fixed) {
             try ctx.stdout.print("  turret kind {d} slot {d} yaw [{d:.0},{d:.0}] pitch [{d:.0},{d:.0}]", .{
-                @intFromEnum(part.turret_kind), part.turret_slot,
-                part.angles_min.x,              part.angles_max.x,
-                part.angles_min.y,              part.angles_max.y,
+                @backingInt(part.turret_kind), part.turret_slot,
+                part.angles_min.x,             part.angles_max.x,
+                part.angles_min.y,             part.angles_max.y,
             });
         }
         try ctx.stdout.writeByte('\n');
@@ -254,7 +254,7 @@ fn info(ctx: Context, model: shp.Model) !void {
             });
         }
         for (entry.point_lists) |list| {
-            try ctx.stdout.print("          points kind {d}: {d}\n", .{ @intFromEnum(list.kind), list.points.len });
+            try ctx.stdout.print("          points kind {d}: {d}\n", .{ @backingInt(list.kind), list.points.len });
         }
         for (entry.tracks) |track| {
             try ctx.stdout.print("          clip '{s}' length {d} mode {d}, {d} keyframes, {d} events\n", .{
@@ -276,7 +276,7 @@ fn info(ctx: Context, model: shp.Model) !void {
                     .launch_point => "launch point",
                     _ => "kind",
                 },
-                @intFromEnum(attachment.kind),
+                @backingInt(attachment.kind),
                 attachment.position.x,
                 attachment.position.y,
                 attachment.position.z,
@@ -452,7 +452,7 @@ fn check(ctx: Context, data: []const u8) !void {
         // The part record carries a bounding box derived from its vertices, but not always in
         // the part's own frame, so it is classified rather than required to match.
         if (entry.meshes.len > 0 and entry.meshes[0].vertices.len > 0) {
-            bounds_frames[@intFromEnum(classifyBounds(entry))] += 1;
+            bounds_frames[@backingInt(classifyBounds(entry))] += 1;
         }
     }
 

@@ -257,7 +257,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     const driver = sound.driver orelse return null;
     if (!sound.effects.ready) return null;
     const bank = sound.effects.bank orelse return null;
-    const definition = &sounds.definitions[@intFromEnum(which)];
+    const definition = &sounds.definitions[@backingInt(which)];
     const level = sound.volumes.masterShare() * @as(f32, @floatFromInt(sound.volumes.effects)) * definition.volume * volume;
 
     var position: Vector = @splat(0);
@@ -319,7 +319,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     voice.follows = definition.follows;
     voice.owner = if (owner) |held| held else -1;
     voice.priority = @intCast(bank.entries[definition.entry].priority);
-    voice.sound = @intFromEnum(which);
+    voice.sound = @backingInt(which);
     voice.started = scene.clock.frame_start;
     voice.range = range;
 
@@ -367,8 +367,8 @@ pub fn playFrom(world: gameobj.World, at: math.Place, which: sounds.Sound, class
 
 /// The engines' and the afterburner's sounds, which are started however far off they are.
 fn heardAnywhere(which: sounds.Sound) bool {
-    const n = @intFromEnum(which);
-    return (n >= @intFromEnum(sounds.Sound.pship01) and n <= @intFromEnum(sounds.Sound.pship12)) or which == .burner01;
+    const n = @backingInt(which);
+    return (n >= @backingInt(sounds.Sound.pship01) and n <= @backingInt(sounds.Sound.pship12)) or which == .burner01;
 }
 
 /// A voice for a sound of `class`: the engine's or the afterburner's own for theirs; else a free
@@ -410,8 +410,8 @@ fn takes(sound: *Sound, class: Class) ?u8 {
 pub fn engineSound(ship_type: gameobj.Type) sounds.Sound {
     const own = ship_type.untwinned();
     if (own.base() == .kamov) return .pship07;
-    const row = @intFromEnum(own.base());
-    if (row < sounds.engines.len) return @enumFromInt(@intFromEnum(sounds.Sound.pship01) + row);
+    const row = @backingInt(own.base());
+    if (row < sounds.engines.len) return @fromBackingInt(@intCast(@backingInt(sounds.Sound.pship01) + row));
     return .pship01;
 }
 
@@ -463,7 +463,7 @@ const kamov_row = sounds.engines.len - 1;
 /// A type the tables have no row for takes the last, where the game reads past them.
 fn engineRow(ship_type: gameobj.Type) usize {
     const own = ship_type.untwinned();
-    return if (own.base() == .kamov) kamov_row else @min(@intFromEnum(own.base()), sounds.engines.len - 1);
+    return if (own.base() == .kamov) kamov_row else @min(@backingInt(own.base()), sounds.engines.len - 1);
 }
 
 /// The engine's volume factor: the effects volume and the master volume, each over the loudest.
@@ -670,7 +670,7 @@ test playFrom {
     var world = mission.world();
     const door: math.Place = .{ .position = .{ 0, 0, 1000 }, .orientation = math.rotation(.y, std.math.pi / 2.0) };
     const voices = speaker.sound.voices_3d[0..speaker.sound.voice_3d_count];
-    const opening: i32 = @intFromEnum(sounds.Sound.dooropen);
+    const opening: i32 = @backingInt(sounds.Sound.dooropen);
     // Where nothing is heard, it plays nothing.
     playFrom(world, door, .dooropen, .not_reserved);
     for (voices) |voice| try std.testing.expect(voice.sound != opening);
@@ -711,15 +711,15 @@ test MissileSound {
     const missile = armed.missile(0);
     const placed = struct {
         fn at(on: *mss.Mixer, voice: hog_snd.Voice3D) mss.Vector {
-            return on.samples_3d[@intFromEnum(voice.sample)].state.placing.position;
+            return on.samples_3d[@backingInt(voice.sample)].state.placing.position;
         }
     }.at;
 
     // Following, the voice is the missile's, carries farther, and moves with it.
     const v = play(sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
     try std.testing.expectEqual(v, missile.slot.object.sound_voice.index());
-    const reach = speaker.mixer.samples_3d[@intFromEnum(sound.voices_3d[v].sample)].state.placing.min_distance;
-    try std.testing.expectApproxEqAbs(sounds.definitions[@intFromEnum(sounds.Sound.missile01)].min_distance * followed_missile_reach * hog_snd.distance_scale, reach, 1e-6);
+    const reach = speaker.mixer.samples_3d[@backingInt(sound.voices_3d[v].sample)].state.placing.min_distance;
+    try std.testing.expectApproxEqAbs(sounds.definitions[@backingInt(sounds.Sound.missile01)].min_distance * followed_missile_reach * hog_snd.distance_scale, reach, 1e-6);
     missile.slot.drawn.position = .{ 0, 0, 5000 };
     sound.update3D(scene);
     try std.testing.expectApproxEqAbs(5000 * hog_snd.distance_scale, placed(&speaker.mixer, sound.voices_3d[v])[2], 1e-6);
@@ -743,7 +743,7 @@ test ownEngineSound {
     additions.ships.install(&list);
     defer additions.ships.reset();
     // A mod's type sounds as its base, from its own file.
-    const pot: gameobj.Type = @enumFromInt(additions.ships.first);
+    const pot: gameobj.Type = @fromBackingInt(@intCast(additions.ships.first));
     try std.testing.expectEqual(engineSound(.of(.predator)), engineSound(pot));
     try std.testing.expectEqualStrings("RIFF", ownEngineSound(pot).?);
     try std.testing.expectEqual(null, ownEngineSound(.of(.predator)));
@@ -751,9 +751,9 @@ test ownEngineSound {
 
 test engineSound {
     try std.testing.expectEqual(sounds.Sound.pship01, engineSound(.of(.predator)));
-    try std.testing.expectEqual(sounds.Sound.pship03, engineSound(@enumFromInt(0xF4 + 2)));
+    try std.testing.expectEqual(sounds.Sound.pship03, engineSound(@fromBackingInt(@intCast(0xF4 + 2))));
     try std.testing.expectEqual(sounds.Sound.pship07, engineSound(.of(.kamov)));
-    try std.testing.expectEqual(sounds.Sound.pship01, engineSound(@enumFromInt(40)));
+    try std.testing.expectEqual(sounds.Sound.pship01, engineSound(@fromBackingInt(@intCast(40))));
 }
 
 test engineUpdate {
@@ -776,7 +776,7 @@ test engineUpdate {
     object.afterburner = true;
     engineUpdate(sound, scene);
     try std.testing.expectEqual(EngineState.burning, sound.effects.engine);
-    try std.testing.expectEqual(@intFromEnum(sounds.Sound.burner01), sound.voices_3d[sound.burner_voice.?].sound);
+    try std.testing.expectEqual(@backingInt(sounds.Sound.burner01), sound.voices_3d[sound.burner_voice.?].sound);
     // Let go, it fades over 25 ticks.
     object.afterburner = false;
     engineUpdate(sound, scene);
@@ -803,11 +803,11 @@ test hearEngine {
     // Heard, the player's engine starts with its ship type's sound.
     world.hearing = speaker.hearing(&mission.clock);
     hearEngine(world);
-    try std.testing.expectEqual(@intFromEnum(engineSound(.of(.predator))), engine.sound);
+    try std.testing.expectEqual(@backingInt(engineSound(.of(.predator))), engine.sound);
     // Already playing, it isn't started again.
-    engine.sound = @intFromEnum(sounds.Sound.burner01);
+    engine.sound = @backingInt(sounds.Sound.burner01);
     hearEngine(world);
-    try std.testing.expectEqual(@intFromEnum(sounds.Sound.burner01), engine.sound);
+    try std.testing.expectEqual(@backingInt(sounds.Sound.burner01), engine.sound);
 }
 
 test hearsOwnFlyby {

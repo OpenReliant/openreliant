@@ -474,7 +474,7 @@ pub const Briefing = struct {
     /// (`0x004375F1`); then Escape, the right button, or the movie's end ends it; at the
     /// campaign's end, the end of Enriquez's speech, which Escape and the right button stop.
     fn briefingPass(briefing: *Briefing, in: Input) ?Step {
-        briefing.screenshot = in.keyboard.pressed(@intFromEnum(screenshot_key), .none, true);
+        briefing.screenshot = in.keyboard.pressed(@backingInt(screenshot_key), .none, true);
         const sound = briefing.context.sound;
         const ending = briefing.mission == end_mission;
         const over = in.keyboard.pressed(input.scan.escape, .none, true) or
@@ -817,7 +817,7 @@ test "O asks for a screenshot in the briefing, before Escape ends it" {
     var keyboard: input.Keyboard = .{};
     var briefing: Briefing = .open(tested.context(), 2, false, null);
     defer briefing.close();
-    const o = @intFromEnum(screenshot_key);
+    const o = @backingInt(screenshot_key);
     // Not at the door.
     keyboard.down[o] = true;
     _ = passAt(&briefing, &keyboard, false, 0);

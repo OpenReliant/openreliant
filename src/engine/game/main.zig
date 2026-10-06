@@ -123,7 +123,7 @@ test "Ending.sentHome" {
     try std.testing.expect(Ending._unknown_7.sentHome());
     try std.testing.expect(!Ending.playing.sentHome());
     try std.testing.expect(!Ending.ejecting.sentHome());
-    try std.testing.expect(!@as(Ending, @enumFromInt(9)).sentHome());
+    try std.testing.expect(!@as(Ending, @fromBackingInt(@intCast(9))).sentHome());
 }
 
 /// What the mission's scene shows (`0x00587CD4`), which a mission's start sets to `everything`.
@@ -1001,12 +1001,12 @@ pub const screenshot_key: input.Key = .zero;
 /// Whether the player asks for a screenshot of the frame just drawn, as `mission_frame` ends
 /// (`0x00493480`): 0, once a press, which then saves it (`xtrabits.screenshot`).
 pub fn screenshotAsked(keyboard: *input.Keyboard) bool {
-    return keyboard.pressed(@intFromEnum(screenshot_key), .none, true);
+    return keyboard.pressed(@backingInt(screenshot_key), .none, true);
 }
 
 test screenshotAsked {
     var keyboard: input.Keyboard = .{};
-    const key = @intFromEnum(screenshot_key);
+    const key = @backingInt(screenshot_key);
     try std.testing.expect(!screenshotAsked(&keyboard));
     // Once a press, and again once the key has come up.
     keyboard.down[key] = true;
@@ -1624,7 +1624,7 @@ pub const player_ships = [_]PlayerShip{
 /// names no base, with the cockpit, blind fire and spectral shields its manifest gives
 /// (`additions.ShipExtra`); without a base it carries no device its manifest doesn't give.
 pub fn playerShip(ship_type: gameobj.Type) ?PlayerShip {
-    const index = @intFromEnum(ship_type.base().untwinned());
+    const index = @backingInt(ship_type.base().untwinned());
     if (index >= player_ships.len) return null;
     var ship = player_ships[index];
     const mod = ship_type.added() orelse return ship;
@@ -1818,13 +1818,13 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     // The schematics the target display last showed went with the types let go.
     start.display.target_pictures = .{};
     for (try loaded.bound.ships()) |ship| {
-        const kind: gameobj.Type = @enumFromInt(ship.kind);
+        const kind: gameobj.Type = @fromBackingInt(@intCast(ship.kind));
         if (kind.hasStats()) _ = types.load(types.context, @intCast(kind.number()));
     }
     start.clock.frameReset();
 
     const player = &all.slots[all.player];
-    const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @enumFromInt(record.kind) else player.object.type);
+    const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @fromBackingInt(@intCast(record.kind)) else player.object.type);
     try start.cockpit.load(start.types.resources, start.types.textures, player_type, start.types.models);
     start.display.ejected = false;
     fitDevices(start.display, player_type, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
@@ -1899,14 +1899,14 @@ pub fn fitDevices(display: *hud.State, ship_type: gameobj.Type, can_cloak: bool)
 
 test fitDevices {
     // The Shroud carries all three, and a cloak where its model has one.
-    const shroud: gameobj.Type = @enumFromInt(10);
+    const shroud: gameobj.Type = @fromBackingInt(@intCast(10));
     var display: hud.State = .{ .blind_fire = false };
     fitDevices(&display, shroud, true);
     try std.testing.expectEqual(.off, display.devices.get(.spectral_shields).setting);
     try std.testing.expectEqual(.off, display.devices.get(.cloak).setting);
     try std.testing.expect(display.blind_fire_fitted and display.blind_fire);
     // Its twin is the same ship.
-    try std.testing.expectEqual(playerShip(shroud), playerShip(@enumFromInt(0xFE)));
+    try std.testing.expectEqual(playerShip(shroud), playerShip(@fromBackingInt(@intCast(0xFE))));
     // The Grendel carries only the ECM.
     fitDevices(&display, .of(.grendel), false);
     try std.testing.expectEqual(.off, display.devices.get(.ecm).setting);
@@ -1929,15 +1929,15 @@ test "a mod's ship type has its own cockpit and devices" {
     };
     additions.ships.install(&list);
     defer additions.ships.reset();
-    const own = playerShip(@enumFromInt(additions.ships.first)).?;
+    const own = playerShip(@fromBackingInt(@intCast(additions.ships.first))).?;
     try std.testing.expectEqualStrings("pot_frm.shp", own.cockpit);
     // The rest is its base's, as is all of a type that gives no cockpit.
     try std.testing.expectEqual(player_ships[0].wire_frame, own.wire_frame);
-    try std.testing.expectEqualDeep(player_ships[0], playerShip(@enumFromInt(additions.ships.first + 1)).?);
+    try std.testing.expectEqualDeep(player_ships[0], playerShip(@fromBackingInt(@intCast(additions.ships.first + 1))).?);
     // Its own devices, where it gives them.
-    const dim = playerShip(@enumFromInt(additions.ships.first + 2)).?;
+    const dim = playerShip(@fromBackingInt(@intCast(additions.ships.first + 2))).?;
     try std.testing.expect(!dim.blind_fire and player_ships[11].blind_fire);
-    const bare = playerShip(@enumFromInt(additions.ships.first + 3)).?;
+    const bare = playerShip(@fromBackingInt(@intCast(additions.ships.first + 3))).?;
     try std.testing.expect(bare.blind_fire and !bare.spectral_shields);
 }
 
@@ -1953,7 +1953,7 @@ test startMission {
         try routine.command("CreateFlightGroup");
     }
     try routine.op(.push_flight_group, &.{1});
-    try routine.op(.push_byte, &.{@intCast(@intFromEnum(ai.orders.Order.fight))});
+    try routine.op(.push_byte, &.{@intCast(@backingInt(ai.orders.Order.fight))});
     try routine.op(.push_byte, &.{1});
     try routine.op(.push_ship, &.{0});
     try routine.command("SetAI");
@@ -1963,8 +1963,8 @@ test startMission {
     defer gpa.free(code);
     // The player flies a torpedo, a type with a model but no schematic nor cockpit, and the other
     // is of a type the game names no model for.
-    const torpedo: gameobj.Type = @enumFromInt(74);
-    const modelless: gameobj.Type = @enumFromInt(14);
+    const torpedo: gameobj.Type = @fromBackingInt(@intCast(74));
+    const modelless: gameobj.Type = @fromBackingInt(@intCast(14));
     var ships: [2]dte.Ship = undefined;
     for (&ships, [_]gameobj.Type{ torpedo, modelless }, 0..) |*ship, kind, index| {
         ship.* = dte.testing.ship(@intCast(index), @intCast(index), @intCast(kind.number()));

@@ -181,7 +181,7 @@ pub const Voice3D = extern struct {
     }
 
     const free: Voice3D = .{
-        .sample = @enumFromInt(0),
+        .sample = @fromBackingInt(@intCast(0)),
         .follows = .none,
         .owner = no_owner,
         ._unknown_0c = 0,

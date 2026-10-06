@@ -480,7 +480,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     objects.missile_stats.addTypes();
     objects.missile_stats.load(missile_stats);
     objects.pilots.load(pilot_stats);
-    if (asked_ship) |chosen| objects.loadout_ships[objects.player] = @enumFromInt(chosen);
+    if (asked_ship) |chosen| objects.loadout_ships[objects.player] = @fromBackingInt(@intCast(chosen));
     // What the shots are drawn with, built once (`guns_init`); the Turret Flak's shell is loaded as
     // each mission starts.
     objects.bullets.looks = try game.guns.Looks.create(arena, &textures);
@@ -704,7 +704,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         if (directory.readFileAlloc(io, game.gameflow.profile_name, arena, .limited(engine.files.max_file_size))) |bytes| {
             front.pilot.call_sign.set(game.gameflow.profileCallSign(bytes));
         } else |_| {}
-        const player_name = strings.string(@intFromEnum(game.interface.pilot_roster.String.player)) orelse "";
+        const player_name = strings.string(@backingInt(game.interface.pilot_roster.String.player)) orelse "";
         front.pilot_roster.list = game.winmain.loadCallSigns(settings_file.profile, player_name);
         try game.winmain.saveCallSigns(&front.pilot_roster.list, settings_file);
     }
@@ -790,7 +790,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         while (window.poll()) |event| switch (event) {
             .quit => return,
             .key => |key| if (options.screenshot == null) {
-                devices.keyboard.down[@intFromEnum(key.scan)] = key.down;
+                devices.keyboard.down[@backingInt(key.scan)] = key.down;
                 // The player and menu scripts don't hear the keys pressed while the console is
                 // up, nor the key that brings it up.
                 const withheld = if (console) |*shown| shown.isUp() or key.scan == scripting.console.key else false;
@@ -986,7 +986,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             };
             // The flight's ship, else the one `--ship` names, else the mission's ship; and the
             // simulator it runs in; and the campaign whose variables each attempt starts from.
-            objects.loadout_ships[objects.player] = if (flight.ship orelse asked_ship) |ship| @enumFromInt(ship) else null;
+            objects.loadout_ships[objects.player] = if (flight.ship orelse asked_ship) |ship| @fromBackingInt(@intCast(ship)) else null;
             objects.loadout_racks[objects.player] = flight.racks;
             objects.simulator = flight.simulator;
             // The simulator pod's missions run on the campaign's variables too, as the game's are
@@ -1068,9 +1068,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 }
                 if (test_keys.active(play.number)) {
                     for (test_keys.ship_keys) |step| {
-                        if (devices.keyboard.pressed(@intFromEnum(step[0]), .none, true)) try play.changeShip(orders, step[1]);
+                        if (devices.keyboard.pressed(@backingInt(step[0]), .none, true)) try play.changeShip(orders, step[1]);
                     }
-                    if (devices.keyboard.pressed(@intFromEnum(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
+                    if (devices.keyboard.pressed(@backingInt(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
                 }
 
                 game.main.controlsFrame(.{
@@ -1257,7 +1257,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
 /// by its name, one of the game's (`predator`) or a mod's (`teapot:teapot`). Null for none.
 fn shipNamed(text: []const u8) ?game.create.TypeIndex {
     const object_type: game.gameobj.Type = if (std.fmt.parseInt(u16, text, 0)) |number|
-        @enumFromInt(number)
+        @fromBackingInt(@intCast(number))
     else |_|
         game.gameobj.Type.fromScriptName(text) orelse return null;
     if (object_type.added() == null) {
@@ -1532,7 +1532,7 @@ fn modeFlight(modes: *const scripting.game_modes.Registry) game.interface.main_m
     const ship = modes.current().?.ship;
     return .{
         .mission = modes.mission().?,
-        .ship = if (ship) |chosen| @intCast(@intFromEnum(chosen)) else null,
+        .ship = if (ship) |chosen| @intCast(@backingInt(chosen)) else null,
         .flier = .main_menu,
     };
 }
@@ -1936,7 +1936,7 @@ const Loading = struct {
         loading.resources.show(loading.archive.*, frame);
         const pixels = try loading.size();
         if (loading.scripts) |scripts| scripts.screenFrame(pixels);
-        var shown: Shown = .{ .loading = loading, .window = pixels, .line = if (frame.line) |id| loading.strings.string(@intFromEnum(id)) else null };
+        var shown: Shown = .{ .loading = loading, .window = pixels, .line = if (frame.line) |id| loading.strings.string(@backingInt(id)) else null };
         try loading.presenter.present(pixels, shown.overlay());
     }
 
@@ -2047,7 +2047,7 @@ const Play = struct {
         var candidate = was;
         while (true) {
             candidate = test_keys.nextShipType(candidate, step);
-            all.loadout_ships[all.player] = @enumFromInt(candidate);
+            all.loadout_ships[all.player] = @fromBackingInt(@intCast(candidate));
             try play.start(orders);
             if (all.slots[all.player].type != null or candidate == was) return;
             std.log.warn("ship type {d} is left out: the game has no model for it", .{candidate});

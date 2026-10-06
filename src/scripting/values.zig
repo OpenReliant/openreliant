@@ -88,7 +88,7 @@ pub fn push(state: *State, comptime T: type, value: T) void {
         .float => state.pushNumber(value),
         .int => state.pushNumber(@floatFromInt(value)),
         .bool => state.pushBoolean(value),
-        .@"enum" => if (name(T, value)) |tag_name| state.pushString(tag_name) else state.pushNumber(@floatFromInt(@intFromEnum(value))),
+        .@"enum" => if (name(T, value)) |tag_name| state.pushString(tag_name) else state.pushNumber(@floatFromInt(@backingInt(value))),
         .optional => |optional| if (value) |held| push(state, optional.child, held) else state.pushNil(),
         .vector => state.pushVector(value),
         .array => |array| {
@@ -171,9 +171,9 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
             const number = state.toNumber(given) orelse wrongType(state, label, comptime choices(T), given);
             if (number == @floor(number) and number >= std.math.minInt(info.tag_type) and number <= std.math.maxInt(info.tag_type)) {
                 const raw: info.tag_type = @intFromFloat(number);
-                if (!info.is_exhaustive) return @enumFromInt(raw);
+                if (!info.is_exhaustive) return @fromBackingInt(@intCast(raw));
                 inline for (comptime std.enums.values(T)) |named| {
-                    if (@intFromEnum(named) == raw) return named;
+                    if (@backingInt(named) == raw) return named;
                 }
             }
             state.raise("{s}: expected {s}, got {d}", .{ label, comptime choices(T), number });

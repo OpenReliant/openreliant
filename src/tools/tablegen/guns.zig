@@ -197,7 +197,7 @@ test parse {
 
     // A kind the reader doesn't know, a record the file has already filled in, and a period
     // nothing can be counted over.
-    record.kind = @enumFromInt(4);
+    record.kind = @fromBackingInt(@intCast(4));
     try std.testing.expectError(error.NotKind, parse(record, 4, .{ 0, 32 }, false));
     record.kind = .energy;
     record.damage.hull = 9;
