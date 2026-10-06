@@ -369,7 +369,9 @@ its strength, and envelopes and gains scale both. A file of several effects play
 sequence one member after the other and a superimposition all at once; the game starts only the
 first of the effects the SDK made of it. The platform sends the motors' speeds to SDL at most every
 40 ms. Rumble cannot show which way an effect or a push pushes, which a force-feedback joystick
-would ([#244](https://github.com/OpenReliant/openreliant/issues/244)).
+would ([#244](https://github.com/OpenReliant/openreliant/issues/244)). The game reports a file it
+can't read through a debug message that the retail build leaves out (`0x004BFF10`), so it says
+nothing; OpenReliant logs each missing or unreadable file with the reason.
 
 - **Improvement:** any controller that rumbles plays the effects, gamepads among them.
 - **Fix:** the Proton Cannon's shot plays `prc`.

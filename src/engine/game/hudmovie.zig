@@ -152,13 +152,15 @@ pub const Movie = struct {
         movie.* = .{ .gpa = movie.gpa, .film = .init(movie.gpa) };
     }
 
-    /// `hudmovie_play` (`0x0048D120`): plays the film at `path`, `pilots\<film>.fm8`, as `flags`
-    /// say, in mission `mission`'s squadron (`squadronFilm`), its first frame decoded. Returns
-    /// whether the line said with it starts at once: where a film was playing already, unless
-    /// `flags.silent`. Otherwise the line waits for the window to open (`waiting`).
+    /// `hudmovie_play` (`0x0048D120`): plays the film at `path` (`pilots\<film>.fm8`) as `flags`
+    /// say, in the version for mission `mission`'s squadron (`squadronFilm`), and decodes its first
+    /// frame. Returns whether the line spoken with it starts at once, which it does when a film was
+    /// already playing, unless `flags.silent`. Otherwise the line waits for the window to open
+    /// (`waiting`).
     ///
-    /// **Fix:** the game stops with a fatal error where `pilots.hog` lacks the film, as it does six
-    /// the pilots' faces name; OpenReliant plays the dead channel's film in its place.
+    /// **Fix:** the game stops with a fatal error when `pilots.hog` lacks the film, and it lacks six
+    /// films that the pilots' faces name. OpenReliant plays the dead channel's film in its place,
+    /// and logs it when that film is missing too.
     pub fn play(movie: *Movie, path: []const u8, flags: Flags, mission: u16) bool {
         const now = movie.playing and !flags.silent;
         if (movie.playing) {
@@ -172,7 +174,10 @@ pub const Movie = struct {
         const chosen = squadronFilm(path, mission);
         movie.load(chosen) catch |err| {
             log.warn("the radio's film {s} is left out: {s}", .{ chosen, @errorName(err) });
-            movie.load(static_film) catch return now;
+            movie.load(static_film) catch |static_err| {
+                log.warn("the dead channel's film {s} is left out too: {s}", .{ static_film, @errorName(static_err) });
+                return now;
+            };
         };
         movie.failed = false;
         movie.next = 0;

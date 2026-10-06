@@ -218,8 +218,7 @@ fn checkOperand(machine: *Machine, kinds: Kinds, operand: u32, value: u32, condi
         .flight_group => |index| value == machine.mission.recordPlace(.flight_groups, index),
         .squad => |index| value == machine.mission.recordPlace(.squads, index),
         .other => |raw| other: {
-            if (!machine.named_nothing) log.warn("a trigger's operand names no ship, flight group or squad: 0x{X:0>8}", .{raw});
-            machine.named_nothing = true;
+            if (machine.firstTime(.named_nothing)) log.warn("a trigger's operand names no ship, flight group or squad: 0x{X:0>8}", .{raw});
             break :other false;
         },
     };
@@ -396,11 +395,17 @@ pub const Groups = struct {
         }
         const first = groups.squad orelse return null;
         groups.squad = null;
-        const squads = machine.mission.file.squads() catch return null;
+        const squads = machine.mission.file.squads() catch |err| {
+            if (machine.firstTime(.squads)) log.warn("the mission's squads can't be read, so no event is raised on a squad's triggers: {s}", .{@errorName(err)});
+            return null;
+        };
         const place = machine.mission.recordPlace(.ships, groups.ship);
         for (squads[@min(first, squads.len)..], first..) |squad, index| {
             if (!holdsTriggers(machine, squad.object_id)) continue;
-            const holds = machine.inSquad(machine.mission.recordPlace(.squads, index), place, groups.qualifier, 0) catch false;
+            const holds = machine.inSquad(machine.mission.recordPlace(.squads, index), place, groups.qualifier, 0) catch |err| holds: {
+                if (machine.firstTime(.squad_members)) log.warn("the members of squad {d} can't be read, so no event is raised on its triggers: {s}", .{ index, @errorName(err) });
+                break :holds false;
+            };
             if (!holds) continue;
             groups.squad = index + 1;
             return .{ .object = squad.object_id, .of = .{ .squad = @intCast(index) } };
@@ -902,6 +907,29 @@ test groupsOf {
         var none = groupsOf(machine, ship, dte.Trigger.whole_object);
         try std.testing.expectEqual(null, none.next());
     }
+}
+
+test "a squad whose members can't be walked raises no event" {
+    const gpa = std.testing.allocator;
+    const code = try machine_testing.counting(gpa, 0);
+    defer gpa.free(code);
+    const parts = [_]machine_testing.Part{.{ .code = code }};
+
+    // Squad 0 holds itself, so walking its members never ends.
+    const whole = dte.Trigger.whole_object;
+    var fixture: machine_testing.Fixture = undefined;
+    try fixture.init(gpa, &parts, .{
+        .globals = &.{0},
+        .ships = &.{shipRecord(0, dte.Ship.no_flight_group, 0)},
+        .squads = &.{dte.testing.squad(1, 0)},
+        .squad_members = &.{memberRecord(1, 0, whole)},
+        .objects = &.{ objectRecord(.ship, 0, 0), objectRecord(.squad, 0, 1) },
+        .triggers = &.{testing.trigger(&parts, 0, .destroyed, .always)},
+    });
+    defer fixture.deinit();
+    var groups = groupsOf(&fixture.machine, 0, whole);
+    try std.testing.expectEqual(null, groups.next());
+    try std.testing.expect(fixture.machine.warned.contains(.squad_members));
 }
 
 test "an operand for any ship passes the players' ships alone" {

@@ -4,6 +4,7 @@
 //! case-sensitive, and values have surrounding spaces and one pair of quotes removed.
 
 const std = @import("std");
+const log = std.log.scoped(.settings);
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
@@ -19,11 +20,15 @@ pub const Profile = struct {
     /// An empty profile, used when the file is missing: every read returns its default.
     pub const empty: Profile = .{ .text = "" };
 
-    /// The settings file in the game's folder `dir`, found in any case and read into `arena`;
-    /// empty where it is missing or can't be read, so that every setting keeps its default.
+    /// The settings file in the game's folder `dir`, found in any case and read into `arena`.
+    /// It is empty when the file is missing or can't be read, so that every setting keeps its
+    /// default. When the file exists but can't be read, the log says so.
     pub fn read(io: Io, arena: Allocator, dir: Io.Dir) Profile {
-        const text = files.readFile(io, arena, dir, settings_name, .limited(files.max_file_size)) catch null;
-        return .{ .text = text orelse "" };
+        const text = files.readFile(io, arena, dir, settings_name, .limited(files.max_file_size)) catch |err| {
+            log.warn("can't read {s}, so every setting keeps its default: {s}", .{ settings_name, @errorName(err) });
+            return .empty;
+        } orelse return .empty;
+        return .{ .text = text };
     }
 
     /// The value of `key` in `section`, or null if there is none.
@@ -263,6 +268,11 @@ test "Profile.read" {
     // The file is found in any case.
     try tmp.dir.writeFile(io, .{ .sub_path = "STARLANCER.INI", .data = "[Device]\r\nView=1\r\n" });
     try std.testing.expectEqual(1, Profile.read(io, arena_state.allocator(), tmp.dir).int("Device", "View", 0));
+    // A folder in the file's place can't be read, so every setting keeps its default.
+    var folder = std.testing.tmpDir(.{});
+    defer folder.cleanup();
+    try folder.dir.createDirPath(io, settings_name ++ "/inside");
+    try std.testing.expectEqual(0, Profile.read(io, arena_state.allocator(), folder.dir).int("Device", "View", 0));
 }
 
 test "Profile.write" {

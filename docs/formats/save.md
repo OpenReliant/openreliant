@@ -56,7 +56,8 @@ after the call sign's terminator, which OpenReliant writes as zeros.
 
   `Rack1` to `Rack20` are the racks in `saved_racks`' order. Loading the save puts each back over
   its base where its mod is still on, and keeps the base otherwise. A save without a mod's ship
-  type or missile has no `.mods` file, and removing a save removes it.
+  type or missile has no `.mods` file, and removing a save removes it. If the `.mods` file can't be
+  read or removed, the log says so.
 - The wing's pilots and the pool of their replacements live beside the campaign, as the game's
   globals do (`pilots.Wingmen`, [Objects](../engine/objects.md#the-wings-pilots)). A load puts
   back the wing and the pool's first record; the rest of the pool stays as the session left it.

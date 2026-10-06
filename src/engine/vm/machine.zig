@@ -328,11 +328,36 @@ pub const Machine = struct {
     /// `vm_last_jump` (`0x005373F4`): the script's clock when JUMP DRIVE last took a jump or a warp
     /// the mission had ready, which `WhenPlayerLastJumped` counts from; `never_jumped` until then.
     last_jumped: u32 = never_jumped,
-    /// Whether a trigger's operand that names nothing has been logged.
-    named_nothing: bool = false,
+    /// The problems with the mission's file already logged: each is logged the first time in a
+    /// mission (`firstTime`), so that a looping script or a trigger tested every frame can't
+    /// repeat it.
+    warned: std.EnumSet(Warning) = .empty,
 
     /// `last_jumped` as the script starts (`0x0045CC2E`).
     pub const never_jumped: u32 = 0xFFFF;
+
+    /// The problems with a mission's file that the machine and its commands log.
+    pub const Warning = enum {
+        /// A trigger's operand names no ship, flight group or squad.
+        named_nothing,
+        /// A command's text argument runs outside the mission's file.
+        text_outside,
+        /// A name is too long for the game's buffer.
+        long_name,
+        /// A script block's length lies outside the mission's file.
+        block_outside,
+        /// The squads section can't be read.
+        squads,
+        /// A squad's members can't be walked.
+        squad_members,
+    };
+
+    /// Whether `warning` is new in this mission, which it then no longer is.
+    pub fn firstTime(machine: *Machine, warning: Warning) bool {
+        if (machine.warned.contains(warning)) return false;
+        machine.warned.insert(warning);
+        return true;
+    }
 
     pub fn init(gpa: Allocator, bound: *bind.Mission, random: *Random) Machine {
         return .{ .gpa = gpa, .mission = bound, .random = random };
@@ -400,11 +425,16 @@ pub const Machine = struct {
     /// one, which runs now unless `deferred`, for the trigger `trigger`, by its index in the
     /// trigger list, where one starts it. None starts while 31 run, or on no block.
     /// **Fix:** the game takes a free thread past its pool where none is free.
+    /// **Fix:** the game reads the length of a block past its copy of the file; OpenReliant starts
+    /// no thread there, and logs it once.
     pub fn startThread(machine: *Machine, block: ?u32, into: ?u8, deferred: bool, frame: ?u8, trigger: ?usize) ?u8 {
         const at = block orelse return null;
         if (machine.thread_count + 1 >= vm.max_threads) return null;
         const index = into orelse machine.allocThread() orelse return null;
-        const length = machine.mission.halfword(at) catch return null;
+        const length = machine.mission.halfword(at) catch |err| {
+            if (machine.firstTime(.block_outside)) log.warn("the script block at 0x{X:0>8} lies outside the mission's file, so no thread starts on it: {s}", .{ at, @errorName(err) });
+            return null;
+        };
         const thread = &machine.threads[index];
         thread.ip = at + @sizeOf(u16);
         thread.frame = frame;
@@ -1741,6 +1771,22 @@ test "the float opcodes round as the FPU does at single precision" {
     try std.testing.expectEqual(16777216, fixture.global(0));
     try std.testing.expectEqual(100, fixture.global(1));
     try std.testing.expectEqual(@as(f32, 3.5), @as(f32, @bitCast(fixture.global(2))));
+}
+
+test "a block outside the mission's file starts no thread" {
+    const gpa = std.testing.allocator;
+    const code = try testing.counting(gpa, 0);
+    defer gpa.free(code);
+    var fixture: testing.Fixture = undefined;
+    try fixture.init(gpa, &.{.{ .code = code }}, .{ .globals = &.{0} });
+    defer fixture.deinit();
+    const past: u32 = @intCast(fixture.mission.image.len - 1);
+    try std.testing.expectEqual(null, fixture.machine.startThread(past, null, false, null, null));
+    try std.testing.expectEqual(0, fixture.machine.thread_count);
+    // The problem is logged the first time only; another kind is still new.
+    try std.testing.expect(!fixture.machine.firstTime(.block_outside));
+    try std.testing.expect(fixture.machine.firstTime(.text_outside));
+    try std.testing.expect(!fixture.machine.firstTime(.text_outside));
 }
 
 test "a fault ends the thread" {

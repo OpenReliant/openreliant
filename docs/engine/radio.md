@@ -84,10 +84,11 @@ The window closes with the display's sound. `hud_comms_marker` and the radar mar
 line it is while the window is open or opening ([The target](hud.md#the-target),
 [The radar](hud.md#the-radar)).
 
-**Fix:** the game stops with a fatal error where `pilots.hog` lacks a film, as it does six the
-pilots' faces name (`BLKACE`, `C_Scientist` and its death, `Saladin_Cap_D`, `Varygag_Capt` and its
-death); OpenReliant plays the dead channel's film in its place. Where `pilots.hog` itself cannot be
-opened, which is fatal too, OpenReliant says the lines without the window's films.
+**Fix:** the game stops with a fatal error when `pilots.hog` lacks a film, and it lacks six films
+that the pilots' faces name (`BLKACE`, `C_Scientist` and its death, `Saladin_Cap_D`, `Varygag_Capt`
+and its death). OpenReliant plays the dead channel's film in its place, and logs it when that film
+is missing too. When `pilots.hog` itself can't be opened, which is fatal too, OpenReliant plays the
+lines without the window's films.
 
 ## The script's commands
 
@@ -98,7 +99,8 @@ opened, which is fatal too, OpenReliant says the lines without the window's film
   (`hudmovie_playing`, `0x0057C3A8`). The missions wait for the film before each line they say.
 - `PlayCommsMovie` (`0x08`) plays the film `pilots\<film>` with a speech file, at once, looping,
   under the string its third argument numbers, the line nobody's. It also sets `0x005373EA`, which
-  nothing reads.
+  nothing reads. **Fix:** a film or speech name too long for the game's 52-byte buffers, which the
+  game writes past, plays nothing, and the log says so once a mission.
 
 The game sets the volumes again as a line first plays in a mission (`0x005297E8`), alike either
 way.

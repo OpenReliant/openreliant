@@ -208,6 +208,15 @@ pub fn decode(gpa: Allocator, speech: Speech, peaks: Style.Peaks) Allocator.Erro
     return out;
 }
 
+/// `speech` decoded, as loud as `style` has it after a recording `follows` LUFS loud, as a WAVE
+/// file of 16-bit PCM made in `gpa`.
+fn prepared(gpa: Allocator, speech: Speech, style: Style, follows: ?f32) Allocator.Error![]u8 {
+    const samples = try decode(gpa, speech, style.peaks);
+    defer gpa.free(samples);
+    if (style.levels == .matched) if (follows) |target| try bringDown(gpa, samples, target);
+    return wave.pcm16(gpa, rate, 1, samples);
+}
+
 /// The speech as it plays through the speech sample (`speech_start`, `0x00461EB0`; `speech_stop`,
 /// `0x00462070`; `speech_playing`, `0x004620A0`): the game keeps eight streams, of which its timer
 /// plays the first playing; OpenReliant plays one line at a time, decoded whole into a WAVE file
@@ -244,10 +253,10 @@ pub const Player = struct {
         player.stop(gpa, sound);
         const driver = sound.driver orelse return player.time(sound, speech);
         const handle = sound.speech orelse return player.time(sound, speech);
-        const samples = decode(gpa, speech, style.peaks) catch return false;
-        defer gpa.free(samples);
-        if (style.levels == .matched) if (follows) |target| bringDown(gpa, samples, target) catch return false;
-        player.file = wave.pcm16(gpa, rate, 1, samples) catch return false;
+        player.file = prepared(gpa, speech, style, follows) catch |err| {
+            log.warn("a line of speech cannot be decoded: {s}", .{@errorName(err)});
+            return false;
+        };
         driver.initSample(handle);
         if (!driver.setSampleFile(handle, player.file)) {
             log.warn("a line of speech cannot be played", .{});
@@ -454,6 +463,11 @@ test Player {
     try std.testing.expect(player.playing(sound));
     try std.testing.expect(player.file.len > 0);
     player.stop(gpa, sound);
+    try std.testing.expect(!player.playing(sound));
+    try std.testing.expectEqual(0, player.file.len);
+    // Without the memory to decode it, the line doesn't play.
+    var failing: std.testing.FailingAllocator = .init(gpa, .{ .fail_index = 0 });
+    try std.testing.expect(!player.start(failing.allocator(), sound, speech, hog_snd.loudest, .{}, null));
     try std.testing.expect(!player.playing(sound));
     try std.testing.expectEqual(0, player.file.len);
 }

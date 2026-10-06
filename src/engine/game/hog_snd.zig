@@ -1050,20 +1050,31 @@ fn readMusic(files: Files, path: []const u8) !MusicRead {
     return .{ .bytes = try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse return error.FileNotFound, .from_mod = false };
 }
 
-/// Where a mod's piece of music `own` at `path` loops back to: the moment of the game's piece at
-/// which the loop table's `loop_start` falls, the table's bytes being the game's file's. Where
-/// the game's file can't be read, or either won't parse, the table's bytes as they are.
+/// Where a mod's piece of music `own` at `path` loops back to. The loop table's `loop_start` is a
+/// byte offset into the game's file, so the mod's piece loops back to the same moment of the
+/// music. When the game's file can't be read or isn't a WAVE file, it loops back to `loop_start`
+/// as it is, and the log says so.
 ///
 /// **Improvement:** the original reads no mods. A mod's piece in another format than the game's,
 /// such as 16-bit PCM at 44,100 Hz for the game's IMA ADPCM at 22,050, would otherwise loop back
 /// to another moment of the music.
 fn modLoopStart(files: Files, path: []const u8, own: []const u8, loop_start: i32) i32 {
     if (loop_start <= 0) return loop_start;
-    const game = (paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) catch return loop_start) orelse return loop_start;
+    return carriedModLoop(files, path, own, @intCast(loop_start)) catch |err| {
+        log.warn("the mod's music {s} may loop back to the wrong moment, since the game's piece can't be read: {s}", .{ path, @errorName(err) });
+        return loop_start;
+    };
+}
+
+/// The byte offset into the mod's piece `own` that plays at the same moment as `loop_start` bytes
+/// into the game's piece at `path`.
+fn carriedModLoop(files: Files, path: []const u8, own: []const u8, loop_start: u32) !i32 {
+    const game = try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse return error.FileNotFound;
     defer files.gpa.free(game);
-    const original = wave.Wave.parse(game) catch return loop_start;
-    const replacement = wave.Wave.parse(own) catch return loop_start;
-    return @intCast(carriedLoop(original, replacement, @intCast(loop_start)));
+    const original = try wave.Wave.parse(game);
+    // The stream has opened the mod's piece already (`Sound.playMusic`), so it parses.
+    const replacement = try wave.Wave.parse(own);
+    return @intCast(carriedLoop(original, replacement, loop_start));
 }
 
 /// The byte offset into `replacement` at the moment of `original` that `offset` bytes into it
@@ -1411,6 +1422,25 @@ test carriedLoop {
     try std.testing.expectEqual(183 * 1017 * 2 * 4, carriedLoop(game_piece, mod_piece, 188318));
     // A mod's piece in the game's format keeps the table's block.
     try std.testing.expectEqual(183 * 1024, carriedLoop(game_piece, game_piece, 188318));
+}
+
+test modLoopStart {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const files: Files = .{ .gpa = gpa, .io = io, .dir = tmp.dir };
+    // A mod's 16-bit stereo piece at 44,100 Hz, eight frames long.
+    const own = comptime wave.testing.file(.{ .format = .pcm, .channels = 2, .rate = 44100, .byte_rate = 176400, .block_align = 4, .bits = 16 }, "", "", &@as([32]u8, @splat(0)));
+    // Without the game's piece, or with a game's piece that isn't a WAVE file, the table's offset
+    // stays as it is.
+    try std.testing.expectEqual(4, modLoopStart(files, "music\\one.wav", own, 4));
+    try tmp.dir.createDirPath(io, "music");
+    try tmp.dir.writeFile(io, .{ .sub_path = "music/one.wav", .data = "not a wave" });
+    try std.testing.expectEqual(4, modLoopStart(files, "music\\one.wav", own, 4));
+    // Two frames into the game's mono piece at 22,050 Hz is four frames into the mod's.
+    try tmp.dir.writeFile(io, .{ .sub_path = "music/one.wav", .data = testing.sound_file });
+    try std.testing.expectEqual(16, modLoopStart(files, "music\\one.wav", own, 4));
 }
 
 test "Sound.playMusic queues a piece until the music has stopped" {
