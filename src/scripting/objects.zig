@@ -33,6 +33,11 @@ const game = @import("game.zig");
 const world = @import("world.zig");
 const hooks = @import("hooks.zig");
 const util = @import("util.zig");
+const math = engine.surrender.math;
+const main = engine.game.main;
+const Target = engine.hooks.Target;
+
+const Vector = @Vector(3, f32);
 
 /// An object as scripts hold it.
 pub const Handle = struct {
@@ -88,33 +93,57 @@ pub const fields = struct {
         }
     });
 
-    pub const side = api.Field(gameobj.Side(i32), "The side it's on.", struct {
+    pub const side = api.Field(gameobj.Side(i32), "The side it's on. Setting it changes its side, as a mission's SetHostile does.", struct {
         pub fn get(all: *const create.Objects, index: u16) gameobj.Side(i32) {
             return all.slots[index].object.side;
         }
-    });
 
-    pub const position = api.Field(@Vector(3, f32), "Where it is.", struct {
-        pub fn get(all: *const create.Objects, index: u16) @Vector(3, f32) {
-            return gameobj.vector(all.slots[index].object.root.position);
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: gameobj.Side(i32)) void {
+            all.slots[index].object.side = value;
         }
     });
 
-    pub const orientation = api.Field(util.Orientation, "Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`).", struct {
+    pub const position = api.Field(Vector, "Where it is. Setting it moves it there at once, as a mission's SnapToPoint does.", struct {
+        pub fn get(all: *const create.Objects, index: u16) Vector {
+            return gameobj.vector(all.slots[index].object.root.position);
+        }
+
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: Vector) void {
+            moveTo(&all.slots[index], value);
+        }
+    });
+
+    pub const orientation = api.Field(util.Orientation, "Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, the forward one keeping its direction.", struct {
         pub fn get(all: *const create.Objects, index: u16) util.Orientation {
             return .of(all.slots[index].object.root.orientation);
         }
+
+        pub fn set(call: Call, all: *create.Objects, index: u16, value: util.Orientation) void {
+            turnTo(call, &all.slots[index], value);
+        }
     });
 
-    pub const velocity = api.Field(@Vector(3, f32), "How far it moves in a simulation step, of which there are 25 a second.", struct {
-        pub fn get(all: *const create.Objects, index: u16) @Vector(3, f32) {
+    pub const velocity = api.Field(Vector, "How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its engines carry on from there.", struct {
+        pub fn get(all: *const create.Objects, index: u16) Vector {
             return gameobj.vector(all.slots[index].object.velocity);
+        }
+
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: Vector) void {
+            const object = &all.slots[index].object;
+            object.velocity = gameobj.vec3(value);
+            object.speed = math.length(value);
         }
     });
 
     pub const speed = api.Field(f32, "How fast it moves: the length of its velocity.", struct {
         pub fn get(all: *const create.Objects, index: u16) f32 {
             return all.slots[index].object.speed;
+        }
+    });
+
+    pub const radius = api.Field(f32, "How far its model reaches from its middle.", struct {
+        pub fn get(all: *const create.Objects, index: u16) f32 {
+            return all.slots[index].object.radius;
         }
     });
 
@@ -128,6 +157,13 @@ pub const fields = struct {
         pub fn get(all: *const create.Objects, index: u16) ?@import("orders.zig").Identifier {
             const entry = all.slots[index].current() orelse return null;
             return @import("orders.zig").identifierOf(all, entry.order);
+        }
+    });
+
+    pub const target = api.Field(?Target, "What the order it's following is aimed at; nil while it follows none.", struct {
+        pub fn get(all: *const create.Objects, index: u16) ?Target {
+            const entry = all.slots[index].current() orelse return null;
+            return .of(entry.target);
         }
     });
 
@@ -155,15 +191,55 @@ pub const fields = struct {
     pub const pitch_input = Input("pitch_input", "How hard it pitches, from -1 to 1. Its order or its pilot usually sets it each frame.");
     pub const yaw_input = Input("yaw_input", "How hard it yaws, from -1 to 1. Its order or its pilot usually sets it each frame.");
 
-    pub const shields = api.Field(gameobj.Quadrants, "Its shields in each quadrant.", struct {
-        pub fn get(all: *const create.Objects, index: u16) gameobj.Quadrants {
-            return all.slots[index].object.shields;
+    pub const afterburning = api.Field(bool, "Whether its afterburner burns.", struct {
+        pub fn get(all: *const create.Objects, index: u16) bool {
+            return all.slots[index].object.afterburner;
         }
     });
 
-    pub const armor = api.Field(gameobj.Quadrants, "Its armour in each quadrant.", struct {
+    pub const afterburner_fuel = api.Field(f32, "The afterburner's fuel left, in seconds of burning. Setting it fills or drains the tank, from 0 up.", struct {
+        pub fn get(all: *const create.Objects, index: u16) f32 {
+            return @as(f32, @floatFromInt(all.slots[index].object.afterburner_fuel)) / main.ticks_per_second;
+        }
+
+        pub fn set(call: Call, all: *create.Objects, index: u16, value: f32) void {
+            if (value < 0) call.raise("afterburner_fuel: expected a number from 0 up, got {d}", .{value});
+            all.slots[index].object.afterburner_fuel = std.math.lossyCast(i32, value * main.ticks_per_second);
+        }
+    });
+
+    pub const countermeasures = api.Field(u16, "How many countermeasures it has left.", struct {
+        pub fn get(all: *const create.Objects, index: u16) u16 {
+            return all.slots[index].object.countermeasures;
+        }
+
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: u16) void {
+            all.slots[index].object.countermeasures = value;
+        }
+    });
+
+    pub const shields = api.Field(gameobj.Quadrants, "Its shields in each quadrant. Each can be set from 0 to what a whole ship of its type has; an object without stats has no shields to set.", struct {
+        pub fn get(all: *const create.Objects, index: u16) gameobj.Quadrants {
+            return all.slots[index].object.shields;
+        }
+
+        pub fn set(call: Call, all: *create.Objects, index: u16, value: gameobj.Quadrants) void {
+            const slot_held = &all.slots[index];
+            const combat = slot_held.combat orelse call.raise("shields: an object without stats has none", .{});
+            slot_held.object.shields = quadrantsUpTo(call, value, combat.fullShields() - 1, "shields");
+        }
+    });
+
+    pub const armor = api.Field(gameobj.Quadrants, "Its armour in each quadrant. Each can be set from 0 to what a whole ship of its type has, and its guns, speed and shields' recharge follow, as damage wears them; an object without stats has no armour to set.", struct {
         pub fn get(all: *const create.Objects, index: u16) gameobj.Quadrants {
             return all.slots[index].object.armor;
+        }
+
+        pub fn set(call: Call, all: *create.Objects, index: u16, value: gameobj.Quadrants) void {
+            const slot_held = &all.slots[index];
+            const combat = slot_held.combat orelse call.raise("armor: an object without stats has none", .{});
+            slot_held.object.armor = quadrantsUpTo(call, value, combat.startingArmor(), "armor");
+            main.armorConditions(&slot_held.object, combat);
         }
     });
 
@@ -174,6 +250,81 @@ pub const fields = struct {
             return combat.armorShare(slot_held.object.armor);
         }
     });
+
+    pub const invulnerable = api.Field(gameobj.Invulnerability, "What can harm it: anything for `none`, nothing for `full`, only a player's ship for `player_can_hit`, and anything for `eject_before_exploding`, though its pilot ejects first. Setting it is what a mission's SetInvulnerability does.", struct {
+        pub fn get(all: *const create.Objects, index: u16) gameobj.Invulnerability {
+            return all.slots[index].object.invulnerable;
+        }
+
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: gameobj.Invulnerability) void {
+            all.slots[index].object.invulnerable = value;
+        }
+    });
+
+    pub const exploding = ReadFlag("exploding", "Whether it has started to explode. It takes no more orders.");
+    pub const ejected = ReadFlag("ejected", "Whether its pilot has ejected. It takes no more orders.");
+
+    pub const cloaked = api.Field(bool, "Whether it's cloaked. Setting it cloaks or uncloaks it, as a mission's Cloak does, where its model can.", struct {
+        pub fn get(all: *const create.Objects, index: u16) bool {
+            return all.slots[index].object.flags.cloaked;
+        }
+
+        pub fn set(call: Call, _: *create.Objects, index: u16, value: bool) void {
+            const ctx = call.runtime().orders orelse call.raise("cloaked: ships only cloak while a mission runs", .{});
+            engine.game.cloak.set(ctx.world, index, value);
+        }
+    });
+
+    pub const targetable = api.Field(bool, "Whether ships can target it. Setting it is what a mission's SetTargetable does: a type that can't be targeted stays so.", struct {
+        pub fn get(all: *const create.Objects, index: u16) bool {
+            return all.slots[index].object.flags.targetable;
+        }
+
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: bool) void {
+            const slot_held = &all.slots[index];
+            engine.game.ai.setTargetable(&slot_held.object, slot_held.combat, value);
+        }
+    });
+
+    pub const lights = api.Field(bool, "Whether its lights are on. Setting it is what a mission's DisableLights does.", struct {
+        pub fn get(all: *const create.Objects, index: u16) bool {
+            return !all.slots[index].object.flags.lights_disabled;
+        }
+
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: bool) void {
+            engine.game.executor.setLights(&all.slots[index], value);
+        }
+    });
+
+    pub const disabled = Flag("disabled", "Whether it's left out of the mission's work, as a mission's DisableObject leaves it.");
+    pub const guns_disabled = Flag("guns_disabled", "Whether its guns don't fire and its turrets rest, as a mission's DisableGuns sets.");
+    pub const missiles_disabled = Flag("missiles_disabled", "Whether it can't launch missiles, as a mission's DisableMissiles sets.");
+    pub const engines_disabled = Flag("engines_disabled", "Whether its engines are off: its throttle held at 0, and no afterburner or reverse thrust, as a mission's DisableEngines sets.");
+    pub const eject_disabled = Flag("eject_disabled", "Whether the player can't eject from it, as a mission's DisableEject sets.");
+    pub const do_not_disturb = Flag("do_not_disturb", "Whether it keeps to its orders: it doesn't retaliate, come to another's help, rise to a taunt or take the wingmen's commands, as a mission's DoNotDisturb sets.");
+    pub const avoidance_disabled = Flag("no_avoidance", "Whether it no longer keeps clear of other ships, as a mission's SetShipAvoidance sets.");
+
+    /// A flag of the object's, `flag`, which scripts read and set.
+    fn Flag(comptime flag: []const u8, comptime about: []const u8) type {
+        return api.Field(bool, about, struct {
+            pub fn get(all: *const create.Objects, index: u16) bool {
+                return @field(all.slots[index].object.flags, flag);
+            }
+
+            pub fn set(_: Call, all: *create.Objects, index: u16, value: bool) void {
+                @field(all.slots[index].object.flags, flag) = value;
+            }
+        });
+    }
+
+    /// A flag of the object's, `flag`, which scripts only read.
+    fn ReadFlag(comptime flag: []const u8, comptime about: []const u8) type {
+        return api.Field(bool, about, struct {
+            pub fn get(all: *const create.Objects, index: u16) bool {
+                return @field(all.slots[index].object.flags, flag);
+            }
+        });
+    }
 
     /// A steering input, the object's field `name`.
     fn Input(comptime name: []const u8, comptime about: []const u8) type {
@@ -189,6 +340,32 @@ pub const fields = struct {
         });
     }
 };
+
+/// Moves the object of `slot` to `position` at once: where it stands now and next, and where it's
+/// drawn (`objects.setPosition`).
+pub fn moveTo(slot: *create.Slot, position: Vector) void {
+    engine.game.objects.setPosition(&slot.object, &slot.drawn, position);
+}
+
+/// Turns the object of `slot` to `orientation` at once, its axes made unit length and at right
+/// angles first (`math.orthonormalize`). Raises an error for axes that don't make an orientation.
+pub fn turnTo(call: Call, slot: *create.Slot, orientation: util.Orientation) void {
+    if (!(math.lengthSquared(math.cross(orientation.forward, orientation.right)) > 0)) {
+        call.raise("orientation: expected forward and right axes that aren't zero or parallel", .{});
+    }
+    engine.game.objects.setOrientation(&slot.object, &slot.drawn, math.orthonormalize(orientation.matrix()));
+}
+
+/// `value`, a quadrant's figure in each, where each lies from 0 to `most`. Raises an error naming
+/// `label` otherwise.
+fn quadrantsUpTo(call: Call, value: gameobj.Quadrants, most: f32, comptime label: []const u8) gameobj.Quadrants {
+    const top = @max(0, most);
+    inline for (@typeInfo(gameobj.Quadrants).@"struct".field_names) |quadrant| {
+        const figure = @field(value, quadrant);
+        if (figure < 0 or figure > top) call.raise(label ++ ".{s}: expected a number from 0 to {d}, got {d}", .{ quadrant, top, figure });
+    }
+    return value;
+}
 
 /// The methods of a handle (`api.Function`), each taking the handle first, as `self`.
 pub const methods = struct {
@@ -419,6 +596,41 @@ test "handles name objects until they are removed" {
     try std.testing.expectEqual(-1, mission.objects.slots[sabre].object.yaw_input);
     try bind.testing.expectSourceError(thread, "sabre.throttle = 3", "from -1 to 2");
     try bind.testing.expectSourceError(thread, "player.throttle = 1", "can't change this object's throttle");
+
+    // Its place, side, flags and supplies change as a mission's commands change them. The handle is
+    // read through a local, as scripts hold theirs: Luau resolves a global's fields once, as the
+    // chunk loads.
+    try bind.testing.runSource(thread,
+        \\local ship = sabre
+        \\ship.position = vector.create(10, 20, 30)
+        \\assert(ship.position == vector.create(10, 20, 30))
+        \\ship.velocity = vector.create(0, 3, 4)
+        \\assert(ship.speed == 5)
+        \\ship.side = "hostile"
+        \\ship.guns_disabled = true
+        \\ship.lights = false
+        \\ship.invulnerable = "full"
+        \\ship.afterburner_fuel = 2.5
+        \\ship.countermeasures = 3
+        \\assert(ship.side == "hostile" and ship.guns_disabled and not ship.lights and ship.invulnerable == "full")
+        \\assert(ship.afterburner_fuel == 2.5 and ship.countermeasures == 3 and not ship.exploding)
+        \\local turned = ship.orientation
+        \\ship.orientation = { right = turned.forward, down = turned.down, forward = -turned.right * 2 }
+        \\assert(vector.magnitude(ship.orientation.forward + turned.right) < 1e-5)
+    );
+    const changed = &mission.objects.slots[sabre];
+    try std.testing.expectEqual(gameobj.Side(i32).hostile, changed.object.side);
+    try std.testing.expect(changed.object.flags.guns_disabled and changed.object.flags.lights_disabled);
+    try std.testing.expectEqual(250, changed.object.afterburner_fuel);
+    try std.testing.expectEqual([3]f32{ 10, 20, 30 }, changed.drawn.position);
+    // Shields and armour go from 0 to what a whole ship has.
+    const combat = changed.combat.?;
+    try bind.testing.runSource(thread, "sabre.shields = { left = 0, right = 1, fore = 2, aft = 3 }");
+    try std.testing.expectEqual(gameobj.Quadrants{ .left = 0, .right = 1, .fore = 2, .aft = 3 }, changed.object.shields);
+    try bind.testing.expectSourceError(thread, "sabre.shields = { left = -1, right = 0, fore = 0, aft = 0 }", "shields.left: expected a number from 0");
+    var whole: [96]u8 = undefined;
+    try bind.testing.expectSourceError(thread, try std.fmt.bufPrint(&whole, "sabre.armor = {{ left = {d}, right = 0, fore = 0, aft = 0 }}", .{combat.startingArmor() + 1}), "armor.left: expected a number from 0");
+    try bind.testing.expectSourceError(thread, "sabre.orientation = { right = vector.zero, down = vector.zero, forward = vector.zero }", "aren't zero or parallel");
 
     // Once its slot is reset, the handle is no longer valid.
     mission.objects.resetSlot(sabre, &mission.random);

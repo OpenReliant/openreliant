@@ -7,8 +7,7 @@
 //! for the same missile.
 //!
 //! Every script can read a missile's fields (`fields`). Global scripts can change those that have a
-//! setter, its target, and set off any missile, and a missile's own scripts their missile
-//! (`mayChange`).
+//! setter and set off any missile, and a missile's own scripts their missile (`mayChange`).
 //!
 //! **Improvement:** the original has no scripting apart from its mission scripts.
 
@@ -30,6 +29,12 @@ const values = @import("values.zig");
 const api = @import("api.zig");
 const Call = api.Call;
 const util = @import("util.zig");
+const handles = @import("objects.zig");
+
+const Vector = @Vector(3, f32);
+
+/// Several missiles, which scripts get as a table of handles, in order (`values.push`).
+pub const List = values.List(engine.hooks.Missile, engine_missiles.max_missiles);
 
 /// A missile as scripts hold it.
 pub const Handle = struct {
@@ -53,6 +58,11 @@ pub const Handle = struct {
 /// The missile in record `record`, which a valid handle holds.
 fn missileIn(all: *const create.Objects, record: u8) *const engine_missiles.Missile {
     return &all.missiles.records[record].?;
+}
+
+/// What the missile in record `record` flies as, to change it.
+fn slotOf(all: *create.Objects, record: u8) *create.Slot {
+    return &all.missiles.records[record].?.slot;
 }
 
 /// What scripts can read of a missile, by name, and what they can change (`api.Field`). A field's
@@ -86,21 +96,33 @@ pub const fields = struct {
         }
     });
 
-    pub const position = api.Field(@Vector(3, f32), "Where it is.", struct {
-        pub fn get(all: *const create.Objects, record: u8) @Vector(3, f32) {
+    pub const position = api.Field(Vector, "Where it is. Setting it moves it there at once.", struct {
+        pub fn get(all: *const create.Objects, record: u8) Vector {
             return gameobj.vector(missileIn(all, record).slot.object.root.position);
+        }
+
+        pub fn set(_: Call, all: *create.Objects, record: u8, value: Vector) void {
+            handles.moveTo(slotOf(all, record), value);
         }
     });
 
-    pub const orientation = api.Field(util.Orientation, "Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`).", struct {
+    pub const orientation = api.Field(util.Orientation, "Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, and its guidance turns on from there.", struct {
         pub fn get(all: *const create.Objects, record: u8) util.Orientation {
             return .of(missileIn(all, record).slot.object.root.orientation);
         }
+
+        pub fn set(call: Call, all: *create.Objects, record: u8, value: util.Orientation) void {
+            handles.turnTo(call, slotOf(all, record), value);
+        }
     });
 
-    pub const velocity = api.Field(@Vector(3, f32), "How far it moves in a simulation step, of which there are 25 a second.", struct {
-        pub fn get(all: *const create.Objects, record: u8) @Vector(3, f32) {
+    pub const velocity = api.Field(Vector, "How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its motor carries on from there.", struct {
+        pub fn get(all: *const create.Objects, record: u8) Vector {
             return gameobj.vector(missileIn(all, record).slot.object.velocity);
+        }
+
+        pub fn set(_: Call, all: *create.Objects, record: u8, value: Vector) void {
+            slotOf(all, record).object.velocity = gameobj.vec3(value);
         }
     });
 
@@ -287,9 +309,15 @@ test "handles name missiles until their flight ends" {
     try bind.testing.expectSourceError(thread, "local x = raptor.fuel", "no field 'fuel'");
     try bind.testing.expectSourceError(thread, "raptor:detonate()", "can't set this missile off");
     try bind.testing.expectSourceError(thread, "raptor.target = {}", "can't change this missile's target");
-    // Its own scripts retarget it.
+    // Its own scripts retarget, move and push it.
     context.runs_on = .{ .missile = .of(all, record) };
-    try bind.testing.runSource(thread, "raptor.target = {}");
+    try bind.testing.runSource(thread,
+        \\local missile = raptor
+        \\missile.target = {}
+        \\missile.position = vector.create(1, 2, 3)
+        \\missile.velocity = vector.create(0, 0, 9)
+        \\assert(missile.position == vector.create(1, 2, 3) and missile.speed == 9)
+    );
     try std.testing.expectEqual(engine.game.aigeneric.Target.none, all.missiles.records[record].?.target);
 
     // Once its launcher leaves, the missile has none; once its record is freed, the handle is no

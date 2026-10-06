@@ -1,6 +1,6 @@
 //! The `openreliant.world` package ([#498](https://github.com/OpenReliant/openreliant/issues/498)),
-//! for global and mission scripts: the objects of the mission, the player's ship and the mission
-//! itself (`package`).
+//! for global and mission scripts: the objects of the mission, its missiles in flight, the player's
+//! ship and the mission itself (`package`).
 
 const openreliant = @import("openreliant");
 const engine_hooks = openreliant.engine.hooks;
@@ -9,11 +9,13 @@ const create = openreliant.engine.game.create;
 const api = @import("api.zig");
 const Call = api.Call;
 const handles = @import("objects.zig");
+const missile_handles = @import("missiles.zig");
 const game = @import("game.zig");
 
 /// What `openreliant.world` holds.
 pub const package = struct {
     pub const objects = api.Function("Every object in the mission, in the order of their slots.", &.{}, allObjects);
+    pub const missiles = api.Function("Every missile in flight, newest first.", &.{}, allMissiles);
 
     pub const player = api.Field(?Object, "The player's ship, while a mission runs; nil between missions.", struct {
         pub fn get(call: Call) ?Object {
@@ -39,6 +41,15 @@ fn allObjects(call: Call) handles.List {
     while (walk.next()) |index| {
         if (inMission(held.objects, index)) list.append(.of(index));
     }
+    return list;
+}
+
+/// `world.missiles()`.
+fn allMissiles(call: Call) missile_handles.List {
+    const held = game.Game.of(call, "world.missiles");
+    var list: missile_handles.List = .{};
+    var walk = held.objects.missiles.walk();
+    while (walk.next()) |record| list.append(.of(record));
     return list;
 }
 
