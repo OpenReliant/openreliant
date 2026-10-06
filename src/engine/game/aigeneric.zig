@@ -407,21 +407,45 @@ pub fn prioritised(all: *const create.Objects, order: Order) bool {
     return info.priority > 0;
 }
 
-/// `order_push` (`0x0040CC10`): pushes an order aimed at `target` on the object's stack, and
-/// whether it took. It takes at once where the current order is the same order aimed the same way.
-/// Otherwise the current order must give way, any equal order deeper in the stack is dropped, and
-/// the stack must have room. A pushed order starts with its data zeroed, and unless it is one-shot
-/// it is marked as starting and the order state is zeroed with it.
+/// `order_push`: pushes an order aimed at `target` on the object's stack (`pushOrder`), and whether
+/// it took; `Error` where the order it runs is in the way.
+pub fn push(ctx: Context, index: u16, order: Order, target: Target) Error!bool {
+    return switch (pushOrder(ctx, index, order, target)) {
+        .taken => true,
+        .refused => false,
+        .conflict => error.OrderConflict,
+    };
+}
+
+/// What `pushOrder` makes of an order.
+pub const Pushed = enum {
+    pub const script_name = "OrderPushed";
+
+    /// The object refuses it, the order it runs doesn't give way, or its stack is full. A hook's
+    /// handler that stops the push leaves this.
+    refused,
+    taken,
+    /// The order it runs can't give way to it (`Error`).
+    conflict,
+};
+
+/// `order_push` (`0x0040CC10`): pushes an order aimed at `target` on the object's stack. It takes at
+/// once where the current order is the same order aimed the same way. Otherwise the current order
+/// must give way, any equal order deeper in the stack is dropped, and the stack must have room. A
+/// pushed order starts with its data zeroed, and unless it is one-shot it is marked as starting and
+/// the order state is zeroed with it.
 ///
 /// The game allocates the stack and the state with the object's first order; OpenReliant keeps both
 /// in the slot, so an object always has them.
-pub fn push(ctx: Context, index: u16, order: Order, target: Target) Error!bool {
+pub fn pushOrder(ctx: Context, index: u16, order: Order, target: Target) Pushed {
+    if (hooks.enter(.order_push, pushOrder, .{ ctx, index, order, target })) |done| return done;
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
-    if (refused(all, index, order)) return false;
-    if (slot.current()) |running| if (running.order == order and running.target.eql(target)) return true;
-    if (!try giveWay(ctx, index, order)) return false;
+    if (refused(all, index, order)) return .refused;
+    if (slot.current()) |running| if (running.order == order and running.target.eql(target)) return .taken;
+    const gives = giveWay(ctx, index, order) catch return .conflict;
+    if (!gives) return .refused;
 
     // The same order aimed the same way, deeper in the stack, is dropped rather than left to come
     // back once this one is done.
@@ -431,7 +455,7 @@ pub fn push(ctx: Context, index: u16, order: Order, target: Target) Error!bool {
         break;
     }
 
-    if (object.order_count >= max_stack) return false;
+    if (object.order_count >= max_stack) return .refused;
     const count = slot.stack().len;
     std.mem.copyBackwards(Entry, slot.orders[1 .. count + 1], slot.orders[0..count]);
     const sequence: i16 = if (all.order_number) |*next| numbered: {
@@ -441,7 +465,7 @@ pub fn push(ctx: Context, index: u16, order: Order, target: Target) Error!bool {
     slot.orders[0] = .{ .order = order, .target = target, .sequence = sequence, .data = .{ .words = @splat(0) } };
     if (infoOf(all, order)) |info| if (!info.flags.one_shot) start(slot);
     object.order_count += 1;
-    return true;
+    return .taken;
 }
 
 /// `orders_numbering_start` (`0x0040CBC0`): the orders pushed from now on are numbered from 0
@@ -496,6 +520,7 @@ const Named = struct {
 /// `order_pop` (`0x0040CE70`): pops the current order, running its `exit` where it has started, and
 /// whether there was one. Unless the popped order was one-shot, the order below starts again.
 pub fn pop(ctx: Context, index: u16) bool {
+    if (hooks.enter(.order_pop, pop, .{ ctx, index })) |done| return done;
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
     const running = slot.current() orelse return false;

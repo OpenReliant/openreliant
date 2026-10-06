@@ -302,11 +302,41 @@ The game's functions that have hooks:
 | `damage_by_difficulty` | How hard damage lands at the game's difficulty; its result is the damage | `object` |
 | `object_destroyed` | An object's pilot ejects, or it explodes | `object` |
 | `bullet_fire` | A ship fires a shot | `owner` |
-| `missile_launch` | A ship launches a missile | `launcher` |
-| `missile_launch_turret` | A missile turret launches a Screamer | `object` |
+| `missile_launch` | A ship launches a missile at a target | `launcher` |
+| `missile_launch_turret` | A missile turret launches a Screamer at a target | `object` |
+| `order_push` | An object is given an order, aimed at a target; its result says whether it took | `object` |
+| `order_pop` | An object ends the order it runs; its result says whether it had one | `object` |
 | `object_orders` | An object runs its order, as it does each frame | `object` |
 | `order_retaliate` | A fighter turns on whoever last hit it | `object` |
 | `radio_say` | The radio says a line | Only a function filter |
+
+### Targets
+
+An order's or a missile's target is a table ([Target](reference.md#target)): `object` and
+`component` for a ship, whole where `component` is nil, or the index of one of the mission's
+`flight_group`s or `squad`s, and every field nil for nothing. The table can't be changed in place;
+a handler sets the field to a new one.
+
+```lua
+local hooks = require("openreliant.hooks")
+
+-- Missiles fired at the player's ship are aimed at nothing instead.
+hooks.add("missile_launch", function(e)
+    if e.target.object and e.target.object.is_player then
+        e.target = {}
+    end
+end)
+
+-- No ship is told to run away.
+hooks.add("order_push", function(e)
+    if e.order == "run_away" then
+        return false
+    end
+end)
+```
+
+`order_push`'s result is `"taken"`, `"refused"` or `"conflict"` ([OrderPushed](reference.md#orderpushed)).
+A handler that stops it leaves `"refused"`, and the object's orders stay as they were.
 
 ### Changing what the radio says
 

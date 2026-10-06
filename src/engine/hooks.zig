@@ -48,6 +48,47 @@ pub const Object = enum(u16) {
     }
 };
 
+/// What an order or a missile is aimed at, as a hook passes it: a ship of the mission, whole or one
+/// of its components, one of the mission's flight groups or squads, by its index, or nothing.
+/// Scripts see it as a table, each field nil where it doesn't apply; a handler that sets more than
+/// one aims at the first of `object`, `flight_group` and `squad`.
+pub const Target = struct {
+    /// The ship aimed at.
+    object: ?Object = null,
+    /// The ship's component aimed at; nil for the whole ship.
+    component: ?u16 = null,
+    flight_group: ?u16 = null,
+    squad: ?u16 = null,
+    /// The target as the game holds it, which `aimed` gives back while the fields still say the
+    /// same, so that a kind the scripts can't name goes through unchanged.
+    _held: aigeneric.Target = .none,
+
+    pub fn of(held: aigeneric.Target) Target {
+        var target: Target = .{ ._held = held };
+        const index = std.math.cast(u16, held.index) orelse return target;
+        switch (held.kind) {
+            .ship => {
+                target.object = .of(index);
+                target.component = held.part();
+            },
+            .flight_group => target.flight_group = index,
+            .squad => target.squad = index,
+            _ => {},
+        }
+        return target;
+    }
+
+    /// The target as the game holds it.
+    pub fn aimed(target: Target) aigeneric.Target {
+        const unchanged = of(target._held);
+        if (std.meta.eql(unchanged, target)) return target._held;
+        if (target.object) |object| return .at(object.slot(), target.component);
+        if (target.flight_group) |index| return .group(.flight_group, index);
+        if (target.squad) |index| return .group(.squad, index);
+        return .none;
+    }
+};
+
 /// What a hook is on.
 pub const On = enum {
     /// A function of the original game, which handlers can change, wrap or replace.
@@ -78,9 +119,7 @@ pub const Declaration = struct {
 /// The hooks on the original's functions, under the names `ghidra/names/LANCER.EXE.tsv` gives
 /// them. The order table's routines have hooks of their own (`routine_hooks`).
 ///
-/// Not yet: targets in `e`, which the missiles' hooks hide until scripts have a value for one,
-/// hooks on giving and ending orders, and on more of the game
-/// ([#581](https://github.com/OpenReliant/openreliant/issues/581)).
+/// Not yet: hooks on more of the game ([#581](https://github.com/OpenReliant/openreliant/issues/581)).
 pub const functions = struct {
     pub const object_damage: Declaration = .{
         .address = 0x00463EE0,
@@ -167,24 +206,44 @@ pub const functions = struct {
 
     pub const missile_launch: Declaration = .{
         .address = 0x00496290,
-        .about = "`launcher` launches a missile from one of its racks.",
+        .about = "`launcher` launches a missile from one of its racks at `target`.",
         .Fields = struct {
             launcher: Object,
             _rack: usize,
-            _target: aigeneric.Target,
+            target: Target,
         },
         .subject = "launcher",
     };
 
     pub const missile_launch_turret: Declaration = .{
         .address = 0x004967F0,
-        .about = "One of the missile turrets of `object` launches a Screamer.",
+        .about = "One of the missile turrets of `object` launches a Screamer at `target`.",
         .Fields = struct {
             object: Object,
             _model: *const objects.Model,
             _launcher: usize,
-            _target: aigeneric.Target,
+            target: Target,
         },
+    };
+
+    pub const order_push: Declaration = .{
+        .address = 0x0040CC10,
+        .about = "`object` is given `order`, aimed at `target`, on top of its orders. The result says whether it took: `\"taken\"`, `\"refused\"` where the object refuses it, the order it runs doesn't give way or it has too many, or `\"conflict\"` where the order it runs can't give way. A handler that stops the push leaves `\"refused\"`.",
+        .Fields = struct {
+            object: Object,
+            order: orders.Order,
+            target: Target,
+        },
+        .Result = aigeneric.Pushed,
+    };
+
+    pub const order_pop: Declaration = .{
+        .address = 0x0040CE70,
+        .about = "`object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one.",
+        .Fields = struct {
+            object: Object,
+        },
+        .Result = bool,
     };
 
     pub const object_orders: Declaration = .{
@@ -625,29 +684,34 @@ fn fieldsOf(comptime F: type, arguments: anytype) F {
     return fields;
 }
 
-/// A parameter as a field of type `T`: a slot as an `Object`.
+/// A parameter as a field of type `T`: a slot as an `Object`, and an order's target as a `Target`.
 fn fieldOf(comptime T: type, parameter: anytype) T {
     return switch (T) {
         Object => .of(parameter),
         ?Object => if (parameter) |slot| .of(slot) else null,
+        Target => .of(parameter),
         else => parameter,
     };
 }
 
-/// A field as a parameter of type `T`: an `Object` as its slot.
+/// A field as a parameter of type `T`: an `Object` as its slot, and a `Target` as the game holds
+/// one.
 fn parameterOf(comptime T: type, field: anytype) T {
     return switch (@TypeOf(field)) {
         Object => field.slot(),
         ?Object => if (field) |object| object.slot() else null,
+        Target => field.aimed(),
         else => field,
     };
 }
 
-/// The type of the parameter a field of type `Field` stands for: a slot for an `Object`.
+/// The type of the parameter a field of type `Field` stands for: a slot for an `Object`, and the
+/// game's target for a `Target`.
 fn ParameterType(comptime Field: type) type {
     return switch (Field) {
         Object => u16,
         ?Object => ?u16,
+        Target => aigeneric.Target,
         else => Field,
     };
 }
@@ -723,6 +787,25 @@ comptime {
         }
         if (declared.on != .function and declared.Result != void) @compileError("the event " ++ name ++ " has a result");
     }
+}
+
+test Target {
+    // A ship's component, a flight group and nothing, as scripts see them.
+    const part: Target = .of(.at(5, 2));
+    try std.testing.expectEqual(5, part.object.?.slot());
+    try std.testing.expectEqual(2, part.component.?);
+    try std.testing.expectEqual(3, Target.of(.group(.flight_group, 3)).flight_group.?);
+    const none: Target = .of(.none);
+    try std.testing.expect(none.object == null and none.flight_group == null and none.squad == null);
+    // Unchanged, each goes back as it was, a kind the scripts can't name too.
+    const odd: aigeneric.Target = .{ .kind = @enumFromInt(7), .index = 4, .component = -1 };
+    for ([_]aigeneric.Target{ .at(5, 2), .group(.squad, 1), .none, odd }) |held| {
+        try std.testing.expectEqual(held, Target.of(held).aimed());
+    }
+    // Changed, the first of the object, the flight group and the squad set is aimed at.
+    try std.testing.expectEqual(aigeneric.Target.at(9, null), (Target{ .object = .of(9), .squad = 1 }).aimed());
+    try std.testing.expectEqual(aigeneric.Target.group(.squad, 1), (Target{ .squad = 1 }).aimed());
+    try std.testing.expectEqual(aigeneric.Target.none, (Target{ ._held = .at(5, 2) }).aimed());
 }
 
 test routineHook {

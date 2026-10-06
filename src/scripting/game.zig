@@ -749,6 +749,52 @@ test "handlers run newest mod first, in the order each mod added them" {
     try std.testing.expectEqual(100, shields.get(.fore));
 }
 
+test "a script stops and retargets the orders given, and keeps one from ending" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\local orders = require("openreliant.orders")
+                \\hooks.add("order_push", function(e)
+                \\    -- No ship runs away, and an order aimed at the player is aimed at the ship itself.
+                \\    if e.order == "run_away" then return false end
+                \\    if e.target.object ~= nil and e.target.object.is_player then
+                \\        assert(e.target.component == nil and e.target.flight_group == nil)
+                \\        e.target = { object = e.object }
+                \\    end
+                \\end)
+                \\hooks.after("order_push", function(e) assert(e.result == "taken" or e.result == "refused") end)
+                \\-- An escort never ends.
+                \\hooks.add("order_pop", function(e)
+                \\    if orders.stack(e.object)[1].order == "escort" then return false end
+                \\end)
+                \\hooks.add("missile_launch", function(e) assert(e.target.object == nil) end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const ctx = fixture.mission.orders();
+    const slot = fixture.mission.slot(fixture.sabre);
+    const pushed_before = slot.stack().len;
+    // Stopped, the order isn't pushed.
+    try std.testing.expect(!aigeneric.give(ctx, fixture.sabre, .run_away, .at(0, null)));
+    try std.testing.expectEqual(pushed_before, slot.stack().len);
+    // Aimed at the player, it is aimed at the Sabre itself.
+    try std.testing.expect(aigeneric.give(ctx, fixture.sabre, .escort, .at(0, null)));
+    try std.testing.expectEqual(aigeneric.Target.at(fixture.sabre, null), slot.current().?.target);
+    // A target the scripts don't change goes through as it was, a squad's too.
+    try std.testing.expect(aigeneric.give(ctx, fixture.sabre, .fly_aimlessly, .group(.squad, 3)));
+    try std.testing.expectEqual(aigeneric.Target.group(.squad, 3), slot.current().?.target);
+    // The order on top ends, and the escort under it doesn't.
+    try std.testing.expect(aigeneric.pop(ctx, fixture.sabre));
+    try std.testing.expect(!aigeneric.pop(ctx, fixture.sabre));
+    try std.testing.expectEqual(openreliant.engine.game.ai.orders.Order.escort, slot.current().?.order);
+}
+
 test "a script stops or changes the radio's lines" {
     const videoreports = openreliant.engine.game.videoreports;
     const hog_snd = openreliant.engine.game.hog_snd;
