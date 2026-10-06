@@ -249,7 +249,6 @@ pub fn build(b: *std.Build) void {
         .HAVE_STAT_EMPTY_STRING_BUG = null,
         .HAVE_STDARG_H = true,
         .HAVE_STDINT_H = true,
-        .HAVE_STDIO_H = true,
         .HAVE_STDLIB_H = true,
         .HAVE_STRCHR = true,
         .HAVE_STRDUP = true,

@@ -121,7 +121,7 @@ pub const Cuts = enum(u2) {
 pub const max_pieces = Cuts.three.pieces();
 
 /// Which side of each plane of a cut a polygon lies on, a bit a plane.
-const Sides = std.meta.Int(.unsigned, @backingInt(Cuts.three));
+const Sides = @Int(.unsigned, @backingInt(Cuts.three));
 
 /// `model_slice` (`0x0046BF20`): cuts `source`'s mesh along `cuts` random planes through `frame`'s
 /// origin. Each polygon goes to the side of each plane that the sum of its corners, in `frame`,

@@ -359,7 +359,7 @@ fn readAs(comptime Sample: type, gpa: Allocator, bytes: []const u8, max_rgba_byt
         if (length > bytes.len - at - chunk_overhead) return error.Corrupt;
         const named = bytes[at + 4 ..][0 .. 4 + length];
         const checksum = std.mem.readInt(u32, bytes[at + 8 + length ..][0..4], .big);
-        if (std.hash.crc.Crc32.hash(named) != checksum) return error.Corrupt;
+        if (std.hash.Crc32.hash(named) != checksum) return error.Corrupt;
         at += chunk_overhead + length;
         const name = named[0..4];
         const body = named[4..];
@@ -581,7 +581,7 @@ fn writeChunk(out: *Writer, name: *const [4]u8, data: []const u8) Writer.Error!v
     try out.writeAll(name);
     try out.writeAll(data);
 
-    var crc: std.hash.crc.Crc32 = .init();
+    var crc: std.hash.Crc32 = .init();
     crc.update(name);
     crc.update(data);
     var checksum: [4]u8 = undefined;

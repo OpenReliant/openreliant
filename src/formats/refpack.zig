@@ -194,7 +194,7 @@ pub const Form = enum {
 
     /// The command's bytes as one integer, which they are read as, big-endian.
     fn Word(comptime form: Form) type {
-        return std.meta.Int(.unsigned, @bitSizeOf(form.Bits()));
+        return @Int(.unsigned, @bitSizeOf(form.Bits()));
     }
 };
 
@@ -552,7 +552,7 @@ const Finder = struct {
     }
 
     fn hash(finder: Finder, pos: usize) usize {
-        const Hashed = std.meta.Int(.unsigned, 8 * hashed_len);
+        const Hashed = @Int(.unsigned, 8 * hashed_len);
         const value: u32 = std.mem.readInt(Hashed, finder.data[pos..][0..hashed_len], .little);
         return (value *% hash_multiplier) >> (32 - hash_bits);
     }

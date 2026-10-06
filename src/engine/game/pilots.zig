@@ -54,7 +54,7 @@ pub const Pilot = extern struct {
         .aim_interval = @bitCast(stats.tier_c_default[2]),
         ._unknown_0a = 0,
         .fire_spread = stats.tier_b_default,
-        .timings = @bitCast(stats.tier_a_default),
+        .timings = @as(*const Timings, @ptrCast(&stats.tier_a_default)).*,
         ._unknown_1c = 1,
         ._unknown_1e = 1,
         ._unknown_20 = 1,
@@ -89,13 +89,13 @@ pub const Pilot = extern struct {
         pilot._unknown_20 = record._unknown_58;
         pilot.skill = record.skill;
         if (record.tier_b.index()) |level| pilot.fire_spread = stats.tier_b_presets[level];
-        if (record.tier_a.index()) |level| pilot.timings = @bitCast(stats.tier_a_presets[level]);
+        if (record.tier_a.index()) |level| pilot.timings = @as(*const Timings, @ptrCast(&stats.tier_a_presets[level])).*;
         if (record.tier_c.index()) |level| {
             const preset = stats.tier_c_presets[level];
             pilot.turn_limit = preset[0];
             pilot.turn_ease = preset[1];
             pilot.aim_interval = @bitCast(preset[2]);
-            if (record.tier_c == .level_2) pilot.timings.countermeasures = @bitCast(stats.tier_c_level_2_override);
+            if (record.tier_c == .level_2) pilot.timings.countermeasures = @as(*const Range, @ptrCast(&stats.tier_c_level_2_override)).*;
         }
         return pilot;
     }

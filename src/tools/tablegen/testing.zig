@@ -59,7 +59,7 @@ pub fn freeReader(allocator: std.mem.Allocator, payload: image.Reader) void {
 /// Fails unless `source` parses as Zig.
 pub fn expectZig(source: []const u8) !void {
     const allocator = std.testing.allocator;
-    const terminated = try allocator.dupeZ(u8, source);
+    const terminated = try allocator.dupeSentinel(u8, source, 0);
     defer allocator.free(terminated);
     var tree = try std.zig.Ast.parse(allocator, terminated, .zig);
     defer tree.deinit(allocator);

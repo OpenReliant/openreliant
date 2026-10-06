@@ -119,7 +119,7 @@ pub fn compileParts(gpa: Allocator, kind: Kind, stage: Stage, parts: []const Par
         if (at > 0) gpa.free(source);
     };
     for (parts, 0..) |part, at| {
-        const name = try gpa.dupeZ(u8, part.name);
+        const name = try gpa.dupeSentinel(u8, part.name, 0);
         const source = if (at == 0) part.source else std.fmt.allocPrint(gpa, "\n#line {d}\n{s}", .{ part.line, part.source }) catch |err| {
             gpa.free(name);
             return err;
@@ -131,7 +131,7 @@ pub fn compileParts(gpa: Allocator, kind: Kind, stage: Stage, parts: []const Par
     }
     var pointers: [max_parts][*]const u8 = undefined;
     for (sources[0..made], pointers[0..made]) |source, *pointer| pointer.* = source.ptr;
-    const definitions = try gpa.dupeZ(u8, preamble);
+    const definitions = try gpa.dupeSentinel(u8, preamble, 0);
     defer gpa.free(definitions);
     const native = openreliant_compile_shader(kind, stage, @intCast(made), &names, &pointers, &lengths, definitions) orelse return error.OutOfMemory;
     defer openreliant_shader_free(native);
@@ -140,7 +140,7 @@ pub fn compileParts(gpa: Allocator, kind: Kind, stage: Stage, parts: []const Par
     const words = openreliant_shader_spirv(native, &count);
     const spirv = try gpa.dupe(u32, words[0..count]);
     errdefer gpa.free(spirv);
-    const metal = try gpa.dupeZ(u8, std.mem.span(openreliant_shader_metal(native)));
+    const metal = try gpa.dupeSentinel(u8, std.mem.span(openreliant_shader_metal(native)), 0);
     return .{ .compiled = .{ .spirv = spirv, .metal = metal } };
 }
 
@@ -166,7 +166,7 @@ pub fn checkLink(gpa: Allocator, name: []const u8, vertex: []const u32, fragment
 
 /// What the C++ check `native` complains of in the shaders `first` and `second`, named `name`.
 fn check(gpa: Allocator, native: NativeCheck, name: []const u8, first: []const u32, second: []const u32) Allocator.Error!?[]u8 {
-    const named = try gpa.dupeZ(u8, name);
+    const named = try gpa.dupeSentinel(u8, name, 0);
     defer gpa.free(named);
     const result = native(named, first.ptr, first.len, second.ptr, second.len) orelse return error.OutOfMemory;
     defer openreliant_shader_free(result);

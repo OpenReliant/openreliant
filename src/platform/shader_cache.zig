@@ -123,7 +123,7 @@ fn decode(gpa: Allocator, payload: []const u8) Allocator.Error!?Code {
     const words = try gpa.alloc(u32, spirv.len / @sizeOf(u32));
     errdefer gpa.free(words);
     @memcpy(std.mem.sliceAsBytes(words), spirv);
-    return .{ .spirv = words, .metal = try gpa.dupeZ(u8, metal) };
+    return .{ .spirv = words, .metal = try gpa.dupeSentinel(u8, metal, 0) };
 }
 
 const fixture =

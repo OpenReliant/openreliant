@@ -138,7 +138,7 @@ pub fn preferred(found: []const Found, preference: ?[]const u8) ?Found {
     const text = preference orelse return null;
     if (text.len == 0) return null;
     for (found) |each| {
-        if (std.ascii.indexOfIgnoreCase(each.name, text) != null) return each;
+        if (std.ascii.findIgnoreCase(each.name, text) != null) return each;
     }
     return null;
 }

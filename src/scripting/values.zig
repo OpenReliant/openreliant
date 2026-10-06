@@ -141,8 +141,8 @@ pub fn shownFields(comptime T: type) []const Field {
     comptime {
         const info = @typeInfo(T).@"struct";
         var fields: []const Field = &.{};
-        for (info.field_names, info.field_types, info.field_attrs) |name, Type, attrs| {
-            if (shown(name)) fields = fields ++ .{Field{ .name = name, .type = Type, .attrs = attrs }};
+        for (info.field_names, info.field_types, info.field_attrs) |field_name, Type, attrs| {
+            if (shown(field_name)) fields = fields ++ .{Field{ .name = field_name, .type = Type, .attrs = attrs }};
         }
         return fields;
     }
@@ -214,14 +214,14 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
         },
         // A string is read in place, so it lasts only as long as the call that reads it.
         .pointer => |pointer| {
-            comptime assert(pointer.size == .slice and pointer.child == u8 and pointer.is_const);
+            comptime assert(pointer.size == .slice and pointer.child == u8 and pointer.attrs.@"const");
             return state.toString(given) orelse wrongType(state, label, "a string", given);
         },
         .@"struct" => return readTable(state, T, given, label),
         .@"union" => |info| {
             const kind = state.typeOf(given);
-            inline for (info.field_names, info.field_types) |name, Variant| {
-                if (kind == comptime luauKind(Variant)) return @unionInit(T, name, read(state, Variant, given, label));
+            inline for (info.field_names, info.field_types) |field_name, Variant| {
+                if (kind == comptime luauKind(Variant)) return @unionInit(T, field_name, read(state, Variant, given, label));
             }
             wrongType(state, label, comptime kindNames(T), given);
         },
@@ -287,8 +287,8 @@ fn readTable(state: *State, comptime T: type, given: i32, comptime label: []cons
     const fields = comptime shownFields(T);
     var value: T = undefined;
     const info = @typeInfo(T).@"struct";
-    inline for (info.field_names, info.field_types, info.field_attrs) |name, Type, attrs| {
-        if (attrs.defaultValue(Type)) |default| @field(value, name) = default else if (comptime !shown(name)) @compileError(name ++ " is hidden from scripts, so it needs a default");
+    inline for (info.field_names, info.field_types, info.field_attrs) |field_name, Type, attrs| {
+        if (attrs.defaultValue(Type)) |default| @field(value, field_name) = default else if (comptime !shown(field_name)) @compileError(field_name ++ " is hidden from scripts, so it needs a default");
     }
     var named: std.StaticBitSet(fields.len) = .empty;
     state.pushNil();

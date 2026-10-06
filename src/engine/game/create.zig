@@ -487,7 +487,7 @@ pub const Slot = struct {
 
     /// The entries of a stack, as mutable as the slot pointed at by `SlotPointer` is.
     fn Entries(comptime SlotPointer: type) type {
-        return if (@typeInfo(SlotPointer).pointer.is_const) []const aigeneric.Entry else []aigeneric.Entry;
+        return if (@typeInfo(SlotPointer).pointer.attrs.@"const") []const aigeneric.Entry else []aigeneric.Entry;
     }
 
     /// The first entry of its stack that is `order`, where there is one (`player_control_entry`,

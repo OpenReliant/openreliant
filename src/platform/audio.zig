@@ -174,7 +174,7 @@ fn headphones() bool {
 fn namesHeadphones(name: []const u8) bool {
     const words = [_][]const u8{ "headphone", "headset", "earphone", "airpods", "buds" };
     for (words) |word| {
-        if (std.ascii.indexOfIgnoreCase(name, word) != null) return true;
+        if (std.ascii.findIgnoreCase(name, word) != null) return true;
     }
     return false;
 }

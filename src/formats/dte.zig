@@ -1513,7 +1513,7 @@ pub const Mission = struct {
             const named = std.mem.trim(u8, mission.name(record.name), " ");
             if (std.ascii.eqlIgnoreCase(named, text)) {
                 whole = if (whole == .none) .{ .one = index } else .several;
-            } else if (std.ascii.indexOfIgnoreCase(named, text) != null) {
+            } else if (std.ascii.findIgnoreCase(named, text) != null) {
                 piece = if (piece == .none) .{ .one = index } else .several;
             }
         }

@@ -300,7 +300,7 @@ pub const Runtime = struct {
             const bytecode = luau.compile(source) orelse return error.OutOfMemory;
             errdefer bytecode.free();
             var chunk_buffer: [max_chunk_name:0]u8 = undefined;
-            const chunk = std.fmt.bufPrintZ(&chunk_buffer, "={s}/{s}", .{ opened.name, name }) catch "=script";
+            const chunk = std.fmt.bufPrintSentinel(&chunk_buffer, "={s}/{s}", .{ opened.name, name }, 0) catch "=script";
             try code.add(runtime.gpa, module, chunk, bytecode);
             runtime.check(chunk, bytecode.bytes);
         }
@@ -904,7 +904,7 @@ const Code = struct {
         try code.modules.ensureUnusedCapacity(gpa, 1);
         const key = try gpa.dupe(u8, module);
         errdefer gpa.free(key);
-        const name = try gpa.dupeZ(u8, chunk);
+        const name = try gpa.dupeSentinel(u8, chunk, 0);
         code.modules.putAssumeCapacity(key, .{ .chunk = name, .bytecode = bytecode });
     }
 

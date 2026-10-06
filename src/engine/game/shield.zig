@@ -783,7 +783,7 @@ const capital_swirl_per_tick: f32 = 1e-3;
 /// `part_is_force_field` (`0x0049FC70`): whether a part's name holds `FORCEFIELD`, whatever its
 /// case.
 pub fn isForceField(name: []const u8) bool {
-    return std.ascii.indexOfIgnoreCase(name, "FORCEFIELD") != null;
+    return std.ascii.findIgnoreCase(name, "FORCEFIELD") != null;
 }
 
 /// `force_field_mark` (`0x0049FCD0`): hides each part of `model` that is a force field, and of
