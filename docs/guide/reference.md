@@ -512,19 +512,41 @@ The radio says a line: the speech file `speech`, its speaker's face playing the 
 
 ### missile_launch
 
-`launcher` launches a missile from one of its racks.
+`launcher` launches a missile from one of its racks at `target`.
 
 | Field | Type |
 |---|---|
 | `launcher` | [object](#objects) |
+| `target` | [Target](#target) |
 
 ### missile_launch_turret
 
-One of the missile turrets of `object` launches a Screamer.
+One of the missile turrets of `object` launches a Screamer at `target`.
 
 | Field | Type |
 |---|---|
 | `object` | [object](#objects) |
+| `target` | [Target](#target) |
+
+### order_push
+
+`object` is given `order`, aimed at `target`, on top of its orders. The result says whether it took: `"taken"`, `"refused"` where the object refuses it, the order it runs doesn't give way or it has too many, or `"conflict"` where the order it runs can't give way. A handler that stops the push leaves `"refused"`.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+| `order` | [Order](#order) |
+| `target` | [Target](#target) |
+| `result` | [OrderPushed](#orderpushed) |
+
+### order_pop
+
+`object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+| `result` | boolean |
 
 ### object_orders
 
@@ -1115,6 +1137,15 @@ A table a script gives, which may leave out a field with a default.
 | `ending` | [Ending](#ending) |
 | `rating` | [Rating](#rating) |
 
+### Target
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects), or nil |
+| `component` | number, or nil |
+| `flight_group` | number, or nil |
+| `squad` | number, or nil |
+
 ## Names of values
 
 A value that has a name in OpenReliant is given as a string: its name. One without a name is a
@@ -1203,6 +1234,10 @@ number. A script can set a field to either.
 ### Order
 
 `do_nothing`, `fly_aimlessly`, `launch_missile`, `unnamed_3`, `warp_in`, `warp_out`, `fly`, `run_away`, `land`, `escort`, `find_new_target`, `explode`, `ripper_grabs_target_object`, `object_attach`, `formation_regroup`, `patrol_route`, `toggle_cloak`, `ship_follow_curve`, `slow_rotate`, `jump_in`, `jump_out`, `find_scoop_up`, `random_spin_slow`, `random_spin_medium`, `random_spin_fast`, `fixed_gate_jump_in`, `fixed_gate_jump_out`, `formation`, `fixed_gate_open`, `fixed_gate_close`, `eject`, `fixed_gate_collapse`, `match_speed`, `dark_reign_shoot`, `move_to_spawn_pos`, `turns_object_lights_on`, `make_boridin_section_break_away`, `rotate_boridin_breakaway_warp_projector`, `start_warp_projection_from_boridin`, `make_ripper_drop_what_its_carrying`, `jump_in_40`, `jump_out_41`, `turns_object_lights_off`, `huuuuuuuge_explosion`, `immediately_set_ship_to_zero_velocity_and_rotation`, `fly_ship_backwards`, `player_control`, `multiplayer_control`, `avoid_target`, `torpedo`, `launch`, `fight`, `eject_106`, `scoop_up`, `eject_spin`, `dock`, `dark_reign_shoot_110`, `ripper_end_drop_object`, `ripper_attach_cargo_pod_to_mammoth`, `eject_fighter_attack`, `disrupted`, `make_capship_list_left`, `make_capship_list_right`, `friendly_fire`, `eject_player`, `ship_follow_curve_backwards`, `mill`, `deathmatch_respawn_effect`, `deathmatch_dark_reign_target`, `unnamed_200`, or a number.
+
+### OrderPushed
+
+`refused`, `taken`, `conflict`.
 
 ### Condition
 

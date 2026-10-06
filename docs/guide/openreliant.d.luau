@@ -27,6 +27,7 @@ type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | nu
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type RadioMode = "now" | "queued" | "if_idle" | number
 type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "unnamed_3" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_40" | "jump_out_41" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "eject_106" | "scoop_up" | "eject_spin" | "dock" | "dark_reign_shoot_110" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | "unnamed_200" | number
+type OrderPushed = "refused" | "taken" | "conflict"
 type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
 type PilotTier = "level_0" | "level_1" | "level_2" | number
 type PilotSkill = "low" | "medium" | "high" | number
@@ -165,6 +166,12 @@ type Choice = {
 type Outcome = {
     ending: Ending,
     rating: Rating,
+}
+type Target = {
+    object: Object?,
+    component: number?,
+    flight_group: number?,
+    squad: number?,
 }
 
 -- Objects, which scripts hold by handles.
@@ -687,18 +694,38 @@ declare class RadioSay
     function original(self): ()
 end
 
--- `launcher` launches a missile from one of its racks.
+-- `launcher` launches a missile from one of its racks at `target`.
 declare class MissileLaunch
     launcher: Object
+    target: Target
     -- Runs the rest of the call now: the handlers after this one, then the function.
     function original(self): ()
 end
 
--- One of the missile turrets of `object` launches a Screamer.
+-- One of the missile turrets of `object` launches a Screamer at `target`.
 declare class MissileLaunchTurret
     object: Object
+    target: Target
     -- Runs the rest of the call now: the handlers after this one, then the function.
     function original(self): ()
+end
+
+-- `object` is given `order`, aimed at `target`, on top of its orders. The result says whether it took: `"taken"`, `"refused"` where the object refuses it, the order it runs doesn't give way or it has too many, or `"conflict"` where the order it runs can't give way. A handler that stops the push leaves `"refused"`.
+declare class OrderPush
+    object: Object
+    order: Order
+    target: Target
+    result: OrderPushed
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): OrderPushed?
+end
+
+-- `object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one.
+declare class OrderPop
+    object: Object
+    result: boolean
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): boolean?
 end
 
 -- `object` runs its current order, as it does each frame. Each order's routines have hooks of their own, such as `order_fight`.
@@ -872,6 +899,8 @@ type HooksAdd =
     ((name: "radio_say", handler: (e: RadioSay) -> boolean?, filter: ((e: RadioSay) -> boolean)?) -> HookHandle) &
     ((name: "missile_launch", handler: (e: MissileLaunch) -> boolean?, filter: (Filter | (e: MissileLaunch) -> boolean)?) -> HookHandle) &
     ((name: "missile_launch_turret", handler: (e: MissileLaunchTurret) -> boolean?, filter: (Filter | (e: MissileLaunchTurret) -> boolean)?) -> HookHandle) &
+    ((name: "order_push", handler: (e: OrderPush) -> boolean?, filter: (Filter | (e: OrderPush) -> boolean)?) -> HookHandle) &
+    ((name: "order_pop", handler: (e: OrderPop) -> boolean?, filter: (Filter | (e: OrderPop) -> boolean)?) -> HookHandle) &
     ((name: "object_orders", handler: (e: ObjectOrders) -> boolean?, filter: (Filter | (e: ObjectOrders) -> boolean)?) -> HookHandle) &
     ((name: "order_retaliate", handler: (e: OrderRetaliate) -> boolean?, filter: (Filter | (e: OrderRetaliate) -> boolean)?) -> HookHandle) &
     ((name: "order_do_nothing", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1026,6 +1055,8 @@ type HooksAfter =
     ((name: "radio_say", handler: (e: RadioSay) -> boolean?, filter: ((e: RadioSay) -> boolean)?) -> HookHandle) &
     ((name: "missile_launch", handler: (e: MissileLaunch) -> boolean?, filter: (Filter | (e: MissileLaunch) -> boolean)?) -> HookHandle) &
     ((name: "missile_launch_turret", handler: (e: MissileLaunchTurret) -> boolean?, filter: (Filter | (e: MissileLaunchTurret) -> boolean)?) -> HookHandle) &
+    ((name: "order_push", handler: (e: OrderPush) -> boolean?, filter: (Filter | (e: OrderPush) -> boolean)?) -> HookHandle) &
+    ((name: "order_pop", handler: (e: OrderPop) -> boolean?, filter: (Filter | (e: OrderPop) -> boolean)?) -> HookHandle) &
     ((name: "object_orders", handler: (e: ObjectOrders) -> boolean?, filter: (Filter | (e: ObjectOrders) -> boolean)?) -> HookHandle) &
     ((name: "order_retaliate", handler: (e: OrderRetaliate) -> boolean?, filter: (Filter | (e: OrderRetaliate) -> boolean)?) -> HookHandle) &
     ((name: "order_do_nothing", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
