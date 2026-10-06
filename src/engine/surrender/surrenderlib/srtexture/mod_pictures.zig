@@ -21,7 +21,8 @@
 //!   16 bits. What it compressed is kept between runs, keyed by the files and the texture detail,
 //!   so that a picture is compressed once.
 //! - A picture compressed already, in a DDS or KTX2 file, draws as it is where the device takes its
-//!   format, and is left out otherwise, as is a map whose format doesn't go with its picture's.
+//!   format, and is left out otherwise, as is a map whose format doesn't go with its picture's. A
+//!   KTX2 file's levels supercompressed with Zstandard are inflated as the file is read.
 //!
 //! **Improvement:** the original reads the cache's images alone.
 
@@ -121,9 +122,32 @@ fn first(gpa: Allocator, files: srtexture.Files, name: []const u8, suffix: []con
             gpa.free(file_name);
             continue;
         };
-        return .{ .container = container, .name = file_name, .bytes = bytes };
+        const usable = inflatedKtx2(gpa, container, file_name, bytes) catch |err| {
+            gpa.free(file_name);
+            return err;
+        };
+        return .{ .container = container, .name = file_name, .bytes = usable };
     }
     return null;
+}
+
+/// `bytes`, the file `name` of `container`, with a KTX2 file's Zstandard supercompression taken out
+/// (`ktx2.inflated`), the file it was let go. A file that can't be inflated stays as it is, for
+/// reading it to say why.
+fn inflatedKtx2(gpa: Allocator, container: Container, name: []const u8, bytes: []u8) Allocator.Error![]u8 {
+    if (container != .ktx2) return bytes;
+    const made = ktx2.inflated(gpa, bytes) catch |err| switch (err) {
+        error.OutOfMemory => |e| {
+            gpa.free(bytes);
+            return e;
+        },
+        error.NotAKtx2, error.Corrupt, error.Unsupported => {
+            log.warn("{s} can't be inflated: {s}", .{ name, @errorName(err) });
+            return bytes;
+        },
+    } orelse return bytes;
+    gpa.free(bytes);
+    return made;
 }
 
 /// The picture the files give for the texture `name`, with its maps, ready for the device; null
@@ -742,4 +766,17 @@ test "a KTX2 picture of one level is mipmapped, and its finest levels go past th
     try std.testing.expectEqual(4, made.width());
     try std.testing.expectEqual(3, made.levels.len);
     try std.testing.expectEqual(Level.Format.rgba8, made.levels[0].format);
+}
+
+test "a KTX2 picture supercompressed with Zstandard is inflated as it is read" {
+    const gpa = std.testing.allocator;
+    var pixels: [4 * 4 * 4]u8 = @splat(90);
+    const file = try ktx2.testing.zstandardFile(gpa, 37, 4, 4, &.{&pixels});
+    defer gpa.free(file);
+    const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "hull.ktx2", .bytes = file }} };
+    const made = (try load(gpa, pictures.files(), "hull", 4, null, null)).?;
+    defer made.deinit(gpa);
+    try std.testing.expectEqual(4, made.width());
+    try std.testing.expectEqual(Level.Format.rgba8, made.levels[0].format);
+    try std.testing.expectEqual(90, made.levels[0].texels[0]);
 }
