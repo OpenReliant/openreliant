@@ -86,7 +86,7 @@ pub const containers = std.enums.values(Container);
 
 /// What changes the key of what the compressor keeps: change it when what `load` makes of the
 /// same files changes.
-const kept_version: u32 = 3;
+const kept_version: u32 = 4;
 
 /// A file of a picture, read: its kind, its name and its bytes, owned.
 const File = struct {
@@ -304,16 +304,36 @@ fn decodeAll(gpa: Allocator, read: *const Read, longest: u32) Allocator.Error!?I
         made.deinit(gpa);
         return if (failed) error.OutOfMemory else null;
     }
-    // A map of another size than the picture's is left out.
+    errdefer made.deinit(gpa);
+    // Each map has as many levels as the picture, of the same sizes, as the device draws them
+    // into the picture's levels. A map of another size, or with fewer levels, is left out; one
+    // with more keeps the picture's.
     inline for (@typeInfo(Image.Maps).@"struct".field_names) |name| {
-        if (@field(made.maps, name)) |levels| if (levels[0].width != made.width() or levels[0].height != made.height()) {
+        if (@field(made.maps, name)) |levels| fit: {
             const map = @field(MapFile, name);
-            log.warn("the {s} of {s} is left out: it is {d}x{d} and its picture {d}x{d}", .{ map.label(), read.picture.?.name, levels[0].width, levels[0].height, made.width(), made.height() });
+            const file = read.picture.?.name;
+            if (levels[0].width != made.width() or levels[0].height != made.height()) {
+                log.warn("the {s} of {s} is left out: it is {d}x{d} and its picture {d}x{d}", .{ map.label(), file, levels[0].width, levels[0].height, made.width(), made.height() });
+            } else if (levels.len < made.levels.len) {
+                log.warn("the {s} of {s} is left out: it has {d} mipmap levels and its picture {d}", .{ map.label(), file, levels.len, made.levels.len });
+            } else {
+                if (levels.len > made.levels.len) @field(made.maps, name) = try firstLevels(gpa, levels, made.levels.len);
+                break :fit;
+            }
             freeLevels(gpa, levels);
             @field(made.maps, name) = null;
-        };
+        }
     }
     return made;
+}
+
+/// The first `count` of `levels`, in a slice of their own; the rest, and `levels`' own slice, are
+/// let go of. Where it fails, `levels` stays as it was.
+fn firstLevels(gpa: Allocator, levels: []Level, count: usize) Allocator.Error![]Level {
+    const kept = try gpa.dupe(Level, levels[0..count]);
+    for (levels[count..]) |level| gpa.free(level.texels);
+    gpa.free(levels);
+    return kept;
 }
 
 /// What a file of the picture is decoded as, on a thread of its own.
@@ -492,8 +512,7 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
     leaveOut(gpa, &made.maps.orm, orm_format, compressing, name, .orm);
     leaveOut(gpa, &made.maps.emissive, emissive_format, compressing, name, .emissive);
     // The length of the normals' mean goes to the material map's alpha, as BC5 and RG16 keep two
-    // channels. Maps with different numbers of levels aren't handled yet
-    // ([#771](https://github.com/OpenReliant/openreliant/issues/771)).
+    // channels. Both have the picture's levels (`decodeAll`).
     if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (orm[0].format == .rgba8) {
         for (normals, orm) |normal, values| {
             const wide = srtexture.RgbaLevel.of(normal) orelse continue;
@@ -796,6 +815,44 @@ test "a DDS picture draws as it is where the device takes its format, and not ot
     try std.testing.expectEqual(Level.Format.bc5, made.maps.normal.?[0].format);
     // Without a device that takes BC7, the picture is left out.
     try std.testing.expectEqual(null, try load(gpa, pictures.files(), "hull", srtexture.max_side, null, null));
+}
+
+test "a map has as many levels as its picture, or is left out" {
+    const gpa = std.testing.allocator;
+    // A PNG picture and normal map, 4x4 and mipmapped to three levels, and a material map in a DDS
+    // file of two uncompressed levels.
+    const picture = try testPng(gpa, 4, .{ 200, 100, 50, 255 });
+    defer gpa.free(picture);
+    const normal = try testPng(gpa, 4, .{ 128, 128, 255, 255 });
+    defer gpa.free(normal);
+    var pixels: [4 * 4 * 4 + 2 * 2 * 4]u8 = @splat(100);
+    const two_levels = try dds.testing.file(gpa, "DX10", 28, 4, 4, 2, &pixels);
+    defer gpa.free(two_levels);
+    const with_png: srtexture.testing.Pictures = .{ .held = &.{
+        .{ .name = "hull.png", .bytes = picture },
+        .{ .name = "hull_normal.png", .bytes = normal },
+        .{ .name = "hull_orm.dds", .bytes = two_levels },
+    } };
+    // The material map has fewer levels than the picture, so it is left out.
+    const made = (try load(gpa, with_png.files(), "hull", srtexture.max_side, null, null)).?;
+    defer made.deinit(gpa);
+    try std.testing.expectEqual(3, made.levels.len);
+    try std.testing.expectEqual(3, made.maps.normal.?.len);
+    try std.testing.expectEqual(null, made.maps.orm);
+
+    // Beside a picture of two levels, the normal map keeps its first two.
+    const with_dds: srtexture.testing.Pictures = .{ .held = &.{
+        .{ .name = "hull.dds", .bytes = two_levels },
+        .{ .name = "hull_normal.png", .bytes = normal },
+        .{ .name = "hull_orm.dds", .bytes = two_levels },
+    } };
+    const kept = (try load(gpa, with_dds.files(), "hull", srtexture.max_side, null, null)).?;
+    defer kept.deinit(gpa);
+    try std.testing.expectEqual(2, kept.levels.len);
+    for ([_][]Level{ kept.maps.normal.?, kept.maps.orm.? }) |levels| {
+        try std.testing.expectEqual(2, levels.len);
+        try std.testing.expectEqual(2, levels[1].width);
+    }
 }
 
 test "a KTX2 picture of one level is mipmapped, and its finest levels go past the longest side" {

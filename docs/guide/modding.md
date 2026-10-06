@@ -284,6 +284,8 @@ sRGB-encoded, as a PNG's are.
   OpenReliant can't make them from compressed pixels.
 - Beside a compressed picture, a normal map in BC5 and a material map in BC7 are used as they are,
   and a PNG map is compressed to match. A map in another format is left out, which the log says.
+- A map needs at least as many mipmap levels as its picture. Extra levels are dropped, and a map
+  with fewer is left out, which the log says. A PNG file always has them all.
 - A compressed picture needs a GPU that takes its format. Elsewhere, such as with the software
   device, it is left out, and the cache's own texture is drawn.
 
@@ -1109,6 +1111,7 @@ A script's messages and errors follow its mod's name, as above;
 | `<mod>: mod.ini: the <kind> '<name>' ...` | The entry the message names, and what it says is wrong ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)) |
 | `skipping the picture that replaces <name>: it's <size>, and the original is <size>` | That picture must keep the original's size ([Pictures](#pictures)) |
 | `the <map> of <texture> is left out: it is <size> and its picture <size>` | A map must be the same size as its texture ([Material maps](#material-maps)) |
+| `the <map> of <texture> is left out: it has <n> mipmap levels and its picture <n>` | Save the DDS or KTX2 map with all its mipmaps, as many as the picture has ([Compression](#compression)) |
 | `<file> is left out: it is compressed in <format>, which the device doesn't take` | The GPU doesn't take that format; use a PNG file instead ([Compression](#compression)) |
 | `the line <name> is not in ms_speech/msspeech.hog` | The line's name ([Lines](#lines)) |
 | `the radio's film <name> is left out: ...` | The film's name ([Faces](#faces)) |
