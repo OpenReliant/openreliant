@@ -80,9 +80,8 @@ pub const Line = struct {
     }
     const heading_from = frame_left + heading_inset - list_edge;
 
-    /// Where the edge of a list's rows stands that ends their labels in OpenReliant's lists on the
-    /// settings screen's shapes, the video tab's graphics and a mod's options: 20 right of the
-    /// game's own lists'.
+    /// Where OpenReliant's lists on the settings screen's shapes, the video tab's graphics and a
+    /// mod's options, end their rows' labels: 20 right of the game's lists.
     pub const list_edge = original_edge + 20;
 
     /// The left of those lists' frames, and how far inside it a heading starts.
@@ -502,9 +501,9 @@ pub const Pane = struct {
     spacing: i32,
     edge: i32 = Line.original_edge,
 
-    /// OpenReliant's lists on the settings screen's shapes, the video tab's graphics and a mod's
-    /// options (`settingsList`): their rows `list_inside` their frame, `list_spacing` apart, their arrows'
-    /// boxes a little apart; the frame's line, its width and where the list's arrows stand.
+    /// OpenReliant's lists on the settings screen's shapes (`settingsList`): their rows
+    /// `list_inside` their frame and `list_spacing` apart, their arrows' boxes a little apart; the
+    /// frame's line, its width, and where the list's arrows stand.
     pub const list_inside = 4;
     pub const list_spacing = Line.arrows_height + list_inside;
     const list_frame_line = 2;

@@ -143,9 +143,8 @@ pub const Type = enum(i16) {
         return held;
     }
 
-    /// The model a mod gives of its own for what hangs on the missile's hardpoint: the pod, for a
-    /// missile whose base hangs in one, else the missile itself; null for none, or a type of the
-    /// game's.
+    /// The model a mod gives for what hangs on the missile's hardpoint: the pod, for a missile
+    /// whose base hangs in one, else the missile itself; null for none, or a type of the game's.
     pub fn hungModel(missile: Type) ?[]const u8 {
         const from_mod = missile.added() orelse return null;
         return ownHung(from_mod, missile.baseMount() orelse return null);

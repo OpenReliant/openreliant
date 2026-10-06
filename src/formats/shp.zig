@@ -60,6 +60,7 @@ pub const Vec3 = extern struct {
         return .{ v.x, v.y, v.z };
     }
 
+    /// The engine's vector `v`, as a model holds one.
     pub fn of(v: math.Vector) Vec3 {
         return .{ .x = v[0], .y = v[1], .z = v[2] };
     }

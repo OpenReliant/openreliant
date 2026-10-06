@@ -936,10 +936,10 @@ pub fn frameTree(root: *Node, model: ?*Model, drawn: *Model.Local, fraction: f32
 /// Then the root's flag is cleared.
 ///
 /// Around the pass, where the object's parts are the player's subtarget picked out in red, they
-/// are put back first (`hud_subtarget_clear`, called at `0x0049ACED`) and picked out again after
-/// (`hud_subtarget`, called at `0x0049B302`), as the game does. Putting them back leaves no object picked
-/// out, so the second never runs: `mission_frame` picks them out again on its next frame
-/// (`hud.subtarget`).
+/// are put back first (`hud_subtarget_clear`, called at `0x0049ACED`) and picked out again
+/// after (`hud_subtarget`, called at `0x0049B302`), as the game does. Putting them back leaves no
+/// object picked out, so the second never runs: `mission_frame` picks them out again on its next
+/// frame (`hud.subtarget`).
 pub fn loseComponents(ctx: aigeneric.Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const model = if (slot.model) |*live| live else return;
