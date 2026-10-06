@@ -39,4 +39,4 @@ clean: zig-clean ## Remove build products (keeps tools/, game/ and the Ghidra pr
 .PHONY: doctor
 doctor: ## Report which parts of the environment are in place
 	@scripts/doctor.sh "$(ROOT)" "$(JDK_HOME)" "$(GHIDRA_HOME)" "$(GHIDRA_PLATFORM)" \
-	    "$(GHIDRA_USER_DIR)" "$(ZIG)" "$(GHIDRA_PROJECT_DIR)/$(GHIDRA_PROJECT).gpr"
+	    "$(GHIDRA_USER_DIR)" "$(ZIG)" "$(GHIDRA_PROJECT_DIR)/$(GHIDRA_PROJECT).gpr" "$(ZIG_VERSION)"

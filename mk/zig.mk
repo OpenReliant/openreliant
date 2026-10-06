@@ -11,7 +11,7 @@ ZIG_SOURCES := $(ROOT)/build.zig $(ROOT)/build.zig.zon $(shell find $(ROOT)/src 
 build: $(SLTOOL) ## Build the tools into zig-out/bin
 
 $(SLTOOL): $(ZIG_SOURCES)
-	$(ZIG) build -Doptimize=ReleaseSafe
+	$(ZIG) build --release=safe
 	@touch $@
 
 # The same build makes both.
@@ -23,7 +23,7 @@ GAME_TARGET := $(if $(and $(filter Darwin,$(HOST_OS)),$(filter arm64 aarch64,$(H
 
 .PHONY: play
 play: | $(GAME_DIR)/.stamp-install ## Build OpenReliant optimized and run it on the installed game files
-	$(ZIG) build -Doptimize=ReleaseFast $(GAME_TARGET)
+	$(ZIG) build --release=fast $(GAME_TARGET)
 	$(ROOT)/zig-out/bin/openreliant $(INSTALL_DIR)
 
 # The game's shaders, for each GPU interface SDL runs on: SPIR-V for Vulkan, and Metal's
@@ -74,7 +74,7 @@ CONTROLLER_TEST_PLATFORM := $(if $(filter arm64 aarch64,$(HOST_ARCH)),linux/arm6
 
 .PHONY: test-controllers
 test-controllers: ## Test joysticks and gamepads on Linux with virtual controllers (needs Docker)
-	$(ZIG) build -Doptimize=ReleaseFast -Dtarget=$(CONTROLLER_TEST_ARCH)-linux-gnu --prefix $(ROOT)/zig-out/linux
+	$(ZIG) build --release=fast -Dtarget=$(CONTROLLER_TEST_ARCH)-linux-gnu --prefix $(ROOT)/zig-out/linux
 	docker run --rm --privileged --platform $(CONTROLLER_TEST_PLATFORM) -v /dev:/dev \
 	    -v $(ROOT)/scripts/controllers:/test:ro -v $(ROOT)/zig-out/linux/bin/openreliant:/opt/openreliant:ro \
 	    ubuntu:24.04 /test/run.sh /opt/openreliant
@@ -89,4 +89,4 @@ fmt-check: ## Fail if any Zig source is not formatted
 
 .PHONY: zig-clean
 zig-clean:
-	rm -rf $(ROOT)/.zig-cache $(ROOT)/zig-out
+	rm -rf $(ROOT)/.zig-cache $(ROOT)/zig-out $(ROOT)/zig-pkg

@@ -8,7 +8,8 @@ and `CLAUDE.md` point agents here.
 ## Getting started
 
 - Install [Zig 0.17](https://ziglang.org). `zig build` builds everything, `zig build sltool`
-  builds `sltool` alone, and `zig build test` runs the tests.
+  builds `sltool` alone, and `zig build test` runs the tests. `zig build check -fincremental
+  --watch` compiles everything without writing binaries and reports errors moments after a save.
 - Run `make hooks` once. It installs a pre-commit hook that keeps the game's files out of the
   repository.
 - `make help` lists every workflow, and `make doctor` reports which parts of the environment are
@@ -88,7 +89,9 @@ purpose, and then run `make definitions`. An enum whose own name isn't clear on 
 OpenReliant is faithful by default, and every difference is marked where it is made.
 
 - An **Improvement** is a deliberate change, such as widescreen, per-pixel lighting or a smoother
-  effect. `--original` brings back the original's behaviour.
+  effect. Where it changes what the player sees or hears, `--original` brings back the original's
+  behaviour. One that doesn't, such as exact maths, Zig's random numbers, a faster way to do the
+  same work or something OpenReliant adds, is marked all the same but has no switch.
 - A **Fix** corrects a clear bug of the original, such as reading the wrong variable. A fix needs
   no switch: it stays in under `--original`, which brings back the original's look and sound, not
   its bugs.

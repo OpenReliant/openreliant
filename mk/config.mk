@@ -64,8 +64,10 @@ GHYDRA_SRC      := $(TOOLS_DIR)/ghydramcp-src
 VENV_DIR        := $(TOOLS_DIR)/venv
 SPIRV_CROSS     := $(TOOLS_DIR)/spirv-cross/spirv-cross
 
-# Prefer a native arm64 Zig over an x86_64 one that happens to be first on PATH.
+# Prefer a native arm64 Zig over an x86_64 one that happens to be first on PATH. `make doctor`
+# warns when it isn't the version build.zig.zon asks for.
 ZIG ?= $(firstword $(wildcard /opt/homebrew/bin/zig) zig)
+ZIG_VERSION := $(shell sed -n 's/.*minimum_zig_version = "\(.*\)".*/\1/p' $(ROOT)/build.zig.zon)
 
 CURL := curl --location --fail --retry 5 --retry-delay 5 --silent --show-error
 

@@ -59,7 +59,7 @@ jobs:
       # An explicit target builds for the architecture's baseline processor, so the binary runs on
       # any machine of that kind, not just ones like the runner. Stripped, the Linux builds leave
       # out the debug information their executables would otherwise carry.
-      - run: zig build -Doptimize=ReleaseFast -Dstrip -Dtarget=${{ matrix.target }}
+      - run: zig build --release=fast -Dstrip -Dtarget=${{ matrix.target }}
       - name: Package
         shell: bash
         env:
