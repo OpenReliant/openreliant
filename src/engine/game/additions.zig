@@ -332,8 +332,8 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
         context.warn("ship type", "needs a Model in [{s}]", .{section});
         return null;
     };
-    var made: ShipExtra = .{ .model = try context.arena.dupe(u8, model) };
-    if (manifest.value(section, "Cockpit")) |text| made.cockpit = try context.arena.dupe(u8, text);
+    var made: ShipExtra = .{ .model = try fileName(context, model) };
+    if (manifest.value(section, "Cockpit")) |text| made.cockpit = try fileName(context, text);
     if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, files.stem(text));
     if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, files.stem(text));
     if (manifest.value(section, "EngineSound")) |name| made.engine_sound = try readSound(context, "ship type", name) orelse return null;
@@ -348,8 +348,8 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
             return null;
         };
     }
-    if (manifest.value(section, "Schematic")) |text| made.schematic = try context.arena.dupe(u8, text);
-    if (manifest.value(section, "GunsModel")) |text| made.guns_model = try context.arena.dupe(u8, text);
+    if (manifest.value(section, "Schematic")) |text| made.schematic = try fileName(context, text);
+    if (manifest.value(section, "GunsModel")) |text| made.guns_model = try fileName(context, text);
     if (manifest.value(section, "Guns")) |text| {
         const number = guns.named(text, context.mod.qualifier()) orelse {
             context.warn("ship type", "fires the gun '{s}', which isn't one of the game's or the mods'", .{text});
@@ -382,11 +382,18 @@ pub const MissileExtra = struct {
 fn readMissile(context: Context, section: []const u8, _: missiles_module.GameMissile) Allocator.Error!?MissileExtra {
     const manifest = context.mod.manifest;
     var made: MissileExtra = .{};
-    if (manifest.value(section, "Model")) |model| made.model = try context.arena.dupe(u8, model);
-    if (manifest.value(section, "Pod")) |pod| made.pod = try context.arena.dupe(u8, pod);
+    if (manifest.value(section, "Model")) |model| made.model = try fileName(context, model);
+    if (manifest.value(section, "Pod")) |pod| made.pod = try fileName(context, pod);
     if (manifest.value(section, "Description")) |text| made.description = try context.arena.dupe(u8, text);
     if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "missile", text) orelse return null;
     return made;
+}
+
+/// The file `text` names, by its own name: a mod's files sit directly in it, so a folder in front
+/// of the name, with either separator, is passed over, the same way on every system. Pictures and
+/// films go by their names' start instead (`files.stem`).
+fn fileName(context: Context, text: []const u8) Allocator.Error![]const u8 {
+    return context.arena.dupe(u8, files.leaf(text));
 }
 
 /// `text` as a switch: `yes`, `true`, `on` or `1`, or `no`, `false`, `off` or `0`, in any case;
@@ -483,10 +490,11 @@ fn readSize(context: Context, comptime what: []const u8, text: []const u8) ?f32 
     return null;
 }
 
-/// The bytes of the WAV file `name` in the mod, for a record of `noun`; null where the mod doesn't
-/// have it or it isn't a WAV file the sound plays, which the log says.
+/// The bytes of the WAV file `name` in the mod, found by its own name (`fileName`), for a record of
+/// `noun`; null where the mod doesn't have it or it isn't a WAV file the sound plays, which the log
+/// says.
 fn readSound(context: Context, comptime noun: []const u8, name: []const u8) Allocator.Error!?[]const u8 {
-    const bytes = context.mod.readFile(context.arena, name) catch |err| switch (err) {
+    const bytes = context.mod.readFile(context.arena, files.leaf(name)) catch |err| switch (err) {
         error.OutOfMemory => |oom| return oom,
         else => null,
     } orelse {
@@ -820,7 +828,7 @@ test "a gun's shot, sound and flash, and a ship type's cockpit, pictures and sou
         \\Base=pulse_cannon
         \\Shot=peel_shot.png
         \\ShotSize=25
-        \\Sound=peel.wav
+        \\Sound=sounds/peel.wav
         \\Flash=peel_flash.png
         \\FlashSize=30
         \\[Gun quiet]
@@ -836,10 +844,10 @@ test "a gun's shot, sound and flash, and a ship type's cockpit, pictures and sou
         \\[ShipType peeler]
         \\Base=predator
         \\Model=peeler.shp
-        \\Cockpit=peeler_frm.shp
+        \\Cockpit=ships\peeler_frm.shp
         \\WireFrame=peelwire.png
         \\WingIcon=peelicon
-        \\EngineSound=peel.wav
+        \\EngineSound=sounds\peel.wav
     });
     const peel_sound = comptime wave.testing.pcm("\x00\x00");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/bananas/peel.wav", .data = peel_sound });
@@ -865,7 +873,8 @@ test "a gun's shot, sound and flash, and a ship type's cockpit, pictures and sou
     try std.testing.expectEqual(null, quiet.flash_size);
     try std.testing.expectEqual(GunExtra.default_shot_size, quiet.shot_size);
     try std.testing.expectEqual(null, quiet.sound);
-    // A ship type's cockpit, its pictures by their names' start, and its engine's sound.
+    // A ship type's cockpit, its pictures by their names' start, and its engine's sound. A folder in
+    // front of a file's name is passed over, with either separator.
     const peeler = ships.all()[0].extra;
     try std.testing.expectEqualStrings("peeler_frm.shp", peeler.cockpit.?);
     try std.testing.expectEqualStrings("peelwire", peeler.wire_frame.?);
