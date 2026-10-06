@@ -23,6 +23,8 @@ pub const Arg = enum {
     @"--no-pause-menu",
     @"--skip-launch",
     @"--part",
+    @"--watch",
+    @"--watch-from",
     @"--fullscreen",
     @"--size",
     @"--fps",
@@ -105,6 +107,8 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-pause-menu" = .{ .section = .mission, .text = "with --mission, fly the mission again as soon as it ends, where it otherwise ends in the game's pause menu" },
     .@"--skip-launch" = .{ .section = .mission, .text = "with --mission, play the player's launch through without drawing it, so that the mission shows from the moment the ship is out; --screenshot-ticks count from there" },
     .@"--part" = .{ .section = .mission, .value = "<name|number>", .text = "with --mission, run this part of the mission's script once the player's launch is over, as a trigger would; by its number, or a piece of its name in any case, as sltool dte parts lists them. Give it again for more parts, up to 8, which run in the order given" },
+    .@"--watch" = .{ .section = .mission, .value = "<name|number>", .text = "with --mission, watch this ship of the mission once the player's launch is over and the ship is there, from a place beside it that moves with it; by its number, or a piece of its name in any case, as sltool dte ships lists them" },
+    .@"--watch-from" = .{ .section = .mission, .value = "<x,y,z>", .text = "where --watch watches from, in the ship's own axes, in multiples of its size: x to its right, y down and z ahead; 1,-0.5,2.5 by default, ahead of it, to its right and above" },
     .@"--fullscreen" = .{ .section = .display, .text = "fill the display; Alt and Enter switch while playing" },
     .@"--size" = .{ .section = .display, .value = "<width>x<height>|<percent>%", .text = "draw frames of this size in pixels whatever the window's, which shows them scaled, as for a screenshot larger than the display; or a share of the window's own, such as 50%, to draw faster; the window's own by default" },
     .@"--fps" = .{ .section = .display, .value = "<rate>", .text = "frames a second at most; without vsync, the display's rate by default; 0 for no limit" },
@@ -237,6 +241,10 @@ pub const Options = struct {
     /// (`main.partsNamed`): the first `part_count`.
     part_names: [max_parts][]const u8 = undefined,
     part_count: u8 = 0,
+    /// The ship `--watch` names (`main.Watch`), and where it is watched from, in the ship's own
+    /// axes, in multiples of its radius.
+    watch: ?[]const u8 = null,
+    watch_from: [3]f32 = .{ 1, -0.5, 2.5 },
     /// Whether the game plays the movies of its start as it starts (`xtrabits.movie.intro`).
     intro: bool = true,
     /// Whether to load the mods in the game's `mods` folder (`game.bigfile.Mods`).
@@ -429,6 +437,15 @@ pub const Options = struct {
                 options.part_names[options.part_count] = value;
                 options.part_count += 1;
             },
+            .@"--watch" => options.watch = value,
+            .@"--watch-from" => {
+                var axes = std.mem.splitScalar(u8, value, ',');
+                for (&options.watch_from) |*axis| {
+                    axis.* = std.fmt.parseFloat(f32, axes.next() orelse return error.BadValue) catch return error.BadValue;
+                    if (!std.math.isFinite(axis.*)) return error.BadValue;
+                }
+                if (axes.next() != null) return error.BadValue;
+            },
             .@"--no-mods" => options.mods = false,
             .@"--no-intro" => options.intro = false,
             .@"--developer-mode" => options.developer_mode = true,
@@ -570,6 +587,13 @@ test Options {
     try std.testing.expectEqualStrings("19", parts.parts()[1]);
     const too_many: [2 * (max_parts + 1)][:0]const u8 = @splat("--part");
     try std.testing.expectError(error.Usage, parsed(&too_many));
+    // A ship to watch, and where from.
+    const watched = try parsed(&.{ "--watch", "zakov", "--watch-from", "0,-1,-3.5" });
+    try std.testing.expectEqualStrings("zakov", watched.watch.?);
+    try std.testing.expectEqual([3]f32{ 0, -1, -3.5 }, watched.watch_from);
+    try std.testing.expectError(error.Usage, parsed(&.{ "--watch-from", "1,2" }));
+    try std.testing.expectError(error.Usage, parsed(&.{ "--watch-from", "1,2,3,4" }));
+    try std.testing.expectError(error.Usage, parsed(&.{ "--watch-from", "1,nan,3" }));
     try std.testing.expectError(error.Usage, parsed(&.{"--bogus"}));
     try std.testing.expectEqualStrings("shot.png", (try parsed(&.{ "--screenshot", "shot.png" })).screenshot.?);
     try std.testing.expect((try parsed(&.{})).intro);

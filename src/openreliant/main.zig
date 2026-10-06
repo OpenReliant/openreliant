@@ -656,6 +656,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer play.end();
     display.play = &play;
     const asked_parts = try partsNamed(arena, play.number, play.file, if (options.mission != null) options.parts() else &.{});
+    const watched = if (options.mission == null) null else options.watch;
+    var watch: Watch = .{
+        .slot = if (watched) |name| try shipToWatch(play.number, play.file, name) else null,
+        .from = options.watch_from,
+    };
     if (options.mission != null) {
         try game_scripts.start();
         try play.start(.{ .world = world, .devices = &devices });
@@ -1072,8 +1077,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 });
                 switch (player_launch.step(slot, clock.mission_ticks)) {
                     .under_way => if (options.skip_launch) continue,
-                    .ended => if (play.loaded) |loaded| for (asked_parts) |part| loaded.runPart(orders, part),
-                    .over => {},
+                    .ended => {
+                        if (play.loaded) |loaded| for (asked_parts) |part| loaded.runPart(orders, part);
+                        watch.frame(&view, objects, clock.viewTime());
+                    },
+                    .over => watch.frame(&view, objects, clock.viewTime()),
                 }
             }
         }
@@ -1351,6 +1359,85 @@ test PlayerLaunch {
     // Outside a `--mission`, there is none to watch.
     var none: PlayerLaunch = .{ .under_way = false };
     try std.testing.expectEqual(.over, none.step(slot, 0));
+}
+
+/// `--watch`: once the player's launch is over and the ship is there, the camera watches it
+/// (`camera.View.watch`) from `from`, in the ship's own axes, in multiples of its radius, and moves
+/// with it. The view is locked, so the player's keys leave it. The mission's script can still take
+/// the camera, as for a cutscene, and then keeps it.
+const Watch = struct {
+    /// The ship's slot.
+    slot: ?u16,
+    from: [3]f32,
+    /// Whether the camera has been set on the ship.
+    started: bool = false,
+
+    /// Places the camera `view` by the ship, where it is one of `all`'s objects and is there, at
+    /// `now` on the view's clock, after the camera's own frame.
+    fn frame(watch: *Watch, view: *camera.Camera, all: *const game.create.Objects, now: u32) void {
+        const index = watch.slot orelse return;
+        if (index >= all.slots.len) return;
+        const slot = &all.slots[index];
+        if (!slot.object.created or slot.object.flags.stand_in) return;
+        if (!watch.started) {
+            if (!view.setView(.watch, index, true, true, now)) return;
+            watch.started = true;
+        } else if (view.view != .watch or view.object != index) {
+            watch.slot = null;
+            return;
+        }
+        const seen: camera.Subject = .of(slot);
+        const from: math.Vector = .{ watch.from[0], watch.from[1], watch.from[2] };
+        view.place = camera.lookingAt(seen.place().point(from * @as(math.Vector, @splat(seen.radius))), seen.position);
+    }
+};
+
+test Watch {
+    var mission: game.gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var view: camera.Camera = .{};
+    // A ship not made yet is waited for.
+    var watch: Watch = .{ .slot = 3, .from = .{ 0, 0, 2 } };
+    watch.frame(&view, mission.objects, 0);
+    try std.testing.expect(!watch.started);
+    // Once it is there, the camera watches it from twice its radius ahead, and moves with it.
+    const ship = try mission.add(.of(.predator), .{ 100, 0, 0 });
+    watch.slot = ship;
+    const slot = mission.slot(ship);
+    slot.drawn = .{ .position = .{ 100, 0, 0 }, .orientation = math.identity };
+    slot.object.radius = 10;
+    watch.frame(&view, mission.objects, 0);
+    try std.testing.expectEqual(camera.View.watch, view.view);
+    try std.testing.expectEqual(ship, view.object.?);
+    try std.testing.expect(view.locked);
+    try std.testing.expectEqual(math.Vector{ 100, 0, 20 }, view.place.position);
+    slot.drawn.position = .{ 100, 0, 50 };
+    watch.frame(&view, mission.objects, 1);
+    try std.testing.expectEqual(math.Vector{ 100, 0, 70 }, view.place.position);
+    // Once the script takes the camera, it keeps it.
+    try std.testing.expect(view.setView(.director, null, true, true, 2));
+    watch.frame(&view, mission.objects, 2);
+    try std.testing.expectEqual(null, watch.slot);
+    try std.testing.expectEqual(camera.View.director, view.view);
+}
+
+/// The slot of the ship that `name` picks in `file`, mission `number`'s file
+/// (`dte.Mission.findShip`), whose object the mission's ship at that place in the table takes; or
+/// an error, said on the console, for a name that picks none or more than one ship.
+fn shipToWatch(number: u16, file: []const u8, name: []const u8) !u16 {
+    const mission: dte.Mission = try .parse(file);
+    return switch (try mission.findShip(name)) {
+        .one => |index| std.math.cast(u16, index) orelse error.UnknownShip,
+        .none => {
+            std.log.err("--watch: mission {d} has no ship '{s}'; sltool dte ships lists them", .{ number, name });
+            return error.UnknownShip;
+        },
+        .several => {
+            std.log.err("--watch: '{s}' is in the names of more than one ship; sltool dte ships lists them", .{name});
+            return error.UnknownShip;
+        },
+    };
 }
 
 /// The script parts that `names` pick in `file`, the mission's file, in the same order
