@@ -20,6 +20,7 @@
 //! **Improvement:** the original can't load mods.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
@@ -337,7 +338,7 @@ pub const Folder = struct {
 
     /// Opens the folder `name` in `parent`. Subfolders, and files whose names can't be archive
     /// member names (`hog.validName`), are skipped with a message in the log, as `sltool hog pack`
-    /// skips them.
+    /// skips them. So are entries that can't be read, such as a link to a missing file.
     pub fn open(gpa: Allocator, io: Io, parent: Io.Dir, name: []const u8) !Folder {
         var dir = try parent.openDir(io, name, .{ .iterate = true });
         errdefer dir.close(io);
@@ -347,7 +348,11 @@ pub const Folder = struct {
         var entries = dir.iterate();
         while (try entries.next(io)) |entry| {
             if (hidden(entry.name)) continue;
-            switch (kindOf(io, dir, entry) orelse continue) {
+            const kind = kindOf(io, dir, entry) catch |err| {
+                log.warn("skipping {s}/{s}: {s}", .{ name, entry.name, @errorName(err) });
+                continue;
+            };
+            switch (kind) {
                 .file => {},
                 .directory => {
                     log.warn("skipping {s}/{s}: a mod's files must be directly in its folder", .{ name, entry.name });
@@ -450,7 +455,10 @@ pub const Mods = struct {
         }) |entry| {
             // A checksum file belongs to the archive it checks (`intact`).
             if (hidden(entry.name) or isChecksum(entry.name)) continue;
-            const kind = kindOf(io, folder, entry) orelse continue;
+            const kind = kindOf(io, folder, entry) catch |err| {
+                log.warn("skipping {s}: {s}", .{ entry.name, @errorName(err) });
+                continue;
+            };
             const name = try gpa.dupe(u8, entry.name);
             errdefer gpa.free(name);
             try entries.append(gpa, .{ .name = name, .kind = kind });
@@ -670,24 +678,38 @@ const GameFiles = struct {
 
     const Kind = enum { file, texture };
 
+    /// What the log adds where a part of the game's files can't be listed: a mod's file that
+    /// replaces one there is reported as added.
+    const may_misreport = ", so the log may say a mod adds a file it replaces: {s}";
+
     fn gather(gpa: Allocator, io: Io, game: Io.Dir) Allocator.Error!GameFiles {
         var gathered: GameFiles = .{};
         errdefer gathered.deinit(gpa);
-        var dir = game.openDir(io, ".", .{ .iterate = true }) catch return gathered;
+        var dir = game.openDir(io, ".", .{ .iterate = true }) catch |err| {
+            log.warn("can't list the game's files" ++ may_misreport, .{@errorName(err)});
+            return gathered;
+        };
         defer dir.close(io);
         var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
-        while (walker.next(io) catch null) |entry| {
+        while (true) {
+            const entry = walker.next(io) catch |err| {
+                log.warn("can't list the game's files" ++ may_misreport, .{@errorName(err)});
+                break;
+            } orelse break;
             if (hidden(entry.basename)) continue;
             switch (entry.kind) {
                 .directory => {
                     if (entry.depth() == 1 and std.ascii.eqlIgnoreCase(entry.basename, folder_name)) continue;
-                    walker.enter(io, entry) catch {};
+                    walker.enter(io, entry) catch |err| log.warn("can't list the game's folder {s}" ++ may_misreport, .{ entry.path, @errorName(err) });
                 },
                 .file => if (isArchive(entry.basename)) {
                     var archive = hog.Archive.open(gpa, io, entry.dir, entry.basename) catch |err| switch (err) {
                         error.OutOfMemory => |e| return e,
-                        else => continue,
+                        else => {
+                            log.warn("can't list the game's archive {s}" ++ may_misreport, .{ entry.path, @errorName(err) });
+                            continue;
+                        },
                     };
                     defer archive.close(gpa);
                     for (archive.entries) |member| try gathered.add(gpa, member.name, .file);
@@ -695,21 +717,24 @@ const GameFiles = struct {
                 else => {},
             }
         }
-        try gathered.addTextures(gpa, io, game);
+        gathered.addTextures(gpa, io, game) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => log.warn("can't list the textures of {s}, so the log may say a mod adds a texture it replaces: {s}", .{ tcache.hardware_name, @errorName(err) }),
+        };
         return gathered;
     }
 
     /// Adds the names of the pictures that replace the images in the texture cache,
-    /// `tcachehw.dat`. Only the cache's directory is read.
-    fn addTextures(gathered: *GameFiles, gpa: Allocator, io: Io, game: Io.Dir) Allocator.Error!void {
+    /// `tcachehw.dat`, when there is one. Only the cache's directory is read.
+    fn addTextures(gathered: *GameFiles, gpa: Allocator, io: Io, game: Io.Dir) !void {
         var found: [files.max_path]u8 = undefined;
         const path = files.find(io, game, tcache.hardware_name, &found) orelse return;
-        const file = game.openFile(io, path, .{}) catch return;
+        const file = try game.openFile(io, path, .{});
         defer file.close(io);
         const bytes = try gpa.alloc(u8, tcache.data_start);
         defer gpa.free(bytes);
-        const read = file.readPositionalAll(io, bytes, 0) catch return;
-        const entries = tcache.Cache.directory(bytes[0..read]) catch return;
+        const read = try file.readPositionalAll(io, bytes, 0);
+        const entries = try tcache.Cache.directory(bytes[0..read]);
         for (entries) |*entry| {
             if (entry.image.flags.transient) continue;
             for (srtexture.mod_pictures.containers) |container| {
@@ -903,10 +928,10 @@ fn hidden(name: []const u8) bool {
     return std.mem.startsWith(u8, name, ".");
 }
 
-/// The kind of `entry` in `dir`, following symbolic links; null if it can't be determined.
-fn kindOf(io: Io, dir: Io.Dir, entry: Io.Dir.Entry) ?Io.File.Kind {
+/// The kind of `entry` in `dir`, following symbolic links.
+fn kindOf(io: Io, dir: Io.Dir, entry: Io.Dir.Entry) !Io.File.Kind {
     return switch (entry.kind) {
-        .sym_link, .unknown => (dir.statFile(io, entry.name, .{}) catch return null).kind,
+        .sym_link, .unknown => (try dir.statFile(io, entry.name, .{})).kind,
         else => entry.kind,
     };
 }
@@ -1108,6 +1133,26 @@ test "no mods folder" {
     try std.testing.expect(!mods.has("ship.shp"));
 }
 
+test "an entry that can't be read is skipped" {
+    // Windows needs a privilege to make symbolic links.
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    // Links to nothing, in the mods folder and in a mod, next to a mod and a mod's file.
+    try tmp.dir.createDirPath(io, "mods/alpha");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/alpha/ship.shp", .data = "alpha's ship" });
+    try tmp.dir.symLink(io, "missing", "mods/alpha/gone.tga", .{});
+    try tmp.dir.symLink(io, "missing", "mods/gone", .{});
+
+    var mods: Mods = try .open(gpa, io, tmp.dir, null);
+    defer mods.close(gpa);
+    try std.testing.expectEqual(1, mods.list.len);
+    try std.testing.expect(mods.has("ship.shp"));
+    try std.testing.expect(!mods.has("gone.tga"));
+}
+
 test "an archive is only loaded if it matches its checksum" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
@@ -1166,6 +1211,8 @@ test GameFiles {
     try tmp.dir.writeFile(io, .{ .sub_path = tcache.hardware_name, .data = cache });
     try tmp.dir.createDirPath(io, "Mods/own");
     try tmp.dir.writeFile(io, .{ .sub_path = "Mods/own/new.tga", .data = "new" });
+    // A damaged archive is left out, and the rest are still listed.
+    try tmp.dir.writeFile(io, .{ .sub_path = "broken.hog", .data = "not an archive" });
 
     var own: GameFiles = try .gather(gpa, io, tmp.dir);
     defer own.deinit(gpa);

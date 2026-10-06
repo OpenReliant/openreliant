@@ -534,7 +534,10 @@ A ninth component tag is dropped, where the game writes past its list of eight. 
 where the pool has none free, and no timer is made where the table is full, where the game takes
 one past them. A call through the second part table to a part with no block does nothing, where
 the game runs from address zero. `in_squad` passes over a member squad no record stands for, where
-the game reads from address zero, and a member past the object table, where it reads past it.
+the game reads from address zero, and a member past the object table, where it reads past it. A
+block whose length lies past the image starts no thread, and a command whose text argument runs
+past the image does nothing, where the game reads past its copy of the file. OpenReliant logs each
+of these once a mission.
 
 **Fix:** with a thousand events waiting, OpenReliant passes over the ones past them and logs it,
 where the game stops. An operand naming no ship, flight group or squad passes nothing, logged once,
@@ -546,7 +549,8 @@ game reads past them. The handlers' count of a squad passes over a member of a k
 name for, where the game stops ("unknown ai group member"), and one no record stands for, and stops
 at a squad that holds itself round. Cloaking an object that stands for no mission's ship posts
 nothing, where the game faults. The watches' lists are as long as the mission needs, where the game
-writes them into tables of a fixed size without looking.
+writes them into tables of a fixed size without looking. An event on a squad whose table or members
+can't be read is raised on none of its triggers, and logged once.
 
 Not ported: the script debugger; and the events that code OpenReliant does not run yet posts, such
 as FixedGateJumpedIn from the gates' jumps

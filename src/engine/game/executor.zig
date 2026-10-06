@@ -373,7 +373,7 @@ fn setRescueProbabilities(call: Call, game: aigeneric.Context) void {
 /// (`videoreports.Radio.playSpeech`).
 fn playSpeech(call: Call, game: aigeneric.Context) void {
     const radio, const ctx = videoreports.onAir(game.world) orelse return;
-    const name = call.machine.mission.text(call.args[0]) catch return;
+    const name = argumentText(call, 0) orelse return;
     radio.playSpeech(ctx.sound, name);
 }
 
@@ -386,6 +386,20 @@ fn waitForSpeech(call: Call) u32 {
     return if (radio.speaking(ctx.sound)) call.againItself() else run_on;
 }
 
+/// The text the command's argument `index` points at in the mission's file (`push_string`), up to
+/// its terminating zero; null where it runs outside the file, which is logged the first time in a
+/// mission.
+///
+/// **Fix:** the game reads the text wherever the argument points, past its copy of the mission
+/// too.
+fn argumentText(call: Call, index: usize) ?[]const u8 {
+    const at = call.args[index];
+    return call.machine.mission.text(at) catch |err| {
+        if (call.machine.firstTime(.text_outside)) log.warn("a script command's text at 0x{X:0>8} runs outside the mission's file, so the command does nothing: {s}", .{ at, @errorName(err) });
+        return null;
+    };
+}
+
 /// The room the game gives the speech file's name and the film's path (`cmd_PlayCommsMovie`'s
 /// buffers, `0x00458120`).
 const comms_movie_path_size = 52;
@@ -395,15 +409,21 @@ const comms_movie_path_size = 52;
 /// looping, under the string the third numbers, the line nobody's. The game also sets a halfword
 /// nothing reads (`0x005373EA`).
 ///
-/// **Fix:** the game writes a name longer than its buffer past it; OpenReliant says nothing.
+/// **Fix:** the game writes a name longer than its buffer past it; OpenReliant plays nothing, and
+/// logs it once.
 fn playCommsMovie(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
     const radio, const ctx = videoreports.onAir(game.world) orelse return;
-    const film = machine.mission.text(call.args[0]) catch return;
-    const speech = machine.mission.text(call.args[1]) catch return;
+    const film = argumentText(call, 0) orelse return;
+    const speech = argumentText(call, 1) orelse return;
     var buffer: [comms_movie_path_size]u8 = undefined;
-    const path = std.mem.print(&buffer, "pilots\\{s}", .{film}) catch return;
-    if (speech.len >= comms_movie_path_size or path.len >= comms_movie_path_size) return;
+    const path = fitted: {
+        const printed = std.mem.print(&buffer, "pilots\\{s}", .{film}) catch break :fitted null;
+        break :fitted if (printed.len < comms_movie_path_size and speech.len < comms_movie_path_size) printed else null;
+    } orelse {
+        if (machine.firstTime(.long_name)) log.warn("PlayCommsMovie leaves out the film {s} and the speech {s}: a name is too long for the game's {d}-byte buffers", .{ film, speech, comms_movie_path_size });
+        return;
+    };
     radio.say(ctx, .{ .film = path, .speech = speech, .name = @truncate(call.args[2]), .flags = .looping, .object = videoreports.nobody }, .now);
 }
 
@@ -504,7 +524,7 @@ const music_folder = "music\\";
 /// music playing has faded out (`hog_snd.Sound.When.of`, `playPiece`).
 fn playMusic(call: Call, game: aigeneric.Context) void {
     const hearing = game.world.hearing orelse return;
-    const name = call.machine.mission.text(call.args[0]) catch return;
+    const name = argumentText(call, 0) orelse return;
     playPiece(hearing.sound, name, .of(call.args[1], game.world.clock.game_ticks));
 }
 
@@ -545,7 +565,7 @@ fn comms(comptime speaker: Speaker, comptime flags: hudmovie.Flags) vm.Implement
             const game = machine.game orelse return yield;
             const radio, const ctx = videoreports.onAir(game.world) orelse return yield;
             const head: pilots.Head = @fromBackingInt(call.args[1]);
-            const name = machine.mission.text(call.args[2]) catch return yield;
+            const name = argumentText(call, 2) orelse return yield;
             switch (speaker) {
                 .ship => {
                     const ship = mission.shipSlot(machine.mission, ctx.all, call.args[0]) orelse return yield;
@@ -736,7 +756,7 @@ fn playShipAnimation(call: Call, game: aigeneric.Context, backwards: bool) void 
     const all = game.world.objects;
     const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
     const model = if (all.slots[ship].model) |*live| live else return;
-    const name = machine.mission.text(call.args[1]) catch return;
+    const name = argumentText(call, 1) orelse return;
     const time: f32 = if (backwards) objects.Model.keep_time else 0;
     model.playNamedTree(name, time, null, if (backwards) -animation_speed else animation_speed);
 }
@@ -1228,6 +1248,26 @@ test implementation {
     try std.testing.expect(implementation(commandIndex("Wait")) != null);
     try std.testing.expectEqual(null, implementation(commandIndex("PrintShipName")));
     try std.testing.expectEqual(null, implementation(0xFF));
+}
+
+test argumentText {
+    const gpa = std.testing.allocator;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    try routine.pushString("hello");
+    const code = try finishPart(&routine);
+    defer gpa.free(code);
+    var fixture: vm.machine.testing.Fixture = undefined;
+    try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{});
+    defer fixture.deinit();
+    const image = fixture.mission.image;
+    var args = [_]u32{@intCast(std.mem.find(u8, image, "hello").?)};
+    const call: Call = .{ .machine = &fixture.machine, .thread = 0, .args = &args };
+    try std.testing.expectEqualStrings("hello", argumentText(call, 0).?);
+    // Past the mission's file, the command gets no text, and the problem is logged once.
+    args[0] = @intCast(image.len + 4);
+    try std.testing.expectEqual(null, argumentText(call, 0));
+    try std.testing.expect(!fixture.machine.firstTime(.text_outside));
 }
 
 test whenPlayerLastJumped {
@@ -2444,8 +2484,8 @@ test "PlayCommsMovie and CommsFromPilot say their lines on the radio" {
     try routine.op(.push_byte, &.{@backingInt(pilots.Head.talking)});
     try routine.pushString("ms1_ban_001.ut");
     try routine.command("CommsFromPilot");
-    // A film whose path fits the game's buffer, under string 9; then one whose path does not,
-    // which says nothing.
+    // A film whose path fits the game's buffer, under string 9; then one whose path doesn't,
+    // which says nothing and is logged.
     for ([_][]const u8{ "bandit", &@as([comms_movie_path_size - "pilots\\".len]u8, @splat('b')) }, [_]u8{ 9, 7 }) |film, name| {
         try routine.pushString(film);
         try routine.pushString("ms1_ban_001.ut");
@@ -2473,6 +2513,7 @@ test "PlayCommsMovie and CommsFromPilot say their lines on the radio" {
     try std.testing.expectEqual(videoreports.nobody, radio.object);
     try std.testing.expectEqual(hudmovie.Flags.looping, radio.movie.flags);
     try std.testing.expect(game.fixture.machine.finished);
+    try std.testing.expect(game.fixture.machine.warned.contains(.long_name));
 }
 
 test {

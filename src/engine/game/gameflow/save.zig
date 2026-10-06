@@ -9,6 +9,7 @@
 //! known code.
 
 const std = @import("std");
+const log = std.log.scoped(.save);
 const assert = std.debug.assert;
 const Io = std.Io;
 
@@ -532,11 +533,15 @@ pub const Folder = struct {
     }
 
     /// The bytes of the file of `extension` that goes with saved game `slot` of `call_sign`
-    /// (`companionName`), at most `limit` of them; null where there is none, or it can't be read.
+    /// (`companionName`), at most `limit` of them; null when there is none, or it can't be read,
+    /// which the log says.
     pub fn companion(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8, extension: []const u8, limit: usize) ?[]u8 {
         var name: [files.max_path]u8 = undefined;
         const path = companionName(&name, call_sign, slot, extension) catch return null;
-        return files.readFile(folder.io, gpa, folder.dir, path, .limited(limit)) catch null;
+        return files.readFile(folder.io, gpa, folder.dir, path, .limited(limit)) catch |err| {
+            log.warn("can't read {s}: {s}", .{ path, @errorName(err) });
+            return null;
+        };
     }
 
     /// Writes `bytes` as saved game `slot` of `call_sign`: over the file found whatever the case of
@@ -578,14 +583,14 @@ pub const Folder = struct {
         if (folder.extra) |extra| extra.vtable.removed(extra.context, folder, call_sign, slot);
     }
 
-    /// Removes the file of `extension` that goes with saved game `slot` of `call_sign`, where
-    /// there is one.
+    /// Removes the file of `extension` that goes with saved game `slot` of `call_sign`, if there is
+    /// one. When it can't be removed, the log says so.
     pub fn removeCompanion(folder: Folder, call_sign: []const u8, slot: u8, extension: []const u8) void {
         var name: [files.max_path]u8 = undefined;
         const path = companionName(&name, call_sign, slot, extension) catch return;
         var found: [files.max_path]u8 = undefined;
         const found_path = files.find(folder.io, folder.dir, path, &found) orelse return;
-        folder.dir.deleteFile(folder.io, found_path) catch {};
+        folder.dir.deleteFile(folder.io, found_path) catch |err| log.warn("can't remove {s}: {s}", .{ found_path, @errorName(err) });
     }
 
     /// Tells what's kept with the saved games that saved game `slot` of `call_sign` has been
@@ -960,6 +965,14 @@ test Folder {
     // Removed, it is gone.
     folder.remove("Ace", 1);
     try std.testing.expectEqual(null, folder.file(gpa, "Ace", 1));
+    // A file too large to read, or a folder in a file's place, reads as none; a folder isn't
+    // removed.
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = folder_name ++ "/AceGAME03.mods", .data = "more than sixteen bytes" });
+    try std.testing.expectEqual(null, folder.companion(gpa, "Ace", 3, mods_extension, 16));
+    try tmp.dir.createDirPath(std.testing.io, folder_name ++ "/AceGAME04.mods/inside");
+    try std.testing.expectEqual(null, folder.companion(gpa, "Ace", 4, mods_extension, 16));
+    folder.removeCompanion("Ace", 4, mods_extension);
+    _ = try tmp.dir.statFile(std.testing.io, folder_name ++ "/AceGAME04.mods/inside", .{});
 }
 
 test Extra {

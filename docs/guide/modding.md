@@ -232,7 +232,8 @@ Sounds, music, speech and movies in today's formats are planned
 A piece of music is a WAV file, 16-bit PCM or IMA ADPCM, at any rate. Where the game's piece loops
 back to a point partway through, so does the mod's, at the same moment of the music whatever its
 format: make it the same length as the game's, or at least as long as its loop point, to keep the
-loop where the game has it.
+loop where the game has it. If the game's piece can't be read, the mod's loops back to the game
+file's byte offset, which may be the wrong moment, and the log says so.
 
 ## Textures
 
@@ -1097,7 +1098,9 @@ A script's messages and errors follow its mod's name, as above;
 
 | In the log | What to check |
 |---|---|
-| A file `adds` where it should replace one of the game's | Its name: the game file's name, without folders, in any case. Textures, pictures, shapes, lines and faces are named as their sections say |
+| A file `adds` where it should replace one of the game's | Its name: the game file's name, without folders, in any case. Textures, pictures, shapes, lines and faces are named as their sections say. If the log also says `can't list the game's ...`, the name may be right |
+| `can't list the game's archive <name>, so the log may say a mod adds a file it replaces` | The game's archive is damaged. The mod still works if its files are named right |
+| `skipping <name>: <error>` | A link in `mods` or in a mod whose target is missing, or an entry that can't be read: fix or remove it |
 | `skipping <name>: a mod must be a .hog archive or a folder` | Only folders and `.hog` archives go directly in `mods` |
 | `skipping <mod>/<file>: a mod's files must be directly in its folder` | Move the file out of its subfolder |
 | `skipping <mod>/<file>: file names must be printable ASCII, like archive member names` | Rename the file |
@@ -1109,3 +1112,5 @@ A script's messages and errors follow its mod's name, as above;
 | `<file> is left out: it is compressed in <format>, which the device doesn't take` | The GPU doesn't take that format; use a PNG file instead ([Compression](#compression)) |
 | `the line <name> is not in ms_speech/msspeech.hog` | The line's name ([Lines](#lines)) |
 | `the radio's film <name> is left out: ...` | The film's name ([Faces](#faces)) |
+| `the dead channel's film pilots\static.fm8 is left out too: ...` | The game's `pilots.hog` is missing or damaged |
+| `the mod's music <path> may loop back to the wrong moment, since the game's piece can't be read: ...` | Keep the game's piece in the game folder ([Music](#music)) |

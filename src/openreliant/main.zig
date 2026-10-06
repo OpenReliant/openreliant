@@ -580,10 +580,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var gates: game.wgate.Gates = try .init(gpa, &textures, explosions.settings.detail, context.hardware, options.gates);
     defer gates.deinit();
     // The force feedback's effects, and what plays them on the player's controller.
-    const found_forces = engine.input.force.load(io, arena, directory, &mods);
-    var lacking = found_forces.lacking.iterator();
-    while (lacking.next()) |effect| std.log.warn("forces\\{s} is missing or isn't an effect file: it plays nothing", .{effect.fileName()});
-    var force_feedback: engine.input.force.Forces = .{ .library = &found_forces.library, .settings = options.forces };
+    const forces_library = engine.input.force.load(io, arena, directory, &mods);
+    var force_feedback: engine.input.force.Forces = .{ .library = &forces_library, .settings = options.forces };
     // What the objects run in, the camera's view brought up to date each frame.
     var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .view = view.view, .shake = &view.hit_shake, .random = &rand, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates };
 

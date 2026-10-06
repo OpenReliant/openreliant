@@ -16,6 +16,7 @@
 //! game plays them on a DirectInput joystick with force feedback alone.
 
 const std = @import("std");
+const log = std.log.scoped(.input);
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
@@ -109,33 +110,35 @@ pub const Library = struct {
     files: std.EnumArray(Effect, ?frc.File) = .initFill(null),
 };
 
-/// The effects `load` read, and those the game lacks.
-pub const Found = struct {
-    library: Library = .{},
-    /// The effects whose files are missing, can't be read or aren't effect files, which play
-    /// nothing.
-    lacking: std.EnumSet(Effect) = .full,
-};
-
 /// The folder the effects' files are in (`0x0050E1D8`).
 const folder = "forces\\";
 
 /// `load_force_effects` (`0x004BD800`): reads each effect's file in `folder` under the game folder
-/// `directory` into `arena`, finding the folder and files ignoring case as Windows does, with a mod
-/// file of the same name taking priority (`bigfile.Mods.readLoose`). OpenReliant also reads the
+/// `directory` into `arena`. The folder and the files are found in any case, as on Windows, and a
+/// mod's file with the same name comes first (`bigfile.Mods.readLoose`). OpenReliant also reads the
 /// effect files the game ships but never reads (`Unread`), and reads them all whatever the
-/// controller.
-pub fn load(io: Io, arena: Allocator, directory: Io.Dir, mods: *const bigfile.Mods) Found {
-    var found: Found = .{};
+/// controller. An effect whose file is missing, can't be read or isn't an effect file plays
+/// nothing. The game reports such a file through a debug message that the retail build leaves out
+/// (`debug_print`, `0x004BFF10`), so it says nothing; OpenReliant logs each one with the reason.
+pub fn load(io: Io, arena: Allocator, directory: Io.Dir, mods: *const bigfile.Mods) Library {
+    var library: Library = .{};
     for (std.enums.values(Effect)) |effect| {
         var path: [files.max_path]u8 = undefined;
         const name = std.mem.print(&path, folder ++ "{s}", .{effect.fileName()}) catch continue;
-        const bytes = (mods.readLoose(io, arena, directory, name, .limited(files.max_file_size)) catch continue) orelse continue;
-        const file = frc.File.parse(arena, bytes) catch continue;
-        found.library.files.set(effect, file);
-        found.lacking.remove(effect);
+        const bytes = mods.readLoose(io, arena, directory, name, .limited(files.max_file_size)) catch |err| {
+            log.warn("can't read {s}, so its effect plays nothing: {s}", .{ name, @errorName(err) });
+            continue;
+        } orelse {
+            log.warn("{s} is missing, so its effect plays nothing", .{name});
+            continue;
+        };
+        const file = frc.File.parse(arena, bytes) catch |err| {
+            log.warn("{s} isn't an effect file, so its effect plays nothing: {s}", .{ name, @errorName(err) });
+            continue;
+        };
+        library.files.set(effect, file);
     }
-    return found;
+    return library;
 }
 
 /// How hard the controller's two motors turn, from 0 to 1: the low-frequency one, a heavy rumble,
@@ -471,7 +474,7 @@ test load {
     defer tmp.cleanup();
 
     // Without the folder, nothing plays.
-    try std.testing.expect(load(io, arena, tmp.dir, &bigfile.Mods.none).lacking.contains(.lc));
+    try std.testing.expectEqual(null, load(io, arena, tmp.dir, &bigfile.Mods.none).files.get(.lc));
 
     // The folder and its files are found whatever the case of their names; a file that isn't one
     // is left out.
@@ -479,11 +482,10 @@ test load {
     const bytes = try frc.testing.file(arena, &.{.{ .id = 0, .name = "Sine1", .kind = 2, .type = 102, .duration = 305, .rest = &.{ 4, 30, @bitCast(@as(i32, -30)) } }});
     try tmp.dir.writeFile(io, .{ .sub_path = "Forces/Lc.FRC", .data = bytes });
     try tmp.dir.writeFile(io, .{ .sub_path = "Forces/SHAKE.frc", .data = "not an effect" });
-    const found = load(io, arena, tmp.dir, &bigfile.Mods.none);
-    try std.testing.expectEqual(305, found.library.files.get(.lc).?.effects[0].duration);
-    try std.testing.expect(!found.lacking.contains(.lc));
-    try std.testing.expectEqual(null, found.library.files.get(.shake));
-    try std.testing.expect(found.lacking.contains(.shake) and found.lacking.contains(.missile));
+    const library = load(io, arena, tmp.dir, &bigfile.Mods.none);
+    try std.testing.expectEqual(305, library.files.get(.lc).?.effects[0].duration);
+    try std.testing.expectEqual(null, library.files.get(.shake));
+    try std.testing.expectEqual(null, library.files.get(.missile));
 }
 
 test millis {
