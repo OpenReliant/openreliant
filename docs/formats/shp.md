@@ -8,6 +8,7 @@ sltool shp info <model>                 # header flags, bounds, arcs, parts, lev
 sltool shp chunks <model>               # the raw chunk stream
 sltool shp check <model>                # validate indices, parents and bounds, and write it again
 sltool shp obj <model> <out.obj> [--lod n]
+sltool shp gltf <model> <out.gltf> [--lod n] [--textures <tcachehw.dat> <palette.tga>]
 make models                             # export every model to game/models
 make check-models                       # validate every model, and write each again
 ```
@@ -388,6 +389,14 @@ from the camera.
 coordinates exactly as the file stores them. `shp info` and `shp check` always report model space.
 The export leaves out wire faces and caps, and swaps the last two corners of odd strip members so
 that every face winds alike.
+
+`sltool shp gltf` writes glTF 2.0 the same way (`shp/to_gltf.zig`), with each part a node under
+the node of the part it hangs from, moved by its origin less its parent's and not turned: a part's
+orientation sets the axes its animation turns it about, and leaves its mesh as it is at rest
+(`objects.Model.placeFor`). Each attachment is an empty node under its part's, named as
+`sltool shp from-gltf` reads it, and each material names its picture, `<material>.png`, which
+`--textures` writes from the texture cache. glTF numbers texture coordinates from the top, as this
+format does.
 
 Wavefront OBJ also numbers texture coordinates from the bottom up, the opposite of this format, so
 the exporter emits `1 - v`.

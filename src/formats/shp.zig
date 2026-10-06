@@ -17,6 +17,7 @@ const assert = std.debug.assert;
 const layout = @import("layout.zig");
 /// A model built from a Wavefront OBJ file, for mods.
 pub const from_obj = @import("shp/from_obj.zig");
+pub const to_gltf = @import("shp/to_gltf.zig");
 const models = @import("../engine/game/create/models.zig");
 
 pub const Vec3 = extern struct {
@@ -47,6 +48,10 @@ pub const Vec3 = extern struct {
 
     pub fn add(a: Vec3, b: Vec3) Vec3 {
         return .{ .x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z };
+    }
+
+    pub fn sub(a: Vec3, b: Vec3) Vec3 {
+        return .{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z };
     }
 };
 
@@ -305,6 +310,13 @@ pub const Part = extern struct {
         warp_projector = 21,
         fuel_pod = 22,
         _,
+
+        pub fn format(class: Class, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            return switch (class) {
+                _ => writer.print("class {d}", .{@intFromEnum(class)}),
+                inline else => |named| writer.writeAll(@tagName(named)),
+            };
+        }
 
         /// Whether a part of the class is a turret, which takes a gun of its own by its turret
         /// kind (`part_is_turret`, `0x00479610`).
@@ -1984,4 +1996,5 @@ test "a model that mounts itself stops at the depth limit" {
 
 test {
     _ = from_obj;
+    _ = to_gltf;
 }
