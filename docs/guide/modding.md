@@ -679,9 +679,14 @@ missions use the mod's pilots by the numbers in `[Pilots]`. A script can set the
   `rus` for the Coalition's, or a new one whose lines the mod gives as files with those names, such
   as `trpres_001.ut`.
 
-Making face films and lines of your own needs encoders OpenReliant doesn't have yet
-([#353](https://github.com/OpenReliant/openreliant/issues/353),
-[#351](https://github.com/OpenReliant/openreliant/issues/351)); until then, use the game's.
+`sltool fm8 encode <frames-dir> <film.fm8>` makes a face film of the PNG files in a folder, in the
+order of their names, at 15 frames a second. A face is 120 by 100 pixels; a pixel less than half
+opaque becomes the colour the radio's window draws see-through. The film keeps every colour where
+the frames have 256 or fewer, and picks 256 for them otherwise, the see-through colour kept as it
+is. `sltool fm8 extract` gives a film of the game's as frames to start from.
+
+Making lines of your own needs an encoder OpenReliant doesn't have yet
+([#351](https://github.com/OpenReliant/openreliant/issues/351)); until then, use the game's.
 
 ## Models from OBJ
 

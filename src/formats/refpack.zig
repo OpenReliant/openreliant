@@ -456,6 +456,13 @@ pub const Compressor = struct {
         return compressor.compressWithin(gpa, data, in_place_slack);
     }
 
+    /// Compresses `data` for a reader that expands it into a buffer of its own rather than in
+    /// place, such as a face film's key frame (`talkie_key`): the stream may run as far ahead of
+    /// what it expands as it needs.
+    pub fn compressApart(compressor: *Compressor, gpa: Allocator, data: []const u8) CompressError![]u8 {
+        return compressor.compressWithin(gpa, data, std.math.maxInt(i63));
+    }
+
     fn compressWithin(compressor: *Compressor, gpa: Allocator, data: []const u8, slack: usize) CompressError![]u8 {
         if (data.len > max_size) return error.TooLarge;
 
