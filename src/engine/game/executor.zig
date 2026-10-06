@@ -985,9 +985,15 @@ const pod_quarter_back: f32 = -std.math.pi / 2.0;
 /// ship's lights go out (`gameobj.GameObject.Flags.lights_disabled`), with the static lights baked
 /// into its parts' meshes (`showStaticLights`); where it is not, they come on again.
 fn disableLightsShip(call: Call, ship: Ship) void {
-    const out = call.args[0] != 0;
-    ship.slot.object.flags.lights_disabled = out;
-    if (ship.slot.model) |*model| showStaticLights(model, !out);
+    setLights(ship.slot, call.args[0] == 0);
+}
+
+/// The lights of the object in `slot` on, or out (`gameobj.GameObject.Flags.lights_disabled`), with
+/// the static lights baked into its parts' meshes (`showStaticLights`), as `DisableLights` sets
+/// them.
+pub fn setLights(slot: *create.Slot, on: bool) void {
+    slot.object.flags.lights_disabled = !on;
+    if (slot.model) |*model| showStaticLights(model, on);
 }
 
 /// `0x00459090`: the static lights baked into the meshes of each part of `model` that has them

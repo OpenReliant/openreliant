@@ -59,6 +59,7 @@ pub const Page = struct {
 pub const package = struct {
     pub const register_page = api.Function("Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `\"toggle\"` has a boolean default. A `\"choice\"` has `choices`, each a `value` and a `label`, and a default among their values. A `\"number\"` has `min`, `max` and `step`, and a default in the range, and arrows step it. A `\"slider\"` is a number with a knob to drag, for a wide range. A `\"text\"` is a line the player types, of up to 24 characters, with a string default. A `\"heading\"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.", &.{"page"}, registerPage);
     pub const get = api.Function("The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set.", &.{"key"}, getOption);
+    pub const set = api.Function("Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_setting_changed`).", &.{ "key", "value" }, setOption);
 };
 
 fn registerPage(call: Call, given: Page) void {
@@ -94,6 +95,20 @@ fn getOption(call: Call, key: []const u8) mod_options.Value {
     const registry = registryOf(call);
     const mod = call.context.modOf().name;
     return registry.value(mod, key) orelse call.raise("settings: the mod {s} has no option '{s}'", .{ mod, key });
+}
+
+fn setOption(call: Call, key: []const u8, value: mod_options.Value) void {
+    const registry = registryOf(call);
+    const mod = call.context.modOf().name;
+    const each = registry.option(mod, key) orelse call.raise("settings: the mod {s} has no option '{s}'", .{ mod, key });
+    // A number option holds a number to its range; any other option takes only a value that suits
+    // it as it is.
+    const suits = switch (each.control) {
+        .number, .slider => value == .number,
+        else => each.fit(value).eql(value),
+    };
+    if (!suits) call.raise("settings: the option '{s}' can't take that value", .{key});
+    registry.set(mod, key, value) catch call.raise("settings: out of memory", .{});
 }
 
 fn registryOf(call: Call) *Registry {
@@ -387,6 +402,30 @@ test "a load script declares a page, and every script reads the values" {
         if (changes == 4) try std.testing.expectEqualStrings("Maverick", change.value.text);
     }
     try std.testing.expectEqual(6, changes);
+}
+
+test "a script sets its mod's own options" {
+    var storage: Storage = .{ .gpa = std.testing.allocator };
+    defer storage.deinit();
+    var registry: Registry = .init(std.testing.allocator, &storage);
+    defer registry.deinit();
+    try runMod(wingmen_page ++
+        \\
+        \\settings.set("show", false)
+        \\settings.set("regroup", 1000)
+        \\settings.set("flee", 0.2)
+        \\assert(settings.get("show") == false and settings.get("regroup") == 60 and settings.get("flee") == 0.2)
+        \\assert(not pcall(settings.set, "flee", 0.5))
+        \\assert(not pcall(settings.set, "show", 3))
+        \\assert(not pcall(settings.set, "callsign", string.rep("a", 25)))
+        \\assert(not pcall(settings.set, "missing", 1))
+    , &registry);
+    // The values are kept as the screen keeps them, and the changes wait to be told.
+    try std.testing.expectEqual(false, storage.read("a", section_name, .global, "show").?.boolean);
+    try std.testing.expectEqual(mod_options.Value{ .number = 60 }, registry.value("a", "regroup").?);
+    var changes: usize = 0;
+    while (registry.takeChange()) |_| changes += 1;
+    try std.testing.expectEqual(3, changes);
 }
 
 test "a page that is wrong is refused, and a mod has one page" {

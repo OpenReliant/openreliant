@@ -635,7 +635,13 @@ a script holds it.
 Every script can read a handle's fields. A field with a setter can be changed by a global script on
 any object, and by an object's own scripts on their object (`objects.mayChange`); the setter checks
 the value's range, such as the throttle's (`motion.reverse_throttle` to
-`motion.afterburner_throttle`). The same goes for `give_order`, which gives an order as the
+`motion.afterburner_throttle`). The setters do what the game's own code does for the same change:
+`position` and `orientation` place the object as `SnapToPoint` does (`objects.setPosition`,
+`objects.setOrientation`), the orientation's axes squared up first (`math.orthonormalize`);
+`armor` works out its conditions again (`main.armorConditions`); and the flags set what the
+mission's commands set, through the same routines where a command does more than set its flag
+(`cloak.set`, `ai.setTargetable`, `executor.setLights`). Shields and armour go up to what
+`create.makeWhole` gives a ship. The same goes for `give_order`, which gives an order as the
 mission's `SetAI` does (`aigeneric.give`), and for `hook`, which adds a handler whose filter names
 the object. `add_script` and `remove_script` are for global scripts only, and act on the calling
 mod's scripts.

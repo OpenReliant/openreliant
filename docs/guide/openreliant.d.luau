@@ -10,6 +10,7 @@ type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "r
 type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debris" | "mine" | "planet" | number
 type PilotNumber = "none" | number | string
 type Side = "friendly" | "hostile" | "neutral" | number
+type Invulnerability = "none" | "player_can_hit" | "full" | "eject_before_exploding" | number
 type MissileType = "none" | "screamer" | "raptor" | "havoc" | "jack_hammer" | "bandit" | "vagabond" | "solomon" | "imp" | "hawk" | "torpedo" | "fuel_pod" | number | string
 type Missile =  | number
 type Font = "default" | "hud" | "menu_small" | "menu_large"
@@ -45,17 +46,17 @@ type Orientation = {
     down: vector,
     forward: vector,
 }
-type Quadrants = {
-    left: number,
-    right: number,
-    fore: number,
-    aft: number,
-}
 type Target = {
     object: Object?,
     component: number?,
     flight_group: number?,
     squad: number?,
+}
+type Quadrants = {
+    left: number,
+    right: number,
+    fore: number,
+    aft: number,
 }
 type Handle = {
     record: number,
@@ -193,20 +194,24 @@ declare class Object
     class: ShipClass?
     -- The pilot flying it, whose record sets how it flies and fights: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`.
     pilot: PilotNumber
-    -- The side it's on.
+    -- The side it's on. Setting it changes its side, as a mission's SetHostile does.
     side: Side
-    -- Where it is.
+    -- Where it is. Setting it moves it there at once, as a mission's SnapToPoint does.
     position: vector
-    -- Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`).
+    -- Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, the forward one keeping its direction.
     orientation: Orientation
-    -- How far it moves in a simulation step, of which there are 25 a second.
+    -- How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its engines carry on from there.
     velocity: vector
     -- How fast it moves: the length of its velocity.
     speed: number
+    -- How far its model reaches from its middle.
+    radius: number
     -- Whether it's the player's ship.
     is_player: boolean
     -- The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none.
     order: (string | number)?
+    -- What the order it's following is aimed at; nil while it follows none.
+    target: Target?
     -- The object that last hit it; nil for none, or once that one has left the mission.
     last_attacker: Object?
     -- Its throttle: 1 is full, 2 the afterburner's and -1 reverse thrust's. Its order or its pilot usually sets it each frame.
@@ -217,12 +222,44 @@ declare class Object
     pitch_input: number
     -- How hard it yaws, from -1 to 1. Its order or its pilot usually sets it each frame.
     yaw_input: number
-    -- Its shields in each quadrant.
+    -- Whether its afterburner burns.
+    afterburning: boolean
+    -- The afterburner's fuel left, in seconds of burning. Setting it fills or drains the tank, from 0 up.
+    afterburner_fuel: number
+    -- How many countermeasures it has left.
+    countermeasures: number
+    -- Its shields in each quadrant. Each can be set from 0 to what a whole ship of its type has; an object without stats has no shields to set.
     shields: Quadrants
-    -- Its armour in each quadrant.
+    -- Its armour in each quadrant. Each can be set from 0 to what a whole ship of its type has, and its guns, speed and shields' recharge follow, as damage wears them; an object without stats has no armour to set.
     armor: Quadrants
     -- The share of its armour it has left, from about 1 as it's made down to 0: its weakest quadrant against a quadrant's full armour. Nil for an object without stats.
     hull: number?
+    -- What can harm it: anything for `none`, nothing for `full`, only a player's ship for `player_can_hit`, and anything for `eject_before_exploding`, though its pilot ejects first. Setting it is what a mission's SetInvulnerability does.
+    invulnerable: Invulnerability
+    -- Whether it has started to explode. It takes no more orders.
+    exploding: boolean
+    -- Whether its pilot has ejected. It takes no more orders.
+    ejected: boolean
+    -- Whether it's cloaked. Setting it cloaks or uncloaks it, as a mission's Cloak does, where its model can.
+    cloaked: boolean
+    -- Whether ships can target it. Setting it is what a mission's SetTargetable does: a type that can't be targeted stays so.
+    targetable: boolean
+    -- Whether its lights are on. Setting it is what a mission's DisableLights does.
+    lights: boolean
+    -- Whether it's left out of the mission's work, as a mission's DisableObject leaves it.
+    disabled: boolean
+    -- Whether its guns don't fire and its turrets rest, as a mission's DisableGuns sets.
+    guns_disabled: boolean
+    -- Whether it can't launch missiles, as a mission's DisableMissiles sets.
+    missiles_disabled: boolean
+    -- Whether its engines are off: its throttle held at 0, and no afterburner or reverse thrust, as a mission's DisableEngines sets.
+    engines_disabled: boolean
+    -- Whether the player can't eject from it, as a mission's DisableEject sets.
+    eject_disabled: boolean
+    -- Whether it keeps to its orders: it doesn't retaliate, come to another's help, rise to a taunt or take the wingmen's commands, as a mission's DoNotDisturb sets.
+    do_not_disturb: boolean
+    -- Whether it no longer keeps clear of other ships, as a mission's SetShipAvoidance sets.
+    avoidance_disabled: boolean
     -- Whether the object is still in the mission. A handle stops being valid once its object is removed or its mission ends.
     function is_valid(self): boolean
     -- Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. `component` aims it at one part of `target` instead of the whole ship, as a mission's orders can: for Launch, the carrier's launch gate, counting from 0; for Dock, the port. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object.
@@ -249,11 +286,11 @@ declare class Missile
     target: Target
     -- The side it's on: its launcher's, as it was launched.
     side: Side
-    -- Where it is.
+    -- Where it is. Setting it moves it there at once.
     position: vector
-    -- Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`).
+    -- Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, and its guidance turns on from there.
     orientation: Orientation
-    -- How far it moves in a simulation step, of which there are 25 a second.
+    -- How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its motor carries on from there.
     velocity: vector
     -- How fast it moves: the length of its velocity.
     speed: number
@@ -346,6 +383,8 @@ type World = {
     mission: Mission?,
     -- Every object in the mission, in the order of their slots.
     objects: () -> { Object },
+    -- Every missile in flight, newest first.
+    missiles: () -> { Missile },
 }
 
 -- The objects around the script's own object or missile.
@@ -538,6 +577,8 @@ type Settings = {
     register_page: (page: Page) -> (),
     -- The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set.
     get: (key: string) -> boolean | number | string,
+    -- Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_setting_changed`).
+    set: (key: string, value: boolean | number | string) -> (),
 }
 
 -- Lines and text placed in the world, drawn over the flight display where the camera sees them, for debugging.
@@ -611,6 +652,7 @@ type Interfaces = {
         player: Object?,
         mission: Mission?,
         objects: () -> { Object },
+        missiles: () -> { Missile },
     },
     Campaign: {
         mission: Mission?,

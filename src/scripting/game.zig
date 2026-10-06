@@ -1216,7 +1216,7 @@ test "missile scripts run on each missile from its launch to its end, and see it
                 \\local hooks = require("openreliant.hooks")
                 \\hooks.add("missile_added", function(e) assert(e.launcher.type == "predator") end)
                 \\return { event_handlers = {
-                \\    launched = function(kind) if kind == "raptor" then world.objects()[2].throttle = 0.5 end end,
+                \\    launched = function(kind) if kind == "raptor" and #world.missiles() == 1 then world.objects()[2].throttle = 0.5 end end,
                 \\    ended = function() world.objects()[2].throttle = 0.25 end,
                 \\} }
             },

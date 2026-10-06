@@ -79,6 +79,7 @@ The mission's objects, the player's ship and the mission itself. For global scri
 | `player` | [object](#objects), or nil | The player's ship, while a mission runs; nil between missions. |
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
 | `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
+| `missiles()` | list of [missile](#missiles) | Every missile in flight, newest first. |
 
 ### `openreliant.self`
 
@@ -253,6 +254,7 @@ The options a mod offers the player on the mods screen: declaring the page, and 
 |---|---|---|
 | `register_page(page: Page)` | nothing | Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range, and arrows step it. A `"slider"` is a number with a knob to drag, for a wide range. A `"text"` is a line the player types, of up to 24 characters, with a string default. A `"heading"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page. |
 | `get(key: string)` | boolean \| number \| string | The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set. |
+| `set(key: string, value: boolean \| number \| string)` | nothing | Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_setting_changed`). |
 
 ### `openreliant.debug`
 
@@ -276,21 +278,39 @@ scripts on their object.
 | `type` | [ShipType](#shiptype) | Its type, such as `predator`. |
 | `class` | [ShipClass](#shipclass), or nil | Its class, such as `fighter`; nil for an object without stats, such as a nav point. |
 | `pilot` | [PilotNumber](#pilotnumber) | *Changes.* The pilot flying it, whose record sets how it flies and fights: a pilot of the game's by its number, one a mod adds by its qualified name, or `none`. |
-| `side` | [Side](#side) | The side it's on. |
-| `position` | vector | Where it is. |
-| `orientation` | [Orientation](#orientation) | Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). |
-| `velocity` | vector | How far it moves in a simulation step, of which there are 25 a second. |
+| `side` | [Side](#side) | *Changes.* The side it's on. Setting it changes its side, as a mission's SetHostile does. |
+| `position` | vector | *Changes.* Where it is. Setting it moves it there at once, as a mission's SnapToPoint does. |
+| `orientation` | [Orientation](#orientation) | *Changes.* Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, the forward one keeping its direction. |
+| `velocity` | vector | *Changes.* How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its engines carry on from there. |
 | `speed` | number | How fast it moves: the length of its velocity. |
+| `radius` | number | How far its model reaches from its middle. |
 | `is_player` | boolean | Whether it's the player's ship. |
 | `order` | string \| number, or nil | The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none. |
+| `target` | [Target](#target), or nil | What the order it's following is aimed at; nil while it follows none. |
 | `last_attacker` | [object](#objects), or nil | The object that last hit it; nil for none, or once that one has left the mission. |
 | `throttle` | number | *Changes.* Its throttle: 1 is full, 2 the afterburner's and -1 reverse thrust's. Its order or its pilot usually sets it each frame. |
 | `roll_input` | number | *Changes.* How hard it rolls, from -1 to 1. Its order or its pilot usually sets it each frame. |
 | `pitch_input` | number | *Changes.* How hard it pitches, from -1 to 1. Its order or its pilot usually sets it each frame. |
 | `yaw_input` | number | *Changes.* How hard it yaws, from -1 to 1. Its order or its pilot usually sets it each frame. |
-| `shields` | [Quadrants](#quadrants) | Its shields in each quadrant. |
-| `armor` | [Quadrants](#quadrants) | Its armour in each quadrant. |
+| `afterburning` | boolean | Whether its afterburner burns. |
+| `afterburner_fuel` | number | *Changes.* The afterburner's fuel left, in seconds of burning. Setting it fills or drains the tank, from 0 up. |
+| `countermeasures` | number | *Changes.* How many countermeasures it has left. |
+| `shields` | [Quadrants](#quadrants) | *Changes.* Its shields in each quadrant. Each can be set from 0 to what a whole ship of its type has; an object without stats has no shields to set. |
+| `armor` | [Quadrants](#quadrants) | *Changes.* Its armour in each quadrant. Each can be set from 0 to what a whole ship of its type has, and its guns, speed and shields' recharge follow, as damage wears them; an object without stats has no armour to set. |
 | `hull` | number, or nil | The share of its armour it has left, from about 1 as it's made down to 0: its weakest quadrant against a quadrant's full armour. Nil for an object without stats. |
+| `invulnerable` | [Invulnerability](#invulnerability) | *Changes.* What can harm it: anything for `none`, nothing for `full`, only a player's ship for `player_can_hit`, and anything for `eject_before_exploding`, though its pilot ejects first. Setting it is what a mission's SetInvulnerability does. |
+| `exploding` | boolean | Whether it has started to explode. It takes no more orders. |
+| `ejected` | boolean | Whether its pilot has ejected. It takes no more orders. |
+| `cloaked` | boolean | *Changes.* Whether it's cloaked. Setting it cloaks or uncloaks it, as a mission's Cloak does, where its model can. |
+| `targetable` | boolean | *Changes.* Whether ships can target it. Setting it is what a mission's SetTargetable does: a type that can't be targeted stays so. |
+| `lights` | boolean | *Changes.* Whether its lights are on. Setting it is what a mission's DisableLights does. |
+| `disabled` | boolean | *Changes.* Whether it's left out of the mission's work, as a mission's DisableObject leaves it. |
+| `guns_disabled` | boolean | *Changes.* Whether its guns don't fire and its turrets rest, as a mission's DisableGuns sets. |
+| `missiles_disabled` | boolean | *Changes.* Whether it can't launch missiles, as a mission's DisableMissiles sets. |
+| `engines_disabled` | boolean | *Changes.* Whether its engines are off: its throttle held at 0, and no afterburner or reverse thrust, as a mission's DisableEngines sets. |
+| `eject_disabled` | boolean | *Changes.* Whether the player can't eject from it, as a mission's DisableEject sets. |
+| `do_not_disturb` | boolean | *Changes.* Whether it keeps to its orders: it doesn't retaliate, come to another's help, rise to a taunt or take the wingmen's commands, as a mission's DoNotDisturb sets. |
+| `avoidance_disabled` | boolean | *Changes.* Whether it no longer keeps clear of other ships, as a mission's SetShipAvoidance sets. |
 
 | Method | Returns | What it does |
 |---|---|---|
@@ -315,9 +335,9 @@ marked *changes* on any missile, and a missile's own scripts on their missile.
 | `launcher` | [object](#objects), or nil | The object that launched it, or let it fall; nil once that one has left the mission. |
 | `target` | [Target](#target) | *Changes.* What it flies at. Its guidance turns to a new target from the next frame. |
 | `side` | [Side](#side) | The side it's on: its launcher's, as it was launched. |
-| `position` | vector | Where it is. |
-| `orientation` | [Orientation](#orientation) | Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). |
-| `velocity` | vector | How far it moves in a simulation step, of which there are 25 a second. |
+| `position` | vector | *Changes.* Where it is. Setting it moves it there at once. |
+| `orientation` | [Orientation](#orientation) | *Changes.* Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, and its guidance turns on from there. |
+| `velocity` | vector | *Changes.* How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its motor carries on from there. |
 | `speed` | number | How fast it moves: the length of its velocity. |
 
 | Method | Returns | What it does |
@@ -420,6 +440,7 @@ marked *changes* on any missile, and a missile's own scripts on their missile.
 | `player` | [object](#objects), or nil | The player's ship, while a mission runs; nil between missions. |
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
 | `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
+| `missiles()` | list of [missile](#missiles) | Every missile in flight, newest first. |
 
 ### I.Campaign
 
@@ -1000,15 +1021,6 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 | `down` | vector |
 | `forward` | vector |
 
-### Quadrants
-
-| Field | Type |
-|---|---|
-| `left` | number |
-| `right` | number |
-| `fore` | number |
-| `aft` | number |
-
 ### Target
 
 | Field | Type |
@@ -1017,6 +1029,15 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 | `component` | number, or nil |
 | `flight_group` | number, or nil |
 | `squad` | number, or nil |
+
+### Quadrants
+
+| Field | Type |
+|---|---|
+| `left` | number |
+| `right` | number |
+| `fore` | number |
+| `aft` | number |
 
 ### Handle
 
@@ -1245,6 +1266,10 @@ number. A script can set a field to either.
 ### Side
 
 `friendly`, `hostile`, `neutral`, or a number.
+
+### Invulnerability
+
+`none`, `player_can_hit`, `full`, `eject_before_exploding`, or a number.
 
 ### MissileType
 

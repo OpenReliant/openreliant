@@ -480,20 +480,28 @@ end
   keys.
 - A handle is valid until its object leaves the mission or the mission ends. Reading a field of one
   that isn't valid is an error. `object:is_valid()` tells which.
-- `openreliant.world` gives global scripts `world.objects()`, the player's ship as `world.player`,
-  and the mission as `world.mission`, with its `number` and its `file`'s name.
+- `openreliant.world` gives global scripts `world.objects()`, the missiles in flight as
+  `world.missiles()`, the player's ship as `world.player`, and the mission as `world.mission`, with
+  its `number` and its `file`'s name.
 - `type` is a name such as `"predator"`, or the qualified name of a mod's type, such as
   `"teapot:teapot"`.
 - `shields` and `armor` give each quadrant: `left`, `right`, `fore` and `aft`. `hull` is the share
   of armour left in the weakest quadrant, from 1 down to 0.
 
-Global scripts can change a few fields on any object, and an object script can change them on its
-own object:
+Global scripts can change many of an object's fields on any object, and an object script can change
+them on its own object. The [reference](reference.md#objects) marks each with *Changes*:
 
 - `throttle`: 1 is full, 2 the afterburner and -1 reverse thrust.
 - `roll_input`, `pitch_input` and `yaw_input`: how hard it turns, from -1 to 1.
 - `pilot`: the pilot who flies it, whose record sets how it flies and fights. A pilot of the game's
   by number, a mod's pilot by its qualified name, or `"none"`.
+- `position`, `orientation` and `velocity`: setting the first two moves or turns it at once, and
+  setting its velocity pushes it.
+- `side`, `shields`, `armor`, `afterburner_fuel` and `countermeasures`. Shields and armour go from 0
+  up to what a whole ship of the type has.
+- What a mission's commands set: `invulnerable`, `cloaked`, `targetable`, `lights`, `disabled`,
+  `guns_disabled`, `missiles_disabled`, `engines_disabled`, `eject_disabled`, `do_not_disturb` and
+  `avoidance_disabled`.
 
 An order usually sets the throttle and the turning each frame, so a change to those lasts until the
 order sets them again. To change what a ship does, give it an order ([Orders](#orders)).
@@ -620,8 +628,9 @@ return {
   `on_removed` as its flight ends. As a mission ends, its missiles' scripts stop without
   `on_removed`.
 - Each missile's scripts have their own globals, as each object's have.
-- `self.target` can be set to aim the missile elsewhere, and `self:detonate()` ends its flight at
-  once. Global scripts can do both to any missile.
+- `self.target` can be set to aim the missile elsewhere, `position`, `orientation` and `velocity`
+  to move, turn or push it, and `self:detonate()` ends its flight at once. Global scripts can do all
+  of these to any missile.
 - `nearby.objects(radius)` gives the objects around the missile, nearest first.
 - Global scripts hear of each missile with the events `missile_added` and `missile_removed`.
 
@@ -1405,6 +1414,9 @@ local rejoin_after = settings.get("rejoin_after")
   has restarted.
 - `settings.get(key)` gives what the player set, or the default. A value that no longer suits the
   option, such as a choice the mod has since dropped, reads as the default.
+- `settings.set(key, value)` sets one of the mod's own options, as the player does on the mods
+  screen, such as from a key the mod binds. A number is held to its range, and a value that doesn't
+  suit the option otherwise is an error.
 - The player sets options in the front end, before a game starts. A script that runs in a game
   reads them as it starts. A menu script can also hear a change at once, with the engine handler
   `on_setting_changed(key, value)`.
