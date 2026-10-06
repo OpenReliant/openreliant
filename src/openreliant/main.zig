@@ -480,7 +480,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     objects.missile_stats.addTypes();
     objects.missile_stats.load(missile_stats);
     objects.pilots.load(pilot_stats);
-    if (asked_ship) |chosen| objects.loadout_ships[objects.player] = @fromBackingInt(@intCast(chosen));
+    if (asked_ship) |chosen| objects.loadout_ships[objects.player] = @fromBackingInt(chosen);
     // What the shots are drawn with, built once (`guns_init`); the Turret Flak's shell is loaded as
     // each mission starts.
     objects.bullets.looks = try game.guns.Looks.create(arena, &textures);
@@ -986,7 +986,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             };
             // The flight's ship, else the one `--ship` names, else the mission's ship; and the
             // simulator it runs in; and the campaign whose variables each attempt starts from.
-            objects.loadout_ships[objects.player] = if (flight.ship orelse asked_ship) |ship| @fromBackingInt(@intCast(ship)) else null;
+            objects.loadout_ships[objects.player] = if (flight.ship orelse asked_ship) |ship| @fromBackingInt(ship) else null;
             objects.loadout_racks[objects.player] = flight.racks;
             objects.simulator = flight.simulator;
             // The simulator pod's missions run on the campaign's variables too, as the game's are
@@ -1257,7 +1257,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
 /// by its name, one of the game's (`predator`) or a mod's (`teapot:teapot`). Null for none.
 fn shipNamed(text: []const u8) ?game.create.TypeIndex {
     const object_type: game.gameobj.Type = if (std.fmt.parseInt(u16, text, 0)) |number|
-        @fromBackingInt(@intCast(number))
+        @fromBackingInt(number)
     else |_|
         game.gameobj.Type.fromScriptName(text) orelse return null;
     if (object_type.added() == null) {

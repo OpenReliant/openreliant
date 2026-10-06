@@ -294,7 +294,7 @@ pub fn createShip(game: aigeneric.Context, bound: *const mission.Mission, index:
 /// reads the wing of a ship in no flight group from past the groups; OpenReliant makes the first of
 /// its own kind, and takes the second for a ship of no wing.
 fn shipType(all: *const create.Objects, bound: *const mission.Mission, ship: dte.Ship) gameobj.Type {
-    const kind: gameobj.Type = @fromBackingInt(@intCast(ship.kind));
+    const kind: gameobj.Type = @fromBackingInt(ship.kind);
     if (all.mission_number < create.twins_from_mission) return kind;
     const group = bound.flightGroup(ship.flightGroup() orelse return kind) orelse return kind;
     if (group.wing != .player) return kind;
@@ -311,7 +311,7 @@ fn setAIShip(call: Call, ship: Ship) void {
     const machine = call.machine;
     const aim = call.args[2];
     const target = recordTarget(machine, aim, shipTarget(machine, call.thread, aim, 3));
-    const order: Order = @fromBackingInt(@intCast(halfword(call.args[0])));
+    const order: Order = @fromBackingInt(halfword(call.args[0]));
     _ = aigeneric.give(ship.game, ship.index, order, target);
 }
 
@@ -463,7 +463,7 @@ fn setInvulnerabilityShip(call: Call, ship: Ship) void {
         if (component < object.components.len) object.components[component].invulnerable = @truncate(value);
         return;
     }
-    object.invulnerable = @fromBackingInt(@intCast(@as(u8, @truncate(value))));
+    object.invulnerable = @fromBackingInt(@as(u8, @truncate(value)));
 }
 
 /// `cmd_Cloak_ship` (`0x00459F60`), called by `cmd_Cloak` (`0x00459F40`, command `0x58`):
@@ -544,7 +544,7 @@ fn comms(comptime speaker: Speaker, comptime flags: hudmovie.Flags) vm.Implement
             const machine = call.machine;
             const game = machine.game orelse return yield;
             const radio, const ctx = videoreports.onAir(game.world) orelse return yield;
-            const head: pilots.Head = @fromBackingInt(@intCast(call.args[1]));
+            const head: pilots.Head = @fromBackingInt(call.args[1]);
             const name = machine.mission.text(call.args[2]) catch return yield;
             switch (speaker) {
                 .ship => {
@@ -645,7 +645,7 @@ fn jumpingOrLaunching(call: Call, ship: Ship) void {
 /// numbers takes the state the second gives (`hud.Objectives.set`).
 fn setObjective(call: Call, game: aigeneric.Context) void {
     const display = game.world.display orelse return;
-    display.objectives.set(call.args[0], @fromBackingInt(@intCast(halfword(call.args[1]))));
+    display.objectives.set(call.args[0], @fromBackingInt(halfword(call.args[1])));
 }
 
 /// `cmd_SetShipAvoidance` (`0x00459A30`, command `0x49`) and `cmd_SetShipAvoidance_ship`

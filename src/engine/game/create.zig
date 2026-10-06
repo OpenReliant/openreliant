@@ -1121,7 +1121,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     slot.combat = combat;
     slot.flight = &tables.flight[stats_type];
     slot.motion = .forward;
-    object.side = @fromBackingInt(@intCast(@backingInt(combat.side)));
+    object.side = @fromBackingInt(@backingInt(combat.side));
 
     slot.type = all.useType(types, stats_type);
     if (slot.type) |loaded| {
@@ -1206,7 +1206,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     try arm(all.gpa, slot, fit);
     ai.setTargetable(object, combat, true);
     all.exhaust.offer(all, index);
-    object.type = @fromBackingInt(@intCast(becomes));
+    object.type = @fromBackingInt(becomes);
     hooks.tell(all, .object_added, .{ .object = .of(index) });
     return index;
 }

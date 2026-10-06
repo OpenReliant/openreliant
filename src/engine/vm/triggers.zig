@@ -184,7 +184,7 @@ fn exempt(condition: dte.Condition) dte.Trigger.Repeat {
 
 /// The repeat mode a condition that exempts none from a veto holds
 /// (`vm.ConditionDescriptor.none`).
-const no_exempt: dte.Trigger.Repeat = @fromBackingInt(@intCast(vm.ConditionDescriptor.none));
+const no_exempt: dte.Trigger.Repeat = @fromBackingInt(vm.ConditionDescriptor.none);
 
 /// Whether `trigger`'s operands pass `event`'s values: each operand for a value the condition marks
 /// as checked (`checkOperand`), an operand the trigger leaves unset passing any.
@@ -287,7 +287,7 @@ pub fn setAnyTriggerState(call: Call) u32 {
 fn setState(call: Call, number: ?u32) void {
     const machine = call.machine;
     const object = machine.mission.objectId(call.args[0]) orelse return;
-    const condition: dte.Condition = @fromBackingInt(@intCast(@as(u8, @truncate(call.args[1]))));
+    const condition: dte.Condition = @fromBackingInt(@as(u8, @truncate(call.args[1])));
     const armed: u8 = @truncate(call.args[2]);
     const slice = triggersOf(machine, object);
     var counted: u8 = 0;

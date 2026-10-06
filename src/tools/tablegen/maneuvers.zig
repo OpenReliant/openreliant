@@ -273,13 +273,13 @@ const TestPayload = struct {
             r.putRecord(table_address + @as(u32, @intCast(index)) * record_size, Record{
                 .mirror = .{ .yaw = true, .pitch = false, .roll = true },
                 ._unknown_01 = @splat(0),
-                .script = @fromBackingInt(@intCast(script_at)),
-                .name = @fromBackingInt(@intCast(text.put(r, &next_string, name))),
+                .script = @fromBackingInt(script_at),
+                .name = @fromBackingInt(text.put(r, &next_string, name)),
                 .min_ticks = 400,
                 .max_ticks = 1000,
             });
             for (lines) |line_text| {
-                r.putRecord(script_at, lancer_maneuvers.ScriptLine{ .text = @fromBackingInt(@intCast(text.put(r, &next_string, line_text))), .instruction = .null });
+                r.putRecord(script_at, lancer_maneuvers.ScriptLine{ .text = @fromBackingInt(text.put(r, &next_string, line_text)), .instruction = .null });
                 script_at += @sizeOf(lancer_maneuvers.ScriptLine);
             }
             script_at += @sizeOf(lancer_maneuvers.ScriptLine);
@@ -290,7 +290,7 @@ const TestPayload = struct {
         r.putRecord(table_address + 2 * record_size, past);
         for (0..opcode_count) |index| {
             const routine: u32 = 0x00405000 + @as(u32, @intCast(index));
-            r.putRecord(handlers_address + @as(u32, @intCast(index)) * @sizeOf(lancer_maneuvers.Handlers), lancer_maneuvers.Handlers{ .start = @fromBackingInt(@intCast(routine)), .run = .null });
+            r.putRecord(handlers_address + @as(u32, @intCast(index)) * @sizeOf(lancer_maneuvers.Handlers), lancer_maneuvers.Handlers{ .start = @fromBackingInt(routine), .run = .null });
         }
         // Every choice list holds both maneuvers.
         const list_at = text.put(r, &next_string, &.{ 2, 0, 1 });

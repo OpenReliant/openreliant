@@ -197,7 +197,7 @@ pub const GripRef = enum(i32) {
     _,
 
     fn of(at: Place) GripRef {
-        return @fromBackingInt(@intCast(@as(i32, at)));
+        return @fromBackingInt(@as(i32, at));
     }
 
     /// Its place among the Rippers' beams, where it names one.
@@ -840,7 +840,7 @@ pub fn grab(ctx: Context, index: u16) void {
 
 /// The order on to its next step, from tick `now`.
 fn next(state: anytype, now: i32) void {
-    state.step = @fromBackingInt(@intCast(@backingInt(state.step) + 1));
+    state.step = @fromBackingInt(@backingInt(state.step) + 1);
     state.since = now;
 }
 
@@ -1478,7 +1478,7 @@ test "a Ripper's beams are taken, let go, and let go again harmlessly" {
     var unaimed = t.rippers.takeFor(world, t.ripper, null);
     try std.testing.expectEqual(null, t.rippers.gripAt(unaimed).?.targets[0]);
     // A grip past the tables names none, and letting it go leaves them be.
-    var past: GripRef = @fromBackingInt(@intCast(capacity));
+    var past: GripRef = @fromBackingInt(capacity);
     try std.testing.expectEqual(null, t.rippers.gripAt(past));
     freeGrip(&t.rippers, &past);
     try std.testing.expectEqual(GripRef.none, past);

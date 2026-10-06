@@ -1250,7 +1250,7 @@ pub fn sideOf(all: *const create.Objects, object: i32) gameobj.Side(u16) {
     }
     if (object < 0 or object >= all.count) return .friendly;
     const side = @backingInt(all.slots[@intCast(object)].object.side);
-    return @fromBackingInt(@intCast(@as(u16, @truncate(@as(u32, @bitCast(side))))));
+    return @fromBackingInt(@as(u16, @truncate(@as(u32, @bitCast(side)))));
 }
 
 test Radio {

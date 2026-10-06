@@ -318,7 +318,7 @@ fn writeButtons(out: *Io.Writer, read: input.Joystick) Io.Writer.Error!void {
     for (read.state.buttons[0..read.buttons], 0..) |button, index| {
         if (button == 0) continue;
         try out.print("{s} {d}", .{ if (held > 0) "," else "", index });
-        if (read.kind == .gamepad) try out.print(" ({s})", .{buttonName(@fromBackingInt(@intCast(@as(u5, @intCast(index)))))});
+        if (read.kind == .gamepad) try out.print(" ({s})", .{buttonName(@fromBackingInt(@as(u5, @intCast(index))))});
         held += 1;
     }
     if (held == 0) try out.writeAll(" none");

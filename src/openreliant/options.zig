@@ -422,7 +422,7 @@ pub const Options = struct {
             .@"--ship" => options.ship = value,
             .@"--view" => {
                 const number = std.fmt.parseInt(u32, value, 10) catch return error.BadValue;
-                options.cockpit = switch (@as(camera.CockpitSetting, @fromBackingInt(@intCast(number)))) {
+                options.cockpit = switch (@as(camera.CockpitSetting, @fromBackingInt(number))) {
                     .cockpit, .chase, .none => |setting| setting,
                     _ => return error.BadValue,
                 };

@@ -254,8 +254,8 @@ pub const DifficultyDialog = struct {
         switch (under) {
             .start => return .start,
             .back => return .back,
-            .easier => difficulty.* = if (difficulty.* == .easy) .hard else @fromBackingInt(@intCast(@backingInt(difficulty.*) - 1)),
-            .harder => difficulty.* = if (difficulty.* == .hard) .easy else @fromBackingInt(@intCast(@backingInt(difficulty.*) + 1)),
+            .easier => difficulty.* = if (difficulty.* == .easy) .hard else @fromBackingInt(@backingInt(difficulty.*) - 1),
+            .harder => difficulty.* = if (difficulty.* == .hard) .easy else @fromBackingInt(@backingInt(difficulty.*) + 1),
         }
         return null;
     }

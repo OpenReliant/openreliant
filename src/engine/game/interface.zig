@@ -90,7 +90,7 @@ pub const Setting = enum {
             .joystick_invert => held.joystick_invert = value != 0,
             .hat_enable => held.hat_enabled = value != 0,
             .twist_enable => held.twist_enabled = value != 0,
-            .controller => held.control_mode = @fromBackingInt(@intCast(value)),
+            .controller => held.control_mode = @fromBackingInt(value),
         }
     }
 };

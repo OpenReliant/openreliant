@@ -281,9 +281,9 @@ const TestPayload = struct {
         const name_at = strings + index * 0x20;
         payload.table().putString(name_at, name);
         var record = std.mem.zeroes(Descriptor);
-        record.name = @fromBackingInt(@intCast(name_at));
+        record.name = @fromBackingInt(name_at);
         record.slot = none;
-        record.veto_exempt = @fromBackingInt(@intCast(none));
+        record.veto_exempt = @fromBackingInt(none);
         change.apply(&record);
         payload.table().putRecord(table_va + index * @sizeOf(Descriptor), record);
     }
@@ -297,7 +297,7 @@ const TestPayload = struct {
             const label_at = strings + 0x100 + @as(u32, @intCast(i)) * 0x10;
             region.putString(label_at, label);
             var value = std.mem.zeroes(EventValue);
-            value.label = @fromBackingInt(@intCast(label_at));
+            value.label = @fromBackingInt(label_at);
             value.kinds = .{ .ship = true };
             value._unknown_08 = 0x02;
             region.putRecord(at, value);
@@ -313,7 +313,7 @@ const TestPayload = struct {
     /// Points a descriptor's values at the value list.
     const listed = struct {
         fn apply(record: *Descriptor) void {
-            record.values = @fromBackingInt(@intCast(lists));
+            record.values = @fromBackingInt(lists);
         }
     };
 
@@ -335,7 +335,7 @@ test read {
         fn apply(record: *Descriptor) void {
             record._unknown_04 = 0x1234;
             record.subjects = ship_or_group;
-            record.values = @fromBackingInt(@intCast(TestPayload.lists));
+            record.values = @fromBackingInt(TestPayload.lists);
             record.slot = 3;
             record.begin = @fromBackingInt(0x0045E000);
             record.add_member = @fromBackingInt(0x0045E001);

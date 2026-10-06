@@ -72,7 +72,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
 
         fn kindOf(comptime T: type) Kind {
             inline for (kinds, 0..) |kind, at| {
-                if (kind == T) return @fromBackingInt(@intCast(at));
+                if (kind == T) return @fromBackingInt(at);
             }
             @compileError(@typeName(T) ++ " is not one of the binding's types");
         }

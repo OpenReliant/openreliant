@@ -307,13 +307,13 @@ test read {
     var payload: TestPayload = .{};
     const region = payload.region();
     var first = std.mem.zeroes(ShipTypeEntry);
-    first.model_name = @fromBackingInt(@intCast(payload.name(0, "SHIP0.SHP")));
-    first.schematic_name = @fromBackingInt(@intCast(payload.name(1, "ship0.spr")));
+    first.model_name = @fromBackingInt(payload.name(0, "SHIP0.SHP"));
+    first.schematic_name = @fromBackingInt(payload.name(1, "ship0.spr"));
     region.putRecord(ship_types, first);
     try std.testing.expectEqual(0x004F8C40, payload.name(2, "GUN.SHP"));
     try std.testing.expectEqual(0x004F8C60, payload.name(3, "gun.spr"));
     var third = std.mem.zeroes(ShipTypeEntry);
-    third.model_name = @fromBackingInt(@intCast(payload.name(4, "")));
+    third.model_name = @fromBackingInt(payload.name(4, ""));
     region.putRecord(ship_types + 2 * @sizeOf(ShipTypeEntry), third);
 
     const tables = try payload.tables(arena.allocator(), test_loader);

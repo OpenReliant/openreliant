@@ -32,7 +32,7 @@ pub const Place = enum(u8) {
     outro,
 
     fn next(place: Place) ?Place {
-        return if (place == .outro) null else @fromBackingInt(@intCast(@backingInt(place) + 1));
+        return if (place == .outro) null else @fromBackingInt(@backingInt(place) + 1);
     }
 };
 

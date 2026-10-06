@@ -182,7 +182,7 @@ fn stepped(setting: CockpitSetting, step: Step) CockpitSetting {
     const number: i64 = @backingInt(setting);
     return switch (step) {
         .on => if (number + 1 > last) @fromBackingInt(0) else @fromBackingInt(@intCast(number + 1)),
-        .back => if (number - 1 < 0) @fromBackingInt(@intCast(last)) else @fromBackingInt(@intCast(number - 1)),
+        .back => if (number - 1 < 0) @fromBackingInt(last) else @fromBackingInt(@intCast(number - 1)),
     };
 }
 

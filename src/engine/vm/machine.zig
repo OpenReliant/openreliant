@@ -752,7 +752,7 @@ pub const Machine = struct {
     /// return value, `previous` to carry on or zero to end the run.
     fn step(machine: *Machine, index: u8, previous: u32) Fault!u32 {
         const thread = &machine.threads[index];
-        const opcode: dte.Opcode = @fromBackingInt(@intCast(try machine.operand(thread)));
+        const opcode: dte.Opcode = @fromBackingInt(try machine.operand(thread));
         switch (opcode) {
             // The comparisons take the values as unsigned (`CMP`, `SBB`), and the float ones load
             // each as a whole number (`FILD`), exactly, so they compare as the others do.

@@ -110,7 +110,7 @@ pub const FightData = extern struct {
 
     /// The maneuver chosen to start next, where one is.
     pub fn next(data: FightData) ?Maneuver {
-        return if (data.maneuver == none) null else @fromBackingInt(@intCast(data.maneuver));
+        return if (data.maneuver == none) null else @fromBackingInt(data.maneuver);
     }
 
     /// Chooses `maneuver` to start next, by its number's low byte, which is all the game keeps.
@@ -374,7 +374,7 @@ test updateCloak {
 fn begin(fighter: Fighter, data: *FightData) void {
     const state = fighter.state;
     state.* = std.mem.zeroes(FightState);
-    state.maneuver = data.next() orelse @fromBackingInt(@intCast(FightData.none));
+    state.maneuver = data.next() orelse @fromBackingInt(FightData.none);
     state.line = FightState.before_first;
     const allowed: Mirror = if (maneuvers.info(state.maneuver)) |info| info.mirror else .{};
     state.mirror = allowed.pick(fighter.random15());

@@ -182,7 +182,7 @@ pub fn identifierOf(all: *const engine.game.create.Objects, order: orders.Order)
 fn find(scripts: *runtime.Runtime, identifier: Identifier) ?orders.Order {
     return switch (identifier) {
         .name => |name| values.byName(orders.Order, name) orelse scripts.custom_orders.find(name),
-        .number => |number| if (orders.info(@fromBackingInt(@intCast(number))) != null) @fromBackingInt(@intCast(number)) else null,
+        .number => |number| if (orders.info(@fromBackingInt(number)) != null) @fromBackingInt(number) else null,
     };
 }
 

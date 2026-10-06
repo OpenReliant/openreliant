@@ -327,7 +327,7 @@ pub fn missileFigures(table: *const missiles.Table, known: []const tables.Missil
     const ranges: MissileRanges = .init(table);
     for (known, figures) |missile, *figure| {
         // The game's of the type of their own number, a mod's of its own type.
-        const kind: missiles.Type = if (missile.added() != null) missile.missileType() else @fromBackingInt(@intCast(@backingInt(missile)));
+        const kind: missiles.Type = if (missile.added() != null) missile.missileType() else @fromBackingInt(@backingInt(missile));
         figure.* = MissileBars.of(ranges, table, kind).figures();
         if (missile.added() != null) for (figure[1..]) |*bar| {
             bar.* = std.math.clamp(bar.*, 0, most_segments);

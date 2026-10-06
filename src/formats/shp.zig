@@ -581,7 +581,7 @@ pub const Attachment = extern struct {
 
     /// The colour of a `light`.
     pub fn light(attachment: Attachment) Light {
-        return @fromBackingInt(@intCast(attachment.id));
+        return @fromBackingInt(attachment.id);
     }
 };
 

@@ -92,12 +92,12 @@ pub const Type = enum(i16) {
 
     /// The game's missile `game`.
     pub fn of(game: GameMissile) Type {
-        return @fromBackingInt(@intCast(@backingInt(game)));
+        return @fromBackingInt(@backingInt(game));
     }
 
     /// The type a hardpoint's id names.
     pub fn fromId(id: u16) Type {
-        return @fromBackingInt(@intCast(@as(i16, @bitCast(id))));
+        return @fromBackingInt(@as(i16, @bitCast(id)));
     }
 
     /// The game's missile it is: itself for one of the game's, and for one a mod adds, the
@@ -106,7 +106,7 @@ pub const Type = enum(i16) {
         if (missile.added()) |from_mod| return from_mod.base;
         const number = @backingInt(missile);
         if (number < 0 or number >= type_count) return .none;
-        return @fromBackingInt(@intCast(number));
+        return @fromBackingInt(number);
     }
 
     /// The missile a mod adds that it is, if it is one.
@@ -168,7 +168,7 @@ pub const Type = enum(i16) {
 
     /// The type scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?Type {
-        if (additions.missiles.find(text)) |found| return @fromBackingInt(@intCast(found));
+        if (additions.missiles.find(text)) |found| return @fromBackingInt(found);
         return .of(std.meta.stringToEnum(GameMissile, text) orelse return null);
     }
 
@@ -251,7 +251,7 @@ pub const Table = struct {
             .flight = @splat(std.mem.zeroes(FlightModel)),
         };
         for (table.stats[0..type_count], table.flight[0..type_count], 0..) |*record, *flight, number| {
-            const missile: GameMissile = @fromBackingInt(@intCast(number));
+            const missile: GameMissile = @fromBackingInt(number);
             record.* = .{
                 ._unknown_00 = 30,
                 .launch_sound = switch (missile) {
@@ -268,7 +268,7 @@ pub const Table = struct {
                 .order = switch (missile) {
                     .torpedo => .pod_launch,
                     .fuel_pod => .jettison,
-                    else => @fromBackingInt(@intCast(number + @backingInt(Order.screamer))),
+                    else => @fromBackingInt(number + @backingInt(Order.screamer)),
                 },
                 .lock_time = 200,
                 .decoy_chance = 50,
@@ -1376,17 +1376,17 @@ test "Type.mounted" {
     };
     additions.missiles.install(&list);
     defer additions.missiles.reset();
-    const first: Type = @fromBackingInt(@intCast(additions.missiles.first));
+    const first: Type = @fromBackingInt(additions.missiles.first);
     // A rail missile's own model hangs on the hardpoint and flies.
     const rail = first.mounted().?;
     try std.testing.expectEqualStrings("banana.shp", rail.model.?);
     try std.testing.expectEqual(null, rail.second_model);
     // A pod missile's pod hangs, and its missile flies from it.
-    const pod: Type = @fromBackingInt(@intCast(additions.missiles.first + 1));
+    const pod: Type = @fromBackingInt(additions.missiles.first + 1);
     try std.testing.expectEqualStrings("bunch.shp", pod.mounted().?.model.?);
     try std.testing.expectEqualStrings("banana.shp", pod.mounted().?.second_model.?);
     // Without models of its own, it mounts its base's.
-    const plain: Type = @fromBackingInt(@intCast(additions.missiles.first + 2));
+    const plain: Type = @fromBackingInt(additions.missiles.first + 2);
     try std.testing.expectEqualStrings(Type.of(.raptor).mounted().?.model.?, plain.mounted().?.model.?);
     try std.testing.expectEqual(GameMissile.raptor, plain.base());
     try std.testing.expectEqual(@as(?usize, additions.missiles.first + 2), plain.index());

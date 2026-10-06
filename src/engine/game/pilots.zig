@@ -183,7 +183,7 @@ pub const Number = enum(u8) {
 
     /// The pilot an object flown by `pilot` (`GameObject.pilot`) has.
     pub fn of(pilot: i32) Number {
-        return if (std.math.cast(u8, pilot)) |number| @fromBackingInt(@intCast(number)) else .none;
+        return if (std.math.cast(u8, pilot)) |number| @fromBackingInt(number) else .none;
     }
 
     /// The name scripts know it by: `none`, or a pilot a mod adds by its qualified name.

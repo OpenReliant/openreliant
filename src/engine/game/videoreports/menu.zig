@@ -400,7 +400,7 @@ fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
         else => {},
     }
     _ = aigeneric.giveShip(ctx, index, .fight, all.player, null);
-    const own = (@as(Ace, @fromBackingInt(@intCast(object.pilot)))).answers();
+    const own = (@as(Ace, @fromBackingInt(object.pilot))).answers();
     const lines: videoreports.Lines = if (own) |named| .{ .named = named } else .{ .voiced = &taunt_answers };
     videoreports.reportShipIn(world, index, lines, videoreports.report_delay);
 }

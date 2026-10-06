@@ -559,7 +559,7 @@ pub const Missile = enum(u8) {
         if (index >= missile_count) return @fromBackingInt(@intCast(additions.missiles.first + index - missile_count));
         return switch (missile) {
             .fuel_pod => .of(.fuel_pod),
-            else => @fromBackingInt(@intCast(index)),
+            else => @fromBackingInt(index),
         };
     }
 
@@ -578,7 +578,7 @@ pub const max_missiles = missile_count + additions.missiles.capacity;
 
 comptime {
     // Each of the loadout's missiles flies as the missile type of its name.
-    for (std.enums.values(Missile)) |missile| assert(std.mem.eql(u8, @tagName(missile), @tagName(@as(missiles_mod.GameMissile, @fromBackingInt(@intCast(@backingInt(missile.missileType())))))));
+    for (std.enums.values(Missile)) |missile| assert(std.mem.eql(u8, @tagName(missile), @tagName(@as(missiles_mod.GameMissile, @fromBackingInt(@backingInt(missile.missileType()))))));
 }
 
 /// A missile's record (`loadout_missiles`, `0x004EDAA0`, `0x110` bytes a missile). The four
@@ -1001,8 +1001,8 @@ test "the mods' missiles" {
     };
     additions.missiles.install(&list);
     defer additions.missiles.reset();
-    const pod: Missile = @fromBackingInt(@intCast(missile_count));
-    const rail: Missile = @fromBackingInt(@intCast(missile_count + 1));
+    const pod: Missile = @fromBackingInt(missile_count);
+    const rail: Missile = @fromBackingInt(missile_count + 1);
     // The game's ten, then those of the mods whose base the loadout offers.
     var buffer: [max_missiles]Missile = undefined;
     const known = Missile.all(&buffer);
@@ -1016,7 +1016,7 @@ test "the mods' missiles" {
     try std.testing.expectEqual(901, record.description);
     try std.testing.expectEqualStrings("banana.shp", record.model);
     // It flies as its own type, and a saved game keeps its base.
-    try std.testing.expectEqual(@as(missiles_mod.Type, @fromBackingInt(@intCast(additions.missiles.first + 1))), rail.missileType());
+    try std.testing.expectEqual(@as(missiles_mod.Type, @fromBackingInt(additions.missiles.first + 1)), rail.missileType());
     try std.testing.expectEqual(@backingInt(Missile.bandit), rail.savedId());
     // Found again by its qualified name, while its mod is on.
     try std.testing.expectEqual(rail, Missile.named("A:RAIL").?);

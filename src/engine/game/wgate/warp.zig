@@ -325,7 +325,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
     };
     const delta = elapsed(state, world.clock.frame_start);
     const record = recordFor(ctx, index);
-    switch (@as(OutStep, @fromBackingInt(@intCast(state.step)))) {
+    switch (@as(OutStep, @fromBackingInt(state.step))) {
         .aligning => {
             if (index == all.player) {
                 if (slot.object.flags.cloaked) return;
@@ -447,7 +447,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
     const held = recordFor(ctx, index) orelse return abort(ctx, index);
     const delta = elapsed(state, world.clock.frame_start);
     held.tunnel.scrollArrival(delta);
-    switch (@as(InStep, @fromBackingInt(@intCast(state.step)))) {
+    switch (@as(InStep, @fromBackingInt(state.step))) {
         .place => {
             held.warp_shown = false;
             // The continuation restores sequence after pushing the order. Resolve arrival here

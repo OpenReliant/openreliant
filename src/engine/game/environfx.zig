@@ -79,7 +79,7 @@ pub const Environment = struct {
     /// bit it takes from the number's low five bits; OpenReliant takes the effect of those bits
     /// throughout.
     pub fn setEffect(environment: *Environment, number: u32, on: bool) void {
-        const effect: Effect = @fromBackingInt(@intCast(@as(u5, @truncate(number))));
+        const effect: Effect = @fromBackingInt(@as(u5, @truncate(number)));
         if (!effect.implemented()) {
             log.info("Environmental Effect \"{f}\" not yet implemented!", .{effect});
             return;

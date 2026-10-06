@@ -600,10 +600,10 @@ test "a mod's gun flashes with a picture of its own" {
 
     // Its own flare, of its own length and in its base's proportions; none for a gun without one,
     // nor for the game's.
-    const peel: guns.GunType = @fromBackingInt(@intCast(additions.guns.first));
+    const peel: guns.GunType = @fromBackingInt(additions.guns.first);
     const own = looks.own(peel).?;
     try std.testing.expectEqual(@as(Vector, .{ 30, 30, 300 }), own.mesh.bounds[1]);
-    try std.testing.expectEqual(null, looks.own(@fromBackingInt(@intCast(additions.guns.first + 1))));
+    try std.testing.expectEqual(null, looks.own(@fromBackingInt(additions.guns.first + 1)));
     try std.testing.expectEqual(null, looks.own(.of(.laser_cannon)));
 
     // A muzzle draws it for a shot of the mod's gun, its light reaching as far as its length

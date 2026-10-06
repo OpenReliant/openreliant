@@ -112,7 +112,7 @@ pub const State = extern struct {
 
     /// Keeps `place` as its effect record's, or none.
     fn keepEffect(state: *State, place: ?u8) void {
-        state.effect = if (place) |kept| @fromBackingInt(@intCast(@as(u32, kept) + 1)) else .null;
+        state.effect = if (place) |kept| @fromBackingInt(@as(u32, kept) + 1) else .null;
     }
 };
 

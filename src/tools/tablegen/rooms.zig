@@ -122,11 +122,11 @@ test read {
     region.putString(at + 0x110, "b_loop.bik");
     region.putRecord(entry, View.Record{
         .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 },
-        .movie = @fromBackingInt(@intCast(at + 0x100)),
+        .movie = @fromBackingInt(at + 0x100),
         .loop = .null,
         .label = 0xC3,
         .exit_count = 2,
-        .exits = .{ @fromBackingInt(@intCast(second)), @fromBackingInt(@intCast(locker)), .null, .null },
+        .exits = .{ @fromBackingInt(second), @fromBackingInt(locker), .null, .null },
         ._unknown_24 = 0,
         .action = .none,
         .sound = -1,
@@ -134,11 +134,11 @@ test read {
     });
     region.putRecord(second, View.Record{
         .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 },
-        .movie = @fromBackingInt(@intCast(at + 0x100)),
-        .loop = @fromBackingInt(@intCast(at + 0x110)),
+        .movie = @fromBackingInt(at + 0x100),
+        .loop = @fromBackingInt(at + 0x110),
         .label = 0x298,
         .exit_count = 1,
-        .exits = .{ @fromBackingInt(@intCast(entry)), .null, .null, .null },
+        .exits = .{ @fromBackingInt(entry), .null, .null, .null },
         ._unknown_24 = 0,
         .action = .news,
         .sound = 3,

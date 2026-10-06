@@ -742,7 +742,7 @@ test ownEngineSound {
     additions.ships.install(&list);
     defer additions.ships.reset();
     // A mod's type sounds as its base, from its own file.
-    const pot: gameobj.Type = @fromBackingInt(@intCast(additions.ships.first));
+    const pot: gameobj.Type = @fromBackingInt(additions.ships.first);
     try std.testing.expectEqual(engineSound(.of(.predator)), engineSound(pot));
     try std.testing.expectEqualStrings("RIFF", ownEngineSound(pot).?);
     try std.testing.expectEqual(null, ownEngineSound(.of(.predator)));
@@ -750,7 +750,7 @@ test ownEngineSound {
 
 test engineSound {
     try std.testing.expectEqual(sounds.Sound.pship01, engineSound(.of(.predator)));
-    try std.testing.expectEqual(sounds.Sound.pship03, engineSound(@fromBackingInt(@intCast(0xF4 + 2))));
+    try std.testing.expectEqual(sounds.Sound.pship03, engineSound(@fromBackingInt(0xF4 + 2)));
     try std.testing.expectEqual(sounds.Sound.pship07, engineSound(.of(.kamov)));
     try std.testing.expectEqual(sounds.Sound.pship01, engineSound(@fromBackingInt(40)));
 }

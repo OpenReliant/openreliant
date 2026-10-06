@@ -240,8 +240,8 @@ const TestPayload = struct {
             const name_at = strings + @as(u32, @intCast(i)) * 0x20;
             r.putString(name_at, name);
             var record = std.mem.zeroes(Record);
-            record.name = @fromBackingInt(@intCast(name_at));
-            record.update = @fromBackingInt(@intCast(0x00401000 + @as(u32, @intCast(i)) * 0x10));
+            record.name = @fromBackingInt(name_at);
+            record.update = @fromBackingInt(0x00401000 + @as(u32, @intCast(i)) * 0x10);
             record.flags.retaliate = true;
             r.putRecord(at, record);
         }

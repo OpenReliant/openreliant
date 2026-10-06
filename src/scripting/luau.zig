@@ -162,7 +162,7 @@ pub const State = opaque {
     }
 
     pub fn typeOf(state: *State, index: i32) Type {
-        return @fromBackingInt(@intCast(c.lua_type(state.raw(), index)));
+        return @fromBackingInt(c.lua_type(state.raw(), index));
     }
 
     /// The type name Luau uses in its messages, such as "string".
@@ -263,7 +263,7 @@ pub const State = opaque {
 
     /// Pushes `table[key]` for the table at `index`, ignoring metamethods.
     pub fn rawGetField(state: *State, index: i32, key: [:0]const u8) Type {
-        return @fromBackingInt(@intCast(c.lua_rawgetfield(state.raw(), index, key)));
+        return @fromBackingInt(c.lua_rawgetfield(state.raw(), index, key));
     }
 
     /// Pops a value and sets `table[key]` to it for the table at `index`, ignoring metamethods.
@@ -273,7 +273,7 @@ pub const State = opaque {
 
     /// Pushes `table[n]` for the table at `index`, ignoring metamethods.
     pub fn rawGetIndex(state: *State, index: i32, n: i32) Type {
-        return @fromBackingInt(@intCast(c.lua_rawgeti(state.raw(), index, n)));
+        return @fromBackingInt(c.lua_rawgeti(state.raw(), index, n));
     }
 
     /// Pops a value and sets `table[n]` to it for the table at `index`, ignoring metamethods.
@@ -290,7 +290,7 @@ pub const State = opaque {
     /// Pushes `table[key]` for the table at `index` and the key on top, which it pops, ignoring
     /// metamethods.
     pub fn rawGet(state: *State, index: i32) Type {
-        return @fromBackingInt(@intCast(c.lua_rawget(state.raw(), index)));
+        return @fromBackingInt(c.lua_rawget(state.raw(), index));
     }
 
     /// Pops a table and makes it the metatable of the table at `index`.
@@ -315,7 +315,7 @@ pub const State = opaque {
 
     /// Pushes the global `name`.
     pub fn getGlobal(state: *State, name: [:0]const u8) Type {
-        return @fromBackingInt(@intCast(c.lua_getfield(state.raw(), c.LUA_GLOBALSINDEX, name)));
+        return @fromBackingInt(c.lua_getfield(state.raw(), c.LUA_GLOBALSINDEX, name));
     }
 
     // --- Userdata -------------------------------------------------------------------------------
@@ -356,7 +356,7 @@ pub const State = opaque {
     /// Creates a reference to the value at `index`, which keeps it from being collected until
     /// `unref`.
     pub fn ref(state: *State, index: i32) Ref {
-        return @fromBackingInt(@intCast(c.lua_ref(state.raw(), index)));
+        return @fromBackingInt(c.lua_ref(state.raw(), index));
     }
 
     pub fn unref(state: *State, reference: Ref) void {
@@ -365,7 +365,7 @@ pub const State = opaque {
 
     /// Pushes the referenced value.
     pub fn pushRef(state: *State, reference: Ref) Type {
-        return @fromBackingInt(@intCast(c.lua_rawgeti(state.raw(), c.LUA_REGISTRYINDEX, @backingInt(reference))));
+        return @fromBackingInt(c.lua_rawgeti(state.raw(), c.LUA_REGISTRYINDEX, @backingInt(reference)));
     }
 
     // --- Calls ----------------------------------------------------------------------------------
@@ -377,7 +377,7 @@ pub const State = opaque {
         const base = state.top() - arguments;
         state.pushFunction(traceback, "traceback");
         state.insert(base);
-        const status: Status = @fromBackingInt(@intCast(c.lua_pcall(state.raw(), arguments, results, base)));
+        const status: Status = @fromBackingInt(c.lua_pcall(state.raw(), arguments, results, base));
         c.lua_remove(state.raw(), base);
         return status;
     }
@@ -392,13 +392,13 @@ pub const State = opaque {
 
     /// Like `protectedCall`, but leaves the error as it was raised, without a traceback.
     pub fn protectedCallBare(state: *State, arguments: i32, results: i32) Status {
-        return @fromBackingInt(@intCast(c.lua_pcall(state.raw(), arguments, results, 0)));
+        return @fromBackingInt(c.lua_pcall(state.raw(), arguments, results, 0));
     }
 
     /// Calls the C function `function` in protected mode with `context` as its argument
     /// (`lua_cpcall`). Its results are discarded.
     pub fn protectedCallC(state: *State, function: Function, context: ?*anyopaque) Status {
-        return @fromBackingInt(@intCast(c.lua_cpcall(state.raw(), function, context)));
+        return @fromBackingInt(c.lua_cpcall(state.raw(), function, context));
     }
 
     /// Raises an error with a formatted message, prefixed with the script's file and line. Never

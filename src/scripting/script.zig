@@ -40,9 +40,9 @@ pub const Attachment = union(enum) {
     pub fn parse(key: []const u8, mod: []const u8) ?Attachment {
         if (key.len > type_prefix.len and std.ascii.eqlIgnoreCase(key[0..type_prefix.len], type_prefix)) {
             const named = key[type_prefix.len..];
-            if (std.fmt.parseInt(u32, named, 0)) |number| return .{ .object_type = @fromBackingInt(@intCast(number)) } else |_| {}
+            if (std.fmt.parseInt(u32, named, 0)) |number| return .{ .object_type = @fromBackingInt(number) } else |_| {}
             const number = additions.ships.named(named, mod) orelse return null;
-            return .{ .object_type = @fromBackingInt(@intCast(number)) };
+            return .{ .object_type = @fromBackingInt(number) };
         }
         inline for (comptime std.enums.values(Kind)) |kind| {
             if (std.ascii.eqlIgnoreCase(key, kind.key())) return .{ .kind = kind };
@@ -370,7 +370,7 @@ test "Attachment.parse" {
     var ships = [_]additions.ships.Added{.{ .name = "pot:teapot", .mod = "pot", .base = .predator, .extra = .{ .model = "teapot.shp" } }};
     additions.ships.install(&ships);
     defer additions.ships.reset();
-    const teapot: Attachment = .{ .object_type = @fromBackingInt(@intCast(additions.ships.first)) };
+    const teapot: Attachment = .{ .object_type = @fromBackingInt(additions.ships.first) };
     try std.testing.expectEqual(teapot, Attachment.parse("Type.pot:teapot", "a").?);
     try std.testing.expectEqual(teapot, Attachment.parse("Type.Teapot", "pot").?);
     try std.testing.expectEqual(null, Attachment.parse("Type.teapot", "a"));

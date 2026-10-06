@@ -210,7 +210,7 @@ pub fn decode(r: *Io.Reader, gpa: Allocator) DecodeError!Value {
 }
 
 fn decodeAt(r: *Io.Reader, gpa: Allocator, depth: u32) DecodeError!Value {
-    const kind: Kind = @fromBackingInt(@intCast(r.takeByte() catch return error.Damaged));
+    const kind: Kind = @fromBackingInt(r.takeByte() catch return error.Damaged);
     return switch (kind) {
         .nil => .nil,
         .false => .{ .boolean = false },

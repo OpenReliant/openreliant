@@ -1168,7 +1168,7 @@ pub const ArmIterator = struct {
 pub fn decodeAt(code: []const u8, pos: usize) ?Instruction {
     const length = instructionSize(code, pos) orelse return null;
     const info = opcodes.find(code[pos]) orelse return null;
-    const opcode: Opcode = @fromBackingInt(@intCast(code[pos]));
+    const opcode: Opcode = @fromBackingInt(code[pos]);
     const operands = code[pos + 1 ..][0 .. length - 1];
 
     const flow: Flow = switch (info.form) {
@@ -1192,14 +1192,14 @@ pub fn decodeAt(code: []const u8, pos: usize) ?Instruction {
 
 /// The name of opcode `byte`, or null when the VM does not implement it.
 pub fn opcodeName(byte: u8) ?[]const u8 {
-    return std.enums.tagName(Opcode, @fromBackingInt(@intCast(byte)));
+    return std.enums.tagName(Opcode, @fromBackingInt(byte));
 }
 
 // Every opcode the handler table implements has a name, and every name is one it implements.
 comptime {
     @setEvalBranchQuota(20_000);
     for (opcodes.table) |info| {
-        if (std.enums.tagName(Opcode, @fromBackingInt(@intCast(info.opcode))) == null) {
+        if (std.enums.tagName(Opcode, @fromBackingInt(info.opcode)) == null) {
             @compileError(std.fmt.comptimePrint("opcode 0x{X:0>2} has no name", .{info.opcode}));
         }
     }
@@ -1231,7 +1231,7 @@ fn transferKind(opcode: Opcode) ?TransferKind {
 
 comptime {
     for (opcodes.table) |info| {
-        if (info.form == .transfer and transferKind(@fromBackingInt(@intCast(info.opcode))) == null) {
+        if (info.form == .transfer and transferKind(@fromBackingInt(info.opcode)) == null) {
             @compileError(std.fmt.comptimePrint("transfer opcode 0x{X:0>2} has no kind", .{info.opcode}));
         }
     }
@@ -1257,7 +1257,7 @@ pub fn instructionSize(code: []const u8, pos: usize) ?usize {
             // The byte counts itself, so a run of 1 is the byte alone.
             break :blk @max(operands[0], 1);
         },
-        else => if (@as(Opcode, @fromBackingInt(@intCast(info.opcode))) == .random_branch) blk: {
+        else => if (@as(Opcode, @fromBackingInt(info.opcode)) == .random_branch) blk: {
             const header = layout.view(ArmIterator.Header, operands) catch return null;
             break :blk @sizeOf(ArmIterator.Header) + @sizeOf(ArmIterator.Arm) * @as(usize, header.count);
         } else info.operands,

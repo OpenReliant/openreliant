@@ -132,7 +132,7 @@ pub const ModShaders = struct {
 
     fn removeEffect(context: *anyopaque, effect: u32) void {
         const device = from(context).gpu() orelse return;
-        device.removeEffect(@fromBackingInt(@intCast(effect)));
+        device.removeEffect(@fromBackingInt(effect));
     }
 
     /// The passes of the effects the scripts have enabled.
@@ -142,7 +142,7 @@ pub const ModShaders = struct {
         var scripted: [postprocessing.max_effects]postprocessing.Pass = undefined;
         const listed = shown.effectPasses(&scripted);
         for (listed, buffer[0..listed.len]) |pass, *into| into.* = .{
-            .effect = @fromBackingInt(@intCast(pass.effect)),
+            .effect = @fromBackingInt(pass.effect),
             .stage = switch (pass.stage) {
                 .before_hud => .before_hud,
                 .after_hud => .after_hud,

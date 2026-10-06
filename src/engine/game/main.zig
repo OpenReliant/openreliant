@@ -1818,13 +1818,13 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     // The schematics the target display last showed went with the types let go.
     start.display.target_pictures = .{};
     for (try loaded.bound.ships()) |ship| {
-        const kind: gameobj.Type = @fromBackingInt(@intCast(ship.kind));
+        const kind: gameobj.Type = @fromBackingInt(ship.kind);
         if (kind.hasStats()) _ = types.load(types.context, @intCast(kind.number()));
     }
     start.clock.frameReset();
 
     const player = &all.slots[all.player];
-    const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @fromBackingInt(@intCast(record.kind)) else player.object.type);
+    const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @fromBackingInt(record.kind) else player.object.type);
     try start.cockpit.load(start.types.resources, start.types.textures, player_type, start.types.models);
     start.display.ejected = false;
     fitDevices(start.display, player_type, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
@@ -1930,15 +1930,15 @@ test "a mod's ship type has its own cockpit and devices" {
     };
     additions.ships.install(&list);
     defer additions.ships.reset();
-    const own = playerShip(@fromBackingInt(@intCast(additions.ships.first))).?;
+    const own = playerShip(@fromBackingInt(additions.ships.first)).?;
     try std.testing.expectEqualStrings("pot_frm.shp", own.cockpit);
     // The rest is its base's, as is all of a type that gives no cockpit.
     try std.testing.expectEqual(player_ships[0].wire_frame, own.wire_frame);
-    try std.testing.expectEqualDeep(player_ships[0], playerShip(@fromBackingInt(@intCast(additions.ships.first + 1))).?);
+    try std.testing.expectEqualDeep(player_ships[0], playerShip(@fromBackingInt(additions.ships.first + 1)).?);
     // Its own devices, where it gives them.
-    const dim = playerShip(@fromBackingInt(@intCast(additions.ships.first + 2))).?;
+    const dim = playerShip(@fromBackingInt(additions.ships.first + 2)).?;
     try std.testing.expect(!dim.blind_fire and player_ships[11].blind_fire);
-    const bare = playerShip(@fromBackingInt(@intCast(additions.ships.first + 3))).?;
+    const bare = playerShip(@fromBackingInt(additions.ships.first + 3)).?;
     try std.testing.expect(bare.blind_fire and !bare.spectral_shields);
 }
 

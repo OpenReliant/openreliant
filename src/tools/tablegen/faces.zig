@@ -123,7 +123,7 @@ test read {
             ._unknown_02 = 0x53,
             .side = if (pilot == 1) .hostile else .friendly,
             .voice = .rus,
-            .films = .{ @fromBackingInt(@intCast(names)), @fromBackingInt(@intCast(names + 0x10)), @fromBackingInt(@intCast(names)), @fromBackingInt(@intCast(names + 0x20)) },
+            .films = .{ @fromBackingInt(names), @fromBackingInt(names + 0x10), @fromBackingInt(names), @fromBackingInt(names + 0x20) },
         });
     }
 

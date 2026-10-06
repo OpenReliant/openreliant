@@ -170,18 +170,18 @@ pub const Step = enum(i32) {
     /// The step as a style's own steps, `Styled`, number it.
     pub fn as(step: Step, comptime Styled: type) Styled {
         comptime assert(@typeInfo(Styled).@"enum".tag_type == i32);
-        return @fromBackingInt(@intCast(@backingInt(step)));
+        return @fromBackingInt(@backingInt(step));
     }
 
     /// A style's own step as a launch's.
     pub fn of(own: anytype) Step {
         comptime assert(@typeInfo(@TypeOf(own)).@"enum".tag_type == i32);
-        return @fromBackingInt(@intCast(@backingInt(own)));
+        return @fromBackingInt(@backingInt(own));
     }
 
     /// The step after it.
     pub fn next(step: Step) Step {
-        return @fromBackingInt(@intCast(@backingInt(step) + 1));
+        return @fromBackingInt(@backingInt(step) + 1);
     }
 };
 
@@ -769,8 +769,8 @@ test launchesAsBase {
     };
     additions.ships.install(&list);
     defer additions.ships.reset();
-    const refit: gameobj.Type = @fromBackingInt(@intCast(additions.ships.first));
-    const ark: gameobj.Type = @fromBackingInt(@intCast(additions.ships.first + 1));
+    const refit: gameobj.Type = @fromBackingInt(additions.ships.first);
+    const ark: gameobj.Type = @fromBackingInt(additions.ships.first + 1);
     // The game's types, and a mod's type that keeps its base's model, launch as the base does.
     try std.testing.expect(launchesAsBase(.of(.reliant)));
     try std.testing.expect(launchesAsBase(refit));

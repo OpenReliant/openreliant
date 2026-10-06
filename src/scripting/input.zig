@@ -71,6 +71,6 @@ fn actionDown(call: Call, identifier: Identifier) bool {
             const index = call.runtime().input_actions.find(name) orelse call.raise("no registered action '{s}'", .{name});
             break :blk host.flying and host.devices.bindingActive(call.runtime().input_actions.entries[index].binding, false);
         },
-        .number => |number| if (number < controls.defaults.len) host.devices.active(@fromBackingInt(@intCast(number)), false) else call.raise("custom actions must be named", .{}),
+        .number => |number| if (number < controls.defaults.len) host.devices.active(@fromBackingInt(number), false) else call.raise("custom actions must be named", .{}),
     };
 }

@@ -460,7 +460,7 @@ pub const Game = struct {
         campaign.ribbons = .empty;
         for (miss.ribbons, 0..) |flag, ribbon| campaign.ribbons.setValue(ribbon, flag != 0);
         for (&campaign.records, 0..) |*record, index| record.* = .{
-            .rating = if (miss.ratings[index] == no_rating) null else @fromBackingInt(@intCast(miss.ratings[index])),
+            .rating = if (miss.ratings[index] == no_rating) null else @fromBackingInt(miss.ratings[index]),
             .kills = if (index + 1 < missions) @bitCast(miss.mission_kills[index + 1]) else 0,
             .pickups = std.math.lossyCast(u8, miss.mission_pickups[index]),
             .promotion = if (miss.promotions[index] == 0) null else gameflow.rankOf(miss.promotions[index]),

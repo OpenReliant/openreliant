@@ -1817,7 +1817,7 @@ pub const Model = struct {
 
     fn start(model: *Model, index: usize, track: usize, time: f32, mode: ?Mode, speed: f32) void {
         const a = &model.parts[index].animation;
-        const chosen = mode orelse @as(Mode, @fromBackingInt(@intCast(@backingInt(a.tracks[track].clip.mode))));
+        const chosen = mode orelse @as(Mode, @fromBackingInt(@backingInt(a.tracks[track].clip.mode)));
         a.track = track;
         a.mode = chosen;
         if (time >= 0) a.time = time;

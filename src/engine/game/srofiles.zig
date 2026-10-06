@@ -145,7 +145,7 @@ pub fn material(face_look: Look, images: Images) Material {
 
 /// A highlight texture as the material record holds it, by its index in place of an image.
 fn highlightIndex(index: u3) Pointer(tcache.Image) {
-    return @fromBackingInt(@intCast(index));
+    return @fromBackingInt(index);
 }
 
 fn coordinates(texture: Texture) Material.Coordinates {
@@ -373,7 +373,7 @@ pub fn build(
         polygons[polygon] = if (step.merged)
             .{ .kind = .triangle, .continues = 0, .first = @intCast(index), .count = @truncate(extra + 3) }
         else
-            .{ .kind = @fromBackingInt(@intCast(@as(u16, @truncate(@backingInt(face.polygon))))), .continues = @truncate(face.remaining), .first = @intCast(index), .count = 3 };
+            .{ .kind = @fromBackingInt(@as(u16, @truncate(@backingInt(face.polygon)))), .continues = @truncate(face.remaining), .first = @intCast(index), .count = 3 };
         for (0..3) |corner| {
             indices[index + corner] = @truncate(face.vertices[corner]);
             uv[index + corner] = .{ face.u[corner], face.v[corner] };
@@ -846,7 +846,7 @@ fn prefixed(buffer: []u8, letter: u8, name: []const u8) []const u8 {
 }
 
 fn testShading(mode: u4, sub_mode: u4) shp.Face.Shading {
-    return .{ .mode = @fromBackingInt(@intCast(mode)), .sub_mode = sub_mode, ._unused = 0 };
+    return .{ .mode = @fromBackingInt(mode), .sub_mode = sub_mode, ._unused = 0 };
 }
 
 test look {

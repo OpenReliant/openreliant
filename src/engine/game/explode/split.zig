@@ -576,7 +576,7 @@ pub fn start(world: gameobj.World, index: u16) void {
     object.flags.engines_disabled = true;
     stopTracks(model);
 
-    if (sequence.other_half) |half_type| split.other = otherHalf(world, index, @fromBackingInt(@intCast(half_type)), &split.portals[1]);
+    if (sequence.other_half) |half_type| split.other = otherHalf(world, index, @fromBackingInt(half_type), &split.portals[1]);
 
     var damaged: usize = 0;
     for (model.parts, 0..) |*part, at| {

@@ -70,7 +70,7 @@ pub fn read(bytes: []const u8, buffer: *[texels.max_levels][]const u8) Error!tex
 /// supercompressed with Zstandard, which `read` takes as it is.
 pub fn inflated(gpa: Allocator, bytes: []const u8) (Error || Allocator.Error)!?[]u8 {
     if (bytes.len < index_at or !std.mem.eql(u8, bytes[0..identifier.len], &identifier)) return error.NotAKtx2;
-    const scheme: Supercompression = @fromBackingInt(@intCast(word(bytes, supercompression_at)));
+    const scheme: Supercompression = @fromBackingInt(word(bytes, supercompression_at));
     if (scheme != .zstandard) return null;
     const count: usize = @max(word(bytes, levels_at), 1);
     if (count > texels.max_levels or bytes.len < index_at + count * entry_size) return error.Corrupt;

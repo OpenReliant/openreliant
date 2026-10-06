@@ -40,7 +40,7 @@ pub const Object = enum(u16) {
     _,
 
     pub fn of(index: u16) Object {
-        return @fromBackingInt(@intCast(index));
+        return @fromBackingInt(index);
     }
 
     pub fn slot(object: Object) u16 {

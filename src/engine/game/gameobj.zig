@@ -37,7 +37,7 @@ pub const Slot = enum(i32) {
     _,
 
     pub fn of(slot: u16) Slot {
-        return @fromBackingInt(@intCast(slot));
+        return @fromBackingInt(slot);
     }
 
     /// The slot `index` names, or none.
@@ -58,7 +58,7 @@ pub const Voice = enum(u16) {
     _,
 
     pub fn of(voice: u8) Voice {
-        return @fromBackingInt(@intCast(voice));
+        return @fromBackingInt(voice);
     }
 
     /// The voice it names, or null for none.
@@ -506,19 +506,19 @@ pub const GameType = enum(u32) {
             .{ .late_escape_pod, "uly_escape.shp" },
             .{ .other_late_escape_pod, "ber_escape.shp" },
             .{ .debris, "deb_1.shp" },
-            .{ @fromBackingInt(@intCast(GameType.debris.number() + 9)), "deb_10.shp" },
+            .{ @fromBackingInt(GameType.debris.number() + 9), "deb_10.shp" },
             .{ .crewman, "rus_man1.shp" },
-            .{ @fromBackingInt(@intCast(GameType.crewman.number() + 3)), "rus_man4.shp" },
+            .{ @fromBackingInt(GameType.crewman.number() + 3), "rus_man4.shp" },
             .{ .rock_chunk, "rockchunk00.SHP" },
-            .{ @fromBackingInt(@intCast(GameType.rock_chunk.number() + 4)), "rockchunk04.SHP" },
+            .{ @fromBackingInt(GameType.rock_chunk.number() + 4), "rockchunk04.SHP" },
             .{ .shell, "shell.shp" },
             .{ .limpet_pod, "limpet_pod.shp" },
-            .{ @fromBackingInt(@intCast(rocks.get(.asteroid)[0])), "ast_1.shp" },
-            .{ @fromBackingInt(@intCast(rocks.get(.asteroid)[1])), "ast_7.shp" },
-            .{ @fromBackingInt(@intCast(rocks.get(.turret)[0])), "turast_1.shp" },
-            .{ @fromBackingInt(@intCast(rocks.get(.turret)[1])), "turast_7.shp" },
-            .{ @fromBackingInt(@intCast(rocks.get(.hole)[0])), "ast_hole1.shp" },
-            .{ @fromBackingInt(@intCast(rocks.get(.hole)[1])), "ast_hole4.shp" },
+            .{ @fromBackingInt(rocks.get(.asteroid)[0]), "ast_1.shp" },
+            .{ @fromBackingInt(rocks.get(.asteroid)[1]), "ast_7.shp" },
+            .{ @fromBackingInt(rocks.get(.turret)[0]), "turast_1.shp" },
+            .{ @fromBackingInt(rocks.get(.turret)[1]), "turast_7.shp" },
+            .{ @fromBackingInt(rocks.get(.hole)[0]), "ast_hole1.shp" },
+            .{ @fromBackingInt(rocks.get(.hole)[1]), "ast_hole4.shp" },
         };
         for (models) |named| assert(std.mem.eql(u8, create.models.ship_types[named[0].number()].model.?, named[1]));
     }
@@ -535,7 +535,7 @@ pub const GameType = enum(u32) {
     /// `player_twins_first`, stands for the first set's in the same place, and any other for itself.
     pub fn untwinned(object_type: GameType) GameType {
         const at = object_type.number();
-        return @fromBackingInt(@intCast(if (at >= player_twins_first) at - player_twins_first else at));
+        return @fromBackingInt(if (at >= player_twins_first) at - player_twins_first else at);
     }
 
     /// How many of the player's ship types have twins: the first twelve, from 0.
@@ -545,7 +545,7 @@ pub const GameType = enum(u32) {
     /// for any other.
     pub fn twin(object_type: GameType) ?GameType {
         const at = object_type.number();
-        return if (at < player_twins) @fromBackingInt(@intCast(at + player_twins_first)) else null;
+        return if (at < player_twins) @fromBackingInt(at + player_twins_first) else null;
     }
 
     /// Whether it is a Phoenix, the ship that carries the Nova Cannon, or its twin.
@@ -615,13 +615,13 @@ pub const Type = enum(u32) {
 
     /// The game's type `game`.
     pub fn of(game: GameType) Type {
-        return @fromBackingInt(@intCast(@backingInt(game)));
+        return @fromBackingInt(@backingInt(game));
     }
 
     /// The game's type it acts as: itself for one of the game's, and for one a mod adds, the type
     /// it is based on.
     pub fn base(object_type: Type) GameType {
-        const from_mod = additions.ships.get(object_type.number()) orelse return @fromBackingInt(@intCast(object_type.number()));
+        const from_mod = additions.ships.get(object_type.number()) orelse return @fromBackingInt(object_type.number());
         return from_mod.base;
     }
 
@@ -667,7 +667,7 @@ pub const Type = enum(u32) {
 
     /// The type scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?Type {
-        if (additions.ships.find(text)) |found| return @fromBackingInt(@intCast(found));
+        if (additions.ships.find(text)) |found| return @fromBackingInt(found);
         return .of(std.meta.stringToEnum(GameType, text) orelse return null);
     }
 
