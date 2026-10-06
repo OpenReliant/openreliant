@@ -64,7 +64,7 @@
 
 <section id="status" class="panel status">
   <h2>Where it <span>stands</span></h2>
-  <p>OpenReliant is still in development. Right now you can play the first campaign mission from start to finish, with the menus, briefings and loadout. The rest of the campaign is next, then multiplayer. <a href="#roadmap">See the roadmap</a>.</p>
+  <p>OpenReliant is still in development. Right now you can play the first campaign mission from start to finish, with the menus, briefings and loadout. The rest of the campaign comes in the 0.8 beta, then multiplayer. <a href="#roadmap">See the roadmap</a>.</p>
 </section>
 
 <section id="start">
@@ -75,7 +75,7 @@
     <div class="panel"><div class="step">2</div><h3>Install</h3><p>Run <code>openreliant install</code> with your first StarLancer disc in the drive, or point it at your disc images. It copies the game files to a new folder.</p></div>
     <div class="panel"><div class="step">3</div><h3>Fly</h3><p>Start OpenReliant, create a pilot and start the campaign.</p></div>
   </div>
-  <p class="small">The <a href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/installation.md">installation guide</a> has the details for each system.</p>
+  <p class="small">The <a href="docs/guide/installation/">installation guide</a> has the details for each system.</p>
 </section>
 
 <section id="adds">
@@ -114,8 +114,9 @@
   <p class="intro">Put a mod in the game's <code>mods</code> folder and turn it on from the main menu. Mods can add high-resolution textures, new ships, guns and missiles, pilots with their own faces and voices, and 3D models made in modern tools. They can also replace sounds, music and missions, or change the game with scripts, with their own page of options. Mods don't change the game files, so you can turn them off at any time.</p>
   <div class="actions">
     <a class="button primary" href="https://openreliant.github.io/openreliant-mods/">Browse the mods</a>
-    <a class="button" href="https://github.com/OpenReliant/openreliant/blob/main/docs/guide/modding.md">Make a mod</a>
+    <a class="button" href="docs/guide/modding/">Make a mod</a>
   </div>
+  <p class="small"><a href="docs/guide/what-mods-can-do/">See everything mods can do</a>.</p>
 </section>
 
 <section id="roadmap">
@@ -123,10 +124,11 @@
   <p class="intro">What's coming next.</p>
   <div class="timeline">
     <div class="panel"><div class="when">Now · 0.7</div><h3>Mods</h3><p>Mod support: new ships, textures, models and scripts.</p></div>
-    <div class="panel"><div class="when">Next · 1.0</div><h3>The whole campaign</h3><p>The full campaign, from the first mission to the last, with saved games.</p></div>
-    <div class="panel"><div class="when">Then · 1.1</div><h3>Multiplayer</h3><p>Multiplayer with the original game modes, and a public matchmaking server to find games. Join without port forwarding, or run your own dedicated server.</p></div>
+    <div class="panel"><div class="when">Next · 0.8</div><h3>The beta</h3><p>The whole campaign with saved games, every part of the original game, and scripting for mods that stays stable. The first release for players, and a round of your feedback.</p></div>
+    <div class="panel"><div class="when">Then · 1.0</div><h3>The release</h3><p>The beta, polished with your feedback and played through from start to finish.</p></div>
+    <div class="panel"><div class="when">Later · 1.1</div><h3>Multiplayer</h3><p>Multiplayer with the original game modes, and a public matchmaking server to find games. Join without port forwarding, or run your own dedicated server.</p></div>
   </div>
-  <p class="intro" style="margin-top: 20px">The rest of the game keeps improving too. The bars below show the progress of each part.</p>
+  <p class="intro" style="margin-top: 20px">The bars below show the progress of each release, and of the improvements over the original.</p>
   <div class="panel" id="milestones">
     <p class="small"><a href="https://github.com/OpenReliant/openreliant/milestones">See the progress on GitHub</a>.</p>
   </div>
@@ -197,7 +199,13 @@
 
   fetch(repository + "/milestones?state=open&per_page=50").then((response) => response.ok ? response.json() : Promise.reject()).then((milestones) => {
     const holder = document.getElementById("milestones");
-    const shown = milestones.filter((each) => each.open_issues + each.closed_issues > 0).sort((a, b) => a.number - b.number);
+    // The releases in the order of their versions, such as "Beta (v0.8)", and the milestones without
+    // a version, such as the improvements over the original, after them.
+    const version = (milestone) => {
+      const found = /\(v(\d+)\.(\d+)\)/.exec(milestone.title);
+      return found ? Number(found[1]) * 1000 + Number(found[2]) : Infinity;
+    };
+    const shown = milestones.filter((each) => each.open_issues + each.closed_issues > 0).sort((a, b) => version(a) - version(b) || a.number - b.number);
     if (shown.length === 0) return;
     holder.textContent = "";
     for (const milestone of shown) {
