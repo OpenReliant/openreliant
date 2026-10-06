@@ -11,6 +11,9 @@
 //!
 //! What no string places lies between its neighbours: the end of one file, the start of the next,
 //! or a file between them whose path the binary does not hold.
+//!
+//! The paths come from the strings Ghidra defines, and from any address the code names that holds
+//! one, so that a table typed in Ghidra over a path doesn't lose its file.
 
 const std = @import("std");
 const Io = std.Io;
@@ -163,7 +166,15 @@ pub fn read(
         const text = reader.string(address) catch continue;
         if (text.len != 0) try literal_list.append(arena, address);
     }
-    const literals = literal_list.items;
+    // A path that Ghidra's strings leave out, such as one under a typed table, is still a path:
+    // take it from the code that names it.
+    for (code) |function| for (function.references) |address| {
+        if (contains(strings, address)) continue;
+        const text = reader.string(address) catch continue;
+        if (isSourcePath(text)) try literal_list.append(arena, address);
+    };
+    std.mem.sort(u32, literal_list.items, {}, std.sort.asc(u32));
+    const literals = dedupe(literal_list.items);
 
     // The paths, one file for each, in the order of their first copy in the data.
     var files: std.ArrayList(File) = .empty;
@@ -482,6 +493,40 @@ test read {
     // late's only string lies between a.cpp's two paths, but late follows b.cpp's code: the string
     // has another user the listing does not show, and late stays unplaced.
     try std.testing.expectEqual(Range{ .start = 0x401030, .end = 0x401038 }, files[1].code.?);
+}
+
+test "read takes a path the strings leave out from the code" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var data: [0x200]u8 = @splat(0);
+    const region: testing.Region = .{ .va = 0x500000, .bytes = &data };
+    region.putString(0x500000, "C:\\src\\a.cpp");
+    region.putString(0x500080, "plain");
+    region.putString(0x500100, "C:\\src\\b.cpp");
+    const reader = try testing.reader(std.testing.allocator, &.{region});
+    defer testing.freeReader(std.testing.allocator, reader);
+
+    // b.cpp's path is missing from the strings, as under a typed table, but b1 names it. A string
+    // that isn't a path, and a number that isn't an address, add no file.
+    const listing =
+        \\; ==== a1 @ 00401000 ====
+        \\00401000  68000050 PUSH 0x500000
+        \\00401004  68800050 PUSH 0x500080
+        \\00401008  680a0500 PUSH 0x50a
+        \\; ==== b1 @ 00401010 ====
+        \\00401010  68000150 PUSH 0x500100
+        \\00401014  68000150 PUSH 0x500100
+        \\
+    ;
+    const strings = [_]u32{0x500000};
+    const files = try read(arena, reader, try functions(arena, listing), &strings);
+
+    try std.testing.expectEqual(2, files.len);
+    try std.testing.expectEqualStrings("C:\\src\\b.cpp", files[1].path);
+    try std.testing.expectEqual(0x500100, files[1].path_string);
+    try std.testing.expectEqual(Range{ .start = 0x401010, .end = 0x401018 }, files[1].code.?);
 }
 
 test emit {

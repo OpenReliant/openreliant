@@ -274,7 +274,8 @@ fn translateHeader(translate_c: *std.Build.Dependency, header: std.Build.LazyPat
 
 /// Gives `module`, the library built from `src/root.zig`, zlib for `target`, which the PNG reader
 /// inflates with (`src/formats/png.zig`): several times faster than `std.compress.flate`. It is
-/// built optimized whatever mode the rest is built in, as the other C libraries are.
+/// built optimized whatever mode the rest is built in, as the other C libraries are. libarchive asks
+/// for zlib with the same options, so the game builds and links one copy.
 fn addZlib(b: *std.Build, translate_c: *std.Build.Dependency, module: *std.Build.Module, target: std.Build.ResolvedTarget) void {
     const zlib = b.dependency("zlib", .{ .target = target, .optimize = .fast }).artifact("z");
     module.addImport("zlib", translateHeader(translate_c, zlib.getEmittedIncludeTree().path(b, "zlib.h"), zlib, target, .fast));
