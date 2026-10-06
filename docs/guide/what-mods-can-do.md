@@ -57,7 +57,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 | A mod can | Read | Example |
 |---|---|---|
-| Hook the game's functions, such as damage, shots, missile launches and orders, to change or stop them | [Hooks](scripting.md#hooks) | [`rules`](../../examples/mods/rules) |
+| Hook the game's functions, such as damage, shots, missile launches, orders and the mission script's commands, to change or stop them | [Hooks](scripting.md#hooks) | [`rules`](../../examples/mods/rules) |
 | React to the mission's events, such as a ship destroyed or docked | [Mission and engine events](scripting.md#mission-and-engine-events) | [`rules`](../../examples/mods/rules), [`tally`](../../examples/mods/tally) |
 | Change what the radio says | [Changing what the radio says](scripting.md#changing-what-the-radio-says) | [`arena`](../../examples/mods/arena), [`teapot`](../../examples/mods/teapot) |
 | Run a script on each ship of a class or a type | [Object scripts](scripting.md#object-scripts) | [`wingmen`](../../examples/mods/wingmen) |
@@ -99,7 +99,6 @@ These are planned, each in an issue of the
 - Sounds, music, speech and movies in today's formats
   ([#496](https://github.com/OpenReliant/openreliant/issues/496))
 - Scripts on missiles and turrets ([#587](https://github.com/OpenReliant/openreliant/issues/587))
-- Hooks on more of the game's functions ([#581](https://github.com/OpenReliant/openreliant/issues/581))
 - Campaigns that go through the game's rooms, ITAC and saved games
   ([#641](https://github.com/OpenReliant/openreliant/issues/641))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))

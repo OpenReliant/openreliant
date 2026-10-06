@@ -28,6 +28,8 @@ type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cann
 type RadioMode = "now" | "queued" | "if_idle" | number
 type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "unnamed_3" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_40" | "jump_out_41" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "eject_106" | "scoop_up" | "eject_spin" | "dock" | "dark_reign_shoot_110" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | "unnamed_200" | number
 type OrderPushed = "refused" | "taken" | "conflict"
+type MissionCommand = "print_ship_name" | "create_timer" | "destroy_timer" | "create_flight_group" | "destroy_flight_group" | "wait" | "play_speech" | "wait_for_speech" | "play_comms_movie" | "wait_for_movie" | "print_debug_message" | "set_ai" | "clear_ai" | "set_patrol_route" | "set_pilot" | "set_trigger_state" | "start_director_cam" | "start_ship_animation" | "ship_follow_curve" | "setup_launch" | "start_launch" | "display_sub_title" | "reset_code_priority" | "interrupt_trigger_code" | "comms_from_ship" | "comms_from_pilot" | "set_invulnerability" | "moving_ship_follow_curve" | "disable_object" | "position_relative" | "when_player_last_jumped" | "start_missile_cam" | "start_chase_cam" | "set_player_target" | "set_targetable" | "play_music" | "stop_director_cam" | "set_action_centre" | "dock" | "disable_taunts" | "fly" | "comms_from_ship_once" | "comms_from_pilot_once" | "disable_lights" | "set_environment_fx" | "multi_player_sync" | "disable_generic_comms" | "disable_guns" | "set_nav_point" | "set_escort_point" | "reset_after_burners" | "disable_missiles" | "disable_engines" | "disable_eject" | "set_hostile" | "reset_to_spawn_positions" | "update_environment_fx_state" | "set_primary_target" | "wait_for_jump_or_launch" | "do_not_disturb" | "set_environment_fx_nebula" | "start_ship_animation_reverse" | "snap_to_point" | "play_fosters_last_stand" | "open_instrument" | "close_instrument" | "destroy_sub_object" | "set_objective" | "set_rescue_probabilities" | "is_ship_this_player" | "set_flyback_marker" | "reset_flyback_marker" | "stop_ship_animation" | "set_ship_avoidance" | "match_speed" | "moving_ship_backup_curve" | "wait_for_key" | "terminate_mission" | "turret_set_target" | "set_any_trigger_state" | "wait_for_director_cam" | "kill_all_script_execution_execpt_me" | "stack_director_cam" | "scanner" | "replace_sub_object" | "fire" | "multiplayer_script_sync" | "friendly_fire" | "cloak" | "replenish_weapons" | "wills_blag" | "show_hud_icon" | "disable_listing" | "disable_object_at_next_jump" | "darrens_naughty_blag"
+type MissionCommandResult = "wait" | "run_on" | number
 type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
 type PilotTier = "level_0" | "level_1" | "level_2" | number
 type PilotSkill = "low" | "medium" | "high" | number
@@ -738,6 +740,15 @@ declare class ObjectOrders
     function original(self): ()
 end
 
+-- The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `"run_on"` lets the script's thread go on, `"wait"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `"run_on"`.
+declare class VmCommand
+    command: MissionCommand
+    arguments: { number }
+    result: MissionCommandResult
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): MissionCommandResult?
+end
+
 -- `object`, a fighter, turns on whoever last hit it, once it has taken enough damage lately and its order allows it.
 declare class OrderRetaliate
     object: Object
@@ -780,6 +791,20 @@ end
 -- The director's camera has reached the mission's ship `ship`, a point on its curve or the curve's end.
 declare class CameraReached
     ship: number
+end
+
+-- `other` stands close to `object`, within 20 times its radius: `distance` times it. The game looks once a second, and only while one of `object`'s triggers waits for it.
+declare class ProximityClose
+    object: Object
+    other: Object
+    distance: number
+end
+
+-- `other` stands within the distance that one of `object`'s triggers names, counted in `object`'s radius: `distance` times it. The game looks once a second, and only while such a trigger waits for it.
+declare class ProximityGeneral
+    object: Object
+    other: Object
+    distance: number
 end
 
 -- `object` has taken `scooped` aboard with its tractor beam.
@@ -905,6 +930,7 @@ type HooksAdd =
     ((name: "order_push", handler: (e: OrderPush) -> boolean?, filter: (Filter | (e: OrderPush) -> boolean)?) -> HookHandle) &
     ((name: "order_pop", handler: (e: OrderPop) -> boolean?, filter: (Filter | (e: OrderPop) -> boolean)?) -> HookHandle) &
     ((name: "object_orders", handler: (e: ObjectOrders) -> boolean?, filter: (Filter | (e: ObjectOrders) -> boolean)?) -> HookHandle) &
+    ((name: "vm_command", handler: (e: VmCommand) -> boolean?, filter: ((e: VmCommand) -> boolean)?) -> HookHandle) &
     ((name: "order_retaliate", handler: (e: OrderRetaliate) -> boolean?, filter: (Filter | (e: OrderRetaliate) -> boolean)?) -> HookHandle) &
     ((name: "order_do_nothing", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fly_aimlessly_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1027,6 +1053,8 @@ type HooksAdd =
     ((name: "launched", handler: (e: Launched) -> boolean?, filter: (Filter | (e: Launched) -> boolean)?) -> HookHandle) &
     ((name: "ship_reached", handler: (e: ShipReached) -> boolean?, filter: (Filter | (e: ShipReached) -> boolean)?) -> HookHandle) &
     ((name: "camera_reached", handler: (e: CameraReached) -> boolean?, filter: ((e: CameraReached) -> boolean)?) -> HookHandle) &
+    ((name: "proximity_close", handler: (e: ProximityClose) -> boolean?, filter: (Filter | (e: ProximityClose) -> boolean)?) -> HookHandle) &
+    ((name: "proximity_general", handler: (e: ProximityGeneral) -> boolean?, filter: (Filter | (e: ProximityGeneral) -> boolean)?) -> HookHandle) &
     ((name: "object_scooped", handler: (e: ObjectScooped) -> boolean?, filter: (Filter | (e: ObjectScooped) -> boolean)?) -> HookHandle) &
     ((name: "player_ready_to_jump", handler: (e: PlayerReadyToJump) -> boolean?, filter: (Filter | (e: PlayerReadyToJump) -> boolean)?) -> HookHandle) &
     ((name: "jumped_in", handler: (e: JumpedIn) -> boolean?, filter: (Filter | (e: JumpedIn) -> boolean)?) -> HookHandle) &
@@ -1061,6 +1089,7 @@ type HooksAfter =
     ((name: "order_push", handler: (e: OrderPush) -> boolean?, filter: (Filter | (e: OrderPush) -> boolean)?) -> HookHandle) &
     ((name: "order_pop", handler: (e: OrderPop) -> boolean?, filter: (Filter | (e: OrderPop) -> boolean)?) -> HookHandle) &
     ((name: "object_orders", handler: (e: ObjectOrders) -> boolean?, filter: (Filter | (e: ObjectOrders) -> boolean)?) -> HookHandle) &
+    ((name: "vm_command", handler: (e: VmCommand) -> boolean?, filter: ((e: VmCommand) -> boolean)?) -> HookHandle) &
     ((name: "order_retaliate", handler: (e: OrderRetaliate) -> boolean?, filter: (Filter | (e: OrderRetaliate) -> boolean)?) -> HookHandle) &
     ((name: "order_do_nothing", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fly_aimlessly_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &

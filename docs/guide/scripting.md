@@ -241,8 +241,7 @@ is one of:
 - **an engine event**, such as `mission_started` or `object_added`.
 
 The [scripting reference](reference.md#the-games-functions), or `openreliant hooks` in a terminal,
-lists them with the fields each handler sees. Hooks on more of the game are planned
-([#581](https://github.com/OpenReliant/openreliant/issues/581)).
+lists them with the fields each handler sees.
 
 ### Adding a handler
 
@@ -316,6 +315,7 @@ The game's functions that have hooks:
 | `object_orders` | An object runs its order, as it does each frame | `object` |
 | `order_retaliate` | A fighter turns on whoever last hit it | `object` |
 | `radio_say` | The radio says a line | Only a function filter |
+| `vm_command` | The mission's script runs one of its commands; its result is what the command gives | Only a function filter |
 
 ### Targets
 
@@ -372,6 +372,31 @@ end)
 [`examples/mods/arena`](../../examples/mods/arena) and [`examples/mods/teapot`](../../examples/mods/teapot)
 do this.
 
+### The mission script's commands
+
+`vm_command` runs as a mission's script runs one of its commands. `e.command` names it, such as
+`"set_invulnerability"` or `"play_music"` ([MissionCommand](reference.md#missioncommand)), and
+`e.arguments` holds its arguments, the first first, with 0 past the ones it takes.
+
+- Returning `false` stops the command, and the script goes on after it.
+- The arguments are the script's own values. A ship or a text is the place of its record in the
+  mission's file, so most handlers only look at `e.command`, or change a number such as a time.
+  The list can't be changed in place; a handler sets `e.arguments` to a new one.
+- `e.result` is what the command gives: `"run_on"`, `"wait"`, which ends the script's run until it
+  runs next, or a number, the command's value
+  ([MissionCommandResult](reference.md#missioncommandresult)).
+
+```lua
+local hooks = require("openreliant.hooks")
+
+-- The missions' scripts can't make ships invulnerable.
+hooks.add("vm_command", function(e)
+    if e.command == "set_invulnerability" then
+        return false
+    end
+end)
+```
+
 ### Order routines
 
 Each order a ship follows runs routines of the original game: an init as the order starts, an
@@ -387,6 +412,9 @@ end, { side = "hostile", class = "fighter" })
 ```
 
 - Returning `false` from an update skips the routine for that frame. The ship keeps the order.
+- Launching, landing, docking, jumps, gates and explosions are all orders, so their routines'
+  hooks change them, such as `order_jump_out_init` or `order_explode`. `order_push` can refuse
+  the order before it starts.
 - Where OpenReliant doesn't run a routine yet, its handlers still run.
 - These hooks change the game's orders. To add an order of your own, see
   [Custom AI orders](#custom-ai-orders).
@@ -398,7 +426,9 @@ it. Events have no `hooks.after`.
 
 - **Mission events** ([The mission's events](reference.md#the-missions-events)), such as
   `destroyed`, `launched` and `docked`, come for the ships the mission's file lists, whether or not
-  a trigger waits for them.
+  a trigger waits for them. The exceptions are `proximity_close` and `proximity_general`, which
+  tell of a ship close to another: the game looks for them once a second, and only while one of
+  the ship's triggers waits for them.
 - **Engine events** ([The engine's events](reference.md#the-engines-events)) are
   `mission_started`, `mission_ended`, `object_added`, `object_removed`, `order_started`,
   `order_ended` and `trigger_fired`, the last for each of the mission's triggers that fires.
@@ -418,7 +448,7 @@ end, { type = { "reliant", "yamato" } })
 The filter takes `object` (a handle), `type`, `class` and `side`, each a name or a list of names;
 every test given must hold. It tests the hook's main object, which the table above names: `object`
 for most hooks. A filter can also be a function, which gets `e` and returns `true` for a call the
-handler is for. `radio_say` concerns no object, so it only takes a function.
+handler is for. `radio_say` and `vm_command` concern no object, so they only take a function.
 
 ### Order, removal and errors
 

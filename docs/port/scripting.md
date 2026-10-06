@@ -323,12 +323,21 @@ handlers mods add. The [scripting reference](../guide/reference.md) lists every 
 - **Events**: the mission's (`mission_events`), which must each be a `dte.Condition`, and the
   engine's (`engine_events`).
 
-A function's fields are its parameters after the first, the world or the orders' context, in order,
-with a slot as an `Object` and an order's or a missile's target as a `Target`, which gives back the
-game's own target unchanged where the scripts leave it alone (`Target.aimed`). A field whose name starts with `_` passes its parameter through without
-scripts seeing it. The build checks that the fields follow the function's parameters and that the
-result is the function's. So OpenReliant's code can change around a hook, but what scripts see of
-it only changes where its declaration does.
+A function's fields are its parameters after the first, the world, the orders' context or the
+mission's script, in order, with a slot as an `Object` and an order's or a missile's target as a
+`Target`, which gives back the game's own target unchanged where the scripts leave it alone
+(`Target.aimed`). A field whose name starts with `_` passes its parameter through without scripts
+seeing it. An array of numbers, such as a command's arguments, is a read-only list that a handler
+replaces. The build checks that the fields follow the function's parameters and that the result is
+the function's. So OpenReliant's code can change around a hook, but what scripts see of it only
+changes where its declaration does. Where a handler stops a function, its result is the result
+type's `stopped` where the type declares one, and zero otherwise.
+
+`vm_command` (`0x0045BEA0`) pops a command's arguments and stores its result as the original does,
+and runs the command itself in `Machine.runCommand`, the hooked function, on a copy of the
+arguments padded with zeros to the most any command takes (`executor.Arguments`). The command is a
+`MissionCommand`, the catalogue's names in snake case, and its result a `CommandResult`, whose
+`stopped` is `run_on`.
 
 ### Calling them
 
@@ -345,7 +354,8 @@ read back from the fields, and the function is called again with `Scripts.passin
 which the first line takes as the sign to run the body. The order routines are hooked where
 `aigeneric` runs them (`runInit`, `runUpdate`, `runExit`, through `enterRoutine`), which finds the
 routine's hook from the order. Events are told with `hooks.tell`, where the engine posts them:
-the mission's in `mission/events.zig`, as each posting routine takes them, `object_added` in
+the mission's in `mission/events.zig`, as each posting routine takes them, the proximity events as
+the watches' scan (`0x0045B170`) finds a ship close by, with the distance before it's truncated, `object_added` in
 `create_object`, `object_removed` in `object_reset` and `create.retire`, `order_started` and
 `order_ended` where an order's `init` and `exit` run, and `trigger_fired` in `vm.triggers.match`.
 
