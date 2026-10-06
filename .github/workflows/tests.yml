@@ -21,3 +21,14 @@ jobs:
           version: 0.17.0
       - run: zig build --summary all
       - run: zig build test --summary all
+      # setup-zig saves .zig-cache after the job, but clears it when it is over 2 GB. Our own
+      # programs and test binaries change with every commit and would fill it, so they are left
+      # out: the C libraries, the fetched packages and translate-c then stay cached between runs.
+      - if: always()
+        shell: bash
+        run: >-
+          find .zig-cache/o -type f \(
+          -name test -o -name 'test.*' -o -name '*_zcu.o' -o -name '*_zcu.obj'
+          -o -name 'openreliant' -o -name 'openreliant.*' -o -name 'sltool' -o -name 'sltool.*'
+          -o -name 'tablegen*' -o -name 'ghidragen*' -o -name 'mission0' -o -name 'mission0.*'
+          \) -delete
