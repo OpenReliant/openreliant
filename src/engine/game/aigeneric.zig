@@ -691,8 +691,7 @@ pub fn retaliate(ctx: Context, index: u16) void {
 
 /// The `init` of the order, where OpenReliant runs it, which scripts can hook under the routine's
 /// name (`hooks.routine_hooks`). The orders whose `init` isn't ported yet do nothing
-/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), the warps' among them
-/// ([#481](https://github.com/OpenReliant/openreliant/issues/481)) and multiplayer's
+/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), multiplayer's among them
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runInit(ctx: Context, index: u16, info: orders.Info) void {
     if (hooks.enterRoutine(.init, runInit, ctx, index, info)) |done| return done;
@@ -776,8 +775,7 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
 
 /// The `update` of the order, where OpenReliant runs it, which scripts can hook under the routine's
 /// name (`hooks.routine_hooks`). The orders whose update isn't ported yet do nothing
-/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), the warps' among them
-/// ([#481](https://github.com/OpenReliant/openreliant/issues/481)) and multiplayer's
+/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), multiplayer's among them
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
     if (hooks.enterRoutine(.update, runUpdate, ctx, index, info)) |done| return done;

@@ -1362,7 +1362,8 @@ fn shotColour(player: bool, side: gameobj.Side(i32)) [3]f32 {
 /// far it could travel meanwhile, the shot's path comes within. The frame pass tests only those
 /// (`bulletHit`).
 ///
-/// The shot is drawn with its type's bolt where OpenReliant has one (`Bolts`).
+/// The shot is drawn as its type's look gives it (`dress`, `Looks`), and its sound is played where
+/// it is heard (`shotSound`).
 ///
 /// It casts a light while it is one of the latest two of its ring (`Bullets.Ring`), or for its
 /// whole flight under `ShotLights.every_shot`.
@@ -1377,10 +1378,6 @@ fn shotColour(player: bool, side: gameobj.Side(i32)) [3]f32 {
 /// comes within `hugeReach` of as well.
 ///
 /// A ship aiming blind turns the shot from its muzzle to fly at where it aims (`blindAim`).
-///
-/// Not ported: how the other gun types' shots are drawn
-/// ([#154](https://github.com/OpenReliant/openreliant/issues/154)); its sound
-/// ([#47](https://github.com/OpenReliant/openreliant/issues/47)).
 pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType, is_heard: bool) void {
     if (hooks.enter(.bullet_fire, shoot, .{ world, owner, muzzle, gun_type, is_heard })) |done| return done;
     const clock = world.clock;
@@ -1670,9 +1667,10 @@ pub fn moveBullets(world: gameobj.World) void {
 /// A Huge Gun's shot streams its trail (`effects.Streaming`), and a Turret Flak shell that ends
 /// without striking anything bursts (`effects.flakBurst`).
 ///
-/// Not ported: how the shots are drawn, their colours fading with their life, and the lights they
-/// carry ([#154](https://github.com/OpenReliant/openreliant/issues/154)); what multiplayer makes of a
-/// hit.
+/// Each shot is placed as far through the step as the frame is, its colour fading with its life
+/// (`fade`), and `drawBullets` adds it and its lights to the scene.
+///
+/// Not ported: what multiplayer makes of a hit.
 pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) void {
     const bullets = &world.objects.bullets;
     for (&bullets.pool, 0..) |*bullet, index| {

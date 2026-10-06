@@ -17,7 +17,7 @@ The loadout screen (`loadout.cpp`, `0x00441AA0` to `0x0044B870`) is a hologram t
 ## Not ported yet
 
 - A view nothing opens (`0x0044A470`): it turns the ship's panel behind a portal, sinks the ships and turns the two scrollers round, with its own Move Clip Point and Rotate Scroll Button (`0x00448EF0`, `0x00448FF0`) and the panel's clip object (`0x00523E7C`). Every call of it (`0x00449E3F`, `0x0044760F`, `0x004476B0`, `0x00447CA3`) waits on a flag (`0x00524974`) nothing sets, so it never runs.
-- The loadout kept across a change of display (`video_screen`, `0x0042F1FE` to `0x0042F237`), whose screen is not ported ([#400](https://github.com/OpenReliant/openreliant/issues/400)).
+- The loadout kept across a change of display (`video_screen`, `0x0042F1FE` to `0x0042F237`), which the game needs because a new display makes its renderer again. OpenReliant's settings screen changes the display without making the loadout again, and the loadout picks up as it was (`resumeAfterOptions`).
 
 ## GenILib's 3D interface
 

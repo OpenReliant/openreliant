@@ -234,8 +234,5 @@ a bank.
   ([Renderer](../port/renderer.md#improvements)).
 
 Not ported: the other movies, each with what plays it: the story's end
-([#416](https://github.com/OpenReliant/openreliant/issues/416)), those of the rooms' places
-([#419](https://github.com/OpenReliant/openreliant/issues/419) to
-[#422](https://github.com/OpenReliant/openreliant/issues/422)), and the transitions of the screens not
-yet ported, the in-game options' `igofade.bik` among them
-([#43](https://github.com/OpenReliant/openreliant/issues/43)).
+([#416](https://github.com/OpenReliant/openreliant/issues/416)), and the transitions of the
+multiplayer screens ([#404](https://github.com/OpenReliant/openreliant/issues/404)).

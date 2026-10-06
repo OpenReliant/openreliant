@@ -148,15 +148,12 @@ hostile, and 2 for the rest, which are neutral. Two objects on different sides a
 
 [`create.zig`](../../src/engine/game/create.zig) ports `create_object` as `createObject`, and
 `Objects` is OpenReliant's GO array: each slot the object's record, and what OpenReliant keeps
-beside it where the record holds the original's pointers. Not ported yet: the tier, which chooses
-the guns; the guns and their groups, the loadout and its pods
-([#131](https://github.com/OpenReliant/openreliant/issues/131),
-[#38](https://github.com/OpenReliant/openreliant/issues/38),
-[#39](https://github.com/OpenReliant/openreliant/issues/39)); the shield's effect
-([#133](https://github.com/OpenReliant/openreliant/issues/133)); the special types but the wrecks and
-the planets, which `planetMade` sets up once the mission has made the planet and its atmosphere,
-and Titan's Planet Bombard ([#233](https://github.com/OpenReliant/openreliant/issues/233)); the ship a
-player chose for the mission; and the multiplayer cases.
+beside it where the record holds the original's pointers. It fits the guns and their groups
+([Guns](guns.md)), and the racks from the player's loadout or by the loadout tier
+([Missiles](missiles.md#the-loadout)). Not ported yet: the special types but the wrecks and the
+planets, which `planetMade` sets up once the mission has made the planet and its atmosphere, and
+Titan's Planet Bombard ([#233](https://github.com/OpenReliant/openreliant/issues/233)); and the
+multiplayer cases.
 
 ## Flags
 
@@ -515,9 +512,9 @@ settles by is one `settle` helper rather than the six copies the binary holds.
 object at the start of each step, after `gameobj.orthonormalizeTurn` on the object whose turn it is
 (`gameobj.nextTurn`). `create.objectsUpdate` then moves them.
 
-Not yet ported: the inertia tensor that `object_recentre` inverts into `0x548`
-([#87](https://github.com/OpenReliant/openreliant/issues/87)), so knocks don't turn objects in
-OpenReliant yet.
+`object_recentre` builds the inertia tensor from the parts (`object_bounds`) and inverts it into
+`0x548`, which `create_object` gives the record as `angular_response`: `applyKnocks` turns the
+angular impulse of collisions and explosions by it, so a knock off an object's centre turns it.
 
 ## Shields
 

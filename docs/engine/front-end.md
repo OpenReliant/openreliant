@@ -12,7 +12,7 @@ OpenReliant opens in the front end unless `--mission` names a mission. The pilot
 
 Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the mods screen ([The mods screen](#the-mods-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- The other screens ([#43](https://github.com/OpenReliant/openreliant/issues/43) maps them). The loadout is ported ([Loadout](loadout.md)). MULTI PLAYER stays on the main menu ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
+- The multiplayer screens: MULTI PLAYER stays on the main menu ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -31,19 +31,19 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 
 | Screen | Function | Issue |
 |---|---|---|
-| 0, the main menu | `main_menu` (`0x00428B60`) | [#396](https://github.com/OpenReliant/openreliant/issues/396) |
+| 0, the main menu | `main_menu` (`0x00428B60`) | |
 | 1, GAME OPTIONS ([GAME OPTIONS](#game-options)) | `game_options` (`0x0042A620`) | |
 | 3, the audio ([Audio](#audio)) | `audio_screen` (`0x0042DAB0`) | |
 | 15, the video ([Video](#video)) | `video_screen` (`0x0042E9B0`) | |
 | 16, the controls ([Controls](#controls)) | `controls_screen` (`0x0042B690`) | |
 | 100, the mods screen ([The mods screen](#the-mods-screen)), which OpenReliant adds | | [#497](https://github.com/OpenReliant/openreliant/issues/497) |
-| 101, a mod's options ([The mod's options](#the-mods-options)), which OpenReliant adds | | [#597](https://github.com/OpenReliant/openreliant/issues/597) |
-| 102, the game modes screen ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | [#560](https://github.com/OpenReliant/openreliant/issues/560) |
-| 103, a game mode's briefing ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | [#442](https://github.com/OpenReliant/openreliant/issues/442) |
+| 101, a mod's options ([The mod's options](#the-mods-options)), which OpenReliant adds | | |
+| 102, the game modes screen ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | |
+| 103, a game mode's briefing ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
 | 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
-| 12, the pilot roster | `0x00430490` | [#397](https://github.com/OpenReliant/openreliant/issues/397) |
+| 12, the pilot roster | `0x00430490` | |
 | 13, the saved games ([The saved games](#the-saved-games)) | `saved_games` (`0x00431730`) | |
 | 14, the multiplayer connection | `0x00432FC0` | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
 | 17 and 18, a session's loadout | `0x0044B950`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |

@@ -399,11 +399,9 @@ keeps in globals: the device states, the bindings and the settings.
 
 `playerControls` and `playerThrottleKeys` port the joystick and keyboard parts of the two
 routines above. `Player` holds `throttle_setting`, `matching_speed`, `afterburner_toggled`, the
-two held flags and the shield reserves. The engine runs them where `simulation_step` does, once
-per step, before the objects move. The game also runs `player_controls` once a frame from
-`orders_update`, which isn't ported yet ([#32](https://github.com/OpenReliant/openreliant/issues/32)),
-so for now the keyboard steers, the stick moves the power and SHIELD BALANCING shifts the shields
-more slowly than in the game.
+two held flags and the shield reserves. `playerControlOrder` runs them as the game does, as the
+update of the Player Control order (`player_controls`, `0x00413410`), once a frame from
+`orders_update` (`aigeneric.ordersUpdate`), followed by MATCH SPEED and the weapons' keys.
 
 [`input/power.zig`](../../src/engine/input/power.zig) ports the power distribution and the shield
 balance: `reach`, `shares`, `distribute`, `choose` for the power keys, `move` and
@@ -429,9 +427,8 @@ OpenReliant keeps the joystick as the choice and steers with the keyboard while 
 (`input.Devices.controlMode`); and its settings screen writes the controls as it is left only
 where they are not what the file gives already ([Front end](front-end.md#controls)).
 
-Not yet ported: force feedback ([issue 83](https://github.com/OpenReliant/openreliant/issues/83)), the
-weapons and other actions `player_controls` reads, and the special cases for the byte at `0x529FB8`,
-the player's deathmatch power-up and the flags at `0x51CEF8`, `0x51CEFC` and `0x51CF04`.
-`object_orders` clears the two burns before each order update and, after it, when the ship is out of
-fuel or its engines are disabled; only the fuel check is ported, in `playerControls` itself, since
-nothing runs orders yet.
+`object_orders` (`aigeneric.objectOrders`) clears the two burns before each order update and, after
+it, stops them where the ship is out of fuel or its engines are disabled. Not yet ported: the special
+cases `player_controls` reads for the byte at `0x529FB8`, the player's deathmatch power-up and the
+flags at `0x51CEF8`, `0x51CEFC` and `0x51CF04`
+([#722](https://github.com/OpenReliant/openreliant/issues/722)).

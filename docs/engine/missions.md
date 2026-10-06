@@ -234,8 +234,8 @@ the game reads past it. A part's or a trigger's block in a section the mission l
 none, where the game takes the code from wherever the section's offset, `0xFFFF`, falls.
 
 Not ported: the rest of the loading and of `mission_start`: the renderer's and the textures'
-setting up and the loading screen, which are the front end's
-([#43](https://github.com/OpenReliant/openreliant/issues/43)), the chat line, a multiplayer game, and
+setting up, which OpenReliant's renderer does its own way ([Renderer](../port/renderer.md)), the
+chat line, a multiplayer game, and
 what the start does for the campaign, mission 25's first part's cockpit, the Kamov's, and the
 pilot's profile ([#301](https://github.com/OpenReliant/openreliant/issues/301)). The pilots it
 gives the player's wing are in [Objects](objects.md#the-wings-pilots).

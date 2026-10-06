@@ -69,7 +69,7 @@ After moving objects, `objects_update` gathers colliding candidates: slot index,
 
 Before separation, the two objects apply an impulse shove (`0x00464E80`). The contact point on each sphere moves with the object between steps, so a turning ship strikes with its wingtip speed. The impulse is calculated from closing velocity over both masses and `angular_response`, doubled so the bounce preserves relative impact speed, and applied equally and oppositely via `object_knock`. Attached objects and the Ripper with a captured victim receive no shove.
 
-Two spheres collide along the line between their centers, applying no torque, so neither ship is set spinning. Hull faces do apply torque ([#143](https://github.com/OpenReliant/openreliant/issues/143)).
+Two spheres collide along the line between their centers, applying no torque, so neither ship is set spinning. Hull faces do apply torque.
 
 The pair is then separated along that line: each object is placed at 1.1 times its own radius from the midpoint between the two, preventing overlapping on the next step.
 
