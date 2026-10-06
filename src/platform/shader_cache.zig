@@ -32,6 +32,11 @@ const Hash = [Sha256.digest_length]u8;
 /// The cache's files. Change the version when the payload's layout changes.
 const Files = cache_file.Files(.{ .folder = folder, .magic = "ORSH".*, .version = 3, .Key = Hash, .max_bytes = 16 * 1024 * 1024 });
 
+comptime {
+    // The header's size, which `docs/port/renderer.md` gives the offsets after.
+    std.debug.assert(@sizeOf(Files.Header) == 56);
+}
+
 /// The compiler's files that the key covers, besides the shader.
 const compiler_files = [_][]const u8{ @embedFile("shader-compiler.zon"), @embedFile("shader_compiler.cpp") };
 

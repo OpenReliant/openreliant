@@ -150,7 +150,9 @@ pub fn build(b: *std.Build) void {
     scripting.addOptions("example_scripts", example_scripts);
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
-    const archive_library = b.dependency("libarchive", .{ .target = target, .optimize = optimize }).artifact("archive");
+    const archive_dependency = b.dependency("libarchive", .{ .target = target, .optimize = optimize });
+    const archive_library = archive_dependency.artifact("archive");
+    b.getInstallStep().dependOn(&b.addInstallFile(archive_dependency.namedLazyPath("LICENSE-libarchive.txt"), "LICENSE-libarchive.txt").step);
     const archive_c = b.addTranslateC(.{
         .root_source_file = b.path("src/openreliant/archive.h"),
         .target = target,

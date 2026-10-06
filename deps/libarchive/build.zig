@@ -550,4 +550,6 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
     lib.installHeadersDirectory(upstream.path("libarchive"), "", .{});
+    // The notice travels with releases, alongside the library it covers.
+    b.addNamedLazyPath("LICENSE-libarchive.txt", upstream.path("COPYING"));
 }

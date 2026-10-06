@@ -47,6 +47,10 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 ([Compression](../guide/modding.md#compression),
 [`mod_pictures.zig`](../../src/engine/surrender/surrenderlib/srtexture/mod_pictures.zig)).
 
+- A picture can come compressed already, in a DDS or KTX2 file, which draws as it is. A KTX2 file's
+  levels supercompressed with Zstandard are inflated with `std.compress.zstd` as the file is read
+  (`ktx2.inflated`), into a plain KTX2 file of the same picture.
+
 - A level says how it holds its pixels (`srtexture.Level.Format`, `formats/texels.zig`): 8-bit RGBA,
   16-bit RGBA or RG, or BC1, BC3, BC5 or BC7 blocks. A 16-bit PNG normal map is read and mipmapped
   in 16-bit RGBA (`png.readWide`, `srtexture.mipmapsWide`), then kept as 16-bit RG on the GPU, or
@@ -132,16 +136,19 @@ checked: it is OpenReliant's own with a mod's functions in it.
 shader in the game folder's `cache/shaders`, one file for each shader, named by the SHA-256 of the
 shader's name: `crt/crt.frag` for a post effect, `variant device.glsl cel-shading/bands.glsl
 cel-shading/ink.glsl` for a variant of the device shader, or `retro/device.glsl vertex` for a stage
-of a mod's replacement. A file holds an 80-byte header, then the SPIR-V, then the Metal source:
+of a mod's replacement. A file holds the 56-byte header every cache file starts with
+([`cache_file.zig`](../../src/platform/cache_file.zig)), then the SPIR-V's size, the SPIR-V and the
+Metal source:
 
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 4 | `ORSH` |
-| 4 | 4 | The layout's version, 2 |
+| 4 | 4 | The layout's version, 3 |
 | 8 | 32 | The key: SHA-256 of the compiler's pinned versions (`deps/shader-compiler/build.zig.zon`), its wrapper (`shader_compiler.cpp`), and the shader: its kind, its stage, its definitions, and each part's name and source |
-| 40 | 32 | SHA-256 of the SPIR-V and the Metal source |
-| 72 | 4 | The SPIR-V's size in bytes |
-| 76 | 4 | The Metal source's size in bytes |
+| 40 | 8 | XxHash3 of the rest of the file |
+| 48 | 8 | The size of the rest of the file in bytes |
+| 56 | 4 | The SPIR-V's size in bytes |
+| 60 | | The SPIR-V, then the Metal source |
 
 A file whose key doesn't match, whose sizes don't add up or whose hash is wrong is ignored, and the
 shader compiles again and replaces it. Files are written to a temporary file first and then renamed
@@ -215,7 +222,15 @@ shader is OpenReliant's own, which `make shaders` compiles as before.
   variant releases its pipelines (`Gpu.removeVariant`).
 - The variants read one more uniform block (`variants.Uniforms`, set 3, binding 3): the surface
   function's parameters, which each run pushes where they change, the lighting function's, and
-  the seconds passed. Runs with different parameters don't join.
+  the seconds passed. Runs with different parameters don't join. The `Surface` a function changes
+  also gives the size in pixels of the frame it draws into (`frameSize`), which `gl_FragCoord`
+  counts in, from the frame's uniforms.
+- A surface function registered as see-through (`srtexture.ModSurface.see_through`) makes a
+  surface the game draws solid blend by the alpha the function sets: the driver puts it aside with
+  the blended draws, which are sorted farthest first (`seeThrough`, `drawDeferred`), and the device
+  takes its alpha from the texel as the function leaves it (`device.State.see_through`). Unless it
+  is registered not to (`writes_depth`), it still writes depth, so that of two such surfaces that
+  cut into each other the nearer hides the other.
 - While MOD EFFECTS is off (`Gpu.mod_effects`), every draw takes variant 0 and no post
   effect draws.
 
