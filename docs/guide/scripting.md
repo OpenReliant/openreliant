@@ -340,7 +340,7 @@ A handler that stops it leaves `"refused"`, and the object's orders stay as they
 
 ### Changing what the radio says
 
-`radio_say` runs as the radio says a line: a mission's script, the simulator or the game's own
+`radio_say` runs as the radio says a line: from a mission's script, the simulator or the game's
 chatter. `e.speech` is the file of the line, such as `ms_hudtr_001.ut`, and `e.film` the film of
 the speaker's face. `e.mode` says when it's said: `"now"`, `"queued"` after the lines before it, or
 `"if_idle"`, only if the radio has nothing else to say.

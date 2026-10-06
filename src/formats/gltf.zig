@@ -14,6 +14,7 @@ const Allocator = std.mem.Allocator;
 const json = std.json;
 
 const obj = @import("obj.zig");
+const math = @import("../engine/surrender/math.zig");
 pub const maps = @import("gltf/maps.zig");
 
 pub const Error = Allocator.Error || error{
@@ -170,7 +171,7 @@ fn numbers(comptime count: usize, object: json.ObjectMap, name: []const u8, defa
 // --- Accessors ---------------------------------------------------------------------------------
 
 /// What an accessor's elements are made of (`componentType`).
-const Component = enum(u16) {
+pub const Component = enum(u16) {
     byte = 5120,
     unsigned_byte = 5121,
     short = 5122,
@@ -184,6 +185,32 @@ const Component = enum(u16) {
             .short, .unsigned_short => 2,
             .unsigned_int, .float => 4,
         };
+    }
+
+    /// Whether it is an unsigned integer, as a primitive's indices must be.
+    fn unsigned(component: Component) bool {
+        return switch (component) {
+            .unsigned_byte, .unsigned_short, .unsigned_int => true,
+            .byte, .short, .float => false,
+        };
+    }
+};
+
+/// A buffer view's bytes, and its stride where it gives one.
+const View = struct {
+    bytes: []const u8,
+    stride: ?usize,
+
+    /// The file's buffer view `at`, within its buffer.
+    fn of(document: Document, at: usize) Error!View {
+        const view = try document.item("bufferViews", at);
+        const buffer = index(view, "buffer") orelse return error.BadIndex;
+        if (buffer >= document.buffers.len) return error.BadIndex;
+        const start = index(view, "byteOffset") orelse 0;
+        const length = index(view, "byteLength") orelse return error.BadIndex;
+        const bytes = document.buffers[buffer];
+        if (start > bytes.len or length > bytes.len - start) return error.BadIndex;
+        return .{ .bytes = bytes[start..][0..length], .stride = index(view, "byteStride") };
     }
 };
 
@@ -205,13 +232,11 @@ const Accessor = struct {
             if (std.mem.eql(u8, kind, pair[0])) break pair[1];
         } else return error.Unsupported;
         const count = index(accessor, "count") orelse return error.BadIndex;
-        const view = try document.item("bufferViews", index(accessor, "bufferView") orelse return error.Unsupported);
-        const buffer = index(view, "buffer") orelse return error.BadIndex;
-        if (buffer >= document.buffers.len) return error.BadIndex;
-        const start = (index(view, "byteOffset") orelse 0) + (index(accessor, "byteOffset") orelse 0);
+        const view: View = try .of(document, index(accessor, "bufferView") orelse return error.Unsupported);
+        const start = index(accessor, "byteOffset") orelse 0;
         const element = width * component.size();
-        const stride = index(view, "byteStride") orelse element;
-        const bytes = document.buffers[buffer];
+        const stride = view.stride orelse element;
+        const bytes = view.bytes;
         if (count > 0 and (start > bytes.len or (count - 1) * stride + element > bytes.len - start)) return error.BadIndex;
         const normalized = if (accessor.get("normalized")) |value| value == .bool and value.bool else false;
         return .{ .bytes = bytes[start..], .stride = stride, .count = count, .width = width, .component = component, .normalized = normalized };
@@ -230,9 +255,14 @@ const Accessor = struct {
         };
     }
 
-    /// Element `at` as an index.
+    /// Element `at` as an index, of an accessor of unsigned integers (`Component.unsigned`).
     fn indexAt(accessor: Accessor, at: usize) usize {
-        return @intFromFloat(accessor.get(at, 0));
+        const from = accessor.bytes[at * accessor.stride ..];
+        return switch (accessor.component.size()) {
+            1 => from[0],
+            2 => std.mem.readInt(u16, from[0..2], .little),
+            else => std.mem.readInt(u32, from[0..4], .little),
+        };
     }
 
     fn vector(accessor: Accessor, comptime count: usize, at: usize) [count]f32 {
@@ -272,42 +302,22 @@ fn transformPoint(m: Matrix, p: [3]f32) [3]f32 {
     return out;
 }
 
-/// The 3x3 part of `m`, by columns.
-fn linear(m: Matrix) [3][3]f32 {
-    return .{ m[0..3].*, m[4..7].*, m[8..11].* };
+/// The 3x3 part of `m`, as the engine's math holds a matrix, row by row.
+fn linear(m: Matrix) math.Matrix {
+    return .{ m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10] };
 }
 
-fn determinant(m: [3][3]f32) f32 {
-    return m[0][0] * (m[1][1] * m[2][2] - m[2][1] * m[1][2]) -
-        m[1][0] * (m[0][1] * m[2][2] - m[2][1] * m[0][2]) +
-        m[2][0] * (m[0][1] * m[1][2] - m[1][1] * m[0][2]);
+/// The matrix that turns normals as `turn` turns points: the inverse of its transpose, which keeps
+/// normals at right angles to their surfaces under a stretch; `turn` itself where it has none.
+fn normalMatrix(turn: math.Matrix) math.Matrix {
+    return math.transpose(math.inverse(turn) orelse return turn);
 }
 
-/// The matrix that turns normals as `m` turns points: the inverse of its transpose, which keeps
-/// normals at right angles to their surfaces under a stretch.
-fn normalMatrix(m: [3][3]f32) [3][3]f32 {
-    const det = determinant(m);
-    if (det == 0) return m;
-    // The cofactors, which are the inverse's transpose times the determinant.
-    var out: [3][3]f32 = undefined;
-    for (0..3) |column| for (0..3) |row| {
-        const c0 = (column + 1) % 3;
-        const c1 = (column + 2) % 3;
-        const r0 = (row + 1) % 3;
-        const r1 = (row + 2) % 3;
-        out[column][row] = (m[c0][r0] * m[c1][r1] - m[c1][r0] * m[c0][r1]) / det;
-    };
-    return out;
-}
-
-fn turnNormal(m: [3][3]f32, n: [3]f32) [3]f32 {
-    var out: [3]f32 = undefined;
-    for (&out, 0..) |*into, row| into.* = m[0][row] * n[0] + m[1][row] * n[1] + m[2][row] * n[2];
-    const length = @sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
-    if (length > 0) for (&out) |*part| {
-        part.* /= length;
-    };
-    return out;
+/// The normal `n` turned by `m`, a unit long; none where it has no length.
+fn turnNormal(m: math.Matrix, n: [3]f32) [3]f32 {
+    const turned = math.transform(m, n);
+    if (math.length(turned) == 0) return turned;
+    return math.normalize(turned);
 }
 
 /// A node's own transform: its `matrix`, or its translation, rotation and scale.
@@ -392,7 +402,7 @@ const Making = struct {
         const normal_turn = normalMatrix(turn);
         // A mirroring transform turns the triangles' faces inside out, which their corners'
         // order then puts right.
-        const mirrored = determinant(turn) < 0;
+        const mirrored = math.determinant(turn) < 0;
         var list: std.ArrayList(obj.Triangle) = .empty;
         for (primitives.array.items) |listed| {
             if (listed != .object) return error.BadIndex;
@@ -401,15 +411,19 @@ const Making = struct {
         if (list.items.len > 0) try made.objects.append(made.arena, .{ .name = name, .triangles = list.items });
     }
 
-    fn primitive(made: *Making, value: json.ObjectMap, world: Matrix, normal_turn: [3][3]f32, mirrored: bool, list: *std.ArrayList(obj.Triangle)) Error!void {
-        const mode = index(value, "mode") orelse triangle_list;
-        if (mode != triangle_list and mode != triangle_strip and mode != triangle_fan) return;
+    fn primitive(made: *Making, value: json.ObjectMap, world: Matrix, normal_turn: math.Matrix, mirrored: bool, list: *std.ArrayList(obj.Triangle)) Error!void {
+        const mode: Mode = if (index(value, "mode")) |given| @enumFromInt(std.math.cast(u32, given) orelse return) else .triangles;
+        switch (mode) {
+            .triangles, .triangle_strip, .triangle_fan => {},
+            _ => return,
+        }
         const attributes = (value.get("attributes") orelse return error.BadIndex);
         if (attributes != .object) return error.BadIndex;
         const positions: Accessor = try .of(made.document, index(attributes.object, "POSITION") orelse return error.BadIndex);
         const normals: ?Accessor = if (index(attributes.object, "NORMAL")) |at| try .of(made.document, at) else null;
         const uvs: ?Accessor = if (index(attributes.object, "TEXCOORD_0")) |at| try .of(made.document, at) else null;
         const indices: ?Accessor = if (index(value, "indices")) |at| try .of(made.document, at) else null;
+        if (indices) |listed| if (!listed.component.unsigned()) return error.BadIndex;
         const material: ?[]const u8 = if (index(value, "material")) |at| (if (at < made.material_names.len) made.material_names[at] else return error.BadIndex) else null;
 
         // The primitive's vertices, each at the same index in the file's lists.
@@ -433,18 +447,18 @@ const Making = struct {
         while (true) {
             var three: [3]usize = undefined;
             switch (mode) {
-                triangle_list => {
+                .triangles => {
                     if (at + 3 > count) break;
                     three = .{ at, at + 1, at + 2 };
                     at += 3;
                 },
-                triangle_strip => {
+                .triangle_strip => {
                     if (at + 3 > count) break;
                     // Every other triangle of a strip runs the other way round.
                     three = if (at % 2 == 0) .{ at, at + 1, at + 2 } else .{ at + 1, at, at + 2 };
                     at += 1;
                 },
-                else => {
+                .triangle_fan, _ => {
                     if (at + 3 > count) break;
                     three = .{ 0, at + 1, at + 2 };
                     at += 1;
@@ -462,9 +476,10 @@ const Making = struct {
     /// along one axis makes a long box, such as an engine glow's.
     fn marker(made: *Making, world: Matrix, name: []const u8) Error!void {
         // Each axis of the box reaches as far as the cube's turned axes reach along it.
+        const turn = linear(world);
         var half: [3]f32 = @splat(0);
-        for (linear(world)) |column| {
-            for (&half, column) |*reach, along| reach.* += @abs(along) * marker_half;
+        for (&half, 0..) |*reach, row| {
+            for (turn[row * 3 ..][0..3]) |along| reach.* += @abs(along) * marker_half;
         }
         const middle = transformPoint(world, .{ 0, 0, 0 });
         const first: u32 = @intCast(made.positions.items.len);
@@ -482,10 +497,14 @@ const Making = struct {
     }
 };
 
-/// The primitives' modes this reader takes: lists, strips and fans of triangles.
-const triangle_list = 4;
-const triangle_strip = 5;
-const triangle_fan = 6;
+/// A primitive's mode (`mode`): what its vertices make. This reader takes the triangles' alone:
+/// lists, strips and fans.
+const Mode = enum(u32) {
+    triangles = 4,
+    triangle_strip = 5,
+    triangle_fan = 6,
+    _,
+};
 
 // --- Materials ---------------------------------------------------------------------------------
 
@@ -559,14 +578,8 @@ fn image(arena: Allocator, document: Document, object: json.ObjectMap, name: []c
     const source = try document.item("images", index(texture, "source") orelse return null);
     const mime = if (source.get("mimeType")) |given| string(given) else null;
     if (source.get("uri")) |uri| return .{ .bytes = try resource(arena, document.files, string(uri) orelse return error.BadIndex), .mime = mime };
-    const view = try document.item("bufferViews", index(source, "bufferView") orelse return error.BadIndex);
-    const buffer = index(view, "buffer") orelse return error.BadIndex;
-    if (buffer >= document.buffers.len) return error.BadIndex;
-    const start = index(view, "byteOffset") orelse 0;
-    const length = index(view, "byteLength") orelse return error.BadIndex;
-    const bytes = document.buffers[buffer];
-    if (start > bytes.len or length > bytes.len - start) return error.BadIndex;
-    return .{ .bytes = bytes[start..][0..length], .mime = mime };
+    const view: View = try .of(document, index(source, "bufferView") orelse return error.BadIndex);
+    return .{ .bytes = view.bytes, .mime = mime };
 }
 
 /// Files for the tests: none.
@@ -622,7 +635,7 @@ test triangles {
     for ([_][3]f32{ .{ -2, -2, -6 }, .{ 2, 2, -6 }, .{ -2, 2, 6 } }, glow.triangles[0].corners) |expected, corner| {
         for (expected, file.positions[corner.position]) |want, got| try std.testing.expectApproxEqAbs(want, got, 1e-5);
     }
-    // A name that isn't the file's is refused.
+    // A file without its asset isn't read as glTF.
     try std.testing.expectError(error.NotGltf, read(arena.allocator(), "{}", no_files));
 }
 

@@ -1047,8 +1047,8 @@ fn readMusic(files: Files, path: []const u8) !MusicRead {
     return .{ .bytes = try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse return error.FileNotFound, .from_mod = false };
 }
 
-/// Where a mod's piece of music `own` at `path` loops back to: the moment of the game's own piece
-/// at which the loop table's `loop_start` falls, the table's bytes being the game's file's. Where
+/// Where a mod's piece of music `own` at `path` loops back to: the moment of the game's piece at
+/// which the loop table's `loop_start` falls, the table's bytes being the game's file's. Where
 /// the game's file can't be read, or either won't parse, the table's bytes as they are.
 ///
 /// **Improvement:** the original reads no mods. A mod's piece in another format than the game's,
@@ -1406,7 +1406,7 @@ test carriedLoop {
     const game_piece: wave.Wave = .{ .format = .ima_adpcm, .channels = 2, .rate = 22050, .bits = 4, .block_align = 1024, .frames_per_block = 1017, .frames = null, .data = &game_data };
     const mod_piece: wave.Wave = .{ .format = .pcm, .channels = 2, .rate = 44100, .bits = 16, .block_align = 4, .frames_per_block = 0, .frames = null, .data = &mod_data };
     try std.testing.expectEqual(183 * 1017 * 2 * 4, carriedLoop(game_piece, mod_piece, 188318));
-    // A mod's piece in the game's own format keeps the table's block.
+    // A mod's piece in the game's format keeps the table's block.
     try std.testing.expectEqual(183 * 1024, carriedLoop(game_piece, game_piece, 188318));
 }
 

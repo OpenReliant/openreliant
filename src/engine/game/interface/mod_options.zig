@@ -265,28 +265,16 @@ pub const Pages = struct {
 /// The title, in the place of the settings screen's tabs.
 const title_at: [2]i32 = .{ 320, settings.title_y };
 
-/// Where the rows end their labels, 20 right of the game's as the video tab's do.
-const edge = Line.original_edge + 20;
-const row_spacing = Line.arrows_height + inside;
-const inside = 4;
-const frame_line = 2;
+/// Where the list's frame starts.
 const top = 136;
 
 /// The rows the list shows at once.
 const shown_rows = 8;
 
 /// The list for a page of `options`, as the video tab's graphics list is laid out
-/// (`settings/graphics.zig`), with a frame as tall as the rows it shows, up to `shown_rows`.
+/// (`widgets.Pane.settingsList`), with a frame as tall as the rows it shows, up to `shown_rows`.
 fn paneOf(options: usize) Pane {
-    const rows: i32 = @intCast(@min(@max(options, 1), shown_rows));
-    const rows_height = (rows - 1) * row_spacing + Line.arrows_height;
-    return .{
-        .frame = .{ .at = .{ 45, top }, .extent = .{ 520, 2 * frame_line + 2 * inside + rows_height - 1 } },
-        .arrows = .{ .at = .{ 570, top } },
-        .first = top + frame_line + inside + 1,
-        .spacing = row_spacing,
-        .edge = edge,
-    };
+    return .settingsList(top, @intCast(@min(@max(options, 1), shown_rows)));
 }
 
 /// Where the text of the option under the pointer stands, under a list: its middle, a gap below it.

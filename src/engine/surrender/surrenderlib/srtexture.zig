@@ -470,8 +470,8 @@ pub const Table = struct {
         table.track(kept) catch {};
     }
 
-    /// The key the table keeps the texture `name`, or its `copy`, under: the name in lower case,
-    /// after the copy's letter, which the caller owns.
+    /// The key the table files the texture `name` under, or its `copy`: the name in lower case,
+    /// after the copy's letter. The caller owns it.
     fn keyOf(table: *Table, name: []const u8, copy: ?Copy) Allocator.Error![]u8 {
         const plain = tcache.fileName(name);
         const start: usize = @intFromBool(copy != null);
@@ -616,8 +616,8 @@ pub fn mipmapsWide(gpa: Allocator, picture: png.WidePicture, content: Content, l
     return mipmapLevels(gpa, .{ .width = picture.width, .height = picture.height, .format = .rgba16, .texels = bytes }, content, longest);
 }
 
-/// The mipmap levels of `picture`, a level of 8-bit or 16-bit RGBA whose texels it takes, made for
-/// `content`.
+/// The mipmap levels of `picture`, a level of 8-bit or 16-bit RGBA, made for `content`. The
+/// levels take over `picture`'s texels.
 fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) Allocator.Error![]const Level {
     var levels: std.ArrayList(Level) = .empty;
     errdefer {
@@ -634,7 +634,7 @@ fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) 
             .rgba16 => for (std.mem.bytesAsSlice([8]u8, bytes)) |*texel| {
                 std.mem.writeInt(u16, texel[6..8], std.math.maxInt(u16), .native);
             },
-            else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+            else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
         }
     }
     var finest = picture;
@@ -763,12 +763,12 @@ fn unitsAt(level: Level, at: usize) [4]f32 {
     var units: [4]f32 = undefined;
     switch (level.format) {
         .rgba8 => for (&units, level.texels[at * 4 ..][0..4]) |*value, sample| {
-            value.* = unit(sample);
+            value.* = texels.unit(u8, sample);
         },
         .rgba16 => for (&units, 0..) |*value, channel| {
-            value.* = unit16(std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native));
+            value.* = texels.unit(u16, std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native));
         },
-        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
     return units;
 }
@@ -784,7 +784,7 @@ pub fn samplesAt(level: Level, at: usize) [4]u16 {
         .rgba16 => for (&samples, 0..) |*wide, channel| {
             wide.* = std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native);
         },
-        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
     return samples;
 }
@@ -812,12 +812,12 @@ fn store(level: Level, at: usize, units: [4]f32) void {
     const bytes: []u8 = @constCast(level.texels);
     switch (level.format) {
         .rgba8 => for (bytes[at * 4 ..][0..4], units) |*sample, value| {
-            sample.* = level8(value);
+            sample.* = texels.nearest(u8, value);
         },
         .rgba16 => for (units, 0..) |value, channel| {
-            std.mem.writeInt(u16, bytes[(at * 4 + channel) * 2 ..][0..2], level16(value), .native);
+            std.mem.writeInt(u16, bytes[(at * 4 + channel) * 2 ..][0..2], texels.nearest(u16, value), .native);
         },
-        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
 }
 
@@ -826,7 +826,7 @@ fn storeLight(level: Level, at: usize, light: @Vector(3, f32), alpha: f32) void 
     if (level.format == .rgba8) {
         // The 8-bit level nearest each light, exactly as the table finds it.
         const bytes: []u8 = @constCast(level.texels);
-        bytes[at * 4 ..][0..4].* = .{ colour.level(light[0]), colour.level(light[1]), colour.level(light[2]), level8(alpha) };
+        bytes[at * 4 ..][0..4].* = .{ colour.level(light[0]), colour.level(light[1]), colour.level(light[2]), texels.nearest(u8, alpha) };
         return;
     }
     store(level, at, .{ colour.encoded(light[0]), colour.encoded(light[1]), colour.encoded(light[2]), alpha });
@@ -836,26 +836,6 @@ fn storeLight(level: Level, at: usize, light: @Vector(3, f32), alpha: f32) void 
 fn direction(normal: math.Vector) math.Vector {
     const length = math.length(normal);
     return if (length > 0) normal / @as(math.Vector, @splat(length)) else .{ 0, 0, 1 };
-}
-
-/// An 8-bit level as a value from 0 to 1.
-fn unit(level: u8) f32 {
-    return @as(f32, @floatFromInt(level)) / std.math.maxInt(u8);
-}
-
-/// The 8-bit level nearest a value from 0 to 1, held to the range.
-fn level8(value: f32) u8 {
-    return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(u8)));
-}
-
-/// A 16-bit level as a value from 0 to 1.
-fn unit16(level: u16) f32 {
-    return @as(f32, @floatFromInt(level)) / std.math.maxInt(u16);
-}
-
-/// The 16-bit level nearest a value from 0 to 1, held to the range.
-fn level16(value: f32) u16 {
-    return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(u16)));
 }
 
 fn decode(gpa: Allocator, texture: tcache.Texture, palette: *const tga.Palette) Allocator.Error!Image {
@@ -1185,9 +1165,9 @@ test mipmapsWide {
     const normals = try mipmapsWide(gpa, .{ .width = 2, .height = 1, .rgba = rgba }, .normal, max_side);
     defer freeLevels(gpa, normals);
     try std.testing.expectEqual(Level.Format.rgba16, normals[0].format);
-    try std.testing.expectEqual([4]f32{ unit16(lean), unit16(0x8000), 1, 1 }, unitsAt(normals[0], 0));
+    try std.testing.expectEqual([4]f32{ texels.unit(u16, lean), texels.unit(u16, 0x8000), 1, 1 }, unitsAt(normals[0], 0));
     const mean = unitsAt(normals[1], 0);
-    try std.testing.expect(mean[0] > unit16(0x8020));
+    try std.testing.expect(mean[0] > texels.unit(u16, 0x8020));
     try std.testing.expectApproxEqAbs(1, mean[3], 1e-4);
 }
 

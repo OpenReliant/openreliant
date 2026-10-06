@@ -272,7 +272,7 @@ fn deltaChunk(arena: Allocator, width: u16, height: u16, previous: []const u8, n
     };
     @memcpy(chunk[0..@sizeOf(talkie.DeltaHeader)], std.mem.asBytes(&header));
     var at: usize = @sizeOf(talkie.DeltaHeader);
-    const vector_bytes = wordBytes(vectors.items.len * 2 * talkie.vector_bits);
+    const vector_bytes = talkie.wordBytes(vectors.items.len * 2 * talkie.vector_bits);
     for (vectors.items, 0..) |vector, i| {
         putField(chunk[at..][0..vector_bytes], 2 * i * talkie.vector_bits, talkie.vector_bits, tenBits(vector[0]));
         putField(chunk[at..][0..vector_bytes], (2 * i + 1) * talkie.vector_bits, talkie.vector_bits, tenBits(vector[1]));
@@ -286,7 +286,7 @@ fn deltaChunk(arena: Allocator, width: u16, height: u16, previous: []const u8, n
         @memcpy(chunk[at..][0..talkie.pattern_size], &pattern);
         at += talkie.pattern_size;
     }
-    const map_bytes = wordBytes(map.len * bits);
+    const map_bytes = talkie.wordBytes(map.len * bits);
     for (map, 0..) |given, i| {
         const entry: u32 = switch (given) {
             .vector => |n| n,
@@ -367,11 +367,6 @@ fn putField(bytes: []u8, at: usize, bits: u5, value: u32) void {
         const position = at + bit;
         bytes[position / 8] |= @as(u8, 1) << @intCast(position % 8);
     }
-}
-
-/// The bytes `bits` bits take, rounded up to whole words, as `talkie` reads the vectors and the map.
-fn wordBytes(bits: usize) usize {
-    return ((bits + 31) & ~@as(usize, 31)) / 8;
 }
 
 /// Decodes `film` with the game's decoder: each frame's palette entries into `frames`, and the

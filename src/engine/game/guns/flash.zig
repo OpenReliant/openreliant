@@ -154,7 +154,7 @@ pub const Looks = struct {
     /// for each gun a mod adds with a flash picture, a plume of that picture, its base's size or as
     /// long as the gun gives, in proportion.
     ///
-    /// **Improvement:** the original's guns are its own.
+    /// **Improvement:** the original has no mods' guns.
     pub fn create(gpa: Allocator, textures: *srtexture.Table, settings: Settings) (Allocator.Error || matmanager.Error)!Looks {
         var looks: Looks = .{ .meshes = undefined, .colours = undefined, .settings = settings };
         errdefer looks.deinitOwn(gpa);
@@ -223,8 +223,7 @@ pub const Looks = struct {
 
     /// The own flash of `kind`, a gun a mod adds with a flash picture.
     pub fn own(looks: *const Looks, kind: guns.GunType) ?*const Own {
-        if (kind.added() == null) return null;
-        const at = kind.number() - additions.guns.first;
+        const at = additions.guns.place(kind.number()) orelse return null;
         if (at >= looks.mods.len) return null;
         return if (looks.mods[at]) |*made| made else null;
     }

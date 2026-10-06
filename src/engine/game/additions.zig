@@ -1,4 +1,4 @@
-//! OpenReliant's: the records mods add, each family numbered after the game's own: ship types
+//! OpenReliant's: the records mods add, each family numbered after the game's records: ship types
 //! ([#333](https://github.com/OpenReliant/openreliant/issues/333)), gun types, missile types and
 //! pilots ([#640](https://github.com/OpenReliant/openreliant/issues/640)).
 //!
@@ -52,8 +52,8 @@ pub fn Spec(comptime Base: type, comptime Extra: type) type {
     return struct {
         /// What the log calls one, such as `ship type`.
         noun: []const u8,
-        /// The manifest's section that lists a mod's records, and the prefix of each one's own
-        /// section.
+        /// The manifest's section that lists a mod's records, and the prefix of the section that
+        /// describes each one.
         list_section: []const u8,
         item_section: []const u8,
         /// Its first number, the one after the game's last, and the number past its last.
@@ -144,8 +144,14 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
 
         /// The record a mod adds of the number `number`, if there is one.
         pub fn get(number: u32) ?*const Added {
+            return &registered[place(number) orelse return null];
+        }
+
+        /// Where the record a mod adds of the number `number` stands among the mods' records, and
+        /// in any list kept beside them; null for a number no mod's record has.
+        pub fn place(number: u32) ?usize {
             if (number < first or number - first >= registered.len) return null;
-            return &registered[number - first];
+            return number - first;
         }
 
         /// The number of the record a mod adds called `name`, by its qualified name.

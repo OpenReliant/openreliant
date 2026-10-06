@@ -60,31 +60,36 @@ pub fn parse(arena: Allocator, text: []const u8) Error!File {
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, std.mem.sliceTo(raw, '#'), " \t\r");
         var words = std.mem.tokenizeAny(u8, line, " \t");
-        const keyword = words.next() orelse continue;
-        if (std.mem.eql(u8, keyword, "v")) {
-            try positions.append(arena, try numbers(3, &words));
-        } else if (std.mem.eql(u8, keyword, "vt")) {
-            try uvs.append(arena, try numbers(2, &words));
-        } else if (std.mem.eql(u8, keyword, "vn")) {
-            try normals.append(arena, try numbers(3, &words));
-        } else if (std.mem.eql(u8, keyword, "o") or std.mem.eql(u8, keyword, "g")) {
-            if (triangles.items.len > 0) try objects.append(arena, .{ .name = name, .triangles = try triangles.toOwnedSlice(arena) });
-            name = std.mem.trim(u8, line[keyword.len..], " \t");
-        } else if (std.mem.eql(u8, keyword, "usemtl")) {
-            material = std.mem.trim(u8, line[keyword.len..], " \t");
-        } else if (std.mem.eql(u8, keyword, "f")) {
-            var corners: std.ArrayList(Corner) = .empty;
-            while (words.next()) |word| try corners.append(arena, try corner(word, positions.items.len, uvs.items.len, normals.items.len));
-            if (corners.items.len < 3) return error.BadFace;
-            // A polygon as a fan from its first corner.
-            for (1..corners.items.len - 1) |at| {
-                try triangles.append(arena, .{ .corners = .{ corners.items[0], corners.items[at], corners.items[at + 1] }, .material = material });
-            }
+        const word = words.next() orelse continue;
+        const keyword = std.meta.stringToEnum(Keyword, word) orelse continue;
+        const rest = std.mem.trim(u8, line[word.len..], " \t");
+        switch (keyword) {
+            .v => try positions.append(arena, try numbers(3, &words)),
+            .vt => try uvs.append(arena, try numbers(2, &words)),
+            .vn => try normals.append(arena, try numbers(3, &words)),
+            .o, .g => {
+                if (triangles.items.len > 0) try objects.append(arena, .{ .name = name, .triangles = try triangles.toOwnedSlice(arena) });
+                name = rest;
+            },
+            .usemtl => material = rest,
+            .f => {
+                var corners: std.ArrayList(Corner) = .empty;
+                while (words.next()) |listed| try corners.append(arena, try corner(listed, positions.items.len, uvs.items.len, normals.items.len));
+                if (corners.items.len < 3) return error.BadFace;
+                // A polygon as a fan from its first corner.
+                for (1..corners.items.len - 1) |at| {
+                    try triangles.append(arena, .{ .corners = .{ corners.items[0], corners.items[at], corners.items[at + 1] }, .material = material });
+                }
+            },
         }
     }
     if (triangles.items.len > 0) try objects.append(arena, .{ .name = name, .triangles = try triangles.toOwnedSlice(arena) });
     return .{ .positions = positions.items, .uvs = uvs.items, .normals = normals.items, .objects = objects.items };
 }
+
+/// The statements this reader takes: a position, a texture coordinate, a normal, an object, a
+/// group, a material and a face.
+const Keyword = enum { v, vt, vn, o, g, usemtl, f };
 
 /// The next `count` numbers of `words`; a texture coordinate's third, where it has one, is passed
 /// over.

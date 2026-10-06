@@ -569,7 +569,7 @@ pub const Missile = enum(u8) {
     }
 };
 
-/// The game's own missiles.
+/// The game's missiles.
 pub const missile_count = @typeInfo(Missile).@"enum".fields.len;
 
 /// The most missiles the loadout knows: the game's, and as many as mods can add.

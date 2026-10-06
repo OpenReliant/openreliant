@@ -315,7 +315,6 @@ pub const Options = struct {
     gates: game.wgate.Settings = .{},
     /// How far the finer levels of detail reach.
     detail_reach: game.main.DetailReach = .far,
-    /// How much a frame may draw.
     /// Where the line starts that places the marker for a target out of sight.
     edge_line: game.hud.EdgeLine = .from_tip,
     /// How the loadout draws its ships and missiles.

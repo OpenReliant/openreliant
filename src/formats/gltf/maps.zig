@@ -16,6 +16,7 @@ const Allocator = std.mem.Allocator;
 
 const gltf = @import("../gltf.zig");
 const png = @import("../png.zig");
+const texels = @import("../texels.zig");
 const colour = @import("../../engine/surrender/colour.zig");
 
 const log = std.log.scoped(.gltf);
@@ -41,7 +42,7 @@ pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator
     for (0..pixels) |at| {
         const sample: [4]u8 = if (texture) |found| sampled(found, width, height, at) else .{ 255, 255, 255, 255 };
         for (0..3) |channel| base[at * 4 + channel] = colour.level(colour.light(sample[channel]) * material.colour[channel]);
-        base[at * 4 + 3] = level(unit(sample[3]) * material.colour[3]);
+        base[at * 4 + 3] = texels.nearest(u8, texels.unit(u8, sample[3]) * material.colour[3]);
     }
     try files.append(arena, .{ .name = try std.fmt.allocPrint(arena, "{s}.png", .{name}), .bytes = try encode(arena, width, height, base) });
 
@@ -54,8 +55,8 @@ pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator
         const parts = if (metal_rough) |found| sampled(found, width, height, at) else [4]u8{ 255, 255, 255, 255 };
         orm[at * 4 ..][0..4].* = .{
             if (occlusion) |found| sampled(found, width, height, at)[0] else 255,
-            level(unit(parts[1]) * material.roughness),
-            level(unit(parts[2]) * material.metallic),
+            texels.nearest(u8, texels.unit(u8, parts[1]) * material.roughness),
+            texels.nearest(u8, texels.unit(u8, parts[2]) * material.metallic),
             255,
         };
     }
@@ -100,14 +101,6 @@ fn sampled(source: png.Picture, width: u32, height: u32, at: usize) [4]u8 {
     const x = (at % width) * source.width / width;
     const y = (at / width) * source.height / height;
     return source.rgba[(y * source.width + x) * 4 ..][0..4].*;
-}
-
-fn unit(sample: u8) f32 {
-    return @as(f32, @floatFromInt(sample)) / std.math.maxInt(u8);
-}
-
-fn level(value: f32) u8 {
-    return @intFromFloat(@round(std.math.clamp(value, 0, 1) * std.math.maxInt(u8)));
 }
 
 fn encode(arena: Allocator, width: u32, height: u32, rgba: []const u8) Allocator.Error![]const u8 {

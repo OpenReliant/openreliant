@@ -1342,6 +1342,26 @@ pub const Gpu = struct {
         gpu.drawRuns(commands, pass, size, gpu.runs.items[0 .. gpu.overlay_from orelse gpu.runs.items.len], .scene, null);
     }
 
+    /// The device shader's `Frame` block (`shaders/device.glsl`): `settings`, then `reflection`.
+    const FrameSettings = extern struct {
+        /// 1 to draw in 16-bit colour, dithered; 1 to magnify textures with a Catmull-Rom filter;
+        /// 1 to dither 32-bit colour too; 1 to light in linear light.
+        sixteen_bit: f32,
+        crisp: f32,
+        dither: f32,
+        linear: f32,
+        /// The reflections' levels where they were drawn this frame, else 0, and the frame's size
+        /// in pixels.
+        reflection_levels: f32,
+        height: f32,
+        width: f32,
+        _unused: f32 = 0,
+
+        comptime {
+            std.debug.assert(@sizeOf(FrameSettings) == 2 * 4 * @sizeOf(f32));
+        }
+    };
+
     /// Draws those of `runs` that go to `face`, a face of the reflections' cube or the frame for
     /// null, in `pass`, into a target `size` pixels across and down: each with its pipeline and its
     /// texture array, the shadows' maps, the array's maps and the reflections beside it.
@@ -1353,15 +1373,14 @@ pub const Gpu = struct {
         const floats = gpu.linear and into != .finished;
         // The scene's pixels read the reflections drawn this frame: their levels, or 0 for none.
         const reflecting = into == .scene and gpu.reflected;
-        const frame_settings = [8]f32{
-            @floatFromInt(@intFromBool(!floats and gpu.settings.sixteen_bit)),
-            @floatFromInt(@intFromBool(gpu.settings.filter == .crisp)),
-            @floatFromInt(@intFromBool(!floats and gpu.settings.dither)),
-            @floatFromInt(@intFromBool(gpu.linear)),
-            if (reflecting) reflection_levels else 0,
-            target_size[1],
-            target_size[0],
-            0,
+        const frame_settings: FrameSettings = .{
+            .sixteen_bit = @floatFromInt(@intFromBool(!floats and gpu.settings.sixteen_bit)),
+            .crisp = @floatFromInt(@intFromBool(gpu.settings.filter == .crisp)),
+            .dither = @floatFromInt(@intFromBool(!floats and gpu.settings.dither)),
+            .linear = @floatFromInt(@intFromBool(gpu.linear)),
+            .reflection_levels = if (reflecting) reflection_levels else 0,
+            .height = target_size[1],
+            .width = target_size[0],
         };
         c.SDL_PushGPUFragmentUniformData(commands, 0, &frame_settings, @sizeOf(@TypeOf(frame_settings)));
         c.SDL_PushGPUFragmentUniformData(commands, 1, &gpu.lighting, @sizeOf(Lighting));

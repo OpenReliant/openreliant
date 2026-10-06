@@ -453,7 +453,7 @@ test "bounded PNG decoding rejects large dimensions before pixel allocation" {
 const chunk_overhead = 12;
 
 /// Inflates the zlib stream `data` into `into`, which it must fill exactly, with zlib's own
-/// inflate (`uncompress2`), which is several times faster than `std.compress.flate`'s.
+/// inflate (`uncompress2`), which is faster than `std.compress.flate`'s.
 fn inflate(data: []const u8, into: []u8) error{Corrupt}!void {
     var made: zlib.uLongf = std.math.cast(zlib.uLongf, into.len) orelse return error.Corrupt;
     var taken: zlib.uLong = std.math.cast(zlib.uLong, data.len) orelse return error.Corrupt;

@@ -39,18 +39,13 @@ pub fn encodeRows(rgba16: []const u8, width: u32, height: u32, first: u32, count
             const pixel_x = @min(column * texels.block_side + side, width - 1);
             const pixel_y = @min(row * texels.block_side + down, height - 1);
             const at = (pixel_y * width + pixel_x) * 4 * @sizeOf(u16);
-            x[down * texels.block_side + side] = unit(rgba16[at..][0..2]);
-            y[down * texels.block_side + side] = unit(rgba16[at + 2 ..][0..2]);
+            x[down * texels.block_side + side] = texels.unit(u16, std.mem.readInt(u16, rgba16[at..][0..2], .native));
+            y[down * texels.block_side + side] = texels.unit(u16, std.mem.readInt(u16, rgba16[at + 2 ..][0..2], .native));
         };
         const block = out[(row * across + column) * 2 * bc4_bytes ..][0 .. 2 * bc4_bytes];
         block[0..bc4_bytes].* = bc4(x);
         block[bc4_bytes..].* = bc4(y);
     };
-}
-
-/// A 16-bit sample as a value from 0 to 1.
-fn unit(bytes: *const [2]u8) f32 {
-    return @as(f32, @floatFromInt(std.mem.readInt(u16, bytes, .native))) / std.math.maxInt(u16);
 }
 
 /// The BC4 block that fits `values`, each from 0 to 1, best: of the endpoints near their extremes,

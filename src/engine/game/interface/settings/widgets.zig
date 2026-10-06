@@ -73,11 +73,20 @@ pub const Line = struct {
         return .{ .text = text, .at = .{ line.edge, line.y }, .alignment = .right };
     }
 
-    /// A heading's label, from 35 inside the left of the frames the settings' lists stand in.
+    /// A heading's label, `heading_inset` inside the left of the frames the settings' lists stand
+    /// in, on a line of such a list (`list_edge`).
     pub fn heading(line: Line, text: Label.Text) Label {
         return .{ .text = text, .at = .{ line.edge + heading_from, line.y } };
     }
-    const heading_from = 80 - original_edge - 20;
+    const heading_from = frame_left + heading_inset - list_edge;
+
+    /// Where OpenReliant's lists on the settings screen's shapes, the video tab's graphics and a
+    /// mod's options, end their rows' labels: 20 right of the game's lists.
+    pub const list_edge = original_edge + 20;
+
+    /// The left of those lists' frames, and how far inside it a heading starts.
+    pub const frame_left = 45;
+    const heading_inset = 35;
 
     pub fn value(line: Line, text: Label.Text) Label {
         return .{ .text = text, .at = .{ line.edge + value_from, line.y } };
@@ -203,8 +212,8 @@ pub const Line = struct {
         /// OpenReliant's: a line of text in a box, and while it is typed, whether its cursor shows;
         /// null while it isn't.
         text: struct { words: []const u8, cursor: ?bool = null },
-        /// OpenReliant's: none, the label a heading over the rows after it, in white from the
-        /// frame's left, which the pointer passes over.
+        /// OpenReliant's: no control. The label is a heading over the rows after it, written in
+        /// white from the frame's left, and the pointer passes over it.
         heading,
     };
 };
@@ -491,6 +500,29 @@ pub const Pane = struct {
     first: i32,
     spacing: i32,
     edge: i32 = Line.original_edge,
+
+    /// OpenReliant's lists on the settings screen's shapes (`settingsList`): their rows
+    /// `list_inside` their frame and `list_spacing` apart, their arrows' boxes a little apart; the
+    /// frame's line, its width, and where the list's arrows stand.
+    pub const list_inside = 4;
+    pub const list_spacing = Line.arrows_height + list_inside;
+    const list_frame_line = 2;
+    const list_width = 520;
+    const list_arrows_x = 570;
+
+    /// One of OpenReliant's lists, showing `rows` rows from `top`: a frame from `Line.frame_left`,
+    /// as tall as the rows, the rows' labels ending at `Line.list_edge`, and the list's arrows
+    /// right of its top.
+    pub fn settingsList(top: i32, rows: i32) Pane {
+        const rows_height = (rows - 1) * list_spacing + Line.arrows_height;
+        return .{
+            .frame = .{ .at = .{ Line.frame_left, top }, .extent = .{ list_width, 2 * list_frame_line + 2 * list_inside + rows_height - 1 } },
+            .arrows = .{ .at = .{ list_arrows_x, top } },
+            .first = top + list_frame_line + list_inside + 1,
+            .spacing = list_spacing,
+            .edge = Line.list_edge,
+        };
+    }
 
     /// What the pointer finds on it: one of its arrows, or a row's arrow or check box, the row by
     /// its place in the list.

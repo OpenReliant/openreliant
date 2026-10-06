@@ -446,7 +446,7 @@ fn signed(value: u32) i32 {
 }
 
 /// The bytes `bits` bits take, rounded up to whole words.
-fn wordBytes(bits: usize) usize {
+pub fn wordBytes(bits: usize) usize {
     return ((bits + 31) & ~@as(usize, 31)) / 8;
 }
 

@@ -458,11 +458,11 @@ pub const Loadout = struct {
     interface: i3d.Interface,
     /// The campaign's tier as the loadout raises it (`campaign_tier`, `0x00441AA9`).
     tier: u2,
-    /// The ship chosen (`loadout_ship`, `0x00523E68`), a ship type.
     /// The ships the loadout offers (`tables.offers`), the first `offer_count`, in the order of
-    /// `ships`; and which of them is chosen.
+    /// `ships`.
     offers: [tables.arc_slot_count]tables.Offer = undefined,
     offer_count: usize = 0,
+    /// The ship chosen (`loadout_ship`, `0x00523E68`), by its place in `offers`.
     chosen: u8,
     /// The ships the tier or the rank offers (`0x00523E84`), from the Predator on, and the first
     /// slot of the arc they stand in (`0x00524754`).

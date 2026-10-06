@@ -4,7 +4,7 @@
 //! (`openreliant.debug`).
 //!
 //! What a script draws in `on_frame` is recorded (`Layer`), and drawn over the frame as it's
-//! finished, after the game's own display or menu. Each frame starts with nothing drawn. Places
+//! finished, after the game's display or menu. Each frame starts with nothing drawn. Places
 //! are in the window's pixels, from its top left corner; the debug's are in the world, and drawn
 //! where the camera sees them. Text is drawn in the font the display or the menu writes with, at the
 //! size the game draws its own (`View.scale`), times the style's `scale`.
@@ -149,7 +149,7 @@ fn selectedFont(call: Call, view: View, name: ?[]const u8, base: Font) *hud.Open
 
 /// Where a script draws.
 pub const Which = enum {
-    /// Over the flight display, while the game's own is shown.
+    /// Over the flight display, while it is shown.
     hud,
     /// Over the menus: the front end's screens, and the pause menu.
     ui,
@@ -175,7 +175,7 @@ pub const TextStyle = struct {
     colour: Colour = default_colour,
     /// How opaque it is, from 0 to 1.
     alpha: f32 = 1,
-    /// How many times the game's own size it's drawn at.
+    /// How many times its size in the game's pixels it's drawn at.
     scale: f32 = 1,
     /// Where the text stands from the place it's drawn at.
     @"align": hud.Align = .left,
@@ -185,7 +185,7 @@ pub const TextStyle = struct {
 pub const LineStyle = struct {
     colour: Colour = default_colour,
     alpha: f32 = 1,
-    /// How many of the game's own pixels wide it is.
+    /// How wide it is, in the game's pixels.
     width: f32 = 1,
 };
 
@@ -215,7 +215,7 @@ pub const View = struct {
     gpa: Allocator,
     /// The window's size in pixels.
     screen: [2]u32,
-    /// How many of the window's pixels one of the game's own spans.
+    /// How many of the window's pixels one of the game's pixels spans.
     scale: f32,
     fonts: std.EnumArray(Font, ?*hud.Opened) = .initFill(null),
     art: ?*hud.Art = null,
@@ -379,7 +379,7 @@ pub fn Package(comptime which: Which) type {
             }
         }.draw);
 
-        pub const shape = api.Function("Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own.", &.{ "at", "index", "style" }, struct {
+        pub const shape = api.Function("Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.", &.{ "at", "index", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), index: u32, given: ?ShapeStyle) void {
                 const view = viewOf(call);
                 const art = view.art orelse call.raise("this layer has no sprite set this frame", .{});

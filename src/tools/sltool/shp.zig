@@ -593,13 +593,7 @@ fn writeGltf(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, cac
             try ctx.stdout.print("no picture for {s} in {s}\n", .{ name, cache_path.? });
             continue;
         };
-        const file_name = try std.fmt.allocPrint(ctx.arena, "{s}.png", .{name});
-        const file = try dir.createFile(ctx.io, file_name, .{});
-        defer file.close(ctx.io);
-        var buffer: [32 * 1024]u8 = undefined;
-        var writer = file.writer(ctx.io, &buffer);
-        try openreliant.png.writeRgba(ctx.arena, &writer.interface, found.width, found.height, try found.rgba(ctx.arena, &palette));
-        try writer.interface.flush();
+        try @import("tcache.zig").savePng(ctx, dir, name, found, &palette);
     }
 }
 

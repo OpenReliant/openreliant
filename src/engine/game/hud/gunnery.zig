@@ -46,7 +46,7 @@ pub const max_items = 2 + guns.max_groups + 2;
 /// A piece of the window, where it stands from the window's place.
 pub const Item = union(enum) {
     /// A shape of the display's set; `own` for the wire frame's, which a ship type's own pictures
-    /// can stand in for (`create.Type.wire_frame`).
+    /// can replace (`create.Type.wire_frame`).
     shape: struct { index: usize, at: [2]i32, own: bool = false },
     string: struct { id: u16, at: [2]i32 },
     rounds: struct { count: i32, at: [2]i32 },

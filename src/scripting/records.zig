@@ -82,13 +82,7 @@ pub const Records = struct {
     pub fn count(records: Records, comptime set: Set) usize {
         const held = @field(records, @tagName(set)).len;
         const table = (comptime set.table()) orelse return held;
-        const added = switch (set) {
-            .ships => game.additions.ships.all().len,
-            .guns => game.additions.guns.all().len,
-            .missiles => game.additions.missiles.all().len,
-            .pilots => game.additions.pilots.all().len,
-            .text, .itac_text => 0,
-        };
+        const added = if (comptime set.Added()) |Family| Family.all().len else 0;
         return @min(held, table.load().capacity() + added);
     }
 
@@ -150,6 +144,17 @@ pub const Set = enum {
             .guns => .guns,
             .missiles => .missiles,
             .pilots => .pilots,
+            .text, .itac_text => null,
+        };
+    }
+
+    /// The family of records the mods add to the table (`game.additions`), if they add any.
+    fn Added(comptime set: Set) ?type {
+        return switch (set) {
+            .ships => game.additions.ships,
+            .guns => game.additions.guns,
+            .missiles => game.additions.missiles,
+            .pilots => game.additions.pilots,
             .text, .itac_text => null,
         };
     }
@@ -316,13 +321,7 @@ fn placeOf(state: *State, records: Records, comptime set: Set, key: i32) ?usize 
             if (std.mem.eql(u8, name, named.name)) break :named named.number;
         }
         // What the mods add, by its qualified name.
-        const found = switch (set) {
-            .ships => game.additions.ships.find(name),
-            .guns => game.additions.guns.find(name),
-            .missiles => game.additions.missiles.find(name),
-            .pilots => game.additions.pilots.find(name),
-            .text, .itac_text => null,
-        };
+        const found = if (comptime set.Added()) |Family| Family.find(name) else null;
         if (found) |number| break :named number;
         return null;
     } else return null;
