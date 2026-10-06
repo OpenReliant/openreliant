@@ -1725,7 +1725,9 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///    places;
 /// 5. resets the frame's clock (`frame_reset`), loads the cockpit of the player's ship, and readies
 ///    the display for it as `hud_init` and the start have it: its devices fitted (`fitDevices`),
-///    its missiles in the missile display, no missile lock, and the eject marker out.
+///    its missiles in the missile display, no missile lock, and the eject marker out;
+/// 6. **Fix:** starts the player's engine's sound where its ship has no launch to start it, so that
+///    a ship that starts in space is heard (`sound3d.hearEngine`).
 ///
 /// Last, mods' scripts run their `on_mission_start` handlers (`hooks.Scripts.started`).
 ///
@@ -1828,6 +1830,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     fitDevices(start.display, player_type, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     start.display.missiles.build(&player.object);
     start.display.lock.reset();
+    if (player.firstOrder(.launch) == null) sound3d.hearEngine(world);
     if (all.scripts) |scripts| scripts.started(mission);
     return loaded;
 }

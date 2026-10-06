@@ -17,7 +17,6 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const log = std.log.scoped(.launch);
 
 const engine = @import("../../engine.zig");
 const shp = @import("../../formats/shp.zig");
@@ -29,6 +28,7 @@ const models = @import("create/models.zig");
 const events = @import("mission/events.zig");
 const gameobj = @import("gameobj.zig");
 const objects = @import("objects.zig");
+const sound3d = @import("sound3d.zig");
 const videoreports = @import("videoreports.zig");
 const xtrabits = @import("xtrabits.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
@@ -75,24 +75,43 @@ pub const Style = enum(i32) {
     _,
 
     /// Selects the style as `order_launch_init` does: torpedoes and escape pods use their own
-    /// types; other ships use the carrier's type and gate. Returns null for an unsupported
-    /// carrier, which the original rejects with "Error: Trying to launch from %s".
-    pub fn of(ship: gameobj.Type, carrier: gameobj.Type, gate: i16) ?Style {
+    /// types; other ships use the carrier's type and gate (`ofCarrier`).
+    ///
+    /// **Fix:** the game stops with the fatal assertion "Error. Trying to launch from %s."
+    /// (`0x00419049`) for a carrier with no style of its own. OpenReliant launches from it as from a
+    /// hangar bay, from its model's launch points.
+    pub fn of(ship: gameobj.Type, carrier: gameobj.Type, gate: i16) Style {
         return switch (ship.base()) {
             .torpedo, .russian_torpedo => .torpedo,
             .escape_pod => .escape_pod,
             .other_escape_pod => .other_escape_pod,
-            else => switch (carrier.base()) {
-                .reliant => .reliant,
-                .yamato => .yamato,
-                .victorious, .endeavour, .mitchell, .bremen, .ramases, .pukov, .kronstadt, .krasnaya, .varyag, .other_ramases, .other_mitchell, .kiev => .bay,
-                .stork => .stork,
-                .badanov, .krasny => .badanov,
-                .rogue_base => if (gate < rogue_base_gates) .rogue_base else .bay,
-                .zakov => .zakov,
-                else => null,
-            },
+            else => ofCarrier(carrier, gate) orelse .bay,
         };
+    }
+
+    /// The style of a launch from a carrier of type `carrier` through gate `gate`, by the carrier's
+    /// switch in `order_launch_init` (`0x00418F39`), or null for a carrier with no style of its
+    /// own. **Improvement:** a mod's ship type launches as its base does where it keeps its base's
+    /// model, whose parts the base's style moves, and has no style of its own where it has a model
+    /// of its own (`launchesAsBase`).
+    pub fn ofCarrier(carrier: gameobj.Type, gate: i16) ?Style {
+        if (!launchesAsBase(carrier)) return null;
+        return switch (carrier.base()) {
+            .reliant => .reliant,
+            .yamato => .yamato,
+            .victorious, .endeavour, .mitchell, .bremen, .ramases, .pukov, .kronstadt, .krasnaya, .varyag, .other_ramases, .other_mitchell, .kiev => .bay,
+            .stork => .stork,
+            .badanov, .krasny => .badanov,
+            .rogue_base => if (gate < rogue_base_gates) .rogue_base else .bay,
+            .zakov => .zakov,
+            else => null,
+        };
+    }
+
+    /// Whether the style's own steps start the player's engine's sound, as the game's Reliant and
+    /// Yamato launches do; for the others, `update` starts it as the ship lets go.
+    fn startsEngine(style: Style) bool {
+        return style == .reliant or style == .yamato;
     }
 
     /// The init and update pair from `launch_styles` (`0x004E3C98`), or null for an unknown style.
@@ -251,8 +270,16 @@ const most_delay = 200;
 /// which no step reads before the start sets its own.
 const init_wait = 200;
 
-/// OpenReliant's sentinel for an unsupported carrier. It has no entry in the original's table.
-const unsupported_style: Style = @enumFromInt(-1);
+/// Whether a carrier of type `carrier` launches as the game's type it is based on: one of the
+/// game's types, or a mod's type that keeps its base's model, whose parts and launch points the
+/// base's style and doors are made for. A mod's type with a model of its own launches as a
+/// hangar bay, without doors.
+pub fn launchesAsBase(carrier: gameobj.Type) bool {
+    const added = carrier.added() orelse return true;
+    const base_number = std.math.cast(create.TypeIndex, @intFromEnum(added.base)) orelse return false;
+    const base = create.shipFiles(base_number).model orelse return false;
+    return std.ascii.eqlIgnoreCase(std.fs.path.basename(added.extra.model), base);
+}
 
 /// `order_launch_init` (`0x00418EB0`): prepares the ship in slot `index` to launch. For a flight
 /// group, squad or target without a gate, `GateSearch` walks the target's ships (`ai.eachShip`).
@@ -261,9 +288,9 @@ const unsupported_style: Style = @enumFromInt(-1);
 /// it rides. The order stores its position and orientation relative to that node. The ship
 /// passes through its carrier and cannot be targeted until the launch ends.
 ///
-/// **Fix:** the original asserts for an unsupported carrier and dereferences a missing launch
-/// node. OpenReliant logs an unsupported carrier and lets the ship go when the launch starts.
-/// A ship without a launch node stays where it was placed.
+/// **Fix:** the original asserts for a carrier with no style of its own, and dereferences a missing
+/// launch node. OpenReliant launches from such a carrier as from a hangar bay (`Style.of`), and a
+/// ship without a launch node stays where it was placed.
 pub fn init(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
@@ -280,14 +307,10 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     }
     const carrier = entry.target.slotIn(all) orelse return;
     const carrier_type = all.slots[carrier].object.type;
-    // No named style handles an unsupported carrier.
-    state.style = Style.of(slot.object.type, carrier_type, entry.target.component) orelse unsupported_style;
+    state.style = Style.of(slot.object.type, carrier_type, entry.target.component);
     state.step = .waiting;
     slot.riding = null;
-    if (state.style.routines()) |found| found.init(ctx, index, carrier) else {
-        log.warn("slot {d} can't launch from {f}: it goes where it stands", .{ index, carrier_type });
-        slot.riding = .{ .object = carrier };
-    }
+    if (state.style.routines()) |found| found.init(ctx, index, carrier);
     if (if (slot.riding) |riding| riding.place(all) else null) |node| {
         const relative = slot.drawn.relativeTo(node);
         state.position = gameobj.vec3(relative.position);
@@ -316,6 +339,9 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
     const entry = &slot.orders[0];
     const state = &slot.state.launch;
     const now = ctx.world.clock.frame_start;
+    // **Fix:** the player's engine is heard as its ship lets go of the carrier, where the style
+    // doesn't start it itself (`sound3d.hearEngine`).
+    if (index == all.player and state.step.isStyled() and !state.attached and !state.style.startsEngine()) sound3d.hearEngine(ctx.world);
     if (!state.step.isStyled()) {
         const carrier = entry.target.slotIn(all) orelse return letGo(ctx, index);
         const from = &all.slots[carrier].object;
@@ -340,12 +366,14 @@ pub fn letGo(ctx: aigeneric.Context, index: u16) void {
 }
 
 /// Pops the Launch order, restores targeting and posts the Launched event (`events.launched`).
-/// Styles that preserve the carrier pass-through entry call this directly.
+/// Styles that preserve the carrier pass-through entry call this directly. **Fix:** the player's
+/// ship has its engine heard, where its launch didn't start it (`sound3d.hearEngine`).
 pub fn finish(ctx: aigeneric.Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     slot.riding = null;
     aigeneric.end(ctx, index);
     ai.setTargetable(&slot.object, slot.combat, true);
+    if (index == ctx.world.objects.player) sound3d.hearEngine(ctx.world);
     events.launched(ctx.world, index);
 }
 
@@ -488,8 +516,9 @@ test "Style.of" {
     // The rogue base's first six gates have a style of their own.
     try std.testing.expectEqual(Style.rogue_base, Style.of(.of(.sabre), .of(.rogue_base), 5));
     try std.testing.expectEqual(Style.bay, Style.of(.of(.sabre), .of(.rogue_base), 6));
-    // Nothing launches from a fighter.
-    try std.testing.expectEqual(null, Style.of(.of(.sabre), .of(.predator), 0));
+    // A carrier with no style of its own launches as a hangar bay, from its model's launch points.
+    try std.testing.expectEqual(null, Style.ofCarrier(.of(.kurgan), 0));
+    try std.testing.expectEqual(Style.bay, Style.of(.of(.sabre), .of(.kurgan), 0));
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Style.reliant}));
     try std.testing.expectEqualStrings("style 12", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Style, @enumFromInt(12))}));
@@ -710,7 +739,7 @@ test dropping {
     try std.testing.expect(dropping(mission.objects, player));
 }
 
-test "an unsupported carrier waits for StartLaunch and releases without running a bay style" {
+test "a carrier with no style of its own launches its ships as a hangar bay" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
@@ -721,12 +750,33 @@ test "an unsupported carrier waits for StartLaunch and releases without running 
     _ = try aigeneric.pushShip(ctx, ship, .launch, carrier, 0);
     aigeneric.objectOrders(ctx, ship);
     const slot = mission.slot(ship);
-    try std.testing.expectEqual(null, slot.state.launch.style.routines());
+    try std.testing.expectEqual(Style.bay, slot.state.launch.style);
     try std.testing.expectEqual(Step.waiting, slot.state.launch.step);
-    try std.testing.expectEqual(objects.NodeOf{ .object = carrier }, slot.riding.?);
+    // Without a model and its launch points, it launches from where it stands.
+    try std.testing.expectEqual(null, slot.riding);
     start(mission.objects, ship);
     aigeneric.objectOrders(ctx, ship);
-    testing.pastDue(&mission, ctx, ship);
+    while (!testing.ended(slot)) testing.pastDue(&mission, ctx, ship);
     try std.testing.expectEqual(0, slot.object.order_count);
     try std.testing.expectEqual(null, slot.object.passes_through[0].index());
+}
+
+test launchesAsBase {
+    const additions = @import("additions.zig");
+    var list = [_]additions.ships.Added{
+        .{ .name = "a:refit", .mod = "a", .base = .reliant, .extra = .{ .model = "RELIANT.SHP" } },
+        .{ .name = "a:ark", .mod = "a", .base = .reliant, .extra = .{ .model = "ark.shp" } },
+    };
+    additions.ships.install(&list);
+    defer additions.ships.reset();
+    const refit: gameobj.Type = @enumFromInt(additions.ships.first);
+    const ark: gameobj.Type = @enumFromInt(additions.ships.first + 1);
+    // The game's types, and a mod's type that keeps its base's model, launch as the base does.
+    try std.testing.expect(launchesAsBase(.of(.reliant)));
+    try std.testing.expect(launchesAsBase(refit));
+    try std.testing.expectEqual(Style.reliant, Style.of(.of(.predator), refit, 0));
+    // A model of its own launches as a hangar bay, without its base's doors.
+    try std.testing.expect(!launchesAsBase(ark));
+    try std.testing.expectEqual(Style.bay, Style.of(.of(.predator), ark, 0));
+    try std.testing.expectEqual(bay.Doors{}, bay.Doors.of(ark, 0));
 }

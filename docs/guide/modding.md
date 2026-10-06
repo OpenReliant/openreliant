@@ -674,6 +674,12 @@ When the player flies it, it can also give:
 - `BlindFire` and `SpectralShields`, `yes` or `no`, whether it carries blind fire and spectral
   shields. Without them, it carries what its base carries. The loadout lists them with its specials.
 
+A mission can launch ships from a mod's ship type, the player's among them. One that keeps its
+base's model launches them as its base does, such as from the Reliant's tubes. One with a model of
+its own launches them as a hangar bay: each ship waits at the launch point of its gate, a
+`launch_point` object of the model ([Models from OBJ](#models-from-obj)), and flies out once its
+launch starts.
+
 #### Ship types without a base
 
 A ship type can leave out `Base`. It then behaves like no ship the game treats specially:

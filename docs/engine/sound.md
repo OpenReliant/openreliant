@@ -149,9 +149,12 @@ it; it keeps its full volume half as far again (`sound3d.MissileSound.follows`).
 ### The player's engine
 
 `sound3d_engine_sound` (`0x0049DCB0`) picks the engine's sound for the player's ship type:
-`PSHIP01` on, by type; types from 244 count again from 0. A mission starts it as the ship launches
-(`launch_reliant_run`). `sound3d_engine_update` (`0x0049DCF0`) keeps it going through three states
-(`0x0058CB04`):
+`PSHIP01` on, by type; types from 244 count again from 0. The game starts it in three places: the
+Reliant's and the Yamato's launches (`launch_reliant_run` at `0x0041B2AE`, `launch_yamato_run` at
+`0x00419A50`), and the effect of a multiplayer respawn (order 121, `0x004B0DF2`). It starts it
+again as the afterburner ends where the afterburner has no voice of its own (`0x0049DE94`).
+`sound3d_engine_update` (`0x0049DCF0`) does nothing while the engine has no voice, and otherwise
+keeps it going through three states (`0x0058CB04`):
 
 - Idle: the engine's rate and volume by the ship type's row of the tables at `0x00508740`,
   `0x00508774`, `0x005087A8` and `0x005087DC`, at no throttle plus the throttle's share of what full
@@ -161,6 +164,16 @@ it; it keeps its full volume half as far again (`sound3d.MissileSound.follows`).
 - Cooling, once let go: the afterburner's sound fades over 25 ticks while the engine's plays on.
 
 In view 13 neither is heard.
+
+**Fix:** a player whose ship starts in space, or launches from any other carrier, flies the whole
+mission without the engine's sound or the afterburner's, since the update does nothing until the
+engine has a voice. The campaign launches the player from the Reliant or the Yamato, but missions 81
+to 85 and 87, the multiplayer maps, and mission 99 start the player's ship in space, and a custom
+mission can do either. OpenReliant starts the engine as such a ship comes into flight: as the
+mission starts for a ship with no launch, and as the ship lets go of any carrier but the Reliant and
+the Yamato, whose launches start it themselves (`sound3d.hearEngine`). Every start plays a mod's
+ship type's own engine sound where it has one (`EngineSound`,
+[Modding](../guide/modding.md#ship-types)).
 
 ### Ships flying past
 

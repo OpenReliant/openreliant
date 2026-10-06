@@ -263,7 +263,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
                 const hangar = &all.slots[create.cutaway_slot];
                 playDoors(world, hangar, hangar_first_door, .{ .part = hangar_sound_door, .kind = .dooropen });
                 world.shake.* = open_shake;
-                sound3d.playIn(world, null, null, index, sound3d.engineSound(slot.object.type), 0, .player_engines);
+                sound3d.startEngineIn(world);
             }
             advance(state, .open, now);
         },

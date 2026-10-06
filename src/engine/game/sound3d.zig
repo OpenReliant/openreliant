@@ -422,6 +422,40 @@ fn ownEngineSound(ship_type: gameobj.Type) ?[]const u8 {
     return mod.extra.engine_sound;
 }
 
+/// The player's engine started on the engine's voice: the sound for the player's ship type
+/// (`engineSound`), or the one a mod gives the type (`ownEngineSound`). The game starts it in the
+/// Reliant's and the Yamato's launches, as the ship comes out (`launch_reliant_run` at `0x0041B2AE`,
+/// `launch_yamato_run` at `0x00419A50`), and as the afterburner ends where it has no voice of its
+/// own (`engineUpdate`, `0x0049DE94`).
+fn startEngine(sound: *Sound, scene: Scene) void {
+    const all = scene.objects;
+    const ship_type = all.slots[all.player].object.type;
+    _ = playFile(sound, scene, null, null, all.player, engineSound(ship_type), ownEngineSound(ship_type), 0, .player_engines);
+}
+
+/// `startEngine` where `world` is heard.
+pub fn startEngineIn(world: gameobj.World) void {
+    const hearing = world.hearing orelse return;
+    startEngine(hearing.sound, hearing.scene(world));
+}
+
+/// The player's engine started where `world` is heard, unless it plays already.
+///
+/// **Fix:** the game starts the engine only in the Reliant's and the Yamato's launches, and as a
+/// multiplayer respawn's effect starts (order 121, `0x004B0DF2`). A player whose ship starts in
+/// space, as in missions 81 to 85, 87 and 99, or launches from another carrier, flies the whole
+/// mission without the engine's sound or the afterburner's, since `engineUpdate` does nothing while
+/// the engine has no voice. OpenReliant starts the engine as such a ship starts flying: as the
+/// mission starts for a ship with no launch (`main.startMission`), as the ship lets go of its
+/// carrier (`launch.update`), and as any other launch ends (`launch.finish`).
+pub fn hearEngine(world: gameobj.World) void {
+    const hearing = world.hearing orelse return;
+    const sound = hearing.sound;
+    const engine = sound.engine_voice orelse return;
+    if (!sound.voices_3d[engine].isFree()) return;
+    startEngine(sound, hearing.scene(world));
+}
+
 /// The engine tables' row for the Kamov, their last (an immediate in `sound3d_engine_update`).
 const kamov_row = sounds.engines.len - 1;
 
@@ -479,7 +513,7 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             driver.set3DSamplePlaybackRate(sample, if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - math.ftol(grown * burner_pitch_step)));
         } else if (sound.burner_voice == null) {
             effects.engine_changed_at = -1;
-            _ = playFile(sound, scene, null, null, all.player, engineSound(player.type), ownEngineSound(player.type), 0, .player_engines);
+            startEngine(sound, scene);
             effects.engine = .idle;
         } else {
             effects.engine = .cooling;
@@ -751,6 +785,29 @@ test engineUpdate {
     engineUpdate(sound, scene);
     try std.testing.expectEqual(EngineState.idle, sound.effects.engine);
     try std.testing.expect(sound.voices_3d[sound.burner_voice.?].isFree());
+}
+
+test hearEngine {
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const sound = &speaker.sound;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    _ = try mission.add(.of(.predator), .{ 0, 0, 0 });
+    var world = mission.world();
+    const engine = &sound.voices_3d[sound.engine_voice.?];
+    // Where nothing is heard, nothing starts.
+    hearEngine(world);
+    try std.testing.expect(engine.isFree());
+    // Heard, the player's engine starts with its ship type's sound.
+    world.hearing = speaker.hearing(&mission.clock);
+    hearEngine(world);
+    try std.testing.expectEqual(@intFromEnum(engineSound(.of(.predator))), engine.sound);
+    // Already playing, it isn't started again.
+    engine.sound = @intFromEnum(sounds.Sound.burner01);
+    hearEngine(world);
+    try std.testing.expectEqual(@intFromEnum(sounds.Sound.burner01), engine.sound);
 }
 
 test hearsOwnFlyby {
