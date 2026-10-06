@@ -685,8 +685,8 @@ opaque becomes the colour the radio's window draws see-through. The film keeps e
 the frames have 256 or fewer, and picks 256 for them otherwise, the see-through colour kept as it
 is. `sltool fm8 extract` gives a film of the game's as frames to start from.
 
-Making lines of your own needs an encoder OpenReliant doesn't have yet
-([#351](https://github.com/OpenReliant/openreliant/issues/351)); until then, use the game's.
+`sltool speech encode <line.wav> <name.ut>` makes a line from a WAV file, which it mixes to mono at
+22,050 Hz, the rate the radio plays at. Name the lines after the pilot's `Voice`, as the game's are.
 
 ## Models from OBJ
 

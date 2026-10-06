@@ -13,7 +13,16 @@ Each is a stream of the game's own speech codec, scrambled.
 ```bash
 sltool speech decode <file> <out.wav>       # one file to 22,050 Hz 16-bit mono WAV
 sltool speech extract <archive> <out-dir>   # every line of an archive
+sltool speech encode <in.wav> <out.ut>      # a WAV file to a line
 ```
+
+`sltool speech encode` ([`speech_encode.zig`](../../src/tools/sltool/speech_encode.zig)) mixes a
+WAV file to mono at 22,050 Hz and writes it with the header every shipped file has: pulses at a
+step of two, the variable code below the first coefficient's level 24, a first gain of 64 and a
+ratio of 1.068. It takes each frame's reflection coefficients from the frame (Levinson-Durbin) at
+their nearest levels, and chooses each subframe's pitch, gain and pulses by analysis by synthesis
+against the decoder's own filter, ending each frame as the decoder ends it (`voice.finish`). It
+codes for accuracy rather than size, so its files are larger than the game's.
 
 ## Layout
 
