@@ -102,10 +102,6 @@ These are planned, each in an issue of the
 - Hooks on more of the game's functions ([#581](https://github.com/OpenReliant/openreliant/issues/581))
 - Campaigns that go through the game's rooms, ITAC and saved games
   ([#641](https://github.com/OpenReliant/openreliant/issues/641))
-- Changing a mod's options from the pause menu
-  ([#600](https://github.com/OpenReliant/openreliant/issues/600))
-- The scripting console in the rooms and the briefing
-  ([#589](https://github.com/OpenReliant/openreliant/issues/589))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))
 - KTX2 files with Basis Universal data ([#637](https://github.com/OpenReliant/openreliant/issues/637))
 - The loadout's panels and the power ball at any size

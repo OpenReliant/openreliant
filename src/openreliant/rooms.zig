@@ -8,7 +8,8 @@
 //! and `replayBriefing` as it turns back to a mission the pilot did not come through. The in-game
 //! options' SAVE and LOAD open the saved games (`game.interface.saved_games`); a game loaded takes
 //! the rooms to its mission. Their CONTROL DEVICES opens the settings screen
-//! (`game.interface.settings`).
+//! (`game.interface.settings`). In the developer mode, F11 brings the scripting console up over
+//! any of them (`Driver.console`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -35,6 +36,8 @@ const save = game.gameflow.save;
 const itac_module = game.itac;
 const simulator_pod = loadout.simulator_pod;
 const Movies = @import("movies.zig").Movies;
+const GameScripts = @import("game_scripts.zig").GameScripts;
+const ScriptConsole = @import("console.zig").Driver;
 const drawn = @import("presenter.zig").drawn;
 const version = @import("version");
 
@@ -123,6 +126,15 @@ pub const Driver = struct {
     ticks: u64 = 0,
     /// Whether the window is the active one.
     active: bool = true,
+    /// The scripting console, and the scripts it runs lines in and reloads; null where there is
+    /// no console (`ScriptConsole.init`).
+    console: ?Console = null,
+    /// Whether F11 has asked for the console in this pass, which brings it up once the screen is
+    /// drawn (`present`).
+    console_asked: bool = false,
+    /// Whether the window was closed while the console was up, which quits the game at the next
+    /// pass.
+    closed: bool = false,
     /// The rooms while they are open, before `rooms_mission`, and the simulator pod while it is:
     /// both kept through a mission of the pod's, with the pilot's kills as it began, which the pod
     /// puts back after it (`0x0044F6D5`, `0x0044F6FE`).
@@ -134,6 +146,9 @@ pub const Driver = struct {
     /// the game runs.
     cd_volume: cd_player.Volume = cd_player.full_volume,
     crew_turn: rooms.crew.Turn = .{},
+
+    /// The scripting console, and the scripts it runs lines in and reloads.
+    pub const Console = struct { shown: *ScriptConsole, scripts: *GameScripts };
 
     /// What `WinMain` does as a single-player campaign starts, or is loaded, before mission
     /// `mission` (`winmain.CampaignStart`), then the rooms. Null where the game quits meanwhile.
@@ -682,9 +697,10 @@ pub const Driver = struct {
 
     /// Reads the window's messages since the last pass, as the message pump does, reads the
     /// keyboard, moves the pointer on and runs the timer, which steps the fades, and runs the
-    /// scripts' frame (`ScriptFrames.screenFrame`). Returns false if the window was closed, which
-    /// quits the game (`game_exit`).
+    /// console's pass and the scripts' frame (`ScriptFrames.screenFrame`). Returns false if the
+    /// window was closed, which quits the game (`game_exit`).
     fn pump(driver: *Driver) !bool {
+        if (driver.closed) return false;
         const movies = driver.movies;
         const devices = movies.devices;
         const pumped = movies.pump() orelse return false;
@@ -696,8 +712,43 @@ pub const Driver = struct {
         const window = try movies.presenter.size();
         driver.pointer.update(&devices.mouse, window, elapsed);
         driver.sound.runTimer(driver.clock, ticks);
+        if (driver.console) |console| try driver.consolePass(console, window);
         if (movies.scripts) |scripts| scripts.screenFrame(window);
         return true;
+    }
+
+    /// The scripting console's part of a pass, in a window `window` pixels across and down, as
+    /// the main loop has it: while the console is up, it takes the keys, and otherwise F11 asks
+    /// for it. The scripts reload when it asks, and when a folder mod's script or shader is saved.
+    fn consolePass(driver: *Driver, console: Console, window: [2]u32) !void {
+        const shown = console.shown;
+        const scripts = console.scripts;
+        const devices = driver.movies.devices;
+        var reloading = shown.watch.changed(scripts.io, scripts.mods, platform.window.nanoseconds());
+        if (shown.isUp()) {
+            if (try shown.frame(devices, driver.movies.typed, window, scripts.reachable())) |asked| switch (asked) {
+                .close => shown.hide(),
+                .reload => reloading = true,
+            };
+        } else if (ScriptConsole.asked(&devices.keyboard)) driver.console_asked = true;
+        if (reloading) try scripts.reload(null);
+    }
+
+    /// The console over `screen`, in a loop of its own until it's taken away. Meanwhile the
+    /// screen's pass is left out, as the front end's is.
+    fn consoleOver(driver: *Driver, screen: Shown.Screen) !void {
+        const shown = driver.console.?.shown;
+        const window = driver.movies.presenter.window;
+        try shown.show(driver.movies.gpa, driver.resources, driver.outlines, driver.movies.typed);
+        window.takeText(true);
+        defer window.takeText(false);
+        while (shown.isUp()) {
+            if (!try driver.pump()) {
+                driver.closed = true;
+                return;
+            }
+            try driver.draw(screen);
+        }
     }
 
     /// The window going inactive or active again, as the message pump follows it
@@ -715,9 +766,18 @@ pub const Driver = struct {
         driver.movies.presenter.screen.saveScreenshot(driver.movies.gpa, driver.screenshots);
     }
 
+    /// Draws a frame of `screen` and puts it on the window, and brings the console up over it
+    /// where F11 asked for it.
+    fn present(driver: *Driver, screen: Shown.Screen) !void {
+        try driver.draw(screen);
+        if (!driver.console_asked) return;
+        driver.console_asked = false;
+        try driver.consoleOver(screen);
+    }
+
     /// Draws a frame of `screen` and puts it on the window, at the frame rate asked for: over the
     /// loadout's hologram where the briefing shows it.
-    fn present(driver: *Driver, screen: Shown.Screen) !void {
+    fn draw(driver: *Driver, screen: Shown.Screen) !void {
         const presenter = driver.movies.presenter;
         const pixels = try presenter.size();
         var shown: Shown = .{ .driver = driver, .window = pixels, .screen = screen };
@@ -878,5 +938,6 @@ const Shown = struct {
             .cd_player => |player| try drawn(player.draw(target)),
         }
         if (driver.movies.scripts) |scripts| try scripts.drawUi(target.target);
+        if (driver.console) |console| try console.shown.draw(target.target, shown.window, driver.strings, .menus);
     }
 };

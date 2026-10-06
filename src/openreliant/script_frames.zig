@@ -1,5 +1,5 @@
 //! The player and menu scripts' frames in each of `openreliant`'s loops: the main loop, the rooms'
-//! (`rooms.zig`) and the movies' (`movies.zig`) ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
+//! (`rooms.zig`) and the movies' (`movies.zig`).
 //! Each loop hands the scripts the keys its window reads, runs their frame before it draws, with
 //! what each of their layers is drawn on, and draws their user interface layer last.
 //!
@@ -15,6 +15,7 @@ const engine = openreliant.engine;
 const game = engine.game;
 const hud = game.hud;
 const device = engine.surrender.srd3d.device;
+const ScriptConsole = @import("console.zig").Driver;
 
 pub const ScriptFrames = struct {
     gpa: Allocator,
@@ -27,6 +28,8 @@ pub const ScriptFrames = struct {
     fonts: std.EnumArray(scripting.drawing.Font, ?*hud.Opened) = .initFill(null),
     /// When the last frame ran, which the next one's seconds count from.
     presented_at: u64 = 0,
+    /// The scripting console, while the scripts don't hear the keys; null without it.
+    console: ?*const ScriptConsole = null,
 
     /// What a frame tells the scripts, in a window `window` pixels in size, with `flying` saying
     /// whether the player is flying: the seconds since the last frame, the devices and the sound.
@@ -63,9 +66,17 @@ pub const ScriptFrames = struct {
         frames.presentation.frame(shown);
     }
 
-    /// The scripts hear a key `scan` go down or up.
+    /// The scripts hear a key `scan` go down or up, except a key pressed while the console is up,
+    /// or the key that brings it up.
     pub fn key(frames: *ScriptFrames, scan: engine.input.Key, down: bool) void {
+        if (down and frames.withholds(scan)) return;
         frames.presentation.key(scan, down);
+    }
+
+    /// Whether the console keeps a press of `scan` from the scripts.
+    fn withholds(frames: *const ScriptFrames, scan: engine.input.Key) bool {
+        const console = frames.console orelse return false;
+        return console.isUp() or scan == scripting.console.key;
     }
 
     /// Draws what the scripts drew on the user interface layer into `into`, last over the screen.
@@ -95,4 +106,18 @@ test ScriptFrames {
     try std.testing.expectEqual(&large, view.fontOf(.menu_large).?);
     try std.testing.expectEqual(null, view.fontOf(.hud));
     try std.testing.expectEqual([2]u32{ 640, 480 }, view.screen);
+}
+
+test "ScriptFrames.key" {
+    var console: ScriptConsole = .{ .console = .{ .gpa = std.testing.allocator, .mods = &.{} } };
+    var frames: ScriptFrames = .{ .gpa = std.testing.allocator, .presentation = undefined, .devices = undefined, .sound = undefined, .rasterizer = null, .console = &console };
+    // While the console is down, only the key that brings it up is kept from the scripts.
+    try std.testing.expect(frames.withholds(scripting.console.key));
+    try std.testing.expect(!frames.withholds(.a));
+    // While it's up, they hear no key pressed.
+    console.console.open = true;
+    try std.testing.expect(frames.withholds(.a));
+    // Without the console, they hear every key.
+    frames.console = null;
+    try std.testing.expect(!frames.withholds(scripting.console.key));
 }

@@ -1,6 +1,7 @@
-//! The scripting console as the driver shows it (`scripting.console`), while a mod has scripts:
-//! F11 brings it up over the front end or the mission, which it pauses, and takes it away. While
-//! it's up it takes the keyboard and the characters typed, and it's drawn last over the frame.
+//! The scripting console as the driver shows it (`scripting.console`), while a mod has scripts.
+//! F11 brings it up over the front end, the Reliant's rooms or the mission, and takes it away; it
+//! pauses the mission. While it's up it takes the keyboard and the characters typed, and it's
+//! drawn last over the frame.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -50,39 +51,60 @@ pub const Driver = struct {
         return keyboard.pressed(@backingInt(console_module.key), .none, true);
     }
 
-    /// Brings the console up, with its fonts and shapes from `pausing`'s archive, and the
-    /// characters typed before let go. A mission that runs, `mission` its pausing, pauses as the
-    /// pause menu pauses it.
-    pub fn bringUp(driver: *Driver, pausing: game.main.Pausing, mission: bool, typed: *game.winmain.Typed) !void {
-        if (driver.resources == null) driver.resources = try .open(pausing.gpa, &pausing.archive, pausing.outlines);
-        if (mission and !pausing.clock.paused) {
-            try game.main.pause(pausing, true);
-            driver.paused_mission = true;
-        }
+    /// Shows the console, with its fonts and shapes from `archive`, and lets go of the characters
+    /// typed before.
+    pub fn show(driver: *Driver, gpa: Allocator, archive: *const game.bigfile.Hog, outlines: ?*game.hud.outline.Outlines, typed: *game.winmain.Typed) !void {
+        if (driver.resources == null) driver.resources = try .open(gpa, archive, outlines);
         typed.clear();
         driver.console.show();
         driver.ticks = platform.window.ticks();
     }
 
-    /// Takes the console away, and resumes the mission where bringing it up paused it.
-    pub fn takeAway(driver: *Driver, pausing: game.main.Pausing) !void {
+    /// Shows the console with its fonts and shapes from `pausing`'s archive. A mission that runs,
+    /// `mission`, pauses as the pause menu pauses it.
+    pub fn bringUp(driver: *Driver, pausing: game.main.Pausing, mission: bool, typed: *game.winmain.Typed) !void {
+        try driver.show(pausing.gpa, &pausing.archive, pausing.outlines, typed);
+        if (mission and !pausing.clock.paused) {
+            try game.main.pause(pausing, true);
+            driver.paused_mission = true;
+        }
+    }
+
+    /// Takes the console away.
+    pub fn hide(driver: *Driver) void {
         driver.console.open = false;
+    }
+
+    /// Takes the console away, and resumes the mission if bringing it up paused it.
+    pub fn takeAway(driver: *Driver, pausing: game.main.Pausing) !void {
+        driver.hide();
         if (driver.paused_mission) try game.main.pause(pausing, false);
         driver.paused_mission = false;
     }
 
-    /// A pass of the console while it's up, in a window `window` pixels across and down.
-    pub fn frame(driver: *Driver, devices: *input.Devices, typed: *game.winmain.Typed, window: [2]u32) ?screen.Action {
+    /// What a pass of the console asks for: to take it away, or to reload the scripts.
+    pub const Asked = enum { close, reload };
+
+    /// A pass of the console while it's up, in a window `window` pixels across and down. A line
+    /// typed runs in `scripts`. Returns what the pass asks for, if anything.
+    pub fn frame(driver: *Driver, devices: *input.Devices, typed: *game.winmain.Typed, window: [2]u32, scripts: console_module.Scripts) Allocator.Error!?Asked {
         const ticks = platform.window.ticks();
         const elapsed = std.math.cast(i32, ticks -| driver.ticks) orelse std.math.maxInt(i32);
         driver.ticks = ticks;
         driver.pointer.update(&devices.mouse, window, elapsed);
-        return screen.frame(&driver.console, .{
+        const action = screen.frame(&driver.console, .{
             .keyboard = &devices.keyboard,
             .typed = typed,
             .pointer = driver.pointer,
             .ticks = @truncate(ticks),
-        });
+        }) orelse return null;
+        return switch (action) {
+            .close => .close,
+            .reload => .reload,
+            .run => if (try driver.console.run(scripts)) |request| switch (request) {
+                .reload => .reload,
+            } else null,
+        };
     }
 
     /// Draws the console over the frame drawn into `target`, a window `window` pixels across and

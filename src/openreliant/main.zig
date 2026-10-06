@@ -51,6 +51,7 @@ const RoomsEnd = @import("rooms.zig").End;
 const test_keys = @import("test_keys.zig");
 const ScriptConsole = @import("console.zig").Driver;
 const ScriptFrames = @import("script_frames.zig").ScriptFrames;
+const GameScripts = @import("game_scripts.zig").GameScripts;
 const version = @import("version");
 const options_page = @import("options.zig");
 const Options = options_page.Options;
@@ -646,6 +647,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var console = if (options.developer_mode) ScriptConsole.init(gpa, mods.list) else null;
     defer if (console) |*shown| shown.deinit();
     display.console = if (console) |*shown| shown else null;
+    if (script_frames) |*frames| frames.console = display.console;
     // The mission `--mission` names, read once from the game's files, or for mission 0, where the
     // game has none, from the copy `openreliant` carries, and started; it starts again as each
     // attempt ends. Without it, the front end picks the mission.
@@ -790,10 +792,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             .quit => return,
             .key => |key| if (options.screenshot == null) {
                 devices.keyboard.down[@backingInt(key.scan)] = key.down;
-                // The player and menu scripts don't hear the keys pressed while the console is
-                // up, nor the key that brings it up.
-                const withheld = if (console) |*shown| shown.isUp() or key.scan == scripting.console.key else false;
-                if (presentation) |shown| if (!key.down or !withheld) shown.key(key.scan, key.down);
+                if (script_frames) |*frames| frames.key(key.scan, key.down);
             },
             .typed => |character| if (options.screenshot == null) typed.push(game.language.fromUnicode(character)),
             .controllers => if (options.screenshot == null) connectController(arena, &devices, &controller, settings_file.profile),
@@ -827,12 +826,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             const mission = !flow.in_front_end and play.loaded != null;
             var reloading = shown.watch.changed(io, mods.list, platform.window.nanoseconds());
             if (shown.isUp()) {
-                if (shown.frame(&devices, &typed, size)) |action| switch (action) {
+                if (try shown.frame(&devices, &typed, size, game_scripts.reachable())) |asked| switch (asked) {
                     .close => try shown.takeAway(pausing),
                     .reload => reloading = true,
-                    .run => if (try shown.console.run(.{ .game = game_scripts.running, .presentation = presentation })) |request| switch (request) {
-                        .reload => reloading = true,
-                    },
                 };
             } else if (ScriptConsole.asked(&devices.keyboard)) try shown.bringUp(pausing, mission, &typed);
             if (reloading) try game_scripts.reload(if (mission) .{
@@ -883,6 +879,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .settings_file = settings_file,
                     .own = own.interface(),
                     .video = video_settings,
+                    .console = if (console) |*shown| .{ .shown = shown, .scripts = &game_scripts } else null,
                 };
             }
             front_context.resources = &front_resources.?;
@@ -1536,132 +1533,6 @@ fn modeFlight(modes: *const scripting.game_modes.Registry) game.interface.main_m
     };
 }
 
-/// The mods' global and player scripts, which run while a game runs (`scripting.Game`,
-/// `scripting.Presentation.startGame`), and their state, which is kept with each saved game and
-/// with the restart point (`scripting.snapshot`).
-const GameScripts = struct {
-    gpa: Allocator,
-    io: Io,
-    mods: []const game.bigfile.mods.Mod,
-    records: *scripting.Records,
-    objects: *game.create.Objects,
-    /// The player and menu scripts, if any mod has some.
-    presentation: ?*scripting.Presentation,
-    /// The mods' storage and the game's files, which every script reaches.
-    shared: scripting.runtime.Shared,
-    running: ?*scripting.Game = null,
-    /// Whether a game runs: from `start` to `stop`.
-    started: bool = false,
-    /// The scripts' state kept with the game just loaded, which they start from (`loaded`).
-    saved: ?[]u8 = null,
-    /// The scripts' state as the last flight of the campaign began, which goes back with the
-    /// game's restart point (`Saving.restartPoint`).
-    restart_point: ?[]u8 = null,
-
-    fn deinit(scripts: *GameScripts) void {
-        scripts.stop();
-        if (scripts.saved) |bytes| scripts.gpa.free(bytes);
-        if (scripts.restart_point) |bytes| scripts.gpa.free(bytes);
-    }
-
-    /// Starts them as a game starts, after any of the game before: from the state kept with the
-    /// game just loaded, if there is one.
-    fn start(scripts: *GameScripts) Allocator.Error!void {
-        const saved = scripts.saved;
-        scripts.saved = null;
-        defer if (saved) |bytes| scripts.gpa.free(bytes);
-        try scripts.startFrom(saved);
-    }
-
-    /// Starts them, from the state `kept` if there is one, and otherwise with the storage's game
-    /// sections empty, as a new game starts.
-    fn startFrom(scripts: *GameScripts, kept: ?[]const u8) Allocator.Error!void {
-        scripts.stop();
-        if (scripts.shared.storage) |storage| storage.clearGame();
-        const loading = kept != null;
-        scripts.running = try scripting.Game.start(scripts.gpa, scripts.io, scripts.mods, scripts.records, version.string, scripts.objects, scripts.shared, loading);
-        scripts.started = true;
-        if (scripts.presentation) |shown| try shown.startGame(scripts.running, scripts.objects, loading);
-        if (kept) |bytes| try scripting.snapshot.restore(scripts.gpa, bytes, scripts.running, scripts.presentation, scripts.shared.storage);
-    }
-
-    /// Stops them as the game ends, if they run.
-    fn stop(scripts: *GameScripts) void {
-        if (scripts.presentation) |shown| shown.endGame();
-        if (scripts.running) |running| running.stop();
-        scripts.running = null;
-        scripts.started = false;
-    }
-
-    /// Reads the folder mods' scripts again and starts the scripts again from where they were, as
-    /// the console asks: the game's and the player scripts from their state as a save would keep
-    /// it, partway through `mission` where one runs, and the menu scripts afresh.
-    fn reload(scripts: *GameScripts, mission: ?Resume) Allocator.Error!void {
-        std.log.scoped(.scripts).info("reloading the scripts", .{});
-        const kept = if (scripts.started) try scripting.snapshot.take(scripts.gpa, scripts.running, scripts.presentation, scripts.shared.storage) else null;
-        defer if (kept) |bytes| scripts.gpa.free(bytes);
-        if (scripts.presentation) |shown| try shown.reload();
-        if (!scripts.started) return;
-        try scripts.startFrom(kept);
-        const going = mission orelse return;
-        if (scripts.running) |running| running.resumeMission(going.orders, going.mission, going.seed);
-    }
-
-    /// A mission that runs, as the scripts start again partway through it.
-    const Resume = struct {
-        orders: game.aigeneric.Context,
-        mission: engine.hooks.Mission,
-        seed: u64,
-    };
-
-    /// Keeps their state as the campaign's restart point is taken.
-    fn keepRestartPoint(scripts: *GameScripts) Allocator.Error!void {
-        if (scripts.restart_point) |bytes| scripts.gpa.free(bytes);
-        scripts.restart_point = null;
-        if (!scripts.started) return;
-        scripts.restart_point = try scripting.snapshot.take(scripts.gpa, scripts.running, scripts.presentation, scripts.shared.storage);
-    }
-
-    /// Starts them again from their state at the restart point, as the game goes back to it.
-    fn backToRestartPoint(scripts: *GameScripts) Allocator.Error!void {
-        if (scripts.restart_point) |point| try scripts.startFrom(point);
-    }
-
-    /// What the saved games' folder tells them as a game is saved, loaded and removed.
-    fn extra(scripts: *GameScripts) save.Extra {
-        return .{ .context = scripts, .vtable = &.{ .stored = stored, .loaded = loaded, .removed = removed } };
-    }
-
-    /// As a game is saved, its scripts' state is written beside it. With no scripts, there's
-    /// nothing to keep, and a file left from an earlier save in the slot is removed.
-    fn stored(context: *anyopaque, folder: save.Folder, call_sign: []const u8, slot: u8) void {
-        const scripts: *GameScripts = @ptrCast(@alignCast(context));
-        if (scripts.running == null and scripts.presentation == null) return folder.removeCompanion(call_sign, slot, scripting.snapshot.extension);
-        const bytes = scripting.snapshot.take(scripts.gpa, scripts.running, scripts.presentation, scripts.shared.storage) catch |err| {
-            std.log.warn("the scripts' state can't be saved: {s}", .{@errorName(err)});
-            return;
-        };
-        defer scripts.gpa.free(bytes);
-        folder.putCompanion(call_sign, slot, scripting.snapshot.extension, bytes) catch |err|
-            std.log.warn("the scripts' state can't be saved: {s}", .{@errorName(err)});
-    }
-
-    /// As a game is loaded, its scripts' state is read, and they start from it: at once where a
-    /// game runs, as in the Reliant's rooms, and as the game starts from the front end
-    /// otherwise. A game saved without it starts them as a new game does.
-    fn loaded(context: *anyopaque, folder: save.Folder, call_sign: []const u8, slot: u8) void {
-        const scripts: *GameScripts = @ptrCast(@alignCast(context));
-        if (scripts.saved) |bytes| scripts.gpa.free(bytes);
-        scripts.saved = folder.companion(scripts.gpa, call_sign, slot, scripting.snapshot.extension, scripting.snapshot.max_size);
-        if (scripts.started) scripts.start() catch |err|
-            std.log.warn("the scripts can't start for the game loaded: {s}", .{@errorName(err)});
-    }
-
-    fn removed(_: *anyopaque, folder: save.Folder, call_sign: []const u8, slot: u8) void {
-        folder.removeCompanion(call_sign, slot, scripting.snapshot.extension);
-    }
-};
-
 /// The local date and time of a moment, in nanoseconds from 1970 in UTC, as the system tells it,
 /// which the saved games show the dates of their files by.
 fn localDate(since_1970: i96) ?game.interface.saved_games.Date {
@@ -2200,6 +2071,7 @@ const Display = struct {
 test {
     _ = @import("mod_shaders.zig");
     _ = @import("script_frames.zig");
+    _ = @import("game_scripts.zig");
     _ = whole_shaders;
     _ = options_page;
     _ = settings_module;

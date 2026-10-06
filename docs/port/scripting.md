@@ -567,11 +567,13 @@ file, brings it up and takes it away with F11, and draws it last over the frame.
 - **`help`** writes from the same declarations as the reference (`reference.writeHelp`): a package's
   fields and functions, an engine handler, or a hook as `openreliant hooks` lists it.
 - **While it's up** in flight, the mission is paused as the pause menu pauses it, and the console
-  stands in the pause menu's place; in the front end, the screen's pass is left out. Its pass
+  stands in the pause menu's place. In the front end, the screen's pass is left out. The Reliant's
+  rooms and the briefing have loops of their own, which run the console's pass too
+  (`openreliant/rooms.zig`): F11 brings the console up once the screen is drawn, and until it's
+  taken away, a loop of its own draws it over that screen, whose pass is left out. The room's clock
+  and sounds go on meanwhile. The movies and the loading screens don't bring it up. Its pass
   (`console/screen.zig`) takes the characters typed and the keys, and the player and menu scripts
-  hear no key pressed meanwhile, nor F11. Not yet: the console in the Reliant's rooms and the
-  briefing, which have loops of their own
-  ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
+  hear no key pressed meanwhile, nor F11.
 
 The screen is laid out on the front end's screen as the settings screen is
 ([`console/screen.zig`](../../src/scripting/console/screen.zig)): its title on the row of the
