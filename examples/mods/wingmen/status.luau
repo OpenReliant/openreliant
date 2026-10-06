@@ -11,7 +11,10 @@ local input = require("openreliant.input")
 local settings = require("openreliant.settings")
 
 -- How far from the player's ship the panel looks for wingmen.
-local reach = 50000
+local reach = settings.get("panel_reach")
+
+-- The title over the panel.
+local title = settings.get("panel_title")
 
 -- The colours of a wingman's line: plenty of armour left, some, and little.
 local healthy = vector.create(0.3, 1, 0.3)
@@ -55,7 +58,7 @@ return {
             local right = hud.width - 16
             local line = hud.measure("W").height * 1.5
             local y = hud.height * 0.3
-            hud.text(vector.create(right, y, 0), "WINGMEN", { align = "right" })
+            hud.text(vector.create(right, y, 0), title, { align = "right" })
             local count = 0
             for _, ship in nearby.objects(reach) do
                 if ship.class == "fighter" and ship.side == "friendly" then

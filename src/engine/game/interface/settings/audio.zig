@@ -168,7 +168,7 @@ pub const Audio = struct {
     pub fn slide(tab: *Audio, context: Context) void {
         const sound = context.sound orelse return;
         if (tab.held) |volume| {
-            const share = @as(f32, @floatFromInt(sliderOf(volume).held(context.pointer.at[0]))) / Slider.travel;
+            const share = @as(f32, @floatFromInt(sliderOf(volume).held(context.pointer.at[0]))) / Slider.original_travel;
             setLevel(&sound.volumes, volume, @intFromFloat(@round(share * hog_snd.loudest)));
             sound.applyVolumes();
         } else if (tab.held_last == .effects) {
@@ -262,7 +262,7 @@ fn volumesOf(context: Context) Volumes {
 /// How far along its travel the knob of a volume at `value` stands: its share of the travel, cut
 /// to a whole pixel as the game cuts it (`0x0042DAF1` on).
 fn along(value: i32) i32 {
-    return @divTrunc(value * Slider.travel, hog_snd.loudest);
+    return @divTrunc(value * Slider.original_travel, hog_snd.loudest);
 }
 
 /// The knob under `at`, of `volumes`' knobs.

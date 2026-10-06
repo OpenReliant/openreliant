@@ -651,6 +651,7 @@ pub const Interface = struct {
         return switch (front.screen) {
             .pilot_roster => front.pilot_roster.typing,
             .saved_games => front.saved_games.takesText(),
+            .mod_options => front.mod_options.takesText(),
             else => false,
         };
     }
@@ -730,7 +731,7 @@ fn modesContext(front: *const Interface, context: Context, pointer: canvas.Point
 
 /// What a pass of a mod's options reads, with the pointer at `pointer`.
 fn optionsContext(front: *const Interface, context: Context, source: mod_manager.Source, pointer: canvas.Pointer) mod_options.Context {
-    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .ticks = front.ticks, .pages = source.pages };
+    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .typed = context.typed, .ticks = front.ticks, .pages = source.pages };
 }
 
 /// The screen of the settings screen's `tab`, the game's screen for it.
