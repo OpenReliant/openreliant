@@ -147,7 +147,7 @@ comptime {
 /// **Improvement:** it is the knob's place over its travel, exactly, where the game multiplies by
 /// its rounded reciprocal (`0x004DC6A4`).
 fn brightnessAt(along: i32) f32 {
-    const share = @as(f32, @floatFromInt(along)) / Slider.travel;
+    const share = @as(f32, @floatFromInt(along)) / Slider.original_travel;
     return least_brightness + share * (most_brightness - least_brightness);
 }
 
@@ -155,7 +155,7 @@ fn brightnessAt(along: i32) f32 {
 /// rounds it (`0x0042EABE`), within the travel.
 fn knobAlong(brightness: f32) i32 {
     const share = (brightness - least_brightness) / (most_brightness - least_brightness);
-    return std.math.clamp(hud.round(share * Slider.travel), 0, Slider.travel);
+    return std.math.clamp(hud.round(share * Slider.original_travel), 0, Slider.original_travel);
 }
 
 /// What RESET DEFAULTS sets: the game's defaults for the view and the transitions (`0x004E5C08`,
@@ -486,10 +486,10 @@ test "the rows stand below the graphics" {
 test "the brightness's knob" {
     // From x 347 at 0.5 to 522 at 2; 1 stands a third of the way.
     try std.testing.expectEqual(0, knobAlong(0.5));
-    try std.testing.expectEqual(Slider.travel, knobAlong(2));
+    try std.testing.expectEqual(Slider.original_travel, knobAlong(2));
     try std.testing.expectEqual(58, knobAlong(1));
-    try std.testing.expectEqual(Slider.travel, knobAlong(3));
-    try std.testing.expectEqual(2, brightnessAt(Slider.travel));
+    try std.testing.expectEqual(Slider.original_travel, knobAlong(3));
+    try std.testing.expectEqual(2, brightnessAt(Slider.original_travel));
     try std.testing.expectApproxEqAbs(1.25, brightnessAt(87), 0.01);
 }
 

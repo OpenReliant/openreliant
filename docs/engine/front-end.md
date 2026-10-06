@@ -330,13 +330,13 @@ Not ported: a mod's thumbnail and its conflicts ([#497](https://github.com/OpenR
 **Improvement:** the original can't load mods. OPTIONS on the mods screen opens the page of options the chosen mod's scripts declare ([`mod_options.zig`](../../src/engine/game/interface/mod_options.zig), [`settings.zig`](../../src/scripting/settings.zig), [#597](https://github.com/OpenReliant/openreliant/issues/597)), at once and with no movie, on the same shapes and background as the mods screen. It is laid out as the VIDEO tab's graphics list is ([Video](#video)):
 
 - The page's title in white, centred on (320, 95), as the mods screen has MODS.
-- A framed list from (45, 136), as tall as its rows, up to eight, 30 pixels apart, with the list's arrows right of it. Each row ends its label at x 300. A toggle is a check box, and a choice or a number is an arrows box with its value written beside it: a choice's label, or the number written out. A choice steps round from the last to the first; a number steps by its `step` and stops at its ends.
+- A framed list from (45, 136), as tall as its rows, up to eight, 30 pixels apart, with the list's arrows right of it. Each row ends its label at x 300. A toggle is a check box, and a choice or a number is an arrows box with its value written beside it: a choice's label, or the number written out. A choice steps round from the last to the first; a number steps by its `step` and stops at its ends. A slider is the audio tab's slider ([Audio](#audio)), from where a check box stands, with a knob that slides 135 pixels rather than 175 so that its value fits beside it. The knob held follows the pointer, even off the row, until the button is up, and sets the number on its steps. A heading is its label alone, in white from 35 pixels inside the frame, which the pointer passes over.
 - The settings screen's buttons: OK and MAIN MENU in the left column, and RESET DEFAULTS and CANCEL CHANGES in the right. RESET DEFAULTS sets every option to its default, CANCEL CHANGES to what it was when the page opened. OK and Escape go back to the mods screen as it was left, keeping the chosen mod and what REFRESH found.
 - While the pointer is on a row, the option's description under the list, in the small font, blue, centred.
 
 Each change is kept at once in the mod's storage, and told to the scripting ([Options](../port/scripting.md#options)). An option that is the same as it was isn't set again.
 
-Not ported: changing the options from the pause menu in a game ([#600](https://github.com/OpenReliant/openreliant/issues/600)), and more kinds of option and groups ([#601](https://github.com/OpenReliant/openreliant/issues/601)).
+Not ported: changing the options from the pause menu in a game ([#600](https://github.com/OpenReliant/openreliant/issues/600)), and a text option and a key binding ([#601](https://github.com/OpenReliant/openreliant/issues/601)).
 
 ## The game modes screen
 

@@ -1260,6 +1260,8 @@ settings.register_page({
         { key = "rejoin_after", label = "REJOIN AFTER", kind = "number",
           min = 5, max = 60, step = 5, default = 20,
           description = "The seconds a wingman stays out of the fight." },
+        { key = "panel_reach", label = "PANEL REACH", kind = "slider",
+          min = 5000, max = 100000, step = 5000, default = 50000 },
     },
 })
 
@@ -1268,8 +1270,9 @@ local rejoin_after = settings.get("rejoin_after")
 
 - A `"toggle"` is a check box, with a boolean default. A `"choice"` steps through its `choices`, each
   a number or a string `value` with the `label` the screen shows, and its default is one of the
-  values. A `"number"` steps from `min` to `max` by `step`, and its default is in the range. Each
-  of these needs a `key`, which scripts read it by.
+  values. A `"number"` steps from `min` to `max` by `step`, and its default is in the range. A
+  `"slider"` is a number set by dragging a knob, for a wide range: it takes the same fields, and
+  the knob stops on the steps. Each of these needs a `key`, which scripts read it by.
 - A `"heading"` has only a `label`, which the list writes in white over the options after it, to
   split a long page.
 - An option's `description` shows under the list while the pointer is on it.
@@ -1285,11 +1288,11 @@ local rejoin_after = settings.get("rejoin_after")
   `on_setting_changed(key, value)`.
 - The values are kept in the mod's global storage, in a section of its own that
   `storage.global_section` doesn't open. A value that is the default isn't kept.
-- Changing the options in a game, and more kinds of option, are planned
+- Changing the options in a game, a text option and a key binding are planned
   ([#600](https://github.com/OpenReliant/openreliant/issues/600),
   [#601](https://github.com/OpenReliant/openreliant/issues/601)).
 
-[`examples/mods/wingmen`](../../examples/mods/wingmen) offers three options.
+[`examples/mods/wingmen`](../../examples/mods/wingmen) offers four options under two headings.
 
 ## Post effects
 

@@ -38,5 +38,15 @@ settings.register_page({
             default = true,
             description = "Shows the panel of the wingmen nearby when a game starts. F9 shows and hides it in flight.",
         },
+        {
+            key = "panel_reach",
+            label = "PANEL REACH",
+            kind = "slider",
+            min = 5000,
+            max = 100000,
+            step = 5000,
+            default = 50000,
+            description = "How far from your ship the panel looks for wingmen.",
+        },
     },
 })

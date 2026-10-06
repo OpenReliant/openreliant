@@ -2,18 +2,19 @@
 //! and the screen that sets them (`ModOptions`), which the mods screen's OPTIONS button opens.
 //!
 //! A mod declares a page of options (`Page`) as OpenReliant starts: each option is a toggle, a choice
-//! among values or a number in a range, with a label and a default (`Option`). The scripting
-//! (`src/scripting/settings.zig`) keeps the pages and the values; the screen reaches them through
-//! `Pages`. The screen is laid out as the video tab's graphics list is (`settings/graphics.zig`):
-//! a title, a framed list of rows with a check box or an arrows box and a value, the list's
-//! arrows, and the settings screen's buttons: OK and MAIN MENU, RESET DEFAULTS and CANCEL CHANGES.
-//! A change is kept at once. The text of the option under the pointer is written under the list.
+//! among values, or a number in a range set by arrows or by a slider, with a label and a default
+//! (`Option`); a heading splits a long page. The scripting (`src/scripting/settings.zig`) keeps the
+//! pages and the values; the screen reaches them through `Pages`. The screen is laid out as the
+//! video tab's graphics list is (`settings/graphics.zig`): a title, a framed list of rows with a
+//! check box, an arrows box or a slider, and a value, the list's arrows, and the settings screen's
+//! buttons: OK and MAIN MENU, RESET DEFAULTS and CANCEL CHANGES. A change is kept at once. The text
+//! of the option under the pointer is written under the list.
 //!
 //! **Improvement:** the original can't load mods.
 //!
 //! Not ported: changing the options from the pause menu in a game
-//! ([#600](https://github.com/OpenReliant/openreliant/issues/600)), and more kinds of option and
-//! groups ([#601](https://github.com/OpenReliant/openreliant/issues/601)).
+//! ([#600](https://github.com/OpenReliant/openreliant/issues/600)), and a text option and a key
+//! binding ([#601](https://github.com/OpenReliant/openreliant/issues/601)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -58,8 +59,10 @@ pub const Kind = enum {
     toggle,
     /// One of a list of values, each with a label of its own.
     choice,
-    /// A number from `min` to `max`, a `step` at a time.
+    /// A number from `min` to `max`, a `step` at a time, which arrows step through.
     number,
+    /// A number like `number`, which a knob is dragged along a slider to set, for a wide range.
+    slider,
     /// A heading over the options after it, which splits a long page: a label alone, with no key
     /// and no value.
     heading,
@@ -86,7 +89,16 @@ pub const Option = struct {
         toggle,
         choice: []const Choice,
         number: Range,
+        slider: Range,
         heading,
+
+        /// The range of a number or a slider.
+        pub fn rangeOf(control: Control) ?Range {
+            return switch (control) {
+                .number, .slider => |numbers| numbers,
+                .toggle, .choice, .heading => null,
+            };
+        }
     };
 
     pub const Range = struct { min: f64, max: f64, step: f64 };
@@ -110,7 +122,7 @@ pub const Option = struct {
                 }
                 if (option.indexOf(option.default) == null) return "a choice's default must be one of its values";
             },
-            .number => |range| {
+            .number, .slider => |range| {
                 if (option.default != .number) return "a number's default must be a number";
                 if (!std.math.isFinite(range.min) or !std.math.isFinite(range.max) or !std.math.isFinite(range.step)) return "a number's range must be finite";
                 if (range.min >= range.max) return "a number's min must be below its max";
@@ -125,7 +137,7 @@ pub const Option = struct {
     fn indexOf(option: Option, value: Value) ?usize {
         const choices = switch (option.control) {
             .choice => |listed| listed,
-            .toggle, .number, .heading => return null,
+            .toggle, .number, .slider, .heading => return null,
         };
         for (choices, 0..) |choice, at| if (choice.value.eql(value)) return at;
         return null;
@@ -138,7 +150,7 @@ pub const Option = struct {
             .toggle => return if (value == .boolean) value else option.default,
             .heading => return option.default,
             .choice => |choices| return if (option.indexOf(value)) |at| choices[at].value else option.default,
-            .number => |range| return if (value == .number and std.math.isFinite(value.number)) .{ .number = std.math.clamp(value.number, range.min, range.max) } else option.default,
+            .number, .slider => |range| return if (value == .number and std.math.isFinite(value.number)) .{ .number = std.math.clamp(value.number, range.min, range.max) } else option.default,
         }
     }
 
@@ -149,7 +161,7 @@ pub const Option = struct {
             .toggle => return .{ .boolean = !(current == .boolean and current.boolean) },
             .heading => return current,
             .choice => |choices| return choices[widgets.steppedIndex(option.indexOf(current), choices.len, step)].value,
-            .number => |range| {
+            .number, .slider => |range| {
                 const now = if (current == .number) current.number else range.min;
                 const moved = switch (step) {
                     .on => now + range.step,
@@ -166,8 +178,25 @@ pub const Option = struct {
         switch (option.control) {
             .toggle, .heading => return "",
             .choice => return if (option.indexOf(value)) |at| option.control.choice[at].label else "",
-            .number => return if (value == .number) std.fmt.bufPrint(buffer, "{d}", .{value.number}) catch "" else "",
+            .number, .slider => return if (value == .number) std.fmt.bufPrint(buffer, "{d}", .{value.number}) catch "" else "",
         }
+    }
+
+    /// How far along a slider's travel its knob stands for `value`; 0 for another kind of option.
+    pub fn along(option: Option, value: Value) i32 {
+        const range = option.control.rangeOf() orelse return 0;
+        const number = if (value == .number) value.number else range.min;
+        const share = (std.math.clamp(number, range.min, range.max) - range.min) / (range.max - range.min);
+        return @intFromFloat(@round(share * Line.slider_travel));
+    }
+
+    /// The value of a slider's knob `at` along its travel: its share of the range, on a step from
+    /// `min`.
+    pub fn atAlong(option: Option, at: i32) Value {
+        const range = option.control.rangeOf() orelse return option.default;
+        const share = @as(f64, @floatFromInt(std.math.clamp(at, 0, Line.slider_travel))) / Line.slider_travel;
+        const steps = @round(share * (range.max - range.min) / range.step);
+        return .{ .number = tidy(std.math.clamp(range.min + steps * range.step, range.min, range.max)) };
     }
 };
 
@@ -279,6 +308,8 @@ pub const ModOptions = struct {
     lit: ?Item = null,
     /// Whether the press that chose an item is still down.
     held: bool = false,
+    /// The slider's row whose knob the pointer holds, while its button is down.
+    dragged: ?u8 = null,
 
     /// Opens the page of `mod`; false where it has none.
     pub fn enter(screen: *ModOptions, mod: []const u8, context: Context) bool {
@@ -294,6 +325,14 @@ pub const ModOptions = struct {
     /// A pass of the screen's loop: how it ends, once it does.
     pub fn frame(screen: *ModOptions, context: Context) ?settings.End {
         if (context.keyboard.pressed(input.scan.escape, .none, true)) return .back;
+        // A knob held follows the pointer, wherever it goes, until the button is up.
+        if (screen.dragged) |row| {
+            if (context.pointer.down) {
+                screen.slide(row, context);
+                return null;
+            }
+            screen.dragged = null;
+        }
         var pointer = context.pointer;
         if (pointer.down and screen.held) pointer.down = false else screen.held = false;
         screen.lit = null;
@@ -318,6 +357,10 @@ pub const ModOptions = struct {
                 },
                 .check => |row| screen.change(row, screen.page.options[row].stepped(screen.values[row], .on), context),
                 .step => |stepped| screen.change(stepped.row, screen.page.options[stepped.row].stepped(screen.values[stepped.row], stepped.step), context),
+                .slide => |row| {
+                    screen.dragged = row;
+                    screen.slide(row, context);
+                },
             },
         }
         return null;
@@ -328,6 +371,13 @@ pub const ModOptions = struct {
         if (screen.page.options[at].control == .heading or screen.values[at].eql(value)) return;
         screen.values[at] = value;
         context.pages.set(screen.mod, screen.page.options[at].key, value);
+    }
+
+    /// Moves the knob of the slider on row `row` to the pointer, where the row is shown.
+    fn slide(screen: *ModOptions, row: u8, context: Context) void {
+        const place = screen.list.place(row) orelse return;
+        const along = screen.pane.line(place).slider().held(context.pointer.at[0]);
+        screen.change(row, screen.page.options[row].atAlong(along), context);
     }
 
     /// What the pointer finds at `at`: the buttons, then the list's items.
@@ -348,6 +398,7 @@ pub const ModOptions = struct {
                 .control = switch (option.control) {
                     .toggle => .{ .check = value == .boolean and value.boolean },
                     .choice, .number => .{ .choice = .{ .words = option.words(value, text) } },
+                    .slider => .{ .slider = .{ .along = option.along(value), .words = .{ .words = option.words(value, text) } } },
                     .heading => .heading,
                 },
             };
@@ -383,7 +434,7 @@ pub const ModOptions = struct {
 fn rowOf(item: Pane.Item) ?usize {
     return switch (item) {
         .scroll => null,
-        .check => |row| row,
+        .check, .slide => |row| row,
         .step => |stepped| stepped.row,
     };
 }
@@ -509,6 +560,38 @@ test "a heading splits the page, and takes no value" {
     try std.testing.expectEqual(null, click(&screen, &keyboard, pages, settings.Button.reset_defaults.rect().centre()));
     try std.testing.expectEqual(2, recorder.sets);
     try std.testing.expectEqual(null, recorder.values[0]);
+}
+
+test "a slider's knob sets a number on its steps, and follows the pointer while held" {
+    const options = [_]Option{.{ .key = "range", .label = "RANGE", .description = "", .default = .{ .number = 1000 }, .control = .{ .slider = .{ .min = 0, .max = 5000, .step = 100 } } }};
+    const range = options[0];
+    try std.testing.expectEqual(null, range.problem());
+    // The knob's place and the value it stands for, on the range's steps.
+    try std.testing.expectEqual(27, range.along(.{ .number = 1000 }));
+    try std.testing.expectEqual(Line.slider_travel, range.along(.{ .number = 9000 }));
+    try std.testing.expectEqual(Value{ .number = 0 }, range.atAlong(0));
+    try std.testing.expectEqual(Value{ .number = 5000 }, range.atAlong(Line.slider_travel));
+    try std.testing.expectEqual(Value{ .number = 2500 }, range.atAlong(Line.slider_travel / 2));
+    try std.testing.expectEqual(Value{ .number = 1000 }, range.atAlong(range.along(.{ .number = 1000 })));
+
+    var recorder: Recorder = .{ .mod = "radar", .page = .{ .title = "RADAR", .options = &options } };
+    const pages = recorder.pages();
+    var keyboard: input.Keyboard = .{};
+    var screen: ModOptions = .{};
+    try std.testing.expect(screen.enter("radar", .{ .pointer = .{}, .keyboard = &keyboard, .ticks = 0, .pages = pages }));
+    const slider = screen.pane.line(0).slider();
+    // A press at the track's end moves the knob there.
+    const end: [2]i32 = .{ slider.from[0] + Line.slider_travel + 10, slider.from[1] + 5 };
+    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, end));
+    try std.testing.expectEqual(Value{ .number = 5000 }, recorder.values[0].?);
+    // Held, the knob follows the pointer even off the row, until the button is up.
+    var context: Context = .{ .pointer = .{ .at = .{ slider.from[0], 400 }, .down = true }, .keyboard = &keyboard, .ticks = 0, .pages = pages };
+    _ = screen.frame(context);
+    try std.testing.expectEqual(Value{ .number = 0 }, recorder.values[0].?);
+    context.pointer = .{ .at = .{ slider.from[0] + 100, 400 } };
+    _ = screen.frame(context);
+    try std.testing.expectEqual(null, screen.dragged);
+    try std.testing.expectEqual(Value{ .number = 0 }, recorder.values[0].?);
 }
 
 test "choices of different kinds, and repeated ones, are refused" {

@@ -11,7 +11,7 @@ local input = require("openreliant.input")
 local settings = require("openreliant.settings")
 
 -- How far from the player's ship the panel looks for wingmen.
-local reach = 50000
+local reach = settings.get("panel_reach")
 
 -- The colours of a wingman's line: plenty of armour left, some, and little.
 local healthy = vector.create(0.3, 1, 0.3)

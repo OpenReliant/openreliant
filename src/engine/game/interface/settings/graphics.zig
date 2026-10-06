@@ -359,7 +359,8 @@ pub const Graphics = struct {
         switch (item) {
             .pane => |on_pane| switch (on_pane) {
                 .scroll, .step => tab.lit = on_pane,
-                .check => {},
+                // The graphics list has no sliders.
+                .check, .slide => {},
             },
             .preset => |step| tab.lit_preset = step,
         }
@@ -384,6 +385,7 @@ pub const Graphics = struct {
                     tab.list.scrollHeld(way, context.ticks);
                     return true;
                 },
+                .slide => return false,
                 .check => |row| {
                     if (!rows[row].usable(chosen.*)) return false;
                     switch (rows[row].kind()) {
