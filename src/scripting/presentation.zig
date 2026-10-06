@@ -195,7 +195,7 @@ pub const Presentation = struct {
     pub fn endGame(shown: *Presentation) void {
         shown.resetRegisteredCamera();
         shown.runner.stopAll(shown.lists.getPtr(.player));
-        shown.runtime.dropPlayerSelves();
+        shown.runtime.dropPlayerSelf();
         shown.game = null;
         shown.runtime.objects = null;
     }
@@ -503,7 +503,10 @@ test "a player script's self follows the player's ship from mission to mission" 
                 "player.luau",
                 \\local hud = require("openreliant.hud")
                 \\local self = require("openreliant.self")
-                \\hud.register_display("self", {frame = function() hud.text(vector.zero, tostring(self:is_valid())) end})
+                \\-- Asked for again each frame, it is the same handle.
+                \\hud.register_display("self", {frame = function()
+                \\    hud.text(vector.zero, tostring(self:is_valid() and rawequal(require("openreliant.self"), self)))
+                \\end})
             },
         },
     }});
@@ -523,9 +526,9 @@ test "a player script's self follows the player's ship from mission to mission" 
     fixture.shown.missionStarted(.{ .number = 2, .file = "mission2.dte" });
     fixture.shown.frame(host);
     try std.testing.expectEqualStrings("true", fixture.shown.layers.get(.hud).text.items);
-    try std.testing.expectEqual(1, fixture.shown.runtime.player_selves.items.len);
+    try std.testing.expect(fixture.shown.runtime.player_self != null);
     fixture.shown.endGame();
-    try std.testing.expectEqual(0, fixture.shown.runtime.player_selves.items.len);
+    try std.testing.expectEqual(null, fixture.shown.runtime.player_self);
 }
 
 test "camera locks take precedence and failed registry callbacks fall back safely" {

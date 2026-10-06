@@ -167,6 +167,10 @@ Each frame `bullets_frame` places the beams (`nova_beams_frame`, `0x00480690`). 
 
 **Improvement:** the helix turns six times a unit exactly, where the game rounds its angle.
 
+**Improvement:** a mod's gun based on the Nova Cannon charges and strikes as the cannon does, with
+its own figures: the beam strikes with the chosen group's first gun's damage, which is the
+cannon's own for the game's ships ([Modding](../guide/modding.md#guns)).
+
 Not ported: the multiplayer game's release for another player's ship, and its quarter damage.
 
 ## Turrets

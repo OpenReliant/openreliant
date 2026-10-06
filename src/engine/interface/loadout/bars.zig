@@ -19,6 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const formats = @import("../../../formats/stats.zig");
+const additions = @import("../../game/additions.zig");
 const create = @import("../../game/create.zig");
 const gameobj = @import("../../game/gameobj.zig");
 const missiles = @import("../../game/missiles.zig");
@@ -182,7 +183,7 @@ pub const ShipBars = extern struct {
 pub fn shipFigures(stats: *const create.Stats, offered: []const tables.Offer, figures: []tables.ShipFigures) void {
     const ranges: ShipRanges = .init(stats);
     for (figures, offered) |*figure, offer| {
-        const own = offer.ship_type >= tables.ship_count;
+        const own = additions.ships.get(offer.ship_type) != null;
         var bars: ShipBars = .of(ranges, stats, if (own) offer.ship_type else fighterFor(offer.ship_type));
         const ship = offer.record;
         if (own) inline for (.{ "speed", "agility", "acceleration", "shield_power", "shield_recharge", "armor" }) |name| {

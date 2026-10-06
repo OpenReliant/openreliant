@@ -2052,7 +2052,7 @@ pub fn blindFire(state: *const State, slot: *const create.Slot) BlindFire {
     if (!state.blind_fire_fitted or !state.blind_fire) return .off;
     const groups = if (slot.combat) |combat| combat.gun_groups else 0;
     if (slot.object.gun_mode.all and groups != 1) return .off;
-    return if ((if (groupLead(slot)) |held| held.base() == .nova_cannon else false)) .excluded else .on;
+    return if (guns.GunType.leadCharges(groupLead(slot))) .excluded else .on;
 }
 
 /// Whether the charge arc shows the Nova Cannon's charge: on a Phoenix firing one group, which the
@@ -2060,7 +2060,7 @@ pub fn blindFire(state: *const State, slot: *const create.Slot) BlindFire {
 pub fn novaShown(slot: *const create.Slot) bool {
     const object = &slot.object;
     if (!object.type.base().carriesNova()) return false;
-    return !object.gun_mode.all and (if (groupLead(slot)) |held| held.base() == .nova_cannon else false);
+    return !object.gun_mode.all and guns.GunType.leadCharges(groupLead(slot));
 }
 
 test "blind fire, and the charge arc for the Nova Cannon" {

@@ -485,6 +485,7 @@ pub const Missile = enum(u8) {
     /// its limit from; the missile itself for the game's.
     pub fn base(missile: Missile) Missile {
         const mod = missile.added() orelse return missile;
+        // The loadout holds only the mods' missiles whose base it offers (`all`, `named`).
         return ofType(mod.base).?;
     }
 
@@ -498,10 +499,17 @@ pub const Missile = enum(u8) {
     }
 
     /// The missile a mod adds under the qualified name `name`, such as `bananas:banana`, where its
-    /// mod is on.
+    /// mod is on and the loadout offers its base (`offered`).
     pub fn named(name: []const u8) ?Missile {
         const number = additions.missiles.find(name) orelse return null;
-        return @enumFromInt(missile_count + number - additions.missiles.first);
+        const missile: Missile = @enumFromInt(missile_count + number - additions.missiles.first);
+        return if (missile.offered()) missile else null;
+    }
+
+    /// Whether the loadout offers it: one of the game's, or a mod's whose base the loadout offers.
+    fn offered(missile: Missile) bool {
+        const mod = missile.added() orelse return true;
+        return ofType(mod.base) != null;
     }
 
     /// Every missile the loadout knows: the game's, then those of the mods whose base it offers.
@@ -509,7 +517,7 @@ pub const Missile = enum(u8) {
         var count: usize = 0;
         for (0..missile_count + additions.missiles.all().len) |index| {
             const missile: Missile = @enumFromInt(index);
-            if (missile.added()) |mod| if (ofType(mod.base) == null) continue;
+            if (!missile.offered()) continue;
             buffer[count] = missile;
             count += 1;
         }
@@ -1012,6 +1020,8 @@ test "the mods' missiles" {
     // Found again by its qualified name, while its mod is on.
     try std.testing.expectEqual(rail, Missile.named("A:RAIL").?);
     try std.testing.expectEqual(null, Missile.named("b:rail"));
+    // A missile on a base the loadout doesn't offer isn't found, as a saved game might still name it.
+    try std.testing.expectEqual(null, Missile.named("a:torpedo"));
     // Offered from its own tier, else its base's, with its base's limit.
     try std.testing.expectEqual(2, rail.firstTier());
     try std.testing.expect(!rail.offeredAt(1) and rail.offeredAt(3));
