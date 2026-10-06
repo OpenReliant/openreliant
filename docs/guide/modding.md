@@ -152,6 +152,8 @@ again, to find mods you've added or removed while the screen is open.
   its storage file, `storage\<mod>.data`.
 - The changes take effect the next time OpenReliant starts. RESTART TO APPLY shows while the screen's
   list differs from what's loaded.
+- The panel shows the mod's thumbnail ([The thumbnail](#the-thumbnail)). A damaged archive
+  ([Checksums](#checksums)) is listed in red.
 
 The screen keeps the order and which mods are off in `starlancer.ini` in the game's folder, in its
 own section, one line for each mod: the mod's name in the `mods` folder, and 1 if it's on or 0 if
@@ -1058,17 +1060,17 @@ included, and works just as the folder did. `--checksum` writes `coyote.hog.sha2
 
 ### The thumbnail
 
-A mod can include a picture of itself, `mod.png`, in its archive or folder, for a mod manager to
-show ([#497](https://github.com/OpenReliant/openreliant/issues/497)). It's a PNG of any size; a 4:3
-picture such as 320x240 suits the game's screens. Like the manifest, it doesn't replace any game
-file.
+A mod can include a picture of itself, `mod.png`, which the mods screen shows above the mod's
+details. It fits in a box 175 by 70 of the screen's 640x480 points, so a wide picture such as
+700x280 fills it best. Like the manifest, it doesn't replace any game file.
 
 ### Checksums
 
 An archive can have a checksum file next to it: the archive's name plus `.sha256`, in the format
 `sha256sum` writes (the archive's SHA-256 hash in hexadecimal, two spaces, and the archive's name).
 When the mod loads, OpenReliant checks the archive against it, and skips the mod if they don't
-match, since the archive is then damaged or isn't the one the checksum was made for. `sltool hog
+match, since the archive is then damaged or isn't the one the checksum was made for. The mods screen
+lists it in red. `sltool hog
 pack <folder> <archive> --checksum` writes a checksum file next to the archive it makes, and
 `sha256sum -c music.hog.sha256` checks one by hand. Folder mods don't have checksums.
 
