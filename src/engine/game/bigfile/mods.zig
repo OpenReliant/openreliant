@@ -113,6 +113,19 @@ pub const Mod = struct {
     source: Source,
     /// Its manifest; empty if it has none.
     manifest: profile.Profile = .empty,
+    /// What checking its archive against its checksum file found, as it loaded (`checksumOf`).
+    checksum: Checksum = .none,
+
+    /// What checking a mod's archive against its checksum file found.
+    pub const Checksum = union(enum) {
+        /// Not checked: a folder, an archive with no checksum file, or a mod that is off.
+        none,
+        /// The archive matches its checksum file.
+        matches,
+        /// The archive doesn't match, or the file can't be read or used, for this reason. The mod
+        /// isn't loaded.
+        mismatch: []const u8,
+    };
 
     pub const Source = union(enum) {
         archive: hog.Archive,
@@ -262,10 +275,11 @@ pub const Mod = struct {
     }
 
     /// Opens the mod `name` in the `mods` folder `folder` (`Source.open`), with its manifest if it
-    /// has one. Returns null, with a message in the log, if it isn't a mod, can't be opened, or, if
-    /// `check` is set, is an archive that fails its checksum (`intact`).
+    /// has one, and if `check` is set and it is an archive, what its checksum file says of it
+    /// (`checksumOf`). Returns null, with a message in the log, if it isn't a mod or can't be
+    /// opened.
     fn open(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8, kind: Io.File.Kind, check: bool) Allocator.Error!?Mod {
-        if (check and kind == .file and isArchive(name) and !try intact(gpa, io, folder, name)) return null;
+        const checksum: Checksum = if (check and kind == .file and isArchive(name)) try checksumOf(gpa, io, folder, name) else .none;
         var source = Source.open(gpa, io, folder, name, kind) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.NotAMod => {
@@ -278,7 +292,7 @@ pub const Mod = struct {
             },
         };
         errdefer source.close(gpa);
-        var mod: Mod = .{ .name = try gpa.dupe(u8, name), .source = source };
+        var mod: Mod = .{ .name = try gpa.dupe(u8, name), .source = source, .checksum = checksum };
         errdefer gpa.free(mod.name);
         const manifest = mod.find(manifest_name) orelse return mod;
         if (mod.read(gpa, manifest, .expanded)) |text| {
@@ -297,15 +311,15 @@ pub const Mod = struct {
     }
 };
 
-/// Whether the archive `name` in the `mods` folder `folder` can be used: true if there's no
-/// checksum file next to it (the archive's name plus `checksums.extension`, matched ignoring case),
-/// or if the checksum matches. If it doesn't match or can't be read, the archive is damaged or
-/// isn't the one the checksum was made for, and the log says so.
-fn intact(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8) Allocator.Error!bool {
+/// What the checksum file next to the archive `name` in the `mods` folder `folder` says of it (the
+/// archive's name plus `checksums.extension`, matched in any case): none if there's no such file,
+/// or whether the archive matches. If it doesn't match, or the file can't be read or used, the
+/// archive is damaged or isn't the one the checksum was made for, and the log says so.
+fn checksumOf(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8) Allocator.Error!Mod.Checksum {
     var named: [files.max_path]u8 = undefined;
-    const checksum_name = std.mem.print(&named, "{s}" ++ checksums.extension, .{name}) catch return true;
+    const checksum_name = std.mem.print(&named, "{s}" ++ checksums.extension, .{name}) catch return .none;
     var found: [files.max_path]u8 = undefined;
-    const path = files.find(io, folder, checksum_name, &found) orelse return true;
+    const path = files.find(io, folder, checksum_name, &found) orelse return .none;
     const failure: []const u8 = failed: {
         const text = files.readFile(io, gpa, folder, path, .limited(max_checksum_size)) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
@@ -319,13 +333,13 @@ fn intact(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8) Allocator.Er
         const digest = checksums.digestFile(io, file) catch |err| break :failed @errorName(err);
         if (!std.mem.eql(u8, &digest, &wanted)) break :failed "the archive is damaged, or isn't the one it was made for";
         log.info("{s} matches {s}", .{ name, path });
-        return true;
+        return .matches;
     };
     log.warn("skipping the mod {s}: checking {s} failed: {s}", .{ name, path, failure });
-    return false;
+    return .{ .mismatch = failure };
 }
 
-/// The largest checksum file `intact` reads, far more than a line for each file of a mod.
+/// The largest checksum file `checksumOf` reads, far more than a line for each file of a mod.
 const max_checksum_size = 1 << 16;
 
 /// A folder mod. Each file in the folder is one of the mod's files, as `sltool hog pack` would pack
@@ -401,6 +415,9 @@ pub const Mods = struct {
     /// The mods that are off (`Order`), opened so that the mods screen can list them. Their files
     /// and scripts aren't used.
     off: []Mod = &.{},
+    /// The archives that don't match their checksum files (`Mod.Checksum.mismatch`), opened so that
+    /// the mods screen can say so. Their files and scripts aren't used.
+    damaged: []Mod = &.{},
     /// Every file in the mods, by its name in lower case, pointing to the last mod that has it.
     index: std.StringHashMapUnmanaged(Place) = .empty,
 
@@ -419,8 +436,9 @@ pub const Mods = struct {
     /// Opens the mods in the `mods` folder of the game folder `game`: each `.hog` file is an
     /// archive and each folder a folder mod. `order` says which are on and the order they load in:
     /// the mods it lists first, in its order, then the others sorted by name, ignoring case. The
-    /// mods that are off go to `off`. Anything else, mods that fail to open, and mods that need a
-    /// newer OpenReliant than `running` are skipped and logged. If `running` is null, the version
+    /// mods that are off go to `off`, and the archives that don't match their checksum files to
+    /// `damaged`. Anything else, mods that fail to open, and mods that need a newer OpenReliant than
+    /// `running` are skipped and logged. If `running` is null, the version
     /// check is skipped. Returns no mods if there's no `mods` folder. The log lists each mod and
     /// what each of its files replaces or adds (`report`).
     pub fn openOrdered(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion, order: Order) Allocator.Error!Mods {
@@ -453,7 +471,7 @@ pub const Mods = struct {
             log.warn("can't list {s}: {s}; no mods are loaded", .{ found, @errorName(err) });
             return .none;
         }) |entry| {
-            // A checksum file belongs to the archive it checks (`intact`).
+            // A checksum file belongs to the archive it checks (`checksumOf`).
             if (hidden(entry.name) or isChecksum(entry.name)) continue;
             const kind = kindOf(io, folder, entry) catch |err| {
                 log.warn("skipping {s}: {s}", .{ entry.name, @errorName(err) });
@@ -475,6 +493,9 @@ pub const Mods = struct {
         var off: std.ArrayList(Mod) = .empty;
         defer off.deinit(gpa);
         errdefer for (off.items) |*mod| mod.close(gpa);
+        var damaged: std.ArrayList(Mod) = .empty;
+        defer damaged.deinit(gpa);
+        errdefer for (damaged.items) |*mod| mod.close(gpa);
         for (entries.items) |entry| {
             // A mod that is off isn't checked against its checksum, as none of it is used.
             const on = order.isOn(entry.name);
@@ -485,7 +506,8 @@ pub const Mods = struct {
                 continue;
             };
             if (!on) log.info("the mod {f} is off", .{mod});
-            (if (on) &list else &off).append(gpa, mod) catch |err| {
+            const into = if (mod.checksum == .mismatch) &damaged else if (on) &list else &off;
+            into.append(gpa, mod) catch |err| {
                 mod.close(gpa);
                 return err;
             };
@@ -493,6 +515,7 @@ pub const Mods = struct {
         var mods: Mods = .{ .list = try list.toOwnedSlice(gpa) };
         errdefer mods.close(gpa);
         mods.off = try off.toOwnedSlice(gpa);
+        mods.damaged = try damaged.toOwnedSlice(gpa);
         try mods.makeIndex(gpa);
         if (report_files) try mods.report(gpa, io, game);
         return mods;
@@ -502,8 +525,10 @@ pub const Mods = struct {
         freeIndex(Place, &mods.index, gpa);
         for (mods.list) |*mod| mod.close(gpa);
         gpa.free(mods.list);
-        for (mods.off) |*mod| mod.close(gpa);
-        gpa.free(mods.off);
+        for ([_][]Mod{ mods.off, mods.damaged }) |kept| {
+            for (kept) |*mod| mod.close(gpa);
+            gpa.free(kept);
+        }
         mods.* = .none;
     }
 
@@ -1182,6 +1207,13 @@ test "an archive is only loaded if it matches its checksum" {
     try std.testing.expectEqual(2, mods.list.len);
     try std.testing.expectEqualStrings("good.hog", mods.list[0].name);
     try std.testing.expectEqualStrings("plain.hog", mods.list[1].name);
+    // Each keeps what its checksum file said. The damaged archive is kept apart, for the mods
+    // screen to show, and none of its files is used.
+    try std.testing.expectEqual(.matches, mods.list[0].checksum);
+    try std.testing.expectEqual(.none, mods.list[1].checksum);
+    try std.testing.expectEqual(1, mods.damaged.len);
+    try std.testing.expectEqualStrings("bad.hog", mods.damaged[0].name);
+    try std.testing.expectEqualStrings("the archive is damaged, or isn't the one it was made for", mods.damaged[0].checksum.mismatch);
 
     // The thumbnail belongs to the mod and doesn't replace a game file.
     const thumbnail = (try mods.list[0].thumbnail(gpa)).?;

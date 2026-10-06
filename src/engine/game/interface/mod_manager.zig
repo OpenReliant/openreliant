@@ -1,10 +1,10 @@
 //! The mods screen (`ModManager`), which GAME OPTIONS' MODS button opens: a list of the mods in the
 //! game's `mods` folder ([#497](https://github.com/OpenReliant/openreliant/issues/497)). A check box
 //! turns each mod on or off, a box of up and down arrows sets the order the mods load in, and the
-//! panel on the right shows what the chosen mod's manifest says of it. The order and the state are
-//! kept in `starlancer.ini`'s `[OpenReliantMods]` section (`bigfile.mods.Order`) as they change, and
-//! take effect the next time OpenReliant starts, which the screen says while they differ from what is
-//! loaded.
+//! panel on the right shows the chosen mod's thumbnail and what its manifest says of it. The order
+//! and the state are kept in `starlancer.ini`'s `[OpenReliantMods]` section (`bigfile.mods.Order`)
+//! as they change, and take effect the next time OpenReliant starts, which the screen says while
+//! they differ from what is loaded.
 //!
 //! It is laid out as the settings screen's controls tab is, on the same shapes
 //! (`settings.shapes_name`): a framed list with the lists' arrows, a second frame beside it, and the
@@ -16,7 +16,7 @@
 //!
 //! **Improvement:** the original can't load mods.
 //!
-//! Not ported: a mod's thumbnail and its conflicts
+//! Not ported: a mod's conflicts, and the mods it depends on
 //! ([#497](https://github.com/OpenReliant/openreliant/issues/497)).
 
 const std = @import("std");
@@ -27,6 +27,8 @@ const input = @import("../../input.zig");
 const profile = @import("../../profile.zig");
 const bigfile = @import("../bigfile.zig");
 const hud = @import("../hud.zig");
+const png = @import("../../../formats/png.zig");
+const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const canvas_module = @import("canvas.zig");
 const Canvas = canvas_module.Canvas;
 const Pointer = canvas_module.Pointer;
@@ -101,6 +103,13 @@ pub const details_inside = 10;
 pub const details_lines: Canvas.Lines = .{ .width = details_frame.extent[0] - 2 * details_inside, .height = 15, .most = 1 };
 pub const description_lines: Canvas.Lines = .{ .width = details_lines.width, .height = 15, .most = 9 };
 
+/// The box the chosen mod's thumbnail fits in, at the panel's top, keeping its proportions, and the
+/// gap below it. The description takes the lines left below it.
+const thumbnail_box: [2]i32 = .{ details_lines.width, 70 };
+const thumbnail_gap = 6;
+/// The most pixels' bytes a thumbnail is read to, far more than the panel shows.
+const most_thumbnail_bytes = 16 * 1024 * 1024;
+
 /// The arrows that move the chosen mod up or down the order: a gold box of up and down arrows, unlike
 /// the lists' arrows that scroll the list, in the middle of the gap between the frames and
 /// `movers_above` above the frames' foot.
@@ -161,7 +170,90 @@ const Row = struct {
     fn listable(row: Row) bool {
         return Order.listable(row.mod.name);
     }
+
+    /// Whether it is an archive that doesn't match its checksum file, which doesn't load.
+    fn damaged(row: Row) bool {
+        return row.mod.checksum == .mismatch;
+    }
 };
+
+/// The thumbnails of the mods chosen so far, by their names, each read once and kept until the
+/// front end closes (`deinit`), as the device keeps a picture it draws for good.
+const Thumbnails = struct {
+    gpa: ?Allocator = null,
+    entries: std.ArrayList(Entry) = .empty,
+    /// How many times REFRESH has read the `mods` folder again; only the thumbnails read since
+    /// the last time are used, as a mod's thumbnail may have changed.
+    listing: u32 = 0,
+
+    const Entry = struct { name: []u8, listing: u32, image: ?*srtexture.Image };
+
+    /// `mod`'s thumbnail, read the first time it is asked for in this listing; null if it has
+    /// none, or it can't be read, which the log says.
+    fn of(thumbnails: *Thumbnails, gpa: Allocator, mod: *const Mod) ?*srtexture.Image {
+        for (thumbnails.entries.items) |entry| {
+            if (entry.listing == thumbnails.listing and std.mem.eql(u8, entry.name, mod.name)) return entry.image;
+        }
+        thumbnails.gpa = gpa;
+        const image = read(gpa, mod);
+        const name = gpa.dupe(u8, mod.name) catch return forget(gpa, image);
+        thumbnails.entries.append(gpa, .{ .name = name, .listing = thumbnails.listing, .image = image }) catch {
+            gpa.free(name);
+            return forget(gpa, image);
+        };
+        return image;
+    }
+
+    /// `mod`'s thumbnail decoded, with its mipmaps; null if it has none, or it can't be read.
+    fn read(gpa: Allocator, mod: *const Mod) ?*srtexture.Image {
+        const bytes = (mod.thumbnail(gpa) catch |err| {
+            log.warn("{s}: can't read {s}: {s}", .{ mod.name, bigfile.mods.thumbnail_name, @errorName(err) });
+            return null;
+        }) orelse return null;
+        defer gpa.free(bytes);
+        const picture = png.readLimited(gpa, bytes, most_thumbnail_bytes) catch |err| {
+            log.warn("{s}: {s} is left out: {s}", .{ mod.name, bigfile.mods.thumbnail_name, @errorName(err) });
+            return null;
+        };
+        const image = gpa.create(srtexture.Image) catch {
+            picture.deinit(gpa);
+            return null;
+        };
+        image.* = srtexture.mipmapped(gpa, picture) catch {
+            gpa.destroy(image);
+            return null;
+        };
+        return image;
+    }
+
+    /// Lets go of `image`, which there was no room to keep; returns null.
+    fn forget(gpa: Allocator, image: ?*srtexture.Image) ?*srtexture.Image {
+        if (image) |held| {
+            held.deinit(gpa);
+            gpa.destroy(held);
+        }
+        return null;
+    }
+
+    fn deinit(thumbnails: *Thumbnails) void {
+        const gpa = thumbnails.gpa orelse return;
+        for (thumbnails.entries.items) |entry| {
+            _ = forget(gpa, entry.image);
+            gpa.free(entry.name);
+        }
+        thumbnails.entries.deinit(gpa);
+        thumbnails.* = .{};
+    }
+};
+
+/// The size `picture` is drawn at in the thumbnail's box: as large as fits, keeping its
+/// proportions.
+fn thumbnailSize(picture: *const srtexture.Image) [2]i32 {
+    const width: f32 = @floatFromInt(picture.width());
+    const height: f32 = @floatFromInt(picture.height());
+    const fit = @min(@as(f32, @floatFromInt(thumbnail_box[0])) / width, @as(f32, @floatFromInt(thumbnail_box[1])) / height);
+    return .{ @max(1, @as(i32, @intFromFloat(@round(width * fit)))), @max(1, @as(i32, @intFromFloat(@round(height * fit)))) };
+}
 
 /// What the pointer finds on the screen.
 pub const Item = union(enum) {
@@ -232,16 +324,37 @@ pub const ModManager = struct {
     /// The mods REFRESH opened, which the rows are of from then on, until the screen is left
     /// (`release`).
     scanned: ?struct { gpa: Allocator, mods: bigfile.Mods } = null,
+    /// The thumbnails read so far, which stay as the screen is left and opened again.
+    thumbnails: Thumbnails = .{},
+    /// The chosen mod's thumbnail, if it has one; kept up to date after each pass.
+    thumbnail: ?*srtexture.Image = null,
 
     /// Opens the screen: the mods OpenReliant found, in the order the settings file gives them.
     pub fn enter(screen: *ModManager, context: Context) void {
         screen.release();
-        screen.* = .{ .loaded = context.source.loaded.list };
+        screen.* = .{ .loaded = context.source.loaded.list, .thumbnails = screen.thumbnails };
         screen.fill(context.source.loaded, .{ .profile = context.settings_file.profile });
         screen.kept = screen.rows;
         screen.list = .of(screen.count, shown_rows, context.ticks);
         if (screen.count > 0) screen.chosen = 0;
         screen.has_options = screen.optionsOf(context.source) != null;
+        screen.showThumbnail(context.source);
+    }
+
+    /// Lets go of the thumbnails, and what REFRESH opened, as the front end closes.
+    pub fn deinit(screen: *ModManager) void {
+        screen.release();
+        screen.thumbnails.deinit();
+        screen.thumbnail = null;
+    }
+
+    /// Takes the chosen mod's thumbnail for the panel (`Thumbnails.of`).
+    fn showThumbnail(screen: *ModManager, source: Source) void {
+        const row = screen.chosen orelse {
+            screen.thumbnail = null;
+            return;
+        };
+        screen.thumbnail = screen.thumbnails.of(source.gpa, screen.rows[row].mod);
     }
 
     /// Frees what REFRESH opened, as the screen is left.
@@ -254,7 +367,7 @@ pub const ModManager = struct {
     /// gives. Beyond `capacity` they are left out, and stay as the settings file has them.
     fn fill(screen: *ModManager, mods: *const bigfile.Mods, order: Order) void {
         screen.count = 0;
-        for ([_][]const Mod{ mods.list, mods.off }) |each| for (each) |*mod| {
+        for ([_][]const Mod{ mods.list, mods.off, mods.damaged }) |each| for (each) |*mod| {
             if (screen.count == capacity) {
                 log.warn("the mods screen lists {d} mods; {s} and the rest are left out", .{ capacity, mod.name });
                 return;
@@ -281,6 +394,7 @@ pub const ModManager = struct {
         var previous = screen.scanned;
         const chosen = if (screen.chosen) |row| screen.rows[row].mod.name else null;
         screen.scanned = .{ .gpa = source.gpa, .mods = found };
+        screen.thumbnails.listing +%= 1;
         screen.fill(&found, order);
         screen.kept = screen.rows;
         screen.list = .of(screen.count, shown_rows, context.ticks);
@@ -302,6 +416,7 @@ pub const ModManager = struct {
     /// A pass of the screen's loop: how it ends, once it does. What it can't write to the settings
     /// file is logged.
     pub fn frame(screen: *ModManager, context: Context) ?Leave {
+        defer screen.showThumbnail(context.source);
         return screen.pass(context) catch |err| {
             log.warn("the mods are not kept: {s}", .{@errorName(err)});
             return null;
@@ -407,10 +522,11 @@ pub const ModManager = struct {
     }
 
     /// Whether the mods that are on, in their order, differ from the ones OpenReliant started with.
+    /// A damaged archive never loads, so it counts for neither.
     pub fn waits(screen: ModManager) bool {
         var at: usize = 0;
         for (screen.rows[0..screen.count]) |row| {
-            if (!row.on) continue;
+            if (!row.on or row.damaged()) continue;
             if (at == screen.loaded.len or !std.mem.eql(u8, row.mod.name, screen.loaded[at].name)) return true;
             at += 1;
         }
@@ -436,8 +552,8 @@ pub const ModManager = struct {
         try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 
-    /// The rows shown, each a check box and the mod's name, the chosen one white, a mod that is off
-    /// dim, and the arrows, the one under the pointer lit.
+    /// The rows shown, each a check box and the mod's name, the chosen one white, a damaged one red,
+    /// a mod that is off dim, and the arrows, the one under the pointer lit.
     fn drawList(screen: ModManager, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         if (screen.count == 0) for (empty_notes) |note| try note.write(canvas, canvas.fonts.small, canvas_module.blue);
         for (screen.list.rows.first..screen.list.rows.end(), 0..) |at, place| {
@@ -446,7 +562,7 @@ pub const ModManager = struct {
             try widgets.Box.draw(canvas.dimmedUnless(row.listable()), art, box.at, row.on);
             var named: [name_buffer]u8 = undefined;
             const is_chosen = if (screen.chosen) |chosen| chosen == at else false;
-            const colour = if (is_chosen) canvas_module.white else canvas_module.blue;
+            const colour = if (row.damaged()) canvas_module.red else if (is_chosen) canvas_module.white else canvas_module.blue;
             try canvas.dimmedUnless(row.on).wrapped(canvas.fonts.small, box.label(.{ .words = "" }).at, nameOf(&named, row), colour, .left, .{ .width = name_width, .height = row_spacing, .most = 1 });
         }
         try arrows.draw(canvas, art, screen.litArrow(.scroll));
@@ -462,13 +578,19 @@ pub const ModManager = struct {
         };
     }
 
-    /// The chosen mod's manifest: its name, version and author, its description, how many files and
-    /// scripts it has, and its page.
+    /// The chosen mod's thumbnail, if it has one, then its manifest: its name, version and author,
+    /// its description and its page; and for an archive that doesn't match its checksum file, that
+    /// it isn't loaded.
     fn drawDetails(screen: ModManager, canvas: Canvas) canvas_module.Error!void {
         const row = screen.rows[screen.chosen orelse return choose_note.write(canvas, canvas.fonts.small, canvas_module.blue)];
         const font = canvas.fonts.small;
         const x = details_frame.at[0] + details_inside;
         var y = details_frame.at[1] + details_inside;
+        if (screen.thumbnail) |picture| {
+            const size = thumbnailSize(picture);
+            canvas.imageOver(picture, .{ x + @divTrunc(details_lines.width - size[0], 2), y }, size);
+            y += size[1] + thumbnail_gap;
+        }
         var buffer: [name_buffer]u8 = undefined;
         try canvas.wrapped(font, .{ x, y }, row.title(), canvas_module.white, .left, details_lines);
         y += details_lines.height;
@@ -479,15 +601,20 @@ pub const ModManager = struct {
             y += details_lines.height;
         };
         if (row.mod.about(.description)) |description| {
-            try canvas.wrapped(font, .{ x, y }, description, canvas_module.blue, .left, description_lines);
-            y += @intCast(description_lines.height * description_lines.count(font, description));
+            // As many lines as fit above the lines below it and the OPTIONS button.
+            const lines_below = @as(i32, @intFromBool(row.mod.about(.url) != null)) + @intFromBool(row.damaged());
+            const bottom = if (screen.has_options) options_button_at[1] else details_frame.at[1] + frame_height - details_inside;
+            const room = @divTrunc(bottom - y, details_lines.height) - lines_below;
+            var shown = description_lines;
+            shown.most = @min(description_lines.most, @as(usize, @intCast(@max(room, 1))));
+            try canvas.wrapped(font, .{ x, y }, description, canvas_module.blue, .left, shown);
+            y += shown.height * @as(i32, @intCast(shown.count(font, description)));
         }
-        const files = row.mod.names().count();
-        const scripts = row.mod.scripts().count();
-        const counts = std.mem.print(&buffer, "{d} FILE{s}, {d} SCRIPT{s}", .{ files, plural(files), scripts, plural(scripts) }) catch "";
-        try canvas.wrapped(font, .{ x, y }, counts, canvas_module.blue, .left, details_lines);
-        y += details_lines.height;
-        if (row.mod.about(.url)) |url| try canvas.wrapped(font, .{ x, y }, url, canvas_module.gold, .left, details_lines);
+        if (row.mod.about(.url)) |url| {
+            try canvas.wrapped(font, .{ x, y }, url, canvas_module.gold, .left, details_lines);
+            y += details_lines.height;
+        }
+        if (row.damaged()) try canvas.wrapped(font, .{ x, y }, "DAMAGED: NOT LOADED", canvas_module.red, .left, details_lines);
     }
 };
 
@@ -499,11 +626,6 @@ fn nameOf(buffer: *[name_buffer]u8, row: Row) []const u8 {
     const title_text = row.title();
     const version = row.mod.about(.version) orelse return title_text;
     return std.mem.print(buffer, "{s} {s}", .{ title_text, version }) catch title_text;
-}
-
-/// The ending that makes a word plural, for `number` of them.
-fn plural(number: usize) []const u8 {
-    return if (number == 1) "" else "S";
 }
 
 /// The check box of the row shown `place`th from the top, with its name beside it.
@@ -526,6 +648,9 @@ fn nameCentre(place: usize) [2]i32 {
 }
 
 /// What the tests stand a screen in with: three folder mods in a `mods` folder, and a settings file.
+const hog = @import("../../../formats/hog.zig");
+const checksums = @import("../../../formats/checksums.zig");
+
 const Fixture = struct {
     tmp: std.testing.TmpDir,
     arena: std.heap.ArenaAllocator,
@@ -563,7 +688,7 @@ const Fixture = struct {
     }
 
     fn deinit(fixture: *Fixture) void {
-        fixture.screen.release();
+        fixture.screen.deinit();
         fixture.mods.close(std.testing.allocator);
         fixture.arena.deinit();
         fixture.tmp.cleanup();
@@ -710,6 +835,45 @@ test "REFRESH reads the mods folder again" {
     try std.testing.expect(fixture.screen.rows[0].on);
 }
 
+test "the panel takes a mod's thumbnail, and a damaged archive is listed but doesn't wait" {
+    var fixture: Fixture = undefined;
+    try fixture.init("");
+    defer fixture.deinit();
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    // Alpha gets a thumbnail, 4 by 2 pixels; delta.hog is an archive that doesn't match its
+    // checksum file.
+    var written: std.Io.Writer.Allocating = .init(gpa);
+    defer written.deinit();
+    try png.writeRgba(gpa, &written.writer, 4, 2, &@as([4 * 2 * 4]u8, @splat(200)));
+    try fixture.tmp.dir.writeFile(io, .{ .sub_path = "mods/alpha/mod.png", .data = written.written() });
+    try hog.testing.write(gpa, io, fixture.tmp.dir, "mods/delta.hog", &.{.{ .name = "ship.shp", .data = "a ship" }});
+    var line_buffer: [128]u8 = undefined;
+    var line: std.Io.Writer = .fixed(&line_buffer);
+    try checksums.writeLine(&line, checksums.digest("another archive"), "delta.hog");
+    try fixture.tmp.dir.writeFile(io, .{ .sub_path = "mods/delta.hog.sha256", .data = line.buffered() });
+    _ = fixture.click(Button.refresh.rect().centre());
+    var buffer: [capacity][]const u8 = undefined;
+    try std.testing.expectEqualDeep(&[_][]const u8{ "alpha", "beta", "delta.hog", "gamma" }, fixture.names(&buffer));
+
+    // Alpha's thumbnail fits the box as high as it is; beta has none, and the panel shows none.
+    fixture.screen.chosen = 0;
+    fixture.screen.showThumbnail(fixture.context(.{}).source);
+    const thumbnail = fixture.screen.thumbnail.?;
+    try std.testing.expectEqual([2]i32{ thumbnail_box[1] * 2, thumbnail_box[1] }, thumbnailSize(thumbnail));
+    fixture.screen.chosen = 1;
+    fixture.screen.showThumbnail(fixture.context(.{}).source);
+    try std.testing.expectEqual(null, fixture.screen.thumbnail);
+    // The damaged archive is on, but never loads, so the mods don't wait for a restart.
+    try std.testing.expect(fixture.screen.rows[2].damaged() and fixture.screen.rows[2].on);
+    try std.testing.expect(!fixture.screen.waits());
+    // Thumbnails are read once for each listing, and kept as the screen opens again; alpha's from
+    // before REFRESH, which had none, stays unused.
+    fixture.screen.enter(fixture.context(.{}));
+    try std.testing.expectEqual(thumbnail, fixture.screen.thumbnails.of(gpa, fixture.screen.rows[0].mod).?);
+    try std.testing.expectEqual(3, fixture.screen.thumbnails.entries.items.len);
+}
+
 test "OPTIONS opens the page of the mod that has one" {
     var fixture: Fixture = undefined;
     try fixture.init("");
@@ -764,6 +928,7 @@ test "a screen without mods" {
     try fixture.init("");
     defer fixture.deinit();
     var empty: ModManager = .{};
+    defer empty.deinit();
     empty.enter(fixture.context(.{}));
     var none: bigfile.Mods = .none;
     var context = fixture.context(.{});

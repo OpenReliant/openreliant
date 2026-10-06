@@ -328,6 +328,11 @@ pub const Interface = struct {
     /// driver plays before the next frame (`game.xtrabits.movie`).
     movie: ?[]const u8 = null,
 
+    /// Lets go of what the screens keep for the whole run, such as the mods' thumbnails.
+    pub fn deinit(front: *Interface) void {
+        front.mod_manager.deinit();
+    }
+
     /// A frame of `interface_run`: the shown screen entered where it has just been chosen, the
     /// pointer brought up to date (`interface_pointer_update`), then the screen's frame. Returns
     /// what the front end ends in, once it does.

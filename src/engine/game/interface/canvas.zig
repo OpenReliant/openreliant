@@ -176,6 +176,13 @@ pub const Canvas = struct {
         hud.drawImage(canvas.target, picture, left, .{ 1, 1, 1, 1 }, s, .{});
     }
 
+    /// Draws `picture` stretched over the box `extent` across and down from `at`.
+    pub fn imageOver(canvas: Canvas, picture: *srtexture.Image, at: [2]i32, extent: [2]i32) void {
+        const start = canvas.pixelAt(at);
+        const end = canvas.pixelAt(.{ at[0] + extent[0], at[1] + extent[1] });
+        hud.drawImageOver(canvas.target, picture, .{ .left = start[0], .top = start[1], .right = end[0], .bottom = end[1] }, .{ 1, 1, 1, 1 });
+    }
+
     /// Writes `words` in `font` at `at`, ramped through `colour` (`hud_text`).
     pub fn text(canvas: Canvas, font: *hud.Opened, at: [2]i32, words: []const u8, colour: [3]f32, alignment: hud.Align) Allocator.Error!void {
         _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale(), canvas.cut());

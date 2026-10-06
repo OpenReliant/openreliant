@@ -679,6 +679,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The front end, where the game opens unless `--mission` names a mission, and what it draws
     // with; and where the game is between it and the missions.
     var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
+    defer front.deinit();
     var front_resources: ?engine.genilib.interf.Resources = null;
     defer if (front_resources) |*open| open.close();
     var flow: Flow = .{ .in_front_end = options.mission == null, .scripts = &game_scripts, .modes = &game_modes };
