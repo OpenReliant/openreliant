@@ -20,7 +20,7 @@ runs all ten styles.
 A mission's ship record that names a gate (`launch_gate`, [DTE](../formats/dte.md)) launches from
 the first of the mission's ships of the kind it names (`launch_from`). When the ship is made
 (`mission_ship_create`), it gets a Launch order aimed at that ship through the gate, which starts at
-once ([Missions](missions.md#the-ships)). Every campaign mission launches the player's wing this way,
+once ([Missions](missions.md#the-missions-ships)). Every campaign mission launches the player's wing this way,
 from the Reliant or the Yamato, and from the Badanov too in missions 27 and 271.
 
 A mission's script gives a launch with `SetupLaunch` (command `0x13`). Each ship its first argument
@@ -153,7 +153,7 @@ the Predator's, so that each leaves its carrier alike.
 
 ### The cutaways
 
-Three views watch the player's ship go ([Camera](camera.md#the-views)):
+Three views watch the player's ship go ([Camera](camera.md#views)):
 
 - **The bay** (view `0x20`), picked at step 2: from within the bay, 750 to the ship's side of its
   gate, 600 above it and 300 behind, projected wide over the whole screen, looking 54 degrees down
