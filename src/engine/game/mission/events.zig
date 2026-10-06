@@ -237,7 +237,7 @@ pub const Events = struct {
     /// stand-in, whose object stands within the square root of `reach` of the subject's, has the
     /// subject's event posted for the subject's own triggers: for ShipReached, with the ship; for
     /// the proximity conditions, with the ship and how far it stands, in the subject's radii,
-    /// truncated.
+    /// truncated. The scripts hear of a proximity event with the exact distance.
     fn scan(events: *Events, world: gameobj.World, subject: u16, reach: f32, condition: dte.Condition) void {
         const ships = events.script.mission.ships() catch return;
         const all = world.objects;
@@ -253,8 +253,10 @@ pub const Events = struct {
             var values = [_]u32{ events.script.mission.recordPlace(.ships, index), 0 };
             switch (condition) {
                 .ship_reached => events.post(subject, .{ .condition = condition, .values = values[0..1] }),
-                .proximity_close, .proximity_general => {
-                    values[1] = @bitCast(math.ftol(@sqrt(distance) / own.radius));
+                inline .proximity_close, .proximity_general => |proximity| {
+                    const radii = @sqrt(distance) / own.radius;
+                    hooks.tell(world, hookOf(proximity), .{ .object = .of(subject), .other = .of(@intCast(index)), .distance = radii });
+                    values[1] = @bitCast(math.ftol(radii));
                     events.post(subject, .{ .condition = condition, .values = &values });
                 },
                 else => {},

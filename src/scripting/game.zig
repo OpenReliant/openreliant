@@ -964,6 +964,45 @@ test "mods can intercept warp orders and receive filtered Undocked events" {
     try std.testing.expectEqual(0, fixture.mission.slot(fixture.sabre).state.warp.step);
 }
 
+test "a script changes or stops the mission script's commands, and hears of ships close by" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\hooks.add("vm_command", function(e)
+                \\    if e.command == "print_ship_name" then
+                \\        assert(e.arguments[1] == 42 and e.arguments[2] == 3 and e.arguments[3] == 0)
+                \\        e.result = 9
+                \\        return false
+                \\    elseif e.command == "print_debug_message" then
+                \\        return false
+                \\    end
+                \\end)
+                \\hooks.add("proximity_close", function(e)
+                \\    assert(e.other.type == "sabre" and e.distance == 2.5)
+                \\    e.other.throttle = 0.5
+                \\end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const vm = openreliant.engine.vm;
+    var machine: vm.Machine = .{ .gpa = std.testing.allocator, .mission = undefined, .random = undefined, .game = fixture.mission.orders() };
+    // The handler reads the command's arguments and gives its own result.
+    var arguments: openreliant.engine.game.executor.Arguments = @splat(0);
+    arguments[0] = 42;
+    arguments[1] = 3;
+    try std.testing.expectEqual(@as(vm.machine.CommandResult, @fromBackingInt(9)), machine.runCommand(0, .print_ship_name, arguments));
+    // A command stopped lets the script's thread run on.
+    try std.testing.expectEqual(.run_on, machine.runCommand(0, .print_debug_message, @splat(0)));
+    openreliant.engine.hooks.tell(fixture.mission.world(), .proximity_close, .{ .object = .of(0), .other = .of(fixture.sabre), .distance = 2.5 });
+    try std.testing.expectEqual(0.5, fixture.mission.slot(fixture.sabre).object.throttle);
+}
+
 test "a handler that fails is removed, and its changes undone" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{

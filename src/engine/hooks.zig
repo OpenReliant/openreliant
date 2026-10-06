@@ -11,7 +11,7 @@
 //! ```
 //!
 //! What a hook's handlers see in `e` is its `Fields`. A function's fields are its parameters after
-//! the first (the world, or the context the orders run in), in order. A field whose name starts
+//! the first (the world, the context the orders run in, or the mission's script), in order. A field whose name starts
 //! with `_` passes its parameter through without scripts seeing it. The names of the hooks and of
 //! their fields are part of the scripting API: they stay the same when OpenReliant's code changes,
 //! and the definitions file the scripting module generates from them pins them.
@@ -27,6 +27,7 @@ const ai = @import("game/ai.zig");
 const aigeneric = @import("game/aigeneric.zig");
 const collision = @import("game/collision.zig");
 const create = @import("game/create.zig");
+const executor = @import("game/executor.zig");
 const gameobj = @import("game/gameobj.zig");
 const guns = @import("game/guns.zig");
 const main = @import("game/main.zig");
@@ -117,9 +118,8 @@ pub const Declaration = struct {
 };
 
 /// The hooks on the original's functions, under the names `ghidra/names/LANCER.EXE.tsv` gives
-/// them. The order table's routines have hooks of their own (`routine_hooks`).
-///
-/// Not yet: hooks on more of the game ([#581](https://github.com/OpenReliant/openreliant/issues/581)).
+/// them. The order table's routines have hooks of their own (`routine_hooks`), which cover what
+/// ships do through their orders: launching, landing, docking, jumps, gates and explosions.
 pub const functions = struct {
     pub const object_damage: Declaration = .{
         .address = 0x00463EE0,
@@ -254,6 +254,18 @@ pub const functions = struct {
         },
     };
 
+    pub const vm_command: Declaration = .{
+        .address = 0x0045BEA0,
+        .about = "The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `\"run_on\"` lets the script's thread go on, `\"wait\"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `\"run_on\"`.",
+        .Fields = struct {
+            _thread: u8,
+            command: executor.MissionCommand,
+            arguments: executor.Arguments,
+        },
+        .Result = vm.machine.CommandResult,
+        .subject = null,
+    };
+
     pub const order_retaliate: Declaration = .{
         .address = 0x0040C520,
         .about = "`object`, a fighter, turns on whoever last hit it, once it has taken enough damage lately and its order allows it.",
@@ -355,6 +367,16 @@ pub const mission_events = struct {
         .about = "The director's camera has reached the mission's ship `ship`, a point on its curve or the curve's end.",
         .Fields = struct { ship: u16 },
         .subject = null,
+    };
+
+    pub const proximity_close: Declaration = .{
+        .about = "`other` stands close to `object`, within 20 times its radius: `distance` times it. The game looks once a second, and only while one of `object`'s triggers waits for it.",
+        .Fields = struct { object: Object, other: Object, distance: f32 },
+    };
+
+    pub const proximity_general: Declaration = .{
+        .about = "`other` stands within the distance that one of `object`'s triggers names, counted in `object`'s radius: `distance` times it. The game looks once a second, and only while such a trigger waits for it.",
+        .Fields = struct { object: Object, other: Object, distance: f32 },
     };
 
     pub const object_scooped: Declaration = .{
@@ -658,7 +680,7 @@ fn run(scripts: *Scripts, hook: Hook, comptime F: type, comptime function: anyty
         .call = undefined,
         .arguments = arguments,
         .fields = fieldsOf(F, arguments),
-        .result = if (R == void) {} else std.mem.zeroes(R),
+        .result = stopped(R),
     };
     pending.call = .{
         .scripts = scripts,
@@ -669,6 +691,17 @@ fn run(scripts: *Scripts, hook: Hook, comptime F: type, comptime function: anyty
     };
     scripts.vtable.call(scripts.context, &pending.call);
     return pending.result;
+}
+
+/// The result a function of result type `R` leaves where a handler stops it: `R.stopped` where the
+/// type declares one, and zero otherwise.
+fn stopped(comptime R: type) R {
+    switch (@typeInfo(R)) {
+        .void => return {},
+        .@"struct", .@"enum", .@"union" => if (@hasDecl(R, "stopped")) return R.stopped,
+        else => {},
+    }
+    return std.mem.zeroes(R);
 }
 
 fn Return(comptime function: anytype) type {
@@ -738,6 +771,7 @@ fn scriptsOf(source: anytype) ?*Scripts {
         aigeneric.Context => source.world.objects.scripts,
         videoreports.Context => source.all.scripts,
         *create.Objects => source.scripts,
+        *vm.Machine => if (source.game) |ctx| ctx.world.objects.scripts else null,
         else => @compileError("no scripts in a " ++ @typeName(@TypeOf(source))),
     };
 }

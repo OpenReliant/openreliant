@@ -91,10 +91,7 @@ pub fn push(state: *State, comptime T: type, value: T) void {
         .@"enum" => if (name(T, value)) |tag_name| state.pushString(tag_name) else state.pushNumber(@floatFromInt(@backingInt(value))),
         .optional => |optional| if (value) |held| push(state, optional.child, held) else state.pushNil(),
         .vector => state.pushVector(value),
-        .array => |array| {
-            comptime assert(array.child == u8);
-            state.pushString(std.mem.sliceTo(&value, 0));
-        },
+        .array => |array| if (array.child == u8) state.pushString(std.mem.sliceTo(&value, 0)) else pushArray(state, array.child, &value),
         .pointer => |pointer| {
             comptime assert(pointer.size == .slice and pointer.child == u8);
             state.pushString(value);
@@ -111,6 +108,16 @@ fn pushList(state: *State, comptime T: type, list: T) void {
         push(state, T.Item, item);
         state.rawSetIndex(-2, @intCast(at));
     }
+}
+
+/// Pushes `items`, an array of anything but bytes, as a read-only table of them in order.
+fn pushArray(state: *State, comptime T: type, items: []const T) void {
+    state.newTable(@intCast(items.len), 0);
+    for (items, 1..) |item, at| {
+        push(state, T, item);
+        state.rawSetIndex(-2, @intCast(at));
+    }
+    state.setReadonly(-1, true);
 }
 
 /// Pushes `value`, a struct, as a read-only table of the fields scripts see (`shown`).
@@ -205,7 +212,7 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
             return vector;
         },
         .array => |array| {
-            comptime assert(array.child == u8);
+            if (array.child != u8) return readArray(state, T, given, label);
             const text = state.toString(given) orelse wrongType(state, label, "a string", given);
             if (text.len >= array.len) state.raise("{s}: expected at most {d} bytes, got {d}", .{ label, array.len - 1, text.len });
             var bytes: T = @splat(0);
@@ -276,6 +283,23 @@ fn readList(state: *State, comptime T: type, given: i32, comptime label: []const
         list.append(read(state, T.Item, -1, label));
         state.pop(1);
     }
+}
+
+/// The list at `given` as a `T`, an array of anything but bytes: the list's values in order, and
+/// zero past them.
+fn readArray(state: *State, comptime T: type, given: i32, comptime label: []const u8) T {
+    if (state.typeOf(given) != .table) wrongType(state, label, "a list", given);
+    const at = state.absolute(given);
+    const Item = @typeInfo(T).array.child;
+    var items: T = std.mem.zeroes(T);
+    for (&items, 1..) |*item, n| {
+        defer state.pop(1);
+        if (state.rawGetIndex(at, @intCast(n)) == .nil) return items;
+        item.* = read(state, Item, -1, label);
+    }
+    defer state.pop(1);
+    if (state.rawGetIndex(at, @intCast(items.len + 1)) != .nil) state.raise("{s}: at most {d} values", .{ label, items.len });
+    return items;
 }
 
 /// The table at `given` as a `T`: each field the table names, and the rest at their defaults. A
@@ -434,6 +458,31 @@ test "lists and unions of plain values are read" {
     try bind.testing.expectSourceError(thread, "rows({ { name = 'a', value = 1 }, { name = 'b', value = 2 }, { name = 'c', value = 3 } })", "at most 2 values");
     try bind.testing.expectSourceError(thread, "rows({ { name = 'a', value = {} }, { name = 'b', value = 2 } })", "a boolean, a number or a string");
     try bind.testing.expectSourceError(thread, "rows(5)", "expected a list");
+}
+
+test "a fixed list of numbers goes to scripts and back" {
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    const bind = @import("bind.zig");
+    const Three = [3]u32;
+    state.pushFunction(luau.wrap(struct {
+        fn run(called: *State) i32 {
+            const given = read(called, Three, 1, "numbers");
+            push(called, Three, .{ given[0] * 2, given[1] * 2, given[2] * 2 });
+            return 1;
+        }
+    }.run), "double");
+    state.setGlobal("double");
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+    // Values left out are 0, and the list scripts get is read-only.
+    try bind.testing.runSource(thread,
+        \\local twice = double({ 1, 2 })
+        \\assert(#twice == 3 and twice[1] == 2 and twice[2] == 4 and twice[3] == 0)
+    );
+    try bind.testing.expectSourceError(thread, "double({ 1 })[1] = 5", "readonly");
+    try bind.testing.expectSourceError(thread, "double({ 1, 2, 3, 4 })", "at most 3 values");
+    try bind.testing.expectSourceError(thread, "double(5)", "expected a list");
 }
 
 test "values go to scripts and back" {

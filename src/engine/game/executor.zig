@@ -73,6 +73,45 @@ pub fn commandIndex(comptime name: []const u8) u8 {
     } else @compileError("the Executor has no command " ++ name);
 }
 
+/// A command of the catalogue, by its number, under the name scripts know it by: its name in snake
+/// case, so that `SetAI` is `set_ai` (`snakeCase`).
+pub const MissionCommand = @Enum(u8, .exhaustive, &command_names, &std.simd.iota(u8, command_names.len));
+
+const command_names = names: {
+    @setEvalBranchQuota(100_000);
+    var names: [commands.table.len][]const u8 = undefined;
+    for (commands.table, &names) |entry, *name| name.* = snakeCase(entry.name);
+    break :names names;
+};
+
+/// `name`, in camel case, in snake case: an underscore before each capital that follows a small
+/// letter or a digit, or that starts a word after a run of capitals, as `SetEnvironmentFXNebula` is
+/// `set_environment_fx_nebula`.
+fn snakeCase(comptime name: []const u8) []const u8 {
+    comptime {
+        var snake: []const u8 = "";
+        for (name, 0..) |letter, at| {
+            if (at > 0 and std.ascii.isUpper(letter)) {
+                const before = name[at - 1];
+                const word_starts = std.ascii.isUpper(before) and at + 1 < name.len and std.ascii.isLower(name[at + 1]);
+                if (std.ascii.isLower(before) or std.ascii.isDigit(before) or word_starts) snake = snake ++ "_";
+            }
+            snake = snake ++ .{std.ascii.toLower(letter)};
+        }
+        return snake;
+    }
+}
+
+/// The most arguments a command of the catalogue takes.
+pub const max_arguments = most: {
+    var most: usize = 0;
+    for (commands.table) |entry| most = @max(most, entry.params.len);
+    break :most most;
+};
+
+/// A command's arguments, the first first. Those past the ones it takes are 0.
+pub const Arguments = [max_arguments]u32;
+
 /// The implementation of command `number`, or null for one not ported yet
 /// ([#281](https://github.com/OpenReliant/openreliant/issues/281)).
 pub fn implementation(number: u8) ?vm.Implementation {
@@ -1242,6 +1281,14 @@ fn waitForDirectorCam(call: Call) u32 {
 test commandIndex {
     try std.testing.expectEqual(0x05, commandIndex("Wait"));
     try std.testing.expectEqualStrings("Wait", commands.table[commandIndex("Wait")].name);
+}
+
+test MissionCommand {
+    try std.testing.expectEqual(commandIndex("SetAI"), @backingInt(MissionCommand.set_ai));
+    try std.testing.expectEqualStrings("set_environment_fx_nebula", @tagName(@as(MissionCommand, @fromBackingInt(commandIndex("SetEnvironmentFXNebula")))));
+    try std.testing.expectEqualStrings("multi_player_sync", @tagName(@as(MissionCommand, @fromBackingInt(commandIndex("MultiPlayerSync")))));
+    try std.testing.expectEqualStrings("kill_all_script_execution_execpt_me", @tagName(@as(MissionCommand, @fromBackingInt(commandIndex("KillAllScriptExecutionExecptMe")))));
+    for (commands.table) |entry| try std.testing.expect(entry.params.len <= max_arguments);
 }
 
 test implementation {

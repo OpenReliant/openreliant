@@ -25,6 +25,7 @@ const Random = @import("../random.zig").Random;
 const math = @import("../surrender/math.zig");
 const vm = @import("../vm.zig");
 const executor = @import("../game/executor.zig");
+const hooks = @import("../hooks.zig");
 const mission = @import("../game/mission.zig");
 const bind = mission.bind;
 const aigeneric = @import("../game/aigeneric.zig");
@@ -47,6 +48,20 @@ pub const GameImplementation = *const fn (call: Call, game: aigeneric.Context) v
 /// The result of a command that lets its thread run on, as the game's commands end (`MOV EAX,0x1`,
 /// such as `0x00458119` in `cmd_WaitForSpeech`).
 pub const run_on: u32 = 1;
+
+/// A command's result, as the hook on `vm_command` gives it to scripts: `wait` (0) ends the thread's
+/// run until it runs next, `run_on` (1) lets it run on, and any other number is the command's own
+/// result, which the script reads as the command's value and which lets the thread run on too.
+pub const CommandResult = enum(u32) {
+    wait = yield,
+    run_on = run_on,
+    _,
+
+    /// What a command gives where a handler stops it: the thread runs on.
+    pub const stopped: CommandResult = .run_on;
+
+    pub const script_name = "MissionCommandResult";
+};
 
 /// The result of a command that ends its thread's run until the thread runs next, as a command
 /// that waits ends (`XOR EAX,EAX`, such as `0x00458115` in `cmd_WaitForSpeech`).
@@ -916,8 +931,8 @@ pub const Machine = struct {
     }
 
     /// `vm_command` (`0x0045BEA0`): runs a command of the catalogue on its arguments, the top of
-    /// the stack, which it pops. Its result takes the first argument's place, above the stack, and
-    /// is the thread's result.
+    /// the stack, which it pops (`runCommand`). Its result takes the first argument's place, above
+    /// the stack, and is the thread's result.
     fn command(machine: *Machine, index: u8, number: u8) Fault!u32 {
         const thread = &machine.threads[index];
         if (number >= executor.commands.table.len) return error.OutOfRange;
@@ -925,9 +940,21 @@ pub const Machine = struct {
         try thread.drop(count);
         machine._unknown_00537401 = unknown_00537401_reset;
         machine.skips_players = !machine.commandFlags(.command_flags, number).players;
-        const call: Call = .{ .machine = machine, .thread = index, .args = thread.record.stack[thread.top..][0..count] };
-        const result = if (executor.implementation(number)) |implementation| implementation(call) else machine.unported(number);
-        return machine.commandResult(index, result);
+        var arguments: executor.Arguments = @splat(0);
+        @memcpy(arguments[0..count], thread.record.stack[thread.top..][0..count]);
+        const result = machine.runCommand(index, @fromBackingInt(number), arguments);
+        return machine.commandResult(index, @backingInt(result));
+    }
+
+    /// The work of `vm_command` once it has popped the arguments: runs `mission_command` for the
+    /// thread at `index` on `arguments`, as many of them as it takes. Scripts hook it as
+    /// `vm_command`.
+    pub fn runCommand(machine: *Machine, index: u8, mission_command: executor.MissionCommand, arguments: executor.Arguments) CommandResult {
+        if (hooks.enter(.vm_command, runCommand, .{ machine, index, mission_command, arguments })) |done| return done;
+        const number = @backingInt(mission_command);
+        var given = arguments;
+        const call: Call = .{ .machine = machine, .thread = index, .args = given[0..executor.commands.table[number].params.len] };
+        return @fromBackingInt(if (executor.implementation(number)) |implementation| implementation(call) else machine.unported(number));
     }
 
     /// `vm_command_b` (`0x0045BF20`): `command` through the second catalogue (`catalogue_b`), with

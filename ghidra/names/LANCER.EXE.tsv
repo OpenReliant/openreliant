@@ -5,6 +5,8 @@ address	kind	name	type	comment
 0045b990	function	vm_threads_reset	void __fastcall (void)	Frees every thread
 0045ba30	function	vm_thread_run	void __fastcall (VmThread *thread)	Runs a thread until it yields or finishes, unless it is waiting for a later clock value
 0045d140	function	vm_run_timers	void __fastcall (void)	Counts the timers down once per clock tick, starting the parts of those that fire
+0045bea0	function	vm_command	uint __fastcall (VmThread *thread)	Opcode handler: runs the command of the catalogue its operand names on the arguments on top of the stack, which it pops; the result takes the first argument's place and is the thread's result
+0045bf20	function	vm_command_b	uint __fastcall (VmThread *thread)	Opcode handler: pops the arguments of a command of the second catalogue, whose stub gives 1
 0045ce30	function	vm_install_commands	void __fastcall (void)	Installs the command catalogues and counts them
 00452a80	function	catalogue_count	int __fastcall (VmFunction *catalogue)	Counts entries up to the first with no implementation
 0045d8b0	function	vm_tag_component	void __fastcall (byte component, uint *slot)	Tags a stack slot with a component (push_component)

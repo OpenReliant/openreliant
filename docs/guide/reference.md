@@ -558,6 +558,16 @@ One of the missile turrets of `object` launches a Screamer at `target`.
 |---|---|
 | `object` | [object](#objects) |
 
+### vm_command
+
+The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `"run_on"` lets the script's thread go on, `"wait"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `"run_on"`.
+
+| Field | Type |
+|---|---|
+| `command` | [MissionCommand](#missioncommand) |
+| `arguments` | { number } |
+| `result` | [MissionCommandResult](#missioncommandresult) |
+
 ### order_retaliate
 
 `object`, a fighter, turns on whoever last hit it, once it has taken enough damage lately and its order allows it.
@@ -743,6 +753,26 @@ The director's camera has reached the mission's ship `ship`, a point on its curv
 | Field | Type |
 |---|---|
 | `ship` | number |
+
+### proximity_close
+
+`other` stands close to `object`, within 20 times its radius: `distance` times it. The game looks once a second, and only while one of `object`'s triggers waits for it.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+| `other` | [object](#objects) |
+| `distance` | number |
+
+### proximity_general
+
+`other` stands within the distance that one of `object`'s triggers names, counted in `object`'s radius: `distance` times it. The game looks once a second, and only while such a trigger waits for it.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+| `other` | [object](#objects) |
+| `distance` | number |
 
 ### object_scooped
 
@@ -1240,6 +1270,14 @@ number. A script can set a field to either.
 ### OrderPushed
 
 `refused`, `taken`, `conflict`.
+
+### MissionCommand
+
+`print_ship_name`, `create_timer`, `destroy_timer`, `create_flight_group`, `destroy_flight_group`, `wait`, `play_speech`, `wait_for_speech`, `play_comms_movie`, `wait_for_movie`, `print_debug_message`, `set_ai`, `clear_ai`, `set_patrol_route`, `set_pilot`, `set_trigger_state`, `start_director_cam`, `start_ship_animation`, `ship_follow_curve`, `setup_launch`, `start_launch`, `display_sub_title`, `reset_code_priority`, `interrupt_trigger_code`, `comms_from_ship`, `comms_from_pilot`, `set_invulnerability`, `moving_ship_follow_curve`, `disable_object`, `position_relative`, `when_player_last_jumped`, `start_missile_cam`, `start_chase_cam`, `set_player_target`, `set_targetable`, `play_music`, `stop_director_cam`, `set_action_centre`, `dock`, `disable_taunts`, `fly`, `comms_from_ship_once`, `comms_from_pilot_once`, `disable_lights`, `set_environment_fx`, `multi_player_sync`, `disable_generic_comms`, `disable_guns`, `set_nav_point`, `set_escort_point`, `reset_after_burners`, `disable_missiles`, `disable_engines`, `disable_eject`, `set_hostile`, `reset_to_spawn_positions`, `update_environment_fx_state`, `set_primary_target`, `wait_for_jump_or_launch`, `do_not_disturb`, `set_environment_fx_nebula`, `start_ship_animation_reverse`, `snap_to_point`, `play_fosters_last_stand`, `open_instrument`, `close_instrument`, `destroy_sub_object`, `set_objective`, `set_rescue_probabilities`, `is_ship_this_player`, `set_flyback_marker`, `reset_flyback_marker`, `stop_ship_animation`, `set_ship_avoidance`, `match_speed`, `moving_ship_backup_curve`, `wait_for_key`, `terminate_mission`, `turret_set_target`, `set_any_trigger_state`, `wait_for_director_cam`, `kill_all_script_execution_execpt_me`, `stack_director_cam`, `scanner`, `replace_sub_object`, `fire`, `multiplayer_script_sync`, `friendly_fire`, `cloak`, `replenish_weapons`, `wills_blag`, `show_hud_icon`, `disable_listing`, `disable_object_at_next_jump`, `darrens_naughty_blag`.
+
+### MissionCommandResult
+
+`wait`, `run_on`, or a number.
 
 ### Condition
 
