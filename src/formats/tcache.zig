@@ -412,12 +412,12 @@ test "the pixel formats match the shipped ones" {
     const rgb565 = [16]u32{ 2, 0, 0, 8, 0xF800, 11, 3, 0x7E0, 5, 2, 0x1F, 0, 3, 0, 0, 8 };
     const index8_alpha8 = [16]u32{ 2, 0xFF, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, 8, 0xFF00, 8, 0 };
     const index8 = [16]u32{ 1, 0xFF, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, 8, 0, 0, 8 };
-    try std.testing.expectEqual(Encoding.rgb565, Encoding.of(@bitCast(rgb565)).?);
-    try std.testing.expectEqual(Encoding.index8_alpha8, Encoding.of(@bitCast(index8_alpha8)).?);
-    try std.testing.expectEqual(Encoding.index8, Encoding.of(@bitCast(index8)).?);
+    try std.testing.expectEqual(Encoding.rgb565, Encoding.of(std.mem.bytesToValue(PixelFormat, &rgb565)).?);
+    try std.testing.expectEqual(Encoding.index8_alpha8, Encoding.of(std.mem.bytesToValue(PixelFormat, &index8_alpha8)).?);
+    try std.testing.expectEqual(Encoding.index8, Encoding.of(std.mem.bytesToValue(PixelFormat, &index8)).?);
     var other = rgb565;
     other[0] = 4;
-    try std.testing.expectEqual(null, Encoding.of(@bitCast(other)));
+    try std.testing.expectEqual(null, Encoding.of(std.mem.bytesToValue(PixelFormat, &other)));
 }
 
 test Flags {

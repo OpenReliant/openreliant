@@ -1024,6 +1024,7 @@ test "player scripts register post effects, which draw in order and end with the
     var host: postprocessing.testing.Host = .{};
     defer host.deinit();
     fixture.shown.setEffectHost(host.effectHost());
+    defer fixture.shown.setEffectHost(null);
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     // The failing script's effect was taken back as it failed to load.
     try std.testing.expectEqual(5, host.added);
@@ -1070,6 +1071,7 @@ test "the CRT example registers its effect, and Shift F8 and Shift F7 change it"
     var host: postprocessing.testing.Host = .{};
     defer host.deinit();
     fixture.shown.setEffectHost(host.effectHost());
+    defer fixture.shown.setEffectHost(null);
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     fixture.frame(0.016, .{ 800, 600 });
     var buffer: [postprocessing.max_effects]postprocessing.Pass = undefined;

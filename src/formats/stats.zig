@@ -382,7 +382,7 @@ pub const tier_c_level_2_override = [2]u16{ 50, 100 };
 fn testRecord(comptime T: type, name: []const u8) T {
     var bytes: [record_size]u8 = @splat(0);
     @memcpy(bytes[0..name.len], name);
-    return @bitCast(bytes);
+    return std.mem.bytesToValue(T, &bytes);
 }
 
 test Table {
