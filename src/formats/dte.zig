@@ -1460,11 +1460,21 @@ pub const Mission = struct {
 
     /// The records of a fixed-stride section, as `T`.
     pub fn records(mission: Mission, comptime T: type, section: Section) Error![]align(1) const T {
-        const slot = mission.entry(section);
-        if (!slot.isUsed() or slot.count == 0) return &.{};
-        if (slot.offset > mission.image.len) return error.Truncated;
-        return layout.array(T, mission.image[slot.offset..], slot.count);
+        const at = try mission.span(section) orelse return &.{};
+        return layout.array(T, mission.image[at.offset..], at.count);
     }
+
+    /// Where a fixed-stride section's records lie in the image: null for an unused or empty
+    /// section.
+    pub fn span(mission: Mission, section: Section) Error!?Span {
+        const slot = mission.entry(section);
+        if (!slot.isUsed() or slot.count == 0) return null;
+        if (slot.offset > mission.image.len) return error.Truncated;
+        return .{ .offset = slot.offset, .count = slot.count };
+    }
+
+    /// Where a section's records start in the image, and how many there are.
+    pub const Span = struct { offset: u32, count: u16 };
 
     /// The script bytecode, which the directory counts in halfwords.
     pub fn script(mission: Mission) Error![]const u8 {
@@ -1776,6 +1786,12 @@ test "directory and records line up" {
 
     // An unused section yields nothing rather than reading stray bytes.
     try std.testing.expectEqual(@as(usize, 0), (try mission.triggers()).len);
+
+    // Where each section's records lie: none for an unused one; past the image, an error.
+    try std.testing.expectEqual(Mission.Span{ .offset = ships_at, .count = 1 }, (try mission.span(.ships)).?);
+    try std.testing.expectEqual(null, try mission.span(.triggers));
+    directory[@backingInt(Section.ships)].offset = image.len + 1;
+    try std.testing.expectError(error.Truncated, (try Mission.parse(&image)).span(.ships));
 }
 
 test "Mission.findPart and findShip" {

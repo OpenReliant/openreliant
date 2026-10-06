@@ -431,7 +431,13 @@ pub const Controller = struct {
 
     pub const Handle = union(enum) {
         joystick: *c.SDL_Joystick,
-        gamepad: *c.SDL_Gamepad,
+        gamepad: Gamepad,
+    };
+
+    /// A gamepad, and the joystick SDL reads it through, taken once as it opens.
+    pub const Gamepad = struct {
+        pad: *c.SDL_Gamepad,
+        joystick: *c.SDL_Joystick,
     };
 
     /// Opens `found`, applying `setup`'s throttle and twist, and its reversed throttle, to a plain
@@ -440,7 +446,11 @@ pub const Controller = struct {
         switch (found.kind) {
             .gamepad => {
                 const gamepad = c.SDL_OpenGamepad(found.id) orelse return fail("SDL_OpenGamepad");
-                return .{ .handle = .{ .gamepad = gamepad }, .layout = .{} };
+                const plain = c.SDL_GetGamepadJoystick(gamepad) orelse {
+                    c.SDL_CloseGamepad(gamepad);
+                    return fail("SDL_GetGamepadJoystick");
+                };
+                return .{ .handle = .{ .gamepad = .{ .pad = gamepad, .joystick = plain } }, .layout = .{} };
             },
             .joystick => {
                 const plain = c.SDL_OpenJoystick(found.id) orelse return fail("SDL_OpenJoystick");
@@ -455,7 +465,7 @@ pub const Controller = struct {
     pub fn close(controller: *Controller) void {
         switch (controller.handle) {
             .joystick => |plain| c.SDL_CloseJoystick(plain),
-            .gamepad => |gamepad| c.SDL_CloseGamepad(gamepad),
+            .gamepad => |gamepad| c.SDL_CloseGamepad(gamepad.pad),
         }
     }
 
@@ -463,7 +473,7 @@ pub const Controller = struct {
     pub fn sdlJoystick(controller: Controller) *c.SDL_Joystick {
         return switch (controller.handle) {
             .joystick => |plain| plain,
-            .gamepad => |gamepad| c.SDL_GetGamepadJoystick(gamepad) orelse unreachable,
+            .gamepad => |gamepad| gamepad.joystick,
         };
     }
 
@@ -555,7 +565,8 @@ pub const Controller = struct {
                     angle.* = pov(@bitCast(c.SDL_GetJoystickHat(plain, @intCast(index))));
                 }
             },
-            .gamepad => |gamepad| {
+            .gamepad => |held| {
+                const gamepad = held.pad;
                 if (!c.SDL_GamepadConnected(gamepad)) return error.Unplugged;
                 for (gamepad_axes) |pair| controller.setAxis(state, pair[0], c.SDL_GetGamepadAxis(gamepad, pair[1]));
                 for (&state.buttons, 0..) |*button, index| {
@@ -760,6 +771,8 @@ test "reading a gamepad" {
     try std.testing.expect(joystick.axes.x and joystick.axes.y and joystick.axes.rz and !joystick.axes.z);
 
     const virtual = controller.sdlJoystick();
+    try std.testing.expectEqual(c.SDL_GetGamepadJoystick(controller.handle.gamepad.pad), virtual);
+    try std.testing.expectEqual(found.id, controller.id());
     _ = c.SDL_SetJoystickVirtualAxis(virtual, c.SDL_GAMEPAD_AXIS_LEFTX, -32768);
     _ = c.SDL_SetJoystickVirtualAxis(virtual, c.SDL_GAMEPAD_AXIS_RIGHTX, 32767);
     _ = c.SDL_SetJoystickVirtualAxis(virtual, c.SDL_GAMEPAD_AXIS_RIGHTY, -32768);

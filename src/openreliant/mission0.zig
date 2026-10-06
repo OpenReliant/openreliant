@@ -232,8 +232,9 @@ pub fn write(gpa: Allocator) ![]u8 {
     section(&sections, .script, code.len / @sizeOf(u16), code);
     section(&sections, .objects, objects.len, std.mem.sliceAsBytes(objects));
     section(&sections, .parts, 1, std.mem.asBytes(&part));
-    section(&sections, .script_flags, code.len, try arena.alloc(u8, code.len));
-    @memset(@constCast(sections[@backingInt(dte.Section.script_flags)].bytes), 0);
+    const script_flags = try arena.alloc(u8, code.len);
+    @memset(script_flags, 0);
+    section(&sections, .script_flags, code.len, script_flags);
     const flags = dte.write.template.command_flags;
     section(&sections, .command_flags, flags.len, std.mem.sliceAsBytes(&flags));
     return dte.write.write(gpa, &sections, .{ .name = name });
@@ -418,6 +419,10 @@ test write {
     try std.testing.expect(!disassembly.incomplete);
     // The command flags as the template's missions have them.
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&dte.write.template.command_flags), std.mem.sliceAsBytes(try mission.file.records(u16, .command_flags)));
+    // A clear flag for each byte of the script.
+    const script_flags = try mission.file.records(u8, .script_flags);
+    try std.testing.expectEqual((try mission.file.script()).len, script_flags.len);
+    for (script_flags) |flag| try std.testing.expectEqual(0, flag);
     // The wing launches through the Reliant's first four tubes; the rest launch from nothing.
     for (records[0..4], 0..) |record, gate| {
         try std.testing.expectEqual(gate, record.launchGate().?);

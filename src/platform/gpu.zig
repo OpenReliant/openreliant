@@ -1817,8 +1817,9 @@ fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, ma
     }
 }
 
-/// A white texel, which runs with no texture bind.
-const blank_levels = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &.{ 0xFF, 0xFF, 0xFF, 0xFF } }};
+/// A white texel, which runs with no texture bind. Nothing writes to it.
+var blank_texel: [4]u8 = @splat(0xFF);
+const blank_levels = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &blank_texel }};
 
 test Shading {
     // The shadows in the low byte and the magnification in the next two bits, as the shader reads
@@ -1838,7 +1839,8 @@ test Shading {
     const hologram: u32 = @bitCast(Shading.of(.{ .texture = null, .depth = undefined, .blend = null, .receives = .nothing, .hologram = true }, false));
     try std.testing.expectEqual(0x4000, hologram);
     // A texture's normal map and material map in the two bits after, where materials are shaded.
-    const level = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &.{ 0, 0, 0, 0 } }};
+    var texel: [4]u8 = @splat(0);
+    var level = [1]srtexture.Level{.{ .width = 1, .height = 1, .texels = &texel }};
     var material: srtexture.Image = .{ .levels = &level, .maps = .{ .normal = &level, .orm = &level } };
     const state: device.State = .{ .texture = &material, .depth = undefined, .blend = null, .receives = .world };
     try std.testing.expectEqual(0x1801, @as(u32, @bitCast(Shading.of(state, true))));
@@ -1960,7 +1962,8 @@ test "Lighting.take in linear light" {
 }
 
 test Slot {
-    var image: srtexture.Image = .{ .levels = &blank_levels };
+    var levels = blank_levels;
+    var image: srtexture.Image = .{ .levels = &levels };
     try std.testing.expectEqual(null, Slot.of(image));
     const slot: Slot = .{ .array = 3, .layer = 200 };
     image.device = @as(u32, @bitCast(slot));

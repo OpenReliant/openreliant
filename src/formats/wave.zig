@@ -234,6 +234,8 @@ test pcm16 {
 
 pub const Decoder = struct {
     wave: Wave,
+    /// How `wave` holds its samples, which `init` checked it can decode.
+    codec: Codec,
     frames: u32,
     /// The next frame's index.
     frame: u32 = 0,
@@ -243,19 +245,26 @@ pub const Decoder = struct {
 
     pub const Error = error{Unsupported};
 
+    /// The sample formats it decodes.
+    pub const Codec = enum { pcm8, pcm16, ima_adpcm };
+
     pub fn init(wave: Wave) Error!Decoder {
         if (wave.channels != 1 and wave.channels != 2) return error.Unsupported;
         if (wave.block_align == 0) return error.Unsupported;
-        switch (wave.format) {
-            .pcm => if (wave.bits != 8 and wave.bits != 16 or wave.block_align != wave.channels * wave.bits / 8) return error.Unsupported,
-            .ima_adpcm => {
+        const codec: Codec = switch (wave.format) {
+            .pcm => codec: {
+                if (wave.bits != 8 and wave.bits != 16 or wave.block_align != wave.channels * wave.bits / 8) return error.Unsupported;
+                break :codec if (wave.bits == 8) .pcm8 else .pcm16;
+            },
+            .ima_adpcm => codec: {
                 // None where a block is no longer than its headers.
                 const holds = wave.adpcmFrames(wave.block_align);
                 if (wave.bits != 4 or holds == 0 or wave.frames_per_block != holds) return error.Unsupported;
+                break :codec .ima_adpcm;
             },
             _ => return error.Unsupported,
-        }
-        return .{ .wave = wave, .frames = wave.frameCount() };
+        };
+        return .{ .wave = wave, .codec = codec, .frames = wave.frameCount() };
     }
 
     /// The next frame, left and right, or null past the last.
@@ -264,13 +273,14 @@ pub const Decoder = struct {
         const wave = decoder.wave;
         const channels = wave.channels;
         var out: [2]i16 = undefined;
-        switch (wave.format) {
-            .pcm => {
+        switch (decoder.codec) {
+            .pcm8 => {
                 const at = @as(usize, decoder.frame) * wave.block_align;
-                for (0..channels) |c| out[c] = if (wave.bits == 8)
-                    (@as(i16, wave.data[at + c]) - 128) << 8
-                else
-                    std.mem.readInt(i16, wave.data[at + 2 * c ..][0..2], .little);
+                for (0..channels) |c| out[c] = (@as(i16, wave.data[at + c]) - 128) << 8;
+            },
+            .pcm16 => {
+                const at = @as(usize, decoder.frame) * wave.block_align;
+                for (0..channels) |c| out[c] = std.mem.readInt(i16, wave.data[at + 2 * c ..][0..2], .little);
             },
             .ima_adpcm => {
                 const in_block = decoder.frame % wave.frames_per_block;
@@ -292,7 +302,6 @@ pub const Decoder = struct {
                     out[c] = @intCast(decoder.predictor[c]);
                 }
             },
-            _ => unreachable,
         }
         if (channels == 1) out[1] = out[0];
         decoder.frame += 1;
@@ -302,12 +311,12 @@ pub const Decoder = struct {
     /// Moves to `frame`, decoding from the start of its block for IMA ADPCM.
     pub fn seek(decoder: *Decoder, frame: u32) void {
         const target = @min(frame, decoder.frames);
-        switch (decoder.wave.format) {
+        switch (decoder.codec) {
             .ima_adpcm => {
                 decoder.frame = target - target % decoder.wave.frames_per_block;
                 while (decoder.frame < target) _ = decoder.next();
             },
-            else => decoder.frame = target,
+            .pcm8, .pcm16 => decoder.frame = target,
         }
     }
 
@@ -419,6 +428,7 @@ test "offsetOf takes a frame back to its byte" {
 
 test "Decoder reads PCM" {
     var decoder: Decoder = try .init(try Wave.parse(comptime testing.pcm("\x00\x00\x01\x00\xff\xff")));
+    try std.testing.expectEqual(.pcm16, decoder.codec);
     try std.testing.expectEqual([2]i16{ 0, 0 }, decoder.next().?);
     try std.testing.expectEqual([2]i16{ 1, 1 }, decoder.next().?);
     try std.testing.expectEqual([2]i16{ -1, -1 }, decoder.next().?);
@@ -429,9 +439,16 @@ test "Decoder reads PCM" {
     // Eight-bit samples are unsigned, around 128.
     const eight = comptime testing.file(.{ .format = .pcm, .channels = 1, .rate = 11025, .byte_rate = 11025, .block_align = 1, .bits = 8 }, "", "", "\x80\xff\x00");
     var bytes: Decoder = try .init(try Wave.parse(eight));
+    try std.testing.expectEqual(.pcm8, bytes.codec);
     try std.testing.expectEqual([2]i16{ 0, 0 }, bytes.next().?);
     try std.testing.expectEqual([2]i16{ 127 << 8, 127 << 8 }, bytes.next().?);
     try std.testing.expectEqual([2]i16{ -128 << 8, -128 << 8 }, bytes.next().?);
+
+    // Samples of 24 bits, and floats, are refused.
+    const wide = comptime testing.file(.{ .format = .pcm, .channels = 1, .rate = 11025, .byte_rate = 33075, .block_align = 3, .bits = 24 }, "", "", "\x00\x00\x00");
+    try std.testing.expectError(error.Unsupported, Decoder.init(try Wave.parse(wide)));
+    const float = comptime testing.file(.{ .format = @fromBackingInt(3), .channels = 1, .rate = 11025, .byte_rate = 44100, .block_align = 4, .bits = 32 }, "", "", "\x00\x00\x00\x00");
+    try std.testing.expectError(error.Unsupported, Decoder.init(try Wave.parse(float)));
 }
 
 test "Decoder reads IMA ADPCM" {
@@ -442,6 +459,7 @@ test "Decoder reads IMA ADPCM" {
     const fmt: Wave.FormatChunk = .{ .format = .ima_adpcm, .channels = 1, .rate = 22050, .byte_rate = 22050, .block_align = block.len, .bits = 4 };
     const file = comptime testing.file(fmt, &std.mem.toBytes(Wave.AdpcmExtension{ .size = 2, .frames_per_block = 9 }), "", &block);
     var decoder: Decoder = try .init(try Wave.parse(file));
+    try std.testing.expectEqual(.ima_adpcm, decoder.codec);
     try std.testing.expectEqual(9, decoder.frames);
     try std.testing.expectEqual(100, decoder.next().?[0]);
     try std.testing.expectEqual(111, decoder.next().?[0]);

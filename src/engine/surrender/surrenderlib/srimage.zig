@@ -40,7 +40,7 @@ pub fn shrink(gpa: Allocator, image: *Image, ratio: [2]u32) Allocator.Error!void
     const height = finest.height / ratio[1];
     const rgba = try blockMeans(gpa, finest, .{ width, height }, ratio);
     // The levels made again take the pixels, and let them go where they fail.
-    const made: []const Level = if (levels.len > 1)
+    const made: []Level = if (levels.len > 1)
         try srtexture.mipmaps(gpa, .{ .width = width, .height = height, .rgba = rgba }, .colour, srtexture.max_side)
     else single: {
         errdefer gpa.free(rgba);

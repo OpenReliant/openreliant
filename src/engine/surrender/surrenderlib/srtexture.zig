@@ -27,8 +27,9 @@ pub const Level = struct {
     /// How `texels` hold its pixels.
     format: Format = .rgba8,
     /// Its pixels, row by row from the top: 8-bit red, green, blue and alpha each, or, compressed,
-    /// blocks of 4 by 4 pixels, a row of blocks at a time.
-    texels: []const u8,
+    /// blocks of 4 by 4 pixels, a row of blocks at a time. The image owns them, or for a borrowed
+    /// image, such as the display's power ball or a film, its owner keeps them.
+    texels: []u8,
 
     /// How a level holds its pixels (`formats.texels`).
     ///
@@ -37,6 +38,25 @@ pub const Level = struct {
     pub const Format = texels.Format;
     pub const blocks = texels.blocks;
     pub const block_side = texels.block_side;
+};
+
+/// A level of 8-bit or 16-bit RGBA, as pictures are read and mipmapped: the only formats that
+/// the mipmapping, sampling and storing helpers take.
+pub const RgbaLevel = struct {
+    width: u32,
+    height: u32,
+    rgba: texels.Rgba,
+    texels: []u8,
+
+    /// `any` as RGBA; null when it is in another format.
+    pub fn of(any: Level) ?RgbaLevel {
+        return .{ .width = any.width, .height = any.height, .rgba = any.format.rgba() orelse return null, .texels = any.texels };
+    }
+
+    /// The level it is.
+    pub fn asLevel(made: RgbaLevel) Level {
+        return .{ .width = made.width, .height = made.height, .format = made.rgba.asFormat(), .texels = made.texels };
+    }
 };
 
 /// Added by OpenReliant: a mod's surface function that a draw is shaded with, and the parameters it
@@ -55,7 +75,7 @@ pub const ModSurface = struct {
 /// An image as OpenReliant holds it, the counterpart of `TextureImage`.
 pub const Image = struct {
     /// The full-size level first.
-    levels: []const Level,
+    levels: []Level,
     /// What the driver made of it, `TextureImage.device_texture`: 0 until it first draws with it.
     device: usize = 0,
     /// Set by whoever changes its pixels after the driver has made a texture of them, such as the
@@ -82,26 +102,26 @@ pub const Image = struct {
         /// from -1 to 1 in red, green and blue; in alpha, how long the mean of the normals each
         /// texel stands for is (`Content.normal`). Made ready for the device, in BC5 or 16-bit RG,
         /// it holds x and y alone, and the length is in the material map's alpha.
-        normal: ?[]const Level = null,
+        normal: ?[]Level = null,
         /// How much of the ambient light reaches the surface, how rough it is, and how metallic, in
         /// red, green and blue, as glTF packs them.
-        orm: ?[]const Level = null,
+        orm: ?[]Level = null,
         /// The light the surface gives off by itself, sRGB-encoded like its image's colours, as
         /// glTF's emissive texture holds it: added after the surface is lit.
-        emissive: ?[]const Level = null,
+        emissive: ?[]Level = null,
 
         /// How many maps there are, one for each field.
         pub const count = @typeInfo(Maps).@"struct".field_names.len;
 
         /// Each map, in the order of the fields.
-        pub fn list(maps: Maps) [count]?[]const Level {
-            var listed: [count]?[]const Level = undefined;
+        pub fn list(maps: Maps) [count]?[]Level {
+            var listed: [count]?[]Level = undefined;
             inline for (@typeInfo(Maps).@"struct".field_names, &listed) |name, *map| map.* = @field(maps, name);
             return listed;
         }
 
         /// The maps `listed` gives, in the order of the fields.
-        pub fn fromList(listed: [count]?[]const Level) Maps {
+        pub fn fromList(listed: [count]?[]Level) Maps {
             var maps: Maps = .{};
             inline for (@typeInfo(Maps).@"struct".field_names, listed) |name, map| @field(maps, name) = map;
             return maps;
@@ -133,7 +153,7 @@ pub const Image = struct {
 
     /// An image of one level, `across` by `down` pixels of `rgba`, which it takes: `deinit` frees
     /// them with the level.
-    pub fn single(gpa: Allocator, across: u32, down: u32, rgba: []const u8) Allocator.Error!Image {
+    pub fn single(gpa: Allocator, across: u32, down: u32, rgba: []u8) Allocator.Error!Image {
         const levels = try gpa.alloc(Level, 1);
         levels[0] = .{ .width = across, .height = down, .texels = rgba };
         return .{ .levels = levels };
@@ -202,8 +222,8 @@ pub fn freeLevels(gpa: Allocator, levels: []const Level) void {
 }
 
 /// Lets go of `levels`' pixels, which the table made, keeping their sizes.
-fn releasePixels(gpa: Allocator, levels: []const Level) void {
-    for (@constCast(levels)) |*level| {
+fn releasePixels(gpa: Allocator, levels: []Level) void {
+    for (levels) |*level| {
         gpa.free(level.texels);
         level.texels = &.{};
     }
@@ -600,43 +620,38 @@ pub fn mipmapped(gpa: Allocator, picture: png.Picture) Allocator.Error!Image {
 /// The mipmap levels of `picture`, which it takes, made for `content`, as `mipmapped` makes them,
 /// its finest levels given up while it is longer than `longest`. Where it fails, it lets the
 /// picture go.
-pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content, longest: u32) Allocator.Error![]const Level {
-    return mipmapLevels(gpa, .{ .width = picture.width, .height = picture.height, .texels = picture.rgba }, content, longest);
+pub fn mipmaps(gpa: Allocator, picture: png.Picture, content: Content, longest: u32) Allocator.Error![]Level {
+    return mipmapLevels(gpa, .{ .width = picture.width, .height = picture.height, .rgba = .rgba8, .texels = picture.rgba }, content, longest);
 }
 
 /// The mipmap levels of the 16-bit `picture`, which it takes, as `mipmaps` makes them, in 16-bit
 /// RGBA (`rgba16`), so that a 16-bit normal map keeps its precision (#688).
-pub fn mipmapsWide(gpa: Allocator, picture: png.WidePicture, content: Content, longest: u32) Allocator.Error![]const Level {
+pub fn mipmapsWide(gpa: Allocator, picture: png.WidePicture, content: Content, longest: u32) Allocator.Error![]Level {
     // The level's texels are bytes, which the table frees as bytes.
     const bytes = gpa.dupe(u8, std.mem.sliceAsBytes(picture.rgba)) catch |err| {
         picture.deinit(gpa);
         return err;
     };
     picture.deinit(gpa);
-    return mipmapLevels(gpa, .{ .width = picture.width, .height = picture.height, .format = .rgba16, .texels = bytes }, content, longest);
+    return mipmapLevels(gpa, .{ .width = picture.width, .height = picture.height, .rgba = .rgba16, .texels = bytes }, content, longest);
 }
 
-/// The mipmap levels of `picture`, a level of 8-bit or 16-bit RGBA, made for `content`. The
-/// levels take over `picture`'s texels.
-fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) Allocator.Error![]const Level {
+/// The mipmap levels of `picture`, made for `content`. The levels take over `picture`'s texels.
+fn mipmapLevels(gpa: Allocator, picture: RgbaLevel, content: Content, longest: u32) Allocator.Error![]Level {
     var levels: std.ArrayList(Level) = .empty;
     errdefer {
         for (levels.items) |l| gpa.free(l.texels);
         levels.deinit(gpa);
     }
     // Each of a normal map's own normals stands for itself alone, at its full length.
-    if (content == .normal) {
-        const bytes: []u8 = @constCast(picture.texels);
-        switch (picture.format) {
-            .rgba8 => for (std.mem.bytesAsSlice([4]u8, bytes)) |*texel| {
-                texel[3] = std.math.maxInt(u8);
-            },
-            .rgba16 => for (std.mem.bytesAsSlice([8]u8, bytes)) |*texel| {
-                std.mem.writeInt(u16, texel[6..8], std.math.maxInt(u16), .native);
-            },
-            else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
-        }
-    }
+    if (content == .normal) switch (picture.rgba) {
+        .rgba8 => for (std.mem.bytesAsSlice([4]u8, picture.texels)) |*texel| {
+            texel[3] = std.math.maxInt(u8);
+        },
+        .rgba16 => for (std.mem.bytesAsSlice([8]u8, picture.texels)) |*texel| {
+            std.mem.writeInt(u16, texel[6..8], std.math.maxInt(u16), .native);
+        },
+    };
     var finest = picture;
     {
         errdefer gpa.free(finest.texels);
@@ -645,12 +660,12 @@ fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) 
             gpa.free(finest.texels);
             finest = smaller;
         }
-        try levels.append(gpa, finest);
+        try levels.append(gpa, finest.asLevel());
     }
     var last = finest;
     while (last.width > 1 or last.height > 1) {
         last = try halved(gpa, last, content);
-        levels.append(gpa, last) catch |err| {
+        levels.append(gpa, last.asLevel()) catch |err| {
             gpa.free(last.texels);
             return err;
         };
@@ -658,13 +673,12 @@ fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) 
     return levels.toOwnedSlice(gpa);
 }
 
-/// The level after `level`, in 8-bit or 16-bit RGBA as it is: each side half its own, rounding
-/// down, at least a pixel, and each pixel the mean of the up to four it covers, as `content` takes
-/// it.
-fn halved(gpa: Allocator, level: Level, content: Content) Allocator.Error!Level {
+/// The level after `level`, in its own format: each side half its own, rounding down, at least a
+/// pixel, and each pixel the mean of the up to four it covers, as `content` takes it.
+fn halved(gpa: Allocator, level: RgbaLevel, content: Content) Allocator.Error!RgbaLevel {
     const width = @max(level.width / 2, 1);
     const height = @max(level.height / 2, 1);
-    const made: Level = .{ .width = width, .height = height, .format = level.format, .texels = try gpa.alloc(u8, level.format.size(width, height)) };
+    const made: RgbaLevel = .{ .width = width, .height = height, .rgba = level.rgba, .texels = try gpa.alloc(u8, level.rgba.asFormat().size(width, height)) };
     const halving: Halving = .{ .level = level, .made = made, .content = content };
     shareRows(height, least_rows, halving, Halving.rows);
     return made;
@@ -676,8 +690,8 @@ const least_rows = 64;
 
 /// A level being halved (`halved`), whose rows each thread makes some of.
 const Halving = struct {
-    level: Level,
-    made: Level,
+    level: RgbaLevel,
+    made: RgbaLevel,
     content: Content,
 
     /// Makes `count` rows of `made` from `first`.
@@ -758,33 +772,30 @@ pub fn shareRows(rows: usize, least: usize, context: anytype, comptime work: fn 
     for (threads) |thread| if (thread) |started| started.join();
 }
 
-/// The samples of texel `at` of `level`, 8-bit or 16-bit RGBA, each from 0 to 1.
-fn unitsAt(level: Level, at: usize) [4]f32 {
+/// The samples of texel `at` of `level`, each from 0 to 1.
+fn unitsAt(level: RgbaLevel, at: usize) [4]f32 {
     var units: [4]f32 = undefined;
-    switch (level.format) {
+    switch (level.rgba) {
         .rgba8 => for (&units, level.texels[at * 4 ..][0..4]) |*value, sample| {
             value.* = texels.unit(u8, sample);
         },
         .rgba16 => for (&units, 0..) |*value, channel| {
             value.* = texels.unit(u16, std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native));
         },
-        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
     return units;
 }
 
-/// The samples of texel `at` of `level`, 8-bit or 16-bit RGBA, at 16 bits, an 8-bit sample
-/// scaled up exactly.
-pub fn samplesAt(level: Level, at: usize) [4]u16 {
+/// The samples of texel `at` of `level` at 16 bits, an 8-bit sample scaled up exactly.
+pub fn samplesAt(level: RgbaLevel, at: usize) [4]u16 {
     var samples: [4]u16 = undefined;
-    switch (level.format) {
+    switch (level.rgba) {
         .rgba8 => for (&samples, level.texels[at * 4 ..][0..4]) |*wide, sample| {
             wide.* = @as(u16, sample) * eight_to_sixteen;
         },
         .rgba16 => for (&samples, 0..) |*wide, channel| {
             wide.* = std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native);
         },
-        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
     return samples;
 }
@@ -797,9 +808,9 @@ pub fn sample8(sample: u16) u8 {
 /// What an 8-bit sample is multiplied by to scale it to 16 bits: 65535 / 255.
 const eight_to_sixteen = std.math.maxInt(u16) / std.math.maxInt(u8);
 
-/// The light of texel `at` of `level`, 8-bit or 16-bit RGBA, whose colours are sRGB-encoded.
-fn lightAt(level: Level, at: usize) @Vector(3, f32) {
-    if (level.format == .rgba8) {
+/// The light of texel `at` of `level`, whose colours are sRGB-encoded.
+fn lightAt(level: RgbaLevel, at: usize) @Vector(3, f32) {
+    if (level.rgba == .rgba8) {
         const texel = level.texels[at * 4 ..][0..4];
         return .{ colour.light(texel[0]), colour.light(texel[1]), colour.light(texel[2]) };
     }
@@ -807,26 +818,23 @@ fn lightAt(level: Level, at: usize) @Vector(3, f32) {
     return .{ colour.decoded(units[0]), colour.decoded(units[1]), colour.decoded(units[2]) };
 }
 
-/// Sets texel `at` of `level`, 8-bit or 16-bit RGBA, to `units`, each from 0 to 1.
-fn store(level: Level, at: usize, units: [4]f32) void {
-    const bytes: []u8 = @constCast(level.texels);
-    switch (level.format) {
-        .rgba8 => for (bytes[at * 4 ..][0..4], units) |*sample, value| {
+/// Sets texel `at` of `level` to `units`, each from 0 to 1.
+fn store(level: RgbaLevel, at: usize, units: [4]f32) void {
+    switch (level.rgba) {
+        .rgba8 => for (level.texels[at * 4 ..][0..4], units) |*sample, value| {
             sample.* = texels.nearest(u8, value);
         },
         .rgba16 => for (units, 0..) |value, channel| {
-            std.mem.writeInt(u16, bytes[(at * 4 + channel) * 2 ..][0..2], texels.nearest(u16, value), .native);
+            std.mem.writeInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], texels.nearest(u16, value), .native);
         },
-        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
 }
 
 /// Sets texel `at` of `level` to the light `light`, sRGB-encoded, and `alpha`.
-fn storeLight(level: Level, at: usize, light: @Vector(3, f32), alpha: f32) void {
-    if (level.format == .rgba8) {
+fn storeLight(level: RgbaLevel, at: usize, light: @Vector(3, f32), alpha: f32) void {
+    if (level.rgba == .rgba8) {
         // The 8-bit level nearest each light, exactly as the table finds it.
-        const bytes: []u8 = @constCast(level.texels);
-        bytes[at * 4 ..][0..4].* = .{ colour.level(light[0]), colour.level(light[1]), colour.level(light[2]), texels.nearest(u8, alpha) };
+        level.texels[at * 4 ..][0..4].* = .{ colour.level(light[0]), colour.level(light[1]), colour.level(light[2]), texels.nearest(u8, alpha) };
         return;
     }
     store(level, at, .{ colour.encoded(light[0]), colour.encoded(light[1]), colour.encoded(light[2]), alpha });
@@ -864,8 +872,8 @@ test "Image.single" {
 }
 
 test "images sample bilinearly and wrap" {
-    const rgba = [_]u8{ 0, 0, 0, 255, 255, 255, 255, 255 };
-    const levels = [_]Level{.{ .width = 2, .height = 1, .texels = &rgba }};
+    var rgba = [_]u8{ 0, 0, 0, 255, 255, 255, 255, 255 };
+    var levels = [_]Level{.{ .width = 2, .height = 1, .texels = &rgba }};
     const image: Image = .{ .levels = &levels };
     // Texel centres give the texels; between them, the mean; past the edge it wraps.
     try std.testing.expectEqual([4]f32{ 0, 0, 0, 1 }, image.sample(0, 0.25, 0.5));
@@ -1120,17 +1128,37 @@ test shareRows {
     };
 }
 
+test RgbaLevel {
+    // A compressed level isn't RGBA; a 16-bit one is, and comes back as it was.
+    var blocks: [16]u8 = @splat(0);
+    try std.testing.expectEqual(null, RgbaLevel.of(.{ .width = 4, .height = 4, .format = .bc7, .texels = &blocks }));
+    var wide: [8]u8 = @splat(0);
+    const level: Level = .{ .width = 1, .height = 1, .format = .rgba16, .texels = &wide };
+    const rgba = RgbaLevel.of(level).?;
+    try std.testing.expectEqual(.rgba16, rgba.rgba);
+    try std.testing.expectEqual(level, rgba.asLevel());
+}
+
+test samplesAt {
+    // An 8-bit pixel scaled up exactly, and a 16-bit one as it is.
+    var narrow = [_]u8{ 255, 0, 128, 255 };
+    try std.testing.expectEqual([4]u16{ 65535, 0, 32896, 65535 }, samplesAt(.{ .width = 1, .height = 1, .rgba = .rgba8, .texels = &narrow }, 0));
+    var wide: [8]u8 = undefined;
+    for ([_]u16{ 1, 2, 3, 4 }, 0..) |sample, channel| std.mem.writeInt(u16, wide[channel * 2 ..][0..2], sample, .native);
+    try std.testing.expectEqual([4]u16{ 1, 2, 3, 4 }, samplesAt(.{ .width = 1, .height = 1, .rgba = .rgba16, .texels = &wide }, 0));
+}
+
 test "a level halved between threads is the level halved on one" {
     const gpa = std.testing.allocator;
     const side = 512;
     const rgba = try gpa.alloc(u8, side * side * 4);
     defer gpa.free(rgba);
     for (rgba, 0..) |*sample, at| sample.* = @truncate(at *% 2654435761 >> 13);
-    const level: Level = .{ .width = side, .height = side, .texels = rgba };
+    const level: RgbaLevel = .{ .width = side, .height = side, .rgba = .rgba8, .texels = rgba };
     for (std.enums.values(Content)) |content| {
         const shared = try halved(gpa, level, content);
         defer gpa.free(shared.texels);
-        const alone: Level = .{ .width = side / 2, .height = side / 2, .texels = try gpa.alloc(u8, side / 2 * side / 2 * 4) };
+        const alone: RgbaLevel = .{ .width = side / 2, .height = side / 2, .rgba = .rgba8, .texels = try gpa.alloc(u8, side / 2 * side / 2 * 4) };
         defer gpa.free(alone.texels);
         Halving.rows(.{ .level = level, .made = alone, .content = content }, 0, side / 2);
         try std.testing.expectEqualSlices(u8, alone.texels, shared.texels);
@@ -1165,8 +1193,8 @@ test mipmapsWide {
     const normals = try mipmapsWide(gpa, .{ .width = 2, .height = 1, .rgba = rgba }, .normal, max_side);
     defer freeLevels(gpa, normals);
     try std.testing.expectEqual(Level.Format.rgba16, normals[0].format);
-    try std.testing.expectEqual([4]f32{ texels.unit(u16, lean), texels.unit(u16, 0x8000), 1, 1 }, unitsAt(normals[0], 0));
-    const mean = unitsAt(normals[1], 0);
+    try std.testing.expectEqual([4]f32{ texels.unit(u16, lean), texels.unit(u16, 0x8000), 1, 1 }, unitsAt(RgbaLevel.of(normals[0]).?, 0));
+    const mean = unitsAt(RgbaLevel.of(normals[1]).?, 0);
     try std.testing.expect(mean[0] > texels.unit(u16, 0x8020));
     try std.testing.expectApproxEqAbs(1, mean[3], 1e-4);
 }
@@ -1263,6 +1291,7 @@ test "the table lets go of the pixels the device holds" {
     textures.table.releaseHeld();
     try std.testing.expect(!hull.readable() and lhull.readable());
     try std.testing.expectEqual(8, hull.width());
+    for (hull.levels) |level| try std.testing.expectEqual(0, level.texels.len);
     try std.testing.expectEqual(1, textures.table.unreleased.items.len);
 }
 
