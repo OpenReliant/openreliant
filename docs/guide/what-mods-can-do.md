@@ -121,4 +121,3 @@ These are planned, each in an issue of the
   [#360](https://github.com/OpenReliant/openreliant/issues/360))
 - Starting a mission partway with the state its earlier parts set
   ([#577](https://github.com/OpenReliant/openreliant/issues/577))
-- Lines of speech named with `.ut` ([#745](https://github.com/OpenReliant/openreliant/issues/745))

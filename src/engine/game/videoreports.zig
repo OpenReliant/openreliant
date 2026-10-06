@@ -875,11 +875,11 @@ pub fn lineName(name: []const u8) []const u8 {
 
 /// Reads the speech file that `speech` names into `gpa`, from a mod or from the speech archive
 /// `archive` (`speech_hog`), by the name `hog_read_file` looks up (`lineName`). A mod's file takes
-/// priority (`bigfile.Mods.readFile`). Returns null if there's no archive and no mod has the file,
-/// and also, with a warning, if the archive doesn't have it or it can't be read.
+/// priority (`modLine`). Returns null if there's no archive and no mod has the file, and also,
+/// with a warning, if the archive doesn't have it or it can't be read.
 pub fn readLine(gpa: Allocator, mods: *const bigfile.Mods, archive: ?hog.Archive, speech: []const u8) ?[]u8 {
     const name = lineName(speech);
-    const modded = mods.readFile(gpa, name) catch |err| {
+    const modded = modLine(gpa, mods, name) catch |err| {
         log.warn("can't read the line {s}: {s}", .{ name, @errorName(err) });
         return null;
     };
@@ -894,6 +894,16 @@ pub fn readLine(gpa: Allocator, mods: *const bigfile.Mods, archive: ?hog.Archive
         return null;
     };
     return contents.bytes;
+}
+
+/// The line `name` (`lineName`) from the last mod that has it: a file of that name, as the speech
+/// archive names its members, or else one with the extension, as `sltool speech encode` writes it
+/// (`cbox.extension`). Null if no mod has either.
+fn modLine(gpa: Allocator, mods: *const bigfile.Mods, name: []const u8) bigfile.ReadError!?[]u8 {
+    if (try mods.readFile(gpa, name)) |bytes| return bytes;
+    var buffer: [line_name_size + cbox.extension.len]u8 = undefined;
+    const named = std.fmt.bufPrint(&buffer, "{s}" ++ cbox.extension, .{name}) catch return null;
+    return mods.readFile(gpa, named);
 }
 
 /// The room the game gives a pilot's film's path (`radio_say_pilot`, `0x00456255`).
@@ -1437,21 +1447,29 @@ test readLine {
     try hog.testing.write(gpa, io, tmp.dir, "speech.hog", &.{
         .{ .name = "ABRT_001", .data = "the game's line" },
         .{ .name = "ABRT_002", .data = "the game's other line" },
+        .{ .name = "ABRT_003", .data = "the game's third line" },
     });
     try tmp.dir.createDirPath(io, "mods/voices");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_001", .data = "a mod's line" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_001.ut", .data = "the same line with the extension" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_003.ut", .data = "a mod's line with the extension" });
     var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     var archive: hog.Archive = try .open(gpa, io, tmp.dir, "speech.hog");
     defer archive.close(gpa);
 
-    // A mod's line, by the name the archive uses, and then a line from the archive.
+    // A mod's line by the name the archive uses, which wins over the same name with the extension,
+    // and then a line from the archive.
     const modded = readLine(gpa, &mods, archive, "ms_speech\\ABRT_001.ut").?;
     defer gpa.free(modded);
     try std.testing.expectEqualStrings("a mod's line", modded);
     const own = readLine(gpa, &mods, archive, "ABRT_002.ut").?;
     defer gpa.free(own);
     try std.testing.expectEqualStrings("the game's other line", own);
+    // A mod's line with the extension, as sltool writes it.
+    const extended = readLine(gpa, &mods, archive, "ABRT_003.ut").?;
+    defer gpa.free(extended);
+    try std.testing.expectEqualStrings("a mod's line with the extension", extended);
     // Without the archive, only the mods' lines.
     const alone = readLine(gpa, &mods, null, "ABRT_001.ut").?;
     defer gpa.free(alone);

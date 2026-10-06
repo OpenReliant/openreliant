@@ -503,27 +503,26 @@ squadron's name: the 45th Volunteers' through mission 13, and the 45th Tigers' f
 way, and renames him from a load script ([The records](scripting.md#the-records)).
 
 `sltool fm8 encode <frames-dir> <film.fm8>` makes a film of the PNG files in a folder, each 120 by
-100 pixels, in the order of their names. A pixel less than half opaque becomes the colour the radio's window draws see-through.
-The film keeps every colour where the frames have 256 or fewer, and picks 256 for them otherwise,
-the see-through colour kept as it is. `sltool fm8 extract <film> <out-dir>` saves a film's frames as
-PNG files, to start from.
+100 pixels, in the order of their names. A pixel less than half opaque becomes the colour the
+radio's window draws see-through. The film keeps every colour where the frames have 256 or fewer,
+and picks 256 for them otherwise, the see-through colour kept as it is.
+`sltool fm8 extract <film> <out-dir>` saves a film's frames as PNG files, to start from.
 
 ### Lines
 
 A line is a speech file in the game's codec ([Speech files](../formats/speech.md)). The game keeps
 its lines in `ms_speech\msspeech.hog`, under names without an extension, such as `ABRT_001`. A mod's
-line replaces the game's line with the same name. `sltool speech extract ms_speech/msspeech.hog
-lines` saves every line as a WAV file, to find the one to replace.
+line replaces the game's line with the same name, with or without the extension `.ut`:
+`abrt_001.ut` and `abrt_001` both replace `ABRT_001`, and where both are there, `abrt_001` is used.
+`sltool speech extract ms_speech/msspeech.hog lines` saves every line as a WAV file, to find the
+one to replace.
 
-`sltool speech encode <line.wav> <name>` makes a line from a WAV file, which it mixes to mono at
+`sltool speech encode <line.wav> <line.ut>` makes a line from a WAV file, which it mixes to mono at
 22,050 Hz, the rate the radio plays at:
 
 ```bash
-sltool speech encode taunt.wav trptnt_001
+sltool speech encode taunt.wav trptnt_001.ut
 ```
-
-Name the file as the game names its lines, without an extension. A file named with `.ut`, such as
-`trptnt_001.ut`, isn't found ([#745](https://github.com/OpenReliant/openreliant/issues/745)).
 
 ### A pilot's voice
 
@@ -1014,7 +1013,7 @@ most:
 | Export one of the game's models | `sltool shp gltf <model> <out.gltf>`, `sltool shp obj <model> <out.obj>` |
 | Build a model | `sltool shp from-obj <in.obj> <out.shp>`, `sltool shp from-gltf <in.gltf> <out.shp>` |
 | Save a face film's frames, or make a film | `sltool fm8 extract <film> <out-dir>`, `sltool fm8 encode <frames-dir> <film>` |
-| Save lines as WAV files, or make a line | `sltool speech extract <archive> <out-dir>`, `sltool speech encode <in.wav> <name>` |
+| Save lines as WAV files, or make a line | `sltool speech extract <archive> <out-dir>`, `sltool speech encode <in.wav> <out.ut>` |
 | Save a sound bank's sounds as WAV files | `sltool fat extract <bank> <out-dir>` |
 | List a mission's ships, triggers and script parts | `sltool dte ships <mission>`, `sltool dte triggers <mission>`, `sltool dte parts <mission>` |
 | List a stats table | `sltool stats list <stats.bin>` |
@@ -1065,10 +1064,10 @@ pack <folder> <archive> --checksum` writes a checksum file next to the archive i
 
 OpenReliant writes its log to the terminal it runs in ([Installation](installation.md)). As it
 starts, it lists each mod it loads, in order, by its manifest's name if it has one, and then what
-each of the mod's files does: which game file, texture, shape, picture or font it replaces, which
-earlier mod's file it replaces, or which file it adds. A mod that the mods screen has turned off is
-listed as off, and none of it is used. When a font is loaded, the log says which outline font draws
-it.
+each of the mod's files does: which game file, texture, shape, picture, font or line it replaces,
+which earlier mod's file it replaces, or which file it adds. A mod that the mods screen has turned
+off is listed as off, and none of it is used. When a font is loaded, the log says which outline
+font draws it.
 
 ```text
 info(mods): music.hog matches music.hog.sha256
@@ -1100,5 +1099,5 @@ A script's messages and errors follow its mod's name, as above;
 | `skipping the picture that replaces <name>: it's <size>, and the original is <size>` | That picture must keep the original's size ([Pictures](#pictures)) |
 | `the <map> of <texture> is left out: it is <size> and its picture <size>` | A map must be the same size as its texture ([Material maps](#material-maps)) |
 | `<file> is left out: it is compressed in <format>, which the device doesn't take` | The GPU doesn't take that format; use a PNG file instead ([Compression](#compression)) |
-| `the line <name> is not in ms_speech/msspeech.hog` | The line's name, without `.ut` ([Lines](#lines)) |
+| `the line <name> is not in ms_speech/msspeech.hog` | The line's name ([Lines](#lines)) |
 | `the radio's film <name> is left out: ...` | The film's name ([Faces](#faces)) |
