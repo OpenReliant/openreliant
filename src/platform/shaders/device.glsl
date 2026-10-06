@@ -30,7 +30,9 @@ layout(location = 6) in uint lightMask;
 // upscale, 3 as a glyph's coverage (srtexture.zig's Magnify); in the one after, 1 for the key
 // lights to reach past its terminator, as a planet's atmosphere carries them; in the two after
 // that, 1 where its texture's normal map and its material map are shaded; in the one after, 1
-// where the normal map holds two channels (BC5); and in the one after, 1 for a hologram.
+// where the normal map holds two channels (BC5); in the one after, 1 for a hologram; in the one
+// after, 1 where its texture's emissive map is shaded; and in the one after, 1 for a surface a
+// mod's function makes see-through, whose alpha is then the texture's as the function leaves it.
 layout(location = 7) in uint shading;
 
 layout(set = 1, binding = 0) uniform Target {
@@ -774,6 +776,7 @@ void main() {
     }
     c.rgb = min(c.rgb + glow, vec3(1.0));
     if ((shade & 0x4000u) != 0u) c = hologram(c, texel.a);
+    if ((shade & 0x10000u) != 0u) c.a = texel.a;
     if (frame.settings.x > 0.0 || frame.settings.z > 0.0) {
         // To the levels the frame is kept in: five bits of red and blue and six of green in 16-bit
         // colour, eight bits a channel otherwise.

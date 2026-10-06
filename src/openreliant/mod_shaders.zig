@@ -242,7 +242,7 @@ pub const ModShaders = struct {
         device.mod_shaders.every = null;
         for (functions) |function| {
             if (function.kind != .surface or !function.enabled) continue;
-            const surface: srtexture.ModSurface = .{ .function = function.function, .parameters = function.parameters };
+            const surface: srtexture.ModSurface = .{ .function = function.function, .parameters = function.parameters, .see_through = function.see_through, .writes_depth = function.writes_depth };
             if (function.everywhere) device.mod_shaders.every = surface;
             host.tag(function, surface);
         }

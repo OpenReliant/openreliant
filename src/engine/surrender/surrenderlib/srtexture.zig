@@ -45,6 +45,11 @@ pub const ModSurface = struct {
     /// The function, as the device knows it.
     function: u16,
     parameters: [4]f32 = @splat(0),
+    /// Whether the surfaces it draws blend by the alpha it sets, sorted with the game's other
+    /// blended draws, though the game draws them solid; and whether they still write depth, as a
+    /// solid model does, so that of two that cut into each other the nearer hides the other.
+    see_through: bool = false,
+    writes_depth: bool = true,
 };
 
 /// An image as OpenReliant holds it, the counterpart of `TextureImage`.

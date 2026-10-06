@@ -132,6 +132,8 @@ type SurfaceFunction = {
     shader: string,
     textures: { string }?,
     everywhere: boolean?,
+    see_through: boolean?,
+    writes_depth: boolean?,
     parameters: { number }?,
     enabled: boolean?,
 }
