@@ -324,7 +324,8 @@ handlers mods add. The [scripting reference](../guide/reference.md) lists every 
   engine's (`engine_events`).
 
 A function's fields are its parameters after the first, the world or the orders' context, in order,
-with a slot as an `Object`. A field whose name starts with `_` passes its parameter through without
+with a slot as an `Object` and an order's or a missile's target as a `Target`, which gives back the
+game's own target unchanged where the scripts leave it alone (`Target.aimed`). A field whose name starts with `_` passes its parameter through without
 scripts seeing it. The build checks that the fields follow the function's parameters and that the
 result is the function's. So OpenReliant's code can change around a hook, but what scripts see of
 it only changes where its declaration does.

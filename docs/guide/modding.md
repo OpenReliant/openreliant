@@ -855,6 +855,27 @@ scripting works and aren't supported mods.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
 
+## Checking a mission
+
+A mission a mod adds or replaces can be started straight from the command line, and checked at any
+moment of it without flying up to that moment ([Configuration](configuration.md#the-mission)):
+
+```bash
+openreliant --mission 2 --skip-launch --part "antanov in" --screenshot antanov.png --screenshot-ticks 1000
+openreliant --mission 2 --skip-launch --watch reliant --screenshot reliant.png --screenshot-ticks 300
+```
+
+- `--mission <number>` starts the mission, from a mod or the game.
+- `--skip-launch` plays the player's launch through without showing it.
+- `--part <name>` runs a part of the mission's script once the launch is over, as a trigger would.
+  `sltool dte parts` lists the parts. A part starts from the mission's opening state, so one that
+  counts on ships or flags from an earlier part may find them missing.
+- `--watch <ship>` points the camera at one of the mission's ships, and `--watch-from` says from
+  where. `sltool dte ships` lists the ships. A ship's whole name picks it, though other ships'
+  names hold it too, such as `RELIANT` beside `RELIANT NANNY`. A cutscene in the mission's script
+  takes the camera from it.
+- `--screenshot` saves a picture after `--screenshot-ticks` game ticks and quits.
+
 ## Log messages
 
 At startup, `openreliant` lists each mod it loads, in order, by its manifest name if it has one,

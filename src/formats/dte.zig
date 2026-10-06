@@ -1485,32 +1485,38 @@ pub const Mission = struct {
     }
 
     /// The part that `text` picks: its number in the part table, as `sltool dte parts` lists
-    /// them, or a piece of its name in any case, such as `zakov launch` for
+    /// them, or its name or a piece of it in any case, such as `zakov launch` for
     /// `<F> SETUP ZAKOV LAUNCH`. Parts without a block are never picked.
     pub fn findPart(mission: Mission, text: []const u8) Error!Found {
         return mission.findNamed(Part, try mission.parts(), text, Part.isEmpty);
     }
 
     /// The ship that `text` picks: its number in the ship table, as `sltool dte ships` lists
-    /// them, or a piece of its name in any case. Nav points and markers are never picked
+    /// them, or its name or a piece of it in any case. Nav points and markers are never picked
     /// (`Ship.isMarker`).
     pub fn findShip(mission: Mission, text: []const u8) Error!Found {
         return mission.findNamed(Ship, try mission.ships(), text, Ship.isMarker);
     }
 
-    /// The record of `all` that `text` picks, by its index or a piece of its name in any case,
-    /// passing over the records `left_out` picks.
+    /// The record of `all` that `text` picks, by its index, by its whole name in any case, or by a
+    /// piece of its name where no record has that whole name, passing over the records `left_out`
+    /// picks. A name the game pads with spaces counts without them.
     fn findNamed(mission: Mission, comptime T: type, all: []align(1) const T, text: []const u8, left_out: fn (T) bool) Found {
         if (std.fmt.parseInt(usize, text, 10)) |number| {
             return if (number < all.len and !left_out(all[number])) .{ .one = number } else .none;
         } else |_| {}
-        var found: Found = .none;
+        var whole: Found = .none;
+        var piece: Found = .none;
         for (all, 0..) |record, index| {
-            if (left_out(record) or std.ascii.indexOfIgnoreCase(mission.name(record.name), text) == null) continue;
-            if (found != .none) return .several;
-            found = .{ .one = index };
+            if (left_out(record)) continue;
+            const named = std.mem.trim(u8, mission.name(record.name), " ");
+            if (std.ascii.eqlIgnoreCase(named, text)) {
+                whole = if (whole == .none) .{ .one = index } else .several;
+            } else if (std.ascii.indexOfIgnoreCase(named, text) != null) {
+                piece = if (piece == .none) .{ .one = index } else .several;
+            }
         }
-        return found;
+        return if (whole != .none) whole else piece;
     }
 
     pub fn ships(mission: Mission) Error![]align(1) const Ship {
@@ -1772,14 +1778,14 @@ test "directory and records line up" {
 }
 
 test "Mission.findPart and findShip" {
-    // Three parts, the last without a block, and a ship and a nav point.
+    // Three parts, the last without a block, and two ships and a nav point.
     var image: [0x400]u8 = @splat(0);
     const directory: []align(1) DirectoryEntry =
         @alignCast(std.mem.bytesAsSlice(DirectoryEntry, image[0 .. section_count * 8]));
     for (directory) |*slot| slot.* = .{ .count = 0, ._unused = 0, .formats = .{}, .offset = DirectoryEntry.unused_offset };
     const pool_at = 0x100;
-    const names = "<F> Startlaunch\x00<F> SETUP ZAKOV LAUNCH\x00<F> Zakov gone\x00ZAKOV\x00Nav ZAKOV\x00";
-    directory[@intFromEnum(Section.strings)] = .{ .count = 5, ._unused = 0, .formats = .all, .offset = pool_at };
+    const names = "<F> Startlaunch\x00<F> SETUP ZAKOV LAUNCH\x00<F> Zakov gone\x00ZAKOV\x00Nav ZAKOV\x00ZAKOV ESCORT\x00";
+    directory[@intFromEnum(Section.strings)] = .{ .count = 6, ._unused = 0, .formats = .all, .offset = pool_at };
     @memcpy(image[pool_at..][0..names.len], names);
     const parts_at = 0x200;
     directory[@intFromEnum(Section.parts)] = .{ .count = 3, ._unused = 0, .formats = .all, .offset = parts_at };
@@ -1790,12 +1796,14 @@ test "Mission.findPart and findShip" {
         part.offset = offset;
     }
     const ships_at = 0x300;
-    directory[@intFromEnum(Section.ships)] = .{ .count = 2, ._unused = 0, .formats = .all, .offset = ships_at };
-    const ships: []align(1) Ship = @alignCast(std.mem.bytesAsSlice(Ship, image[ships_at..][0 .. 2 * @sizeOf(Ship)]));
+    directory[@intFromEnum(Section.ships)] = .{ .count = 3, ._unused = 0, .formats = .all, .offset = ships_at };
+    const ships: []align(1) Ship = @alignCast(std.mem.bytesAsSlice(Ship, image[ships_at..][0 .. 3 * @sizeOf(Ship)]));
     ships[0] = testing.ship(0, Ship.no_flight_group, 0);
     ships[0].name = 54;
     ships[1] = testing.ship(1, Ship.no_flight_group, Ship.nav_point_kind);
     ships[1].name = 60;
+    ships[2] = testing.ship(2, Ship.no_flight_group, 0);
+    ships[2].name = 70;
     const mission: Mission = try .parse(&image);
 
     // By number, or by a piece of its name in any case.
@@ -1809,6 +1817,8 @@ test "Mission.findPart and findShip" {
     try std.testing.expectEqual(Found.none, try mission.findPart("2"));
     try std.testing.expectEqual(Found.none, try mission.findPart("gone"));
     // Ships likewise, passing over the nav points.
+    try std.testing.expectEqual(Found{ .one = 2 }, try mission.findShip("escort"));
+    // A whole name picks its record, though it is a piece of another's too.
     try std.testing.expectEqual(Found{ .one = 0 }, try mission.findShip("zakov"));
     try std.testing.expectEqual(Found{ .one = 0 }, try mission.findShip("0"));
     try std.testing.expectEqual(Found.none, try mission.findShip("1"));
