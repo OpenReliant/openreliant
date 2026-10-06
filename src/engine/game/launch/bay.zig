@@ -3,7 +3,8 @@
 //! Pukov, the Kronstadt, the Krasnaya, the Varyag, the Kiev, and the rogue base from its seventh
 //! gate on. The ship waits at one of its carrier's launch points. Then the bay's doors open and the
 //! ship flies out. The doors close behind it unless another ship is still on its way out through
-//! them, and the ship flies on by itself.
+//! them, and the ship flies on by itself. OpenReliant launches this way from every other carrier
+//! too, and from a mod's ship type with a model of its own, without doors (`launch.Style.of`).
 
 const std = @import("std");
 
@@ -14,7 +15,10 @@ const gameobj = @import("../gameobj.zig");
 const objects = @import("../objects.zig");
 const shp = @import("../../../formats/shp.zig");
 const sound3d = @import("../sound3d.zig");
+const hog_snd = @import("../hog_snd.zig");
 const launch = @import("../launch.zig");
+
+const log = std.log.scoped(.launch);
 
 /// A launch's steps from a bay, after `launch.Step`'s two.
 pub const Step = enum(i32) {
@@ -65,8 +69,10 @@ pub const Doors = struct {
 
     /// The doors of gate `gate` on a carrier of type `carrier` (`launch_bay_init`, its switch at
     /// `0x0041A667`). A carrier or a gate that the table doesn't list has none: the Mitchell
-    /// (`0x13`), the Ramases, the Kronstadt, the other Ramases and the rogue base among them.
+    /// (`0x13`), the Ramases, the Kronstadt, the other Ramases and the rogue base among them, and
+    /// a mod's ship type with a model of its own (`launch.launchesAsBase`).
     pub fn of(carrier: gameobj.Type, gate: i16) Doors {
+        if (!launch.launchesAsBase(carrier)) return .{};
         return switch (carrier.base()) {
             .victorious, .other_mitchell => switch (gate) {
                 0 => .pair(3, 4),
@@ -117,16 +123,26 @@ pub const Doors = struct {
 };
 
 /// Whether the carrier the ship flies out of is the Pukov or the Varyag, whose ships fly out for
-/// longer, climbing at the end (`0x0041AAB9`, `0x0041AB25`).
+/// longer, climbing at the end (`0x0041AAB9`, `0x0041AB25`). A mod's ship type with a model of its
+/// own is neither (`launch.launchesAsBase`).
 fn longBay(carrier: gameobj.Type) bool {
+    if (!launch.launchesAsBase(carrier)) return false;
     return carrier.base() == .pukov or carrier.base() == .varyag;
 }
 
 /// `launch_bay_init` (`0x0041A610`): places the ship in slot `index` at the launch point of the
 /// carrier in slot `carrier` for its gate (`launch.attachAtGate`), riding the part that holds it.
-/// The game then keeps the gate's doors in the launch's state (`Doors.of`).
+/// The game then keeps the gate's doors in the launch's state (`Doors.of`). Where the carrier's
+/// model has no launch point for the gate, the ship launches from where it was placed. The log says
+/// so where the carrier launches as a bay in OpenReliant alone (`launch.Style.ofCarrier`), such as
+/// a mod's ship type whose model lacks the launch point.
 pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     launch.attachAtGate(ctx, index, carrier);
+    const all = ctx.world.objects;
+    const slot = &all.slots[index];
+    const gate = slot.orders[0].target.component;
+    const carrier_type = all.slots[carrier].object.type;
+    if (slot.riding == null and launch.Style.ofCarrier(carrier_type, gate) == null) log.warn("slot {d} launches from where it stands: {f} has no launch point {d}", .{ index, carrier_type, gate });
 }
 
 /// `launch_bay_run` (`0x0041A9C0`): the launch of the ship in slot `index` from step 2 on.
@@ -221,6 +237,9 @@ fn doorsInUse(all: *const create.Objects, index: u16, doors: Doors) bool {
 /// A Bremen's model for the tests: its gates' doors, parts 4 to 7 of its root's child list, each
 /// with the doors' track, and its two launch points on part 1, which are gates 0 and 1.
 const testing = struct {
+    /// A bank as large as `smp3d.fat`'s entries reach, for the 3D sounds.
+    const bank_bytes = hog_snd.testing.bank(80);
+
     const Bremen = struct {
         attachments: [2]shp.Attachment,
         tracks: [1]shp.Track,
@@ -328,6 +347,31 @@ test "a ship launches out of a bay, its doors opening and closing behind it" {
     try std.testing.expectEqual(0, slot.object.throttle);
     try std.testing.expect(launch.testing.ended(slot));
     try std.testing.expectEqual(null, slot.riding);
+}
+
+test "the player's engine is heard as its ship flies out of a bay" {
+    var bay: testing.Bay = undefined;
+    try bay.init(std.testing.allocator, 1);
+    defer bay.deinit();
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(4, null);
+    defer speaker.sound.shutdown();
+    speaker.sound.open3D(try @import("../../../formats/fat.zig").Bank.parse(&testing.bank_bytes));
+    bay.mission.objects.player = bay.first;
+    var ctx = bay.mission.orders();
+    ctx.world.hearing = speaker.hearing(&bay.mission.clock);
+    const engine = &speaker.sound.voices_3d[speaker.sound.engine_voice.?];
+
+    // Waiting in the bay, and while its doors open, it isn't heard.
+    launch.start(bay.mission.objects, bay.first);
+    aigeneric.objectOrders(ctx, bay.first);
+    launch.testing.pastDue(&bay.mission, ctx, bay.first);
+    try std.testing.expect(engine.isFree());
+    // Once it lets go and flies out, it is.
+    launch.testing.pastDue(&bay.mission, ctx, bay.first);
+    aigeneric.objectOrders(ctx, bay.first);
+    try std.testing.expect(!bay.mission.slot(bay.first).state.launch.attached);
+    try std.testing.expect(!engine.isFree());
 }
 
 test "a bay's doors stay open while another ship launches through them" {

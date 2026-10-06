@@ -289,7 +289,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             moveOn(state, .start, now);
             if (!player) return;
             world.shake.* = start_shake;
-            sound3d.playIn(world, null, null, index, sound3d.engineSound(slot.object.type), 0, .player_engines);
+            sound3d.startEngineIn(world);
             world.player.cutaway = .pick(world.random);
             if (world.player.cutaway == .bay) switchView(ctx, .launch_bay, index);
             if (tubeDoor(all, slot, .upper)) |door| {

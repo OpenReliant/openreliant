@@ -21,7 +21,9 @@ A mission's ship record that names a gate (`launch_gate`, [DTE](../formats/dte.m
 the first of the mission's ships of the kind it names (`launch_from`). When the ship is made
 (`mission_ship_create`), it gets a Launch order aimed at that ship through the gate, which starts at
 once ([Missions](missions.md#the-missions-ships)). Every campaign mission launches the player's wing this way,
-from the Reliant or the Yamato, and from the Badanov too in missions 27 and 271.
+from the Reliant or the Yamato. Missions 27 and 271 also give eleven Coalition fighters, named like
+`ussr_sabre1 multi1`, a launch from the Badanov's kind, 55, which neither mission has, so their
+launch has no carrier ([In OpenReliant](#in-openreliant)).
 
 A mission's script gives a launch with `SetupLaunch` (command `0x13`). Each ship its first argument
 names gets a Launch aimed at what the second names. If that is a ship, the gate is the third
@@ -67,7 +69,8 @@ then runs again with the push of its argument before it.
    | 9 | A ship from the Zakov | `launch_zakov_init` (`0x0041B8B0`), `launch_zakov_run` (`0x0041B940`) |
 
    The table of the styles' routines is at `0x004E3C98`, 24 bytes a style. From any other carrier,
-   the game stops with the assertion "Error: Trying to launch from %s".
+   the game stops with the fatal assertion "Error. Trying to launch from %s." (`0x00419049`), where
+   OpenReliant launches as from a hangar bay ([In OpenReliant](#in-openreliant)).
 3. The style's first routine places the ship and picks the node it rides: its carrier's root, or the
    part of a model that holds a launch point.
 4. The ship rides the node. The order keeps the ship's position and orientation in the node's frame,
@@ -359,11 +362,27 @@ passes through the Zakov.
 OpenReliant stores a riding node as an object slot and optional part index
 (`create.Slot.riding`). The original stores the node's address.
 
-**Fix:** a launch from an unsupported carrier logs a warning, waits for StartLaunch and then lets
-the ship go where it stands. A Launch without a target releases the ship immediately. The
-original reads its carrier through the word before the object table (`0x00587CDC`): its
-"Launch Crash Imminent" assertion (`0x004191E6`) compares a sign-extended index with 0xFFFF
-and never fires. A missing riding node or Reliant tube door leaves the ship in place.
+**Fix:** the original stops with a fatal assertion, "Error. Trying to launch from %s.", for a
+carrier with no style of its own. The game's own missions never reach it: in every shipped mission,
+each launch other than a torpedo's or a pod's is from a carrier with a style, once a type under
+another's number has taken that number ([Objects](objects.md#creating-an-object)). OpenReliant runs
+such a launch as a launch from a hangar bay (`Style.of`): the ship waits at the launch point of its
+gate on the carrier's model, and flies out once StartLaunch comes. Where the model has no launch
+point for the gate, the ship launches from where it stands, and the log says so.
+
+**Fix:** a Launch without a target releases the ship immediately. The original reads its carrier
+through the word before the object table (`0x00587CDC`): its "Launch Crash Imminent" assertion
+(`0x004191E6`) compares a sign-extended index with 0xFFFF and never fires. A missing riding node or
+Reliant tube door leaves the ship in place.
+
+**Improvement:** a mod's ship type launches ships as its base does where it keeps its base's
+model, whose parts and launch points the base's style is made for (`launch.launchesAsBase`). With a
+model of its own, it launches them as a hangar bay, from its model's launch points, without doors
+and with the usual bay's timing. A model built with `sltool shp from-obj` or `from-gltf` marks its
+launch points with `launch_point` objects ([Modding](../guide/modding.md#models-from-obj)).
+
+**Fix:** the player's engine is heard however the player's ship comes into flight
+([The player's engine](sound.md#the-players-engine)).
 
 **Improvement:** OpenReliant's shadows leave out a mesh that keeps the sun out by its light mask, so
 the hangar's walls cast none over the ship, which shows lit within them as in the original
