@@ -470,8 +470,8 @@ pub const Table = struct {
         table.track(kept) catch {};
     }
 
-    /// The key the table keeps the texture `name`, or its `copy`, under: the name in lower case,
-    /// after the copy's letter, which the caller owns.
+    /// The key the table files the texture `name` under, or its `copy`: the name in lower case,
+    /// after the copy's letter. The caller owns it.
     fn keyOf(table: *Table, name: []const u8, copy: ?Copy) Allocator.Error![]u8 {
         const plain = tcache.fileName(name);
         const start: usize = @intFromBool(copy != null);
@@ -616,8 +616,8 @@ pub fn mipmapsWide(gpa: Allocator, picture: png.WidePicture, content: Content, l
     return mipmapLevels(gpa, .{ .width = picture.width, .height = picture.height, .format = .rgba16, .texels = bytes }, content, longest);
 }
 
-/// The mipmap levels of `picture`, a level of 8-bit or 16-bit RGBA whose texels it takes, made for
-/// `content`.
+/// The mipmap levels of `picture`, a level of 8-bit or 16-bit RGBA, made for `content`. The
+/// levels take over `picture`'s texels.
 fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) Allocator.Error![]const Level {
     var levels: std.ArrayList(Level) = .empty;
     errdefer {
@@ -634,7 +634,7 @@ fn mipmapLevels(gpa: Allocator, picture: Level, content: Content, longest: u32) 
             .rgba16 => for (std.mem.bytesAsSlice([8]u8, bytes)) |*texel| {
                 std.mem.writeInt(u16, texel[6..8], std.math.maxInt(u16), .native);
             },
-            else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+            else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
         }
     }
     var finest = picture;
@@ -768,7 +768,7 @@ fn unitsAt(level: Level, at: usize) [4]f32 {
         .rgba16 => for (&units, 0..) |*value, channel| {
             value.* = texels.unit(u16, std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native));
         },
-        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
     return units;
 }
@@ -784,7 +784,7 @@ pub fn samplesAt(level: Level, at: usize) [4]u16 {
         .rgba16 => for (&samples, 0..) |*wide, channel| {
             wide.* = std.mem.readInt(u16, level.texels[(at * 4 + channel) * 2 ..][0..2], .native);
         },
-        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
     return samples;
 }
@@ -817,7 +817,7 @@ fn store(level: Level, at: usize, units: [4]f32) void {
         .rgba16 => for (units, 0..) |value, channel| {
             std.mem.writeInt(u16, bytes[(at * 4 + channel) * 2 ..][0..2], texels.nearest(u16, value), .native);
         },
-        else => unreachable, // Mipmaps are made of 8-bit or 16-bit RGBA alone.
+        else => unreachable, // Callers pass 8-bit or 16-bit RGBA alone (`Format.rgba`).
     }
 }
 

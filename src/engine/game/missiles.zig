@@ -174,7 +174,8 @@ pub const Type = enum(i16) {
     }
 
     pub fn format(missile: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return writer.writeAll(missile.scriptName().?);
+        if (missile.added()) |from_mod| return writer.writeAll(from_mod.name);
+        return writer.writeAll(@tagName(missile.base()));
     }
 };
 

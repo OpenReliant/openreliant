@@ -184,8 +184,6 @@ fn writeView(out: *Io.Writer, read: input.Joystick, readings: []const i16, layou
     }
 }
 
-/// Prints a controller's entry in the list: its name, type, axis layout, and the setting that
-/// chooses it.
 /// Says which `starlancer.ini` the settings come from, or that `directory` has none, in which case
 /// every controller setting is left to the automatic choice.
 fn writeSettingsSource(out: *Io.Writer, directory: []const u8, settings_file: Profile) !void {
@@ -201,6 +199,8 @@ fn writeSettingsSource(out: *Io.Writer, directory: []const u8, settings_file: Pr
     try out.writeAll("Name the folder the game is installed in: openreliant joysticks <game folder> [--watch]\n\n");
 }
 
+/// Prints a controller's entry in the list: its name, type, axis layout, and the setting that
+/// chooses it.
 fn describe(out: *Io.Writer, number: usize, found: joystick.Found, controller: *joystick.Controller, setup: joystick.Setup, chosen: bool) !void {
     const plain = controller.sdlJoystick();
     try out.print("{d}. {s}{s}\n   {s}, USB ID {x:0>4}:{x:0>4}", .{

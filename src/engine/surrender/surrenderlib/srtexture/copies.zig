@@ -9,7 +9,7 @@
 //!
 //! **Improvement:** OpenReliant makes the missing copy from the picture. The picture's brightness
 //! is stretched over its own range, then sent through a curve onto the copy's colour. The range,
-//! the curves and the colours are fitted to the game's own copies of `yank_1`, `yank_2`, `sam_3`
+//! the curves and the colours are fitted to the game's copies of `yank_1`, `yank_2`, `sam_3`
 //! and `wolver`. The game's copies scatter round the curve, as they are dithered into 256 colours;
 //! the copies OpenReliant makes are smooth.
 

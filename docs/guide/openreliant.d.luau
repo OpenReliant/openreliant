@@ -350,7 +350,7 @@ type Hud = {
     set_display_enabled: (name: string, enabled: boolean) -> boolean,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
-    -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own.
+    -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     -- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),
@@ -390,7 +390,7 @@ type Ui = {
     show_screen: (name: string?) -> boolean,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
-    -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies the game's own.
+    -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     -- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),

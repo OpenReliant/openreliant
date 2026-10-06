@@ -1,4 +1,4 @@
-//! OpenReliant's: the records mods add, each family numbered after the game's own: ship types
+//! OpenReliant's: the records mods add, each family numbered after the game's records: ship types
 //! ([#333](https://github.com/OpenReliant/openreliant/issues/333)), gun types, missile types and
 //! pilots ([#640](https://github.com/OpenReliant/openreliant/issues/640)).
 //!
@@ -52,8 +52,8 @@ pub fn Spec(comptime Base: type, comptime Extra: type) type {
     return struct {
         /// What the log calls one, such as `ship type`.
         noun: []const u8,
-        /// The manifest's section that lists a mod's records, and the prefix of each one's own
-        /// section.
+        /// The manifest's section that lists a mod's records, and the prefix of the section that
+        /// describes each one.
         list_section: []const u8,
         item_section: []const u8,
         /// Its first number, the one after the game's last, and the number past its last.

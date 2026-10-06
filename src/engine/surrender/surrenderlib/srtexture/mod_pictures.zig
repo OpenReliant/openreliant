@@ -479,14 +479,14 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
     leaveOut(gpa, &made.maps.emissive, emissive_format, compressing, name, .emissive);
     // The length of the normals' mean goes to the material map's alpha, as BC5 and RG16 keep two
     // channels.
-    if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (!normals[0].format.compressed() and orm[0].format == .rgba8) {
+    if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (normals[0].format.rgba() and orm[0].format == .rgba8) {
         for (normals, orm) |normal, values| {
             const into: []u8 = @constCast(values.texels);
             for (0..@as(usize, normal.width) * normal.height) |at| into[at * 4 + 3] = srtexture.sample8(srtexture.samplesAt(normal, at)[3]);
         }
     };
     if (!compressing) {
-        if (made.maps.normal) |*levels| if (!levels.*[0].format.compressed()) try twoChannels(gpa, levels);
+        if (made.maps.normal) |*levels| if (levels.*[0].format.rgba()) try twoChannels(gpa, levels);
         return false;
     }
     const held = compressor.?;
@@ -504,7 +504,7 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
 fn leaveOut(gpa: Allocator, levels: *?[]const Level, wanted: Level.Format, compressing: bool, name: []const u8, map: MapFile) void {
     const found = levels.* orelse return;
     const format = found[0].format;
-    const makes = (format == .rgba8 or format == .rgba16) and (compressing or !wanted.compressed());
+    const makes = format.rgba() and (compressing or !wanted.compressed());
     if (format == wanted or makes) return;
     log.warn("the {s} of {s} is left out: it is in {t}, and goes with a picture in {t}", .{ map.label(), name, format, wanted });
     freeLevels(gpa, found);

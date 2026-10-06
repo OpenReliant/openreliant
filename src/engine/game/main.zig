@@ -1767,7 +1767,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     start.display.objectives.reset(number, all.mission25_second_part);
     if (world.countermeasures) |dropped| dropped.reset();
     // The subtarget's parts picked out in red are put back before the objects go, which the game
-    // does as the mission before ends (`mission_run`, `0x00494260`).
+    // does as the mission before ends (`mission_run`, at `0x00494260`).
     start.display.subtarget.clear(all);
     all.reset(world.random);
     // The shell and the debris, counted as used so the sweep below keeps them.

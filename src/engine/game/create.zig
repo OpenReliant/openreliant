@@ -55,7 +55,7 @@ pub const atmosphere = @import("create/atmosphere.zig");
 pub const escort = @import("create/escort.zig");
 
 /// Ship types: the records of `shipstats.bin`, and the entries of the tables they index. Types
-/// above the last, markers and nav points among them, have no stats, but for the types mods add
+/// above the last have no stats, markers and nav points among them, except the types mods add
 /// (`max_ship_types`).
 pub const ship_type_count = 256;
 

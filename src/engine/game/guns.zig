@@ -164,7 +164,8 @@ pub const GunType = enum(u8) {
     }
 
     pub fn format(gun_type: GunType, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return writer.writeAll(gun_type.scriptName().?);
+        if (gun_type.added()) |from_mod| return writer.writeAll(from_mod.name);
+        return writer.writeAll(@tagName(gun_type.base()));
     }
 };
 

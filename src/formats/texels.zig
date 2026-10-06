@@ -26,6 +26,11 @@ pub const Format = enum {
     rg16,
 
     /// Whether it holds blocks of 4 by 4 pixels.
+    /// Whether it is 8-bit or 16-bit RGBA, as pictures are read and mipmapped.
+    pub fn rgba(format: Format) bool {
+        return format == .rgba8 or format == .rgba16;
+    }
+
     pub fn compressed(format: Format) bool {
         return switch (format) {
             .rgba8, .rgba16, .rg16 => false,

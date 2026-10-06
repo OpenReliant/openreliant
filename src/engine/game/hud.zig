@@ -2201,11 +2201,6 @@ pub fn drawViewName(pen: Pen, last_view: camera.View) Allocator.Error!void {
     _ = try pen.text(.{ pen.middle()[0], pen.span(view_name_down) }, text, .centre);
 }
 
-/// The launch's caption (`hud_draw`, `0x00484601`): while it is on, the date of the mission being
-/// flown, typed out at the foot of the screen a letter more each time `letter_ticks` of the game's
-/// ticks have passed, with a cursor after it until the whole date shows. The Reliant's launch puts
-/// it on as the player's ship drops out (`launch.reliant`), and off as the launch ends. It shows in
-/// every view.
 /// The display's message lines (`hud_messages`, `0x0057BC5C`, and `hud_message_count`,
 /// `0x0057BF48`): up to four, oldest first, each shown until its time is up
 /// (`hud_message_until`, `0x0056679C`). The multiplayer kill messages come through them, and a
@@ -2222,6 +2217,9 @@ pub const Messages = struct {
     /// The most lines there are, and the bytes each holds with its end.
     pub const capacity = 4;
     pub const line_size = 100;
+
+    /// What each line is drawn after (`0x00502570`).
+    const line_prefix = "- ";
 
     /// The ticks a line is shown for (`hud_message_add`).
     pub const shown_for = 1000;
@@ -2268,9 +2266,11 @@ pub const Messages = struct {
     pub fn draw(messages: *const Messages, pen: Pen, font: *Opened) Allocator.Error!void {
         var at = pen.placed(offset, 0.5, 0.5);
         for (0..messages.count) |index| {
-            var buffer: [line_size + 2]u8 = undefined;
-            const text = std.fmt.bufPrint(&buffer, "- {s}", .{messages.line(index)}) catch unreachable;
-            _ = try pen.textIn(font, at, text, .left);
+            const shown = messages.line(index);
+            var buffer: [line_prefix.len + line_size]u8 = undefined;
+            @memcpy(buffer[0..line_prefix.len], line_prefix);
+            @memcpy(buffer[line_prefix.len..][0..shown.len], shown);
+            _ = try pen.textIn(font, at, buffer[0 .. line_prefix.len + shown.len], .left);
             at = pen.moved(at, .{ 0, spacing });
         }
     }
@@ -2301,6 +2301,11 @@ test Messages {
     try std.testing.expectEqual(Messages.line_size - 1, messages.line(3).len);
 }
 
+/// The launch's caption (`hud_draw`, `0x00484601`): while it is on, the date of the mission being
+/// flown, typed out at the foot of the screen a letter more each time `letter_ticks` of the game's
+/// ticks have passed, with a cursor after it until the whole date shows. The Reliant's launch puts
+/// it on as the player's ship drops out (`launch.reliant`), and off as the launch ends. It shows in
+/// every view.
 pub const Caption = struct {
     /// `launch_caption_on` (`0x00569934`).
     on: bool = false,

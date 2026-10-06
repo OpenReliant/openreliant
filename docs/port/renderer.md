@@ -68,7 +68,7 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   `srofiles.modelLoad`). Their files are read on the game's thread, decoded on as many threads as
   the computer has cores, each picture's maps on threads of their own, and made ready for the
   device on the game's thread again. PNG files inflate with zlib, built from a pinned package,
-  which is several times faster than `std.compress.flate`, and each mipmap level's rows are shared
+  which is faster than `std.compress.flate`, and each mipmap level's rows are shared
   out between threads (`srtexture.shareRows`). The original finds each texture as it builds the
   mesh that shows it.
 - What it compressed is kept in the game folder's `cache/textures` (`platform/texture_cache.zig`):

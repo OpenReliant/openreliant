@@ -239,35 +239,21 @@ fn samplesText(samples: u8) []const u8 {
 
 /// Where the VIDEO tab's rows end their labels: 20 right of the game's, which leaves room for the
 /// check boxes left of the rows below (`video.Check`).
-pub const edge = Line.original_edge + 20;
+pub const edge = Line.list_edge;
 
 /// The space the tab keeps between what it lays out, from the tabs down to the buttons: the tabs and
-/// GRAPHICS, GRAPHICS and the pane, and the pane and the rows below it; and the pane's rows keep
-/// `inside` from its frame.
+/// GRAPHICS, GRAPHICS and the pane, and the pane and the rows below it.
 pub const gap = 9;
-const inside = 4;
 
 /// How far apart the tab's rows stand, 30: their arrows' boxes a little apart, as the game's video
 /// screen keeps its fewer rows, 37 apart.
-pub const row_spacing = Line.arrows_height + inside;
+pub const row_spacing = Pane.list_spacing;
 
 /// GRAPHICS, the presets' row, its arrows' box a gap below the tabs' capitals.
 const presets_line: Line = .{ .y = 121, .edge = edge };
 
-/// The pane (`widgets.Pane`), a frame as the controls' panes are, from x 45 to where the screen's
-/// rows reach, a gap below GRAPHICS' arrows; its rows `inside` it; and its arrows right of its top.
-const pane: Pane = pane: {
-    const top = presets_line.y - 1 + Line.arrows_height + gap;
-    const frame_line = 2;
-    const rows_height = (shown_rows - 1) * row_spacing + Line.arrows_height;
-    break :pane .{
-        .frame = .{ .at = .{ 45, top }, .extent = .{ 520, 2 * frame_line + 2 * inside + rows_height - 1 } },
-        .arrows = .{ .at = .{ 570, top } },
-        .first = top + frame_line + inside + 1,
-        .spacing = row_spacing,
-        .edge = edge,
-    };
-};
+/// The pane (`widgets.Pane.settingsList`), a gap below GRAPHICS' arrows.
+const pane: Pane = .settingsList(presets_line.y - 1 + Line.arrows_height + gap, shown_rows);
 
 /// The rows the pane shows at once.
 pub const shown_rows = 4;

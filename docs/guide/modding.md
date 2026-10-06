@@ -161,7 +161,7 @@ sRGB-encoded, as a PNG's are.
 The loadout draws the ships in green and the missiles and guns in red. The game keeps a green and a
 red copy of each ship texture, named with a `g` or an `r` in front: `gyank_2` and `ryank_2` for
 `yank_2`. You don't need to make them. Where your mod gives a picture but no copy, OpenReliant makes
-the copy from the picture, in the same shades as the game's own copies. To draw something else in
+the copy from the picture, in the same shades as the game's copies. To draw something else in
 the loadout, give the copy as a picture of its own, such as `gyank_2.png`. A picture that comes
 compressed already, in a DDS or KTX2 file, can't be turned green, so give its copies as files too.
 
@@ -463,7 +463,7 @@ What all four have in common:
   `predator` or `pulse_cannon`, or by its number. Guns, missiles and pilots need one.
 - `Name` is what the game calls it, such as on the flight display. Without it, it takes its base's
   name.
-- When it starts, OpenReliant numbers what the mods add after the game's own records, mod by mod in
+- When it starts, OpenReliant numbers what the mods add after the game's records, mod by mod in
   load order, so the numbers depend on which mods are on. Scripts therefore use names: the mod's
   folder name or its archive's name without `.hog`, a colon, and the name in the manifest, such as
   `bananas:banana_gun` for the gun `banana_gun` of the mod in the folder `bananas` or in
