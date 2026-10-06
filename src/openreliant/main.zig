@@ -701,9 +701,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The pilot as the game starts: the call sign the profile gives, as `campaign_new` reads it,
     // and the list of call signs, which `WinMain` reads and writes straight back (`0x004A919B`).
     if (flow.in_front_end) {
-        if (directory.readFileAlloc(io, game.gameflow.profile_name, arena, .limited(engine.files.max_file_size))) |bytes| {
+        if (engine.files.readFile(io, arena, directory, game.gameflow.profile_name, .limited(engine.files.max_file_size)) catch null) |bytes| {
             front.pilot.call_sign.set(game.gameflow.profileCallSign(bytes));
-        } else |_| {}
+        }
         const player_name = strings.string(@backingInt(game.interface.pilot_roster.String.player)) orelse "";
         front.pilot_roster.list = game.winmain.loadCallSigns(settings_file.profile, player_name);
         try game.winmain.saveCallSigns(&front.pilot_roster.list, settings_file);
@@ -1236,8 +1236,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // What the menu's screens saved goes to the file.
         if (settings_file.changed) {
             settings_file.changed = false;
-            directory.writeFile(io, .{ .sub_path = engine.profile.settings_name, .data = settings_file.profile.text }) catch |err|
-                std.log.warn("the settings can't be saved to {s}: {s}", .{ engine.profile.settings_name, @errorName(err) });
+            engine.files.writeFile(io, directory, engine.profile.settings_name, settings_file.profile.text) catch |err|
+                std.log.warn("the settings can't be saved to {s}: {t}", .{ engine.profile.settings_name, err });
         }
         if (screen.* == .software) try window.present(try screen.software.rgba(frame_arena.allocator()), size[0], size[1]);
         if (frames_left) |*left| {
@@ -2081,11 +2081,11 @@ fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const ga
     const path = game.winmain.missionPath(&path_buffer, number, second_part, false);
     if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| {
         // A mod's mission names the ship types the mod adds by the numbers its manifest gives them.
-        if (file.source == .mod) if (resources.mods.holder(std.Io.Dir.path.basenameWindows(path))) |mod| game.additions.remapMission(file.image, mod.name);
+        if (file.source == .mod) if (resources.mods.holder(engine.files.leaf(path))) |mod| game.additions.remapMission(file.image, mod.name);
         return file.image;
     }
     if (number == mission0.number) return @embedFile("mission0.dte");
-    std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, std.Io.Dir.path.basenameWindows(path), game.bigfile.resource_name });
+    std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, engine.files.leaf(path), game.bigfile.resource_name });
     return error.MissingMission;
 }
 

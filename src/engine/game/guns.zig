@@ -3187,7 +3187,7 @@ const test_looks = struct {
             // The texture cache keeps each file's name, without the directory the game names it by.
             const shots = std.enums.values(Image);
             var names: [shots.len + nova.images.len][]const u8 = undefined;
-            for (names[0..shots.len], shots) |*name, image| name.* = std.Io.Dir.path.basenameWindows(image.name());
+            for (names[0..shots.len], shots) |*name, image| name.* = files.leaf(image.name());
             names[shots.len..].* = nova.images;
             const textures = try @import("../surrender/surrenderlib/srtexture.zig").testing.Textures.init(gpa, &names);
             errdefer textures.deinit(gpa);
@@ -3422,6 +3422,7 @@ const hooks = @import("../hooks.zig");
 const hud = @import("hud.zig");
 const Random = @import("../random.zig").Random;
 const matmanager = @import("matmanager.zig");
+const files = @import("../files.zig");
 const input = @import("../input.zig");
 const objects = @import("objects.zig");
 const particles = @import("particles.zig");

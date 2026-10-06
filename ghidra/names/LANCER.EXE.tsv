@@ -381,8 +381,13 @@ address	kind	name	type	comment
 00562dec	data	pilot_rank	int	The pilot's rank, 0 to 8, by rank_kills
 004c7e20	function	hog_open	void * __fastcall (char *path)	Opens a .HOG archive (bigfile.cpp): the file, a Win32 handle to it, and its header and directory read whole; null unless it starts BIGF
 004c7f20	function	hog_close	void __fastcall (void *hog)	
-004c7f60	function	hog_read_file	void * __fastcall (void *hog, char *name)	Reads a file from the archive, expanding RefPack: the name less an extension beginning ut, from its last backslash on; a missing one is fatal (HOG bigread2)
+004c7f60	function	hog_read_file	void * __fastcall (void *hog, char *name)	Reads a file from the archive, expanding RefPack (10 FB only): the name cut at its first dot when ut follows, with case, then from its last backslash past the first character; a missing one is fatal (HOG_bigread2)
 004c8110	function	hog_read_file_as_named	void * __fastcall (void *hog, char *name)	hog_read_file without shortening the name
+004bff10	function	debug_print	void __cdecl (int level, char *format, ...)	Does nothing in the retail build; called with a level and a printf format, such as hog_read_file's lookup name
+004c36d0	function	SR_STR	char * __cdecl (char *format, ...)	Formats into a static buffer (sr_str_buffer) with vsprintf and returns it, for an assertion's message; a null format is fatal (SR_STR: Null format string passed.)
+004c5b80	function	hog_load_size	int __fastcall (char *name)	A member's size in resource.hog (hog_file_size with resource_hog)
+004cb420	function	SR_FILE_alloc	void * __fastcall (char *name)	Reads a file from resource.hog by its full name (hog_read_file_as_named) into a block named after it; a null name is fatal
+005e6350	data	sr_str_buffer	char[]	The buffer SR_STR formats into
 004c81f0	function	hog_file_size	int __fastcall (void *hog, char *name)	A member's size, expanded for a RefPack one; 0 when missing
 004c8370	function	hog_seek	int __fastcall (void *hog, char *name)	Finds a member by name, ignoring case, and seeks the archive's stream to it; its stored size, or 0 when missing
 004c83f0	function	hog_locate	int __fastcall (void *hog, char *name)	Likewise, moving the archive's Win32 handle instead

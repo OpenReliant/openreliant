@@ -123,10 +123,11 @@ pub const Archive = struct {
         return bytes;
     }
 
-    /// Reads a member, decompressing it when it is RefPack-compressed.
+    /// Reads a member, decompressing it when it starts `10 FB`, the one form of RefPack stream the
+    /// game expands (`refpack.gameExpands`).
     pub fn read(archive: Archive, gpa: Allocator, entry: Entry) !Contents {
         const raw = try archive.readRaw(gpa, entry);
-        if (!refpack.looksCompressed(raw)) return .{ .bytes = raw, .compressed = false };
+        if (!refpack.gameExpands(raw)) return .{ .bytes = raw, .compressed = false };
         defer gpa.free(raw);
         return .{ .bytes = try refpack.decompressAlloc(gpa, raw), .compressed = true };
     }
@@ -141,11 +142,13 @@ pub const Archive = struct {
         }
     };
 
-    /// The size a RefPack member expands to, from its header alone; null for a member stored as it
-    /// is, or one too short for the header its flags describe.
+    /// The size a RefPack member expands to, from its header alone, as `hog_file_size`
+    /// (`0x004C81F0`) reads it; null for a member the game reads as it is stored (one that doesn't
+    /// start `10 FB`), or one too short for its header.
     pub fn expandedSize(archive: Archive, entry: Entry) !?u32 {
         var head: [refpack.max_header_len]u8 = undefined;
         const n = try archive.file.readPositionalAll(archive.io, head[0..@min(entry.size, head.len)], entry.offset);
+        if (!refpack.gameExpands(head[0..n])) return null;
         const header = refpack.readHeader(head[0..n]) catch return null;
         return header.decompressed_size;
     }

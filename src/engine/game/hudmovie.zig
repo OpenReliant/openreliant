@@ -79,10 +79,14 @@ pub fn squadronFilm(name: []const u8, mission: u16) []const u8 {
     return name;
 }
 
-/// The member of `pilots.hog` a film's path names: the name from its last backslash on
+/// The member of `pilots.hog` a film's path names: what follows its first backslash
 /// (`hudmovie_play`, `0x0048D2CA`).
+///
+/// **Fix:** the game takes the character after the first backslash without checking there is one,
+/// so a path without a backslash reads from address 1 and crashes. OpenReliant takes the whole
+/// path.
 pub fn memberName(path: []const u8) []const u8 {
-    const at = std.mem.findScalarLast(u8, path, '\\') orelse return path;
+    const at = std.mem.findScalar(u8, path, '\\') orelse return path;
     return path[at + 1 ..];
 }
 
@@ -127,12 +131,12 @@ pub const Movie = struct {
         return .openAt(gpa, io, dir, archive_path);
     }
 
-    /// The films from the archive at `path` in `dir`.
+    /// The films from the archive at `path` in `dir`, found in any case (`bigfile.openArchive`).
     ///
     /// **Fix:** the game stops with a fatal error where it cannot open the archive; OpenReliant
     /// plays the radio's lines without their films.
     pub fn openAt(gpa: Allocator, io: Io, dir: Io.Dir, path: []const u8) Movie {
-        const archive = hog.Archive.open(gpa, io, dir, path) catch |err| none: {
+        const archive = bigfile.openArchive(gpa, io, dir, path) catch |err| none: {
             log.warn("the radio's films are left out: {s} cannot be opened: {s}", .{ path, @errorName(err) });
             break :none null;
         };
@@ -350,6 +354,8 @@ test squadronFilm {
 test memberName {
     try std.testing.expectEqualStrings("BUCC.fm8", memberName("pilots\\BUCC.fm8"));
     try std.testing.expectEqualStrings("static.fm8", memberName("static.fm8"));
+    // What follows the first backslash, as `hudmovie_play` cuts it.
+    try std.testing.expectEqualStrings("sub\\x.fm8", memberName("pilots\\sub\\x.fm8"));
 }
 
 test Movie {
@@ -357,7 +363,8 @@ test Movie {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    try testing.write(gpa, io, tmp.dir, "pilots.hog", &.{
+    // The archive is found in any case.
+    try testing.write(gpa, io, tmp.dir, "PILOTS.HOG", &.{
         .{ .name = "BUCC.fm8", .frames = 3, .colour = 0x40 },
         .{ .name = "static.fm8", .frames = 2, .colour = 0x80 },
     });

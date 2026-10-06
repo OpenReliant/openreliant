@@ -33,6 +33,7 @@ const videoreports = @import("videoreports.zig");
 const xtrabits = @import("xtrabits.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
+const files = @import("../files.zig");
 
 pub const badanov = @import("launch/badanov.zig");
 pub const bay = @import("launch/bay.zig");
@@ -278,7 +279,7 @@ pub fn launchesAsBase(carrier: gameobj.Type) bool {
     const added = carrier.added() orelse return true;
     const base_number = std.math.cast(create.TypeIndex, @backingInt(added.base)) orelse return false;
     const base = create.shipFiles(base_number).model orelse return false;
-    return std.ascii.eqlIgnoreCase(std.Io.Dir.path.basename(added.extra.model), base);
+    return std.ascii.eqlIgnoreCase(files.leaf(added.extra.model), base);
 }
 
 /// `order_launch_init` (`0x00418EB0`): prepares the ship in slot `index` to launch. For a flight
@@ -766,6 +767,7 @@ test launchesAsBase {
     var list = [_]additions.ships.Added{
         .{ .name = "a:refit", .mod = "a", .base = .reliant, .extra = .{ .model = "RELIANT.SHP" } },
         .{ .name = "a:ark", .mod = "a", .base = .reliant, .extra = .{ .model = "ark.shp" } },
+        .{ .name = "a:moved", .mod = "a", .base = .reliant, .extra = .{ .model = "ships\\RELIANT.SHP" } },
     };
     additions.ships.install(&list);
     defer additions.ships.reset();
@@ -774,6 +776,8 @@ test launchesAsBase {
     // The game's types, and a mod's type that keeps its base's model, launch as the base does.
     try std.testing.expect(launchesAsBase(.of(.reliant)));
     try std.testing.expect(launchesAsBase(refit));
+    // Its base's model named with a folder, on any system.
+    try std.testing.expect(launchesAsBase(@fromBackingInt(additions.ships.first + 2)));
     try std.testing.expectEqual(Style.reliant, Style.of(.of(.predator), refit, 0));
     // A model of its own launches as a hangar bay, without its base's doors.
     try std.testing.expect(!launchesAsBase(ark));

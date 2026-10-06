@@ -28,6 +28,7 @@ const hud = @import("../hud.zig");
 const itac = @import("../itac.zig");
 const language = @import("../language.zig");
 const loadout = @import("../../interface/loadout/loadout.zig");
+const files = @import("../../files.zig");
 
 const log = std.log.scoped(.fonts);
 
@@ -50,9 +51,9 @@ pub const handel_gothic = [_][]const u8{
 /// Whether Newtown replaces the game's font `name` (`handel_gothic`), ignoring folders and case, as
 /// the archives look up names.
 pub fn standsIn(name: []const u8) bool {
-    const base = std.Io.Dir.path.basenameWindows(name);
+    const base = files.leaf(name);
     for (handel_gothic) |font| {
-        if (std.ascii.eqlIgnoreCase(base, std.Io.Dir.path.basenameWindows(font))) return true;
+        if (std.ascii.eqlIgnoreCase(base, files.leaf(font))) return true;
     }
     return false;
 }

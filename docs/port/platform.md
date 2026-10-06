@@ -44,7 +44,7 @@ zig build -Dtarget=x86_64-linux-gnu
 zig build -Dtarget=aarch64-macos               # Apple silicon, from any Zig
 ```
 
-`openreliant [<game-directory>] [<option>...]` runs in the game's installed directory, or the one given, and reads `resource.hog` and `tcachehw.dat` from it as the original does ([`bigfile.zig`](../../src/engine/game/bigfile.zig)). It has no data of its own: without those files it reports what it needs and exits.
+`openreliant [<game-directory>] [<option>...]` runs in the game's installed directory, or the one given, and reads `resource.hog` and `tcachehw.dat` from it as the original does ([`bigfile.zig`](../../src/engine/game/bigfile.zig)). It finds each of the game's files and folders in any case, as Windows does, on every system ([`files.zig`](../../src/engine/files.zig)). It has no data of its own: without those files it reports what it needs and exits.
 
 `openreliant --help` lists the options, the keys OpenReliant adds, and the commands; each command's `--help` shows its own, and the guide describes them ([Configuration and options](../guide/configuration.md)). An invalid option or value is named in one line, and `openreliant` exits with status 2. The page comes from one table in [`options.zig`](../../src/openreliant/options.zig), which the compiler holds to having help for every option, and [`help.zig`](../../src/openreliant/help.zig) wraps it to 80 columns at compile time.
 
@@ -64,7 +64,7 @@ A Zig built for Intel Macs runs under Rosetta on Apple silicon and builds for In
 
 The result is the directory `openreliant` runs from, and it is the same on every system. The discs' archives hold the movies, the briefings (`.box`) and the debriefings' lines (`.mp3`), with the sprites and the sound banks of the screens that show them. `make game` uses the installer to create `game/install`. For user walkthroughs, see [User guide: Installation](../guide/installation.md).
 
-A disc can be a disc image, raw (`.bin`) or cooked (`.iso`), which is read with the project's own readers ([Disc images](../formats/disc-images.md)), or a folder with the disc's files, which is how a mounted disc appears. `--from` names one, and is given once for each disc, in either order. File names on a disc are matched case-insensitively, as on Windows, because Linux shows discs without Joliet names, like StarLancer's, in lower case. The files copied from the discs get upper-case names, as on the discs, so the engine finds `LANGUAGE.DLL` on every system.
+A disc can be a disc image, raw (`.bin`) or cooked (`.iso`), which is read with the project's own readers ([Disc images](../formats/disc-images.md)), or a folder with the disc's files, which is how a mounted disc appears. `--from` names one, and is given once for each disc, in either order. File names on a disc are matched case-insensitively, as on Windows, because Linux shows discs without Joliet names, like StarLancer's, in lower case. The files copied from the discs keep the upper-case names the discs give them.
 
 Without `--from`, the installer searches the drives for the discs:
 

@@ -1,7 +1,8 @@
 # Speech files
 
 The radio's lines, one file each in `ms_speech\msspeech.hog` ([`.HOG`](hog.md)), kept without the
-`.ut` extension the missions' scripts name them by: `ms1_ban_001.ut` is the member `MS1_BAN_001`;
+`.ut` extension the missions' scripts name them by ([reading a file](hog.md#reading-a-file)):
+`ms1_ban_001.ut` is the member `MS1_BAN_001`;
 Enriquez's words in the briefing, from the same archive: her last word before each mission,
 `enrbr_tag01` to `enrbr_tag28`, all but 12, and her speech at the campaign's end, `enddebriefing`
 ([Briefing](../engine/briefing.md)); and the scenes, the `.box` files of the discs' archives,

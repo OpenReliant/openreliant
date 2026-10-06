@@ -104,9 +104,9 @@ bound, which the `.HOG` writer checks before it keeps a member that begins `10 F
 ([writing an archive](hog.md#writing-an-archive)).
 
 The flags byte of a stream must be exactly `0x10`. `hog_read_file` expands a member only when it
-begins `10 FB`, and `refpack_expand` takes bit 0 as the compressed size's presence, which would
-make it read that size as the expanded one, and has no path for bit 7 (4-byte sizes), which is why
-a member holds at most 16777215 bytes.
+begins `10 FB`, and OpenReliant's archive reader and `sltool` follow the same rule. `refpack_expand`
+takes bit 0 as the compressed size's presence, which would make it read that size as the expanded
+one, and has no path for bit 7 (4-byte sizes), which is why a member holds at most 16777215 bytes.
 
 The bound, its two shapes and the shipped streams' values are from a comment on
 [#113](https://github.com/OpenReliant/openreliant/issues/113) by the

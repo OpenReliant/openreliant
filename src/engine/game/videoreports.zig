@@ -697,7 +697,7 @@ pub fn launchLine(world: gameobj.World, carrier: u16) void {
 }
 
 /// Where the radio's lines come from (`speech_hog`, `0x0057BC48`): `ms_speech\msspeech.hog`,
-/// whose members are the lines without their `.ut` extension (`lineName`).
+/// whose members are the lines without their `.ut` extension (`bigfile.memberName`).
 pub const speech_archive = "ms_speech/msspeech.hog";
 
 /// How many lines the radio's queue holds (`0x005295A0`, `0x74` bytes each).
@@ -865,43 +865,39 @@ pub const Queued = struct {
     }
 };
 
-/// The name a speech file is kept under in the archive (`hog_read_file`, `0x004C7F60`): the name
-/// from its last backslash on, less an extension beginning `ut`.
-pub fn lineName(name: []const u8) []const u8 {
-    const after = hudmovie.memberName(name);
-    const dot = std.mem.findScalarLast(u8, after, '.') orelse return after;
-    return if (std.ascii.startsWithIgnoreCase(after[dot + 1 ..], "ut")) after[0..dot] else after;
-}
-
 /// Reads the speech file that `speech` names into `gpa`, from a mod or from the speech archive
-/// `archive` (`speech_hog`), by the name `hog_read_file` looks up (`lineName`). A mod's file takes
-/// priority (`modLine`). Returns null if there's no archive and no mod has the file, and also,
-/// with a warning, if the archive doesn't have it or it can't be read.
+/// `archive` (`speech_hog`), as `hog_read_file` (`0x004C7F60`) does (`bigfile.memberName` and
+/// `bigfile.readNamed`). A mod's file takes priority (`modLine`). Returns null if there's no
+/// archive and no mod has the file, and also, with a warning, if the archive doesn't have it or it
+/// can't be read.
+///
+/// **Fix:** the game stops with a fatal error where a line is missing (`HOG_bigread2`);
+/// OpenReliant warns and leaves the line out.
 pub fn readLine(gpa: Allocator, mods: *const bigfile.Mods, archive: ?hog.Archive, speech: []const u8) ?[]u8 {
-    const name = lineName(speech);
+    var buffer: [bigfile.member_name_room]u8 = undefined;
+    const name = bigfile.memberName(&buffer, speech);
     const modded = modLine(gpa, mods, name) catch |err| {
-        log.warn("can't read the line {s}: {s}", .{ name, @errorName(err) });
+        log.warn("can't read the line {s}: {t}", .{ name, err });
         return null;
     };
     if (modded) |bytes| return bytes;
     const lines = archive orelse return null;
-    const entry = lines.find(name) orelse {
+    const read = bigfile.readNamed(lines, gpa, name) catch |err| {
+        log.warn("can't read the line {s}: {t}", .{ name, err });
+        return null;
+    };
+    return read orelse {
         log.warn("the line {s} is not in {s}", .{ name, speech_archive });
         return null;
     };
-    const contents = lines.read(gpa, entry) catch |err| {
-        log.warn("can't read the line {s}: {s}", .{ name, @errorName(err) });
-        return null;
-    };
-    return contents.bytes;
 }
 
-/// The line `name` (`lineName`) from the last mod that has it: a file of that name, as the speech
-/// archive names its members, or else one with the extension, as `sltool speech encode` writes it
-/// (`cbox.extension`). Null if no mod has either.
+/// The line `name` (`bigfile.memberName`) from the last mod that has it: a file of that name, as
+/// the speech archive names its members, or else one with the extension, as `sltool speech encode`
+/// writes it (`cbox.extension`). Null if no mod has either.
 fn modLine(gpa: Allocator, mods: *const bigfile.Mods, name: []const u8) bigfile.ReadError!?[]u8 {
     if (try mods.readFile(gpa, name)) |bytes| return bytes;
-    var buffer: [line_name_size + cbox.extension.len]u8 = undefined;
+    var buffer: [bigfile.member_name_room + cbox.extension.len]u8 = undefined;
     const named = std.mem.print(&buffer, "{s}" ++ cbox.extension, .{name}) catch return null;
     return mods.readFile(gpa, named);
 }
@@ -961,7 +957,7 @@ pub const Radio = struct {
     /// The radio with its lines from the archive at `lines` and its films from the one at `films`
     /// in `dir`.
     pub fn openAt(gpa: Allocator, io: Io, dir: Io.Dir, lines: []const u8, films: []const u8) Radio {
-        const archive = hog.Archive.open(gpa, io, dir, lines) catch |err| none: {
+        const archive = bigfile.openArchive(gpa, io, dir, lines) catch |err| none: {
             log.warn("the radio has no lines: can't open {s}: {s}", .{ lines, @errorName(err) });
             break :none null;
         };
@@ -1430,6 +1426,9 @@ test readLine {
         .{ .name = "ABRT_001", .data = "the game's line" },
         .{ .name = "ABRT_002", .data = "the game's other line" },
         .{ .name = "ABRT_003", .data = "the game's third line" },
+        // A line whose length's second byte is `FB`, which only a `10 FB` start would expand.
+        .{ .name = "ABRT_004", .data = "\x00\xFB\x00\x00speech" },
+        .{ .name = "x", .data = "cut at the first dot" },
     });
     try tmp.dir.createDirPath(io, "mods/voices");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_001", .data = "a mod's line" });
@@ -1457,13 +1456,15 @@ test readLine {
     defer gpa.free(alone);
     try std.testing.expectEqualStrings("a mod's line", alone);
     try std.testing.expectEqual(null, readLine(gpa, &mods, null, "ABRT_002.ut"));
-}
-
-test lineName {
-    try std.testing.expectEqualStrings("ms1_ban_001", lineName("ms1_ban_001.ut"));
-    try std.testing.expectEqualStrings("trnglnd_001", lineName("speech\\trnglnd_001.UT"));
-    try std.testing.expectEqualStrings("plck_001.wav", lineName("plck_001.wav"));
-    try std.testing.expectEqualStrings("abrt_001", lineName("abrt_001"));
+    // Read as the game reads them: as stored unless they start `10 FB`, the name cut at the first
+    // dot when `ut` follows, with case.
+    const stored = readLine(gpa, &mods, archive, "ABRT_004.ut").?;
+    defer gpa.free(stored);
+    try std.testing.expectEqualStrings("\x00\xFB\x00\x00speech", stored);
+    const cut = readLine(gpa, &mods, archive, "x.ut.wav").?;
+    defer gpa.free(cut);
+    try std.testing.expectEqualStrings("cut at the first dot", cut);
+    try std.testing.expectEqual(null, readLine(gpa, &mods, archive, "ABRT_002.UT"));
 }
 
 test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
