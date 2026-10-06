@@ -259,7 +259,7 @@ test "Loaded.tickClock" {
 }
 
 test shipSlot {
-    const ships = dte.testing.ships(2, @intFromEnum(gameobj.GameType.sabre));
+    const ships = dte.testing.ships(2, @backingInt(gameobj.GameType.sabre));
     var game: vm.machine.testing.Game = undefined;
     try game.init(std.testing.allocator, &.{}, .{ .ships = &ships });
     defer game.deinit();
@@ -290,7 +290,7 @@ test listPlayerWing {
     try std.testing.expectEqual(.none, all.slots[outsider].object.wing);
 
     // More ships than the wing holds list as many as fit.
-    listPlayerWing(all, &(.{wingman} ** (wing_size + 1)));
+    listPlayerWing(all, &@as([wing_size + 1]u16, @splat(wingman)));
     try std.testing.expectEqual(@as(WingSlots, @splat(wingman)), all.wing);
 }
 

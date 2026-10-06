@@ -181,7 +181,7 @@ pub fn emit(w: *Io.Writer, bindings: []const Binding, keys: []const Key, rows: [
         \\}};
         \\
         \\pub fn binding(action: Action) Binding {{
-        \\    return defaults[@intFromEnum(action)];
+        \\    return defaults[@backingInt(action)];
         \\}}
         \\
         \\comptime {{

@@ -417,7 +417,7 @@ test "parses a sprite with a palette and a shape" {
 
 test "rejects files that are not sprites" {
     try std.testing.expectError(error.NotASprite, Sprite.parse(&.{}));
-    try std.testing.expectError(error.NotASprite, Sprite.parse("2.00" ++ [_]u8{0} ** 4));
+    try std.testing.expectError(error.NotASprite, Sprite.parse("2.00" ++ @as([4]u8, @splat(0))));
     // A count the directory cannot hold.
     var bad: [8]u8 = (magic ++ [_]u8{ 0xFF, 0xFF, 0, 0 }).*;
     try std.testing.expectError(error.Truncated, Sprite.parse(&bad));

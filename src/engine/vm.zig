@@ -489,7 +489,7 @@ test ObjectEvents {
     events.flat()[max_event_values] = 7;
     try std.testing.expectEqual(7, events.destroyed[0]);
     try std.testing.expectEqual(9, events.destroyed[max_event_values - 1]);
-    try std.testing.expectEqual([_]u32{0} ** max_event_values, events.shot_at);
+    try std.testing.expectEqual(@as([max_event_values]u32, @splat(0)), events.shot_at);
 }
 
 test {

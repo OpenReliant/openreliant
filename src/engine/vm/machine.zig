@@ -240,7 +240,7 @@ pub const Tags = struct {
 };
 
 /// A free timer, as `mission_script_start` fills the table: every byte `0xFF`.
-const free_timer = std.mem.bytesToValue(vm.Timer, &([_]u8{0xFF} ** @sizeOf(vm.Timer)));
+const free_timer = std.mem.bytesToValue(vm.Timer, &@as([@sizeOf(vm.Timer)]u8, @splat(0xFF)));
 
 comptime {
     assert(free_timer.isFree());
@@ -752,7 +752,7 @@ pub const Machine = struct {
     /// return value, `previous` to carry on or zero to end the run.
     fn step(machine: *Machine, index: u8, previous: u32) Fault!u32 {
         const thread = &machine.threads[index];
-        const opcode: dte.Opcode = @enumFromInt(try machine.operand(thread));
+        const opcode: dte.Opcode = @fromBackingInt(@intCast(try machine.operand(thread)));
         switch (opcode) {
             // The comparisons take the values as unsigned (`CMP`, `SBB`), and the float ones load
             // each as a whole number (`FILD`), exactly, so they compare as the others do.
@@ -1622,14 +1622,14 @@ test "OpenInstrument holds a window of the display open until CloseInstrument" {
         fn build(r: *testing.Routine) !void {
             // The objectives open, which closes the wing status window; a window past the fifteen
             // opens nothing.
-            try r.op(.push_byte, &.{@intFromEnum(hud.windows.Window.objectives)});
+            try r.op(.push_byte, &.{@backingInt(hud.windows.Window.objectives)});
             try r.command("OpenInstrument");
             try r.op(.push_byte, &.{16});
             try r.command("OpenInstrument");
             // A second on, the objectives close.
             try r.op(.push_byte, &.{1});
             try r.command("Wait");
-            try r.op(.push_byte, &.{@intFromEnum(hud.windows.Window.objectives)});
+            try r.op(.push_byte, &.{@backingInt(hud.windows.Window.objectives)});
             try r.command("CloseInstrument");
             try r.op(.push_byte, &.{1});
             try r.op(.@"return", &.{});
@@ -2139,7 +2139,7 @@ test "a command's flags are read where its number places them, whatever the sect
         }
     }.build);
     defer gpa.free(code);
-    const entry = @intFromEnum(dte.Section.command_flags) * @sizeOf(dte.DirectoryEntry);
+    const entry = @backingInt(dte.Section.command_flags) * @sizeOf(dte.DirectoryEntry);
     for ([_]bool{ true, false }) |within| {
         var fixture: testing.Fixture = undefined;
         try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{1} });

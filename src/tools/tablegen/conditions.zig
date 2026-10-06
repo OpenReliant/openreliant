@@ -422,6 +422,6 @@ test "emit writes Zig that parses" {
     try std.testing.expect(std.mem.indexOf(u8, out.written(), ".slot = null,") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), ".slot = 3,\n        .veto_exempt = .once,") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), ".veto_exempt = null,") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".veto_exempt = @enumFromInt(127),") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".veto_exempt = @fromBackingInt(127),") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), ".subjects = .{ .ship = true, .flight_group = true, .squad = false, ._unused = 0 },") != null);
 }

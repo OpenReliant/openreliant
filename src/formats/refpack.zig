@@ -828,6 +828,9 @@ fn expectRoundTrip(data: []const u8) !void {
     try std.testing.expectEqualSlices(u8, data, expanded);
 }
 
+/// A sentence the tests repeat into a payload worth packing.
+const fox = "The quick brown fox jumps over the lazy dog. ";
+
 test compressAlloc {
     const gpa = std.testing.allocator;
 
@@ -843,7 +846,7 @@ test compressAlloc {
     try expectRoundTrip("abcdefghi");
 
     try expectRoundTrip("abcdabcdabcd");
-    try expectRoundTrip("The quick brown fox jumps over the lazy dog. " ** 200);
+    try expectRoundTrip(@as([]const u8, @ptrCast(&@as([200][fox.len]u8, @splat(fox.*)))));
 
     // One byte over and over: the matches overlap what they are writing, and the longest ones are
     // cut at 1028.
@@ -892,7 +895,7 @@ test Compressor {
 
     // A long payload, then a short one whose positions land where the first one's did in the
     // tables, then none, then the long one again: each comes back whole.
-    const long = "The quick brown fox jumps over the lazy dog. " ** 400;
+    const long: []const u8 = @ptrCast(&@as([400][fox.len]u8, @splat(fox.*)));
     for ([_][]const u8{ long, "The quick brown fox", "", long }) |data| {
         const stream = try compressor.compress(gpa, data);
         defer gpa.free(stream);

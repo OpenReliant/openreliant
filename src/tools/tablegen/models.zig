@@ -232,7 +232,7 @@ pub fn emit(w: *Io.Writer, tables: Tables) !void {
         \\
         \\/// What the engine loads for an attachment point, or null when it loads nothing for it.
         \\pub fn attachment(kind: Kind, id: u32) ?Attachment {
-        \\    const index = @intFromEnum(kind);
+        \\    const index = @backingInt(kind);
         \\    if (index >= attachments.len or id >= ids_per_kind) return null;
         \\    const entry = attachments[index][id];
         \\    if (entry.model == null and entry.sprite == null) return null;

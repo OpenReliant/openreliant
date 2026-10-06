@@ -254,8 +254,8 @@ pub const DifficultyDialog = struct {
         switch (under) {
             .start => return .start,
             .back => return .back,
-            .easier => difficulty.* = if (difficulty.* == .easy) .hard else @enumFromInt(@intFromEnum(difficulty.*) - 1),
-            .harder => difficulty.* = if (difficulty.* == .hard) .easy else @enumFromInt(@intFromEnum(difficulty.*) + 1),
+            .easier => difficulty.* = if (difficulty.* == .easy) .hard else @fromBackingInt(@intCast(@backingInt(difficulty.*) - 1)),
+            .harder => difficulty.* = if (difficulty.* == .hard) .easy else @fromBackingInt(@intCast(@backingInt(difficulty.*) + 1)),
         }
         return null;
     }
@@ -274,10 +274,10 @@ pub const DifficultyDialog = struct {
             .easier => try canvas.shape(art, lit_easier_shape, arrows_at),
             .harder => try canvas.shape(art, lit_harder_shape, harder_at),
         };
-        try canvas.string(large, dialog_title_at, @intFromEnum(String.set_game_difficulty), canvas_module.blue, .centre);
-        try canvas.string(large, difficulty_at, @intFromEnum(difficultyName(difficulty)), canvas_module.blue, .left);
-        try canvas.string(large, back_at, @intFromEnum(String.back), canvas_module.blue, .left);
-        try canvas.string(large, start_at, @intFromEnum(String.start), canvas_module.blue, .right);
+        try canvas.string(large, dialog_title_at, @backingInt(String.set_game_difficulty), canvas_module.blue, .centre);
+        try canvas.string(large, difficulty_at, @backingInt(difficultyName(difficulty)), canvas_module.blue, .left);
+        try canvas.string(large, back_at, @backingInt(String.back), canvas_module.blue, .left);
+        try canvas.string(large, start_at, @backingInt(String.start), canvas_module.blue, .right);
     }
 
     /// The dialog's shapes and places: its box, the arrows, each lit, its buttons, and its text.
@@ -405,8 +405,8 @@ pub const Roster = struct {
             roster.blinked = 0;
             roster.cursor_shown = !roster.cursor_shown;
         }
-        const enter_key = @intFromEnum(input.Key.enter);
-        const keypad_enter = @intFromEnum(input.Key.keypad_enter);
+        const enter_key = @backingInt(input.Key.enter);
+        const keypad_enter = @backingInt(input.Key.keypad_enter);
         if (keyboard.pressed(enter_key, .none, true) or keyboard.pressed(keypad_enter, .none, true)) roster.finishTyping(context);
 
         roster.under = canvas_module.itemAt(Item, &rects, pointer.at);
@@ -515,7 +515,7 @@ fn writeLabel(canvas: Canvas, label: Label, colour: [3]f32) canvas_module.Error!
         .large => canvas.fonts.large,
         .small => canvas.fonts.small,
     };
-    try canvas.string(font, label.at, @intFromEnum(label.string), colour, label.alignment);
+    try canvas.string(font, label.at, @backingInt(label.string), colour, label.alignment);
 }
 
 comptime {
@@ -545,7 +545,7 @@ test CallSigns {
 
 test "Text keeps what fits" {
     var call_sign: CallSign = .{};
-    call_sign.set("x" ** 40);
+    call_sign.set(&@as([40]u8, @splat('x')));
     try std.testing.expectEqual(31, call_sign.slice().len);
 }
 

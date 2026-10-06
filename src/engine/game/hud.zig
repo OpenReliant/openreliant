@@ -111,7 +111,7 @@ pub const Beep = enum(u3) {
 /// only (`camera.View.fromCockpit`), `view` being this frame's.
 pub fn playBeep(sound: *hog_snd.Sound, view: camera.View, which: Beep) void {
     if (!view.fromCockpit()) return;
-    _ = sound.playStandard(Beep.first_sample + @as(usize, @intFromEnum(which)), Beep.volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+    _ = sound.playStandard(Beep.first_sample + @as(usize, @backingInt(which)), Beep.volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
 }
 
 /// `playBeep` in `world`, where there is one and anything is heard in it.
@@ -2297,7 +2297,7 @@ test Messages {
     try std.testing.expectEqual(3, messages.count);
     try std.testing.expectEqualStrings("three", messages.line(0));
     // A long line keeps its first 99 bytes.
-    messages.add("x" ** 150, 50);
+    messages.add(&@as([150]u8, @splat('x')), 50);
     try std.testing.expectEqual(Messages.line_size - 1, messages.line(3).len);
 }
 
@@ -2602,7 +2602,7 @@ test namesView {
     try std.testing.expect(!namesView(.flyby));
     try std.testing.expect(!namesView(.landing_aside));
     try std.testing.expect(namesView(.landing_tube));
-    try std.testing.expect(namesView(@enumFromInt(0x27)));
+    try std.testing.expect(namesView(@fromBackingInt(@intCast(0x27))));
 }
 
 test instrumented {
@@ -2751,7 +2751,7 @@ pub const Icons = struct {
     /// **Improvement.** The game writes past the table for an icon of 20 or more; OpenReliant
     /// leaves such an icon alone.
     pub fn show(icons: *Icons, icon: Icon, state: IconState) void {
-        const at = @intFromEnum(icon);
+        const at = @backingInt(icon);
         if (at >= count) return;
         icons.slots[at] = .{ .state = state };
     }
@@ -2760,7 +2760,7 @@ pub const Icons = struct {
     /// when on, and when flashing for the first 50 ticks of every 100. Unlike the display's other
     /// flashes, one that runs past 100 carries what it ran over into the next and is lit.
     pub fn lit(icons: *Icons, icon: Icon, frame_duration: i32) bool {
-        const at = @intFromEnum(icon);
+        const at = @backingInt(icon);
         if (at >= count) return false;
         const slot = &icons.slots[at];
         switch (slot.state) {
@@ -3077,7 +3077,7 @@ pub const State = struct {
     /// while their icon is not flashing them dark.
     pub fn shows(state: *State, readout: Readout, frame_duration: i32) bool {
         return switch (readout) {
-            .coil => state.icons.slots[@intFromEnum(Icon.countermeasures)].state == .off or
+            .coil => state.icons.slots[@backingInt(Icon.countermeasures)].state == .off or
                 state.icons.lit(.countermeasures, frame_duration),
             else => true,
         };
@@ -3098,7 +3098,7 @@ pub const State = struct {
                 };
                 // Every light shakes but reverse thrust's.
                 const how: Draw = .{ .shake = if (light == .reverse_thrust) null else pen.shake };
-                if (drawn) try pen.shapeWith(@intFromEnum(light), at, how);
+                if (drawn) try pen.shapeWith(@backingInt(light), at, how);
                 if (comptime light.charged()) |kind| {
                     drawBar(pen, at, kind.spec().bar_down, state.devices.get(kind).bar(kind));
                 }
@@ -3785,8 +3785,8 @@ test Icons {
     icons.show(.ecm, .flash);
     try std.testing.expectEqual(0, icons.slots[2].ticks);
     // Past the table, an icon is left alone.
-    icons.show(@enumFromInt(25), .on);
-    try std.testing.expect(!icons.lit(@enumFromInt(25), 1));
+    icons.show(@fromBackingInt(@intCast(25)), .on);
+    try std.testing.expect(!icons.lit(@fromBackingInt(@intCast(25)), 1));
 }
 
 test Charge {
@@ -4066,7 +4066,7 @@ pub const ShipStatus = struct {
             try own.shapeWith(0, pen.moved(point, layout.schematic), how);
             var hits = shown.hits.iterator();
             while (hits.next()) |quadrant| {
-                try own.shapeWith(@as(usize, @intFromEnum(quadrant)) + 1, pen.moved(point, layout.hits), how);
+                try own.shapeWith(@as(usize, @backingInt(quadrant)) + 1, pen.moved(point, layout.hits), how);
             }
         }
         const found = shown.rings orelse return;
@@ -4787,7 +4787,7 @@ fn drawOffScreen(
     _ = xtrabits.clipLine(last, &from, &to);
     const edge: Edge = .of(to, last);
     const spec = edge.spec();
-    try pen.shape(Edge.shape.of(hostile) + @intFromEnum(edge), pen.moved(to, spec.shape));
+    try pen.shape(Edge.shape.of(hostile) + @backingInt(edge), pen.moved(to, spec.shape));
     _ = try pen.textIn(font, pen.moved(to, spec.text), range, spec.alignment);
 }
 
@@ -5386,7 +5386,7 @@ test "a shaken image is drawn a row at a time" {
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
     const into = recorder.interface();
-    const texels = [_]u8{0xFF} ** (2 * 3 * 4);
+    const texels: [2 * 3 * 4]u8 = @splat(0xFF);
     var level = [_]srtexture.Level{.{ .width = 2, .height = 3, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
     var random: libcmt.Rand = .{};
@@ -5405,7 +5405,7 @@ test "a mod's picture replaces a shape, drawn over the shape's rectangle" {
     // A picture for the set's shape in block 1, at four times the resolution.
     var written: std.Io.Writer.Allocating = .init(gpa);
     defer written.deinit();
-    try png.writeRgba(gpa, &written.writer, 12, 8, &(@as([12 * 8 * 4]u8, @splat(0xFF))));
+    try png.writeRgba(gpa, &written.writer, 12, 8, &@as([12 * 8 * 4]u8, @splat(0xFF)));
     const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "set_001.png", .bytes = written.written() }} };
     var art: Art = try .init(gpa, try .parse(bytes), null, .{ .files = pictures.files(), .set = "interface\\SET.SPR" });
     defer art.deinit(gpa);
@@ -5444,7 +5444,7 @@ test "Art.Pictures.first" {
     // A ship type's pictures, numbered from the shape they start at: picture 0 for shape 1.
     var written: std.Io.Writer.Allocating = .init(gpa);
     defer written.deinit();
-    try png.writeRgba(gpa, &written.writer, 12, 8, &(@as([12 * 8 * 4]u8, @splat(0xFF))));
+    try png.writeRgba(gpa, &written.writer, 12, 8, &@as([12 * 8 * 4]u8, @splat(0xFF)));
     const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "wire_000.png", .bytes = written.written() }} };
     var art: Art = try .init(gpa, try .parse(bytes), null, .{ .files = pictures.files(), .set = "wire", .first = 1 });
     defer art.deinit(gpa);
@@ -5474,7 +5474,7 @@ test "an image cut to a clip keeps the part of it inside" {
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
     const into = recorder.interface();
-    const texels = [_]u8{0xFF} ** (4 * 2 * 4);
+    const texels: [4 * 2 * 4]u8 = @splat(0xFF);
     var level = [_]srtexture.Level{.{ .width = 4, .height = 2, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
 

@@ -232,7 +232,7 @@ fn testOutput(source: Output.Source, channels: u8, master: ?mss.master.Settings)
     };
 }
 
-const test_file = @import("openreliant").wave.testing.pcm(&std.mem.toBytes([_]i16{16384} ** 4096));
+const test_file = @import("openreliant").wave.testing.pcm(&std.mem.toBytes(@as([4096]i16, @splat(16384))));
 
 test "feed from the software mixer" {
     var output = try testOutput(.{ .software = .init(22050) }, 2, null);

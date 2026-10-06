@@ -94,7 +94,7 @@ test digestOf {
     try std.testing.expectEqual(of, (try digestOf(several, "coyote.hog")).?);
     try std.testing.expectEqual(null, try digestOf(several, "other.hog"));
     try std.testing.expectError(error.Malformed, digestOf("not a checksum", "coyote.hog"));
-    try std.testing.expectError(error.Malformed, digestOf("zz" ++ "0" ** 62 ++ "  coyote.hog", "coyote.hog"));
+    try std.testing.expectError(error.Malformed, digestOf("zz" ++ @as([62]u8, @splat('0')) ++ "  coyote.hog", "coyote.hog"));
 }
 
 test digestFile {

@@ -154,5 +154,5 @@ test read {
     defer out.deinit();
     try emit(&out.writer, types);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".class = @enumFromInt(99)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".class = @fromBackingInt(99)") != null);
 }

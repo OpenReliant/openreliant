@@ -266,7 +266,7 @@ pub fn createShip(game: aigeneric.Context, bound: *const mission.Mission, index:
 /// reads the wing of a ship in no flight group from past the groups; OpenReliant makes the first of
 /// its own kind, and takes the second for a ship of no wing.
 fn shipType(all: *const create.Objects, bound: *const mission.Mission, ship: dte.Ship) gameobj.Type {
-    const kind: gameobj.Type = @enumFromInt(ship.kind);
+    const kind: gameobj.Type = @fromBackingInt(@intCast(ship.kind));
     if (all.mission_number < create.twins_from_mission) return kind;
     const group = bound.flightGroup(ship.flightGroup() orelse return kind) orelse return kind;
     if (group.wing != .player) return kind;
@@ -283,7 +283,7 @@ fn setAIShip(call: Call, ship: Ship) void {
     const machine = call.machine;
     const aim = call.args[2];
     const target = recordTarget(machine, aim, shipTarget(machine, call.thread, aim, 3));
-    const order: Order = @enumFromInt(halfword(call.args[0]));
+    const order: Order = @fromBackingInt(@intCast(halfword(call.args[0])));
     _ = aigeneric.give(ship.game, ship.index, order, target);
 }
 
@@ -435,7 +435,7 @@ fn setInvulnerabilityShip(call: Call, ship: Ship) void {
         if (component < object.components.len) object.components[component].invulnerable = @truncate(value);
         return;
     }
-    object.invulnerable = @enumFromInt(@as(u8, @truncate(value)));
+    object.invulnerable = @fromBackingInt(@intCast(@as(u8, @truncate(value))));
 }
 
 /// `cmd_Cloak_ship` (`0x00459F60`), called by `cmd_Cloak` (`0x00459F40`, command `0x58`):
@@ -516,7 +516,7 @@ fn comms(comptime speaker: Speaker, comptime flags: hudmovie.Flags) vm.Implement
             const machine = call.machine;
             const game = machine.game orelse return yield;
             const radio, const ctx = videoreports.onAir(game.world) orelse return yield;
-            const head: pilots.Head = @enumFromInt(call.args[1]);
+            const head: pilots.Head = @fromBackingInt(@intCast(call.args[1]));
             const name = machine.mission.text(call.args[2]) catch return yield;
             switch (speaker) {
                 .ship => {
@@ -617,7 +617,7 @@ fn jumpingOrLaunching(call: Call, ship: Ship) void {
 /// numbers takes the state the second gives (`hud.Objectives.set`).
 fn setObjective(call: Call, game: aigeneric.Context) void {
     const display = game.world.display orelse return;
-    display.objectives.set(call.args[0], @enumFromInt(halfword(call.args[1])));
+    display.objectives.set(call.args[0], @fromBackingInt(@intCast(halfword(call.args[1]))));
 }
 
 /// `cmd_SetShipAvoidance` (`0x00459A30`, command `0x49`) and `cmd_SetShipAvoidance_ship`
@@ -1233,7 +1233,7 @@ fn createFlightGroups(routine: *Routine, groups: []const u8) !void {
 }
 
 test recordTarget {
-    const ships = dte.testing.ships(2, @intFromEnum(gameobj.GameType.sabre));
+    const ships = dte.testing.ships(2, @backingInt(gameobj.GameType.sabre));
     var fixture: vm.machine.testing.Fixture = undefined;
     try fixture.init(std.testing.allocator, &.{}, .{
         .ships = &ships,
@@ -1258,7 +1258,7 @@ test "a mission's start part makes its ships and gives them their orders" {
     try createFlightGroups(&routine, &.{ 0, 1, 2, 3 });
     // The Sabres fight the player's ship.
     try routine.op(.push_flight_group, &.{1});
-    try routine.op(.push_byte, &.{@intCast(@intFromEnum(Order.fight))});
+    try routine.op(.push_byte, &.{@intCast(@backingInt(Order.fight))});
     try routine.op(.push_byte, &.{1});
     try routine.op(.push_ship, &.{0});
     try routine.command("SetAI");
@@ -1275,12 +1275,12 @@ test "a mission's start part makes its ships and gives them their orders" {
     defer gpa.free(code);
 
     var ships = [_]dte.Ship{
-        shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)),
-        shipRecord(1, 0, @intFromEnum(gameobj.GameType.grendel)),
-        shipRecord(2, 1, @intFromEnum(gameobj.GameType.sabre)),
-        shipRecord(3, 1, @intFromEnum(gameobj.GameType.sabre)),
+        shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+        shipRecord(1, 0, @backingInt(gameobj.GameType.grendel)),
+        shipRecord(2, 1, @backingInt(gameobj.GameType.sabre)),
+        shipRecord(3, 1, @backingInt(gameobj.GameType.sabre)),
         shipRecord(4, 2, dte.Ship.nav_point_kind),
-        shipRecord(5, 3, @intFromEnum(gameobj.GameType.reliant)),
+        shipRecord(5, 3, @backingInt(gameobj.GameType.reliant)),
     };
     for (ships[2..4]) |*sabre| sabre.pilot = 42;
     ships[2].yaw = 180;
@@ -1353,11 +1353,11 @@ test "the launch commands set ships up, start them, and wait for them" {
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .globals = &.{0},
         .ships = &.{
-            shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, 0, @intFromEnum(gameobj.GameType.grendel)),
-            shipRecord(2, 1, @intFromEnum(gameobj.GameType.sabre)),
-            shipRecord(3, 1, @intFromEnum(gameobj.GameType.sabre)),
-            shipRecord(4, 2, @intFromEnum(gameobj.GameType.reliant)),
+            shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, 0, @backingInt(gameobj.GameType.grendel)),
+            shipRecord(2, 1, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(3, 1, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(4, 2, @backingInt(gameobj.GameType.reliant)),
         },
         .flight_groups = &.{ groupRecord(5, .player), groupRecord(6, .none), groupRecord(7, .none) },
     });
@@ -1394,7 +1394,7 @@ test "the commands that set ships, the radio, the display and the space" {
     try routine.command("SetShipAvoidance");
     for ([_]u8{ 0, 2 }) |ship| {
         try routine.op(.push_ship, &.{ship});
-        try routine.op(.push_byte, &.{@intFromEnum(gameobj.Invulnerability.full)});
+        try routine.op(.push_byte, &.{@backingInt(gameobj.Invulnerability.full)});
         try routine.command("SetInvulnerability");
     }
     try routine.op(.push_byte, &.{1});
@@ -1402,10 +1402,10 @@ test "the commands that set ships, the radio, the display and the space" {
     try routine.op(.push_byte, &.{1});
     try routine.command("DisableGenericComms");
     // The objectives window opens, the second objective current, and nebula 6 asked for.
-    try routine.op(.push_byte, &.{@intFromEnum(hud.windows.Window.objectives)});
+    try routine.op(.push_byte, &.{@backingInt(hud.windows.Window.objectives)});
     try routine.command("OpenInstrument");
     try routine.op(.push_byte, &.{1});
-    try routine.op(.push_byte, &.{@intFromEnum(hud.Objectives.Status.current)});
+    try routine.op(.push_byte, &.{@backingInt(hud.Objectives.Status.current)});
     try routine.command("SetObjective");
     try routine.op(.push_byte, &.{6});
     try routine.command("SetEnvironmentFXNebula");
@@ -1418,9 +1418,9 @@ test "the commands that set ships, the radio, the display and the space" {
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, 1, @intFromEnum(gameobj.GameType.sabre)),
-            shipRecord(2, 1, @intFromEnum(gameobj.GameType.sabre)),
+            shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, 1, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(2, 1, @backingInt(gameobj.GameType.sabre)),
         },
         .flight_groups = &.{ groupRecord(3, .player), groupRecord(4, .none) },
     });
@@ -1512,19 +1512,19 @@ test "the commands mission 1 runs at the convoy" {
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .globals = &.{ 0, 0 },
         .ships = &.{
-            shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, 1, @intFromEnum(gameobj.GameType.sabre)),
-            shipRecord(2, 1, @intFromEnum(gameobj.GameType.sabre)),
+            shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, 1, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(2, 1, @backingInt(gameobj.GameType.sabre)),
             marker,
-            shipRecord(4, 3, @intFromEnum(gameobj.GameType.grendel)),
-            shipRecord(5, 3, @intFromEnum(gameobj.GameType.grendel)),
+            shipRecord(4, 3, @backingInt(gameobj.GameType.grendel)),
+            shipRecord(5, 3, @backingInt(gameobj.GameType.grendel)),
         },
         .flight_groups = &.{ groupRecord(6, .player), groupRecord(7, .none), groupRecord(8, .none), groupRecord(9, .none) },
     });
     defer game.deinit();
     const world = &game.mission;
     const fixture = &game.fixture;
-    world.tables.combat[@intFromEnum(gameobj.GameType.sabre)].targeting.targetable = true;
+    world.tables.combat[@backingInt(gameobj.GameType.sabre)].targeting.targetable = true;
     try game.start(game.spawning());
 
     const all = world.objects;
@@ -1564,8 +1564,8 @@ test "SetPlayerTarget keeps the player's target where its second argument names 
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.sabre)),
+            shipRecord(0, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.sabre)),
         },
     });
     defer game.deinit();
@@ -1611,16 +1611,16 @@ test "the commands that move ships, change their sides and leave them be" {
     const code = try finishPart(&routine);
     defer gpa.free(code);
 
-    var grendel = shipRecord(1, 0, @intFromEnum(gameobj.GameType.grendel));
+    var grendel = shipRecord(1, 0, @backingInt(gameobj.GameType.grendel));
     grendel.position = .{ 100, 0, 0 };
-    var sabres = [2]dte.Ship{ shipRecord(2, 1, @intFromEnum(gameobj.GameType.sabre)), shipRecord(3, 1, @intFromEnum(gameobj.GameType.sabre)) };
+    var sabres = [2]dte.Ship{ shipRecord(2, 1, @backingInt(gameobj.GameType.sabre)), shipRecord(3, 1, @backingInt(gameobj.GameType.sabre)) };
     sabres[0].position = .{ 0, 0, 1000 };
     sabres[1].position = .{ 0, 0, 2000 };
     var marker = shipRecord(4, 2, dte.Ship.nav_point_kind);
     marker.position = .{ 0, 0, 30000 };
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
-        .ships = &.{ shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)), grendel, sabres[0], sabres[1], marker },
+        .ships = &.{ shipRecord(0, 0, @backingInt(gameobj.GameType.predator)), grendel, sabres[0], sabres[1], marker },
         .flight_groups = &.{ groupRecord(5, .player), groupRecord(6, .none), groupRecord(7, .none) },
     });
     defer game.deinit();
@@ -1660,9 +1660,9 @@ test "the flyback markers and the Grendels go, and the action sphere takes its d
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, 1, @intFromEnum(gameobj.GameType.grendel)),
-            shipRecord(2, 1, @intFromEnum(gameobj.GameType.grendel)),
+            shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, 1, @backingInt(gameobj.GameType.grendel)),
+            shipRecord(2, 1, @backingInt(gameobj.GameType.grendel)),
         },
         .flight_groups = &.{ groupRecord(3, .player), groupRecord(4, .none) },
     });
@@ -1692,7 +1692,7 @@ test "DisableObject acts on each component a squad names" {
     // Ship 0 and a squad of two of its components, 0 and 2, as a mission hides a ship's cargo pods.
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
-        .ships = &.{shipRecord(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.mammoth))},
+        .ships = &.{shipRecord(0, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.mammoth))},
         .objects = &.{ objectRecord(.ship, 0, 0), objectRecord(.squad, 0, 0) },
         .squads = &.{dte.testing.squad(1, 0)},
         .squad_members = &.{ memberRecord(0, 0, 0), memberRecord(0, 0, 2) },
@@ -1746,8 +1746,8 @@ test "the commands of Instant Action's bosses and its end" {
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.kurgan)),
+            shipRecord(0, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.kurgan)),
         },
     });
     defer game.deinit();
@@ -1816,8 +1816,8 @@ test "Scanner looks for a ship, and Fire holds its trigger" {
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.sabre)),
+            shipRecord(0, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.sabre)),
         },
     });
     defer game.deinit();
@@ -1854,8 +1854,8 @@ test "DisableLights puts a ship's lights out, the static lights baked into its p
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.kurgan)),
+            shipRecord(0, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.kurgan)),
         },
     });
     defer game.deinit();
@@ -1924,10 +1924,10 @@ test "ReplaceSubObject puts a ship in a component's place, a cargo pod turned as
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.kurgan)),
-            shipRecord(2, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.sabre)),
-            shipRecord(3, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.cargo_pod)),
+            shipRecord(0, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.kurgan)),
+            shipRecord(2, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(3, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.cargo_pod)),
         },
     });
     defer game.deinit();
@@ -2004,10 +2004,10 @@ test "Dock gives its order at a port, or at a flight group's ports" {
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, 0, @intFromEnum(gameobj.GameType.sabre)),
-            shipRecord(2, 0, @intFromEnum(gameobj.GameType.sabre)),
-            shipRecord(3, 1, @intFromEnum(gameobj.GameType.reliant)),
+            shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, 0, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(2, 0, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(3, 1, @backingInt(gameobj.GameType.reliant)),
         },
         .flight_groups = &.{ groupRecord(4, .none), groupRecord(5, .none) },
     });
@@ -2043,9 +2043,9 @@ test "the follow commands give their orders along the curves" {
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .ships = &.{
-            shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)),
-            shipRecord(1, 0, @intFromEnum(gameobj.GameType.sabre)),
-            shipRecord(2, 0, @intFromEnum(gameobj.GameType.sabre)),
+            shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, 0, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(2, 0, @backingInt(gameobj.GameType.sabre)),
             shipRecord(3, dte.Ship.no_flight_group, point),
             shipRecord(4, dte.Ship.no_flight_group, point),
         },
@@ -2094,10 +2094,10 @@ test "the director's commands stack shots, wait for them and stop them" {
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .globals = &.{0},
         .ships = &.{
-            shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator)),
+            shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
             shipRecord(1, dte.Ship.no_flight_group, point),
             shipRecord(2, dte.Ship.no_flight_group, point),
-            shipRecord(3, 0, @intFromEnum(gameobj.GameType.sabre)),
+            shipRecord(3, 0, @backingInt(gameobj.GameType.sabre)),
         },
         .flight_groups = &.{groupRecord(4, .player)},
         .curves = &.{dte.testing.curve(1, 2, .{ 0, 0, 0 }, .{ 0, 0, 1000 })},
@@ -2189,7 +2189,7 @@ test "the radio's commands say lines and wait for their films" {
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
         .globals = &.{0},
-        .ships = &.{shipRecord(0, 0, @intFromEnum(gameobj.GameType.predator))},
+        .ships = &.{shipRecord(0, 0, @backingInt(gameobj.GameType.predator))},
         .flight_groups = &.{groupRecord(1, .player)},
     });
     defer game.deinit();
@@ -2251,7 +2251,7 @@ test "Fly aims at the halfword its target gives, and gives no speed where it is 
     const code = try finishPart(&routine);
     defer gpa.free(code);
 
-    const ships = dte.testing.ships(3, @intFromEnum(gameobj.GameType.sabre));
+    const ships = dte.testing.ships(3, @backingInt(gameobj.GameType.sabre));
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{ .ships = &ships });
     defer game.deinit();
@@ -2283,10 +2283,10 @@ test "SetInvulnerability reaches the player's ship in the simulator's training, 
     defer routine.deinit();
     // The player's ship and the Sabre's component 1 invulnerable, and its component 0 targetable.
     try routine.op(.push_ship, &.{0});
-    try routine.op(.push_byte, &.{@intFromEnum(gameobj.Invulnerability.full)});
+    try routine.op(.push_byte, &.{@backingInt(gameobj.Invulnerability.full)});
     try routine.command("SetInvulnerability");
     try routine.op(.push_component, &.{ 1, 1 });
-    try routine.op(.push_byte, &.{@intFromEnum(gameobj.Invulnerability.player_can_hit)});
+    try routine.op(.push_byte, &.{@backingInt(gameobj.Invulnerability.player_can_hit)});
     try routine.command("SetInvulnerability");
     try routine.op(.push_component, &.{ 1, 0 });
     try routine.op(.push_byte, &.{1});
@@ -2294,7 +2294,7 @@ test "SetInvulnerability reaches the player's ship in the simulator's training, 
     const code = try finishPart(&routine);
     defer gpa.free(code);
 
-    const ships = dte.testing.ships(2, @intFromEnum(gameobj.GameType.sabre));
+    const ships = dte.testing.ships(2, @backingInt(gameobj.GameType.sabre));
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{ .ships = &ships });
     defer game.deinit();
@@ -2315,7 +2315,7 @@ test "SetInvulnerability reaches the player's ship in the simulator's training, 
 
     try std.testing.expectEqual(.full, world.slot(player).object.invulnerable);
     // The components take what the commands give; the Sabre itself is as it was.
-    try std.testing.expectEqual(@intFromEnum(gameobj.Invulnerability.player_can_hit), slot.object.components[1].invulnerable);
+    try std.testing.expectEqual(@backingInt(gameobj.Invulnerability.player_can_hit), slot.object.components[1].invulnerable);
     try std.testing.expectEqual(0, slot.object.components[0].invulnerable);
     try std.testing.expectEqual(.none, slot.object.invulnerable);
     try std.testing.expect(slot.component(0).?.targetable and !slot.component(1).?.targetable);
@@ -2336,7 +2336,7 @@ test "StartShipAnimation plays a ship's track from the start, and the reverse fr
     const code = try finishPart(&routine);
     defer gpa.free(code);
 
-    const ships = dte.testing.ships(2, @intFromEnum(gameobj.GameType.reliant));
+    const ships = dte.testing.ships(2, @backingInt(gameobj.GameType.reliant));
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{ .ships = &ships });
     defer game.deinit();
@@ -2376,7 +2376,7 @@ test "PlayMusic plays its piece from the music folder, at once only for 1" {
     try routine.pushString("theme.wav");
     try routine.op(.push_byte, &.{2});
     try routine.command("PlayMusic");
-    try routine.pushString("m" ** music_path_size);
+    try routine.pushString(&@as([music_path_size]u8, @splat('m')));
     try routine.op(.push_byte, &.{1});
     try routine.command("PlayMusic");
     // A second on, one at once, which drops the piece waiting.
@@ -2413,12 +2413,12 @@ test "PlayCommsMovie and CommsFromPilot say their lines on the radio" {
     defer routine.deinit();
     // The first pilot says a line, which ends the frame's handlers.
     try routine.op(.push_byte, &.{0});
-    try routine.op(.push_byte, &.{@intFromEnum(pilots.Head.talking)});
+    try routine.op(.push_byte, &.{@backingInt(pilots.Head.talking)});
     try routine.pushString("ms1_ban_001.ut");
     try routine.command("CommsFromPilot");
     // A film whose path fits the game's buffer, under string 9; then one whose path does not,
     // which says nothing.
-    for ([_][]const u8{ "bandit", "b" ** (comms_movie_path_size - "pilots\\".len) }, [_]u8{ 9, 7 }) |film, name| {
+    for ([_][]const u8{ "bandit", &@as([comms_movie_path_size - "pilots\\".len]u8, @splat('b')) }, [_]u8{ 9, 7 }) |film, name| {
         try routine.pushString(film);
         try routine.pushString("ms1_ban_001.ut");
         try routine.op(.push_byte, &.{name});

@@ -561,11 +561,11 @@ test "Mission.bind" {
             dte.testing.ship(5, dte.Ship.no_flight_group, waypoint),
         },
         .flight_groups = &.{ dte.testing.flightGroup(6, .none), dte.testing.flightGroup(7, .none), dte.testing.flightGroup(8, .none) },
-        .objects = &(.{dte.testing.object(.ship, 0, 0)} ** 6 ++ .{
+        .objects = &(@as([6]dte.Object, @splat(dte.testing.object(.ship, 0, 0))) ++ [_]dte.Object{
             dte.testing.object(.flight_group, 0, 0),
             dte.testing.object(.flight_group, 0, 0),
             dte.testing.object(.squad, 0, 0),
-            dte.testing.object(@enumFromInt(7), 0, 0),
+            dte.testing.object(@fromBackingInt(@intCast(7)), 0, 0),
         }),
         .formats = .{ .first = true, .second = true, .third = true },
     });
@@ -728,7 +728,7 @@ test "Mission.blockAt" {
     // The mission leaves its script unused: no part, nor trigger, runs a block of it.
     const image = try testing.image(gpa, .{});
     const directory = std.mem.bytesAsSlice(dte.DirectoryEntry, image[0 .. dte.section_count * @sizeOf(dte.DirectoryEntry)]);
-    directory[@intFromEnum(dte.Section.script)].offset = dte.DirectoryEntry.unused_offset;
+    directory[@backingInt(dte.Section.script)].offset = dte.DirectoryEntry.unused_offset;
     var mission: Mission = try .bind(gpa, image);
     defer mission.deinit();
     try std.testing.expect(!mission.file.entry(.script).isUsed());

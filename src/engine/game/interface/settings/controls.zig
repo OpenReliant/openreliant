@@ -797,7 +797,7 @@ test "a row waits for a key, and a click on nothing ends the wait" {
     try std.testing.expectEqual(controls.binding(.cockpit_camera).key, devices.bindings.get(.cockpit_camera).key);
     // A key no other action holds is taken, Shift with it, and the row waits on.
     _ = try fixture.tab.choose(.{ .row = 0 }, fixture.context(.{}));
-    const k = @intFromEnum(input.Key.k);
+    const k = @backingInt(input.Key.k);
     const cloak = controls.binding(.cloak_ship);
     try std.testing.expectEqual(k, cloak.key);
     fixture.press(k, .shift);
@@ -824,13 +824,13 @@ test "a mod row rebinds through original conflicts and cancel restores its bindi
     fixture.tab.list.rows.first = fixture.tab.list.rows.count - rows;
     _ = try fixture.tab.choose(.{ .row = rows - 1 }, fixture.context(.{}));
     try std.testing.expectEqual(index, fixture.tab.waiting.?.action.custom);
-    fixture.press(@intFromEnum(input.Key.k), .none);
+    fixture.press(@backingInt(input.Key.k), .none);
     try std.testing.expectEqual(.cloak_ship, fixture.tab.conflict.?.holder.original);
     _ = fixture.tab.busy(fixture.context(.{ .at = .{ 295, 275 }, .down = true }), false);
     _ = fixture.tab.busy(fixture.context(.{ .at = .{ 295, 275 } }), false);
-    try std.testing.expectEqual(@intFromEnum(input.Key.k), registry.entries[index].binding.key);
+    try std.testing.expectEqual(@backingInt(input.Key.k), registry.entries[index].binding.key);
     try std.testing.expectEqual(0, fixture.devices.bindings.get(.cloak_ship).key);
-    fixture.press(@intFromEnum(input.Key.k), .shift);
+    fixture.press(@backingInt(input.Key.k), .shift);
     try std.testing.expectEqual(Modifier.shift, registry.entries[index].binding.modifier);
     try fixture.tab.save(&fixture.devices, &fixture.file);
     try std.testing.expect(fixture.file.profile.value(interface.mod_key_section, "a:pulse") != null);
@@ -856,7 +856,7 @@ test "reused mod action slots cannot receive stale conflicts or cancelled bindin
     fixture.tab.conflict = .{ .holder = .{ .custom = index }, .generation = registry.entries[index].generation, .taken = .{ .button = 3 } };
     registry.removeOwner(&owner);
     var replacement = empty;
-    replacement.key = @intFromEnum(input.Key.f12);
+    replacement.key = @backingInt(input.Key.f12);
     try std.testing.expectEqual(index, try registry.add(&owner, "a:new", "New", replacement));
     fixture.tab.refresh(&fixture.devices);
     try std.testing.expectEqual(null, fixture.tab.conflict);
@@ -875,7 +875,7 @@ test "a key another action holds asks, and YES takes it from that action" {
     fixture.enter();
     const devices = &fixture.devices;
     _ = try fixture.tab.choose(.{ .row = 0 }, fixture.context(.{}));
-    const k = @intFromEnum(input.Key.k);
+    const k = @backingInt(input.Key.k);
     fixture.press(k, .none);
     const conflict = fixture.tab.conflict.?;
     try std.testing.expectEqual(.cloak_ship, conflict.holder.original);
@@ -1000,7 +1000,7 @@ test "Up, Down and the wheel scroll the list while no row waits" {
     defer fixture.deinit();
     fixture.enter();
     const keyboard = &fixture.devices.keyboard;
-    keyboard.down[@intFromEnum(input.Key.down)] = true;
+    keyboard.down[@backingInt(input.Key.down)] = true;
     fixture.ticks += 1;
     fixture.tab.scrollKeys(fixture.context(.{}));
     try std.testing.expectEqual(1, fixture.tab.list.rows.first);
@@ -1020,7 +1020,7 @@ test joystickLabel {
     var font: hud.Opened = .open(try fnt.Font.parse(comptime fnt.testing.font(true)), null);
     defer font.deinit(gpa);
     font.widths = @splat(6);
-    const string_list = [_][]const u8{""} ** (0x235 - 1) ++ [_][]const u8{"JOYSTICK"};
+    const string_list = @as([0x235 - 1][]const u8, @splat("")) ++ [_][]const u8{"JOYSTICK"};
     const strings: language.Language = .{ .strings = &string_list };
     var buffer: [96]u8 = undefined;
     var joystick: input.Joystick = .{};

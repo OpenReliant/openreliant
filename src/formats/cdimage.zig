@@ -17,7 +17,7 @@ pub const raw_sector_size = 2352;
 pub const block_size = 2048;
 
 /// Every raw data sector starts with this pattern.
-pub const sync_pattern = [_]u8{0x00} ++ [_]u8{0xFF} ** 10 ++ [_]u8{0x00};
+pub const sync_pattern = [_]u8{0x00} ++ @as([10]u8, @splat(0xFF)) ++ [_]u8{0x00};
 
 /// One binary-coded-decimal byte.
 pub const Bcd = packed struct(u8) {
@@ -312,7 +312,7 @@ test "cooked image is passed through" {
 test "sectors without a logical block are rejected" {
     const data: [block_size]u8 = @splat(0);
     var sector = testing.sector(0, &data);
-    sector[15] = @intFromEnum(Mode.mode0);
+    sector[15] = @backingInt(Mode.mode0);
     try std.testing.expectError(error.NoLogicalBlock, userData(&sector));
     sector[0] = 0xAA;
     try std.testing.expectError(error.BadSync, userData(&sector));

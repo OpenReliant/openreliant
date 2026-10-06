@@ -212,7 +212,7 @@ pub const Menu = struct {
         }
         const devices = ctx.devices orelse return;
         for (menu.shown(), 0..) |item, index| {
-            const key: u8 = @intCast(@intFromEnum(input.Key.one) + index);
+            const key: u8 = @intCast(@backingInt(input.Key.one) + index);
             if (!devices.keyboard.pressed(key, .none, true)) continue;
             hud.beep(world, .done);
             menu.page = item.page;
@@ -240,7 +240,7 @@ pub const Menu = struct {
             },
             .wing => for (strings.commands, command_pages) |string, page| menu.add(.{ .string = string }, page, menu.addressed),
             .taunt_1, .taunt_2, .taunt_3, .taunt_4, .taunt_5 => {
-                taunt(ctx, @intCast(@intFromEnum(menu.page) - @intFromEnum(Page.taunt_1)), menu.addressed);
+                taunt(ctx, @intCast(@backingInt(menu.page) - @backingInt(Page.taunt_1)), menu.addressed);
                 return true;
             },
             .attack_my_target, .back_off, .help_me => {
@@ -400,7 +400,7 @@ fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
         else => {},
     }
     _ = aigeneric.giveShip(ctx, index, .fight, all.player, null);
-    const own = (@as(Ace, @enumFromInt(object.pilot))).answers();
+    const own = (@as(Ace, @fromBackingInt(@intCast(object.pilot)))).answers();
     const lines: videoreports.Lines = if (own) |named| .{ .named = named } else .{ .voiced = &taunt_answers };
     videoreports.reportShipIn(world, index, lines, videoreports.report_delay);
 }
@@ -510,7 +510,7 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
 }
 
 test "Label.words" {
-    var table = [_][]const u8{""} ** 0x160;
+    var table: [0x160][]const u8 = @splat("");
     table[0x14F - 1] = "Base";
     table[0x153 - 1] = "Alpha 2";
     table[0x4B - 1] = "BLACK SUN";
@@ -560,7 +560,7 @@ const TestMenu = struct {
     /// Presses number key `number` for the next run.
     fn press(test_menu: *TestMenu, number: u8) void {
         test_menu.devices.keyboard = .{};
-        test_menu.devices.keyboard.down[@intFromEnum(input.Key.one) + number - 1] = true;
+        test_menu.devices.keyboard.down[@backingInt(input.Key.one) + number - 1] = true;
     }
 };
 
@@ -661,7 +661,7 @@ test "a taunt turns the enemy on the player" {
 
     // An ace answers in its own lines.
     try std.testing.expectEqualStrings("hs_res_007.ut", Ace.black_sun.answers().?[6]);
-    try std.testing.expectEqual(null, @as(Ace, @enumFromInt(0)).answers());
+    try std.testing.expectEqual(null, @as(Ace, @fromBackingInt(@intCast(0))).answers());
 }
 
 test "the wingman's status" {
@@ -670,7 +670,7 @@ test "the wingman's status" {
     defer test_menu.deinit();
     const heard = &test_menu.heard;
     const all = ctx.world.objects;
-    const combat = &heard.mission.tables.combat[@intFromEnum(gameobj.GameType.predator)];
+    const combat = &heard.mission.tables.combat[@backingInt(gameobj.GameType.predator)];
     combat.armor_class = 10;
     all.slots[heard.wingman].object.armor = .all(armour_per_class * 10 - 1);
     all.pilots.pilots[videoreports.testing.Heard.bandit]._unknown_1e = 1;

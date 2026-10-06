@@ -318,7 +318,7 @@ fn writeButtons(out: *Io.Writer, read: input.Joystick) Io.Writer.Error!void {
     for (read.state.buttons[0..read.buttons], 0..) |button, index| {
         if (button == 0) continue;
         try out.print("{s} {d}", .{ if (held > 0) "," else "", index });
-        if (read.kind == .gamepad) try out.print(" ({s})", .{buttonName(@enumFromInt(@as(u5, @intCast(index))))});
+        if (read.kind == .gamepad) try out.print(" ({s})", .{buttonName(@fromBackingInt(@intCast(@as(u5, @intCast(index)))))});
         held += 1;
     }
     if (held == 0) try out.writeAll(" none");
@@ -411,8 +411,8 @@ test writeButtons {
     try std.testing.expectEqualStrings("Buttons down: 0, 11", out.buffered());
     // A gamepad's buttons are named, the right stick's directions among them.
     read = .{ .buttons = input.JoystickState.max_buttons, .kind = .gamepad };
-    read.state.buttons[@intFromEnum(input.GamepadButton.south)] = input.JoystickState.pressed;
-    read.state.buttons[@intFromEnum(input.GamepadButton.right_stick_right)] = input.JoystickState.pressed;
+    read.state.buttons[@backingInt(input.GamepadButton.south)] = input.JoystickState.pressed;
+    read.state.buttons[@backingInt(input.GamepadButton.right_stick_right)] = input.JoystickState.pressed;
     out = .fixed(&buffer);
     try writeButtons(&out, read);
     try std.testing.expectEqualStrings("Buttons down: 0 (bottom face button), 31 (right stick right)", out.buffered());
@@ -449,8 +449,8 @@ test redraw {
     try std.testing.expectEqualStrings("X 0" ++ erase_line ++ "\nButtons down: none" ++ erase_line ++ "\n" ++ erase_below, out.buffered());
     // A later one goes back over the lines of the last, and a long line is cut.
     out = .fixed(&buffer);
-    try redraw(&out, "A" ** 100 ++ "\n", 2);
-    try std.testing.expectEqualStrings("\x1b[2A" ++ "A" ** line_width ++ erase_line ++ "\n" ++ erase_below, out.buffered());
+    try redraw(&out, @as([100]u8, @splat('A')) ++ "\n", 2);
+    try std.testing.expectEqualStrings("\x1b[2A" ++ @as([line_width]u8, @splat('A')) ++ erase_line ++ "\n" ++ erase_below, out.buffered());
 }
 
 test writeLayout {

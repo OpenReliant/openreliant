@@ -337,7 +337,7 @@ test "points and lines" {
 }
 
 test mipLevel {
-    const rgba = [_]u8{0} ** (16 * 16 * 4);
+    const rgba: [16 * 16 * 4]u8 = @splat(0);
     const levels = [_]srtexture.Level{
         .{ .width = 16, .height = 16, .texels = &rgba },
         .{ .width = 8, .height = 8, .texels = &rgba },

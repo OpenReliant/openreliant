@@ -532,7 +532,7 @@ test Film {
     try delta.appendSlice(gpa, &[_]u8{ 0, 0, 0, 0 });
     const vector: u32 = (0x3FC) | (0 << 10);
     try delta.appendSlice(gpa, &std.mem.toBytes(vector));
-    try delta.appendSlice(gpa, &([_]u8{3} ** 16));
+    try delta.appendSlice(gpa, &@as([16]u8, @splat(3)));
     try delta.appendSlice(gpa, &[_]u8{ 10, 11, 12, 13 });
     try delta.appendSlice(gpa, &std.mem.toBytes(@as(u32, 0xE4E4E4E4)));
     try delta.appendSlice(gpa, &[_]u8{ 0b0000_0010, 0, 0, 0 });
@@ -551,7 +551,7 @@ test Film {
 
     chunks = .{ .bytes = delta_chunk };
     try std.testing.expect(try film.decode(chunks.next().?));
-    const expected = [_]u8{ 13, 12, 11, 10, 1, 1, 1, 1 } ** 4;
+    const expected: [32]u8 = @bitCast(@as([4][8]u8, @splat(.{ 13, 12, 11, 10, 1, 1, 1, 1 })));
     try std.testing.expectEqualSlices(u8, &expected, film.frame());
     // The end gives no frame; a delta before any key frame is bad.
     const end = try testing.chunk(gpa, "fDNE", "");
@@ -601,7 +601,7 @@ test "the earlier tools' orders" {
         defer delta.deinit(gpa);
         for (fields) |value| try delta.appendSlice(gpa, &std.mem.toBytes(value));
         try delta.appendSlice(gpa, &[_]u8{ 0, 0, 0, 0 });
-        try delta.appendSlice(gpa, &([_]u8{7} ** 16));
+        try delta.appendSlice(gpa, &@as([16]u8, @splat(7)));
         try delta.appendSlice(gpa, &[_]u8{ 0b0000_0000, 0, 0, 0 });
         const header: DeltaHeader = .{ .chunk = .{ .id = "fLED".*, .size = 0 }, .bits = fields[0], .whole = fields[1], .vectors = fields[2], .patterns = fields[3], ._unknown_10 = 0 };
         try std.testing.expectEqual(order, header.order(delta.items.len + @sizeOf(Header), 2).?);
@@ -609,7 +609,7 @@ test "the earlier tools' orders" {
         defer gpa.free(chunk);
         chunks = .{ .bytes = chunk };
         try std.testing.expect(try film.decode(chunks.next().?));
-        try std.testing.expectEqualSlices(u8, &([_]u8{ 7, 7, 7, 7, 7, 7, 7, 7 } ** 4), film.frame());
+        try std.testing.expectEqualSlices(u8, &@as([32]u8, @splat(7)), film.frame());
     }
     // Counts that lay out no chunk of the size are bad.
     const wrong: DeltaHeader = .{ .chunk = .{ .id = "fLED".*, .size = 0 }, .bits = 2, .whole = 5, .vectors = 0, .patterns = 0, ._unknown_10 = 0 };
@@ -637,5 +637,5 @@ test drawPatterns {
     var blocks: [16]u8 = undefined;
     drawPatterns(&(.{ 7, 8, 9, 10 } ++ std.mem.toBytes(@as(u32, 0x0000_00E4))), &blocks);
     // The lowest bits are the last pixel's: the last four pixels 7, 8, 9, 10 from the end.
-    try std.testing.expectEqualSlices(u8, &([_]u8{7} ** 12 ++ [_]u8{ 10, 9, 8, 7 }), &blocks);
+    try std.testing.expectEqualSlices(u8, &(@as([12]u8, @splat(7)) ++ [_]u8{ 10, 9, 8, 7 }), &blocks);
 }

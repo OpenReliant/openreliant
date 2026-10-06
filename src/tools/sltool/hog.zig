@@ -275,6 +275,9 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{ "pack", "mod" }));
 }
 
+/// A sentence the test repeats into a text worth packing.
+const fox = "The quick brown fox jumps over the lazy dog. ";
+
 test pack {
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
@@ -285,7 +288,7 @@ test pack {
 
     // A folder of a text worth packing, a movie, a member extracted as stored, and a folder
     // `pack` passes over.
-    const text = "The quick brown fox jumps over the lazy dog. " ** 20;
+    const text: []const u8 = @ptrCast(&@as([20][fox.len]u8, @splat(fox.*)));
     const already = try refpack.compressAlloc(arena, "abcdabcdabcdabcdabcd");
     var mod = try tmp.dir.createDirPathOpen(io, "mod", .{});
     defer mod.close(io);
