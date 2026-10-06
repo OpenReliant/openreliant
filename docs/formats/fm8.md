@@ -8,7 +8,14 @@ channel. [`engine/game/talkie.zig`](../../src/engine/game/talkie.zig) decodes th
 ```bash
 sltool fm8 info <film>                # its frames and chunks
 sltool fm8 extract <film> <out-dir>   # every frame as an indexed PNG file
+sltool fm8 encode <frames-dir> <film> # a film of a folder's PNG files, in name order
 ```
+
+`sltool fm8 encode` ([`fm8_encode.zig`](../../src/tools/sltool/fm8_encode.zig)) writes one key
+frame, then a delta frame for each frame after it: each block moved from the frame before where an
+equal block lies within 8 pixels, else drawn in four colours where it has no more, else given whole.
+It takes only exact matches, so a film of the game's comes back frame for frame, a little larger
+than the game's tool made it.
 
 ## Chunks
 
