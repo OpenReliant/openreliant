@@ -107,6 +107,15 @@ pub fn build(b: *std.Build) void {
         module.addCMacro("NTDDI_VERSION", "NTDDI_VISTA");
     }
 
+    // Zig 0.17's own macOS headers, which a build for an explicit macOS target uses, have math.h
+    // include float.h for INFINITY and NAN alone, and libc++'s float.h then counts as included, so
+    // efx.h's own include of it gives no FLT_MIN and FLT_MAX. They are the compiler's values, as
+    // float.h defines them.
+    if (target.result.os.tag == .macos) {
+        module.addCMacro("FLT_MIN", "__FLT_MIN__");
+        module.addCMacro("FLT_MAX", "__FLT_MAX__");
+    }
+
     const flags: []const []const u8 = &.{ "-std=c++20", "-fno-sanitize=undefined" };
     module.addCSourceFiles(.{ .root = upstream.path(""), .files = &sources, .flags = flags });
     if (x86) module.addCSourceFiles(.{ .root = upstream.path(""), .files = &sse_sources, .flags = flags });
