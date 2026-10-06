@@ -20,48 +20,48 @@ pub const subframe_samples = 108;
 /// works in at a time: the first three blocks with the coefficients a quarter, a half and three
 /// quarters of the way to the frame's, the rest with the frame's own (`0x004A75F5`).
 pub const order = 12;
-const block = 12;
+pub const block = 12;
 
 /// How many samples of past excitation the pitch predictor keeps.
 pub const history_samples = 324;
 
 /// The first subframe's start in the history less the pitch predictor's shortest lag: it reaches
 /// back `subframe_samples` and the lag it reads (`0x004A7456`).
-const pitch_reach = history_samples - subframe_samples;
+pub const pitch_reach = history_samples - subframe_samples;
 
 /// How the frame's coefficients step toward the ones it reads: a quarter of the way in each of
 /// the first four blocks (`0x004DC3D4`).
-const coefficient_step: f32 = 0.25;
+pub const coefficient_step: f32 = 0.25;
 
 /// The first four coefficients take any of `tables.levels`; the other eight the 32 from this one
 /// on (`0x00509124`).
-const narrow_levels = 16;
+pub const narrow_levels = 16;
 
 /// The gains of a stream: the first, the header's four bits plus one times `gain_step`, and each
 /// after it the one before times a ratio, `ratio_base` plus the header's six bits times
 /// `ratio_step` (`0x004DC45C`, `0x004DCA24`, `0x004DC418`).
-const gain_step: f32 = 8;
-const ratio_base: f32 = 1.04;
-const ratio_step: f32 = 0.001;
+pub const gain_step: f32 = 8;
+pub const ratio_base: f32 = 1.04;
+pub const ratio_step: f32 = 0.001;
 
 /// What a subframe's four bits of pitch gain are worth each (`0x004DCA28`).
-const pitch_step: f32 = 1.0 / 15.0;
+pub const pitch_step: f32 = 1.0 / 15.0;
 
 /// The weights of the filter that fills in every other sample of an excitation read at a step of
 /// two, for the samples one, three and five away (`0x004DCA2C`, `0x004DCA30`, `0x004DCA34`); and
 /// the gain the excitation then takes (`0x004DC808`).
 const fill_weights = [3]f32{ 0.5973859429359436, -0.1145915612578392, 0.018032679334282875 };
-const filled_gain: f32 = 0.5;
+pub const filled_gain: f32 = 0.5;
 
 /// The pulses the plain code gives, for its two-bit codes `01` and `11` (`0x004A77FF`).
-const plain_pulse: f32 = 2;
+pub const plain_pulse: f32 = 2;
 
 /// The length an escape of the pulse code starts at, one more for each leading 1 bit
 /// (`0x004A7760`); and the least run of zeros its run codes give, and the bits they add
 /// (`0x004A7709`).
-const escape_base = 7;
-const run_base = 7;
-const run_bits = 6;
+pub const escape_base = 7;
+pub const run_base = 7;
+pub const run_bits = 6;
 
 /// A frame's samples, or the state of a stream as the game lays it out after its bit reader
 /// (`+0x0C` on): whether the subframes read their pulses at a step of two, how many levels of the
@@ -225,18 +225,25 @@ pub const Decoder = struct {
                 sample.* = gain * pulse + pitch * state.pitchSource(source + @as(i32, @intCast(i)));
             }
         }
-        @memcpy(state.history[0..history_samples], state.history[frame_samples..]);
-        for (0..3) |at| {
-            for (&state.reflection, steps) |*level, step| level.* += step;
-            synthesize(state, at * block, 1);
-        }
-        for (&state.reflection, steps) |*level, step| level.* += step;
-        synthesize(state, 3 * block, frame_samples / block - 3);
+        finish(state, steps);
     }
 };
 
+/// The end of `Decoder.frame`, once the frame's excitation is in the history after the past
+/// excitation: its last `history_samples` kept for the next frame, and the frame filtered into
+/// speech (`synthesize`), its coefficients taking `steps` in each of its first four blocks.
+pub fn finish(state: *State, steps: [order]f32) void {
+    @memcpy(state.history[0..history_samples], state.history[frame_samples..]);
+    for (0..3) |at| {
+        for (&state.reflection, steps) |*level, step| level.* += step;
+        synthesize(state, at * block, 1);
+    }
+    for (&state.reflection, steps) |*level, step| level.* += step;
+    synthesize(state, 3 * block, frame_samples / block - 3);
+}
+
 /// How far the fill reaches either side of a sample it fills in.
-const fill_reach = 5;
+pub const fill_reach = 5;
 
 /// `0x004A76A0`: the pulses of a subframe, into `excitation` at a step of `step`.
 ///
@@ -304,7 +311,7 @@ fn readPulses(bits: *Bits, coded: bool, excitation: []f32, step: usize) void {
 /// `0x004A7890`: fills in every other sample of an excitation read at a step of two, from the
 /// first of `samples` that is to be filled, which starts `fill_reach` samples before it: each is
 /// the samples one, three and five away on either side, weighted by `fill_weights`.
-fn fill(samples: []f32) void {
+pub fn fill(samples: []f32) void {
     var at: usize = fill_reach;
     while (at < fill_reach + subframe_samples) : (at += 2) {
         samples[at] = (samples[at - 5] + samples[at + 5]) * fill_weights[2] +
