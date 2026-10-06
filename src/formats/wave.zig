@@ -165,6 +165,16 @@ pub const Wave = struct {
         return 1 + (len - headers) * 2 / wave.channels;
     }
 
+    /// The byte offset into the data at which frame `frame` starts, or for IMA ADPCM the block
+    /// that holds it: what `frameAt` takes back to the frame.
+    pub fn offsetOf(wave: Wave, frame: u32) u32 {
+        const kept = @min(frame, wave.frameCount());
+        return switch (wave.format) {
+            .ima_adpcm => if (wave.frames_per_block == 0) 0 else kept / wave.frames_per_block * wave.block_align,
+            else => kept * wave.block_align,
+        };
+    }
+
     /// The frame at a byte offset into the data, for a stream's loop block and position: a whole
     /// block at a time for IMA ADPCM.
     pub fn frameAt(wave: Wave, offset: u32) u32 {
@@ -390,6 +400,21 @@ test Wave {
     try std.testing.expectEqual(4, pcm.frameAt(1000));
 
     try std.testing.expectError(error.NotAWave, Wave.parse("RIFF\x04\x00\x00\x00AVI "));
+}
+
+test "offsetOf takes a frame back to its byte" {
+    const data: [8192]u8 = @splat(0);
+    // IMA ADPCM, stereo, 1024-byte blocks of 1017 frames, as the game's music is: a frame within a
+    // block is at the block's start.
+    const adpcm: Wave = .{ .format = .ima_adpcm, .channels = 2, .rate = 22050, .bits = 4, .block_align = 1024, .frames_per_block = 1017, .frames = null, .data = &data };
+    try std.testing.expectEqual(2048, adpcm.offsetOf(2 * 1017 + 5));
+    try std.testing.expectEqual(2 * 1017, adpcm.frameAt(adpcm.offsetOf(2 * 1017 + 5)));
+    // 16-bit PCM in stereo: four bytes a frame.
+    const pcm: Wave = .{ .format = .pcm, .channels = 2, .rate = 44100, .bits = 16, .block_align = 4, .frames_per_block = 0, .frames = null, .data = &data };
+    try std.testing.expectEqual(40, pcm.offsetOf(10));
+    try std.testing.expectEqual(10, pcm.frameAt(pcm.offsetOf(10)));
+    // Past the end, the last frame's.
+    try std.testing.expectEqual(data.len, pcm.offsetOf(1 << 20));
 }
 
 test "Decoder reads PCM" {

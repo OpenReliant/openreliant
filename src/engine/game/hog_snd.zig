@@ -947,10 +947,11 @@ pub const Sound = struct {
         sound.music.fading = false;
         sound.music.queued = null;
         const files = sound.files orelse return;
-        sound.music.file = readMusic(files, path) catch |err| {
+        const read = readMusic(files, path) catch |err| {
             log.warn("the music {s} is left out: {s}", .{ path, @errorName(err) });
             return;
         };
+        sound.music.file = read.bytes;
         const stream = driver.openStream(sound.music.file) orelse {
             log.warn("the music {s} cannot be played", .{path});
             files.gpa.free(sound.music.file);
@@ -960,7 +961,7 @@ pub const Sound = struct {
         sound.music.stream = stream;
         driver.setStreamLoopCount(stream, loops);
         driver.setStreamPosition(stream, 0);
-        const loop_start = musicLoopStart(path);
+        const loop_start = if (read.from_mod) modLoopStart(files, path, read.bytes, musicLoopStart(path)) else musicLoopStart(path);
         driver.setStreamLoopBlock(stream, loop_start, -1);
         // The game sets the position to the loop's start, negated, which Miles takes as nothing.
         driver.setStreamPosition(stream, -loop_start);
@@ -1036,11 +1037,38 @@ pub fn musicLoopStart(path: []const u8) i32 {
     return 0;
 }
 
-/// Reads the music file at `path`, a game path with backslashes, from the game folder, ignoring
-/// case as Windows does (`files.find`). A mod file with the same name takes priority
-/// (`bigfile.Mods.readLoose`).
-fn readMusic(files: Files, path: []const u8) ![]u8 {
-    return try files.mods.readLoose(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse error.FileNotFound;
+/// A music file read, and whether it is a mod's.
+const MusicRead = struct { bytes: []u8, from_mod: bool };
+
+/// Reads the music file at `path`, a game path with backslashes: a mod's file with the same name,
+/// else the game folder's, ignoring case as Windows does (`files.find`).
+fn readMusic(files: Files, path: []const u8) !MusicRead {
+    if (try files.mods.readInPlaceOf(files.gpa, path)) |bytes| return .{ .bytes = bytes, .from_mod = true };
+    return .{ .bytes = try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse return error.FileNotFound, .from_mod = false };
+}
+
+/// Where a mod's piece of music `own` at `path` loops back to: the moment of the game's own piece
+/// at which the loop table's `loop_start` falls, the table's bytes being the game's file's. Where
+/// the game's file can't be read, or either won't parse, the table's bytes as they are.
+///
+/// **Improvement:** the original reads no mods. A mod's piece in another format than the game's,
+/// such as 16-bit PCM at 44,100 Hz for the game's IMA ADPCM at 22,050, would otherwise loop back
+/// to another moment of the music.
+fn modLoopStart(files: Files, path: []const u8, own: []const u8, loop_start: i32) i32 {
+    if (loop_start <= 0) return loop_start;
+    const game = (paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) catch return loop_start) orelse return loop_start;
+    defer files.gpa.free(game);
+    const original = wave.Wave.parse(game) catch return loop_start;
+    const replacement = wave.Wave.parse(own) catch return loop_start;
+    return @intCast(carriedLoop(original, replacement, @intCast(loop_start)));
+}
+
+/// The byte offset into `replacement` at the moment of `original` that `offset` bytes into it
+/// falls on.
+fn carriedLoop(original: wave.Wave, replacement: wave.Wave, offset: u32) u32 {
+    if (original.rate == 0) return offset;
+    const frame: u64 = original.frameAt(offset);
+    return replacement.offsetOf(@intCast(frame * replacement.rate / original.rate));
 }
 
 /// A camera-space vector as Miles takes it: the camera's `y` points down, Miles's up.
@@ -1367,6 +1395,19 @@ test "the sound follows what surrounds the camera" {
     try std.testing.expectEqual(.hangar, sound.surroundings);
     sound.surround(.space);
     try std.testing.expectEqual(.space, sound.surroundings);
+}
+
+test carriedLoop {
+    const game_data: [256 * 1024]u8 = @splat(0);
+    const mod_data: [2 * 1024 * 1024]u8 = @splat(0);
+    // Mission 1's piece loops back 188318 bytes into the game's IMA ADPCM, in its 183rd block, at
+    // 22050 frames a second; a mod's 16-bit PCM at 44100 loops back at the same moment, twice the
+    // frames in.
+    const game_piece: wave.Wave = .{ .format = .ima_adpcm, .channels = 2, .rate = 22050, .bits = 4, .block_align = 1024, .frames_per_block = 1017, .frames = null, .data = &game_data };
+    const mod_piece: wave.Wave = .{ .format = .pcm, .channels = 2, .rate = 44100, .bits = 16, .block_align = 4, .frames_per_block = 0, .frames = null, .data = &mod_data };
+    try std.testing.expectEqual(183 * 1017 * 2 * 4, carriedLoop(game_piece, mod_piece, 188318));
+    // A mod's piece in the game's own format keeps the table's block.
+    try std.testing.expectEqual(183 * 1024, carriedLoop(game_piece, game_piece, 188318));
 }
 
 test "Sound.playMusic queues a piece until the music has stopped" {

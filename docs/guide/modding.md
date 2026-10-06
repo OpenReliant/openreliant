@@ -86,6 +86,11 @@ archive has the same name twice, the game reads the first one, and that's the on
 | Missions | `missions\`, `resource.hog` | `mission1.dte` |
 | Stats tables | the game folder | `shipstats.bin` |
 
+A piece of music is a WAV file, 16-bit PCM or IMA ADPCM, at any rate. Where the game's piece loops
+back to a point partway through, so does the mod's, at the same moment of the music whatever its
+format: make it the same length as the game's, or at least as long as its loop point, to keep the
+loop where the game has it.
+
 `sltool hog ls <archive>` lists the files in an archive, and `sltool hog extract` extracts them.
 Names have no folders, so give the files your mod adds a unique prefix to keep them from clashing
 with another mod's files.
