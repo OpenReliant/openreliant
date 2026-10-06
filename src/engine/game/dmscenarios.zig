@@ -6,8 +6,8 @@
 
 const std = @import("std");
 
-/// The mission each scenario is played in (`dm_scenarios`, `0x0050C798`, the first field of each
-/// of its `0x40`-byte records).
+/// The mission each scenario is played in (`dm_scenarios`, `0x0050C790`: six `0x40`-byte records,
+/// each with the mission at offset 8, `0x0050C798` for the first).
 pub const missions = [_]u16{ 85, 82, 81, 83, 84, 87 };
 
 /// `dm_scenario_mission` (`0x004B2D30`): whether mission `number` is one of the scenarios' maps,

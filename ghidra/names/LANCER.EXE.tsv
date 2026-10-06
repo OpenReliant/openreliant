@@ -387,7 +387,7 @@ address	kind	name	type	comment
 004c36d0	function	SR_STR	char * __cdecl (char *format, ...)	Formats into a static buffer (sr_str_buffer) with vsprintf and returns it, for an assertion's message; a null format is fatal (SR_STR: Null format string passed.)
 004c5b80	function	hog_load_size	int __fastcall (char *name)	A member's size in resource.hog (hog_file_size with resource_hog)
 004cb420	function	SR_FILE_alloc	void * __fastcall (char *name)	Reads a file from resource.hog by its full name (hog_read_file_as_named) into a block named after it; a null name is fatal
-005e6350	data	sr_str_buffer	char[]	The buffer SR_STR formats into
+005e6350	data	sr_str_buffer	char[1024]	The buffer SR_STR formats into, up to the next one at 0x005E6750
 004c81f0	function	hog_file_size	int __fastcall (void *hog, char *name)	A member's size, expanded for a RefPack one; 0 when missing
 004c8370	function	hog_seek	int __fastcall (void *hog, char *name)	Finds a member by name, ignoring case, and seeks the archive's stream to it; its stored size, or 0 when missing
 004c83f0	function	hog_locate	int __fastcall (void *hog, char *name)	Likewise, moving the archive's Win32 handle instead
@@ -688,6 +688,9 @@ address	kind	name	type	comment
 00407d30	function	dock_limpet_init	void __fastcall (int slot)	Finds the limpet car and carrier docking points, enables pass-through and starts the approach
 00407d70	function	dock_limpet_run	void __fastcall (int slot)	Approaches and slides to the carrier berth, transfers a limpet pod and rotates the clamps, then departs and posts Docked or Undocked
 004081c0	function	dock_limpet_exit	void __fastcall (int slot)	Restores forward motion, clears attachment and clears the first two pass-through slots
+00408210	function	dock_limpet_czar_init	void __fastcall (int slot)	The init of a limpet car docking at the Czar docked, the fourth of dock_styles; not ported (#320)
+00408220	function	dock_limpet_czar_run	void __fastcall (int slot)	The update of a limpet car docking at the Czar docked; not ported (#320)
+004084a0	function	dock_limpet_czar_exit	void __fastcall (int slot)	The exit of a limpet car docking at the Czar docked: dock_limpet_exit, which it jumps to
 004084b0	function	dock_limpet_pod_run	void __fastcall (int slot)	Destroys the attached limpet pod when its docking target explodes
 004084e0	function	dock_limpet_pod_exit	void __fastcall (int slot)	Clears the limpet pod's first two pass-through slots
 0041d220	function	warp_record_start	void __fastcall (int slot)	Creates or initializes a warp record, saves the ship's departure orientation and position, and advances the order step
@@ -1458,7 +1461,7 @@ address	kind	name	type	comment
 00529fb4	data	comms_menu_title	char *	The title each page of the radio's menu names, which nothing draws
 00529cb0	data	backup_called	int	Set as REQUEST BACKUP brings the mission's backup, so that only the first request does; radio_reset clears it
 004b2d30	function	dm_scenario_mission	bool (void)	Whether mission_number is the mission of one of dm_scenarios, which mission_start keeps as multiplayer_mission
-0050c798	data	dm_scenarios	byte[384]	The multiplayer game's six scenarios, 0x40 bytes each, the first field the mission each is played in: 85, 82, 81, 83, 84 and 87
+0050c790	data	dm_scenarios	byte[384]	The multiplayer game's six scenarios, 0x40 bytes each: three ids, then at offset 8 the mission each is played in (85, 82, 81, 83, 84 and 87). The code reads the mission field, at 0x0050C798 in the first
 00474e00	function	player_friend_destroyed	void __fastcall (int told)	Sets +0x678 of the player's ship to 1, or to 2 and sends it in a multiplayer game when told is 1: object_armor_damage and component_damage call it as the player's shot destroys a friend or a friend's component
 00474c80	function	friendly_fire_warning	void (float damage)	Outside a multiplayer game, adds the player's damage to a friend to 0x00562CEC; past 800 (0x004DC5EC), at most once every 3000 game ticks (0x00562CE8), Moose warns the player with one of ff_001 to ff_004, drawn with rand. Its count at 0x00562CF0 is held at 1, so the second and third sets of lines (ff_005 on, ff_009 on) never play
 00491350	function	missile_lock_possible	bool (void)	Whether the armed missile of the ring can lock on the target: one is armed, not of type 6, the target can be aimed at, the player's missiles are not disabled, outside a multiplayer game the target is hostile and the type not 0, and the target's node is within the type's range (+0x1C of its stats) and ahead of the ship

@@ -4,6 +4,11 @@
 //! update and exit (`dock_styles`, `0x004E1618`). Station, Nanny, limpet car and limpet pod styles
 //! are implemented. `docs/engine/orders.md` describes them.
 //!
+//! **Unverified:** the file's paths place its code from `dock_find_points` (`0x00406C80`) to the
+//! end of `dock_nanny_init` (`0x00407510`). The order's update and exit before it, and the Nanny's
+//! update, the station's exit and the limpet car's and the pod's functions after it, go with this
+//! file by what they do.
+//!
 //! Not ported: limpet-car docking at the Czar ([#320](https://github.com/OpenReliant/openreliant/issues/320)).
 
 const std = @import("std");

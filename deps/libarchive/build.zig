@@ -16,9 +16,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // zlib is built optimized whatever the mode, with the same options the game asks for, so both
+    // share one build of it.
     const zlib = b.dependency("zlib", .{
         .target = target,
-        .optimize = optimize,
+        .optimize = .fast,
     });
 
     const lib_mod = b.createModule(.{

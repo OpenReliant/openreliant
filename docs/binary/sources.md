@@ -15,6 +15,8 @@ A file that uses the assertion macro holds its own path. The payload holds 77:
 
 The Rich header records 147 objects from the game's C++ compiler. The files without a path lie among these.
 
+`tablegen sources` takes the paths from the strings Ghidra defines and from any address the code names that holds one, so a table typed in Ghidra over a path doesn't lose its file.
+
 ## Link order
 
 Each object's code, and its data, is one contiguous run, in the same order for both. The files come in runs, each alphabetical:
@@ -41,3 +43,5 @@ Placed functions place their literals, which place further functions, until noth
 Code no string places lies between two placed files: the end of one, the start of the next, or files without a path. The Sources tree puts it under `unplaced`, named for the files around it (`aidock.cpp .. aifight.cpp`). `videoreports.cpp` and `environfx.cpp` have no code placed.
 
 Variables used by one function usually lie in that function's file, but not always, so they place nothing here.
+
+The map depends on Ghidra's function bodies. A function that jumps through a table of others, such as `order_dock` through `dock_styles`, can come out of Ghidra's analysis holding their code, and their strings then place it. The names table names each function such a table holds, so that each keeps its own body.
