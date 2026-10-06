@@ -21,6 +21,7 @@ pub const Arg = enum {
     @"--difficulty",
     @"--music",
     @"--no-pause-menu",
+    @"--skip-launch",
     @"--fullscreen",
     @"--size",
     @"--fps",
@@ -101,6 +102,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--difficulty" = .{ .section = .mission, .value = "<easy|medium|hard>", .text = "the game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with --mission, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it" },
     .@"--music" = .{ .section = .mission, .value = "<file>", .text = "a piece from the game's music folder to play from the start, until the mission's script plays its own; none by default" },
     .@"--no-pause-menu" = .{ .section = .mission, .text = "with --mission, fly the mission again as soon as it ends, where it otherwise ends in the game's pause menu" },
+    .@"--skip-launch" = .{ .section = .mission, .text = "with --mission, play the player's launch through without drawing it, so that the mission shows from the moment the ship is out; --screenshot-ticks count from there" },
     .@"--fullscreen" = .{ .section = .display, .text = "fill the display; Alt and Enter switch while playing" },
     .@"--size" = .{ .section = .display, .value = "<width>x<height>|<percent>%", .text = "draw frames of this size in pixels whatever the window's, which shows them scaled, as for a screenshot larger than the display; or a share of the window's own, such as 50%, to draw faster; the window's own by default" },
     .@"--fps" = .{ .section = .display, .value = "<rate>", .text = "frames a second at most; without vsync, the display's rate by default; 0 for no limit" },
@@ -226,6 +228,9 @@ pub const Options = struct {
     screenshot_ticks: u32 = minimum_screenshot_ticks,
     /// Whether a mission `--mission` names ends in the pause menu (`endsInPauseMenu`).
     pause_menu: bool = true,
+    /// Whether a mission `--mission` names plays the player's launch through without drawing it
+    /// (`LaunchSkip`).
+    skip_launch: bool = false,
     /// Whether the game plays the movies of its start as it starts (`xtrabits.movie.intro`).
     intro: bool = true,
     /// Whether to load the mods in the game's `mods` folder (`game.bigfile.Mods`).
@@ -407,6 +412,7 @@ pub const Options = struct {
             .@"--difficulty" => options.difficulty = std.meta.stringToEnum(game.collision.Difficulty, value) orelse return error.BadValue,
             .@"--music" => options.music = if (std.mem.eql(u8, value, "none")) null else value,
             .@"--no-pause-menu" => options.pause_menu = false,
+            .@"--skip-launch" => options.skip_launch = true,
             .@"--no-mods" => options.mods = false,
             .@"--no-intro" => options.intro = false,
             .@"--developer-mode" => options.developer_mode = true,

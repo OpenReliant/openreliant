@@ -26,6 +26,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--difficulty <easy\|medium\|hard>` | The game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with `--mission`, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it |
 | `--music <file>` | A piece from the game's music folder to play from the start, until the mission's script plays its own; none by default |
 | `--no-pause-menu` | With `--mission`, fly the mission again as soon as it ends, where it otherwise ends in the game's pause menu |
+| `--skip-launch` | With `--mission`, play the player's launch through without drawing it, so that the mission shows from the moment the ship is out; `--screenshot-ticks` count from there |
 
 ## Display
 
