@@ -2,7 +2,7 @@
     .name = .libarchive,
     .version = "3.7.9",
     .fingerprint = 0x2cf9e53f30944fd,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .upstream = .{
             .url = "git+https://github.com/libarchive/libarchive.git?ref=v3.7.9#8a7a9cc527fd1d6d8664315d3bed47c4259479cc",

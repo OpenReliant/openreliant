@@ -7,7 +7,7 @@ and `CLAUDE.md` point agents here.
 
 ## Getting started
 
-- Install [Zig 0.16](https://ziglang.org). `zig build` builds everything, `zig build sltool`
+- Install [Zig 0.17](https://ziglang.org). `zig build` builds everything, `zig build sltool`
   builds `sltool` alone, and `zig build test` runs the tests.
 - Run `make hooks` once. It installs a pre-commit hook that keeps the game's files out of the
   repository.
@@ -139,7 +139,7 @@ change to how missions load or run.
 
 ## Writing Zig
 
-Write idiomatic Zig 0.16. A decompiled C shape is a starting point: express the same behaviour
+Write idiomatic Zig 0.17. A decompiled C shape is a starting point: express the same behaviour
 with Zig's types. The standard library changes between releases, so check the installed `lib/std`
 for an API.
 
@@ -181,7 +181,7 @@ pub const Format = enum(u16) {
 
     pub fn format(tag: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (tag) {
-            _ => writer.print("format {d}", .{@intFromEnum(tag)}),
+            _ => writer.print("format {d}", .{@backingInt(tag)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -272,9 +272,9 @@ reaching a player. This ties the quadrants' fields to the order of the `Quadrant
 
 ```zig
 comptime {
-    for (std.enums.values(collision.Quadrant), @typeInfo(Quadrants).@"struct".fields) |quadrant, field| {
-        assert(std.mem.eql(u8, @tagName(quadrant), field.name));
-        assert(@offsetOf(Quadrants, field.name) == @as(usize, @intFromEnum(quadrant)) * @sizeOf(f32));
+    for (std.enums.values(collision.Quadrant), @typeInfo(Quadrants).@"struct".field_names) |quadrant, name| {
+        assert(std.mem.eql(u8, @tagName(quadrant), name));
+        assert(@offsetOf(Quadrants, name) == @as(usize, @backingInt(quadrant)) * @sizeOf(f32));
     }
 }
 ```

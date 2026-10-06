@@ -2,7 +2,7 @@
     .name = .openreliant,
     .version = "0.7.0", // x-release-please-version
     .fingerprint = 0x51560fdd72ea15d0,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .shader_compiler = .{ .path = "deps/shader-compiler" },
         .texture_compressor = .{ .path = "deps/texture-compressor" },

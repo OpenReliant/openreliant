@@ -3,7 +3,7 @@
     // FFmpeg's release 9.0.2: the tag n9.0.2, commit 946fcce07b6dcd0331c8cc609192aeff5e1924f8.
     .version = "9.0.2",
     .fingerprint = 0x2ffce39e26480aae,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .upstream = .{
             .url = "git+https://github.com/FFmpeg/FFmpeg.git?ref=n9.0.2#946fcce07b6dcd0331c8cc609192aeff5e1924f8",

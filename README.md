@@ -51,7 +51,7 @@ Download the archive for your system from the [latest release](../../releases/la
 
 ## Building from Source
 
-Building OpenReliant needs [Zig 0.16](https://ziglang.org): see [Building from source](docs/guide/installation.md#building-from-source). [CONTRIBUTING](CONTRIBUTING.md) has the workflow for working on it.
+Building OpenReliant needs [Zig 0.17](https://ziglang.org): see [Building from source](docs/guide/installation.md#building-from-source). [CONTRIBUTING](CONTRIBUTING.md) has the workflow for working on it.
 
 ---
 
