@@ -129,6 +129,18 @@ pub const GunType = enum(u8) {
         return additions.guns.get(gun_type.number());
     }
 
+    /// Whether it charges up before it fires, as the Nova Cannon does: the cannon, and the mods'
+    /// guns based on it. The trigger passes it over and charges it instead (`nova.charge`), and it
+    /// fires as the trigger is let go (`nova.release`).
+    pub fn charges(gun_type: GunType) bool {
+        return gun_type.base() == .nova_cannon;
+    }
+
+    /// Whether `lead`, a group's first gun, charges (`charges`); false for none.
+    pub fn leadCharges(lead: ?GunType) bool {
+        return if (lead) |gun| gun.charges() else false;
+    }
+
     /// The number a muzzle names it by, and its record in `gun_stats`.
     pub fn number(gun_type: GunType) u8 {
         return @intFromEnum(gun_type);
@@ -595,10 +607,6 @@ const condition_margin: f32 = 0.1;
 /// The interval between the shots of a ship aiming blind, over a hundred (`0x00477464`).
 const blind_refire: i32 = 135;
 
-/// The gun type that charges up before it fires, the Nova Cannon. The trigger passes it over and
-/// charges it instead (`nova.charge`), and it fires as the trigger is let go (`nova.release`).
-const charging_type: GunType = .of(.nova_cannon);
-
 const Clock = @import("main.zig").Clock;
 
 /// A ship's guns as the trigger needs them (`fire`).
@@ -730,7 +738,7 @@ pub fn fire(object: *gameobj.GameObject, trigger: Trigger, ticks: i32) void {
     var chosen: Chosen = .of(object, trigger.fitted, trigger.groups);
     while (chosen.next()) |gun| {
         const barrel = gun.barrel() orelse continue;
-        if (barrel.type == charging_type) continue;
+        if (barrel.type.charges()) continue;
         if (object.gun_mode.all and gun.turret == .aimed) continue;
         gun.firing_until = until;
     }
@@ -900,7 +908,7 @@ pub fn heard(world: gameobj.World, owner: u16, gun: *const Fitted) bool {
 test fire {
     var object = gameobj.testing.object();
     // The trigger reads nothing of where the guns stand.
-    var fitted = [_]Fitted{ testing.barrel(.of(.laser_cannon)), testing.barrel(.of(.laser_cannon)), testing.barrel(.of(.pulse_cannon)), testing.barrel(charging_type) };
+    var fitted = [_]Fitted{ testing.barrel(.of(.laser_cannon)), testing.barrel(.of(.laser_cannon)), testing.barrel(.of(.pulse_cannon)), testing.barrel(.of(.nova_cannon)) };
     fitted[1].side = .second;
     var groups: [max_groups]Group = @splat(.{});
     groups[0] = .{ .first = 0, .second = 1 };
@@ -912,6 +920,15 @@ test fire {
     object.gun_mode = .created(2);
     fire(&object, trigger, held_ticks);
     for (fitted[0..3]) |gun| try std.testing.expectEqual(701, gun.firing_until);
+    try std.testing.expectEqual(0, fitted[3].firing_until);
+    // A mod's gun based on the Nova Cannon charges as the cannon does, and isn't fired.
+    var list = [_]additions.guns.Added{.{ .name = "a:flare", .mod = "a", .base = .nova_cannon, .extra = .{} }};
+    additions.guns.install(&list);
+    defer additions.guns.reset();
+    const nova_like: GunType = @enumFromInt(additions.guns.first);
+    try std.testing.expect(nova_like.charges());
+    fitted[3] = testing.barrel(nova_like);
+    fire(&object, trigger, held_ticks);
     try std.testing.expectEqual(0, fitted[3].firing_until);
 
     // Firing one group holds only that group's guns.
@@ -1456,7 +1473,7 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
 fn blindAim(world: gameobj.World, owner: u16, kind: GunType) ?Vector {
     const all = world.objects;
     if (all.slots[owner].object.blind_fire_aim == 0) return null;
-    if (kind.base() == .nova_cannon or kind.base().onTurrets()) return null;
+    if (kind.charges() or kind.base().onTurrets()) return null;
     if (owner != all.player) return null;
     const display = world.display orelse return null;
     return display.lead_point;
@@ -2517,6 +2534,7 @@ pub const Looks = struct {
         errdefer looks.nova.deinit(gpa);
         looks.shell = null;
         looks.mod_shots = try gpa.alloc(?*srtexture.Image, additions.guns.all().len);
+        errdefer gpa.free(looks.mod_shots);
         for (looks.mod_shots, additions.guns.all()) |*shot, gun| {
             const name = gun.extra.shot orelse {
                 shot.* = null;

@@ -87,7 +87,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
             out[count] = .{ .shape = .{ .index = frame + @as(usize, mode.group) + 1, .at = frame_at, .own = true } };
             count += 1;
         }
-        if (slot.gun_groups[mode.group].paired() and (if (lead) |held| held.base() != .nova_cannon else true)) {
+        if (slot.gun_groups[mode.group].paired() and !guns.GunType.leadCharges(lead)) {
             out[count] = .{ .shape = .{ .index = if (mode.synchronised) together_shape else in_turn_shape, .at = pairing_at } };
             count += 1;
         }
@@ -95,7 +95,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
         out[count] = .{ .string = .{ .id = full_guns_name, .at = name_at } };
         count += 1;
         if (groups > 1) for (0..@min(groups, guns.max_groups)) |group| {
-            if ((if (slot.groupLead(group)) |held| held.base() == .nova_cannon else false)) continue;
+            if (guns.GunType.leadCharges(slot.groupLead(group))) continue;
             out[count] = .{ .shape = .{ .index = frame + group + 1, .at = frame_at, .own = true } };
             count += 1;
         };

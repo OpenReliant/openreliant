@@ -42,8 +42,7 @@ const charged_shake: f32 = 0.6;
 pub fn charges(object: *const gameobj.GameObject, trigger: guns.Trigger) bool {
     if (!object.type.base().carriesNova()) return false;
     if (object.gun_mode.all) return false;
-    const lead = guns.groupLead(trigger.fitted, trigger.groups, object.gun_mode.group) orelse return false;
-    return lead.base() == .nova_cannon;
+    return guns.GunType.leadCharges(guns.groupLead(trigger.fitted, trigger.groups, object.gun_mode.group));
 }
 
 /// `object_fire_guns`'s charge: `charge_per_hold` more for each share of the power the guns take,
@@ -279,6 +278,13 @@ pub const Beams = struct {
     }
 };
 
+/// The gun the ship in `ship` charged: its chosen group's first, where it charges, else the Nova
+/// Cannon, as the game takes it.
+fn charged(ship: *const create.Slot) guns.GunType {
+    const lead = ship.groupLead(ship.object.gun_mode.group) orelse return .of(.nova_cannon);
+    return if (lead.charges()) lead else .of(.nova_cannon);
+}
+
 /// `nova_release` (`0x0047B3D0`), called when the player releases the trigger with the cannon
 /// charged. If a beam slot is free and the charge is at least `least_charge`, the ship plays the
 /// blast sound, the controller plays the Nova Cannon's force feedback effect, the beam strikes
@@ -300,7 +306,7 @@ pub fn release(world: gameobj.World, index: u16) void {
         hearing.sound.bufferAt(blast_sound, ship.drawn.position, hearing.camera.*, ship.object.radius * blast_loudness);
     }
     if (world.forces) |forces| forces.start(.nc, now);
-    strike(world, index, fired);
+    strike(world, index, fired, charged(ship));
     const looks = all.bullets.looks orelse return;
     slot.* = .init(&looks.nova, index, now + beam_ticks, fired);
 }
@@ -317,13 +323,16 @@ pub fn release(world: gameobj.World, index: u16) void {
 /// place the shield flare, so both end up in the wrong place. OpenReliant uses the actual entry
 /// point.
 ///
+/// **Improvement:** the game strikes with the Nova Cannon's figures; a mod's gun based on the cannon
+/// (`kind`) strikes with its own.
+///
 /// Not ported: in a multiplayer mission, a quarter of the damage.
-fn strike(world: gameobj.World, owner: u16, fired: f32) void {
+fn strike(world: gameobj.World, owner: u16, fired: f32, kind: guns.GunType) void {
     const all = world.objects;
     const shooter = &all.slots[owner];
     const from = shooter.drawn.position;
     const to = shooter.drawn.point(.{ 0, 0, beam_reach });
-    const record = guns.GunType.of(.nova_cannon).stats(&all.gun_stats);
+    const record = kind.stats(&all.gun_stats);
     const strength = shooter.object.gun_condition * fired;
     var walk = all.walk();
     while (walk.next()) |index| {

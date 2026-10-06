@@ -118,9 +118,11 @@ pub const Look = enum {
     }
 };
 
-/// The gun type a muzzle naming `number` flashes as: its number clamped to the types there are, as
-/// `muzzle_flash_create` and `muzzle_flash_draw` clamp it.
+/// The gun type a muzzle naming `number` flashes as: a mod's gun, which flashes as its base, or
+/// else its number clamped to the game's types, as `muzzle_flash_create` and `muzzle_flash_draw`
+/// clamp it.
 pub fn typeOf(number: u32) guns.GunType {
+    if (additions.guns.get(number) != null) return @enumFromInt(number);
     return @enumFromInt(std.math.clamp(number, 1, guns.max_types - 1));
 }
 
@@ -191,11 +193,11 @@ pub const Looks = struct {
             };
             const base = Look.of(@enumFromInt(number), looks.settings.guns).size();
             const size = if (gun.extra.flash_size) |length| base * @as(Vector, @splat(length / base[2])) else base;
-            slot.* = .{
-                .mesh = try environfx.plumeMesh(gpa, size, Look.flare.material(), image, image),
-                .colour = try ownColour(gpa, textures, name, image),
-                .length = size[2],
-            };
+            // Each part made before the slot holds it, so that a failure leaves the slot empty.
+            const mesh = try environfx.plumeMesh(gpa, size, Look.flare.material(), image, image);
+            errdefer mesh.deinit(gpa);
+            const colour = try ownColour(gpa, textures, name, image);
+            slot.* = .{ .mesh = mesh, .colour = colour, .length = size[2] };
         }
     }
 
@@ -480,6 +482,11 @@ test Look {
     try std.testing.expectEqual(guns.GunType.of(.laser_cannon), typeOf(0));
     try std.testing.expectEqual(guns.GunType.of(.gattling_plasma_cannon), typeOf(9));
     try std.testing.expectEqual(guns.GunType.of(.coalition_huge_gun), typeOf(99));
+    // A mod's gun flashes as itself, and so as its base.
+    var list = [_]additions.guns.Added{.{ .name = "a:flare", .mod = "a", .base = .pulse_cannon, .extra = .{} }};
+    additions.guns.install(&list);
+    defer additions.guns.reset();
+    try std.testing.expectEqual(Look.flare, Look.of(typeOf(additions.guns.first), .turrets_too));
 }
 
 test Guns {

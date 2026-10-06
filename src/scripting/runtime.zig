@@ -141,9 +141,9 @@ pub const Runtime = struct {
     runner: ?*running_module.Runner = null,
     /// The handles made, by slot (`objects.zig`).
     handles: ?luau.Ref = null,
-    /// One handle for each player script's `self`, which follows the player's ship from mission to
-    /// mission (`followPlayer`).
-    player_selves: std.ArrayList(luau.Ref) = .empty,
+    /// The handle every player script's `self` is, made the first time one asks, which follows the
+    /// player's ship from mission to mission (`followPlayer`).
+    player_self: ?luau.Ref = null,
     custom_orders: @import("orders.zig").Registry = .{},
     input_actions: @import("openreliant").engine.input.actions.Registry = .{},
     registries: @import("registries.zig").Registry = .{},
@@ -190,7 +190,6 @@ pub const Runtime = struct {
     }
 
     pub fn destroy(runtime: *Runtime) void {
-        runtime.player_selves.deinit(runtime.gpa);
         runtime.registries.deinit(runtime);
         runtime.post_effects.deinit(runtime.gpa);
         runtime.mod_shaders.deinit(runtime.gpa);
@@ -204,21 +203,20 @@ pub const Runtime = struct {
         runtime.gpa.destroy(runtime);
     }
 
-    /// Points each player script's `self` at the player's ship as it is now, as a mission starts. A
+    /// Points the player scripts' `self` at the player's ship as it is now, as a mission starts. A
     /// player script runs until the game ends, while each mission fills the ship's slot anew.
     pub fn followPlayer(runtime: *Runtime) void {
         const all = runtime.objects orelse return;
-        for (runtime.player_selves.items) |kept| {
-            _ = runtime.state.pushRef(kept);
-            objects.follow(runtime.state, -1, all);
-            runtime.state.pop(1);
-        }
+        const kept = runtime.player_self orelse return;
+        _ = runtime.state.pushRef(kept);
+        objects.follow(runtime.state, -1, all);
+        runtime.state.pop(1);
     }
 
     /// Lets the player scripts' `self` go, as the player scripts stop.
-    pub fn dropPlayerSelves(runtime: *Runtime) void {
-        for (runtime.player_selves.items) |kept| runtime.release(kept);
-        runtime.player_selves.clearRetainingCapacity();
+    pub fn dropPlayerSelf(runtime: *Runtime) void {
+        if (runtime.player_self) |kept| runtime.release(kept);
+        runtime.player_self = null;
     }
 
     /// Releases a reference so its value can be collected.
@@ -948,11 +946,13 @@ fn require(state: *State) i32 {
         if (package == .self) {
             if (context.object) |own| {
                 objects.push(state, own.slot);
+            } else if (context.runtime.player_self) |kept| {
+                _ = state.pushRef(kept);
             } else if (context.runtime.objects) |all| {
-                // A handle of its own, which follows the player's ship (`Runtime.followPlayer`).
+                // The handle every player script shares, which follows the player's ship
+                // (`Runtime.followPlayer`).
                 objects.pushFollowing(state, all);
-                context.runtime.player_selves.ensureUnusedCapacity(context.runtime.gpa, 1) catch state.raise("require: out of memory", .{});
-                context.runtime.player_selves.appendAssumeCapacity(state.ref(-1));
+                context.runtime.player_self = state.ref(-1);
             } else state.pushNil();
             return 1;
         }

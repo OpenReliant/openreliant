@@ -442,7 +442,8 @@ ship type can also have no base, see [Ship types without a base](#ship-types-wit
 - It starts with a copy of its base's stats, which a load script can change
   ([The records](scripting.md#the-records)).
 - It behaves like its base wherever the game treats that base specially. A ship type based on the
-  Phoenix carries the Nova Cannon, and a missile based on the Havoc sets off a shockwave.
+  Phoenix carries the Nova Cannon, a gun based on the Nova Cannon charges up and strikes with its
+  own damage, and a missile based on the Havoc sets off a shockwave.
 
 The manifest lists each kind in a section of its own, and describes each entry in a section named
 after it:
