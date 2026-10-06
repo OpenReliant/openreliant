@@ -1178,7 +1178,7 @@ test "the wingmen example: a badly damaged wingman runs from its attacker, and r
     } }}, .{ .storage = &storage, .settings = &pages });
     defer fixture.deinit();
     // Its options, under two headings, are the defaults until the player sets them.
-    try std.testing.expectEqual(6, pages.page("wingmen").?.options.len);
+    try std.testing.expectEqual(7, pages.page("wingmen").?.options.len);
     try std.testing.expectEqual(mod_options.Value{ .number = 0.3 }, pages.value("wingmen", "pull_out_below").?);
     fixture.begin();
     const wingman = try fixture.mission.add(.of(.wolverine), .{ 0, 0, -1000 });

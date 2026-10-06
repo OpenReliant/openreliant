@@ -114,6 +114,20 @@ pub const Line = struct {
     /// value fits beside it.
     pub const slider_travel = 135;
 
+    /// OpenReliant's: the box a text's row writes its line in, from where its arrows would stand,
+    /// which the pointer finds it by.
+    pub fn textBox(line: Line) Rect {
+        return .{ .x = @intCast(line.edge + arrows_from), .y = @intCast(line.y + text_box_drop), .width = text_box_size[0], .height = text_box_size[1] };
+    }
+    const text_box_size: [2]i16 = .{ 234, 18 };
+    const text_box_drop = -1;
+    const text_inset = 4;
+
+    /// Where the line of a text's row is written, in its box.
+    pub fn typedLine(line: Line, words: Label.Text) Label {
+        return .{ .text = words, .at = .{ line.edge + arrows_from + text_inset, line.y } };
+    }
+
     /// Where the value of a slider's row is written.
     pub fn sliderValue(line: Line, text: Label.Text) Label {
         return .{ .text = text, .at = .{ line.slider().end + slider_value_gap, line.y } };
@@ -154,9 +168,22 @@ pub const Line = struct {
                 try placed.drawKnob(drawn, art, slid.along);
                 try line.sliderValue(slid.words).write(drawn, small, blue);
             },
+            .text => |typed| {
+                const rect = line.textBox();
+                drawn.box(.{ rect.x, rect.y }, .{ rect.width, rect.height });
+                const written = line.typedLine(.{ .words = typed.words });
+                try written.write(drawn, small, if (typed.cursor == null) blue else white);
+                if (typed.cursor == true) {
+                    const width: i32 = @intCast(small.textWidth(typed.words));
+                    try (Label{ .text = .{ .words = text_cursor }, .at = .{ written.at[0] + width, written.at[1] } }).write(drawn, small, white);
+                }
+            },
             .heading => try line.heading(shown.label).write(drawn, small, white),
         }
     }
+
+    /// What a text's line ends in while it is typed, as a saved game's name has.
+    const text_cursor = "_";
 
     /// What a row shows: its label, and its check box or its choice; dimmed where it can't be
     /// changed.
@@ -173,6 +200,9 @@ pub const Line = struct {
         choice: Label.Text,
         /// OpenReliant's: a slider, its knob `along` its travel, and its value.
         slider: struct { along: i32, words: Label.Text },
+        /// OpenReliant's: a line of text in a box, and while it is typed, whether its cursor shows;
+        /// null while it isn't.
+        text: struct { words: []const u8, cursor: ?bool = null },
         /// OpenReliant's: none, the label a heading over the rows after it, in white from the
         /// frame's left, which the pointer passes over.
         heading,
@@ -470,6 +500,8 @@ pub const Pane = struct {
         check: u8,
         /// A slider's row, which the pointer holds the knob of.
         slide: u8,
+        /// A text's row, whose line the pointer is on.
+        text: u8,
     };
 
     pub const Stepped = struct { row: u8, step: Step };
@@ -488,6 +520,7 @@ pub const Pane = struct {
                 .check => if (placed.boxRect().holds(at)) return .{ .check = @intCast(row) },
                 .choice => if (placed.arrowAt(at)) |step| return .{ .step = .{ .row = @intCast(row), .step = step } },
                 .slider => if (placed.slider().reach().holds(at)) return .{ .slide = @intCast(row) },
+                .text => if (placed.textBox().holds(at)) return .{ .text = @intCast(row) },
                 .heading => {},
             }
         }
@@ -503,7 +536,7 @@ pub const Pane = struct {
         if (lit) |item| switch (item) {
             .scroll => |arrow| lit_arrow = arrow,
             .step => |stepped| if (list.place(stepped.row)) |place| try pane.line(place).drawLit(canvas, art, stepped.step),
-            .check, .slide => {},
+            .check, .slide, .text => {},
         };
         try pane.arrows.draw(canvas, art, lit_arrow);
     }

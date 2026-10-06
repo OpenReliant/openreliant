@@ -48,5 +48,12 @@ settings.register_page({
             default = 50000,
             description = "How far from your ship the panel looks for wingmen.",
         },
+        {
+            key = "panel_title",
+            label = "PANEL TITLE",
+            kind = "text",
+            default = "WINGMEN",
+            description = "The title over the panel.",
+        },
     },
 })

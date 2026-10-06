@@ -36,7 +36,7 @@ pub const Choice = struct {
 
 /// An option, as scripts give it. A toggle needs a boolean default; a choice needs `choices` and a
 /// default among their values; a number or a slider needs `min`, `max` and `step` and a default in
-/// the range; each needs a key. A heading needs only its label.
+/// the range; a text needs a string default; each needs a key. A heading needs only its label.
 pub const Option = struct {
     key: []const u8 = "",
     label: []const u8,
@@ -57,7 +57,7 @@ pub const Page = struct {
 
 /// What `openreliant.settings` holds.
 pub const package = struct {
-    pub const register_page = api.Function("Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `\"toggle\"` has a boolean default. A `\"choice\"` has `choices`, each a `value` and a `label`, and a default among their values. A `\"number\"` has `min`, `max` and `step`, and a default in the range, and arrows step it. A `\"slider\"` is a number with a knob to drag, for a wide range. A `\"heading\"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.", &.{"page"}, registerPage);
+    pub const register_page = api.Function("Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `\"toggle\"` has a boolean default. A `\"choice\"` has `choices`, each a `value` and a `label`, and a default among their values. A `\"number\"` has `min`, `max` and `step`, and a default in the range, and arrows step it. A `\"slider\"` is a number with a knob to drag, for a wide range. A `\"text\"` is a line the player types, of up to 24 characters, with a string default. A `\"heading\"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.", &.{"page"}, registerPage);
     pub const get = api.Function("The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set.", &.{"key"}, getOption);
 };
 
@@ -125,6 +125,7 @@ fn view(given: *const Option, buffer: *[mod_options.max_choices]mod_options.Choi
             },
             .number => .{ .number = try rangeOf(given) },
             .slider => .{ .slider = try rangeOf(given) },
+            .text => .text,
             .heading => .heading,
         },
     };
@@ -159,18 +160,21 @@ pub const Registry = struct {
     arena: std.heap.ArenaAllocator,
     storage: *Storage,
     registered: std.ArrayList(Registered) = .empty,
-    /// The changes made on the screen that scripts haven't been told of.
+    /// The changes made on the screen that scripts haven't been told of, and the copies of their
+    /// texts, which last until every change has been taken (`takeChange`).
     changes: std.ArrayList(Change) = .empty,
+    told_texts: std.heap.ArenaAllocator,
     /// Whether registering is over.
     closed: bool = false,
 
     pub fn init(gpa: Allocator, storage: *Storage) Registry {
-        return .{ .gpa = gpa, .arena = .init(gpa), .storage = storage };
+        return .{ .gpa = gpa, .arena = .init(gpa), .storage = storage, .told_texts = .init(gpa) };
     }
 
     pub fn deinit(registry: *Registry) void {
         registry.registered.deinit(registry.gpa);
         registry.changes.deinit(registry.gpa);
+        registry.told_texts.deinit();
         registry.arena.deinit();
     }
 
@@ -199,6 +203,7 @@ pub const Registry = struct {
                 .default = try ownValue(memory, shown.default),
                 .control = switch (shown.control) {
                     .toggle => .toggle,
+                    .text => .text,
                     .heading => .heading,
                     .number => |range| .{ .number = range },
                     .slider => |range| .{ .slider = range },
@@ -254,13 +259,20 @@ pub const Registry = struct {
             .text => |text| .{ .string = try gpa.dupe(u8, text) },
         };
         errdefer kept.deinit(gpa);
-        try registry.changes.append(registry.gpa, .{ .mod = registry.find(mod).?.mod, .key = each.key, .value = fitted });
+        const told: mod_options.Value = switch (fitted) {
+            .boolean, .number => fitted,
+            .text => |text| .{ .text = try registry.told_texts.allocator().dupe(u8, text) },
+        };
+        try registry.changes.append(registry.gpa, .{ .mod = registry.find(mod).?.mod, .key = each.key, .value = told });
         try registry.storage.put(mod, section_name, .global, key, kept);
     }
 
-    /// The oldest change not yet told to scripts.
+    /// The oldest change not yet told to scripts; none once all are, which lets their texts go.
     pub fn takeChange(registry: *Registry) ?Change {
-        if (registry.changes.items.len == 0) return null;
+        if (registry.changes.items.len == 0) {
+            _ = registry.told_texts.reset(.retain_capacity);
+            return null;
+        }
         return registry.changes.orderedRemove(0);
     }
 
@@ -321,10 +333,11 @@ const wingmen_page =
     \\          choices = { { value = 0.2, label = "20%" }, { value = 0.35, label = "35%" } } },
     \\        { key = "regroup", label = "REGROUP AFTER", kind = "number", min = 5, max = 60, step = 5, default = 20 },
     \\        { key = "reach", label = "RADAR REACH", kind = "slider", min = 1000, max = 50000, step = 500, default = 8000 },
+    \\        { key = "callsign", label = "CALL SIGN", kind = "text", default = "Viper" },
     \\    },
     \\})
     \\assert(settings.get("show") == true and settings.get("flee") == 0.35 and settings.get("regroup") == 20)
-    \\assert(settings.get("reach") == 8000)
+    \\assert(settings.get("reach") == 8000 and settings.get("callsign") == "Viper")
     \\assert(not pcall(settings.get, "missing"))
     \\assert(not pcall(function() require("openreliant.storage").global_section("settings") end))
 ;
@@ -337,7 +350,7 @@ test "a load script declares a page, and every script reads the values" {
     try runMod(wingmen_page, &registry);
     const page = registry.page("a").?;
     try std.testing.expectEqualStrings("Wingmen", page.title);
-    try std.testing.expectEqual(4, page.options.len);
+    try std.testing.expectEqual(5, page.options.len);
     try std.testing.expectEqualStrings("Shows the panel.", page.options[0].description);
     try std.testing.expectEqual(mod_options.Option.Range{ .min = 1000, .max = 50000, .step = 500 }, page.options[3].control.slider);
     try std.testing.expectEqual(null, registry.page("b"));
@@ -355,6 +368,14 @@ test "a load script declares a page, and every script reads the values" {
     try registry.set("a", "regroup", .{ .number = 1000 });
     try std.testing.expectEqual(mod_options.Value{ .number = 60 }, registry.value("a", "regroup").?);
     try std.testing.expectEqual(null, registry.value("a", "missing"));
+    // A text is kept as a copy, too long a one reads as the default, and the change told keeps its
+    // own copy, whatever the storage's becomes.
+    var line = "Maverick".*;
+    try registry.set("a", "callsign", .{ .text = &line });
+    line[0] = 'X';
+    try std.testing.expectEqualStrings("Maverick", registry.value("a", "callsign").?.text);
+    try registry.set("a", "callsign", .{ .text = "a" ** (mod_options.text_room + 1) });
+    try std.testing.expectEqualStrings("Viper", registry.value("a", "callsign").?.text);
     // The changes wait, in order, for the scripts to be told.
     var changes: usize = 0;
     while (registry.takeChange()) |change| : (changes += 1) {
@@ -363,8 +384,9 @@ test "a load script declares a page, and every script reads the values" {
             try std.testing.expectEqualStrings("regroup", change.key);
             try std.testing.expectEqual(mod_options.Value{ .number = 30 }, change.value);
         }
+        if (changes == 4) try std.testing.expectEqualStrings("Maverick", change.value.text);
     }
-    try std.testing.expectEqual(4, changes);
+    try std.testing.expectEqual(6, changes);
 }
 
 test "a page that is wrong is refused, and a mod has one page" {
@@ -389,7 +411,7 @@ test "a page that is wrong is refused, and a mod has one page" {
         \\refused(option({ kind = "toggle", default = true, choices = { { value = 1, label = "ONE" } } }), "only a choice has choices")
         \\refused(option({ kind = "toggle", default = true, min = 1 }), "only a number or a slider has min, max and step")
         \\refused(option({ kind = "slider", default = 1 }), "needs min, max and step")
-        \\refused(option({ kind = "wide", default = true }), "'toggle', 'choice', 'number', 'slider' or 'heading'")
+        \\refused(option({ kind = "wide", default = true }), "'toggle', 'choice', 'number', 'slider', 'text' or 'heading'")
         \\refused({ title = "T", options = { { key = "k", label = "L", kind = "toggle" } } }, "it needs a default")
         \\refused(option({ kind = "heading", default = true }), "a heading has no default")
         \\refused({ title = "T", options = { { key = "k", label = "L", kind = "toggle", default = true }, { key = "k", label = "M", kind = "toggle", default = false } } }, "two options are called 'k'")

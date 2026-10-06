@@ -1262,6 +1262,7 @@ settings.register_page({
           description = "The seconds a wingman stays out of the fight." },
         { key = "panel_reach", label = "PANEL REACH", kind = "slider",
           min = 5000, max = 100000, step = 5000, default = 50000 },
+        { key = "panel_title", label = "PANEL TITLE", kind = "text", default = "WINGMEN" },
     },
 })
 
@@ -1272,7 +1273,9 @@ local rejoin_after = settings.get("rejoin_after")
   a number or a string `value` with the `label` the screen shows, and its default is one of the
   values. A `"number"` steps from `min` to `max` by `step`, and its default is in the range. A
   `"slider"` is a number set by dragging a knob, for a wide range: it takes the same fields, and
-  the knob stops on the steps. Each of these needs a `key`, which scripts read it by.
+  the knob stops on the steps. A `"text"` is a line the player types in a box, of up to 24
+  characters, with a string default: a click in the box starts typing, Enter or a click elsewhere
+  keeps the line, and Escape puts it back. Each of these needs a `key`, which scripts read it by.
 - A `"heading"` has only a `label`, which the list writes in white over the options after it, to
   split a long page.
 - An option's `description` shows under the list while the pointer is on it.
@@ -1288,11 +1291,12 @@ local rejoin_after = settings.get("rejoin_after")
   `on_setting_changed(key, value)`.
 - The values are kept in the mod's global storage, in a section of its own that
   `storage.global_section` doesn't open. A value that is the default isn't kept.
-- Changing the options in a game, a text option and a key binding are planned
-  ([#600](https://github.com/OpenReliant/openreliant/issues/600),
-  [#601](https://github.com/OpenReliant/openreliant/issues/601)).
+- A key the player sets is an action the mod registers, which the controls screen binds
+  ([Keys and actions](#keys-and-actions)), rather than an option.
+- Changing the options in a game is planned
+  ([#600](https://github.com/OpenReliant/openreliant/issues/600)).
 
-[`examples/mods/wingmen`](../../examples/mods/wingmen) offers four options under two headings.
+[`examples/mods/wingmen`](../../examples/mods/wingmen) offers five options under two headings.
 
 ## Post effects
 
