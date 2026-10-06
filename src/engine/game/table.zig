@@ -65,6 +65,10 @@ pub fn Linked(comptime T: type, comptime capacity: usize) type {
     return struct {
         records: [capacity]?T = @splat(null),
         newest: ?Index = null,
+        /// How often each slot has had its record removed, so that a handle to a record can tell
+        /// whether the slot still holds it, as an object's handle does (`create.Objects.reuses`).
+        /// OpenReliant's own: the game keeps no such count.
+        reuses: [capacity]u32 = @splat(0),
 
         const Self = @This();
         pub const Index = std.math.IntFittingRange(0, capacity - 1);
@@ -99,12 +103,16 @@ pub fn Linked(comptime T: type, comptime capacity: usize) type {
             if (record.older) |older| list.records[older].?.newer = record.newer;
             record.release(gpa);
             list.records[index] = null;
+            list.reuses[index] +%= 1;
         }
 
         /// Every record let go of.
         pub fn reset(list: *Self, gpa: std.mem.Allocator) void {
-            for (&list.records) |*slot| {
-                if (slot.*) |*record| record.release(gpa);
+            for (&list.records, &list.reuses) |*slot, *reused| {
+                if (slot.*) |*record| {
+                    record.release(gpa);
+                    reused.* +%= 1;
+                }
                 slot.* = null;
             }
             list.newest = null;
@@ -162,12 +170,15 @@ test Linked {
     try std.testing.expect(list.full());
     try std.testing.expectEqual(null, list.add(.{ .value = 40 }));
     list.remove(std.testing.allocator, 1);
+    try std.testing.expectEqual(1, list.reuses[1]);
     try std.testing.expectEqual(1, list.add(.{ .value = 40 }).?);
     var walk = list.walk();
     var order: [3]u8 = undefined;
     var n: usize = 0;
     while (walk.next()) |index| : (n += 1) order[n] = list.get(index).?.value;
     try std.testing.expectEqualSlices(u8, &.{ 40, 30, 10 }, order[0..n]);
+    // A reset counts a reuse of each slot that held a record.
     list.reset(std.testing.allocator);
     try std.testing.expectEqual(null, list.newest);
+    try std.testing.expectEqualSlices(u32, &.{ 1, 2, 1 }, &list.reuses);
 }

@@ -10,6 +10,8 @@ type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "r
 type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debris" | "mine" | "planet" | number
 type PilotNumber = "none" | number | string
 type Side = "friendly" | "hostile" | "neutral" | number
+type MissileType = "none" | "screamer" | "raptor" | "havoc" | "jack_hammer" | "bandit" | "vagabond" | "solomon" | "imp" | "hawk" | "torpedo" | "fuel_pod" | number | string
+type Missile =  | number
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
 type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | number
@@ -48,6 +50,16 @@ type Quadrants = {
     right: number,
     fore: number,
     aft: number,
+}
+type Target = {
+    object: Object?,
+    component: number?,
+    flight_group: number?,
+    squad: number?,
+}
+type Handle = {
+    record: number,
+    count: number,
 }
 type GameModeMission = {
     number: number,
@@ -169,14 +181,8 @@ type Outcome = {
     ending: Ending,
     rating: Rating,
 }
-type Target = {
-    object: Object?,
-    component: number?,
-    flight_group: number?,
-    squad: number?,
-}
 
--- Objects, which scripts hold by handles.
+-- Objects and missiles, which scripts hold by handles.
 
 declare class Object
     -- The slot it fills in the mission, from 0.
@@ -233,6 +239,28 @@ declare class Object
     function set_surface(self, name: string?, parameters: { number }?): boolean
     -- Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts.
     function remove_script(self, name: string): boolean
+end
+declare class Missile
+    -- Its type, such as `raptor`, or the qualified name of one a mod adds.
+    type: MissileType
+    -- The object that launched it, or let it fall; nil once that one has left the mission.
+    launcher: Object?
+    -- What it flies at. Its guidance turns to a new target from the next frame.
+    target: Target
+    -- The side it's on: its launcher's, as it was launched.
+    side: Side
+    -- Where it is.
+    position: vector
+    -- Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`).
+    orientation: Orientation
+    -- How far it moves in a simulation step, of which there are 25 a second.
+    velocity: vector
+    -- How fast it moves: the length of its velocity.
+    speed: number
+    -- Whether the missile is still in flight. A handle stops being valid once its flight ends or its mission ends.
+    function is_valid(self): boolean
+    -- Ends its flight now, as it ends when its time runs out: it blows up where it is, with a shockwave for a Havoc or an Imp. Global scripts can set off any missile, and a missile's own scripts their missile.
+    function detonate(self): ()
 end
 
 -- The records (`openreliant.records`).
@@ -320,9 +348,9 @@ type World = {
     objects: () -> { Object },
 }
 
--- The objects around the script's own.
+-- The objects around the script's own object or missile.
 type Nearby = {
-    -- The objects within `radius` of the script's object, or of the player's ship for a player script, nearest first, without it.
+    -- The objects within `radius` of the script's object or missile, or of the player's ship for a player script, nearest first, without it.
     objects: (radius: number) -> { Object },
 }
 
@@ -898,6 +926,18 @@ declare class ObjectRemoved
     object: Object
 end
 
+-- `missile` has been launched by `launcher`, or let fall from it. Its target is set.
+declare class MissileAdded
+    missile: Missile
+    launcher: Object?
+end
+
+-- The flight of `missile`, launched by `launcher`, ends: it has struck something or run out of time, and blows up. Its handle stops being valid after this. `launcher` is nil once it has left the mission.
+declare class MissileRemoved
+    missile: Missile
+    launcher: Object?
+end
+
 -- `object` has started `order`, which has come to the top of its orders. One-shot orders, which run once and end straight away, don't start.
 declare class OrderStarted
     object: Object
@@ -1072,6 +1112,8 @@ type HooksAdd =
     ((name: "mission_ended", handler: (e: MissionEnded) -> boolean?, filter: ((e: MissionEnded) -> boolean)?) -> HookHandle) &
     ((name: "object_added", handler: (e: ObjectAdded) -> boolean?, filter: (Filter | (e: ObjectAdded) -> boolean)?) -> HookHandle) &
     ((name: "object_removed", handler: (e: ObjectRemoved) -> boolean?, filter: (Filter | (e: ObjectRemoved) -> boolean)?) -> HookHandle) &
+    ((name: "missile_added", handler: (e: MissileAdded) -> boolean?, filter: (Filter | (e: MissileAdded) -> boolean)?) -> HookHandle) &
+    ((name: "missile_removed", handler: (e: MissileRemoved) -> boolean?, filter: (Filter | (e: MissileRemoved) -> boolean)?) -> HookHandle) &
     ((name: "order_started", handler: (e: OrderStarted) -> boolean?, filter: (Filter | (e: OrderStarted) -> boolean)?) -> HookHandle) &
     ((name: "order_ended", handler: (e: OrderEnded) -> boolean?, filter: (Filter | (e: OrderEnded) -> boolean)?) -> HookHandle) &
     ((name: "trigger_fired", handler: (e: TriggerFired) -> boolean?, filter: (Filter | (e: TriggerFired) -> boolean)?) -> HookHandle)

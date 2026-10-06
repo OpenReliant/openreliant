@@ -492,7 +492,7 @@ fn contextOf(target: Target, scripts: Scripts) ?*Context {
         .player, .menu => (scripts.presentation orelse return null).runtime,
     };
     for (runtime.contexts.items) |context| {
-        if (!context.closed and context.mod == target.mod and context.family == target.family and context.object == null) return context;
+        if (!context.closed and context.mod == target.mod and context.family == target.family and context.runs_on == null) return context;
     }
     return null;
 }

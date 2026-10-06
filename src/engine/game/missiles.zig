@@ -354,6 +354,12 @@ pub const Missile = struct {
     slot: create.Slot,
     /// Its launcher's slot (`+0x08`), which it never strikes and which its damage is credited to.
     launcher: u16,
+    /// The count of reuses of its launcher's slot as it was launched (`create.Objects.reuses`),
+    /// which tells whether its launcher is still in the mission. OpenReliant's own.
+    launcher_reuses: u32 = 0,
+    /// Whether its end has begun, while the scripts hear of it, so that it ends once.
+    /// OpenReliant's own.
+    ending: bool = false,
     /// The countermeasure it chases (`+0x0C`), or null.
     decoy: ?u8 = null,
     /// Its trail (`+0x10`), where it has one.
@@ -386,6 +392,11 @@ pub const Missile = struct {
     /// Its type's figures.
     pub fn stats(missile: *const Missile, table: *const Table) *const Stats {
         return table.of(missile.type).?;
+    }
+
+    /// Its launcher's slot, while the object that launched it is still in the mission.
+    pub fn launcherIn(missile: *const Missile, all: *const create.Objects) ?u16 {
+        return if (all.reuses[missile.launcher] == missile.launcher_reuses) missile.launcher else null;
     }
 };
 
@@ -442,6 +453,7 @@ pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneri
     setOrder(world, at, order);
     if (order == .rail_launch) startTrail(world, at);
     if (missiles.get(at)) |live| live.target = target;
+    launched(world, at);
     if (pod and racked.count == 0) launch(world, launcher, rack, .none);
 }
 
@@ -469,6 +481,14 @@ pub fn launchFromTurret(world: gameobj.World, ship: u16, model: *const objects.M
     startTrail(world, at);
     setOrder(world, at, .pod_launch);
     if (all.missiles.get(at)) |live| live.target = target;
+    launched(world, at);
+}
+
+/// Tells the scripts that the missile at `at` is in flight, with its target set, where it still
+/// is.
+fn launched(world: gameobj.World, at: u8) void {
+    const missile = world.objects.missiles.get(at) orelse return;
+    hooks.tell(world, .missile_added, .{ .missile = .of(at), .launcher = if (missile.launcherIn(world.objects)) |slot| .of(slot) else null });
 }
 
 /// Where a launch starts a missile: where its launcher stood at the last step, where the step is
@@ -497,7 +517,7 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     object.root.next_orientation = places.next.orientation;
     object.root.markMoved();
     slot.drawn = places.drawn;
-    return all.missiles.add(.{ .slot = slot, .launcher = launcher, .type = kind }) orelse {
+    return all.missiles.add(.{ .slot = slot, .launcher = launcher, .launcher_reuses = all.reuses[launcher], .type = kind }) orelse {
         slot.release(all.gpa);
         return null;
     };
@@ -862,11 +882,15 @@ pub fn draw(all: *create.Objects, gpa: Allocator, scene: *srcore.Scene, attachme
 /// `missile_end` (`0x00495870`): the missile's end, however it comes: its object's voice ended,
 /// where it holds one; a Havoc's shockwave, or an Imp's, where it is drawn, sparing its launcher's
 /// side (`shockwave.Shockwave.strike`); its blast (`explode.missileBlast`); and its record freed.
+/// The scripts hear of it first, and a missile they end meanwhile ends only once.
 ///
 /// Its trail fades out from here. Not ported: in a multiplayer game, a remote missile's id.
 pub fn end(world: gameobj.World, at: u8) void {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return;
+    if (missile.ending) return;
+    missile.ending = true;
+    hooks.tell(world, .missile_removed, .{ .missile = .of(at), .launcher = if (missile.launcherIn(all)) |slot| .of(slot) else null });
     const object = missile.object();
     if (object.sound_voice.index()) |voice| if (world.hearing) |hearing| hearing.sound.end3D(voice);
     if (missile.type.base().shockwave()) |kind| shockwave_mod.setOff(world, missile.slot.drawn, .{

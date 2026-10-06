@@ -5,7 +5,8 @@ Mods can include scripts, written in [Luau](https://luau.org), a version of Lua 
 - **Load scripts** change the game's records, such as a gun's damage, as OpenReliant starts.
 - **Global and mission scripts** run as the game plays. They react to what happens and change it,
   through hooks on the game's functions and events.
-- **Object scripts** run on the ships and other objects of a mission, each on its own object.
+- **Object scripts** run on the ships and other objects of a mission, each on its own object, and
+  **missile scripts** on each missile in flight.
 - **Player and menu scripts** decide what the player sees, hears and does. They draw over the flight
   display and the menus, react to the keys, and add camera views, game modes and shader effects.
 
@@ -108,6 +109,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | Global | `Global=` under `[Scripts]` | For the whole game | [Hooks](#hooks), [orders](#orders) and the mission's objects |
 | Mission | The mission's file name under `[Missions]` | While that mission runs | The same as global scripts, for one mission |
 | Object | A class, such as `Fighter=`, or a type, such as `Type.predator=`, under `[Scripts]` | On each object of that class or type, while it's in the mission | [Object scripts](#object-scripts) |
+| Missile | `Missile=` under `[Scripts]` | On each missile, from its launch to the end of its flight | [Missile scripts](#missile-scripts) |
 | Player | `Player=` under `[Scripts]` | For the whole game, even while it's paused | [What the player sees and does](#player-and-menu-scripts) in flight |
 | Menu | `Menu=` under `[Scripts]` | From OpenReliant's start until it quits: in the menus, the rooms, the movies and the loading screens, and over the missions | [Drawing over the menus](#player-and-menu-scripts), [replacing screens](#replacing-a-screen), [actions](#keys-and-actions), options and game modes |
 
@@ -138,7 +140,7 @@ mission2.dte=escort.luau
   the mod that adds it by its own name, `Type.teapot`. Its number changes with the mods that are
   on, so don't name it by number.
 - Each script has its own global variables, and the scripts on each object have their own.
-- Scripts on missiles and turrets are planned
+- Scripts on turrets are planned
   ([#587](https://github.com/OpenReliant/openreliant/issues/587)); this version skips them, and
   says so in the log.
 
@@ -584,6 +586,44 @@ return {
     },
 }
 ```
+
+### Missile scripts
+
+A missile script runs on one missile, from its launch until its flight ends, as it strikes
+something, runs out of time or is set off, or until the mission ends. `Missile=` starts it on every
+missile, and `require("openreliant.self")` gives it its missile, a handle
+([Missiles](reference.md#missiles)) with the missile's `type`, `launcher`, `target`, `position` and
+`velocity`.
+
+```lua
+-- Raptors fired at the player's ship turn to the nearest other ship of the player's side, if any.
+local self = require("openreliant.self")
+local nearby = require("openreliant.nearby")
+
+return {
+    engine_handlers = {
+        on_added = function()
+            local player = self.target.object
+            if self.type ~= "raptor" or not (player and player.is_player) then return end
+            for _, other in nearby.objects(20000) do
+                if other.side == player.side and not other.is_player then
+                    self.target = { object = other }
+                    return
+                end
+            end
+        end,
+    },
+}
+```
+
+- The script gets `on_init` and `on_added` as the missile is launched, its target set, and
+  `on_removed` as its flight ends. As a mission ends, its missiles' scripts stop without
+  `on_removed`.
+- Each missile's scripts have their own globals, as each object's have.
+- `self.target` can be set to aim the missile elsewhere, and `self:detonate()` ends its flight at
+  once. Global scripts can do both to any missile.
+- `nearby.objects(radius)` gives the objects around the missile, nearest first.
+- Global scripts hear of each missile with the events `missile_added` and `missile_removed`.
 
 ## Orders
 

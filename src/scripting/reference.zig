@@ -18,6 +18,7 @@ const Hook = engine_hooks.Hook;
 const Object = engine_hooks.Object;
 const values = @import("values.zig");
 const objects = @import("objects.zig");
+const missiles = @import("missiles.zig");
 const records = @import("records.zig");
 const bind = @import("bind.zig");
 const script = @import("script.zig");
@@ -44,7 +45,7 @@ fn functionTypes(comptime F: type) []const type {
 /// The types at the roots of what scripts see, which `gather` follows.
 const roots: []const type = list: {
     @setEvalBranchQuota(1_000_000);
-    var found: []const type = namespaceTypes(objects.fields) ++ namespaceTypes(objects.methods);
+    var found: []const type = namespaceTypes(objects.fields) ++ namespaceTypes(objects.methods) ++ namespaceTypes(missiles.fields) ++ namespaceTypes(missiles.methods);
     for (std.enums.values(script.Package)) |package| {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceTypes(Namespace);
     }
@@ -65,7 +66,7 @@ const roots: []const type = list: {
 /// The types of what scripts pass the functions and methods declared, which `given` follows.
 const passed: []const type = list: {
     @setEvalBranchQuota(1_000_000);
-    var found: []const type = namespaceParameters(objects.methods);
+    var found: []const type = namespaceParameters(objects.methods) ++ namespaceParameters(missiles.methods);
     for (std.enums.values(script.Package)) |package| {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceParameters(Namespace);
     }
@@ -138,10 +139,42 @@ fn gather(comptime T: type, comptime seen: Gathered) Gathered {
     };
 }
 
+/// Declares the class `name` of the handles whose fields are `Fields` and whose methods are
+/// `Methods`, for the definitions file.
+fn writeHandleClass(w: *Writer, comptime name: []const u8, comptime Fields: type, comptime Methods: type) Writer.Error!void {
+    try w.writeAll("declare class " ++ name ++ "\n");
+    inline for (comptime api.declared(Fields, .field)) |field_name| {
+        const field = @field(Fields, field_name);
+        try w.print("    -- {s}\n    {s}: {s}\n", .{ field.description, field_name, comptime luauType(field.Type) });
+    }
+    inline for (comptime api.declared(Methods, .function)) |method_name| {
+        const method = @field(Methods, method_name);
+        const parameters = comptime parameterList(method, 1);
+        try w.print("    -- {s}\n    function {s}(self{s}{s}): {s}\n", .{ method.description, method_name, if (parameters.len > 0) ", " else "", parameters, comptime resultType(method) });
+    }
+    try w.writeAll("end\n");
+}
+
+/// The tables of the fields `Fields` and the methods `Methods` of a kind of handle, for the
+/// reference page.
+fn writeHandleTables(w: *Writer, comptime Fields: type, comptime Methods: type) Writer.Error!void {
+    try w.writeAll("\n| Field | Type | What it is |\n|---|---|---|\n");
+    inline for (comptime api.declared(Fields, .field)) |name| {
+        const field = @field(Fields, name);
+        try w.print("| `{s}` | {s} | {s}{s} |\n", .{ name, comptime markdownType(field.Type), if (field.writable) "*Changes.* " else "", field.description });
+    }
+    try w.writeAll("\n| Method | Returns | What it does |\n|---|---|---|\n");
+    inline for (comptime api.declared(Methods, .function)) |name| {
+        const method = @field(Methods, name);
+        try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(method, 1)), comptime markdownResult(method), method.description });
+    }
+}
+
 /// The Luau type of a value of `T` (`values.push`).
 fn luauType(comptime T: type) []const u8 {
     comptime {
         if (T == Object or T == objects.Handle) return "Object";
+        if (T == engine_hooks.Missile or T == missiles.Handle) return "Missile";
         if (values.isList(T)) return "{ " ++ luauType(T.Item) ++ " }";
         if (T == data.Data) return "any";
         if (T == values.Table) return "{ [any]: any }";
@@ -278,18 +311,9 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     try w.writeAll("\n-- Tables of values, which scripts can only read.\n\n");
     inline for (gathered.tables) |T| try writeTable(w, comptime bind.noun(T), T);
 
-    try w.writeAll("\n-- Objects, which scripts hold by handles.\n\n");
-    try w.writeAll("declare class Object\n");
-    inline for (comptime api.declared(objects.fields, .field)) |name| {
-        const field = @field(objects.fields, name);
-        try w.print("    -- {s}\n    {s}: {s}\n", .{ field.description, name, comptime luauType(field.Type) });
-    }
-    inline for (comptime api.declared(objects.methods, .function)) |name| {
-        const method = @field(objects.methods, name);
-        const parameters = comptime parameterList(method, 1);
-        try w.print("    -- {s}\n    function {s}(self{s}{s}): {s}\n", .{ method.description, name, if (parameters.len > 0) ", " else "", parameters, comptime resultType(method) });
-    }
-    try w.writeAll("end\n");
+    try w.writeAll("\n-- Objects and missiles, which scripts hold by handles.\n\n");
+    try writeHandleClass(w, "Object", objects.fields, objects.methods);
+    try writeHandleClass(w, "Missile", missiles.fields, missiles.methods);
 
     try w.writeAll("\n-- The records (`openreliant.records`).\n\n");
     inline for (comptime records.Values.kinds) |T| {
@@ -538,24 +562,18 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         \\fields; global scripts can change those marked *changes* on any object, and an object's own
         \\scripts on their object.
         \\
-        \\| Field | Type | What it is |
-        \\|---|---|---|
-        \\
     );
-    inline for (comptime api.declared(objects.fields, .field)) |name| {
-        const field = @field(objects.fields, name);
-        try w.print("| `{s}` | {s} | {s}{s} |\n", .{ name, comptime markdownType(field.Type), if (field.writable) "*Changes.* " else "", field.description });
-    }
+    try writeHandleTables(w, objects.fields, objects.methods);
     try w.writeAll(
         \\
-        \\| Method | Returns | What it does |
-        \\|---|---|---|
+        \\## Missiles
+        \\
+        \\Scripts see missiles in flight through handles too. A missile's handle stays valid until its
+        \\flight ends or its mission ends. Every script can read the fields; global scripts can change those
+        \\marked *changes* on any missile, and a missile's own scripts on their missile.
         \\
     );
-    inline for (comptime api.declared(objects.methods, .function)) |name| {
-        const method = @field(objects.methods, name);
-        try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(method, 1)), comptime markdownResult(method), method.description });
-    }
+    try writeHandleTables(w, missiles.fields, missiles.methods);
 
     try w.writeAll("\n## Built-in interfaces\n\n`require(\"openreliant.interfaces\")` gives these groups of the packages' functions, unless a mod offers an interface of the same name. A group a script's packages don't allow is nil.\n");
     inline for (comptime std.enums.values(@import("builtin_interfaces.zig").Group)) |tag| {
@@ -751,6 +769,7 @@ fn markdownType(comptime T: type) []const u8 {
         };
         const optional = if (Plain == T) "" else ", or nil";
         if (Plain == Object or Plain == objects.Handle) return "[object](#objects)" ++ optional;
+        if (Plain == engine_hooks.Missile or Plain == missiles.Handle) return "[missile](#missiles)" ++ optional;
         if (values.isList(Plain)) return "list of " ++ (if (Plain.Item == Object) "[objects](#objects)" else markdownType(Plain.Item)) ++ optional;
         if (Plain == data.Data) return "plain data";
         if (std.mem.findScalar(type, gathered.enums ++ gathered.tables, Plain) != null) {

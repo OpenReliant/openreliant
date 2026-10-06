@@ -1,5 +1,5 @@
 //! The `openreliant.nearby` package ([#498](https://github.com/OpenReliant/openreliant/issues/498)),
-//! for object scripts: the objects around the script's own (`package`).
+//! for object scripts: the objects around the script's own object or missile (`package`).
 
 const std = @import("std");
 
@@ -10,24 +10,29 @@ const api = @import("api.zig");
 const Call = api.Call;
 const handles = @import("objects.zig");
 const world = @import("world.zig");
+const RunsOn = @import("runtime.zig").RunsOn;
 const Object = openreliant.engine.hooks.Object;
 
 /// What `openreliant.nearby` holds.
 pub const package = struct {
-    pub const objects = api.Function("The objects within `radius` of the script's object, or of the player's ship for a player script, nearest first, without it.", &.{"radius"}, objectsWithin);
+    pub const objects = api.Function("The objects within `radius` of the script's object or missile, or of the player's ship for a player script, nearest first, without it.", &.{"radius"}, objectsWithin);
 };
 
 /// `nearby.objects(radius)`.
 fn objectsWithin(call: Call, radius: f32) handles.List {
     const all = call.runtime().objects orelse call.raise("nearby.objects can only be used while a game runs", .{});
-    const own = call.context.object orelse handles.Handle.of(all, all.player);
-    if (!own.valid(all)) call.raise("nearby.objects: the script's object is no longer in the mission", .{});
-    const centre = gameobj.vector(all.slots[own.slot].object.root.position);
+    const own: RunsOn = call.context.runs_on orelse .{ .object = .of(all, all.player) };
+    if (!own.valid(all)) call.raise("nearby.objects: the script's object or missile is no longer in the mission", .{});
+    const centre = own.position(all);
+    const itself: ?u16 = switch (own) {
+        .object => |handle| handle.slot,
+        .missile => null,
+    };
     var found: handles.List = .{};
     var distances: [gameobj.max_objects]f32 = undefined;
     var walk = all.walk();
     while (walk.next()) |index| {
-        if (index == own.slot or !world.inMission(all, index)) continue;
+        if (index == itself or !world.inMission(all, index)) continue;
         const apart = math.distance(centre, gameobj.vector(all.slots[index].object.root.position));
         if (apart > radius) continue;
         distances[found.len] = apart;

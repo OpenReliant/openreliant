@@ -22,9 +22,11 @@ const assert = std.debug.assert;
 
 const openreliant = @import("openreliant");
 const Object = openreliant.engine.hooks.Object;
+const Missile = openreliant.engine.hooks.Missile;
 const luau = @import("luau.zig");
 const State = luau.State;
 const objects = @import("objects.zig");
+const missiles = @import("missiles.zig");
 const data = @import("data.zig");
 
 /// A table scripts handed over, such as an interface, held by a reference that its holder lets go
@@ -74,6 +76,7 @@ pub fn isList(comptime T: type) bool {
 /// Pushes `value`.
 pub fn push(state: *State, comptime T: type, value: T) void {
     if (T == Object) return objects.push(state, value.slot());
+    if (T == Missile) return missiles.push(state, value.record());
     if (comptime isList(T)) return pushList(state, T, value);
     if (@typeInfo(T) == .@"union") {
         switch (value) {
@@ -160,6 +163,8 @@ pub fn shownFields(comptime T: type) []const Field {
 pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const u8) T {
     if (T == Object) return .of(objects.read(state, given, label));
     if (T == objects.Handle) return (state.toUserdata(objects.Handle, given, objects.Handle.tag) orelse wrongType(state, label, "an object", given)).*;
+    if (T == Missile) return .of(missiles.read(state, given, label));
+    if (T == missiles.Handle) return (state.toUserdata(missiles.Handle, given, missiles.Handle.tag) orelse wrongType(state, label, "a missile", given)).*;
     if (T == data.Data) {
         data.copy(state, given, label);
         defer state.pop(1);

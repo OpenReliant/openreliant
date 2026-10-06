@@ -2,7 +2,8 @@
 //! offers other scripts. A script that returns `interface_name` and `interface` offers the table
 //! `interface` under that name, and scripts reach it through `openreliant.interfaces`, as
 //! `I.<name>`. Global scripts see the interfaces of the global scripts, an object's scripts those
-//! of the scripts on the same object, and player and menu scripts each other's.
+//! of the scripts on the same object, a missile's those on the same missile, and player and menu
+//! scripts each other's.
 //!
 //! A later script that offers an interface of the same name, in a later mod or later in the same
 //! mod, overrides the earlier one: scripts see the latest. The later script's
@@ -17,8 +18,8 @@ const State = luau.State;
 const runtime_module = @import("runtime.zig");
 const Runtime = runtime_module.Runtime;
 const Context = runtime_module.Context;
+const RunsOn = runtime_module.RunsOn;
 const Name = runtime_module.Name;
-const objects = @import("objects.zig");
 const api = @import("api.zig");
 const Call = api.Call;
 const builtin = @import("builtin_interfaces.zig");
@@ -27,14 +28,14 @@ const builtin = @import("builtin_interfaces.zig");
 pub const Scope = union(enum) {
     /// The global and mission scripts, or on the presentation side the player and menu scripts.
     global,
-    /// The scripts on one object.
-    object: objects.Handle,
+    /// The scripts on one object, or on one missile.
+    own: RunsOn,
 
     /// The scope of the scripts of `context`.
     pub fn of(context: *const Context) ?Scope {
         return switch (context.family) {
             .global, .player, .menu => .global,
-            .object => .{ .object = context.object.? },
+            .object => .{ .own = context.runs_on.? },
             .load => null,
         };
     }
@@ -42,9 +43,9 @@ pub const Scope = union(enum) {
     fn eql(scope: Scope, other: Scope) bool {
         return switch (scope) {
             .global => other == .global,
-            .object => |handle| switch (other) {
+            .own => |runs_on| switch (other) {
                 .global => false,
-                .object => |other_handle| handle.slot == other_handle.slot and handle.count == other_handle.count,
+                .own => |other_runs_on| runs_on.eql(other_runs_on),
             },
         };
     }

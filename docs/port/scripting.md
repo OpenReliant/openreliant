@@ -207,8 +207,8 @@ that don't run yet, so that scripts written now keep working as later versions f
   (`Handler.Arguments`), and what it takes from what each returns (`Handler.Result`).
 - The packages, which families may require each one, and which are implemented in this version
   (`Package.ready`): all of them.
-- `Kind.runs` says which kinds of script run: all but `Missile` and `Turret`, whose objects aren't
-  objects in the mission's slots ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
+- `Kind.runs` says which kinds of script run: all but `Turret`, since a turret isn't an object in
+  the mission's slots ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
 
 ## Declarations
 
@@ -255,6 +255,15 @@ menu comes back, or the game quits. Each game gets a new Luau state.
   `object:add_script`. As the object leaves the mission (`object_removed`), its scripts get
   `on_removed` and stop; as the mission ends or the next begins, the objects' scripts stop without
   it.
+- Missile scripts start and stop the same way with each missile's flight, through the engine events
+  `missile_added`, as `missile_launch` and `missile_launch_turret` finish, and `missile_removed`,
+  as `missile_end` begins. A context runs on an object or a missile (`RunsOn`), which `self`,
+  `nearby`, the interfaces' scope and what a script may change follow. A missile's handle
+  ([`missiles.zig`](../../src/scripting/missiles.zig)) holds its record and the record's count of
+  reuses (`Linked.reuses`, OpenReliant's own), as an object's holds its slot's. Each missile notes
+  its launcher slot's count as it's launched (`Missile.launcher_reuses`), so that its `launcher`
+  is nil once that object has left, and `missile_end` runs once even where a script sets the
+  missile off as it hears of its end (`Missile.ending`).
 - As a script stops, its handlers, hooks and interfaces go, and so does its context once none of
   the mod's scripts on it runs. While engine handlers are being called, a stopped script only gets
   marked, and leaves its list once they're done (`Game.sweep`), so no list changes under a call.
@@ -262,7 +271,8 @@ menu comes back, or the game quits. Each game gets a new Luau state.
 
 The engine handlers get their arguments as `Handler.Arguments` declares them: numbers as they are,
 and handles and tables made beforehand in protected mode (`Runtime.make`). They're called in the
-order the scripts started: the global and mission scripts', then each object's, by slot.
+order the scripts started: the global and mission scripts', then each object's, by slot, then each
+missile's, by record.
 
 ### Events
 

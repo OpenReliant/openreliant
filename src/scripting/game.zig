@@ -13,8 +13,11 @@
 //!   script adds them (`object:add_script`). They stop as their object leaves the mission, or as
 //!   the mission ends. Each object a mod's scripts run on has the mod opened for it on its own, so
 //!   its scripts have their own globals.
+//! - Its missile scripts (`Missile=`) start on each missile as it's launched, and stop as its
+//!   flight ends, or as the mission ends. Each missile has the mod opened for it on its own, as an
+//!   object has.
 //! - The engine calls the scripts' handlers in the order the scripts started: the global and
-//!   mission scripts', then each object's, by slot. Events sent between scripts wait for the next
+//!   mission scripts', then each object's, by slot, then each missile's, by record. Events sent between scripts wait for the next
 //!   update (`events.zig`).
 //! - `math.random` starts again at each mission's start, from the game's random numbers, so it
 //!   gives the same numbers on every machine for the same game.
@@ -31,6 +34,7 @@ const openreliant = @import("openreliant");
 const mods = openreliant.engine.game.bigfile.mods;
 const Mod = mods.Mod;
 const create = openreliant.engine.game.create;
+const engine_missiles = openreliant.engine.game.missiles;
 const gameobj = openreliant.engine.game.gameobj;
 const aigeneric = openreliant.engine.game.aigeneric;
 const winmain = openreliant.engine.game.winmain;
@@ -44,6 +48,7 @@ const records = @import("records.zig");
 const packages = @import("packages.zig");
 const hooks = @import("hooks.zig");
 const objects = @import("objects.zig");
+const missiles = @import("missiles.zig");
 const values = @import("values.zig");
 const load = @import("load.zig");
 const data = @import("data.zig");
@@ -63,9 +68,9 @@ pub const Game = struct {
     runtime: *Runtime,
     /// The scripts that run, with their events and interfaces.
     runner: running.Runner,
-    /// The global and mission scripts that run, then each object's, by slot (`global`,
-    /// `onObject`).
-    lists: [1 + gameobj.max_objects]running.List = @splat(.empty),
+    /// The global and mission scripts that run, then each object's, by slot, then each missile's,
+    /// by record (`global`, `onObject`, `onMissile`).
+    lists: [1 + gameobj.max_objects + engine_missiles.max_missiles]running.List = @splat(.empty),
     /// The handlers the scripts add to hooks.
     hooks: hooks.Hooks,
     /// What the engine calls (`create.Objects.scripts`).
@@ -106,6 +111,8 @@ pub const Game = struct {
             var keys = mod.manifest.keys(script.missions_section);
             if (keys.next() != null) break true;
             if (attachesScripts(mod)) break true;
+            var missile_scripts = missileScripts(mod);
+            if (missile_scripts.next() != null) break true;
         } else false;
         if (!any) return null;
 
@@ -135,6 +142,7 @@ pub const Game = struct {
         game.hooks.push(state);
         scripts.setPackage(.hooks);
         objects.register(scripts);
+        missiles.register(scripts);
         interfaces.Interfaces.register(state);
         game.runner.interfaces.push(state);
         scripts.setPackage(.interfaces);
@@ -146,6 +154,13 @@ pub const Game = struct {
         // every object that leaves, and of every object added where manifests attach scripts.
         game.hooks.want(.object_removed);
         for (opened) |*mod| if (attachesScripts(mod)) game.hooks.want(.object_added);
+        // A missile's scripts start as it's launched, and stop as its flight ends.
+        for (opened) |*mod| {
+            var listed = missileScripts(mod);
+            if (listed.next() == null) continue;
+            game.hooks.want(.missile_added);
+            game.hooks.want(.missile_removed);
+        }
 
         for (opened, 0..) |*mod, at| {
             var listed = globalScripts(mod);
@@ -184,6 +199,11 @@ pub const Game = struct {
         return &game.lists[1 + @as(usize, index)];
     }
 
+    /// The scripts that run on the missile in record `record`.
+    pub fn onMissile(game: *Game, record: u8) *running.List {
+        return &game.lists[1 + gameobj.max_objects + @as(usize, record)];
+    }
+
     /// `Runner.start`, which also has the engine tell the scripts of each object added where the
     /// script handles that.
     fn startScript(game: *Game, list: *running.List, context: *Context, name: []const u8, mission: bool, payload: ?data.Data, loading: bool) Allocator.Error!?usize {
@@ -206,7 +226,7 @@ pub const Game = struct {
         game.mission_mods.clearRetainingCapacity();
     }
 
-    /// Stops every object's scripts, as a mission ends.
+    /// Stops every object's and every missile's scripts, as a mission ends.
     fn stopObjectScripts(game: *Game) void {
         for (game.lists[1..]) |*list| game.runner.stopAll(list);
     }
@@ -228,7 +248,7 @@ pub const Game = struct {
                 if (!matches) continue;
                 var listed: script.List = .of(mod.manifest.value(script.section, key) orelse "");
                 while (listed.next()) |name| {
-                    const opened = context orelse game.runtime.open(@intCast(at), .object, .of(game.objects, index)) catch |err| {
+                    const opened = context orelse game.runtime.open(@intCast(at), .object, .{ .object = .of(game.objects, index) }) catch |err| {
                         log.warn("{s}: the scripts of object {d} can't start: {s}", .{ mod.name, index, @errorName(err) });
                         return;
                     };
@@ -246,6 +266,32 @@ pub const Game = struct {
     fn objectRemoved(game: *Game, index: u16) void {
         game.runner.callEach(game.onObject(index), .on_removed, .{});
         game.runner.stopAll(game.onObject(index));
+    }
+
+    /// Starts the missile scripts of mods' manifests on the missile in record `record`, as it's
+    /// launched.
+    fn missileAdded(game: *Game, record: u8) void {
+        for (game.runtime.mods, 0..) |*mod, at| {
+            var listed = missileScripts(mod);
+            var context: ?*Context = null;
+            while (listed.next()) |name| {
+                const opened = context orelse game.runtime.open(@intCast(at), .object, .{ .missile = .of(game.objects, record) }) catch |err| {
+                    log.warn("{s}: the scripts of missile {d} can't start: {s}", .{ mod.name, record, @errorName(err) });
+                    return;
+                };
+                context = opened;
+                _ = game.startScript(game.onMissile(record), opened, name, false, null, false) catch |err| {
+                    log.warn("{s}: {s} can't start on missile {d}: {s}", .{ mod.name, name, record, @errorName(err) });
+                };
+            }
+        }
+    }
+
+    /// Calls the `on_removed` of the scripts of the missile in record `record`, and stops them, as
+    /// its flight ends.
+    fn missileRemoved(game: *Game, record: u8) void {
+        game.runner.callEach(game.onMissile(record), .on_removed, .{});
+        game.runner.stopAll(game.onMissile(record));
     }
 
     /// Delivers the events sent since the last update (`events.zig`).
@@ -300,9 +346,17 @@ pub const Game = struct {
                 game.runner.callEach(game.global(), .on_object_removed, .{ .object = .of(index) });
                 game.objectRemoved(index);
             },
+            .missile_added => game.missileAdded(missileOf(hook_call)),
+            .missile_removed => game.missileRemoved(missileOf(hook_call)),
             else => {},
         }
         game.hooks.run(hook_call);
+    }
+
+    /// The missile of a `missile_added` or `missile_removed` call.
+    fn missileOf(hook_call: *engine_hooks.Call) u8 {
+        const fields: *const engine_hooks.Fields(.missile_added) = @ptrCast(@alignCast(hook_call.fields));
+        return fields.missile.record();
     }
 
     /// The object of an `object_added` or `object_removed` call.
@@ -376,13 +430,18 @@ fn globalScripts(mod: *const Mod) script.List {
     return .of(mod.manifest.value(script.section, script.Kind.global.key()) orelse "");
 }
 
+/// The scripts `mod` runs on each missile in flight.
+fn missileScripts(mod: *const Mod) script.List {
+    return .of(mod.manifest.value(script.section, script.Kind.missile.key()) orelse "");
+}
+
 /// Whether `mod`'s manifest attaches scripts to objects by their class or type.
 fn attachesScripts(mod: *const Mod) bool {
     var keys = mod.manifest.keys(script.section);
     while (keys.next()) |key| {
         const attachment = script.Attachment.parse(key, mod.name) orelse continue;
         switch (attachment) {
-            .kind => |kind| if (kind.runs() and kind.family() == .object) return true,
+            .kind => |kind| if (kind.runs() and kind.class() != null) return true,
             .object_type => return true,
         }
     }
@@ -432,7 +491,7 @@ pub fn addScript(call: Call, object: Object, name: []const u8, payload: ?data.Da
     }
     const context = for (list.items) |held| {
         if (!held.stopped and held.context.mod == call.context.mod) break held.context;
-    } else scripts.open(call.context.mod, .object, .of(game.objects, index)) catch {
+    } else scripts.open(call.context.mod, .object, .{ .object = .of(game.objects, index) }) catch {
         drop(scripts, payload);
         call.raise("add_script: out of memory", .{});
     };
@@ -1143,6 +1202,55 @@ test "object scripts run on the objects their manifest names, each with its own 
     // As it leaves, its scripts stop with it.
     all.resetSlot(sabre, &fixture.mission.random);
     try std.testing.expectEqual(0, fixture.game.onObject(sabre).items.len);
+}
+
+test "missile scripts run on each missile from its launch to its end, and see it as their own" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=watch.luau\nMissile=raptor.luau\n" },
+            .{
+                "watch.luau",
+                \\local world = require("openreliant.world")
+                \\local hooks = require("openreliant.hooks")
+                \\hooks.add("missile_added", function(e) assert(e.launcher.type == "predator") end)
+                \\return { event_handlers = {
+                \\    launched = function(kind) if kind == "raptor" then world.objects()[2].throttle = 0.5 end end,
+                \\    ended = function() world.objects()[2].throttle = 0.25 end,
+                \\} }
+            },
+            .{
+                "raptor.luau",
+                \\local self = require("openreliant.self")
+                \\local core = require("openreliant.core")
+                \\count = 0
+                \\return { engine_handlers = {
+                \\    on_added = function()
+                \\        assert(self.launcher.slot == 0 and self.target.object.type == "sabre")
+                \\        core.send_global_event("launched", self.type)
+                \\    end,
+                \\    on_update = function() count += 1; if count == 2 then self:detonate() end end,
+                \\    on_removed = function() core.send_global_event("ended", count) end,
+                \\} }
+            },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    const all = fixture.mission.objects;
+    const slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
+    const record = all.missiles.add(.{ .slot = slot, .launcher = 0, .launcher_reuses = all.reuses[0], .type = .of(.raptor), .target = .at(fixture.sabre, null) }).?;
+    openreliant.engine.hooks.tell(fixture.mission.world(), .missile_added, .{ .missile = .of(record), .launcher = .of(0) });
+    try std.testing.expectEqual(1, fixture.game.onMissile(record).items.len);
+    fixture.game.scripts.update(0.1);
+    try std.testing.expectEqual(0.5, all.slots[fixture.sabre].object.throttle);
+    // Its second update sets it off: its scripts hear their end and stop with it.
+    fixture.game.scripts.update(0.1);
+    try std.testing.expectEqual(null, all.missiles.get(record));
+    try std.testing.expectEqual(0, fixture.game.onMissile(record).items.len);
+    fixture.game.scripts.update(0.1);
+    try std.testing.expectEqual(0.25, all.slots[fixture.sabre].object.throttle);
 }
 
 test "global scripts add scripts to objects, send them events, and share interfaces" {

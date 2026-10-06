@@ -298,6 +298,6 @@ test "scripts read the order table and an object's orders, and end them" {
     );
     // An object's scripts change their own object's orders only.
     context.family = .object;
-    context.object = .of(mission.objects, 0);
+    context.runs_on = .{ .object = .of(mission.objects, 0) };
     try bind.testing.expectSourceError(thread, "require('openreliant.orders').cancel(sabre)", "can't change this object's orders");
 }
