@@ -251,7 +251,7 @@ The options a mod offers the player on the mods screen: declaring the page, and 
 
 | Name | Type | What it is |
 |---|---|---|
-| `register_page(page: Page)` | nothing | Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page. |
+| `register_page(page: Page)` | nothing | Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range. A `"heading"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page. |
 | `get(key: string)` | boolean \| number \| string | The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set. |
 
 ### `openreliant.debug`
@@ -1089,10 +1089,10 @@ A table a script gives, which may leave out a field with a default.
 
 | Field | Type | Default |
 |---|---|---|
-| `key` | string | needed |
+| `key` | string | `""` |
 | `label` | string | needed |
 | `kind` | [OptionKind](#optionkind) | needed |
-| `default` | boolean \| number \| string | needed |
+| `default` | boolean \| number \| string, or nil | nil |
 | `description` | string | `""` |
 | `choices` | list of [Choice](#choice) | none |
 | `min` | number, or nil | nil |
@@ -1172,7 +1172,7 @@ number. A script can set a field to either.
 
 ### OptionKind
 
-`toggle`, `choice`, `number`.
+`toggle`, `choice`, `number`, `heading`.
 
 ### Ending
 

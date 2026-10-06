@@ -60,6 +60,9 @@ pub const Kind = enum {
     choice,
     /// A number from `min` to `max`, a `step` at a time.
     number,
+    /// A heading over the options after it, which splits a long page: a label alone, with no key
+    /// and no value.
+    heading,
 };
 
 /// A value of a choice, and the words that stand for it.
@@ -83,15 +86,18 @@ pub const Option = struct {
         toggle,
         choice: []const Choice,
         number: Range,
+        heading,
     };
 
     pub const Range = struct { min: f64, max: f64, step: f64 };
 
     /// What is wrong with the option as declared, if anything.
     pub fn problem(option: Option) ?[]const u8 {
-        if (option.key.len == 0) return "an option needs a key";
         if (option.label.len == 0) return "an option needs a label";
+        if (option.control == .heading) return null;
+        if (option.key.len == 0) return "an option needs a key";
         switch (option.control) {
+            .heading => {},
             .toggle => if (option.default != .boolean) return "a toggle's default must be a boolean",
             .choice => |choices| {
                 if (choices.len == 0) return "a choice needs choices";
@@ -119,7 +125,7 @@ pub const Option = struct {
     fn indexOf(option: Option, value: Value) ?usize {
         const choices = switch (option.control) {
             .choice => |listed| listed,
-            .toggle, .number => return null,
+            .toggle, .number, .heading => return null,
         };
         for (choices, 0..) |choice, at| if (choice.value.eql(value)) return at;
         return null;
@@ -130,6 +136,7 @@ pub const Option = struct {
     pub fn fit(option: Option, value: Value) Value {
         switch (option.control) {
             .toggle => return if (value == .boolean) value else option.default,
+            .heading => return option.default,
             .choice => |choices| return if (option.indexOf(value)) |at| choices[at].value else option.default,
             .number => |range| return if (value == .number and std.math.isFinite(value.number)) .{ .number = std.math.clamp(value.number, range.min, range.max) } else option.default,
         }
@@ -140,6 +147,7 @@ pub const Option = struct {
     pub fn stepped(option: Option, current: Value, step: Step) Value {
         switch (option.control) {
             .toggle => return .{ .boolean = !(current == .boolean and current.boolean) },
+            .heading => return current,
             .choice => |choices| return choices[widgets.steppedIndex(option.indexOf(current), choices.len, step)].value,
             .number => |range| {
                 const now = if (current == .number) current.number else range.min;
@@ -156,7 +164,7 @@ pub const Option = struct {
     /// whose check box shows it.
     pub fn words(option: Option, value: Value, buffer: *[number_words]u8) []const u8 {
         switch (option.control) {
-            .toggle => return "",
+            .toggle, .heading => return "",
             .choice => return if (option.indexOf(value)) |at| option.control.choice[at].label else "",
             .number => return if (value == .number) std.fmt.bufPrint(buffer, "{d}", .{value.number}) catch "" else "",
         }
@@ -317,7 +325,7 @@ pub const ModOptions = struct {
 
     /// Makes row `at` hold `value`, and tells the pages where that is a change.
     fn change(screen: *ModOptions, at: usize, value: Value, context: Context) void {
-        if (screen.values[at].eql(value)) return;
+        if (screen.page.options[at].control == .heading or screen.values[at].eql(value)) return;
         screen.values[at] = value;
         context.pages.set(screen.mod, screen.page.options[at].key, value);
     }
@@ -340,6 +348,7 @@ pub const ModOptions = struct {
                 .control = switch (option.control) {
                     .toggle => .{ .check = value == .boolean and value.boolean },
                     .choice, .number => .{ .choice = .{ .words = option.words(value, text) } },
+                    .heading => .heading,
                 },
             };
         }
@@ -470,6 +479,36 @@ test Option {
     try std.testing.expectEqualStrings("0.3", tenths.words(value, &buffer));
     try std.testing.expectEqualStrings("35%", flee.words(.{ .number = 0.35 }, &buffer));
     try std.testing.expectEqualStrings("", test_options[0].words(.{ .boolean = true }, &buffer));
+}
+
+test "a heading splits the page, and takes no value" {
+    const options = [_]Option{
+        .{ .key = "", .label = "COMBAT", .description = "", .default = .{ .boolean = false }, .control = .heading },
+        test_options[0],
+    };
+    // A heading needs no key, but a label.
+    try std.testing.expectEqual(null, options[0].problem());
+    var unnamed = options[0];
+    unnamed.label = "";
+    try std.testing.expectEqualStrings("an option needs a label", unnamed.problem().?);
+
+    var recorder: Recorder = .{ .mod = "wingmen", .page = .{ .title = "WINGMEN", .options = &options } };
+    const pages = recorder.pages();
+    var keyboard: input.Keyboard = .{};
+    var screen: ModOptions = .{};
+    try std.testing.expect(screen.enter("wingmen", .{ .pointer = .{}, .keyboard = &keyboard, .ticks = 0, .pages = pages }));
+    var buffer: [max_options]Line.Shown = undefined;
+    var numbers: [max_options][number_words]u8 = undefined;
+    const shown = screen.shownRows(&buffer, &numbers);
+    try std.testing.expectEqual(Line.Control.heading, shown[0].control);
+    // The pointer finds nothing on a heading's row, where an option's arrows or box would be.
+    try std.testing.expectEqual(null, screen.itemAt(screen.pane.line(0).boxRect().centre()));
+    try std.testing.expectEqual(null, screen.itemAt(screen.pane.line(0).arrow(.on).centre()));
+    // The option under it works, and RESET DEFAULTS sets no value for the heading.
+    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, screen.pane.line(1).boxRect().centre()));
+    try std.testing.expectEqual(null, click(&screen, &keyboard, pages, settings.Button.reset_defaults.rect().centre()));
+    try std.testing.expectEqual(2, recorder.sets);
+    try std.testing.expectEqual(null, recorder.values[0]);
 }
 
 test "choices of different kinds, and repeated ones, are refused" {
