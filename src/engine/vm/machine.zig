@@ -392,7 +392,7 @@ pub const Machine = struct {
     }
 
     /// `part_run` (`0x0045BAA0`): runs a part's block at once, on a new thread.
-    fn runPart(machine: *Machine, part: dte.Part) void {
+    pub fn runPart(machine: *Machine, part: dte.Part) void {
         _ = machine.startThread(machine.mission.blockAt(.script, part.block()), null, false, null, null);
     }
 

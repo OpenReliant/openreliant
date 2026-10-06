@@ -108,6 +108,14 @@ pub const Loaded = struct {
         }
     }
 
+    /// Runs `part` at once on a new thread (`vm.Machine.runPart`), acting on the game through
+    /// `game`. The game runs parts this way only as the mission starts; OpenReliant also runs the
+    /// parts `--part` names once the player's launch is over.
+    pub fn runPart(loaded: *Loaded, game: aigeneric.Context, part: dte.Part) void {
+        loaded.script.game = game;
+        loaded.script.runPart(part);
+    }
+
     /// The script's clock ticking once a second of the mission (`executor.clockTick`), for each
     /// second `game_ticks` has run past it since the clock started.
     ///

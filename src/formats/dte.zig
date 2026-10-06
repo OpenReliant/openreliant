@@ -446,6 +446,13 @@ pub const Part = extern struct {
     }
 };
 
+/// What `Mission.findPart` finds: one part, by its index, none, or more than one.
+pub const PartFound = union(enum) {
+    one: usize,
+    none,
+    several,
+};
+
 /// A block of script, the constants after it, and what runs it.
 ///
 /// The script section is a sequence of these. Each is a block, then the block's constant table: a
@@ -1476,6 +1483,23 @@ pub const Mission = struct {
         return mission.records(Part, .parts);
     }
 
+    /// The part that `text` picks: its number in the part table, as `sltool dte parts` lists
+    /// them, or a piece of its name in any case, such as `zakov launch` for
+    /// `<F> SETUP ZAKOV LAUNCH`. Parts without a block are never picked.
+    pub fn findPart(mission: Mission, text: []const u8) Error!PartFound {
+        const all = try mission.parts();
+        if (std.fmt.parseInt(usize, text, 10)) |number| {
+            return if (number < all.len and !all[number].isEmpty()) .{ .one = number } else .none;
+        } else |_| {}
+        var found: PartFound = .none;
+        for (all, 0..) |part, index| {
+            if (part.isEmpty() or std.ascii.indexOfIgnoreCase(mission.name(part.name), text) == null) continue;
+            if (found != .none) return .several;
+            found = .{ .one = index };
+        }
+        return found;
+    }
+
     pub fn ships(mission: Mission) Error![]align(1) const Ship {
         return mission.records(Ship, .ships);
     }
@@ -1732,6 +1756,38 @@ test "directory and records line up" {
 
     // An unused section yields nothing rather than reading stray bytes.
     try std.testing.expectEqual(@as(usize, 0), (try mission.triggers()).len);
+}
+
+test "Mission.findPart" {
+    // Three parts, the last without a block.
+    var image: [0x400]u8 = @splat(0);
+    const directory: []align(1) DirectoryEntry =
+        @alignCast(std.mem.bytesAsSlice(DirectoryEntry, image[0 .. section_count * 8]));
+    for (directory) |*slot| slot.* = .{ .count = 0, ._unused = 0, .formats = .{}, .offset = DirectoryEntry.unused_offset };
+    const pool_at = 0x100;
+    const names = "<F> Startlaunch\x00<F> SETUP ZAKOV LAUNCH\x00<F> Zakov gone\x00";
+    directory[@intFromEnum(Section.strings)] = .{ .count = 3, ._unused = 0, .formats = .all, .offset = pool_at };
+    @memcpy(image[pool_at..][0..names.len], names);
+    const parts_at = 0x200;
+    directory[@intFromEnum(Section.parts)] = .{ .count = 3, ._unused = 0, .formats = .all, .offset = parts_at };
+    const parts: []align(1) Part = @alignCast(std.mem.bytesAsSlice(Part, image[parts_at..][0 .. 3 * @sizeOf(Part)]));
+    for (parts, [_]u16{ 0, 16, 39 }, [_]u16{ 0, 8, Part.no_block }) |*part, name, offset| {
+        part.* = std.mem.zeroes(Part);
+        part.name = name;
+        part.offset = offset;
+    }
+    const mission: Mission = try .parse(&image);
+
+    // By number, or by a piece of its name in any case.
+    try std.testing.expectEqual(PartFound{ .one = 1 }, try mission.findPart("1"));
+    try std.testing.expectEqual(PartFound{ .one = 1 }, try mission.findPart("zakov launch"));
+    try std.testing.expectEqual(PartFound{ .one = 0 }, try mission.findPart("STARTLAUNCH"));
+    // A piece of two names, and parts that are missing or have no block.
+    try std.testing.expectEqual(PartFound.several, try mission.findPart("<F>"));
+    try std.testing.expectEqual(PartFound.none, try mission.findPart("kirov"));
+    try std.testing.expectEqual(PartFound.none, try mission.findPart("3"));
+    try std.testing.expectEqual(PartFound.none, try mission.findPart("2"));
+    try std.testing.expectEqual(PartFound.none, try mission.findPart("gone"));
 }
 
 test OpenReliantName {

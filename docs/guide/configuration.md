@@ -27,6 +27,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--music <file>` | A piece from the game's music folder to play from the start, until the mission's script plays its own; none by default |
 | `--no-pause-menu` | With `--mission`, fly the mission again as soon as it ends, where it otherwise ends in the game's pause menu |
 | `--skip-launch` | With `--mission`, play the player's launch through without drawing it, so that the mission shows from the moment the ship is out; `--screenshot-ticks` count from there |
+| `--part <name\|number>` | With `--mission`, run this part of the mission's script once the player's launch is over, as a trigger would. Name it by its number, or by a piece of its name in any case, as `sltool dte parts` lists them, such as `--part "antanov in"`. Give it again for more parts, up to 8, which run in the order given. The part runs where the mission is, so a part that needs ships from an earlier part may find them missing |
 
 ## Display
 
