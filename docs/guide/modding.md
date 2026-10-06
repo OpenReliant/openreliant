@@ -788,6 +788,18 @@ and options:
   an extension other than `KHR_materials_emissive_strength`, `KHR_materials_specular` or
   `KHR_texture_transform`, which it can be drawn without, isn't read.
 
+To start from one of the game's models, `sltool shp gltf` writes it as glTF, its attachments as
+empty nodes named as `from-gltf` reads them, and with `--textures` its pictures beside it:
+
+```bash
+sltool shp gltf USLF_Prd.SHP predator.gltf --textures tcachehw.dat palette.tga
+```
+
+Each part is a node, under the part it hangs from, with its first level of detail (`--lod` picks
+another). Built again with `from-gltf`, every part but one named `cockpit` joins the body, and the
+textures take the new model's names. Share only your own work in a mod, never the game's models or
+pictures.
+
 ## The thumbnail
 
 A mod can include a picture of itself, `mod.png`, in its archive or folder, for a mod manager to

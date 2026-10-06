@@ -21,6 +21,9 @@ pub const Command = union(enum) {
     components: struct { model: []const u8 },
     /// Writes Wavefront OBJ, one object per part.
     obj: struct { model: []const u8, out: []const u8, lod: u32 = 0, model_space: bool = false },
+    /// Writes glTF 2.0 (`shp.to_gltf`), with the materials' pictures from a texture cache where
+    /// one is given.
+    gltf: struct { model: []const u8, out: []const u8, lod: u32 = 0, cache: ?[]const u8 = null, palette: ?[]const u8 = null },
     /// Builds a model from Wavefront OBJ (`shp.from_obj`), for a mod.
     @"from-obj": struct { model: []const u8, out: []const u8, options: shp.from_obj.Options = .{} },
     /// Builds a model from glTF 2.0 (`gltf`), for a mod, with its materials' textures.
@@ -35,6 +38,11 @@ pub const Command = union(enum) {
         \\                                  finding mounted models beside it
         \\  shp obj <model> <out.obj> [--lod <n>] [--model-space]
         \\                                  export geometry as Wavefront OBJ, righted to Y-up
+        \\  shp gltf <model> <out.gltf> [--lod <n>] [--textures <tcachehw.dat> <palette.tga>]
+        \\                                  export a model as glTF 2.0 for a modelling tool: its
+        \\                                  parts, attachments named as from-gltf reads them, and
+        \\                                  materials whose pictures, <material>.png, the texture
+        \\                                  cache gives where --textures names it
         \\  shp from-obj <in.obj> <out.shp> [--two-sided] [--cloak] [--density <d>]
         \\                                  build a model for a mod from Wavefront OBJ: objects
         \\                                  named cockpit, gun_muzzle:<gun type>,
@@ -66,6 +74,22 @@ pub const Command = union(enum) {
                     } else if (std.mem.eql(u8, operands[i], "--lod") and i + 1 < operands.len) {
                         command.obj.lod = std.fmt.parseInt(u32, operands[i + 1], 10) catch return error.Usage;
                         i += 2;
+                    } else return error.Usage;
+                }
+                return command;
+            },
+            .gltf => {
+                if (operands.len < 2) return error.Usage;
+                var command: Command = .{ .gltf = .{ .model = operands[0], .out = operands[1] } };
+                var i: usize = 2;
+                while (i < operands.len) {
+                    if (std.mem.eql(u8, operands[i], "--lod") and i + 1 < operands.len) {
+                        command.gltf.lod = std.fmt.parseInt(u32, operands[i + 1], 10) catch return error.Usage;
+                        i += 2;
+                    } else if (std.mem.eql(u8, operands[i], "--textures") and i + 2 < operands.len) {
+                        command.gltf.cache = operands[i + 1];
+                        command.gltf.palette = operands[i + 2];
+                        i += 3;
                     } else return error.Usage;
                 }
                 return command;
@@ -103,6 +127,7 @@ pub const Command = union(enum) {
                 operands.lod,
                 operands.model_space,
             ),
+            .gltf => |operands| try writeGltf(ctx, try shp.Model.parse(ctx.arena, data), operands.out, operands.lod, operands.cache, operands.palette),
             .@"from-obj" => |operands| try buildFromObj(ctx, data, operands.out, operands.options),
             .@"from-gltf" => |operands| try buildFromGltf(ctx, path, data, operands.out, operands.options, operands.scale),
         }
@@ -545,6 +570,39 @@ const Beside = struct {
     const max_resource = 1 << 30;
 };
 
+/// Writes `model` as the glTF file `out_path`, its parts at level `lod`, with its buffer beside it,
+/// named after it with `.bin`. Where `cache_path` and `palette_path` name a texture cache and its
+/// palette, the materials' pictures are written beside it too, `<material>.png`; a picture the
+/// cache doesn't hold is said and passed over.
+fn writeGltf(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, cache_path: ?[]const u8, palette_path: ?[]const u8) !void {
+    const stem = std.fs.path.stem(out_path);
+    const bin_name = try std.fmt.allocPrint(ctx.arena, "{s}.bin", .{stem});
+    const written = try shp.to_gltf.write(ctx.arena, model, lod, bin_name);
+    const dir = try ctx.outputDir(std.fs.path.dirname(out_path) orelse ".");
+    defer dir.close(ctx.io);
+    try dir.writeFile(ctx.io, .{ .sub_path = std.fs.path.basename(out_path), .data = written.json });
+    try dir.writeFile(ctx.io, .{ .sub_path = bin_name, .data = written.bin });
+    try ctx.stdout.print("wrote {s} and {s}: {d} parts, {d} materials\n", .{ out_path, bin_name, model.parts.len, written.materials.len });
+
+    const cache_bytes = try ctx.readInput(cache_path orelse return);
+    const cache: openreliant.tcache.Cache = try .parse(ctx.arena, cache_bytes);
+    const palette = try openreliant.tga.palette(try ctx.readInput(palette_path.?));
+    for (written.materials) |name| {
+        const level = if (cache.find(name)) |texture| texture.level(0) else null;
+        const found = level orelse {
+            try ctx.stdout.print("no picture for {s} in {s}\n", .{ name, cache_path.? });
+            continue;
+        };
+        const file_name = try std.fmt.allocPrint(ctx.arena, "{s}.png", .{name});
+        const file = try dir.createFile(ctx.io, file_name, .{});
+        defer file.close(ctx.io);
+        var buffer: [32 * 1024]u8 = undefined;
+        var writer = file.writer(ctx.io, &buffer);
+        try openreliant.png.writeRgba(ctx.arena, &writer.interface, found.width, found.height, try found.rgba(ctx.arena, &palette));
+        try writer.interface.flush();
+    }
+}
+
 /// Writes the requested level of every part as one OBJ object each.
 ///
 /// Every face record is emitted as its own triangle. Records carrying fan or strip grouping would
@@ -627,6 +685,11 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP", "ship.obj", "--lod", "two" }));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP", "ship.obj", "--flat" }));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "obj", "SHIP.SHP" }));
+    const exported = try Command.parse(&.{ "gltf", "SHIP.SHP", "ship.gltf", "--lod", "1", "--textures", "tcachehw.dat", "palette.tga" });
+    try std.testing.expectEqual(1, exported.gltf.lod);
+    try std.testing.expectEqualStrings("palette.tga", exported.gltf.palette.?);
+    try std.testing.expectEqual(null, (try Command.parse(&.{ "gltf", "SHIP.SHP", "ship.gltf" })).gltf.cache);
+    try std.testing.expectError(error.Usage, Command.parse(&.{ "gltf", "SHIP.SHP", "ship.gltf", "--textures", "tcachehw.dat" }));
     const built = try Command.parse(&.{ "from-obj", "pot.obj", "pot.shp", "--two-sided", "--cloak", "--density", "0.5" });
     try std.testing.expectEqualStrings("pot.obj", built.@"from-obj".model);
     try std.testing.expect(built.@"from-obj".options.two_sided and built.@"from-obj".options.cloak);

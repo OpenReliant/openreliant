@@ -472,6 +472,9 @@ const Making = struct {
             var corner: [3]f32 = undefined;
             for (&corner, middle, direction, half) |*into, at, way, reach| into.* = (at + way * reach) * made.scale;
             try made.positions.append(made.arena, corner);
+            // The lists keep a vertex at the same index in each, for the meshes after it.
+            try made.normals.append(made.arena, .{ 0, 0, 0 });
+            try made.uvs.append(made.arena, .{ 0, 0 });
         }
         const triangle = try made.arena.alloc(obj.Triangle, 1);
         triangle[0] = .{ .corners = .{ .{ .position = first }, .{ .position = first + 1 }, .{ .position = first + 2 } }, .material = null };
