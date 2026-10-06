@@ -471,6 +471,11 @@ Nearly every part takes no arguments. Every mission has exactly one start part, 
 `<F>Start Launch`, `(F)start` or `(F)setup`: `mission_script_start`, `0x0045CBC0`, runs it before
 arming the triggers.
 
+The other parts run when a trigger or another part calls them. To check a late moment of a mission,
+`openreliant --mission <number> --part <name>` also runs a part, on a thread of its own as
+`part_run` (`0x0045BAA0`) runs the start part, once the player's launch is over
+([Configuration](../guide/configuration.md#the-mission)).
+
 ### Blocks
 
 A block is a `u16` length, which **counts its own two bytes**, then instructions: the engine starts

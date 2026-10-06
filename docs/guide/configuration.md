@@ -27,6 +27,9 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--music <file>` | A piece from the game's music folder to play from the start, until the mission's script plays its own; none by default |
 | `--no-pause-menu` | With `--mission`, fly the mission again as soon as it ends, where it otherwise ends in the game's pause menu |
 | `--skip-launch` | With `--mission`, play the player's launch through without drawing it, so that the mission shows from the moment the ship is out; `--screenshot-ticks` count from there |
+| `--part <name\|number>` | With `--mission`, run this part of the mission's script once the player's launch is over, as a trigger would. Name it by its number, or by a piece of its name in any case, as `sltool dte parts` lists them, such as `--part "antanov in"`. Give it again for more parts, up to 8, which run in the order given. The part runs where the mission is, so a part that needs ships from an earlier part may find them missing |
+| `--watch <name\|number>` | With `--mission`, watch this ship of the mission once the player's launch is over and the ship is there, from a place beside it that moves with it. Name it by its number, or by a piece of its name in any case, as `sltool dte ships` lists them. It is the game's own watch view, with the bars of a cutscene and no head-up display; the mission's script can still take the camera, and then keeps it |
+| `--watch-from <x,y,z>` | Where `--watch` watches from, in the ship's own axes, in multiples of its size: `x` to its right, `y` down and `z` ahead. `1,-0.5,2.5` by default: ahead of it, to its right and above |
 
 ## Display
 
