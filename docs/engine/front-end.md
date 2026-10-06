@@ -336,8 +336,6 @@ Not ported: a mod's thumbnail and its conflicts ([#497](https://github.com/OpenR
 
 Each change is kept at once in the mod's storage, and told to the scripting ([Options](../port/scripting.md#options)). An option that is the same as it was isn't set again.
 
-Not ported: changing the options from the pause menu in a game ([#600](https://github.com/OpenReliant/openreliant/issues/600)).
-
 ## The game modes screen
 
 **Improvement:** the original has no game modes but its campaign, INSTANT ACTION and multiplayer.

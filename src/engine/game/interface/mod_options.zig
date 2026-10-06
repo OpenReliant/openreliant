@@ -12,9 +12,6 @@
 //! under the list.
 //!
 //! **Improvement:** the original can't load mods.
-//!
-//! Not ported: changing the options from the pause menu in a game
-//! ([#600](https://github.com/OpenReliant/openreliant/issues/600)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

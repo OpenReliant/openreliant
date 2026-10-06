@@ -1342,8 +1342,6 @@ local rejoin_after = settings.get("rejoin_after")
   `storage.global_section` doesn't open. A value that is the default isn't kept.
 - A key the player sets is an action the mod registers, which the controls screen binds
   ([Keys and actions](#keys-and-actions)), rather than an option.
-- Changing the options in a game is planned
-  ([#600](https://github.com/OpenReliant/openreliant/issues/600)).
 
 [`examples/mods/wingmen`](../../examples/mods/wingmen) offers five options under two headings.
 
@@ -1565,8 +1563,8 @@ The developer mode turns on the tools for writing scripts: the console, and relo
 with `DeveloperMode=1` in the `[OpenReliant]` section of `starlancer.ini`, or with
 `--developer-mode` ([Configuration](configuration.md)); it's off by default.
 
-F11 then brings up the console, in the menus and in flight, where any mod has scripts. It pauses
-the mission, and F11, Escape or CLOSE takes it away again. It shows what the scripts print and
+F11 then brings up the console, in the menus, the Reliant's rooms and the briefing, and in flight,
+where any mod has scripts. It pauses the mission, and F11, Escape or CLOSE takes it away again. It shows what the scripts print and
 their errors, and runs the lines typed into it:
 
 | Command | What it does |
@@ -1596,8 +1594,6 @@ wingmen global> exit
   the mouse wheel and the arrows scroll the output.
 - Any other line goes to the player and menu scripts' `on_console_command(text)`, so that a mod
   can add commands of its own.
-- The console isn't there yet in the Reliant's rooms and the briefing
-  ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
 
 ### Reloading
 
