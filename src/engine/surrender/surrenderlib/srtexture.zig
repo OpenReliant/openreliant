@@ -91,19 +91,19 @@ pub const Image = struct {
         emissive: ?[]const Level = null,
 
         /// How many maps there are, one for each field.
-        pub const count = @typeInfo(Maps).@"struct".fields.len;
+        pub const count = @typeInfo(Maps).@"struct".field_names.len;
 
         /// Each map, in the order of the fields.
         pub fn list(maps: Maps) [count]?[]const Level {
             var listed: [count]?[]const Level = undefined;
-            inline for (@typeInfo(Maps).@"struct".fields, &listed) |field, *map| map.* = @field(maps, field.name);
+            inline for (@typeInfo(Maps).@"struct".field_names, &listed) |name, *map| map.* = @field(maps, name);
             return listed;
         }
 
         /// The maps `listed` gives, in the order of the fields.
         pub fn fromList(listed: [count]?[]const Level) Maps {
             var maps: Maps = .{};
-            inline for (@typeInfo(Maps).@"struct".fields, listed) |field, map| @field(maps, field.name) = map;
+            inline for (@typeInfo(Maps).@"struct".field_names, listed) |name, map| @field(maps, name) = map;
             return maps;
         }
 

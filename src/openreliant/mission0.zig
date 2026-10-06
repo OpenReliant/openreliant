@@ -484,7 +484,7 @@ test "the rocks lie beyond the action's sphere, apart" {
         }
     }
     // Every one of the seven asteroids is among them.
-    var seen = std.StaticBitSet(7).initEmpty();
+    var seen = std.StaticBitSet(7).empty;
     for (placed) |rock| seen.set(rock.kind.number() - Type.asteroid(0).number());
     try std.testing.expectEqual(7, seen.count());
 }

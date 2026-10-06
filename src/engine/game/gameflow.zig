@@ -90,9 +90,9 @@ pub const Campaign = struct {
     /// (`MissionRecord`).
     records: [last_mission]MissionRecord = @splat(.{}),
     /// The medals the pilot has been awarded (`pilot_medals`, `0x00562DFC`).
-    medals: std.EnumSet(Medal) = .initEmpty(),
+    medals: std.EnumSet(Medal) = .empty,
     /// The ribbons the pilot has been awarded, ribbon 1 first (`pilot_ribbons`, `0x00562E14`).
-    ribbons: Ribbons = .initEmpty(),
+    ribbons: Ribbons = .empty,
     /// What the saves keep that a single-player campaign leaves as it is: the local player's
     /// deaths in a multiplayer mission (`mp_deaths`, `0x00562DF8`), and the seed of the ITAC's
     /// KILLBOARD (`killboard_seed`, `0x00562F10`).
@@ -445,7 +445,7 @@ test endMission {
     // Picked up, the medal is not awarded; outside a campaign nothing is kept but the pilot's own;
     // and the last mission leads to the story's end, its record keeping no rating.
     player.ending = .rescued;
-    campaign.medals = .initEmpty();
+    campaign.medals = .empty;
     try std.testing.expectEqual(Record{ .next = 14, .tier = 1 }, endMission(&player, &variables, 11, 0, &campaign, &wingmen).?);
     try std.testing.expectEqual(0, campaign.medals.count());
     try std.testing.expectEqual(Record{ .next = 14, .tier = 1 }, endMission(&player, &variables, 11, 0, null, &wingmen).?);

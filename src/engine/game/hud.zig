@@ -310,7 +310,7 @@ pub const Opened = struct {
     ink: ?[3]u8 = null,
     /// The codes whose glyphs keep their bitmaps under an outline font, drawn in colours beside its
     /// ink (`standIn`).
-    own_colours: std.StaticBitSet(cached_codes) = .initEmpty(),
+    own_colours: std.StaticBitSet(cached_codes) = .empty,
 
     pub const Paint = enum {
         /// Through the font's palette, or else VFX's global one, as the display's text is.
@@ -917,7 +917,7 @@ const Ink = struct {
     /// The ink of `font` drawn through `palette`; none where its digits and letters are all
     /// black.
     fn of(font: fnt.Font, palette: *const [spr.palette_size]u8) ?Ink {
-        var inks: std.StaticBitSet(256) = .initEmpty();
+        var inks: std.StaticBitSet(256) = .empty;
         for (outline.letters_and_digits) |code| {
             const glyph = font.glyph(code) orelse continue;
             for (glyph.pixels) |index| if (index != 0) inks.set(index);
@@ -930,7 +930,7 @@ const Ink = struct {
         }
         const full = colourDot(colour, colour);
         if (full == 0) return null;
-        var ink: Ink = .{ .colour = colour, .cover = @splat(0), .own_colours = .initEmpty() };
+        var ink: Ink = .{ .colour = colour, .cover = @splat(0), .own_colours = .empty };
         for (ink.cover[1..], 1..) |*share, index| {
             share.* = std.math.clamp(colourDot(paletteColour(palette, index), colour) / full, 0, 1);
         }
@@ -2678,8 +2678,8 @@ pub const Lit = packed struct(u9) {
     reverse_thrust: bool = false,
 
     comptime {
-        for (@typeInfo(Lit).@"struct".fields, std.enums.values(Light)) |field, light| {
-            assert(std.mem.eql(u8, field.name, @tagName(light)));
+        for (@typeInfo(Lit).@"struct".field_names, std.enums.values(Light)) |name, light| {
+            assert(std.mem.eql(u8, name, @tagName(light)));
         }
     }
 };
@@ -2950,8 +2950,8 @@ pub const State = struct {
     /// The quadrants of the player's ship, and of its target, whose armour hits have worn since
     /// the ship status indicator last drew each (`ship_status_hits`, `0x00563160`, and
     /// `target_status_hits`, `0x005635D4`).
-    ship_hits: Hits = .initEmpty(),
-    target_hits: Hits = .initEmpty(),
+    ship_hits: Hits = .empty,
+    target_hits: Hits = .empty,
     /// The object that stood under the reticle as the targeting keys were last read
     /// (`0x00566664`), which TARGET UNDER RETICULE takes.
     under_reticle: ?u16 = null,
@@ -3977,7 +3977,7 @@ pub const ShipStatus = struct {
         /// Whether the schematic and the hits on it are drawn mirrored across.
         mirrored: bool = false,
         /// The quadrants that flash on the schematic, shapes 1 to 4 of it.
-        hits: Hits = .initEmpty(),
+        hits: Hits = .empty,
         /// The arcs' levels, or null for a type with none.
         rings: ?Rings = null,
         /// For the player's own ship, the levels of what SHIELD BALANCING shifted fore and aft.
@@ -4049,7 +4049,7 @@ pub const ShipStatus = struct {
     }
 
     fn take(hits: *Hits) Hits {
-        defer hits.* = .initEmpty();
+        defer hits.* = .empty;
         return hits.*;
     }
 
@@ -4151,7 +4151,7 @@ test "the rings follow the shields and the armour" {
     // A comms relay has no rings, and so nothing shifted for mode 0 to show.
     slot.object.type = .of(.comms_relay);
     try std.testing.expectEqual(null, ShipStatus.rings(slot));
-    var own_hits: Hits = .initEmpty();
+    var own_hits: Hits = .empty;
     const shield_power: f32 = @floatFromInt(combat.shield_power);
     try std.testing.expectEqual(null, ShipStatus.ofPlayer(slot, &own_hits, .{ .fore = 5 * shield_power }).reserves);
 
@@ -4166,7 +4166,7 @@ test "the rings follow the shields and the armour" {
     try std.testing.expect(own_hits.contains(.aft));
 
     // Mode 1 takes the hits and leaves none behind, for a hostile target of the small form.
-    var hits: Hits = .initEmpty();
+    var hits: Hits = .empty;
     hits.insert(.fore);
     const without = ShipStatus.ofTarget(slot, &hits);
     // With no schematic, the hits stay for the next time.

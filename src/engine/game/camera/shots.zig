@@ -83,7 +83,7 @@ pub fn start(world: gameobj.World, view: *camera.Camera) void {
 /// The ships a shot holds still, and the objects they are in.
 pub const Held = struct {
     objects: *create.Objects,
-    ships: std.StaticBitSet(gameobj.max_objects) = .initEmpty(),
+    ships: std.StaticBitSet(gameobj.max_objects) = .empty,
 
     /// The ships `target` names (`ai.eachShip`), as `camera_hold_ships` walks them: a ship, each
     /// ship of a flight group, and each of a squad's.

@@ -57,7 +57,7 @@ pub const Hooks = struct {
     removed: bool = false,
     /// The hooks the game side runs whether or not they have handlers, for engine handlers of its
     /// own (`want`).
-    wanted: std.EnumSet(Hook) = .initEmpty(),
+    wanted: std.EnumSet(Hook) = .empty,
     /// The hooks running, each inside the last.
     depth: u32 = 0,
     next_id: u32 = 1,
@@ -73,7 +73,7 @@ pub const Hooks = struct {
         }
         for (hooks.added.items) |*added| added.handler.release(hooks.runtime);
         hooks.added.deinit(hooks.gpa);
-        hooks.scripts.hooked = .initEmpty();
+        hooks.scripts.hooked = .empty;
     }
 
     /// Registers the metatables of `e` and of the handles `add` returns.

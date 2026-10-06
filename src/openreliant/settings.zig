@@ -134,7 +134,7 @@ const device_keys = [_]FieldKey{
 
 comptime {
     // A key for each of the graphics' options, and `Original` for the base.
-    const fields = @typeInfo(screen.Own.Graphics.Chosen).@"struct".fields.len;
+    const fields = @typeInfo(screen.Own.Graphics.Chosen).@"struct".field_names.len;
     std.debug.assert(graphics_keys.len + device_keys.len + 1 == fields);
     for (graphics_keys ++ device_keys) |key| std.debug.assert(@hasField(screen.Own.Graphics.Chosen, key.field));
 }

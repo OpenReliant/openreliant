@@ -105,9 +105,9 @@ pub const Presentation = struct {
     /// The game's scripts while a game runs, which the scripts' events go to.
     game: ?*game_module.Game = null,
     /// The keys held, which presses and releases are told against.
-    keys: std.StaticBitSet(key_codes) = .initEmpty(),
+    keys: std.StaticBitSet(key_codes) = .empty,
     /// The actions whose controls were held last frame.
-    actions: std.EnumSet(controls.Action) = .initEmpty(),
+    actions: std.EnumSet(controls.Action) = .empty,
     /// The window's size last frame.
     window: ?[2]u32 = null,
 
@@ -276,7 +276,7 @@ pub const Presentation = struct {
             if (!std.mem.eql(u32, &last, &host.window)) shown.runner.callAll(.on_viewport_resized, .{ .width = host.window[0], .height = host.window[1] });
         }
         shown.window = host.window;
-        var held: std.EnumSet(controls.Action) = .initEmpty();
+        var held: std.EnumSet(controls.Action) = .empty;
         if (host.flying) {
             for (std.enums.values(controls.Action)) |action| {
                 if (!host.devices.active(action, false)) continue;

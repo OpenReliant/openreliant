@@ -466,10 +466,10 @@ pub const engine_events = struct {
 /// Every hook: the functions', the order table's routines', the mission's events and the engine's.
 pub const Hook = hook: {
     var names: []const []const u8 = &.{};
-    for (std.meta.declarations(functions)) |decl| names = names ++ .{decl.name};
+    for (std.meta.declarations(functions)) |decl_name| names = names ++ .{decl_name};
     for (routine_hooks) |routine| names = names ++ .{routine.name};
-    for (std.meta.declarations(mission_events)) |decl| names = names ++ .{decl.name};
-    for (std.meta.declarations(engine_events)) |decl| names = names ++ .{decl.name};
+    for (std.meta.declarations(mission_events)) |decl_name| names = names ++ .{decl_name};
+    for (std.meta.declarations(engine_events)) |decl_name| names = names ++ .{decl_name};
     const Int = std.math.IntFittingRange(0, names.len - 1);
     break :hook @Enum(Int, .exhaustive, names, &std.simd.iota(Int, names.len));
 };
@@ -535,7 +535,7 @@ pub const Outcome = struct {
 /// `create.Objects.scripts` holds while a game runs.
 pub const Scripts = struct {
     /// The hooks that have handlers, which the hooked functions and events check first.
-    hooked: std.EnumSet(Hook) = .initEmpty(),
+    hooked: std.EnumSet(Hook) = .empty,
     /// The hook whose function runs next without its handlers, as they run it (`Call.original`).
     passing: ?Hook = null,
     context: *anyopaque,
@@ -646,8 +646,8 @@ fn run(scripts: *Scripts, hook: Hook, comptime F: type, comptime function: anyty
         fn original(call: *Call) void {
             const pending: *@This() = @alignCast(@fieldParentPtr("call", call));
             var given = pending.arguments;
-            inline for (@typeInfo(F).@"struct".fields, 1..) |field, at| {
-                given[at] = parameterOf(@TypeOf(given[at]), @field(pending.fields, field.name));
+            inline for (@typeInfo(F).@"struct".field_names, 1..) |name, at| {
+                given[at] = parameterOf(@TypeOf(given[at]), @field(pending.fields, name));
             }
             call.scripts.passing = call.hook;
             defer call.scripts.passing = null;
@@ -678,8 +678,9 @@ fn Return(comptime function: anytype) type {
 /// The fields `F` of a call with `arguments`: each parameter after the first, in order.
 fn fieldsOf(comptime F: type, arguments: anytype) F {
     var fields: F = undefined;
-    inline for (@typeInfo(F).@"struct".fields, 1..) |field, at| {
-        @field(fields, field.name) = fieldOf(field.type, arguments[at]);
+    const info = @typeInfo(F).@"struct";
+    inline for (info.field_names, info.field_types, 1..) |name, Field, at| {
+        @field(fields, name) = fieldOf(Field, arguments[at]);
     }
     return fields;
 }
@@ -720,12 +721,12 @@ fn ParameterType(comptime Field: type) type {
 /// its result isn't the function's.
 fn checkFunction(comptime hook: Hook, comptime Function: type) void {
     const info = @typeInfo(Function).@"fn";
-    const fields = @typeInfo(Fields(hook)).@"struct".fields;
+    const fields = @typeInfo(Fields(hook)).@"struct";
     const name = @tagName(hook);
     if (declaration(hook).on != .function) @compileError(name ++ " is an event, which `tell` tells");
-    if (info.params.len != fields.len + 1) @compileError("the fields of " ++ name ++ " don't follow its function's parameters");
-    for (fields, info.params[1..]) |field, param| {
-        if (param.type.? != ParameterType(field.type)) @compileError("the field " ++ field.name ++ " of " ++ name ++ " doesn't follow its parameter");
+    if (info.param_types.len != fields.field_names.len + 1) @compileError("the fields of " ++ name ++ " don't follow its function's parameters");
+    for (fields.field_names, fields.field_types, info.param_types[1..]) |field_name, Field, Param| {
+        if (Param.? != ParameterType(Field)) @compileError("the field " ++ field_name ++ " of " ++ name ++ " doesn't follow its parameter");
     }
     if (info.return_type.? != Result(hook)) @compileError("the result of " ++ name ++ " isn't its function's");
 }

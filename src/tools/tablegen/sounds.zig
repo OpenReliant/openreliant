@@ -151,7 +151,7 @@ pub fn emit(w: *Io.Writer, tables: Tables) Io.Writer.Error!void {
         \\}
         \\
         \\comptime {
-        \\    if (@typeInfo(Sound).@"enum".fields.len != definitions.len) @compileError("a sound without a definition");
+        \\    if (@typeInfo(Sound).@"enum".field_names.len != definitions.len) @compileError("a sound without a definition");
         \\}
         \\
     );

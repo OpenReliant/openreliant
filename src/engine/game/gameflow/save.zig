@@ -455,9 +455,9 @@ pub const Game = struct {
         game.player.kills.count = miss.kills;
         game.player.kills.kept = miss.kills;
         campaign.mp_deaths = miss.mp_deaths;
-        campaign.medals = .initEmpty();
+        campaign.medals = .empty;
         for (miss.medals, 1..) |flag, medal| if (flag != 0) campaign.medals.insert(@fromBackingInt(@intCast(medal)));
-        campaign.ribbons = .initEmpty();
+        campaign.ribbons = .empty;
         for (miss.ribbons, 0..) |flag, ribbon| campaign.ribbons.setValue(ribbon, flag != 0);
         for (&campaign.records, 0..) |*record, index| record.* = .{
             .rating = if (miss.ratings[index] == no_rating) null else @fromBackingInt(@intCast(miss.ratings[index])),

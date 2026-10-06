@@ -342,7 +342,7 @@ fn sdlFormat(format: srtexture.Level.Format, decoded: bool) c.SDL_GPUTextureForm
 
 /// The compressed formats `handle` takes for texture arrays, plain and decoded from sRGB alike.
 fn compressedFormats(handle: *c.SDL_GPUDevice) std.EnumSet(srtexture.Level.Format) {
-    var taken: std.EnumSet(srtexture.Level.Format) = .initEmpty();
+    var taken: std.EnumSet(srtexture.Level.Format) = .empty;
     for (std.enums.values(srtexture.Level.Format)) |format| {
         if (!format.compressed()) continue;
         const both = for ([_]bool{ false, true }) |decoded| {

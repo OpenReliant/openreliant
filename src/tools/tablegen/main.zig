@@ -180,10 +180,10 @@ const Mode = union(enum) {
         switch (tag) {
             inline else => |mode| {
                 const Paths = @FieldType(Mode, @tagName(mode));
-                const fields = @typeInfo(Paths).@"struct".fields;
-                if (rest.len != fields.len) return null;
+                const names = @typeInfo(Paths).@"struct".field_names;
+                if (rest.len != names.len) return null;
                 var paths: Paths = undefined;
-                inline for (fields, 0..) |field, i| @field(paths, field.name) = rest[i];
+                inline for (names, 0..) |name, i| @field(paths, name) = rest[i];
                 return @unionInit(Mode, @tagName(mode), paths);
             },
         }

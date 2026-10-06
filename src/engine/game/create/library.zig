@@ -85,7 +85,7 @@ pub const TypeCache = struct {
     display_shapes: ?spr.Sprite = null,
     loaded: [create.max_ship_types]?*Cached = @splat(null),
     /// Types the game names no model for, or whose files it lacks, looked for once.
-    missing: std.StaticBitSet(create.max_ship_types) = .initEmpty(),
+    missing: std.StaticBitSet(create.max_ship_types) = .empty,
 
     const Cached = struct {
         arena: std.heap.ArenaAllocator,

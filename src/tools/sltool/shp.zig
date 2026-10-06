@@ -372,7 +372,7 @@ fn classifyBounds(entry: shp.PartData) BoundsFrame {
 fn check(ctx: Context, data: []const u8) !void {
     const model: shp.Model = try .parse(ctx.arena, data);
     var problems: usize = 0;
-    var bounds_frames: [std.meta.fields(BoundsFrame).len]usize = @splat(0);
+    var bounds_frames: [std.enums.values(BoundsFrame).len]usize = @splat(0);
     const report = struct {
         fn fail(c: Context, count: *usize, comptime fmt: []const u8, args: anytype) !void {
             count.* += 1;
@@ -461,9 +461,9 @@ fn check(ctx: Context, data: []const u8) !void {
             model.parts.len, model.vertexCount(), model.faceCount(),
         });
         try ctx.stdout.writeAll("bounds:");
-        inline for (std.meta.fields(BoundsFrame)) |field| {
-            const count = bounds_frames[field.value];
-            if (count > 0) try ctx.stdout.print(" {d} {s}", .{ count, field.name });
+        for (std.enums.values(BoundsFrame)) |frame| {
+            const count = bounds_frames[@backingInt(frame)];
+            if (count > 0) try ctx.stdout.print(" {d} {s}", .{ count, @tagName(frame) });
         }
         try ctx.stdout.writeByte('\n');
     } else {

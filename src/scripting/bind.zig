@@ -229,13 +229,13 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
 
         /// Pushes a struct field. Scalar fields are read by value, because fields of packed
         /// structs can't be pointed at.
-        fn pushField(state: *State, comptime T: type, value: *T, comptime field: std.builtin.Type.StructField, writable: bool) void {
+        fn pushField(state: *State, comptime T: type, value: *T, comptime field: values.Field, writable: bool) void {
             if (comptime isAggregate(field.type)) return push(state, field.type, &@field(value.*, field.name), writable);
             values.push(state, field.type, @field(value.*, field.name));
         }
 
         /// Sets a struct field from the value at `given`.
-        fn setField(state: *State, comptime T: type, value: *T, comptime field: std.builtin.Type.StructField, given: i32) void {
+        fn setField(state: *State, comptime T: type, value: *T, comptime field: values.Field, given: i32) void {
             const label = comptime noun(T) ++ "." ++ field.name;
             if (comptime isAggregate(field.type)) return setValue(state, field.type, &@field(value.*, field.name), given, label);
             @field(value.*, field.name) = values.read(state, field.type, given, label);

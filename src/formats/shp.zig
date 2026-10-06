@@ -840,7 +840,7 @@ pub const RecordSizes = struct {
     /// No chunk of any tag, which `Model.parse` fills in from the file's chunks.
     pub const none: RecordSizes = sizes: {
         var sizes: RecordSizes = .{};
-        for (@typeInfo(RecordSizes).@"struct".fields) |field| @field(sizes, field.name) = null;
+        for (@typeInfo(RecordSizes).@"struct".field_names) |name| @field(sizes, name) = null;
         break :sizes sizes;
     };
 
@@ -866,10 +866,10 @@ pub const RecordSizes = struct {
     comptime {
         // A field for each tag but the terminator, named after it, whose default is the size of
         // its record.
-        const fields = @typeInfo(RecordSizes).@"struct".fields;
-        assert(fields.len == std.enums.values(Tag).len - 1);
+        const names = @typeInfo(RecordSizes).@"struct".field_names;
+        assert(names.len == std.enums.values(Tag).len - 1);
         const whole: RecordSizes = .{};
-        for (fields) |field| assert(@field(whole, field.name) == @sizeOf(Record(@field(Tag, field.name))));
+        for (names) |name| assert(@field(whole, name) == @sizeOf(Record(@field(Tag, name))));
     }
 };
 

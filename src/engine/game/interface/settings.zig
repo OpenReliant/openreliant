@@ -224,7 +224,7 @@ pub const Own = struct {
             /// What a game started with `chosen` runs with.
             pub fn of(chosen: Chosen) Running {
                 var running: Running = undefined;
-                inline for (@typeInfo(Running).@"struct".fields) |field| @field(running, field.name) = @field(chosen, field.name);
+                inline for (@typeInfo(Running).@"struct".field_names) |name| @field(running, name) = @field(chosen, name);
                 return running;
             }
         };

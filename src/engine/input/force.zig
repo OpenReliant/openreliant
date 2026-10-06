@@ -114,7 +114,7 @@ pub const Found = struct {
     library: Library = .{},
     /// The effects whose files are missing, can't be read or aren't effect files, which play
     /// nothing.
-    lacking: std.EnumSet(Effect) = .initFull(),
+    lacking: std.EnumSet(Effect) = .full,
 };
 
 /// The folder the effects' files are in (`0x0050E1D8`).

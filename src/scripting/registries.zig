@@ -253,10 +253,10 @@ pub fn register(comptime kind: Kind, state: *luau.State) i32 {
     if (state.rawGetField(2, "frame") != .function) call.raise("frame callback is required", .{});
     state.pop(1);
     scripts.registries.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("out of memory registering", .{});
-    state.newTable(0, std.meta.fields(Callback).len);
-    inline for (std.meta.fields(Callback)) |callback| {
-        _ = state.rawGetField(2, callback.name);
-        state.rawSetField(-2, callback.name);
+    state.newTable(0, std.enums.values(Callback).len);
+    inline for (comptime std.enums.values(Callback)) |callback| {
+        _ = state.rawGetField(2, @tagName(callback));
+        state.rawSetField(-2, @tagName(callback));
     }
     const callbacks = state.ref(-1);
     state.pop(1);

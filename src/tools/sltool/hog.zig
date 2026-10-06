@@ -73,10 +73,10 @@ fn flagsAfterTwo(comptime Flags: type, operands: []const [:0]const u8) error{Usa
     if (operands.len < 2) return error.Usage;
     var flags: Flags = .{};
     next: for (operands[2..]) |operand| {
-        inline for (@typeInfo(Flags).@"struct".fields) |field| {
-            if (std.mem.eql(u8, operand, "--" ++ field.name)) {
-                if (@field(flags, field.name)) return error.Usage;
-                @field(flags, field.name) = true;
+        inline for (@typeInfo(Flags).@"struct".field_names) |name| {
+            if (std.mem.eql(u8, operand, "--" ++ name)) {
+                if (@field(flags, name)) return error.Usage;
+                @field(flags, name) = true;
                 continue :next;
             }
         }

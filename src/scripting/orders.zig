@@ -157,10 +157,10 @@ fn registerOrder(state: *State) i32 {
     if (number > std.math.maxInt(i16)) call.raise("the custom order registry is full", .{});
     scripts.custom_orders.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("orders.register: out of memory", .{});
     // Copy callbacks so later changes to the definition cannot replace a registered handler.
-    state.newTable(0, std.meta.fields(Role).len);
-    inline for (std.meta.fields(Role)) |role| {
-        _ = state.rawGetField(2, role.name);
-        state.rawSetField(-2, role.name);
+    state.newTable(0, std.enums.values(Role).len);
+    inline for (comptime std.enums.values(Role)) |role| {
+        _ = state.rawGetField(2, @tagName(role));
+        state.rawSetField(-2, @tagName(role));
     }
     const callbacks = state.ref(-1);
     state.pop(1);

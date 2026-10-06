@@ -213,7 +213,7 @@ test Store {
 
 test decode {
     const gpa = std.testing.allocator;
-    const takes: std.EnumSet(Level.Format) = .initFull();
+    const takes: std.EnumSet(Level.Format) = .full;
     // A payload of one 1 by 1 RGBA level and no maps, each map's count 0, then cut short.
     const map_counts = 4 * Image.Maps.count;
     var body: [4 + @sizeOf(LevelHeader) + 4 + map_counts]u8 = undefined;

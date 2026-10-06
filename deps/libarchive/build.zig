@@ -296,9 +296,6 @@ pub fn build(b: *std.Build) void {
         .HAVE_SYS_STAT_H = !is_windows,
         .HAVE_SYS_SYSMACROS_H = is_linux,
         .HAVE_SYS_TIME_H = true,
-        .LIBATTR_PKGCONFIG_VERSION = "0.0.0", // TODO
-        .LIBACL_PKGCONFIG_VERSION = "0.0.0", // TODO
-        .LIBRICHACL_PKGCONFIG_VERSION = "0.0.0", // TODO
         .HAVE_SYS_TYPES_H = true,
         .HAVE_SYS_UTIME_H = null,
         .HAVE_SYS_UTSNAME_H = !is_windows,

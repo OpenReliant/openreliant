@@ -193,9 +193,9 @@ pub const Quadrants = extern struct {
     }
 
     comptime {
-        for (std.enums.values(collision.Quadrant), @typeInfo(Quadrants).@"struct".fields) |quadrant, field| {
-            assert(std.mem.eql(u8, @tagName(quadrant), field.name));
-            assert(@offsetOf(Quadrants, field.name) == @as(usize, @backingInt(quadrant)) * @sizeOf(f32));
+        for (std.enums.values(collision.Quadrant), @typeInfo(Quadrants).@"struct".field_names) |quadrant, name| {
+            assert(std.mem.eql(u8, @tagName(quadrant), name));
+            assert(@offsetOf(Quadrants, name) == @as(usize, @backingInt(quadrant)) * @sizeOf(f32));
         }
         assert(@sizeOf(Quadrants) == 0x10);
     }

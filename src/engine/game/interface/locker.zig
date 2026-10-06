@@ -60,8 +60,8 @@ pub const Award = union(enum) {
 
 /// The awards the pilot has (`pilot_medals`, `0x00562DFC`; `pilot_ribbons`, `0x00562E14`).
 pub const Awards = struct {
-    medals: std.EnumSet(gameflow.Medal) = .initEmpty(),
-    ribbons: gameflow.Ribbons = .initEmpty(),
+    medals: std.EnumSet(gameflow.Medal) = .empty,
+    ribbons: gameflow.Ribbons = .empty,
 
     /// The awards of `campaign`; none outside one.
     pub fn of(campaign: ?*const gameflow.Campaign) Awards {

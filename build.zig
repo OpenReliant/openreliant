@@ -215,7 +215,7 @@ pub fn build(b: *std.Build) void {
     const play_cmd = b.addRunArtifact(openreliant);
     play_step.dependOn(&play_cmd.step);
     play_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| play_cmd.addArgs(args);
+    play_cmd.addPassthruArgs();
 
     const sltool = b.addExecutable(.{
         .name = "sltool",
@@ -282,7 +282,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(sltool);
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_cmd.addArgs(args);
+    run_cmd.addPassthruArgs();
 
     const lib_tests = b.addTest(.{ .root_module = lib });
     const exe_tests = b.addTest(.{ .root_module = sltool.root_module });
@@ -326,18 +326,26 @@ fn addMacosSdk(b: *std.Build, module: *std.Build.Module, sdk: []const u8) void {
 }
 
 /// `git describe` of the checkout against the release tags, such as `v0.2.0-12-gabc1234-dirty`, or
-/// nothing where there is no git or no tag, as in a source archive.
+/// nothing where there is no git or no tag, as in a source archive. The build can't track what
+/// the answer depends on (new commits, edits to any file), so asking poisons the configuration
+/// cache: the build runs build.zig again each time, as it always did before Zig 0.17.
 fn describe(b: *std.Build) []const u8 {
-    var code: u8 = undefined;
-    const out = b.runAllowFail(&.{ "git", "-C", b.build_root.path orelse ".", "describe", "--tags", "--match", "v*", "--long", "--dirty", "--abbrev=7" }, &code, .ignore) catch return "";
-    return std.mem.trimEnd(u8, out, "\n");
+    b.graph.poisonCache();
+    const root = b.root.toString(b.allocator) catch @panic("out of memory");
+    return switch (b.runFallible(&.{ "git", "-C", root, "describe", "--tags", "--match", "v*", "--long", "--dirty", "--abbrev=7" }, .{ .stderr_behavior = .ignore })) {
+        .success => |out| std.mem.trimEnd(u8, out, "\n"),
+        else => "",
+    };
 }
 
 /// Every file of the example mods, as `<mod>/<file>`, sorted: a mod's files are directly in its
 /// folder.
 fn exampleFiles(b: *std.Build) []const []const u8 {
     const io = b.graph.io;
-    var mods = b.build_root.handle.openDir(io, "examples/mods", .{ .iterate = true }) catch |err| std.debug.panic("can't open examples/mods: {t}", .{err});
+    // The listing runs while build.zig configures, so the build is told to configure again when
+    // a mod or a file is added, removed or renamed.
+    b.dependOnDirectoryContents(b.path("examples/mods"));
+    var mods = b.root.root_dir.handle.openDir(io, b.pathJoin(&.{ b.root.sub_path, "examples/mods" }), .{ .iterate = true }) catch |err| std.debug.panic("can't open examples/mods: {t}", .{err});
     defer mods.close(io);
     var found: std.ArrayList([]const u8) = .empty;
     var each_mod = mods.iterate();
@@ -345,6 +353,7 @@ fn exampleFiles(b: *std.Build) []const []const u8 {
         if (mod.kind != .directory) continue;
         var folder = mods.openDir(io, mod.name, .{ .iterate = true }) catch |err| std.debug.panic("can't open examples/mods/{s}: {t}", .{ mod.name, err });
         defer folder.close(io);
+        b.dependOnDirectoryContents(b.path(b.fmt("examples/mods/{s}", .{mod.name})));
         var each_file = folder.iterate();
         while (each_file.next(io) catch |err| std.debug.panic("can't list examples/mods/{s}: {t}", .{ mod.name, err })) |file| {
             if (file.kind != .file) continue;

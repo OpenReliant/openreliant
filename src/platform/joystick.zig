@@ -488,7 +488,7 @@ pub const Controller = struct {
         const name = c.SDL_GetJoystickName(plain);
         var found: input.JoystickDevice.Capabilities = .{
             .name = if (name != null) std.mem.span(name) else "",
-            .axes = .initEmpty(),
+            .axes = .empty,
             .buttons = JoystickState.max_buttons,
             .hats = 1,
             .kind = .gamepad,
@@ -847,9 +847,9 @@ test "controllers of many kinds" {
         defer controller.close();
         var joystick: input.Joystick = .{};
         joystick.open(controller.device(), input.default_dead_zone);
-        var axes: std.EnumSet(Axis) = .initEmpty();
-        inline for (@typeInfo(input.JoystickAxes).@"struct".fields) |field| {
-            if (@field(joystick.axes, field.name)) axes.insert(@field(Axis, field.name));
+        var axes: std.EnumSet(Axis) = .empty;
+        inline for (@typeInfo(input.JoystickAxes).@"struct".field_names) |name| {
+            if (@field(joystick.axes, name)) axes.insert(@field(Axis, name));
         }
         const expected: std.EnumSet(Axis) = .initMany(model.game_axes);
         if (!axes.eql(expected)) {

@@ -74,15 +74,15 @@ pub fn Field(comptime T: type, comptime about: []const u8, comptime access: type
 /// takes a `Call`, then those parameters.
 pub fn Function(comptime about: []const u8, comptime parameters: []const []const u8, comptime function: anytype) type {
     const info = @typeInfo(@TypeOf(function)).@"fn";
-    if (info.params.len == 0 or info.params[0].type != Call) @compileError("a declared function takes a Call first");
-    if (info.params.len - 1 != parameters.len) @compileError("name each parameter of a declared function");
+    if (info.param_types.len == 0 or info.param_types[0] != Call) @compileError("a declared function takes a Call first");
+    if (info.param_types.len - 1 != parameters.len) @compileError("name each parameter of a declared function");
     return struct {
         pub const declaration: Declaration = .function;
         pub const description = about;
         pub const names = parameters;
         pub const Parameters = types: {
             var found: [parameters.len]type = undefined;
-            for (&found, info.params[1..]) |*parameter, param| parameter.* = param.type.?;
+            for (&found, info.param_types[1..]) |*parameter, param| parameter.* = param.?;
             break :types found;
         };
         pub const Result = info.return_type.?;
@@ -128,8 +128,8 @@ pub fn is(comptime D: anytype, comptime kind: Declaration) bool {
 pub fn declared(comptime Namespace: type, comptime kind: Declaration) []const []const u8 {
     comptime {
         var found: []const []const u8 = &.{};
-        for (std.meta.declarations(Namespace)) |decl| {
-            if (is(@field(Namespace, decl.name), kind)) found = found ++ .{decl.name};
+        for (std.meta.declarations(Namespace)) |decl_name| {
+            if (is(@field(Namespace, decl_name), kind)) found = found ++ .{decl_name};
         }
         return found;
     }

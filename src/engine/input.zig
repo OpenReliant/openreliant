@@ -1129,7 +1129,7 @@ test defaultBindings {
         try std.testing.expectEqual(stick.get(action).key, pad.get(action).key);
     }
     // No two actions share a gamepad button.
-    var used: std.EnumSet(GamepadButton) = .initEmpty();
+    var used: std.EnumSet(GamepadButton) = .empty;
     for (gamepad_buttons) |pair| {
         try std.testing.expect(!used.contains(pair[1]));
         used.insert(pair[1]);

@@ -125,8 +125,7 @@ pub const VolumeDescriptor = extern struct {
     /// The UCS-2 level a supplementary descriptor declares, if it is a Joliet one.
     pub fn jolietLevel(descriptor: *const VolumeDescriptor) ?JolietLevel {
         if (descriptor.type != .supplementary) return null;
-        inline for (@typeInfo(JolietLevel).@"enum".fields) |field| {
-            const level: JolietLevel = @fromBackingInt(@intCast(field.value));
+        inline for (comptime std.enums.values(JolietLevel)) |level| {
             if (std.mem.startsWith(u8, &descriptor.escape_sequences, level.escapeSequence())) return level;
         }
         return null;

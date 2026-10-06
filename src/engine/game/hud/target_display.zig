@@ -334,7 +334,7 @@ test named {
     try std.testing.expectEqual(null, named(.hull));
     try std.testing.expectEqual(0x192, named(.shield_generator).?.icon);
     // The icons run from 0x189 to 0x19A, each class but the Laser Turrets its own.
-    var seen: std.StaticBitSet(0x12) = .initEmpty();
+    var seen: std.StaticBitSet(0x12) = .empty;
     for (std.enums.values(shp.Part.Class)) |class| {
         const found = named(class) orelse continue;
         try std.testing.expect(found.icon >= 0x189 and found.icon <= 0x19A);

@@ -85,7 +85,7 @@ pub const Carried = [tables.max_missiles]u16;
 /// campaign's `tier` offers, each while fewer than its limit (`tables.Missile.limit`) are
 /// `carried`.
 pub fn available(tier: u2, known: []const tables.Missile, carried: *const Carried) Offered {
-    var set: Offered = .initEmpty();
+    var set: Offered = .empty;
     for (known) |missile| {
         const index = @backingInt(missile);
         if (missile.offeredAt(tier) and carried[index] < missile.limit()) set.set(index);

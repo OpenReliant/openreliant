@@ -306,7 +306,7 @@ pub const Machine = struct {
     /// object.
     event_values: []vm.ObjectEvents = &.{},
     /// The commands not ported yet that have run, each logged the first time.
-    logged: std.StaticBitSet(executor.commands.table.len) = .initEmpty(),
+    logged: std.StaticBitSet(executor.commands.table.len) = .empty,
     /// What the commands act on the game through, which the game's code reaches through its
     /// globals: the world and its clock, as the mission's start and its frame give them. Null where
     /// there is no game, as in a test of the script alone, and the commands that act on it then do

@@ -282,12 +282,12 @@ fn decodeAll(gpa: Allocator, read: *const Read, longest: u32) Allocator.Error!?I
         return if (failed) error.OutOfMemory else null;
     }
     // A map of another size than the picture's is left out.
-    inline for (@typeInfo(Image.Maps).@"struct".fields) |field| {
-        if (@field(made.maps, field.name)) |levels| if (levels[0].width != made.width() or levels[0].height != made.height()) {
-            const map = @field(MapFile, field.name);
+    inline for (@typeInfo(Image.Maps).@"struct".field_names) |name| {
+        if (@field(made.maps, name)) |levels| if (levels[0].width != made.width() or levels[0].height != made.height()) {
+            const map = @field(MapFile, name);
             log.warn("the {s} of {s} is left out: it is {d}x{d} and its picture {d}x{d}", .{ map.label(), read.picture.?.name, levels[0].width, levels[0].height, made.width(), made.height() });
             freeLevels(gpa, levels);
-            @field(made.maps, field.name) = null;
+            @field(made.maps, name) = null;
         };
     }
     return made;

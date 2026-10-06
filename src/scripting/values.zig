@@ -124,12 +124,25 @@ pub fn pushTable(state: *State, comptime T: type, value: T) void {
     state.setReadonly(-1, true);
 }
 
+/// A field of a struct, gathered from `@typeInfo`'s lists of names, types and attributes.
+pub const Field = struct {
+    name: [:0]const u8,
+    type: type,
+    attrs: std.lang.Type.Struct.FieldAttributes,
+
+    /// The field's default value, if it has one.
+    pub inline fn defaultValue(comptime field: Field) ?field.type {
+        return field.attrs.defaultValue(field.type);
+    }
+};
+
 /// The fields of `T` that scripts see: all except those starting with an underscore (`shown`).
-pub fn shownFields(comptime T: type) []const std.builtin.Type.StructField {
+pub fn shownFields(comptime T: type) []const Field {
     comptime {
-        var fields: []const std.builtin.Type.StructField = &.{};
-        for (@typeInfo(T).@"struct".fields) |field| {
-            if (shown(field.name)) fields = fields ++ .{field};
+        const info = @typeInfo(T).@"struct";
+        var fields: []const Field = &.{};
+        for (info.field_names, info.field_types, info.field_attrs) |name, Type, attrs| {
+            if (shown(name)) fields = fields ++ .{Field{ .name = name, .type = Type, .attrs = attrs }};
         }
         return fields;
     }
@@ -171,7 +184,7 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
             const number = state.toNumber(given) orelse wrongType(state, label, comptime choices(T), given);
             if (number == @floor(number) and number >= std.math.minInt(info.tag_type) and number <= std.math.maxInt(info.tag_type)) {
                 const raw: info.tag_type = @intFromFloat(number);
-                if (!info.is_exhaustive) return @fromBackingInt(@intCast(raw));
+                if (info.mode == .nonexhaustive) return @fromBackingInt(@intCast(raw));
                 inline for (comptime std.enums.values(T)) |named| {
                     if (@backingInt(named) == raw) return named;
                 }
@@ -207,8 +220,8 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
         .@"struct" => return readTable(state, T, given, label),
         .@"union" => |info| {
             const kind = state.typeOf(given);
-            inline for (info.fields) |field| {
-                if (kind == comptime luauKind(field.type)) return @unionInit(T, field.name, read(state, field.type, given, label));
+            inline for (info.field_names, info.field_types) |name, Variant| {
+                if (kind == comptime luauKind(Variant)) return @unionInit(T, name, read(state, Variant, given, label));
             }
             wrongType(state, label, comptime kindNames(T), given);
         },
@@ -231,11 +244,11 @@ fn luauKind(comptime T: type) luau.Type {
 /// a string".
 fn kindNames(comptime T: type) []const u8 {
     comptime {
-        const fields = @typeInfo(T).@"union".fields;
+        const fields = @typeInfo(T).@"union".field_types;
         var text: []const u8 = "";
-        for (fields, 0..) |field, at| {
+        for (fields, 0..) |Variant, at| {
             const separator = if (at == 0) "" else if (at == fields.len - 1) " or " else ", ";
-            text = text ++ separator ++ switch (luauKind(field.type)) {
+            text = text ++ separator ++ switch (luauKind(Variant)) {
                 .boolean => "a boolean",
                 .number => "a number",
                 .string => "a string",
@@ -273,10 +286,11 @@ fn readTable(state: *State, comptime T: type, given: i32, comptime label: []cons
     const at = state.absolute(given);
     const fields = comptime shownFields(T);
     var value: T = undefined;
-    inline for (@typeInfo(T).@"struct".fields) |field| {
-        if (field.defaultValue()) |default| @field(value, field.name) = default else if (comptime !shown(field.name)) @compileError(field.name ++ " is hidden from scripts, so it needs a default");
+    const info = @typeInfo(T).@"struct";
+    inline for (info.field_names, info.field_types, info.field_attrs) |name, Type, attrs| {
+        if (attrs.defaultValue(Type)) |default| @field(value, name) = default else if (comptime !shown(name)) @compileError(name ++ " is hidden from scripts, so it needs a default");
     }
-    var named: std.StaticBitSet(fields.len) = .initEmpty();
+    var named: std.StaticBitSet(fields.len) = .empty;
     state.pushNil();
     while (state.next(at)) {
         // The key's type is checked first, as reading a number as a string would change it.
@@ -293,7 +307,7 @@ fn readTable(state: *State, comptime T: type, given: i32, comptime label: []cons
         state.pop(1);
     }
     inline for (fields, 0..) |field, place| {
-        if (field.default_value_ptr == null and !named.isSet(place)) state.raise("{s}: the field '{s}' is missing", .{ label, field.name });
+        if (field.attrs.default_value_ptr == null and !named.isSet(place)) state.raise("{s}: the field '{s}' is missing", .{ label, field.name });
     }
     return value;
 }
@@ -350,7 +364,7 @@ pub fn names(comptime T: type) []const []const u8 {
 /// without a name is only given as one.
 pub fn takesNumbers(comptime T: type) bool {
     if (@hasDecl(T, "Named")) return true;
-    return !@typeInfo(T).@"enum".is_exhaustive or names(T).len < std.enums.values(T).len;
+    return @typeInfo(T).@"enum".mode == .nonexhaustive or names(T).len < std.enums.values(T).len;
 }
 
 /// Whether a value of `T` can also be one a mod adds, by its qualified name, such as

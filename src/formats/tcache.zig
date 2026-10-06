@@ -118,8 +118,7 @@ pub const Encoding = enum {
 
     /// The encoding `format` describes, if it is one of these.
     pub fn of(format_: PixelFormat) ?Encoding {
-        inline for (@typeInfo(Encoding).@"enum".fields) |field| {
-            const encoding: Encoding = @fromBackingInt(@intCast(field.value));
+        inline for (comptime std.enums.values(Encoding)) |encoding| {
             if (std.mem.eql(u8, std.mem.asBytes(&format_), std.mem.asBytes(&encoding.format()))) return encoding;
         }
         return null;

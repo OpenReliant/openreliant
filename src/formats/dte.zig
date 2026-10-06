@@ -898,12 +898,12 @@ pub const Condition = enum(u8) {
     }
 
     comptime {
-        const tags = @typeInfo(Condition).@"enum".fields;
-        if (tags.len != conditions.table.len) {
+        const tags = @typeInfo(Condition).@"enum";
+        if (tags.field_names.len != conditions.table.len) {
             @compileError("dte.Condition does not name every entry of conditions.table");
         }
-        for (tags, 0..) |tag, index| {
-            if (tag.value != index) @compileError("dte.Condition." ++ tag.name ++ " is out of order");
+        for (tags.field_names, tags.field_values, 0..) |name, value, index| {
+            if (value != index) @compileError("dte.Condition." ++ name ++ " is out of order");
         }
     }
 
@@ -1203,9 +1203,10 @@ comptime {
             @compileError(std.fmt.comptimePrint("opcode 0x{X:0>2} has no name", .{info.opcode}));
         }
     }
-    for (std.meta.fields(Opcode)) |field| {
-        if (opcodes.find(field.value) == null) {
-            @compileError("no handler for opcode " ++ field.name);
+    const tags = @typeInfo(Opcode).@"enum";
+    for (tags.field_names, tags.field_values) |name, value| {
+        if (opcodes.find(value) == null) {
+            @compileError("no handler for opcode " ++ name);
         }
     }
 }

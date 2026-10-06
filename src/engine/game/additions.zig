@@ -405,7 +405,7 @@ fn readNamed(comptime Named: type, context: Context, comptime key: []const u8, t
     if (gameNamed(Named, text, end)) |named| return named;
     const names = comptime names: {
         var list: []const u8 = "";
-        for (@typeInfo(Named).@"enum".fields, 0..) |field, at| list = list ++ (if (at == 0) "" else ", ") ++ field.name;
+        for (@typeInfo(Named).@"enum".field_names, 0..) |name, at| list = list ++ (if (at == 0) "" else ", ") ++ name;
         break :names list;
     };
     context.warn("ship type", "gives " ++ key ++ " the value '{s}', which isn't one of " ++ names, .{text});

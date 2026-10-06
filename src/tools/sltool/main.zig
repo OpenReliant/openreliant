@@ -50,10 +50,10 @@ pub fn verbOf(comptime Group: type, args: []const [:0]const u8) error{Usage}!str
 /// their order.
 pub fn positional(comptime Group: type, comptime verb: std.meta.Tag(Group), operands: []const [:0]const u8) error{Usage}!Group {
     const Operands = @FieldType(Group, @tagName(verb));
-    const fields = @typeInfo(Operands).@"struct".fields;
-    if (operands.len != fields.len) return error.Usage;
+    const names = @typeInfo(Operands).@"struct".field_names;
+    if (operands.len != names.len) return error.Usage;
     var command: Operands = undefined;
-    inline for (fields, 0..) |field, i| @field(command, field.name) = operands[i];
+    inline for (names, 0..) |name, i| @field(command, name) = operands[i];
     return @unionInit(Group, @tagName(verb), command);
 }
 

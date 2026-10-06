@@ -50,7 +50,7 @@ const roots: []const type = list: {
     }
     for (std.enums.values(@import("builtin_interfaces.zig").Group)) |group| found = found ++ namespaceTypes(group.namespace());
     for (std.enums.values(script.Handler)) |handler| {
-        for (@typeInfo(handler.Arguments()).@"struct".fields) |field| found = found ++ .{field.type};
+        found = found ++ @typeInfo(handler.Arguments()).@"struct".field_types;
     }
     for (std.enums.values(Hook)) |hook| {
         const declared = engine_hooks.declaration(hook);
@@ -161,10 +161,10 @@ fn luauType(comptime T: type) []const u8 {
 }
 
 /// The Luau type of a union of booleans, numbers and strings: whichever of them.
-fn unionType(comptime info: std.builtin.Type.Union) []const u8 {
+fn unionType(comptime info: std.lang.Type.Union) []const u8 {
     comptime {
         var text: []const u8 = "";
-        for (info.fields, 0..) |field, at| text = text ++ (if (at == 0) "" else " | ") ++ luauType(field.type);
+        for (info.field_types, 0..) |Variant, at| text = text ++ (if (at == 0) "" else " | ") ++ luauType(Variant);
         return text;
     }
 }
@@ -242,8 +242,9 @@ fn called(comptime handler: script.Handler) bool {
 fn handlerParameters(comptime handler: script.Handler) []const u8 {
     comptime {
         var text: []const u8 = "";
-        for (@typeInfo(handler.Arguments()).@"struct".fields, 0..) |field, at| {
-            text = text ++ (if (at == 0) "" else ", ") ++ field.name ++ ": " ++ luauType(field.type);
+        const info = @typeInfo(handler.Arguments()).@"struct";
+        for (info.field_names, info.field_types, 0..) |name, Argument, at| {
+            text = text ++ (if (at == 0) "" else ", ") ++ name ++ ": " ++ luauType(Argument);
         }
         return text;
     }
@@ -321,10 +322,9 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         }
     }
     try w.print("\n-- {s}\ntype Interfaces = {{\n", .{script.Package.interfaces.about()});
-    inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
-        const tag: @import("builtin_interfaces.zig").Group = @fromBackingInt(@intCast(group.value));
+    inline for (comptime std.enums.values(@import("builtin_interfaces.zig").Group)) |tag| {
         const Namespace = comptime tag.namespace();
-        try w.print("    {s}: {{\n", .{group.name});
+        try w.print("    {s}: {{\n", .{@tagName(tag)});
         inline for (comptime api.declared(Namespace, .field)) |name| {
             const field = @field(Namespace, name);
             try w.print("        {s}: {s},\n", .{ name, comptime luauType(field.Type) });
@@ -459,7 +459,7 @@ fn defaulted(comptime T: type) usize {
 }
 
 /// A field's default, as a script would write it.
-fn defaultText(comptime field: std.builtin.Type.StructField) []const u8 {
+fn defaultText(comptime field: values.Field) []const u8 {
     comptime {
         const value = field.defaultValue().?;
         return switch (@typeInfo(field.type)) {
@@ -558,10 +558,9 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
     }
 
     try w.writeAll("\n## Built-in interfaces\n\n`require(\"openreliant.interfaces\")` gives these groups of the packages' functions, unless a mod offers an interface of the same name. A group a script's packages don't allow is nil.\n");
-    inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
-        const tag: @import("builtin_interfaces.zig").Group = @fromBackingInt(@intCast(group.value));
+    inline for (comptime std.enums.values(@import("builtin_interfaces.zig").Group)) |tag| {
         const Namespace = comptime tag.namespace();
-        try w.print("\n### I.{s}\n\n| Member | Type or returns | Description |\n|---|---|---|\n", .{group.name});
+        try w.print("\n### I.{s}\n\n| Member | Type or returns | Description |\n|---|---|---|\n", .{@tagName(tag)});
         inline for (comptime api.declared(Namespace, .field)) |name| {
             const field = @field(Namespace, name);
             try w.print("| `{s}` | {s} | {s} |\n", .{ name, comptime markdownType(field.Type), field.description });

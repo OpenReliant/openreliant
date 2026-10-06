@@ -108,16 +108,17 @@ fn writeFlags(w: *Io.Writer, word: u32) Io.Writer.Error!void {
     const flags: Record.Flags = @bitCast(word);
     var any = false;
     try w.writeAll(".{");
-    inline for (@typeInfo(Record.Flags).@"struct".fields) |field| {
-        const value = @field(flags, field.name);
-        const set = if (field.type == bool) value else value != 0;
+    const info = @typeInfo(Record.Flags).@"struct";
+    inline for (info.field_names, info.field_types) |name, Field| {
+        const value = @field(flags, name);
+        const set = if (Field == bool) value else value != 0;
         if (set) {
             try w.writeAll(if (any) ", ." else " .");
             any = true;
-            if (field.type == bool) {
-                try w.print("{s} = true", .{field.name});
+            if (Field == bool) {
+                try w.print("{s} = true", .{name});
             } else {
-                try w.print("{s} = {d}", .{ field.name, value });
+                try w.print("{s} = {d}", .{ name, value });
             }
         }
     }

@@ -107,9 +107,10 @@ pub const Specials = packed struct(u32) {
 pub const special_names = [_]u16{ 0x1EF, 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6 };
 
 comptime {
-    for (@typeInfo(Specials).@"struct".fields[0..special_names.len], 0..) |field, bit| {
-        assert(@bitOffsetOf(Specials, field.name) == bit);
-        assert(field.type == bool);
+    const info = @typeInfo(Specials).@"struct";
+    for (info.field_names[0..special_names.len], info.field_types[0..special_names.len], 0..) |name, Field, bit| {
+        assert(@bitOffsetOf(Specials, name) == bit);
+        assert(Field == bool);
     }
 }
 
@@ -570,7 +571,7 @@ pub const Missile = enum(u8) {
 };
 
 /// The game's missiles.
-pub const missile_count = @typeInfo(Missile).@"enum".fields.len;
+pub const missile_count = @typeInfo(Missile).@"enum".field_names.len;
 
 /// The most missiles the loadout knows: the game's, and as many as mods can add.
 pub const max_missiles = missile_count + additions.missiles.capacity;
@@ -627,9 +628,9 @@ pub const MissileSet = packed struct(u32) {
 };
 
 comptime {
-    for (std.enums.values(Missile), @typeInfo(MissileSet).@"struct".fields[0..missile_count]) |missile, field| {
-        assert(std.mem.eql(u8, @tagName(missile), field.name));
-        assert(@bitOffsetOf(MissileSet, field.name) == @backingInt(missile));
+    for (std.enums.values(Missile), @typeInfo(MissileSet).@"struct".field_names[0..missile_count]) |missile, name| {
+        assert(std.mem.eql(u8, @tagName(missile), name));
+        assert(@bitOffsetOf(MissileSet, name) == @backingInt(missile));
     }
 }
 
