@@ -688,6 +688,12 @@ opaque becomes the colour the radio's window draws see-through. The film keeps e
 the frames have 256 or fewer, and picks 256 for them otherwise, the see-through colour kept as it
 is. `sltool fm8 extract` gives a film of the game's as frames to start from.
 
+A film named like one of the game's replaces it ([How files are replaced](#how-files-are-replaced)).
+The game plays the 45th's films under the squadron's name: the 45th Volunteers' through mission 13,
+and the 45th Tigers' from mission 14 ([Face films](../formats/fm8.md#playing)), so replace both.
+[`examples/mods/trent`](../../examples/mods/trent) gives Moose a new face this way, and renames him
+in the game's text from a load script ([The records](scripting.md#the-records)).
+
 `sltool speech encode <line.wav> <name.ut>` makes a line from a WAV file, which it mixes to mono at
 22,050 Hz, the rate the radio plays at. Name the lines after the pilot's `Voice`, as the game's are.
 
