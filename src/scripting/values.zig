@@ -184,7 +184,7 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
             const number = state.toNumber(given) orelse wrongType(state, label, comptime choices(T), given);
             if (number == @floor(number) and number >= std.math.minInt(info.tag_type) and number <= std.math.maxInt(info.tag_type)) {
                 const raw: info.tag_type = @intFromFloat(number);
-                if (info.mode == .nonexhaustive) return @fromBackingInt(@intCast(raw));
+                if (info.mode == .nonexhaustive) return @fromBackingInt(raw);
                 inline for (comptime std.enums.values(T)) |named| {
                     if (@backingInt(named) == raw) return named;
                 }
