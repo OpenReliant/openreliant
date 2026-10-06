@@ -230,15 +230,16 @@ const Making = struct {
             if (!drawn(face) or face.material != taken) continue;
             // Odd strip members list their last two corners the other way round (`sltool shp obj`).
             const corners: [3]usize = if (face.polygon == .strip_odd) .{ 0, 2, 1 } else .{ 0, 1, 2 };
-            for (corners) |corner| {
+            var places: [3][3]f32 = undefined;
+            for (&places, corners) |*place, corner| place.* = vector(level.vertices[face.vertices[corner]].position.toYUp());
+            for (corners, places) |corner, at| {
                 const vertex = level.vertices[face.vertices[corner]];
-                const at = vector(vertex.position.toYUp());
                 for (&lo, &hi, at) |*low, *high, value| {
                     low.* = @min(low.*, value);
                     high.* = @max(high.*, value);
                 }
                 try positions.append(made.arena, at);
-                try normals.append(made.arena, vector(vertex.normal.toYUp()));
+                try normals.append(made.arena, unitNormal(vector(vertex.normal.toYUp()), places));
                 try uvs.append(made.arena, .{ face.u[corner], face.v[corner] });
             }
         }
@@ -318,6 +319,30 @@ fn vector(v: Vec3) [3]f32 {
     return .{ v.x, v.y, v.z };
 }
 
+/// `normal` made a unit long, as glTF holds normals; where it has no length, as some of the
+/// game's models leave it, the normal of the triangle with corners `corners`, or straight up for a
+/// triangle with no area.
+fn unitNormal(normal: [3]f32, corners: [3][3]f32) [3]f32 {
+    const given: @Vector(3, f32) = normal;
+    const length = @sqrt(@reduce(.Add, given * given));
+    if (length > least_length) return given / @as(@Vector(3, f32), @splat(length));
+    const a: @Vector(3, f32) = corners[1];
+    const b: @Vector(3, f32) = corners[2];
+    const first = a - @as(@Vector(3, f32), corners[0]);
+    const second = b - @as(@Vector(3, f32), corners[0]);
+    const across: @Vector(3, f32) = .{
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
+    };
+    const area = @sqrt(@reduce(.Add, across * across));
+    if (area > least_length) return across / @as(@Vector(3, f32), @splat(area));
+    return .{ 0, 1, 0 };
+}
+
+/// The shortest normal, or cross product, taken to have a direction.
+const least_length = 1e-6;
+
 /// The node name of `attachment`, as `from-gltf` reads it (`from_obj.Role`).
 fn attachmentName(arena: Allocator, attachment: shp.Attachment) Allocator.Error![]const u8 {
     return switch (attachment.kind) {
@@ -338,14 +363,15 @@ fn pointName(kind: shp.PointList.Kind) ?[]const u8 {
     };
 }
 
-/// The rotation of `orientation`, a row-major 3x3 in the model's frame, in glTF's frame as a
-/// quaternion (x, y, z, w); null for none. Turning the frame by a half turn about Z negates the
-/// matrix's entries that mix Z with X or Y.
+/// The rotation of `orientation`, a row-major 3x3 in the model's frame, in glTF's frame as a unit
+/// quaternion (x, y, z, w); null for none, and for a matrix that isn't a rotation, as a few of the
+/// game's attachments hold. Turning the frame by a half turn about Z negates the matrix's entries
+/// that mix Z with X or Y.
 fn rotation(orientation: [9]f32) ?[4]f32 {
     var m = orientation;
     for ([_]usize{ 2, 5, 6, 7 }) |at| m[at] = -m[at];
     const identity = [9]f32{ 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-    if (std.mem.eql(f32, &m, &identity)) return null;
+    if (std.mem.eql(f32, &m, &identity) or !isRotation(m)) return null;
     const trace = m[0] + m[4] + m[8];
     const q: [4]f32 = if (trace > 0) q: {
         const s = @sqrt(trace + 1) * 2;
@@ -360,8 +386,25 @@ fn rotation(orientation: [9]f32) ?[4]f32 {
         const s = @sqrt(1 + m[8] - m[0] - m[4]) * 2;
         break :q .{ (m[2] + m[6]) / s, (m[5] + m[7]) / s, s / 4, (m[3] - m[1]) / s };
     };
-    return q;
+    const turn: @Vector(4, f32) = q;
+    return turn / @as(@Vector(4, f32), @splat(@sqrt(@reduce(.Add, turn * turn))));
 }
+
+/// Whether the row-major 3x3 `m` turns without stretching or mirroring: its rows each a unit long
+/// and square to one another, and its determinant 1, to within `rotation_slack`.
+fn isRotation(m: [9]f32) bool {
+    for (0..3) |row| for (0..3) |other| {
+        var dot: f32 = 0;
+        for (0..3) |column| dot += m[row * 3 + column] * m[other * 3 + column];
+        const expected: f32 = if (row == other) 1 else 0;
+        if (@abs(dot - expected) > rotation_slack) return false;
+    };
+    const determinant = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+    return @abs(determinant - 1) <= rotation_slack;
+}
+
+/// How far a matrix's rows may stray from a rotation's, which the game's rounded matrices do.
+const rotation_slack = 1e-3;
 
 test rotation {
     // None for the identity.
@@ -371,6 +414,18 @@ test rotation {
     const turned = rotation(.{ 1, 0, 0, 0, 0, -1, 0, 1, 0 }).?;
     const half = @sqrt(0.5);
     for ([4]f32{ -half, 0, 0, half }, turned) |expected, got| try std.testing.expectApproxEqAbs(expected, got, 1e-6);
+    // None for a matrix that stretches, or mirrors.
+    try std.testing.expectEqual(null, rotation(.{ 2, 0, 0, 0, 1, 0, 0, 0, 1 }));
+    try std.testing.expectEqual(null, rotation(.{ -1, 0, 0, 0, 1, 0, 0, 0, 1 }));
+}
+
+test unitNormal {
+    const flat = [3][3]f32{ .{ 0, 0, 0 }, .{ 1, 0, 0 }, .{ 0, 0, -1 } };
+    // A normal is made a unit long; one without length is the triangle's.
+    try std.testing.expectEqual([3]f32{ 0, 0, 1 }, unitNormal(.{ 0, 0, 3 }, flat));
+    try std.testing.expectEqual([3]f32{ 0, 1, 0 }, unitNormal(.{ 0, 0, 0 }, flat));
+    // A triangle without area points up.
+    try std.testing.expectEqual([3]f32{ 0, 1, 0 }, unitNormal(.{ 0, 0, 0 }, .{ .{ 0, 0, 0 }, .{ 1, 0, 0 }, .{ 2, 0, 0 } }));
 }
 
 test write {
