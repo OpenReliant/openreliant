@@ -271,6 +271,18 @@ pub fn push(state: *State, index: u16) void {
     state.remove(table);
 }
 
+/// Pushes a handle of its own to the player's ship, outside the handles kept by slot, so that
+/// `follow` can point it at the player's ship of each mission.
+pub fn pushFollowing(state: *State, all: *const create.Objects) void {
+    state.newUserdata(Handle, Handle.tag).* = .of(all, all.player);
+}
+
+/// Points the handle at `index` at the player's ship in `all` now.
+pub fn follow(state: *State, index: i32, all: *const create.Objects) void {
+    const handle = state.toUserdata(Handle, index, Handle.tag) orelse return;
+    handle.* = .of(all, all.player);
+}
+
 /// Pushes `handle`, as another state's script held it: the object's own handle while it's in the
 /// mission, or else a handle that isn't valid.
 pub fn pushHandle(state: *State, handle: Handle) void {

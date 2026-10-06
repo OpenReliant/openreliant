@@ -195,12 +195,15 @@ pub const Presentation = struct {
     pub fn endGame(shown: *Presentation) void {
         shown.resetRegisteredCamera();
         shown.runner.stopAll(shown.lists.getPtr(.player));
+        shown.runtime.dropPlayerSelves();
         shown.game = null;
         shown.runtime.objects = null;
     }
 
-    /// Tells the scripts that `mission` has started.
+    /// Points the player scripts' `self` at the mission's player ship, then tells the scripts that
+    /// `mission` has started.
     pub fn missionStarted(shown: *Presentation, mission: engine_hooks.Mission) void {
+        shown.runtime.followPlayer();
         shown.runner.callAll(.on_mission_start, .{ .mission = mission });
     }
 
@@ -487,6 +490,42 @@ test "registered views, displays and screens execute and close with their contex
     try std.testing.expectEqual(null, fixture.shown.runtime.registries.find(.display, "a:status"));
     try fixture.shown.reload();
     try std.testing.expect(fixture.shown.runtime.registries.find(.screen, "a:panel") != null);
+}
+
+test "a player script's self follows the player's ship from mission to mission" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\n" },
+            .{
+                "player.luau",
+                \\local hud = require("openreliant.hud")
+                \\local self = require("openreliant.self")
+                \\hud.register_display("self", {frame = function() hud.text(vector.zero, tostring(self:is_valid())) end})
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 } };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("true", fixture.shown.layers.get(.hud).text.items);
+    // The next mission fills the player's slot anew: until it starts, the old handle is gone.
+    const all = fixture.mission.objects;
+    all.reuses[all.player] +%= 1;
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("false", fixture.shown.layers.get(.hud).text.items);
+    // As it starts, self is the player's ship again.
+    fixture.shown.missionStarted(.{ .number = 2, .file = "mission2.dte" });
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("true", fixture.shown.layers.get(.hud).text.items);
+    try std.testing.expectEqual(1, fixture.shown.runtime.player_selves.items.len);
+    fixture.shown.endGame();
+    try std.testing.expectEqual(0, fixture.shown.runtime.player_selves.items.len);
 }
 
 test "camera locks take precedence and failed registry callbacks fall back safely" {
