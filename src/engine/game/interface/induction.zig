@@ -208,6 +208,30 @@ test Induction {
     try std.testing.expectEqual(.outro, induction.arrive(0).?);
 }
 
+test "a scene nobody hears holds the induction as long as it would play" {
+    const gpa = std.testing.allocator;
+    // A scene of a second: 100 ticks.
+    const scene = try cbox.testFile(gpa, cbox.rate, 64);
+    defer gpa.free(scene);
+    var tested: rooms.testing.Tested = undefined;
+    try tested.init(&.{ "rel_tv_enriq.bik", "single_rel_c2lock.bik" }, &.{.{ .name = "enr_intro.box", .data = scene }}, &.{});
+    defer tested.deinit();
+    // Without a driver, as with `--no-sound`, the game's clock times the scene.
+    var clock: @import("../main.zig").Clock = .{};
+    var silent: @import("../hog_snd.zig").Sound = .{ .clock = &clock };
+    var context = tested.context();
+    context.sound = &silent;
+    var keyboard: input.Keyboard = .{};
+
+    var induction: Induction = .open(context, 0);
+    defer induction.close();
+    clock.game_ticks += 99;
+    try std.testing.expectEqual(null, induction.pass(.{ .keyboard = &keyboard, .right = false, .now = 0 }));
+    clock.game_ticks += 1;
+    const way = induction.pass(.{ .keyboard = &keyboard, .right = false, .now = 0 }).?.way;
+    try std.testing.expectEqualStrings("rel_c2lock.bik", way[1]);
+}
+
 test "the right button held as a place shows ends the induction once it has come up" {
     const gpa = std.testing.allocator;
     const scene = try cbox.testFile(gpa, 100, 64);

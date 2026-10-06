@@ -215,19 +215,35 @@ pub fn decode(gpa: Allocator, speech: Speech, peaks: Style.Peaks) Allocator.Erro
 pub const Player = struct {
     /// The line playing, as the sample's file, kept while it plays.
     file: []u8 = &.{},
+    /// **Improvement:** where there's no speech sample to play a line on (`hog_snd.Sound.speech`),
+    /// as with `--no-sound`, the line still lasts as long as it would play, timed by the game's
+    /// clock (`hog_snd.Sound.clock`). Whatever waits for the line then waits as long as with
+    /// sound: the radio's window shows the speaker's face, and a scene in the rooms runs its
+    /// length. Otherwise the line would end as soon as it started.
+    unheard: Unheard = .none,
+
+    /// A line that nobody hears.
+    const Unheard = union(enum) {
+        none,
+        /// It plays until the game's clock reaches this tick (`Clock.game_ticks`).
+        until: u32,
+        /// It is paused, with this many ticks left.
+        held: u32,
+    };
 
     /// `speech_start`: `speech` played through `sound`'s speech sample, the line playing ended:
     /// once, in the middle, at `rate`, as loud as the speech volume, the master volume and
     /// `volume`, 0 to 127, make it (`hog_snd.Sound.speechVolume`), sounding as `style` has it; where
     /// it follows a recording `follows` LUFS loud, matched to it as the style's levels have it.
-    /// Whether it plays.
+    /// Where there's no speech sample, timed by the game's clock instead (`unheard`). Whether it
+    /// plays.
     ///
     /// Not ported: a line that loops (bit 0 of the game's flags), which nothing the game ships
     /// asks for.
     pub fn start(player: *Player, gpa: Allocator, sound: *hog_snd.Sound, speech: Speech, volume: i32, style: Style, follows: ?f32) bool {
-        const driver = sound.driver orelse return false;
-        const handle = sound.speech orelse return false;
         player.stop(gpa, sound);
+        const driver = sound.driver orelse return player.time(sound, speech);
+        const handle = sound.speech orelse return player.time(sound, speech);
         const samples = decode(gpa, speech, style.peaks) catch return false;
         defer gpa.free(samples);
         if (style.levels == .matched) if (follows) |target| bringDown(gpa, samples, target) catch return false;
@@ -250,19 +266,35 @@ pub const Player = struct {
         return true;
     }
 
+    /// A line nobody hears, `speech`, timed from now by `sound`'s clock (`unheard`). Whether it
+    /// plays, which it does where the sound has the clock.
+    fn time(player: *Player, sound: *const hog_snd.Sound, speech: Speech) bool {
+        const clock = sound.clock orelse return false;
+        player.unheard = .{ .until = clock.game_ticks +% speech.ticks() };
+        return true;
+    }
+
     /// `speech_stop`: the line playing ended, and its file let go of.
     pub fn stop(player: *Player, gpa: Allocator, sound: *hog_snd.Sound) void {
         if (sound.driver) |driver| if (sound.speech) |handle| {
             if (driver.sampleStatus(handle) != .done) driver.endSample(handle);
         };
-        gpa.free(player.file);
-        player.file = &.{};
+        player.deinit(gpa);
     }
 
     /// The line playing stopped where it is (`AIL_stop_sample` on the speech sample), or where it
     /// was stopped so, going on (`AIL_resume_sample`), as the in-game options open and close over
-    /// the loadout.
-    pub fn pause(player: Player, sound: *hog_snd.Sound, paused: bool) void {
+    /// the loadout. A line nobody hears keeps the ticks it had left while it is paused.
+    pub fn pause(player: *Player, sound: *hog_snd.Sound, paused: bool) void {
+        if (sound.clock) |clock| switch (player.unheard) {
+            .none => {},
+            .until => |until| if (paused) {
+                player.unheard = .{ .held = ticksLeft(clock.game_ticks, until) };
+            },
+            .held => |left| if (!paused) {
+                player.unheard = .{ .until = clock.game_ticks +% left };
+            },
+        };
         if (player.file.len == 0) return;
         const driver = sound.driver orelse return;
         const handle = sound.speech orelse return;
@@ -271,19 +303,37 @@ pub const Player = struct {
         } else if (driver.sampleStatus(handle) == .stopped) driver.resumeSample(handle);
     }
 
-    /// `speech_playing`: whether a line plays.
+    /// `speech_playing`: whether a line plays, or for a line nobody hears, whether it is paused or
+    /// its time has yet to run out.
     pub fn playing(player: Player, sound: *hog_snd.Sound) bool {
-        _ = player;
-        const driver = sound.driver orelse return false;
-        const handle = sound.speech orelse return false;
+        const driver = sound.driver orelse return player.unheardPlays(sound);
+        const handle = sound.speech orelse return player.unheardPlays(sound);
         return driver.sampleStatus(handle) == .playing;
     }
 
+    /// Whether the line nobody hears still plays: paused, or not yet at its end on the clock.
+    fn unheardPlays(player: Player, sound: *const hog_snd.Sound) bool {
+        return switch (player.unheard) {
+            .none => false,
+            .held => true,
+            .until => |until| if (sound.clock) |clock| ticksLeft(clock.game_ticks, until) > 0 else false,
+        };
+    }
+
+    /// The line let go of, heard or not.
     pub fn deinit(player: *Player, gpa: Allocator) void {
         gpa.free(player.file);
         player.file = &.{};
+        player.unheard = .none;
     }
 };
+
+/// The game's ticks from `now` until `until`, none once it has passed. The clock's count wraps,
+/// so the difference is read as signed.
+fn ticksLeft(now: u32, until: u32) u32 {
+    const left: i32 = @bitCast(until -% now);
+    return @intCast(@max(left, 0));
+}
 
 /// A speech file for the tests: a header for `samples` samples over a stream of `stream_len`
 /// zero bits, scrambled as the files are, in `gpa`.
@@ -406,4 +456,36 @@ test Player {
     player.stop(gpa, sound);
     try std.testing.expect(!player.playing(sound));
     try std.testing.expectEqual(0, player.file.len);
+}
+
+test "a line nobody hears is timed by the game's clock" {
+    const gpa = std.testing.allocator;
+    // Without a driver, as with `--no-sound`, there's no speech sample. The clock is near its wrap.
+    var clock: @import("main.zig").Clock = .{ .game_ticks = std.math.maxInt(u32) - 5 };
+    var sound: hog_snd.Sound = .{ .clock = &clock };
+    var player: Player = .{};
+    defer player.deinit(gpa);
+    // A second of speech: 100 ticks.
+    const file = try testFile(gpa, rate, 40);
+    defer gpa.free(file);
+    const speech = Speech.parse(file).?;
+    try std.testing.expect(player.start(gpa, &sound, speech, hog_snd.loudest, .{}, null));
+    clock.game_ticks +%= 99;
+    try std.testing.expect(player.playing(&sound));
+    // Paused, it keeps the tick it had left, however long the pause lasts.
+    player.pause(&sound, true);
+    clock.game_ticks +%= 1000;
+    try std.testing.expect(player.playing(&sound));
+    player.pause(&sound, false);
+    try std.testing.expect(player.playing(&sound));
+    clock.game_ticks +%= 1;
+    try std.testing.expect(!player.playing(&sound));
+    // Stopped, it's over at once.
+    try std.testing.expect(player.start(gpa, &sound, speech, hog_snd.loudest, .{}, null));
+    player.stop(gpa, &sound);
+    try std.testing.expect(!player.playing(&sound));
+    // Without the clock, a line ends as it starts.
+    sound.clock = null;
+    try std.testing.expect(!player.start(gpa, &sound, speech, hog_snd.loudest, .{}, null));
+    try std.testing.expect(!player.playing(&sound));
 }

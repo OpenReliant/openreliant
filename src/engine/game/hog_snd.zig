@@ -412,6 +412,9 @@ pub const Sound = struct {
     /// The speech sample (`0x00563F18`), which the radio's lines play on (`cbox.Player`); null
     /// where the driver has none to give.
     speech: ?mss.Sample = null,
+    /// The game's clock, whose `game_ticks` time a line of speech where there's no speech sample
+    /// to play it on (`cbox.Player`); null until the game sets it.
+    clock: ?*const Clock = null,
 
     /// `sound_init` (`0x00481440`), as far as OpenReliant goes: up to 16 voices for the banks, each
     /// a sample of `driver`, and the timer that steps the fades. `driver` is null where the
