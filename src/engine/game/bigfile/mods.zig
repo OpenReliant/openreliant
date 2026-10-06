@@ -5,7 +5,8 @@
 //! are added. PNG pictures in a mod (`Mods.pictures`) replace the game's images at any size:
 //! textures from the texture cache, with their material maps, sprite shapes and TGA pictures.
 //! TrueType and OpenType fonts in a mod replace the game's fonts, and are drawn at the window's
-//! resolution (`hud.outline`).
+//! resolution (`hud.outline`). A mod's line of speech replaces the game's with or without the
+//! extension the game's code gives it, `.ut` (`videoreports.readLine`).
 //!
 //! A mod is an archive in the game's format (a `.hog` file) or a folder of files, which is handy
 //! while making a mod. A folder is read the same way as the archive `sltool hog pack` would make
@@ -33,6 +34,7 @@ const files = @import("../../files.zig");
 const profile = @import("../../profile.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
+const cbox = @import("../cbox.zig");
 const order_module = @import("order.zig");
 
 /// The order the mods load in and which are on (`Mods.openOrdered`).
@@ -137,7 +139,7 @@ pub const Mod = struct {
     /// name, or its archive's without `.hog`, so that a mod names its things the same way packed or
     /// not.
     pub fn qualifier(mod: Mod) []const u8 {
-        return if (isArchive(mod.name)) mod.name[0 .. mod.name.len - archive_extension.len] else mod.name;
+        return withoutSuffix(mod.name, archive_extension) orelse mod.name;
     }
 
     /// The value of `field` in its manifest; null if it's missing or empty.
@@ -601,6 +603,7 @@ pub const Mods = struct {
                 .shape => |shape| log.info("{s} replaces shape {d} of the sprite set {s}", .{ mod.name, shape.index, shape.set }),
                 .picture => |picture| log.info("{s} replaces the picture {s}", .{ mod.name, picture }),
                 .font => |font| log.info("{s} replaces the font {s}", .{ mod.name, font }),
+                .line => |line| log.info("{s} replaces the line {s}", .{ mod.name, line }),
                 .added => log.info("{s} adds {s}", .{ mod.name, name }),
             };
         }
@@ -626,6 +629,9 @@ const Effect = union(enum) {
     /// It's an outline font that replaces one of the game's fonts (`fnt.outlineName`), given
     /// without the extension.
     font: []const u8,
+    /// It's a line of speech with the extension (`cbox.extension`) that replaces the game's line,
+    /// given without it (`videoreports.readLine`).
+    line: []const u8,
     /// It adds a new file.
     added,
 };
@@ -642,6 +648,7 @@ fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effe
     if (own.shapeOf(name)) |shape| return .{ .shape = shape };
     if (own.pictureOf(name)) |picture| return .{ .picture = picture };
     if (own.fontOf(name)) |font| return .{ .font = font };
+    if (own.lineOf(name)) |line| return .{ .line = line };
     return .added;
 }
 
@@ -734,9 +741,7 @@ const GameFiles = struct {
     fn mapOf(gathered: GameFiles, name: []const u8) ?Map {
         const stem = textureStem(name) orelse return null;
         for (std.enums.values(srtexture.MapFile)) |kind| {
-            const suffix = kind.suffix();
-            if (stem.len <= suffix.len or !std.ascii.endsWithIgnoreCase(stem, suffix)) continue;
-            const texture = stem[0 .. stem.len - suffix.len];
+            const texture = withoutSuffix(stem, kind.suffix()) orelse continue;
             var buffer: [files.max_path]u8 = undefined;
             const picture = std.fmt.bufPrint(&buffer, "{s}" ++ srtexture.picture_extension, .{texture}) catch continue;
             if (gathered.kindOf(picture) == .texture) return .{ .texture = texture, .kind = kind };
@@ -778,8 +783,7 @@ const GameFiles = struct {
     /// replace one.
     fn fontOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
         for (fnt.outline_extensions) |extension| {
-            if (!std.ascii.endsWithIgnoreCase(name, extension)) continue;
-            const stem = name[0 .. name.len - extension.len];
+            const stem = withoutSuffix(name, extension) orelse continue;
             var buffer: [files.max_path]u8 = undefined;
             const font = std.fmt.bufPrint(&buffer, "{s}" ++ fnt.extension, .{stem}) catch return null;
             if (gathered.kindOf(font) == .file) return stem;
@@ -791,16 +795,21 @@ const GameFiles = struct {
     /// if it has another.
     fn textureStem(name: []const u8) ?[]const u8 {
         for (srtexture.mod_pictures.containers) |container| {
-            const extension = container.extension();
-            if (std.ascii.endsWithIgnoreCase(name, extension)) return name[0 .. name.len - extension.len];
+            if (withoutSuffix(name, container.extension())) |stem| return stem;
         }
         return null;
     }
 
+    /// The name of the game's line that the mod's line `name`, `<line>.ut` (`cbox.extension`),
+    /// replaces; null if it doesn't replace one.
+    fn lineOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
+        const line = withoutSuffix(name, cbox.extension) orelse return null;
+        return if (gathered.kindOf(line) == .file) line else null;
+    }
+
     /// The file `name` without the picture extension; null if it has a different extension.
     fn pictureStem(name: []const u8) ?[]const u8 {
-        if (!std.ascii.endsWithIgnoreCase(name, srtexture.picture_extension)) return null;
-        return name[0 .. name.len - srtexture.picture_extension.len];
+        return withoutSuffix(name, srtexture.picture_extension);
     }
 
     /// The kind of the game file named `name`, ignoring case; null if there's no such file.
@@ -813,6 +822,13 @@ const GameFiles = struct {
         freeIndex(Kind, &gathered.names, gpa);
     }
 };
+
+/// `name` without `suffix` at its end, matched ignoring case; null where it doesn't end with it, or
+/// is nothing more.
+fn withoutSuffix(name: []const u8, suffix: []const u8) ?[]const u8 {
+    if (name.len <= suffix.len or !std.ascii.endsWithIgnoreCase(name, suffix)) return null;
+    return name[0 .. name.len - suffix.len];
+}
 
 /// `name` in lower case, written to `buffer`, as the indexes use it; null for a name longer than
 /// any path the game builds, which no index can contain.
@@ -1068,6 +1084,13 @@ test "the order says which mods are on and when they load" {
     try std.testing.expectEqualStrings("aa", more.list[3].name);
 }
 
+test withoutSuffix {
+    try std.testing.expectEqualStrings("music", withoutSuffix("music.HOG", archive_extension).?);
+    try std.testing.expectEqual(null, withoutSuffix("music.wav", archive_extension));
+    // A name that is the suffix alone, such as a hidden file, has nothing left.
+    try std.testing.expectEqual(null, withoutSuffix(".hog", archive_extension));
+}
+
 test parseVersion {
     try std.testing.expectEqual(std.SemanticVersion{ .major = 0, .minor = 7, .patch = 0 }, parseVersion("0.7").?);
     try std.testing.expectEqual(std.SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, parseVersion("1.2.3").?);
@@ -1177,7 +1200,7 @@ test effectOf {
     // Two mods: `a`, and `b`, which loads after it.
     try tmp.dir.createDirPath(io, "mods/a");
     try tmp.dir.createDirPath(io, "mods/b");
-    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf" }) |path| {
+    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf", "mods/b/abrt_001.ut", "mods/b/abrt_009.ut" }) |path| {
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = path });
     }
     var mods: Mods = try .open(gpa, io, tmp.dir, null);
@@ -1189,9 +1212,10 @@ test effectOf {
     try own.add(gpa, "hudhard.spr", .file);
     try own.add(gpa, "back.tga", .file);
     try own.add(gpa, "optfnt.fnt", .file);
+    try own.add(gpa, "ABRT_001", .file);
 
     // An earlier mod's file, a game file, a texture and one of its maps, a sprite set shape, a
-    // picture, an outline font, and new files.
+    // picture, an outline font, a line with the extension, and new files.
     try std.testing.expectEqual(&mods.list[0], effectOf(mods.list, 1, own, "hull.tga").over);
     try std.testing.expectEqual(.file, effectOf(mods.list, 1, own, "ship.shp"));
     try std.testing.expectEqualStrings("yank_2", effectOf(mods.list, 1, own, "yank_2.png").texture);
@@ -1199,6 +1223,8 @@ test effectOf {
     try std.testing.expectEqual(21, effectOf(mods.list, 1, own, "hudhard_021.png").shape.index);
     try std.testing.expectEqualStrings("back", effectOf(mods.list, 1, own, "back.png").picture);
     try std.testing.expectEqualStrings("OPTFNT", effectOf(mods.list, 1, own, "OPTFNT.ttf").font);
+    try std.testing.expectEqualStrings("abrt_001", effectOf(mods.list, 1, own, "abrt_001.ut").line);
+    try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "abrt_009.ut"));
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "optfnt.woff"));
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "logo.tga"));
     // The first mod has no earlier mod's files to replace.
