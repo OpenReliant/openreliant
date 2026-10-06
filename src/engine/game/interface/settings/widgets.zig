@@ -24,6 +24,7 @@ const Label = canvas_module.Label;
 const Arrow = canvas_module.Arrow;
 const Error = canvas_module.Error;
 const blue = canvas_module.blue;
+const white = canvas_module.white;
 
 /// An arrow, which steps a choice back or on.
 pub const Step = enum { back, on };
@@ -72,6 +73,12 @@ pub const Line = struct {
         return .{ .text = text, .at = .{ line.edge, line.y }, .alignment = .right };
     }
 
+    /// A heading's label, from 35 inside the left of the frames the settings' lists stand in.
+    pub fn heading(line: Line, text: Label.Text) Label {
+        return .{ .text = text, .at = .{ line.edge + heading_from, line.y } };
+    }
+    const heading_from = 80 - original_edge - 20;
+
     pub fn value(line: Line, text: Label.Text) Label {
         return .{ .text = text, .at = .{ line.edge + value_from, line.y } };
     }
@@ -113,17 +120,18 @@ pub const Line = struct {
     }
 
     /// The row whole: its label, and its check box, ticked or not, or its arrows and its value,
-    /// all dimmed where it can't be changed.
+    /// all dimmed where it can't be changed; or a heading's label alone.
     pub fn draw(line: Line, canvas: Canvas, art: *hud.Art, shown: Shown) Error!void {
         const drawn = canvas.dimmedUnless(shown.usable);
         const small = canvas.fonts.small;
-        try line.label(shown.label).write(drawn, small, blue);
+        if (shown.control != .heading) try line.label(shown.label).write(drawn, small, blue);
         switch (shown.control) {
             .check => |ticked| try Box.draw(drawn, art, line.box(), ticked),
             .choice => |text| {
                 try line.drawArrows(drawn, art);
                 try line.value(text).write(drawn, small, blue);
             },
+            .heading => try line.heading(shown.label).write(drawn, small, white),
         }
     }
 
@@ -140,6 +148,9 @@ pub const Line = struct {
         check: bool,
         /// A choice the arrows step through, by its value.
         choice: Label.Text,
+        /// OpenReliant's: none, the label a heading over the rows after it, in white from the
+        /// frame's left, which the pointer passes over.
+        heading,
     };
 };
 
@@ -442,6 +453,7 @@ pub const Pane = struct {
             switch (shown[row].control) {
                 .check => if (placed.boxRect().holds(at)) return .{ .check = @intCast(row) },
                 .choice => if (placed.arrowAt(at)) |step| return .{ .step = .{ .row = @intCast(row), .step = step } },
+                .heading => {},
             }
         }
         return null;

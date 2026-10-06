@@ -7,6 +7,7 @@ local settings = require("openreliant.settings")
 settings.register_page({
     title = "WINGMEN",
     options = {
+        { label = "IN A FIGHT", kind = "heading" },
         {
             key = "pull_out_below",
             label = "PULL OUT BELOW",
@@ -29,6 +30,7 @@ settings.register_page({
             default = 20,
             description = "The seconds a wingman stays out of the fight before it rejoins you.",
         },
+        { label = "THE PANEL", kind = "heading" },
         {
             key = "show_panel",
             label = "SHOW PANEL",

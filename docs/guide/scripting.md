@@ -1252,7 +1252,9 @@ local settings = require("openreliant.settings")
 settings.register_page({
     title = "WINGMEN",
     options = {
+        { label = "THE PANEL", kind = "heading" },
         { key = "show_panel", label = "SHOW PANEL", kind = "toggle", default = true },
+        { label = "IN A FIGHT", kind = "heading" },
         { key = "pull_out_below", label = "PULL OUT BELOW", kind = "choice", default = 0.3,
           choices = { { value = 0.2, label = "20%" }, { value = 0.3, label = "30%" } } },
         { key = "rejoin_after", label = "REJOIN AFTER", kind = "number",
@@ -1266,7 +1268,10 @@ local rejoin_after = settings.get("rejoin_after")
 
 - A `"toggle"` is a check box, with a boolean default. A `"choice"` steps through its `choices`, each
   a number or a string `value` with the `label` the screen shows, and its default is one of the
-  values. A `"number"` steps from `min` to `max` by `step`, and its default is in the range.
+  values. A `"number"` steps from `min` to `max` by `step`, and its default is in the range. Each
+  of these needs a `key`, which scripts read it by.
+- A `"heading"` has only a `label`, which the list writes in white over the options after it, to
+  split a long page.
 - An option's `description` shows under the list while the pointer is on it.
 - A page has up to 64 options, a choice up to 32 choices, and a mod one page. A mistake in the page
   is an error in the script that declares it.

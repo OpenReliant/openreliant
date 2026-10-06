@@ -19,7 +19,7 @@ type GamepadButton = "south" | "east" | "west" | "north" | "back" | "guide" | "s
 type BettyLine = "missiles_gone" | "armor_failing" | "screamer" | "havoc" | "jack_hammer" | "vagabond" | "imp" | "bandit" | "raptor" | "hawk" | "solomon" | "countermeasures_low" | "countermeasures_gone" | "cloak_on" | "cloak_off" | "blind_fire_on" | "blind_fire_off" | "spectral_shields_on" | "spectral_shields_off" | number
 type EffectStage = "before_hud" | "after_hud"
 type Axis = "x" | "y" | "z"
-type OptionKind = "toggle" | "choice" | "number"
+type OptionKind = "toggle" | "choice" | "number" | "heading"
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
@@ -148,10 +148,10 @@ type Page = {
     options: { Option },
 }
 type Option = {
-    key: string,
+    key: string?,
     label: string,
     kind: OptionKind,
-    default: boolean | number | string,
+    default: (boolean | number | string)?,
     description: string?,
     choices: { Choice }?,
     min: number?,
@@ -495,7 +495,7 @@ type Vfs = {
 
 -- The options a mod offers the player on the mods screen: declaring the page, and reading the values.
 type Settings = {
-    -- Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.
+    -- Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range. A `"heading"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.
     register_page: (page: Page) -> (),
     -- The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set.
     get: (key: string) -> boolean | number | string,

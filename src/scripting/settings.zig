@@ -35,12 +35,13 @@ pub const Choice = struct {
 };
 
 /// An option, as scripts give it. A toggle needs a boolean default; a choice needs `choices` and a
-/// default among their values; a number needs `min`, `max` and `step` and a default in the range.
+/// default among their values; a number needs `min`, `max` and `step` and a default in the range;
+/// each needs a key. A heading needs only its label.
 pub const Option = struct {
-    key: []const u8,
+    key: []const u8 = "",
     label: []const u8,
     kind: mod_options.Kind,
-    default: mod_options.Value,
+    default: ?mod_options.Value = null,
     description: []const u8 = "",
     choices: values.List(Choice, mod_options.max_choices) = .{},
     min: ?f64 = null,
@@ -56,7 +57,7 @@ pub const Page = struct {
 
 /// What `openreliant.settings` holds.
 pub const package = struct {
-    pub const register_page = api.Function("Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `\"toggle\"` has a boolean default. A `\"choice\"` has `choices`, each a `value` and a `label`, and a default among their values. A `\"number\"` has `min`, `max` and `step`, and a default in the range. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.", &.{"page"}, registerPage);
+    pub const register_page = api.Function("Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `\"toggle\"` has a boolean default. A `\"choice\"` has `choices`, each a `value` and a `label`, and a default among their values. A `\"number\"` has `min`, `max` and `step`, and a default in the range. A `\"heading\"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.", &.{"page"}, registerPage);
     pub const get = api.Function("The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set.", &.{"key"}, getOption);
 };
 
@@ -74,13 +75,16 @@ fn registerPage(call: Call, given: Page) void {
     for (given.options.slice(), 0..) |each, at| {
         var buffer: [mod_options.max_choices]mod_options.Choice = undefined;
         const option = view(&each, &buffer) catch |wrong| call.raise("settings: the option '{s}': {s}", .{ each.key, switch (wrong) {
+            error.NeedsDefault => "it needs a default",
+            error.StrayDefault => "a heading has no default",
             error.NeedsRange => "a number needs min, max and step",
             error.StrayChoices => "only a choice has choices",
             error.StrayRange => "only a number has min, max and step",
         } });
         if (option.problem()) |message| call.raise("settings: the option '{s}': {s}", .{ each.key, message });
+        if (each.kind == .heading) continue;
         for (given.options.slice()[0..at]) |before| {
-            if (std.mem.eql(u8, before.key, each.key)) call.raise("settings: two options are called '{s}'", .{each.key});
+            if (before.kind != .heading and std.mem.eql(u8, before.key, each.key)) call.raise("settings: two options are called '{s}'", .{each.key});
         }
     }
     registry.adopt(mod, given) catch call.raise("settings: out of memory", .{});
@@ -97,17 +101,21 @@ fn registryOf(call: Call) *Registry {
 }
 
 /// What is wrong with the fields an option's kind doesn't use, or doesn't have.
-const ViewError = error{ NeedsRange, StrayChoices, StrayRange };
+const ViewError = error{ NeedsDefault, StrayDefault, NeedsRange, StrayChoices, StrayRange };
+
+/// What a heading holds in place of a value, which nothing reads.
+const heading_value: mod_options.Value = .{ .boolean = false };
 
 /// The option `given` as the screen holds one, borrowing its strings and, for a choice, `buffer`.
 fn view(given: *const Option, buffer: *[mod_options.max_choices]mod_options.Choice) ViewError!mod_options.Option {
     if (given.kind != .choice and given.choices.len > 0) return error.StrayChoices;
     if (given.kind != .number and (given.min != null or given.max != null or given.step != null)) return error.StrayRange;
+    if (given.kind == .heading and given.default != null) return error.StrayDefault;
     return .{
         .key = given.key,
         .label = given.label,
         .description = given.description,
-        .default = given.default,
+        .default = if (given.kind == .heading) heading_value else given.default orelse return error.NeedsDefault,
         .control = switch (given.kind) {
             .toggle => .toggle,
             .choice => choice: {
@@ -119,6 +127,7 @@ fn view(given: *const Option, buffer: *[mod_options.max_choices]mod_options.Choi
                 .max = given.max orelse return error.NeedsRange,
                 .step = given.step orelse return error.NeedsRange,
             } },
+            .heading => .heading,
         },
     };
 }
@@ -183,6 +192,7 @@ pub const Registry = struct {
                 .default = try ownValue(memory, shown.default),
                 .control = switch (shown.control) {
                     .toggle => .toggle,
+                    .heading => .heading,
                     .number => |range| .{ .number = range },
                     .choice => |choices| choice: {
                         const kept = try memory.alloc(mod_options.Choice, choices.len);
@@ -203,10 +213,10 @@ pub const Registry = struct {
         return (registry.find(mod) orelse return null).page;
     }
 
-    /// The option `key` of `mod`'s page.
+    /// The option `key` of `mod`'s page, which is never a heading.
     fn option(registry: *const Registry, mod: []const u8, key: []const u8) ?mod_options.Option {
         const held = registry.find(mod) orelse return null;
-        for (held.page.options) |each| if (std.mem.eql(u8, each.key, key)) return each;
+        for (held.page.options) |each| if (each.control != .heading and std.mem.eql(u8, each.key, key)) return each;
         return null;
     }
 
@@ -368,12 +378,35 @@ test "a page that is wrong is refused, and a mod has one page" {
         \\refused(option({ kind = "toggle", default = true, choices = { { value = 1, label = "ONE" } } }), "only a choice has choices")
         \\refused(option({ kind = "toggle", default = true, min = 1 }), "only a number has min, max and step")
         \\refused(option({ kind = "toggle", default = true, min = 1 }), "only a number has min, max and step")
-        \\refused(option({ kind = "wide", default = true }), "'toggle', 'choice' or 'number'")
+        \\refused(option({ kind = "wide", default = true }), "'toggle', 'choice', 'number' or 'heading'")
+        \\refused({ title = "T", options = { { key = "k", label = "L", kind = "toggle" } } }, "it needs a default")
+        \\refused(option({ kind = "heading", default = true }), "a heading has no default")
         \\refused({ title = "T", options = { { key = "k", label = "L", kind = "toggle", default = true }, { key = "k", label = "M", kind = "toggle", default = false } } }, "two options are called 'k'")
         \\settings.register_page(option({ kind = "toggle", default = true }))
         \\refused(option({ kind = "toggle", default = true }), "already")
     , &registry);
     try std.testing.expectEqual(1, registry.page("a").?.options.len);
+}
+
+test "a heading splits a page, and scripts can't read it" {
+    var storage: Storage = .{ .gpa = std.testing.allocator };
+    defer storage.deinit();
+    var registry: Registry = .init(std.testing.allocator, &storage);
+    defer registry.deinit();
+    try runMod(
+        \\local settings = require("openreliant.settings")
+        \\settings.register_page({ title = "T", options = {
+        \\    { label = "COMBAT", kind = "heading" },
+        \\    { key = "show", label = "SHOW", kind = "toggle", default = true },
+        \\    { label = "TRAVEL", kind = "heading" },
+        \\} })
+        \\assert(settings.get("show") == true)
+        \\assert(not pcall(settings.get, ""))
+    , &registry);
+    const page = registry.page("a").?;
+    try std.testing.expectEqual(mod_options.Option.Control.heading, page.options[0].control);
+    try std.testing.expectEqualStrings("TRAVEL", page.options[2].label);
+    try std.testing.expectEqual(null, registry.value("a", ""));
 }
 
 test "a page can only be registered as OpenReliant starts" {
