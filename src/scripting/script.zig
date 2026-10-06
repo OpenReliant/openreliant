@@ -100,13 +100,13 @@ pub const Kind = enum {
         };
     }
 
-    /// Whether this version runs scripts of this kind. Missiles and turrets aren't objects of
-    /// their own, so their scripts need handles of their own first
+    /// Whether this version runs scripts of this kind. Turrets aren't objects of their own, so
+    /// their scripts need handles of their own first
     /// ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
     pub fn runs(kind: Kind) bool {
         return switch (kind) {
-            .load, .global, .player, .menu, .fighter, .capital, .support, .other, .torpedo, .debris, .mine, .planet => true,
-            .missile, .turret => false,
+            .load, .global, .player, .menu, .fighter, .capital, .support, .other, .torpedo, .debris, .mine, .planet, .missile => true,
+            .turret => false,
         };
     }
 
@@ -318,8 +318,8 @@ pub const Package = enum {
             .records => "The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them.",
             .hooks => "Handlers on the game's functions and events.",
             .world => "The mission's objects, the player's ship and the mission itself.",
-            .self => "The script's own object, as a handle: an object script's object, or the player's ship for a player script, nil between games.",
-            .nearby => "The objects around the script's own.",
+            .self => "The script's own object, as a handle: an object script's object, a missile script's missile, or the player's ship for a player script, nil between games.",
+            .nearby => "The objects around the script's own object or missile.",
             .orders => "What the order table says of each order, the orders each object has, and ending them. An object's give_order gives orders.",
             .hud => "Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels.",
             .ui => "Drawing over the menus, the front end's screens and the pause menu, while they're shown: text, lines and rectangles, in the window's pixels.",

@@ -82,15 +82,15 @@ The mission's objects, the player's ship and the mission itself. For global scri
 
 ### `openreliant.self`
 
-The script's own object, as a handle: an object script's object, or the player's ship for a player script, nil between games. For object and player scripts.
+The script's own object, as a handle: an object script's object, a missile script's missile, or the player's ship for a player script, nil between games. For object and player scripts.
 
 ### `openreliant.nearby`
 
-The objects around the script's own. For object and player scripts.
+The objects around the script's own object or missile. For object and player scripts.
 
 | Name | Type | What it is |
 |---|---|---|
-| `objects(radius: number)` | list of [objects](#objects) | The objects within `radius` of the script's object, or of the player's ship for a player script, nearest first, without it. |
+| `objects(radius: number)` | list of [objects](#objects) | The objects within `radius` of the script's object or missile, or of the player's ship for a player script, nearest first, without it. |
 
 ### `openreliant.orders`
 
@@ -302,6 +302,28 @@ scripts on their object.
 | `hook(name: string, handler: (e: any) -> boolean?, filter: (Filter \| (e: any) -> boolean)?)` | HookHandle | `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own. |
 | `set_surface(name: string?, parameters: { number }?)` | boolean | Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it. |
 | `remove_script(name: string)` | boolean | Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts. |
+
+## Missiles
+
+Scripts see missiles in flight through handles too. A missile's handle stays valid until its
+flight ends or its mission ends. Every script can read the fields; global scripts can change those
+marked *changes* on any missile, and a missile's own scripts on their missile.
+
+| Field | Type | What it is |
+|---|---|---|
+| `type` | [MissileType](#missiletype) | Its type, such as `raptor`, or the qualified name of one a mod adds. |
+| `launcher` | [object](#objects), or nil | The object that launched it, or let it fall; nil once that one has left the mission. |
+| `target` | [Target](#target) | *Changes.* What it flies at. Its guidance turns to a new target from the next frame. |
+| `side` | [Side](#side) | The side it's on: its launcher's, as it was launched. |
+| `position` | vector | Where it is. |
+| `orientation` | [Orientation](#orientation) | Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). |
+| `velocity` | vector | How far it moves in a simulation step, of which there are 25 a second. |
+| `speed` | number | How fast it moves: the length of its velocity. |
+
+| Method | Returns | What it does |
+|---|---|---|
+| `is_valid()` | boolean | Whether the missile is still in flight. A handle stops being valid once its flight ends or its mission ends. |
+| `detonate()` | nothing | Ends its flight now, as it ends when its time runs out: it blows up where it is, with a shockwave for a Havoc or an Imp. Global scripts can set off any missile, and a missile's own scripts their missile. |
 
 ## Built-in interfaces
 
@@ -920,6 +942,24 @@ The mission ends: `ending` says how it ended for the player, and `rating` how it
 |---|---|
 | `object` | [object](#objects) |
 
+### missile_added
+
+`missile` has been launched by `launcher`, or let fall from it. Its target is set.
+
+| Field | Type |
+|---|---|
+| `missile` | [missile](#missiles) |
+| `launcher` | [object](#objects), or nil |
+
+### missile_removed
+
+The flight of `missile`, launched by `launcher`, ends: it has struck something or run out of time, and blows up. Its handle stops being valid after this. `launcher` is nil once it has left the mission.
+
+| Field | Type |
+|---|---|
+| `missile` | [missile](#missiles) |
+| `launcher` | [object](#objects), or nil |
+
 ### order_started
 
 `object` has started `order`, which has come to the top of its orders. One-shot orders, which run once and end straight away, don't start.
@@ -968,6 +1008,22 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 | `right` | number |
 | `fore` | number |
 | `aft` | number |
+
+### Target
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects), or nil |
+| `component` | number, or nil |
+| `flight_group` | number, or nil |
+| `squad` | number, or nil |
+
+### Handle
+
+| Field | Type |
+|---|---|
+| `record` | number |
+| `count` | number |
 
 ### GameModeMission
 
@@ -1169,15 +1225,6 @@ A table a script gives, which may leave out a field with a default.
 | `ending` | [Ending](#ending) |
 | `rating` | [Rating](#rating) |
 
-### Target
-
-| Field | Type |
-|---|---|
-| `object` | [object](#objects), or nil |
-| `component` | number, or nil |
-| `flight_group` | number, or nil |
-| `squad` | number, or nil |
-
 ## Names of values
 
 A value that has a name in OpenReliant is given as a string: its name. One without a name is a
@@ -1198,6 +1245,14 @@ number. A script can set a field to either.
 ### Side
 
 `friendly`, `hostile`, `neutral`, or a number.
+
+### MissileType
+
+`none`, `screamer`, `raptor`, `havoc`, `jack_hammer`, `bandit`, `vagabond`, `solomon`, `imp`, `hawk`, `torpedo`, `fuel_pod`, the qualified name of one a mod adds, or a number.
+
+### Missile
+
+, or a number.
 
 ### Font
 

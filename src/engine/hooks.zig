@@ -49,6 +49,20 @@ pub const Object = enum(u16) {
     }
 };
 
+/// A missile in flight, by its record in `missiles.Missiles`, as a hook passes it. Scripts see it as
+/// a missile handle.
+pub const Missile = enum(u8) {
+    _,
+
+    pub fn of(index: u8) Missile {
+        return @fromBackingInt(index);
+    }
+
+    pub fn record(missile: Missile) u8 {
+        return @backingInt(missile);
+    }
+};
+
 /// What an order or a missile is aimed at, as a hook passes it: a ship of the mission, whole or one
 /// of its components, one of the mission's flight groups or squads, by its index, or nothing.
 /// Scripts see it as a table, each field nil where it doesn't apply; a handler that sets more than
@@ -467,6 +481,18 @@ pub const engine_events = struct {
     pub const object_removed: Declaration = .{
         .about = "`object` is leaving the mission: it has blown up, or its slot is being reset. Its handle stops being valid after this.",
         .Fields = struct { object: Object },
+    };
+
+    pub const missile_added: Declaration = .{
+        .about = "`missile` has been launched by `launcher`, or let fall from it. Its target is set.",
+        .Fields = struct { missile: Missile, launcher: ?Object },
+        .subject = "launcher",
+    };
+
+    pub const missile_removed: Declaration = .{
+        .about = "The flight of `missile`, launched by `launcher`, ends: it has struck something or run out of time, and blows up. Its handle stops being valid after this. `launcher` is nil once it has left the mission.",
+        .Fields = struct { missile: Missile, launcher: ?Object },
+        .subject = "launcher",
     };
 
     pub const order_started: Declaration = .{

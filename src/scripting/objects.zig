@@ -241,7 +241,10 @@ pub fn ordersOf(call: Call, object: Object, comptime label: []const u8) engine.g
 pub fn mayChange(context: *const Context, index: u16) bool {
     return switch (context.family) {
         .global => true,
-        .object => if (context.object) |own| own.slot == index else false,
+        .object => if (context.runs_on) |own| switch (own) {
+            .object => |handle| handle.slot == index,
+            .missile => false,
+        } else false,
         .load, .player, .menu => false,
     };
 }
@@ -391,7 +394,7 @@ test "handles name objects until they are removed" {
     const state = scripts.state;
     const thread = state.newSandboxedThread();
     // The thread runs as an object script of the Sabre's, which can change the Sabre only.
-    var context: Context = .{ .runtime = scripts, .mod = 0, .family = .object, .object = .of(mission.objects, sabre), .thread = thread, .thread_ref = undefined };
+    var context: Context = .{ .runtime = scripts, .mod = 0, .family = .object, .runs_on = .{ .object = .of(mission.objects, sabre) }, .thread = thread, .thread_ref = undefined };
     thread.setThreadData(&context);
     push(thread, sabre);
     thread.setGlobal("sabre");
