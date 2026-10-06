@@ -1847,10 +1847,10 @@ test "rejects a compressed or truncated image" {
 
 test "condition names cover the scriptable range" {
     try std.testing.expectEqual(@as(u8, 0x20), @backingInt(Condition.last_scriptable));
-    try std.testing.expectEqual(Condition.proximity_close, @as(Condition, @fromBackingInt(@intCast(5))));
+    try std.testing.expectEqual(Condition.proximity_close, @as(Condition, @fromBackingInt(5)));
     // The two internal conditions are named; past them the enum stays open.
-    try std.testing.expectEqual(Condition.explosion_ship, @as(Condition, @fromBackingInt(@intCast(0x22))));
-    const internal: Condition = @fromBackingInt(@intCast(0x23));
+    try std.testing.expectEqual(Condition.explosion_ship, @as(Condition, @fromBackingInt(0x22)));
+    const internal: Condition = @fromBackingInt(0x23);
     try std.testing.expect(std.enums.tagName(Condition, internal) == null);
 }
 
@@ -1972,7 +1972,7 @@ test "Ship.componentIntact" {
 test "FlightGroup.Wing" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("player", try std.mem.print(&buffer, "{f}", .{FlightGroup.Wing.player}));
-    try std.testing.expectEqualStrings("7", try std.mem.print(&buffer, "{f}", .{@as(FlightGroup.Wing, @fromBackingInt(@intCast(7)))}));
+    try std.testing.expectEqualStrings("7", try std.mem.print(&buffer, "{f}", .{@as(FlightGroup.Wing, @fromBackingInt(7))}));
     try std.testing.expectEqual(.none, testing.flightGroup(0, .none).wing);
 }
 
@@ -1987,13 +1987,13 @@ test "DirectoryEntry.Formats" {
 test "the implemented opcode range matches the payload's handler table" {
     try std.testing.expect(Opcode.equal.isImplemented());
     try std.testing.expect(Opcode.spawn_part.isImplemented());
-    try std.testing.expect(@as(Opcode, @fromBackingInt(@intCast(0x55))).isImplemented());
+    try std.testing.expect(@as(Opcode, @fromBackingInt(0x55)).isImplemented());
     // Null entries in the table: no handler, so the opcode does not exist.
-    try std.testing.expect(!@as(Opcode, @fromBackingInt(@intCast(0x00))).isImplemented());
-    try std.testing.expect(!@as(Opcode, @fromBackingInt(@intCast(0x10))).isImplemented());
-    try std.testing.expect(!@as(Opcode, @fromBackingInt(@intCast(0x56))).isImplemented());
+    try std.testing.expect(!@as(Opcode, @fromBackingInt(0x00)).isImplemented());
+    try std.testing.expect(!@as(Opcode, @fromBackingInt(0x10)).isImplemented());
+    try std.testing.expect(!@as(Opcode, @fromBackingInt(0x56)).isImplemented());
     // Between the second command table and the random branch, the table holds no handler.
-    try std.testing.expect(!@as(Opcode, @fromBackingInt(@intCast(0x50))).isImplemented());
+    try std.testing.expect(!@as(Opcode, @fromBackingInt(0x50)).isImplemented());
 }
 
 test "an unnamed value formats as a number instead of panicking" {
@@ -2005,11 +2005,11 @@ test "an unnamed value formats as a number instead of panicking" {
 
     // `{t}` would panic here; this path is generated per tag at comptime and cannot.
     var unnamed: std.Io.Writer = .fixed(&buffer);
-    try unnamed.print("{f}", .{@as(Condition, @fromBackingInt(@intCast(0x23)))});
+    try unnamed.print("{f}", .{@as(Condition, @fromBackingInt(0x23))});
     try std.testing.expectEqualStrings("35", unnamed.buffered());
 
     var repeat: std.Io.Writer = .fixed(&buffer);
-    try repeat.print("{f}", .{@as(Trigger.Repeat, @fromBackingInt(@intCast(3)))});
+    try repeat.print("{f}", .{@as(Trigger.Repeat, @fromBackingInt(3))});
     try std.testing.expectEqualStrings("3", repeat.buffered());
 }
 

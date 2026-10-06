@@ -661,7 +661,7 @@ test "a taunt turns the enemy on the player" {
 
     // An ace answers in its own lines.
     try std.testing.expectEqualStrings("hs_res_007.ut", Ace.black_sun.answers().?[6]);
-    try std.testing.expectEqual(null, @as(Ace, @fromBackingInt(@intCast(0))).answers());
+    try std.testing.expectEqual(null, @as(Ace, @fromBackingInt(0)).answers());
 }
 
 test "the wingman's status" {

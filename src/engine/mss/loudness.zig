@@ -80,7 +80,7 @@ pub fn integrated(gpa: Allocator, samples: []align(1) const i16, channels: usize
     const step: usize = @max(1, @as(usize, @intFromFloat(@as(f64, @floatFromInt(rate)) * step_seconds)));
 
     // The weighted power of each step's frames, summed over the channels.
-    const powers = try gpa.alloc(f64, (frames + step - 1) / step);
+    const powers = try gpa.alloc(f64, @divCeil(frames, step));
     defer gpa.free(powers);
     @memset(powers, 0);
     var filters: [max_channels][2]Biquad = undefined;

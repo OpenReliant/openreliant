@@ -21,7 +21,7 @@ pub const Picture = struct {
 /// The size of each of a picture `width` by `height` pixels' planes, Y, U and V: Y the picture's,
 /// U and V half of it across and down, rounded up.
 pub fn planeSizes(width: u32, height: u32) [3][2]usize {
-    const half: [2]usize = .{ (width + 1) / 2, (height + 1) / 2 };
+    const half: [2]usize = .{ @divCeil(width, 2), @divCeil(height, 2) };
     return .{ .{ width, height }, half, half };
 }
 

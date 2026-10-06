@@ -753,7 +753,7 @@ test engineSound {
     try std.testing.expectEqual(sounds.Sound.pship01, engineSound(.of(.predator)));
     try std.testing.expectEqual(sounds.Sound.pship03, engineSound(@fromBackingInt(@intCast(0xF4 + 2))));
     try std.testing.expectEqual(sounds.Sound.pship07, engineSound(.of(.kamov)));
-    try std.testing.expectEqual(sounds.Sound.pship01, engineSound(@fromBackingInt(@intCast(40))));
+    try std.testing.expectEqual(sounds.Sound.pship01, engineSound(@fromBackingInt(40)));
 }
 
 test engineUpdate {

@@ -706,7 +706,7 @@ test read {
     const odd = comptime iff.testing.form(form_type, Chunk("NAME", "x\x00") ++ Chunk("PILO", "\x01\x02\x03\x04\x05\x06") ++ Chunk("ALPH", "\x07") ++ Chunk("PILO", "\x09\x09\x09\x09"));
     try std.testing.expect(read(odd, &back));
     try std.testing.expectEqualStrings("x", back.name.slice());
-    try std.testing.expectEqual(Replacement{ .pilot = 0x0201, .status = @fromBackingInt(@intCast(3)), ._unused = 4 }, back.pilo);
+    try std.testing.expectEqual(Replacement{ .pilot = 0x0201, .status = @fromBackingInt(3), ._unused = 4 }, back.pilo);
     try std.testing.expectEqual(Wing{ @bitCast(@as(u16, 0xFF07)), 0x55, 0x6C, 0x56, 0xAC, 7 }, back.alph);
     try std.testing.expectEqual(2, back.miss.mission);
 

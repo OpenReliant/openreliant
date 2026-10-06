@@ -1117,7 +1117,7 @@ test "Named.format" {
     try std.testing.expectEqualStrings("Eject", try std.mem.print(&buffer, "{f}", .{Named{ .order = .eject }}));
     // A nameless order goes by OpenReliant's name for it, and one the table lacks by its number.
     try std.testing.expectEqualStrings("unnamed_3", try std.mem.print(&buffer, "{f}", .{Named{ .order = .unnamed_3 }}));
-    try std.testing.expectEqualStrings("order 99", try std.mem.print(&buffer, "{f}", .{Named{ .order = @fromBackingInt(@intCast(99)) }}));
+    try std.testing.expectEqualStrings("order 99", try std.mem.print(&buffer, "{f}", .{Named{ .order = @fromBackingInt(99) }}));
 }
 
 test objectOrders {

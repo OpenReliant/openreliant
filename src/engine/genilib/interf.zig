@@ -852,7 +852,7 @@ test {
 test Screen {
     var buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("pilot_roster", try std.mem.print(&buffer, "{f}", .{Screen.pilot_roster}));
-    try std.testing.expectEqualStrings("screen 10", try std.mem.print(&buffer, "{f}", .{@as(Screen, @fromBackingInt(@intCast(10)))}));
+    try std.testing.expectEqualStrings("screen 10", try std.mem.print(&buffer, "{f}", .{@as(Screen, @fromBackingInt(10))}));
 }
 
 test "a mod's screen stands in for the front end's own, and goes where it asks" {

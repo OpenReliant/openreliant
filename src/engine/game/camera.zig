@@ -1648,15 +1648,15 @@ test View {
     try std.testing.expect(View.missile.letterboxed());
     try std.testing.expect(!View.target.letterboxed());
     // The last few views have no bars, but for the table's last.
-    try std.testing.expect(!@as(View, @fromBackingInt(@intCast(0x28))).letterboxed());
-    try std.testing.expect(@as(View, @fromBackingInt(@intCast(0x2B))).letterboxed());
+    try std.testing.expect(!@as(View, @fromBackingInt(0x28)).letterboxed());
+    try std.testing.expect(@as(View, @fromBackingInt(0x2B)).letterboxed());
     // A view past the table has no record.
-    try std.testing.expectEqual(null, @as(View, @fromBackingInt(@intCast(0x2C))).record());
-    try std.testing.expect(!@as(View, @fromBackingInt(@intCast(0x2C))).fromCockpit());
+    try std.testing.expectEqual(null, @as(View, @fromBackingInt(0x2C)).record());
+    try std.testing.expect(!@as(View, @fromBackingInt(0x2C)).fromCockpit());
     // Each named view has its own string; the cutaways share theirs.
     try std.testing.expectEqual(170, View.cockpit.name().?);
     try std.testing.expectEqual(180, View.external.name().?);
-    try std.testing.expectEqual(View.chase.name(), @as(View, @fromBackingInt(@intCast(0x0D))).name());
+    try std.testing.expectEqual(View.chase.name(), @as(View, @fromBackingInt(0x0D)).name());
     // The lock shows from the cockpit's views and the chase view, but not under its second number.
     try std.testing.expect(View.cockpit_rear.showsLock() and View.chase.showsLock());
     try std.testing.expect(!View.chase_too.showsLock() and !View.target.showsLock());
@@ -1668,7 +1668,7 @@ test View {
     try std.testing.expectEqual(CockpitMode.cockpit, CockpitSetting.cockpit.mode());
     try std.testing.expectEqual(CockpitMode.chase, CockpitSetting.chase.mode());
     try std.testing.expectEqual(CockpitMode.open, CockpitSetting.none.mode());
-    try std.testing.expectEqual(CockpitMode.open, @as(CockpitSetting, @fromBackingInt(@intCast(7))).mode());
+    try std.testing.expectEqual(CockpitMode.open, @as(CockpitSetting, @fromBackingInt(7)).mode());
 }
 
 test cockpit {

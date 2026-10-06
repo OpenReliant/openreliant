@@ -824,7 +824,7 @@ test goingToCrash {
     fighter.enemy().object.flags.components = true;
     try std.testing.expect(goingToCrash(fighter));
     // A pilot of a skill the game has no berth for never crashes.
-    try std.testing.expectEqual(null, crashBerth(@fromBackingInt(@intCast(3))));
+    try std.testing.expectEqual(null, crashBerth(@fromBackingInt(3)));
     try std.testing.expectEqual(2000, crashBerth(.high));
 }
 

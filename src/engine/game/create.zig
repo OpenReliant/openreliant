@@ -1750,7 +1750,7 @@ test planetMade {
     try std.testing.expect(!all.slots[ship].object.flags.no_collisions);
     try std.testing.expectEqual(50, hull.mesh.positions[0][2]);
 
-    const planet = try mission.addWith(hull.types(), @fromBackingInt(@intCast(0x60)), @splat(0));
+    const planet = try mission.addWith(hull.types(), @fromBackingInt(0x60), @splat(0));
     const slot = &all.slots[planet];
     slot.model.?.parts[0].origin = .{ 0, 0, 7 };
     planetMade(all, planet);
@@ -2174,7 +2174,7 @@ test createObject {
     try std.testing.expectError(error.Overrun, createObject(all, &mission.tables, model.types(), gameobj.max_objects, .of(.predator), 0, @splat(0), &mission.random));
 
     // Above the last ship type, a stand-in for a marker, at a slot of its own.
-    const marker = try createObject(all, &mission.tables, model.types(), 20, @fromBackingInt(@intCast(1000)), 0, @splat(0), &mission.random);
+    const marker = try createObject(all, &mission.tables, model.types(), 20, @fromBackingInt(1000), 0, @splat(0), &mission.random);
     try std.testing.expectEqual(20, marker);
     try std.testing.expectEqual(2, all.count);
     const stand_in = all.slots[marker];
@@ -2226,7 +2226,7 @@ test "an object is created with the guns its model holds" {
     }
     model.data[0].attachments = &muzzles;
 
-    const index = try mission.addWith(model.types(), @fromBackingInt(@intCast(7)), @splat(0));
+    const index = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
     const slot = &all.slots[index];
     // The guns are fitted after the count is cleared, so the object holds them all.
     try std.testing.expectEqual(2, slot.object.gun_count);
@@ -2260,10 +2260,10 @@ test "a ship with a retro thruster can reverse" {
         glow.size = .{ 10, 10, length };
     }
     model.data[0].attachments = glows[0..1];
-    const plain = try mission.addWith(model.types(), @fromBackingInt(@intCast(7)), @splat(0));
+    const plain = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
     try std.testing.expect(!all.slots[plain].object.flags.can_reverse);
     model.data[0].attachments = &glows;
-    const retro = try mission.addWith(model.types(), @fromBackingInt(@intCast(7)), @splat(0));
+    const retro = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
     try std.testing.expect(all.slots[retro].object.flags.can_reverse);
 }
 
@@ -2277,7 +2277,7 @@ test "a type under another number takes its stats, then its number" {
     mission.tables.combat[0x21].shield_power = 30;
     mission.tables.combat[0xE5].name = 1123;
     mission.tables.combat[0xE5].gun_groups = 2;
-    const index = try mission.add(@fromBackingInt(@intCast(0xE5)), @splat(0));
+    const index = try mission.add(@fromBackingInt(0xE5), @splat(0));
     const slot = all.slots[index];
     try std.testing.expectEqual(0x21, slot.object.type.number());
     try std.testing.expectEqual(55, slot.flight.?.max_speed);
@@ -2295,7 +2295,7 @@ test "a type with no model still flies" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const index = try mission.add(@fromBackingInt(@intCast(3)), @splat(0));
+    const index = try mission.add(@fromBackingInt(3), @splat(0));
     try std.testing.expectEqual(null, all.slots[index].model);
     all.slots[index].object.throttle = 1;
     all.slots[index].object.rotation = math.identity;

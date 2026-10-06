@@ -178,5 +178,5 @@ test Voice {
 test "Status.format" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("stopped", try std.mem.print(&buffer, "{f}", .{Status.stopped}));
-    try std.testing.expectEqualStrings("status 16", try std.mem.print(&buffer, "{f}", .{@as(Status, @fromBackingInt(@intCast(16)))}));
+    try std.testing.expectEqualStrings("status 16", try std.mem.print(&buffer, "{f}", .{@as(Status, @fromBackingInt(16))}));
 }

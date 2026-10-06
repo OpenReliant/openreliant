@@ -565,7 +565,7 @@ test "Mission.bind" {
             dte.testing.object(.flight_group, 0, 0),
             dte.testing.object(.flight_group, 0, 0),
             dte.testing.object(.squad, 0, 0),
-            dte.testing.object(@fromBackingInt(@intCast(7)), 0, 0),
+            dte.testing.object(@fromBackingInt(7), 0, 0),
         }),
         .formats = .{ .first = true, .second = true, .third = true },
     });

@@ -223,7 +223,7 @@ test read {
 test check {
     try check(testDefinition(1, .object, "PSHIP01"));
     try std.testing.expectError(error.BadDefinition, check(testDefinition(1, .object, "")));
-    try std.testing.expectError(error.BadDefinition, check(testDefinition(1, @fromBackingInt(@intCast(9)), "X")));
+    try std.testing.expectError(error.BadDefinition, check(testDefinition(1, @fromBackingInt(9), "X")));
     var near = testDefinition(1, .object, "X");
     near.max_distance = 1;
     try std.testing.expectError(error.BadDefinition, check(near));

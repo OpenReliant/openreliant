@@ -57,7 +57,7 @@ pub const Look = struct {
 };
 
 /// Mode 10, which `mesh_build` takes for `lit_additive` and `shp.Face.Shading.Mode` does not name.
-const lit_additive_again: shp.Face.Shading.Mode = @fromBackingInt(@intCast(10));
+const lit_additive_again: shp.Face.Shading.Mode = @fromBackingInt(10);
 
 /// Whether a face of shading `mode` shows its material's texture, so that `mesh_build` looks the
 /// texture up: every mode past the untextured ones.
@@ -881,7 +881,7 @@ test showsTexture {
 }
 
 test MaterialImages {
-    const images: Images = .{ .material = @fromBackingInt(@intCast(0x0060_0000)), .light_map = @fromBackingInt(@intCast(0x0060_1000)) };
+    const images: Images = .{ .material = @fromBackingInt(0x0060_0000), .light_map = @fromBackingInt(0x0060_1000) };
     try std.testing.expectEqual(images.light_map, images.pass(.light_map, highlightIndex));
     try std.testing.expectEqual(images.material, images.pass(.material, highlightIndex));
     try std.testing.expectEqual(.null, images.pass(.none, highlightIndex));
@@ -895,8 +895,8 @@ test MaterialImages {
 }
 
 test material {
-    const texture: Pointer(tcache.Image) = @fromBackingInt(@intCast(0x0060_0000));
-    const light_map: Pointer(tcache.Image) = @fromBackingInt(@intCast(0x0060_1000));
+    const texture: Pointer(tcache.Image) = @fromBackingInt(0x0060_0000);
+    const light_map: Pointer(tcache.Image) = @fromBackingInt(0x0060_1000);
 
     // The bytes `mesh_build` writes for a light-mapped `lit` face: two passes, the mesh's
     // coordinates for both, the first lit, the second added.

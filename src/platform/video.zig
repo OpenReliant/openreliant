@@ -131,7 +131,7 @@ fn picture(_: *anyopaque, handle: bink.Stream, packet: []const u8) bink.Error!bi
     const frame = stream.frame;
     const width: u32 = @intCast(frame.width);
     const height: u32 = @intCast(frame.height);
-    const half = (height + 1) / 2;
+    const half = @divCeil(height, 2);
     var strides: [4]usize = undefined;
     for (&strides, frame.linesize[0..4]) |*stride, size| stride.* = @intCast(@max(size, 0));
     return .{

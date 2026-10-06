@@ -1604,8 +1604,8 @@ test "a chunk kept whole stands before the terminator where the writer writes fe
     // One before the header, which the loader's search passes over as it looks for the header, and
     // one that stood after more chunks than the model writes.
     const kept = [_]UnnamedChunk{
-        .{ .after = 0, .chunk = .{ .tag = @fromBackingInt(@intCast(0x05)), .record_size = 2, .count = 2, .data = &.{ 1, 2, 3, 4 } } },
-        .{ .after = 1000, .chunk = .{ .tag = @fromBackingInt(@intCast(0x11)), .record_size = 1, .count = 2, .data = &.{ 5, 6 } } },
+        .{ .after = 0, .chunk = .{ .tag = @fromBackingInt(0x05), .record_size = 2, .count = 2, .data = &.{ 1, 2, 3, 4 } } },
+        .{ .after = 1000, .chunk = .{ .tag = @fromBackingInt(0x11), .record_size = 1, .count = 2, .data = &.{ 5, 6 } } },
     };
     var parts = [_]PartData{testPart("Hull", false, &.{})};
     var model = testModel(&parts, true);
@@ -1720,7 +1720,7 @@ test "a chunk kept whole is of a tag the format does not name, and holds its rec
     kept[0].chunk.tag = .end;
     try std.testing.expectError(error.NamedTag, model.write(&written.writer));
     // A header counting other bytes than follow it would send the loader astray.
-    kept[0].chunk = .{ .tag = @fromBackingInt(@intCast(0x05)), .record_size = 4, .count = 2, .data = &.{ 1, 2, 3, 4 } };
+    kept[0].chunk = .{ .tag = @fromBackingInt(0x05), .record_size = 4, .count = 2, .data = &.{ 1, 2, 3, 4 } };
     try std.testing.expectError(error.UnevenChunk, model.write(&written.writer));
 }
 
@@ -1836,11 +1836,11 @@ test Tag {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("tree_node", try std.mem.print(&buffer, "{f}", .{Tag.tree_node}));
     // A tag the format does not name prints as its number.
-    try std.testing.expectEqualStrings("17", try std.mem.print(&buffer, "{f}", .{@as(Tag, @fromBackingInt(@intCast(0x11)))}));
+    try std.testing.expectEqualStrings("17", try std.mem.print(&buffer, "{f}", .{@as(Tag, @fromBackingInt(0x11))}));
 
     try std.testing.expect(Tag.firing_arc.isNamed());
     try std.testing.expect(Tag.end.isNamed());
-    try std.testing.expect(!@as(Tag, @fromBackingInt(@intCast(0x05))).isNamed());
+    try std.testing.expect(!@as(Tag, @fromBackingInt(0x05)).isNamed());
 }
 
 test "record sizes and field offsets match the format" {

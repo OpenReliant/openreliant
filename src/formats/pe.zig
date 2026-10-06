@@ -554,7 +554,7 @@ pub const testing = struct {
     /// A resource section, to load at `rva`, holding one string table of `strings` from id 0 on,
     /// ASCII, in language `0x409`. A string of null is left out of its block, as an empty one.
     pub fn stringResources(allocator: std.mem.Allocator, rva: u32, strings: []const ?[]const u8) ![]u8 {
-        const blocks = (strings.len + strings_per_block - 1) / strings_per_block;
+        const blocks = @divCeil(strings.len, strings_per_block);
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
         const directory_size = @sizeOf(ResourceDirectory);
@@ -711,7 +711,7 @@ test "finds a string as LoadString does" {
     try std.testing.expectEqual(0, image.string(0).?.len);
     try std.testing.expectEqual(null, image.string(40));
     // No resource of another type.
-    try std.testing.expectEqual(null, image.resource(@fromBackingInt(@intCast(3)), 1));
+    try std.testing.expectEqual(null, image.resource(@fromBackingInt(3), 1));
 }
 
 test "rejects non-PE input" {

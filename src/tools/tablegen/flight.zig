@@ -89,7 +89,7 @@ test parse {
     try std.testing.expectEqual(.flat, try parse(record));
 
     // A word the game would take for flat too, but that the reader doesn't know.
-    record.turns = @fromBackingInt(@intCast(2));
+    record.turns = @fromBackingInt(2);
     try std.testing.expectError(error.NotFlag, parse(record));
     record.turns = .flat;
     record._unknown_26 = 1;

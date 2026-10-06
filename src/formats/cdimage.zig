@@ -242,7 +242,7 @@ pub const Image = struct {
         var next = lba;
         while (remaining > 0) {
             const wanted: usize = @intCast(@min(remaining, blocks.len));
-            const n_blocks = std.math.divCeil(usize, wanted, block_size) catch unreachable;
+            const n_blocks = @divCeil(wanted, block_size);
             try image.readBlocks(next, blocks[0 .. n_blocks * block_size]);
             try writer.writeAll(blocks[0..wanted]);
             remaining -= wanted;

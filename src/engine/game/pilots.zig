@@ -142,9 +142,9 @@ test {
 test Table {
     var record: stats.Pilot = std.mem.zeroes(stats.Pilot);
     record.tier_a = .level_0;
-    record.tier_b = @fromBackingInt(@intCast(9));
+    record.tier_b = @fromBackingInt(9);
     record.tier_c = .level_2;
-    record.skill = @fromBackingInt(@intCast(10));
+    record.skill = @fromBackingInt(10);
     record._unknown_50 = 11;
     record._unknown_54 = 12;
     record._unknown_58 = 13;
@@ -165,7 +165,7 @@ test Table {
     try std.testing.expectEqual(25, pilot.aim_interval);
     try std.testing.expectEqual(1, pilot.turn_limit);
     try std.testing.expectEqual([3]u16{ 12, 11, 13 }, [3]u16{ pilot._unknown_1c, pilot._unknown_1e, pilot._unknown_20 });
-    try std.testing.expectEqual(@as(Pilot.Skill, @fromBackingInt(@intCast(10))), pilot.skill);
+    try std.testing.expectEqual(@as(Pilot.Skill, @fromBackingInt(10)), pilot.skill);
     // The rest keep the defaults.
     try std.testing.expectEqual(Pilot.default, table.get(1).*);
     try std.testing.expectEqual(Pilot.Skill.medium, table.get(Table.count).skill);
@@ -499,7 +499,7 @@ test faceOf {
     const bandit = faceOf(0).?;
     try std.testing.expectEqual(.friendly, bandit.side);
     try std.testing.expectEqualStrings("45TigersWL_Bandit_L", bandit.film(.laughing).?);
-    try std.testing.expectEqual(null, bandit.film(@fromBackingInt(@intCast(4))));
+    try std.testing.expectEqual(null, bandit.film(@fromBackingInt(4)));
     try std.testing.expectEqual(null, faceOf(Table.count));
     try std.testing.expectEqual(null, faceOf(-1));
 }

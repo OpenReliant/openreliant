@@ -799,7 +799,7 @@ test Target {
     const none: Target = .of(.none);
     try std.testing.expect(none.object == null and none.flight_group == null and none.squad == null);
     // Unchanged, each goes back as it was, a kind the scripts can't name too.
-    const odd: aigeneric.Target = .{ .kind = @fromBackingInt(@intCast(7)), .index = 4, .component = -1 };
+    const odd: aigeneric.Target = .{ .kind = @fromBackingInt(7), .index = 4, .component = -1 };
     for ([_]aigeneric.Target{ .at(5, 2), .group(.squad, 1), .none, odd }) |held| {
         try std.testing.expectEqual(held, Target.of(held).aimed());
     }
@@ -820,7 +820,7 @@ test routineHook {
     // The empty routine has no hook, nor does an order without the routine.
     try std.testing.expectEqual(null, routineHook(.random_spin_slow, .update));
     try std.testing.expectEqual(null, routineHook(.run_away, .exit));
-    try std.testing.expectEqual(null, routineHook(@fromBackingInt(@intCast(-1)), .update));
+    try std.testing.expectEqual(null, routineHook(@fromBackingInt(-1), .update));
 }
 
 test declaration {

@@ -160,7 +160,7 @@ pub const Step = enum(i32) {
 
     /// The first of the style's own steps, which `order_launch` sets once the wait is over
     /// (`0x0041928A`): each style's own step enum starts its steps there.
-    pub const styled: Step = @fromBackingInt(@intCast(2));
+    pub const styled: Step = @fromBackingInt(2);
 
     /// Whether the style's own steps have begun.
     pub fn isStyled(step: Step) bool {
@@ -521,7 +521,7 @@ test "Style.of" {
     try std.testing.expectEqual(Style.bay, Style.of(.of(.sabre), .of(.kurgan), 0));
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.mem.print(&buffer, "{f}", .{Style.reliant}));
-    try std.testing.expectEqualStrings("style 12", try std.mem.print(&buffer, "{f}", .{@as(Style, @fromBackingInt(@intCast(12)))}));
+    try std.testing.expectEqualStrings("style 12", try std.mem.print(&buffer, "{f}", .{@as(Style, @fromBackingInt(12))}));
     // Every named style has its original pair of routines.
     for (std.enums.values(Style)) |style| {
         const runs = switch (style) {
@@ -711,7 +711,7 @@ test "a launch ends with its carrier, and an unknown style lets the ship go" {
     // A missing bay leaves the ship riding the root. An unknown style still lets it go.
     try std.testing.expectEqual(Style.yamato, mission.slot(ship).state.launch.style);
     try std.testing.expectEqual(objects.NodeOf{ .object = carrier }, mission.slot(ship).riding.?);
-    mission.slot(ship).state.launch.style = @fromBackingInt(@intCast(12));
+    mission.slot(ship).state.launch.style = @fromBackingInt(12);
     start(mission.objects, ship);
     aigeneric.objectOrders(ctx, ship);
     testing.pastDue(&mission, ctx, ship);

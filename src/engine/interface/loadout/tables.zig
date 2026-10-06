@@ -1066,7 +1066,7 @@ test missiles_by_tier {
     for (missile_slots, missiles_by_tier) |slots, set| {
         for (slots, std.enums.values(Missile)) |slot, missile| try std.testing.expectEqual(set.has(missile), slot != null);
     }
-    try std.testing.expectEqual(.fuel_pod, @as(Missile, @fromBackingInt(@intCast(9))));
+    try std.testing.expectEqual(.fuel_pod, @as(Missile, @fromBackingInt(9)));
     try std.testing.expectEqual(0x20C, Missile.fuel_pod.record().name);
 }
 

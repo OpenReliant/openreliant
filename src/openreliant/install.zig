@@ -392,7 +392,7 @@ const Reader = struct {
                 const block_size = cdimage.block_size;
                 const within: usize = @intCast(reader.position % block_size);
                 n = @min(n, source.blocks.len - within);
-                const count = (within + n + block_size - 1) / block_size;
+                const count = @divCeil(within + n, block_size);
                 const lba = std.math.cast(u32, source.lba + reader.position / block_size) orelse return error.EndOfImage;
                 try source.image.readBlocks(lba, source.blocks[0 .. count * block_size]);
                 @memcpy(out[0..n], source.blocks[within..][0..n]);
@@ -1104,7 +1104,7 @@ fn testImage(gpa: Allocator, label: []const u8, files: []const TestFile, layout:
     var next: u32 = @intCast(first_folder + folders.items.len);
     for (files, places) |file, *place| {
         place.* = next;
-        next += @intCast((file.data.len + block_size - 1) / block_size);
+        next += @intCast(@divCeil(file.data.len, block_size));
     }
     const blocks = try arena.alloc([block_size]u8, next);
     @memset(blocks, @splat(0));

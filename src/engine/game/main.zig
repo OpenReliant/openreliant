@@ -123,7 +123,7 @@ test "Ending.sentHome" {
     try std.testing.expect(Ending._unknown_7.sentHome());
     try std.testing.expect(!Ending.playing.sentHome());
     try std.testing.expect(!Ending.ejecting.sentHome());
-    try std.testing.expect(!@as(Ending, @fromBackingInt(@intCast(9))).sentHome());
+    try std.testing.expect(!@as(Ending, @fromBackingInt(9)).sentHome());
 }
 
 /// What the mission's scene shows (`0x00587CD4`), which a mission's start sets to `everything`.
@@ -1899,14 +1899,14 @@ pub fn fitDevices(display: *hud.State, ship_type: gameobj.Type, can_cloak: bool)
 
 test fitDevices {
     // The Shroud carries all three, and a cloak where its model has one.
-    const shroud: gameobj.Type = @fromBackingInt(@intCast(10));
+    const shroud: gameobj.Type = @fromBackingInt(10);
     var display: hud.State = .{ .blind_fire = false };
     fitDevices(&display, shroud, true);
     try std.testing.expectEqual(.off, display.devices.get(.spectral_shields).setting);
     try std.testing.expectEqual(.off, display.devices.get(.cloak).setting);
     try std.testing.expect(display.blind_fire_fitted and display.blind_fire);
     // Its twin is the same ship.
-    try std.testing.expectEqual(playerShip(shroud), playerShip(@fromBackingInt(@intCast(0xFE))));
+    try std.testing.expectEqual(playerShip(shroud), playerShip(@fromBackingInt(0xFE)));
     // The Grendel carries only the ECM.
     fitDevices(&display, .of(.grendel), false);
     try std.testing.expectEqual(.off, display.devices.get(.ecm).setting);
@@ -1963,8 +1963,8 @@ test startMission {
     defer gpa.free(code);
     // The player flies a torpedo, a type with a model but no schematic nor cockpit, and the other
     // is of a type the game names no model for.
-    const torpedo: gameobj.Type = @fromBackingInt(@intCast(74));
-    const modelless: gameobj.Type = @fromBackingInt(@intCast(14));
+    const torpedo: gameobj.Type = @fromBackingInt(74);
+    const modelless: gameobj.Type = @fromBackingInt(14);
     var ships: [2]dte.Ship = undefined;
     for (&ships, [_]gameobj.Type{ torpedo, modelless }, 0..) |*ship, kind, index| {
         ship.* = dte.testing.ship(@intCast(index), @intCast(index), @intCast(kind.number()));

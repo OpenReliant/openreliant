@@ -265,7 +265,7 @@ const Header = struct {
 
     /// The bytes of a scanline `width` pixels long, less its filter type.
     fn stride(header: Header, width: u32) usize {
-        return (@as(usize, width) * header.colour.channels() * header.depth + 7) / 8;
+        return @divCeil(@as(usize, width) * header.colour.channels() * header.depth, 8);
     }
 
     /// The bytes between a byte and the same byte of the pixel to its left, as the filters take
@@ -296,7 +296,7 @@ const Pass = struct {
     fn size(pass: Pass, picture: [2]u32) [2]u32 {
         var taken: [2]u32 = undefined;
         for (&taken, picture, pass.first, pass.step) |*side, whole_side, first, step| {
-            side.* = if (whole_side > first) (whole_side - first + step - 1) / step else 0;
+            side.* = if (whole_side > first) @divCeil(whole_side - first, step) else 0;
         }
         return taken;
     }

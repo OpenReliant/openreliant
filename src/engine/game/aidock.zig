@@ -835,7 +835,7 @@ test Side {
     try std.testing.expectEqual(Vector{ 1, 1, 1 }, Side.left.mirror());
     try std.testing.expectEqual(Vector{ -1, 1, 1 }, Side.right.mirror());
     // Any other word mirrors, as the game's test against zero has it.
-    try std.testing.expectEqual(Vector{ -1, 1, 1 }, @as(Side, @fromBackingInt(@intCast(2))).mirror());
+    try std.testing.expectEqual(Vector{ -1, 1, 1 }, @as(Side, @fromBackingInt(2)).mirror());
 }
 
 test "a freighter docks at a station's port, from far behind it" {

@@ -1489,10 +1489,10 @@ test burnPart {
 test ComponentLoss {
     try std.testing.expectEqual(.capital_ship, ComponentLoss.of(.of(.badanov)));
     // A type under another number has the routine of the type it takes its stats from.
-    try std.testing.expectEqual(.capital_ship, ComponentLoss.of(@fromBackingInt(@intCast(0xDB))));
+    try std.testing.expectEqual(.capital_ship, ComponentLoss.of(@fromBackingInt(0xDB)));
     try std.testing.expectEqual(.ulysses, ComponentLoss.of(.of(.ulysses)));
     try std.testing.expectEqual(null, ComponentLoss.of(.of(.sabre)));
-    try std.testing.expectEqual(null, ComponentLoss.of(@fromBackingInt(@intCast(0x1234))));
+    try std.testing.expectEqual(null, ComponentLoss.of(@fromBackingInt(0x1234)));
 }
 
 test loseHull {

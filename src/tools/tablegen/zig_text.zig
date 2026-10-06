@@ -28,7 +28,7 @@ test enumValue {
     var w: Io.Writer = .fixed(&buffer);
     try enumValue(&w, Side.hostile);
     try w.writeAll(", ");
-    try enumValue(&w, @as(Side, @fromBackingInt(@intCast(9))));
+    try enumValue(&w, @as(Side, @fromBackingInt(9)));
     try std.testing.expectEqualStrings(".hostile, @fromBackingInt(9)", w.buffered());
 }
 

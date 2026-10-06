@@ -336,9 +336,9 @@ test read {
             record.subjects = ship_or_group;
             record.values = @fromBackingInt(@intCast(TestPayload.lists));
             record.slot = 3;
-            record.begin = @fromBackingInt(@intCast(0x0045E000));
-            record.add_member = @fromBackingInt(@intCast(0x0045E001));
-            record.verdict = @fromBackingInt(@intCast(0x0045E002));
+            record.begin = @fromBackingInt(0x0045E000);
+            record.add_member = @fromBackingInt(0x0045E001);
+            record.verdict = @fromBackingInt(0x0045E002);
         }
     });
     payload.values(TestPayload.lists, &.{ "Ship", "Killer" }, 1);
@@ -382,7 +382,7 @@ test "handlers come in threes" {
     payload.installCatalogue(1);
     payload.descriptor(0, "ShipDestroyed", struct {
         fn apply(record: *Descriptor) void {
-            record.begin = @fromBackingInt(@intCast(0x0045E000));
+            record.begin = @fromBackingInt(0x0045E000);
         }
     });
     try std.testing.expectError(error.PartialHandlers, payload.catalogue(arena.allocator()));
@@ -413,7 +413,7 @@ test "emit writes Zig that parses" {
     const listed = [_]Condition{
         .{ .name = "ShipDestroyed", .unknown_04 = 0, .subjects = ship_or_group, .values = &values_listed, .slot = 3, .veto_exempt = .once, .handlers = .{ .begin = 1, .add_member = 2, .verdict = 3 } },
         .{ .name = "MissionStart", .unknown_04 = 0x10, .subjects = no_kinds, .values = &.{}, .slot = null, .veto_exempt = null, .handlers = null },
-        .{ .name = "Odd", .unknown_04 = 0, .subjects = no_kinds, .values = &.{}, .slot = null, .veto_exempt = @fromBackingInt(@intCast(0x7F)), .handlers = null },
+        .{ .name = "Odd", .unknown_04 = 0, .subjects = no_kinds, .values = &.{}, .slot = null, .veto_exempt = @fromBackingInt(0x7F), .handlers = null },
     };
     var out: Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();

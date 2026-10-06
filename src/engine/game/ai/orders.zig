@@ -216,5 +216,5 @@ comptime {
 
 test info {
     for (table) |entry| try std.testing.expectEqual(entry.order, info(entry.order).?.order);
-    try std.testing.expectEqual(null, info(@fromBackingInt(@intCast(-1))));
+    try std.testing.expectEqual(null, info(@fromBackingInt(-1)));
 }

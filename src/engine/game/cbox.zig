@@ -88,12 +88,12 @@ pub const Speech = struct {
     /// How many of the game's ticks it plays for at `rate`, rounded up.
     pub fn ticks(speech: Speech) u32 {
         const played: u64 = speech.samples();
-        return @intCast((played * ticks_per_second + rate - 1) / rate);
+        return @intCast(@divCeil(played * ticks_per_second, rate));
     }
 
     comptime {
         // The longest speech a header can give fits `ticks`.
-        assert(((std.math.maxInt(u32) >> 1) * ticks_per_second + rate - 1) / rate <= std.math.maxInt(u32));
+        assert(@divCeil((std.math.maxInt(u32) >> 1) * ticks_per_second, rate) <= std.math.maxInt(u32));
     }
 };
 

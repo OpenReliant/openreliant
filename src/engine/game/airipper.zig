@@ -1561,7 +1561,7 @@ test fitTurn {
     try std.testing.expectEqual(math.Axis.x, fitTurn(.of(.sharov)));
     try std.testing.expectEqual(math.Axis.x, fitTurn(.of(.boridin)));
     // The Mammoth under another number.
-    try std.testing.expectEqual(math.Axis.x, fitTurn(@fromBackingInt(@intCast(0xE3))));
+    try std.testing.expectEqual(math.Axis.x, fitTurn(@fromBackingInt(0xE3)));
     try std.testing.expectEqual(math.Axis.z, fitTurn(.of(.stalag)));
     try std.testing.expectEqual(math.Axis.z, fitTurn(.of(.stand_in)));
 }

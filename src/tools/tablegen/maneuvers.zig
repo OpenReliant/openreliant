@@ -285,7 +285,7 @@ const TestPayload = struct {
         }
         // The third record's name is text, as after the payload's last.
         var past = std.mem.zeroes(Record);
-        past.name = @fromBackingInt(@intCast(0x6E757220));
+        past.name = @fromBackingInt(0x6E757220);
         r.putRecord(table_address + 2 * record_size, past);
         for (0..opcode_count) |index| {
             const routine: u32 = 0x00405000 + @as(u32, @intCast(index));

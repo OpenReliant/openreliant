@@ -96,7 +96,7 @@ test formatTag {
     var writer: std.Io.Writer = .fixed(&buffer);
     try formatTag(Kind, .wave, &writer);
     try writer.writeByte(' ');
-    try formatTag(Kind, @fromBackingInt(@intCast(9)), &writer);
+    try formatTag(Kind, @fromBackingInt(9), &writer);
     try std.testing.expectEqualStrings("wave 9", writer.buffered());
 }
 

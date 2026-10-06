@@ -168,7 +168,7 @@ fn triggers(ctx: Context, mission: dte.Mission, models: ?*Library) !void {
             try ctx.stdout.writeAll("none, so it never fires\n");
             continue;
         };
-        const kind = if (id < all_objects.len) all_objects[id].kind else @as(dte.Object.Kind, @fromBackingInt(@intCast(0xFF)));
+        const kind = if (id < all_objects.len) all_objects[id].kind else @as(dte.Object.Kind, @fromBackingInt(0xFF));
         try ctx.stdout.print("{f} {d}", .{ kind, id });
         if (kind == .ship) {
             for (all_ships) |ship| {

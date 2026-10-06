@@ -1062,7 +1062,7 @@ test factors {
         Factors{ .source = .source_alpha, .destination = .inverse_source_alpha },
         factors(.alpha).?,
     );
-    try std.testing.expectEqual(null, factors(@fromBackingInt(@intCast(9))));
+    try std.testing.expectEqual(null, factors(@fromBackingInt(9)));
 }
 
 test shade {

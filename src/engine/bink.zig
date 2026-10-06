@@ -362,7 +362,7 @@ pub const testing = struct {
             const test_codec = of(context);
             test_codec.pictures += 1;
             test_codec.y = @splat(@intCast(16 + 16 * @as(u32, packet[0])));
-            const half = (test_codec.width + 1) / 2;
+            const half = @divCeil(test_codec.width, 2);
             return .{ .width = test_codec.width, .height = test_codec.height, .y = &test_codec.y, .u = &test_codec.chroma, .v = &test_codec.chroma, .strides = .{ test_codec.width, half, half, 0 } };
         }
         fn samples(_: *anyopaque, _: Stream, packet: []const u8, gpa: Allocator, pcm: *std.ArrayList(i16)) Error!void {

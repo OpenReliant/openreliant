@@ -855,7 +855,7 @@ test pursuit {
     try std.testing.expectEqual(200000, pursuit(.medium));
     try std.testing.expectEqual(100000, pursuit(.high));
     // Outside the table, never by distance.
-    try std.testing.expectEqual(std.math.inf(f32), pursuit(@fromBackingInt(@intCast(3))));
+    try std.testing.expectEqual(std.math.inf(f32), pursuit(@fromBackingInt(3)));
 }
 
 test outOfSphere {

@@ -1417,7 +1417,7 @@ test filmPath {
     var buffer: [film_path_size]u8 = undefined;
     const bandit = pilots.faceOf(0);
     try std.testing.expectEqualStrings("pilots\\45TigersWL_Bandit_d.fm8", filmPath(&buffer, bandit, .dying));
-    try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, bandit, @fromBackingInt(@intCast(4))));
+    try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, bandit, @fromBackingInt(4)));
     try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, null, .talking));
 }
 
@@ -1698,7 +1698,7 @@ test shipLine {
     object.pilot = 0;
     try std.testing.expectEqualStrings("rustnt_001.ut", shipLine(&buffer, mission.objects, ship, "tnt_001.ut").?);
     object.pilot = 21;
-    try std.testing.expectEqual(pilots.Voice.prefix(@fromBackingInt(@intCast(4))), null);
+    try std.testing.expectEqual(pilots.Voice.prefix(@fromBackingInt(4)), null);
     try std.testing.expectEqual(null, shipLine(&buffer, mission.objects, ship, "tnt_001.ut"));
     // Any other side's has no line, nor a pilot past the table.
     object.side = .neutral;

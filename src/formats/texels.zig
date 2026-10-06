@@ -59,7 +59,7 @@ pub const block_side = 4;
 
 /// The blocks across `pixels`, the last partly filled.
 pub fn blocks(pixels: u32) usize {
-    return (@as(usize, pixels) + block_side - 1) / block_side;
+    return @divCeil(@as(usize, pixels), block_side);
 }
 
 /// A picture read from a file, its levels the file's own bytes.

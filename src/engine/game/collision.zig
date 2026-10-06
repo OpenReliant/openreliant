@@ -1225,7 +1225,7 @@ test goOff {
     const ship = try testing.ship(&mission, @splat(0), 1000);
     const torpedo = try testing.ship(&mission, .{ 100, 0, 0 }, 1000);
     mission.tables.combat[1].class = .torpedo;
-    all.slots[torpedo].object.type = @fromBackingInt(@intCast(1));
+    all.slots[torpedo].object.type = @fromBackingInt(1);
     all.slots[torpedo].combat = &mission.tables.combat[1];
     const shielded = all.slots[ship].object.shields.fore;
     try std.testing.expect(collide(world, ship, torpedo, 0));
@@ -1236,7 +1236,7 @@ test goOff {
     // A mine goes off against a fighter, which is not pushed.
     const mine = try testing.ship(&mission, .{ 0, 100, 0 }, 1000);
     mission.tables.combat[2].class = .mine;
-    all.slots[mine].object.type = @fromBackingInt(@intCast(2));
+    all.slots[mine].object.type = @fromBackingInt(2);
     all.slots[mine].combat = &mission.tables.combat[2];
     all.slots[ship].object.shields.fore = 1000;
     try std.testing.expect(!collide(world, ship, mine, 0));
@@ -1264,7 +1264,7 @@ test "what never collides" {
 
     // A torpedo of another type goes off against it instead of pushing it.
     mission.tables.combat[1].class = .fighter;
-    all.slots[far].object.type = @fromBackingInt(@intCast(1));
+    all.slots[far].object.type = @fromBackingInt(1);
     all.slots[far].combat = &mission.tables.combat[1];
     try std.testing.expect(collide(world, near, far, 0));
     try std.testing.expectEqual(0, all.slots[near].object.root.position.x);

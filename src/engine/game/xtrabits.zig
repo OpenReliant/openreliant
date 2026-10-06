@@ -277,10 +277,10 @@ test TextureDetail {
     try std.testing.expectEqual(128, TextureDetail.low.largest().?);
     try std.testing.expectEqual(256, TextureDetail.medium.largest().?);
     try std.testing.expectEqual(null, TextureDetail.high.largest());
-    try std.testing.expectEqual(null, @as(TextureDetail, @fromBackingInt(@intCast(7))).largest());
+    try std.testing.expectEqual(null, @as(TextureDetail, @fromBackingInt(7)).largest());
     var buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("medium", try std.mem.print(&buffer, "{f}", .{TextureDetail.medium}));
-    try std.testing.expectEqualStrings("texture detail 7", try std.mem.print(&buffer, "{f}", .{@as(TextureDetail, @fromBackingInt(@intCast(7)))}));
+    try std.testing.expectEqualStrings("texture detail 7", try std.mem.print(&buffer, "{f}", .{@as(TextureDetail, @fromBackingInt(7))}));
 }
 
 test {

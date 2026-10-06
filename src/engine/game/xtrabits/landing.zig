@@ -244,7 +244,7 @@ test "the landing, by carrier and rating" {
     variables.mission_success = .success_bonus;
     try std.testing.expectEqualStrings("thread01.bik", landing(24, false, .playing, &variables).?.touchdown.thread.?);
     // A rating past the named ones lands without the thread and the bank.
-    variables.mission_success = @fromBackingInt(@intCast(5));
+    variables.mission_success = @fromBackingInt(5);
     const unrated = landing(2, false, .playing, &variables).?.touchdown;
     try std.testing.expectEqualStrings("r_h_land.bik", unrated.movie);
     try std.testing.expectEqual(null, unrated.thread);

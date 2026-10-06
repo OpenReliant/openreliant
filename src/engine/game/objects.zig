@@ -1293,7 +1293,7 @@ pub const Model = struct {
         /// changes.
         targetable: bool = false,
         /// What its part is (part `+0x40`), which the target display names a subtarget by.
-        class: shp.Part.Class = @fromBackingInt(@intCast(0)),
+        class: shp.Part.Class = @fromBackingInt(0),
         /// The turret its part makes of its assembly, and which of the turret's parts it is (part
         /// `+0xF4`, `+0xF8`).
         turret_kind: shp.Part.TurretKind = .fixed,
@@ -2852,7 +2852,7 @@ test lightMask {
 test "Node.Kind" {
     var buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("muzzle", try std.mem.print(&buffer, "{f}", .{Node.Kind.muzzle}));
-    try std.testing.expectEqualStrings("node kind 9", try std.mem.print(&buffer, "{f}", .{@as(Node.Kind, @fromBackingInt(@intCast(9)))}));
+    try std.testing.expectEqualStrings("node kind 9", try std.mem.print(&buffer, "{f}", .{@as(Node.Kind, @fromBackingInt(9))}));
 }
 
 test "Model.Attached" {
@@ -2959,7 +2959,7 @@ test lightColour {
     try std.testing.expectEqual([3]f32{ 1, 0, 0 }, lightColour(.red));
     try std.testing.expectEqual([3]f32{ 0, 1, 1 }, lightColour(.cyan));
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, lightColour(.white));
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lightColour(@fromBackingInt(@intCast(6))));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lightColour(@fromBackingInt(6)));
 }
 
 test lampColour {
@@ -2967,7 +2967,7 @@ test lampColour {
     try std.testing.expectEqual([3]f32{ 0.2, 0.5, 1 }, lampColour(.blue));
     try std.testing.expectEqual([3]f32{ 1, 0.5, 0.2 }, lampColour(.red));
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, lampColour(.white));
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lampColour(@fromBackingInt(@intCast(6))));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lampColour(@fromBackingInt(6)));
 }
 
 test "Model.Blink.brightness" {
@@ -4035,7 +4035,7 @@ test "a track plays once, round and round, and back and forth" {
     var clip_events = [_]shp.ClipEvent{
         .{ .time = 10, .kind = .muzzles, ._unknown_08 = 0 },
         .{ .time = 90, .kind = .puff, ._unknown_08 = 0 },
-        .{ .time = 50, .kind = @fromBackingInt(@intCast(3)), ._unknown_08 = 0 },
+        .{ .time = 50, .kind = @fromBackingInt(3), ._unknown_08 = 0 },
     };
     var tracks = [_]shp.Track{.{ .clip = testingClip(100, .once, "fire"), .keyframes = &keys, .events = &clip_events }};
     var animated: Animated = undefined;

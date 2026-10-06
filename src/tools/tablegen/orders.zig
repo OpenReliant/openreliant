@@ -270,7 +270,7 @@ const TestPayload = struct {
             r.putRecord(at, record);
         }
         var later = std.mem.zeroes(Record);
-        later.init = @fromBackingInt(@intCast(0x00402000));
+        later.init = @fromBackingInt(0x00402000);
         later.priority = 0x62;
         r.putRecord(group_starts[1], later);
     }

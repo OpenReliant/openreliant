@@ -363,7 +363,7 @@ test "Attachment.parse" {
     try std.testing.expectEqual(Attachment{ .kind = .fighter }, Attachment.parse("FIGHTER", "a").?);
     try std.testing.expectEqual(Attachment{ .object_type = .of(.predator) }, Attachment.parse("Type.predator", "a").?);
     try std.testing.expectEqual(Attachment{ .object_type = .of(.reliant) }, Attachment.parse("type.0x0C", "a").?);
-    try std.testing.expectEqual(Attachment{ .object_type = @fromBackingInt(@intCast(200)) }, Attachment.parse("Type.200", "a").?);
+    try std.testing.expectEqual(Attachment{ .object_type = @fromBackingInt(200) }, Attachment.parse("Type.200", "a").?);
     try std.testing.expectEqual(null, Attachment.parse("Loads", "a"));
     try std.testing.expectEqual(null, Attachment.parse("predator", "a"));
     // A ship type a mod adds, by its qualified name, or in its own mod by its own.

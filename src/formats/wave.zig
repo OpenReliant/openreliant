@@ -92,7 +92,7 @@ pub const Wave = struct {
     pub fn parse(bytes: []const u8) error{NotAWave}!Wave {
         _ = riff.header(bytes, form) orelse return error.NotAWave;
         var wave: Wave = .{
-            .format = @fromBackingInt(@intCast(0)),
+            .format = @fromBackingInt(0),
             .channels = 0,
             .rate = 0,
             .bits = 0,

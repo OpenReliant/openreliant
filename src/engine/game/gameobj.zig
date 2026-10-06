@@ -1322,10 +1322,10 @@ pub const GunMode = packed struct(u16) {
 };
 
 test "Type.untwinned" {
-    try std.testing.expectEqual(Type.of(.predator), Type.untwinned(@fromBackingInt(@intCast(0xF4))));
-    try std.testing.expectEqual(Type.of(.grendel), Type.untwinned(@fromBackingInt(@intCast(0xF6))));
+    try std.testing.expectEqual(Type.of(.predator), Type.untwinned(@fromBackingInt(0xF4)));
+    try std.testing.expectEqual(Type.of(.grendel), Type.untwinned(@fromBackingInt(0xF6)));
     try std.testing.expectEqual(Type.of(.grendel), Type.of(.grendel).untwinned());
-    try std.testing.expectEqual(@as(Type, @fromBackingInt(@intCast(0xF3))), Type.untwinned(@fromBackingInt(@intCast(0xF3))));
+    try std.testing.expectEqual(@as(Type, @fromBackingInt(0xF3)), Type.untwinned(@fromBackingInt(0xF3)));
 }
 
 test "GameObject.Flags" {
@@ -1409,7 +1409,7 @@ test "GameObject.width" {
 test "Type.format" {
     var buffer: [16]u8 = undefined;
     try std.testing.expectEqualStrings("reliant", try std.mem.print(&buffer, "{f}", .{Type.of(.reliant)}));
-    try std.testing.expectEqualStrings("type 4096", try std.mem.print(&buffer, "{f}", .{@as(Type, @fromBackingInt(@intCast(0x1000)))}));
+    try std.testing.expectEqualStrings("type 4096", try std.mem.print(&buffer, "{f}", .{@as(Type, @fromBackingInt(0x1000))}));
 }
 
 test "Type.twin" {
@@ -1421,12 +1421,12 @@ test "Type.twin" {
 }
 
 test "GameType.rock" {
-    try std.testing.expectEqual(.asteroid, GameType.rock(@fromBackingInt(@intCast(0x7F))));
-    try std.testing.expectEqual(.turret, GameType.rock(@fromBackingInt(@intCast(0x85))));
-    try std.testing.expectEqual(.hole, GameType.rock(@fromBackingInt(@intCast(0xF3))));
-    try std.testing.expectEqual(null, GameType.rock(@fromBackingInt(@intCast(0x80))));
+    try std.testing.expectEqual(.asteroid, GameType.rock(@fromBackingInt(0x7F)));
+    try std.testing.expectEqual(.turret, GameType.rock(@fromBackingInt(0x85)));
+    try std.testing.expectEqual(.hole, GameType.rock(@fromBackingInt(0xF3)));
+    try std.testing.expectEqual(null, GameType.rock(@fromBackingInt(0x80)));
     try std.testing.expectEqual(null, GameType.predator.rock());
-    try std.testing.expect(!GameType.isAsteroid(@fromBackingInt(@intCast(0x85))));
+    try std.testing.expect(!GameType.isAsteroid(@fromBackingInt(0x85)));
     try std.testing.expectEqual(0x79, Type.asteroid(0).number());
     try std.testing.expectEqual(0x7F, Type.asteroid(6).number());
     try std.testing.expectEqual(0x79, Type.asteroid(7).number());

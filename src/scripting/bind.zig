@@ -418,7 +418,7 @@ test "a proxy reads and writes a struct in place" {
 
     // An open enum accepts numbers without a name.
     try run(thread, "gun.level = 7");
-    try std.testing.expectEqual(@as(Level, @fromBackingInt(@intCast(7))), gun.level);
+    try std.testing.expectEqual(@as(Level, @fromBackingInt(7)), gun.level);
 
     // The iterator ignores keys it didn't hand out.
     try run(thread, "local iterate = getmetatable(gun.counts).__iter\nlocal step = iterate(gun.counts)\nassert(step(gun.counts, -5) == nil and step(gun.counts, 1e20) == nil)");

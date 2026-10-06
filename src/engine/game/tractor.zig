@@ -1007,11 +1007,11 @@ test Stage {
     try std.testing.expectEqual(50, Stage.fading.ticks());
     try std.testing.expectEqual(250, Stage.waiting.ticks());
     try std.testing.expectEqual(0, Stage.pulling.ticks());
-    try std.testing.expectEqual(0, @as(Stage, @fromBackingInt(@intCast(9))).ticks());
+    try std.testing.expectEqual(0, @as(Stage, @fromBackingInt(9)).ticks());
     // The ship steers until the pod is held still, by the stage's number.
     try std.testing.expect(Stage.locking.steers() and !Stage.pulling.steers());
-    try std.testing.expect(@as(Stage, @fromBackingInt(@intCast(-1))).steers());
-    try std.testing.expect(!@as(Stage, @fromBackingInt(@intCast(9))).steers());
+    try std.testing.expect(@as(Stage, @fromBackingInt(-1)).steers());
+    try std.testing.expect(!@as(Stage, @fromBackingInt(9)).steers());
     // It holds the pod's claim from the stage after the first.
     try std.testing.expect(!Stage.claiming.claimed() and Stage.approaching.claimed());
 }

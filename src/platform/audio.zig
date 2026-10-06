@@ -206,7 +206,7 @@ fn feed(userdata: ?*anyopaque, stream: ?*c.SDL_AudioStream, additional: c_int, t
     const output: *Output = @ptrCast(@alignCast(userdata));
     const channels: usize = output.channels;
     const bytes: usize = @intCast(@max(additional, 0));
-    var frames: usize = @min(std.math.divCeil(usize, bytes, channels * @sizeOf(f32)) catch 0, output.rate);
+    var frames: usize = @min(@divCeil(bytes, channels * @sizeOf(f32)), output.rate);
     var buffer: [chunk * mss.master.max_channels]f32 = undefined;
     while (frames > 0) {
         const count: usize = @min(frames, chunk);

@@ -228,11 +228,11 @@ test "a frame's passes leave out effects that aren't there, and those past the m
     // Two effects without shaders a test can make: the first stands, the second was removed.
     try effects.effects.append(effects.gpa, .{ .shader = @ptrFromInt(0x1000) });
     try effects.effects.append(effects.gpa, .{ .shader = null });
-    const kept: Id = @fromBackingInt(@intCast(0));
-    const removed: Id = @fromBackingInt(@intCast(1));
+    const kept: Id = @fromBackingInt(0);
+    const removed: Id = @fromBackingInt(1);
     var passes: [max_passes + 3]Pass = undefined;
     for (&passes, 0..) |*pass, at| pass.* = .{ .effect = if (at == 1) removed else kept, .stage = if (at % 2 == 0) .before_hud else .after_hud };
-    passes[2].effect = @fromBackingInt(@intCast(7));
+    passes[2].effect = @fromBackingInt(7);
     effects.set(&passes, 1.5);
     try std.testing.expectEqual(max_passes, effects.passes.items.len);
     for (effects.passes.items) |pass| try std.testing.expectEqual(kept, pass.effect);

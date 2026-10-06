@@ -742,7 +742,7 @@ pub const max_threads = 16;
 /// are shared between them all.
 pub fn shareRows(rows: usize, least: usize, context: anytype, comptime work: fn (@TypeOf(context), usize, usize) void) void {
     const wanted = @max(@min(std.Thread.getCpuCount() catch 1, max_threads, rows / @max(least, 1)), 1);
-    const share = (rows + wanted - 1) / wanted;
+    const share = @divCeil(rows, wanted);
     var threads: [max_threads]?std.Thread = @splat(null);
     var first: usize = @min(share, rows);
     for (threads[1..wanted]) |*thread| {

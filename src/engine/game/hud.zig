@@ -2602,7 +2602,7 @@ test namesView {
     try std.testing.expect(!namesView(.flyby));
     try std.testing.expect(!namesView(.landing_aside));
     try std.testing.expect(namesView(.landing_tube));
-    try std.testing.expect(namesView(@fromBackingInt(@intCast(0x27))));
+    try std.testing.expect(namesView(@fromBackingInt(0x27)));
 }
 
 test instrumented {
@@ -3785,8 +3785,8 @@ test Icons {
     icons.show(.ecm, .flash);
     try std.testing.expectEqual(0, icons.slots[2].ticks);
     // Past the table, an icon is left alone.
-    icons.show(@fromBackingInt(@intCast(25)), .on);
-    try std.testing.expect(!icons.lit(@fromBackingInt(@intCast(25)), 1));
+    icons.show(@fromBackingInt(25), .on);
+    try std.testing.expect(!icons.lit(@fromBackingInt(25), 1));
 }
 
 test Charge {
