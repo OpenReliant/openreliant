@@ -199,8 +199,9 @@ archive has the same name twice, the game reads the first one, and that's the on
 | Stats tables | the game folder | `shipstats.bin` |
 
 Names have no folders, so give the files your mod adds a unique prefix, such as the mod's name, to
-keep them from clashing with another mod's files. A picture or a face film that `mod.ini` names with
-a folder, written with `\` or `/`, is found by its own name, on every system.
+keep them from clashing with another mod's files. A file that `mod.ini` names with a folder in
+front, written with `\` or `/`, such as `EngineSound=sounds\peel.wav`, is found by its own name, on
+every system: models, sounds, pictures and face films alike.
 `sltool hog ls <archive>` lists the files in an archive, and `sltool hog extract` extracts them
 ([Tools](#tools)).
 
