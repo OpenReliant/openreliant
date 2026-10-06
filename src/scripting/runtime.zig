@@ -300,7 +300,7 @@ pub const Runtime = struct {
             const bytecode = luau.compile(source) orelse return error.OutOfMemory;
             errdefer bytecode.free();
             var chunk_buffer: [max_chunk_name:0]u8 = undefined;
-            const chunk = std.fmt.bufPrintSentinel(&chunk_buffer, "={s}/{s}", .{ opened.name, name }, 0) catch "=script";
+            const chunk = std.mem.printSentinel(&chunk_buffer, "={s}/{s}", .{ opened.name, name }, 0) catch "=script";
             try code.add(runtime.gpa, module, chunk, bytecode);
             runtime.check(chunk, bytecode.bytes);
         }
