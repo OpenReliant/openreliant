@@ -19,6 +19,7 @@ const mss = @import("../mss.zig");
 const loudness = mss.loudness;
 const hog_snd = @import("hog_snd.zig");
 const voice = @import("voice.zig");
+const ticks_per_second = @import("main.zig").ticks_per_second;
 
 /// The rate the speech plays at (`0x00461FA1`), which the game plays as stereo, each channel the
 /// same.
@@ -78,6 +79,17 @@ pub const Speech = struct {
     /// How many samples it plays: half its size (`0x00461F20`).
     pub fn samples(speech: Speech) usize {
         return speech.header.size >> 1;
+    }
+
+    /// How many of the game's ticks it plays for at `rate`, rounded up.
+    pub fn ticks(speech: Speech) u32 {
+        const played: u64 = speech.samples();
+        return @intCast((played * ticks_per_second + rate - 1) / rate);
+    }
+
+    comptime {
+        // The longest speech a header can give fits `ticks`.
+        assert(((std.math.maxInt(u32) >> 1) * ticks_per_second + rate - 1) / rate <= std.math.maxInt(u32));
     }
 };
 
@@ -305,6 +317,11 @@ test Speech {
     try std.testing.expectEqual(1000, speech.samples());
     try std.testing.expectEqual(40, speech.stream.len);
     try std.testing.expectEqual(0, speech.stream[0]);
+    // 1000 samples play for a little over 4.5 ticks, rounded up to 5; a second's samples for 100.
+    try std.testing.expectEqual(5, speech.ticks());
+    const second = try testFile(gpa, rate, 40);
+    defer gpa.free(second);
+    try std.testing.expectEqual(100, Speech.parse(second).?.ticks());
     // A scene is read alike.
     const scene = try testFile(gpa, 10, 16);
     defer gpa.free(scene);

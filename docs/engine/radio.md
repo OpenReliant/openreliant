@@ -331,3 +331,8 @@ ported: that mode.
 
 A line plays through the speech sample ([Sound](sound.md#speech)), its peaks rounded off and in
 the cockpit's cabin unless `--original`.
+
+**Improvement:** without a speech sample, as with `--no-sound`, a line still lasts as long as it
+would play, counted on the game's clock (`Radio.unheard`): its face shows, and whatever waits for
+the line, such as a mission's script, waits as long. Otherwise the line would end as soon as it
+started, and the window would close before it showed the face.

@@ -917,6 +917,11 @@ pub const Radio = struct {
     /// (`bigfile.Mods`).
     mods: *const bigfile.Mods = &bigfile.Mods.none,
     player: cbox.Player = .{},
+    /// **Improvement:** with no speech sample to play the lines on (`hog_snd.Sound.speech`), as
+    /// with `--no-sound`, the game's ticks left of the line playing, which `runFilm` counts down.
+    /// A line nobody hears then lasts as long as it would with sound, so its face shows and
+    /// whatever waits for the line waits as long. Otherwise it would end as soon as it started.
+    unheard: u32 = 0,
     /// How the lines sound.
     style: cbox.Style = .{},
     /// The films of the speakers' faces (`hudmovie.cpp`).
@@ -972,6 +977,7 @@ pub const Radio = struct {
     /// before its window has opened; OpenReliant stops it.
     pub fn reset(radio: *Radio, sound: ?*hog_snd.Sound) void {
         if (sound) |heard| radio.player.stop(radio.gpa, heard) else radio.player.deinit(radio.gpa);
+        radio.unheard = 0;
         radio.dropLine();
         radio.movie.stop();
         radio.movie.waiting = false;
@@ -983,9 +989,11 @@ pub const Radio = struct {
         radio.reports = @splat(null);
     }
 
-    /// `speech_playing` (`0x004620A0`): whether a line plays.
+    /// `speech_playing` (`0x004620A0`): whether a line plays, or with no speech sample, whether
+    /// the line's time has not yet run out (`unheard`).
     pub fn speaking(radio: *const Radio, sound: ?*hog_snd.Sound) bool {
         const heard = sound orelse return false;
+        if (heard.speech == null) return radio.unheard > 0;
         return radio.player.playing(heard);
     }
 
@@ -1023,7 +1031,7 @@ pub const Radio = struct {
     /// speech is read and its film played, the line starting with it (`start`).
     fn sayNow(radio: *Radio, ctx: Context, line: Line) void {
         if (ctx.windows) |windows| if (windows.status.get(.radio).phase != .open) windows.hold(.radio);
-        radio.player.stop(radio.gpa, ctx.sound);
+        radio.endLine(ctx.sound);
         radio.name = line.name;
         radio.object = line.object;
         radio.side = sideOf(ctx.all, line.object);
@@ -1133,8 +1141,10 @@ pub const Radio = struct {
     }
 
     /// The film's timer for a frame of `ticks` (`hudmovie.Movie.run`): a film that held for its
-    /// line, which is over, has stopped, and the window closes.
+    /// line, which is over, has stopped, and the window closes. A line nobody hears counts down
+    /// its time (`unheard`) first.
     pub fn runFilm(radio: *Radio, ctx: Context, ticks: u32) void {
+        radio.unheard -|= ticks;
         if (!radio.movie.run(ticks, radio.speaking(ctx.sound), ctx.all.mission_number)) return;
         if (ctx.windows) |windows| windows.close(.radio);
     }
@@ -1155,7 +1165,7 @@ pub const Radio = struct {
     /// window or a film, ending the line playing. The game reads it into a buffer of its own
     /// (`0x005883D0`), so a line waiting for the window keeps its own.
     pub fn playSpeech(radio: *Radio, sound: *hog_snd.Sound, speech: []const u8) void {
-        radio.player.stop(radio.gpa, sound);
+        radio.endLine(sound);
         const bytes = radio.readSpeech(speech) orelse return;
         defer radio.gpa.free(bytes);
         radio.play(sound, bytes);
@@ -1220,13 +1230,24 @@ pub const Radio = struct {
     }
 
     /// `bytes`, a speech file, played (`cbox.Player.start`) at the volume every line the game plays
-    /// takes, the line playing ended; one that is not a speech file is left out with a warning.
+    /// takes, the line playing ended; with no speech sample, timed (`unheard`) instead. A file
+    /// that is not a speech file is left out with a warning.
     fn play(radio: *Radio, sound: *hog_snd.Sound, bytes: []u8) void {
         const parsed = cbox.Speech.parse(bytes) orelse {
             log.warn("a line of the radio's is not a speech file", .{});
             return;
         };
+        if (sound.speech == null) {
+            radio.unheard = parsed.ticks();
+            return;
+        }
         _ = radio.player.start(radio.gpa, sound, parsed, hog_snd.loudest, radio.style, null);
+    }
+
+    /// `speech_stop`: the line playing ended, heard or not.
+    fn endLine(radio: *Radio, sound: *hog_snd.Sound) void {
+        radio.player.stop(radio.gpa, sound);
+        radio.unheard = 0;
     }
 };
 
@@ -1332,6 +1353,59 @@ test Radio {
     try std.testing.expect(!radio.movie.playing);
     radio.playSpeech(sound, "nothing.ut");
     try std.testing.expect(!radio.speaking(sound));
+}
+
+test "a line nobody hears lasts as long as it would with sound" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    // Lines of a fifth of a second: 20 ticks.
+    var archives: testing.Archives = undefined;
+    try archives.init(gpa, io, &.{ "MS1_BAN_001", "PLCK_001" }, &.{
+        .{ .name = "45volntrs_plt.fm8", .frames = 2, .colour = 0x40 },
+        .{ .name = "static.fm8", .frames = 2, .colour = 0x80 },
+    });
+    defer archives.deinit();
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    mission.objects.mission_number = 1;
+    const wingman = try mission.add(.of(.predator), @splat(0));
+
+    var radio = archives.radio(gpa, io);
+    // Without a driver, as with `--no-sound`, the sound has no speech sample.
+    var sound: hog_snd.Sound = .{};
+    defer radio.deinit(&sound);
+    var windows: Windows = .{};
+    const ctx: Context = .{ .sound = &sound, .windows = &windows, .all = mission.objects, .frame_start = 100 };
+
+    // The line starts as the window opens, and lasts its 20 ticks of the game's clock, while its
+    // film plays.
+    radio.sayShip(ctx, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
+    try std.testing.expect(!radio.speaking(&sound));
+    radio.waitForWindow(&sound, speech_delay);
+    try std.testing.expect(!radio.movie.waiting);
+    try std.testing.expect(radio.speaking(&sound));
+    radio.runFilm(ctx, 19);
+    try std.testing.expect(radio.speaking(&sound));
+    try std.testing.expect(radio.movie.playing);
+    radio.runFilm(ctx, 1);
+    try std.testing.expect(!radio.speaking(&sound));
+
+    // A line said at once ends the one playing and lasts its own time; a line queued waits until
+    // that is over.
+    radio.sayShip(ctx, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
+    radio.runFilm(ctx, 10);
+    radio.sayShip(ctx, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
+    try std.testing.expectEqual(20, radio.unheard);
+    radio.sayShip(ctx, wingman, .squadron, "plck_001.ut", .queued, .looping, no_expiry);
+    windows.close(.radio);
+    radio.frame(ctx);
+    try std.testing.expectEqual(1, radio.count);
+    radio.runFilm(ctx, 20);
+    radio.frame(ctx);
+    try std.testing.expectEqual(0, radio.count);
+    radio.reset(&sound);
+    try std.testing.expect(!radio.speaking(&sound));
 }
 
 test sideOf {
