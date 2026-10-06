@@ -7,6 +7,13 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Deletes the cache manifests that name our own sources. They hold them as relative paths
+  # (src/...), where the packages' sources are absolute.
+  forget_our_code: >-
+    { grep -a -l -r -E '(^|[^/\\[:alnum:]_.+-])src[/\\]' .zig-cache/h 2>/dev/null || true; }
+    | xargs rm -f
+
 jobs:
   test:
     strategy:
@@ -19,11 +26,17 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+      # A cache saved before this step existed can name binaries it no longer holds.
+      - name: Forget the cached builds of our own code
+        shell: bash
+        run: ${{ env.forget_our_code }}
       - run: zig build --summary all
       - run: zig build test --summary all
       # setup-zig saves .zig-cache after the job, but clears it when it is over 2 GB. Our own
       # programs and test binaries change with every commit and would fill it, so they are left
       # out: the C libraries, the fetched packages and translate-c then stay cached between runs.
+      # Zig takes a build as cached from its manifest alone, so the manifests that name our sources
+      # go too, or the next run would look for binaries that are gone.
       - if: always()
         shell: bash
         run: >-
@@ -31,4 +44,4 @@ jobs:
           -name test -o -name 'test.*' -o -name '*_zcu.o' -o -name '*_zcu.obj'
           -o -name 'openreliant' -o -name 'openreliant.*' -o -name 'sltool' -o -name 'sltool.*'
           -o -name 'tablegen*' -o -name 'ghidragen*' -o -name 'mission0' -o -name 'mission0.*'
-          \) -delete
+          \) -delete && ${{ env.forget_our_code }}
