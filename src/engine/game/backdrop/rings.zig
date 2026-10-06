@@ -537,7 +537,7 @@ const Synthetic = struct {
         gpa.free(synthetic.rgba);
     }
 
-    fn image(synthetic: *const Synthetic) srtexture.Image {
+    fn image(synthetic: *Synthetic) srtexture.Image {
         return .{ .levels = &synthetic.level };
     }
 };
@@ -561,7 +561,7 @@ test redraw {
             return .{ 0, 0, 0, 255 };
         }
     };
-    const source: Synthetic = try .init(gpa, 32, bands.colour);
+    var source: Synthetic = try .init(gpa, 32, bands.colour);
     defer source.deinit(gpa);
     const drawn = try redraw(gpa, &source.image(), .round);
     defer free(gpa, drawn);
@@ -605,7 +605,7 @@ test "redraw smooths a gradient's rounding" {
             return .{ fiveBit(level), 0, 0, 255 };
         }
     };
-    const source: Synthetic = try .init(gpa, 64, stairs.colour);
+    var source: Synthetic = try .init(gpa, 64, stairs.colour);
     defer source.deinit(gpa);
     const drawn = try redraw(gpa, &source.image(), .round);
     defer free(gpa, drawn);
@@ -631,7 +631,7 @@ test "redraw keeps the rays and leaves out the rounding" {
             return .{ grey, grey, grey, 255 };
         }
     };
-    const source: Synthetic = try .init(gpa, 32, rayed.colour);
+    var source: Synthetic = try .init(gpa, 32, rayed.colour);
     defer source.deinit(gpa);
     const kept = try redraw(gpa, &source.image(), .kept);
     defer free(gpa, kept);

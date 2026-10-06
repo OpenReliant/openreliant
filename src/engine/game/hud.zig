@@ -5384,7 +5384,7 @@ test "a shaken image is drawn a row at a time" {
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
     const into = recorder.interface();
-    const texels: [2 * 3 * 4]u8 = @splat(0xFF);
+    var texels: [2 * 3 * 4]u8 = @splat(0xFF);
     var level = [_]srtexture.Level{.{ .width = 2, .height = 3, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
     var random: Random = .{};
@@ -5472,7 +5472,7 @@ test "an image cut to a clip keeps the part of it inside" {
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
     const into = recorder.interface();
-    const texels: [4 * 2 * 4]u8 = @splat(0xFF);
+    var texels: [4 * 2 * 4]u8 = @splat(0xFF);
     var level = [_]srtexture.Level{.{ .width = 4, .height = 2, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
 

@@ -57,6 +57,29 @@ pub const Container = enum {
             .png => png.extension,
         };
     }
+
+    /// The kind of file with its levels as they are that it is; null for a PNG file, which holds
+    /// one picture to decode.
+    fn levelFile(container: Container) ?LevelFile {
+        return switch (container) {
+            inline .ktx2, .dds => |tag| @field(LevelFile, @tagName(tag)),
+            .png => null,
+        };
+    }
+};
+
+/// A file that holds a picture's levels as they are, compressed or not.
+const LevelFile = enum {
+    ktx2,
+    dds,
+
+    /// The picture `bytes` hold, its levels kept in `buffer`.
+    fn read(kind: LevelFile, bytes: []const u8, buffer: *[texels.max_levels][]const u8) (dds.Error || ktx2.Error)!texels.Contained {
+        return switch (kind) {
+            .ktx2 => ktx2.read(bytes, buffer),
+            .dds => dds.read(bytes, buffer),
+        };
+    }
 };
 
 pub const containers = std.enums.values(Container);
@@ -301,7 +324,7 @@ const Task = struct {
     gpa: Allocator,
     /// The picture's own size, which a map packed from parts must have.
     size: ?[2]u32 = null,
-    made: ?[]const Level = null,
+    made: ?[]Level = null,
     failed: bool = false,
 
     /// Whether the picture has a file for it.
@@ -324,7 +347,7 @@ const Task = struct {
         };
     }
 
-    fn decode(task: *Task) Allocator.Error!?[]const Level {
+    fn decode(task: *Task) Allocator.Error!?[]Level {
         const read = task.read;
         return switch (task.role) {
             .picture => decodeFile(task.gpa, read.picture.?, .colour, task.longest),
@@ -338,10 +361,10 @@ const Task = struct {
 /// `file`'s levels: a compressed file's or one with its levels as they are, its finest given up
 /// while longer than `longest`; otherwise decoded and mipmapped for `content`, a 16-bit PNG normal
 /// map at 16 bits. Null where it can't be read, which the log says.
-fn decodeFile(gpa: Allocator, file: File, content: Content, longest: u32) Allocator.Error!?[]const Level {
-    if (file.container != .png) {
+fn decodeFile(gpa: Allocator, file: File, content: Content, longest: u32) Allocator.Error!?[]Level {
+    if (file.container.levelFile()) |kind| {
         var buffer: [texels.max_levels][]const u8 = undefined;
-        const contained = contain(file, &buffer) orelse return null;
+        const contained = contain(file, kind, &buffer) orelse return null;
         if (contained.format.compressed() or contained.levels.len > 1) return try copied(gpa, contained, longest);
     } else if (content == .normal and png.wide(file.bytes) catch false) {
         const picture = png.readWide(gpa, file.bytes) catch |err| switch (err) {
@@ -357,14 +380,9 @@ fn decodeFile(gpa: Allocator, file: File, content: Content, longest: u32) Alloca
     return try srtexture.mipmaps(gpa, picture, content, longest);
 }
 
-/// The picture a DDS or KTX2 file holds; null where it can't be read, which the log says.
-fn contain(file: File, buffer: *[texels.max_levels][]const u8) ?texels.Contained {
-    const read = switch (file.container) {
-        .dds => dds.read(file.bytes, buffer),
-        .ktx2 => ktx2.read(file.bytes, buffer),
-        .png => unreachable,
-    };
-    return read catch |err| {
+/// The picture `file`, a file of `kind`, holds; null where it can't be read, which the log says.
+fn contain(file: File, kind: LevelFile, buffer: *[texels.max_levels][]const u8) ?texels.Contained {
+    return kind.read(file.bytes, buffer) catch |err| {
         log.warn("{s} is left out: {s}", .{ file.name, @errorName(err) });
         return null;
     };
@@ -372,7 +390,7 @@ fn contain(file: File, buffer: *[texels.max_levels][]const u8) ?texels.Contained
 
 /// `contained`'s levels, copied, its finest given up while longer than `longest`, all but the
 /// coarsest at most.
-fn copied(gpa: Allocator, contained: texels.Contained, longest: u32) Allocator.Error![]const Level {
+fn copied(gpa: Allocator, contained: texels.Contained, longest: u32) Allocator.Error![]Level {
     var from: usize = 0;
     while (from + 1 < contained.levels.len and @max(contained.sizeOf(from)[0], contained.sizeOf(from)[1]) > longest) from += 1;
     const levels = try gpa.alloc(Level, contained.levels.len - from);
@@ -391,20 +409,16 @@ fn copied(gpa: Allocator, contained: texels.Contained, longest: u32) Allocator.E
 
 /// The size of the picture `file` holds, from its header; null where it can't be read.
 fn sizeOf(file: File) ?[2]u32 {
-    if (file.container == .png) return png.size(file.bytes) catch null;
+    const kind = file.container.levelFile() orelse return png.size(file.bytes) catch null;
     var buffer: [texels.max_levels][]const u8 = undefined;
-    const contained = switch (file.container) {
-        .dds => dds.read(file.bytes, &buffer),
-        .ktx2 => ktx2.read(file.bytes, &buffer),
-        .png => unreachable,
-    } catch return null;
+    const contained = kind.read(file.bytes, &buffer) catch return null;
     return .{ contained.width, contained.height };
 }
 
 /// The 8-bit RGBA picture `file` holds; null where it can't be read, or is compressed, which the
 /// log says.
 fn pictureOf(gpa: Allocator, file: File) Allocator.Error!?png.Picture {
-    if (file.container == .png) return png.read(gpa, file.bytes) catch |err| switch (err) {
+    const kind = file.container.levelFile() orelse return png.read(gpa, file.bytes) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.NotAPng, error.Corrupt, error.Unsupported, error.BadSize => {
             log.warn("{s} is left out: {s}", .{ file.name, @errorName(err) });
@@ -412,7 +426,7 @@ fn pictureOf(gpa: Allocator, file: File) Allocator.Error!?png.Picture {
         },
     };
     var buffer: [texels.max_levels][]const u8 = undefined;
-    const contained = contain(file, &buffer) orelse return null;
+    const contained = contain(file, kind, &buffer) orelse return null;
     if (contained.format.compressed()) {
         log.warn("{s} is left out: a map packed from parts takes them uncompressed", .{file.name});
         return null;
@@ -424,7 +438,7 @@ fn pictureOf(gpa: Allocator, file: File) Allocator.Error!?png.Picture {
 /// maps alone, each the red of its own (grey) map, or where it has none no occlusion, rough, or
 /// not metallic. Null where none of the three can be read; a part of another size than the
 /// picture's, `picture_size`, or the first part's, is left out, which the log says.
-fn packedMap(gpa: Allocator, read: *const Read, picture_size: ?[2]u32, longest: u32) Allocator.Error!?[]const Level {
+fn packedMap(gpa: Allocator, read: *const Read, picture_size: ?[2]u32, longest: u32) Allocator.Error!?[]Level {
     const parts = [_]MapFile{ .occlusion, .roughness, .metallic };
     const fallbacks = [parts.len]u8{ std.math.maxInt(u8), std.math.maxInt(u8), 0 };
     var pictures: [parts.len]?png.Picture = @splat(null);
@@ -478,15 +492,16 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
     leaveOut(gpa, &made.maps.orm, orm_format, compressing, name, .orm);
     leaveOut(gpa, &made.maps.emissive, emissive_format, compressing, name, .emissive);
     // The length of the normals' mean goes to the material map's alpha, as BC5 and RG16 keep two
-    // channels.
-    if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (normals[0].format.rgba() and orm[0].format == .rgba8) {
+    // channels. Maps with different numbers of levels aren't handled yet
+    // ([#771](https://github.com/OpenReliant/openreliant/issues/771)).
+    if (made.maps.normal) |normals| if (made.maps.orm) |orm| if (orm[0].format == .rgba8) {
         for (normals, orm) |normal, values| {
-            const into: []u8 = @constCast(values.texels);
-            for (0..@as(usize, normal.width) * normal.height) |at| into[at * 4 + 3] = srtexture.sample8(srtexture.samplesAt(normal, at)[3]);
+            const wide = srtexture.RgbaLevel.of(normal) orelse continue;
+            for (0..@as(usize, wide.width) * wide.height) |at| values.texels[at * 4 + 3] = srtexture.sample8(srtexture.samplesAt(wide, at)[3]);
         }
     };
     if (!compressing) {
-        if (made.maps.normal) |*levels| if (levels.*[0].format.rgba()) try twoChannels(gpa, levels);
+        if (made.maps.normal) |*levels| if (levels.*[0].format.rgba() != null) try twoChannels(gpa, levels);
         return false;
     }
     const held = compressor.?;
@@ -501,10 +516,10 @@ fn conform(gpa: Allocator, made: *Image, read: *const Read, compressor: ?Compres
 /// Leaves out the map `levels` where it isn't of `wanted`, and can't be made into it: a map in
 /// 8-bit or 16-bit RGBA can be compressed while `compressing`, and made into an uncompressed
 /// format.
-fn leaveOut(gpa: Allocator, levels: *?[]const Level, wanted: Level.Format, compressing: bool, name: []const u8, map: MapFile) void {
+fn leaveOut(gpa: Allocator, levels: *?[]Level, wanted: Level.Format, compressing: bool, name: []const u8, map: MapFile) void {
     const found = levels.* orelse return;
     const format = found[0].format;
-    const makes = format.rgba() and (compressing or !wanted.compressed());
+    const makes = format.rgba() != null and (compressing or !wanted.compressed());
     if (format == wanted or makes) return;
     log.warn("the {s} of {s} is left out: it is in {t}, and goes with a picture in {t}", .{ map.label(), name, format, wanted });
     freeLevels(gpa, found);
@@ -512,7 +527,7 @@ fn leaveOut(gpa: Allocator, levels: *?[]const Level, wanted: Level.Format, compr
 }
 
 /// Compresses `levels` as `kind`, where they are uncompressed. Returns whether it did.
-fn compressLevels(gpa: Allocator, compressor: Compressor, levels: *[]const Level, kind: Compressor.Kind) Allocator.Error!bool {
+fn compressLevels(gpa: Allocator, compressor: Compressor, levels: *[]Level, kind: Compressor.Kind) Allocator.Error!bool {
     if (levels.*[0].format.compressed()) return false;
     const made = try gpa.alloc(Level, levels.len);
     var done: usize = 0;
@@ -529,9 +544,9 @@ fn compressLevels(gpa: Allocator, compressor: Compressor, levels: *[]const Level
     return true;
 }
 
-/// Makes the normal map `levels`, 8-bit or 16-bit RGBA, its x and y alone at 16 bits (`rg16`),
-/// for a GPU that draws it uncompressed.
-fn twoChannels(gpa: Allocator, levels: *[]const Level) Allocator.Error!void {
+/// Makes the normal map `levels` its x and y alone at 16 bits (`rg16`), for a GPU that draws it
+/// uncompressed. A level in another format than 8-bit or 16-bit RGBA stays as it is.
+fn twoChannels(gpa: Allocator, levels: *[]Level) Allocator.Error!void {
     const made = try gpa.alloc(Level, levels.len);
     var done: usize = 0;
     errdefer {
@@ -539,9 +554,14 @@ fn twoChannels(gpa: Allocator, levels: *[]const Level) Allocator.Error!void {
         gpa.free(made);
     }
     for (levels.*, made) |level, *into| {
+        const wide = srtexture.RgbaLevel.of(level) orelse {
+            into.* = .{ .width = level.width, .height = level.height, .format = level.format, .texels = try gpa.dupe(u8, level.texels) };
+            done += 1;
+            continue;
+        };
         const out = try gpa.alloc(u8, Level.Format.rg16.size(level.width, level.height));
         for (0..@as(usize, level.width) * level.height) |at| {
-            const samples = srtexture.samplesAt(level, at);
+            const samples = srtexture.samplesAt(wide, at);
             std.mem.writeInt(u16, out[at * 4 ..][0..2], samples[0], .native);
             std.mem.writeInt(u16, out[at * 4 + 2 ..][0..2], samples[1], .native);
         }
@@ -604,7 +624,7 @@ const TestCompressor = struct {
         held.loads += 1;
         const kept = held.kept orelse return null;
         if (!std.mem.eql(u8, name, held.kept_name[0..held.kept_name_len]) or key.* != held.kept_key) return null;
-        var maps: [Image.Maps.count]?[]const Level = @splat(null);
+        var maps: [Image.Maps.count]?[]Level = @splat(null);
         for (kept.maps.list(), &maps) |kept_map, *map| map.* = if (kept_map) |levels| try copy(gpa, levels) else null;
         return .{ .levels = try copy(gpa, kept.levels), .maps = .fromList(maps) };
     }
@@ -615,12 +635,12 @@ const TestCompressor = struct {
         @memcpy(held.kept_name[0..name.len], name);
         held.kept_name_len = name.len;
         held.kept_key = key.*;
-        var maps: [Image.Maps.count]?[]const Level = @splat(null);
+        var maps: [Image.Maps.count]?[]Level = @splat(null);
         for (image.maps.list(), &maps) |given, *map| map.* = if (given) |levels| copy(std.testing.allocator, levels) catch null else null;
         held.kept = .{ .levels = copy(std.testing.allocator, image.levels) catch return, .maps = .fromList(maps) };
     }
 
-    fn copy(gpa: Allocator, levels: []const Level) Allocator.Error![]const Level {
+    fn copy(gpa: Allocator, levels: []const Level) Allocator.Error![]Level {
         const made = try gpa.alloc(Level, levels.len);
         for (made, levels) |*into, level| into.* = .{ .width = level.width, .height = level.height, .format = level.format, .texels = try gpa.dupe(u8, level.texels) };
         return made;
@@ -728,6 +748,29 @@ test "a 16-bit normal map keeps its precision, compressed or not" {
     defer made.deinit(gpa);
     try std.testing.expectEqual(Level.Format.bc5, made.maps.normal.?[0].format);
     try std.testing.expectEqual(Level.Format.rgba16, compressor.normals_format.?);
+}
+
+test LevelFile {
+    try std.testing.expectEqual(null, Container.png.levelFile());
+    try std.testing.expectEqual(.dds, Container.dds.levelFile().?);
+    try std.testing.expectEqual(.ktx2, Container.ktx2.levelFile().?);
+}
+
+test twoChannels {
+    const gpa = std.testing.allocator;
+    // A 16-bit RGBA level becomes its x and y; a level in another format stays as it is.
+    const wide = try gpa.alloc(u8, Level.Format.rgba16.size(1, 1));
+    for ([_]u16{ 1, 2, 3, 4 }, 0..) |sample, channel| std.mem.writeInt(u16, wide[channel * 2 ..][0..2], sample, .native);
+    const blocks = try gpa.alloc(u8, Level.Format.bc5.size(1, 1));
+    @memset(blocks, 7);
+    var levels = try gpa.dupe(Level, &.{ .{ .width = 1, .height = 1, .format = .rgba16, .texels = wide }, .{ .width = 1, .height = 1, .format = .bc5, .texels = blocks } });
+    try twoChannels(gpa, &levels);
+    defer freeLevels(gpa, levels);
+    try std.testing.expectEqual(Level.Format.rg16, levels[0].format);
+    try std.testing.expectEqual(1, std.mem.readInt(u16, levels[0].texels[0..2], .native));
+    try std.testing.expectEqual(2, std.mem.readInt(u16, levels[0].texels[2..4], .native));
+    try std.testing.expectEqual(Level.Format.bc5, levels[1].format);
+    try std.testing.expectEqualSlices(u8, &@as([16]u8, @splat(7)), levels[1].texels);
 }
 
 test "a DDS picture draws as it is where the device takes its format, and not otherwise" {

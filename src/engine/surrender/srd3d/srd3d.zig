@@ -812,7 +812,7 @@ pub fn backgroundEdges(image: *const srtexture.Image, viewport: [4]f32) [4]f32 {
 }
 
 test backgroundEdges {
-    const texels: [16 * 9 * 4]u8 = @splat(0);
+    var texels: [16 * 9 * 4]u8 = @splat(0);
     var level = [_]srtexture.Level{.{ .width = 4, .height = 3, .texels = &texels }};
     const picture: srtexture.Image = .{ .levels = &level };
     // A 4:3 image covers a 4:3 viewport, whatever its size.

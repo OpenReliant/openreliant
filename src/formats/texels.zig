@@ -25,12 +25,15 @@ pub const Format = enum {
     /// 16 bits for a GPU that draws it uncompressed.
     rg16,
 
-    /// Whether it holds blocks of 4 by 4 pixels.
-    /// Whether it is 8-bit or 16-bit RGBA, as pictures are read and mipmapped.
-    pub fn rgba(format: Format) bool {
-        return format == .rgba8 or format == .rgba16;
+    /// Which RGBA format it is, as pictures are read and mipmapped; null for another.
+    pub fn rgba(format: Format) ?Rgba {
+        return switch (format) {
+            inline .rgba8, .rgba16 => |tag| @field(Rgba, @tagName(tag)),
+            .bc1, .bc3, .bc5, .bc7, .rg16 => null,
+        };
     }
 
+    /// Whether it holds blocks of 4 by 4 pixels.
     pub fn compressed(format: Format) bool {
         return switch (format) {
             .rgba8, .rgba16, .rg16 => false,
@@ -50,6 +53,19 @@ pub const Format = enum {
             .rgba8, .rg16 => 4,
             .bc1, .rgba16 => 8,
             .bc3, .bc5, .bc7 => 16,
+        };
+    }
+};
+
+/// The formats pictures are read and mipmapped in: 8-bit or 16-bit RGBA.
+pub const Rgba = enum {
+    rgba8,
+    rgba16,
+
+    /// The level format it is.
+    pub fn asFormat(rgba: Rgba) Format {
+        return switch (rgba) {
+            inline else => |tag| @field(Format, @tagName(tag)),
         };
     }
 };
@@ -120,6 +136,10 @@ test Format {
     try std.testing.expectEqual(3 * 8, Format.rgba16.size(3, 1));
     try std.testing.expectEqual(3 * 4, Format.rg16.size(1, 3));
     try std.testing.expect(!Format.rg16.compressed());
+    // The RGBA formats, and back.
+    try std.testing.expectEqual(.rgba16, Format.rgba16.rgba().?);
+    for ([_]Format{ .bc1, .bc7, .rg16 }) |other| try std.testing.expectEqual(null, other.rgba());
+    for (std.enums.values(Rgba)) |rgba| try std.testing.expectEqual(rgba, rgba.asFormat().rgba().?);
 }
 
 test cut {

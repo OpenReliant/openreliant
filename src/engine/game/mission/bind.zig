@@ -16,6 +16,7 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
 const dte = @import("../../../formats/dte.zig");
+const layout = @import("../../../formats/layout.zig");
 const files = @import("../../files.zig");
 const vm = @import("../../vm.zig");
 const bigfile = @import("../bigfile.zig");
@@ -139,8 +140,7 @@ pub const Mission = struct {
 
     /// The mission's ships, as the engine writes them.
     pub fn ships(mission: Mission) dte.Error![]align(1) dte.Ship {
-        // The image is the mission's own, and writable.
-        return @constCast(try mission.file.ships());
+        return mission.recordsMut(dte.Ship, .ships);
     }
 
     /// How many ships the mission places (`mission_ships_count`, `0x00529504`): none where the
@@ -151,12 +151,21 @@ pub const Mission = struct {
     }
 
     pub fn flightGroups(mission: Mission) dte.Error![]align(1) dte.FlightGroup {
-        return @constCast(try mission.file.flightGroups());
+        return mission.recordsMut(dte.FlightGroup, .flight_groups);
     }
 
     /// The trigger list, as the engine arms and disarms its triggers.
     pub fn triggers(mission: Mission) dte.Error![]align(1) dte.Trigger {
-        return @constCast(try mission.file.triggers());
+        return mission.recordsMut(dte.Trigger, .triggers);
+    }
+
+    /// The records of a fixed-stride section, as `T`, to write. The image is the mission's own,
+    /// as the game's buffer is: `mission_bind_section` (`0x00452A20`) points each section into
+    /// it, and the engine writes the records' run-time fields there, as `mission_ships_reset`
+    /// (`0x00452010`) does.
+    fn recordsMut(mission: Mission, comptime T: type, section: dte.Section) dte.Error![]align(1) T {
+        const at = try mission.file.span(section) orelse return &.{};
+        return layout.arrayMut(T, mission.image[at.offset..], at.count);
     }
 
     /// Where the block `offset` bytes into the code of section `code` lies in the image, as
@@ -604,6 +613,9 @@ test "Mission.bind" {
     try std.testing.expectEqual(4, mission.ship(4).?.object_id);
     mission.ship(4).?.runtime_yaw = 45;
     try std.testing.expectEqual(45, ships[4].runtime_yaw);
+    // The engine writes into the mission's own image, which the file's records read.
+    try std.testing.expectEqual(45, (try mission.file.ships())[4].runtime_yaw);
+    try std.testing.expectEqual(0, (try mission.triggers()).len);
     try std.testing.expectEqual(null, mission.ship(6));
     try std.testing.expectEqual(7, mission.flightGroup(1).?.object_id);
     try std.testing.expectEqual(null, mission.flightGroup(3));

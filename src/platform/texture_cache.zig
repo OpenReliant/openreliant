@@ -118,7 +118,7 @@ fn setsOf(image: Image) [set_count][]const Level {
 /// (`takes`), or null.
 fn decode(gpa: Allocator, body: []const u8, takes: std.EnumSet(Level.Format)) Allocator.Error!?Image {
     var reader: Reader = .{ .bytes = body };
-    var sets: [set_count]?[]const Level = @splat(null);
+    var sets: [set_count]?[]Level = @splat(null);
     errdefer for (sets) |found| if (found) |levels| freeLevels(gpa, levels);
     for (&sets) |*set| set.* = try reader.levels(gpa, takes) orelse {
         for (sets) |found| if (found) |levels| freeLevels(gpa, levels);
@@ -129,7 +129,7 @@ fn decode(gpa: Allocator, body: []const u8, takes: std.EnumSet(Level.Format)) Al
         return null;
     }
     // A map with no levels is one the picture doesn't have.
-    var maps: [Image.Maps.count]?[]const Level = undefined;
+    var maps: [Image.Maps.count]?[]Level = undefined;
     for (sets[1..], &maps) |set, *map| {
         map.* = if (set.?.len > 0) set.? else null;
         if (map.* == null) gpa.free(set.?);
@@ -150,7 +150,7 @@ const Reader = struct {
 
     /// The next set of levels, copied; null where it is cut short, of sizes that don't fit, or of
     /// a format the GPU doesn't take.
-    fn levels(reader: *Reader, gpa: Allocator, takes: std.EnumSet(Level.Format)) Allocator.Error!?[]const Level {
+    fn levels(reader: *Reader, gpa: Allocator, takes: std.EnumSet(Level.Format)) Allocator.Error!?[]Level {
         const count = std.mem.readInt(u32, (reader.take(4) orelse return null)[0..4], .little);
         if (count > texels.max_levels) return null;
         const made = try gpa.alloc(Level, count);
@@ -171,7 +171,7 @@ const Reader = struct {
         return made;
     }
 
-    fn giveUp(gpa: Allocator, done: []const Level, made: []Level) ?[]const Level {
+    fn giveUp(gpa: Allocator, done: []const Level, made: []Level) ?[]Level {
         for (done) |level| gpa.free(level.texels);
         gpa.free(made);
         return null;

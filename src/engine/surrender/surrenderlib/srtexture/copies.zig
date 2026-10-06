@@ -42,7 +42,7 @@ pub const Copy = enum {
         for (&ramp, 0..) |*colour, at| colour.* = copy.shade(range.stretch(@intCast(at)));
         for (levels) |level| {
             std.debug.assert(level.format == .rgba8);
-            const pixels: []u8 = @constCast(level.texels);
+            const pixels = level.texels;
             var at: usize = 0;
             while (at + 4 <= pixels.len) : (at += 4) {
                 pixels[at..][0..3].* = ramp[brightness(pixels[at..][0..3].*)];

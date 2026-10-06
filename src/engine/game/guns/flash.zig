@@ -211,7 +211,7 @@ pub const Looks = struct {
         defer gpa.free(file);
         const picture = try files.picture(gpa, file) orelse return white;
         defer picture.deinit(gpa);
-        const level = [1]srtexture.Level{.{ .width = picture.width, .height = picture.height, .texels = picture.rgba }};
+        var level = [1]srtexture.Level{.{ .width = picture.width, .height = picture.height, .texels = picture.rgba }};
         const decoded: srtexture.Image = .{ .levels = &level };
         return flareColour(&.{.{ .image = &decoded }});
     }
@@ -498,19 +498,21 @@ test Guns {
 
 test flareColour {
     // A yellow texel and a dark blue one: the light is their sum brought up to full brightness.
-    const rgba = [_]u8{ 200, 200, 0, 255, 0, 0, 100, 255 };
-    const level: srtexture.Level = .{ .width = 2, .height = 1, .texels = &rgba };
-    const image: srtexture.Image = .{ .levels = &.{level} };
+    var rgba = [_]u8{ 200, 200, 0, 255, 0, 0, 100, 255 };
+    var level = [_]srtexture.Level{.{ .width = 2, .height = 1, .texels = &rgba }};
+    const image: srtexture.Image = .{ .levels = &level };
     try std.testing.expectEqual([3]f32{ 1, 1, 0.5 }, flareColour(&.{.{ .image = &image }}));
     // Over the left texel alone.
     try std.testing.expectEqual([3]f32{ 1, 1, 0 }, flareColour(&.{.{ .image = &image, .high = .{ 0.5, 1 } }}));
     // Nothing added, white.
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, flareColour(&.{.{ .image = &image, .high = .{ 0, 1 } }}));
     // A texture held compressed, or whose pixels the device took, adds nothing.
-    const blocks: [16]u8 = @splat(0xFF);
-    const compressed: srtexture.Image = .{ .levels = &.{.{ .width = 4, .height = 4, .format = .bc7, .texels = &blocks }} };
+    var blocks: [16]u8 = @splat(0xFF);
+    var compressed_level = [_]srtexture.Level{.{ .width = 4, .height = 4, .format = .bc7, .texels = &blocks }};
+    const compressed: srtexture.Image = .{ .levels = &compressed_level };
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, flareColour(&.{.{ .image = &compressed }}));
-    const released: srtexture.Image = .{ .levels = &.{.{ .width = 2, .height = 1, .texels = &.{} }} };
+    var released_level = [_]srtexture.Level{.{ .width = 2, .height = 1, .texels = &.{} }};
+    const released: srtexture.Image = .{ .levels = &released_level };
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, flareColour(&.{.{ .image = &released }}));
 }
 
@@ -523,8 +525,9 @@ test "a mod's flash held compressed takes its light's colour from its PNG file" 
     const textures = try srtexture.testing.Textures.init(gpa, &.{});
     defer textures.deinit(gpa);
     textures.table.files = pictures.files();
-    const blocks: [16]u8 = @splat(0xFF);
-    const compressed: srtexture.Image = .{ .levels = &.{.{ .width = 4, .height = 4, .format = .bc7, .texels = &blocks }} };
+    var blocks: [16]u8 = @splat(0xFF);
+    var compressed_level = [_]srtexture.Level{.{ .width = 4, .height = 4, .format = .bc7, .texels = &blocks }};
+    const compressed: srtexture.Image = .{ .levels = &compressed_level };
     try std.testing.expectEqual([3]f32{ 1, 0.5, 0 }, try Looks.ownColour(gpa, &textures.table, "peel", &compressed));
     try std.testing.expectEqual(white, try Looks.ownColour(gpa, &textures.table, "missing", &compressed));
 }
