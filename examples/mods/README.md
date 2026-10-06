@@ -21,10 +21,13 @@ or go away in any release. Copy one as a starting point for your own mod.
 | [`rules`](rules) | Hooks on the game's functions |
 | [`strafe-run`](strafe-run) | A custom order with a HUD display, a chase camera and rebindable actions |
 | [`tally`](tally) | Storage kept with each saved game and across every game |
-| [`trent`](trent) | Face films that replace a pilot's by name, built with `sltool fm8 encode`, and the pilot renamed in the game's text from a load script |
 | [`teapot`](teapot) | A ship type with a model of its own, built from OBJ (`sltool shp from-obj`), and its own cockpit, display pictures and engine sound, offered on the loadout screen |
+| [`trent`](trent) | Face films that replace a pilot's by name, built with `sltool fm8 encode`, and the pilot renamed in the game's text from a load script |
 | [`wingmen`](wingmen) | Object scripts, events, interfaces and a mod's options page |
 
 To try one, copy its folder into the `mods` folder of your game directory
 ([Modding](../../docs/guide/modding.md)). Each example's name on the mods screen starts with
 `Example:`.
+
+[What mods can do](../../docs/guide/what-mods-can-do.md) lists every modding feature with the example
+that shows it.

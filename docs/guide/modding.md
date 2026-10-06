@@ -1,51 +1,69 @@
 # Modding
 
-OpenReliant supports mods: files that replace or add to the game's files, without changing the
-game's files on disk. A mod can:
+A mod changes OpenReliant without changing the game's files on disk. It's a folder or an archive in
+the game folder's `mods` folder. Its files replace the game's files that have the same names, or add
+new ones, and its scripts can change how the game plays.
 
-- **replace** any game file, such as a model, an interface picture, a sound, a piece of music, a
-  line of speech, a pilot's face, a movie, a mission or a stats table. Each file in a mod replaces
-  the game file with the same name ([How files are replaced](#how-files-are-replaced)).
-- **improve the look** with larger textures, material maps, sharper interface pictures and outline
-  fonts ([Textures](#textures), [The interface](#the-interface)).
-- **add** ship types, guns, missiles and pilots, with models of their own built from OBJ files
-  ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots),
-  [Models from OBJ](#models-from-obj)).
-- **run scripts** that change the game's records, react to what happens in a mission, draw over the
-  display, add game modes and campaigns, and add shader effects ([Scripts](#scripts)).
+- [What mods can do](what-mods-can-do.md) lists every feature on one page, with an example mod for
+  each.
+- This guide explains a mod's files: how they replace the game's, and how to make each kind.
+- [Scripting](scripting.md) explains scripts, and the [scripting reference](reference.md) lists
+  everything they can use.
+- [`examples/mods`](../../examples/mods) holds example mods, with comments in their files.
+
+New to modding? Make [a first mod](#a-first-mod), then copy the example closest to what you want to
+make and change it. The other sections can be read in any order, as you need them.
 
 **Improvement:** the original can't load mods.
 
+- [A first mod](#a-first-mod)
+- [Where mods go](#where-mods-go) and [the manifest](#the-manifest)
+- [Load order](#load-order) and [the mods screen](#the-mods-screen)
+- [How files are replaced](#how-files-are-replaced), their [formats](#formats), and
+  [music](#music)
+- [Textures](#textures) and [material maps](#material-maps)
+- [The interface](#the-interface): [shapes](#shapes), [pictures](#pictures) and [fonts](#fonts)
+- [Faces and voices](#faces-and-voices)
+- [New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)
+- [Models](#models) from OBJ and glTF files
+- [Missions](#missions)
+- [Scripts](#scripts)
+- [Tools](#tools)
+- [Sharing a mod](#sharing-a-mod)
+- [Log messages](#log-messages) and [when something goes wrong](#when-something-goes-wrong)
+
 ## A first mod
 
-1. Make a folder in the game folder's `mods` folder, such as `mods/my-mod`.
+This mod replaces the main menu's music.
+
+1. In the game folder, next to `resource.hog`, make a folder called `mods`, and in it a folder for
+   the mod, such as `mods/my-music`.
 2. Add a manifest, `mod.ini`, which names the mod on the mods screen ([The manifest](#the-manifest)):
 
    ```ini
    [Mod]
-   Name=My Mod
+   Name=My Music
    Version=1.0
    Author=Me
    Description=A new main menu theme.
    ```
 
-3. Put the files the mod replaces or adds in the same folder, such as a `New_Pensive.wav` that
-   replaces the main menu's music.
-4. Start `openreliant`. The log lists each mod and what each of its files does
-   ([Log messages](#log-messages)), and GAME OPTIONS, MODS turns mods on and off
+3. Add the files the mod replaces or adds, in the same folder. Here that's a WAV file called
+   `New_Pensive.wav`, which replaces the main menu's music ([Music](#music)).
+4. Start `openreliant` from a terminal. The log in the terminal lists each mod and what each of its
+   files does ([Log messages](#log-messages)), and GAME OPTIONS, then MODS, shows the mod
    ([The mods screen](#the-mods-screen)).
 
-[`examples/mods`](../../examples/mods) holds example mods, each showing one part of modding with
-comments in its files. Copy one as a starting point.
+OpenReliant reads the mods as it starts, so start it again after changing a mod. In the developer
+mode, scripts and shaders reload as soon as they're saved ([Reloading](scripting.md#reloading)).
 
 ## Where mods go
 
-Mods go in a folder called `mods` in the game folder, next to `resource.hog`. Each mod is either:
+Mods go in a folder called `mods` in the game folder, next to `resource.hog`. Each mod is one of:
 
+- **a folder** of files, which is the easiest to work on;
 - **an archive**: a `.hog` file in the game's format ([`.HOG` archives](../formats/hog.md)), which
-  `sltool hog pack` can make; or
-- **a folder** of files, which is handy while you're working on a mod. The files must be directly in
-  the folder: subfolders are ignored, just as `sltool hog pack` ignores them.
+  `sltool hog pack` makes from a folder ([Sharing a mod](#sharing-a-mod)).
 
 ```text
 StarLancer/
@@ -59,10 +77,104 @@ StarLancer/
     music.hog.sha256
 ```
 
+A mod's name is its folder's name, or its archive's name without `.hog`: `coyote` and `music` above.
+What the mod adds or registers is named after it ([Qualified names](scripting.md#qualified-names)).
+
+A folder mod is read just as the archive packed from it would be:
+
+- Its files must be directly in the folder. Files in subfolders are skipped, as `sltool hog pack`
+  skips them, and the log says so.
+- File names must be printable ASCII, like an archive's member names. Hidden files, such as
+  `.DS_Store`, are ignored.
+- A file that holds RefPack-compressed data, such as a file extracted with `sltool hog extract
+  --raw`, is decompressed as it's read, like a compressed archive member. Movies and pilots' faces,
+  which the game reads uncompressed, are read as they are.
+
 `--no-mods` starts the game without any mods.
 
-`sltool`, which packs and unpacks archives and reads the game's other files, is included with
-`openreliant` in each release ([Builds and releases](../port/platform.md#builds-and-releases)).
+## The manifest
+
+A mod describes itself in `mod.ini`, an ini file like `starlancer.ini`, in its folder or archive.
+Every key is optional, and keys can be written in any case:
+
+```ini
+[Mod]
+Name=Coyote HD
+Version=1.0
+Author=Someone
+Description=The Coyote, remodelled.
+Url=https://example.com/coyote-hd
+OpenReliant=0.7
+```
+
+| Key | What it is |
+|---|---|
+| `Name` | The mod's name on the mods screen and in the log. Without it, they show the folder's or the archive's name |
+| `Version`, `Author`, `Description` | What the mods screen says about the mod |
+| `Url` | The mod's web page, where players can find it and its updates |
+| `OpenReliant` | The version of OpenReliant the mod needs, such as `0.7`. An older OpenReliant skips the mod and says so in the log, and the mods screen leaves it out |
+
+The manifest's other sections list what the mod runs and adds:
+
+| Section | What it lists |
+|---|---|
+| `[Scripts]` | The mod's scripts, by kind ([Kinds of scripts](scripting.md#kinds-of-scripts)) |
+| `[Missions]` | The scripts that run with a mission ([Kinds of scripts](scripting.md#kinds-of-scripts)) |
+| `[ShipTypes]`, `[Guns]`, `[Missiles]`, `[Pilots]` | The ship types, guns, missiles and pilots the mod adds, each described in a section of its own ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)) |
+
+The original never reads a file called `mod.ini`, so an archive with a manifest still works with it,
+and the manifest doesn't replace any game file. Neither does the thumbnail, `mod.png`
+([The thumbnail](#the-thumbnail)).
+
+## Load order
+
+Mods load one after another, and a later mod's file replaces an earlier mod's file with the same
+name. The mods screen sets the order ([The mods screen](#the-mods-screen)). Mods it doesn't list,
+such as ones added since, load after the listed ones, in alphabetical order of their names, ignoring
+case. Names such as `10-ships` and `20-music` keep that order clear.
+
+Mods take priority over all of the game's files, including loose files, so a mod's `mission18.dte`
+replaces the loose `missions\mission18.dte` in a retail install. Scripts start in load order too,
+and the hooks of a later mod run first
+([Order, removal and errors](scripting.md#order-removal-and-errors)).
+
+### The mods screen
+
+GAME OPTIONS has a MODS button, right of ABOUT OPENRELIANT, which opens the mods screen. It lists the
+mods in the `mods` folder, with what each one's manifest says of it. A check box turns a mod on or
+off, and the arrows beside the list move the chosen mod up or down the load order. The mods load from
+the top down, so a mod replaces the files of the mods above it. REFRESH reads the `mods` folder
+again, to find mods you've added or removed while the screen is open.
+
+- CANCEL CHANGES puts the mods back as they were when you opened the screen.
+- OPTIONS opens the page of options the chosen mod offers, if its scripts declare one
+  ([Options](scripting.md#options)). The mod's scripts read what you set; the values are kept in
+  its storage file, `storage\<mod>.data`.
+- The changes take effect the next time OpenReliant starts. RESTART TO APPLY shows while the screen's
+  list differs from what's loaded.
+
+The screen keeps the order and which mods are off in `starlancer.ini` in the game's folder, in its
+own section, one line for each mod: the mod's name in the `mods` folder, and 1 if it's on or 0 if
+it's off. The lines are in load order:
+
+```ini
+[OpenReliantMods]
+10-ships=1
+coyote=0
+20-music=1
+```
+
+The mods the section doesn't list are on, and load after the listed ones, in the order of their names.
+Only 0 turns a mod off. To go back to loading every mod in the order of its name, delete the section.
+You can also edit it by hand.
+
+- A mod whose name has an equals sign, starts with a bracket or has spaces at either end can't be
+  listed. It stays on and loads with the unlisted mods.
+- The screen lists up to 255 mods, and leaves out the ones that need a newer OpenReliant
+  ([The manifest](#the-manifest)).
+- `--no-mods` loads none, and keeps the screen shut.
+- A screenshot taken with `--screenshot` follows the section too, so it loads only the mods that
+  are on.
 
 ## How files are replaced
 
@@ -86,21 +198,39 @@ archive has the same name twice, the game reads the first one, and that's the on
 | Missions | `missions\`, `resource.hog` | `mission1.dte` |
 | Stats tables | the game folder | `shipstats.bin` |
 
+Names have no folders, so give the files your mod adds a unique prefix, such as the mod's name,
+to keep them from clashing with another mod's files. `sltool hog ls <archive>` lists the files in an
+archive, and `sltool hog extract` extracts them ([Tools](#tools)).
+
+### Formats
+
+A mod's files use the game's formats, which the [developer documentation](../README.md) describes,
+and a few modern ones beside them:
+
+| What | Formats | Made with |
+|---|---|---|
+| Models | `.shp` | `sltool shp from-obj` or `sltool shp from-gltf` ([Models](#models)) |
+| Textures | PNG at any size, or DDS and KTX2 files compressed already | An image editor ([Textures](#textures)) |
+| Interface shapes and pictures | PNG at any size | An image editor ([The interface](#the-interface)) |
+| Interface fonts | `.fnt`, TrueType or OpenType | A font editor ([Fonts](#fonts)) |
+| Music | WAV, 16-bit PCM or IMA ADPCM, at any rate | An audio editor ([Music](#music)) |
+| A mod's engine and gun sounds | WAV, PCM or IMA ADPCM | An audio editor ([Ship types](#ship-types), [Guns](#guns)) |
+| Lines of speech | The game's speech files | `sltool speech encode`, from WAV ([Lines](#lines)) |
+| Pilots' faces | `.fm8` face films | `sltool fm8 encode`, from PNG frames ([Faces](#faces)) |
+| Missions | `.dte` | A mission editor ([Missions](#missions)) |
+| Stats tables | `.bin` | Better changed from a load script ([The records](scripting.md#the-records)) |
+| Sound banks | `.fat` | No tool yet: `sltool fat extract` saves a bank's sounds, but can't build a bank |
+| Movies | Bink (`.bik`) | RAD Game Tools' Bink tools |
+
+Sounds, music, speech and movies in today's formats are planned
+([#496](https://github.com/OpenReliant/openreliant/issues/496)).
+
+### Music
+
 A piece of music is a WAV file, 16-bit PCM or IMA ADPCM, at any rate. Where the game's piece loops
 back to a point partway through, so does the mod's, at the same moment of the music whatever its
 format: make it the same length as the game's, or at least as long as its loop point, to keep the
 loop where the game has it.
-
-`sltool hog ls <archive>` lists the files in an archive, and `sltool hog extract` extracts them.
-Names have no folders, so give the files your mod adds a unique prefix to keep them from clashing
-with another mod's files.
-
-Mod files use the game's formats, which the [developer documentation](../README.md) describes, with
-two exceptions covered below: textures and interface pictures can be PNG files of any size, and
-interface fonts can be TrueType or OpenType. `sltool shp from-obj` and `sltool shp from-gltf` turn
-an OBJ or glTF file into a model in the game's format ([Models from OBJ](#models-from-obj),
-[Models from glTF](#models-from-gltf)). Support for modern sounds, music, speech and movies is
-planned ([#496](https://github.com/OpenReliant/openreliant/issues/496)).
 
 ## Textures
 
@@ -352,87 +482,71 @@ fonts, used for target ranges and the radio menu, still use their bitmaps
 
 **Improvement:** the original draws text with its bitmap fonts at 640x480.
 
-## Load order
+## Faces and voices
 
-Mods are loaded in alphabetical order of their names, ignoring case, and a later mod's file replaces
-an earlier mod's file with the same name. Use names such as `10-ships` and `20-music` to set the
-order. Mods take priority over all of the game's files, including loose files, so a mod's
-`mission18.dte` replaces the loose `missions\mission18.dte` in a retail install.
+The radio's window shows the face of whoever speaks, as a face film, while their line plays. A mod
+can replace the game's faces and lines, and give its own pilots faces and voices
+([Pilots](#pilots)). A script can also change which line is said, or drop it
+([Changing what the radio says](scripting.md#changing-what-the-radio-says)).
 
-### The mods screen
+### Faces
 
-GAME OPTIONS has a MODS button, right of ABOUT OPENRELIANT, which opens the mods screen. It lists the
-mods in the `mods` folder, with what each one's manifest says of it. A check box turns a mod on or
-off, and the arrows beside the list move the chosen mod up or down the load order. The mods load from
-the top down, so a mod replaces the files of the mods above it. REFRESH reads the `mods` folder
-again, to find mods you've added or removed while the screen is open.
+A face film (`.fm8`, [Face films](../formats/fm8.md)) is a loop of frames of 120 by 100 pixels,
+played at 15 frames a second. Each pilot has a film for talking, one for laughing and one for
+dying. The game keeps them in `pilots\pilots.hog`, and `sltool hog ls pilots/pilots.hog` lists their
+names.
 
-- CANCEL CHANGES puts the mods back as they were when you opened the screen.
-- OPTIONS opens the page of options the chosen mod offers, if its scripts declare one
-  ([Options](scripting.md#options)). The mod's scripts read what you set; the values are kept in
-  its storage file, `storage\<mod>.data`.
-- The changes take effect the next time OpenReliant starts. RESTART TO APPLY shows while the screen's
-  list differs from what's loaded.
+A film with the name of one of the game's replaces it. The game plays the 45th's films under the
+squadron's name: the 45th Volunteers' through mission 13, and the 45th Tigers' from mission 14
+([Face films](../formats/fm8.md#playing)). So replace both, such as `45Volntrs_Moose.fm8` and
+`45Tigers_Moose.fm8`. [`examples/mods/trent`](../../examples/mods/trent) gives Moose a new face this
+way, and renames him from a load script ([The records](scripting.md#the-records)).
 
-The screen keeps the order and which mods are off in `starlancer.ini` in the game's folder, in its
-own section, one line for each mod: the mod's name in the `mods` folder, and 1 if it's on or 0 if
-it's off. The lines are in load order:
+`sltool fm8 encode <frames-dir> <film.fm8>` makes a film of the PNG files in a folder, each 120 by
+100 pixels, in the order of their names. A pixel less than half opaque becomes the colour the radio's window draws see-through.
+The film keeps every colour where the frames have 256 or fewer, and picks 256 for them otherwise,
+the see-through colour kept as it is. `sltool fm8 extract <film> <out-dir>` saves a film's frames as
+PNG files, to start from.
 
-```ini
-[OpenReliantMods]
-10-ships=1
-coyote=0
-20-music=1
+### Lines
+
+A line is a speech file in the game's codec ([Speech files](../formats/speech.md)). The game keeps
+its lines in `ms_speech\msspeech.hog`, under names without an extension, such as `ABRT_001`. A mod's
+line replaces the game's line with the same name. `sltool speech extract ms_speech/msspeech.hog
+lines` saves every line as a WAV file, to find the one to replace.
+
+`sltool speech encode <line.wav> <name>` makes a line from a WAV file, which it mixes to mono at
+22,050 Hz, the rate the radio plays at:
+
+```bash
+sltool speech encode taunt.wav trptnt_001
 ```
 
-The mods the section doesn't list are on, and load after the listed ones, in the order of their names.
-Only 0 turns a mod off. To go back to loading every mod in the order of its name, delete the section.
-You can also edit it by hand.
+Name the file as the game names its lines, without an extension. A file named with `.ut`, such as
+`trptnt_001.ut`, isn't found ([#745](https://github.com/OpenReliant/openreliant/issues/745)).
 
-- A mod whose name has an equals sign, starts with a bracket or has spaces at either end can't be
-  listed. It stays on and loads with the unlisted mods.
-- The screen lists up to 255 mods, and leaves out the ones that need a newer OpenReliant
-  ([The manifest](#the-manifest)).
-- `--no-mods` loads none, and keeps the screen shut.
-- A screenshot taken with `--screenshot` follows the section too, so it loads only the mods that
-  are on.
+### A pilot's voice
 
-## Folder mods
+A ship's pilot says some lines in its own voice: the voice's prefix followed by the line, such as
+`bantnt_001` for Bandit's first taunt. The game's voices are `ban`, `dic`, `fre`, `vip`, `enq`,
+`sil`, `tak`, `jor`, `vix`, `cut`, `cla`, `ski`, `jui`, `fac`, `haw`, `arr`, `ner`, `rhi`, `sta`,
+`fla`, `wor` and `ego` for the pilots on the player's side, and `rus`, `chn` and `arb` for the
+enemy's ([Remarks](../engine/radio.md#remarks)).
 
-A folder mod holds files as the game reads them, and is read the same way as the archive `sltool hog
-pack` would make from it:
+| Lines | When the pilot says one |
+|---|---|
+| `tnt_001` to `tnt_013` | An enemy pilot taunts the player after hitting the player's ship |
+| `dth_001` to `dth_006` | The pilot dies |
+| `ejt_001` | A wingman ejects |
+| `res_001` to `res_003` | After a wingman ejects, the wing's last pilot calls in the rescue |
+| `_amt_001` to `_amt_008` | A wingman answers ATTACK MY TARGET |
+| `_bkoff_001` to `_bkoff_009` | A wingman answers BACK OFF |
+| `_hlpme_001` to `_hlpme_008` | A wingman answers HELP ME |
 
-- A file that contains RefPack-compressed data, such as a file extracted with `sltool hog extract
-  --raw`, is decompressed when read, like a compressed archive member. Movies and pilots' faces,
-  which the game reads uncompressed, are read as they are.
-- File names must be printable ASCII, like archive member names. Hidden files, such as `.DS_Store`,
-  are ignored.
-
-`sltool hog pack coyote coyote.hog` packs the folder into an archive, which works the same way. The
-manifest and the thumbnail are included with the other files.
-
-## The manifest
-
-A mod describes itself in `mod.ini`, in its archive or folder, an ini file like `starlancer.ini`:
-
-```ini
-[Mod]
-Name=Coyote HD
-Version=1.0
-Author=Someone
-Description=The Coyote, remodelled.
-Url=https://example.com/coyote-hd
-OpenReliant=0.7
-```
-
-Keys are optional and can be written in any case. `Url` is the mod's web page, where players can
-find it and its updates. `OpenReliant` is the OpenReliant version the mod needs: OpenReliant skips a
-mod that needs a newer version and says so in the log. The original never reads a file called
-`mod.ini`, so the archive still works with it, and the manifest doesn't replace any game file.
-
-A mod's scripts are listed in the sections `[Scripts]` and `[Missions]` ([Scripts](#scripts)), and
-what it adds in sections such as `[ShipTypes]`
-([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)).
+So the voice `trp` has lines such as `trptnt_001` and `trp_amt_001`. A pilot based on Bandit,
+Diceman, Viper, Enriquez or Hawkeye answers the wingmen's commands from a fuller set of lines
+([The wingmen's commands](../engine/radio.md#the-wingmens-commands)). A line the voice doesn't have
+is left out, and the log says so.
 
 ## New ships, guns, missiles and pilots
 
@@ -524,8 +638,8 @@ EngineSound=kettle.wav
 A ship type based on one of the twelve ships the player can fly, or without a base, is offered on
 the loadout screen too, after the game's ships:
 
-- `Tier` is the campaign tier from which it is offered, 0 at the start to 3 after mission 21.
-  Without it, it is offered from the start of the campaign.
+- `Tier` is the campaign tier it's first offered at, 0 at the start to 3 after mission 21.
+  Without it, it's offered from the start of the campaign.
 - Its name and its model are its own, drawn in green (see
   [Textures in the loadout](#textures-in-the-loadout)), and shown as large as its base whatever
   its model's size. The bars on its panel show its own stats, measured against the game's fighters.
@@ -642,7 +756,7 @@ A mod's own model can hold the missile on its hardpoints, and a ship type can ca
 
 The loadout screen offers it on its missile page too, with the game's missiles:
 
-- `Tier` is the campaign tier from which it is offered, 0 at the start to 3 after mission 21, else
+- `Tier` is the campaign tier it's first offered at, 0 at the start to 3 after mission 21, else
   its base's. A missile based on the torpedo, which the loadout never offers, isn't offered.
 - `Description` is the text on its panel. Without it, the panel shows its base's text. The panel's
   figures are its own, measured against the game's missiles, and a ship carries as many of it as of
@@ -675,29 +789,20 @@ missions use the mod's pilots by the numbers in `[Pilots]`. A script can set the
 ([Objects](scripting.md#objects)), as the `bananas` example does.
 
 - `Talking`, `Laughing` and `Dying` name the face films the radio's window plays as the pilot speaks,
-  laughs and dies: a film of the game's, such as `45volntrs_plt` from `pilots.hog`, or a `.fm8`
-  file in the mod. The film every pilot shares in the 45th's place stays the game's.
-- `Voice` is the prefix of the file names of the pilot's lines. The pilot uses it on either side,
-  in place of its base's two voices. It can be one of the game's, such as `ban` for Bandit's or
-  `rus` for the Coalition's, or a new one whose lines the mod gives as files with those names, such
-  as `trpres_001.ut`.
+  laughs and dies: one of the game's, such as `45volntrs_plt` from `pilots.hog`, or a `.fm8` file in
+  the mod, with or without its extension ([Faces](#faces)). A fourth film, the 45th's pilot, is the
+  same for every pilot and can't be changed.
+- `Voice` is the prefix of the names of the pilot's lines ([A pilot's voice](#a-pilots-voice)). The
+  pilot uses it on either side, in place of its base's two voices. It can be one of the game's,
+  such as `ban` for Bandit's or `rus` for the Coalition's, or a new one, whose lines the mod
+  gives.
 
-`sltool fm8 encode <frames-dir> <film.fm8>` makes a face film of the PNG files in a folder, in the
-order of their names, at 15 frames a second. A face is 120 by 100 pixels; a pixel less than half
-opaque becomes the colour the radio's window draws see-through. The film keeps every colour where
-the frames have 256 or fewer, and picks 256 for them otherwise, the see-through colour kept as it
-is. `sltool fm8 extract` gives a film of the game's as frames to start from.
+## Models
 
-A film named like one of the game's replaces it ([How files are replaced](#how-files-are-replaced)).
-The game plays the 45th's films under the squadron's name: the 45th Volunteers' through mission 13,
-and the 45th Tigers' from mission 14 ([Face films](../formats/fm8.md#playing)), so replace both.
-[`examples/mods/trent`](../../examples/mods/trent) gives Moose a new face this way, and renames him
-in the game's text from a load script ([The records](scripting.md#the-records)).
+A model is a `.shp` file ([`.SHP` models](../formats/shp.md)). `sltool` builds one for a mod from an
+OBJ or a glTF file, and exports the game's models as glTF to start from.
 
-`sltool speech encode <line.wav> <name.ut>` makes a line from a WAV file, which it mixes to mono at
-22,050 Hz, the rate the radio plays at. Name the lines after the pilot's `Voice`, as the game's are.
-
-## Models from OBJ
+### Models from OBJ
 
 `sltool shp from-obj` builds a model for a mod from a Wavefront OBJ file, which Blender and most
 modelling tools export, with nothing of the game's in it:
@@ -766,7 +871,7 @@ f 825 826 827
 [`examples/mods/teapot`](../../examples/mods/teapot) builds its ship this way, and
 [`examples/mods/bananas`](../../examples/mods/bananas) its missile.
 
-## Models from glTF
+### Models from glTF
 
 `sltool shp from-gltf` builds a model for a mod from a glTF 2.0 file, the format Blender and most
 modelling tools export and most model sites offer. It reads a `.gltf` file with its buffers in files
@@ -795,6 +900,8 @@ and options:
   an extension other than `KHR_materials_emissive_strength`, `KHR_materials_specular` or
   `KHR_texture_transform`, which it can be drawn without, isn't read.
 
+### The game's models as glTF
+
 To start from one of the game's models, `sltool shp gltf` writes it as glTF, its attachments as
 empty nodes named as `from-gltf` reads them, and with `--textures` its pictures beside it:
 
@@ -807,21 +914,51 @@ another). Built again with `from-gltf`, every part but one named `cockpit` joins
 textures take the new model's names. Share only your own work in a mod, never the game's models or
 pictures.
 
-## The thumbnail
+## Missions
 
-A mod can include a picture of itself, `mod.png`, in its archive or folder, for a mod manager to
-show ([#497](https://github.com/OpenReliant/openreliant/issues/497)). It's a PNG of any size; a 4:3
-picture such as 320x240 suits the game's screens. Like the manifest, it doesn't replace any game
-file.
+A mission is a `.DTE` file ([`.DTE` missions](../formats/dte.md)) named after its number, such as
+`mission5.dte`. The game keeps its missions in `missions\` and `resource.hog`. A mod's
+`mission5.dte` replaces mission 5, and a mission with a number of its own, such as `mission90.dte`,
+adds one, which a game mode can fly ([Game modes](scripting.md#game-modes)) and `--mission 90`
+starts.
 
-## Checksums
+- OpenReliant reads a mission as the original does, and has no mission format of its own. A mission
+  made for the original works in OpenReliant, and one made for OpenReliant works in the original
+  unless it uses what a mod adds.
+- A mod's mission can use the ship types, guns, missiles and pilots the mod adds, by the numbers in
+  its manifest ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)).
+- A script can run with a mission: the manifest lists it under `[Missions]`
+  ([Kinds of scripts](scripting.md#kinds-of-scripts)).
+- `sltool dte` lists a mission's ships, triggers and script parts, and disassembles its script
+  ([Tools](#tools)).
+- OpenReliant has no mission editor yet ([#360](https://github.com/OpenReliant/openreliant/issues/360),
+  [#608](https://github.com/OpenReliant/openreliant/issues/608)).
+  [StarLancerEditor](https://src.ug.gg/mini/starlancereditor), a community project, turns missions
+  into YAML files and back.
 
-An archive can have a checksum file next to it: the archive's name plus `.sha256`, in the format
-`sha256sum` writes (the archive's SHA-256 hash in hexadecimal, two spaces, and the archive's name).
-When the mod loads, OpenReliant checks the archive against it, and skips the mod if they don't
-match, since the archive is then damaged or isn't the one the checksum was made for. `sltool hog
-pack <folder> <archive> --checksum` writes a checksum file next to the archive it makes, and
-`sha256sum -c music.hog.sha256` checks one by hand. Folder mods don't have checksums.
+### Checking a mission
+
+A mission a mod adds or replaces can be started straight from the command line, and checked at any
+moment of it without flying up to that moment ([Configuration](configuration.md#the-mission)):
+
+```bash
+openreliant --mission 2 --skip-launch --part "antanov in" --screenshot antanov.png --screenshot-ticks 1000
+openreliant --mission 2 --skip-launch --watch reliant --screenshot reliant.png --screenshot-ticks 300
+```
+
+- `--mission <number>` starts the mission, from a mod or the game.
+- `--skip-launch` plays the player's launch through without showing it.
+- `--part <name>` runs a part of the mission's script once the launch is over, as a trigger would.
+  `sltool dte parts` lists the parts. A part starts from the mission's opening state, so one that
+  counts on ships or flags from an earlier part may find them missing.
+- `--watch <ship>` points the camera at one of the mission's ships, and `--watch-from` says from
+  where. `sltool dte ships` lists the ships. A ship's whole name picks it, though other ships'
+  names hold it too, such as `RELIANT` beside `RELIANT NANNY`. A cutscene in the mission's script
+  takes the camera from it.
+- `--screenshot` saves a picture after `--screenshot-ticks` game ticks and quits.
+
+`openreliant missions` lists and checks the missions, the mods' included, and shows `mod` in the
+file column for a mod's mission. It also takes `--no-mods`.
 
 ## Scripts
 
@@ -862,34 +999,76 @@ scripting works and aren't supported mods.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
 
-## Checking a mission
+## Tools
 
-A mission a mod adds or replaces can be started straight from the command line, and checked at any
-moment of it without flying up to that moment ([Configuration](configuration.md#the-mission)):
+`sltool` comes with `openreliant` in each release
+([Builds and releases](../port/platform.md#builds-and-releases)). The commands a mod maker uses
+most:
+
+| To | Run |
+|---|---|
+| List or extract an archive's files | `sltool hog ls <archive>`, `sltool hog extract <archive> <out-dir>` |
+| Pack a folder mod into an archive | `sltool hog pack <folder> <archive> --checksum` |
+| Save the game's textures as PNG files | `sltool tcache extract tcachehw.dat palette.tga <out-dir> [name...]` |
+| Save a sprite set's shapes as PNG files | `sltool spr extract <sprite> <out-dir>` |
+| Export one of the game's models | `sltool shp gltf <model> <out.gltf>`, `sltool shp obj <model> <out.obj>` |
+| Build a model | `sltool shp from-obj <in.obj> <out.shp>`, `sltool shp from-gltf <in.gltf> <out.shp>` |
+| Save a face film's frames, or make a film | `sltool fm8 extract <film> <out-dir>`, `sltool fm8 encode <frames-dir> <film>` |
+| Save lines as WAV files, or make a line | `sltool speech extract <archive> <out-dir>`, `sltool speech encode <in.wav> <name>` |
+| Save a sound bank's sounds as WAV files | `sltool fat extract <bank> <out-dir>` |
+| List a mission's ships, triggers and script parts | `sltool dte ships <mission>`, `sltool dte triggers <mission>`, `sltool dte parts <mission>` |
+| List a stats table | `sltool stats list <stats.bin>` |
+
+`sltool help` lists every command, and the [README](../../README.md#reverse-engineering--analysis-tools)
+links each one to its format's page. `openreliant` has two commands for mod makers too:
+`openreliant missions` checks missions ([Checking a mission](#checking-a-mission)), and
+`openreliant hooks` lists the hooks scripts can use ([Hooks](scripting.md#hooks)).
+
+## Sharing a mod
+
+A folder mod is handy while you work on it. To share it, pack it into one archive, which players
+put in their `mods` folder:
 
 ```bash
-openreliant --mission 2 --skip-launch --part "antanov in" --screenshot antanov.png --screenshot-ticks 1000
-openreliant --mission 2 --skip-launch --watch reliant --screenshot reliant.png --screenshot-ticks 300
+sltool hog pack mods/coyote coyote.hog --checksum
 ```
 
-- `--mission <number>` starts the mission, from a mod or the game.
-- `--skip-launch` plays the player's launch through without showing it.
-- `--part <name>` runs a part of the mission's script once the launch is over, as a trigger would.
-  `sltool dte parts` lists the parts. A part starts from the mission's opening state, so one that
-  counts on ships or flags from an earlier part may find them missing.
-- `--watch <ship>` points the camera at one of the mission's ships, and `--watch-from` says from
-  where. `sltool dte ships` lists the ships. A ship's whole name picks it, though other ships'
-  names hold it too, such as `RELIANT` beside `RELIANT NANNY`. A cutscene in the mission's script
-  takes the camera from it.
-- `--screenshot` saves a picture after `--screenshot-ticks` game ticks and quits.
+The archive holds every file of the folder, the manifest, the thumbnail, the scripts and the shaders
+included, and works just as the folder did. `--checksum` writes `coyote.hog.sha256` beside it
+([Checksums](#checksums)).
+
+- Give the manifest a `Name`, a `Version`, a `Description` and a `Url`, so that players know what
+  the mod is and where to find its updates, and `OpenReliant` for the version it needs
+  ([The manifest](#the-manifest)).
+- Share only work you may share: your own, or work whose licence lets you share it. Fonts, models,
+  pictures and sounds from elsewhere each have a licence of their own.
+- [OpenReliant's mods page](https://openreliant.github.io/openreliant-mods/) lists mods made for
+  OpenReliant.
+
+### The thumbnail
+
+A mod can include a picture of itself, `mod.png`, in its archive or folder, for a mod manager to
+show ([#497](https://github.com/OpenReliant/openreliant/issues/497)). It's a PNG of any size; a 4:3
+picture such as 320x240 suits the game's screens. Like the manifest, it doesn't replace any game
+file.
+
+### Checksums
+
+An archive can have a checksum file next to it: the archive's name plus `.sha256`, in the format
+`sha256sum` writes (the archive's SHA-256 hash in hexadecimal, two spaces, and the archive's name).
+When the mod loads, OpenReliant checks the archive against it, and skips the mod if they don't
+match, since the archive is then damaged or isn't the one the checksum was made for. `sltool hog
+pack <folder> <archive> --checksum` writes a checksum file next to the archive it makes, and
+`sha256sum -c music.hog.sha256` checks one by hand. Folder mods don't have checksums.
 
 ## Log messages
 
-At startup, `openreliant` lists each mod it loads, in order, by its manifest name if it has one,
-followed by what each of its files does: which game file, texture, shape, picture or font it
-replaces, which earlier mod's file it replaces, or which file it adds. A mod that the mods screen
-has turned off is listed as off, and none of it is used. When a font is loaded, it says which
-outline font draws it.
+OpenReliant writes its log to the terminal it runs in ([Installation](installation.md)). As it
+starts, it lists each mod it loads, in order, by its manifest's name if it has one, and then what
+each of the mod's files does: which game file, texture, shape, picture or font it replaces, which
+earlier mod's file it replaces, or which file it adds. A mod that the mods screen has turned off is
+listed as off, and none of it is used. When a font is loaded, the log says which outline font draws
+it.
 
 ```text
 info(mods): music.hog matches music.hog.sha256
@@ -907,5 +1086,19 @@ info(scripts): balance: the Laser Cannon hits shields for 10 and hulls for 10
 A script's messages and errors follow its mod's name, as above;
 [Scripting](scripting.md#when-something-goes-wrong) explains the common ones.
 
-`openreliant missions` lists and checks the missions in the mods too, showing `mod` in the file
-column, and also accepts `--no-mods`.
+### When something goes wrong
+
+| In the log | What to check |
+|---|---|
+| A file `adds` where it should replace one of the game's | Its name: the game file's name, without folders, in any case. Textures, pictures, shapes, lines and faces are named as their sections say |
+| `skipping <name>: a mod must be a .hog archive or a folder` | Only folders and `.hog` archives go directly in `mods` |
+| `skipping <mod>/<file>: a mod's files must be directly in its folder` | Move the file out of its subfolder |
+| `skipping <mod>/<file>: file names must be printable ASCII, like archive member names` | Rename the file |
+| `skipping the mod <mod>: it needs OpenReliant <version>, and this is <version>` | Update OpenReliant, or check the mod's `OpenReliant=` ([The manifest](#the-manifest)) |
+| `skipping the mod <archive>: checking <file> failed: ...` | The archive doesn't match its checksum: download it again, or pack it again with `--checksum` ([Checksums](#checksums)) |
+| `<mod>: mod.ini: the <kind> '<name>' ...` | The entry the message names, and what it says is wrong ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)) |
+| `skipping the picture that replaces <name>: it's <size>, and the original is <size>` | That picture must keep the original's size ([Pictures](#pictures)) |
+| `the <map> of <texture> is left out: it is <size> and its picture <size>` | A map must be the same size as its texture ([Material maps](#material-maps)) |
+| `<file> is left out: it is compressed in <format>, which the device doesn't take` | The GPU doesn't take that format; use a PNG file instead ([Compression](#compression)) |
+| `the line <name> is not in ms_speech/msspeech.hog` | The line's name, without `.ut` ([Lines](#lines)) |
+| `the radio's film <name> is left out: ...` | The film's name ([Faces](#faces)) |

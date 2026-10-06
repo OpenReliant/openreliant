@@ -10,8 +10,14 @@ Mods can include scripts, written in [Luau](https://luau.org), a version of Lua 
   display and the menus, react to the keys, and add camera views, game modes and shader effects.
 
 This page explains how to write them. The [scripting reference](reference.md) lists everything
-they can use, and [`examples/mods`](../../examples/mods) holds example mods for mod makers, which
-show how the scripting works and aren't supported mods.
+they can use, [What mods can do](what-mods-can-do.md) shows each feature with an example, and
+[`examples/mods`](../../examples/mods) holds example mods for mod makers, which show how the
+scripting works and aren't supported mods.
+
+New to scripting? Start with [a first script](#a-first-script), then read
+[Kinds of scripts](#kinds-of-scripts) and the example closest to what you want to do.
+[Luau's website](https://luau.org) explains the language itself. The sections after that can be read
+in any order, as you need them.
 
 **Improvement:** the original has no scripting apart from its mission scripts.
 
@@ -76,7 +82,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 
 | Example | What it shows |
 |---|---|
-| [`arena`](../../examples/mods/arena) | A [game mode](#game-modes) with its own rules, a [HUD display](#player-and-menu-scripts) fed from [storage](#storage), and the [`radio_say`](#changing-what-the-radio-says) hook |
+| [`arena`](../../examples/mods/arena) | A [game mode](#game-modes) with its own rules, a [HUD display](#hud-displays) fed from [storage](#storage), and the [`radio_say`](#changing-what-the-radio-says) hook |
 | [`balance`](../../examples/mods/balance) | [The records](#the-records), changed from a load script |
 | [`bananas`](../../examples/mods/bananas) | A mod's own gun, missile, pilot and ship type, tuned in [the records](#the-records), and a [pilot set](#objects) on enemy ships |
 | [`campaign`](../../examples/mods/campaign) | A [campaign](#campaigns) with a briefing screen and a movie |
@@ -90,8 +96,8 @@ Each example mod shows one part of the scripting, with comments in its files:
 | [`rules`](../../examples/mods/rules) | [Hooks](#hooks) on the game's functions |
 | [`strafe-run`](../../examples/mods/strafe-run) | A custom order, a [HUD display](#hud-displays), a [camera view](#camera-views), a [screen](#screens) and [actions](#keys-and-actions), through the [built-in interfaces](#built-in-interfaces) |
 | [`tally`](../../examples/mods/tally) | [Saved games](#saved-games), [storage](#storage) and [timers](#timers) |
-| [`trent`](../../examples/mods/trent) | The game's text in [the records](#the-records), changed from a load script, beside face films that replace the game's |
 | [`teapot`](../../examples/mods/teapot) | A mod's ship type with its own model, and the [`radio_say`](#changing-what-the-radio-says) hook |
+| [`trent`](../../examples/mods/trent) | The game's text in [the records](#the-records), changed from a load script, beside face films that replace the game's |
 | [`wingmen`](../../examples/mods/wingmen) | [Object scripts](#object-scripts), [events](#events), [interfaces](#interfaces), `nearby` and an [options](#options) page |
 
 ## Kinds of scripts
@@ -103,7 +109,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | Mission | The mission's file name under `[Missions]` | While that mission runs | The same as global scripts, for one mission |
 | Object | A class, such as `Fighter=`, or a type, such as `Type.predator=`, under `[Scripts]` | On each object of that class or type, while it's in the mission | [Object scripts](#object-scripts) |
 | Player | `Player=` under `[Scripts]` | For the whole game, even while it's paused | [What the player sees and does](#player-and-menu-scripts) in flight |
-| Menu | `Menu=` under `[Scripts]` | From OpenReliant's start until it quits, in the menus and over the missions | [Drawing over the menus](#player-and-menu-scripts), [replacing screens](#replacing-a-screen), [actions](#keys-and-actions), options and game modes |
+| Menu | `Menu=` under `[Scripts]` | From OpenReliant's start until it quits: in the menus, the rooms, the movies and the loading screens, and over the missions | [Drawing over the menus](#player-and-menu-scripts), [replacing screens](#replacing-a-screen), [actions](#keys-and-actions), options and game modes |
 
 ```ini
 [Scripts]
@@ -267,7 +273,7 @@ For a function, `e` holds its arguments, and changing a field changes what it do
 returns `false` stops the call: the function doesn't run, and neither do the handlers after it.
 
 ```lua
--- Shields take twice the damage, but the player's shields take none from collisions.
+-- Every hit does twice the damage, but collisions don't damage the player's ship at all.
 hooks.add("object_damage", function(e)
     if e.object.is_player and e.kind == "collision" then
         return false
@@ -385,7 +391,7 @@ end, { side = "hostile", class = "fighter" })
 - These hooks change the game's orders. To add an order of your own, see
   [Custom AI orders](#custom-ai-orders).
 
-### Events
+### Mission and engine events
 
 An event's fields can only be read, and a handler returning `false` only stops the handlers after
 it. Events have no `hooks.after`.
@@ -561,13 +567,15 @@ object.
 
 ```lua
 local orders = require("openreliant.orders")
+local world = require("openreliant.world")
 
--- What the player's wingman is doing, from the top order down.
-for _, entry in orders.stack(wingman) do
+-- What a ship is doing, from the top order down.
+local ship = world.objects()[2]
+for _, entry in orders.stack(ship) do
     print(entry.order, entry.target)
 end
-orders.cancel(wingman)  -- ends the top order; the one below carries on
-orders.clear(wingman)   -- drops all of them, as a mission's ClearAI does
+orders.cancel(ship)  -- ends the top order; the one below carries on
+orders.clear(ship)   -- drops all of them, as a mission's ClearAI does
 print(orders.info("fight").priority)
 ```
 
@@ -1617,15 +1625,21 @@ It may report that it can't find the packages themselves, which OpenReliant prov
 ## Limits
 
 Scripts run in a sandbox: they can't use the network or run programs, and the only files they can
-read are the game's and the mods' ([Files](#files)).
+read are the game's and the mods' ([Files](#files)). An error in a script never stops the game: it's
+logged with the file and the line, and the game carries on.
 
-- A call into a script may run for at most 1 second in a load script and 100 milliseconds in any
-  other.
-- Each mod's scripts may use at most 64 MiB of memory.
-- Each frame, the scripts can draw up to 4096 things and 64 KiB of text over the flight display
-  (`hud` and `debug` together), and as much over the menus (`ui`). What's past that isn't drawn.
-- An error in a script never stops the game: it's logged with the file and the line, and the game
-  carries on.
+| What | Limit |
+|---|---|
+| A call into a script | 1 second in a load script, and 100 milliseconds in any other |
+| A mod's scripts' memory | 64 MiB |
+| A loose file a script reads | 32 MiB, half of that memory ([Files](#files)) |
+| Drawing each frame | 4096 things and 64 KiB of text over the flight display (`hud` and `debug` together), and as much over the menus (`ui`). What's past that isn't drawn |
+| The pictures and fonts scripts draw | 128 files and 64 MiB, all mods together ([Pictures, shapes and fonts](#pictures-shapes-and-fonts)) |
+| Camera views, HUD displays and screens | About 200 together in one run of OpenReliant, counting the ones registered before a reload ([Camera views](#camera-views)) |
+| Post effects | 64 at once, all mods together ([Post effects](#post-effects)) |
+| Surface and lighting functions | 64 at once, all mods together ([Surface and lighting functions](#surface-and-lighting-functions)) |
+| A mod's options | One page of up to 64 options, a choice of up to 32 choices, and a text of up to 24 characters ([Options](#options)) |
+| A game mode's missions | 64 ([Game modes](#game-modes)) |
 
 ## When something goes wrong
 
