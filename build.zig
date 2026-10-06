@@ -46,8 +46,11 @@ pub fn build(b: *std.Build) void {
         },
     });
     // Mod post effects compile through glslang and SPIRV-Cross. Keep their C++ exceptions
-    // inside the platform wrapper, and ship the upstream notices with the executable.
-    const shader_dependency = b.dependency("shader_compiler", .{ .target = target, .optimize = .fast });
+    // inside the platform wrapper, and ship the upstream notices with the executable. They are
+    // built for size: built for speed, the compiler takes gigabytes of memory on glslang's SPIR-V
+    // tables (`SPIRV/doc.cpp`), enough to stop a 16 GB Linux runner, and the shaders compile once
+    // into the shader cache anyway.
+    const shader_dependency = b.dependency("shader_compiler", .{ .target = target, .optimize = .small });
     const shader_library = shader_dependency.artifact("shader-compiler");
     platform.linkLibrary(shader_library);
     platform.addIncludePath(shader_library.getEmittedIncludeTree());
