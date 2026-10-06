@@ -1060,12 +1060,24 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     } else if (endsInPauseMenu(options, frames_left)) {
                         play.over = true;
                         try game.main.pause(pausing, true);
-                    } else try play.again(orders);
+                    } else {
+                        // Starting the mission again lets go of the one that ended, which the world
+                        // and the orders were pointed at as this pass began, so the rest of the pass
+                        // is left out. The next pass points them at the new mission.
+                        try play.again(orders);
+                        continue;
+                    }
                 }
                 if (test_keys.active(play.number)) {
-                    for (test_keys.ship_keys) |step| {
-                        if (devices.keyboard.pressed(@backingInt(step[0]), .none, true)) try play.changeShip(orders, step[1]);
-                    }
+                    // A change of ship starts the mission again, which leaves the rest of the pass
+                    // out likewise.
+                    const changed = for (test_keys.ship_keys) |step| {
+                        if (devices.keyboard.pressed(@backingInt(step[0]), .none, true)) {
+                            try play.changeShip(orders, step[1]);
+                            break true;
+                        }
+                    } else false;
+                    if (changed) continue;
                     if (devices.keyboard.pressed(@backingInt(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
                 }
 
