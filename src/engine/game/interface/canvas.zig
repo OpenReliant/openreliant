@@ -629,8 +629,8 @@ test Shapes {
     // A set of one palette, the least a set holds.
     const at = @sizeOf(spr.Header) + @sizeOf(spr.DirectoryEntry);
     var set: [at + spr.palette_size]u8 = @splat(0);
-    set[0..@sizeOf(spr.Header)].* = @bitCast(spr.Header{ .version = spr.magic.*, .shape_count = 1 });
-    set[@sizeOf(spr.Header)..at].* = @bitCast(spr.DirectoryEntry{ .offset = at, .reserved = 0 });
+    set[0..@sizeOf(spr.Header)].* = std.mem.toBytes(spr.Header{ .version = spr.magic.*, .shape_count = 1 });
+    set[@sizeOf(spr.Header)..at].* = std.mem.toBytes(spr.DirectoryEntry{ .offset = at, .reserved = 0 });
     var shapes = Shapes.of(gpa, try gpa.dupe(u8, &set), "palette.spr", null).?;
     defer shapes.deinit(gpa);
     try std.testing.expectEqual(1, shapes.art.set.count());

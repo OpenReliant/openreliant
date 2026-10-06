@@ -2,7 +2,7 @@
     .name = .openreliant,
     .version = "0.7.0", // x-release-please-version
     .fingerprint = 0x51560fdd72ea15d0,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .shader_compiler = .{ .path = "deps/shader-compiler" },
         .texture_compressor = .{ .path = "deps/texture-compressor" },
@@ -28,6 +28,10 @@
         .zlib = .{
             .url = "git+https://github.com/allyourcodebase/zlib.git?ref=v1.3.2#d3b5519d3b73616a6bfece0712f080029d2a9244",
             .hash = "zlib-1.3.2-ZZQ7lc8NAAAHm9MDfplvwoesXvk4tVm6VCsiI8KnIbT0",
+        },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c?ref=2.0.0#0da7a16c3235b935b82421646076e0657cda21f6",
+            .hash = "translate_c-2.0.0-Q_BUWltOBwA0229IE8wwSxxGzOxyRso3hvcb1nN8oJX_",
         },
     },
     .paths = .{

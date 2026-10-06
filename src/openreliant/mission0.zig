@@ -195,7 +195,7 @@ pub fn write(gpa: Allocator) ![]u8 {
             if (ship.group == group) count += 1;
         }
         record.* = .{
-            .object_id = @intCast(placed.len + @intFromEnum(group)),
+            .object_id = @intCast(placed.len + @backingInt(group)),
             ._unknown_02 = 0,
             .name = try addString(arena, &strings, group.label()),
             ._unknown_06 = 0,
@@ -233,7 +233,7 @@ pub fn write(gpa: Allocator) ![]u8 {
     section(&sections, .objects, objects.len, std.mem.sliceAsBytes(objects));
     section(&sections, .parts, 1, std.mem.asBytes(&part));
     section(&sections, .script_flags, code.len, try arena.alloc(u8, code.len));
-    @memset(@constCast(sections[@intFromEnum(dte.Section.script_flags)].bytes), 0);
+    @memset(@constCast(sections[@backingInt(dte.Section.script_flags)].bytes), 0);
     const flags = dte.write.template.command_flags;
     section(&sections, .command_flags, flags.len, std.mem.sliceAsBytes(&flags));
     return dte.write.write(gpa, &sections, .{ .name = name });
@@ -260,7 +260,7 @@ fn shipRecord(ship: Placed, id: u32, name_at: u16) dte.Ship {
     record.name = name_at;
     record.runtime_position = ship.at;
     record.position = ship.at;
-    record.flight_group = @intFromEnum(ship.group);
+    record.flight_group = @backingInt(ship.group);
     record.pilot = ship.pilot;
     record.kind = @intCast(ship.kind.number());
     record.launch_from = if (ship.gate != null) @intCast(Type.of(.reliant).number()) else std.math.maxInt(u16);
@@ -293,7 +293,7 @@ fn addString(gpa: Allocator, strings: *std.ArrayList(u8), text: []const u8) !u16
 const made = [_]Group{ .reliant, .alpha, .badanov, .sabres, .rocks };
 
 comptime {
-    for (std.enums.values(Group)) |group| std.debug.assert(std.mem.indexOfScalar(Group, &made, group) != null);
+    for (std.enums.values(Group)) |group| std.debug.assert(std.mem.findScalar(Group, &made, group) != null);
 }
 
 /// The start part: every flight group made, the ejected pilot's odds each as likely, the rocks
@@ -304,7 +304,7 @@ fn script(gpa: Allocator) ![]u8 {
     var routine: Routine = .init(gpa);
     defer routine.deinit();
     for (made) |group| {
-        try routine.op(.push_flight_group, &.{@intFromEnum(group)});
+        try routine.op(.push_flight_group, &.{@backingInt(group)});
         try routine.command("CreateFlightGroup");
     }
     for ([_]u8{ 33, 33, 34 }) |odds| try routine.pushConstant(odds);
@@ -312,13 +312,13 @@ fn script(gpa: Allocator) ![]u8 {
     try setAI(&routine, .{ .group = .rocks }, .random_spin_slow, null);
     for (capital_ships) |group| try disableGuns(&routine, .{ .group = group }, true);
     try playMusic(&routine, launch_music);
-    try routine.op(.push_flight_group, &.{@intFromEnum(Group.alpha)});
+    try routine.op(.push_flight_group, &.{@backingInt(Group.alpha)});
     try routine.command("StartLaunch");
-    try routine.op(.push_flight_group, &.{@intFromEnum(Group.alpha)});
+    try routine.op(.push_flight_group, &.{@backingInt(Group.alpha)});
     try routine.command("WaitForJumpOrLaunch");
     for (capital_ships) |group| {
         try disableGuns(&routine, .{ .group = group }, false);
-        try routine.op(.push_flight_group, &.{@intFromEnum(group)});
+        try routine.op(.push_flight_group, &.{@backingInt(group)});
         try routine.op(.push_null, &.{});
         try routine.pushConstant(crawl_speed);
         try routine.command("Fly");
@@ -354,14 +354,14 @@ const Entity = union(enum) {
 fn pushEntity(routine: *Routine, entity: Entity) !void {
     switch (entity) {
         .ship => |ship| try routine.op(.push_ship, &.{@intCast(ship)}),
-        .group => |group| try routine.op(.push_flight_group, &.{@intFromEnum(group)}),
+        .group => |group| try routine.op(.push_flight_group, &.{@backingInt(group)}),
     }
 }
 
 /// `SetAI` of `order` on `entity`, aimed at the ship `target`, or at nothing, starting at once.
 fn setAI(routine: *Routine, entity: Entity, order: Order, target: ?usize) !void {
     try pushEntity(routine, entity);
-    try routine.pushConstant(@intCast(@intFromEnum(order)));
+    try routine.pushConstant(@intCast(@backingInt(order)));
     try routine.pushConstant(1);
     if (target) |ship| try routine.op(.push_ship, &.{@intCast(ship)}) else try routine.op(.push_null, &.{});
     try routine.command("SetAI");
@@ -406,9 +406,9 @@ test write {
     try std.testing.expectEqual(wing_pilot, records[first_sabre].pilot);
     // Each flight group lists its ships, the player's in the player's wing.
     const groups = try mission.flightGroups();
-    try std.testing.expectEqualSlices(u16, &.{ 0, 1, 2, 3 }, mission.groupShips(groups[@intFromEnum(Group.alpha)]));
-    try std.testing.expectEqual(.player, groups[@intFromEnum(Group.alpha)].wing);
-    try std.testing.expectEqual(field_size, mission.groupShips(groups[@intFromEnum(Group.rocks)]).len);
+    try std.testing.expectEqualSlices(u16, &.{ 0, 1, 2, 3 }, mission.groupShips(groups[@backingInt(Group.alpha)]));
+    try std.testing.expectEqual(.player, groups[@backingInt(Group.alpha)].wing);
+    try std.testing.expectEqual(field_size, mission.groupShips(groups[@backingInt(Group.rocks)]).len);
     // One part, run at the start, which disassembles whole.
     const parts = try mission.file.parts();
     try std.testing.expectEqual(1, parts.len);
@@ -484,7 +484,7 @@ test "the rocks lie beyond the action's sphere, apart" {
         }
     }
     // Every one of the seven asteroids is among them.
-    var seen = std.StaticBitSet(7).initEmpty();
+    var seen = std.bit_set.Static(7).empty;
     for (placed) |rock| seen.set(rock.kind.number() - Type.asteroid(0).number());
     try std.testing.expectEqual(7, seen.count());
 }

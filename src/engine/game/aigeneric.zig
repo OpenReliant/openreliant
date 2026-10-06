@@ -127,7 +127,7 @@ pub const Target = extern struct {
 
     comptime {
         for (std.enums.values(dte.Object.Kind)) |kind| {
-            assert(@intFromEnum(@field(Kind, @tagName(kind))) == @intFromEnum(kind));
+            assert(@backingInt(@field(Kind, @tagName(kind))) == @backingInt(kind));
         }
         assert(@offsetOf(Target, "index") == 0x2);
         assert(@offsetOf(Target, "component") == 0x4);
@@ -362,7 +362,7 @@ pub fn refused(all: *const create.Objects, index: u16, order: Order) bool {
     if (orders.info(order) == null) {
         if (infoOf(all, order)) |info| return index < all.players and !info.flags.players;
     }
-    if (index >= all.players or @intFromEnum(order) >= players_orders) return false;
+    if (index >= all.players or @backingInt(order) >= players_orders) return false;
     const info = infoOf(all, order) orelse return true;
     return !info.flags.players;
 }
@@ -457,7 +457,7 @@ pub fn pushOrder(ctx: Context, index: u16, order: Order, target: Target) Pushed 
 
     if (object.order_count >= max_stack) return .refused;
     const count = slot.stack().len;
-    std.mem.copyBackwards(Entry, slot.orders[1 .. count + 1], slot.orders[0..count]);
+    @memmove(slot.orders[1 .. count + 1], slot.orders[0..count]);
     const sequence: i16 = if (all.order_number) |*next| numbered: {
         defer next.* +%= 1;
         break :numbered @truncate(next.*);
@@ -597,7 +597,7 @@ fn start(slot: *create.Slot) void {
 fn remove(slot: *create.Slot, at: usize) void {
     const live = slot.stack();
     if (at >= live.len) return;
-    std.mem.copyForwards(Entry, live[at .. live.len - 1], live[at + 1 ..]);
+    @memmove(live[at .. live.len - 1], live[at + 1 ..]);
     slot.object.order_count -= 1;
 }
 
@@ -1114,10 +1114,10 @@ test give {
 
 test "Named.format" {
     var buffer: [64]u8 = undefined;
-    try std.testing.expectEqualStrings("Eject", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = .eject }}));
+    try std.testing.expectEqualStrings("Eject", try std.mem.print(&buffer, "{f}", .{Named{ .order = .eject }}));
     // A nameless order goes by OpenReliant's name for it, and one the table lacks by its number.
-    try std.testing.expectEqualStrings("unnamed_3", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = .unnamed_3 }}));
-    try std.testing.expectEqualStrings("order 99", try std.fmt.bufPrint(&buffer, "{f}", .{Named{ .order = @enumFromInt(99) }}));
+    try std.testing.expectEqualStrings("unnamed_3", try std.mem.print(&buffer, "{f}", .{Named{ .order = .unnamed_3 }}));
+    try std.testing.expectEqualStrings("order 99", try std.mem.print(&buffer, "{f}", .{Named{ .order = @fromBackingInt(99) }}));
 }
 
 test objectOrders {

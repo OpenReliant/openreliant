@@ -40,11 +40,11 @@ pub const Object = enum(u16) {
     _,
 
     pub fn of(index: u16) Object {
-        return @enumFromInt(index);
+        return @fromBackingInt(index);
     }
 
     pub fn slot(object: Object) u16 {
-        return @intFromEnum(object);
+        return @backingInt(object);
     }
 };
 
@@ -319,7 +319,7 @@ fn routineAbout(comptime routine: Routine) []const u8 {
         for (orders.table) |entry| {
             if (routines.address(entry, routine.role) != routine.address) continue;
             const named = if (entry.name.len > 0) ", " ++ entry.name else "";
-            text = text ++ (if (count == 0) " " else ", and of order ") ++ std.fmt.comptimePrint("{d}", .{@intFromEnum(entry.order)}) ++ named;
+            text = text ++ (if (count == 0) " " else ", and of order ") ++ std.fmt.comptimePrint("{d}", .{@backingInt(entry.order)}) ++ named;
             count += 1;
         }
         return text ++ ", which `object` runs.";
@@ -466,10 +466,10 @@ pub const engine_events = struct {
 /// Every hook: the functions', the order table's routines', the mission's events and the engine's.
 pub const Hook = hook: {
     var names: []const []const u8 = &.{};
-    for (std.meta.declarations(functions)) |decl| names = names ++ .{decl.name};
+    for (std.meta.declarations(functions)) |decl_name| names = names ++ .{decl_name};
     for (routine_hooks) |routine| names = names ++ .{routine.name};
-    for (std.meta.declarations(mission_events)) |decl| names = names ++ .{decl.name};
-    for (std.meta.declarations(engine_events)) |decl| names = names ++ .{decl.name};
+    for (std.meta.declarations(mission_events)) |decl_name| names = names ++ .{decl_name};
+    for (std.meta.declarations(engine_events)) |decl_name| names = names ++ .{decl_name};
     const Int = std.math.IntFittingRange(0, names.len - 1);
     break :hook @Enum(Int, .exhaustive, names, &std.simd.iota(Int, names.len));
 };
@@ -535,7 +535,7 @@ pub const Outcome = struct {
 /// `create.Objects.scripts` holds while a game runs.
 pub const Scripts = struct {
     /// The hooks that have handlers, which the hooked functions and events check first.
-    hooked: std.EnumSet(Hook) = .initEmpty(),
+    hooked: std.EnumSet(Hook) = .empty,
     /// The hook whose function runs next without its handlers, as they run it (`Call.original`).
     passing: ?Hook = null,
     context: *anyopaque,
@@ -646,8 +646,8 @@ fn run(scripts: *Scripts, hook: Hook, comptime F: type, comptime function: anyty
         fn original(call: *Call) void {
             const pending: *@This() = @alignCast(@fieldParentPtr("call", call));
             var given = pending.arguments;
-            inline for (@typeInfo(F).@"struct".fields, 1..) |field, at| {
-                given[at] = parameterOf(@TypeOf(given[at]), @field(pending.fields, field.name));
+            inline for (@typeInfo(F).@"struct".field_names, 1..) |name, at| {
+                given[at] = parameterOf(@TypeOf(given[at]), @field(pending.fields, name));
             }
             call.scripts.passing = call.hook;
             defer call.scripts.passing = null;
@@ -678,8 +678,9 @@ fn Return(comptime function: anytype) type {
 /// The fields `F` of a call with `arguments`: each parameter after the first, in order.
 fn fieldsOf(comptime F: type, arguments: anytype) F {
     var fields: F = undefined;
-    inline for (@typeInfo(F).@"struct".fields, 1..) |field, at| {
-        @field(fields, field.name) = fieldOf(field.type, arguments[at]);
+    const info = @typeInfo(F).@"struct";
+    inline for (info.field_names, info.field_types, 1..) |name, Field, at| {
+        @field(fields, name) = fieldOf(Field, arguments[at]);
     }
     return fields;
 }
@@ -720,12 +721,12 @@ fn ParameterType(comptime Field: type) type {
 /// its result isn't the function's.
 fn checkFunction(comptime hook: Hook, comptime Function: type) void {
     const info = @typeInfo(Function).@"fn";
-    const fields = @typeInfo(Fields(hook)).@"struct".fields;
+    const fields = @typeInfo(Fields(hook)).@"struct";
     const name = @tagName(hook);
     if (declaration(hook).on != .function) @compileError(name ++ " is an event, which `tell` tells");
-    if (info.params.len != fields.len + 1) @compileError("the fields of " ++ name ++ " don't follow its function's parameters");
-    for (fields, info.params[1..]) |field, param| {
-        if (param.type.? != ParameterType(field.type)) @compileError("the field " ++ field.name ++ " of " ++ name ++ " doesn't follow its parameter");
+    if (info.param_types.len != fields.field_names.len + 1) @compileError("the fields of " ++ name ++ " don't follow its function's parameters");
+    for (fields.field_names, fields.field_types, info.param_types[1..]) |field_name, Field, Param| {
+        if (Param.? != ParameterType(Field)) @compileError("the field " ++ field_name ++ " of " ++ name ++ " doesn't follow its parameter");
     }
     if (info.return_type.? != Result(hook)) @compileError("the result of " ++ name ++ " isn't its function's");
 }
@@ -744,7 +745,7 @@ fn scriptsOf(source: anytype) ?*Scripts {
 /// The hook on the routine of `role` that `order` runs, where it has one: each order that uses a
 /// routine reaches its hook.
 pub fn routineHook(order: orders.Order, role: routines.Role) ?Hook {
-    const number = std.math.cast(usize, @intFromEnum(order)) orelse return null;
+    const number = std.math.cast(usize, @backingInt(order)) orelse return null;
     if (number >= routine_table.len) return null;
     return routine_table[number].get(role);
 }
@@ -768,7 +769,7 @@ const routine_table = table: {
 
 /// The number of an order the table holds, which is never below 0.
 fn orderNumber(order: orders.Order) usize {
-    return @intCast(@intFromEnum(order));
+    return @intCast(@backingInt(order));
 }
 
 comptime {
@@ -798,7 +799,7 @@ test Target {
     const none: Target = .of(.none);
     try std.testing.expect(none.object == null and none.flight_group == null and none.squad == null);
     // Unchanged, each goes back as it was, a kind the scripts can't name too.
-    const odd: aigeneric.Target = .{ .kind = @enumFromInt(7), .index = 4, .component = -1 };
+    const odd: aigeneric.Target = .{ .kind = @fromBackingInt(7), .index = 4, .component = -1 };
     for ([_]aigeneric.Target{ .at(5, 2), .group(.squad, 1), .none, odd }) |held| {
         try std.testing.expectEqual(held, Target.of(held).aimed());
     }
@@ -819,7 +820,7 @@ test routineHook {
     // The empty routine has no hook, nor does an order without the routine.
     try std.testing.expectEqual(null, routineHook(.random_spin_slow, .update));
     try std.testing.expectEqual(null, routineHook(.run_away, .exit));
-    try std.testing.expectEqual(null, routineHook(@enumFromInt(-1), .update));
+    try std.testing.expectEqual(null, routineHook(@fromBackingInt(-1), .update));
 }
 
 test declaration {

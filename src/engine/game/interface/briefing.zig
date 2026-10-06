@@ -67,7 +67,7 @@ pub const movies = [_][]const u8{ "new_m01", "new_m02", "new_m03", "new_m04", "n
 /// OpenReliant plays none there, and the briefing ends at once.
 pub fn movieName(buffer: *[movie_name_size]u8, mission: u16) ?[]const u8 {
     if (mission == 0 or mission > movies.len) return null;
-    return std.fmt.bufPrint(buffer, "{s}.bik", .{movies[mission - 1]}) catch unreachable;
+    return std.mem.print(buffer, "{s}.bik", .{movies[mission - 1]}) catch unreachable;
 }
 
 pub const movie_name_size = 16;
@@ -75,7 +75,7 @@ pub const movie_name_size = 16;
 /// Enriquez's last word before mission `mission`, `ms_speech\enrbr_tag%02d.ut` of `speech_hog`
 /// (`0x004E88C8`), written into `buffer`, which holds it for any mission's number.
 fn tagLine(buffer: *[tag_line_size]u8, mission: u16) []const u8 {
-    return std.fmt.bufPrint(buffer, "ms_speech\\enrbr_tag{d:0>2}.ut", .{mission}) catch unreachable;
+    return std.mem.print(buffer, "ms_speech\\enrbr_tag{d:0>2}.ut", .{mission}) catch unreachable;
 }
 
 const tag_line_size = 32;
@@ -474,7 +474,7 @@ pub const Briefing = struct {
     /// (`0x004375F1`); then Escape, the right button, or the movie's end ends it; at the
     /// campaign's end, the end of Enriquez's speech, which Escape and the right button stop.
     fn briefingPass(briefing: *Briefing, in: Input) ?Step {
-        briefing.screenshot = in.keyboard.pressed(@intFromEnum(screenshot_key), .none, true);
+        briefing.screenshot = in.keyboard.pressed(@backingInt(screenshot_key), .none, true);
         const sound = briefing.context.sound;
         const ending = briefing.mission == end_mission;
         const over = in.keyboard.pressed(input.scan.escape, .none, true) or
@@ -686,7 +686,7 @@ pub const Briefing = struct {
     fn drawDoor(briefing: *Briefing, target: canvas.Canvas) Allocator.Error!void {
         if (briefing.door.image) |*shown| target.fill(shown);
         var buffer: [awaiting_size]u8 = undefined;
-        const words = std.fmt.bufPrint(&buffer, "{s} {s}", .{
+        const words = std.mem.print(&buffer, "{s} {s}", .{
             target.strings.string(awaiting) orelse "",
             target.strings.string(clearance) orelse "",
         }) catch return;
@@ -817,7 +817,7 @@ test "O asks for a screenshot in the briefing, before Escape ends it" {
     var keyboard: input.Keyboard = .{};
     var briefing: Briefing = .open(tested.context(), 2, false, null);
     defer briefing.close();
-    const o = @intFromEnum(screenshot_key);
+    const o = @backingInt(screenshot_key);
     // Not at the door.
     keyboard.down[o] = true;
     _ = passAt(&briefing, &keyboard, false, 0);

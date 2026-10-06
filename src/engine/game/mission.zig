@@ -13,7 +13,7 @@ pub const events = @import("mission/events.zig");
 pub const Mission = bind.Mission;
 
 const dte = @import("../../formats/dte.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const math = @import("../surrender/math.zig");
 const vm = @import("../vm.zig");
 const aigeneric = @import("aigeneric.zig");
@@ -41,7 +41,7 @@ pub const Loaded = struct {
     /// Binds `image`, made in `gpa`, which the mission then owns, with its script ready to start
     /// (`mission_bind_sections`) and no events waiting (`init_mission`). The script draws its
     /// random numbers from `random`.
-    pub fn create(gpa: Allocator, image: []u8, random: *libcmt.Rand) !*Loaded {
+    pub fn create(gpa: Allocator, image: []u8, random: *Random) !*Loaded {
         const loaded = gpa.create(Loaded) catch |err| {
             gpa.free(image);
             return err;
@@ -141,12 +141,12 @@ pub fn syncShips(all: *const create.Objects, ships: []align(1) dte.Ship) void {
         const root = &slot.object.root;
         ship.runtime_position = .{ root.position.x, root.position.y, root.position.z };
         const nose = math.forward(root.orientation);
-        var yaw = math.ftol(heading(nose[0], nose[2]) - half_turn);
+        var yaw = std.math.lossyCast(i32, heading(nose[0], nose[2]) - half_turn);
         if (@as(i16, @truncate(yaw)) < 0) yaw += full_turn;
         ship.runtime_yaw = @truncate(yaw);
-        ship.runtime_pitch = @truncate(math.ftol(heading(nose[1], nose[2])));
+        ship.runtime_pitch = @truncate(std.math.lossyCast(i32, heading(nose[1], nose[2])));
         if (ship.runtime_yaw < right_angle or ship.runtime_yaw > full_turn - right_angle) {
-            ship.runtime_pitch = @truncate(math.ftol(half_turn - @as(f32, @floatFromInt(ship.runtime_pitch))));
+            ship.runtime_pitch = @truncate(std.math.lossyCast(i32, half_turn - @as(f32, @floatFromInt(ship.runtime_pitch))));
             if (ship.runtime_pitch > half_turn) ship.runtime_pitch = full_turn - ship.runtime_pitch;
         }
     }
@@ -246,7 +246,7 @@ pub fn yawPitch(yaw: f32, pitch: f32) math.Matrix {
 test "Loaded.tickClock" {
     const gpa = std.testing.allocator;
     const image = try bind.testing.image(gpa, .{});
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const loaded = try Loaded.create(gpa, image, &random);
     defer loaded.destroy();
     // The clock counts the whole seconds of the game's ticks since it started.
@@ -259,7 +259,7 @@ test "Loaded.tickClock" {
 }
 
 test shipSlot {
-    const ships = dte.testing.ships(2, @intFromEnum(gameobj.GameType.sabre));
+    const ships = dte.testing.ships(2, @backingInt(gameobj.GameType.sabre));
     var game: vm.machine.testing.Game = undefined;
     try game.init(std.testing.allocator, &.{}, .{ .ships = &ships });
     defer game.deinit();
@@ -290,7 +290,7 @@ test listPlayerWing {
     try std.testing.expectEqual(.none, all.slots[outsider].object.wing);
 
     // More ships than the wing holds list as many as fit.
-    listPlayerWing(all, &(.{wingman} ** (wing_size + 1)));
+    listPlayerWing(all, &@as([wing_size + 1]u16, @splat(wingman)));
     try std.testing.expectEqual(@as(WingSlots, @splat(wingman)), all.wing);
 }
 

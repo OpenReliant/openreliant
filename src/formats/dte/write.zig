@@ -70,7 +70,7 @@ pub const Sections = [dte.section_count]Contents;
 
 /// Has `sections` hold `bytes` in section `which`, counted as `count` records.
 pub fn set(sections: *Sections, which: Section, count: usize, bytes: []const u8) void {
-    sections[@intFromEnum(which)] = .{ .count = @intCast(count), .bytes = bytes };
+    sections[@backingInt(which)] = .{ .count = @intCast(count), .bytes = bytes };
 }
 
 pub const Options = struct {
@@ -99,7 +99,7 @@ pub fn write(gpa: Allocator, sections: *const Sections, options: Options) Error!
     const last: Contents = if (options.name != null)
         .{ .count = @intCast(name_section.len), .bytes = name_section }
     else
-        sections[@intFromEnum(Section.openreliant_name)];
+        sections[@backingInt(Section.openreliant_name)];
     const size = template.size + last.bytes.len;
 
     const bytes = try gpa.alloc(u8, size);
@@ -109,8 +109,8 @@ pub fn write(gpa: Allocator, sections: *const Sections, options: Options) Error!
     for (directory) |*entry| entry.* = .{ .count = 0, ._unused = 0, .formats = options.formats, .offset = DirectoryEntry.unused_offset };
     directory[dte.section_count].offset = @intCast(size);
     for (sections, template.offsets, 0..) |section, offset, index| {
-        const contents = if (index == @intFromEnum(Section.openreliant_name)) last else section;
-        const at = if (index == @intFromEnum(Section.openreliant_name) and contents.bytes.len > 0) template.size else offset;
+        const contents = if (index == @backingInt(Section.openreliant_name)) last else section;
+        const at = if (index == @backingInt(Section.openreliant_name) and contents.bytes.len > 0) template.size else offset;
         if (at == offset and contents.bytes.len > template.room(index)) return error.SectionTooLarge;
         directory[index] = .{ .count = contents.count, ._unused = 0, .formats = options.formats, .offset = at };
         @memcpy(bytes[at..][0..contents.bytes.len], contents.bytes);
@@ -135,9 +135,9 @@ fn nameSection(gpa: Allocator, name: []const u8) Error![]u8 {
 pub fn records(mission: dte.Mission) (dte.Error || error{UnknownStride})!Sections {
     var sections: Sections = @splat(.{});
     for (&sections, 0..) |*section, index| {
-        const entry = mission.entry(@enumFromInt(index));
+        const entry = mission.entry(@fromBackingInt(@intCast(index)));
         if (!entry.isUsed() or entry.count == 0) continue;
-        const stride = (@as(Section, @enumFromInt(index))).stride() orelse return error.UnknownStride;
+        const stride = (@as(Section, @fromBackingInt(@intCast(index)))).stride() orelse return error.UnknownStride;
         const size = @as(usize, entry.count) * stride;
         if (entry.offset + size > mission.image.len) return error.Truncated;
         section.* = .{ .count = entry.count, .bytes = mission.image[entry.offset..][0..size] };
@@ -152,7 +152,7 @@ pub fn rooms(mission: dte.Mission) ?Sections {
     if (mission.image.len != template.size) return null;
     var sections: Sections = @splat(.{});
     for (&sections, template.offsets, 0..) |*section, offset, index| {
-        const entry = mission.entry(@enumFromInt(index));
+        const entry = mission.entry(@fromBackingInt(@intCast(index)));
         if (entry.offset != offset) return null;
         section.* = .{ .count = entry.count, .bytes = mission.image[offset..][0..template.room(index)] };
     }
@@ -174,28 +174,28 @@ test write {
     ship.pilot = dte.Ship.no_pilot;
     ship.kind = 43;
     var sections: Sections = @splat(.{});
-    sections[@intFromEnum(Section.strings)] = .{ .count = 7, .bytes = "Player\x00" };
-    sections[@intFromEnum(Section.ships)] = .{ .count = 1, .bytes = std.mem.asBytes(&ship) };
+    sections[@backingInt(Section.strings)] = .{ .count = 7, .bytes = "Player\x00" };
+    sections[@backingInt(Section.ships)] = .{ .count = 1, .bytes = std.mem.asBytes(&ship) };
     const bytes = try write(gpa, &sections, .{ .name = "Test" });
     defer gpa.free(bytes);
 
     // The game's reader finds each section where the template has it, and the name after it.
     const mission: dte.Mission = try .parse(bytes);
-    try std.testing.expectEqual(template.offsets[@intFromEnum(Section.ships)], mission.entry(.ships).offset);
+    try std.testing.expectEqual(template.offsets[@backingInt(Section.ships)], mission.entry(.ships).offset);
     try std.testing.expectEqualStrings("Player", mission.name((try mission.player()).?.name));
     try std.testing.expectEqualStrings("Test", mission.openReliantName().?);
     try std.testing.expectEqual(bytes.len, mission.directory.ptr[dte.section_count].offset);
     // Its records read back as they were given, the name's section besides.
     var read = try records(mission);
-    try std.testing.expectEqual(@sizeOf(dte.OpenReliantName) + "Test".len + 1, read[@intFromEnum(Section.openreliant_name)].count);
-    read[@intFromEnum(Section.openreliant_name)] = .{};
+    try std.testing.expectEqual(@sizeOf(dte.OpenReliantName) + "Test".len + 1, read[@backingInt(Section.openreliant_name)].count);
+    read[@backingInt(Section.openreliant_name)] = .{};
     try std.testing.expect(sameRecords(sections, read));
 
     // A section larger than its room fails.
-    const large = try gpa.alloc(u8, template.room(@intFromEnum(Section.globals)) + 1);
+    const large = try gpa.alloc(u8, template.room(@backingInt(Section.globals)) + 1);
     defer gpa.free(large);
     @memset(large, 0);
-    sections[@intFromEnum(Section.globals)] = .{ .count = 1, .bytes = large };
+    sections[@backingInt(Section.globals)] = .{ .count = 1, .bytes = large };
     try std.testing.expectError(error.SectionTooLarge, write(gpa, &sections, .{}));
 }
 

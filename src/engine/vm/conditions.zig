@@ -47,11 +47,11 @@ pub const table = [_]Condition{
         .name = "ShotAt",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "Attacker", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
-            .{ .label = "Shield Damage", .kinds = @bitCast(@as(u32, 0x00001000)), .extra = 0xFF, .checked = false },
-            .{ .label = "Hull Damage", .kinds = @bitCast(@as(u32, 0x00001000)), .extra = 0xFF, .checked = false },
-            .{ .label = "Victim", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
-            .{ .label = "Weapon Fired", .kinds = @bitCast(@as(u32, 0x00080000)), .extra = 0x09, .checked = true },
+            .{ .label = "Attacker", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
+            .{ .label = "Shield Damage", .kinds = .{ ._unknown_12 = 1 }, .extra = 0xFF, .checked = false },
+            .{ .label = "Hull Damage", .kinds = .{ ._unknown_12 = 1 }, .extra = 0xFF, .checked = false },
+            .{ .label = "Victim", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
+            .{ .label = "Weapon Fired", .kinds = .{ .constant = true }, .extra = 0x09, .checked = true },
         },
         .slot = 0,
         .veto_exempt = null,
@@ -63,8 +63,8 @@ pub const table = [_]Condition{
         .name = "Destroyed",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "Killer", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
-            .{ .label = "Victim", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "Killer", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
+            .{ .label = "Victim", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = 1,
         .veto_exempt = .always,
@@ -76,7 +76,7 @@ pub const table = [_]Condition{
         .name = "Launched",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "LaunchedShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "LaunchedShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -98,7 +98,7 @@ pub const table = [_]Condition{
         .name = "ShipReached",
         .subjects = .{ .ship = true, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "ReachedShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "ReachedShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -110,8 +110,8 @@ pub const table = [_]Condition{
         .name = "CloseProximity",
         .subjects = .{ .ship = true, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "ApproachingShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
-            .{ .label = "Proximity", .kinds = @bitCast(@as(u32, 0x00000080)), .extra = 0xFF, .checked = false },
+            .{ .label = "ApproachingShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
+            .{ .label = "Proximity", .kinds = .{ .number = true }, .extra = 0xFF, .checked = false },
         },
         .slot = null,
         .veto_exempt = null,
@@ -123,8 +123,8 @@ pub const table = [_]Condition{
         .name = "Proximity",
         .subjects = .{ .ship = true, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "ApproachingShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
-            .{ .label = "Proximity", .kinds = @bitCast(@as(u32, 0x00000080)), .extra = 0xFF, .checked = false },
+            .{ .label = "ApproachingShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
+            .{ .label = "Proximity", .kinds = .{ .number = true }, .extra = 0xFF, .checked = false },
         },
         .slot = null,
         .veto_exempt = null,
@@ -136,7 +136,7 @@ pub const table = [_]Condition{
         .name = "ObjectScooped",
         .subjects = .{ .ship = true, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "ObjectScooped", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "ObjectScooped", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -158,7 +158,7 @@ pub const table = [_]Condition{
         .name = "JumpedIn",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "JumpedInShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "JumpedInShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -170,7 +170,7 @@ pub const table = [_]Condition{
         .name = "FixedGateJumpedIn",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "ShipJumpedIn", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "ShipJumpedIn", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -212,7 +212,7 @@ pub const table = [_]Condition{
         .name = "RipperGrabbedObject",
         .subjects = .{ .ship = true, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "ObjectGrabbed", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "ObjectGrabbed", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -224,7 +224,7 @@ pub const table = [_]Condition{
         .name = "RipperDroppedObject",
         .subjects = .{ .ship = true, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "ObjectDropped", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "ObjectDropped", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -236,7 +236,7 @@ pub const table = [_]Condition{
         .name = "Cloaked",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "CloakingShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "CloakingShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = .always,
@@ -248,7 +248,7 @@ pub const table = [_]Condition{
         .name = "Decloaked",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "CloakingShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "CloakingShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = .always,
@@ -260,7 +260,7 @@ pub const table = [_]Condition{
         .name = "Targetted",
         .subjects = .{ .ship = true, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "Aggressor", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "Aggressor", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -342,8 +342,8 @@ pub const table = [_]Condition{
         .name = "Tractor Beam Locked",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "TractoredShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
-            .{ .label = "TractoringShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "TractoredShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
+            .{ .label = "TractoringShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -355,8 +355,8 @@ pub const table = [_]Condition{
         .name = "Tractor Beam Broken",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "TractoredShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
-            .{ .label = "TractoringShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "TractoredShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
+            .{ .label = "TractoringShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -408,8 +408,8 @@ pub const table = [_]Condition{
         .name = "I'm Being Chased",
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
-            .{ .label = "ChasedShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
-            .{ .label = "Chaser", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "ChasedShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
+            .{ .label = "Chaser", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -421,7 +421,7 @@ pub const table = [_]Condition{
         .name = "Player_CallReinforcements",
         .subjects = .{ .ship = true, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "PlayerTargetted", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "PlayerTargetted", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,
@@ -433,7 +433,7 @@ pub const table = [_]Condition{
         .name = "ExplosionShip",
         .subjects = .{ .ship = false, .flight_group = false, .squad = false, ._unused = 0 },
         .values = &.{
-            .{ .label = "ExplosionShip", .kinds = @bitCast(@as(u32, 0x00000400)), .extra = 0xFF, .checked = true },
+            .{ .label = "ExplosionShip", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
         },
         .slot = null,
         .veto_exempt = null,

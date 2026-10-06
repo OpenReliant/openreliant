@@ -36,8 +36,9 @@ The font OpenReliant carries, Newtown, lies in [`deps/newtown`](../../deps/newto
 
 ```bash
 make play                                      # optimized, for the host, on game/install
-zig build -Doptimize=ReleaseFast               # zig-out/bin/openreliant
-zig build -Doptimize=ReleaseFast -Dstrip       # without debug information, as released
+zig build --release=fast                       # zig-out/bin/openreliant
+zig build --release=fast -Dstrip               # without debug information, as released
+zig build check                                # compile, link no program (the C libraries build once)
 zig build -Dtarget=x86_64-windows              # openreliant.exe
 zig build -Dtarget=x86_64-linux-gnu
 zig build -Dtarget=aarch64-macos               # Apple silicon, from any Zig
@@ -176,7 +177,7 @@ The build gives `openreliant` and `sltool` their version ([`version.zig`](../../
 | With uncommitted changes | `0.2.0+12.gabc1234.dirty` |
 | No git or no tags, as in a source archive | `0.2.0` |
 
-Each archive holds the executables, `openreliant` and `sltool`, the README, the license and the changelog, and no game files. Every build names its target explicitly, so it is built for its architecture's baseline processor and runs on any machine of that kind. The Linux builds need glibc 2.31 or newer, and SDL loads the display, sound and input libraries at run time. The macOS builds are not signed, so macOS blocks them until the quarantine flag is removed with `xattr -d com.apple.quarantine openreliant sltool`.
+Each archive holds the executables, `openreliant` and `sltool`, the README, the license and the changelog, and no game files. Every build names its target explicitly, so it is built for its architecture's baseline processor and runs on any machine of that kind. The macOS builds need macOS 15 or newer. The Linux builds need glibc 2.31 or newer, and SDL loads the display, sound and input libraries at run time. The macOS builds are not signed, so macOS blocks them until the quarantine flag is removed with `xattr -d com.apple.quarantine openreliant sltool`.
 
 release-please opens its pull request with the workflow's own token, which needs "Allow GitHub Actions to create and approve pull requests" turned on in the repository's Actions settings. GitHub does not run workflows for pull requests opened with that token, so the release pull request never gets its checks, and an admin merges it past the branch protection.
 

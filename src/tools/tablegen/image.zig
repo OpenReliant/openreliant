@@ -73,7 +73,7 @@ pub const Reader = struct {
     pub fn string(reader: Reader, va: u32) Error![]const u8 {
         if (va == 0) return "";
         const bytes = reader.rest(va) orelse return error.BadString;
-        const end = std.mem.indexOfScalar(u8, bytes, 0) orelse return error.BadString;
+        const end = std.mem.findScalar(u8, bytes, 0) orelse return error.BadString;
         for (bytes[0..end]) |c| if ((c < 0x20 and c != '\t') or c > 0x7E) return error.BadString;
         return bytes[0..end];
     }

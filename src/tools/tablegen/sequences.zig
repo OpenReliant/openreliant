@@ -207,7 +207,7 @@ test read {
     defer out.deinit();
     try emit(&out.writer, records);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".{ .type = 0x21, .other_half = 0x5D, ._unknown_08 = null, .mode = .bursts,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".{ .type = 0x21, .other_half = 0x5D, ._unknown_08 = null, .mode = .bursts,") != null);
     // The empty records past the two are sweeps of type 0.
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".{ .type = 0x00, .other_half = 0x00, ._unknown_08 = 0x00, .mode = .sweep,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".{ .type = 0x00, .other_half = 0x00, ._unknown_08 = 0x00, .mode = .sweep,") != null);
 }

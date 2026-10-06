@@ -57,16 +57,17 @@ fn list(ctx: Context, comptime table: stats.Table, all: []align(1) const table.R
     try ctx.stdout.writeAll("\n\n");
 
     try ctx.stdout.print("{s:>4}  {s:<24}", .{ "#", "name" });
-    inline for (std.meta.fields(Record)) |field| {
-        if (comptime isShown(field.name)) try printHeading(ctx, field);
+    const info = @typeInfo(Record).@"struct";
+    inline for (info.field_names, info.field_types) |name, Field| {
+        if (comptime isShown(name)) try printHeading(ctx, name, Field);
     }
     try ctx.stdout.writeByte('\n');
 
     for (all, 0..) |record, index| {
         const marker: u8 = if (index < loaded) ' ' else '-';
         try ctx.stdout.print("{d:>3}{c}  {s:<24}", .{ index, marker, stats.nameOf(&record.name) });
-        inline for (std.meta.fields(Record)) |field| {
-            if (comptime isShown(field.name)) try printValue(ctx, @field(record, field.name));
+        inline for (comptime info.field_names) |name| {
+            if (comptime isShown(name)) try printValue(ctx, @field(record, name));
         }
         try ctx.stdout.writeByte('\n');
     }
@@ -78,16 +79,16 @@ fn isShown(comptime name: []const u8) bool {
     return !std.mem.eql(u8, name, "name") and !std.mem.startsWith(u8, name, "_unread");
 }
 
-fn printHeading(ctx: Context, comptime field: std.builtin.Type.StructField) !void {
-    const label = comptime std.mem.trimStart(u8, field.name, "_");
-    switch (@typeInfo(field.type)) {
+fn printHeading(ctx: Context, comptime name: []const u8, comptime Field: type) !void {
+    const label = comptime std.mem.trimStart(u8, name, "_");
+    switch (@typeInfo(Field)) {
         .array => |array| inline for (0..array.len) |i| {
             try ctx.stdout.print(" {s:>14}", .{std.fmt.comptimePrint("{s}[{d}]", .{ label, i })});
         },
         // A record of named values, such as the damage to a shield and to a hull: a column each.
         .@"struct" => |info| switch (info.layout) {
-            .@"extern" => inline for (info.fields) |inner| {
-                try ctx.stdout.print(" {s:>14}", .{label ++ "." ++ inner.name});
+            .@"extern" => inline for (info.field_names) |inner| {
+                try ctx.stdout.print(" {s:>14}", .{label ++ "." ++ inner});
             },
             else => try ctx.stdout.print(" {s:>14}", .{label}),
         },
@@ -107,7 +108,7 @@ fn printValue(ctx: Context, value: anytype) !void {
                 try printValue(ctx, value.low)
             else
                 @compileError("no column format for " ++ @typeName(T)),
-            .@"extern" => inline for (info.fields) |inner| try printValue(ctx, @field(value, inner.name)),
+            .@"extern" => inline for (info.field_names) |inner| try printValue(ctx, @field(value, inner)),
             .auto => @compileError("no column format for " ++ @typeName(T)),
         },
         .@"enum" => {

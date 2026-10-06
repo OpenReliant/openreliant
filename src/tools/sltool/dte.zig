@@ -100,7 +100,7 @@ fn info(ctx: Context, mission: dte.Mission) !void {
 fn sections(ctx: Context, mission: dte.Mission) !void {
     try ctx.stdout.writeAll("  #  count  flags    offset  section\n");
     for (mission.directory, 0..) |entry, i| {
-        const section: dte.Section = @enumFromInt(i);
+        const section: dte.Section = @fromBackingInt(@intCast(i));
         if (!entry.isUsed()) {
             try ctx.stdout.print("{d:>3}  {s:>5}  {s:>5}  {s:>8}  ", .{ i, "-", "-", "unused" });
         } else {
@@ -122,11 +122,11 @@ fn ships(ctx: Context, mission: dte.Mission) !void {
             i,
             ship.object_id,
             if (ship.flightGroup()) |in_group|
-                std.fmt.bufPrint(&group, "{d}", .{in_group}) catch "?"
+                std.mem.print(&group, "{d}", .{in_group}) catch "?"
             else
                 "-",
             if (ship.pilotRecord()) |flown_by|
-                std.fmt.bufPrint(&pilot, "{d}", .{flown_by}) catch "?"
+                std.mem.print(&pilot, "{d}", .{flown_by}) catch "?"
             else
                 "-",
             ship.kind,
@@ -155,20 +155,20 @@ fn triggers(ctx: Context, mission: dte.Mission, models: ?*Library) !void {
         var block: [8]u8 = undefined;
         try ctx.stdout.print("{d:>5}  {s:<26}  {s:>9}  {s:<7}  {s:<5}  {s:>5}  ", .{
             i,
-            std.fmt.bufPrint(&condition, "{f}", .{trigger.condition}) catch "?",
+            std.mem.print(&condition, "{f}", .{trigger.condition}) catch "?",
             if (trigger.component()) |component|
-                std.fmt.bufPrint(&qualifier, "{d}", .{component}) catch "?"
+                std.mem.print(&qualifier, "{d}", .{component}) catch "?"
             else
                 "-",
-            std.fmt.bufPrint(&repeat, "{f}", .{trigger.repeat}) catch "?",
+            std.mem.print(&repeat, "{f}", .{trigger.repeat}) catch "?",
             if (trigger.deferred == 0) "now" else "later",
-            if (trigger.block()) |at| std.fmt.bufPrint(&block, "{d}", .{at}) catch "?" else "-",
+            if (trigger.block()) |at| std.mem.print(&block, "{d}", .{at}) catch "?" else "-",
         });
         const id = owner orelse {
             try ctx.stdout.writeAll("none, so it never fires\n");
             continue;
         };
-        const kind = if (id < all_objects.len) all_objects[id].kind else @as(dte.Object.Kind, @enumFromInt(0xFF));
+        const kind = if (id < all_objects.len) all_objects[id].kind else @as(dte.Object.Kind, @fromBackingInt(0xFF));
         try ctx.stdout.print("{f} {d}", .{ kind, id });
         if (kind == .ship) {
             for (all_ships) |ship| {
@@ -319,9 +319,9 @@ fn printListing(
         // Long inline runs are shown as their text, so only the head needs a hex column.
         var bytes: [11]u8 = undefined;
         var at: usize = 0;
-        at += (std.fmt.bufPrint(bytes[at..], "{x:0>2}", .{@intFromEnum(instruction.opcode)}) catch break).len;
+        at += (std.mem.print(bytes[at..], "{x:0>2}", .{@backingInt(instruction.opcode)}) catch break).len;
         for (instruction.operands) |b| {
-            at += (std.fmt.bufPrint(bytes[at..], " {x:0>2}", .{b}) catch break).len;
+            at += (std.mem.print(bytes[at..], " {x:0>2}", .{b}) catch break).len;
         }
         try ctx.stdout.print("  {d:>6}  {s:<11} ", .{ instruction.address, bytes[0..@min(at, bytes.len)] });
         try openreliant.layout.formatTag(dte.Opcode, instruction.opcode, ctx.stdout);
@@ -435,7 +435,7 @@ fn strings(ctx: Context, mission: dte.Mission) !void {
     var offset: usize = pool.offset;
     while (offset < end) {
         const rest = mission.image[offset..end];
-        const len = std.mem.indexOfScalar(u8, rest, 0) orelse break;
+        const len = std.mem.findScalar(u8, rest, 0) orelse break;
         if (len > 0) {
             try ctx.stdout.print("{d:>6}  {s}\n", .{ offset - pool.offset, rest[0..len] });
         }

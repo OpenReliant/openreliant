@@ -7,8 +7,10 @@ and `CLAUDE.md` point agents here.
 
 ## Getting started
 
-- Install [Zig 0.16](https://ziglang.org). `zig build` builds everything, `zig build sltool`
-  builds `sltool` alone, and `zig build test` runs the tests.
+- Install [Zig 0.17](https://ziglang.org). `zig build` builds everything, `zig build sltool`
+  builds `sltool` alone, and `zig build test` runs the tests. `zig build check -fincremental
+  --watch` compiles everything without linking the programs and reports errors moments after a
+  save; its first run builds the C libraries.
 - Run `make hooks` once. It installs a pre-commit hook that keeps the game's files out of the
   repository.
 - `make help` lists every workflow, and `make doctor` reports which parts of the environment are
@@ -88,7 +90,10 @@ purpose, and then run `make definitions`. An enum whose own name isn't clear on 
 OpenReliant is faithful by default, and every difference is marked where it is made.
 
 - An **Improvement** is a deliberate change, such as widescreen, per-pixel lighting or a smoother
-  effect. `--original` brings back the original's behaviour.
+  effect. Where it changes what the player sees or hears, `--original` brings back the original's
+  behaviour. One that doesn't, such as exact maths, Zig's random numbers, a faster way to do the
+  same work, a raised limit that keeps mods' content from vanishing, or something OpenReliant
+  adds, is still marked but has no switch.
 - A **Fix** corrects a clear bug of the original, such as reading the wrong variable. A fix needs
   no switch: it stays in under `--original`, which brings back the original's look and sound, not
   its bugs.
@@ -107,9 +112,8 @@ A few kinds of improvement recur:
 - **Exact maths.** OpenReliant computes with `std.math` and `@Vector` where the original uses a
   lookup table or a rounded constant, so `3.14159` becomes `std.math.pi`. Design values such as
   `0.25` or 200 ticks stay as the game has them.
-- **Modern randomness.** Random numbers come from `std.Random` rather than the MSVC runtime's
-  `rand`; [#234](https://github.com/OpenReliant/openreliant/issues/234) moves the remaining code
-  over.
+- **Modern randomness.** Random numbers come from `std.Random` (`engine/random.zig`) rather than
+  the MSVC runtime's `rand`.
 - **High settings.** A quality or detail setting defaults to the original's highest.
 - **Graceful limits.** An enhancement with a hard limit keeps the most important items on the
   enhanced path, and sends the rest through the original's.
@@ -139,7 +143,7 @@ change to how missions load or run.
 
 ## Writing Zig
 
-Write idiomatic Zig 0.16. A decompiled C shape is a starting point: express the same behaviour
+Write idiomatic Zig 0.17. A decompiled C shape is a starting point: express the same behaviour
 with Zig's types. The standard library changes between releases, so check the installed `lib/std`
 for an API.
 
@@ -181,7 +185,7 @@ pub const Format = enum(u16) {
 
     pub fn format(tag: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (tag) {
-            _ => writer.print("format {d}", .{@intFromEnum(tag)}),
+            _ => writer.print("format {d}", .{@backingInt(tag)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -272,9 +276,9 @@ reaching a player. This ties the quadrants' fields to the order of the `Quadrant
 
 ```zig
 comptime {
-    for (std.enums.values(collision.Quadrant), @typeInfo(Quadrants).@"struct".fields) |quadrant, field| {
-        assert(std.mem.eql(u8, @tagName(quadrant), field.name));
-        assert(@offsetOf(Quadrants, field.name) == @as(usize, @intFromEnum(quadrant)) * @sizeOf(f32));
+    for (std.enums.values(collision.Quadrant), @typeInfo(Quadrants).@"struct".field_names) |quadrant, name| {
+        assert(std.mem.eql(u8, @tagName(quadrant), name));
+        assert(@offsetOf(Quadrants, name) == @as(usize, @backingInt(quadrant)) * @sizeOf(f32));
     }
 }
 ```

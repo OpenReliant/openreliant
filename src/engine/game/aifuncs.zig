@@ -542,7 +542,7 @@ pub fn firstStepInit(ctx: Context, index: u16) void {
 
 comptime {
     // Find Scoop Up reads the same word as its own step.
-    assert(@intFromEnum(ListStep.first) == @intFromEnum(FindScoopStep.wait));
+    assert(@backingInt(ListStep.first) == @backingInt(FindScoopStep.wait));
 }
 
 /// `order_find_scoop_up` (`0x0040B1E0`): the update of Find Scoop Up (21), which starts at its
@@ -922,7 +922,7 @@ pub fn capshipList(ctx: Context, index: u16, side: Lurch) void {
 /// A step of the lurch, from `now`: the ship turns by `turn` toward `side`, each over its own
 /// rate, and its order goes on to `next` once the step's ticks are over.
 fn lurchBy(slot: *create.Slot, flight: *const create.FlightModel, side: Lurch, turn: LurchStep, next: ListStep, now: i32) void {
-    const way: f32 = @floatFromInt(@intFromEnum(side));
+    const way: f32 = @floatFromInt(@backingInt(side));
     slot.object.roll_input = turn.roll * way / flight.roll_rate;
     slot.object.yaw_input = turn.yaw * way / flight.yaw_rate;
     slot.state.list.step = next;

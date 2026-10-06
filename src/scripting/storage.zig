@@ -82,7 +82,7 @@ pub const Storage = struct {
     folder: ?Folder = null,
     sections: std.ArrayList(*Section) = .empty,
     /// The mods whose global sections changed since they were written.
-    changed: std.StringArrayHashMapUnmanaged(void) = .empty,
+    changed: std.array_hash_map.String(void) = .empty,
 
     pub const Folder = struct { io: Io, dir: Io.Dir };
 
@@ -233,7 +233,7 @@ pub const Storage = struct {
         for (opened) |*each| {
             const mod = each.name;
             var name_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
-            const path = std.fmt.bufPrint(&name_buffer, folder_name ++ "/{s}" ++ file_extension, .{mod}) catch continue;
+            const path = std.mem.print(&name_buffer, folder_name ++ "/{s}" ++ file_extension, .{mod}) catch continue;
             const bytes = folder.dir.readFileAlloc(folder.io, path, storage.gpa, .limited(max_file)) catch |err| switch (err) {
                 error.FileNotFound => continue,
                 error.OutOfMemory => |e| return e,
@@ -290,7 +290,7 @@ pub const Storage = struct {
             if (section.scope == .global and std.mem.eql(u8, section.mod, mod)) try encodeSection(w, section);
         }
         var name_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
-        const path = try std.fmt.bufPrint(&name_buffer, folder_name ++ "/{s}" ++ file_extension, .{mod});
+        const path = try std.mem.print(&name_buffer, folder_name ++ "/{s}" ++ file_extension, .{mod});
         try folder.dir.writeFile(folder.io, .{ .sub_path = path, .data = bytes.written() });
     }
 
@@ -308,7 +308,7 @@ pub const Storage = struct {
 const Handle = struct {
     section: *Section,
 
-    const tag = @intFromEnum(runtime_module.Tag.section);
+    const tag = @backingInt(runtime_module.Tag.section);
 
     fn of(state: *State, at: i32) *Section {
         return (state.toUserdata(Handle, at, tag) orelse state.raise("expected a storage section, got {s}", .{state.typeName(at)})).section;

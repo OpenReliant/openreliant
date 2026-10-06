@@ -147,7 +147,7 @@ pub const Device = struct {
 
     pub fn read(settings: Profile) Device {
         return .{
-            .view = @enumFromInt(settings.int(video.section, video.view_key, 0)),
+            .view = @fromBackingInt(settings.int(video.section, video.view_key, 0)),
             .brightness = @as(f32, @floatFromInt(settings.int(video.section, gamma_key, default_gamma))) / video.gamma_scale,
             .transitions = settings.int(video.section, video.transitions_key, 1) != 0,
             .details = .read(settings),
@@ -177,10 +177,10 @@ pub const Details = struct {
 
     pub fn read(settings: Profile) Details {
         const section = interface.settings.video.section;
-        const highest = @intFromEnum(explode.Detail.high);
+        const highest = @backingInt(explode.Detail.high);
         return .{
-            .texture = @enumFromInt(settings.int(section, texture_key, @intFromEnum(xtrabits.TextureDetail.high))),
-            .graphic = @enumFromInt(@min(settings.int(section, graphic_key, highest), highest)),
+            .texture = @fromBackingInt(settings.int(section, texture_key, @backingInt(xtrabits.TextureDetail.high))),
+            .graphic = @fromBackingInt(@min(settings.int(section, graphic_key, highest), highest)),
             .light_maps = settings.int(section, light_maps_key, 1) != 0,
         };
     }
@@ -213,7 +213,7 @@ pub const mission_path_size = 32;
 pub fn missionPath(buffer: *[mission_path_size]u8, number: u16, second_part: bool, multiplayer: bool) []const u8 {
     if (number == second_part_mission and second_part) return second_part_path;
     if (number == multiplayer_mission and multiplayer) return multiplayer_path;
-    return std.fmt.bufPrint(buffer, "{s}{d}" ++ file_end, .{ path_start, number }) catch unreachable;
+    return std.mem.print(buffer, "{s}{d}" ++ file_end, .{ path_start, number }) catch unreachable;
 }
 
 /// A mission's file, `mission<number>.dte`, and where it lies.
@@ -259,7 +259,7 @@ test missionNumber {
     try std.testing.expectEqual(null, missionNumber("mission1.shp"));
     // Every name `missionPath` makes reads back.
     var buffer: [mission_path_size]u8 = undefined;
-    try std.testing.expectEqual(25, missionNumber(std.fs.path.basenameWindows(missionPath(&buffer, 25, false, false))));
+    try std.testing.expectEqual(25, missionNumber(std.Io.Dir.path.basenameWindows(missionPath(&buffer, 25, false, false))));
 }
 
 /// What `WinMain` does before the hangar's movie of a mission it flies (`0x004AA3B2` on, and
@@ -512,7 +512,7 @@ pub const Typed = struct {
     /// Queues `character`, unless the queue is full or it is refused.
     pub fn push(typed: *Typed, character: u8) void {
         if (typed.count >= capacity) return;
-        if (typed.file_names and std.mem.indexOfScalar(u8, file_name_refused, character) != null) return;
+        if (typed.file_names and std.mem.findScalar(u8, file_name_refused, character) != null) return;
         typed.characters[typed.count] = character;
         typed.count += 1;
     }
@@ -521,7 +521,7 @@ pub const Typed = struct {
     pub fn pop(typed: *Typed) ?u8 {
         if (typed.count == 0) return null;
         const first = typed.characters[0];
-        std.mem.copyForwards(u8, typed.characters[0 .. typed.count - 1], typed.characters[1..typed.count]);
+        @memmove(typed.characters[0 .. typed.count - 1], typed.characters[1..typed.count]);
         typed.count -= 1;
         return first;
     }
@@ -556,7 +556,7 @@ test Typed {
 const call_signs_section = "CallsignList";
 
 fn callSignKey(buffer: *[8]u8, place: usize) []const u8 {
-    return std.fmt.bufPrint(buffer, "name{d:0>2}", .{place}) catch unreachable;
+    return std.mem.print(buffer, "name{d:0>2}", .{place}) catch unreachable;
 }
 
 /// `callsigns_load` (`0x004AAE00`): the call sign of each of the list's places from `settings`,

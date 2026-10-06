@@ -60,8 +60,8 @@ pub const Award = union(enum) {
 
 /// The awards the pilot has (`pilot_medals`, `0x00562DFC`; `pilot_ribbons`, `0x00562E14`).
 pub const Awards = struct {
-    medals: std.EnumSet(gameflow.Medal) = .initEmpty(),
-    ribbons: gameflow.Ribbons = .initEmpty(),
+    medals: std.EnumSet(gameflow.Medal) = .empty,
+    ribbons: gameflow.Ribbons = .empty,
 
     /// The awards of `campaign`; none outside one.
     pub fn of(campaign: ?*const gameflow.Campaign) Awards {
@@ -260,7 +260,7 @@ pub const Locker = struct {
                 if (escape) {
                     locker.send(.down);
                 } else {
-                    locker.screenshot = in.keyboard.pressed(@intFromEnum(screenshot_key), .none, true);
+                    locker.screenshot = in.keyboard.pressed(@backingInt(screenshot_key), .none, true);
                     if (locker.arrived and (in.pointer.down or in.pointer.right_down)) locker.send(.down);
                 }
             },
@@ -374,7 +374,7 @@ test "each carrier's locker" {
     for (std.enums.values(rooms.Carrier)) |carrier| {
         const case = cases.get(carrier);
         for (case.items) |shown| switch (shown.award) {
-            .medal => |medal| try std.testing.expect(case.medals[@intFromEnum(medal) - 1].at[0] != 0),
+            .medal => |medal| try std.testing.expect(case.medals[@backingInt(medal) - 1].at[0] != 0),
             .ribbon => |place| try std.testing.expect(case.ribbons[place].at[0] != 0),
         };
     }

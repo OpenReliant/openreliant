@@ -281,7 +281,7 @@ pub const Image = struct {
     }
 
     pub fn directory(image: Image, index: DirectoryIndex) ?DataDirectory {
-        const i = @intFromEnum(index);
+        const i = @backingInt(index);
         if (i >= image.directories.len) return null;
         const entry = image.directories[i];
         return if (entry.rva == 0) null else entry;
@@ -322,7 +322,7 @@ pub const Image = struct {
     pub fn stringAt(image: Image, rva: u32) ?[]const u8 {
         const offset = image.fileOffset(rva) orelse return null;
         const rest = image.bytes[offset..];
-        const end = std.mem.indexOfScalar(u8, rest, 0) orelse return null;
+        const end = std.mem.findScalar(u8, rest, 0) orelse return null;
         return rest[0..end];
     }
 
@@ -338,7 +338,7 @@ pub const Image = struct {
     pub fn resource(image: Image, kind: ResourceType, id: u16) ?[]const u8 {
         const dir = image.directory(.resource) orelse return null;
         const root = image.fileOffset(dir.rva) orelse return null;
-        const kinds = image.resourceEntry(root, 0, @intFromEnum(kind)) orelse return null;
+        const kinds = image.resourceEntry(root, 0, @backingInt(kind)) orelse return null;
         const ids = image.resourceEntry(root, kinds.below() orelse return null, id) orelse return null;
         const languages = ids.below() orelse return null;
         const language = image.resourceEntries(root, languages) orelse return null;
@@ -533,7 +533,7 @@ pub const testing = struct {
         optional.headers_size = headers_size;
         optional.directory_count = directory_entries;
         const table = try layout.arrayMut(DataDirectory, bytes[optional_offset + @sizeOf(OptionalHeader32) ..], directory_entries);
-        for (directories) |entry| table[@intFromEnum(entry.index)] = .{ .rva = entry.rva, .size = entry.size };
+        for (directories) |entry| table[@backingInt(entry.index)] = .{ .rva = entry.rva, .size = entry.size };
 
         const headers = try layout.arrayMut(SectionHeader, bytes[sections_offset..], sections.len);
         var raw_offset: u32 = headers_size;
@@ -554,7 +554,7 @@ pub const testing = struct {
     /// A resource section, to load at `rva`, holding one string table of `strings` from id 0 on,
     /// ASCII, in language `0x409`. A string of null is left out of its block, as an empty one.
     pub fn stringResources(allocator: std.mem.Allocator, rva: u32, strings: []const ?[]const u8) ![]u8 {
-        const blocks = (strings.len + strings_per_block - 1) / strings_per_block;
+        const blocks = @divCeil(strings.len, strings_per_block);
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
         const directory_size = @sizeOf(ResourceDirectory);
@@ -583,7 +583,7 @@ pub const testing = struct {
         offsets[blocks] = @intCast(data.items.len);
 
         try appendRecord(allocator, &out, directory(1));
-        try appendRecord(allocator, &out, ResourceEntry{ .name = @intFromEnum(ResourceType.string), .offset = ResourceEntry.high | root_size });
+        try appendRecord(allocator, &out, ResourceEntry{ .name = @backingInt(ResourceType.string), .offset = ResourceEntry.high | root_size });
         try appendRecord(allocator, &out, directory(blocks));
         for (0..blocks) |block| {
             const below: u32 = @intCast(root_size + kinds_size + block * (directory_size + entry_size));
@@ -617,7 +617,7 @@ pub const testing = struct {
 
 test "parses a minimal image" {
     const bytes = try testing.build(std.testing.allocator, 0x400000, &.{
-        .{ .name = ".text", .rva = 0x1000, .data = "hello" ++ [_]u8{0} ** 0x3B },
+        .{ .name = ".text", .rva = 0x1000, .data = "hello" ++ @as([0x3B]u8, @splat(0)) },
     });
     defer std.testing.allocator.free(bytes);
 
@@ -666,8 +666,8 @@ test "lists the libraries an image imports from" {
 
 test "maps each section to its own file offset" {
     const bytes = try testing.build(std.testing.allocator, 0x400000, &.{
-        .{ .name = ".text", .rva = 0x1000, .data = &[_]u8{0xC3} ** 0x10 },
-        .{ .name = ".data", .rva = 0x5000, .data = &[_]u8{0xAA} ** 0x300 },
+        .{ .name = ".text", .rva = 0x1000, .data = &@as([0x10]u8, @splat(0xC3)) },
+        .{ .name = ".data", .rva = 0x5000, .data = &@as([0x300]u8, @splat(0xAA)) },
     });
     defer std.testing.allocator.free(bytes);
 
@@ -711,7 +711,7 @@ test "finds a string as LoadString does" {
     try std.testing.expectEqual(0, image.string(0).?.len);
     try std.testing.expectEqual(null, image.string(40));
     // No resource of another type.
-    try std.testing.expectEqual(null, image.resource(@enumFromInt(3), 1));
+    try std.testing.expectEqual(null, image.resource(@fromBackingInt(3), 1));
 }
 
 test "rejects non-PE input" {

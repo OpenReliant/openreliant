@@ -53,7 +53,7 @@ pub fn digestOf(text: []const u8, name: []const u8) ParseError!?Digest {
     var lines = std.mem.tokenizeAny(u8, text, "\r\n");
     while (lines.next()) |line| {
         const entry = try parseLine(line);
-        if (std.ascii.eqlIgnoreCase(std.fs.path.basenameWindows(entry.name), name)) return entry.digest;
+        if (std.ascii.eqlIgnoreCase(std.Io.Dir.path.basenameWindows(entry.name), name)) return entry.digest;
         only = entry.digest;
         count += 1;
     }
@@ -94,7 +94,7 @@ test digestOf {
     try std.testing.expectEqual(of, (try digestOf(several, "coyote.hog")).?);
     try std.testing.expectEqual(null, try digestOf(several, "other.hog"));
     try std.testing.expectError(error.Malformed, digestOf("not a checksum", "coyote.hog"));
-    try std.testing.expectError(error.Malformed, digestOf("zz" ++ "0" ** 62 ++ "  coyote.hog", "coyote.hog"));
+    try std.testing.expectError(error.Malformed, digestOf("zz" ++ @as([62]u8, @splat('0')) ++ "  coyote.hog", "coyote.hog"));
 }
 
 test digestFile {

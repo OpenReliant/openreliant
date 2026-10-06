@@ -88,12 +88,12 @@ pub const Speech = struct {
     /// How many of the game's ticks it plays for at `rate`, rounded up.
     pub fn ticks(speech: Speech) u32 {
         const played: u64 = speech.samples();
-        return @intCast((played * ticks_per_second + rate - 1) / rate);
+        return @intCast(@divCeil(played * ticks_per_second, rate));
     }
 
     comptime {
         // The longest speech a header can give fits `ticks`.
-        assert(((std.math.maxInt(u32) >> 1) * ticks_per_second + rate - 1) / rate <= std.math.maxInt(u32));
+        assert(@divCeil((std.math.maxInt(u32) >> 1) * ticks_per_second, rate) <= std.math.maxInt(u32));
     }
 };
 
@@ -354,9 +354,9 @@ test unscramble {
     // zeros after; unscrambled, all zeros.
     try std.testing.expectEqualSlices(u8, &(key ++ key), file[@sizeOf(Header)..][0..8]);
     try std.testing.expectEqualSlices(u8, &(key ++ key), file[@sizeOf(Header)..][8..16]);
-    try std.testing.expectEqualSlices(u8, &[_]u8{0} ** 8, file[@sizeOf(Header)..][16..24]);
+    try std.testing.expectEqualSlices(u8, &@as([8]u8, @splat(0)), file[@sizeOf(Header)..][16..24]);
     unscramble(file);
-    try std.testing.expectEqualSlices(u8, &[_]u8{0} ** 24, file[@sizeOf(Header)..]);
+    try std.testing.expectEqualSlices(u8, &@as([24]u8, @splat(0)), file[@sizeOf(Header)..]);
     // Marked unscrambled, a file is left alone.
     var marked = "man\x00CB00\x00\x00\x00\x00abcdefghijklmnop".*;
     unscramble(&marked);

@@ -184,7 +184,7 @@ fn parseEntry(directory: []const u8, file_size: u32) ?ParsedEntry {
     if (offset > file_size or size > file_size - offset) return null;
 
     const rest = directory[@sizeOf(Record)..];
-    const end = std.mem.indexOfScalar(u8, rest, 0) orelse return null;
+    const end = std.mem.findScalar(u8, rest, 0) orelse return null;
     const name = rest[0..end];
     if (!validName(name)) return null;
     return .{ .name = name, .offset = offset, .size = size, .encoded_len = @sizeOf(Record) + end + 1 };
@@ -280,7 +280,7 @@ const opened_in_place = [_][]const u8{ ".bik", ".fm8" };
 
 /// Whether the game opens the member `name` where it lies (`opened_in_place`).
 pub fn opensInPlace(name: []const u8) bool {
-    const extension = std.fs.path.extension(name);
+    const extension = std.Io.Dir.path.extension(name);
     for (opened_in_place) |candidate| {
         if (std.ascii.eqlIgnoreCase(extension, candidate)) return true;
     }
@@ -487,11 +487,14 @@ test opensInPlace {
     try std.testing.expect(!opensInPlace("bik"));
 }
 
+/// A sentence the tests repeat into a text worth packing.
+const fox = "The quick brown fox jumps over the lazy dog. ";
+
 test packMember {
     const gpa = std.testing.allocator;
     var compressor: refpack.Compressor = try .init(gpa);
     defer compressor.deinit(gpa);
-    const text = "The quick brown fox jumps over the lazy dog. " ** 20;
+    const text: []const u8 = @ptrCast(&@as([20][fox.len]u8, @splat(fox.*)));
 
     // Worth packing, and read back whole.
     const packed_text = try packMember(gpa, &compressor, .compress, "readme.txt", text);
@@ -543,7 +546,7 @@ test "a member that begins 10 FB is kept only where the game loads it" {
     defer compressor.deinit(gpa);
 
     // A stream within the bound, as `sltool hog extract --raw` gives one.
-    const within = try compressor.compress(gpa, "The quick brown fox jumps over the lazy dog. " ** 20);
+    const within = try compressor.compress(gpa, @as([]const u8, @ptrCast(&@as([20][fox.len]u8, @splat(fox.*)))));
     defer gpa.free(within);
     // A stream past it: literals alone, one byte more than the slack allows.
     const zeros = try gpa.alloc(u8, refpack.testing.largest_in_place + 1);

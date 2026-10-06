@@ -301,7 +301,8 @@ pub const RescueOdds = struct {
     captured: i32 = 0,
     killed: i32 = 0,
 
-    /// How a roll of the runtime's numbers falls (`order_eject`): its remainder over the three
+    /// How a roll of the game's random numbers falls (`order_eject`; the game uses the C runtime's
+    /// `rand`, `0x004CF555`): its remainder over the three
     /// together, summed as the game sums them, wrapping; below `rescued` the pilot is picked up by
     /// a nanny ship, below that and `captured` more by the enemy, and otherwise killed. The
     /// remainder of the game's signed division takes the roll's sign, so it is never below zero.

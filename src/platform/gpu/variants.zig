@@ -156,7 +156,7 @@ test "a variant with both functions compiles, and with neither draws as OpenReli
     const failed = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(null, broken, &buffer), preamble(false, true));
     defer failed.deinit(gpa);
     try std.testing.expect(failed == .diagnostic);
-    try std.testing.expect(std.mem.indexOf(u8, failed.diagnostic, "cel/broken.glsl:2") != null);
+    try std.testing.expect(std.mem.find(u8, failed.diagnostic, "cel/broken.glsl:2") != null);
 }
 
 test "a draw takes its object's function, its texture's, every lit draw's, or the base" {

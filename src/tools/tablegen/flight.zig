@@ -89,7 +89,7 @@ test parse {
     try std.testing.expectEqual(.flat, try parse(record));
 
     // A word the game would take for flat too, but that the reader doesn't know.
-    record.turns = @enumFromInt(2);
+    record.turns = @fromBackingInt(2);
     try std.testing.expectError(error.NotFlag, parse(record));
     record.turns = .flat;
     record._unknown_26 = 1;
@@ -124,11 +124,11 @@ test read {
     defer out.deinit();
     try emit(&out.writer, types);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "0x0C...0x16, 0x1E, 0xFF => .flat,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "0x0C...0x16, 0x1E, 0xFF => .flat,") != null);
 
     // A table with no type that turns flat has only the one prong.
     out.clearRetainingCapacity();
     try emit(&out.writer, &.{ .banking, .banking });
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "=> .flat") == null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "=> .flat") == null);
 }

@@ -79,7 +79,7 @@ fn read(arena: Allocator, mod: *const Mod, name: []const u8) Allocator.Error!?Pa
             return null;
         },
     } orelse return null;
-    return .{ .name = try std.fmt.allocPrint(arena, "{s}/{s}", .{ mod.name, name }), .source = source };
+    return .{ .name = try arena.print("{s}/{s}", .{ mod.name, name }), .source = source };
 }
 
 /// `file` compiled and checked as the replacement for OpenReliant's `name`, with `colour` for what
@@ -103,7 +103,7 @@ fn replace(arena: Allocator, cache: Cache, name: programs.Name, file: Part, colo
 fn compiled(arena: Allocator, cache: Cache, stage: Stage, file: Part, colour: Part) Allocator.Error!?Code {
     var buffer: [programs.max_parts]Part = undefined;
     const parts = programs.parts(file, colour, &buffer);
-    const cached_name = try std.fmt.allocPrint(arena, "{s} {t}", .{ file.name, stage });
+    const cached_name = try arena.print("{s} {t}", .{ file.name, stage });
     return switch (try cache.compileParts(arena, cached_name, .openreliant, stage, parts, stage.definition())) {
         .compiled => |code| code,
         .diagnostic => |text| {

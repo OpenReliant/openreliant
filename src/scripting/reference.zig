@@ -33,7 +33,7 @@ fn held(comptime T: type) bool {
 
 /// Whether `T` is one of the records' structs, which the definitions declare as classes.
 fn isRecord(comptime T: type) bool {
-    return std.mem.indexOfScalar(type, records.Values.kinds, T) != null;
+    return std.mem.findScalar(type, records.Values.kinds, T) != null;
 }
 
 /// The types of what a declared function takes and gives; nothing for a native one.
@@ -50,7 +50,7 @@ const roots: []const type = list: {
     }
     for (std.enums.values(@import("builtin_interfaces.zig").Group)) |group| found = found ++ namespaceTypes(group.namespace());
     for (std.enums.values(script.Handler)) |handler| {
-        for (@typeInfo(handler.Arguments()).@"struct".fields) |field| found = found ++ .{field.type};
+        found = found ++ @typeInfo(handler.Arguments()).@"struct".field_types;
     }
     for (std.enums.values(Hook)) |hook| {
         const declared = engine_hooks.declaration(hook);
@@ -126,9 +126,9 @@ fn gather(comptime T: type, comptime seen: Gathered) Gathered {
     return switch (@typeInfo(T)) {
         .optional => |optional| gather(optional.child, seen),
         .array => |array| if (array.child == u8) seen else gather(array.child, seen),
-        .@"enum" => if (std.mem.indexOfScalar(type, seen.enums, T) != null) seen else .{ .enums = seen.enums ++ .{T}, .tables = seen.tables },
+        .@"enum" => if (std.mem.findScalar(type, seen.enums, T) != null) seen else .{ .enums = seen.enums ++ .{T}, .tables = seen.tables },
         .@"struct" => fields: {
-            if (std.mem.indexOfScalar(type, seen.tables, T) != null) break :fields seen;
+            if (std.mem.findScalar(type, seen.tables, T) != null) break :fields seen;
             var next = seen;
             if (!isRecord(T)) next.tables = next.tables ++ .{T};
             for (values.shownFields(T)) |field| next = gather(field.type, next);
@@ -161,10 +161,10 @@ fn luauType(comptime T: type) []const u8 {
 }
 
 /// The Luau type of a union of booleans, numbers and strings: whichever of them.
-fn unionType(comptime info: std.builtin.Type.Union) []const u8 {
+fn unionType(comptime info: std.lang.Type.Union) []const u8 {
     comptime {
         var text: []const u8 = "";
-        for (info.fields, 0..) |field, at| text = text ++ (if (at == 0) "" else " | ") ++ luauType(field.type);
+        for (info.field_types, 0..) |Variant, at| text = text ++ (if (at == 0) "" else " | ") ++ luauType(Variant);
         return text;
     }
 }
@@ -242,8 +242,9 @@ fn called(comptime handler: script.Handler) bool {
 fn handlerParameters(comptime handler: script.Handler) []const u8 {
     comptime {
         var text: []const u8 = "";
-        for (@typeInfo(handler.Arguments()).@"struct".fields, 0..) |field, at| {
-            text = text ++ (if (at == 0) "" else ", ") ++ field.name ++ ": " ++ luauType(field.type);
+        const info = @typeInfo(handler.Arguments()).@"struct";
+        for (info.field_names, info.field_types, 0..) |name, Argument, at| {
+            text = text ++ (if (at == 0) "" else ", ") ++ name ++ ": " ++ luauType(Argument);
         }
         return text;
     }
@@ -321,10 +322,9 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         }
     }
     try w.print("\n-- {s}\ntype Interfaces = {{\n", .{script.Package.interfaces.about()});
-    inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
-        const tag: @import("builtin_interfaces.zig").Group = @enumFromInt(group.value);
+    inline for (comptime std.enums.values(@import("builtin_interfaces.zig").Group)) |tag| {
         const Namespace = comptime tag.namespace();
-        try w.print("    {s}: {{\n", .{group.name});
+        try w.print("    {s}: {{\n", .{@tagName(tag)});
         inline for (comptime api.declared(Namespace, .field)) |name| {
             const field = @field(Namespace, name);
             try w.print("        {s}: {s},\n", .{ name, comptime luauType(field.Type) });
@@ -447,7 +447,7 @@ fn writeTable(w: *Writer, comptime name: []const u8, comptime T: type) Writer.Er
 
 /// Whether `T` is a table scripts give, such as a style, to a function that takes one.
 fn given(comptime T: type) bool {
-    return std.mem.indexOfScalar(type, given_tables, T) != null;
+    return std.mem.findScalar(type, given_tables, T) != null;
 }
 
 /// How many of the fields scripts see of `T` have a default, which a table scripts give may leave
@@ -459,7 +459,7 @@ fn defaulted(comptime T: type) usize {
 }
 
 /// A field's default, as a script would write it.
-fn defaultText(comptime field: std.builtin.Type.StructField) []const u8 {
+fn defaultText(comptime field: values.Field) []const u8 {
     comptime {
         const value = field.defaultValue().?;
         return switch (@typeInfo(field.type)) {
@@ -558,10 +558,9 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
     }
 
     try w.writeAll("\n## Built-in interfaces\n\n`require(\"openreliant.interfaces\")` gives these groups of the packages' functions, unless a mod offers an interface of the same name. A group a script's packages don't allow is nil.\n");
-    inline for (std.meta.fields(@import("builtin_interfaces.zig").Group)) |group| {
-        const tag: @import("builtin_interfaces.zig").Group = @enumFromInt(group.value);
+    inline for (comptime std.enums.values(@import("builtin_interfaces.zig").Group)) |tag| {
         const Namespace = comptime tag.namespace();
-        try w.print("\n### I.{s}\n\n| Member | Type or returns | Description |\n|---|---|---|\n", .{group.name});
+        try w.print("\n### I.{s}\n\n| Member | Type or returns | Description |\n|---|---|---|\n", .{@tagName(tag)});
         inline for (comptime api.declared(Namespace, .field)) |name| {
             const field = @field(Namespace, name);
             try w.print("| `{s}` | {s} | {s} |\n", .{ name, comptime markdownType(field.Type), field.description });
@@ -754,7 +753,7 @@ fn markdownType(comptime T: type) []const u8 {
         if (Plain == Object or Plain == objects.Handle) return "[object](#objects)" ++ optional;
         if (values.isList(Plain)) return "list of " ++ (if (Plain.Item == Object) "[objects](#objects)" else markdownType(Plain.Item)) ++ optional;
         if (Plain == data.Data) return "plain data";
-        if (std.mem.indexOfScalar(type, gathered.enums ++ gathered.tables, Plain) != null) {
+        if (std.mem.findScalar(type, gathered.enums ++ gathered.tables, Plain) != null) {
             const name = bind.noun(Plain);
             var anchor: []const u8 = "";
             for (name) |c| anchor = anchor ++ .{std.ascii.toLower(c)};
@@ -863,13 +862,13 @@ test writeHelp {
     var buffer: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
     try std.testing.expect(try writeHelp(&buffer.writer, "openreliant.storage"));
-    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "game_section(name: string) -> Section") != null);
+    try std.testing.expect(std.mem.find(u8, buffer.written(), "game_section(name: string) -> Section") != null);
     buffer.clearRetainingCapacity();
     try std.testing.expect(try writeHelp(&buffer.writer, "on_update"));
     try std.testing.expect(std.mem.startsWith(u8, buffer.written(), "on_update(seconds: number) -> ()"));
     buffer.clearRetainingCapacity();
     try std.testing.expect(try writeHelp(&buffer.writer, "object_damage"));
-    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "e.object") != null);
+    try std.testing.expect(std.mem.find(u8, buffer.written(), "e.object") != null);
     try std.testing.expect(!try writeHelp(&buffer.writer, "no_such_thing"));
 }
 
@@ -899,6 +898,6 @@ test writeList {
     var buffer: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
     try std.testing.expect(try writeList(&buffer.writer, "object_damage"));
-    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "e.quadrant: Quadrant (\"left\", \"right\", \"fore\", \"aft\")") != null);
+    try std.testing.expect(std.mem.find(u8, buffer.written(), "e.quadrant: Quadrant (\"left\", \"right\", \"fore\", \"aft\")") != null);
     try std.testing.expect(!try writeList(&buffer.writer, "nothing"));
 }

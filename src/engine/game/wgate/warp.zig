@@ -102,7 +102,7 @@ pub const Effect = struct {
 
     pub fn draw(effect: *Effect, gpa: std.mem.Allocator, scene: *srcore.Scene, record: *wgate.Record, all: *const create.Objects) !void {
         const slot = &all.slots[record.slot];
-        if (slot.running(.warp_out) == null or slot.state.warp.step != @intFromEnum(OutStep.open)) return;
+        if (slot.running(.warp_out) == null or slot.state.warp.step != @backingInt(OutStep.open)) return;
         const sources = projectorSources(slot);
         for (effect.emitters, &effect.objects, &effect.meshes, &effect.levels, &effect.colours, sources) |emitter, *object, *mesh, *level, *colours, source| {
             const target = record.warp_place.point(emitter.place.position);
@@ -241,7 +241,7 @@ const reveal_at: f32 = 0.4;
 /// Yamato arrival offset and translation coefficients (`order_warp_in`, `0x004DC5F4`,
 /// `0x004DC5F8`). Its motion stays frozen while the sequence moves its frame explicitly.
 const yamato_tunnel_ahead: f32 = 210000;
-const yamato_slowing: f32 = 1.6666666;
+const yamato_slowing: f32 = 5.0 / 3.0;
 const yamato_depth_speed: f32 = 20.5;
 const warp_throttle: f32 = 2;
 /// End-ring flare multiplier (`0x004DC4E0`) and minimum arrival radius (`order_warp_in`).
@@ -308,7 +308,7 @@ fn elapsed(state: *State, now: i32) f32 {
 }
 
 fn advance(state: *State, step: anytype, record: ?*wgate.Record) void {
-    state.step = @intFromEnum(step);
+    state.step = @backingInt(step);
     if (record) |held| held.progress = 0;
 }
 
@@ -325,7 +325,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
     };
     const delta = elapsed(state, world.clock.frame_start);
     const record = recordFor(ctx, index);
-    switch (@as(OutStep, @enumFromInt(state.step))) {
+    switch (@as(OutStep, @fromBackingInt(state.step))) {
         .aligning => {
             if (index == all.player) {
                 if (slot.object.flags.cloaked) return;
@@ -429,7 +429,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
 /// `order_warp_out` step 5 stretches a fighter's drawn frame along Z while it enters.
 /// Apply it after `frameTree`, which rebuilds OpenReliant's interpolated frame each frame.
 pub fn frame(slot: *create.Slot, record: ?*const wgate.Record) void {
-    if (slot.running(.warp_out) == null or slot.state.warp.step != @intFromEnum(OutStep.enter) or slot.object.flags.components) return;
+    if (slot.running(.warp_out) == null or slot.state.warp.step != @backingInt(OutStep.enter) or slot.object.flags.components) return;
     const held = record orelse return;
     if (held.progress <= spin_rise_end or held.progress >= stretch_end) return;
     const length = ease.in(1, stretch_length, (held.progress - spin_rise_end) / (stretch_end - spin_rise_end));
@@ -447,7 +447,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
     const held = recordFor(ctx, index) orelse return abort(ctx, index);
     const delta = elapsed(state, world.clock.frame_start);
     held.tunnel.scrollArrival(delta);
-    switch (@as(InStep, @enumFromInt(state.step))) {
+    switch (@as(InStep, @fromBackingInt(state.step))) {
         .place => {
             held.warp_shown = false;
             // The continuation restores sequence after pushing the order. Resolve arrival here
@@ -716,7 +716,7 @@ test "warp stretching affects the drawn fighter frame, not its flight orientatio
     aigeneric.objectOrders(ctx, ship);
     const slot = run.mission.slot(ship);
     const record = (try run.built.gates.make(ctx.world, ship, .warp, @splat(0))).?;
-    slot.state.warp.step = @intFromEnum(OutStep.enter);
+    slot.state.warp.step = @backingInt(OutStep.enter);
     record.progress = 0.4;
     frame(slot, record);
     try std.testing.expectApproxEqAbs(2, math.length(math.forward(slot.drawn.orientation)), 1e-5);

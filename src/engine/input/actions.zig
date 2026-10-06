@@ -47,7 +47,7 @@ pub const Registry = struct {
 
     pub fn add(registry: *Registry, owner: *anyopaque, name: []const u8, label: []const u8, default: controls.Binding) Error!usize {
         if (name.len >= name_size or label.len >= label_size) return error.NameTooLong;
-        if (name.len == 0 or label.len == 0 or std.mem.indexOfScalar(u8, name, 0) != null or std.mem.indexOfScalar(u8, label, 0) != null) return error.InvalidText;
+        if (name.len == 0 or label.len == 0 or std.mem.findScalar(u8, name, 0) != null or std.mem.findScalar(u8, label, 0) != null) return error.InvalidText;
         if (registry.find(name) != null) return error.DuplicateName;
         const index = for (registry.entries[0..registry.count], 0..) |*entry, at| {
             if (entry.owner == null and std.ascii.eqlIgnoreCase(entry.nameOf(), name)) break at;
@@ -114,18 +114,18 @@ test "named actions isolate mods, reuse closed slots and suppress held registrat
     var registry: Registry = .{};
     var a: u8 = 0;
     var b: u8 = 0;
-    const default: controls.Binding = .{ .name = "", .string = 0, .key = @intFromEnum(input.Key.k), .modifier = .shift, .button = null };
+    const default: controls.Binding = .{ .name = "", .string = 0, .key = @backingInt(input.Key.k), .modifier = .shift, .button = null };
     const first = try registry.add(&a, "a:pulse", "Pulse A", default);
     _ = try registry.add(&b, "b:pulse", "Pulse B", default);
     try std.testing.expectError(error.DuplicateName, registry.add(&b, "a:pulse", "Duplicate", default));
     try std.testing.expectError(error.DuplicateName, registry.add(&b, "A:Pulse", "Case collision", default));
     var devices: input.Devices = .{};
-    devices.keyboard.down[@intFromEnum(input.Key.k)] = true;
+    devices.keyboard.down[@backingInt(input.Key.k)] = true;
     devices.keyboard.down[input.scan.left_shift] = true;
     try std.testing.expect(!registry.pressed(first, &devices, true));
-    devices.keyboard.down[@intFromEnum(input.Key.k)] = false;
+    devices.keyboard.down[@backingInt(input.Key.k)] = false;
     try std.testing.expect(!registry.pressed(first, &devices, true));
-    devices.keyboard.down[@intFromEnum(input.Key.k)] = true;
+    devices.keyboard.down[@backingInt(input.Key.k)] = true;
     try std.testing.expect(registry.pressed(first, &devices, true));
     try std.testing.expect(!registry.pressed(first, &devices, true));
     try std.testing.expect(!registry.pressed(first, &devices, false));

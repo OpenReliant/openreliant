@@ -331,7 +331,7 @@ fn synthesize(state: *State, start: usize, blocks: usize) void {
     for (state.history[history_samples + start ..][0 .. blocks * block]) |*sample| {
         var sum = sample.*;
         for (weights, state.memory) |weight, before| sum += weight * before;
-        std.mem.copyBackwards(f32, state.memory[1..], state.memory[0 .. order - 1]);
+        @memmove(state.memory[1..], state.memory[0 .. order - 1]);
         state.memory[0] = sum;
         sample.* = sum;
     }

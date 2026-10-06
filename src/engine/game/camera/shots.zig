@@ -53,7 +53,7 @@ pub const Shots = struct {
     /// The first shot is over (`camera_frame`): the rest move up.
     pub fn pop(shots: *Shots) void {
         if (shots.count == 0) return;
-        std.mem.copyForwards(Shot, shots.waiting[0 .. shots.count - 1], shots.waiting[1..shots.count]);
+        @memmove(shots.waiting[0 .. shots.count - 1], shots.waiting[1..shots.count]);
         shots.count -= 1;
     }
 };
@@ -83,7 +83,7 @@ pub fn start(world: gameobj.World, view: *camera.Camera) void {
 /// The ships a shot holds still, and the objects they are in.
 pub const Held = struct {
     objects: *create.Objects,
-    ships: std.StaticBitSet(gameobj.max_objects) = .initEmpty(),
+    ships: std.bit_set.Static(gameobj.max_objects) = .empty,
 
     /// The ships `target` names (`ai.eachShip`), as `camera_hold_ships` walks them: a ship, each
     /// ship of a flight group, and each of a squad's.

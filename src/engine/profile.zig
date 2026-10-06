@@ -29,7 +29,7 @@ pub const Profile = struct {
     pub fn value(profile: Profile, section: []const u8, key: []const u8) ?[]const u8 {
         const line = locate(profile.text, section, key).line orelse return null;
         const text = profile.text[line.start..line.end];
-        const equals = std.mem.indexOfScalar(u8, text, '=').?;
+        const equals = std.mem.findScalar(u8, text, '=').?;
         const found = std.mem.trim(u8, text[equals + 1 ..], " \t");
         if (found.len >= 2 and (found[0] == '"' or found[0] == '\'') and found[found.len - 1] == found[0]) {
             return found[1 .. found.len - 1];
@@ -44,7 +44,7 @@ pub const Profile = struct {
     pub fn write(profile: Profile, gpa: Allocator, section: []const u8, key: []const u8, written: []const u8) Allocator.Error![]u8 {
         const text = profile.text;
         const location = locate(text, section, key);
-        const newline: []const u8 = if (std.mem.indexOfScalar(u8, text, '\n')) |at|
+        const newline: []const u8 = if (std.mem.findScalar(u8, text, '\n')) |at|
             (if (at > 0 and text[at - 1] == '\r') "\r\n" else "\n")
         else
             "\r\n";
@@ -91,7 +91,7 @@ pub const Profile = struct {
             const line = std.mem.trim(u8, text[start..end], " \t");
             if (line.len == 0) continue;
             if (line[0] == '[') {
-                const close = std.mem.indexOfScalar(u8, line, ']') orelse continue;
+                const close = std.mem.findScalar(u8, line, ']') orelse continue;
                 // Only the first section of the name counts.
                 if (in_section) return location;
                 in_section = std.ascii.eqlIgnoreCase(std.mem.trim(u8, line[1..close], " \t"), section);
@@ -100,7 +100,7 @@ pub const Profile = struct {
             }
             if (!in_section) continue;
             location.section_end = end;
-            const equals = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+            const equals = std.mem.findScalar(u8, line, '=') orelse continue;
             if (location.line == null and std.ascii.eqlIgnoreCase(std.mem.trimEnd(u8, line[0..equals], " \t"), key)) {
                 location.line = .{ .start = start, .end = end };
             }
@@ -125,7 +125,7 @@ pub const Profile = struct {
                 const line = std.mem.trim(u8, raw, " \t\r");
                 if (line.len == 0) continue;
                 if (line[0] == '[') {
-                    const close = std.mem.indexOfScalar(u8, line, ']') orelse continue;
+                    const close = std.mem.findScalar(u8, line, ']') orelse continue;
                     // Only the first section of the name counts.
                     if (listed.place == .inside) {
                         listed.place = .past;
@@ -135,7 +135,7 @@ pub const Profile = struct {
                     continue;
                 }
                 if (listed.place != .inside) continue;
-                const equals = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+                const equals = std.mem.findScalar(u8, line, '=') orelse continue;
                 return std.mem.trimEnd(u8, line[0..equals], " \t");
             }
             return null;

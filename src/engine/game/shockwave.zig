@@ -189,7 +189,7 @@ pub const Shockwave = struct {
     fn harm(wave: *const Shockwave, all: *const create.Objects, left: f32) f32 {
         if (wave.kind != .split) return left * wave.size * torpedo_harm;
         const owner = all.slots[wave.owner].object.type;
-        const scale = if (std.mem.indexOfScalar(gameobj.Type, &lighter_splits, owner) != null) lighter_split_harm else split_harm;
+        const scale = if (std.mem.findScalar(gameobj.Type, &lighter_splits, owner) != null) lighter_split_harm else split_harm;
         return left * wave.size * left * left * scale;
     }
 
@@ -271,7 +271,7 @@ const torpedo_harm: f32 = 0.05;
 /// heavier for any other (`0x004DC958`).
 const split_harm: f32 = 0.015;
 const lighter_split_harm: f32 = 0.0045;
-const lighter_splits = [_]gameobj.Type{ @enumFromInt(0x36), .of(.darkreign), .of(.stalag), @enumFromInt(0x9B), .of(.boridin_breakaway) };
+const lighter_splits = [_]gameobj.Type{ @fromBackingInt(0x36), .of(.darkreign), .of(.stalag), @fromBackingInt(0x9B), .of(.boridin_breakaway) };
 
 /// A Havoc's shockwave's push: its strength is 1.5 times what is left of its life, up to 1, and
 /// the ticks it disrupts a player's ship and another for at full strength (`0x004DC4E0`,

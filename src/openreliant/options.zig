@@ -422,7 +422,7 @@ pub const Options = struct {
             .@"--ship" => options.ship = value,
             .@"--view" => {
                 const number = std.fmt.parseInt(u32, value, 10) catch return error.BadValue;
-                options.cockpit = switch (@as(camera.CockpitSetting, @enumFromInt(number))) {
+                options.cockpit = switch (@as(camera.CockpitSetting, @fromBackingInt(number))) {
                     .cockpit, .chase, .none => |setting| setting,
                     _ => return error.BadValue,
                 };
@@ -460,7 +460,7 @@ pub const Options = struct {
             .@"--16-bit" => options.settings.sixteen_bit = true,
             .@"--msaa" => {
                 const samples = std.fmt.parseInt(u8, value, 10) catch return error.BadValue;
-                if (std.mem.indexOfScalar(u8, &.{ 1, 2, 4, 8 }, samples) == null) return error.BadValue;
+                if (std.mem.findScalar(u8, &.{ 1, 2, 4, 8 }, samples) == null) return error.BadValue;
                 options.settings.samples = samples;
             },
             .@"--filter" => options.settings.filter = std.meta.stringToEnum(platform.gpu.Settings.Filter, value) orelse return error.BadValue,
@@ -730,7 +730,7 @@ test "Options asks for help or the version, and says what is wrong" {
     };
     for (cases) |case| {
         const problem = Options.parse(case[0], .{}).wrong;
-        try std.testing.expectEqualStrings(case[1], try std.fmt.bufPrint(&buffer, "{f}", .{problem}));
+        try std.testing.expectEqualStrings(case[1], try std.mem.print(&buffer, "{f}", .{problem}));
     }
 }
 
@@ -738,7 +738,7 @@ test help_page {
     // It starts with the version, every option is on it, and it fits in 80 columns.
     try std.testing.expect(std.mem.startsWith(u8, help_page, "OpenReliant " ++ version.string ++ " plays"));
     for (std.enums.values(Arg)) |arg| {
-        try std.testing.expect(std.mem.indexOf(u8, help_page, @tagName(arg)) != null);
+        try std.testing.expect(std.mem.find(u8, help_page, @tagName(arg)) != null);
     }
     var lines = std.mem.splitScalar(u8, help_page, '\n');
     while (lines.next()) |line| try std.testing.expect(line.len <= help.width);

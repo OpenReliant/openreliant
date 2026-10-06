@@ -12,7 +12,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const ease = @import("../genilib/interf/ease.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const math = @import("../surrender/math.zig");
 const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
@@ -79,7 +79,7 @@ pub const Environment = struct {
     /// bit it takes from the number's low five bits; OpenReliant takes the effect of those bits
     /// throughout.
     pub fn setEffect(environment: *Environment, number: u32, on: bool) void {
-        const effect: Effect = @enumFromInt(@as(u5, @truncate(number)));
+        const effect: Effect = @fromBackingInt(@as(u5, @truncate(number)));
         if (!effect.implemented()) {
             log.info("Environmental Effect \"{f}\" not yet implemented!", .{effect});
             return;
@@ -127,7 +127,7 @@ pub const Effect = enum(u5) {
 
     /// Whether the game has implemented it (`0x004FF748`): the ice field and effect 2.
     pub fn implemented(effect: Effect) bool {
-        return effect == .ice_field or @intFromEnum(effect) == unnamed;
+        return effect == .ice_field or @backingInt(effect) == unnamed;
     }
 
     /// Whether it waits for `environment_update` to turn on or off, as the table's first two do.
@@ -143,7 +143,7 @@ pub const Effect = enum(u5) {
         return switch (effect) {
             .ice_field => writer.writeAll("Ice Field"),
             .planet_bombard => writer.writeAll("Planet Bombard"),
-            _ => writer.print("effect {d}", .{@intFromEnum(effect)}),
+            _ => writer.print("effect {d}", .{@backingInt(effect)}),
         };
     }
 };
@@ -157,7 +157,7 @@ pub const Effects = packed struct(u32) {
 
     /// Turns `effect`'s bit on or off.
     pub fn set(effects: *Effects, effect: Effect, on: bool) void {
-        const bit = @as(u32, 1) << @intFromEnum(effect);
+        const bit = @as(u32, 1) << @backingInt(effect);
         const word: u32 = @bitCast(effects.*);
         effects.* = @bitCast(if (on) word | bit else word & ~bit);
     }
@@ -165,7 +165,7 @@ pub const Effects = packed struct(u32) {
 
 comptime {
     for (std.enums.values(Effect)) |effect| {
-        std.debug.assert(@bitOffsetOf(Effects, @tagName(effect)) == @intFromEnum(effect));
+        std.debug.assert(@bitOffsetOf(Effects, @tagName(effect)) == @backingInt(effect));
     }
 }
 
@@ -249,7 +249,7 @@ pub const IceField = struct {
     const flat_share: f32 = 0.65;
     const flat_pitch: f32 = 0.1;
     const steep_pitch: f32 = 0.7;
-    const arc: f32 = 2.1991148;
+    const arc: f32 = 0.7 * std.math.pi;
     const first_arc_share: f32 = 0.5;
     const distance: f32 = 2500;
 
@@ -271,7 +271,7 @@ pub const IceField = struct {
     /// `random` in the game's order: which of the texture's pictures it shows, its grey, from half
     /// to full, the band and the arc it lies in and where in them, and its size. Each turns at the
     /// next of the seven turn rates. `reach` says which are drawn.
-    pub fn create(gpa: Allocator, textures: *srtexture.Table, detail: Detail, reach: Reach, random: *libcmt.Rand) (Allocator.Error || matmanager.Error)!*IceField {
+    pub fn create(gpa: Allocator, textures: *srtexture.Table, detail: Detail, reach: Reach, random: *Random) (Allocator.Error || matmanager.Error)!*IceField {
         const image = try matmanager.textureRequire(textures, texture_name);
         const field = try gpa.create(IceField);
         errdefer gpa.destroy(field);
@@ -640,15 +640,15 @@ test "Environment.setEffect" {
 
 test Effect {
     var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("Ice Field", try std.fmt.bufPrint(&buffer, "{f}", .{Effect.ice_field}));
-    try std.testing.expectEqualStrings("effect 5", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Effect, @enumFromInt(5))}));
+    try std.testing.expectEqualStrings("Ice Field", try std.mem.print(&buffer, "{f}", .{Effect.ice_field}));
+    try std.testing.expectEqualStrings("effect 5", try std.mem.print(&buffer, "{f}", .{@as(Effect, @fromBackingInt(5))}));
 }
 
 test IceField {
     const gpa = std.testing.allocator;
     const textures = try srtexture.testing.Textures.init(gpa, &.{IceField.texture_name});
     defer textures.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const field = try IceField.create(gpa, &textures.table, .low, .original, &random);
     defer field.destroy(gpa);
     try std.testing.expectEqual(200, field.rocks.len);

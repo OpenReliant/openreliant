@@ -112,7 +112,7 @@ const ColourType = enum(u8) {
             .indexed => &.{ 1, 2, 4, 8 },
             .rgb, .grey_alpha, .rgba => &.{ 8, 16 },
         };
-        return std.mem.indexOfScalar(u8, depths, depth) != null;
+        return std.mem.findScalar(u8, depths, depth) != null;
     }
 };
 
@@ -123,7 +123,7 @@ fn writeHeader(out: *Writer, width: u32, height: u32, colour_type: ColourType) W
     std.mem.writeInt(u32, header[0..4], width, .big);
     std.mem.writeInt(u32, header[4..8], height, .big);
     header[8] = 8; // bits per sample
-    header[9] = @intFromEnum(colour_type);
+    header[9] = @backingInt(colour_type);
     header[10] = 0; // deflate
     header[11] = 0; // adaptive filtering
     header[12] = 0; // no interlace
@@ -174,7 +174,7 @@ fn writePixels(
         const line = pixels[row * stride ..][0..stride];
         const above: []const u8 = if (row > 0) pixels[(row - 1) * stride ..][0..stride] else &.{};
         const filtered = raw[row * (stride + 1) ..][0 .. stride + 1];
-        filtered[0] = @intFromEnum(filter);
+        filtered[0] = @backingInt(filter);
         for (filtered[1..], line, 0..) |*byte, value, at| {
             byte.* = value -% filter.predict(
                 if (at >= bytes_per_pixel) line[at - bytes_per_pixel] else 0,
@@ -265,7 +265,7 @@ const Header = struct {
 
     /// The bytes of a scanline `width` pixels long, less its filter type.
     fn stride(header: Header, width: u32) usize {
-        return (@as(usize, width) * header.colour.channels() * header.depth + 7) / 8;
+        return @divCeil(@as(usize, width) * header.colour.channels() * header.depth, 8);
     }
 
     /// The bytes between a byte and the same byte of the pixel to its left, as the filters take
@@ -296,7 +296,7 @@ const Pass = struct {
     fn size(pass: Pass, picture: [2]u32) [2]u32 {
         var taken: [2]u32 = undefined;
         for (&taken, picture, pass.first, pass.step) |*side, whole_side, first, step| {
-            side.* = if (whole_side > first) (whole_side - first + step - 1) / step else 0;
+            side.* = if (whole_side > first) @divCeil(whole_side - first, step) else 0;
         }
         return taken;
     }
@@ -359,7 +359,7 @@ fn readAs(comptime Sample: type, gpa: Allocator, bytes: []const u8, max_rgba_byt
         if (length > bytes.len - at - chunk_overhead) return error.Corrupt;
         const named = bytes[at + 4 ..][0 .. 4 + length];
         const checksum = std.mem.readInt(u32, bytes[at + 8 + length ..][0..4], .big);
-        if (std.hash.crc.Crc32.hash(named) != checksum) return error.Corrupt;
+        if (std.hash.Crc32.hash(named) != checksum) return error.Corrupt;
         at += chunk_overhead + length;
         const name = named[0..4];
         const body = named[4..];
@@ -581,7 +581,7 @@ fn writeChunk(out: *Writer, name: *const [4]u8, data: []const u8) Writer.Error!v
     try out.writeAll(name);
     try out.writeAll(data);
 
-    var crc: std.hash.crc.Crc32 = .init();
+    var crc: std.hash.Crc32 = .init();
     crc.update(name);
     crc.update(data);
     var checksum: [4]u8 = undefined;
@@ -664,7 +664,7 @@ test "a large picture deflates smaller and comes back whole" {
     try std.testing.expectEqual(height * (stride + 1), scanlines.len);
     for (0..height) |y| {
         const line = scanlines[y * (stride + 1) ..][0 .. stride + 1];
-        try std.testing.expectEqual(@intFromEnum(Filter.sub), line[0]);
+        try std.testing.expectEqual(@backingInt(Filter.sub), line[0]);
         // Undone, the filter gives the row back.
         var row: [stride]u8 = undefined;
         for (&row, line[1..], 0..) |*byte, filtered, at| byte.* = filtered +% if (at >= 4) row[at - 4] else 0;
@@ -716,7 +716,7 @@ fn handMade(gpa: Allocator, fields: Header, chunks: []const Chunk, scanlines: []
     var header: [13]u8 = undefined;
     std.mem.writeInt(u32, header[0..4], fields.width, .big);
     std.mem.writeInt(u32, header[4..8], fields.height, .big);
-    header[8..13].* = .{ fields.depth, @intFromEnum(fields.colour), 0, 0, @intFromBool(fields.interlaced) };
+    header[8..13].* = .{ fields.depth, @backingInt(fields.colour), 0, 0, @intFromBool(fields.interlaced) };
     try writeChunk(&out.writer, "IHDR", &header);
     for (chunks) |chunk| try writeChunk(&out.writer, chunk.name, chunk.data);
     try writeScanlines(gpa, &out.writer, scanlines);
@@ -732,7 +732,7 @@ pub const testing = struct {
         defer gpa.free(scanlines);
         for (0..height) |row| {
             const line = scanlines[row * (1 + stride) ..][0 .. 1 + stride];
-            line[0] = @intFromEnum(Filter.none);
+            line[0] = @backingInt(Filter.none);
             for (samples[row * width * 3 ..][0 .. width * 3], 0..) |value, at| std.mem.writeInt(u16, line[1 + at * 2 ..][0..2], value, .big);
         }
         return handMade(gpa, .{ .width = width, .height = height, .depth = 16, .colour = .rgb, .interlaced = false }, &.{}, scanlines);
@@ -844,7 +844,7 @@ test "read takes interlaced pictures" {
         const across, const rows = pass.size(.{ width, height });
         if (across == 0) continue;
         for (0..rows) |row| {
-            try scanlines.append(gpa, @intFromEnum(Filter.none));
+            try scanlines.append(gpa, @backingInt(Filter.none));
             for (0..across) |column| {
                 const x = pass.first[0] + column * pass.step[0];
                 const y = pass.first[1] + row * pass.step[1];

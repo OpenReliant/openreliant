@@ -58,7 +58,7 @@ pub const Row = enum {
     brightness,
 
     fn line(row: Row) Line {
-        return .{ .y = first_row + @as(i32, @intFromEnum(row)) * graphics.row_spacing, .edge = graphics.edge };
+        return .{ .y = first_row + @as(i32, @backingInt(row)) * graphics.row_spacing, .edge = graphics.edge };
     }
 
     fn text(row: Row) Label.Text {
@@ -179,10 +179,10 @@ fn viewName(setting: CockpitSetting) u32 {
 /// the game doesn't know goes back by one.
 fn stepped(setting: CockpitSetting, step: Step) CockpitSetting {
     const last: i64 = std.enums.values(CockpitSetting).len - 1;
-    const number: i64 = @intFromEnum(setting);
+    const number: i64 = @backingInt(setting);
     return switch (step) {
-        .on => if (number + 1 > last) @enumFromInt(0) else @enumFromInt(number + 1),
-        .back => if (number - 1 < 0) @enumFromInt(last) else @enumFromInt(number - 1),
+        .on => if (number + 1 > last) @fromBackingInt(0) else @fromBackingInt(@intCast(number + 1)),
+        .back => if (number - 1 < 0) @fromBackingInt(last) else @fromBackingInt(@intCast(number - 1)),
     };
 }
 
@@ -202,7 +202,7 @@ fn steppedSize(display: Display, step: Step) FrameSize {
         }
     }
     const at: ?usize = switch (display.chosen.size) {
-        .share => |share| std.mem.indexOfScalar(u8, offered[0..count], share),
+        .share => |share| std.mem.findScalar(u8, offered[0..count], share),
         .pixels => null,
     };
     return .{ .share = offered[steppedIndex(at, count, step)] };
@@ -214,9 +214,9 @@ fn sizeText(display: Display, buffer: []u8) []const u8 {
     const pixels = display.chosen.size.of(display.told.window);
     const native = std.meta.eql(display.chosen.size, FrameSize.window);
     const written = if (native)
-        std.fmt.bufPrint(buffer, "NATIVE ({d}x{d})", .{ pixels[0], pixels[1] })
+        std.mem.print(buffer, "NATIVE ({d}x{d})", .{ pixels[0], pixels[1] })
     else
-        std.fmt.bufPrint(buffer, "{d}x{d}", .{ pixels[0], pixels[1] });
+        std.mem.print(buffer, "{d}x{d}", .{ pixels[0], pixels[1] });
     return written catch "";
 }
 
@@ -235,10 +235,10 @@ fn steppedRate(rate: ?f32, step: Step) ?f32 {
 fn rateText(rate: ?f32, refresh_rate: ?f32, buffer: []u8) []const u8 {
     const limit = rate orelse {
         const display_rate = refresh_rate orelse return "DISPLAY";
-        return std.fmt.bufPrint(buffer, "DISPLAY ({d})", .{hud.round(display_rate)}) catch "DISPLAY";
+        return std.mem.print(buffer, "DISPLAY ({d})", .{hud.round(display_rate)}) catch "DISPLAY";
     };
     if (limit == 0) return "NONE";
-    return std.fmt.bufPrint(buffer, "{d}", .{hud.round(limit)}) catch "";
+    return std.mem.print(buffer, "{d}", .{hud.round(limit)}) catch "";
 }
 
 /// What the pointer finds on the tab.
@@ -258,7 +258,7 @@ fn setView(video: settings.Video, setting: CockpitSetting, file: *profile.File) 
     view.cockpit_mode = setting.mode();
     if (view.setting == setting) return;
     view.setting = setting;
-    try file.writeInt(section, view_key, @intFromEnum(setting));
+    try file.writeInt(section, view_key, @backingInt(setting));
 }
 
 /// Turns the transitions on or off; a change is written to `[Device]` (`0x0042EFC9` on).
@@ -498,8 +498,8 @@ test stepped {
     try std.testing.expectEqual(CockpitSetting.none, stepped(.cockpit, .back));
     try std.testing.expectEqual(CockpitSetting.cockpit, stepped(.none, .on));
     // A setting the game doesn't know goes on to the first, and back by one.
-    try std.testing.expectEqual(CockpitSetting.cockpit, stepped(@enumFromInt(4), .on));
-    try std.testing.expectEqual(@as(CockpitSetting, @enumFromInt(4)), stepped(@enumFromInt(5), .back));
+    try std.testing.expectEqual(CockpitSetting.cockpit, stepped(@fromBackingInt(4), .on));
+    try std.testing.expectEqual(@as(CockpitSetting, @fromBackingInt(4)), stepped(@fromBackingInt(5), .back));
 }
 
 test steppedSize {

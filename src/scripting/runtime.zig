@@ -300,7 +300,7 @@ pub const Runtime = struct {
             const bytecode = luau.compile(source) orelse return error.OutOfMemory;
             errdefer bytecode.free();
             var chunk_buffer: [max_chunk_name:0]u8 = undefined;
-            const chunk = std.fmt.bufPrintZ(&chunk_buffer, "={s}/{s}", .{ opened.name, name }) catch "=script";
+            const chunk = std.mem.printSentinel(&chunk_buffer, "={s}/{s}", .{ opened.name, name }, 0) catch "=script";
             try code.add(runtime.gpa, module, chunk, bytecode);
             runtime.check(chunk, bytecode.bytes);
         }
@@ -892,7 +892,7 @@ const offer_stack = 10;
 /// A mod's scripts, compiled (`Runtime.compiled`).
 const Code = struct {
     /// Each script's bytecode, by module name (`moduleName`).
-    modules: std.StringArrayHashMapUnmanaged(Module) = .empty,
+    modules: std.array_hash_map.String(Module) = .empty,
 
     const Module = struct {
         /// The name tracebacks give it, `=` and its mod's name and file's name.
@@ -904,7 +904,7 @@ const Code = struct {
         try code.modules.ensureUnusedCapacity(gpa, 1);
         const key = try gpa.dupe(u8, module);
         errdefer gpa.free(key);
-        const name = try gpa.dupeZ(u8, chunk);
+        const name = try gpa.dupeSentinel(u8, chunk, 0);
         code.modules.putAssumeCapacity(key, .{ .chunk = name, .bytecode = bytecode });
     }
 
@@ -1046,7 +1046,7 @@ const max_whole: f64 = 1 << std.math.floatMantissaBits(f64);
 /// The module name for a script file: lowercase, without the `.luau` extension. Returns null if it
 /// doesn't fit in `buffer`.
 fn moduleName(buffer: [:0]u8, name: []const u8) ?[:0]const u8 {
-    const extension = std.fs.path.extension(name);
+    const extension = std.Io.Dir.path.extension(name);
     const stem = if (std.ascii.eqlIgnoreCase(extension, mods.script_extension)) name[0 .. name.len - extension.len] else name;
     if (stem.len > buffer.len) return null;
     const lowered = std.ascii.lowerString(buffer, stem);

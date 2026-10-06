@@ -9,7 +9,7 @@ const math = @import("../../surrender/math.zig");
 const Vector = math.Vector;
 const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../../surrender/surrenderlib/srcore.zig");
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const explode = @import("../explode.zig");
 const table = @import("../table.zig");
 const xtrabits = @import("../xtrabits.zig");
@@ -103,7 +103,7 @@ const puff: explode.Fireball.Spec = .{ .size = 200, .life = 40, .light = true, .
 /// it goes; it leaves at `speed` to twice that a tick, turned a little off its direction. Thrown
 /// from a part, `at` is on the part, which stands at the place given; thrown large, it is drawn
 /// larger and leaves faster. A puff of flak goes off where it starts.
-pub fn throw(explosions: *explode.Explosions, at: Vector, direction: Vector, how: Throw, clock: *const Clock, random: *libcmt.Rand) void {
+pub fn throw(explosions: *explode.Explosions, at: Vector, direction: Vector, how: Throw, clock: *const Clock, random: *Random) void {
     const models = &explosions.debris.rock_chunks;
     const levels = models[@as(usize, random.rand()) % models.len].slice();
     const life: i32 = @intFromFloat(random.fraction() * least_life);

@@ -48,7 +48,7 @@ const create = @import("create.zig");
 const xtrabits = @import("xtrabits.zig");
 const guns = @import("guns.zig");
 const objects = @import("objects.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const collision = @import("collision.zig");
 const sound3d = @import("sound3d.zig");
 const main = @import("main.zig");
@@ -111,7 +111,7 @@ pub const Beep = enum(u3) {
 /// only (`camera.View.fromCockpit`), `view` being this frame's.
 pub fn playBeep(sound: *hog_snd.Sound, view: camera.View, which: Beep) void {
     if (!view.fromCockpit()) return;
-    _ = sound.playStandard(Beep.first_sample + @as(usize, @intFromEnum(which)), Beep.volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+    _ = sound.playStandard(Beep.first_sample + @as(usize, @backingInt(which)), Beep.volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
 }
 
 /// `playBeep` in `world`, where there is one and anything is heard in it.
@@ -310,7 +310,7 @@ pub const Opened = struct {
     ink: ?[3]u8 = null,
     /// The codes whose glyphs keep their bitmaps under an outline font, drawn in colours beside its
     /// ink (`standIn`).
-    own_colours: std.StaticBitSet(cached_codes) = .initEmpty(),
+    own_colours: std.bit_set.Static(cached_codes) = .empty,
 
     pub const Paint = enum {
         /// Through the font's palette, or else VFX's global one, as the display's text is.
@@ -663,7 +663,7 @@ pub const Draw = struct {
 pub const Shake = struct {
     hit_shake: f32,
     interference: f32,
-    random: *libcmt.Rand,
+    random: *Random,
 
     /// How far the next row of a shape flipped as `mirror` says moves.
     fn row(shake: Shake, mirror: Mirror) i32 {
@@ -674,7 +674,7 @@ pub const Shake = struct {
 
 /// How far a shake of `amount` moves a row, in the display's own pixels: nothing while it is not
 /// above zero, and otherwise a random share of `10 * amount`, rounded as `sr_round` rounds.
-pub fn rowShift(amount: f32, random: ?*libcmt.Rand) i32 {
+pub fn rowShift(amount: f32, random: ?*Random) i32 {
     if (!(amount > 0)) return 0;
     const source = random orelse return 0;
     return math.round(source.fraction() * row_reach * amount);
@@ -727,7 +727,7 @@ pub const Interference = struct {
 
     /// How the display shakes this frame, `hit_shake` the camera's shake: not at all while the
     /// interference is out.
-    pub fn shake(interference: Interference, hit_shake: f32, random: *libcmt.Rand) ?Shake {
+    pub fn shake(interference: Interference, hit_shake: f32, random: *Random) ?Shake {
         if (!(interference.level > 0)) return null;
         return .{ .hit_shake = hit_shake, .interference = interference.level, .random = random };
     }
@@ -912,12 +912,12 @@ const Ink = struct {
     /// How far each of the palette's colours comes towards it, as the bitmap's pixels cover.
     cover: outline.Cover,
     /// The codes drawn in colours its digits and letters aren't.
-    own_colours: std.StaticBitSet(cached_codes),
+    own_colours: std.bit_set.Static(cached_codes),
 
     /// The ink of `font` drawn through `palette`; none where its digits and letters are all
     /// black.
     fn of(font: fnt.Font, palette: *const [spr.palette_size]u8) ?Ink {
-        var inks: std.StaticBitSet(256) = .initEmpty();
+        var inks: std.bit_set.Static(256) = .empty;
         for (outline.letters_and_digits) |code| {
             const glyph = font.glyph(code) orelse continue;
             for (glyph.pixels) |index| if (index != 0) inks.set(index);
@@ -930,7 +930,7 @@ const Ink = struct {
         }
         const full = colourDot(colour, colour);
         if (full == 0) return null;
-        var ink: Ink = .{ .colour = colour, .cover = @splat(0), .own_colours = .initEmpty() };
+        var ink: Ink = .{ .colour = colour, .cover = @splat(0), .own_colours = .empty };
         for (ink.cover[1..], 1..) |*share, index| {
             share.* = std.math.clamp(colourDot(paletteColour(palette, index), colour) / full, 0, 1);
         }
@@ -1124,7 +1124,7 @@ fn inked(colour: [4]f32, ink: [3]u8) [4]f32 {
 /// rooms, which are gameplay.
 pub fn drawVersion(font: *Opened, gpa: Allocator, into: device.Device, screen: [2]u32, version: []const u8) Allocator.Error!void {
     var buffer: [64]u8 = undefined;
-    const text = std.fmt.bufPrint(&buffer, "OpenReliant {s}", .{version}) catch version;
+    const text = std.mem.print(&buffer, "OpenReliant {s}", .{version}) catch version;
     const scale = scaleFor(screen);
     const height: i32 = @intCast(font.font.header.height);
     const at: [2]i32 = .{
@@ -1188,7 +1188,7 @@ pub const WrappedText = struct {
         const line = wrapped.lines.next() orelse return null;
         wrapped.left -= 1;
         if (!line.hyphen) return line.text;
-        return std.fmt.bufPrint(&wrapped.buffer, "{s}-", .{line.text}) catch line.text;
+        return std.mem.print(&wrapped.buffer, "{s}-", .{line.text}) catch line.text;
     }
 };
 
@@ -1953,10 +1953,10 @@ pub const Frame = struct {
     last_view: camera.View,
     mode: camera.CockpitMode,
     strings: *const language.Language,
-    /// The camera's shake, which shakes the power ball too, and the C runtime's `rand`, which the
-    /// ball draws from.
+    /// The camera's shake, which shakes the power ball too, and the game's random numbers
+    /// (`Random`), which the ball draws from.
     hit_shake: f32,
-    random: *libcmt.Rand,
+    random: *Random,
     /// What the mission has ready for JUMP DRIVE.
     ready: *Readiness,
     edge_line: EdgeLine,
@@ -2144,7 +2144,7 @@ pub const Readout = enum {
         try pen.shaky(at.shape, pen.moved(point, at.shape_offset));
 
         var buffer: [16]u8 = undefined;
-        const text = std.fmt.bufPrint(&buffer, "{d}", .{value}) catch return;
+        const text = std.mem.print(&buffer, "{d}", .{value}) catch return;
         _ = try pen.text(pen.moved(point, at.text_offset), text, .centre);
     }
 };
@@ -2243,9 +2243,9 @@ pub const Messages = struct {
     /// `hud_message_drop` (`0x0048CF90`): drops the oldest, moving the others up.
     pub fn drop(messages: *Messages) void {
         if (messages.count == 0) return;
-        std.mem.copyForwards([line_size]u8, messages.lines[0 .. capacity - 1], messages.lines[1..]);
-        std.mem.copyForwards(u8, messages.lens[0 .. capacity - 1], messages.lens[1..]);
-        std.mem.copyForwards(i32, messages.until[0 .. capacity - 1], messages.until[1..]);
+        @memmove(messages.lines[0 .. capacity - 1], messages.lines[1..]);
+        @memmove(messages.lens[0 .. capacity - 1], messages.lens[1..]);
+        @memmove(messages.until[0 .. capacity - 1], messages.until[1..]);
         messages.lens[capacity - 1] = 0;
         messages.count -= 1;
     }
@@ -2297,7 +2297,7 @@ test Messages {
     try std.testing.expectEqual(3, messages.count);
     try std.testing.expectEqualStrings("three", messages.line(0));
     // A long line keeps its first 99 bytes.
-    messages.add("x" ** 150, 50);
+    messages.add(&@as([150]u8, @splat('x')), 50);
     try std.testing.expectEqual(Messages.line_size - 1, messages.line(3).len);
 }
 
@@ -2491,7 +2491,7 @@ pub fn clockTime(all: *const create.Objects, play: main.PlayTime, variables: ?*c
 /// centred at its place.
 pub fn drawClock(pen: Pen, minutes: u16, seconds: u16) Allocator.Error!void {
     var buffer: [16]u8 = undefined;
-    const text = std.fmt.bufPrint(&buffer, "{d:0>2}:{d:0>2}", .{ minutes, seconds }) catch return;
+    const text = std.mem.print(&buffer, "{d:0>2}:{d:0>2}", .{ minutes, seconds }) catch return;
     _ = try pen.text(pen.placed(clock_offset, clock_across, clock_down), text, .centre);
 }
 
@@ -2522,7 +2522,7 @@ test drawClock {
 
     // The figures are padded to two as "%02d:%02d" does.
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("09:06", try std.fmt.bufPrint(&buffer, "{d:0>2}:{d:0>2}", .{ @as(u16, 9), @as(u16, 6) }));
+    try std.testing.expectEqualStrings("09:06", try std.mem.print(&buffer, "{d:0>2}:{d:0>2}", .{ @as(u16, 9), @as(u16, 6) }));
 }
 
 test Caption {
@@ -2602,7 +2602,7 @@ test namesView {
     try std.testing.expect(!namesView(.flyby));
     try std.testing.expect(!namesView(.landing_aside));
     try std.testing.expect(namesView(.landing_tube));
-    try std.testing.expect(namesView(@enumFromInt(0x27)));
+    try std.testing.expect(namesView(@fromBackingInt(0x27)));
 }
 
 test instrumented {
@@ -2678,8 +2678,8 @@ pub const Lit = packed struct(u9) {
     reverse_thrust: bool = false,
 
     comptime {
-        for (@typeInfo(Lit).@"struct".fields, std.enums.values(Light)) |field, light| {
-            assert(std.mem.eql(u8, field.name, @tagName(light)));
+        for (@typeInfo(Lit).@"struct".field_names, std.enums.values(Light)) |name, light| {
+            assert(std.mem.eql(u8, name, @tagName(light)));
         }
     }
 };
@@ -2751,7 +2751,7 @@ pub const Icons = struct {
     /// **Improvement.** The game writes past the table for an icon of 20 or more; OpenReliant
     /// leaves such an icon alone.
     pub fn show(icons: *Icons, icon: Icon, state: IconState) void {
-        const at = @intFromEnum(icon);
+        const at = @backingInt(icon);
         if (at >= count) return;
         icons.slots[at] = .{ .state = state };
     }
@@ -2760,7 +2760,7 @@ pub const Icons = struct {
     /// when on, and when flashing for the first 50 ticks of every 100. Unlike the display's other
     /// flashes, one that runs past 100 carries what it ran over into the next and is lit.
     pub fn lit(icons: *Icons, icon: Icon, frame_duration: i32) bool {
-        const at = @intFromEnum(icon);
+        const at = @backingInt(icon);
         if (at >= count) return false;
         const slot = &icons.slots[at];
         switch (slot.state) {
@@ -2950,8 +2950,8 @@ pub const State = struct {
     /// The quadrants of the player's ship, and of its target, whose armour hits have worn since
     /// the ship status indicator last drew each (`ship_status_hits`, `0x00563160`, and
     /// `target_status_hits`, `0x005635D4`).
-    ship_hits: Hits = .initEmpty(),
-    target_hits: Hits = .initEmpty(),
+    ship_hits: Hits = .empty,
+    target_hits: Hits = .empty,
     /// The object that stood under the reticle as the targeting keys were last read
     /// (`0x00566664`), which TARGET UNDER RETICULE takes.
     under_reticle: ?u16 = null,
@@ -3077,7 +3077,7 @@ pub const State = struct {
     /// while their icon is not flashing them dark.
     pub fn shows(state: *State, readout: Readout, frame_duration: i32) bool {
         return switch (readout) {
-            .coil => state.icons.slots[@intFromEnum(Icon.countermeasures)].state == .off or
+            .coil => state.icons.slots[@backingInt(Icon.countermeasures)].state == .off or
                 state.icons.lit(.countermeasures, frame_duration),
             else => true,
         };
@@ -3098,7 +3098,7 @@ pub const State = struct {
                 };
                 // Every light shakes but reverse thrust's.
                 const how: Draw = .{ .shake = if (light == .reverse_thrust) null else pen.shake };
-                if (drawn) try pen.shapeWith(@intFromEnum(light), at, how);
+                if (drawn) try pen.shapeWith(@backingInt(light), at, how);
                 if (comptime light.charged()) |kind| {
                     drawBar(pen, at, kind.spec().bar_down, state.devices.get(kind).bar(kind));
                 }
@@ -3273,7 +3273,7 @@ pub fn kilometres(all: *const create.Objects, index: u16) i32 {
 
 /// A range as the display writes it, `%dk`.
 pub fn rangeText(buffer: *[16]u8, km: i32) []const u8 {
-    return std.fmt.bufPrint(buffer, "{d}k", .{km}) catch "";
+    return std.mem.print(buffer, "{d}k", .{km}) catch "";
 }
 
 /// How much shorter each unit the missile lock's count is short of 100 makes the lead cursor's
@@ -3785,8 +3785,8 @@ test Icons {
     icons.show(.ecm, .flash);
     try std.testing.expectEqual(0, icons.slots[2].ticks);
     // Past the table, an icon is left alone.
-    icons.show(@enumFromInt(25), .on);
-    try std.testing.expect(!icons.lit(@enumFromInt(25), 1));
+    icons.show(@fromBackingInt(25), .on);
+    try std.testing.expect(!icons.lit(@fromBackingInt(25), 1));
 }
 
 test Charge {
@@ -3977,7 +3977,7 @@ pub const ShipStatus = struct {
         /// Whether the schematic and the hits on it are drawn mirrored across.
         mirrored: bool = false,
         /// The quadrants that flash on the schematic, shapes 1 to 4 of it.
-        hits: Hits = .initEmpty(),
+        hits: Hits = .empty,
         /// The arcs' levels, or null for a type with none.
         rings: ?Rings = null,
         /// For the player's own ship, the levels of what SHIELD BALANCING shifted fore and aft.
@@ -3991,14 +3991,13 @@ pub const ShipStatus = struct {
     };
 
     /// How much of an arc is drawn: the quadrant's value over the ship's shield power, for a
-    /// shield, or its armour class, for the armour, cut down to a whole number as the runtime's
-    /// `__ftol` does (`math.ftol`), less one, in the game's 32-bit arithmetic. An arc of 0 or less
-    /// is not drawn. A ship with none of either has no arcs of it; the game divides by nothing
-    /// regardless.
+    /// shield, or its armour class, for the armour, cut down to a whole number, less one, in the
+    /// game's 32-bit arithmetic. An arc of 0 or less is not drawn. A ship with neither has no arcs
+    /// of that kind; the game divides by zero anyway.
     pub fn level(value: f32, per_arc: i32) i32 {
         if (per_arc == 0) return 0;
         const share = value / @as(f32, @floatFromInt(per_arc));
-        return math.ftol(share) -% 1;
+        return std.math.lossyCast(i32, share) -% 1;
     }
 
     /// The rings of the ship of `slot`, or null for a comms relay or a deathmatch beacon, which
@@ -4049,7 +4048,7 @@ pub const ShipStatus = struct {
     }
 
     fn take(hits: *Hits) Hits {
-        defer hits.* = .initEmpty();
+        defer hits.* = .empty;
         return hits.*;
     }
 
@@ -4066,7 +4065,7 @@ pub const ShipStatus = struct {
             try own.shapeWith(0, pen.moved(point, layout.schematic), how);
             var hits = shown.hits.iterator();
             while (hits.next()) |quadrant| {
-                try own.shapeWith(@as(usize, @intFromEnum(quadrant)) + 1, pen.moved(point, layout.hits), how);
+                try own.shapeWith(@as(usize, @backingInt(quadrant)) + 1, pen.moved(point, layout.hits), how);
             }
         }
         const found = shown.rings orelse return;
@@ -4095,11 +4094,10 @@ test ShipStatus {
     try std.testing.expectEqual(5, ShipStatus.level(6 * 3, 3));
     // Down to under twice the power, none are left.
     try std.testing.expectEqual(0, ShipStatus.level(5, 3));
-    // The runtime cuts toward zero rather than rounding, and past an `int` keeps the low half of
-    // the 64-bit whole number, as `__ftol` does.
+    // The share is cut toward zero rather than rounded, and stops at the largest `int`.
     try std.testing.expectEqual(1, ShipStatus.level(2.99 * 3, 3));
     try std.testing.expectEqual(0, ShipStatus.level(10, 0));
-    try std.testing.expectEqual(-1294967297, ShipStatus.level(3e9, 1));
+    try std.testing.expectEqual(std.math.maxInt(i32) - 1, ShipStatus.level(3e9, 1));
 
     // In both modes, the armour's arcs are shapes 0x85 to 0x98 and the shields' 0x99 to 0xAC,
     // five an arc, each arc's following on from the last's.
@@ -4151,7 +4149,7 @@ test "the rings follow the shields and the armour" {
     // A comms relay has no rings, and so nothing shifted for mode 0 to show.
     slot.object.type = .of(.comms_relay);
     try std.testing.expectEqual(null, ShipStatus.rings(slot));
-    var own_hits: Hits = .initEmpty();
+    var own_hits: Hits = .empty;
     const shield_power: f32 = @floatFromInt(combat.shield_power);
     try std.testing.expectEqual(null, ShipStatus.ofPlayer(slot, &own_hits, .{ .fore = 5 * shield_power }).reserves);
 
@@ -4166,7 +4164,7 @@ test "the rings follow the shields and the armour" {
     try std.testing.expect(own_hits.contains(.aft));
 
     // Mode 1 takes the hits and leaves none behind, for a hostile target of the small form.
-    var hits: Hits = .initEmpty();
+    var hits: Hits = .empty;
     hits.insert(.fore);
     const without = ShipStatus.ofTarget(slot, &hits);
     // With no schematic, the hits stay for the next time.
@@ -4190,9 +4188,9 @@ pub const Cluster = struct {
     pub const spread: f32 = 0.15625;
 
     /// How far either arc stands from the middle of a screen `width` across: `spread` of it, cut
-    /// down to a whole number as `__ftol` does.
+    /// down to a whole number.
     pub fn apart(width: i32) i32 {
-        return math.ftol(@as(f32, @floatFromInt(width)) * spread);
+        return std.math.lossyCast(i32, @as(f32, @floatFromInt(width)) * spread);
     }
     /// How far above the middle the arcs' tops stand.
     pub const up: i32 = 0x4A;
@@ -4289,14 +4287,14 @@ pub fn drawCluster(pen: Pen, gauges: Cluster.Gauges) Error!void {
         const dim = pen.dimmed(brightness);
         const marker = pen.moved(centre, Cluster.markerOffset(throttle));
         try dim.shape(Cluster.marker_shape, marker);
-        const asked = std.fmt.bufPrint(&buffer, "{d}", .{round(gauges.max_speed * gauges.throttle)}) catch return;
+        const asked = std.mem.print(&buffer, "{d}", .{round(gauges.max_speed * gauges.throttle)}) catch return;
         _ = try dim.text(pen.moved(marker, Cluster.figure_offset), asked, .right);
     }
 
     const offset = Cluster.markerOffset(speed);
     const marker = pen.moved(centre, offset);
     try pen.shape(Cluster.marker_shape, marker);
-    const made = std.fmt.bufPrint(&buffer, "{d}", .{round(gauges.speed)}) catch return;
+    const made = std.mem.print(&buffer, "{d}", .{round(gauges.speed)}) catch return;
     _ = try pen.text(pen.moved(marker, Cluster.figure_offset), made, .right);
 
     // The speed's fill is lit below its marker, the charge's below its level.
@@ -4787,7 +4785,7 @@ fn drawOffScreen(
     _ = xtrabits.clipLine(last, &from, &to);
     const edge: Edge = .of(to, last);
     const spec = edge.spec();
-    try pen.shape(Edge.shape.of(hostile) + @intFromEnum(edge), pen.moved(to, spec.shape));
+    try pen.shape(Edge.shape.of(hostile) + @backingInt(edge), pen.moved(to, spec.shape));
     _ = try pen.textIn(font, pen.moved(to, spec.text), range, spec.alignment);
 }
 
@@ -5373,7 +5371,7 @@ test Interference {
 }
 
 test rowShift {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     try std.testing.expectEqual(0, rowShift(0, &random));
     try std.testing.expectEqual(0, rowShift(1, null));
     for (0..20) |_| {
@@ -5386,10 +5384,10 @@ test "a shaken image is drawn a row at a time" {
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
     const into = recorder.interface();
-    const texels = [_]u8{0xFF} ** (2 * 3 * 4);
+    const texels: [2 * 3 * 4]u8 = @splat(0xFF);
     var level = [_]srtexture.Level{.{ .width = 2, .height = 3, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
 
     drawImage(into, &image, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1, .{});
     try std.testing.expectEqual(1, recorder.draws.items.len);
@@ -5405,7 +5403,7 @@ test "a mod's picture replaces a shape, drawn over the shape's rectangle" {
     // A picture for the set's shape in block 1, at four times the resolution.
     var written: std.Io.Writer.Allocating = .init(gpa);
     defer written.deinit();
-    try png.writeRgba(gpa, &written.writer, 12, 8, &(@as([12 * 8 * 4]u8, @splat(0xFF))));
+    try png.writeRgba(gpa, &written.writer, 12, 8, &@as([12 * 8 * 4]u8, @splat(0xFF)));
     const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "set_001.png", .bytes = written.written() }} };
     var art: Art = try .init(gpa, try .parse(bytes), null, .{ .files = pictures.files(), .set = "interface\\SET.SPR" });
     defer art.deinit(gpa);
@@ -5431,7 +5429,7 @@ test "a mod's picture replaces a shape, drawn over the shape's rectangle" {
     try std.testing.expectEqual(3, own.images[1].?.width());
 
     // When the display shakes, the shape is drawn one row at a time.
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const before = recorder.draws.items.len;
     try drawShapeWith(&art, gpa, into, 1, .{ 10, 20 }, .{ 1, 1, 1, 1 }, 2, .{ .shake = .{ .hit_shake = 1, .interference = 0, .random = &random } });
     try std.testing.expectEqual(before + 2, recorder.draws.items.len);
@@ -5444,7 +5442,7 @@ test "Art.Pictures.first" {
     // A ship type's pictures, numbered from the shape they start at: picture 0 for shape 1.
     var written: std.Io.Writer.Allocating = .init(gpa);
     defer written.deinit();
-    try png.writeRgba(gpa, &written.writer, 12, 8, &(@as([12 * 8 * 4]u8, @splat(0xFF))));
+    try png.writeRgba(gpa, &written.writer, 12, 8, &@as([12 * 8 * 4]u8, @splat(0xFF)));
     const pictures: srtexture.testing.Pictures = .{ .held = &.{.{ .name = "wire_000.png", .bytes = written.written() }} };
     var art: Art = try .init(gpa, try .parse(bytes), null, .{ .files = pictures.files(), .set = "wire", .first = 1 });
     defer art.deinit(gpa);
@@ -5474,7 +5472,7 @@ test "an image cut to a clip keeps the part of it inside" {
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
     const into = recorder.interface();
-    const texels = [_]u8{0xFF} ** (4 * 2 * 4);
+    const texels: [4 * 2 * 4]u8 = @splat(0xFF);
     var level = [_]srtexture.Level{.{ .width = 4, .height = 2, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
 

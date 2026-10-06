@@ -148,9 +148,9 @@ test "Header.parse" {
 test Frames {
     // An ID3v2 tag of 6 bytes, a frame, two bytes that start none, a second frame, and an ID3v1
     // tag.
-    const frame = [_]u8{ 0xFF, 0xF3, 0x80, 0x7C } ++ [_]u8{0} ** 204;
-    const tag = "ID3" ++ [_]u8{ 4, 0, 0, 0, 0, 0, 6 } ++ [_]u8{0} ** 6;
-    const file = tag ++ frame ++ [_]u8{ 1, 2 } ++ frame ++ "TAG" ++ [_]u8{0} ** 125;
+    const frame = [_]u8{ 0xFF, 0xF3, 0x80, 0x7C } ++ @as([204]u8, @splat(0));
+    const tag = "ID3" ++ [_]u8{ 4, 0, 0, 0, 0, 0, 6 } ++ @as([6]u8, @splat(0));
+    const file = tag ++ frame ++ [_]u8{ 1, 2 } ++ frame ++ "TAG" ++ @as([125]u8, @splat(0));
     var frames: Frames = .init(file);
     try std.testing.expectEqual(16, frames.at);
     try std.testing.expectEqual(208, frames.next().?.bytes.len);

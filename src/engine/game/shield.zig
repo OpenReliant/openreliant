@@ -15,7 +15,7 @@ const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const Objects = @import("create.zig").Objects;
 const Detail = @import("explode.zig").Detail;
 const cloak = @import("cloak.zig");
@@ -193,11 +193,18 @@ const bubble_material: srapiext.Material = .onePass(.{ .coordinates = .generated
 /// Which colours a bubble glows in: the ship type's side, friendly or not (`+0x40`).
 pub const Tint = enum { friendly, other };
 
-/// The steps of each tint's ramp (`0x0058CB6C` for a friendly ship's, `0x00590728` for the
-/// others'), a colour for each strength from nothing up to one.
-const ramp_steps = 1024;
 const Colour = @Vector(3, f32);
-const Ramp = [ramp_steps]Colour;
+
+/// A tint's ramp (`0x0058CB6C` for a friendly ship's, `0x00590728` for the others'): a colour for
+/// each strength from nothing up to one.
+///
+/// **Improvement:** OpenReliant computes each colour from the strength (`rampColour`), where the
+/// game fills a table of 1024 steps once (`shield_ramps_build`, `0x0049EE40`) and looks up the step
+/// a strength falls in.
+const Ramp = struct {
+    tint: Tint,
+    hardware: bool,
+};
 
 /// How bright a step of the ramp is at most (`0x0049EB00`), and what share of that the others'
 /// green and blue get (`0x0049EC30`).
@@ -244,19 +251,11 @@ fn rampColour(tint: Tint, strength: f32, hardware: bool) Colour {
     return tinted * @as(Colour, @splat(ramp_brightness));
 }
 
-/// `0x0049EE40`: a tint's ramp, a step for each 1024th of the strength.
-fn buildRamp(tint: Tint, hardware: bool) Ramp {
-    var ramp: Ramp = undefined;
-    for (&ramp, 0..) |*step, index| step.* = rampColour(tint, @as(f32, @floatFromInt(index)) / ramp_steps, hardware);
-    return ramp;
-}
-
 /// `0x0049ED60` and `0x0049EDD0`: the ramp's colour at a strength strictly between nothing and
 /// one; nothing outside.
 fn rampAt(ramp: *const Ramp, strength: f32) Colour {
     if (!(strength > 0 and strength < 1)) return @splat(0);
-    const step: usize = @intFromFloat(@floor(strength * (ramp_steps - 1)));
-    return ramp[step];
+    return rampColour(ramp.tint, strength, ramp.hardware);
 }
 
 /// A bubble's size over its ship's radius (`0x004DC7C4`).
@@ -352,7 +351,7 @@ pub const Shields = struct {
         return .{
             .meshes = meshes,
             .style = style,
-            .ramps = .init(.{ .friendly = buildRamp(.friendly, hardware), .other = buildRamp(.other, hardware) }),
+            .ramps = .init(.{ .friendly = .{ .tint = .friendly, .hardware = hardware }, .other = .{ .tint = .other, .hardware = hardware } }),
             .reaches = reaches.get(detail),
             .texture = texture,
             .field = field,
@@ -398,9 +397,9 @@ pub const Shields = struct {
         ahead: f32 = 0,
         /// While the game is paused (`0x0057E04C`), the bubbles' colours stand still.
         paused: bool = false,
-        /// The runtime's numbers (`libcmt.Rand`), which a force field flickers by; without them it
-        /// stays dark.
-        random: ?*libcmt.Rand,
+        /// The game's random numbers (`Random`), which make a force field flicker; without them
+        /// it stays dark.
+        random: ?*Random,
     };
 
     /// `0x0049F0A0`, once a frame (`mission_frame`): the bubble of each ship struck in the last
@@ -573,7 +572,7 @@ pub const Bubble = struct {
     /// then `mesh` is drawn over `ffield` until `flicker_until`, and `colours` are a random grey on
     /// one frame in `flicker_odds` and dark on the rest. The texture is set on the level's mesh,
     /// which every bubble at that level shares, as the game sets it.
-    fn flickers(bubble: *Bubble, shields: *const Shields, mesh: *srapiext.Mesh, now: i32, colours: [][4]f32, random: ?*libcmt.Rand) bool {
+    fn flickers(bubble: *Bubble, shields: *const Shields, mesh: *srapiext.Mesh, now: i32, colours: [][4]f32, random: ?*Random) bool {
         const until = bubble.flicker_until orelse return false;
         const over = until < now;
         mesh.surfaces[0].textures[0] = .{ .image = if (over) shields.texture else shields.field };
@@ -783,7 +782,7 @@ const capital_swirl_per_tick: f32 = 1e-3;
 /// `part_is_force_field` (`0x0049FC70`): whether a part's name holds `FORCEFIELD`, whatever its
 /// case.
 pub fn isForceField(name: []const u8) bool {
-    return std.ascii.indexOfIgnoreCase(name, "FORCEFIELD") != null;
+    return std.ascii.findIgnoreCase(name, "FORCEFIELD") != null;
 }
 
 /// `force_field_mark` (`0x0049FCD0`): hides each part of `model` that is a force field, and of
@@ -1017,9 +1016,9 @@ pub const CapitalShield = struct {
         for (uv) |*coordinates| coordinates.* = swirledAbout(coordinates.*, capital_centre, ticks * capital_swirl_per_tick);
     }
 
-    /// A force field's texture coordinates each thrown anywhere at random, where there are the
-    /// runtime's numbers to throw them by, and its green turned blue.
-    fn flicker(shown: *CapitalShield, random: ?*libcmt.Rand) void {
+    /// Moves each of a force field's texture coordinates to a random place, where it has the
+    /// game's random numbers, and turns its green blue.
+    fn flicker(shown: *CapitalShield, random: ?*Random) void {
         if (random) |numbers| if (shown.mesh.uv[0]) |uv| for (uv) |*coordinates| {
             const u = numbers.fraction();
             coordinates.* = .{ u, numbers.fraction() };
@@ -1144,7 +1143,7 @@ test rampColour {
     try std.testing.expectApproxEqAbs(0.7 * ramp_brightness * other_share, other[2], 1e-6);
     try std.testing.expectEqual(@as(Colour, @splat(top[2])), rampColour(.friendly, 0.6, false));
     // Only a strength strictly between nothing and one shows.
-    var ramp = buildRamp(.friendly, true);
+    const ramp: Ramp = .{ .tint = .friendly, .hardware = true };
     try std.testing.expectEqual(Colour{ 0, 0, 0 }, rampAt(&ramp, 0));
     try std.testing.expectEqual(Colour{ 0, 0, 0 }, rampAt(&ramp, 1));
     try std.testing.expect(rampAt(&ramp, 0.6)[2] > 0);

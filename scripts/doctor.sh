@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# usage: doctor.sh <root> <jdk-home> <ghidra-home> <ghidra-platform> <ghidra-user-dir> <zig> <project.gpr>
+# usage: doctor.sh <root> <jdk-home> <ghidra-home> <ghidra-platform> <ghidra-user-dir> <zig> <project.gpr> <zig-version>
 #
 # Reports which parts of the environment are in place. Read-only; always exits 0.
 set -uo pipefail
 
-root=$1 jdk_home=$2 ghidra_home=$3 platform=$4 user_dir=$5 zig=$6 gpr=$7
+root=$1 jdk_home=$2 ghidra_home=$3 platform=$4 user_dir=$5 zig=$6 gpr=$7 zig_version=$8
 
 check() { # check <label> <command...>
     local label=$1; shift
@@ -17,6 +17,7 @@ native() { [[ -x "$ghidra_home/Ghidra/Features/Decompiler/build/os/$platform/dec
 
 echo "toolchain"
 check "zig ($("$zig" version 2>/dev/null || echo '?'))"   "$zig" version
+check "zig is ${zig_version%.*}.x, as build.zig.zon asks"   bash -c '[[ "$1" == "$2".* ]]' _ "$("$zig" version 2>/dev/null)" "${zig_version%.*}"
 check "uv (ghydra CLI + MCP bridge)"                       command -v uv
 check "JDK at tools/jdk"                                   "$jdk_home/bin/java" -version
 check "Ghidra at ${ghidra_home#"$root"/}"                  test -x "$ghidra_home/ghidraRun"

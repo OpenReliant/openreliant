@@ -32,7 +32,7 @@ pub const Place = enum(u8) {
     outro,
 
     fn next(place: Place) ?Place {
-        return if (place == .outro) null else @enumFromInt(@intFromEnum(place) + 1);
+        return if (place == .outro) null else @fromBackingInt(@backingInt(place) + 1);
     }
 };
 
@@ -136,7 +136,7 @@ pub const Induction = struct {
             induction.close();
             return .{ .over = induction.place };
         }
-        const on = !induction.speech.playing(induction.context.sound) or keyboard.pressed(@intFromEnum(input.Key.space), .none, true);
+        const on = !induction.speech.playing(induction.context.sound) or keyboard.pressed(@backingInt(input.Key.space), .none, true);
         if (!on) return null;
         induction.speech.stop(induction.context.gpa, induction.context.sound);
         induction.film.close();

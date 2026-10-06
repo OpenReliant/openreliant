@@ -21,7 +21,7 @@ const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srlight = @import("../surrender/surrenderlib/srlight.zig");
 const srstars = @import("../surrender/surrenderlib/srstars.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const GameObject = @import("gameobj.zig").GameObject;
 const create = @import("create.zig");
 const objects = @import("objects.zig");
@@ -54,7 +54,7 @@ pub const TextureDetail = enum(u32) {
 
     pub fn format(detail: TextureDetail, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (detail) {
-            _ => writer.print("texture detail {d}", .{@intFromEnum(detail)}),
+            _ => writer.print("texture detail {d}", .{@backingInt(detail)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -138,23 +138,27 @@ test sceneAdd {
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
 }
 
-/// `object_random15` (`0x004ADCE0`): the object's own random number from 0 to 32767, which steps
-/// its seed (`GameObject.random_seed`) as the C runtime's `rand` steps its own. **Unverified:** it
-/// lies after this file's known code, before `deathmatch.cpp`'s.
+/// What `object_random15` (`0x004ADCE0`) multiplies an object's seed by, the same step as the C
+/// runtime's `rand` (`0x004CF555`).
+const seed_multiplier: u32 = 214013;
+
+/// What `object_random15` (`0x004ADCE0`) then adds to the seed, as `rand` (`0x004CF555`) does.
+const seed_increment: u32 = 2531011;
+
+/// `object_random15` (`0x004ADCE0`): the object's own random number from 0 to 32767, bits 16 to
+/// 30 of its seed (`GameObject.random_seed`) after one step. **Unverified:** it lies after this
+/// file's known code, before `deathmatch.cpp`'s.
 pub fn objectRandom15(object: *GameObject) u15 {
-    var random: libcmt.Rand = .{ .seed = object.random_seed };
-    defer object.random_seed = random.seed;
-    return random.rand();
+    var seed: std.Random.lcg.Wrapping(u32) = .init(object.random_seed, seed_multiplier, seed_increment);
+    object.random_seed = seed.next();
+    return @truncate(object.random_seed >> 16);
 }
 
 /// `object_random` (`0x004ADD10`): the object's own random number from 0 to 1, which is
-/// `objectRandom15` times the reciprocal of the runtime's largest (`0x004DC710`), as
-/// `Rand.fraction` takes it. **Unverified:** it lies after this file's known code, before
-/// `deathmatch.cpp`'s.
+/// `objectRandom15` times the reciprocal of the largest it gives (`0x004DC710`, `Random.share`).
+/// **Unverified:** it lies after this file's known code, before `deathmatch.cpp`'s.
 pub fn objectRandom(object: *GameObject) f32 {
-    var random: libcmt.Rand = .{ .seed = object.random_seed };
-    defer object.random_seed = random.seed;
-    return random.fraction();
+    return Random.share(objectRandom15(object));
 }
 
 /// `ship_type_first_levels` (`0x004AE190`): a ship type's model, loaded where none of its objects
@@ -167,7 +171,7 @@ pub fn firstLevels(all: *create.Objects, types: create.Types, ship_type: u8) ?[]
 }
 
 test firstLevels {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try create.Objects.create(std.testing.allocator, &random);
     defer all.destroy();
 
@@ -200,7 +204,7 @@ test objectRandom15 {
     var object = std.mem.zeroes(GameObject);
     object.random_seed = 1;
     try std.testing.expectEqual(41, objectRandom15(&object));
-    try std.testing.expectEqual(1 *% 214013 +% 2531011, object.random_seed);
+    try std.testing.expectEqual(1 *% seed_multiplier +% seed_increment, object.random_seed);
 }
 
 /// Which edges of a pane a point lies beyond, as `0x004AAFC0` codes them.
@@ -277,10 +281,10 @@ test TextureDetail {
     try std.testing.expectEqual(128, TextureDetail.low.largest().?);
     try std.testing.expectEqual(256, TextureDetail.medium.largest().?);
     try std.testing.expectEqual(null, TextureDetail.high.largest());
-    try std.testing.expectEqual(null, @as(TextureDetail, @enumFromInt(7)).largest());
+    try std.testing.expectEqual(null, @as(TextureDetail, @fromBackingInt(7)).largest());
     var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("medium", try std.fmt.bufPrint(&buffer, "{f}", .{TextureDetail.medium}));
-    try std.testing.expectEqualStrings("texture detail 7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(TextureDetail, @enumFromInt(7))}));
+    try std.testing.expectEqualStrings("medium", try std.mem.print(&buffer, "{f}", .{TextureDetail.medium}));
+    try std.testing.expectEqualStrings("texture detail 7", try std.mem.print(&buffer, "{f}", .{@as(TextureDetail, @fromBackingInt(7))}));
 }
 
 test {

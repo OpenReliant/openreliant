@@ -40,7 +40,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
     for (faces, records, 0..) |*face, record, pilot| {
         var films: [Face.heads][]const u8 = undefined;
         for (&films, record.films) |*film, name| {
-            film.* = try reader.string(@intFromEnum(name));
+            film.* = try reader.string(@backingInt(name));
             if (film.len == 0) return error.NoFilm;
         }
         const case = if (pilot < allied.len) allied[pilot] else std.math.maxInt(u8);
@@ -123,7 +123,7 @@ test read {
             ._unknown_02 = 0x53,
             .side = if (pilot == 1) .hostile else .friendly,
             .voice = .rus,
-            .films = .{ @enumFromInt(names), @enumFromInt(names + 0x10), @enumFromInt(names), @enumFromInt(names + 0x20) },
+            .films = .{ @fromBackingInt(names), @fromBackingInt(names + 0x10), @fromBackingInt(names), @fromBackingInt(names + 0x20) },
         });
     }
 

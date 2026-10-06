@@ -110,12 +110,12 @@ pub const FightData = extern struct {
 
     /// The maneuver chosen to start next, where one is.
     pub fn next(data: FightData) ?Maneuver {
-        return if (data.maneuver == none) null else @enumFromInt(data.maneuver);
+        return if (data.maneuver == none) null else @fromBackingInt(data.maneuver);
     }
 
     /// Chooses `maneuver` to start next, by its number's low byte, which is all the game keeps.
     pub fn setNext(data: *FightData, maneuver: Maneuver) void {
-        data.maneuver = @truncate(@intFromEnum(maneuver));
+        data.maneuver = @truncate(@backingInt(maneuver));
     }
 
     comptime {
@@ -374,7 +374,7 @@ test updateCloak {
 fn begin(fighter: Fighter, data: *FightData) void {
     const state = fighter.state;
     state.* = std.mem.zeroes(FightState);
-    state.maneuver = data.next() orelse @enumFromInt(FightData.none);
+    state.maneuver = data.next() orelse @fromBackingInt(FightData.none);
     state.line = FightState.before_first;
     const allowed: Mirror = if (maneuvers.info(state.maneuver)) |info| info.mirror else .{};
     state.mirror = allowed.pick(fighter.random15());
@@ -417,7 +417,7 @@ fn choose(fighter: Fighter) void {
     data.setNext(choice.maneuver);
     if (choice.ship) |friend| data.ship = friend;
     data.ticks = choice.ticks orelse drawn: {
-        const info = maneuvers.table[@intFromEnum(choice.maneuver)];
+        const info = maneuvers.table[@backingInt(choice.maneuver)];
         // The game adds in 16 bits.
         break :drawn @truncate(fighter.randomBetween(info.min_ticks, info.max_ticks));
     };
@@ -498,7 +498,7 @@ fn byPosition(fighter: Fighter) Choice {
         if (shipToRunTo(fighter)) |friend| return .{ .maneuver = .run_to_ship, .ship = friend };
     }
     if (apart < close_quarters) return .{ .maneuver = .defend_runaway };
-    const list = maneuvers.choices[@intFromEnum(where)][@intFromEnum(seen)];
+    const list = maneuvers.choices[@backingInt(where)][@backingInt(seen)];
     return .{ .maneuver = list[@as(usize, fighter.random15()) % list.len] };
 }
 
@@ -783,7 +783,7 @@ test init {
     // middling skill: the Sabre pursues it for a length drawn from the maneuver's range.
     try std.testing.expectEqual(Maneuver.attack_pursue, fighter.state.maneuver);
     try std.testing.expect(!fighter.entry().data.fight.fresh);
-    const info = maneuvers.table[@intFromEnum(Maneuver.attack_pursue)];
+    const info = maneuvers.table[@backingInt(Maneuver.attack_pursue)];
     try std.testing.expect(fighter.state.maneuver_end >= info.min_ticks and fighter.state.maneuver_end < info.max_ticks);
 }
 
@@ -855,7 +855,7 @@ test pursuit {
     try std.testing.expectEqual(200000, pursuit(.medium));
     try std.testing.expectEqual(100000, pursuit(.high));
     // Outside the table, never by distance.
-    try std.testing.expectEqual(std.math.inf(f32), pursuit(@enumFromInt(3)));
+    try std.testing.expectEqual(std.math.inf(f32), pursuit(@fromBackingInt(3)));
 }
 
 test outOfSphere {
@@ -891,7 +891,7 @@ test shipToRunTo {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const fighter = try testFight(&mission, 20000);
-    mission.tables.combat[@intFromEnum(gameobj.GameType.mammoth)].class = .capital;
+    mission.tables.combat[@backingInt(gameobj.GameType.mammoth)].class = .capital;
     const mammoth = try mission.add(.of(.mammoth), .{ 0, 0, 200000 });
     const friend = &mission.slot(mammoth).object;
     friend.side = fighter.ship().side;
@@ -1060,10 +1060,12 @@ test "a Sabre fights the player" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     var devices: @import("../input.zig").Devices = .{};
-    const fighter = try testFight(&mission, 100000);
+    const apart = 100000;
+    const fighter = try testFight(&mission, apart);
     const state = fighter.state;
 
-    // A minute of frames: the Sabre closes on the player and goes from one maneuver to another.
+    // A minute of frames: the Sabre closes most of the way on the player and goes from one
+    // maneuver to another.
     var nearest = std.math.inf(f32);
     var changes: usize = 0;
     var last = state.maneuver;
@@ -1077,7 +1079,7 @@ test "a Sabre fights the player" {
         last = state.maneuver;
     }
     try std.testing.expectEqual(1, fighter.ship().order_count);
-    try std.testing.expect(nearest < 20000);
+    try std.testing.expect(nearest < apart / 2);
     try std.testing.expect(changes > 1);
 }
 

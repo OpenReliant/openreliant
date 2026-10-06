@@ -118,8 +118,7 @@ pub const Encoding = enum {
 
     /// The encoding `format` describes, if it is one of these.
     pub fn of(format_: PixelFormat) ?Encoding {
-        inline for (@typeInfo(Encoding).@"enum".fields) |field| {
-            const encoding: Encoding = @enumFromInt(field.value);
+        inline for (comptime std.enums.values(Encoding)) |encoding| {
             if (std.mem.eql(u8, std.mem.asBytes(&format_), std.mem.asBytes(&encoding.format()))) return encoding;
         }
         return null;
@@ -216,7 +215,7 @@ pub fn pixelCount(width: u32, height: u32, levels: u32) u64 {
 /// The part of `path` the engine matches entry names against: what follows its last `\`, `/` or
 /// `:` (`path_file_name`, `0x004C9DF0`).
 pub fn fileName(path: []const u8) []const u8 {
-    const start = if (std.mem.lastIndexOfAny(u8, path, "\\/:")) |i| i + 1 else 0;
+    const start = if (std.mem.findLastAny(u8, path, "\\/:")) |i| i + 1 else 0;
     return path[start..];
 }
 
@@ -343,7 +342,7 @@ pub const Cache = struct {
 };
 
 fn textureOf(entry: *align(1) const Entry, bytes: []const u8) Error!Texture {
-    if (std.mem.indexOfScalar(u8, &entry.image.name, 0) == null or entry.name().len == 0) return error.BadEntry;
+    if (std.mem.findScalar(u8, &entry.image.name, 0) == null or entry.name().len == 0) return error.BadEntry;
     const encoding = Encoding.of(entry.stored_format) orelse return error.UnsupportedFormat;
     const width = entry.stored_width;
     const height = entry.stored_height;
@@ -413,12 +412,12 @@ test "the pixel formats match the shipped ones" {
     const rgb565 = [16]u32{ 2, 0, 0, 8, 0xF800, 11, 3, 0x7E0, 5, 2, 0x1F, 0, 3, 0, 0, 8 };
     const index8_alpha8 = [16]u32{ 2, 0xFF, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, 8, 0xFF00, 8, 0 };
     const index8 = [16]u32{ 1, 0xFF, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, 8, 0, 0, 8 };
-    try std.testing.expectEqual(Encoding.rgb565, Encoding.of(@bitCast(rgb565)).?);
-    try std.testing.expectEqual(Encoding.index8_alpha8, Encoding.of(@bitCast(index8_alpha8)).?);
-    try std.testing.expectEqual(Encoding.index8, Encoding.of(@bitCast(index8)).?);
+    try std.testing.expectEqual(Encoding.rgb565, Encoding.of(std.mem.bytesToValue(PixelFormat, &rgb565)).?);
+    try std.testing.expectEqual(Encoding.index8_alpha8, Encoding.of(std.mem.bytesToValue(PixelFormat, &index8_alpha8)).?);
+    try std.testing.expectEqual(Encoding.index8, Encoding.of(std.mem.bytesToValue(PixelFormat, &index8)).?);
     var other = rgb565;
     other[0] = 4;
-    try std.testing.expectEqual(null, Encoding.of(@bitCast(other)));
+    try std.testing.expectEqual(null, Encoding.of(std.mem.bytesToValue(PixelFormat, &other)));
 }
 
 test Flags {

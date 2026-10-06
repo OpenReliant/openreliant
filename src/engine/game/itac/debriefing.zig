@@ -274,7 +274,7 @@ pub const Debriefing = struct {
                 if (n > 0) writer.writeAll(between) catch {};
                 writer.writeAll(itac.string(id)) catch {};
             }
-            if (gameflow.Medal.of(number)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@intFromEnum(medal)]);
+            if (gameflow.Medal.of(number)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
             if (record.promotion) |rank| addParagraph(&writer, itac, promotion_texts[rank]);
             if (landing.chapterOf(number)) |ribbon| addParagraph(&writer, itac, ribbon_texts[ribbon]);
             const tier = gameflow.mission_tiers[number - 1];
@@ -336,8 +336,8 @@ pub const Debriefing = struct {
         var mission_kills: [16]u8 = undefined;
         var overall_kills: [16]u8 = undefined;
         const values = [_][]const u8{
-            std.fmt.bufPrint(&mission_kills, "{d}", .{itac.pilot.campaign.kept(number).kills}) catch "",
-            std.fmt.bufPrint(&overall_kills, "{d}", .{itac.pilot.kills}) catch "",
+            std.mem.print(&mission_kills, "{d}", .{itac.pilot.campaign.kept(number).kills}) catch "",
+            std.mem.print(&overall_kills, "{d}", .{itac.pilot.kills}) catch "",
             itac.context.language.string(gameflow.rank_names[itac.pilot.rank]) orelse "",
             itac.context.language.string(gameflow.tier_names[itac.pilot.tier]) orelse "",
         };
@@ -382,7 +382,7 @@ pub const Debriefing = struct {
 /// bonus where it has none (`0x00424DA4`).
 fn ratingOf(record: gameflow.MissionRecord) usize {
     const rating = record.rating orelse return tables.debriefings.len - 1;
-    return @intCast(std.math.clamp(@intFromEnum(rating), 0, tables.debriefings.len - 1));
+    return @intCast(std.math.clamp(@backingInt(rating), 0, tables.debriefings.len - 1));
 }
 
 /// The debriefing of mission `number` as its record has it.
@@ -408,7 +408,7 @@ fn entryLines() Canvas.Lines {
 
 /// "Mission" and the place counted from 1.
 fn entryText(buffer: []u8, itac: *Itac, place: u8) []const u8 {
-    return std.fmt.bufPrint(buffer, "{s} {d}", .{ itac.string(mission_string), @as(u32, place) + 1 }) catch "";
+    return std.mem.print(buffer, "{s} {d}", .{ itac.string(mission_string), @as(u32, place) + 1 }) catch "";
 }
 
 test placeOf {

@@ -57,7 +57,7 @@ pub const Hooks = struct {
     removed: bool = false,
     /// The hooks the game side runs whether or not they have handlers, for engine handlers of its
     /// own (`want`).
-    wanted: std.EnumSet(Hook) = .initEmpty(),
+    wanted: std.EnumSet(Hook) = .empty,
     /// The hooks running, each inside the last.
     depth: u32 = 0,
     next_id: u32 = 1,
@@ -73,7 +73,7 @@ pub const Hooks = struct {
         }
         for (hooks.added.items) |*added| added.handler.release(hooks.runtime);
         hooks.added.deinit(hooks.gpa);
-        hooks.scripts.hooked = .initEmpty();
+        hooks.scripts.hooked = .empty;
     }
 
     /// Registers the metatables of `e` and of the handles `add` returns.
@@ -278,7 +278,7 @@ fn Few(comptime T: type, comptime capacity: usize) type {
         len: usize = 0,
 
         fn has(few: *const @This(), value: T) bool {
-            return std.mem.indexOfScalar(T, few.items[0..few.len], value) != null;
+            return std.mem.findScalar(T, few.items[0..few.len], value) != null;
         }
     };
 }
@@ -415,7 +415,7 @@ const Dispatch = struct {
 const Event = struct {
     dispatch: ?*Dispatch,
 
-    const tag = @intFromEnum(runtime_module.Tag.hook_event);
+    const tag = @backingInt(runtime_module.Tag.hook_event);
 
     /// Pushes a new `e` for `dispatch` (`Runtime.make`).
     fn make(state: *State, dispatch: *Dispatch) void {
@@ -460,7 +460,7 @@ fn describeEvent(state: *State) i32 {
         return 1;
     };
     var buffer: [80]u8 = undefined;
-    state.pushString(std.fmt.bufPrint(&buffer, "e of {s}", .{dispatch.access.name}) catch "e");
+    state.pushString(std.mem.print(&buffer, "e of {s}", .{dispatch.access.name}) catch "e");
     return 1;
 }
 
@@ -487,7 +487,7 @@ const Handle = struct {
     hook: Hook,
     id: u32,
 
-    const tag = @intFromEnum(runtime_module.Tag.hook_handle);
+    const tag = @backingInt(runtime_module.Tag.hook_handle);
 };
 
 fn handleField(state: *State) i32 {
@@ -507,7 +507,7 @@ fn removeHandle(state: *State) i32 {
 fn describeHandle(state: *State) i32 {
     const handle = state.toUserdata(Handle, 1, Handle.tag).?;
     var buffer: [80]u8 = undefined;
-    state.pushString(std.fmt.bufPrint(&buffer, "handler of {t}", .{handle.hook}) catch "handler");
+    state.pushString(std.mem.print(&buffer, "handler of {t}", .{handle.hook}) catch "handler");
     return 1;
 }
 

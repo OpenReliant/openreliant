@@ -71,8 +71,8 @@ pub fn read(
     const types = try arena.alloc(ShipType, ship_type_count);
     for (types, try reader.records(ShipTypeEntry, ship_types, ship_type_count)) |*ship_type, entry| {
         ship_type.* = .{
-            .model = try optionalString(reader, @intFromEnum(entry.model_name)),
-            .schematic = try optionalString(reader, @intFromEnum(entry.schematic_name)),
+            .model = try optionalString(reader, @backingInt(entry.model_name)),
+            .schematic = try optionalString(reader, @backingInt(entry.schematic_name)),
         };
     }
 
@@ -201,7 +201,7 @@ pub fn emit(w: *Io.Writer, tables: Tables) !void {
         \\
     , .{attachment_kinds});
     for (tables.attachments, 0..) |kind, kind_index| {
-        const name = std.enums.tagName(Kind, @enumFromInt(kind_index)) orelse "unknown";
+        const name = std.enums.tagName(Kind, @fromBackingInt(@intCast(kind_index))) orelse "unknown";
         try w.print("    // Kind {d}: {s}\n    .{{\n", .{ kind_index, name });
         for (kind) |entry| {
             if (entry.model == null and entry.second_model == null and entry.sprite == null and entry.count == 1) {
@@ -232,7 +232,7 @@ pub fn emit(w: *Io.Writer, tables: Tables) !void {
         \\
         \\/// What the engine loads for an attachment point, or null when it loads nothing for it.
         \\pub fn attachment(kind: Kind, id: u32) ?Attachment {
-        \\    const index = @intFromEnum(kind);
+        \\    const index = @backingInt(kind);
         \\    if (index >= attachments.len or id >= ids_per_kind) return null;
         \\    const entry = attachments[index][id];
         \\    if (entry.model == null and entry.sprite == null) return null;
@@ -307,13 +307,13 @@ test read {
     var payload: TestPayload = .{};
     const region = payload.region();
     var first = std.mem.zeroes(ShipTypeEntry);
-    first.model_name = @enumFromInt(payload.name(0, "SHIP0.SHP"));
-    first.schematic_name = @enumFromInt(payload.name(1, "ship0.spr"));
+    first.model_name = @fromBackingInt(payload.name(0, "SHIP0.SHP"));
+    first.schematic_name = @fromBackingInt(payload.name(1, "ship0.spr"));
     region.putRecord(ship_types, first);
     try std.testing.expectEqual(0x004F8C40, payload.name(2, "GUN.SHP"));
     try std.testing.expectEqual(0x004F8C60, payload.name(3, "gun.spr"));
     var third = std.mem.zeroes(ShipTypeEntry);
-    third.model_name = @enumFromInt(payload.name(4, ""));
+    third.model_name = @fromBackingInt(payload.name(4, ""));
     region.putRecord(ship_types + 2 * @sizeOf(ShipTypeEntry), third);
 
     const tables = try payload.tables(arena.allocator(), test_loader);
@@ -323,7 +323,7 @@ test read {
     try std.testing.expectEqual(null, tables.ship_types[1].model);
     try std.testing.expectEqual(null, tables.ship_types[2].model);
 
-    const gun = tables.attachments[@intFromEnum(Kind.gun)][3];
+    const gun = tables.attachments[@backingInt(Kind.gun)][3];
     try std.testing.expectEqualStrings("GUN.SHP", gun.model.?);
     try std.testing.expectEqualStrings("gun.spr", gun.sprite.?);
     try std.testing.expectEqual(2, gun.count);
@@ -374,5 +374,5 @@ test "emit writes Zig that parses" {
     defer out.deinit();
     try emit(&out.writer, tables);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".{ .model = \"GUN.SHP\", .sprite = \"gun.spr\", .count = 2 },") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".{ .model = \"GUN.SHP\", .sprite = \"gun.spr\", .count = 2 },") != null);
 }

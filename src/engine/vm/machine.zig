@@ -21,7 +21,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.vm);
 
 const dte = @import("../../formats/dte.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const math = @import("../surrender/math.zig");
 const vm = @import("../vm.zig");
 const executor = @import("../game/executor.zig");
@@ -240,7 +240,7 @@ pub const Tags = struct {
 };
 
 /// A free timer, as `mission_script_start` fills the table: every byte `0xFF`.
-const free_timer = std.mem.bytesToValue(vm.Timer, &([_]u8{0xFF} ** @sizeOf(vm.Timer)));
+const free_timer = std.mem.bytesToValue(vm.Timer, &@as([@sizeOf(vm.Timer)]u8, @splat(0xFF)));
 
 comptime {
     assert(free_timer.isFree());
@@ -272,7 +272,7 @@ pub const Machine = struct {
     /// globals into, and the tables binding it made.
     mission: *bind.Mission,
     /// The game's random numbers (`rand`), which `random_branch` draws.
-    random: *libcmt.Rand,
+    random: *Random,
     /// `vm_thread_pool` (`0x00537590`).
     threads: [vm.max_threads]Running = @splat(.{}),
     /// `vm_thread_count` (`0x00537415`).
@@ -306,7 +306,7 @@ pub const Machine = struct {
     /// object.
     event_values: []vm.ObjectEvents = &.{},
     /// The commands not ported yet that have run, each logged the first time.
-    logged: std.StaticBitSet(executor.commands.table.len) = .initEmpty(),
+    logged: std.bit_set.Static(executor.commands.table.len) = .empty,
     /// What the commands act on the game through, which the game's code reaches through its
     /// globals: the world and its clock, as the mission's start and its frame give them. Null where
     /// there is no game, as in a test of the script alone, and the commands that act on it then do
@@ -334,7 +334,7 @@ pub const Machine = struct {
     /// `last_jumped` as the script starts (`0x0045CC2E`).
     pub const never_jumped: u32 = 0xFFFF;
 
-    pub fn init(gpa: Allocator, bound: *bind.Mission, random: *libcmt.Rand) Machine {
+    pub fn init(gpa: Allocator, bound: *bind.Mission, random: *Random) Machine {
         return .{ .gpa = gpa, .mission = bound, .random = random };
     }
 
@@ -752,7 +752,7 @@ pub const Machine = struct {
     /// return value, `previous` to carry on or zero to end the run.
     fn step(machine: *Machine, index: u8, previous: u32) Fault!u32 {
         const thread = &machine.threads[index];
-        const opcode: dte.Opcode = @enumFromInt(try machine.operand(thread));
+        const opcode: dte.Opcode = @fromBackingInt(try machine.operand(thread));
         switch (opcode) {
             // The comparisons take the values as unsigned (`CMP`, `SBB`), and the float ones load
             // each as a whole number (`FILD`), exactly, so they compare as the others do.
@@ -1222,7 +1222,7 @@ pub const testing = struct {
 
     pub const Fixture = struct {
         mission: bind.Mission,
-        random: libcmt.Rand = .{},
+        random: Random = .{},
         machine: Machine,
 
         /// A mission whose script holds `parts` one after another, each a part of its own, with
@@ -1622,14 +1622,14 @@ test "OpenInstrument holds a window of the display open until CloseInstrument" {
         fn build(r: *testing.Routine) !void {
             // The objectives open, which closes the wing status window; a window past the fifteen
             // opens nothing.
-            try r.op(.push_byte, &.{@intFromEnum(hud.windows.Window.objectives)});
+            try r.op(.push_byte, &.{@backingInt(hud.windows.Window.objectives)});
             try r.command("OpenInstrument");
             try r.op(.push_byte, &.{16});
             try r.command("OpenInstrument");
             // A second on, the objectives close.
             try r.op(.push_byte, &.{1});
             try r.command("Wait");
-            try r.op(.push_byte, &.{@intFromEnum(hud.windows.Window.objectives)});
+            try r.op(.push_byte, &.{@backingInt(hud.windows.Window.objectives)});
             try r.command("CloseInstrument");
             try r.op(.push_byte, &.{1});
             try r.op(.@"return", &.{});
@@ -1684,7 +1684,7 @@ test "random_branch takes the first arm its roll falls below" {
     var fixture: testing.Fixture = undefined;
     try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{0} });
     defer fixture.deinit();
-    var expected: libcmt.Rand = .{};
+    var expected: Random = .{};
     const roll = @rem(expected.rand(), Machine.roll_range);
     try fixture.machine.start();
     // The roll picked an arm, whose value lies under the stores.
@@ -2139,7 +2139,7 @@ test "a command's flags are read where its number places them, whatever the sect
         }
     }.build);
     defer gpa.free(code);
-    const entry = @intFromEnum(dte.Section.command_flags) * @sizeOf(dte.DirectoryEntry);
+    const entry = @backingInt(dte.Section.command_flags) * @sizeOf(dte.DirectoryEntry);
     for ([_]bool{ true, false }) |within| {
         var fixture: testing.Fixture = undefined;
         try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{1} });

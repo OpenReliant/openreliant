@@ -2,7 +2,7 @@
     .name = .openal_soft,
     .version = "1.25.2",
     .fingerprint = 0x3b0d0ae95ac46ebf,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .upstream = .{
             .url = "git+https://github.com/kcat/openal-soft.git?ref=1.25.2#b2c48f7718ef3fcf67921a8b6534c4914e328970",

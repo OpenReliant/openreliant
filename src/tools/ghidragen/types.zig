@@ -374,56 +374,56 @@ fn Definition(comptime T: type) []const u8 {
     };
 }
 
-fn structRows(comptime T: type, comptime name: []const u8, comptime info: std.builtin.Type.Struct) []const u8 {
+fn structRows(comptime T: type, comptime name: []const u8, comptime info: std.lang.Type.Struct) []const u8 {
     var rows: []const u8 = std.fmt.comptimePrint("struct\t{s}\t{d}\n", .{ name, @sizeOf(T) });
-    for (info.fields) |field| {
-        const bytes: ?usize = switch (@typeInfo(field.type)) {
+    for (info.field_names, info.field_types) |field_name, Field| {
+        const bytes: ?usize = switch (@typeInfo(Field)) {
             .array => |array| if (array.child == u8) array.len else null,
             else => null,
         };
-        if (bytes != null and std.mem.startsWith(u8, field.name, "_unknown")) continue;
-        const field_type = if (bytes != null and std.mem.indexOf(u8, field.name, "name") != null)
+        if (bytes != null and std.mem.startsWith(u8, field_name, "_unknown")) continue;
+        const field_type = if (bytes != null and std.mem.find(u8, field_name, "name") != null)
             std.fmt.comptimePrint("char[{d}]", .{bytes.?})
         else
-            typeString(field.type);
+            typeString(Field);
         rows = rows ++ std.fmt.comptimePrint("field\t{s}\t{d}\t{s}\t{s}\n", .{
-            name, @offsetOf(T, field.name), field.name, field_type,
+            name, @offsetOf(T, field_name), field_name, field_type,
         });
     }
     return rows;
 }
 
-fn bitsRows(comptime T: type, comptime name: []const u8, comptime info: std.builtin.Type.Struct) []const u8 {
+fn bitsRows(comptime T: type, comptime name: []const u8, comptime info: std.lang.Type.Struct) []const u8 {
     const base = typeString(info.backing_integer.?);
     var rows: []const u8 = std.fmt.comptimePrint("struct\t{s}\t{d}\n", .{ name, @sizeOf(T) });
-    for (info.fields) |field| {
-        const field_base = switch (@typeInfo(field.type)) {
+    for (info.field_names, info.field_types) |field_name, Field| {
+        const field_base = switch (@typeInfo(Field)) {
             .bool, .int => base,
-            .@"enum" => nameOf(field.type),
-            else => @compileError("ghidragen: cannot make a bitfield of " ++ @typeName(field.type)),
+            .@"enum" => nameOf(Field),
+            else => @compileError("ghidragen: cannot make a bitfield of " ++ @typeName(Field)),
         };
         rows = rows ++ std.fmt.comptimePrint("bits\t{s}\t0\t{d}\t{d}\t{d}\t{s}\t{s}\n", .{
-            name, @sizeOf(T), @bitOffsetOf(T, field.name), @bitSizeOf(field.type), field.name, field_base,
+            name, @sizeOf(T), @bitOffsetOf(T, field_name), @bitSizeOf(Field), field_name, field_base,
         });
     }
     return rows;
 }
 
-fn unionRows(comptime T: type, comptime name: []const u8, comptime info: std.builtin.Type.Union) []const u8 {
+fn unionRows(comptime T: type, comptime name: []const u8, comptime info: std.lang.Type.Union) []const u8 {
     var rows: []const u8 = std.fmt.comptimePrint("union\t{s}\t{d}\n", .{ name, @sizeOf(T) });
-    for (info.fields) |field| {
-        rows = rows ++ std.fmt.comptimePrint("member\t{s}\t{s}\t{s}\n", .{ name, field.name, typeString(field.type) });
+    for (info.field_names, info.field_types) |field_name, Field| {
+        rows = rows ++ std.fmt.comptimePrint("member\t{s}\t{s}\t{s}\n", .{ name, field_name, typeString(Field) });
     }
     return rows;
 }
 
-fn enumRows(comptime T: type, comptime name: []const u8, comptime info: std.builtin.Type.Enum) []const u8 {
+fn enumRows(comptime T: type, comptime name: []const u8, comptime info: std.lang.Type.Enum) []const u8 {
     var rows: []const u8 = std.fmt.comptimePrint("enum\t{s}\t{d}\n", .{ name, @sizeOf(T) });
     // A type whose values are numbers, some with names, such as `gameobj.Type`, names them by
     // another enum's tags.
-    const fields = if (@hasDecl(T, "Named")) @typeInfo(T.Named).@"enum".fields else info.fields;
-    for (fields) |field| {
-        rows = rows ++ std.fmt.comptimePrint("value\t{s}\t{s}\t{d}\n", .{ name, field.name, field.value });
+    const named = if (@hasDecl(T, "Named")) @typeInfo(T.Named).@"enum" else info;
+    for (named.field_names, named.field_values) |field_name, value| {
+        rows = rows ++ std.fmt.comptimePrint("value\t{s}\t{s}\t{d}\n", .{ name, field_name, value });
     }
     return rows;
 }
@@ -450,15 +450,15 @@ test typeString {
 
 test structRows {
     const rows = comptime Definition(engine.game.objects.Node);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "_unknown_14") == null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "field\tModelNode\t164\tpart\tShpPart *\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, comptime Definition(shp.Part), "\tname_bytes\tchar[64]\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "_unknown_14") == null);
+    try std.testing.expect(std.mem.find(u8, rows, "field\tModelNode\t164\tpart\tShpPart *\n") != null);
+    try std.testing.expect(std.mem.find(u8, comptime Definition(shp.Part), "\tname_bytes\tchar[64]\n") != null);
 }
 
 test schema {
-    try std.testing.expect(std.mem.indexOf(u8, schema, "struct\tVmThread\t184\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "field\tVmThread\t173\tcall_depth\tbyte\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "bits\tMissionPartFlags\t0\t1\t0\t1\tstart\tbyte\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "value\tTriggerRepeat\tcounted\t2\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "member\tVmFunctionEntry\timplementation\tVmCommand *\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "struct\tVmThread\t184\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "field\tVmThread\t173\tcall_depth\tbyte\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "bits\tMissionPartFlags\t0\t1\t0\t1\tstart\tbyte\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "value\tTriggerRepeat\tcounted\t2\n") != null);
+    try std.testing.expect(std.mem.find(u8, schema, "member\tVmFunctionEntry\timplementation\tVmCommand *\n") != null);
 }

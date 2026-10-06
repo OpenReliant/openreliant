@@ -487,7 +487,7 @@ fn scriptNamed(mod: *const Mod, name: []const u8) ?[]const u8 {
 /// any case (`require`).
 fn sameScript(file: []const u8, name: []const u8) bool {
     if (std.ascii.eqlIgnoreCase(file, name)) return true;
-    const stem = file[0 .. file.len - std.fs.path.extension(file).len];
+    const stem = file[0 .. file.len - std.Io.Dir.path.extension(file).len];
     return std.ascii.eqlIgnoreCase(stem, name);
 }
 

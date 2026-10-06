@@ -179,7 +179,7 @@ pub const defaults = [_]Binding{
 };
 
 pub fn binding(action: Action) Binding {
-    return defaults[@intFromEnum(action)];
+    return defaults[@backingInt(action)];
 }
 
 comptime {

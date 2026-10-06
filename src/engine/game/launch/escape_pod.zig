@@ -37,7 +37,7 @@ const leave_sound: sound3d.sounds.Sound = .escape;
 const drift_ticks = 200;
 
 /// The first pod's throttle starts at `drift_throttle` and adds a random fraction of
-/// `drift_spread` (`0x0041A56E`, `0x0041A57A`, `libcmt.Rand.fraction`).
+/// `drift_spread` (`0x0041A56E`, `0x0041A57A`, `Random.fraction`).
 const drift_throttle: f32 = 2;
 const drift_spread: f32 = 0.5;
 

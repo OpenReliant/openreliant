@@ -61,7 +61,7 @@ pub fn functions(arena: std.mem.Allocator, listing: []const u8) (Error || std.me
             // Every number the operands spell, whatever it is: only those that are strings matter.
             const operands = encoded.text;
             var i: usize = 0;
-            while (std.mem.indexOfPos(u8, operands, i, "0x")) |start| {
+            while (std.mem.findPos(u8, operands, i, "0x")) |start| {
                 var end = start + 2;
                 while (end < operands.len and std.ascii.isHex(operands[end])) end += 1;
                 if (std.fmt.parseInt(u32, operands[start + 2 .. end], 16)) |value| {
@@ -106,7 +106,7 @@ pub fn stringAddresses(arena: std.mem.Allocator, tsv: []const u8) std.mem.Alloca
     var addresses: std.ArrayList(u32) = .empty;
     var lines = std.mem.splitScalar(u8, tsv, '\n');
     while (lines.next()) |line| {
-        const tab = std.mem.indexOfScalar(u8, line, '\t') orelse continue;
+        const tab = std.mem.findScalar(u8, line, '\t') orelse continue;
         const address = std.fmt.parseInt(u32, line[0..tab], 16) catch continue;
         try addresses.append(arena, address);
     }
@@ -493,7 +493,7 @@ test emit {
     });
     const source = w.buffered();
     try testing.expectZig(source);
-    try std.testing.expect(std.mem.indexOf(u8, source, "pub const first_function: u32 = 0x00401000;") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".{ .path = \"C:\\\\lancer\\\\game\\\\Ai.cpp\", .path_string = 0x004E0C50, .code = .{ .start = 0x00401F30, .end = 0x0040266D } },") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, "videoreports.cpp\", .path_string = 0x004EE7B8, .code = null },") != null);
+    try std.testing.expect(std.mem.find(u8, source, "pub const first_function: u32 = 0x00401000;") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".{ .path = \"C:\\\\lancer\\\\game\\\\Ai.cpp\", .path_string = 0x004E0C50, .code = .{ .start = 0x00401F30, .end = 0x0040266D } },") != null);
+    try std.testing.expect(std.mem.find(u8, source, "videoreports.cpp\", .path_string = 0x004EE7B8, .code = null },") != null);
 }

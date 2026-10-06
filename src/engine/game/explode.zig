@@ -22,7 +22,7 @@ const srlight = @import("../surrender/surrenderlib/srlight.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const matmanager = @import("matmanager.zig");
 const objects = @import("objects.zig");
 const shield = @import("shield.zig");
@@ -209,7 +209,7 @@ pub const Explosions = struct {
     ///
     /// The game can also throw a chunk of rock, which no caller asks for. A piece the game has no
     /// model for is not thrown.
-    pub fn throwBit(explosions: *Explosions, at: Vector, direction: Vector, how: Bit.Throw, clock: *const Clock, random: *libcmt.Rand) void {
+    pub fn throwBit(explosions: *Explosions, at: Vector, direction: Vector, how: Bit.Throw, clock: *const Clock, random: *Random) void {
         const piece = explosions.debris.pickFor(how, random) orelse return;
         const leaving = direction * @as(Vector, @splat((random.fraction() + 0.5) * Bit.speed));
         const stray = random.centredVector(@splat(Bit.stray));
@@ -299,14 +299,14 @@ pub const Explosions = struct {
     /// each frame, for -1 to 3 seconds. One whose flight is over before it starts is let go before
     /// it is drawn, having still taken the oldest bit's place. A piece the game has no model for is
     /// not thrown.
-    pub fn throwSpark(explosions: *Explosions, at: Vector, velocity: Vector, clock: *const Clock, random: *libcmt.Rand) void {
+    pub fn throwSpark(explosions: *Explosions, at: Vector, velocity: Vector, clock: *const Clock, random: *Random) void {
         const piece = explosions.debris.pick(Bit.spark_size, random) orelse return;
         explosions.addBit(piece, at, velocity, Bit.spark_flight.draw(random), clock, random);
     }
 
     /// Puts `piece` in the place of the oldest bit, lit, at `at`, flying at `velocity` a second,
     /// turning a random way each frame, for `life` ticks from now, or until its place is taken.
-    fn addBit(explosions: *Explosions, piece: Debris.Picked, at: Vector, velocity: Vector, life: ?i32, clock: *const Clock, random: *libcmt.Rand) void {
+    fn addBit(explosions: *Explosions, piece: Debris.Picked, at: Vector, velocity: Vector, life: ?i32, clock: *const Clock, random: *Random) void {
         const spin = random.centredVector(@splat(Bit.tumble));
         const settings = explosions.settings;
         explosions.bits.take(settings.bit_pool.room(settings.detail)).* = .{
@@ -328,7 +328,7 @@ pub const Explosions = struct {
 
     /// `explosion_fireball` (`0x0046BD00`): sets a fireball off at `at`, into the first free of
     /// the slots the settings give, and not at all where there is none.
-    pub fn setOff(explosions: *Explosions, at: Vector, spec: Fireball.Spec, clock: *const Clock, random: *libcmt.Rand) void {
+    pub fn setOff(explosions: *Explosions, at: Vector, spec: Fireball.Spec, clock: *const Clock, random: *Random) void {
         const style = explosions.settings.fireballs;
         const slot = table.firstFree(Fireball, explosions.fireballs[0..style.slots()]) orelse return;
         slot.* = .init(explosions.images, at, spec, style, clock, random);
@@ -509,7 +509,7 @@ pub const Debris = struct {
     /// otherwise a piece of debris (`pick`). A chance of one is a body without a draw. The game
     /// picks the crewman as a draw times -3 back from the first, which comes to the same; a draw of
     /// exactly one picks the fourth.
-    fn pickFor(debris: *const Debris, how: Bit.Throw, random: *libcmt.Rand) ?Picked {
+    fn pickFor(debris: *const Debris, how: Bit.Throw, random: *Random) ?Picked {
         if (!(how.bodies == 1 or random.fraction() < how.bodies)) return debris.pick(how.size, random);
         const which: usize = @intFromFloat(random.fraction() * (body_count - 1));
         const levels = debris.bodies[which].slice();
@@ -525,7 +525,7 @@ pub const Debris = struct {
 
     /// A piece for a bit, by a draw (`piece`), drawn at half to one and a half times `size` by
     /// another; null, drawing no more, where the game has no model for it.
-    fn pick(debris: *const Debris, size: f32, random: *libcmt.Rand) ?Picked {
+    fn pick(debris: *const Debris, size: f32, random: *Random) ?Picked {
         const levels = debris.piece(random.fraction()).slice();
         if (levels.len == 0) return null;
         return .{ .levels = levels, .scale = (random.fraction() + 0.5) * size };
@@ -583,7 +583,7 @@ pub const Bit = struct {
         ticks: i32,
         spread: f32,
 
-        fn draw(how_long: Flight, random: *libcmt.Rand) i32 {
+        fn draw(how_long: Flight, random: *Random) i32 {
             return how_long.ticks + @as(i32, @intFromFloat(random.centred() * how_long.spread));
         }
     };
@@ -704,7 +704,7 @@ pub const Fireball = struct {
     const sheet_step: f32 = 82.0 / 256.0;
     const sheet_cell: f32 = 81.0 / 256.0;
 
-    fn init(images: Explosions.Images, at: Vector, spec: Spec, style: Fireballs, clock: *const Clock, random: *libcmt.Rand) Fireball {
+    fn init(images: Explosions.Images, at: Vector, spec: Spec, style: Fireballs, clock: *const Clock, random: *Random) Fireball {
         var set: srapiext.SpriteSet = .{ .sprites = &.{} };
         set.surface.material.lit[0] = spec.lit;
         set.surface.material.blend[0] = if (spec.special) .add else .premultiplied;
@@ -844,7 +844,7 @@ const Carried = union(enum) {
     /// This share and up to as much again, at random.
     share_or_more: f32,
 
-    fn of(carried: Carried, random: *libcmt.Rand) f32 {
+    fn of(carried: Carried, random: *Random) f32 {
         return switch (carried) {
             .share => |share| share,
             .share_or_more => |share| (random.fraction() + 1) * share,
@@ -1120,7 +1120,7 @@ pub const ComponentLoss = enum {
     /// The types, by the type whose stats they take, that `create_object` gives
     /// `explode_capship_component`.
     const capital_ships = types: {
-        var set: std.StaticBitSet(256) = .initEmpty();
+        var set: std.bit_set.Static(256) = .empty;
         for ([_]u8{
             0x0C, 0x0D, 0x0F, 0x11, 0x13, 0x14, 0x18, 0x1E, 0x20, 0x21, 0x34, 0x36, 0x37, 0x38,
             0x3A, 0x3C, 0x3D, 0x3E, 0x3F, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x5E, 0x78,
@@ -1131,7 +1131,7 @@ pub const ComponentLoss = enum {
 
     /// The routine an object of `ship_type` has, or none.
     pub fn of(ship_type: gameobj.Type) ?ComponentLoss {
-        const number = std.math.cast(u8, @intFromEnum(ship_type.base())) orelse return null;
+        const number = std.math.cast(u8, @backingInt(ship_type.base())) orelse return null;
         const stats = create.donor(number) orelse number;
         if (capital_ships.isSet(stats)) return .capital_ship;
         return if (stats == 0x16) .ulysses else null;
@@ -1318,7 +1318,7 @@ test "a special fireball plays the flak's cells" {
     // Three across and three down, a third apart, unmirrored.
     try std.testing.expectEqual([4]f32{ 0, Fireball.flak_step, 0, Fireball.flak_step }, Fireball.flakCell(0));
     try std.testing.expectEqual([4]f32{ Fireball.flak_step, 2 * Fireball.flak_step, Fireball.flak_step, 2 * Fireball.flak_step }, Fireball.flakCell(4));
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const fireball: Fireball = .init(testing.images(), @splat(0), .{ .size = 10, .special = true }, .fuller, &.{}, &random);
     try std.testing.expectEqual(Texture{ .image = &testing.flak }, fireball.set.surface.textures[0]);
     try std.testing.expectEqual(.add, fireball.set.surface.material.blend[0]);
@@ -1489,10 +1489,10 @@ test burnPart {
 test ComponentLoss {
     try std.testing.expectEqual(.capital_ship, ComponentLoss.of(.of(.badanov)));
     // A type under another number has the routine of the type it takes its stats from.
-    try std.testing.expectEqual(.capital_ship, ComponentLoss.of(@enumFromInt(0xDB)));
+    try std.testing.expectEqual(.capital_ship, ComponentLoss.of(@fromBackingInt(0xDB)));
     try std.testing.expectEqual(.ulysses, ComponentLoss.of(.of(.ulysses)));
     try std.testing.expectEqual(null, ComponentLoss.of(.of(.sabre)));
-    try std.testing.expectEqual(null, ComponentLoss.of(@enumFromInt(0x1234)));
+    try std.testing.expectEqual(null, ComponentLoss.of(@fromBackingInt(0x1234)));
 }
 
 test loseHull {
@@ -1536,7 +1536,7 @@ test Fireball {
     defer stage.deinit();
     const explosions = &stage.explosions;
     const clock = &stage.mission.clock;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     explosions.setOff(.{ 0, 0, 100 }, .{ .size = 40, .light = true, .delay = 10, .velocity = .{ 1, 0, 0 } }, clock, &random);
     const bang = &explosions.fireballs[0].?;
     try std.testing.expectEqual(-40, bang.sprite[0].bias);
@@ -1633,7 +1633,7 @@ test burst {
 
 test "a fireball's fade" {
     var clock: Clock = .{};
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const spec: Fireball.Spec = .{ .size = 100 };
 
     // The fuller style fades it out over the last fifth of its life as it plays on.
@@ -1701,7 +1701,7 @@ test "a bit may be a body" {
     const mesh = try @import("../surrender/surrenderlib/srmesh.zig").testing.square(gpa);
     defer mesh.deinit(gpa);
     const debris = testing.debris(&mesh);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
 
     // Sure to be a body, it is two and a half times as large, and keeps its detail two and a half
     // times as far; a small one is three quarters as large.
@@ -1726,7 +1726,7 @@ test Bit {
     explosions.debris = testing.debris(&mesh);
     explosions.settings.detail = .low;
     const clock = &stage.mission.clock;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
 
     // A bit is lit, keeps its detail further off, and leaves along its direction at 1500 to 4500
     // a second times its throw's speed, for 17.5 to 22.5 seconds.
@@ -1800,7 +1800,7 @@ test "Explosions.throwSpark" {
     explosions.debris = testing.debris(&mesh);
     const clock = &stage.mission.clock;
     clock.frame_start = 10;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
 
     // A spark is a small bit that flies as fast as it is thrown, for -1 to 3 seconds.
     explosions.throwSpark(.{ 0, 0, 100 }, .{ 0, 0, 500 }, clock, &random);
@@ -1899,7 +1899,7 @@ test "a blast's shockwave" {
     var blasts: usize = 0;
     while (built.waves.waves[0] == null and blasts < 100) : (blasts += 1) blast(world, ship);
     const wave = built.waves.waves[0].?;
-    try std.testing.expect(std.mem.indexOfScalar(shockwave.Kind, &shockwave.Kind.blasts, wave.kind) != null);
+    try std.testing.expect(std.mem.findScalar(shockwave.Kind, &shockwave.Kind.blasts, wave.kind) != null);
     try std.testing.expectEqual(mission.objects.slots[ship].object.radius * blast_shockwave_size, wave.size);
     try std.testing.expect(wave.life >= blast_shockwave_life and wave.life < blast_shockwave_life + blast_shockwave_life_range);
     try std.testing.expect(wave.velocity[2] >= 2 and wave.velocity[2] <= 4);

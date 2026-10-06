@@ -55,7 +55,7 @@ fn wrap(comptime text: []const u8, comptime indent: usize, comptime start: usize
             first = true;
         }
         if (first) {
-            out = out ++ (" " ** (indent -| at));
+            out = out ++ @as([indent -| at]u8, @splat(' '));
             at = @max(at, indent);
         } else {
             out = out ++ " ";
@@ -69,7 +69,7 @@ fn wrap(comptime text: []const u8, comptime indent: usize, comptime start: usize
 }
 
 test paragraph {
-    const words = "word " ** 20;
+    const words: []const u8 = @ptrCast(&@as([20][5]u8, @splat("word ".*)));
     const wrapped = comptime paragraph(words, 0);
     var lines = std.mem.splitScalar(u8, wrapped, '\n');
     try std.testing.expectEqual(79, lines.next().?.len);

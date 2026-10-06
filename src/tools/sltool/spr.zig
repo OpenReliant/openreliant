@@ -133,7 +133,7 @@ fn extract(ctx: Context, sprite: spr.Sprite, source: []const u8, out_path: []con
             without_palette += 1;
         }
 
-        var named: [std.fs.max_name_bytes]u8 = undefined;
+        var named: [std.Io.Dir.max_name_bytes]u8 = undefined;
         const name = try spr.pictureName(&named, source, i);
 
         const file = try out_dir.createFile(io, name, .{});

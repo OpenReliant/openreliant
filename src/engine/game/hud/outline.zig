@@ -50,9 +50,9 @@ pub const handel_gothic = [_][]const u8{
 /// Whether Newtown replaces the game's font `name` (`handel_gothic`), ignoring folders and case, as
 /// the archives look up names.
 pub fn standsIn(name: []const u8) bool {
-    const base = std.fs.path.basenameWindows(name);
+    const base = std.Io.Dir.path.basenameWindows(name);
     for (handel_gothic) |font| {
-        if (std.ascii.eqlIgnoreCase(base, std.fs.path.basenameWindows(font))) return true;
+        if (std.ascii.eqlIgnoreCase(base, std.Io.Dir.path.basenameWindows(font))) return true;
     }
     return false;
 }

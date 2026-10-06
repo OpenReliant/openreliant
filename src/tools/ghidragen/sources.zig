@@ -19,7 +19,7 @@ pub fn write(w: *Io.Writer) Io.Writer.Error!void {
     var at: u32 = sources.first_function;
     for (sources.files) |file| {
         const range = file.code orelse continue;
-        const name = std.fs.path.basenameWindows(file.path);
+        const name = std.Io.Dir.path.basenameWindows(file.path);
         if (range.start > at) try gap(w, at, range.start, previous, name);
         try w.print("{x:0>8}\t{x:0>8}\t", .{ range.start, range.end });
         try treePath(w, file.path);
@@ -51,13 +51,13 @@ test write {
     var w: Io.Writer = .fixed(&buffer);
     try write(&w);
     const rows = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tgame/Ai.cpp\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tinterface/loadout/loadout.cpp\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tsurrender/surrenderlib/srAPI.cpp\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "00401000\t") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tunplaced/before Ai.cpp\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tunplaced/Ai.cpp .. aidefend.cpp\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rows, "\tLIBCMT\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tgame/Ai.cpp\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tinterface/loadout/loadout.cpp\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tsurrender/surrenderlib/srAPI.cpp\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "00401000\t") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tunplaced/before Ai.cpp\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tunplaced/Ai.cpp .. aidefend.cpp\n") != null);
+    try std.testing.expect(std.mem.find(u8, rows, "\tLIBCMT\n") != null);
 
     // The rows tile the code without overlapping.
     var lines = std.mem.splitScalar(u8, rows, '\n');

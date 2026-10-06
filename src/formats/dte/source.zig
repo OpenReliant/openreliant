@@ -134,7 +134,7 @@ test "symbol errors and allocation failures release the index" {
     var many: [300]Table.Entry = undefined;
     var ids: [many.len][16]u8 = undefined;
     for (&many, &ids, 0..) |*entry, *id, index| entry.* = .{
-        .id = try std.fmt.bufPrint(id, "record_{d}", .{index}),
+        .id = try std.mem.print(id, "record_{d}", .{index}),
         .record = @intCast(index),
     };
     try std.testing.checkAllAllocationFailures(gpa, struct {

@@ -103,7 +103,7 @@ const Read = struct {
         for (files, 0..) |found, role| {
             const file = found orelse continue;
             hash.update(std.mem.asBytes(&@as(u32, @intCast(role))));
-            hash.update(std.mem.asBytes(&@intFromEnum(file.container)));
+            hash.update(std.mem.asBytes(&@backingInt(file.container)));
             hash.update(std.mem.asBytes(&@as(u64, file.bytes.len)));
             hash.update(file.bytes);
         }
@@ -114,7 +114,7 @@ const Read = struct {
 /// The first file the files give as `name` and `suffix`, in the order of `containers`.
 fn first(gpa: Allocator, files: srtexture.Files, name: []const u8, suffix: []const u8) Allocator.Error!?File {
     for (containers) |container| {
-        const file_name = try std.fmt.allocPrint(gpa, "{s}{s}{s}", .{ name, suffix, container.extension() });
+        const file_name = try gpa.print("{s}{s}{s}", .{ name, suffix, container.extension() });
         const bytes = files.read(gpa, file_name) catch |err| {
             gpa.free(file_name);
             return err;
@@ -189,7 +189,7 @@ pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: 
         return .none;
     }
     loading.key = loading.read.key(longest, copy);
-    loading.kept_name = if (copy) |made| try std.fmt.allocPrint(gpa, "{c}{s}", .{ made.letter(), name }) else try gpa.dupe(u8, name);
+    loading.kept_name = if (copy) |made| try gpa.print("{c}{s}", .{ made.letter(), name }) else try gpa.dupe(u8, name);
     if (compressor) |held| if (try held.load(gpa, loading.kept_name, &loading.key)) |kept| {
         loading.deinit();
         return .{ .kept = kept };
@@ -282,12 +282,12 @@ fn decodeAll(gpa: Allocator, read: *const Read, longest: u32) Allocator.Error!?I
         return if (failed) error.OutOfMemory else null;
     }
     // A map of another size than the picture's is left out.
-    inline for (@typeInfo(Image.Maps).@"struct".fields) |field| {
-        if (@field(made.maps, field.name)) |levels| if (levels[0].width != made.width() or levels[0].height != made.height()) {
-            const map = @field(MapFile, field.name);
+    inline for (@typeInfo(Image.Maps).@"struct".field_names) |name| {
+        if (@field(made.maps, name)) |levels| if (levels[0].width != made.width() or levels[0].height != made.height()) {
+            const map = @field(MapFile, name);
             log.warn("the {s} of {s} is left out: it is {d}x{d} and its picture {d}x{d}", .{ map.label(), read.picture.?.name, levels[0].width, levels[0].height, made.width(), made.height() });
             freeLevels(gpa, levels);
-            @field(made.maps, field.name) = null;
+            @field(made.maps, name) = null;
         };
     }
     return made;

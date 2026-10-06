@@ -71,7 +71,7 @@ pub const Effect = enum {
 
     /// Whether it is one of the files the game never reads.
     pub fn unread(effect: Effect) bool {
-        return @intFromEnum(effect) > @intFromEnum(Effect.shake);
+        return @backingInt(effect) > @backingInt(Effect.shake);
     }
 };
 
@@ -114,7 +114,7 @@ pub const Found = struct {
     library: Library = .{},
     /// The effects whose files are missing, can't be read or aren't effect files, which play
     /// nothing.
-    lacking: std.EnumSet(Effect) = .initFull(),
+    lacking: std.EnumSet(Effect) = .full,
 };
 
 /// The folder the effects' files are in (`0x0050E1D8`).
@@ -129,7 +129,7 @@ pub fn load(io: Io, arena: Allocator, directory: Io.Dir, mods: *const bigfile.Mo
     var found: Found = .{};
     for (std.enums.values(Effect)) |effect| {
         var path: [files.max_path]u8 = undefined;
-        const name = std.fmt.bufPrint(&path, folder ++ "{s}", .{effect.fileName()}) catch continue;
+        const name = std.mem.print(&path, folder ++ "{s}", .{effect.fileName()}) catch continue;
         const bytes = (mods.readLoose(io, arena, directory, name, .limited(files.max_file_size)) catch continue) orelse continue;
         const file = frc.File.parse(arena, bytes) catch continue;
         found.library.files.set(effect, file);

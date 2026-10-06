@@ -29,7 +29,7 @@ fn gunName(kind: guns.GunType) ?u16 {
     if (game.onTurrets()) return null;
     // A gun a mod adds shows its own name where it has one.
     if (kind.added()) |added| if (added.label_string) |name| return name;
-    return first_gun_name + @as(u16, @intFromEnum(game));
+    return first_gun_name + @as(u16, @backingInt(game));
 }
 
 /// The shapes that show a pair of guns firing together and firing in turn.

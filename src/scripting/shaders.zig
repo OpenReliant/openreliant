@@ -268,7 +268,7 @@ fn register(call: Call, kind: Kind, local: []const u8, shader: []const u8, param
     const source = mod.readFile(gpa, shader) catch |err| call.raise("shaders: {s} can't be read: {s}", .{ shader, @errorName(err) }) orelse
         call.raise("shaders: the mod {s} has no file {s}", .{ mod.name, shader });
     var file_buffer: [runtime_module.max_name * 2]u8 = undefined;
-    const file = std.fmt.bufPrint(&file_buffer, "{s}/{s}", .{ mod.name, shader }) catch shader;
+    const file = std.mem.print(&file_buffer, "{s}/{s}", .{ mod.name, shader }) catch shader;
     const compiled: ?ShaderHost.Compiled = if (registry.host) |host| host.vtable.add(host.context, kind, file, source) else null;
     gpa.free(source);
     const function: ?u16 = if (compiled) |result| switch (result) {
@@ -338,7 +338,7 @@ pub fn setSurface(call: Call, object: Object, name: ?[]const u8, given: ?Paramet
     var surface: ?ModSurface = null;
     if (name) |wanted| {
         var buffer: [runtime_module.max_name]u8 = undefined;
-        const qualified = if (std.mem.indexOfScalar(u8, wanted, ':') != null) wanted else call.qualified("set_surface", wanted, &buffer);
+        const qualified = if (std.mem.findScalar(u8, wanted, ':') != null) wanted else call.qualified("set_surface", wanted, &buffer);
         const entry = registryOf(call).find(qualified) orelse return false;
         if (entry.kind != .surface) call.raise("set_surface: {s} is a lighting function", .{qualified});
         const parameters = (given orelse Parameters{}).padded(0);
@@ -382,7 +382,7 @@ pub const testing = struct {
             _ = kind;
             _ = name;
             const held = from(context);
-            if (std.mem.indexOf(u8, source, "broken") != null) return .{ .failed = "cel/broken.glsl:2: 'broken' : undeclared identifier" };
+            if (std.mem.find(u8, source, "broken") != null) return .{ .failed = "cel/broken.glsl:2: 'broken' : undeclared identifier" };
             held.added += 1;
             return .{ .function = held.added };
         }

@@ -158,7 +158,7 @@ fn buildOptions(operands: []const [:0]const u8, options: *shp.from_obj.Options, 
 fn listComponents(ctx: Context, path: []const u8) !void {
     var library: Library = try .beside(ctx, path);
     defer library.deinit();
-    const name = std.fs.path.basename(path);
+    const name = std.Io.Dir.path.basename(path);
     const model = try library.load(name) orelse return error.FileNotFound;
     if (!model.header.flags.components) {
         try ctx.stdout.writeAll("the model's header does not ask for components, so its objects list none\n");
@@ -173,9 +173,9 @@ fn listComponents(ctx: Context, path: []const u8) !void {
         try ctx.stdout.print("{d:>5}  {d:>4}  {d:>5}  {d:>4}  {s:>5}  {s:<20}  {s}\n", .{
             index,
             component.part_index,
-            @intFromEnum(component.part.class),
+            @backingInt(component.part.class),
             component.part.link_id,
-            std.fmt.bufPrint(&armor, "{d}", .{component.part.component_armor}) catch unreachable,
+            std.mem.print(&armor, "{d}", .{component.part.component_armor}) catch unreachable,
             component.model,
             component.part.name(),
         });
@@ -191,7 +191,7 @@ fn chunks(ctx: Context, data: []const u8) !void {
     while (try reader.next()) |chunk| {
         const offset = reader.pos - chunk.data.len - @sizeOf(shp.ChunkHeader);
         try ctx.stdout.print("{x:0>8}  {x:0>4} {d:>7} {d:>6}  {f}\n", .{
-            offset, @intFromEnum(chunk.tag), chunk.record_size, chunk.count, chunk.tag,
+            offset, @backingInt(chunk.tag), chunk.record_size, chunk.count, chunk.tag,
         });
     }
     try ctx.stdout.print("{x:0>8}  ffff                 end\n", .{reader.pos});
@@ -226,13 +226,13 @@ fn info(ctx: Context, model: shp.Model) !void {
     for (model.parts, 0..) |entry, index| {
         const part = entry.part;
         try ctx.stdout.print("[{d:>3}] {s:<34} type {d:>2}  parent {d:>3}  link {d}", .{
-            index, part.name(), @intFromEnum(part.class), part.parent, part.link_id,
+            index, part.name(), @backingInt(part.class), part.parent, part.link_id,
         });
         if (part.turret_kind != .fixed) {
             try ctx.stdout.print("  turret kind {d} slot {d} yaw [{d:.0},{d:.0}] pitch [{d:.0},{d:.0}]", .{
-                @intFromEnum(part.turret_kind), part.turret_slot,
-                part.angles_min.x,              part.angles_max.x,
-                part.angles_min.y,              part.angles_max.y,
+                @backingInt(part.turret_kind), part.turret_slot,
+                part.angles_min.x,             part.angles_max.x,
+                part.angles_min.y,             part.angles_max.y,
             });
         }
         try ctx.stdout.writeByte('\n');
@@ -254,7 +254,7 @@ fn info(ctx: Context, model: shp.Model) !void {
             });
         }
         for (entry.point_lists) |list| {
-            try ctx.stdout.print("          points kind {d}: {d}\n", .{ @intFromEnum(list.kind), list.points.len });
+            try ctx.stdout.print("          points kind {d}: {d}\n", .{ @backingInt(list.kind), list.points.len });
         }
         for (entry.tracks) |track| {
             try ctx.stdout.print("          clip '{s}' length {d} mode {d}, {d} keyframes, {d} events\n", .{
@@ -276,7 +276,7 @@ fn info(ctx: Context, model: shp.Model) !void {
                     .launch_point => "launch point",
                     _ => "kind",
                 },
-                @intFromEnum(attachment.kind),
+                @backingInt(attachment.kind),
                 attachment.position.x,
                 attachment.position.y,
                 attachment.position.z,
@@ -305,7 +305,7 @@ fn info(ctx: Context, model: shp.Model) !void {
     }
 
     // Materials are per mesh, but the set across the model is what matters for texturing.
-    var seen: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var seen: std.array_hash_map.String(void) = .empty;
     for (model.parts) |entry| {
         for (entry.meshes) |mesh| {
             for (mesh.materials) |*material| {
@@ -372,7 +372,7 @@ fn classifyBounds(entry: shp.PartData) BoundsFrame {
 fn check(ctx: Context, data: []const u8) !void {
     const model: shp.Model = try .parse(ctx.arena, data);
     var problems: usize = 0;
-    var bounds_frames: [std.meta.fields(BoundsFrame).len]usize = @splat(0);
+    var bounds_frames: [std.enums.values(BoundsFrame).len]usize = @splat(0);
     const report = struct {
         fn fail(c: Context, count: *usize, comptime fmt: []const u8, args: anytype) !void {
             count.* += 1;
@@ -452,7 +452,7 @@ fn check(ctx: Context, data: []const u8) !void {
         // The part record carries a bounding box derived from its vertices, but not always in
         // the part's own frame, so it is classified rather than required to match.
         if (entry.meshes.len > 0 and entry.meshes[0].vertices.len > 0) {
-            bounds_frames[@intFromEnum(classifyBounds(entry))] += 1;
+            bounds_frames[@backingInt(classifyBounds(entry))] += 1;
         }
     }
 
@@ -461,9 +461,9 @@ fn check(ctx: Context, data: []const u8) !void {
             model.parts.len, model.vertexCount(), model.faceCount(),
         });
         try ctx.stdout.writeAll("bounds:");
-        inline for (std.meta.fields(BoundsFrame)) |field| {
-            const count = bounds_frames[field.value];
-            if (count > 0) try ctx.stdout.print(" {d} {s}", .{ count, field.name });
+        for (std.enums.values(BoundsFrame)) |frame| {
+            const count = bounds_frames[@backingInt(frame)];
+            if (count > 0) try ctx.stdout.print(" {d} {s}", .{ count, @tagName(frame) });
         }
         try ctx.stdout.writeByte('\n');
     } else {
@@ -473,7 +473,7 @@ fn check(ctx: Context, data: []const u8) !void {
 
     var written: Io.Writer.Allocating = .init(ctx.arena);
     try model.write(&written.writer);
-    if (std.mem.indexOfDiff(u8, data, written.written())) |offset| {
+    if (std.mem.findDiff(u8, data, written.written())) |offset| {
         try ctx.stdout.print("written again, it differs from offset {x:0>8}\n", .{offset});
         return error.Differs;
     }
@@ -532,17 +532,17 @@ fn writeModel(ctx: Context, model: shp.Model, out_path: []const u8) !void {
 /// from both sides.
 fn buildFromGltf(ctx: Context, path: []const u8, bytes: []const u8, out_path: []const u8, given: shp.from_obj.Options, scale: f32) !void {
     const gltf = openreliant.gltf;
-    const beside: Beside = .{ .ctx = ctx, .dir = std.fs.path.dirname(path) orelse "." };
+    const beside: Beside = .{ .ctx = ctx, .dir = std.Io.Dir.path.dirname(path) orelse "." };
     const document = try gltf.read(ctx.arena, bytes, .{ .context = &beside, .readFn = Beside.read });
     const materials = try gltf.materials(ctx.arena, document);
-    const stem = std.fs.path.stem(out_path);
+    const stem = std.Io.Dir.path.stem(out_path);
     const names = try ctx.arena.alloc([]const u8, materials.len);
-    for (names, 0..) |*name, at| name.* = try std.fmt.allocPrint(ctx.arena, "{s}_{d}", .{ stem, at });
+    for (names, 0..) |*name, at| name.* = try ctx.arena.print("{s}_{d}", .{ stem, at });
     var options = given;
     for (materials) |material| options.two_sided = options.two_sided or material.double_sided;
     try writeModel(ctx, try shp.from_obj.build(ctx.arena, try gltf.triangles(ctx.arena, document, scale, names), options), out_path);
 
-    const dir = try ctx.outputDir(std.fs.path.dirname(out_path) orelse ".");
+    const dir = try ctx.outputDir(std.Io.Dir.path.dirname(out_path) orelse ".");
     defer dir.close(ctx.io);
     for (materials, names) |material, name| {
         for (try gltf.maps.of(ctx.arena, material, name)) |texture| {
@@ -559,7 +559,7 @@ const Beside = struct {
 
     fn read(context: *const anyopaque, arena: std.mem.Allocator, name: []const u8) std.mem.Allocator.Error!?[]u8 {
         const beside: *const Beside = @ptrCast(@alignCast(context));
-        const path = try std.fs.path.join(arena, &.{ beside.dir, name });
+        const path = try std.Io.Dir.path.join(arena, &.{ beside.dir, name });
         return Io.Dir.cwd().readFileAlloc(beside.ctx.io, path, arena, .limited(max_resource)) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => null,
@@ -575,12 +575,12 @@ const Beside = struct {
 /// palette, the materials' pictures are written beside it too, `<material>.png`; a picture the
 /// cache doesn't hold is said and passed over.
 fn writeGltf(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, cache_path: ?[]const u8, palette_path: ?[]const u8) !void {
-    const stem = std.fs.path.stem(out_path);
-    const bin_name = try std.fmt.allocPrint(ctx.arena, "{s}.bin", .{stem});
+    const stem = std.Io.Dir.path.stem(out_path);
+    const bin_name = try ctx.arena.print("{s}.bin", .{stem});
     const written = try shp.to_gltf.write(ctx.arena, model, lod, bin_name);
-    const dir = try ctx.outputDir(std.fs.path.dirname(out_path) orelse ".");
+    const dir = try ctx.outputDir(std.Io.Dir.path.dirname(out_path) orelse ".");
     defer dir.close(ctx.io);
-    try dir.writeFile(ctx.io, .{ .sub_path = std.fs.path.basename(out_path), .data = written.json });
+    try dir.writeFile(ctx.io, .{ .sub_path = std.Io.Dir.path.basename(out_path), .data = written.json });
     try dir.writeFile(ctx.io, .{ .sub_path = bin_name, .data = written.bin });
     try ctx.stdout.print("wrote {s} and {s}: {d} parts, {d} materials\n", .{ out_path, bin_name, model.parts.len, written.materials.len });
 

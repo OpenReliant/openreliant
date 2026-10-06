@@ -150,7 +150,7 @@ pub fn decode(gpa: Allocator, bytes: []const u8) (Error || Allocator.Error)!Imag
     if (header.descriptor.right_to_left) return error.UnsupportedImage;
 
     var at = header.colorMapOffset();
-    if (header.color_map_type == .present) at += @as(usize, header.color_map_length) * ((@as(usize, header.color_map_entry_bits) + 7) / 8);
+    if (header.color_map_type == .present) at += @as(usize, header.color_map_length) * @divCeil(@as(usize, header.color_map_entry_bits), 8);
     const count = @as(usize, header.width) * header.height;
     const rgb = try gpa.alloc(u8, count * 3);
     errdefer gpa.free(rgb);
@@ -256,7 +256,7 @@ test "ImageType.colorMapped" {
     try std.testing.expect(ImageType.color_mapped.colorMapped());
     try std.testing.expect(ImageType.rle_color_mapped.colorMapped());
     try std.testing.expect(!ImageType.true_color.colorMapped());
-    try std.testing.expect(!@as(ImageType, @enumFromInt(33)).colorMapped());
+    try std.testing.expect(!@as(ImageType, @fromBackingInt(33)).colorMapped());
 }
 
 test decode {

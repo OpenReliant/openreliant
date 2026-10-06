@@ -1,4 +1,5 @@
 const std = @import("std");
+const Translator = @import("translate_c").Translator;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -6,6 +7,9 @@ pub fn build(b: *std.Build) void {
     // The releases leave the debug information out of the game, which on Linux the executable
     // would otherwise carry, several times the size of its code.
     const strip = b.option(bool, "strip", "Leave the debug information out of the game and sltool") orelse false;
+    // The C libraries' headers become Zig modules through the translate-c package, which the build
+    // compiles for the host first.
+    const translate_c = b.dependency("translate_c", .{});
 
     // The library: readers for the game's files and the port of the game itself, shared by the
     // game and every tool.
@@ -15,7 +19,7 @@ pub fn build(b: *std.Build) void {
     });
     // The outline font OpenReliant carries built in, Newtown, which deps/newtown describes.
     lib.addAnonymousImport("Newtown.ttf", .{ .root_source_file = b.path("deps/newtown/Newtown.ttf") });
-    addZlib(b, lib, target);
+    addZlib(b, translate_c, lib, target);
 
     // The game: SDL3 in place of Win32 and DirectX, from the SDL package, which builds SDL from
     // source for the target.
@@ -27,30 +31,23 @@ pub fn build(b: *std.Build) void {
     const sdl_dependency = if (macos_sdk) |sdk| b.dependency("sdl", .{
         .target = target,
         .optimize = optimize,
-        .system_include_path = std.Build.LazyPath{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) },
-        .system_framework_path = std.Build.LazyPath{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) },
-        .library_path = std.Build.LazyPath{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) },
+        .system_include_path = b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/include" })),
+        .system_framework_path = b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "System/Library/Frameworks" })),
+        .library_path = b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/lib" })),
     }) else b.dependency("sdl", .{ .target = target, .optimize = optimize });
     const sdl_library = sdl_dependency.artifact("SDL3");
-    const sdl_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/platform/sdl.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-    sdl_c.addIncludePath(sdl_library.getEmittedIncludeTree());
     const platform = b.createModule(.{
         .root_source_file = b.path("src/platform.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "openreliant", .module = lib },
-            .{ .name = "sdl", .module = sdl_c.createModule() },
+            .{ .name = "sdl", .module = translateHeader(translate_c, b.path("src/platform/sdl.h"), sdl_library, target, optimize) },
         },
     });
-    platform.linkLibrary(sdl_library);
     // Mod post effects compile through glslang and SPIRV-Cross. Keep their C++ exceptions
     // inside the platform wrapper, and ship the upstream notices with the executable.
-    const shader_dependency = b.dependency("shader_compiler", .{ .target = target, .optimize = .ReleaseFast });
+    const shader_dependency = b.dependency("shader_compiler", .{ .target = target, .optimize = .fast });
     const shader_library = shader_dependency.artifact("shader-compiler");
     platform.linkLibrary(shader_library);
     platform.addIncludePath(shader_library.getEmittedIncludeTree());
@@ -62,7 +59,7 @@ pub fn build(b: *std.Build) void {
     }
     // Mods' pictures are compressed for the GPU with bc7enc and rgbcx, built optimized whatever the
     // game's mode, as compressing a large picture is slow otherwise.
-    const texture_dependency = b.dependency("texture_compressor", .{ .target = target, .optimize = .ReleaseFast });
+    const texture_dependency = b.dependency("texture_compressor", .{ .target = target, .optimize = .fast });
     const texture_library = texture_dependency.artifact("texture-compressor");
     platform.linkLibrary(texture_library);
     platform.addIncludePath(texture_library.getEmittedIncludeTree());
@@ -73,40 +70,19 @@ pub fn build(b: *std.Build) void {
     // optimized whatever the game's own mode: its mixer runs in the audio device's callback and has
     // to keep up with it, and unoptimized, HRTF over a burst of gunfire's voices falls behind and
     // the sound stutters.
-    const openal_library = b.dependency("openal_soft", .{ .target = target, .optimize = .ReleaseFast }).artifact("openal");
-    const openal_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/platform/openal.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-    openal_c.addIncludePath(openal_library.getEmittedIncludeTree());
-    platform.addImport("al", openal_c.createModule());
-    platform.linkLibrary(openal_library);
+    const openal_library = b.dependency("openal_soft", .{ .target = target, .optimize = .fast }).artifact("openal");
+    platform.addImport("al", translateHeader(translate_c, b.path("src/platform/openal.h"), openal_library, target, optimize));
     // The movies: FFmpeg's Bink decoders in place of RAD's Bink library, which deps/ffmpeg builds
     // from source for the target. It is built optimized whatever mode the game is built in, as
     // OpenAL Soft is, so that a movie decodes in time in a debug build too.
-    const ffmpeg_library = b.dependency("ffmpeg", .{ .target = target, .optimize = .ReleaseFast }).artifact("avcodec");
-    const ffmpeg_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/platform/ffmpeg.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-    ffmpeg_c.addIncludePath(ffmpeg_library.getEmittedIncludeTree());
-    platform.addImport("av", ffmpeg_c.createModule());
-    platform.linkLibrary(ffmpeg_library);
+    const ffmpeg_library = b.dependency("ffmpeg", .{ .target = target, .optimize = .fast }).artifact("avcodec");
+    platform.addImport("av", translateHeader(translate_c, b.path("src/platform/ffmpeg.h"), ffmpeg_library, target, optimize));
     // The outline fonts, which draw the interface's text at the window's resolution: FreeType,
     // which deps/freetype builds from source for the target. It is built optimized whatever mode
     // the game is built in, as FFmpeg is, so that a font's glyphs are drawn in time in a debug
     // build too.
-    const freetype_library = b.dependency("freetype", .{ .target = target, .optimize = .ReleaseFast }).artifact("freetype");
-    const freetype_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/platform/freetype.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-    freetype_c.addIncludePath(freetype_library.getEmittedIncludeTree());
-    platform.addImport("ft", freetype_c.createModule());
-    platform.linkLibrary(freetype_library);
+    const freetype_library = b.dependency("freetype", .{ .target = target, .optimize = .fast }).artifact("freetype");
+    platform.addImport("ft", translateHeader(translate_c, b.path("src/platform/freetype.h"), freetype_library, target, optimize));
     if (macos_sdk) |sdk| {
         // OpenAL Soft reads its configuration through CoreFoundation on a Mac.
         addMacosSdk(b, openal_library.root_module, sdk);
@@ -116,23 +92,16 @@ pub fn build(b: *std.Build) void {
     // builds from source for the target. Like FreeType, Luau is always built optimized so that
     // scripts run fast in debug builds too. Only the game links it; the library the tools share
     // doesn't.
-    const luau_library = b.dependency("luau", .{ .target = target, .optimize = .ReleaseFast }).artifact("luau");
-    const luau_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/scripting/luau.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-    luau_c.addIncludePath(luau_library.getEmittedIncludeTree());
+    const luau_library = b.dependency("luau", .{ .target = target, .optimize = .fast }).artifact("luau");
     const scripting = b.createModule(.{
         .root_source_file = b.path("src/scripting.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "openreliant", .module = lib },
-            .{ .name = "luau", .module = luau_c.createModule() },
+            .{ .name = "luau", .module = translateHeader(translate_c, b.path("src/scripting/luau.h"), luau_library, target, optimize) },
         },
     });
-    scripting.linkLibrary(luau_library);
     // The scripting API's definitions and reference page as generated, which its tests check
     // against.
     scripting.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
@@ -153,12 +122,6 @@ pub fn build(b: *std.Build) void {
     const archive_dependency = b.dependency("libarchive", .{ .target = target, .optimize = optimize });
     const archive_library = archive_dependency.artifact("archive");
     b.getInstallStep().dependOn(&b.addInstallFile(archive_dependency.namedLazyPath("LICENSE-libarchive.txt"), "LICENSE-libarchive.txt").step);
-    const archive_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/openreliant/archive.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-    archive_c.addIncludePath(archive_library.getEmittedIncludeTree());
     if (macos_sdk) |sdk| addMacosSdk(b, archive_library.root_module, sdk);
     // The version Release Please keeps in build.zig.zon, and where the checkout is past its last
     // release, for `openreliant --version` and `sltool --version` (`src/version.zig`).
@@ -183,12 +146,11 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "openreliant", .module = lib },
                 .{ .name = "platform", .module = platform },
                 .{ .name = "scripting", .module = scripting },
-                .{ .name = "archive", .module = archive_c.createModule() },
+                .{ .name = "archive", .module = translateHeader(translate_c, b.path("src/openreliant/archive.h"), archive_library, target, optimize) },
                 .{ .name = "version", .module = version },
             },
         }),
     });
-    openreliant.root_module.linkLibrary(archive_library);
     b.installArtifact(openreliant);
 
     // Mission 0, OpenReliant's own: the sandbox as a standard mission file, which a tool built for
@@ -198,7 +160,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
     });
-    addZlib(b, host_lib, b.graph.host);
+    addZlib(b, translate_c, host_lib, b.graph.host);
     const mission0 = b.addExecutable(.{
         .name = "mission0",
         .root_module = b.createModule(.{
@@ -207,15 +169,11 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{ .name = "openreliant", .module = host_lib }},
         }),
     });
-    const mission0_file = b.addRunArtifact(mission0).addOutputFileArg("mission0.dte");
+    const mission0_file = b.addRunArtifact(mission0).addOutputFileArg2("mission0.dte", .{});
     openreliant.root_module.addAnonymousImport("mission0.dte", .{ .root_source_file = mission0_file });
     b.getInstallStep().dependOn(&b.addInstallFile(mission0_file, "missions/mission0.dte").step);
 
-    const play_step = b.step("play", "Run the game");
-    const play_cmd = b.addRunArtifact(openreliant);
-    play_step.dependOn(&play_cmd.step);
-    play_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| play_cmd.addArgs(args);
+    runStep(b, "play", "Run the game", openreliant);
 
     const sltool = b.addExecutable(.{
         .name = "sltool",
@@ -278,66 +236,79 @@ pub fn build(b: *std.Build) void {
     const ghidragen_step = b.step("ghidragen", "Build the Ghidra name and type table generator");
     ghidragen_step.dependOn(&b.addInstallArtifact(ghidragen, .{}).step);
 
-    const run_step = b.step("run", "Run sltool");
-    const run_cmd = b.addRunArtifact(sltool);
-    run_step.dependOn(&run_cmd.step);
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_cmd.addArgs(args);
+    runStep(b, "run", "Run sltool", sltool);
 
-    const lib_tests = b.addTest(.{ .root_module = lib });
-    const exe_tests = b.addTest(.{ .root_module = sltool.root_module });
-    const tablegen_tests = b.addTest(.{ .root_module = tablegen.root_module });
-    const ghidragen_tests = b.addTest(.{ .root_module = ghidragen.root_module });
-    const openreliant_tests = b.addTest(.{ .root_module = openreliant.root_module });
-    const platform_tests = b.addTest(.{ .root_module = platform });
-    const scripting_tests = b.addTest(.{ .root_module = scripting });
-    const version_tests = b.addTest(.{ .root_module = version });
+    // Every module's tests, and `zig build check`, which compiles the programs and the tests
+    // without linking them (the C libraries, translate-c and mission0 build once first):
+    // `zig build check -fincremental --watch` reports compile errors within moments of a save.
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&b.addRunArtifact(lib_tests).step);
-    test_step.dependOn(&b.addRunArtifact(exe_tests).step);
-    test_step.dependOn(&b.addRunArtifact(tablegen_tests).step);
-    test_step.dependOn(&b.addRunArtifact(ghidragen_tests).step);
-    test_step.dependOn(&b.addRunArtifact(openreliant_tests).step);
-    test_step.dependOn(&b.addRunArtifact(platform_tests).step);
-    test_step.dependOn(&b.addRunArtifact(scripting_tests).step);
-    test_step.dependOn(&b.addRunArtifact(version_tests).step);
+    const check_step = b.step("check", "Check that the programs and the tests compile, without writing binaries");
+    for ([_]*std.Build.Module{ lib, platform, scripting, version, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module }) |module| {
+        const tests = b.addTest(.{ .root_module = module });
+        test_step.dependOn(&b.addRunArtifact(tests).step);
+        check_step.dependOn(&b.addTest(.{ .root_module = module }).step);
+    }
+    for ([_]*std.Build.Step.Compile{ openreliant, sltool, tablegen, ghidragen }) |program| {
+        check_step.dependOn(&b.addExecutable(.{ .name = program.name, .root_module = program.root_module }).step);
+    }
+}
+
+/// A step `name` that installs everything, then runs `program` with the arguments given after
+/// `--`.
+fn runStep(b: *std.Build, name: []const u8, description: []const u8, program: *std.Build.Step.Compile) void {
+    const run = b.addRunArtifact(program);
+    run.step.dependOn(b.getInstallStep());
+    run.addPassthruArgs();
+    b.step(name, description).dependOn(&run.step);
+}
+
+/// The Zig module translate-c makes of `header`, which includes `library`'s headers. The module
+/// links `library`, so a module that imports it links the library too. Its structs' fields
+/// default to zero, as C's do in a partial initializer, so that the platform code can name only
+/// the fields it sets.
+fn translateHeader(translate_c: *std.Build.Dependency, header: std.Build.LazyPath, library: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) *std.Build.Module {
+    const translator: Translator = .init(translate_c, .{ .c_source_file = header, .target = target, .optimize = optimize, .default_init = true });
+    translator.linkLibrary(library);
+    return translator.mod;
 }
 
 /// Gives `module`, the library built from `src/root.zig`, zlib for `target`, which the PNG reader
 /// inflates with (`src/formats/png.zig`): several times faster than `std.compress.flate`. It is
 /// built optimized whatever mode the rest is built in, as the other C libraries are.
-fn addZlib(b: *std.Build, module: *std.Build.Module, target: std.Build.ResolvedTarget) void {
-    const zlib = b.dependency("zlib", .{ .target = target, .optimize = .ReleaseFast }).artifact("z");
-    const zlib_c = b.addTranslateC(.{
-        .root_source_file = zlib.getEmittedIncludeTree().path(b, "zlib.h"),
-        .target = target,
-        .optimize = .ReleaseFast,
-    });
-    module.addImport("zlib", zlib_c.createModule());
-    module.linkLibrary(zlib);
+fn addZlib(b: *std.Build, translate_c: *std.Build.Dependency, module: *std.Build.Module, target: std.Build.ResolvedTarget) void {
+    const zlib = b.dependency("zlib", .{ .target = target, .optimize = .fast }).artifact("z");
+    module.addImport("zlib", translateHeader(translate_c, zlib.getEmittedIncludeTree().path(b, "zlib.h"), zlib, target, .fast));
 }
 
 /// Gives `module` the macOS SDK's headers, frameworks and libraries at `sdk`, which a build for a
 /// Mac other than the host does not find by itself.
 fn addMacosSdk(b: *std.Build, module: *std.Build.Module, sdk: []const u8) void {
-    module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
-    module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
-    module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) });
+    module.addSystemIncludePath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/include" })));
+    module.addSystemFrameworkPath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "System/Library/Frameworks" })));
+    module.addLibraryPath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/lib" })));
 }
 
 /// `git describe` of the checkout against the release tags, such as `v0.2.0-12-gabc1234-dirty`, or
-/// nothing where there is no git or no tag, as in a source archive.
+/// nothing where there is no git or no tag, as in a source archive. The build can't track what
+/// the answer depends on (new commits, edits to any file), so asking poisons the configuration
+/// cache: the build runs build.zig again each time, as it always did before Zig 0.17.
 fn describe(b: *std.Build) []const u8 {
-    var code: u8 = undefined;
-    const out = b.runAllowFail(&.{ "git", "-C", b.build_root.path orelse ".", "describe", "--tags", "--match", "v*", "--long", "--dirty", "--abbrev=7" }, &code, .ignore) catch return "";
-    return std.mem.trimEnd(u8, out, "\n");
+    b.graph.poisonCache();
+    const root = b.root.toString(b.allocator) catch @panic("out of memory");
+    return switch (b.runFallible(&.{ "git", "-C", root, "describe", "--tags", "--match", "v*", "--long", "--dirty", "--abbrev=7" }, .{ .stderr_behavior = .ignore })) {
+        .success => |out| std.mem.trimEnd(u8, out, "\n"),
+        else => "",
+    };
 }
 
 /// Every file of the example mods, as `<mod>/<file>`, sorted: a mod's files are directly in its
 /// folder.
 fn exampleFiles(b: *std.Build) []const []const u8 {
     const io = b.graph.io;
-    var mods = b.build_root.handle.openDir(io, "examples/mods", .{ .iterate = true }) catch |err| std.debug.panic("can't open examples/mods: {t}", .{err});
+    // The listing runs while build.zig configures, so the build is told to configure again when
+    // a mod or a file is added, removed or renamed.
+    b.dependOnDirectoryContents(b.path("examples/mods"));
+    var mods = b.root.root_dir.handle.openDir(io, b.pathJoin(&.{ b.root.sub_path, "examples/mods" }), .{ .iterate = true }) catch |err| std.debug.panic("can't open examples/mods: {t}", .{err});
     defer mods.close(io);
     var found: std.ArrayList([]const u8) = .empty;
     var each_mod = mods.iterate();
@@ -345,6 +316,7 @@ fn exampleFiles(b: *std.Build) []const []const u8 {
         if (mod.kind != .directory) continue;
         var folder = mods.openDir(io, mod.name, .{ .iterate = true }) catch |err| std.debug.panic("can't open examples/mods/{s}: {t}", .{ mod.name, err });
         defer folder.close(io);
+        b.dependOnDirectoryContents(b.path(b.fmt("examples/mods/{s}", .{mod.name})));
         var each_file = folder.iterate();
         while (each_file.next(io) catch |err| std.debug.panic("can't list examples/mods/{s}: {t}", .{ mod.name, err })) |file| {
             if (file.kind != .file) continue;

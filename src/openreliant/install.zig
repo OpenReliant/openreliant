@@ -164,7 +164,7 @@ fn gameInside(io: Io, arena: Allocator, cwd: Io.Dir, path: []const u8) Allocator
     }
     std.mem.sort([]const u8, names.items, {}, firstToTry);
     for (names.items) |name| {
-        if (holdsGame(io, dir, name)) return try std.fs.path.join(arena, &.{ path, name });
+        if (holdsGame(io, dir, name)) return try std.Io.Dir.path.join(arena, &.{ path, name });
     }
     return null;
 }
@@ -260,8 +260,8 @@ const Disc = union(enum) {
 
     /// The file at `path`, `/`-separated, or null if there's none.
     fn find(disc: Disc, io: Io, arena: Allocator, path: []const u8) !?Entry {
-        const name = std.fs.path.basenamePosix(path);
-        const files = try disc.list(io, arena, std.fs.path.dirnamePosix(path) orelse "") orelse return null;
+        const name = std.Io.Dir.path.basenamePosix(path);
+        const files = try disc.list(io, arena, std.Io.Dir.path.dirnamePosix(path) orelse "") orelse return null;
         for (files) |entry| {
             if (std.ascii.eqlIgnoreCase(entry.name, name)) return entry;
         }
@@ -353,7 +353,7 @@ fn folderEntries(io: Io, arena: Allocator, root: Io.Dir, path: []const u8) ![]co
 
 fn joinPath(arena: Allocator, folder: []const u8, name: []const u8) ![]const u8 {
     if (folder.len == 0) return name;
-    return std.fmt.allocPrint(arena, "{s}/{s}", .{ folder, name });
+    return arena.print("{s}/{s}", .{ folder, name });
 }
 
 /// Reads a file on a disc from the start, and skips ahead.
@@ -392,7 +392,7 @@ const Reader = struct {
                 const block_size = cdimage.block_size;
                 const within: usize = @intCast(reader.position % block_size);
                 n = @min(n, source.blocks.len - within);
-                const count = (within + n + block_size - 1) / block_size;
+                const count = @divCeil(within + n, block_size);
                 const lba = std.math.cast(u32, source.lba + reader.position / block_size) orelse return error.EndOfImage;
                 try source.image.readBlocks(lba, source.blocks[0 .. count * block_size]);
                 @memcpy(out[0..n], source.blocks[within..][0..n]);
@@ -449,7 +449,7 @@ fn installPath(arena: Allocator, name: []const u8) error{ UnsafeName, OutOfMemor
     var parts: std.ArrayList([]const u8) = .empty;
     var it = std.mem.tokenizeAny(u8, name, "/\\");
     while (it.next()) |part| {
-        if (std.mem.eql(u8, part, ".") or std.mem.eql(u8, part, "..") or std.mem.indexOfScalar(u8, part, ':') != null) {
+        if (std.mem.eql(u8, part, ".") or std.mem.eql(u8, part, "..") or std.mem.findScalar(u8, part, ':') != null) {
             return error.UnsafeName;
         }
         try parts.append(arena, part);
@@ -461,7 +461,7 @@ fn installPath(arena: Allocator, name: []const u8) error{ UnsafeName, OutOfMemor
 
 /// Where the system shows the discs in its drives, and the disc images it has mounted.
 fn mountedDiscs(io: Io, arena: Allocator) Allocator.Error![]const []const u8 {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .windows => return cdDrives(arena),
         .linux => return discMounts(arena, mountTable(io, arena) catch return &.{}),
         .macos => {
@@ -470,7 +470,7 @@ fn mountedDiscs(io: Io, arena: Allocator) Allocator.Error![]const []const u8 {
             var volumes: std.ArrayList([]const u8) = .empty;
             var it = dir.iterate();
             while (it.next(io) catch null) |entry| {
-                try volumes.append(arena, try std.fs.path.join(arena, &.{ "/Volumes", entry.name }));
+                try volumes.append(arena, try std.Io.Dir.path.join(arena, &.{ "/Volumes", entry.name }));
             }
             return volumes.items;
         },
@@ -512,7 +512,7 @@ fn cdDrives(arena: Allocator) Allocator.Error![]const []const u8 {
         if (kernel32.GetDriveTypeW(&root) != drive_cdrom) continue;
         // Fails when the drive is empty.
         if (!kernel32.GetVolumeInformationW(&root, null, 0, null, null, null, null, 0).toBool()) continue;
-        try drives.append(arena, try std.fmt.allocPrint(arena, "{c}:\\", .{letter}));
+        try drives.append(arena, try arena.print("{c}:\\", .{letter}));
     }
     return drives.items;
 }
@@ -739,7 +739,7 @@ pub fn main(io: Io, arena: Allocator, args: []const [:0]const u8) !u8 {
 /// Whether `file` is a terminal. On Windows, `GetConsoleMode` says so for a console, which Wine
 /// answers where the standard library's check, made of the console driver directly, finds none.
 fn isTerminal(io: Io, file: Io.File) Io.Cancelable!bool {
-    if (builtin.os.tag != .windows) return file.isTty(io);
+    if (builtin.target.os.tag != .windows) return file.isTty(io);
     const windows = std.os.windows;
     const kernel32 = struct {
         extern "kernel32" fn GetConsoleMode(console: windows.HANDLE, mode: *u32) callconv(.winapi) windows.BOOL;
@@ -878,7 +878,7 @@ fn copyArchive(io: Io, arena: Allocator, disc: Disc, disc_path: []const u8, path
         try env.err.print("openreliant: {s} has no {s}.\n", .{ disc_path, path });
         return error.InstallFailed;
     };
-    try copy(io, arena, entry, target, std.fs.path.basenamePosix(path), if (env.terminal) .counted else .listed, env);
+    try copy(io, arena, entry, target, std.Io.Dir.path.basenamePosix(path), if (env.terminal) .counted else .listed, env);
 }
 
 /// Unpacks disc 1's cabinet into `target`.
@@ -913,7 +913,7 @@ fn unpack(io: Io, arena: Allocator, cabinet: Entry, target: Io.Dir, env: Environ
             error.OutOfMemory => |e| return e,
         };
         // A cabinet holds only files, their folders named in their paths.
-        if (std.fs.path.dirnamePosix(path)) |folder| try target.createDirPath(io, folder);
+        if (std.Io.Dir.path.dirnamePosix(path)) |folder| try target.createDirPath(io, folder);
         const file = try target.createFile(io, path, .{});
         defer file.close(io);
         var buffer: [64 * 1024]u8 = undefined;
@@ -1092,7 +1092,7 @@ fn testImage(gpa: Allocator, label: []const u8, files: []const TestFile, layout:
     try folders.append(arena, "");
     for (files) |file| {
         var start: usize = 0;
-        while (std.mem.indexOfScalarPos(u8, file.path, start, '/')) |slash| : (start = slash + 1) {
+        while (std.mem.findScalarPos(u8, file.path, start, '/')) |slash| : (start = slash + 1) {
             const folder = file.path[0..slash];
             for (folders.items) |known| {
                 if (std.mem.eql(u8, known, folder)) break;
@@ -1104,7 +1104,7 @@ fn testImage(gpa: Allocator, label: []const u8, files: []const TestFile, layout:
     var next: u32 = @intCast(first_folder + folders.items.len);
     for (files, places) |file, *place| {
         place.* = next;
-        next += @intCast((file.data.len + block_size - 1) / block_size);
+        next += @intCast(@divCeil(file.data.len, block_size));
     }
     const blocks = try arena.alloc([block_size]u8, next);
     @memset(blocks, @splat(0));
@@ -1120,7 +1120,7 @@ fn testImage(gpa: Allocator, label: []const u8, files: []const TestFile, layout:
 
     for (folders.items, 0..) |folder, i| {
         const block = &blocks[first_folder + i];
-        const parent = std.fs.path.dirnamePosix(folder) orelse "";
+        const parent = std.Io.Dir.path.dirnamePosix(folder) orelse "";
         const parent_index = for (folders.items, 0..) |known, j| {
             if (std.mem.eql(u8, known, parent)) break j;
         } else 0;
@@ -1128,12 +1128,12 @@ fn testImage(gpa: Allocator, label: []const u8, files: []const TestFile, layout:
         write(block, &pos, Record.self_identifier, folder_extent(first_folder + i), .directory);
         write(block, &pos, Record.parent_identifier, folder_extent(first_folder + parent_index), .directory);
         for (folders.items[1..], 1..) |sub, j| {
-            if (!std.mem.eql(u8, std.fs.path.dirnamePosix(sub) orelse "", folder)) continue;
-            write(block, &pos, std.fs.path.basenamePosix(sub), folder_extent(first_folder + j), .directory);
+            if (!std.mem.eql(u8, std.Io.Dir.path.dirnamePosix(sub) orelse "", folder)) continue;
+            write(block, &pos, std.Io.Dir.path.basenamePosix(sub), folder_extent(first_folder + j), .directory);
         }
         for (files, places) |file, place| {
-            if (!std.mem.eql(u8, std.fs.path.dirnamePosix(file.path) orelse "", folder)) continue;
-            const identifier = try std.fmt.allocPrint(arena, "{s};1", .{std.fs.path.basenamePosix(file.path)});
+            if (!std.mem.eql(u8, std.Io.Dir.path.dirnamePosix(file.path) orelse "", folder)) continue;
+            const identifier = try arena.print("{s};1", .{std.Io.Dir.path.basenamePosix(file.path)});
             write(block, &pos, identifier, .{ .lba = place, .len = @intCast(file.data.len) }, .file);
         }
     }
@@ -1179,7 +1179,7 @@ fn testFolder(io: Io, dir: Io.Dir, path: []const u8, files: []const TestFile) !v
     var folder = try dir.openDir(io, path, .{});
     defer folder.close(io);
     for (files) |file| {
-        if (std.fs.path.dirnamePosix(file.path)) |parent| try folder.createDirPath(io, parent);
+        if (std.Io.Dir.path.dirnamePosix(file.path)) |parent| try folder.createDirPath(io, parent);
         try folder.writeFile(io, .{ .sub_path = file.path, .data = file.data });
     }
 }
@@ -1297,12 +1297,12 @@ test discMounts {
 }
 
 test mountTable {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
     // Every system has something mounted at its root.
     const table = try mountTable(std.testing.io, arena_state.allocator());
-    try std.testing.expect(std.mem.indexOf(u8, table, " / ") != null);
+    try std.testing.expect(std.mem.find(u8, table, " / ") != null);
 }
 
 test mountedDiscs {
@@ -1460,13 +1460,13 @@ test "installing from disc images and folders" {
     for ([_][]const u8{ "raw", "cooked", "mounted" }) |from| {
         var test_run: TestRun = .init(gpa);
         defer test_run.deinit();
-        const directory = try std.fmt.allocPrint(arena, "games/from-{s}", .{from});
+        const directory = try arena.print("games/from-{s}", .{from});
         // Disc 2 first: the discs are named in either order.
         const options: Options = .{ .directory = directory, .from = .{ "disc2.iso", from } };
         const code = try run(io, arena, options, test_run.environment(tmp.dir, &.{}, &known));
         try std.testing.expectEqualStrings("", test_run.err.written());
         try std.testing.expectEqual(0, code);
-        try std.testing.expect(std.mem.indexOf(u8, test_run.out.written(), "disc 1 of the test release") != null);
+        try std.testing.expect(std.mem.find(u8, test_run.out.written(), "disc 1 of the test release") != null);
 
         var target = try tmp.dir.openDir(io, directory, .{});
         defer target.close(io);
@@ -1483,7 +1483,7 @@ test "installing from disc images and folders" {
     var test_run: TestRun = .init(gpa);
     defer test_run.deinit();
     try std.testing.expectEqual(0, try run(io, arena, .{ .directory = "games/later", .from = .{ "raw", null } }, test_run.environment(tmp.dir, &.{}, &known)));
-    try std.testing.expect(std.mem.indexOf(u8, test_run.out.written(), "Disc 2's archive isn't installed.") != null);
+    try std.testing.expect(std.mem.find(u8, test_run.out.written(), "Disc 2's archive isn't installed.") != null);
     try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "games/later/CD2.HOG", .{}));
     try std.testing.expectEqual(0, try run(io, arena, .{ .directory = "games/later", .from = .{ "disc2.iso", null } }, test_run.environment(tmp.dir, &.{}, &known)));
     try expectFile(io, tmp.dir, "games/later/CD2.HOG", "second archive");
@@ -1515,7 +1515,7 @@ test "looking for disc 1 in the drives" {
         defer test_run.deinit();
         const mounted = [_][]const u8{ "no-such-drive", "empty", "disc2", "foreign", "disc1" };
         try std.testing.expectEqual(0, try run(io, arena, .{ .directory = "found" }, test_run.environment(tmp.dir, &mounted, &known)));
-        try std.testing.expect(std.mem.indexOf(u8, test_run.out.written(), "Installing StarLancer from disc1,") != null);
+        try std.testing.expect(std.mem.find(u8, test_run.out.written(), "Installing StarLancer from disc1,") != null);
         _ = try tmp.dir.statFile(io, "found/LANGUAGE.DLL", .{});
         try expectFile(io, tmp.dir, "found/CD2.HOG", "second archive");
     }
@@ -1573,9 +1573,9 @@ test "asking for disc 2" {
         .{ .turns = null, .installed = false },
     };
     for (cases, 0..) |case, n| {
-        const path = try std.fmt.allocPrint(arena, "case{d}", .{n});
-        try testFolder(io, tmp.dir, try std.fs.path.join(arena, &.{ path, "drive" }), &testDisc1(cabinet));
-        try testFolder(io, tmp.dir, try std.fs.path.join(arena, &.{ path, "waiting" }), &test_disc2);
+        const path = try arena.print("case{d}", .{n});
+        try testFolder(io, tmp.dir, try std.Io.Dir.path.join(arena, &.{ path, "drive" }), &testDisc1(cabinet));
+        try testFolder(io, tmp.dir, try std.Io.Dir.path.join(arena, &.{ path, "waiting" }), &test_disc2);
         var dir = try tmp.dir.openDir(io, path, .{});
         defer dir.close(io);
         var test_run: TestRun = .init(gpa);
@@ -1588,9 +1588,9 @@ test "asking for disc 2" {
         }
         try std.testing.expectEqual(0, try run(io, arena, .{ .directory = "game" }, env));
         const said = test_run.out.written();
-        try std.testing.expectEqual(case.turns != null, std.mem.indexOf(u8, said, "Insert StarLancer disc 2 and press Enter") != null);
-        try std.testing.expectEqual(n == 0, std.mem.indexOf(u8, said, "Disc 2 isn't in any CD drive yet.") != null);
-        try std.testing.expectEqual(!case.installed, std.mem.indexOf(u8, said, "Disc 2's archive isn't installed.") != null);
+        try std.testing.expectEqual(case.turns != null, std.mem.find(u8, said, "Insert StarLancer disc 2 and press Enter") != null);
+        try std.testing.expectEqual(n == 0, std.mem.find(u8, said, "Disc 2 isn't in any CD drive yet.") != null);
+        try std.testing.expectEqual(!case.installed, std.mem.find(u8, said, "Disc 2's archive isn't installed.") != null);
         if (case.installed) {
             try expectFile(io, dir, "game/CD2.HOG", "second archive");
         } else {
@@ -1686,7 +1686,7 @@ test findGameIn {
     const arena = arena_state.allocator();
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const sep = [1]u8{std.fs.path.sep};
+    const sep = [1]u8{std.Io.Dir.path.sep};
     // Nothing anywhere, and a folder without the game's files.
     try tmp.dir.createDirPath(io, "bin/Other");
     try std.testing.expectEqual(null, try findGameIn(io, arena, tmp.dir, "bin"));

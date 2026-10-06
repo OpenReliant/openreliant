@@ -199,7 +199,7 @@ const most_lines = 256;
 ///
 /// **Fix:** a maneuver number past the table runs nothing, where the game reads past it.
 pub fn run(fighter: Fighter) void {
-    const number = @intFromEnum(fighter.state.maneuver);
+    const number = @backingInt(fighter.state.maneuver);
     if (number < maneuvers.compiled.len) runScript(fighter, maneuvers.compiled[number]);
 }
 
@@ -824,7 +824,7 @@ test goingToCrash {
     fighter.enemy().object.flags.components = true;
     try std.testing.expect(goingToCrash(fighter));
     // A pilot of a skill the game has no berth for never crashes.
-    try std.testing.expectEqual(null, crashBerth(@enumFromInt(3)));
+    try std.testing.expectEqual(null, crashBerth(@fromBackingInt(3)));
     try std.testing.expectEqual(2000, crashBerth(.high));
 }
 

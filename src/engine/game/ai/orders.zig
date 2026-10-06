@@ -87,7 +87,7 @@ pub const Order = enum(i16) {
     /// Its name in OpenReliant, or its number where the table holds no such order.
     pub fn format(order: Order, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (order) {
-            _ => writer.print("order {d}", .{@intFromEnum(order)}),
+            _ => writer.print("order {d}", .{@backingInt(order)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -207,7 +207,7 @@ comptime {
     var next: usize = 0;
     for (groups) |group| {
         for (table[next..][0..group.len], 0..) |entry, i| {
-            if (@intFromEnum(entry.order) - group.first != i) @compileError("orders out of place");
+            if (@backingInt(entry.order) - group.first != i) @compileError("orders out of place");
         }
         next += group.len;
     }
@@ -216,5 +216,5 @@ comptime {
 
 test info {
     for (table) |entry| try std.testing.expectEqual(entry.order, info(entry.order).?.order);
-    try std.testing.expectEqual(null, info(@enumFromInt(-1)));
+    try std.testing.expectEqual(null, info(@fromBackingInt(-1)));
 }

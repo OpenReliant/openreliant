@@ -41,7 +41,7 @@ pub const Table = enum {
 
     /// Recognises a table by its file name, ignoring case and any directory.
     pub fn fromPath(path: []const u8) ?Table {
-        const base = std.fs.path.basename(path);
+        const base = std.Io.Dir.path.basename(path);
         inline for (comptime std.enums.values(Table)) |table| {
             if (std.ascii.eqlIgnoreCase(base, table.fileName())) return table;
         }
@@ -340,7 +340,7 @@ pub const Pilot = extern struct {
 
         pub fn index(tier: Tier) ?usize {
             return switch (tier) {
-                .level_0, .level_1, .level_2 => @intFromEnum(tier),
+                .level_0, .level_1, .level_2 => @backingInt(tier),
                 _ => null,
             };
         }
@@ -382,7 +382,7 @@ pub const tier_c_level_2_override = [2]u16{ 50, 100 };
 fn testRecord(comptime T: type, name: []const u8) T {
     var bytes: [record_size]u8 = @splat(0);
     @memcpy(bytes[0..name.len], name);
-    return @bitCast(bytes);
+    return std.mem.bytesToValue(T, &bytes);
 }
 
 test Table {
@@ -447,7 +447,7 @@ test Missile {
 test Pilot {
     var pilot = testRecord(Pilot, "Cat Foster");
     pilot.tier_a = .level_2;
-    pilot.tier_b = @enumFromInt(7);
+    pilot.tier_b = @fromBackingInt(7);
     try std.testing.expectEqual(@as(?usize, 2), pilot.tier_a.index());
     try std.testing.expectEqual(@as(?usize, null), pilot.tier_b.index());
 

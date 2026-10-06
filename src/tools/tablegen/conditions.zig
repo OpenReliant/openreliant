@@ -14,6 +14,7 @@ const KindSet = openreliant.dte.Object.KindSet;
 const vm = openreliant.engine.vm;
 const Descriptor = vm.ConditionDescriptor;
 const EventValue = vm.EventValue;
+const Kinds = openreliant.engine.game.executor.Kinds;
 
 const image = @import("image.zig");
 const testing = @import("testing.zig");
@@ -102,7 +103,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
     const conditions = try arena.alloc(Condition, descriptors.len);
     for (conditions, descriptors) |*condition, descriptor| {
         var values: std.ArrayList(Value) = .empty;
-        var list = @intFromEnum(descriptor.values);
+        var list = @backingInt(descriptor.values);
         while (list != 0) : (list += @sizeOf(EventValue)) {
             // The list ends at a null label. `checked` is a `bool`, so its byte is looked at before
             // the record is read.
@@ -111,7 +112,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
             if (try reader.int(u8, list + @offsetOf(EventValue, "checked")) > 1) return error.BadFlag;
             const value = try reader.record(EventValue, list);
             try values.append(arena, .{
-                .label = try reader.string(@intFromEnum(value.label)),
+                .label = try reader.string(@backingInt(value.label)),
                 .kinds = @bitCast(value.kinds),
                 .extra = value._unknown_08,
                 .checked = value.checked,
@@ -119,21 +120,21 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
         }
 
         const handlers: Handlers = .{
-            .begin = @intFromEnum(descriptor.begin),
-            .add_member = @intFromEnum(descriptor.add_member),
-            .verdict = @intFromEnum(descriptor.verdict),
+            .begin = @backingInt(descriptor.begin),
+            .add_member = @backingInt(descriptor.add_member),
+            .verdict = @backingInt(descriptor.verdict),
         };
         const any = handlers.begin != 0 or handlers.add_member != 0 or handlers.verdict != 0;
         const all = handlers.begin != 0 and handlers.add_member != 0 and handlers.verdict != 0;
         if (any and !all) return error.PartialHandlers;
 
         condition.* = .{
-            .name = try reader.string(@intFromEnum(descriptor.name)),
+            .name = try reader.string(@backingInt(descriptor.name)),
             .unknown_04 = descriptor._unknown_04,
             .subjects = descriptor.subjects,
             .values = try values.toOwnedSlice(arena),
             .slot = if (descriptor.slot == none) null else descriptor.slot,
-            .veto_exempt = if (@intFromEnum(descriptor.veto_exempt) == none) null else descriptor.veto_exempt,
+            .veto_exempt = if (@backingInt(descriptor.veto_exempt) == none) null else descriptor.veto_exempt,
             .handlers = if (all) handlers else null,
         };
     }
@@ -203,8 +204,8 @@ pub fn emit(w: *Io.Writer, catalogue: Catalogue) !void {
             try w.writeAll("        .values = &.{\n");
             for (condition.values) |value| {
                 try w.print(
-                    "            .{{ .label = \"{f}\", .kinds = @bitCast(@as(u32, 0x{X:0>8})), .extra = 0x{X:0>2}, .checked = {} }},\n",
-                    .{ std.zig.fmtString(value.label), value.kinds, value.extra, value.checked },
+                    "            .{{ .label = \"{f}\", .kinds = {f}, .extra = 0x{X:0>2}, .checked = {} }},\n",
+                    .{ std.zig.fmtString(value.label), zig_text.flags(@as(Kinds, @bitCast(value.kinds))), value.extra, value.checked },
                 );
             }
             try w.writeAll("        },\n");
@@ -280,9 +281,9 @@ const TestPayload = struct {
         const name_at = strings + index * 0x20;
         payload.table().putString(name_at, name);
         var record = std.mem.zeroes(Descriptor);
-        record.name = @enumFromInt(name_at);
+        record.name = @fromBackingInt(name_at);
         record.slot = none;
-        record.veto_exempt = @enumFromInt(none);
+        record.veto_exempt = @fromBackingInt(none);
         change.apply(&record);
         payload.table().putRecord(table_va + index * @sizeOf(Descriptor), record);
     }
@@ -296,8 +297,8 @@ const TestPayload = struct {
             const label_at = strings + 0x100 + @as(u32, @intCast(i)) * 0x10;
             region.putString(label_at, label);
             var value = std.mem.zeroes(EventValue);
-            value.label = @enumFromInt(label_at);
-            value.kinds = @bitCast(@as(u32, 0x400));
+            value.label = @fromBackingInt(label_at);
+            value.kinds = .{ .ship = true };
             value._unknown_08 = 0x02;
             region.putRecord(at, value);
             region.put(at + @offsetOf(EventValue, "checked"), &.{checked});
@@ -312,7 +313,7 @@ const TestPayload = struct {
     /// Points a descriptor's values at the value list.
     const listed = struct {
         fn apply(record: *Descriptor) void {
-            record.values = @enumFromInt(lists);
+            record.values = @fromBackingInt(lists);
         }
     };
 
@@ -334,11 +335,11 @@ test read {
         fn apply(record: *Descriptor) void {
             record._unknown_04 = 0x1234;
             record.subjects = ship_or_group;
-            record.values = @enumFromInt(TestPayload.lists);
+            record.values = @fromBackingInt(TestPayload.lists);
             record.slot = 3;
-            record.begin = @enumFromInt(0x0045E000);
-            record.add_member = @enumFromInt(0x0045E001);
-            record.verdict = @enumFromInt(0x0045E002);
+            record.begin = @fromBackingInt(0x0045E000);
+            record.add_member = @fromBackingInt(0x0045E001);
+            record.verdict = @fromBackingInt(0x0045E002);
         }
     });
     payload.values(TestPayload.lists, &.{ "Ship", "Killer" }, 1);
@@ -382,7 +383,7 @@ test "handlers come in threes" {
     payload.installCatalogue(1);
     payload.descriptor(0, "ShipDestroyed", struct {
         fn apply(record: *Descriptor) void {
-            record.begin = @enumFromInt(0x0045E000);
+            record.begin = @fromBackingInt(0x0045E000);
         }
     });
     try std.testing.expectError(error.PartialHandlers, payload.catalogue(arena.allocator()));
@@ -413,15 +414,15 @@ test "emit writes Zig that parses" {
     const listed = [_]Condition{
         .{ .name = "ShipDestroyed", .unknown_04 = 0, .subjects = ship_or_group, .values = &values_listed, .slot = 3, .veto_exempt = .once, .handlers = .{ .begin = 1, .add_member = 2, .verdict = 3 } },
         .{ .name = "MissionStart", .unknown_04 = 0x10, .subjects = no_kinds, .values = &.{}, .slot = null, .veto_exempt = null, .handlers = null },
-        .{ .name = "Odd", .unknown_04 = 0, .subjects = no_kinds, .values = &.{}, .slot = null, .veto_exempt = @enumFromInt(0x7F), .handlers = null },
+        .{ .name = "Odd", .unknown_04 = 0, .subjects = no_kinds, .values = &.{}, .slot = null, .veto_exempt = @fromBackingInt(0x7F), .handlers = null },
     };
     var out: Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try emit(&out.writer, .{ .address = 0x004F2000, .conditions = &listed });
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".slot = null,") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".slot = 3,\n        .veto_exempt = .once,") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".veto_exempt = null,") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".veto_exempt = @enumFromInt(127),") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".subjects = .{ .ship = true, .flight_group = true, .squad = false, ._unused = 0 },") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".slot = null,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".slot = 3,\n        .veto_exempt = .once,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".veto_exempt = null,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".veto_exempt = @fromBackingInt(127),") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".subjects = .{ .ship = true, .flight_group = true, .squad = false, ._unused = 0 },") != null);
 }

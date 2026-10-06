@@ -96,7 +96,7 @@ pub const Store = struct {
             table[parts] = std.mem.asBytes(count);
             parts += 1;
             for (levels, made[0..levels.len]) |level, *header| {
-                header.* = .{ .width = level.width, .height = level.height, .format = @intFromEnum(level.format) };
+                header.* = .{ .width = level.width, .height = level.height, .format = @backingInt(level.format) };
                 table[parts] = std.mem.asBytes(header);
                 table[parts + 1] = level.texels;
                 parts += 2;
@@ -213,12 +213,12 @@ test Store {
 
 test decode {
     const gpa = std.testing.allocator;
-    const takes: std.EnumSet(Level.Format) = .initFull();
+    const takes: std.EnumSet(Level.Format) = .full;
     // A payload of one 1 by 1 RGBA level and no maps, each map's count 0, then cut short.
     const map_counts = 4 * Image.Maps.count;
     var body: [4 + @sizeOf(LevelHeader) + 4 + map_counts]u8 = undefined;
     std.mem.writeInt(u32, body[0..4], 1, .little);
-    @memcpy(body[4..][0..@sizeOf(LevelHeader)], std.mem.asBytes(&LevelHeader{ .width = 1, .height = 1, .format = @intFromEnum(Level.Format.rgba8) }));
+    @memcpy(body[4..][0..@sizeOf(LevelHeader)], std.mem.asBytes(&LevelHeader{ .width = 1, .height = 1, .format = @backingInt(Level.Format.rgba8) }));
     @memcpy(body[4 + @sizeOf(LevelHeader) ..][0..4], &[_]u8{ 1, 2, 3, 4 });
     @memset(body[body.len - map_counts ..], 0);
     const image = (try decode(gpa, &body, takes)).?;
@@ -226,6 +226,6 @@ test decode {
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, image.levels[0].texels);
     try std.testing.expectEqual(null, try decode(gpa, body[0 .. body.len - 1], takes));
     // A level of a format the GPU doesn't take is left out.
-    std.mem.writeInt(u32, body[8..12], @intFromEnum(Level.Format.bc7), .little);
+    std.mem.writeInt(u32, body[8..12], @backingInt(Level.Format.bc7), .little);
     try std.testing.expectEqual(null, try decode(gpa, &body, .initOne(.bc5)));
 }

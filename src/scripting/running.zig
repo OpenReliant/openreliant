@@ -328,14 +328,15 @@ const Made = struct {
     fn pass(made: *Made, scripts: *Runtime, arguments: anytype) ?Passed(@TypeOf(arguments)) {
         const Arguments = @TypeOf(arguments);
         var passed: Passed(Arguments) = undefined;
-        inline for (@typeInfo(Arguments).@"struct".fields, 0..) |field, at| {
-            const value = @field(arguments, field.name);
-            passed[at] = switch (comptime passing(field.type)) {
+        const info = @typeInfo(Arguments).@"struct";
+        inline for (info.field_names, info.field_types, 0..) |name, Field, at| {
+            const value = @field(arguments, name);
+            passed[at] = switch (comptime passing(Field)) {
                 .number => value,
                 .optional_data => if (value) |given| given.ref else null,
                 .table => value.ref,
                 .made => ref: {
-                    const ref = scripts.make(Push(field.type).push, .{value}) orelse return null;
+                    const ref = scripts.make(Push(Field).push, .{value}) orelse return null;
                     made.refs[made.len] = ref;
                     made.len += 1;
                     break :ref ref;
@@ -359,10 +360,10 @@ const Made = struct {
 
     /// The tuple `pass` gives for a handler's `Arguments`.
     fn Passed(comptime Arguments: type) type {
-        const fields = @typeInfo(Arguments).@"struct".fields;
+        const fields = @typeInfo(Arguments).@"struct".field_types;
         var types: [fields.len]type = undefined;
-        for (&types, fields) |*passed, field| passed.* = switch (passing(field.type)) {
-            .number => field.type,
+        for (&types, fields) |*passed, Field| passed.* = switch (passing(Field)) {
+            .number => Field,
             .optional_data => ?luau.Ref,
             .table, .made => luau.Ref,
         };

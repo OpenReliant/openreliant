@@ -14,7 +14,7 @@ pub const missions = [_]u16{ 85, 82, 81, 83, 84, 87 };
 /// which `mission_start` keeps (`multiplayer_mission`, `0x00582E8C`) and the radio's menu offers no
 /// base in.
 pub fn isScenario(number: u16) bool {
-    return std.mem.indexOfScalar(u16, &missions, number) != null;
+    return std.mem.findScalar(u16, &missions, number) != null;
 }
 
 test isScenario {

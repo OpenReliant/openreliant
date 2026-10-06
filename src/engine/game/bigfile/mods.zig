@@ -302,7 +302,7 @@ pub const Mod = struct {
 /// isn't the one the checksum was made for, and the log says so.
 fn intact(gpa: Allocator, io: Io, folder: Io.Dir, name: []const u8) Allocator.Error!bool {
     var named: [files.max_path]u8 = undefined;
-    const checksum_name = std.fmt.bufPrint(&named, "{s}" ++ checksums.extension, .{name}) catch return true;
+    const checksum_name = std.mem.print(&named, "{s}" ++ checksums.extension, .{name}) catch return true;
     var found: [files.max_path]u8 = undefined;
     const path = files.find(io, folder, checksum_name, &found) orelse return true;
     const failure: []const u8 = failed: {
@@ -529,7 +529,7 @@ pub const Mods = struct {
     /// (the part of the path after the last `\` or `/`) from the last mod that has it, as
     /// `readFile` reads it. Null if no mod has it.
     pub fn readInPlaceOf(mods: *const Mods, gpa: Allocator, path: []const u8) bigfile.ReadError!?[]u8 {
-        return mods.readFile(gpa, std.fs.path.basenameWindows(path));
+        return mods.readFile(gpa, std.Io.Dir.path.basenameWindows(path));
     }
 
     /// Reads the game's loose file `path` under the game folder `dir`: a mod's replacement if there
@@ -714,7 +714,7 @@ const GameFiles = struct {
             if (entry.image.flags.transient) continue;
             for (srtexture.mod_pictures.containers) |container| {
                 var named: [files.max_path]u8 = undefined;
-                const picture = std.fmt.bufPrint(&named, "{s}{s}", .{ entry.name(), container.extension() }) catch continue;
+                const picture = std.mem.print(&named, "{s}{s}", .{ entry.name(), container.extension() }) catch continue;
                 try gathered.add(gpa, picture, .texture);
             }
         }
@@ -743,7 +743,7 @@ const GameFiles = struct {
         for (std.enums.values(srtexture.MapFile)) |kind| {
             const texture = withoutSuffix(stem, kind.suffix()) orelse continue;
             var buffer: [files.max_path]u8 = undefined;
-            const picture = std.fmt.bufPrint(&buffer, "{s}" ++ srtexture.picture_extension, .{texture}) catch continue;
+            const picture = std.mem.print(&buffer, "{s}" ++ srtexture.picture_extension, .{texture}) catch continue;
             if (gathered.kindOf(picture) == .texture) return .{ .texture = texture, .kind = kind };
         }
         return null;
@@ -757,13 +757,13 @@ const GameFiles = struct {
     /// (`spr.pictureName`); null if it doesn't replace one.
     fn shapeOf(gathered: GameFiles, name: []const u8) ?Shape {
         const stem = pictureStem(name) orelse return null;
-        const mark = std.mem.lastIndexOfScalar(u8, stem, '_') orelse return null;
+        const mark = std.mem.findScalarLast(u8, stem, '_') orelse return null;
         const set = stem[0..mark];
         const index = std.fmt.parseUnsigned(usize, stem[mark + 1 ..], 10) catch return null;
         var buffer: [files.max_path]u8 = undefined;
         const looked_up = spr.pictureName(&buffer, set, index) catch return null;
         if (!std.ascii.eqlIgnoreCase(looked_up, name)) return null;
-        const set_file = std.fmt.bufPrint(&buffer, "{s}" ++ spr.extension, .{set}) catch return null;
+        const set_file = std.mem.print(&buffer, "{s}" ++ spr.extension, .{set}) catch return null;
         if (gathered.kindOf(set_file) != .file) return null;
         return .{ .set = set, .index = index };
     }
@@ -773,7 +773,7 @@ const GameFiles = struct {
     fn pictureOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
         const stem = pictureStem(name) orelse return null;
         var buffer: [files.max_path]u8 = undefined;
-        const picture = std.fmt.bufPrint(&buffer, "{s}" ++ tga.extension, .{stem}) catch return null;
+        const picture = std.mem.print(&buffer, "{s}" ++ tga.extension, .{stem}) catch return null;
         if (gathered.kindOf(picture) != .file) return null;
         return stem;
     }
@@ -785,7 +785,7 @@ const GameFiles = struct {
         for (fnt.outline_extensions) |extension| {
             const stem = withoutSuffix(name, extension) orelse continue;
             var buffer: [files.max_path]u8 = undefined;
-            const font = std.fmt.bufPrint(&buffer, "{s}" ++ fnt.extension, .{stem}) catch return null;
+            const font = std.mem.print(&buffer, "{s}" ++ fnt.extension, .{stem}) catch return null;
             if (gathered.kindOf(font) == .file) return stem;
         }
         return null;
@@ -858,7 +858,7 @@ fn isShader(name: []const u8) bool {
 
 /// Whether `name` ends in one of `extensions`, ignoring case.
 fn hasExtension(name: []const u8, extensions: []const []const u8) bool {
-    const extension = std.fs.path.extension(name);
+    const extension = std.Io.Dir.path.extension(name);
     for (extensions) |each| if (std.ascii.eqlIgnoreCase(extension, each)) return true;
     return false;
 }
@@ -879,7 +879,7 @@ fn isScript(name: []const u8) bool {
 fn parseVersion(text: []const u8) ?std.SemanticVersion {
     var buffer: [max_version]u8 = undefined;
     const full = if (std.mem.count(u8, text, ".") == 1)
-        std.fmt.bufPrint(&buffer, "{s}.0", .{text}) catch return null
+        std.mem.print(&buffer, "{s}.0", .{text}) catch return null
     else
         text;
     return std.SemanticVersion.parse(full) catch null;
@@ -890,12 +890,12 @@ const max_version = 64;
 
 /// Whether `name` is a checksum file, by its extension, ignoring case.
 fn isChecksum(name: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(std.fs.path.extension(name), checksums.extension);
+    return std.ascii.eqlIgnoreCase(std.Io.Dir.path.extension(name), checksums.extension);
 }
 
 /// Whether `name` is an archive, by its extension, ignoring case.
 fn isArchive(name: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(std.fs.path.extension(name), archive_extension);
+    return std.ascii.eqlIgnoreCase(std.Io.Dir.path.extension(name), archive_extension);
 }
 
 /// Whether a file or folder name is hidden, such as `.DS_Store` or `.git`. Mods skip them.
@@ -972,8 +972,8 @@ test Mods {
     try std.testing.expectEqualStrings("https://example.com/alpha", alpha.about(.url).?);
     try std.testing.expect(!mods.has("mod.ini"));
     var buffer: [64]u8 = undefined;
-    try std.testing.expectEqualStrings("Alpha 1.2, by Someone (Alpha)", try std.fmt.bufPrint(&buffer, "{f}", .{alpha}));
-    try std.testing.expectEqualStrings("beta.hog", try std.fmt.bufPrint(&buffer, "{f}", .{mods.list[1]}));
+    try std.testing.expectEqualStrings("Alpha 1.2, by Someone (Alpha)", try std.mem.print(&buffer, "{f}", .{alpha}));
+    try std.testing.expectEqualStrings("beta.hog", try std.mem.print(&buffer, "{f}", .{mods.list[1]}));
     var names = alpha.names();
     for ([_][]const u8{ "Ship.SHP", "logo.tga", "packed.dat" }) |name| try std.testing.expectEqualStrings(name, names.next().?);
     try std.testing.expectEqual(null, names.next());
@@ -1035,12 +1035,12 @@ test "a mod that needs a newer version is skipped" {
         .{ "unread", "OpenReliant=soon" },
         .{ "any", "Name=Any" },
     }) |mod| {
-        const folder = try std.fmt.allocPrint(gpa, "mods/{s}", .{mod[0]});
+        const folder = try gpa.print("mods/{s}", .{mod[0]});
         defer gpa.free(folder);
         try tmp.dir.createDirPath(io, folder);
-        const manifest = try std.fmt.allocPrint(gpa, "{s}/mod.ini", .{folder});
+        const manifest = try gpa.print("{s}/mod.ini", .{folder});
         defer gpa.free(manifest);
-        const text = try std.fmt.allocPrint(gpa, "[Mod]\n{s}\n", .{mod[1]});
+        const text = try gpa.print("[Mod]\n{s}\n", .{mod[1]});
         defer gpa.free(text);
         try tmp.dir.writeFile(io, .{ .sub_path = manifest, .data = text });
     }
@@ -1061,9 +1061,9 @@ test "the order says which mods are on and when they load" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     for ([_][]const u8{ "a", "b", "c", "d" }) |name| {
-        const path = try std.fmt.allocPrint(gpa, "mods/{s}/ship.shp", .{name});
+        const path = try gpa.print("mods/{s}/ship.shp", .{name});
         defer gpa.free(path);
-        try tmp.dir.createDirPath(io, std.fs.path.dirname(path).?);
+        try tmp.dir.createDirPath(io, std.Io.Dir.path.dirname(path).?);
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = name });
     }
     // C goes first, then A, then D; B is off, and the mods the list lacks would follow.

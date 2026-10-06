@@ -37,7 +37,7 @@ pub const sequences = @import("sequences.zig");
 /// with no record.
 pub fn find(ship_type: gameobj.Type) ?*const sequences.Record {
     for (&sequences.records) |*record| {
-        if (record.type == @intFromEnum(ship_type.base())) return record;
+        if (record.type == @backingInt(ship_type.base())) return record;
     }
     return null;
 }
@@ -213,7 +213,7 @@ pub const Split = struct {
         const object = &world.objects.slots[split.object].object;
         const direction = if (random.rand() % 2 == 0) math.normalize(at - root.position) else -math.forward(object.root.orientation);
         if (object.type.base() == .latov) {
-            if (sequence.bits > 0 and std.mem.indexOfScalar(usize, &latov_flash_steps, split.step) != null) flash(world);
+            if (sequence.bits > 0 and std.mem.findScalar(usize, &latov_flash_steps, split.step) != null) flash(world);
             const out = math.normalize(at - root.position);
             for (0..@intCast(@max(sequence.bits, 0))) |_| explode.throwChunk(world, at, out, .large);
         } else {
@@ -520,7 +520,7 @@ fn flashNear(world: gameobj.World, index: u16) void {
 /// **Fix:** the Victorious' front half takes its own drift and turn, where the game goes on
 /// into the Kronstadt's wreck's and takes that instead.
 fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
-    const drift: Vector, const tumble: Vector = switch (@intFromEnum(half.type.base())) {
+    const drift: Vector, const tumble: Vector = switch (@backingInt(half.type.base())) {
         0x6B => .{ .{ -1.5, 20, -2 }, @splat(0) },
         0xAD, 0xB7 => .{ .{ -1.5, -40, -2 }, @splat(0) },
         0xBD => .{ .{ 0, -20, 0 }, .{ 0, 0.0005, 0 } },
@@ -576,7 +576,7 @@ pub fn start(world: gameobj.World, index: u16) void {
     object.flags.engines_disabled = true;
     stopTracks(model);
 
-    if (sequence.other_half) |half_type| split.other = otherHalf(world, index, @enumFromInt(half_type), &split.portals[1]);
+    if (sequence.other_half) |half_type| split.other = otherHalf(world, index, @fromBackingInt(half_type), &split.portals[1]);
 
     var damaged: usize = 0;
     for (model.parts, 0..) |*part, at| {

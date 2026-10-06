@@ -114,7 +114,7 @@ fn extract(ctx: Context, bytes: []u8, source: []const u8, out_path: []const u8) 
     const io = ctx.io;
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
-    const stem = std.fs.path.stem(std.fs.path.basename(source));
+    const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basename(source));
     var film: talkie.Film = .init(ctx.arena);
     defer film.deinit();
     var chunks: talkie.Chunks = .{ .bytes = bytes };
@@ -125,7 +125,7 @@ fn extract(ctx: Context, bytes: []u8, source: []const u8, out_path: []const u8) 
             continue;
         };
         if (!decoded) continue;
-        const name = try std.fmt.allocPrint(ctx.arena, "{s}_{d:0>3}.png", .{ stem, written });
+        const name = try ctx.arena.print("{s}_{d:0>3}.png", .{ stem, written });
         defer ctx.arena.free(name);
         const file = try out_dir.createFile(io, name, .{});
         defer file.close(io);

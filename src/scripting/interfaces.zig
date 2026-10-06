@@ -66,7 +66,7 @@ pub const Interfaces = struct {
     offered: std.ArrayList(Entry) = .empty,
     builtins: std.EnumArray(builtin.Group, ?luau.Ref) = .initFill(null),
 
-    pub const tag = @intFromEnum(runtime_module.Tag.interfaces);
+    pub const tag = @backingInt(runtime_module.Tag.interfaces);
 
     pub fn deinit(interfaces: *Interfaces) void {
         for (interfaces.builtins.values) |ref| if (ref) |held| interfaces.runtime.release(held);
@@ -83,9 +83,8 @@ pub const Interfaces = struct {
     }
 
     fn builtinBase(interfaces: *Interfaces, family: @import("script.zig").Family, name: []const u8) ?luau.Ref {
-        inline for (std.meta.fields(builtin.Group)) |group| {
-            const kind: builtin.Group = @enumFromInt(group.value);
-            if (std.mem.eql(u8, name, group.name) and kind.reachable(family)) {
+        inline for (comptime std.enums.values(builtin.Group)) |kind| {
+            if (std.mem.eql(u8, name, @tagName(kind)) and kind.reachable(family)) {
                 if (interfaces.builtins.get(kind)) |ref| return ref;
                 const ref = interfaces.runtime.make(builtin.push, .{kind}) orelse return null;
                 interfaces.builtins.set(kind, ref);

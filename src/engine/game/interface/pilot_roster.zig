@@ -191,7 +191,7 @@ pub const CallSigns = struct {
         const place = for (&list.names, 0..) |*name, place| {
             if (name.len == 0) break place;
         } else full: {
-            std.mem.copyForwards(ListedCallSign, list.names[0 .. list_rows - 1], list.names[1..]);
+            @memmove(list.names[0 .. list_rows - 1], list.names[1..]);
             break :full list_rows - 1;
         };
         list.names[place].set(call_sign);
@@ -254,8 +254,8 @@ pub const DifficultyDialog = struct {
         switch (under) {
             .start => return .start,
             .back => return .back,
-            .easier => difficulty.* = if (difficulty.* == .easy) .hard else @enumFromInt(@intFromEnum(difficulty.*) - 1),
-            .harder => difficulty.* = if (difficulty.* == .hard) .easy else @enumFromInt(@intFromEnum(difficulty.*) + 1),
+            .easier => difficulty.* = if (difficulty.* == .easy) .hard else @fromBackingInt(@backingInt(difficulty.*) - 1),
+            .harder => difficulty.* = if (difficulty.* == .hard) .easy else @fromBackingInt(@backingInt(difficulty.*) + 1),
         }
         return null;
     }
@@ -274,10 +274,10 @@ pub const DifficultyDialog = struct {
             .easier => try canvas.shape(art, lit_easier_shape, arrows_at),
             .harder => try canvas.shape(art, lit_harder_shape, harder_at),
         };
-        try canvas.string(large, dialog_title_at, @intFromEnum(String.set_game_difficulty), canvas_module.blue, .centre);
-        try canvas.string(large, difficulty_at, @intFromEnum(difficultyName(difficulty)), canvas_module.blue, .left);
-        try canvas.string(large, back_at, @intFromEnum(String.back), canvas_module.blue, .left);
-        try canvas.string(large, start_at, @intFromEnum(String.start), canvas_module.blue, .right);
+        try canvas.string(large, dialog_title_at, @backingInt(String.set_game_difficulty), canvas_module.blue, .centre);
+        try canvas.string(large, difficulty_at, @backingInt(difficultyName(difficulty)), canvas_module.blue, .left);
+        try canvas.string(large, back_at, @backingInt(String.back), canvas_module.blue, .left);
+        try canvas.string(large, start_at, @backingInt(String.start), canvas_module.blue, .right);
     }
 
     /// The dialog's shapes and places: its box, the arrows, each lit, its buttons, and its text.
@@ -405,8 +405,8 @@ pub const Roster = struct {
             roster.blinked = 0;
             roster.cursor_shown = !roster.cursor_shown;
         }
-        const enter_key = @intFromEnum(input.Key.enter);
-        const keypad_enter = @intFromEnum(input.Key.keypad_enter);
+        const enter_key = @backingInt(input.Key.enter);
+        const keypad_enter = @backingInt(input.Key.keypad_enter);
         if (keyboard.pressed(enter_key, .none, true) or keyboard.pressed(keypad_enter, .none, true)) roster.finishTyping(context);
 
         roster.under = canvas_module.itemAt(Item, &rects, pointer.at);
@@ -515,7 +515,7 @@ fn writeLabel(canvas: Canvas, label: Label, colour: [3]f32) canvas_module.Error!
         .large => canvas.fonts.large,
         .small => canvas.fonts.small,
     };
-    try canvas.string(font, label.at, @intFromEnum(label.string), colour, label.alignment);
+    try canvas.string(font, label.at, @backingInt(label.string), colour, label.alignment);
 }
 
 comptime {
@@ -536,7 +536,7 @@ test CallSigns {
     // Full, the first is let go and the rest move up.
     for (2..list_rows) |place| {
         var buffer: [8]u8 = undefined;
-        try std.testing.expect(list.add(try std.fmt.bufPrint(&buffer, "pilot{d}", .{place})));
+        try std.testing.expect(list.add(try std.mem.print(&buffer, "pilot{d}", .{place})));
     }
     try std.testing.expect(list.add("Ace"));
     try std.testing.expectEqualStrings("Maverick", list.names[0].slice());
@@ -545,7 +545,7 @@ test CallSigns {
 
 test "Text keeps what fits" {
     var call_sign: CallSign = .{};
-    call_sign.set("x" ** 40);
+    call_sign.set(&@as([40]u8, @splat('x')));
     try std.testing.expectEqual(31, call_sign.slice().len);
 }
 

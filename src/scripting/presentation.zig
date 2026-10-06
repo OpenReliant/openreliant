@@ -105,9 +105,9 @@ pub const Presentation = struct {
     /// The game's scripts while a game runs, which the scripts' events go to.
     game: ?*game_module.Game = null,
     /// The keys held, which presses and releases are told against.
-    keys: std.StaticBitSet(key_codes) = .initEmpty(),
+    keys: std.bit_set.Static(key_codes) = .empty,
     /// The actions whose controls were held last frame.
-    actions: std.EnumSet(controls.Action) = .initEmpty(),
+    actions: std.EnumSet(controls.Action) = .empty,
     /// The window's size last frame.
     window: ?[2]u32 = null,
 
@@ -255,7 +255,7 @@ pub const Presentation = struct {
     /// Tells the scripts that `key` went down or up. A key held down that the window repeats is
     /// told once.
     pub fn key(shown: *Presentation, pressed: input.Key, down: bool) void {
-        const code = @intFromEnum(pressed);
+        const code = @backingInt(pressed);
         if (shown.keys.isSet(code) == down) return;
         shown.keys.setValue(code, down);
         shown.runtime.registries.input(shown.runtime, pressed, down);
@@ -276,7 +276,7 @@ pub const Presentation = struct {
             if (!std.mem.eql(u32, &last, &host.window)) shown.runner.callAll(.on_viewport_resized, .{ .width = host.window[0], .height = host.window[1] });
         }
         shown.window = host.window;
-        var held: std.EnumSet(controls.Action) = .initEmpty();
+        var held: std.EnumSet(controls.Action) = .empty;
         if (host.flying) {
             for (std.enums.values(controls.Action)) |action| {
                 if (!host.devices.active(action, false)) continue;
@@ -426,7 +426,7 @@ test "menu actions dispatch qualified press edges in flight and close on reload"
     const index = fixture.shown.runtime.input_actions.find("a:pulse").?;
     var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .flying = true };
     fixture.shown.frame(host);
-    fixture.devices.keyboard.down[@intFromEnum(input.Key.f12)] = true;
+    fixture.devices.keyboard.down[@backingInt(input.Key.f12)] = true;
     fixture.devices.keyboard.down[input.scan.left_shift] = true;
     fixture.shown.frame(host);
     try std.testing.expect(fixture.shown.runtime.input_actions.entries[index].held);
@@ -629,17 +629,17 @@ test "the strafe-run example combines registries and built-in interfaces" {
     fixture.shown.frame(host);
     try std.testing.expectEqualStrings("Shift F12: strafe run", fixture.shown.layers.get(.hud).text.items);
     fixture.devices.keyboard.down[input.scan.left_shift] = true;
-    fixture.devices.keyboard.down[@intFromEnum(input.Key.f12)] = true;
+    fixture.devices.keyboard.down[@backingInt(input.Key.f12)] = true;
     fixture.shown.frame(host);
     scripts.scripts.update(0.04);
     try std.testing.expectEqual(scripts.runtime.custom_orders.find("strafe-run:strafe_run").?, fixture.mission.slot(sabre).current().?.order);
     engine.game.aigeneric.objectOrders(fixture.mission.orders(), sabre);
     try std.testing.expectEqual(0.25, fixture.mission.slot(sabre).object.yaw_input);
-    fixture.devices.keyboard.down[@intFromEnum(input.Key.f10)] = true;
+    fixture.devices.keyboard.down[@backingInt(input.Key.f10)] = true;
     fixture.shown.frame(host);
     try std.testing.expectEqualStrings("strafe-run:chase", fixture.shown.runtime.registries.cameraName(view.view).?);
     try engine.surrender.math.testing.expectVector(.{ 0, -200, -1000 }, view.place.position);
-    fixture.devices.keyboard.down[@intFromEnum(input.Key.f9)] = true;
+    fixture.devices.keyboard.down[@backingInt(input.Key.f9)] = true;
     fixture.shown.frame(host);
     try std.testing.expect(fixture.shown.runtime.registries.selected_screen != null);
     try std.testing.expect(fixture.shown.layers.get(.ui).commands.items.len == 3);
@@ -661,7 +661,7 @@ test "the example action sends a game event that starts its custom order" {
     game_scripts.scripts.begin(fixture.mission.orders(), .{ .number = 0, .file = "mission0.dte" }, 1);
     var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .flying = true };
     fixture.shown.frame(host);
-    fixture.devices.keyboard.down[@intFromEnum(input.Key.f12)] = true;
+    fixture.devices.keyboard.down[@backingInt(input.Key.f12)] = true;
     fixture.devices.keyboard.down[input.scan.left_shift] = true;
     fixture.shown.frame(host);
     game_scripts.scripts.update(0.04);
@@ -957,7 +957,7 @@ test "the wingmen example's panel lists the wingmen nearby, and calls them back"
     try std.testing.expectEqual(.run_away, slot.current().?.order);
     game.scripts.update(0.1);
     fixture.shown.key(.f9, false);
-    fixture.devices.keyboard.down[@intFromEnum(input.Key.left_shift)] = true;
+    fixture.devices.keyboard.down[@backingInt(input.Key.left_shift)] = true;
     fixture.shown.key(.f9, true);
     fixture.shown.frame(host);
     game.scripts.update(0.1);
@@ -1024,6 +1024,7 @@ test "player scripts register post effects, which draw in order and end with the
     var host: postprocessing.testing.Host = .{};
     defer host.deinit();
     fixture.shown.setEffectHost(host.effectHost());
+    defer fixture.shown.setEffectHost(null);
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     // The failing script's effect was taken back as it failed to load.
     try std.testing.expectEqual(5, host.added);
@@ -1070,6 +1071,7 @@ test "the CRT example registers its effect, and Shift F8 and Shift F7 change it"
     var host: postprocessing.testing.Host = .{};
     defer host.deinit();
     fixture.shown.setEffectHost(host.effectHost());
+    defer fixture.shown.setEffectHost(null);
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     fixture.frame(0.016, .{ 800, 600 });
     var buffer: [postprocessing.max_effects]postprocessing.Pass = undefined;
@@ -1078,7 +1080,7 @@ test "the CRT example registers its effect, and Shift F8 and Shift F7 change it"
     try std.testing.expectEqual(.after_hud, passes[0].stage);
     try std.testing.expectEqual(0.3, passes[0].parameters[0]);
     // Shift F7 steps the scanlines on; Shift F8 turns the effect off.
-    fixture.devices.keyboard.down[@intFromEnum(input.Key.left_shift)] = true;
+    fixture.devices.keyboard.down[@backingInt(input.Key.left_shift)] = true;
     fixture.shown.key(.f7, true);
     passes = fixture.shown.effectPasses(&buffer);
     try std.testing.expectEqual(0.5, passes[0].parameters[0]);
@@ -1172,7 +1174,7 @@ test "the cel-shading example registers its functions, and Shift F6 and Shift F5
     try std.testing.expectEqual(3, host.drawn.items[0].parameters[0]);
     try std.testing.expect(host.drawn.items[1].everywhere and host.drawn.items[1].enabled);
     // Shift F5 steps to four bands; Shift F6 turns both off.
-    fixture.devices.keyboard.down[@intFromEnum(input.Key.left_shift)] = true;
+    fixture.devices.keyboard.down[@backingInt(input.Key.left_shift)] = true;
     fixture.shown.key(.f5, true);
     try std.testing.expectEqual(4, host.drawn.items[0].parameters[0]);
     fixture.shown.key(.f6, true);

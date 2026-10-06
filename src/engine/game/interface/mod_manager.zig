@@ -474,7 +474,7 @@ pub const ModManager = struct {
         y += details_lines.height;
         const facts = [_]struct { []const u8, ?[]const u8 }{ .{ "VERSION ", row.mod.about(.version) }, .{ "BY ", row.mod.about(.author) } };
         for (facts) |fact| if (fact[1]) |value| {
-            const line = std.fmt.bufPrint(&buffer, "{s}{s}", .{ fact[0], value }) catch value;
+            const line = std.mem.print(&buffer, "{s}{s}", .{ fact[0], value }) catch value;
             try canvas.wrapped(font, .{ x, y }, line, canvas_module.blue, .left, details_lines);
             y += details_lines.height;
         };
@@ -484,7 +484,7 @@ pub const ModManager = struct {
         }
         const files = row.mod.names().count();
         const scripts = row.mod.scripts().count();
-        const counts = std.fmt.bufPrint(&buffer, "{d} FILE{s}, {d} SCRIPT{s}", .{ files, plural(files), scripts, plural(scripts) }) catch "";
+        const counts = std.mem.print(&buffer, "{d} FILE{s}, {d} SCRIPT{s}", .{ files, plural(files), scripts, plural(scripts) }) catch "";
         try canvas.wrapped(font, .{ x, y }, counts, canvas_module.blue, .left, details_lines);
         y += details_lines.height;
         if (row.mod.about(.url)) |url| try canvas.wrapped(font, .{ x, y }, url, canvas_module.gold, .left, details_lines);
@@ -498,7 +498,7 @@ pub const name_buffer = 256;
 fn nameOf(buffer: *[name_buffer]u8, row: Row) []const u8 {
     const title_text = row.title();
     const version = row.mod.about(.version) orelse return title_text;
-    return std.fmt.bufPrint(buffer, "{s} {s}", .{ title_text, version }) catch title_text;
+    return std.mem.print(buffer, "{s} {s}", .{ title_text, version }) catch title_text;
 }
 
 /// The ending that makes a word plural, for `number` of them.
@@ -542,15 +542,15 @@ const Fixture = struct {
         fixture.tmp = std.testing.tmpDir(.{ .iterate = true });
         fixture.arena = .init(gpa);
         for ([_][]const u8{ "alpha", "beta", "gamma" }) |name| {
-            const folder = try std.fmt.allocPrint(gpa, "mods/{s}", .{name});
+            const folder = try gpa.print("mods/{s}", .{name});
             defer gpa.free(folder);
             try fixture.tmp.dir.createDirPath(io, folder);
-            const manifest = try std.fmt.allocPrint(gpa, "{s}/mod.ini", .{folder});
+            const manifest = try gpa.print("{s}/mod.ini", .{folder});
             defer gpa.free(manifest);
-            const contents = try std.fmt.allocPrint(gpa, "[Mod]\nName={c}{s} mod\nVersion=1.0\nAuthor=Someone\nDescription=Changes the {s}.\n", .{ std.ascii.toUpper(name[0]), name[1..], name });
+            const contents = try gpa.print("[Mod]\nName={c}{s} mod\nVersion=1.0\nAuthor=Someone\nDescription=Changes the {s}.\n", .{ std.ascii.toUpper(name[0]), name[1..], name });
             defer gpa.free(contents);
             try fixture.tmp.dir.writeFile(io, .{ .sub_path = manifest, .data = contents });
-            const scripted = try std.fmt.allocPrint(gpa, "{s}/{s}.luau", .{ folder, name });
+            const scripted = try gpa.print("{s}/{s}.luau", .{ folder, name });
             defer gpa.free(scripted);
             try fixture.tmp.dir.writeFile(io, .{ .sub_path = scripted, .data = "return {}" });
         }

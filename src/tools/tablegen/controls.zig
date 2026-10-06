@@ -181,7 +181,7 @@ pub fn emit(w: *Io.Writer, bindings: []const Binding, keys: []const Key, rows: [
         \\}};
         \\
         \\pub fn binding(action: Action) Binding {{
-        \\    return defaults[@intFromEnum(action)];
+        \\    return defaults[@backingInt(action)];
         \\}}
         \\
         \\comptime {{
@@ -234,7 +234,7 @@ pub fn emit(w: *Io.Writer, bindings: []const Binding, keys: []const Key, rows: [
 }
 
 fn testRecord(key: u16, modifier: u16, name: []const u8, button: i16) ControlBinding {
-    var record: ControlBinding = .{ .key = key, .modifier = @enumFromInt(modifier), .name = @splat(0), .string = 0x35C, .key_name = @splat(0), .button = button };
+    var record: ControlBinding = .{ .key = key, .modifier = @fromBackingInt(modifier), .name = @splat(0), .string = 0x35C, .key_name = @splat(0), .button = button };
     @memcpy(record.name[0..name.len], name);
     return record;
 }
@@ -303,10 +303,10 @@ test "emit writes Zig that parses" {
     const source = out.written();
     try testing.expectZig(source);
 
-    try std.testing.expect(std.mem.indexOf(u8, source, "    reverse_thrust = 1,\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".modifier = .shift, .button = null },\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".modifier = .none, .button = 2 },\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".string = 0x35C,") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, ".{ .code = 0x2B, .name = \"\\\\\" },\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, source, "    .afterburners,\n    null,\n    .reverse_thrust,\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, "    reverse_thrust = 1,\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".modifier = .shift, .button = null },\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".modifier = .none, .button = 2 },\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".string = 0x35C,") != null);
+    try std.testing.expect(std.mem.find(u8, source, ".{ .code = 0x2B, .name = \"\\\\\" },\n") != null);
+    try std.testing.expect(std.mem.find(u8, source, "    .afterburners,\n    null,\n    .reverse_thrust,\n") != null);
 }

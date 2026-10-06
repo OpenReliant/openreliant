@@ -95,7 +95,7 @@ test parse {
     try std.testing.expect(!view.bars and view.cockpit);
     try std.testing.expect(parse(.{ .name = 0xB5, .bars = 1, .cockpit = 0 }).?.bars);
     // Text past the table has flag bytes above 1.
-    try std.testing.expectEqual(null, parse(@bitCast(@as([4]u8, "SR_S".*))));
+    try std.testing.expectEqual(null, parse(std.mem.bytesToValue(Stored, "SR_S")));
 }
 
 test read {

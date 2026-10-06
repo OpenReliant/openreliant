@@ -130,8 +130,8 @@ fn modPicture(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8) Al
 pub fn pictureName(buffer: []u8, picture_name: []const u8) error{NoSpaceLeft}![]u8 {
     var looked_up: [bigfile.member_name_room]u8 = undefined;
     const member = bigfile.memberName(&looked_up, picture_name);
-    const stem = member[0 .. member.len - std.fs.path.extension(member).len];
-    return std.fmt.bufPrint(buffer, "{s}" ++ srtexture.picture_extension, .{stem});
+    const stem = member[0 .. member.len - std.Io.Dir.path.extension(member).len];
+    return std.mem.print(buffer, "{s}" ++ srtexture.picture_extension, .{stem});
 }
 
 /// A picture of the game's in the tests, two pixels by one: blue, then green.

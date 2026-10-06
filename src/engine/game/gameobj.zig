@@ -23,7 +23,7 @@ const create = @import("create.zig");
 const additions = @import("additions.zig");
 const guns = @import("guns.zig");
 const missiles = @import("missiles.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const motion = @import("motion.zig");
 const input = @import("../input.zig");
 const Clock = @import("main.zig").Clock;
@@ -37,7 +37,7 @@ pub const Slot = enum(i32) {
     _,
 
     pub fn of(slot: u16) Slot {
-        return @enumFromInt(slot);
+        return @fromBackingInt(slot);
     }
 
     /// The slot `index` names, or none.
@@ -47,7 +47,7 @@ pub const Slot = enum(i32) {
 
     /// The slot it names, or null for none.
     pub fn index(slot: Slot) ?u16 {
-        return if (slot == .none) null else @intCast(@intFromEnum(slot));
+        return if (slot == .none) null else @intCast(@backingInt(slot));
     }
 };
 
@@ -58,12 +58,12 @@ pub const Voice = enum(u16) {
     _,
 
     pub fn of(voice: u8) Voice {
-        return @enumFromInt(voice);
+        return @fromBackingInt(voice);
     }
 
     /// The voice it names, or null for none.
     pub fn index(voice: Voice) ?u8 {
-        return if (voice == .none) null else @intCast(@intFromEnum(voice));
+        return if (voice == .none) null else @intCast(@backingInt(voice));
     }
 };
 
@@ -193,9 +193,9 @@ pub const Quadrants = extern struct {
     }
 
     comptime {
-        for (std.enums.values(collision.Quadrant), @typeInfo(Quadrants).@"struct".fields) |quadrant, field| {
-            assert(std.mem.eql(u8, @tagName(quadrant), field.name));
-            assert(@offsetOf(Quadrants, field.name) == @as(usize, @intFromEnum(quadrant)) * @sizeOf(f32));
+        for (std.enums.values(collision.Quadrant), @typeInfo(Quadrants).@"struct".field_names) |quadrant, name| {
+            assert(std.mem.eql(u8, @tagName(quadrant), name));
+            assert(@offsetOf(Quadrants, name) == @as(usize, @backingInt(quadrant)) * @sizeOf(f32));
         }
         assert(@sizeOf(Quadrants) == 0x10);
     }
@@ -506,25 +506,25 @@ pub const GameType = enum(u32) {
             .{ .late_escape_pod, "uly_escape.shp" },
             .{ .other_late_escape_pod, "ber_escape.shp" },
             .{ .debris, "deb_1.shp" },
-            .{ @enumFromInt(GameType.debris.number() + 9), "deb_10.shp" },
+            .{ @fromBackingInt(GameType.debris.number() + 9), "deb_10.shp" },
             .{ .crewman, "rus_man1.shp" },
-            .{ @enumFromInt(GameType.crewman.number() + 3), "rus_man4.shp" },
+            .{ @fromBackingInt(GameType.crewman.number() + 3), "rus_man4.shp" },
             .{ .rock_chunk, "rockchunk00.SHP" },
-            .{ @enumFromInt(GameType.rock_chunk.number() + 4), "rockchunk04.SHP" },
+            .{ @fromBackingInt(GameType.rock_chunk.number() + 4), "rockchunk04.SHP" },
             .{ .shell, "shell.shp" },
             .{ .limpet_pod, "limpet_pod.shp" },
-            .{ @enumFromInt(rocks.get(.asteroid)[0]), "ast_1.shp" },
-            .{ @enumFromInt(rocks.get(.asteroid)[1]), "ast_7.shp" },
-            .{ @enumFromInt(rocks.get(.turret)[0]), "turast_1.shp" },
-            .{ @enumFromInt(rocks.get(.turret)[1]), "turast_7.shp" },
-            .{ @enumFromInt(rocks.get(.hole)[0]), "ast_hole1.shp" },
-            .{ @enumFromInt(rocks.get(.hole)[1]), "ast_hole4.shp" },
+            .{ @fromBackingInt(rocks.get(.asteroid)[0]), "ast_1.shp" },
+            .{ @fromBackingInt(rocks.get(.asteroid)[1]), "ast_7.shp" },
+            .{ @fromBackingInt(rocks.get(.turret)[0]), "turast_1.shp" },
+            .{ @fromBackingInt(rocks.get(.turret)[1]), "turast_7.shp" },
+            .{ @fromBackingInt(rocks.get(.hole)[0]), "ast_hole1.shp" },
+            .{ @fromBackingInt(rocks.get(.hole)[1]), "ast_hole4.shp" },
         };
         for (models) |named| assert(std.mem.eql(u8, create.models.ship_types[named[0].number()].model.?, named[1]));
     }
 
     pub fn number(object_type: GameType) u32 {
-        return @intFromEnum(object_type);
+        return @backingInt(object_type);
     }
 
     /// Where the second set of the player's ship types starts: types `0xF4` to `0xFF`, whose models
@@ -535,7 +535,7 @@ pub const GameType = enum(u32) {
     /// `player_twins_first`, stands for the first set's in the same place, and any other for itself.
     pub fn untwinned(object_type: GameType) GameType {
         const at = object_type.number();
-        return @enumFromInt(if (at >= player_twins_first) at - player_twins_first else at);
+        return @fromBackingInt(if (at >= player_twins_first) at - player_twins_first else at);
     }
 
     /// How many of the player's ship types have twins: the first twelve, from 0.
@@ -545,7 +545,7 @@ pub const GameType = enum(u32) {
     /// for any other.
     pub fn twin(object_type: GameType) ?GameType {
         const at = object_type.number();
-        return if (at < player_twins) @enumFromInt(at + player_twins_first) else null;
+        return if (at < player_twins) @fromBackingInt(at + player_twins_first) else null;
     }
 
     /// Whether it is a Phoenix, the ship that carries the Nova Cannon, or its twin.
@@ -579,7 +579,7 @@ pub const GameType = enum(u32) {
     /// Asteroid `n`, from `ast_1.shp`, round and round the seven.
     pub fn asteroid(n: usize) GameType {
         const range = rocks.get(.asteroid);
-        return @enumFromInt(range[0] + n % (range[1] - range[0] + 1));
+        return @fromBackingInt(@intCast(range[0] + n % (range[1] - range[0] + 1)));
     }
 
     /// The child of the root the AI aims at on an object of this type, where it aims at a part
@@ -596,7 +596,7 @@ pub const GameType = enum(u32) {
 
     pub fn format(object_type: GameType, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (object_type) {
-            _ => writer.print("type {d}", .{@intFromEnum(object_type)}),
+            _ => writer.print("type {d}", .{@backingInt(object_type)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -615,13 +615,13 @@ pub const Type = enum(u32) {
 
     /// The game's type `game`.
     pub fn of(game: GameType) Type {
-        return @enumFromInt(@intFromEnum(game));
+        return @fromBackingInt(@backingInt(game));
     }
 
     /// The game's type it acts as: itself for one of the game's, and for one a mod adds, the type
     /// it is based on.
     pub fn base(object_type: Type) GameType {
-        const from_mod = additions.ships.get(object_type.number()) orelse return @enumFromInt(object_type.number());
+        const from_mod = additions.ships.get(object_type.number()) orelse return @fromBackingInt(object_type.number());
         return from_mod.base;
     }
 
@@ -631,7 +631,7 @@ pub const Type = enum(u32) {
     }
 
     pub fn number(object_type: Type) u32 {
-        return @intFromEnum(object_type);
+        return @backingInt(object_type);
     }
 
     /// Whether it has a record in the ship tables: one of the game's 256, or one a mod adds.
@@ -667,7 +667,7 @@ pub const Type = enum(u32) {
 
     /// The type scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?Type {
-        if (additions.ships.find(text)) |found| return @enumFromInt(found);
+        if (additions.ships.find(text)) |found| return @fromBackingInt(found);
         return .of(std.meta.stringToEnum(GameType, text) orelse return null);
     }
 
@@ -1322,10 +1322,10 @@ pub const GunMode = packed struct(u16) {
 };
 
 test "Type.untwinned" {
-    try std.testing.expectEqual(Type.of(.predator), Type.untwinned(@enumFromInt(0xF4)));
-    try std.testing.expectEqual(Type.of(.grendel), Type.untwinned(@enumFromInt(0xF6)));
+    try std.testing.expectEqual(Type.of(.predator), Type.untwinned(@fromBackingInt(0xF4)));
+    try std.testing.expectEqual(Type.of(.grendel), Type.untwinned(@fromBackingInt(0xF6)));
     try std.testing.expectEqual(Type.of(.grendel), Type.of(.grendel).untwinned());
-    try std.testing.expectEqual(@as(Type, @enumFromInt(0xF3)), Type.untwinned(@enumFromInt(0xF3)));
+    try std.testing.expectEqual(@as(Type, @fromBackingInt(0xF3)), Type.untwinned(@fromBackingInt(0xF3)));
 }
 
 test "GameObject.Flags" {
@@ -1408,8 +1408,8 @@ test "GameObject.width" {
 
 test "Type.format" {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("reliant", try std.fmt.bufPrint(&buffer, "{f}", .{Type.of(.reliant)}));
-    try std.testing.expectEqualStrings("type 4096", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Type, @enumFromInt(0x1000))}));
+    try std.testing.expectEqualStrings("reliant", try std.mem.print(&buffer, "{f}", .{Type.of(.reliant)}));
+    try std.testing.expectEqualStrings("type 4096", try std.mem.print(&buffer, "{f}", .{@as(Type, @fromBackingInt(0x1000))}));
 }
 
 test "Type.twin" {
@@ -1421,12 +1421,12 @@ test "Type.twin" {
 }
 
 test "GameType.rock" {
-    try std.testing.expectEqual(.asteroid, GameType.rock(@enumFromInt(0x7F)));
-    try std.testing.expectEqual(.turret, GameType.rock(@enumFromInt(0x85)));
-    try std.testing.expectEqual(.hole, GameType.rock(@enumFromInt(0xF3)));
-    try std.testing.expectEqual(null, GameType.rock(@enumFromInt(0x80)));
+    try std.testing.expectEqual(.asteroid, GameType.rock(@fromBackingInt(0x7F)));
+    try std.testing.expectEqual(.turret, GameType.rock(@fromBackingInt(0x85)));
+    try std.testing.expectEqual(.hole, GameType.rock(@fromBackingInt(0xF3)));
+    try std.testing.expectEqual(null, GameType.rock(@fromBackingInt(0x80)));
     try std.testing.expectEqual(null, GameType.predator.rock());
-    try std.testing.expect(!GameType.isAsteroid(@enumFromInt(0x85)));
+    try std.testing.expect(!GameType.isAsteroid(@fromBackingInt(0x85)));
     try std.testing.expectEqual(0x79, Type.asteroid(0).number());
     try std.testing.expectEqual(0x7F, Type.asteroid(6).number());
     try std.testing.expectEqual(0x79, Type.asteroid(7).number());
@@ -1588,8 +1588,8 @@ pub fn rechargeShields(object: *GameObject, combat: *const create.ShipCombat, re
 const recharge_steps: f32 = 25;
 
 /// A new object's `blink_offset` (`object_alloc`, `0x00475DD0`): C's `rand()` over its largest
-/// value (`libcmt.Rand.fraction`), times `blink_range`, truncated.
-pub fn blinkOffset(random: *libcmt.Rand) i16 {
+/// value (`Random.fraction`), times `blink_range`, truncated.
+pub fn blinkOffset(random: *Random) i16 {
     return @intFromFloat(random.fraction() * blink_range);
 }
 
@@ -1600,7 +1600,7 @@ const blink_range: f32 = 100;
 /// it hands out, so everything the allocation doesn't set starts at zero: the object is at rest,
 /// turned by nothing each update, and has no motion, orders or renderer's object. Its root is
 /// flagged as a component, and it draws its `blink_offset` from `random`.
-pub fn objectAlloc(object_type: Type, random: *libcmt.Rand) GameObject {
+pub fn objectAlloc(object_type: Type, random: *Random) GameObject {
     var object = std.mem.zeroes(GameObject);
     object.type = object_type;
     object.rotation = math.identity;
@@ -1614,14 +1614,15 @@ pub fn objectAlloc(object_type: Type, random: *libcmt.Rand) GameObject {
 }
 
 test objectAlloc {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const object = objectAlloc(.of(.stand_in), &random);
     try std.testing.expectEqual(Type.of(.stand_in), object.type);
     try std.testing.expectEqual(math.identity, object.rotation);
     try std.testing.expect(object.root.flags.component);
     try std.testing.expectEqual(1, object.visibility);
-    // The runtime's first number from its first seed gives the first object no offset.
-    try std.testing.expectEqual(0, object.blink_offset);
+    // Its blink offset comes from the next random number.
+    var same: Random = .{};
+    try std.testing.expectEqual(blinkOffset(&same), object.blink_offset);
     try std.testing.expect(!object.created);
 }
 
@@ -1710,9 +1711,9 @@ pub const World = struct {
     touchdown: @import("ailand.zig").Touchdown = .level,
     view: camera.View,
     shake: *f32,
-    /// The runtime's numbers (`libcmt.Rand`), which the guns' step draws a damaged gun's misfire
-    /// from.
-    random: *libcmt.Rand,
+    /// The game's random numbers (`Random`), from which the guns' step draws a damaged gun's
+    /// misfire.
+    random: *Random,
     /// The sound the objects are heard through, and where from; null where nothing is heard.
     hearing: ?@import("hog_snd.zig").Hearing = null,
     /// The camera, whose view the game's code switches (`camera_set_view`); null where nothing is
@@ -2268,7 +2269,7 @@ pub const testing = struct {
     /// they are made from, and what their world points at. It stays where `init` fills it in, as
     /// the world points into it.
     pub const Mission = struct {
-        random: libcmt.Rand,
+        random: Random,
         objects: *create.Objects,
         tables: create.Stats,
         player: input.Player,
@@ -2402,21 +2403,13 @@ test knockLocal {
 }
 
 test blinkOffset {
-    var random: libcmt.Rand = .{};
-    // The runtime's first number from its first seed is 41, 41 / 32767 of the way to 100.
-    try std.testing.expectEqual(0, blinkOffset(&random));
+    var random: Random = .{};
     for (0..1000) |_| {
         const offset = blinkOffset(&random);
         try std.testing.expect(offset >= 0 and offset <= 100);
     }
-    // The largest number C's `rand()` gives makes 100, its share of the way rounding up to 1 in
-    // single precision. The seed that gives it is the runtime's step run backwards from one whose
-    // bits 16 to 30 are all set.
-    const step: u32 = 214013;
-    var inverse: u32 = step;
-    for (0..5) |_| inverse *%= 2 -% step *% inverse;
-    var largest: libcmt.Rand = .{ .seed = (0x7FFF_0000 -% 2531011) *% inverse };
-    try std.testing.expectEqual(100, blinkOffset(&largest));
+    // The largest number makes 100: its share rounds up to 1 in single precision.
+    try std.testing.expectEqual(1, Random.share(Random.max));
 }
 
 test rechargeShields {

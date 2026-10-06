@@ -374,7 +374,7 @@ test "a load script declares a page, and every script reads the values" {
     try registry.set("a", "callsign", .{ .text = &line });
     line[0] = 'X';
     try std.testing.expectEqualStrings("Maverick", registry.value("a", "callsign").?.text);
-    try registry.set("a", "callsign", .{ .text = "a" ** (mod_options.text_room + 1) });
+    try registry.set("a", "callsign", .{ .text = &@as([mod_options.text_room + 1]u8, @splat('a')) });
     try std.testing.expectEqualStrings("Viper", registry.value("a", "callsign").?.text);
     // The changes wait, in order, for the scripts to be told.
     var changes: usize = 0;

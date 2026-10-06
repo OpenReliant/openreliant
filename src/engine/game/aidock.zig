@@ -122,7 +122,7 @@ pub const Step = enum(u32) {
 
     /// The step after it.
     fn next(step: Step) Step {
-        return @enumFromInt(@intFromEnum(step) +% 1);
+        return @fromBackingInt(@backingInt(step) +% 1);
     }
 };
 
@@ -443,7 +443,7 @@ pub fn way(world: gameobj.World, index: u16) motion.Way {
     if (state.until < now) {
         slot.motion = .backward;
         if (slot.orders[0].data.dock.style == .limpet_car)
-            state.step = @enumFromInt(@intFromEnum(state.step) + 1)
+            state.step = @fromBackingInt(@backingInt(state.step) + 1)
         else
             state.step = state.step.next();
     }
@@ -467,7 +467,7 @@ const limpet_pod_part = 0;
 /// starts the approach. **Fix:** missing points end the order instead of reading missing nodes.
 fn limpetInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
-    slot.state.dock.step = if (findPoints(ctx, index)) @enumFromInt(@intFromEnum(LimpetStep.approach)) else .no_port;
+    slot.state.dock.step = if (findPoints(ctx, index)) @fromBackingInt(@backingInt(LimpetStep.approach)) else .no_port;
     slot.object.passes_through[0] = .from(slot.orders[0].target.slotIn(ctx.world.objects));
 }
 
@@ -480,10 +480,10 @@ fn limpetUpdate(ctx: Context, index: u16) void {
     const target = slot.orders[0].target;
     const carrier = target.slotIn(all) orelse return aigeneric.end(ctx, index);
     const state = &slot.state.dock;
-    const step: LimpetStep = @enumFromInt(@intFromEnum(state.step));
+    const step: LimpetStep = @fromBackingInt(@backingInt(state.step));
     if (all.slots[carrier].object.gone()) {
         if (step == .approach) return aigeneric.end(ctx, index);
-        if (@intFromEnum(step) > @intFromEnum(LimpetStep.approach) and @intFromEnum(step) < @intFromEnum(LimpetStep.depart)) {
+        if (@backingInt(step) > @backingInt(LimpetStep.approach) and @backingInt(step) < @backingInt(LimpetStep.depart)) {
             ai.objectDestroyed(ctx, index, false, false);
             return;
         }
@@ -492,13 +492,13 @@ fn limpetUpdate(ctx: Context, index: u16) void {
     const now = world.clock.frame_start;
     switch (step) {
         .approach => if (ai.arrive(world, index, at.ahead(-limpet_approach), at.orientation, ai.full_throttle)) {
-            state.step = @enumFromInt(@intFromEnum(LimpetStep.latch));
+            state.step = @fromBackingInt(@backingInt(LimpetStep.latch));
         },
         .latch => {
             slot.object.flags.attached = true;
             slot.motion = .follow;
             state.follower = .{ .path = .dock, .limit = slide_limit };
-            state.step = @enumFromInt(@intFromEnum(LimpetStep.slide));
+            state.step = @fromBackingInt(@backingInt(LimpetStep.slide));
             state.until = world.clock.mission_ticks + limpet_slide_ticks;
             state.slide_from = slot.object.nextPosition();
             ai.stop(&all.slots[carrier].object);
@@ -510,12 +510,12 @@ fn limpetUpdate(ctx: Context, index: u16) void {
             sound3d.playIn(world, null, null, index, .dock, 1, .not_reserved);
             rotateLimpet(slot, 0, limpet_track_speed);
             transferPod(ctx, index, carrier);
-            state.step = @enumFromInt(@intFromEnum(LimpetStep.rotate));
+            state.step = @fromBackingInt(@backingInt(LimpetStep.rotate));
             state.until = now + limpet_wait;
         },
         .rotate => if (state.until < now) {
             slot.object.throttle = ai.full_throttle;
-            state.step = @enumFromInt(@intFromEnum(LimpetStep.depart));
+            state.step = @fromBackingInt(@backingInt(LimpetStep.depart));
             state.until = now + limpet_wait;
             sound3d.playIn(world, null, null, index, .undock, 1, .not_reserved);
         },
@@ -523,7 +523,7 @@ fn limpetUpdate(ctx: Context, index: u16) void {
             slot.object.throttle = 0;
             rotateLimpet(slot, objects.Model.keep_time, -limpet_track_speed);
             slot.motion = .forward;
-            state.step = @enumFromInt(@intFromEnum(LimpetStep.finish));
+            state.step = @fromBackingInt(@backingInt(LimpetStep.finish));
             state.until = now + limpet_wait;
         },
         .finish => if (state.until < now) {
@@ -835,7 +835,7 @@ test Side {
     try std.testing.expectEqual(Vector{ 1, 1, 1 }, Side.left.mirror());
     try std.testing.expectEqual(Vector{ -1, 1, 1 }, Side.right.mirror());
     // Any other word mirrors, as the game's test against zero has it.
-    try std.testing.expectEqual(Vector{ -1, 1, 1 }, @as(Side, @enumFromInt(2)).mirror());
+    try std.testing.expectEqual(Vector{ -1, 1, 1 }, @as(Side, @fromBackingInt(2)).mirror());
 }
 
 test "a freighter docks at a station's port, from far behind it" {

@@ -228,8 +228,8 @@ fn doorsInUse(all: *const create.Objects, index: u16, doors: Doors) bool {
         if (entry.order != .launch or entry.target.index != carrier) continue;
         const state = other.state.launch;
         if (state.style != .bay or !std.meta.eql(Doors.ofLaunch(all, other), doors)) continue;
-        const step = @intFromEnum(state.step);
-        if (step > @intFromEnum(launch.Step.waiting) and step <= @intFromEnum(Step.close)) return true;
+        const step = @backingInt(state.step);
+        if (step > @backingInt(launch.Step.waiting) and step <= @backingInt(Step.close)) return true;
     }
     return false;
 }

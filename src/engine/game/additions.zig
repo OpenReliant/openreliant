@@ -119,7 +119,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
 
             /// Its name without the mod's, which can't hold a colon (`parse`).
             pub fn own(added: Added) []const u8 {
-                return added.name[std.mem.lastIndexOfScalar(u8, added.name, ':').? + 1 ..];
+                return added.name[std.mem.findScalarLast(u8, added.name, ':').? + 1 ..];
             }
         };
 
@@ -183,7 +183,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             if (spec.baseOf(text)) |base| return spec.baseNumber(base);
             if (find(text)) |number| return number;
             var buffer: [256]u8 = undefined;
-            const qualified = std.fmt.bufPrint(&buffer, "{s}:{s}", .{ mod, text }) catch return null;
+            const qualified = std.mem.print(&buffer, "{s}:{s}", .{ mod, text }) catch return null;
             return find(qualified);
         }
 
@@ -212,16 +212,16 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
         fn parse(context: Context, earlier: []const Added) Allocator.Error!?Added {
             const manifest = context.mod.manifest;
             const own = context.own;
-            if (own.len == 0 or std.mem.indexOfAny(u8, own, ": ") != null) {
+            if (own.len == 0 or std.mem.findAny(u8, own, ": ") != null) {
                 context.warn(spec.noun, "needs a name without spaces or colons", .{});
                 return null;
             }
-            const name = try std.fmt.allocPrint(context.arena, "{s}:{s}", .{ context.mod.qualifier(), own });
+            const name = try context.arena.print("{s}:{s}", .{ context.mod.qualifier(), own });
             for (earlier) |each| if (std.ascii.eqlIgnoreCase(each.name, name)) {
                 context.warn(spec.noun, "is listed twice", .{});
                 return null;
             };
-            const section = try std.fmt.allocPrint(context.arena, "{s}{s}", .{ spec.item_section, own });
+            const section = try context.arena.print("{s}{s}", .{ spec.item_section, own });
             const base_text = manifest.value(section, "Base");
             const base = if (base_text) |text| spec.baseOf(text) orelse {
                 context.warn(spec.noun, "has the base '{s}', which isn't one of the game's", .{text});
@@ -280,7 +280,7 @@ fn gameNamed(comptime Named: type, text: []const u8, comptime below: comptime_in
         return std.enums.fromInt(Named, number);
     } else |_| {}
     inline for (comptime std.enums.values(Named)) |each| {
-        if (@intFromEnum(each) >= 0 and @intFromEnum(each) < below and std.ascii.eqlIgnoreCase(trimmed, @tagName(each))) return each;
+        if (@backingInt(each) >= 0 and @backingInt(each) < below and std.ascii.eqlIgnoreCase(trimmed, @tagName(each))) return each;
     }
     return null;
 }
@@ -333,8 +333,8 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
     };
     var made: ShipExtra = .{ .model = try context.arena.dupe(u8, model) };
     if (manifest.value(section, "Cockpit")) |text| made.cockpit = try context.arena.dupe(u8, text);
-    if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, std.fs.path.stem(text));
-    if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, std.fs.path.stem(text));
+    if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, std.Io.Dir.path.stem(text));
+    if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, std.Io.Dir.path.stem(text));
     if (manifest.value(section, "EngineSound")) |name| made.engine_sound = try readSound(context, "ship type", name) orelse return null;
     if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "ship type", text) orelse return null;
     if (manifest.value(section, "BlindFire")) |text| made.blind_fire = readSwitch(context, "BlindFire", text) orelse return null;
@@ -354,14 +354,14 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
             context.warn("ship type", "fires the gun '{s}', which isn't one of the game's or the mods'", .{text});
             return null;
         };
-        made.gun = @enumFromInt(number);
+        made.gun = @fromBackingInt(@intCast(number));
     }
     if (manifest.value(section, "Missiles")) |text| {
         const number = missiles.named(text, context.mod.qualifier()) orelse {
             context.warn("ship type", "carries the missile '{s}', which isn't one of the game's or the mods'", .{text});
             return null;
         };
-        made.missile = @enumFromInt(number);
+        made.missile = @fromBackingInt(@intCast(number));
     }
     return made;
 }
@@ -405,7 +405,7 @@ fn readNamed(comptime Named: type, context: Context, comptime key: []const u8, t
     if (gameNamed(Named, text, end)) |named| return named;
     const names = comptime names: {
         var list: []const u8 = "";
-        for (@typeInfo(Named).@"enum".fields, 0..) |field, at| list = list ++ (if (at == 0) "" else ", ") ++ field.name;
+        for (@typeInfo(Named).@"enum".field_names, 0..) |name, at| list = list ++ (if (at == 0) "" else ", ") ++ name;
         break :names list;
     };
     context.warn("ship type", "gives " ++ key ++ " the value '{s}', which isn't one of " ++ names, .{text});
@@ -427,7 +427,7 @@ pub const ships = Family(gameobj.GameType, ShipExtra, .{
     .list_section = "ShipTypes",
     .item_section = "ShipType ",
     .first = 0x100,
-    .end = @intFromEnum(gameobj.GameType.sun_marker),
+    .end = @backingInt(gameobj.GameType.sun_marker),
     .baseOf = struct {
         fn of(text: []const u8) ?gameobj.GameType {
             return gameNamed(gameobj.GameType, text, 0x100);
@@ -435,7 +435,7 @@ pub const ships = Family(gameobj.GameType, ShipExtra, .{
     }.of,
     .baseNumber = struct {
         fn number(base: gameobj.GameType) u32 {
-            return @intFromEnum(base);
+            return @backingInt(base);
         }
     }.number,
     .numbered_in = "its missions",
@@ -465,9 +465,9 @@ fn readGun(context: Context, section: []const u8, _: guns_module.GameGun) Alloca
     const manifest = context.mod.manifest;
     var made: GunExtra = .{};
     // A picture is found by its texture's name, as the mods' pictures are (`srtexture.Files`).
-    if (manifest.value(section, "Shot")) |name| made.shot = try context.arena.dupe(u8, std.fs.path.stem(name));
+    if (manifest.value(section, "Shot")) |name| made.shot = try context.arena.dupe(u8, std.Io.Dir.path.stem(name));
     if (manifest.value(section, "ShotSize")) |text| made.shot_size = readSize(context, "shot", text) orelse return null;
-    if (manifest.value(section, "Flash")) |name| made.flash = try context.arena.dupe(u8, std.fs.path.stem(name));
+    if (manifest.value(section, "Flash")) |name| made.flash = try context.arena.dupe(u8, std.Io.Dir.path.stem(name));
     if (manifest.value(section, "FlashSize")) |text| made.flash_size = readSize(context, "flash", text) orelse return null;
     if (manifest.value(section, "Sound")) |name| made.sound = try readSound(context, "gun", name) orelse return null;
     return made;
@@ -511,7 +511,7 @@ pub const guns = Family(guns_module.GameGun, GunExtra, .{
             const trimmed = std.mem.trim(u8, text, " \t");
             if (std.fmt.parseInt(u32, trimmed, 0)) |number| {
                 if (number == 0 or number >= guns_module.max_types) return null;
-                return @enumFromInt(number - 1);
+                return @fromBackingInt(@intCast(number - 1));
             } else |_| {}
             return gameNamed(guns_module.GameGun, trimmed, guns_module.max_types);
         }
@@ -540,7 +540,7 @@ pub const missiles = Family(missiles_module.GameMissile, MissileExtra, .{
     }.of,
     .baseNumber = struct {
         fn number(base: missiles_module.GameMissile) u32 {
-            return @intCast(@intFromEnum(base));
+            return @intCast(@backingInt(base));
         }
     }.number,
     .numbered_in = "its models' hardpoints",
@@ -563,7 +563,7 @@ fn readPilot(context: Context, section: []const u8, base: u8) Allocator.Error!?P
     for (film_keys) |entry| {
         const key, const head = entry;
         const film = manifest.value(section, key) orelse continue;
-        face.films[@intFromEnum(head)] = try context.arena.dupe(u8, std.fs.path.stem(film));
+        face.films[@backingInt(head)] = try context.arena.dupe(u8, std.Io.Dir.path.stem(film));
     }
     if (manifest.value(section, "Voice")) |voice| face.own_voice = try context.arena.dupe(u8, std.mem.trim(u8, voice, " \t"));
     return .{ .face = face };
@@ -900,7 +900,7 @@ test remapMission {
     // A mission of mod `a` naming its types 300 and 301, its pilot 200, and one of the game's.
     var records = [_]dte.Ship{
         dte.testing.ship(0, dte.Ship.no_flight_group, 300),
-        dte.testing.ship(1, dte.Ship.no_flight_group, @intFromEnum(gameobj.GameType.phoenix)),
+        dte.testing.ship(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.phoenix)),
         dte.testing.ship(2, dte.Ship.no_flight_group, 301),
         dte.testing.ship(3, dte.Ship.no_flight_group, 302),
     };
@@ -914,7 +914,7 @@ test remapMission {
     const remapped_ships = try (try dte.Mission.parse(image)).ships();
     try std.testing.expectEqual(ships.first, remapped_ships[0].kind);
     try std.testing.expectEqual(pilots.first, remapped_ships[0].pilot);
-    try std.testing.expectEqual(@intFromEnum(gameobj.GameType.phoenix), remapped_ships[1].kind);
+    try std.testing.expectEqual(@backingInt(gameobj.GameType.phoenix), remapped_ships[1].kind);
     try std.testing.expectEqual(12, remapped_ships[1].pilot);
     try std.testing.expectEqual(ships.first + 2, remapped_ships[2].kind);
     try std.testing.expectEqual(302, remapped_ships[3].kind);

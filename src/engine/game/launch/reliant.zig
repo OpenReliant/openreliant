@@ -7,7 +7,7 @@
 const std = @import("std");
 const log = std.log.scoped(.launch);
 
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const math = @import("../../surrender/math.zig");
 const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
 const aigeneric = @import("../aigeneric.zig");
@@ -76,11 +76,11 @@ pub const Cutaway = enum(i32) {
     /// How many cutaways `pick` picks among (`0x0041B2CB`).
     const cutaways = 3;
 
-    /// One of the three, picked from the runtime's numbers as the player's launch starts
+    /// One of the three, picked from the game's random numbers as the player's launch starts
     /// (`0x0041B2C5` to `0x0041B2D6`): the remainder of `random`'s next over `cutaways`, counted
     /// from the first, the bay's.
-    pub fn pick(random: *libcmt.Rand) Cutaway {
-        return @enumFromInt(@as(i32, random.rand() % cutaways) + @intFromEnum(Cutaway.bay));
+    pub fn pick(random: *Random) Cutaway {
+        return @fromBackingInt(@as(i32, random.rand() % cutaways) + @backingInt(Cutaway.bay));
     }
 };
 
@@ -99,7 +99,7 @@ pub const Door = enum {
 
     /// Its part in the Reliant's root's child list for tube `gate`.
     pub fn part(door: Door, gate: usize) usize {
-        return gate + @as(usize, @intFromEnum(door)) * door_step;
+        return gate + @as(usize, @backingInt(door)) * door_step;
     }
 };
 
@@ -259,7 +259,7 @@ fn showHangar(ctx: aigeneric.Context, index: u16, gate: i16, in_tube: math.Vecto
 /// Reliant, one step (`Step`) each time the last step's wait has passed:
 ///
 /// 1. `start`: for the player's ship, the engine starts sounding with a shake, one of the three
-///    cutaways is picked from the runtime's numbers (`Cutaway.pick`), the bay's view taking the
+///    cutaways is picked from the game's random numbers (`Cutaway.pick`), the bay's view taking the
 ///    camera at once, and the tube's upper door shows, playing its opening backwards.
 /// 2. `lower`: the hangar's retainer lowers the player's ship, its clamps heard.
 /// 3. `release`: the retainer rises again, and the ship rides its node no more.
@@ -510,7 +510,7 @@ test "a ship drops out of the Reliant's tube, step by step" {
 }
 
 test "Cutaway.pick" {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     for (0..30) |_| switch (Cutaway.pick(&random)) {
         .bay, .below, .aside => {},
         .none, _ => return error.TestUnexpectedResult,

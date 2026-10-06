@@ -6,7 +6,7 @@ add how the maintainer works with an agent.
 - **Starting an issue.** Begin with `gh issue view N --comments`, and read the comments on related
   closed issues too.
 - **Trying a change.** When the maintainer tries a change in the game, build and launch it right
-  away: `make play`, or `zig build -Doptimize=ReleaseSafe` and then
+  away: `make play`, or `zig build --release=safe` and then
   `zig-out/bin/openreliant <game directory>`. Once they are happy with it, run the checks and
   commit.
 - **Pull requests.** Push the feature branch and open the pull request when the change is ready.

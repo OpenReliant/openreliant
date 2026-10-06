@@ -80,7 +80,7 @@ pub fn integrated(gpa: Allocator, samples: []align(1) const i16, channels: usize
     const step: usize = @max(1, @as(usize, @intFromFloat(@as(f64, @floatFromInt(rate)) * step_seconds)));
 
     // The weighted power of each step's frames, summed over the channels.
-    const powers = try gpa.alloc(f64, (frames + step - 1) / step);
+    const powers = try gpa.alloc(f64, @divCeil(frames, step));
     defer gpa.free(powers);
     @memset(powers, 0);
     var filters: [max_channels][2]Biquad = undefined;
@@ -169,7 +169,7 @@ test integrated {
     // Silence reads nothing, and more silence around a sound changes nothing: the gates leave it
     // out, though the blocks that straddle the sound's edges count.
     const rate = 22050;
-    const quiet = [_]i16{0} ** (rate * 2);
+    const quiet: [rate * 2]i16 = @splat(0);
     try std.testing.expectEqual(null, try integrated(gpa, &quiet, 1, rate));
     const sine = try testSine(gpa, 997, 0.5, 1, rate);
     defer gpa.free(sine);

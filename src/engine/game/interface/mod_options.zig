@@ -190,7 +190,7 @@ pub const Option = struct {
             .toggle, .heading => return "",
             .text => return if (value == .text) value.text else "",
             .choice => return if (option.indexOf(value)) |at| option.control.choice[at].label else "",
-            .number, .slider => return if (value == .number) std.fmt.bufPrint(buffer, "{d}", .{value.number}) catch "" else "",
+            .number, .slider => return if (value == .number) std.mem.print(buffer, "{d}", .{value.number}) catch "" else "",
         }
     }
 
@@ -361,7 +361,7 @@ pub const ModOptions = struct {
             screen.typing = null;
             return true;
         }
-        if (context.keyboard.pressed(@intFromEnum(input.Key.enter), .none, true)) {
+        if (context.keyboard.pressed(@backingInt(input.Key.enter), .none, true)) {
             screen.endTyping(row, context);
             return true;
         }
@@ -685,7 +685,7 @@ test "a text is typed in its box, kept with Enter or a click, and put back with 
     };
     try std.testing.expectEqual(null, options[0].problem());
     var long = options[0];
-    long.default = .{ .text = "a" ** (text_room + 1) };
+    long.default = .{ .text = &@as([text_room + 1]u8, @splat('a')) };
     try std.testing.expectEqualStrings("a text's default is too long", long.problem().?);
 
     var recorder: Recorder = .{ .mod = "pilot", .page = .{ .title = "PILOT", .options = &options } };
@@ -716,9 +716,9 @@ test "a text is typed in its box, kept with Enter or a click, and put back with 
     try std.testing.expectEqual(null, click(&screen, &keyboard, pages, box));
     typed.push('2');
     _ = screen.frame(context);
-    keyboard.down[@intFromEnum(input.Key.enter)] = true;
+    keyboard.down[@backingInt(input.Key.enter)] = true;
     _ = screen.frame(context);
-    keyboard.down[@intFromEnum(input.Key.enter)] = false;
+    keyboard.down[@backingInt(input.Key.enter)] = false;
     try std.testing.expectEqualStrings("Viper2", recorder.values[0].?.text);
     try std.testing.expectEqual(1, recorder.sets);
     // A click elsewhere keeps it too, and does what it's on: the toggle turns over.

@@ -41,7 +41,7 @@ pub fn steppedIndex(at: ?usize, count: usize, step: Step) usize {
 /// The choice of `E` a step from `current`, in its order, round from the last to the first.
 pub fn steppedChoice(comptime E: type, current: E, step: Step) E {
     const choices = comptime std.enums.values(E);
-    return choices[steppedIndex(std.mem.indexOfScalar(E, choices, current), choices.len, step)];
+    return choices[steppedIndex(std.mem.findScalar(E, choices, current), choices.len, step)];
 }
 
 /// A row, as the game's video screen lays one out (`video_screen_draw`, `0x0042F440`): its label to
@@ -467,8 +467,8 @@ pub const List = struct {
     /// **Improvement:** the game's lists scroll by their arrows alone.
     pub fn scrollBy(list: *List, notches: i32, keyboard: *input.Keyboard, ticks: u32) void {
         list.rows.wheel(notches);
-        if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) list.scrollHeld(.up, ticks);
-        if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) list.scrollHeld(.down, ticks);
+        if (keyboard.pressed(@backingInt(input.Key.up), .none, false)) list.scrollHeld(.up, ticks);
+        if (keyboard.pressed(@backingInt(input.Key.down), .none, false)) list.scrollHeld(.down, ticks);
     }
 
     /// Where `row` stands among the rows shown, from the top, where it is shown.

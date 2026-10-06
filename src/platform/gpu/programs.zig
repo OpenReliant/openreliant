@@ -135,7 +135,7 @@ pub fn parts(file: Part, included: Part, buffer: *[max_parts]Part) []const Part 
 /// Where `line` starts in `source`, alone on its line, if it is there.
 pub fn lineAt(source: []const u8, line: []const u8) ?usize {
     var from: usize = 0;
-    while (std.mem.indexOfPos(u8, source, from, line)) |at| : (from = at + line.len) {
+    while (std.mem.findPos(u8, source, from, line)) |at| : (from = at + line.len) {
         const starts_line = at == 0 or source[at - 1] == '\n';
         const after = source[at + line.len ..];
         const ends_line = after.len == 0 or after[0] == '\n' or after[0] == '\r';

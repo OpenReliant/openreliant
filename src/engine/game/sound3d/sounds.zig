@@ -199,5 +199,5 @@ fn name(comptime text: []const u8) [32]u8 {
 }
 
 comptime {
-    if (@typeInfo(Sound).@"enum".fields.len != definitions.len) @compileError("a sound without a definition");
+    if (@typeInfo(Sound).@"enum".field_names.len != definitions.len) @compileError("a sound without a definition");
 }

@@ -48,7 +48,7 @@ pub const restart_name = "restart";
 
 /// The file of saved game `slot` of the pilot `call_sign` (`0x004756FD`, `0x004E86E4`), in the
 /// game's folder: `saves\<call sign>GAME<slot>.IFF`, the slot in two digits at least.
-pub fn fileName(buffer: []u8, call_sign: []const u8, slot: u8) std.fmt.BufPrintError![]const u8 {
+pub fn fileName(buffer: []u8, call_sign: []const u8, slot: u8) std.mem.PrintError![]const u8 {
     return companionName(buffer, call_sign, slot, file_extension);
 }
 
@@ -58,8 +58,8 @@ const file_extension = ".IFF";
 /// OpenReliant's: the file that goes with saved game `slot` of `call_sign` beside its own, of
 /// `extension`, such as the mods' scripts' state (`Extra`): `saves\<call sign>GAME<slot>` and
 /// the extension.
-pub fn companionName(buffer: []u8, call_sign: []const u8, slot: u8, extension: []const u8) std.fmt.BufPrintError![]const u8 {
-    return std.fmt.bufPrint(buffer, folder_name ++ "\\{s}GAME{d:0>2}{s}", .{ call_sign, slot, extension });
+pub fn companionName(buffer: []u8, call_sign: []const u8, slot: u8, extension: []const u8) std.mem.PrintError![]const u8 {
+    return std.mem.print(buffer, folder_name ++ "\\{s}GAME{d:0>2}{s}", .{ call_sign, slot, extension });
 }
 
 /// OpenReliant's: what else is kept with each saved game beside its file, such as the mods'
@@ -293,7 +293,7 @@ pub const ModChoice = struct {
         if (file.value(section, ship_key)) |name| choice.ship = if (additions.ships.find(name)) |number| @intCast(number) else null;
         for (&choice.racks, 1..) |*rack, number| {
             var key: [rack_key.len + rack_digits]u8 = undefined;
-            const named = std.fmt.bufPrint(&key, "{s}{d}", .{ rack_key, number }) catch unreachable;
+            const named = std.mem.print(&key, "{s}{d}", .{ rack_key, number }) catch unreachable;
             if (file.value(section, named)) |name| rack.* = loadout_tables.Missile.named(name);
         }
         return choice;
@@ -418,10 +418,10 @@ pub const Game = struct {
         miss.tier = game.tier.*;
         miss.kills = game.player.kills.count;
         miss.mp_deaths = campaign.mp_deaths;
-        for (&miss.medals, 1..) |*flag, medal| flag.* = @intFromBool(campaign.medals.contains(@enumFromInt(medal)));
+        for (&miss.medals, 1..) |*flag, medal| flag.* = @intFromBool(campaign.medals.contains(@fromBackingInt(@intCast(medal))));
         for (&miss.ribbons, 0..) |*flag, ribbon| flag.* = @intFromBool(campaign.ribbons.isSet(ribbon));
         for (campaign.records, 0..) |record, index| {
-            miss.ratings[index] = if (record.rating) |rating| @truncate(@intFromEnum(rating)) else no_rating;
+            miss.ratings[index] = if (record.rating) |rating| @truncate(@backingInt(rating)) else no_rating;
             miss.mission_pickups[index] = record.pickups;
             miss.promotions[index] = record.promotion orelse 0;
             if (index + 1 < missions) miss.mission_kills[index + 1] = @bitCast(record.kills);
@@ -455,12 +455,12 @@ pub const Game = struct {
         game.player.kills.count = miss.kills;
         game.player.kills.kept = miss.kills;
         campaign.mp_deaths = miss.mp_deaths;
-        campaign.medals = .initEmpty();
-        for (miss.medals, 1..) |flag, medal| if (flag != 0) campaign.medals.insert(@enumFromInt(medal));
-        campaign.ribbons = .initEmpty();
+        campaign.medals = .empty;
+        for (miss.medals, 1..) |flag, medal| if (flag != 0) campaign.medals.insert(@fromBackingInt(@intCast(medal)));
+        campaign.ribbons = .empty;
         for (miss.ribbons, 0..) |flag, ribbon| campaign.ribbons.setValue(ribbon, flag != 0);
         for (&campaign.records, 0..) |*record, index| record.* = .{
-            .rating = if (miss.ratings[index] == no_rating) null else @enumFromInt(miss.ratings[index]),
+            .rating = if (miss.ratings[index] == no_rating) null else @fromBackingInt(miss.ratings[index]),
             .kills = if (index + 1 < missions) @bitCast(miss.mission_kills[index + 1]) else 0,
             .pickups = std.math.lossyCast(u8, miss.mission_pickups[index]),
             .promotion = if (miss.promotions[index] == 0) null else gameflow.rankOf(miss.promotions[index]),
@@ -487,8 +487,8 @@ const no_missile = -1;
 /// The autosave's name (`0x00475BF6` to `0x00475C1A`): the game's string `AUTOSAVE: Mission `
 /// (`autosave_string`) and the number the player sees for `mission`, the mission the campaign has
 /// moved on to (`gameflow.displayNumber`).
-pub fn autosaveName(buffer: []u8, prefix: []const u8, mission: u16) std.fmt.BufPrintError![]const u8 {
-    return std.fmt.bufPrint(buffer, "{s}{d}", .{ prefix, gameflow.displayNumber(mission) });
+pub fn autosaveName(buffer: []u8, prefix: []const u8, mission: u16) std.mem.PrintError![]const u8 {
+    return std.mem.print(buffer, "{s}{d}", .{ prefix, gameflow.displayNumber(mission) });
 }
 
 pub const autosave_string = 0x18A;
@@ -556,7 +556,7 @@ pub const Folder = struct {
     /// Writes `bytes` as the file of `extension` that goes with saved game `slot` of `call_sign`,
     /// as `put` writes the saved game's own.
     pub fn putCompanion(folder: Folder, call_sign: []const u8, slot: u8, extension: []const u8, bytes: []const u8) Error!void {
-        if (std.mem.indexOfAny(u8, call_sign, winmain.Typed.file_name_refused) != null) return error.BadCallSign;
+        if (std.mem.findAny(u8, call_sign, winmain.Typed.file_name_refused) != null) return error.BadCallSign;
         var spelled: [files.max_path]u8 = undefined;
         const saves = files.find(folder.io, folder.dir, folder_name, &spelled) orelse made: {
             try folder.dir.createDirPath(folder.io, folder_name);
@@ -567,7 +567,7 @@ pub const Folder = struct {
         var found: [files.max_path]u8 = undefined;
         var joined: [files.max_path]u8 = undefined;
         const written = files.find(folder.io, folder.dir, path, &found) orelse
-            try std.fmt.bufPrint(&joined, "{s}/{s}", .{ saves, path[folder_name.len + 1 ..] });
+            try std.mem.print(&joined, "{s}/{s}", .{ saves, path[folder_name.len + 1 ..] });
         try folder.dir.writeFile(folder.io, .{ .sub_path = written, .data = bytes });
     }
 
@@ -706,7 +706,7 @@ test read {
     const odd = comptime iff.testing.form(form_type, Chunk("NAME", "x\x00") ++ Chunk("PILO", "\x01\x02\x03\x04\x05\x06") ++ Chunk("ALPH", "\x07") ++ Chunk("PILO", "\x09\x09\x09\x09"));
     try std.testing.expect(read(odd, &back));
     try std.testing.expectEqualStrings("x", back.name.slice());
-    try std.testing.expectEqual(Replacement{ .pilot = 0x0201, .status = @enumFromInt(3), ._unused = 4 }, back.pilo);
+    try std.testing.expectEqual(Replacement{ .pilot = 0x0201, .status = @fromBackingInt(3), ._unused = 4 }, back.pilo);
     try std.testing.expectEqual(Wing{ @bitCast(@as(u16, 0xFF07)), 0x55, 0x6C, 0x56, 0xAC, 7 }, back.alph);
     try std.testing.expectEqual(2, back.miss.mission);
 
@@ -782,7 +782,7 @@ test Game {
     try std.testing.expectEqual(.hard, miss.difficulty);
     try std.testing.expectEqual(1, miss.female);
     try std.testing.expectEqual(-1, miss.saved_racks[0]);
-    try std.testing.expectEqual(@intFromEnum(loadout_tables.Missile.havoc), miss.saved_racks[2]);
+    try std.testing.expectEqual(@backingInt(loadout_tables.Missile.havoc), miss.saved_racks[2]);
     // The variables kept, in their order, and nothing after them.
     try std.testing.expectEqual(0, save.vars[0]);
     try std.testing.expectEqual(1, save.vars[6]);
@@ -894,7 +894,7 @@ test ModChoice {
     const save = state.game().capture("Pot");
     // The save keeps their bases, which the original reads, and the .mods file their names.
     try std.testing.expectEqual(0, save.miss.saved_ship);
-    try std.testing.expectEqual(@intFromEnum(loadout_tables.Missile.bandit), save.miss.saved_racks[1]);
+    try std.testing.expectEqual(@backingInt(loadout_tables.Missile.bandit), save.miss.saved_racks[1]);
     try folder.store(gpa, "Ace", 1, &save);
     const text = folder.companion(gpa, "Ace", 1, mods_extension, most_mods_read).?;
     defer gpa.free(text);

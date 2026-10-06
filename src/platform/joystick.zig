@@ -138,7 +138,7 @@ pub fn preferred(found: []const Found, preference: ?[]const u8) ?Found {
     const text = preference orelse return null;
     if (text.len == 0) return null;
     for (found) |each| {
-        if (std.ascii.indexOfIgnoreCase(each.name, text) != null) return each;
+        if (std.ascii.findIgnoreCase(each.name, text) != null) return each;
     }
     return null;
 }
@@ -488,7 +488,7 @@ pub const Controller = struct {
         const name = c.SDL_GetJoystickName(plain);
         var found: input.JoystickDevice.Capabilities = .{
             .name = if (name != null) std.mem.span(name) else "",
-            .axes = .initEmpty(),
+            .axes = .empty,
             .buttons = JoystickState.max_buttons,
             .hats = 1,
             .kind = .gamepad,
@@ -559,7 +559,7 @@ pub const Controller = struct {
                 if (!c.SDL_GamepadConnected(gamepad)) return error.Unplugged;
                 for (gamepad_axes) |pair| controller.setAxis(state, pair[0], c.SDL_GetGamepadAxis(gamepad, pair[1]));
                 for (&state.buttons, 0..) |*button, index| {
-                    const down = switch (sources.get(@enumFromInt(index))) {
+                    const down = switch (sources.get(@fromBackingInt(@intCast(index)))) {
                         .button => |which| c.SDL_GetGamepadButton(gamepad, which),
                         .trigger => |which| c.SDL_GetGamepadAxis(gamepad, which) >= trigger_press,
                         .stick => |stick| pushed: {
@@ -774,7 +774,7 @@ test "reading a gamepad" {
     try std.testing.expectEqual(1000, state.rz);
     const button = struct {
         fn down(read: JoystickState, which: GamepadButton) bool {
-            return read.buttons[@intFromEnum(which)] != 0;
+            return read.buttons[@backingInt(which)] != 0;
         }
     }.down;
     try std.testing.expect(button(state, .south));
@@ -847,9 +847,9 @@ test "controllers of many kinds" {
         defer controller.close();
         var joystick: input.Joystick = .{};
         joystick.open(controller.device(), input.default_dead_zone);
-        var axes: std.EnumSet(Axis) = .initEmpty();
-        inline for (@typeInfo(input.JoystickAxes).@"struct".fields) |field| {
-            if (@field(joystick.axes, field.name)) axes.insert(@field(Axis, field.name));
+        var axes: std.EnumSet(Axis) = .empty;
+        inline for (@typeInfo(input.JoystickAxes).@"struct".field_names) |name| {
+            if (@field(joystick.axes, name)) axes.insert(@field(Axis, name));
         }
         const expected: std.EnumSet(Axis) = .initMany(model.game_axes);
         if (!axes.eql(expected)) {

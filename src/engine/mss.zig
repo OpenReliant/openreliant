@@ -185,7 +185,8 @@ pub const Driver = struct {
     pub fn of(comptime T: type, implementation: *T) Driver {
         const table = comptime table: {
             var vtable: VTable = undefined;
-            for (@typeInfo(VTable).@"struct".fields) |field| @field(vtable, field.name) = thunk(T, field.name, field.type);
+            const info = @typeInfo(VTable).@"struct";
+            for (info.field_names, info.field_types) |name, Field| @field(vtable, name) = thunk(T, name, Field);
             break :table vtable;
         };
         const holder = struct {
@@ -197,7 +198,7 @@ pub const Driver = struct {
     /// `T`'s method `name`, called through a pointer of type `F` that takes the `T` as
     /// `*anyopaque`.
     fn thunk(comptime T: type, comptime name: []const u8, comptime F: type) F {
-        const params = @typeInfo(@typeInfo(F).pointer.child).@"fn".params;
+        const params = @typeInfo(@typeInfo(F).pointer.child).@"fn".param_types;
         const R = @typeInfo(@typeInfo(F).pointer.child).@"fn".return_type.?;
         const method = @field(T, name);
         const Args = struct {
@@ -212,22 +213,22 @@ pub const Driver = struct {
                 }
             }.call,
             2 => &struct {
-                fn call(c: *anyopaque, a: params[1].type.?) R {
+                fn call(c: *anyopaque, a: params[1].?) R {
                     return method(Args.self(c), a);
                 }
             }.call,
             3 => &struct {
-                fn call(c: *anyopaque, a: params[1].type.?, b: params[2].type.?) R {
+                fn call(c: *anyopaque, a: params[1].?, b: params[2].?) R {
                     return method(Args.self(c), a, b);
                 }
             }.call,
             4 => &struct {
-                fn call(c: *anyopaque, a: params[1].type.?, b: params[2].type.?, d: params[3].type.?) R {
+                fn call(c: *anyopaque, a: params[1].?, b: params[2].?, d: params[3].?) R {
                     return method(Args.self(c), a, b, d);
                 }
             }.call,
             5 => &struct {
-                fn call(c: *anyopaque, a: params[1].type.?, b: params[2].type.?, d: params[3].type.?, e: params[4].type.?) R {
+                fn call(c: *anyopaque, a: params[1].?, b: params[2].?, d: params[3].?, e: params[4].?) R {
                     return method(Args.self(c), a, b, d, e);
                 }
             }.call,
@@ -428,7 +429,7 @@ pub const Mixer = struct {
         for (slots, 0..) |*slot, index| {
             if (slot.allocated) continue;
             slot.* = .{ .allocated = true };
-            return @enumFromInt(index);
+            return @fromBackingInt(@intCast(index));
         }
         return null;
     }
@@ -447,7 +448,7 @@ pub const Mixer = struct {
     }
 
     fn sample(mixer: *Mixer, handle: Sample) *SampleState {
-        return &mixer.samples[@intFromEnum(handle)].state;
+        return &mixer.samples[@backingInt(handle)].state;
     }
 
     /// `AIL_init_sample`: back to no sound, full volume and the middle.
@@ -563,11 +564,11 @@ pub const Mixer = struct {
     pub fn release3DSample(mixer: *Mixer, handle: Sample3D) void {
         mixer.lock.acquire();
         defer mixer.lock.release();
-        mixer.samples_3d[@intFromEnum(handle)] = .{};
+        mixer.samples_3d[@backingInt(handle)] = .{};
     }
 
     fn sample3D(mixer: *Mixer, handle: Sample3D) *Sample3DState {
-        return &mixer.samples_3d[@intFromEnum(handle)].state;
+        return &mixer.samples_3d[@backingInt(handle)].state;
     }
 
     /// `AIL_set_3D_sample_file`: its sound, which must outlive it. Miles's 3D samples play PCM
@@ -708,13 +709,13 @@ pub const Mixer = struct {
     }
 
     fn stream(mixer: *Mixer, handle: Stream) *StreamState {
-        return &mixer.streams[@intFromEnum(handle)].state;
+        return &mixer.streams[@backingInt(handle)].state;
     }
 
     pub fn closeStream(mixer: *Mixer, handle: Stream) void {
         mixer.lock.acquire();
         defer mixer.lock.release();
-        mixer.streams[@intFromEnum(handle)] = .{};
+        mixer.streams[@backingInt(handle)] = .{};
     }
 
     pub fn startStream(mixer: *Mixer, handle: Stream) void {

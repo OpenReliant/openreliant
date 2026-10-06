@@ -13,7 +13,7 @@ const Allocator = std.mem.Allocator;
 const math = @import("../../surrender/math.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const tga = @import("../../../formats/tga.zig");
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const input_power = @import("../../input/power.zig");
 const gameobj = @import("../gameobj.zig");
 const hud = @import("../hud.zig");
@@ -113,12 +113,12 @@ pub const Ball = struct {
     /// of the circle, the texture scrolled by half the setting, lit by `shade` and coloured by
     /// `colours`. While `hit_shake` is above zero, each row moves right by a random share of
     /// `10 * hit_shake` pixels, a number of `random` a row, as the game does in 16-bit colour.
-    pub fn render(ball: *Ball, setting: [2]f32, hit_shake: f32, random: ?*libcmt.Rand) void {
+    pub fn render(ball: *Ball, setting: [2]f32, hit_shake: f32, random: ?*Random) void {
         @memset(&ball.pixels, 0);
-        const scroll = whole(setting[0] * 0.5) - whole(setting[1] * -0.5) * texture_size;
+        const scroll = std.math.lossyCast(i32, setting[0] * 0.5) - std.math.lossyCast(i32, setting[1] * -0.5) * texture_size;
         var row: i32 = -radius;
         while (row < radius) : (row += 1) {
-            const span = whole(@sqrt(@as(f32, @floatFromInt(radius * radius - row * row))) + 0.5);
+            const span = std.math.lossyCast(i32, @sqrt(@as(f32, @floatFromInt(radius * radius - row * row))) + 0.5);
             const jitter = @min(hud.rowShift(hit_shake, random), most_jitter);
             const first: usize = @intCast((row + radius) * size + radius - span);
             const into: usize = @intCast((row + radius) * image_width + radius - span + jitter);
@@ -134,14 +134,10 @@ pub const Ball = struct {
     }
 };
 
-/// `x` cut down to a whole number, as the runtime's `__ftol` does, which `hud_init` and the
-/// window's case call for each.
-const whole = math.ftol;
-
 /// `hud_channel` (`0x00482DE0`): a colour channel, cut down to a whole number and kept within 0
 /// and 255.
 fn channel(x: f32) u8 {
-    return @intCast(std.math.clamp(whole(x), 0, 255));
+    return @intCast(std.math.clamp(std.math.lossyCast(i32, x), 0, 255));
 }
 
 fn fillTexture(texture: *[texture_size * texture_size]u8, picture: tga.Image) void {
@@ -165,8 +161,8 @@ fn fillSphere(sphere: *[size * size]u16) void {
             const at = inside(x, y, x * x + y_squared);
             const z = @sqrt(sphere_squared - at.squared);
             const across: f32 = std.math.asin(at.x / z);
-            const down = whole(std.math.asin(at.y / z) * (1.0 / std.math.pi) * -half_turn_texels);
-            const offset = whole(across * (1.0 / std.math.pi) * half_turn_texels) - down * texture_size - middle_offset;
+            const down = std.math.lossyCast(i32, std.math.asin(at.y / z) * (1.0 / std.math.pi) * -half_turn_texels);
+            const offset = std.math.lossyCast(i32, across * (1.0 / std.math.pi) * half_turn_texels) - down * texture_size - middle_offset;
             sphere[row * size + column] = @truncate(@as(u32, @bitCast(offset)));
         }
     }
@@ -189,7 +185,7 @@ fn fillShade(shade: *[size * size]u8) f32 {
             const point: math.Vector = .{ at.x, at.y, @sqrt(1 - at.squared) };
             const towards = light - point;
             const lit = math.dot(towards, point) * shade_scale / math.length(towards);
-            shade[row * size + column] = @intCast(std.math.clamp(whole(lit), 0, lights - 1));
+            shade[row * size + column] = @intCast(std.math.clamp(std.math.lossyCast(i32, lit), 0, lights - 1));
             left_over = at.x;
         }
     }
@@ -237,7 +233,7 @@ pub const Shown = struct {
     object: *const gameobj.GameObject,
     /// The camera's shake, which shakes the ball too.
     hit_shake: f32,
-    random: ?*libcmt.Rand,
+    random: ?*Random,
 };
 
 /// The window's title, POWER (`0xA7`), and where it stands from the window's place.
@@ -390,7 +386,7 @@ test "the shake moves the ball's rows to the right" {
     defer gpa.free(picture.rgb);
     const ball = try Ball.create(gpa, picture);
     defer gpa.destroy(ball);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     ball.render(.{ 1, 1 }, 2, &random);
     // Some row starts right of where it would stand still, and none reaches past the image.
     var moved = false;
@@ -400,7 +396,7 @@ test "the shake moves the ball's rows to the right" {
             if (ball.pixels[at + x * 4 + 3] != 0) break x;
         } else continue;
         const centre: i32 = @intCast(row);
-        const span = whole(@sqrt(@as(f32, @floatFromInt(radius * radius - (centre - radius) * (centre - radius)))) + 0.5);
+        const span = std.math.lossyCast(i32, @sqrt(@as(f32, @floatFromInt(radius * radius - (centre - radius) * (centre - radius)))) + 0.5);
         if (start > @as(usize, @intCast(radius - span))) moved = true;
     }
     try std.testing.expect(moved);

@@ -126,7 +126,7 @@ fn extract(ctx: Context, path: []const u8, out_path: []const u8) !void {
         };
         const samples = try cbox.decode(gpa, speech, .cut);
         const file = try wave.pcm16(gpa, cbox.rate, 1, samples);
-        const name = try std.fmt.allocPrint(gpa, "{s}.wav", .{entry.name});
+        const name = try gpa.print("{s}.wav", .{entry.name});
         try out_dir.writeFile(io, .{ .sub_path = name, .data = file });
         written += 1;
     }

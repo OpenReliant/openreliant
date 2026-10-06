@@ -54,7 +54,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .defend_dodge1,
         .name = "defend dodge1",
-        .mirror = @bitCast(@as(u8, 0x05)),
+        .mirror = .{ .yaw = true, .roll = true },
         .min_ticks = 400,
         .max_ticks = 1000,
         .script_address = 0x004E0D70,
@@ -81,7 +81,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .defend_dodge2,
         .name = "defend dodge2",
-        .mirror = @bitCast(@as(u8, 0x05)),
+        .mirror = .{ .yaw = true, .roll = true },
         .min_ticks = 400,
         .max_ticks = 1000,
         .script_address = 0x004E0E00,
@@ -106,7 +106,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .defend_dodge3,
         .name = "defend dodge3",
-        .mirror = @bitCast(@as(u8, 0x05)),
+        .mirror = .{ .yaw = true, .roll = true },
         .min_ticks = 400,
         .max_ticks = 1000,
         .script_address = 0x004E0E80,
@@ -127,7 +127,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .out_of_action_sphere,
         .name = "out of action sphere",
-        .mirror = @bitCast(@as(u8, 0x00)),
+        .mirror = .{},
         .min_ticks = 1000,
         .max_ticks = 1500,
         .script_address = 0x004E0EE0,
@@ -141,7 +141,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .defend_runaway,
         .name = "defend runaway",
-        .mirror = @bitCast(@as(u8, 0x00)),
+        .mirror = .{},
         .min_ticks = 200,
         .max_ticks = 300,
         .script_address = 0x004E0F08,
@@ -157,7 +157,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .attack_pursue,
         .name = "attack pursue",
-        .mirror = @bitCast(@as(u8, 0x00)),
+        .mirror = .{},
         .min_ticks = 200,
         .max_ticks = 300,
         .script_address = 0x004E0F40,
@@ -175,7 +175,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .attack_massive_object,
         .name = "attack massive object",
-        .mirror = @bitCast(@as(u8, 0x00)),
+        .mirror = .{},
         .min_ticks = 20000,
         .max_ticks = 25000,
         .script_address = 0x004E0F88,
@@ -194,7 +194,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .attack_medium_fighter,
         .name = "attack medium fighter",
-        .mirror = @bitCast(@as(u8, 0x00)),
+        .mirror = .{},
         .min_ticks = 10000,
         .max_ticks = 15000,
         .script_address = 0x004E0FD8,
@@ -208,7 +208,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .loop_the_loop,
         .name = "loop the loop",
-        .mirror = @bitCast(@as(u8, 0x00)),
+        .mirror = .{},
         .min_ticks = 200,
         .max_ticks = 1000,
         .script_address = 0x004E1000,
@@ -227,7 +227,7 @@ pub const table = [_]Info{
     .{
         .maneuver = .run_to_ship,
         .name = "run to ship",
-        .mirror = @bitCast(@as(u8, 0x00)),
+        .mirror = .{},
         .min_ticks = 10000,
         .max_ticks = 15000,
         .script_address = 0x004E1050,
@@ -297,7 +297,7 @@ pub const choices = [3][3][]const Maneuver{
 
 /// The maneuver numbered `maneuver`, or null past the table.
 pub fn info(maneuver: Maneuver) ?Info {
-    const index = @intFromEnum(maneuver);
+    const index = @backingInt(maneuver);
     return if (index < table.len) table[index] else null;
 }
 
@@ -314,12 +314,12 @@ pub const compiled = blk: {
 comptime {
     if (table.len != std.enums.values(Maneuver).len) @compileError("one entry per maneuver");
     for (table, 0..) |entry, index| {
-        if (@intFromEnum(entry.maneuver) != index) @compileError("maneuvers out of place");
+        if (@backingInt(entry.maneuver) != index) @compileError("maneuvers out of place");
     }
 }
 
 test info {
     for (table) |entry| try std.testing.expectEqual(entry.maneuver, info(entry.maneuver).?.maneuver);
-    try std.testing.expectEqual(null, info(@enumFromInt(table.len)));
+    try std.testing.expectEqual(null, info(@fromBackingInt(table.len)));
     for (compiled, table) |instructions, entry| try std.testing.expectEqual(entry.script.len, instructions.len);
 }

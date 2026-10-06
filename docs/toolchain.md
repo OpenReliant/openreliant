@@ -6,7 +6,7 @@
 
 | Tool | Used for |
 |---|---|
-| Zig 0.16 | Building `sltool` and everything else in `src/`. |
+| Zig 0.17 | Building `sltool` and everything else in `src/`. |
 | `uv` | Creating the virtualenv for the `ghydra` CLI and MCP bridge. |
 | A C++ toolchain | Compiling Ghidra's native helpers. On macOS, the Xcode command line tools. |
 | Gradle 8.5+ | Driving that native build. |

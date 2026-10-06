@@ -14,7 +14,7 @@ const srcore = @import("../../surrender/surrenderlib/srcore.zig");
 const create = @import("../create.zig");
 const explode = @import("../explode.zig");
 const gameobj = @import("../gameobj.zig");
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const objects = @import("../objects.zig");
 const particles = @import("../particles.zig");
 const table = @import("../table.zig");
@@ -114,14 +114,14 @@ pub const Cuts = enum(u2) {
     three = 3,
 
     fn pieces(cuts: Cuts) usize {
-        return @as(usize, 1) << @intFromEnum(cuts);
+        return @as(usize, 1) << @backingInt(cuts);
     }
 };
 
 pub const max_pieces = Cuts.three.pieces();
 
 /// Which side of each plane of a cut a polygon lies on, a bit a plane.
-const Sides = std.meta.Int(.unsigned, @intFromEnum(Cuts.three));
+const Sides = @Int(.unsigned, @backingInt(Cuts.three));
 
 /// `model_slice` (`0x0046BF20`): cuts `source`'s mesh along `cuts` random planes through `frame`'s
 /// origin. Each polygon goes to the side of each plane that the sum of its corners, in `frame`,
@@ -135,9 +135,9 @@ const Sides = std.meta.Int(.unsigned, @intFromEnum(Cuts.three));
 /// pass's texture coordinates behind. OpenReliant keeps each polygon's kind, works the planes out
 /// from the piece's own corners, and carries the colours and coordinates, so a piece looks as its
 /// part did. It also leaves out the polygons in no surface, which draw nothing.
-pub fn cut(gpa: Allocator, frame: math.Place, source: Source, cuts: Cuts, random: *libcmt.Rand) Allocator.Error![max_pieces]?Piece {
-    var planes: [@intFromEnum(Cuts.three)]Vector = undefined;
-    for (planes[0..@intFromEnum(cuts)]) |*plane| plane.* = random.centredVector(@splat(1));
+pub fn cut(gpa: Allocator, frame: math.Place, source: Source, cuts: Cuts, random: *Random) Allocator.Error![max_pieces]?Piece {
+    var planes: [@backingInt(Cuts.three)]Vector = undefined;
+    for (planes[0..@backingInt(cuts)]) |*plane| plane.* = random.centredVector(@splat(1));
 
     // The source's frame, as the frame sees it.
     const into = math.transpose(frame.orientation);
@@ -152,7 +152,7 @@ pub fn cut(gpa: Allocator, frame: math.Place, source: Source, cuts: Cuts, random
         for (mesh.indices[polygon.first..][0..polygon.count]) |index| sum += mesh.positions[index];
         const point = math.transform(turn, sum) + offset;
         side.* = 0;
-        for (planes[0..@intFromEnum(cuts)], 0..) |plane, bit| {
+        for (planes[0..@backingInt(cuts)], 0..) |plane, bit| {
             if (math.dot(point, plane) > 0) side.* |= @as(Sides, 1) << @intCast(bit);
         }
     }
@@ -486,7 +486,7 @@ fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, slot: *con
         };
         defer piece.deinit(gpa);
         var smaller = cut(gpa, piece.place(), source.of(&piece), cuts, random) catch continue;
-        const count: f32 = @floatFromInt(@intFromEnum(cuts));
+        const count: f32 = @floatFromInt(@backingInt(cuts));
         for (&smaller) |*small| {
             const flying = small.* orelse continue;
             const tumble = random.centredVector(@splat(count * kind.tumble()));
@@ -551,9 +551,9 @@ fn burstPart(explosions: *explode.Explosions, world: gameobj.World, slot: *const
     for (&quarters, 0..) |*maybe, n| {
         var quarter = maybe.* orelse continue;
         defer quarter.deinit(gpa);
-        const cuts: Cuts = @enumFromInt(n % 3 + 1);
+        const cuts: Cuts = @fromBackingInt(@intCast(n % 3 + 1));
         var pieces = cut(gpa, quarter.place(), whole.of(&quarter), cuts, random) catch continue;
-        const count: f32 = @floatFromInt(@intFromEnum(cuts));
+        const count: f32 = @floatFromInt(@backingInt(cuts));
         for (&pieces) |*small| {
             const piece = small.* orelse continue;
             const velocity = away(piece.object.position, centre, count * reach * part_speed, carried, part_share);
@@ -604,7 +604,7 @@ test cut {
     const gpa = std.testing.allocator;
     var mesh = try testing.star(gpa);
     defer mesh.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const source: Source = .{ .mesh = &mesh, .place = .{ .position = .{ 10, 0, 0 } }, .flags = .{ .lit = true }, .light_mask = 3 };
     var pieces = try cut(gpa, .{}, source, .two, &random);
     defer for (&pieces) |*maybe| if (maybe.*) |*piece| piece.deinit(gpa);
@@ -652,7 +652,7 @@ test Pieces {
     const pieces = &stage.explosions.pieces;
     var mesh = try testing.star(gpa);
     defer mesh.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var cuts = try cut(gpa, .{}, .{ .mesh = &mesh, .place = .{}, .flags = .{}, .light_mask = 0 }, .one, &random);
     defer for (cuts[1..]) |*maybe| if (maybe.*) |*piece| piece.deinit(gpa);
 

@@ -91,7 +91,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (image.Error || std.
             var row: [row_halfwords]u16 = undefined;
             for (&row, 0..) |*id, n| id.* = try reader.recordAt(u16, debriefingsOf(rating), mission * row_halfwords + n);
             const paragraphs = row[1..];
-            const count = std.mem.indexOfScalar(u16, paragraphs, end_mark) orelse paragraphs.len;
+            const count = std.mem.findScalar(u16, paragraphs, end_mark) orelse paragraphs.len;
             text.* = .{ .header = row[0], .paragraphs = try arena.dupe(u16, paragraphs[0..count]) };
         }
     }

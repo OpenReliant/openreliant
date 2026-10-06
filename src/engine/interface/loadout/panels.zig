@@ -337,7 +337,7 @@ const Line = struct {
     }
 
     fn print(line: *Line, comptime format: []const u8, args: anytype) void {
-        const written = std.fmt.bufPrint(line.buffer[line.len..], format, args) catch return;
+        const written = std.mem.print(line.buffer[line.len..], format, args) catch return;
         line.len += written.len;
     }
 

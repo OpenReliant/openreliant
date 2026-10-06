@@ -64,7 +64,7 @@ pub fn build(b: *std.Build) void {
         .HAVE_SDL3 = false,
         .HAVE_SDL2 = false,
     });
-    const neon = arch.isAARCH64();
+    const neon = arch.isAarch64();
     const simd = b.addConfigHeader(.{ .style = .{ .cmake = upstream.path("config_simd.h.in") }, .include_path = "config_simd.h" }, .{
         .HAVE_SSE = x86,
         .HAVE_SSE2 = x86,
@@ -88,7 +88,7 @@ pub fn build(b: *std.Build) void {
     });
     const embed = b.addRunArtifact(bin2h);
     embed.addFileArg(upstream.path("hrtf/Default HRTF.mhr"));
-    const hrtf = embed.addOutputFileArg("default_hrtf.hpp");
+    const hrtf = embed.addOutputFileArg2("default_hrtf.hpp", .{});
     embed.addArg("default_hrtf");
     module.addIncludePath(hrtf.dirname());
 
@@ -105,6 +105,15 @@ pub fn build(b: *std.Build) void {
         module.addCMacro("NOMINMAX", "1");
         module.addCMacro("WIN32_LEAN_AND_MEAN", "1");
         module.addCMacro("NTDDI_VERSION", "NTDDI_VISTA");
+    }
+
+    // Zig 0.17's own macOS headers, which a build for an explicit macOS target uses, have math.h
+    // include float.h for INFINITY and NAN alone, and libc++'s float.h then counts as included, so
+    // efx.h's own include of it gives no FLT_MIN and FLT_MAX. They are the compiler's values, as
+    // float.h defines them.
+    if (target.result.os.tag == .macos) {
+        module.addCMacro("FLT_MIN", "__FLT_MIN__");
+        module.addCMacro("FLT_MAX", "__FLT_MAX__");
     }
 
     const flags: []const []const u8 = &.{ "-std=c++20", "-fno-sanitize=undefined" };

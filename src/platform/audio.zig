@@ -164,7 +164,7 @@ pub const Output = struct {
 /// Whether the default playback device is a pair of headphones, as far as the system says: Core
 /// Audio on macOS, and everywhere the device's name.
 fn headphones() bool {
-    if (builtin.os.tag == .macos and macos.outputIsHeadphones()) return true;
+    if (builtin.target.os.tag == .macos and macos.outputIsHeadphones()) return true;
     const name = c.SDL_GetAudioDeviceName(c.SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK) orelse return false;
     return namesHeadphones(std.mem.span(name));
 }
@@ -174,7 +174,7 @@ fn headphones() bool {
 fn namesHeadphones(name: []const u8) bool {
     const words = [_][]const u8{ "headphone", "headset", "earphone", "airpods", "buds" };
     for (words) |word| {
-        if (std.ascii.indexOfIgnoreCase(name, word) != null) return true;
+        if (std.ascii.findIgnoreCase(name, word) != null) return true;
     }
     return false;
 }
@@ -206,7 +206,7 @@ fn feed(userdata: ?*anyopaque, stream: ?*c.SDL_AudioStream, additional: c_int, t
     const output: *Output = @ptrCast(@alignCast(userdata));
     const channels: usize = output.channels;
     const bytes: usize = @intCast(@max(additional, 0));
-    var frames: usize = @min(std.math.divCeil(usize, bytes, channels * @sizeOf(f32)) catch 0, output.rate);
+    var frames: usize = @min(@divCeil(bytes, channels * @sizeOf(f32)), output.rate);
     var buffer: [chunk * mss.master.max_channels]f32 = undefined;
     while (frames > 0) {
         const count: usize = @min(frames, chunk);
@@ -232,7 +232,7 @@ fn testOutput(source: Output.Source, channels: u8, master: ?mss.master.Settings)
     };
 }
 
-const test_file = @import("openreliant").wave.testing.pcm(&std.mem.toBytes([_]i16{16384} ** 4096));
+const test_file = @import("openreliant").wave.testing.pcm(&std.mem.toBytes(@as([4096]i16, @splat(16384))));
 
 test "feed from the software mixer" {
     var output = try testOutput(.{ .software = .init(22050) }, 2, null);

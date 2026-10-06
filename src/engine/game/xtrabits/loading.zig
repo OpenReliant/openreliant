@@ -178,7 +178,7 @@ test missionFrames {
     try std.testing.expectEqual(String.preparing_for_launch, launch[1].line.?);
     try std.testing.expectEqual(String.calibrating_simulator, missionFrames(.largest, 800, .training)[1].line.?);
     try std.testing.expectEqual(String.preparing_for_instant_action, missionFrames(.largest, 800, .instant_action)[1].line.?);
-    try std.testing.expectEqual(String.preparing_for_instant_action, missionLine(@enumFromInt(7)));
+    try std.testing.expectEqual(String.preparing_for_instant_action, missionLine(@fromBackingInt(7)));
 }
 
 test Resources {

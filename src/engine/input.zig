@@ -301,7 +301,7 @@ pub const ControlBinding = extern struct {
 
         pub fn format(modifier: Modifier, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             return switch (modifier) {
-                _ => writer.print("modifier {d}", .{@intFromEnum(modifier)}),
+                _ => writer.print("modifier {d}", .{@backingInt(modifier)}),
                 inline else => |named| writer.writeAll(@tagName(named)),
             };
         }
@@ -392,7 +392,7 @@ pub const ControlMode = enum(u32) {
 
     pub fn format(mode: ControlMode, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (mode) {
-            _ => writer.print("controller {d}", .{@intFromEnum(mode)}),
+            _ => writer.print("controller {d}", .{@backingInt(mode)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -512,7 +512,7 @@ pub const Key = enum(u8) {
 
     pub fn format(key: Key, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (key) {
-            _ => writer.print("key 0x{X:0>2}", .{@intFromEnum(key)}),
+            _ => writer.print("key 0x{X:0>2}", .{@backingInt(key)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -521,17 +521,17 @@ pub const Key = enum(u8) {
 /// The keys the input code names, as indices into `Keyboard`: the modifiers, and the keys
 /// `frame_controls` steers the orbiting views with.
 pub const scan = struct {
-    pub const escape = @intFromEnum(Key.escape);
-    pub const left_control = @intFromEnum(Key.left_control);
-    pub const left_shift = @intFromEnum(Key.left_shift);
-    pub const right_shift = @intFromEnum(Key.right_shift);
-    pub const left_alt = @intFromEnum(Key.left_alt);
-    pub const right_control = @intFromEnum(Key.right_control);
-    pub const right_alt = @intFromEnum(Key.right_alt);
-    pub const up = @intFromEnum(Key.up);
-    pub const left = @intFromEnum(Key.left);
-    pub const right = @intFromEnum(Key.right);
-    pub const down = @intFromEnum(Key.down);
+    pub const escape = @backingInt(Key.escape);
+    pub const left_control = @backingInt(Key.left_control);
+    pub const left_shift = @backingInt(Key.left_shift);
+    pub const right_shift = @backingInt(Key.right_shift);
+    pub const left_alt = @backingInt(Key.left_alt);
+    pub const right_control = @backingInt(Key.right_control);
+    pub const right_alt = @backingInt(Key.right_alt);
+    pub const up = @backingInt(Key.up);
+    pub const left = @backingInt(Key.left);
+    pub const right = @backingInt(Key.right);
+    pub const down = @backingInt(Key.down);
 };
 
 /// The keyboard as the game reads it (`keyboard`, `0x00595C68`): each key down or up, by scan
@@ -648,7 +648,7 @@ pub fn defaultBindings(kind: JoystickDevice.Kind) Bindings {
     for (std.enums.values(controls.Action)) |action| bindings.set(action, controls.binding(action));
     if (kind == .gamepad) {
         for (&bindings.values) |*binding| binding.button = null;
-        for (gamepad_buttons) |pair| bindings.getPtr(pair[0]).button = @intFromEnum(pair[1]);
+        for (gamepad_buttons) |pair| bindings.getPtr(pair[0]).button = @backingInt(pair[1]);
     }
     return bindings;
 }
@@ -864,7 +864,7 @@ pub const Devices = struct {
                 }
             }
         }
-        const number = binding.key >= @intFromEnum(Key.one) and binding.key <= @intFromEnum(Key.eight);
+        const number = binding.key >= @backingInt(Key.one) and binding.key <= @backingInt(Key.eight);
         if (keyboard.numbers_taken and number) return false;
         const key = std.math.lossyCast(u8, binding.key);
         if (once) return keyboard.pressed(key, binding.modifier, true);
@@ -919,28 +919,28 @@ test "the keys 1 to 8 while the radio's menu has them" {
     var devices: Devices = .{};
     devices.keyboard.numbers_taken = true;
     // The cockpit camera's 1 and the missile camera's 8 are the menu's; 9, 0 and the rest are not.
-    try std.testing.expectEqual(@intFromEnum(Key.one), controls.binding(.cockpit_camera).key);
-    try std.testing.expectEqual(@intFromEnum(Key.eight), controls.binding(.missile_camera).key);
-    devices.keyboard.down[@intFromEnum(Key.eight)] = true;
+    try std.testing.expectEqual(@backingInt(Key.one), controls.binding(.cockpit_camera).key);
+    try std.testing.expectEqual(@backingInt(Key.eight), controls.binding(.missile_camera).key);
+    devices.keyboard.down[@backingInt(Key.eight)] = true;
     try std.testing.expect(!devices.active(.missile_camera, false));
-    devices.bindings.getPtr(.missile_camera).key = @intFromEnum(Key.nine);
-    devices.keyboard.down[@intFromEnum(Key.nine)] = true;
+    devices.bindings.getPtr(.missile_camera).key = @backingInt(Key.nine);
+    devices.keyboard.down[@backingInt(Key.nine)] = true;
     try std.testing.expect(devices.active(.missile_camera, false));
 }
 
 test "Key.format" {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("f2", try std.fmt.bufPrint(&buffer, "{f}", .{Key.f2}));
-    try std.testing.expectEqualStrings("key 0xFF", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Key, @enumFromInt(0xFF))}));
+    try std.testing.expectEqualStrings("f2", try std.mem.print(&buffer, "{f}", .{Key.f2}));
+    try std.testing.expectEqualStrings("key 0xFF", try std.mem.print(&buffer, "{f}", .{@as(Key, @fromBackingInt(0xFF))}));
     try std.testing.expectEqual(0xCB, scan.left);
 }
 
 test "ControlBinding.Modifier.format and ControlMode.format" {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("alt", try std.fmt.bufPrint(&buffer, "{f}", .{ControlBinding.Modifier.alt}));
-    try std.testing.expectEqualStrings("modifier 9", try std.fmt.bufPrint(&buffer, "{f}", .{@as(ControlBinding.Modifier, @enumFromInt(9))}));
-    try std.testing.expectEqualStrings("mouse", try std.fmt.bufPrint(&buffer, "{f}", .{ControlMode.mouse}));
-    try std.testing.expectEqualStrings("controller 7", try std.fmt.bufPrint(&buffer, "{f}", .{@as(ControlMode, @enumFromInt(7))}));
+    try std.testing.expectEqualStrings("alt", try std.mem.print(&buffer, "{f}", .{ControlBinding.Modifier.alt}));
+    try std.testing.expectEqualStrings("modifier 9", try std.mem.print(&buffer, "{f}", .{@as(ControlBinding.Modifier, @fromBackingInt(9))}));
+    try std.testing.expectEqualStrings("mouse", try std.mem.print(&buffer, "{f}", .{ControlMode.mouse}));
+    try std.testing.expectEqualStrings("controller 7", try std.mem.print(&buffer, "{f}", .{@as(ControlMode, @fromBackingInt(7))}));
 }
 
 test "JoystickState.hat" {
@@ -1121,15 +1121,15 @@ test defaultBindings {
     try std.testing.expectEqual(0, stick.get(.fire_lasers).button.?);
     try std.testing.expectEqual(null, stick.get(.accelerate).button);
     const pad = defaultBindings(.gamepad);
-    try std.testing.expectEqual(@intFromEnum(GamepadButton.right_trigger), pad.get(.fire_lasers).button.?);
-    try std.testing.expectEqual(@intFromEnum(GamepadButton.right_stick_up), pad.get(.accelerate).button.?);
+    try std.testing.expectEqual(@backingInt(GamepadButton.right_trigger), pad.get(.fire_lasers).button.?);
+    try std.testing.expectEqual(@backingInt(GamepadButton.right_stick_up), pad.get(.accelerate).button.?);
     // Gamepad bindings drop the joystick buttons but keep every key.
     try std.testing.expectEqual(null, pad.get(.strafe_left).button);
     for (std.enums.values(controls.Action)) |action| {
         try std.testing.expectEqual(stick.get(action).key, pad.get(action).key);
     }
     // No two actions share a gamepad button.
-    var used: std.EnumSet(GamepadButton) = .initEmpty();
+    var used: std.EnumSet(GamepadButton) = .empty;
     for (gamepad_buttons) |pair| {
         try std.testing.expect(!used.contains(pair[1]));
         used.insert(pair[1]);

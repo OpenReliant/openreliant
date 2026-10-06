@@ -25,7 +25,7 @@ pub const Number = enum(u8) {
     /// The archive's name, `cd%d.hog` (`0x004E866C`).
     pub fn archiveName(number: Number) []const u8 {
         return switch (number) {
-            inline else => |disc| std.fmt.comptimePrint("cd{d}.hog", .{@intFromEnum(disc)}),
+            inline else => |disc| std.fmt.comptimePrint("cd{d}.hog", .{@backingInt(disc)}),
         };
     }
 };
@@ -49,11 +49,11 @@ pub const Disc = struct {
         const name = number.archiveName();
         var buffer: [files.max_path]u8 = undefined;
         const path = files.find(disc.io, disc.directory, name, &buffer) orelse {
-            log.warn("the game folder has no {s}; skipping the movies of disc {d}", .{ name, @intFromEnum(number) });
+            log.warn("the game folder has no {s}; skipping the movies of disc {d}", .{ name, @backingInt(number) });
             return;
         };
         var opened = bigfile.Hog.open(disc.gpa, disc.io, disc.directory, path) catch |err| {
-            log.warn("can't open {s}: {s}; skipping the movies of disc {d}", .{ path, @errorName(err), @intFromEnum(number) });
+            log.warn("can't open {s}: {s}; skipping the movies of disc {d}", .{ path, @errorName(err), @backingInt(number) });
             return;
         };
         opened.mods = disc.mods;

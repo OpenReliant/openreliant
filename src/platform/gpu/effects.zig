@@ -112,13 +112,13 @@ pub const Effects = struct {
         try effects.effects.ensureUnusedCapacity(effects.gpa, 1);
         const made = try gpu.shader(handle, spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, code, samplers, uniform_buffers);
         effects.effects.appendAssumeCapacity(.{ .shader = made });
-        return @enumFromInt(effects.effects.items.len - 1);
+        return @fromBackingInt(@intCast(effects.effects.items.len - 1));
     }
 
     /// Removes the effect `id` and the passes that draw it. SDL frees its shader and pipeline once
     /// the frames that use them are done.
     pub fn remove(effects: *Effects, handle: *c.SDL_GPUDevice, id: Id) void {
-        const index = @intFromEnum(id);
+        const index = @backingInt(id);
         if (index >= effects.effects.items.len) return;
         release(handle, effects.effects.items[index]);
         effects.effects.items[index] = .{ .shader = null };
@@ -144,7 +144,7 @@ pub const Effects = struct {
         effects.passes.ensureTotalCapacity(effects.gpa, max_passes) catch return;
         for (passes) |pass| {
             if (effects.passes.items.len == max_passes) break;
-            const index = @intFromEnum(pass.effect);
+            const index = @backingInt(pass.effect);
             if (index >= effects.effects.items.len or effects.effects.items[index].shader == null) continue;
             effects.passes.appendAssumeCapacity(pass);
         }
@@ -168,7 +168,7 @@ pub const Effects = struct {
         var source = shown;
         for (effects.passes.items) |pass| {
             if (pass.stage != stage) continue;
-            const effect = &effects.effects.items[@intFromEnum(pass.effect)];
+            const effect = &effects.effects.items[@backingInt(pass.effect)];
             const pipeline = effect.pipelineFor(screen) orelse continue;
             // Each pass writes into the target it doesn't read.
             const into = if (source == targets[0]) targets[1] else targets[0];
@@ -228,11 +228,11 @@ test "a frame's passes leave out effects that aren't there, and those past the m
     // Two effects without shaders a test can make: the first stands, the second was removed.
     try effects.effects.append(effects.gpa, .{ .shader = @ptrFromInt(0x1000) });
     try effects.effects.append(effects.gpa, .{ .shader = null });
-    const kept: Id = @enumFromInt(0);
-    const removed: Id = @enumFromInt(1);
+    const kept: Id = @fromBackingInt(0);
+    const removed: Id = @fromBackingInt(1);
     var passes: [max_passes + 3]Pass = undefined;
     for (&passes, 0..) |*pass, at| pass.* = .{ .effect = if (at == 1) removed else kept, .stage = if (at % 2 == 0) .before_hud else .after_hud };
-    passes[2].effect = @enumFromInt(7);
+    passes[2].effect = @fromBackingInt(7);
     effects.set(&passes, 1.5);
     try std.testing.expectEqual(max_passes, effects.passes.items.len);
     for (effects.passes.items) |pass| try std.testing.expectEqual(kept, pass.effect);

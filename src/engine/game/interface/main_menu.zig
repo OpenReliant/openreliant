@@ -163,7 +163,7 @@ pub const Flight = struct {
 /// then comes back to itself. It keeps the mission's number and the pilot's kills as they were.
 pub const instant_action: Flight = .{
     .mission = create.instant_action_mission,
-    .ship = @intFromEnum(gameobj.GameType.grendel),
+    .ship = @backingInt(gameobj.GameType.grendel),
     .simulator = .{ .mode = .instant_action, .instant_action = true },
     .flier = .main_menu,
 };
@@ -221,7 +221,7 @@ pub const MainMenu = struct {
             menu.confirm = .{ .message = .{ .string = quit_question } };
             return null;
         }
-        if (menu.typed < code.len and keyboard.pressed(@intFromEnum(code[menu.typed]), .control, true)) {
+        if (menu.typed < code.len and keyboard.pressed(@backingInt(code[menu.typed]), .control, true)) {
             menu.typed += 1;
             if (menu.typed == code.len) menu.developer = true;
         }
@@ -262,14 +262,14 @@ pub const MainMenu = struct {
     /// key's ship type. A number key types a digit of the mission's number: after a single digit it
     /// adds one, after two it starts again.
     fn developerKeys(menu: *MainMenu, keyboard: *input.Keyboard) ?Choice {
-        const enter_key = @intFromEnum(input.Key.enter);
+        const enter_key = @backingInt(input.Key.enter);
         if (keyboard.pressed(enter_key, .shift, true)) return .{ .fly = .{ .mission = menu.mission, .ship = 0 } };
         if (keyboard.pressed(enter_key, .control, true)) return .{ .briefing = menu.mission };
         for (ship_keys, 0..) |key, ship| {
-            if (keyboard.pressed(@intFromEnum(key), .shift, true)) return .{ .fly = .{ .mission = menu.mission, .ship = @intCast(ship) } };
+            if (keyboard.pressed(@backingInt(key), .shift, true)) return .{ .fly = .{ .mission = menu.mission, .ship = @intCast(ship) } };
         }
         for (digit_keys, 1..) |key, value| {
-            if (!keyboard.pressed(@intFromEnum(key), .none, true)) continue;
+            if (!keyboard.pressed(@backingInt(key), .none, true)) continue;
             const digit: u16 = @intCast(value % 10);
             menu.mission = if (menu.mission < 10) menu.mission * 10 + digit else digit;
             break;
@@ -312,7 +312,7 @@ pub const MainMenu = struct {
         try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
         if (menu.developer) if (developer_font) |font| {
             var buffer: [16]u8 = undefined;
-            const number = std.fmt.bufPrint(&buffer, "M{d}", .{menu.mission}) catch return;
+            const number = std.mem.print(&buffer, "M{d}", .{menu.mission}) catch return;
             try canvas.text(font, developer_text_at, number, canvas_module.red, .left);
         };
     }
@@ -364,10 +364,10 @@ test "Escape asks to quit, and NO goes back to the menu" {
 test "the developers' code and keys" {
     var keyboard: input.Keyboard = .{};
     var menu: MainMenu = .{};
-    const control = @intFromEnum(input.Key.left_control);
+    const control = @backingInt(input.Key.left_control);
     keyboard.down[control] = true;
     for (code) |letter| {
-        const key = @intFromEnum(letter);
+        const key = @backingInt(letter);
         keyboard.down[key] = true;
         _ = menu.frame(.{ .pointer = .{}, .keyboard = &keyboard });
         keyboard.down[key] = false;
@@ -378,7 +378,7 @@ test "the developers' code and keys" {
     // Typing 1 then 5 picks mission 15.
     menu.mission = 0;
     for ([_]input.Key{ .one, .five }) |digit| {
-        const key = @intFromEnum(digit);
+        const key = @backingInt(digit);
         keyboard.down[key] = true;
         _ = menu.frame(.{ .pointer = .{}, .keyboard = &keyboard });
         keyboard.down[key] = false;
@@ -386,22 +386,22 @@ test "the developers' code and keys" {
     }
     try std.testing.expectEqual(15, menu.mission);
     // Shift and F3 start it without its briefing in ship type 2.
-    keyboard.down[@intFromEnum(input.Key.left_shift)] = true;
-    keyboard.down[@intFromEnum(input.Key.f3)] = true;
+    keyboard.down[@backingInt(input.Key.left_shift)] = true;
+    keyboard.down[@backingInt(input.Key.f3)] = true;
     const flight = menu.frame(.{ .pointer = .{}, .keyboard = &keyboard }).?.fly;
     try std.testing.expectEqual(Flight{ .mission = 15, .ship = 2 }, flight);
     try std.testing.expect(flight.byWinMain());
     try std.testing.expect(!instant_action.byWinMain());
-    keyboard.down[@intFromEnum(input.Key.f3)] = false;
+    keyboard.down[@backingInt(input.Key.f3)] = false;
     // Shift and Enter start it without its briefing in ship type 0; Control and Enter lead to its
     // briefing from the loadout on.
-    const enter = @intFromEnum(input.Key.enter);
+    const enter = @backingInt(input.Key.enter);
     keyboard.down[enter] = true;
     try std.testing.expectEqual(Flight{ .mission = 15, .ship = 0 }, menu.frame(.{ .pointer = .{}, .keyboard = &keyboard }).?.fly);
     keyboard.down[enter] = false;
     keyboard.latched[enter] = false;
-    keyboard.down[@intFromEnum(input.Key.left_shift)] = false;
-    keyboard.down[@intFromEnum(input.Key.left_control)] = true;
+    keyboard.down[@backingInt(input.Key.left_shift)] = false;
+    keyboard.down[@backingInt(input.Key.left_control)] = true;
     keyboard.down[enter] = true;
     try std.testing.expectEqual(15, menu.frame(.{ .pointer = .{}, .keyboard = &keyboard }).?.briefing);
 }

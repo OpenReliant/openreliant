@@ -8,7 +8,7 @@ const math = @import("../surrender/math.zig");
 const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const input = @import("../input.zig");
 const controls = @import("../input/controls.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const create = @import("create.zig");
 const hud = @import("hud.zig");
 const gameobj = @import("gameobj.zig");
@@ -146,7 +146,7 @@ pub const View = enum(u8) {
     /// The view's record in the view table (`0x004F72A8`), or null for a number past it, which
     /// `camera_set_view` stops the game for as an invalid camera type.
     pub fn record(view: View) ?views.Record {
-        const n = @intFromEnum(view);
+        const n = @backingInt(view);
         return if (n < views.records.len) views.records[n] else null;
     }
 
@@ -339,8 +339,9 @@ pub const World = struct {
     /// The cockpit's model and what moves it, for view 0 outside the chase mode; null for an
     /// object with no cockpit.
     cockpit: ?Cockpit.Input = null,
-    /// The runtime's `rand`, which the cockpit's jitter and the shake from hits draw on.
-    random: ?*libcmt.Rand = null,
+    /// The game's random numbers (`Random`), which the cockpit's jitter and the shake from hits
+    /// draw on.
+    random: ?*Random = null,
     /// Whether the player's ship has begun to drop out of its carrier's bay, which the bay view
     /// tilts down after (`launch.dropping`).
     dropping: bool = false,
@@ -694,7 +695,7 @@ pub const Camera = struct {
                 if (world.game) |game| {
                     const state = game.objects.slots[game.objects.player].state.launch;
                     const step = state.step.as(yamato_launch.Step);
-                    if (@intFromEnum(step) < @intFromEnum(yamato_launch.Step.clear) or
+                    if (@backingInt(step) < @backingInt(yamato_launch.Step.clear) or
                         (step == .clear and state.due + yamato_look_delay >= game.clock.frame_start))
                         camera.place.orientation = world.player.orientation;
                 }
@@ -870,7 +871,7 @@ pub const Cockpit = struct {
     };
 
     /// Moves the cockpit for a frame. The rates and the speed count to 1 either way at most.
-    pub fn place(model: Input, recoil: *f32, shake: f32, random: ?*libcmt.Rand) Placed {
+    pub fn place(model: Input, recoil: *f32, shake: f32, random: ?*Random) Placed {
         var rates = model.rates;
         for (&rates) |*rate| rate.* = std.math.clamp(rate.*, -1, 1);
         const speed = std.math.clamp(model.speed, -1, 1);
@@ -892,9 +893,9 @@ pub const Cockpit = struct {
     }
 
     /// A turn of up to half of `amount` either way in yaw and in roll, as `camera_frame` draws two
-    /// of `rand`'s numbers (`libcmt.Rand.centred`), the first for the roll. Without a `rand` it
+    /// of `rand`'s numbers (`Random.centred`), the first for the roll. Without a `rand` it
     /// draws none, and does not turn.
-    pub fn jitter(amount: f32, random: ?*libcmt.Rand) Matrix {
+    pub fn jitter(amount: f32, random: ?*Random) Matrix {
         const source = random orelse return math.identity;
         const roll = source.centred() * amount;
         const yaw = source.centred() * amount;
@@ -942,7 +943,7 @@ test Cockpit {
 
 test "the shake from a hit dies away and turns the camera" {
     var camera: Camera = .{ .hit_shake = 3 };
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const ship: Subject = .{ .position = @splat(0), .orientation = math.identity };
     _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 10, .random = &random });
     // It goes no higher than 2, then dies away by 0.02 a tick.
@@ -1648,15 +1649,15 @@ test View {
     try std.testing.expect(View.missile.letterboxed());
     try std.testing.expect(!View.target.letterboxed());
     // The last few views have no bars, but for the table's last.
-    try std.testing.expect(!@as(View, @enumFromInt(0x28)).letterboxed());
-    try std.testing.expect(@as(View, @enumFromInt(0x2B)).letterboxed());
+    try std.testing.expect(!@as(View, @fromBackingInt(0x28)).letterboxed());
+    try std.testing.expect(@as(View, @fromBackingInt(0x2B)).letterboxed());
     // A view past the table has no record.
-    try std.testing.expectEqual(null, @as(View, @enumFromInt(0x2C)).record());
-    try std.testing.expect(!@as(View, @enumFromInt(0x2C)).fromCockpit());
+    try std.testing.expectEqual(null, @as(View, @fromBackingInt(0x2C)).record());
+    try std.testing.expect(!@as(View, @fromBackingInt(0x2C)).fromCockpit());
     // Each named view has its own string; the cutaways share theirs.
     try std.testing.expectEqual(170, View.cockpit.name().?);
     try std.testing.expectEqual(180, View.external.name().?);
-    try std.testing.expectEqual(View.chase.name(), @as(View, @enumFromInt(0x0D)).name());
+    try std.testing.expectEqual(View.chase.name(), @as(View, @fromBackingInt(0x0D)).name());
     // The lock shows from the cockpit's views and the chase view, but not under its second number.
     try std.testing.expect(View.cockpit_rear.showsLock() and View.chase.showsLock());
     try std.testing.expect(!View.chase_too.showsLock() and !View.target.showsLock());
@@ -1668,7 +1669,7 @@ test View {
     try std.testing.expectEqual(CockpitMode.cockpit, CockpitSetting.cockpit.mode());
     try std.testing.expectEqual(CockpitMode.chase, CockpitSetting.chase.mode());
     try std.testing.expectEqual(CockpitMode.open, CockpitSetting.none.mode());
-    try std.testing.expectEqual(CockpitMode.open, @as(CockpitSetting, @enumFromInt(7)).mode());
+    try std.testing.expectEqual(CockpitMode.open, @as(CockpitSetting, @fromBackingInt(7)).mode());
 }
 
 test cockpit {

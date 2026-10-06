@@ -62,7 +62,7 @@ pub const Order = struct {
     /// so it can't have an equals sign, start with a bracket or have spaces at either end. A mod
     /// that can't be in the list is always on and loads with the mods the list doesn't have.
     pub fn listable(name: []const u8) bool {
-        if (name.len == 0 or name[0] == '[' or std.mem.indexOfScalar(u8, name, '=') != null) return false;
+        if (name.len == 0 or name[0] == '[' or std.mem.findScalar(u8, name, '=') != null) return false;
         return std.mem.trim(u8, name, " \t").len == name.len;
     }
 

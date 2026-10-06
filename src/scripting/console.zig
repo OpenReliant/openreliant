@@ -274,7 +274,7 @@ pub const Console = struct {
     pub fn prompt(console: *const Console, buffer: []u8) []const u8 {
         return switch (console.mode) {
             .commands => ">",
-            .luau => |target| std.fmt.bufPrint(buffer, "{s} {t}>", .{ console.mods[target.mod].name, target.family }) catch ">",
+            .luau => |target| std.mem.print(buffer, "{s} {t}>", .{ console.mods[target.mod].name, target.family }) catch ">",
         };
     }
 

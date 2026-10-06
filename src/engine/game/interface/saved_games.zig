@@ -218,7 +218,7 @@ pub const Time = struct {
         const days = [7][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
         const months = [12][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
         var time: Time = .{};
-        const written = std.fmt.bufPrint(&time.bytes, "{d:0>2}:{d:0>2}  {s}, {s} {d:0>2} {d}", .{
+        const written = std.mem.print(&time.bytes, "{d:0>2}:{d:0>2}  {s}, {s} {d:0>2} {d}", .{
             date.hour,
             date.minute,
             days[@min(date.day_of_week, days.len - 1)],
@@ -401,8 +401,8 @@ pub const SavedGames = struct {
             return if (answer) screen.leave(context.saves, .quit) else null;
         }
         if (escaped) return screen.leave(context.saves, .back);
-        if (keyboard.pressed(@intFromEnum(input.Key.down), .none, false)) screen.scrolled.scroll(.down);
-        if (keyboard.pressed(@intFromEnum(input.Key.up), .none, false)) screen.scrolled.scroll(.up);
+        if (keyboard.pressed(@backingInt(input.Key.down), .none, false)) screen.scrolled.scroll(.down);
+        if (keyboard.pressed(@backingInt(input.Key.up), .none, false)) screen.scrolled.scroll(.up);
         // **Improvement:** the mouse's wheel scrolls the list too.
         screen.scrolled.wheel(context.pointer.wheel);
         defer if (screen.typing and screen.mode == .save) hud.typeInto(context.typed, &screen.name.bytes, &screen.name.len, null);
@@ -412,7 +412,7 @@ pub const SavedGames = struct {
                 screen.cursor_shown = !screen.cursor_shown;
             }
             screen.ok_under = ok.holds(screen.last.at);
-            if (keyboard.pressed(@intFromEnum(input.Key.enter), .none, true) or (screen.ok_under and screen.last.down)) {
+            if (keyboard.pressed(@backingInt(input.Key.enter), .none, true) or (screen.ok_under and screen.last.down)) {
                 return screen.saveAs(context.saves);
             }
         }
@@ -570,7 +570,7 @@ pub const SavedGames = struct {
         const heading = canvas.strings.string(if (screen.mode == .load) load_title else save_title) orelse "";
         var capitals: [32]u8 = undefined;
         const upper = std.ascii.upperString(capitals[0..@min(call_sign.len, capitals.len)], call_sign[0..@min(call_sign.len, capitals.len)]);
-        const title = std.fmt.bufPrint(&title_buffer, "{s} {s}", .{ heading, upper }) catch heading;
+        const title = std.mem.print(&title_buffer, "{s} {s}", .{ heading, upper }) catch heading;
         try canvas.text(large, title_at, title, blue, .centre);
         if (screen.mode == .save) {
             canvas.box(name_box_at, name_box_size);
@@ -602,7 +602,7 @@ pub const SavedGames = struct {
             try canvas.text(small, .{ first_row.x, y }, listed.name.slice(), colour, .left);
             try canvas.text(small, .{ pilot_x, y }, listed.pilot.slice(), colour, .centre);
             var number: [8]u8 = undefined;
-            try canvas.text(small, .{ mission_x, y }, std.fmt.bufPrint(&number, "{d}", .{gameflow.displayNumber(listed.mission)}) catch "", colour, .right);
+            try canvas.text(small, .{ mission_x, y }, std.mem.print(&number, "{d}", .{gameflow.displayNumber(listed.mission)}) catch "", colour, .right);
         }
         if (screen.selected) |slot| {
             try canvas.string(small, rank_at, gameflow.rank_names[screen.rank], blue, .left);
@@ -793,7 +793,7 @@ test "a name typed saves the game in the slot chosen" {
         _ = fixture.frame(.{});
     }
     try std.testing.expectEqualStrings("Older", fixture.screen.name.slice());
-    fixture.keyboard.down[@intFromEnum(input.Key.enter)] = true;
+    fixture.keyboard.down[@backingInt(input.Key.enter)] = true;
     try std.testing.expectEqual(End.done, fixture.frame(.{}).?);
     var found = save.empty();
     try std.testing.expect(fixture.folder().load(std.testing.allocator, "Ace", 1, &found));

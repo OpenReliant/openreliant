@@ -782,7 +782,7 @@ pub const Loadout = struct {
     fn gunshipScale(loadout: *const Loadout, index: usize) f32 {
         const mod = additions.ships.get(loadout.offers[index].ship_type) orelse return loadout.shipRecord(index).scale;
         if (tables.ownGunsModel(mod)) return loadout.shipRecord(index).scale;
-        return tables.ships[@intFromEnum(mod.base)].scale;
+        return tables.ships[@backingInt(mod.base)].scale;
     }
 
     /// A mod's ship type, whose model `own` can be of any size, shown as large as its base: its
@@ -791,7 +791,7 @@ pub const Loadout = struct {
         const offer = &loadout.offers[index];
         const mod = additions.ships.get(offer.ship_type) orelse return;
         const arena = loadout.arena.allocator();
-        const base = tables.ships[@intFromEnum(mod.base)];
+        const base = tables.ships[@backingInt(mod.base)];
         const base_model = try shp.Model.parse(arena, try loadout.context.rooms.resources.readFile(arena, base.model));
         const own_reach = reach(own);
         if (own_reach > 0) offer.record.scale = base.scale * reach(&base_model) / own_reach;
@@ -1075,7 +1075,7 @@ pub const Loadout = struct {
     /// whether it runs on (`loadout_running`). The O key asks for a screenshot.
     pub fn frame(loadout: *Loadout, in: Frame, keyboard: *input.Keyboard) Allocator.Error!bool {
         const running = try loadout.step(in);
-        loadout.screenshot = keyboard.pressed(@intFromEnum(input.Key.o), .none, true);
+        loadout.screenshot = keyboard.pressed(@backingInt(input.Key.o), .none, true);
         return running;
     }
 
@@ -1500,7 +1500,7 @@ pub const Loadout = struct {
         loadout.spin_start = loadout.now;
         loadout.interface.busy = false;
         loadout.fitTierDefault() catch |err| log.warn("the ship's missiles are left off: {s}", .{@errorName(err)});
-        const waiting = loadout.interface.stack.getLastOrNull() orelse return;
+        const waiting = loadout.interface.stack.last() orelse return;
         if (waiting.function == &stackGunsView) loadout.interface.runDeferred();
     }
 
@@ -1800,7 +1800,7 @@ pub const Loadout = struct {
     /// Plays `sound` of the loadout's bank (`sound_play`), in the middle: the voice, or null.
     fn playSound(loadout: *Loadout, sound: Sound, volume: i32, loops: u32, pitch: i32) ?u8 {
         const sounds = loadout.sounds orelse return null;
-        return loadout.context.rooms.sound.play(sounds.bank, @intFromEnum(sound), volume, loops, hog_snd.centre, pitch);
+        return loadout.context.rooms.sound.play(sounds.bank, @backingInt(sound), volume, loops, hog_snd.centre, pitch);
     }
 
     /// Mission 1's speech, `loadout.ut` of `speech_hog`, said at full volume (`speech_play`).
@@ -1875,16 +1875,16 @@ pub const Loadout = struct {
     fn missilesAvailable(loadout: *Loadout) void {
         var carried: racks.Carried = @splat(0);
         for (&loadout.ship_missiles, loadout.fitted.racks[0..racks.max_hardpoints]) |*object, rack| {
-            if (object.clickable) carried[@intFromEnum(rack.missile)] += 1;
+            if (object.clickable) carried[@backingInt(rack.missile)] += 1;
         }
         for (loadout.flights) |maybe| {
             const flight = maybe orelse continue;
-            if (flight.object.shown) carried[@intFromEnum(flight.missile)] += 1;
+            if (flight.object.shown) carried[@backingInt(flight.missile)] += 1;
         }
         const offered = racks.available(loadout.tier, loadout.known, &carried);
         for (loadout.icons, loadout.known, loadout.missile_slots) |*icon, missile, slot| {
             // A mod's missile the arc has no room for stays put away.
-            const shown = offered.isSet(@intFromEnum(missile)) and slot != null;
+            const shown = offered.isSet(@backingInt(missile)) and slot != null;
             icon.object.shown = shown;
             icon.object.clickable = shown;
         }
@@ -2152,7 +2152,7 @@ pub const Loadout = struct {
 
     /// Where `missile` is in `known`, and in the slices beside it.
     fn missilePlace(loadout: *const Loadout, missile: tables.Missile) usize {
-        return std.mem.indexOfScalar(tables.Missile, loadout.known, missile).?;
+        return std.mem.findScalar(tables.Missile, loadout.known, missile).?;
     }
 
     /// The missile the icon `object` stands for.
@@ -2251,7 +2251,7 @@ pub const Loadout = struct {
         const lift = icon.model.centre * @as(Vector, @splat(scale));
         const at = hologram.hardpointPlace(ship.model.parts[hardpoint.part].drawn(), hardpoint.attachment, lift, scale);
         loadout.attaching += 1;
-        const slot = std.mem.indexOfScalar(?*Flight, &loadout.flights, null) orelse return null;
+        const slot = std.mem.findScalar(?*Flight, &loadout.flights, null) orelse return null;
         const flight = try loadout.makeFlight(missile);
         loadout.flights[slot] = flight;
         try anims.attachMissile(&flight.attach, &loadout.interface, &icon.object, &flight.object, at, attachEnded);
@@ -2664,7 +2664,7 @@ fn chosenFor(context: Context, offered: []const tables.Offer) u8 {
 /// The level of detail the ships on the arc are drawn at while they move, at the options' `detail`
 /// (`0x0044273A`): the finest at high.
 fn coarseLevel(detail: explode.Detail) usize {
-    return @as(usize, @intFromEnum(explode.Detail.high)) - @intFromEnum(detail);
+    return @as(usize, @backingInt(explode.Detail.high)) - @backingInt(detail);
 }
 
 /// `mesh_build_band` (`0x0044F200`): a band of `segments` quads round the Z axis, between a circle
@@ -2756,7 +2756,7 @@ test squareMesh {
     try std.testing.expectEqualSlices(u16, &.{ 3, 2, 0, 2, 1, 0 }, mesh.indices);
     try std.testing.expectEqual([2]f32{ square_span, 0 }, mesh.uv[0].?[4]);
     for (mesh.uv[0].?[0..6], 0..) |pair, corner| {
-        const spans = std.mem.indexOfScalar(usize, &square_span_corners, corner) != null;
+        const spans = std.mem.findScalar(usize, &square_span_corners, corner) != null;
         try std.testing.expectEqual(if (spans) square_span else 0, pair[0]);
     }
     // Spanned whole, those reach the texture's far edge.

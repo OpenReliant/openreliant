@@ -12,6 +12,7 @@ const openreliant = @import("openreliant");
 const lancer_maneuvers = openreliant.engine.game.aidefend;
 const Record = lancer_maneuvers.Maneuver;
 const Opcode = lancer_maneuvers.Opcode;
+const Mirror = lancer_maneuvers.Mirror;
 
 const image = @import("image.zig");
 const testing = @import("testing.zig");
@@ -54,9 +55,9 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
     var list: std.ArrayList(Maneuver) = .empty;
     for (0..max_maneuvers) |index| {
         const record = try reader.recordAt(Record, table_address, index);
-        const name = reader.string(@intFromEnum(record.name)) catch break;
+        const name = reader.string(@backingInt(record.name)) catch break;
         if (name.len == 0) break;
-        const script_address = @intFromEnum(record.script);
+        const script_address = @backingInt(record.script);
         try list.append(arena, .{
             .name = name,
             .mirror = @bitCast(record.mirror),
@@ -71,7 +72,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
     var table: Table = .{ .maneuvers = try list.toOwnedSlice(arena), .handlers = undefined, .choices = undefined };
     const handlers = try reader.records(lancer_maneuvers.Handlers, handlers_address, opcode_count);
     for (&table.handlers, handlers) |*pair, record| {
-        pair.* = .{ .start = @intFromEnum(record.start), .run = @intFromEnum(record.run) };
+        pair.* = .{ .start = @backingInt(record.start), .run = @backingInt(record.run) };
     }
     const lists = try reader.records(u32, choices_address, bearings * bearings);
     for (&table.choices, 0..) |*row, ours| {
@@ -92,7 +93,7 @@ fn readScript(arena: std.mem.Allocator, reader: image.Reader, address: u32) (Err
     for (0..max_lines) |index| {
         const line = try reader.recordAt(lancer_maneuvers.ScriptLine, address, index);
         if (line.text == .null) return lines.toOwnedSlice(arena);
-        try lines.append(arena, try reader.string(@intFromEnum(line.text)));
+        try lines.append(arena, try reader.string(@backingInt(line.text)));
     } else return error.ScriptTooLong;
 }
 
@@ -154,8 +155,8 @@ pub fn emit(w: *Io.Writer, arena: std.mem.Allocator, table: Table) !void {
     );
     for (table.maneuvers, names) |maneuver, name| {
         try w.print(
-            "    .{{\n        .maneuver = .{f},\n        .name = \"{f}\",\n        .mirror = @bitCast(@as(u8, 0x{X:0>2})),\n        .min_ticks = {d},\n        .max_ticks = {d},\n        .script_address = 0x{X:0>8},\n        .script = &.{{\n",
-            .{ std.zig.fmtId(name), std.zig.fmtString(maneuver.name), maneuver.mirror, maneuver.min_ticks, maneuver.max_ticks, maneuver.script_address },
+            "    .{{\n        .maneuver = .{f},\n        .name = \"{f}\",\n        .mirror = {f},\n        .min_ticks = {d},\n        .max_ticks = {d},\n        .script_address = 0x{X:0>8},\n        .script = &.{{\n",
+            .{ std.zig.fmtId(name), std.zig.fmtString(maneuver.name), zig_text.flags(@as(Mirror, @bitCast(maneuver.mirror))), maneuver.min_ticks, maneuver.max_ticks, maneuver.script_address },
         );
         for (maneuver.script) |line| try w.print("            \"{f}\",\n", .{std.zig.fmtString(line)});
         try w.writeAll("        },\n    },\n");
@@ -208,7 +209,7 @@ pub fn emit(w: *Io.Writer, arena: std.mem.Allocator, table: Table) !void {
         \\
         \\/// The maneuver numbered `maneuver`, or null past the table.
         \\pub fn info(maneuver: Maneuver) ?Info {
-        \\    const index = @intFromEnum(maneuver);
+        \\    const index = @backingInt(maneuver);
         \\    return if (index < table.len) table[index] else null;
         \\}
         \\
@@ -225,13 +226,13 @@ pub fn emit(w: *Io.Writer, arena: std.mem.Allocator, table: Table) !void {
         \\comptime {
         \\    if (table.len != std.enums.values(Maneuver).len) @compileError("one entry per maneuver");
         \\    for (table, 0..) |entry, index| {
-        \\        if (@intFromEnum(entry.maneuver) != index) @compileError("maneuvers out of place");
+        \\        if (@backingInt(entry.maneuver) != index) @compileError("maneuvers out of place");
         \\    }
         \\}
         \\
         \\test info {
         \\    for (table) |entry| try std.testing.expectEqual(entry.maneuver, info(entry.maneuver).?.maneuver);
-        \\    try std.testing.expectEqual(null, info(@enumFromInt(table.len)));
+        \\    try std.testing.expectEqual(null, info(@fromBackingInt(table.len)));
         \\    for (compiled, table) |instructions, entry| try std.testing.expectEqual(entry.script.len, instructions.len);
         \\}
         \\
@@ -272,24 +273,24 @@ const TestPayload = struct {
             r.putRecord(table_address + @as(u32, @intCast(index)) * record_size, Record{
                 .mirror = .{ .yaw = true, .pitch = false, .roll = true },
                 ._unknown_01 = @splat(0),
-                .script = @enumFromInt(script_at),
-                .name = @enumFromInt(text.put(r, &next_string, name)),
+                .script = @fromBackingInt(script_at),
+                .name = @fromBackingInt(text.put(r, &next_string, name)),
                 .min_ticks = 400,
                 .max_ticks = 1000,
             });
             for (lines) |line_text| {
-                r.putRecord(script_at, lancer_maneuvers.ScriptLine{ .text = @enumFromInt(text.put(r, &next_string, line_text)), .instruction = .null });
+                r.putRecord(script_at, lancer_maneuvers.ScriptLine{ .text = @fromBackingInt(text.put(r, &next_string, line_text)), .instruction = .null });
                 script_at += @sizeOf(lancer_maneuvers.ScriptLine);
             }
             script_at += @sizeOf(lancer_maneuvers.ScriptLine);
         }
         // The third record's name is text, as after the payload's last.
         var past = std.mem.zeroes(Record);
-        past.name = @enumFromInt(0x6E757220);
+        past.name = @fromBackingInt(0x6E757220);
         r.putRecord(table_address + 2 * record_size, past);
         for (0..opcode_count) |index| {
             const routine: u32 = 0x00405000 + @as(u32, @intCast(index));
-            r.putRecord(handlers_address + @as(u32, @intCast(index)) * @sizeOf(lancer_maneuvers.Handlers), lancer_maneuvers.Handlers{ .start = @enumFromInt(routine), .run = .null });
+            r.putRecord(handlers_address + @as(u32, @intCast(index)) * @sizeOf(lancer_maneuvers.Handlers), lancer_maneuvers.Handlers{ .start = @fromBackingInt(routine), .run = .null });
         }
         // Every choice list holds both maneuvers.
         const list_at = text.put(r, &next_string, &.{ 2, 0, 1 });
@@ -332,7 +333,7 @@ test "emit writes Zig that parses" {
     defer out.deinit();
     try emit(&out.writer, arena.allocator(), read_table);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "    run_to_ship = 1,\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "            \"\\tGoto loop\",\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "        &.{ .defend_dodge1, .run_to_ship },\n") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "    run_to_ship = 1,\n") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "            \"\\tGoto loop\",\n") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), "        &.{ .defend_dodge1, .run_to_ship },\n") != null);
 }

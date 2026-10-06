@@ -125,7 +125,7 @@ pub const Action = enum(i16) {
 
     pub fn format(action: Action, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (action) {
-            _ => writer.print("action {d}", .{@intFromEnum(action)}),
+            _ => writer.print("action {d}", .{@backingInt(action)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -169,7 +169,7 @@ pub fn viewAt(comptime address: u32) u8 {
 
 /// The place of the view `entry` names.
 pub fn entryView(comptime entry: Entry) u8 {
-    return comptime viewAt(@intFromEnum(entry));
+    return comptime viewAt(@backingInt(entry));
 }
 
 /// The carrier the rooms are on: the Reliant up to mission 18, the Yamato after it
@@ -267,7 +267,7 @@ pub const Steps = struct {
     /// `which` at full volume, once, in the middle, ringing in the room as the rooms' sounds do.
     pub fn play(steps: Steps, sound: *hog_snd.Sound, which: StepSound) void {
         const file = steps.file orelse return;
-        _ = sound.playInScene(file.bank, @intFromEnum(which), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+        _ = sound.playInScene(file.bank, @backingInt(which), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
     }
 };
 
@@ -802,7 +802,7 @@ pub const Rooms = struct {
                 }
             }
         }
-        const pressed = (in.left and !rooms.left_held) or (in.right and !rooms.right_held) or in.keyboard.pressed(@intFromEnum(input.Key.space), .none, true);
+        const pressed = (in.left and !rooms.left_held) or (in.right and !rooms.right_held) or in.keyboard.pressed(@backingInt(input.Key.space), .none, true);
         const taken = if (pressed) rooms.hover else null;
         if (taken) |place| {
             if (!rooms.take(view.exits[place], in)) return null;

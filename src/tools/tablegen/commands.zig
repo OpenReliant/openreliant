@@ -12,8 +12,11 @@ const Io = std.Io;
 const openreliant = @import("openreliant");
 const layout = openreliant.layout;
 
+const Kinds = openreliant.engine.game.executor.Kinds;
+
 const image = @import("image.zig");
 const testing = @import("testing.zig");
+const zig_text = @import("zig_text.zig");
 
 /// Virtual address of the catalogue, which `vm_install_commands` (`0x0045CE30`) installs as the
 /// command table.
@@ -161,33 +164,7 @@ pub fn emit(w: *Io.Writer, commands: []const Command) !void {
         \\const std = @import("std");
         \\const assert = std.debug.assert;
         \\
-        \\/// What a parameter accepts: a mask of the kinds of value it takes. The bit names are read off
-        \\/// the labels of the parameters that set them.
-        \\pub const Kinds = packed struct(u32) {{
-        \\    _unknown_0: u7,
-        \\    /// `0x80`: a count, an ID, a number of seconds.
-        \\    number: bool,
-        \\    /// `0x100`: the name of a speech or movie file.
-        \\    file_name: bool,
-        \\    /// `0x200`: text, or an animation name.
-        \\    text: bool,
-        \\    /// `0x400`: a ship.
-        \\    ship: bool,
-        \\    /// `0x800`: a flight group, or a patrol route.
-        \\    flight_group: bool,
-        \\    _unknown_12: u2,
-        \\    /// `0x4000`: a function, meaning a part.
-        \\    part: bool,
-        \\    _unknown_15: u4,
-        \\    /// `0x80000`: a named constant: a pilot, an AI mode, a text ID.
-        \\    constant: bool,
-        \\    _unknown_20: bool,
-        \\    /// `0x200000`: a trigger condition.
-        \\    condition: bool,
-        \\    /// `0x400000`: a camera or flight curve.
-        \\    curve: bool,
-        \\    _unknown_23: u9,
-        \\}};
+        \\pub const Kinds = @import("../executor.zig").Kinds;
         \\
         \\pub const Param = struct {{
         \\    kinds: Kinds,
@@ -224,8 +201,8 @@ pub fn emit(w: *Io.Writer, commands: []const Command) !void {
             try w.writeAll("        .params = &.{\n");
             for (command.params) |param| {
                 try w.print(
-                    "            .{{ .kinds = @bitCast(@as(u32, 0x{X:0>8})), .extra = 0x{X:0>8}, .label = \"{f}\" }},\n",
-                    .{ param.kinds, param.extra, std.zig.fmtString(param.label) },
+                    "            .{{ .kinds = {f}, .extra = 0x{X:0>8}, .label = \"{f}\" }},\n",
+                    .{ zig_text.flags(@as(Kinds, @bitCast(param.kinds))), param.extra, std.zig.fmtString(param.label) },
                 );
             }
             try w.writeAll("        },\n");
@@ -375,6 +352,6 @@ test "emit writes Zig that parses" {
     defer out.deinit();
     try emit(&out.writer, &listed);
     try testing.expectZig(out.written());
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".per_ship = 0x0045D300,") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), ".per_ship = null,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".per_ship = 0x0045D300,") != null);
+    try std.testing.expect(std.mem.find(u8, out.written(), ".per_ship = null,") != null);
 }

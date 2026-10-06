@@ -21,14 +21,14 @@ pub const Error = image.Error || error{TooManyViews};
 
 /// The views, walked from `entries`.
 pub fn read(arena: std.mem.Allocator, reader: image.Reader, entries: []const u32) (Error || std.mem.Allocator.Error)![]const View {
-    var records: std.AutoArrayHashMapUnmanaged(u32, View.Record) = .empty;
+    var records: std.array_hash_map.Auto(u32, View.Record) = .empty;
     var pending: std.ArrayList(u32) = .empty;
     try pending.appendSlice(arena, entries);
     while (pending.pop()) |address| {
         if (address == 0 or records.contains(address)) continue;
         const record = try reader.record(View.Record, address);
         try records.put(arena, address, record);
-        for (exitsOf(&record)) |exit| try pending.append(arena, @intFromEnum(exit));
+        for (exitsOf(&record)) |exit| try pending.append(arena, @backingInt(exit));
     }
     const addresses = try arena.dupe(u32, records.keys());
     std.mem.sort(u32, addresses, {}, std.sort.asc(u32));
@@ -40,7 +40,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader, entries: []const u32
         var exits: std.ArrayList(u8) = .empty;
         for (exitsOf(record)) |exit| {
             if (exit == .null) continue;
-            try exits.append(arena, @intCast(std.mem.indexOfScalar(u32, addresses, @intFromEnum(exit)).?));
+            try exits.append(arena, @intCast(std.mem.findScalar(u32, addresses, @backingInt(exit)).?));
         }
         view.* = .{
             .address = address,
@@ -63,7 +63,7 @@ fn exitsOf(record: *const View.Record) []const openreliant.engine.Pointer(View.R
 }
 
 fn optionalString(reader: image.Reader, address: openreliant.engine.Pointer(u8)) image.Error!?[]const u8 {
-    return if (address == .null) null else try reader.string(@intFromEnum(address));
+    return if (address == .null) null else try reader.string(@backingInt(address));
 }
 
 /// Writes `interface/rooms/views.zig`.
@@ -122,11 +122,11 @@ test read {
     region.putString(at + 0x110, "b_loop.bik");
     region.putRecord(entry, View.Record{
         .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 },
-        .movie = @enumFromInt(at + 0x100),
+        .movie = @fromBackingInt(at + 0x100),
         .loop = .null,
         .label = 0xC3,
         .exit_count = 2,
-        .exits = .{ @enumFromInt(second), @enumFromInt(locker), .null, .null },
+        .exits = .{ @fromBackingInt(second), @fromBackingInt(locker), .null, .null },
         ._unknown_24 = 0,
         .action = .none,
         .sound = -1,
@@ -134,11 +134,11 @@ test read {
     });
     region.putRecord(second, View.Record{
         .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 },
-        .movie = @enumFromInt(at + 0x100),
-        .loop = @enumFromInt(at + 0x110),
+        .movie = @fromBackingInt(at + 0x100),
+        .loop = @fromBackingInt(at + 0x110),
         .label = 0x298,
         .exit_count = 1,
-        .exits = .{ @enumFromInt(entry), .null, .null, .null },
+        .exits = .{ @fromBackingInt(entry), .null, .null, .null },
         ._unknown_24 = 0,
         .action = .news,
         .sound = 3,

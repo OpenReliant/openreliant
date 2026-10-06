@@ -57,7 +57,7 @@ pub const Look = struct {
 };
 
 /// Mode 10, which `mesh_build` takes for `lit_additive` and `shp.Face.Shading.Mode` does not name.
-const lit_additive_again: shp.Face.Shading.Mode = @enumFromInt(10);
+const lit_additive_again: shp.Face.Shading.Mode = @fromBackingInt(10);
 
 /// Whether a face of shading `mode` shows its material's texture, so that `mesh_build` looks the
 /// texture up: every mode past the untextured ones.
@@ -145,7 +145,7 @@ pub fn material(face_look: Look, images: Images) Material {
 
 /// A highlight texture as the material record holds it, by its index in place of an image.
 fn highlightIndex(index: u3) Pointer(tcache.Image) {
-    return @enumFromInt(index);
+    return @fromBackingInt(index);
 }
 
 fn coordinates(texture: Texture) Material.Coordinates {
@@ -373,7 +373,7 @@ pub fn build(
         polygons[polygon] = if (step.merged)
             .{ .kind = .triangle, .continues = 0, .first = @intCast(index), .count = @truncate(extra + 3) }
         else
-            .{ .kind = @enumFromInt(@as(u16, @truncate(@intFromEnum(face.polygon)))), .continues = @truncate(face.remaining), .first = @intCast(index), .count = 3 };
+            .{ .kind = @fromBackingInt(@as(u16, @truncate(@backingInt(face.polygon)))), .continues = @truncate(face.remaining), .first = @intCast(index), .count = 3 };
         for (0..3) |corner| {
             indices[index + corner] = @truncate(face.vertices[corner]);
             uv[index + corner] = .{ face.u[corner], face.v[corner] };
@@ -846,7 +846,7 @@ fn prefixed(buffer: []u8, letter: u8, name: []const u8) []const u8 {
 }
 
 fn testShading(mode: u4, sub_mode: u4) shp.Face.Shading {
-    return .{ .mode = @enumFromInt(mode), .sub_mode = sub_mode, ._unused = 0 };
+    return .{ .mode = @fromBackingInt(mode), .sub_mode = sub_mode, ._unused = 0 };
 }
 
 test look {
@@ -881,11 +881,11 @@ test showsTexture {
 }
 
 test MaterialImages {
-    const images: Images = .{ .material = @enumFromInt(0x0060_0000), .light_map = @enumFromInt(0x0060_1000) };
+    const images: Images = .{ .material = @fromBackingInt(0x0060_0000), .light_map = @fromBackingInt(0x0060_1000) };
     try std.testing.expectEqual(images.light_map, images.pass(.light_map, highlightIndex));
     try std.testing.expectEqual(images.material, images.pass(.material, highlightIndex));
     try std.testing.expectEqual(.null, images.pass(.none, highlightIndex));
-    try std.testing.expectEqual(4, @intFromEnum(images.pass(.{ .highlight = 4 }, highlightIndex)));
+    try std.testing.expectEqual(4, @backingInt(images.pass(.{ .highlight = 4 }, highlightIndex)));
     // Found, a level's material's textures give a surface's; one not found, none.
     var texture: srtexture.Image = .{ .levels = &.{} };
     const found: MaterialImages(srapiext.Texture, .none) = .{ .material = .of(&texture), .light_map = .of(null) };
@@ -895,8 +895,8 @@ test MaterialImages {
 }
 
 test material {
-    const texture: Pointer(tcache.Image) = @enumFromInt(0x0060_0000);
-    const light_map: Pointer(tcache.Image) = @enumFromInt(0x0060_1000);
+    const texture: Pointer(tcache.Image) = @fromBackingInt(0x0060_0000);
+    const light_map: Pointer(tcache.Image) = @fromBackingInt(0x0060_1000);
 
     // The bytes `mesh_build` writes for a light-mapped `lit` face: two passes, the mesh's
     // coordinates for both, the first lit, the second added.
@@ -907,7 +907,7 @@ test material {
     // A highlight: coordinates from the normals, the second pass lit, its image the index.
     const shiny = material(look(testShading(7, 5), .{}), .{ .material = texture });
     try std.testing.expectEqualSlices(u8, &.{ 1, 0, 1, 2, 1, 1, 0, 1 }, std.mem.asBytes(&shiny)[0..8]);
-    try std.testing.expectEqual(5, @intFromEnum(shiny.image[1]));
+    try std.testing.expectEqual(5, @backingInt(shiny.image[1]));
 
     const blended = material(look(testShading(5, 0), .{}), .{ .material = texture });
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 1, 0, 0, 0, 3, 0 }, std.mem.asBytes(&blended)[0..8]);
@@ -1160,7 +1160,7 @@ test staticLightsBake {
     // An intact part holding a red light, and a damaged one, each with a vertex halfway out to
     // the light, facing it.
     var meshes = [_]shp.Mesh{};
-    var lights = [_]shp.Attachment{testLight(@intFromEnum(shp.Attachment.Light.red), 100, 1, 100)};
+    var lights = [_]shp.Attachment{testLight(@backingInt(shp.Attachment.Light.red), 100, 1, 100)};
     var intact = testPart(&meshes, std.mem.zeroes(shp.Part.Flags));
     intact.attachments = &lights;
     var damaged_flags = std.mem.zeroes(shp.Part.Flags);
@@ -1184,7 +1184,7 @@ test staticLightsBake {
     try std.testing.expectApproxEqAbs(0.25, colours[0][0][0], 1e-5);
     try std.testing.expectEqual(0, colours[1][0][0]);
     // A light past red adds no colour.
-    lights[0].id = @intFromEnum(shp.Attachment.Light.cyan);
+    lights[0].id = @backingInt(shp.Attachment.Light.cyan);
     staticLightsBake(&model, &loaded);
     try std.testing.expectApproxEqAbs(0.25, colours[0][0][0], 1e-5);
     try std.testing.expectEqual(0, colours[0][0][1]);
@@ -1194,7 +1194,7 @@ test staticLightsBake {
 test "a model loaded with real lights keeps them out of the bake for its objects" {
     const gpa = std.testing.allocator;
     var meshes = [_]shp.Mesh{};
-    var lights = [_]shp.Attachment{testLight(@intFromEnum(shp.Attachment.Light.red), 100, 1, 100)};
+    var lights = [_]shp.Attachment{testLight(@backingInt(shp.Attachment.Light.red), 100, 1, 100)};
     var parts = [_]shp.PartData{testPart(&meshes, std.mem.zeroes(shp.Part.Flags))};
     parts[0].attachments = &lights;
     const model: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &parts, .trailing_bytes = 0 };

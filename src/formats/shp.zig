@@ -330,7 +330,7 @@ pub const Part = extern struct {
 
         pub fn format(class: Class, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             return switch (class) {
-                _ => writer.print("class {d}", .{@intFromEnum(class)}),
+                _ => writer.print("class {d}", .{@backingInt(class)}),
                 inline else => |named| writer.writeAll(@tagName(named)),
             };
         }
@@ -581,7 +581,7 @@ pub const Attachment = extern struct {
 
     /// The colour of a `light`.
     pub fn light(attachment: Attachment) Light {
-        return @enumFromInt(attachment.id);
+        return @fromBackingInt(attachment.id);
     }
 };
 
@@ -840,7 +840,7 @@ pub const RecordSizes = struct {
     /// No chunk of any tag, which `Model.parse` fills in from the file's chunks.
     pub const none: RecordSizes = sizes: {
         var sizes: RecordSizes = .{};
-        for (@typeInfo(RecordSizes).@"struct".fields) |field| @field(sizes, field.name) = null;
+        for (@typeInfo(RecordSizes).@"struct".field_names) |name| @field(sizes, name) = null;
         break :sizes sizes;
     };
 
@@ -866,10 +866,10 @@ pub const RecordSizes = struct {
     comptime {
         // A field for each tag but the terminator, named after it, whose default is the size of
         // its record.
-        const fields = @typeInfo(RecordSizes).@"struct".fields;
-        assert(fields.len == std.enums.values(Tag).len - 1);
+        const names = @typeInfo(RecordSizes).@"struct".field_names;
+        assert(names.len == std.enums.values(Tag).len - 1);
         const whole: RecordSizes = .{};
-        for (fields) |field| assert(@field(whole, field.name) == @sizeOf(Record(@field(Tag, field.name))));
+        for (names) |name| assert(@field(whole, name) == @sizeOf(Record(@field(Tag, name))));
     }
 };
 
@@ -1346,7 +1346,7 @@ fn buildTestModel(buffer: []u8) []u8 {
 
     // One point list, of the points a split cuts the ship at; its points follow the geometry.
     pos = put.chunk(buffer, pos, .point_list, @sizeOf(u32), 1);
-    std.mem.writeInt(u32, buffer[pos..][0..4], @intFromEnum(PointList.Kind.cut), .little);
+    std.mem.writeInt(u32, buffer[pos..][0..4], @backingInt(PointList.Kind.cut), .little);
     pos += @sizeOf(u32);
 
     // A 28-byte vertex record: the older form, without the geomorph index.
@@ -1604,8 +1604,8 @@ test "a chunk kept whole stands before the terminator where the writer writes fe
     // One before the header, which the loader's search passes over as it looks for the header, and
     // one that stood after more chunks than the model writes.
     const kept = [_]UnnamedChunk{
-        .{ .after = 0, .chunk = .{ .tag = @enumFromInt(0x05), .record_size = 2, .count = 2, .data = &.{ 1, 2, 3, 4 } } },
-        .{ .after = 1000, .chunk = .{ .tag = @enumFromInt(0x11), .record_size = 1, .count = 2, .data = &.{ 5, 6 } } },
+        .{ .after = 0, .chunk = .{ .tag = @fromBackingInt(0x05), .record_size = 2, .count = 2, .data = &.{ 1, 2, 3, 4 } } },
+        .{ .after = 1000, .chunk = .{ .tag = @fromBackingInt(0x11), .record_size = 1, .count = 2, .data = &.{ 5, 6 } } },
     };
     var parts = [_]PartData{testPart("Hull", false, &.{})};
     var model = testModel(&parts, true);
@@ -1720,7 +1720,7 @@ test "a chunk kept whole is of a tag the format does not name, and holds its rec
     kept[0].chunk.tag = .end;
     try std.testing.expectError(error.NamedTag, model.write(&written.writer));
     // A header counting other bytes than follow it would send the loader astray.
-    kept[0].chunk = .{ .tag = @enumFromInt(0x05), .record_size = 4, .count = 2, .data = &.{ 1, 2, 3, 4 } };
+    kept[0].chunk = .{ .tag = @fromBackingInt(0x05), .record_size = 4, .count = 2, .data = &.{ 1, 2, 3, 4 } };
     try std.testing.expectError(error.UnevenChunk, model.write(&written.writer));
 }
 
@@ -1834,13 +1834,13 @@ test "indices and none" {
 
 test Tag {
     var buffer: [16]u8 = undefined;
-    try std.testing.expectEqualStrings("tree_node", try std.fmt.bufPrint(&buffer, "{f}", .{Tag.tree_node}));
+    try std.testing.expectEqualStrings("tree_node", try std.mem.print(&buffer, "{f}", .{Tag.tree_node}));
     // A tag the format does not name prints as its number.
-    try std.testing.expectEqualStrings("17", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Tag, @enumFromInt(0x11))}));
+    try std.testing.expectEqualStrings("17", try std.mem.print(&buffer, "{f}", .{@as(Tag, @fromBackingInt(0x11))}));
 
     try std.testing.expect(Tag.firing_arc.isNamed());
     try std.testing.expect(Tag.end.isNamed());
-    try std.testing.expect(!@as(Tag, @enumFromInt(0x05)).isNamed());
+    try std.testing.expect(!@as(Tag, @fromBackingInt(0x05)).isNamed());
 }
 
 test "record sizes and field offsets match the format" {

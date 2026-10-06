@@ -111,10 +111,10 @@ pub const testing = struct {
         for (made) |mod| {
             for (mod[1]) |file| {
                 var path_buffer: [128]u8 = undefined;
-                const folder = try std.fmt.bufPrint(&path_buffer, "mods/{s}", .{mod[0]});
+                const folder = try std.mem.print(&path_buffer, "mods/{s}", .{mod[0]});
                 try dir.createDirPath(io, folder);
                 var file_buffer: [128]u8 = undefined;
-                const path = try std.fmt.bufPrint(&file_buffer, "mods/{s}/{s}", .{ mod[0], file[0] });
+                const path = try std.mem.print(&file_buffer, "mods/{s}/{s}", .{ mod[0], file[0] });
                 try dir.writeFile(io, .{ .sub_path = path, .data = file[1] });
             }
         }
@@ -350,7 +350,7 @@ test "the bananas example adds a gun, a missile, a pilot and a ship that names t
     var guns: [15]stats.Gun = @splat(std.mem.zeroes(stats.Gun));
     guns[1].speed = 1000;
     var missiles: [11]stats.Missile = @splat(std.mem.zeroes(stats.Missile));
-    missiles[@intFromEnum(game.missiles.GameMissile.bandit)].lock_time = 300;
+    missiles[@backingInt(game.missiles.GameMissile.bandit)].lock_time = 300;
     var held: records.Records = try .init(arena.allocator(), .{
         .ships = try game.additions.ships.records(stats.Ship, arena.allocator(), &.{}, 0),
         .guns = try game.additions.guns.records(stats.Gun, arena.allocator(), &guns, 1),

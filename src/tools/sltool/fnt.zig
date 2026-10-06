@@ -84,7 +84,7 @@ fn render(ctx: Context, font: fnt.Font, out_path: []const u8) !void {
     // One pixel of gap around each cell keeps neighbouring glyphs apart.
     const cell_width = widest + 1;
     const cell_height = font.height() + 1;
-    const rows = (shown + columns - 1) / columns;
+    const rows = @divCeil(shown, columns);
     const width = columns * cell_width + 1;
     const height: u32 = @intCast(rows * cell_height + 1);
 

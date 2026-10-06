@@ -62,7 +62,7 @@ fn schematicOf(resources: *const bigfile.Hog, ship_type: create.TypeIndex, named
     const own = named orelse return null;
     const added = additions.ships.get(ship_type) orelse return .{ .layout = own, .pictures = own };
     if (resources.has(own)) return .{ .layout = own, .pictures = own };
-    const base = create.models.ship_types[@intFromEnum(added.base)].schematic orelse return null;
+    const base = create.models.ship_types[@backingInt(added.base)].schematic orelse return null;
     return .{ .layout = base, .pictures = own };
 }
 
@@ -85,7 +85,7 @@ pub const TypeCache = struct {
     display_shapes: ?spr.Sprite = null,
     loaded: [create.max_ship_types]?*Cached = @splat(null),
     /// Types the game names no model for, or whose files it lacks, looked for once.
-    missing: std.StaticBitSet(create.max_ship_types) = .initEmpty(),
+    missing: std.bit_set.Static(create.max_ship_types) = .empty,
 
     const Cached = struct {
         arena: std.heap.ArenaAllocator,

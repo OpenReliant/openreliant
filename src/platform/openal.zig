@@ -496,7 +496,7 @@ pub const Renderer = struct {
     // --- Samples ---------------------------------------------------------------------------------
 
     fn sample(renderer: *Renderer, handle: mss.Sample) *Voice {
-        return &renderer.samples[@intFromEnum(handle)];
+        return &renderer.samples[@backingInt(handle)];
     }
 
     pub fn allocateSample(renderer: *Renderer) ?mss.Sample {
@@ -504,7 +504,7 @@ pub const Renderer = struct {
             if (voice.allocated) continue;
             voice.* = .{ .allocated = true, .source = voice.source };
             renderer.setUpFlat(voice);
-            return @enumFromInt(index);
+            return @fromBackingInt(@intCast(index));
         }
         return null;
     }
@@ -628,7 +628,7 @@ pub const Renderer = struct {
     // --- 3D samples ------------------------------------------------------------------------------
 
     fn sample3D(renderer: *Renderer, handle: mss.Sample3D) *Voice {
-        return &renderer.samples_3d[@intFromEnum(handle)];
+        return &renderer.samples_3d[@backingInt(handle)];
     }
 
     pub fn allocate3DSample(renderer: *Renderer) ?mss.Sample3D {
@@ -636,7 +636,7 @@ pub const Renderer = struct {
             if (voice.allocated) continue;
             voice.* = .{ .allocated = true, .source = voice.source };
             renderer.setUp3D(voice);
-            return @enumFromInt(index);
+            return @fromBackingInt(@intCast(index));
         }
         return null;
     }
@@ -771,7 +771,7 @@ pub const Renderer = struct {
     // --- Streams ---------------------------------------------------------------------------------
 
     fn stream(renderer: *Renderer, handle: mss.Stream) *Stream {
-        return &renderer.streams[@intFromEnum(handle)];
+        return &renderer.streams[@backingInt(handle)];
     }
 
     pub fn openStream(renderer: *Renderer, file: []const u8) ?mss.Stream {
@@ -788,7 +788,7 @@ pub const Renderer = struct {
             c.alSource3i(source, c.AL_AUXILIARY_SEND_FILTER, c.AL_EFFECTSLOT_NULL, 0, c.AL_FILTER_NULL);
             renderer.useResampler(source);
             c.alSourcef(source, c.AL_GAIN, 1);
-            return @enumFromInt(index);
+            return @fromBackingInt(@intCast(index));
         }
         return null;
     }
@@ -1013,7 +1013,7 @@ test Renderer {
     try std.testing.expectApproxEqAbs(renderer.settings.reverb_level, gain, 1e-6);
 
     // A 3D sample to the right, heard in the right ear more than the left.
-    const file = comptime openreliant.wave.testing.pcm(&std.mem.toBytes([_]i16{16384} ** 2048));
+    const file = comptime openreliant.wave.testing.pcm(&std.mem.toBytes(@as([2048]i16, @splat(16384))));
     const placed = driver.allocate3DSample().?;
     try std.testing.expect(driver.set3DSampleFile(placed, file));
     try std.testing.expectEqual(4096, driver.sample3DLength(placed));
@@ -1087,7 +1087,7 @@ test "subwoofer" {
     defer renderer.destroy();
     try std.testing.expect(renderer.low_frequency != null);
     const driver = renderer.driver();
-    const file = comptime openreliant.wave.testing.pcm(&std.mem.toBytes([_]i16{16384} ** 4096));
+    const file = comptime openreliant.wave.testing.pcm(&std.mem.toBytes(@as([4096]i16, @splat(16384))));
     const placed = driver.allocate3DSample().?;
     try std.testing.expect(driver.set3DSampleFile(placed, file));
     driver.set3DPosition(placed, .{ 0, 0, 2 });

@@ -91,7 +91,7 @@ fn show(w: *Io.Writer, read: *const save.Save) Io.Writer.Error!void {
         const rating = miss.ratings[index];
         if (rating == -1 and miss.mission_kills[index] == 0 and miss.mission_pickups[index] == 0 and miss.promotions[index] == 0) continue;
         try w.print("  {d:>2}        rating ", .{index + 1});
-        if (rating == -1) try w.writeAll("none") else try w.print("{f}", .{@as(Outcome, @enumFromInt(rating))});
+        if (rating == -1) try w.writeAll("none") else try w.print("{f}", .{@as(Outcome, @fromBackingInt(rating))});
         try w.print(", kills {d}, pickups {d}, promotion {d}\n", .{ miss.mission_kills[index], miss.mission_pickups[index], miss.promotions[index] });
     }
 
@@ -149,7 +149,7 @@ test show {
     read.miss.mission = 2;
     @memcpy(read.miss.call_sign[0..2], "RA");
     read.miss.ratings = @splat(-1);
-    read.miss.ratings[0] = @intFromEnum(Outcome.success);
+    read.miss.ratings[0] = @backingInt(Outcome.success);
     read.miss.mission_kills[0] = 12;
     read.miss.saved_racks = @splat(-1);
     read.miss.saved_racks[1] = 2;
@@ -158,11 +158,11 @@ test show {
     defer out.deinit();
     try show(&out.writer, &read);
     const text = out.written();
-    try std.testing.expect(std.mem.indexOf(u8, text, "name        Mission02\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "call sign   RA\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "medals      1\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "ship 0 (USLF_prd.SHP), racks 1:havoc\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "name        Mission02\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "call sign   RA\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "medals      1\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "ship 0 (USLF_prd.SHP), racks 1:havoc\n") != null);
     // Mission 1 alone has a record.
-    try std.testing.expect(std.mem.indexOf(u8, text, "   1        rating success, kills 12, pickups 0, promotion 0\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "   2        rating") == null);
+    try std.testing.expect(std.mem.find(u8, text, "   1        rating success, kills 12, pickups 0, promotion 0\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "   2        rating") == null);
 }

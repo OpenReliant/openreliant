@@ -184,7 +184,7 @@ fn exempt(condition: dte.Condition) dte.Trigger.Repeat {
 
 /// The repeat mode a condition that exempts none from a veto holds
 /// (`vm.ConditionDescriptor.none`).
-const no_exempt: dte.Trigger.Repeat = @enumFromInt(vm.ConditionDescriptor.none);
+const no_exempt: dte.Trigger.Repeat = @fromBackingInt(vm.ConditionDescriptor.none);
 
 /// Whether `trigger`'s operands pass `event`'s values: each operand for a value the condition marks
 /// as checked (`checkOperand`), an operand the trigger leaves unset passing any.
@@ -287,7 +287,7 @@ pub fn setAnyTriggerState(call: Call) u32 {
 fn setState(call: Call, number: ?u32) void {
     const machine = call.machine;
     const object = machine.mission.objectId(call.args[0]) orelse return;
-    const condition: dte.Condition = @enumFromInt(@as(u8, @truncate(call.args[1])));
+    const condition: dte.Condition = @fromBackingInt(@as(u8, @truncate(call.args[1])));
     const armed: u8 = @truncate(call.args[2]);
     const slice = triggersOf(machine, object);
     var counted: u8 = 0;
@@ -536,7 +536,7 @@ const shield_damage = 1;
 const hull_damage = 2;
 
 comptime {
-    const values = conditions.table[@intFromEnum(dte.Condition.shot_at)].values;
+    const values = conditions.table[@backingInt(dte.Condition.shot_at)].values;
     assert(std.mem.eql(u8, values[shield_damage].label, "Shield Damage"));
     assert(std.mem.eql(u8, values[hull_damage].label, "Hull Damage"));
 }
@@ -766,7 +766,7 @@ test "SetAnyTriggerState arms the one trigger it numbers, and SetTriggerState ea
             return .{ triggers[0].armed, triggers[1].armed, triggers[2].armed };
         }
     }.of;
-    const condition: u32 = @intFromEnum(dte.Condition.destroyed);
+    const condition: u32 = @backingInt(dte.Condition.destroyed);
     var args = [_]u32{ machine.mission.recordPlace(.ships, 0), condition, 1, 1 };
     const call: Call = .{ .machine = machine, .thread = 0, .args = &args };
 

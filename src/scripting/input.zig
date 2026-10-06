@@ -34,9 +34,9 @@ fn registerAction(call: Call, name: []const u8, definition: Definition) []const 
     }
     if (definition.button) |button| if (button >= engine_input.JoystickState.max_buttons) call.raise("action button is out of range", .{});
     var buffer: [engine_input.actions.name_size]u8 = undefined;
-    const qualified = std.fmt.bufPrint(&buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch call.raise("qualified action name is too long", .{});
-    const index = scripts.input_actions.add(call.context, qualified, definition.label, .{ .name = "", .string = 0, .key = if (definition.key) |key| @intFromEnum(key) else 0, .modifier = definition.modifier, .button = definition.button }) catch |err| call.raise("input.register_action: {s}", .{@errorName(err)});
-    scripts.input_actions.entries[index].gamepad_button = if (definition.gamepad_button) |button| @intFromEnum(button) else null;
+    const qualified = std.mem.print(&buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch call.raise("qualified action name is too long", .{});
+    const index = scripts.input_actions.add(call.context, qualified, definition.label, .{ .name = "", .string = 0, .key = if (definition.key) |key| @backingInt(key) else 0, .modifier = definition.modifier, .button = definition.button }) catch |err| call.raise("input.register_action: {s}", .{@errorName(err)});
+    scripts.input_actions.entries[index].gamepad_button = if (definition.gamepad_button) |button| @backingInt(button) else null;
     var devices: engine_input.Devices = .{ .mod_actions = &scripts.input_actions };
     const file: openreliant.engine.profile.Profile = if (scripts.options.shared.bindings_file) |held| held.profile else .empty;
     // Loading just this action preserves existing in-memory user bindings during registration.
@@ -60,7 +60,7 @@ pub const package = struct {
 
 /// `input.key_down(key)`.
 fn keyDown(call: Call, key: engine_input.Key) bool {
-    return Presentation.hostOf(call, "input.key_down").devices.keyboard.down[@intFromEnum(key)];
+    return Presentation.hostOf(call, "input.key_down").devices.keyboard.down[@backingInt(key)];
 }
 
 /// `input.action_down(action)`.
@@ -71,6 +71,6 @@ fn actionDown(call: Call, identifier: Identifier) bool {
             const index = call.runtime().input_actions.find(name) orelse call.raise("no registered action '{s}'", .{name});
             break :blk host.flying and host.devices.bindingActive(call.runtime().input_actions.entries[index].binding, false);
         },
-        .number => |number| if (number < controls.defaults.len) host.devices.active(@enumFromInt(number), false) else call.raise("custom actions must be named", .{}),
+        .number => |number| if (number < controls.defaults.len) host.devices.active(@fromBackingInt(number), false) else call.raise("custom actions must be named", .{}),
     };
 }

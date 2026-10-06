@@ -9,7 +9,6 @@ const assert = std.debug.assert;
 
 const fat = @import("../../formats/fat.zig");
 const shp = @import("../../formats/shp.zig");
-const libcmt = @import("../libcmt.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const mss = @import("../mss.zig");
@@ -257,7 +256,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     const driver = sound.driver orelse return null;
     if (!sound.effects.ready) return null;
     const bank = sound.effects.bank orelse return null;
-    const definition = &sounds.definitions[@intFromEnum(which)];
+    const definition = &sounds.definitions[@backingInt(which)];
     const level = sound.volumes.masterShare() * @as(f32, @floatFromInt(sound.volumes.effects)) * definition.volume * volume;
 
     var position: Vector = @splat(0);
@@ -319,7 +318,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     voice.follows = definition.follows;
     voice.owner = if (owner) |held| held else -1;
     voice.priority = @intCast(bank.entries[definition.entry].priority);
-    voice.sound = @intFromEnum(which);
+    voice.sound = @backingInt(which);
     voice.started = scene.clock.frame_start;
     voice.range = range;
 
@@ -329,17 +328,17 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     const moving = math.transformTransposed(scene.camera.orientation, velocity);
     if (!driver.set3DSampleFile(voice.sample, sample)) return null;
     driver.set3DSampleLoopCount(voice.sample, definition.loop_count);
-    driver.set3DSampleVolume(voice.sample, math.ftol(level));
+    driver.set3DSampleVolume(voice.sample, std.math.lossyCast(i32, level));
     driver.set3DPosition(voice.sample, hog_snd.miles(turned));
     driver.set3DOrientation(voice.sample, hog_snd.miles(heading), .{ 0, 1, 0 });
     driver.set3DVelocity(voice.sample, hog_snd.miles(moving));
-    driver.set3DSampleCone(voice.sample, definition.cone_inner, definition.cone_outer, math.ftol(definition.cone_outer_volume));
+    driver.set3DSampleCone(voice.sample, definition.cone_inner, definition.cone_outer, std.math.lossyCast(i32, definition.cone_outer_volume));
     driver.set3DSampleDistances(voice.sample, range, min_distance * hog_snd.distance_scale);
     // Not the game's: how far the sound of what it follows spreads, its model's radius, which the
     // software mixer leaves out.
     driver.set3DSampleRadius(voice.sample, radius * hog_snd.distance_scale);
     const rate: u32 = switch (which) {
-        .explosion01, .explosion02 => @intCast(explosion_rate - math.ftol(scene.random.fraction() * explosion_spread)),
+        .explosion01, .explosion02 => @intCast(explosion_rate - std.math.lossyCast(i32, scene.random.fraction() * explosion_spread)),
         else => sample_rate,
     };
     driver.set3DSamplePlaybackRate(voice.sample, rate);
@@ -367,8 +366,8 @@ pub fn playFrom(world: gameobj.World, at: math.Place, which: sounds.Sound, class
 
 /// The engines' and the afterburner's sounds, which are started however far off they are.
 fn heardAnywhere(which: sounds.Sound) bool {
-    const n = @intFromEnum(which);
-    return (n >= @intFromEnum(sounds.Sound.pship01) and n <= @intFromEnum(sounds.Sound.pship12)) or which == .burner01;
+    const n = @backingInt(which);
+    return (n >= @backingInt(sounds.Sound.pship01) and n <= @backingInt(sounds.Sound.pship12)) or which == .burner01;
 }
 
 /// A voice for a sound of `class`: the engine's or the afterburner's own for theirs; else a free
@@ -410,8 +409,8 @@ fn takes(sound: *Sound, class: Class) ?u8 {
 pub fn engineSound(ship_type: gameobj.Type) sounds.Sound {
     const own = ship_type.untwinned();
     if (own.base() == .kamov) return .pship07;
-    const row = @intFromEnum(own.base());
-    if (row < sounds.engines.len) return @enumFromInt(@intFromEnum(sounds.Sound.pship01) + row);
+    const row = @backingInt(own.base());
+    if (row < sounds.engines.len) return @fromBackingInt(@intCast(@backingInt(sounds.Sound.pship01) + row));
     return .pship01;
 }
 
@@ -463,7 +462,7 @@ const kamov_row = sounds.engines.len - 1;
 /// A type the tables have no row for takes the last, where the game reads past them.
 fn engineRow(ship_type: gameobj.Type) usize {
     const own = ship_type.untwinned();
-    return if (own.base() == .kamov) kamov_row else @min(@intFromEnum(own.base()), sounds.engines.len - 1);
+    return if (own.base() == .kamov) kamov_row else @min(@backingInt(own.base()), sounds.engines.len - 1);
 }
 
 /// The engine's volume factor: the effects volume and the master volume, each over the loudest.
@@ -488,15 +487,15 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
     const effects = &sound.effects;
     // The voice the afterburner's sound plays on: its own, else the engine's.
     const burner = sound.burner_voice orelse engine;
-    if (sound.burner_voice) |own| driver.set3DSampleVolume(sound.voices_3d[own].sample, math.ftol(scale * burner_volume));
+    if (sound.burner_voice) |own| driver.set3DSampleVolume(sound.voices_3d[own].sample, std.math.lossyCast(i32, scale * burner_volume));
     const burning = player.afterburner or player.reverse_thrust;
     switch (effects.engine) {
         .idle => if (!burning) {
             const row = sounds.engines[engineRow(player.type)];
-            const rate = row.rate + math.ftol(@as(f32, @floatFromInt(row.rate_by_throttle)) * player.throttle);
+            const rate = row.rate + std.math.lossyCast(i32, @as(f32, @floatFromInt(row.rate_by_throttle)) * player.throttle);
             driver.set3DSamplePlaybackRate(sound.voices_3d[engine].sample, @intCast(@max(rate, 0)));
-            const loud = row.volume + math.ftol(@as(f32, @floatFromInt(row.volume_by_throttle)) * player.throttle);
-            driver.set3DSampleVolume(sound.voices_3d[engine].sample, math.ftol(@as(f32, @floatFromInt(loud)) * scale));
+            const loud = row.volume + std.math.lossyCast(i32, @as(f32, @floatFromInt(row.volume_by_throttle)) * player.throttle);
+            driver.set3DSampleVolume(sound.voices_3d[engine].sample, std.math.lossyCast(i32, @as(f32, @floatFromInt(loud)) * scale));
             if (sound.burner_voice) |own| if (!sound.voices_3d[own].isFree()) sound.end3D(own);
         } else {
             effects.engine_changed_at = frame_start;
@@ -509,8 +508,8 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             const since: f32 = @floatFromInt(frame_start - effects.engine_changed_at);
             const grown: f32 = @floatFromInt(@min(math.round(since * burner_growth) + burner_start, burner_most));
             const sample = sound.voices_3d[burner].sample;
-            driver.set3DSampleVolume(sample, math.ftol((grown + burner_base) * scale));
-            driver.set3DSamplePlaybackRate(sample, if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - math.ftol(grown * burner_pitch_step)));
+            driver.set3DSampleVolume(sample, std.math.lossyCast(i32, (grown + burner_base) * scale));
+            driver.set3DSamplePlaybackRate(sample, if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - std.math.lossyCast(i32, grown * burner_pitch_step)));
         } else if (sound.burner_voice == null) {
             effects.engine_changed_at = -1;
             startEngine(sound, scene);
@@ -528,8 +527,8 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             } else if (burning) {
                 effects.engine = .idle;
             } else {
-                const left = math.ftol((1 - @as(f32, @floatFromInt(since)) * cooling_step) * hog_snd.loudest);
-                driver.set3DSampleVolume(sound.voices_3d[burner].sample, math.ftol(@as(f32, @floatFromInt(left)) * scale));
+                const left = std.math.lossyCast(i32, (1 - @as(f32, @floatFromInt(since)) * cooling_step) * hog_snd.loudest);
+                driver.set3DSampleVolume(sound.voices_3d[burner].sample, std.math.lossyCast(i32, @as(f32, @floatFromInt(left)) * scale));
             }
         },
         _ => {},
@@ -670,7 +669,7 @@ test playFrom {
     var world = mission.world();
     const door: math.Place = .{ .position = .{ 0, 0, 1000 }, .orientation = math.rotation(.y, std.math.pi / 2.0) };
     const voices = speaker.sound.voices_3d[0..speaker.sound.voice_3d_count];
-    const opening: i32 = @intFromEnum(sounds.Sound.dooropen);
+    const opening: i32 = @backingInt(sounds.Sound.dooropen);
     // Where nothing is heard, it plays nothing.
     playFrom(world, door, .dooropen, .not_reserved);
     for (voices) |voice| try std.testing.expect(voice.sound != opening);
@@ -711,15 +710,15 @@ test MissileSound {
     const missile = armed.missile(0);
     const placed = struct {
         fn at(on: *mss.Mixer, voice: hog_snd.Voice3D) mss.Vector {
-            return on.samples_3d[@intFromEnum(voice.sample)].state.placing.position;
+            return on.samples_3d[@backingInt(voice.sample)].state.placing.position;
         }
     }.at;
 
     // Following, the voice is the missile's, carries farther, and moves with it.
     const v = play(sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
     try std.testing.expectEqual(v, missile.slot.object.sound_voice.index());
-    const reach = speaker.mixer.samples_3d[@intFromEnum(sound.voices_3d[v].sample)].state.placing.min_distance;
-    try std.testing.expectApproxEqAbs(sounds.definitions[@intFromEnum(sounds.Sound.missile01)].min_distance * followed_missile_reach * hog_snd.distance_scale, reach, 1e-6);
+    const reach = speaker.mixer.samples_3d[@backingInt(sound.voices_3d[v].sample)].state.placing.min_distance;
+    try std.testing.expectApproxEqAbs(sounds.definitions[@backingInt(sounds.Sound.missile01)].min_distance * followed_missile_reach * hog_snd.distance_scale, reach, 1e-6);
     missile.slot.drawn.position = .{ 0, 0, 5000 };
     sound.update3D(scene);
     try std.testing.expectApproxEqAbs(5000 * hog_snd.distance_scale, placed(&speaker.mixer, sound.voices_3d[v])[2], 1e-6);
@@ -743,7 +742,7 @@ test ownEngineSound {
     additions.ships.install(&list);
     defer additions.ships.reset();
     // A mod's type sounds as its base, from its own file.
-    const pot: gameobj.Type = @enumFromInt(additions.ships.first);
+    const pot: gameobj.Type = @fromBackingInt(additions.ships.first);
     try std.testing.expectEqual(engineSound(.of(.predator)), engineSound(pot));
     try std.testing.expectEqualStrings("RIFF", ownEngineSound(pot).?);
     try std.testing.expectEqual(null, ownEngineSound(.of(.predator)));
@@ -751,9 +750,9 @@ test ownEngineSound {
 
 test engineSound {
     try std.testing.expectEqual(sounds.Sound.pship01, engineSound(.of(.predator)));
-    try std.testing.expectEqual(sounds.Sound.pship03, engineSound(@enumFromInt(0xF4 + 2)));
+    try std.testing.expectEqual(sounds.Sound.pship03, engineSound(@fromBackingInt(0xF4 + 2)));
     try std.testing.expectEqual(sounds.Sound.pship07, engineSound(.of(.kamov)));
-    try std.testing.expectEqual(sounds.Sound.pship01, engineSound(@enumFromInt(40)));
+    try std.testing.expectEqual(sounds.Sound.pship01, engineSound(@fromBackingInt(40)));
 }
 
 test engineUpdate {
@@ -776,7 +775,7 @@ test engineUpdate {
     object.afterburner = true;
     engineUpdate(sound, scene);
     try std.testing.expectEqual(EngineState.burning, sound.effects.engine);
-    try std.testing.expectEqual(@intFromEnum(sounds.Sound.burner01), sound.voices_3d[sound.burner_voice.?].sound);
+    try std.testing.expectEqual(@backingInt(sounds.Sound.burner01), sound.voices_3d[sound.burner_voice.?].sound);
     // Let go, it fades over 25 ticks.
     object.afterburner = false;
     engineUpdate(sound, scene);
@@ -803,11 +802,11 @@ test hearEngine {
     // Heard, the player's engine starts with its ship type's sound.
     world.hearing = speaker.hearing(&mission.clock);
     hearEngine(world);
-    try std.testing.expectEqual(@intFromEnum(engineSound(.of(.predator))), engine.sound);
+    try std.testing.expectEqual(@backingInt(engineSound(.of(.predator))), engine.sound);
     // Already playing, it isn't started again.
-    engine.sound = @intFromEnum(sounds.Sound.burner01);
+    engine.sound = @backingInt(sounds.Sound.burner01);
     hearEngine(world);
-    try std.testing.expectEqual(@intFromEnum(sounds.Sound.burner01), engine.sound);
+    try std.testing.expectEqual(@backingInt(sounds.Sound.burner01), engine.sound);
 }
 
 test hearsOwnFlyby {

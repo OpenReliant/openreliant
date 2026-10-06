@@ -610,8 +610,8 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     var protected = object.invulnerable.protects(player_hit);
     // The original checks the armor-bearing part, after resolving a linked assembly
     // (`0x00464800`), rather than the part that the shot first hit.
-    if (std.mem.indexOfScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
-        const protection: gameobj.Invulnerability = @enumFromInt(slot.object.components[n].invulnerable);
+    if (std.mem.findScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
+        const protection: gameobj.Invulnerability = @fromBackingInt(@intCast(slot.object.components[n].invulnerable));
         protected = protected or protection.protects(player_hit);
     }
 
@@ -624,7 +624,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     }
     const display = smartTargeting(world, attacker, kind) orelse return;
     if (object.side != .hostile) return;
-    if (std.mem.indexOfScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
+    if (std.mem.findScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
         input.setPlayerTarget(display, all, @intCast(index), @intCast(n), false);
     } else if (all.slots[all.player].orders[0].target.slot() != index) {
         input.setPlayerTarget(display, all, @intCast(index), aigeneric.Target.whole, false);
@@ -913,7 +913,7 @@ test "a torpedo that strikes a hull is gone, and the hull lurches" {
     all.slots[hull].object.mass = 100000;
     all.slots[hull].motion = null;
     const torpedo = try mission.add(.of(.russian_torpedo), .{ 60, 0, -60 });
-    mission.tables.combat[@intFromEnum(gameobj.GameType.russian_torpedo)].class = .torpedo;
+    mission.tables.combat[@backingInt(gameobj.GameType.russian_torpedo)].class = .torpedo;
     all.slots[torpedo].object.radius = 100;
     all.slots[torpedo].object.mass = 1000;
     all.slots[torpedo].motion = null;
@@ -1200,12 +1200,12 @@ test componentDamage {
     all.slots[index].object.component_count = 1;
     part.component_armor = 100;
     part.armor = 100;
-    all.slots[index].object.components[0].invulnerable = @intFromEnum(gameobj.Invulnerability.full);
+    all.slots[index].object.components[0].invulnerable = @backingInt(gameobj.Invulnerability.full);
     componentDamage(world, index, struck, 40, 1, .bullet);
     try std.testing.expectEqual(60, part.armor);
     componentDamage(world, index, struck, 100, 1, .bullet);
     try std.testing.expectEqual(60, part.armor);
-    all.slots[index].object.components[0].invulnerable = @intFromEnum(gameobj.Invulnerability.player_can_hit);
+    all.slots[index].object.components[0].invulnerable = @backingInt(gameobj.Invulnerability.player_can_hit);
     componentDamage(world, index, struck, 100, 1, .bullet);
     try std.testing.expectEqual(60, part.armor);
     componentDamage(world, index, struck, 100, 0, .bullet);
@@ -1225,7 +1225,7 @@ test goOff {
     const ship = try testing.ship(&mission, @splat(0), 1000);
     const torpedo = try testing.ship(&mission, .{ 100, 0, 0 }, 1000);
     mission.tables.combat[1].class = .torpedo;
-    all.slots[torpedo].object.type = @enumFromInt(1);
+    all.slots[torpedo].object.type = @fromBackingInt(1);
     all.slots[torpedo].combat = &mission.tables.combat[1];
     const shielded = all.slots[ship].object.shields.fore;
     try std.testing.expect(collide(world, ship, torpedo, 0));
@@ -1236,7 +1236,7 @@ test goOff {
     // A mine goes off against a fighter, which is not pushed.
     const mine = try testing.ship(&mission, .{ 0, 100, 0 }, 1000);
     mission.tables.combat[2].class = .mine;
-    all.slots[mine].object.type = @enumFromInt(2);
+    all.slots[mine].object.type = @fromBackingInt(2);
     all.slots[mine].combat = &mission.tables.combat[2];
     all.slots[ship].object.shields.fore = 1000;
     try std.testing.expect(!collide(world, ship, mine, 0));
@@ -1264,7 +1264,7 @@ test "what never collides" {
 
     // A torpedo of another type goes off against it instead of pushing it.
     mission.tables.combat[1].class = .fighter;
-    all.slots[far].object.type = @enumFromInt(1);
+    all.slots[far].object.type = @fromBackingInt(1);
     all.slots[far].combat = &mission.tables.combat[1];
     try std.testing.expect(collide(world, near, far, 0));
     try std.testing.expectEqual(0, all.slots[near].object.root.position.x);

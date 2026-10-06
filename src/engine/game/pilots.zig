@@ -54,7 +54,7 @@ pub const Pilot = extern struct {
         .aim_interval = @bitCast(stats.tier_c_default[2]),
         ._unknown_0a = 0,
         .fire_spread = stats.tier_b_default,
-        .timings = @bitCast(stats.tier_a_default),
+        .timings = @as(*const Timings, @ptrCast(&stats.tier_a_default)).*,
         ._unknown_1c = 1,
         ._unknown_1e = 1,
         ._unknown_20 = 1,
@@ -89,13 +89,13 @@ pub const Pilot = extern struct {
         pilot._unknown_20 = record._unknown_58;
         pilot.skill = record.skill;
         if (record.tier_b.index()) |level| pilot.fire_spread = stats.tier_b_presets[level];
-        if (record.tier_a.index()) |level| pilot.timings = @bitCast(stats.tier_a_presets[level]);
+        if (record.tier_a.index()) |level| pilot.timings = @as(*const Timings, @ptrCast(&stats.tier_a_presets[level])).*;
         if (record.tier_c.index()) |level| {
             const preset = stats.tier_c_presets[level];
             pilot.turn_limit = preset[0];
             pilot.turn_ease = preset[1];
             pilot.aim_interval = @bitCast(preset[2]);
-            if (record.tier_c == .level_2) pilot.timings.countermeasures = @bitCast(stats.tier_c_level_2_override);
+            if (record.tier_c == .level_2) pilot.timings.countermeasures = @as(*const Range, @ptrCast(&stats.tier_c_level_2_override)).*;
         }
         return pilot;
     }
@@ -142,9 +142,9 @@ test {
 test Table {
     var record: stats.Pilot = std.mem.zeroes(stats.Pilot);
     record.tier_a = .level_0;
-    record.tier_b = @enumFromInt(9);
+    record.tier_b = @fromBackingInt(9);
     record.tier_c = .level_2;
-    record.skill = @enumFromInt(10);
+    record.skill = @fromBackingInt(10);
     record._unknown_50 = 11;
     record._unknown_54 = 12;
     record._unknown_58 = 13;
@@ -165,7 +165,7 @@ test Table {
     try std.testing.expectEqual(25, pilot.aim_interval);
     try std.testing.expectEqual(1, pilot.turn_limit);
     try std.testing.expectEqual([3]u16{ 12, 11, 13 }, [3]u16{ pilot._unknown_1c, pilot._unknown_1e, pilot._unknown_20 });
-    try std.testing.expectEqual(@as(Pilot.Skill, @enumFromInt(10)), pilot.skill);
+    try std.testing.expectEqual(@as(Pilot.Skill, @fromBackingInt(10)), pilot.skill);
     // The rest keep the defaults.
     try std.testing.expectEqual(Pilot.default, table.get(1).*);
     try std.testing.expectEqual(Pilot.Skill.medium, table.get(Table.count).skill);
@@ -183,20 +183,20 @@ pub const Number = enum(u8) {
 
     /// The pilot an object flown by `pilot` (`GameObject.pilot`) has.
     pub fn of(pilot: i32) Number {
-        return if (std.math.cast(u8, pilot)) |number| @enumFromInt(number) else .none;
+        return if (std.math.cast(u8, pilot)) |number| @fromBackingInt(number) else .none;
     }
 
     /// The name scripts know it by: `none`, or a pilot a mod adds by its qualified name.
     pub fn scriptName(pilot: Number) ?[]const u8 {
         if (pilot == .none) return "none";
-        const added = additions.pilots.get(@intFromEnum(pilot)) orelse return null;
+        const added = additions.pilots.get(@backingInt(pilot)) orelse return null;
         return added.name;
     }
 
     /// The pilot scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?Number {
         if (std.mem.eql(u8, text, "none")) return .none;
-        return @enumFromInt(additions.pilots.find(text) orelse return null);
+        return @fromBackingInt(@intCast(additions.pilots.find(text) orelse return null));
     }
 };
 
@@ -243,7 +243,7 @@ pub const Face = struct {
 
     /// Its film for `head`, or null for a head past the four, which the game reads beside them.
     pub fn film(face: *const Face, head: Head) ?[]const u8 {
-        const index = @intFromEnum(head);
+        const index = @backingInt(head);
         return if (index < heads) face.films[index] else null;
     }
 
@@ -499,7 +499,7 @@ test faceOf {
     const bandit = faceOf(0).?;
     try std.testing.expectEqual(.friendly, bandit.side);
     try std.testing.expectEqualStrings("45TigersWL_Bandit_L", bandit.film(.laughing).?);
-    try std.testing.expectEqual(null, bandit.film(@enumFromInt(4)));
+    try std.testing.expectEqual(null, bandit.film(@fromBackingInt(4)));
     try std.testing.expectEqual(null, faceOf(Table.count));
     try std.testing.expectEqual(null, faceOf(-1));
 }

@@ -22,12 +22,12 @@ const Role = engine.game.ai.routines.Role;
 /// First session-local order number, derived from the original catalogue rather than fixed.
 pub const first_custom: i32 = first: {
     var highest: i32 = 0;
-    for (orders.table) |info| highest = @max(highest, @intFromEnum(info.order));
+    for (orders.table) |info| highest = @max(highest, @backingInt(info.order));
     break :first highest + 1;
 };
 
 fn orderAt(index: usize) orders.Order {
-    return @enumFromInt(first_custom + @as(i32, @intCast(index)));
+    return @fromBackingInt(@intCast(first_custom + @as(i32, @intCast(index))));
 }
 
 fn pushObject(state: *State, object: ?Object) void {
@@ -60,7 +60,7 @@ pub const Registry = struct {
     }
 
     fn position(registry: *Registry, order: orders.Order) ?usize {
-        const index = @as(i32, @intFromEnum(order)) - first_custom;
+        const index = @as(i32, @backingInt(order)) - first_custom;
         if (index < 0 or index >= registry.entries.items.len) return null;
         return @intCast(index);
     }
@@ -131,7 +131,7 @@ fn registerOrder(state: *State) i32 {
     const key = runtime.Name.of(name) orelse call.raise("order name is too long", .{});
     if (!openreliant.dte.source.validId(name)) call.raise("order name must be an identifier", .{});
     var qualified_buffer: [runtime.max_name]u8 = undefined;
-    const qualified = runtime.Name.of(std.fmt.bufPrint(&qualified_buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch call.raise("qualified order name is too long", .{})).?;
+    const qualified = runtime.Name.of(std.mem.print(&qualified_buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch call.raise("qualified order name is too long", .{})).?;
     if (state.typeOf(2) != .table) call.raise("orders.register expects a definition table", .{});
     var flags: orders.Flags = .{};
     var priority: i32 = 0;
@@ -157,10 +157,10 @@ fn registerOrder(state: *State) i32 {
     if (number > std.math.maxInt(i16)) call.raise("the custom order registry is full", .{});
     scripts.custom_orders.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("orders.register: out of memory", .{});
     // Copy callbacks so later changes to the definition cannot replace a registered handler.
-    state.newTable(0, std.meta.fields(Role).len);
-    inline for (std.meta.fields(Role)) |role| {
-        _ = state.rawGetField(2, role.name);
-        state.rawSetField(-2, role.name);
+    state.newTable(0, std.enums.values(Role).len);
+    inline for (comptime std.enums.values(Role)) |role| {
+        _ = state.rawGetField(2, @tagName(role));
+        state.rawSetField(-2, @tagName(role));
     }
     const callbacks = state.ref(-1);
     state.pop(1);
@@ -176,13 +176,13 @@ pub const Identifier = union(enum) { name: []const u8, number: i16 };
 pub fn identifierOf(all: *const engine.game.create.Objects, order: orders.Order) Identifier {
     if (values.name(orders.Order, order)) |name| return .{ .name = name };
     if (aigeneric.infoOf(all, order)) |info| return .{ .name = info.name };
-    return .{ .number = @intFromEnum(order) };
+    return .{ .number = @backingInt(order) };
 }
 
 fn find(scripts: *runtime.Runtime, identifier: Identifier) ?orders.Order {
     return switch (identifier) {
         .name => |name| values.byName(orders.Order, name) orelse scripts.custom_orders.find(name),
-        .number => |number| if (orders.info(@enumFromInt(number)) != null) @enumFromInt(number) else null,
+        .number => |number| if (orders.info(@fromBackingInt(number)) != null) @fromBackingInt(number) else null,
     };
 }
 

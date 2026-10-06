@@ -79,7 +79,7 @@ pub const Setting = enum {
             .joystick_invert => @intFromBool(held.joystick_invert),
             .hat_enable => @intFromBool(held.hat_enabled),
             .twist_enable => @intFromBool(held.twist_enabled),
-            .controller => @intFromEnum(held.control_mode),
+            .controller => @backingInt(held.control_mode),
         };
     }
 
@@ -90,7 +90,7 @@ pub const Setting = enum {
             .joystick_invert => held.joystick_invert = value != 0,
             .hat_enable => held.hat_enabled = value != 0,
             .twist_enable => held.twist_enabled = value != 0,
-            .controller => held.control_mode = @enumFromInt(value),
+            .controller => held.control_mode = @fromBackingInt(value),
         }
     }
 };
@@ -583,7 +583,7 @@ test "mod defaults do not steal controls and bindings persist by qualified name"
     defer arena.deinit();
     var registry: input.actions.Registry = .{};
     var owner: u8 = 0;
-    const binding: controls.Binding = .{ .name = "", .string = 0, .key = @intFromEnum(input.Key.k), .modifier = .none, .button = 0 };
+    const binding: controls.Binding = .{ .name = "", .string = 0, .key = @backingInt(input.Key.k), .modifier = .none, .button = 0 };
     const a = try registry.add(&owner, "a:pulse", "Pulse", binding);
     var shifted = binding;
     shifted.modifier = .shift;
@@ -595,11 +595,11 @@ test "mod defaults do not steal controls and bindings persist by qualified name"
     try std.testing.expectEqual(null, registry.entries[a].binding.button);
     try std.testing.expectEqual(binding.key, registry.entries[b].binding.key);
     registry.entries[a].binding = shifted;
-    registry.entries[a].binding.key = @intFromEnum(input.Key.f12);
+    registry.entries[a].binding.key = @backingInt(input.Key.f12);
     var file: profile.File = .{ .arena = arena.allocator(), .profile = .empty };
     try saveModBindings(&devices, &file);
     loadModBindings(&devices, file.profile);
-    try std.testing.expectEqual(@intFromEnum(input.Key.f12), registry.entries[a].binding.key);
+    try std.testing.expectEqual(@backingInt(input.Key.f12), registry.entries[a].binding.key);
     try std.testing.expectEqual(Modifier.shift, registry.entries[a].binding.modifier);
     devices.joystick.kind = .gamepad;
     loadModBindings(&devices, file.profile);

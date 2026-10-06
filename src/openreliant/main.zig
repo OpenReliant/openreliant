@@ -435,7 +435,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer loading.close();
     try loading.show(game.xtrabits.loading.startup_first);
     try loading.show(game.xtrabits.loading.startup_step);
-    var rand: engine.libcmt.Rand = .{};
+    var rand: engine.random.Random = .{};
     const space = try game.backdrop.Backdrop.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.backdrop.star_map_name), &rand, context.projection.near, options.sun);
     const sky = try game.nebula.Sky.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.nebula.dome_image_name));
     try sky.select(&textures, game.nebula.default_nebula, &space.lights);
@@ -480,7 +480,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     objects.missile_stats.addTypes();
     objects.missile_stats.load(missile_stats);
     objects.pilots.load(pilot_stats);
-    if (asked_ship) |chosen| objects.loadout_ships[objects.player] = @enumFromInt(chosen);
+    if (asked_ship) |chosen| objects.loadout_ships[objects.player] = @fromBackingInt(chosen);
     // What the shots are drawn with, built once (`guns_init`); the Turret Flak's shell is loaded as
     // each mission starts.
     objects.bullets.looks = try game.guns.Looks.create(arena, &textures);
@@ -491,7 +491,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // whenever a controller is connected or disconnected.
     try platform.joystick.init(.game);
     defer platform.joystick.deinit();
-    _ = platform.joystick.addMappings(try std.fs.path.joinZ(arena, &.{ game_path, platform.joystick.mappings_name }));
+    _ = platform.joystick.addMappings(try std.Io.Dir.path.joinZ(arena, &.{ game_path, platform.joystick.mappings_name }));
     var controller: ?platform.joystick.Controller = null;
     defer if (controller) |*open| open.close();
     // A screenshot reads no controls, so that it comes out the same whatever is plugged in.
@@ -704,7 +704,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         if (directory.readFileAlloc(io, game.gameflow.profile_name, arena, .limited(engine.files.max_file_size))) |bytes| {
             front.pilot.call_sign.set(game.gameflow.profileCallSign(bytes));
         } else |_| {}
-        const player_name = strings.string(@intFromEnum(game.interface.pilot_roster.String.player)) orelse "";
+        const player_name = strings.string(@backingInt(game.interface.pilot_roster.String.player)) orelse "";
         front.pilot_roster.list = game.winmain.loadCallSigns(settings_file.profile, player_name);
         try game.winmain.saveCallSigns(&front.pilot_roster.list, settings_file);
     }
@@ -738,7 +738,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // A piece of music asked for, as a mission's script plays one (`cmd_PlayMusic`): from `music\`,
     // for ever, at 80.
     if (options.music) |name| {
-        const path = try std.fmt.allocPrint(arena, "music\\{s}", .{name});
+        const path = try arena.print("music\\{s}", .{name});
         sound.playMusic(path, 0, 80, .now);
     }
     // A screenshot waits for the chase view to settle, then runs its ticks, one a frame, at least
@@ -790,7 +790,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         while (window.poll()) |event| switch (event) {
             .quit => return,
             .key => |key| if (options.screenshot == null) {
-                devices.keyboard.down[@intFromEnum(key.scan)] = key.down;
+                devices.keyboard.down[@backingInt(key.scan)] = key.down;
                 // The player and menu scripts don't hear the keys pressed while the console is
                 // up, nor the key that brings it up.
                 const withheld = if (console) |*shown| shown.isUp() or key.scan == scripting.console.key else false;
@@ -986,7 +986,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             };
             // The flight's ship, else the one `--ship` names, else the mission's ship; and the
             // simulator it runs in; and the campaign whose variables each attempt starts from.
-            objects.loadout_ships[objects.player] = if (flight.ship orelse asked_ship) |ship| @enumFromInt(ship) else null;
+            objects.loadout_ships[objects.player] = if (flight.ship orelse asked_ship) |ship| @fromBackingInt(ship) else null;
             objects.loadout_racks[objects.player] = flight.racks;
             objects.simulator = flight.simulator;
             // The simulator pod's missions run on the campaign's variables too, as the game's are
@@ -1068,9 +1068,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 }
                 if (test_keys.active(play.number)) {
                     for (test_keys.ship_keys) |step| {
-                        if (devices.keyboard.pressed(@intFromEnum(step[0]), .none, true)) try play.changeShip(orders, step[1]);
+                        if (devices.keyboard.pressed(@backingInt(step[0]), .none, true)) try play.changeShip(orders, step[1]);
                     }
-                    if (devices.keyboard.pressed(@intFromEnum(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
+                    if (devices.keyboard.pressed(@backingInt(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
                 }
 
                 game.main.controlsFrame(.{
@@ -1257,7 +1257,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
 /// by its name, one of the game's (`predator`) or a mod's (`teapot:teapot`). Null for none.
 fn shipNamed(text: []const u8) ?game.create.TypeIndex {
     const object_type: game.gameobj.Type = if (std.fmt.parseInt(u16, text, 0)) |number|
-        @enumFromInt(number)
+        @fromBackingInt(number)
     else |_|
         game.gameobj.Type.fromScriptName(text) orelse return null;
     if (object_type.added() == null) {
@@ -1290,7 +1290,7 @@ fn startingView(slot: *const game.create.Slot, mode: camera.CockpitMode) camera.
 const settling_frames = 200;
 
 fn writeScreenshot(io: Io, gpa: Allocator, path: []const u8, rgba: []const u8, size: [2]u32) !void {
-    if (std.fs.path.dirname(path)) |dir| try Io.Dir.cwd().createDirPath(io, dir);
+    if (std.Io.Dir.path.dirname(path)) |dir| try Io.Dir.cwd().createDirPath(io, dir);
     const file = try Io.Dir.cwd().createFile(io, path, .{});
     defer file.close(io);
     var buffer: [64 * 1024]u8 = undefined;
@@ -1532,7 +1532,7 @@ fn modeFlight(modes: *const scripting.game_modes.Registry) game.interface.main_m
     const ship = modes.current().?.ship;
     return .{
         .mission = modes.mission().?,
-        .ship = if (ship) |chosen| @intCast(@intFromEnum(chosen)) else null,
+        .ship = if (ship) |chosen| @intCast(@backingInt(chosen)) else null,
         .flier = .main_menu,
     };
 }
@@ -1936,7 +1936,7 @@ const Loading = struct {
         loading.resources.show(loading.archive.*, frame);
         const pixels = try loading.size();
         if (loading.scripts) |scripts| scripts.screenFrame(pixels);
-        var shown: Shown = .{ .loading = loading, .window = pixels, .line = if (frame.line) |id| loading.strings.string(@intFromEnum(id)) else null };
+        var shown: Shown = .{ .loading = loading, .window = pixels, .line = if (frame.line) |id| loading.strings.string(@backingInt(id)) else null };
         try loading.presenter.present(pixels, shown.overlay());
     }
 
@@ -2047,7 +2047,7 @@ const Play = struct {
         var candidate = was;
         while (true) {
             candidate = test_keys.nextShipType(candidate, step);
-            all.loadout_ships[all.player] = @enumFromInt(candidate);
+            all.loadout_ships[all.player] = @fromBackingInt(@intCast(candidate));
             try play.start(orders);
             if (all.slots[all.player].type != null or candidate == was) return;
             std.log.warn("ship type {d} is left out: the game has no model for it", .{candidate});
@@ -2081,11 +2081,11 @@ fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const ga
     const path = game.winmain.missionPath(&path_buffer, number, second_part, false);
     if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| {
         // A mod's mission names the ship types the mod adds by the numbers its manifest gives them.
-        if (file.source == .mod) if (resources.mods.holder(std.fs.path.basenameWindows(path))) |mod| game.additions.remapMission(file.image, mod.name);
+        if (file.source == .mod) if (resources.mods.holder(std.Io.Dir.path.basenameWindows(path))) |mod| game.additions.remapMission(file.image, mod.name);
         return file.image;
     }
     if (number == mission0.number) return @embedFile("mission0.dte");
-    std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, std.fs.path.basenameWindows(path), game.bigfile.resource_name });
+    std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, std.Io.Dir.path.basenameWindows(path), game.bigfile.resource_name });
     return error.MissingMission;
 }
 
@@ -2116,8 +2116,8 @@ const Display = struct {
     view: *const camera.Camera,
     /// The radio, whose window shows the speaker's face.
     radio: *game.videoreports.Radio,
-    /// The C runtime's `rand`, which the camera and the display both draw from.
-    random: *engine.libcmt.Rand,
+    /// The game's random numbers (`Random`), which the camera and the display both draw from.
+    random: *engine.random.Random,
     /// The display's own state, `hud.cpp`'s globals.
     state: game.hud.State = .{},
     /// What the display shows ready for JUMP DRIVE while no mission is loaded: nothing.

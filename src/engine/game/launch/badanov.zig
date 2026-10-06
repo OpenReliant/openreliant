@@ -49,7 +49,7 @@ const first_gate_far: f32 = 7;
 /// for each side, then down about its X axis by `tilt` (`0x0041A00C`, `0x0041A051`, `0x0041A09D`):
 /// 21.6 degrees.
 const quarter_turn = launch.quarter_turn;
-const tilt: f32 = -0.37699112;
+const tilt: f32 = -std.math.degreesToRadians(21.6);
 
 /// How long the doors take to open, in ticks: `open_ticks` and up to `open_spread` more, drawn from
 /// the ship's own numbers (`object_random15`, `0x0041A282`, `0x0041A28F`).

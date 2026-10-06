@@ -22,7 +22,7 @@ const stats = @import("../../formats/stats.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const Pointer = engine.Pointer;
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const ai = @import("ai.zig");
 const camera = @import("camera.zig");
 const cloak = @import("cloak.zig");
@@ -71,7 +71,7 @@ pub const TypeIndex = u16;
 pub fn shipFiles(number: TypeIndex) models.ShipType {
     if (additions.ships.get(number)) |added| return .{
         .model = added.extra.model,
-        .schematic = added.extra.schematic orelse models.ship_types[@intFromEnum(added.base)].schematic,
+        .schematic = added.extra.schematic orelse models.ship_types[@backingInt(added.base)].schematic,
     };
     return if (number < models.ship_types.len) models.ship_types[number] else .{ .model = null, .schematic = null };
 }
@@ -132,7 +132,7 @@ pub const Stats = struct {
     /// from its record (`load`).
     pub fn addTypes(tables: *Stats) void {
         for (additions.ships.all(), additions.ships.first..) |added, number| {
-            const base = @intFromEnum(added.base);
+            const base = @backingInt(added.base);
             tables.flight[number].turns = tables.flight[base].turns;
             const record = &tables.combat[number];
             const from = tables.combat[base];
@@ -487,7 +487,7 @@ pub const Slot = struct {
 
     /// The entries of a stack, as mutable as the slot pointed at by `SlotPointer` is.
     fn Entries(comptime SlotPointer: type) type {
-        return if (@typeInfo(SlotPointer).pointer.is_const) []const aigeneric.Entry else []aigeneric.Entry;
+        return if (@typeInfo(SlotPointer).pointer.attrs.@"const") []const aigeneric.Entry else []aigeneric.Entry;
     }
 
     /// The first entry of its stack that is `order`, where there is one (`player_control_entry`,
@@ -659,7 +659,7 @@ pub const Objects = struct {
     reuses: [gameobj.max_objects]u32 = @splat(0),
 
     /// Every slot standing in, as a mission's start leaves them (`reset`), made in `gpa`.
-    pub fn create(gpa: Allocator, random: *libcmt.Rand) Allocator.Error!*Objects {
+    pub fn create(gpa: Allocator, random: *Random) Allocator.Error!*Objects {
         const all = try gpa.create(Objects);
         all.* = .{ .gpa = gpa, .slots = @splat(.{ .object = undefined }) };
         all.reset(random);
@@ -679,7 +679,7 @@ pub const Objects = struct {
     ///
     /// The planets' atmospheres, whose texture it loads and whose table it empties, are
     /// `atmosphere.Atmospheres`.
-    pub fn reset(all: *Objects, random: *libcmt.Rand) void {
+    pub fn reset(all: *Objects, random: *Random) void {
         for (&all.slots) |*slot| {
             slot.release(all.gpa);
             var object = gameobj.objectAlloc(.of(.stand_in), random);
@@ -700,7 +700,7 @@ pub const Objects = struct {
     ///
     /// Not ported: the `exit` routines popping those orders would run, none of which is ported yet
     /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
-    pub fn resetSlot(all: *Objects, index: u16, random: *libcmt.Rand) void {
+    pub fn resetSlot(all: *Objects, index: u16, random: *Random) void {
         const slot = &all.slots[index];
         if (slot.object.type.base() != .stand_in) hooks.tell(all, .object_removed, .{ .object = .of(index) });
         slot.release(all.gpa);
@@ -964,7 +964,7 @@ const planet_types = [_][2]u32{ .{ 0x5F, 0x69 }, .{ 0xC9, 0xD3 } };
 
 /// Whether `ship_type` is a planet's (`planet_types`).
 pub fn isPlanet(ship_type: gameobj.Type) bool {
-    const number = @intFromEnum(ship_type.base());
+    const number = @backingInt(ship_type.base());
     for (planet_types) |range| {
         if (number >= range[0] and number <= range[1]) return true;
     }
@@ -1054,7 +1054,7 @@ pub fn make(world: gameobj.World, wanted: ?u16, object_type: gameobj.Type) Error
 /// Not ported: the components (#40); what it does for capital ships, gates and other single types
 /// but the wrecks and the planets (#233, `wreckMade`, `planetMade`); and what differs in a
 /// multiplayer game.
-pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, asked: gameobj.Type, tier: i32, at: Vector, random: *libcmt.Rand) Error!u16 {
+pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, asked: gameobj.Type, tier: i32, at: Vector, random: *Random) Error!u16 {
     const index = wanted orelse all.count;
     if (index >= gameobj.max_objects) return error.Overrun;
     const ship_type = if (wanted != null) all.slotType(index, asked) else asked;
@@ -1121,7 +1121,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     slot.combat = combat;
     slot.flight = &tables.flight[stats_type];
     slot.motion = .forward;
-    object.side = @enumFromInt(@intFromEnum(combat.side));
+    object.side = @fromBackingInt(@backingInt(combat.side));
 
     slot.type = all.useType(types, stats_type);
     if (slot.type) |loaded| {
@@ -1206,7 +1206,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     try arm(all.gpa, slot, fit);
     ai.setTargetable(object, combat, true);
     all.exhaust.offer(all, index);
-    object.type = @enumFromInt(becomes);
+    object.type = @fromBackingInt(becomes);
     hooks.tell(all, .object_added, .{ .object = .of(index) });
     return index;
 }
@@ -1285,7 +1285,7 @@ const last_fighter = 11;
 /// tier 0 with 4 or 5.
 pub fn settledTier(asked: i32, ship_type: gameobj.Type, campaign: u2) u2 {
     var tier: i32 = if (asked == 5) 4 else if (asked < 0 or asked > 4) 0 else asked;
-    if (tier == 0 and @intFromEnum(ship_type.base()) <= last_fighter) tier = campaign;
+    if (tier == 0 and @backingInt(ship_type.base()) <= last_fighter) tier = campaign;
     return if (tier == 4) 0 else @intCast(tier);
 }
 
@@ -1349,7 +1349,7 @@ pub fn fitRacks(gpa: Allocator, object: *GameObject, model: *objects.Model, effe
         const at: usize = @intCast(object.rack_count);
         const rack = &object.racks[at];
         if (rack.type.index() == null) {
-            std.mem.copyForwards(gameobj.Rack, object.racks[at .. gameobj.max_racks - 1], object.racks[at + 1 ..]);
+            @memmove(object.racks[at .. gameobj.max_racks - 1], object.racks[at + 1 ..]);
             object.racks[gameobj.max_racks - 1] = .{ .type = .none };
             continue;
         }
@@ -1750,7 +1750,7 @@ test planetMade {
     try std.testing.expect(!all.slots[ship].object.flags.no_collisions);
     try std.testing.expectEqual(50, hull.mesh.positions[0][2]);
 
-    const planet = try mission.addWith(hull.types(), @enumFromInt(0x60), @splat(0));
+    const planet = try mission.addWith(hull.types(), @fromBackingInt(0x60), @splat(0));
     const slot = &all.slots[planet];
     slot.model.?.parts[0].origin = .{ 0, 0, 7 };
     planetMade(all, planet);
@@ -1945,7 +1945,7 @@ test collectComponents {
 }
 
 test "Objects.slotType" {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try Objects.create(std.testing.allocator, &random);
     defer all.destroy();
     // With no loadout, the player's slot takes the mission's own kind; other slots always do.
@@ -1998,7 +1998,7 @@ test hardpoints {
 
 test "a ship's racks are fitted by its tier" {
     const gpa = std.testing.allocator;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try Objects.create(gpa, &random);
     defer all.destroy();
     var tables = testing.tables();
@@ -2047,7 +2047,7 @@ test "a ship's racks are fitted by its tier" {
 
 test "a player's ship takes the racks its loadout fitted" {
     const gpa = std.testing.allocator;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try Objects.create(gpa, &random);
     defer all.destroy();
     var tables = testing.tables();
@@ -2097,7 +2097,7 @@ test "a player's ship takes the racks its loadout fitted" {
 
 test "a rack left empty on the loadout leaves its hardpoint bare" {
     const gpa = std.testing.allocator;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try Objects.create(gpa, &random);
     defer all.destroy();
     var tables = testing.tables();
@@ -2174,7 +2174,7 @@ test createObject {
     try std.testing.expectError(error.Overrun, createObject(all, &mission.tables, model.types(), gameobj.max_objects, .of(.predator), 0, @splat(0), &mission.random));
 
     // Above the last ship type, a stand-in for a marker, at a slot of its own.
-    const marker = try createObject(all, &mission.tables, model.types(), 20, @enumFromInt(1000), 0, @splat(0), &mission.random);
+    const marker = try createObject(all, &mission.tables, model.types(), 20, @fromBackingInt(1000), 0, @splat(0), &mission.random);
     try std.testing.expectEqual(20, marker);
     try std.testing.expectEqual(2, all.count);
     const stand_in = all.slots[marker];
@@ -2226,7 +2226,7 @@ test "an object is created with the guns its model holds" {
     }
     model.data[0].attachments = &muzzles;
 
-    const index = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
+    const index = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
     const slot = &all.slots[index];
     // The guns are fitted after the count is cleared, so the object holds them all.
     try std.testing.expectEqual(2, slot.object.gun_count);
@@ -2260,10 +2260,10 @@ test "a ship with a retro thruster can reverse" {
         glow.size = .{ 10, 10, length };
     }
     model.data[0].attachments = glows[0..1];
-    const plain = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
+    const plain = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
     try std.testing.expect(!all.slots[plain].object.flags.can_reverse);
     model.data[0].attachments = &glows;
-    const retro = try mission.addWith(model.types(), @enumFromInt(7), @splat(0));
+    const retro = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
     try std.testing.expect(all.slots[retro].object.flags.can_reverse);
 }
 
@@ -2277,7 +2277,7 @@ test "a type under another number takes its stats, then its number" {
     mission.tables.combat[0x21].shield_power = 30;
     mission.tables.combat[0xE5].name = 1123;
     mission.tables.combat[0xE5].gun_groups = 2;
-    const index = try mission.add(@enumFromInt(0xE5), @splat(0));
+    const index = try mission.add(@fromBackingInt(0xE5), @splat(0));
     const slot = all.slots[index];
     try std.testing.expectEqual(0x21, slot.object.type.number());
     try std.testing.expectEqual(55, slot.flight.?.max_speed);
@@ -2295,7 +2295,7 @@ test "a type with no model still flies" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const index = try mission.add(@enumFromInt(3), @splat(0));
+    const index = try mission.add(@fromBackingInt(3), @splat(0));
     try std.testing.expectEqual(null, all.slots[index].model);
     all.slots[index].object.throttle = 1;
     all.slots[index].object.rotation = math.identity;

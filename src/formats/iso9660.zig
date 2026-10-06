@@ -125,8 +125,7 @@ pub const VolumeDescriptor = extern struct {
     /// The UCS-2 level a supplementary descriptor declares, if it is a Joliet one.
     pub fn jolietLevel(descriptor: *const VolumeDescriptor) ?JolietLevel {
         if (descriptor.type != .supplementary) return null;
-        inline for (@typeInfo(JolietLevel).@"enum".fields) |field| {
-            const level: JolietLevel = @enumFromInt(field.value);
+        inline for (comptime std.enums.values(JolietLevel)) |level| {
             if (std.mem.startsWith(u8, &descriptor.escape_sequences, level.escapeSequence())) return level;
         }
         return null;
@@ -330,7 +329,7 @@ pub const Walker = struct {
 
 /// Drops the `;1` version suffix, and the `.` ISO 9660 leaves on names without an extension.
 fn stripVersion(name: []const u8) []const u8 {
-    var end = std.mem.lastIndexOfScalar(u8, name, ';') orelse name.len;
+    var end = std.mem.findScalarLast(u8, name, ';') orelse name.len;
     if (end > 0 and name[end - 1] == '.') end -= 1;
     return name[0..end];
 }
@@ -393,7 +392,7 @@ pub const testing = struct {
         primary.root_directory = fixedPart(DirectoryRecord.self_identifier.len, root, .directory);
 
         const terminator = &blocks[VolumeDescriptor.first_lba + 1];
-        terminator[0] = @intFromEnum(VolumeDescriptor.Type.set_terminator);
+        terminator[0] = @backingInt(VolumeDescriptor.Type.set_terminator);
         terminator[1..][0..VolumeDescriptor.magic.len].* = VolumeDescriptor.magic.*;
     }
 };

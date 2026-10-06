@@ -181,7 +181,7 @@ pub const Voice3D = extern struct {
     }
 
     const free: Voice3D = .{
-        .sample = @enumFromInt(0),
+        .sample = @fromBackingInt(0),
         .follows = .none,
         .owner = no_owner,
         ._unknown_0c = 0,
@@ -235,7 +235,7 @@ pub const Volumes = struct {
     /// The volumes `settings` keeps, each at most `loudest`, and the defaults for any it lacks.
     pub fn read(settings: profile.Profile) Volumes {
         var volumes: Volumes = .{};
-        inline for (comptime std.meta.fieldNames(Volumes)) |name| {
+        inline for (@typeInfo(Volumes).@"struct".field_names) |name| {
             const kept = settings.int(section, keys.get(@field(std.meta.FieldEnum(Volumes), name)), @intCast(@field(volumes, name)));
             @field(volumes, name) = @intCast(@min(kept, loudest));
         }
@@ -351,8 +351,8 @@ pub const Scene = struct {
     camera: camera.Place,
     view: camera.View,
     clock: *const Clock,
-    /// The runtime's numbers, which pitch the explosions.
-    random: *@import("../libcmt.zig").Rand,
+    /// The game's random numbers (`Random`), which pitch the explosions.
+    random: *@import("../random.zig").Random,
 };
 
 /// What the game's code reaches the sound through: the sound, the camera it is heard from,
@@ -539,7 +539,7 @@ pub const Sound = struct {
         const rate = if (wave.Wave.parse(file)) |info| info.rate else |_| 0;
         if (pitch != 0) {
             const moved = @as(f32, @floatFromInt(rate)) * pitchFactor(pitch);
-            driver.setSamplePlaybackRate(voice.sample, @intCast(math.ftol(moved)));
+            driver.setSamplePlaybackRate(voice.sample, @intCast(std.math.lossyCast(i32, moved)));
         }
         driver.setSampleVolume(voice.sample, sound.volumes.mastered(sound.volumes.effects, volume, start_divisor));
         driver.setSampleLoopCount(voice.sample, loops);
@@ -1033,7 +1033,7 @@ pub fn pitchFactor(n: i32) f32 {
 /// The byte a piece of music loops back to (`music_play`): the loop table's, for the piece whose
 /// name starts what follows the path's first `\`, ignoring case, or 0.
 pub fn musicLoopStart(path: []const u8) i32 {
-    const name = if (std.mem.indexOfScalar(u8, path, '\\')) |at| path[at + 1 ..] else path;
+    const name = if (std.mem.findScalar(u8, path, '\\')) |at| path[at + 1 ..] else path;
     for (music_loops) |piece| {
         if (name.len >= piece.name.len and std.ascii.eqlIgnoreCase(name[0..piece.name.len], piece.name)) return piece.loop_start;
     }

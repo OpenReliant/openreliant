@@ -44,7 +44,7 @@ pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator
         for (0..3) |channel| base[at * 4 + channel] = colour.level(colour.light(sample[channel]) * material.colour[channel]);
         base[at * 4 + 3] = texels.nearest(u8, texels.unit(u8, sample[3]) * material.colour[3]);
     }
-    try files.append(arena, .{ .name = try std.fmt.allocPrint(arena, "{s}.png", .{name}), .bytes = try encode(arena, width, height, base) });
+    try files.append(arena, .{ .name = try arena.print("{s}.png", .{name}), .bytes = try encode(arena, width, height, base) });
 
     // The material map: occlusion in red, roughness in green and metalness in blue, as glTF packs
     // them, each times its value.
@@ -60,12 +60,12 @@ pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator
             255,
         };
     }
-    try files.append(arena, .{ .name = try std.fmt.allocPrint(arena, "{s}_orm.png", .{name}), .bytes = try encode(arena, width, height, orm) });
+    try files.append(arena, .{ .name = try arena.print("{s}_orm.png", .{name}), .bytes = try encode(arena, width, height, orm) });
 
     if (try picture(arena, material.normal_texture, material.name, "normal")) |normals| {
         const map = try arena.alloc(u8, pixels * 4);
         for (0..pixels) |at| map[at * 4 ..][0..4].* = sampled(normals, width, height, at);
-        try files.append(arena, .{ .name = try std.fmt.allocPrint(arena, "{s}_normal.png", .{name}), .bytes = try encode(arena, width, height, map) });
+        try files.append(arena, .{ .name = try arena.print("{s}_normal.png", .{name}), .bytes = try encode(arena, width, height, map) });
     }
 
     // The light it gives off, encoded as the colour is, held to full brightness.
@@ -77,7 +77,7 @@ pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator
             for (0..3) |channel| map[at * 4 + channel] = colour.level(colour.light(sample[channel]) * material.emissive[channel]);
             map[at * 4 + 3] = 255;
         }
-        try files.append(arena, .{ .name = try std.fmt.allocPrint(arena, "{s}_emissive.png", .{name}), .bytes = try encode(arena, width, height, map) });
+        try files.append(arena, .{ .name = try arena.print("{s}_emissive.png", .{name}), .bytes = try encode(arena, width, height, map) });
     }
     return files.items;
 }

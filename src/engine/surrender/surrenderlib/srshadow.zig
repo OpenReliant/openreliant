@@ -25,7 +25,7 @@ pub const map_count = cascade_count + 1;
 pub const cockpit_map = cascade_count;
 
 /// A set of maps.
-pub const Maps = std.bit_set.IntegerBitSet(map_count);
+pub const Maps = std.bit_set.Integer(map_count);
 
 /// How a device draws shadows: its maps' texels across, how far from the camera each cascade
 /// reaches in view depth, the first from the near plane, and whether the cockpit gets a map of
@@ -245,13 +245,13 @@ fn alphaShadow(object: *const srapiext.MeshObject) ?f32 {
 const into = struct {
     /// The world's layer: anywhere, the cockpit included, so a ship between the cockpit and the
     /// sun darkens it.
-    const world: Maps = .initFull();
+    const world: Maps = .full;
     /// What casts without being drawn, the ship the camera sits in: the cascades alone, as the
     /// cockpit sits inside it and would be dark all over.
-    const unseen: Maps = Maps.initFull().differenceWith(cockpit);
+    const unseen: Maps = Maps.full.differenceWith(cockpit);
     /// The cockpit's parts: its own map alone.
     const cockpit: Maps = blk: {
-        var maps: Maps = .initEmpty();
+        var maps: Maps = .empty;
         maps.set(cockpit_map);
         break :blk maps;
     };
@@ -398,7 +398,7 @@ const Casters = struct {
 
     /// The maps a sphere of `radius` at `centre`, in the camera's frame, can throw a shadow into.
     fn reachedBy(casters: Casters, centre: Vector, radius: f32) Maps {
-        var reached: Maps = .initEmpty();
+        var reached: Maps = .empty;
         for (casters.cascades, 0..) |cascade, map| reached.setValue(map, cascade.reachedBy(centre, radius));
         if (casters.cockpit) |cockpit| reached.setValue(cockpit_map, cockpit.reachedBy(centre, radius));
         return reached;

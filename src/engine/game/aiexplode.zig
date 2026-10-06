@@ -42,7 +42,7 @@ const gameobj = @import("gameobj.zig");
 const objects = @import("objects.zig");
 const shockwave = @import("shockwave.zig");
 const GameObject = gameobj.GameObject;
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const videoreports = @import("videoreports.zig");
 const xtrabits = @import("xtrabits.zig");
 
@@ -329,7 +329,7 @@ fn shipInit(ctx: Context, index: u16) void {
     state.style = if (object.type.base().isTorpedo() or (players and cutaway))
         .halt
     else
-        @enumFromInt(xtrabits.objectRandom15(object) % std.enums.values(Style).len);
+        @fromBackingInt(@intCast(xtrabits.objectRandom15(object) % std.enums.values(Style).len));
     killCredit(world, index);
     world.objects.wingmen.lose(object.pilot);
     events.destroyed(world, index, null);
@@ -525,7 +525,7 @@ fn stop(slot: *create.Slot) void {
 }
 
 /// A turn a step either way about each axis, within `spin_range`.
-fn randomSpin(random: *libcmt.Rand) Vec3 {
+fn randomSpin(random: *Random) Vec3 {
     return gameobj.vec3(random.centredVector(spin_range));
 }
 
@@ -804,7 +804,7 @@ test "a halting torpedo's shockwave" {
 }
 
 test randomSpin {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     for (0..100) |_| {
         const turn = randomSpin(&random);
         const most = spin_range / @as(Vector, @splat(2));

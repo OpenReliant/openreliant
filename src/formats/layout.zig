@@ -6,7 +6,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 comptime {
-    if (builtin.cpu.arch.endian() != .little) @compileError("the game's layouts are read in place, which needs a little-endian host");
+    if (builtin.target.cpu.arch.endian() != .little) @compileError("the game's layouts are read in place, which needs a little-endian host");
 }
 
 pub const Error = error{Truncated};
@@ -41,7 +41,7 @@ pub fn arrayMut(comptime T: type, bytes: []u8, count: usize) Error![]align(1) T 
 /// names none. Printing with `{t}` would panic on such a value, which files hold often.
 pub fn formatTag(comptime T: type, value: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     return switch (value) {
-        _ => writer.print("{d}", .{@intFromEnum(value)}),
+        _ => writer.print("{d}", .{@backingInt(value)}),
         inline else => |tag| writer.writeAll(@tagName(tag)),
     };
 }
@@ -96,7 +96,7 @@ test formatTag {
     var writer: std.Io.Writer = .fixed(&buffer);
     try formatTag(Kind, .wave, &writer);
     try writer.writeByte(' ');
-    try formatTag(Kind, @enumFromInt(9), &writer);
+    try formatTag(Kind, @fromBackingInt(9), &writer);
     try std.testing.expectEqualStrings("wave 9", writer.buffered());
 }
 

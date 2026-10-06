@@ -20,7 +20,7 @@ const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const matmanager = @import("matmanager.zig");
 const create = @import("create.zig");
 const environfx = @import("environfx.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const xtrabits = @import("xtrabits.zig");
 const Clock = @import("main.zig").Clock;
 const aigeneric = @import("aigeneric.zig");
@@ -114,7 +114,7 @@ pub const Node = extern struct {
 
         pub fn format(kind: Kind, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             return switch (kind) {
-                _ => writer.print("node kind {d}", .{@intFromEnum(kind)}),
+                _ => writer.print("node kind {d}", .{@backingInt(kind)}),
                 inline else => |named| writer.writeAll(@tagName(named)),
             };
         }
@@ -1223,7 +1223,7 @@ pub const Model = struct {
 
         /// How far along its length the plume burns, or null while it burns nothing. Every glow but
         /// a steady one flickers a little each frame (`node_draw`).
-        pub fn plume(glow: Glow, throttle: f32, random: ?*libcmt.Rand) ?f32 {
+        pub fn plume(glow: Glow, throttle: f32, random: ?*Random) ?f32 {
             if (glow.steady) return 1;
             const lit = if (glow.retro) -throttle else throttle;
             if (!(lit > 0)) return null;
@@ -1293,7 +1293,7 @@ pub const Model = struct {
         /// changes.
         targetable: bool = false,
         /// What its part is (part `+0x40`), which the target display names a subtarget by.
-        class: shp.Part.Class = @enumFromInt(0),
+        class: shp.Part.Class = @fromBackingInt(0),
         /// The turret its part makes of its assembly, and which of the turret's parts it is (part
         /// `+0xF4`, `+0xF8`).
         turret_kind: shp.Part.TurretKind = .fixed,
@@ -1817,7 +1817,7 @@ pub const Model = struct {
 
     fn start(model: *Model, index: usize, track: usize, time: f32, mode: ?Mode, speed: f32) void {
         const a = &model.parts[index].animation;
-        const chosen = mode orelse @as(Mode, @enumFromInt(@intFromEnum(a.tracks[track].clip.mode)));
+        const chosen = mode orelse @as(Mode, @fromBackingInt(@backingInt(a.tracks[track].clip.mode)));
         a.track = track;
         a.mode = chosen;
         if (time >= 0) a.time = time;
@@ -2486,7 +2486,7 @@ pub const View = struct {
     /// still standing.
     throttle: f32 = 0,
     /// Where the glows' flicker comes from; without one they burn steady.
-    random: ?*libcmt.Rand = null,
+    random: ?*Random = null,
     /// Pixels to a view unit across the screen (`srapi.Projection.scale`), which says how far off
     /// an object stops being worth drawing. Zero draws one however far off it stands.
     scale: f32 = 0,
@@ -2578,7 +2578,7 @@ comptime {
 
 /// What a plume's length is scaled by this frame: somewhere between `flicker_least` and its whole
 /// length, so that a burning engine is never quite still (`node_draw`).
-fn flicker(random: ?*libcmt.Rand) f32 {
+fn flicker(random: ?*Random) f32 {
     const source = random orelse return 1;
     return source.fraction() * flicker_range + flicker_least;
 }
@@ -2851,8 +2851,8 @@ test lightMask {
 
 test "Node.Kind" {
     var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("muzzle", try std.fmt.bufPrint(&buffer, "{f}", .{Node.Kind.muzzle}));
-    try std.testing.expectEqualStrings("node kind 9", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Node.Kind, @enumFromInt(9))}));
+    try std.testing.expectEqualStrings("muzzle", try std.mem.print(&buffer, "{f}", .{Node.Kind.muzzle}));
+    try std.testing.expectEqualStrings("node kind 9", try std.mem.print(&buffer, "{f}", .{@as(Node.Kind, @fromBackingInt(9))}));
 }
 
 test "Model.Attached" {
@@ -2959,7 +2959,7 @@ test lightColour {
     try std.testing.expectEqual([3]f32{ 1, 0, 0 }, lightColour(.red));
     try std.testing.expectEqual([3]f32{ 0, 1, 1 }, lightColour(.cyan));
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, lightColour(.white));
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lightColour(@enumFromInt(6)));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lightColour(@fromBackingInt(6)));
 }
 
 test lampColour {
@@ -2967,7 +2967,7 @@ test lampColour {
     try std.testing.expectEqual([3]f32{ 0.2, 0.5, 1 }, lampColour(.blue));
     try std.testing.expectEqual([3]f32{ 1, 0.5, 0.2 }, lampColour(.red));
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, lampColour(.white));
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lampColour(@enumFromInt(6)));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, lampColour(@fromBackingInt(6)));
 }
 
 test "Model.Blink.brightness" {
@@ -3041,7 +3041,7 @@ test "a model's steady lights shine as real lights where it was loaded so" {
         .kind = .light,
         .position = .{ .x = 0, .y = 0, .z = 0 },
         .orientation = math.identity,
-        .id = @intFromEnum(shp.Attachment.Light.blue),
+        .id = @backingInt(shp.Attachment.Light.blue),
         .later_tiers = @splat(0),
         .size = .{ 0, 3, 0 },
         .blink = .{ 0, 0 },
@@ -3052,8 +3052,8 @@ test "a model's steady lights shine as real lights where it was loaded so" {
         .light_range = 50,
         .light_brightness = 1,
     });
-    attachments[1].id = @intFromEnum(shp.Attachment.Light.cyan);
-    attachments[2].id = @intFromEnum(shp.Attachment.Light.red);
+    attachments[1].id = @backingInt(shp.Attachment.Light.cyan);
+    attachments[2].id = @backingInt(shp.Attachment.Light.red);
     attachments[2].blink = .{ 1000, 1000 };
     var hull = [1]shp.PartData{testingPart()};
     hull[0].part.parent = -1;
@@ -3234,17 +3234,17 @@ test "an engine glow burns with the throttle" {
     try std.testing.expectEqual(null, retro.plume(0.5, null));
     try std.testing.expectEqual(1, retro.plume(-1, null));
     // The steady glow burns full whatever the throttle, and never flickers.
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     try std.testing.expectEqual(1, steady.plume(0, &random));
     try std.testing.expectEqual(1, steady.plume(-1, &random));
-    try std.testing.expectEqual(1, random.seed);
+    try std.testing.expectEqual((Random{}).fingerprint(), random.fingerprint());
 
     // A flicker takes a burning plume down by at most a fifth, never past its full length.
     for (0..100) |_| {
         const burning = forward.plume(1, &random).?;
         try std.testing.expect(burning >= flicker_least and burning <= 1);
     }
-    try std.testing.expect(random.seed != 1);
+    try std.testing.expect(random.fingerprint() != (Random{}).fingerprint());
 }
 
 test "a model draws the muzzle flashes a shot has lit" {
@@ -3592,7 +3592,7 @@ fn testingKey(time: i32, angles: Vector, offset: Vector) shp.Keyframe {
 }
 
 fn testingClip(length: i32, mode: Model.Mode, name: []const u8) shp.Clip {
-    var made: shp.Clip = .{ .length = length, .mode = @enumFromInt(@intFromEnum(mode)), .name_bytes = @splat(0) };
+    var made: shp.Clip = .{ .length = length, .mode = @fromBackingInt(@intCast(@backingInt(mode))), .name_bytes = @splat(0) };
     @memcpy(made.name_bytes[0..name.len], name);
     return made;
 }
@@ -4035,7 +4035,7 @@ test "a track plays once, round and round, and back and forth" {
     var clip_events = [_]shp.ClipEvent{
         .{ .time = 10, .kind = .muzzles, ._unknown_08 = 0 },
         .{ .time = 90, .kind = .puff, ._unknown_08 = 0 },
-        .{ .time = 50, .kind = @enumFromInt(3), ._unknown_08 = 0 },
+        .{ .time = 50, .kind = @fromBackingInt(3), ._unknown_08 = 0 },
     };
     var tracks = [_]shp.Track{.{ .clip = testingClip(100, .once, "fire"), .keyframes = &keys, .events = &clip_events }};
     var animated: Animated = undefined;

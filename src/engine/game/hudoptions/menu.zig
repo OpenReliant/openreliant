@@ -258,7 +258,7 @@ pub const Ui = struct {
     /// Writes the string of `id` in `font` at `at` (`hud_text` of `language_string`). No string,
     /// no font, or a string the game doesn't have, writes nothing.
     pub fn write(ui: Ui, font: Font, at: [2]i32, id: String, colour: [4]f32, alignment: Alignment) Allocator.Error!void {
-        const number = std.math.cast(u32, @intFromEnum(id)) orelse return;
+        const number = std.math.cast(u32, @backingInt(id)) orelse return;
         const text = ui.strings.string(number) orelse return;
         try ui.writeText(font, at, text, colour, alignment);
     }
@@ -270,14 +270,14 @@ pub const Ui = struct {
 
     /// Draws `shape` with its anchor at `at`.
     pub fn drawShape(ui: Ui, shape: Shape, at: [2]i32, colour: [4]f32) Error!void {
-        try hud.drawShape(ui.art, ui.gpa, ui.target, @intFromEnum(shape), at, colour, ui.scale);
+        try hud.drawShape(ui.art, ui.gpa, ui.target, @backingInt(shape), at, colour, ui.scale);
     }
 
     /// Where an item's shape stands, placed by the shape's bounds and origin
     /// (`VFX_shape_bounds`, `VFX_shape_origin`), and the rectangle the pointer finds it in; null
     /// for a shape the set lacks.
     fn boxOf(ui: Ui, item: Item, shape: Shape) ?Box {
-        const header = (ui.art.shape(@intFromEnum(shape)) orelse return null).header;
+        const header = (ui.art.shape(@backingInt(shape)) orelse return null).header;
         const size: [2]i32 = .{ header.bounds.across, header.bounds.down };
         const origin: [2]i32 = .{ header.origin.across, header.origin.down };
         const anchor: [2]i32 = .{ ui.across(item.anchor[0]), ui.down(item.anchor[1]) };

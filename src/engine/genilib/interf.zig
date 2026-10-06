@@ -68,7 +68,7 @@ pub const Screen = enum(u8) {
 
     pub fn format(screen: Screen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return switch (screen) {
-            _ => writer.print("screen {d}", .{@intFromEnum(screen)}),
+            _ => writer.print("screen {d}", .{@backingInt(screen)}),
             inline else => |named| writer.writeAll(@tagName(named)),
         };
     }
@@ -851,8 +851,8 @@ test {
 
 test Screen {
     var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("pilot_roster", try std.fmt.bufPrint(&buffer, "{f}", .{Screen.pilot_roster}));
-    try std.testing.expectEqualStrings("screen 10", try std.fmt.bufPrint(&buffer, "{f}", .{@as(Screen, @enumFromInt(10))}));
+    try std.testing.expectEqualStrings("pilot_roster", try std.mem.print(&buffer, "{f}", .{Screen.pilot_roster}));
+    try std.testing.expectEqualStrings("screen 10", try std.mem.print(&buffer, "{f}", .{@as(Screen, @fromBackingInt(10))}));
 }
 
 test "a mod's screen stands in for the front end's own, and goes where it asks" {

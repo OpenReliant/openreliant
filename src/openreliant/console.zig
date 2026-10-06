@@ -47,7 +47,7 @@ pub const Driver = struct {
 
     /// Whether F11 has just been pressed, which brings the console up.
     pub fn asked(keyboard: *input.Keyboard) bool {
-        return keyboard.pressed(@intFromEnum(console_module.key), .none, true);
+        return keyboard.pressed(@backingInt(console_module.key), .none, true);
     }
 
     /// Brings the console up, with its fonts and shapes from `pausing`'s archive, and the

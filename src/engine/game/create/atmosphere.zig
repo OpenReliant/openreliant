@@ -254,7 +254,7 @@ pub const Atmospheres = struct {
         for (atmospheres.entries[0..atmospheres.count], 0..) |entry, at| {
             if (entry.planet != index) continue;
             entry.ring.destroy(atmospheres.gpa);
-            std.mem.copyForwards(Entry, atmospheres.entries[at .. atmospheres.count - 1], atmospheres.entries[at + 1 .. atmospheres.count]);
+            @memmove(atmospheres.entries[at .. atmospheres.count - 1], atmospheres.entries[at + 1 .. atmospheres.count]);
             atmospheres.count -= 1;
             return;
         }

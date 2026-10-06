@@ -74,7 +74,7 @@ fn packed24(colour: [3]u8) u24 {
 /// The palette of the frames: their own colours in order where they have no more than 256, else
 /// those of a median cut, the see-through colour kept as it is. Unused entries are black.
 fn paletteOf(arena: Allocator, frames: []const []const u8) Allocator.Error!talkie.Palette {
-    var counts: std.AutoArrayHashMapUnmanaged(u24, u32) = .empty;
+    var counts: std.array_hash_map.Auto(u24, u32) = .empty;
     for (frames) |frame| {
         for (0..frame.len / 4) |pixel| {
             const entry = try counts.getOrPut(arena, packed24(colourAt(frame, pixel)));
@@ -140,8 +140,11 @@ fn medianCut(arena: Allocator, colours: []Weighted, most: usize) Allocator.Error
         const split = widest orelse break;
         const box = boxes.items[split];
         const Sort = struct {
+            /// Orders by the channel, and colours with the same value in that channel by the whole
+            /// colour, so the palette doesn't depend on how the sort orders ties.
             fn less(channel: usize, a: Weighted, b: Weighted) bool {
-                return a.colour[channel] < b.colour[channel];
+                if (a.colour[channel] != b.colour[channel]) return a.colour[channel] < b.colour[channel];
+                return std.mem.order(u8, &a.colour, &b.colour) == .lt;
             }
         };
         std.mem.sortUnstable(Weighted, box, widest_channel, Sort.less);
@@ -339,7 +342,7 @@ fn patternOf(own: [talkie.block_pixels]u8) ?[talkie.pattern_size]u8 {
     var count: usize = 0;
     var map: u32 = 0;
     for (own, 0..) |pixel, k| {
-        const index = std.mem.indexOfScalar(u8, colours[0..count], pixel) orelse new: {
+        const index = std.mem.findScalar(u8, colours[0..count], pixel) orelse new: {
             if (count == colours.len) return null;
             colours[count] = pixel;
             count += 1;

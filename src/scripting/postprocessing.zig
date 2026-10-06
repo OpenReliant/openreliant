@@ -162,7 +162,7 @@ pub const Registry = struct {
         // A stable sort keeps the effects of the same stage and order as they were registered.
         std.sort.insertion(Entry, drawn[0..count], {}, struct {
             fn lessThan(_: void, a: Entry, b: Entry) bool {
-                if (a.stage != b.stage) return @intFromEnum(a.stage) < @intFromEnum(b.stage);
+                if (a.stage != b.stage) return @backingInt(a.stage) < @backingInt(b.stage);
                 return a.order < b.order;
             }
         }.lessThan);
@@ -195,7 +195,7 @@ fn registerEffect(call: Call, given: Definition) []const u8 {
     const source = mod.readFile(scripts.gpa, given.shader) catch |err| call.raise("postprocessing: {s} can't be read: {s}", .{ given.shader, @errorName(err) }) orelse
         call.raise("postprocessing: the mod {s} has no file {s}", .{ mod.name, given.shader });
     var file_buffer: [runtime_module.max_name * 2]u8 = undefined;
-    const file = std.fmt.bufPrint(&file_buffer, "{s}/{s}", .{ mod.name, given.shader }) catch given.shader;
+    const file = std.mem.print(&file_buffer, "{s}/{s}", .{ mod.name, given.shader }) catch given.shader;
     const compiled: ?EffectHost.Compiled = if (registry.host) |host| host.vtable.compile(host.context, file, source) else null;
     scripts.gpa.free(source);
     const effect: ?u32 = if (compiled) |result| switch (result) {
@@ -254,7 +254,7 @@ pub const testing = struct {
         fn compile(context: *anyopaque, name: []const u8, source: []const u8) EffectHost.Compiled {
             _ = name;
             const held = from(context);
-            if (std.mem.indexOf(u8, source, "broken") != null) return .{ .failed = "crt/broken.frag:2: 'broken' : undeclared identifier" };
+            if (std.mem.find(u8, source, "broken") != null) return .{ .failed = "crt/broken.frag:2: 'broken' : undeclared identifier" };
             held.added += 1;
             return .{ .effect = held.added - 1 };
         }

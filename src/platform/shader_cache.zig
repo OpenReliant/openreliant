@@ -92,8 +92,8 @@ pub const Cache = struct {
 fn keyOf(kind: shader_compiler.Kind, stage: shader_compiler.Stage, parts: []const Part, preamble: []const u8) Hash {
     var hash: Sha256 = .init(.{});
     for (compiler_files) |file| hash.update(file);
-    hash.update(std.mem.asBytes(&@intFromEnum(kind)));
-    hash.update(std.mem.asBytes(&@intFromEnum(stage)));
+    hash.update(std.mem.asBytes(&@backingInt(kind)));
+    hash.update(std.mem.asBytes(&@backingInt(stage)));
     update(&hash, preamble);
     for (parts) |part| {
         update(&hash, part.name);
@@ -123,7 +123,7 @@ fn decode(gpa: Allocator, payload: []const u8) Allocator.Error!?Code {
     const words = try gpa.alloc(u32, spirv.len / @sizeOf(u32));
     errdefer gpa.free(words);
     @memcpy(std.mem.sliceAsBytes(words), spirv);
-    return .{ .spirv = words, .metal = try gpa.dupeZ(u8, metal) };
+    return .{ .spirv = words, .metal = try gpa.dupeSentinel(u8, metal, 0) };
 }
 
 const fixture =
