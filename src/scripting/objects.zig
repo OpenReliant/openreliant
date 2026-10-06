@@ -193,7 +193,8 @@ pub const fields = struct {
 /// The methods of a handle (`api.Function`), each taking the handle first, as `self`.
 pub const methods = struct {
     pub const is_valid = api.Function("Whether the object is still in the mission. A handle stops being valid once its object is removed or its mission ends.", &.{"self"}, isValid);
-    pub const give_order = api.Function("Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object.", &.{ "self", "order", "target" }, giveOrder);
+    pub const give_order = api.Function("Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. `component` aims it at one part of `target` instead of the whole ship, as a mission's orders can: for Launch, the carrier's launch gate, counting from 0; for Dock, the port. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object.", &.{ "self", "order", "target", "component" }, giveOrder);
+    pub const start_launch = api.Function("Starts its Launch, as a mission's StartLaunch does: the first Launch among its orders goes after the short random wait the game gives each ship. Returns whether it had a Launch to start. Global scripts can start any object's launch, and an object's scripts their own.", &.{"self"}, startLaunch);
     pub const send_event = api.Function("Sends the event `name` to the object's scripts, with `data`, which must be plain data. It arrives at the next update.", &.{ "self", "name", "data" }, game.sendEvent);
     pub const add_script = api.Function("Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts.", &.{ "self", "name", "data" }, game.addScript);
     pub const hook = api.Native("`hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own.", "name: string, handler: (e: any) -> boolean?, filter: (Filter | (e: any) -> boolean)?", "HookHandle", hooks.hookObject);
@@ -207,12 +208,24 @@ fn isValid(call: Call, handle: Handle) bool {
     return handle.valid(all);
 }
 
-/// `object:give_order(order, target)`.
-fn giveOrder(call: Call, object: Object, identifier: @import("orders.zig").Identifier, target: ?Object) bool {
+/// `object:give_order(order, target, component)`.
+fn giveOrder(call: Call, object: Object, identifier: @import("orders.zig").Identifier, target: ?Object, component: ?u8) bool {
     const ctx = ordersOf(call, object, "give_order");
     const given = @import("orders.zig").resolve(call, identifier);
-    const aim: engine.game.aigeneric.Target = if (target) |aimed| .at(aimed.slot(), null) else .none;
+    const aim: engine.game.aigeneric.Target = if (target) |aimed| .at(aimed.slot(), if (component) |part| part else null) else aim: {
+        if (component != null) call.raise("give_order: a component needs a target", .{});
+        break :aim .none;
+    };
     return engine.game.aigeneric.give(ctx, object.slot(), given, aim);
+}
+
+/// `object:start_launch()`: `launch.start` (`launch_start`, `0x00418DB0`), as a mission's
+/// StartLaunch runs it for each of its ships.
+fn startLaunch(call: Call, object: Object) bool {
+    const all = ordersOf(call, object, "start_launch").world.objects;
+    const had = all.slots[object.slot()].firstOrder(.launch) != null;
+    engine.game.launch.start(all, object.slot());
+    return had;
 }
 
 /// What orders run against, where the calling script may change `object`'s orders

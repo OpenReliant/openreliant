@@ -563,6 +563,16 @@ nothing. The new order goes on top of the ship's orders, as a mission's SetAI do
 below carry on as it ends. Global scripts can give any object orders, and an object script its own
 object.
 
+A third argument aims the order at one part of `target`, as a mission's orders can: for a Launch,
+the carrier's launch gate, counting from 0, and for a Dock, its port. A ship given a Launch waits at
+its gate until `object:start_launch()` starts it, as a mission's StartLaunch does:
+
+```lua
+local ship, carrier = world.objects()[2], world.objects()[1]
+ship:give_order("launch", carrier, 1)  -- waits at the carrier's second gate
+ship:start_launch()                     -- and goes, after a short random wait
+```
+
 `openreliant.orders` shows and ends them:
 
 ```lua
@@ -697,9 +707,9 @@ end
 | Group | What it holds | Scripts |
 |---|---|---|
 | `Flight` | The orientation and frame functions of `util` | All |
-| `AI` | `orders`, and `give_order(ship, order, target)` | Global, object |
+| `AI` | `orders`, and `give_order(ship, order, target, component)` | Global, object |
 | `Combat`, `Weapons` | `add_hook` and `after_hook`, which are `hooks.add` and `hooks.after` | Global, object |
-| `Carriers` | `give_order`, `add_hook` and `after_hook` | Global, object |
+| `Carriers` | `give_order`, `start_launch`, `add_hook` and `after_hook` | Global, object |
 | `Camera`, `HUD` | The `camera` and `hud` packages | Player |
 | `Controls`, `Audio` | The `input` and `audio` packages | Player, menu |
 | `FrontEnd` | The `ui` package | Player, menu |

@@ -603,6 +603,34 @@ test "custom orders use qualified names, lifecycle callbacks and the engine stac
     try std.testing.expect(fixture.game.runtime.custom_orders.entries.items[0].enabled);
 }
 
+test "a script launches a ship from a carrier's gate" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\return { engine_handlers = {on_mission_start = function()
+                \\    local carrier, ship = world.objects()[1], world.objects()[2]
+                \\    assert(not ship:start_launch())
+                \\    assert(not pcall(ship.give_order, ship, "launch", nil, 1))
+                \\    assert(not pcall(ship.give_order, ship, "launch", carrier, 256))
+                \\    assert(ship:give_order("launch", carrier, 1))
+                \\    assert(ship:start_launch())
+                \\end} }
+            },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    const launch = fixture.mission.slot(fixture.sabre).firstOrder(.launch).?;
+    try std.testing.expectEqual(1, launch.target.part().?);
+    try std.testing.expect(launch.data.launch.go);
+}
+
 test "custom order failures disable callbacks and context closure removes stacked orders" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{
