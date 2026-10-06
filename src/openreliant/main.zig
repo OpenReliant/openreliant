@@ -521,6 +521,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var last_view = view.view;
     // The mission's clocks, which `mission_run` zeroes before it loops.
     var clock: game.main.Clock = .{};
+    // Lines of speech that nobody hears, as with `--no-sound`, are timed by the game's clock.
+    sound.clock = &clock;
     clock.start(platform.window.ticks());
     movies.timer = .{ .clock = &clock, .sound = sound };
     const hearing: game.hog_snd.Hearing = .{ .sound = sound, .camera = &view.place, .clock = &clock };
