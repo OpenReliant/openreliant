@@ -217,8 +217,10 @@ declare class Object
     hull: number?
     -- Whether the object is still in the mission. A handle stops being valid once its object is removed or its mission ends.
     function is_valid(self): boolean
-    -- Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object.
-    function give_order(self, order: string | number, target: Object?): boolean
+    -- Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. `component` aims it at one part of `target` instead of the whole ship, as a mission's orders can: for Launch, the carrier's launch gate, counting from 0; for Dock, the port. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object.
+    function give_order(self, order: string | number, target: Object?, component: number?): boolean
+    -- Starts its Launch, as a mission's StartLaunch does: the first Launch among its orders goes after the short random wait the game gives each ship. Returns whether it had a Launch to start. Global scripts can start any object's launch, and an object's scripts their own.
+    function start_launch(self): boolean
     -- Sends the event `name` to the object's scripts, with `data`, which must be plain data. It arrives at the next update.
     function send_event(self, name: string, data: any): ()
     -- Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts.
@@ -531,7 +533,7 @@ type Interfaces = {
         stack: (object: Object) -> { OrderEntry },
         cancel: (object: Object) -> boolean,
         clear: (object: Object) -> boolean,
-        give_order: (self: Object, order: string | number, target: Object?) -> boolean,
+        give_order: (self: Object, order: string | number, target: Object?, component: number?) -> boolean,
     },
     Combat: {
         add_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
@@ -542,7 +544,8 @@ type Interfaces = {
         after_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
     },
     Carriers: {
-        give_order: (self: Object, order: string | number, target: Object?) -> boolean,
+        give_order: (self: Object, order: string | number, target: Object?, component: number?) -> boolean,
+        start_launch: (self: Object) -> boolean,
         add_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
         after_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
     },

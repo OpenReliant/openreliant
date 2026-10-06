@@ -295,7 +295,8 @@ scripts on their object.
 | Method | Returns | What it does |
 |---|---|---|
 | `is_valid()` | boolean | Whether the object is still in the mission. A handle stops being valid once its object is removed or its mission ends. |
-| `give_order(order: string \| number, target: Object?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
+| `give_order(order: string \| number, target: Object?, component: number?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. `component` aims it at one part of `target` instead of the whole ship, as a mission's orders can: for Launch, the carrier's launch gate, counting from 0; for Dock, the port. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
+| `start_launch()` | boolean | Starts its Launch, as a mission's StartLaunch does: the first Launch among its orders goes after the short random wait the game gives each ship. Returns whether it had a Launch to start. Global scripts can start any object's launch, and an object's scripts their own. |
 | `send_event(name: string, data: any)` | nothing | Sends the event `name` to the object's scripts, with `data`, which must be plain data. It arrives at the next update. |
 | `add_script(name: string, data: any?)` | boolean | Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts. |
 | `hook(name: string, handler: (e: any) -> boolean?, filter: (Filter \| (e: any) -> boolean)?)` | HookHandle | `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own. |
@@ -325,7 +326,7 @@ scripts on their object.
 | `stack(object: Object)` | list of [OrderEntry](#orderentry) | The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends. |
 | `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
 | `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
-| `give_order(self: Object, order: string \| number, target: Object?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
+| `give_order(self: Object, order: string \| number, target: Object?, component: number?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. `component` aims it at one part of `target` instead of the whole ship, as a mission's orders can: for Launch, the carrier's launch gate, counting from 0; for Dock, the port. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
 
 ### I.Combat
 
@@ -345,7 +346,8 @@ scripts on their object.
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `give_order(self: Object, order: string \| number, target: Object?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
+| `give_order(self: Object, order: string \| number, target: Object?, component: number?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. `component` aims it at one part of `target` instead of the whole ship, as a mission's orders can: for Launch, the carrier's launch gate, counting from 0; for Dock, the port. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
+| `start_launch(self: Object)` | boolean | Starts its Launch, as a mission's StartLaunch does: the first Launch among its orders goes after the short random wait the game gives each ship. Returns whether it had a Launch to start. Global scripts can start any object's launch, and an object's scripts their own. |
 | `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.add`: adds a handler to the hook `name`. |
 | `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.after`: adds a handler that runs after the function `name`. |
 

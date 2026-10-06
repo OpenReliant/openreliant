@@ -68,6 +68,7 @@ pub const Group = enum {
             .Combat, .Weapons => HookFunctions,
             .Carriers => struct {
                 pub const give_order = objects.methods.give_order;
+                pub const start_launch = objects.methods.start_launch;
                 pub const add_hook = HookFunctions.add_hook;
                 pub const after_hook = HookFunctions.after_hook;
             },
