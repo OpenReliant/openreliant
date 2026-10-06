@@ -413,8 +413,8 @@ fn writePulses(gpa: Allocator, bits: *BitWriter, coded: bool, pulses: []const i3
     }
 }
 
-/// The symbols `writePulses` asks for: a run of zeros, a zero, an escape, and each pulse from -6 to 6.
-/// Both contexts have a code for one of each, so `putSymbol` always finds one.
+// The symbols `writePulses` asks for: a run of zeros, a zero, an escape, and each pulse from -6 to
+// 6. Both contexts have a code for one of each, so `putSymbol` always finds one.
 comptime {
     for (0..2) |context| {
         for ([_][]const u8{ &.{ 2, 3 }, &.{4}, &.{ 0, 1 } }) |choices| {
