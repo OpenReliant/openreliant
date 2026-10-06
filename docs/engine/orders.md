@@ -423,7 +423,7 @@ The station style's state:
 |---|---|
 | `+0x00` | The routine `motion_follow` gets its point from as the ship slides in: `0x00406F20` |
 | `+0x04` | The fastest the ship slides, a share of its top speed: 0.5 |
-| `+0x08` | The step |
+| `+0x08` | The step: the station style's, or the limpet car's ([Limpet docking](#limpet-docking)) |
 | `+0x0C` | The mission's tick (`mission_ticks`) the slide ends at |
 | `+0x10`, `+0x14` | The ship's own docking point's node and place on it |
 | `+0x20`, `+0x24`, `+0x30` | The port's node, its place on it and its orientation |
@@ -478,13 +478,28 @@ carriers end the order without dereferencing missing nodes.
 
 ### Limpet docking
 
-`dock_limpet_init` (`0x00407D30`) shares station docking-point lookup and berth math.
-`dock_limpet_run` (`0x00407D70`) approaches 10000 behind the berth, then uses the shared
-slide callback for 1000 mission ticks at half speed. It stops the carrier during entry.
-At the berth, clamp parts 2 and 3 play `rotate` at speed 4. A visible pod mesh (part 0)
+`dock_limpet_init` (`0x00407D30`) finds the docking points and works out the berth as the station
+style does, and keeps the limpet car's step in the same word, `+0x08`, starting at 0
+(`0x00407D5E`). `dock_limpet_run` (`0x00407D70`) approaches 10000 behind the berth, then uses the
+station style's slide callback for 1000 mission ticks at half speed. It stops the carrier during
+entry. At the berth, clamp parts 2 and 3 play `rotate` at speed 4. A visible pod mesh (part 0)
 is hidden and replaced by a separate limpet-pod object, attached to the carrier. If it was
 already hidden, the mesh shows again and the first existing limpet pod is retired, as in
 the original. Three 400-tick waits cover clamp rotation, departure and clamp return.
+
+| Step | What the limpet car does |
+|---|---|
+| 0 | It flies to the point 10000 behind the berth |
+| 1 | It latches on, and the slide starts |
+| 2 | It slides in |
+| 3 | It is set in its berth, heard docking, and takes or leaves the pod |
+| 4 | Its clamps turn, for 400 ticks |
+| 5 | It backs away, for 400 ticks |
+| 6 | Its clamps turn back, for 400 ticks, and the order ends |
+
+`dock_way` (`0x00406F20`) moves the word on by one at the slide's end, whichever style's step it
+holds (`0x00406FF4`). When the carrier explodes, the order ends at step 0, and the limpet car is
+destroyed with it at steps 1 to 4.
 
 The order posts Docked if the pod mesh is hidden, Undocked otherwise. Its exit restores
 forward motion, clears attachment and clears the first two pass-through entries. The

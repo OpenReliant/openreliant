@@ -103,8 +103,25 @@ pub const State = extern struct {
     }
 };
 
+/// The step, in the word the game keeps it in (`+0x08`): the station style's, or the limpet
+/// car's.
+pub const Step = extern union {
+    station: StationStep,
+    limpet: LimpetStep,
+
+    /// The step after it. `dock_way` moves the word on by one, whichever style's steps it holds
+    /// (`0x00406FF4`).
+    fn next(step: Step) Step {
+        return .{ .station = step.station.next() };
+    }
+
+    comptime {
+        assert(@sizeOf(Step) == 4);
+    }
+};
+
 /// The station style's steps.
-pub const Step = enum(u32) {
+pub const StationStep = enum(u32) {
     /// Beside the port, `aside` out on the side the ship came from.
     beside = 0,
     /// Beside the port and `aside` behind it too.
@@ -126,9 +143,32 @@ pub const Step = enum(u32) {
     _,
 
     /// The step after it.
-    fn next(step: Step) Step {
+    fn next(step: StationStep) StationStep {
         return @fromBackingInt(@backingInt(step) +% 1);
     }
+};
+
+/// The limpet car's steps (`dock_limpet_run`, `0x00407D70`), which it keeps in the station
+/// state's step word (`Step.limpet`). The state's points and the slide's callback are the station
+/// style's, so the docking points and the berth are found the same way.
+pub const LimpetStep = enum(u32) {
+    /// It flies to a point `limpet_approach` behind the port.
+    approach = 0,
+    /// It latches on, and starts to slide in.
+    latch = 1,
+    /// It slides in along the port's line (`way`).
+    slide = 2,
+    /// It is in: set in place, and it takes or leaves the pod.
+    transfer = 3,
+    /// Its clamps turn, while it waits.
+    rotate = 4,
+    /// It backs away, while it waits.
+    depart = 5,
+    /// Its clamps turn back, while it waits, and the order ends.
+    finish = 6,
+    /// OpenReliant's own: the car or the carrier has no docking point, and the order ends.
+    no_port = 8,
+    _,
 };
 
 /// The side of the port's line a ship comes at it from, as the station style's init notes it.
@@ -358,24 +398,24 @@ fn stationInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.dock;
     if (!findPoints(ctx, index)) {
-        state.step = .no_port;
+        state.step = .{ .station = .no_port };
         return;
     }
     const at = berth(ctx.world, index) orelse return;
     const off = at.inverse(slot.object.nextPosition());
     state.from = if (off[0] > 0) .right else .left;
-    const step: Step = if (off[2] < -aside)
+    const step: StationStep = if (off[2] < -aside)
         if (@abs(off[0] / off[2]) > behind_share) .turning_in else .far_behind
     else if (off[2] < 0) .beside_behind else .beside;
-    state.step = step;
+    state.step = .{ .station = step };
 }
 
-/// The station style's update (`0x004070F0`), a step at a time (`Step`). Going round, the ship
-/// steers at full throttle for the step's point (`ai.steer`), mirrored to the side it came from,
-/// rolling to stand as the port stands, on to the next step within `reach_squared` of it. Latching
-/// on, it flies `motion_follow` down the port's line (`way`), at `slide_limit` of its top speed,
-/// the station stopped dead where it is. Once it is in, it is set in its berth, stopped, heard
-/// docking, and has its Docked; the order ends.
+/// The station style's update (`0x004070F0`), a step at a time (`StationStep`). Going round, the
+/// ship steers at full throttle for the step's point (`ai.steer`), mirrored to the side it came
+/// from, rolling to stand as the port stands, on to the next step within `reach_squared` of it.
+/// Latching on, it flies `motion_follow` down the port's line (`way`), at `slide_limit` of its top
+/// speed, the station stopped dead where it is. Once it is in, it is set in its berth, stopped,
+/// heard docking, and has its Docked; the order ends.
 ///
 /// **Fix:** the game goes on reading the frames of a station that has gone; OpenReliant ends the
 /// order.
@@ -386,7 +426,7 @@ fn stationUpdate(ctx: Context, index: u16) void {
     const object = &slot.object;
     const state = &slot.state.dock;
     const at = berth(world, index) orelse return aigeneric.end(ctx, index);
-    const offset: Vector = switch (state.step) {
+    const offset: Vector = switch (state.step.station) {
         .beside => .{ -aside, 0, 0 },
         .beside_behind => .{ -aside, 0, -aside },
         .turning_in => turning: {
@@ -399,7 +439,7 @@ fn stationUpdate(ctx: Context, index: u16) void {
             object.flags.attached = true;
             slot.motion = .follow;
             state.follower = .{ .path = .dock, .limit = slide_limit };
-            state.step = .sliding;
+            state.step = .{ .station = .sliding };
             state.until = ctx.world.clock.mission_ticks + slide_ticks;
             state.slide_from = object.nextPosition();
             if (slot.orders[0].target.slotIn(all)) |station| all.slots[station].object.velocity = .zero;
@@ -447,17 +487,11 @@ pub fn way(world: gameobj.World, index: u16) motion.Way {
     const point = at.ahead(-back);
     if (state.until < now) {
         slot.motion = .backward;
-        if (slot.orders[0].data.dock.style == .limpet_car)
-            state.step = @fromBackingInt(@backingInt(state.step) + 1)
-        else
-            state.step = state.step.next();
+        state.step = state.step.next();
     }
     return .{ .point = point, .up = math.yAxis(at.orientation) };
 }
 
-/// Limpet steps occupy the station state's step word (`0x00407D70`). The point fields and
-/// slide callback have the same layout, so docking-point lookup and berth math are shared.
-const LimpetStep = enum(u32) { approach = 0, latch = 1, slide = 2, transfer = 3, rotate = 4, depart = 5, finish = 6, _ };
 /// Limpet approach distance, slide time, rotation/departure waits and track speed
 /// (`0x00407DA3`, `0x00407E01`, `0x00407F96`, `0x00408012`).
 const limpet_approach: f32 = 10000;
@@ -472,7 +506,7 @@ const limpet_pod_part = 0;
 /// starts the approach. **Fix:** missing points end the order instead of reading missing nodes.
 fn limpetInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
-    slot.state.dock.step = if (findPoints(ctx, index)) @fromBackingInt(@backingInt(LimpetStep.approach)) else .no_port;
+    slot.state.dock.step = .{ .limpet = if (findPoints(ctx, index)) .approach else .no_port };
     slot.object.passes_through[0] = .from(slot.orders[0].target.slotIn(ctx.world.objects));
 }
 
@@ -485,25 +519,25 @@ fn limpetUpdate(ctx: Context, index: u16) void {
     const target = slot.orders[0].target;
     const carrier = target.slotIn(all) orelse return aigeneric.end(ctx, index);
     const state = &slot.state.dock;
-    const step: LimpetStep = @fromBackingInt(@backingInt(state.step));
-    if (all.slots[carrier].object.gone()) {
-        if (step == .approach) return aigeneric.end(ctx, index);
-        if (@backingInt(step) > @backingInt(LimpetStep.approach) and @backingInt(step) < @backingInt(LimpetStep.depart)) {
-            ai.objectDestroyed(ctx, index, false, false);
-            return;
-        }
-    }
+    const step = state.step.limpet;
+    // A carrier that has gone ends the order before the car latches on, and destroys the car
+    // while it is latched (`0 < step < 5`).
+    if (all.slots[carrier].object.gone()) switch (step) {
+        .approach => return aigeneric.end(ctx, index),
+        .latch, .slide, .transfer, .rotate => return ai.objectDestroyed(ctx, index, false, false),
+        .depart, .finish, .no_port, _ => {},
+    };
     const at = berth(world, index) orelse return aigeneric.end(ctx, index);
     const now = world.clock.frame_start;
     switch (step) {
         .approach => if (ai.arrive(world, index, at.ahead(-limpet_approach), at.orientation, ai.full_throttle)) {
-            state.step = @fromBackingInt(@backingInt(LimpetStep.latch));
+            state.step = .{ .limpet = .latch };
         },
         .latch => {
             slot.object.flags.attached = true;
             slot.motion = .follow;
             state.follower = .{ .path = .dock, .limit = slide_limit };
-            state.step = @fromBackingInt(@backingInt(LimpetStep.slide));
+            state.step = .{ .limpet = .slide };
             state.until = world.clock.mission_ticks + limpet_slide_ticks;
             state.slide_from = slot.object.nextPosition();
             ai.stop(&all.slots[carrier].object);
@@ -515,12 +549,12 @@ fn limpetUpdate(ctx: Context, index: u16) void {
             sound3d.playIn(world, null, null, index, .dock, 1, .not_reserved);
             rotateLimpet(slot, 0, limpet_track_speed);
             transferPod(ctx, index, carrier);
-            state.step = @fromBackingInt(@backingInt(LimpetStep.rotate));
+            state.step = .{ .limpet = .rotate };
             state.until = now + limpet_wait;
         },
         .rotate => if (state.until < now) {
             slot.object.throttle = ai.full_throttle;
-            state.step = @fromBackingInt(@backingInt(LimpetStep.depart));
+            state.step = .{ .limpet = .depart };
             state.until = now + limpet_wait;
             sound3d.playIn(world, null, null, index, .undock, 1, .not_reserved);
         },
@@ -528,7 +562,7 @@ fn limpetUpdate(ctx: Context, index: u16) void {
             slot.object.throttle = 0;
             rotateLimpet(slot, objects.Model.keep_time, -limpet_track_speed);
             slot.motion = .forward;
-            state.step = @fromBackingInt(@backingInt(LimpetStep.finish));
+            state.step = .{ .limpet = .finish };
             state.until = now + limpet_wait;
         },
         .finish => if (state.until < now) {
@@ -536,7 +570,7 @@ fn limpetUpdate(ctx: Context, index: u16) void {
             aigeneric.end(ctx, index);
             if (docked) events.docked(world, index) else events.undocked(world, index);
         },
-        _ => aigeneric.end(ctx, index),
+        .no_port, _ => aigeneric.end(ctx, index),
     }
 }
 
@@ -856,7 +890,7 @@ test "a freighter docks at a station's port, from far behind it" {
     aigeneric.objectOrders(dock.orders(), index);
     const state = &slot.state.dock;
     try std.testing.expectEqual(Style.station, slot.orders[0].data.dock.style);
-    try std.testing.expectEqual(Step.far_behind, state.step);
+    try std.testing.expectEqual(StationStep.far_behind, state.step.station);
     try std.testing.expectEqual(1, slot.object.throttle);
     // Its berth brings its nose onto the port, and turns it as the port is.
     const at = berth(dock.orders().world, index).?;
@@ -864,19 +898,19 @@ test "a freighter docks at a station's port, from far behind it" {
     // Near each point, on to the next, and then it latches on.
     dock.place(index, .{ 0, 0, 8500 - far_behind });
     aigeneric.objectOrders(dock.orders(), index);
-    try std.testing.expectEqual(Step.near_behind, state.step);
+    try std.testing.expectEqual(StationStep.near_behind, state.step.station);
     dock.place(index, .{ 0, 0, 8500 - near_behind });
     aigeneric.objectOrders(dock.orders(), index);
-    try std.testing.expectEqual(Step.latching, state.step);
+    try std.testing.expectEqual(StationStep.latching, state.step.station);
     aigeneric.objectOrders(dock.orders(), index);
-    try std.testing.expectEqual(Step.sliding, state.step);
+    try std.testing.expectEqual(StationStep.sliding, state.step.station);
     try std.testing.expectEqual(motion.Motion.follow, slot.motion.?);
     try std.testing.expect(slot.object.flags.attached);
     // The slide goes by the mission's ticks: a frame that began past its end, with the ticks not
     // yet run, leaves the ship the whole way back.
     dock.game.clock.frame_start += 2 * slide_ticks;
     const held = way(dock.orders().world, index);
-    try std.testing.expectEqual(Step.sliding, state.step);
+    try std.testing.expectEqual(StationStep.sliding, state.step.station);
     try std.testing.expectApproxEqAbs(8500 - near_behind, held.point[2], 1e-2);
     // Half way through the slide, a quarter of the way back along the port's line.
     dock.game.clock.mission_ticks += slide_ticks / 2;
@@ -885,7 +919,7 @@ test "a freighter docks at a station's port, from far behind it" {
     // Past its end, it is in: set in its berth, and its order over.
     dock.game.clock.mission_ticks += slide_ticks;
     _ = way(dock.orders().world, index);
-    try std.testing.expectEqual(Step.docked, state.step);
+    try std.testing.expectEqual(StationStep.docked, state.step.station);
     aigeneric.objectOrders(dock.orders(), index);
     try std.testing.expectEqual(0, slot.object.order_count);
     try std.testing.expectEqual(8500, slot.object.root.position.z);
@@ -895,7 +929,7 @@ test "a freighter docks at a station's port, from far behind it" {
 test stationInit {
     // Where the ship stands, the berth being 8500 along, and the step it starts at and the side
     // it came from.
-    const Case = struct { at: Vector, step: Step, from: Side };
+    const Case = struct { at: Vector, step: StationStep, from: Side };
     const cases = [_]Case{
         // Far behind, and further aside than a fifth of the way back: it turns in.
         .{ .at = .{ 100000, 0, -200000 }, .step = .turning_in, .from = .right },
@@ -915,7 +949,7 @@ test stationInit {
         try std.testing.expect(try aigeneric.push(dock.orders(), index, .dock, .at(dock.station, 0)));
         aigeneric.objectOrders(dock.orders(), index);
         const state = dock.game.slot(index).state.dock;
-        try std.testing.expectEqual(case.step, state.step);
+        try std.testing.expectEqual(case.step, state.step.station);
         try std.testing.expectEqual(case.from, state.from);
     }
 }
@@ -933,7 +967,7 @@ test "a ship goes round the port on the side it came from" {
         dock.place(index, .{ across, 0, 9500 });
         try std.testing.expect(try aigeneric.push(dock.orders(), index, .dock, .at(dock.station, 0)));
         aigeneric.objectOrders(dock.orders(), index);
-        try std.testing.expectEqual(Step.beside, dock.game.slot(index).state.dock.step);
+        try std.testing.expectEqual(StationStep.beside, dock.game.slot(index).state.dock.step.station);
     }
     const right = dock.game.slot(dock.freighters[0]);
     const left = dock.game.slot(dock.freighters[1]);
@@ -1066,14 +1100,20 @@ test "a limpet car slides in, transfers its pod and clears attachment on departu
     _ = try aigeneric.pushShip(ctx, index, .dock, dock.station, 0);
     aigeneric.objectOrders(ctx, index);
     try std.testing.expectEqual(Style.limpet_car, slot.orders[0].data.dock.style);
+    try std.testing.expectEqual(LimpetStep.approach, slot.state.dock.step.limpet);
     dock.place(index, berth(ctx.world, index).?.ahead(-limpet_approach));
     aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(LimpetStep.latch, slot.state.dock.step.limpet);
     aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(LimpetStep.slide, slot.state.dock.step.limpet);
     try std.testing.expect(slot.object.flags.attached);
     try std.testing.expectEqual(.follow, slot.motion.?);
+    // The slide's end moves the step on, as for a station.
     dock.game.clock.mission_ticks = slot.state.dock.until + 1;
     _ = way(ctx.world, index);
+    try std.testing.expectEqual(LimpetStep.transfer, slot.state.dock.step.limpet);
     aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(LimpetStep.rotate, slot.state.dock.step.limpet);
     try std.testing.expect(slot.model.?.parts[0].hidden);
     const pod = slot.object.passes_through[1].index().?;
     try std.testing.expectEqual(gameobj.Type.of(.limpet_pod), dock.game.slot(pod).object.type);
@@ -1091,6 +1131,52 @@ test "a limpet car slides in, transfers its pod and clears attachment on departu
     transferPod(ctx, index, dock.station);
     try std.testing.expect(!slot.model.?.parts[0].hidden);
     try std.testing.expect(dock.game.slot(pod).object.flags.stand_in);
+}
+
+test "a limpet car is destroyed with its carrier while it is latched on" {
+    for ([_]LimpetStep{ .latch, .transfer, .depart }) |step| {
+        var dock: TestDock = undefined;
+        try dock.init();
+        defer dock.deinit();
+        const index = dock.freighters[0];
+        const slot = dock.game.slot(index);
+        slot.object.type = .of(.limpet_car);
+        var ctx = dock.orders();
+        ctx.world.spawn = dock.game.spawn(create.testing.no_models);
+        _ = try aigeneric.pushShip(ctx, index, .dock, dock.station, 0);
+        aigeneric.objectOrders(ctx, index);
+        slot.state.dock.step = .{ .limpet = step };
+        dock.game.slot(dock.station).object.flags.exploding = true;
+        aigeneric.objectOrders(ctx, index);
+        // Latched on, the car goes with its carrier; backing away, it carries on.
+        const latched = step != .depart;
+        try std.testing.expectEqual(latched, slot.orders[0].order == .explode);
+        if (!latched) try std.testing.expectEqual(LimpetStep.depart, slot.state.dock.step.limpet);
+    }
+}
+
+test "a limpet car docks nowhere at a port that is not there" {
+    var dock: TestDock = undefined;
+    try dock.init();
+    defer dock.deinit();
+    const index = dock.freighters[0];
+    dock.game.slot(index).object.type = .of(.limpet_car);
+    var ctx = dock.orders();
+    ctx.world.spawn = dock.game.spawn(create.testing.no_models);
+    // The station has two ports.
+    try std.testing.expect(try aigeneric.push(ctx, index, .dock, .at(dock.station, 2)));
+    init(ctx, index);
+    try std.testing.expectEqual(LimpetStep.no_port, dock.game.slot(index).state.dock.step.limpet);
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(0, dock.game.slot(index).object.order_count);
+}
+
+test Step {
+    // Either style's step moves on by one, in the one word both share.
+    try std.testing.expectEqual(LimpetStep.transfer, (Step{ .limpet = .slide }).next().limpet);
+    try std.testing.expectEqual(StationStep.docked, (Step{ .station = .sliding }).next().station);
+    const finish: Step = .{ .limpet = .finish };
+    try std.testing.expectEqual(6, std.mem.bytesToValue(u32, std.mem.asBytes(&finish)));
 }
 
 test "an attached limpet pod is destroyed when its carrier explodes" {
