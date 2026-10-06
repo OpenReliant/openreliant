@@ -29,8 +29,8 @@ Every change beyond a trivial one has an issue, and its pull request closes it.
    and link it from the code and the docs where the gap is:
 
    ```zig
-   /// Not ported: the display shaking from interference (`hud_blit`,
-   /// [#236](https://github.com/OpenReliant/openreliant/issues/236)).
+   /// Not ported: the Stalag's hull triggers, which let its turrets fire anywhere
+   /// ([#220](https://github.com/OpenReliant/openreliant/issues/220)).
    ```
 
 ## Following the original

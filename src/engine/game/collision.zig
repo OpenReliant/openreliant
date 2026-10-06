@@ -239,8 +239,10 @@ pub const Quadrant = enum(u2) {
     aft = 3,
 };
 
-/// `0x00463CA0`: the quadrant a hit falls in, from where it lies in the object's frame as a share
-/// of the object's bounds: whichever of along and across is the larger share decides.
+/// `damage_quadrant` (`0x00463CA0`): the quadrant a hit falls in, from where it lies in the
+/// object's frame as a share of the object's bounds: whichever of along and across is the larger
+/// share decides. For a point of the world, `damage_quadrant_world` (`0x00463D30`) turns it into
+/// the object's frame first, as callers do with `placeAt(.now).inverse`.
 pub fn quadrant(object: *const gameobj.GameObject, at: Vector) Quadrant {
     const across = at[0] / object.width();
     const along = at[2] / (object.bounds_max.z - object.bounds_min.z);
@@ -677,9 +679,9 @@ const reserve_drain: f32 = 1 / taken_share;
 /// that, as the game halves the damage only once it has drawn the reserve. A force field the ship
 /// hits glows whole (`shield.flareCapital`).
 ///
-/// Not ported: what the hit destroys ([#42](https://github.com/OpenReliant/openreliant/issues/42)).
-/// The game also tests the player's ship against each part's trigger polygons first, which one
-/// shipped model carries.
+/// Not ported: the game first tests the player's ship against each part's trigger polygons, which
+/// one shipped model carries, the Stalag's, and posts its trigger events as the ship crosses them
+/// ([#220](https://github.com/OpenReliant/openreliant/issues/220)).
 fn hullHit(world: gameobj.World, ship: u16, hull: u16, pass: u8) bool {
     const all = world.objects;
     const model = if (all.slots[hull].model) |*live| live else return false;

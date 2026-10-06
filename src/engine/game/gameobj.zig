@@ -780,7 +780,6 @@ pub const GameObject = extern struct {
     angular_impulse: shp.Vec3,
     /// The inverse of the object's inertia tensor, which `object_recentre` builds from its parts
     /// (`object_bounds`) and inverts (`0x004AD9F0`). `applyKnocks` turns the angular impulse by it.
-    /// Not filled in by OpenReliant yet (#87).
     angular_response: [9]f32,
     /// The turn applied to its orientation each update, which `object_steer` builds from the
     /// angular rates.
