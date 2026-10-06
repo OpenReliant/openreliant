@@ -142,8 +142,10 @@ the computer lets go of its own copy once the GPU holds it.
 
 A picture or a map can also come compressed already, in a DDS (`.dds`) or KTX2 (`.ktx2`) file with
 the same name, which OpenReliant looks for before the PNG file: `yank_2.dds`, `yank_2_normal.dds`.
-It reads a single 2D picture with its mipmaps, in BC1, BC3, BC5 or BC7, or uncompressed 8-bit RGBA,
-without KTX2's supercompression. Its colours are taken as sRGB-encoded, as a PNG's are.
+It reads a single 2D picture with its mipmaps, in BC1, BC3, BC5 or BC7, or uncompressed 8-bit RGBA.
+A KTX2 file can be supercompressed with Zstandard (`toktx --zcmp`), but not hold Basis Universal
+data ([#637](https://github.com/OpenReliant/openreliant/issues/637)). Its colours are taken as
+sRGB-encoded, as a PNG's are.
 
 - A compressed file draws as it is, so it starts as fast as a cached one. Give it its mipmaps:
   OpenReliant can't make them from compressed pixels.
