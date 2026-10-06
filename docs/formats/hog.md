@@ -78,6 +78,31 @@ the same names in any of these archives and among the game's loose files
 missions, `.fat` [sound banks](fat.md), `.fnt` [fonts](fnt.md), `.ccb` colour tables, and five `.bin` files:
 the four stat tables and `profile.bin`.
 
+## Reading a file
+
+`hog_read_file` (`0x004C7F60`) reads a member by a name the game's code gives, such as
+`ms_speech\ms1_ban_001.ut`:
+
+1. It copies the name and cuts it at its first dot when `ut` follows, with case: `x.ut.wav` becomes
+   `x`, while `name.UT` and `a.b.ut` stay whole.
+2. It keeps what follows the last backslash, looking from the second character on. Only `\`
+   separates folders here.
+3. It finds that member in any case (`hog_seek`, `0x004C8370`).
+4. It expands the member only when it starts `10 FB` (`hog_unpack`, `0x004C8480`), and returns any
+   other member as it is stored, whatever its second byte.
+5. A missing member stops the game with `HOG_bigread2: error loading %s.`
+
+`hog_read_file_as_named` (`0x004C8110`) skips the `ut` cut, and `hog_file_size` (`0x004C81F0`)
+takes the name whole.
+
+**Fix:** the game copies the name into a 128-byte buffer without a limit, so a longer name
+overruns its stack. OpenReliant cuts it to 128 bytes
+([`bigfile.memberName`](../../src/engine/game/bigfile.zig)). Where a radio line is missing,
+OpenReliant warns and leaves the line out instead of stopping.
+
+OpenReliant opens an archive whose name differs in case, as Windows does (`hog_open`, `0x004C7E20`,
+`bigfile.openArchive`).
+
 ## Writing an archive
 
 `hog.build` lays an archive out as the shipped ones are: the header, a record and a name for each

@@ -529,7 +529,7 @@ pub const Mods = struct {
     /// (the part of the path after the last `\` or `/`) from the last mod that has it, as
     /// `readFile` reads it. Null if no mod has it.
     pub fn readInPlaceOf(mods: *const Mods, gpa: Allocator, path: []const u8) bigfile.ReadError!?[]u8 {
-        return mods.readFile(gpa, std.Io.Dir.path.basenameWindows(path));
+        return mods.readFile(gpa, files.leaf(path));
     }
 
     /// Reads the game's loose file `path` under the game folder `dir`: a mod's replacement if there

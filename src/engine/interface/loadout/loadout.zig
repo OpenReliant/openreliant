@@ -1807,7 +1807,7 @@ pub const Loadout = struct {
     fn say(loadout: *Loadout) void {
         const context = loadout.context.rooms;
         loadout.speech_line = context.readLine(speech_name) orelse return;
-        rooms.say(context, &loadout.speech, loadout.speech_line, videoreports.lineName(speech_name), .in_person, null);
+        rooms.say(context, &loadout.speech, loadout.speech_line, speech_name, .in_person, null);
     }
 
     /// `speech_stop_all`: the speech ended and its file let go of.

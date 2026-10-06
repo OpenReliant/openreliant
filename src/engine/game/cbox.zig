@@ -26,7 +26,7 @@ const ticks_per_second = @import("main.zig").ticks_per_second;
 pub const rate = 22050;
 
 /// The extension of a line's name as the game's code gives it, such as `plck_001.ut`. The speech
-/// archive's members leave it out (`videoreports.lineName`).
+/// archive's members leave it out (`bigfile.memberName`).
 pub const extension = ".ut";
 
 /// The key the files are scrambled with (`speech_unscramble`, `0x00462000`), repeating from the

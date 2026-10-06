@@ -75,10 +75,11 @@ pub const Options = struct {
 /// The game's files the engine reads before anything else. It has none of its own.
 pub const game_files = [_][]const u8{ game.bigfile.resource_name, tcache.hardware_name, stats.Table.ships.fileName(), game.language.file_name };
 
-/// The first of the game's files `dir` lacks, or null when it has them all. It asks with `statFile`:
-/// `access` fails for files that exist when the Windows build runs under Wine.
+/// The first of the game's files `dir` lacks, or null when it has them all, each found in any case
+/// as the game finds it (`files.exists`, which lists the folder, so it works under Wine, where
+/// `access` fails for files that exist).
 pub fn missingGameFile(io: Io, dir: Io.Dir) ?[]const u8 {
-    for (game_files) |name| _ = dir.statFile(io, name, .{}) catch return name;
+    for (game_files) |name| if (!openreliant.engine.files.exists(io, dir, name)) return name;
     return null;
 }
 
@@ -1663,6 +1664,16 @@ test missingGameFile {
         try tmp.dir.writeFile(io, .{ .sub_path = name, .data = "" });
     }
     try std.testing.expectEqual(null, missingGameFile(io, tmp.dir));
+
+    // Each found in any case, as the game finds them.
+    var other_case = std.testing.tmpDir(.{});
+    defer other_case.cleanup();
+    for (game_files) |name| {
+        var buffer: [64]u8 = undefined;
+        const swapped = if (std.ascii.isUpper(name[0])) std.ascii.lowerString(&buffer, name) else std.ascii.upperString(&buffer, name);
+        try other_case.dir.writeFile(io, .{ .sub_path = swapped, .data = "" });
+    }
+    try std.testing.expectEqual(null, missingGameFile(io, other_case.dir));
 }
 
 test openGame {

@@ -28,6 +28,7 @@ const Sound = hog_snd.Sound;
 const Ending = main.Ending;
 const gameflow = @import("gameflow.zig");
 const vm = @import("../vm.zig");
+const files = @import("../files.zig");
 const landing = @import("xtrabits/landing.zig");
 const xtrabits = @import("xtrabits.zig");
 const explode = @import("explode.zig");
@@ -259,7 +260,7 @@ test missionNumber {
     try std.testing.expectEqual(null, missionNumber("mission1.shp"));
     // Every name `missionPath` makes reads back.
     var buffer: [mission_path_size]u8 = undefined;
-    try std.testing.expectEqual(25, missionNumber(std.Io.Dir.path.basenameWindows(missionPath(&buffer, 25, false, false))));
+    try std.testing.expectEqual(25, missionNumber(files.leaf(missionPath(&buffer, 25, false, false))));
 }
 
 /// What `WinMain` does before the hangar's movie of a mission it flies (`0x004AA3B2` on, and

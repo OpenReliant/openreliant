@@ -35,6 +35,7 @@ const assert = std.debug.assert;
 const dte = @import("../../formats/dte.zig");
 const shp = @import("../../formats/shp.zig");
 const stats = @import("../../formats/stats.zig");
+const files = @import("../files.zig");
 const wave = @import("../../formats/wave.zig");
 const gameobj = @import("gameobj.zig");
 const guns_module = @import("guns.zig");
@@ -333,8 +334,8 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
     };
     var made: ShipExtra = .{ .model = try context.arena.dupe(u8, model) };
     if (manifest.value(section, "Cockpit")) |text| made.cockpit = try context.arena.dupe(u8, text);
-    if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, std.Io.Dir.path.stem(text));
-    if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, std.Io.Dir.path.stem(text));
+    if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, files.stem(text));
+    if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, files.stem(text));
     if (manifest.value(section, "EngineSound")) |name| made.engine_sound = try readSound(context, "ship type", name) orelse return null;
     if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "ship type", text) orelse return null;
     if (manifest.value(section, "BlindFire")) |text| made.blind_fire = readSwitch(context, "BlindFire", text) orelse return null;
@@ -465,9 +466,9 @@ fn readGun(context: Context, section: []const u8, _: guns_module.GameGun) Alloca
     const manifest = context.mod.manifest;
     var made: GunExtra = .{};
     // A picture is found by its texture's name, as the mods' pictures are (`srtexture.Files`).
-    if (manifest.value(section, "Shot")) |name| made.shot = try context.arena.dupe(u8, std.Io.Dir.path.stem(name));
+    if (manifest.value(section, "Shot")) |name| made.shot = try context.arena.dupe(u8, files.stem(name));
     if (manifest.value(section, "ShotSize")) |text| made.shot_size = readSize(context, "shot", text) orelse return null;
-    if (manifest.value(section, "Flash")) |name| made.flash = try context.arena.dupe(u8, std.Io.Dir.path.stem(name));
+    if (manifest.value(section, "Flash")) |name| made.flash = try context.arena.dupe(u8, files.stem(name));
     if (manifest.value(section, "FlashSize")) |text| made.flash_size = readSize(context, "flash", text) orelse return null;
     if (manifest.value(section, "Sound")) |name| made.sound = try readSound(context, "gun", name) orelse return null;
     return made;
@@ -563,7 +564,7 @@ fn readPilot(context: Context, section: []const u8, base: u8) Allocator.Error!?P
     for (film_keys) |entry| {
         const key, const head = entry;
         const film = manifest.value(section, key) orelse continue;
-        face.films[@backingInt(head)] = try context.arena.dupe(u8, std.Io.Dir.path.stem(film));
+        face.films[@backingInt(head)] = try context.arena.dupe(u8, files.stem(film));
     }
     if (manifest.value(section, "Voice")) |voice| face.own_voice = try context.arena.dupe(u8, std.mem.trim(u8, voice, " \t"));
     return .{ .face = face };
@@ -676,6 +677,8 @@ test "a family reads what each mod lists" {
         \\[Gun banana]
         \\Base=pulse_cannon
         \\Name=Banana Gun
+        \\Shot=art\peel_shot.png
+        \\Flash=fx/peel_flash.png
         \\[Missiles]
         \\banana=30
         \\late=
@@ -692,7 +695,7 @@ test "a family reads what each mod lists" {
         \\trooper=200
         \\[Pilot trooper]
         \\Base=0
-        \\Talking=trooper.fm8
+        \\Talking=pilots\trooper.fm8
         \\Dying=trooper_d
         \\Voice=trp
         \\[ShipTypes]
@@ -704,6 +707,8 @@ test "a family reads what each mod lists" {
         \\[ShipType teapot]
         \\Base=predator
         \\Model=teapot.shp
+        \\WireFrame=art\teapotwire.png
+        \\WingIcon=art/teapoticon
         \\Name=Teapot
         \\Guns=banana
         \\Missiles=bananas:banana
@@ -734,6 +739,9 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqual(guns_module.GameGun.pulse_cannon, guns.all()[0].base);
     try std.testing.expectEqual(20, guns.all()[0].own_number.?);
     try std.testing.expectEqual(guns.first, guns.find("bananas:banana").?);
+    // A picture or a film is named by its file's name, whatever folder the manifest gives it in.
+    try std.testing.expectEqualStrings("peel_shot", guns.all()[0].extra.shot.?);
+    try std.testing.expectEqualStrings("peel_flash", guns.all()[0].extra.flash.?);
     try std.testing.expectEqualStrings("banana.shp", missiles.all()[0].extra.model.?);
     try std.testing.expectEqualStrings("bunch.shp", missiles.all()[0].extra.pod.?);
     try std.testing.expectEqualStrings("Yellow.", missiles.all()[0].extra.description.?);
@@ -755,6 +763,8 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqualStrings("teapot", list[0].own());
     try std.testing.expectEqual(gameobj.GameType.predator, list[0].base);
     try std.testing.expectEqualStrings("Teapot", list[0].label.?);
+    try std.testing.expectEqualStrings("teapotwire", list[0].extra.wire_frame.?);
+    try std.testing.expectEqualStrings("teapoticon", list[0].extra.wing_icon.?);
     try std.testing.expectEqual(300, list[0].own_number.?);
     try std.testing.expectEqual(guns.first, list[0].extra.gun.?.number());
     try std.testing.expectEqual(missiles.first, list[0].extra.missile.?.index().?);

@@ -617,7 +617,7 @@ pub const Briefing = struct {
     /// narration before it, where the style's levels match them.
     fn sayWords(briefing: *Briefing, name: []const u8) void {
         if (briefing.line.len == 0) return;
-        rooms.say(briefing.context, &briefing.speech, briefing.line, videoreports.lineName(name), .in_person, briefing.narration);
+        rooms.say(briefing.context, &briefing.speech, briefing.line, name, .in_person, briefing.narration);
     }
 
     /// What `briefing_draw` moves on (`0x0043E730`), at `now` and the timer count `ticks`: the

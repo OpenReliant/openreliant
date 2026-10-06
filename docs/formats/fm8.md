@@ -95,8 +95,9 @@ vectors, picks a block given, the whole ones first and then the patterns (`block
 
 ## Playing
 
-`hudmovie_play` (`0x0048D120`) opens a film from `pilots.hog` by the name after the last backslash
-of its path, and decodes its first chunk. Six films of the 45th change with the squadron's name
+`hudmovie_play` (`0x0048D120`) opens a film from `pilots.hog` by what follows the first backslash
+of its path (`0x0048D2CA`), and decodes its first chunk. **Fix:** the game doesn't check that the
+path has a backslash, and crashes where it has none; OpenReliant takes the whole path. Six films of the 45th change with the squadron's name
 (its pilot and Moose, talking, laughing and dying, from tables at `0x005026AC` and `0x00502754`):
 through mission 13 the 45th Tigers' play as the 45th Volunteers', and from mission 14 the reverse,
 the names compared without regard to case. A timer 15 times a second, which stands still while the
