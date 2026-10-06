@@ -83,7 +83,7 @@ h1 span, h2 span { color: var(--accent); }
 .steps .panel { padding: 20px; }
 .steps h3 { font-family: var(--title); font-weight: normal; font-size: 17px; letter-spacing: 0.03em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent); }
 .steps p { margin: 0; color: #cfd3dd; }
-.timeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .timeline .panel { padding: 20px; }
 .timeline h3 { font-family: var(--title); font-weight: normal; font-size: 19px; letter-spacing: 0.03em; text-transform: uppercase; margin: 0 0 6px; }
 .timeline p { margin: 0; color: #cfd3dd; }
