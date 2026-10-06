@@ -14,7 +14,7 @@ const srcore = @import("../../surrender/surrenderlib/srcore.zig");
 const create = @import("../create.zig");
 const explode = @import("../explode.zig");
 const gameobj = @import("../gameobj.zig");
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const objects = @import("../objects.zig");
 const particles = @import("../particles.zig");
 const table = @import("../table.zig");
@@ -135,7 +135,7 @@ const Sides = @Int(.unsigned, @backingInt(Cuts.three));
 /// pass's texture coordinates behind. OpenReliant keeps each polygon's kind, works the planes out
 /// from the piece's own corners, and carries the colours and coordinates, so a piece looks as its
 /// part did. It also leaves out the polygons in no surface, which draw nothing.
-pub fn cut(gpa: Allocator, frame: math.Place, source: Source, cuts: Cuts, random: *libcmt.Rand) Allocator.Error![max_pieces]?Piece {
+pub fn cut(gpa: Allocator, frame: math.Place, source: Source, cuts: Cuts, random: *Random) Allocator.Error![max_pieces]?Piece {
     var planes: [@backingInt(Cuts.three)]Vector = undefined;
     for (planes[0..@backingInt(cuts)]) |*plane| plane.* = random.centredVector(@splat(1));
 
@@ -604,7 +604,7 @@ test cut {
     const gpa = std.testing.allocator;
     var mesh = try testing.star(gpa);
     defer mesh.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const source: Source = .{ .mesh = &mesh, .place = .{ .position = .{ 10, 0, 0 } }, .flags = .{ .lit = true }, .light_mask = 3 };
     var pieces = try cut(gpa, .{}, source, .two, &random);
     defer for (&pieces) |*maybe| if (maybe.*) |*piece| piece.deinit(gpa);
@@ -652,7 +652,7 @@ test Pieces {
     const pieces = &stage.explosions.pieces;
     var mesh = try testing.star(gpa);
     defer mesh.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var cuts = try cut(gpa, .{}, .{ .mesh = &mesh, .place = .{}, .flags = .{}, .light_mask = 0 }, .one, &random);
     defer for (cuts[1..]) |*maybe| if (maybe.*) |*piece| piece.deinit(gpa);
 

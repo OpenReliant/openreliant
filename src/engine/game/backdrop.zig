@@ -14,7 +14,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const tga = @import("../../formats/tga.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const math = @import("../surrender/math.zig");
 const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
@@ -275,7 +275,7 @@ pub const Backdrop = struct {
 
     /// Builds the backdrop (`backdrop_create`) from the star map, the sun's textures and `rand`,
     /// the flares sorting as if at `near`, the near plane, and the sun drawn as `sun` says.
-    pub fn create(gpa: Allocator, textures: *srtexture.Table, map: tga.Image, rand: *libcmt.Rand, near: f32, sun: Sun) (matmanager.Error || error{WrongSize})!*Backdrop {
+    pub fn create(gpa: Allocator, textures: *srtexture.Table, map: tga.Image, rand: *Random, near: f32, sun: Sun) (matmanager.Error || error{WrongSize})!*Backdrop {
         if (map.width != star_map_size or map.height != star_map_size) return error.WrongSize;
         const backdrop = try gpa.create(Backdrop);
         errdefer gpa.destroy(backdrop);
@@ -595,7 +595,7 @@ test Backdrop {
     rgb[((star_map_size - 16) * star_map_size + star_map_size - 12) * 3 ..][0..3].* = .{ 0, 0, 255 };
     const map: tga.Image = .{ .width = star_map_size, .height = star_map_size, .rgb = rgb };
 
-    var rand: libcmt.Rand = .{};
+    var rand: Random = .{};
     const backdrop = try Backdrop.create(gpa, &textures.table, map, &rand, 100, .original);
     defer backdrop.destroy(gpa);
     try std.testing.expectEqual(1, backdrop.fields[0].stars.len);
@@ -622,7 +622,7 @@ test "Backdrop.frame" {
     const rgb = try gpa.alloc(u8, star_map_size * star_map_size * 3);
     defer gpa.free(rgb);
     @memset(rgb, 0);
-    var rand: libcmt.Rand = .{};
+    var rand: Random = .{};
     const backdrop = try Backdrop.create(gpa, &textures.table, .{ .width = star_map_size, .height = star_map_size, .rgb = rgb }, &rand, 100, .original);
     defer backdrop.destroy(gpa);
 
@@ -660,7 +660,7 @@ test "Backdrop.place" {
     const rgb = try gpa.alloc(u8, star_map_size * star_map_size * 3);
     defer gpa.free(rgb);
     @memset(rgb, 0);
-    var rand: libcmt.Rand = .{};
+    var rand: Random = .{};
     const backdrop = try Backdrop.create(gpa, &textures.table, .{ .width = star_map_size, .height = star_map_size, .rgb = rgb }, &rand, 100, .original);
     defer backdrop.destroy(gpa);
     const sky = try nebula.Sky.create(gpa, &textures.table, .{ .width = nebula.dome_image_size, .height = nebula.dome_image_size, .rgb = rgb[0 .. nebula.dome_image_size * nebula.dome_image_size * 3] });

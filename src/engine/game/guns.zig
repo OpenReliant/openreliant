@@ -1633,7 +1633,7 @@ fn dealt(all: *const Objects, index: u16, kind: GunType, value: f32) f32 {
 }
 
 test dealt {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try create.Objects.create(std.testing.allocator, &random);
     defer all.destroy();
     all.players = 1;
@@ -2895,7 +2895,7 @@ const huge_look = struct {
 
 /// `bullet_build` (`0x0047D9A0`): what a new shot of its type is drawn with. `turn` is the
 /// muzzle's, which the first piece takes.
-fn dress(bullet: *Bullet, looks: *const Looks, random: *libcmt.Rand, turn: math.Matrix) void {
+fn dress(bullet: *Bullet, looks: *const Looks, random: *Random, turn: math.Matrix) void {
     // Which set of shapes and textures a shot takes, and which half of the shot texture. The game
     // tests the side for the one and whether it is hostile for the other.
     const other = bullet.side != .friendly;
@@ -3042,7 +3042,7 @@ const huge_light_range: f32 = 60000;
 
 /// The work `bullets_frame` does for each type before the shot is tested: its colours by the life
 /// it has left, and the turns of the types that spin or wheel.
-fn animate(bullet: *Bullet, clock: *const Clock, record: Gun, random: *libcmt.Rand) void {
+fn animate(bullet: *Bullet, clock: *const Clock, record: Gun, random: *Random) void {
     const left = fade(bullet, clock, record);
     const friendly = bullet.side == .friendly;
     const ticks: f32 = @floatFromInt(clock.frame_duration);
@@ -3237,7 +3237,7 @@ test Looks {
     try std.testing.expectEqual(null, built.looks.shell);
     // Its shell is loaded as a mission starts, its type counted as used so that the types no
     // object uses, let go between missions, keep it.
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try create.Objects.create(gpa, &random);
     defer all.destroy();
     built.looks.loadShell(all, create.testing.no_models);
@@ -3249,7 +3249,7 @@ test dress {
     const gpa = std.testing.allocator;
     const built: test_looks.Fixture = try .init(gpa);
     defer built.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
 
     // What each gun type's shot is drawn with: how many pieces, and what the first two are.
     const Expect = struct { kind: GameGun, count: u8, first: std.meta.Tag(Piece.Drawn), second: ?std.meta.Tag(Piece.Drawn) = null };
@@ -3308,7 +3308,7 @@ test "a mod's gun draws its shot with its own picture" {
     const kept = built.looks.mod_shots;
     built.looks.mod_shots = &shots;
     defer built.looks.mod_shots = kept;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
 
     // One flare of it, as large as the mod gives, in place of its base's bolt.
     var bullet: Bullet = .{ .kind = @fromBackingInt(@intCast(additions.guns.first)), .side = .friendly, .fired_at = 100 };
@@ -3335,7 +3335,7 @@ test "a shot's pieces wheel, spin and fade as it flies" {
     const gpa = std.testing.allocator;
     const built: test_looks.Fixture = try .init(gpa);
     defer built.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var clock: Clock = .{ .frame_start = 150, .frame_duration = 5 };
     var record = std.mem.zeroes(Gun);
     record.lifetime = 100;
@@ -3377,7 +3377,7 @@ test drawBullets {
     const gpa = std.testing.allocator;
     const built: test_looks.Fixture = try .init(gpa);
     defer built.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var bullets: Bullets = .{ .looks = built.looks };
 
     // A Huge Gun's shot: its mesh and its glow drawn, its light cast.
@@ -3420,7 +3420,7 @@ const additions = @import("additions.zig");
 const gun_stats = @import("guns/stats.zig");
 const hooks = @import("../hooks.zig");
 const hud = @import("hud.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const matmanager = @import("matmanager.zig");
 const input = @import("../input.zig");
 const objects = @import("objects.zig");

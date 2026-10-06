@@ -9,7 +9,6 @@ const assert = std.debug.assert;
 
 const fat = @import("../../formats/fat.zig");
 const shp = @import("../../formats/shp.zig");
-const libcmt = @import("../libcmt.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const mss = @import("../mss.zig");
@@ -329,17 +328,17 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     const moving = math.transformTransposed(scene.camera.orientation, velocity);
     if (!driver.set3DSampleFile(voice.sample, sample)) return null;
     driver.set3DSampleLoopCount(voice.sample, definition.loop_count);
-    driver.set3DSampleVolume(voice.sample, math.ftol(level));
+    driver.set3DSampleVolume(voice.sample, std.math.lossyCast(i32, level));
     driver.set3DPosition(voice.sample, hog_snd.miles(turned));
     driver.set3DOrientation(voice.sample, hog_snd.miles(heading), .{ 0, 1, 0 });
     driver.set3DVelocity(voice.sample, hog_snd.miles(moving));
-    driver.set3DSampleCone(voice.sample, definition.cone_inner, definition.cone_outer, math.ftol(definition.cone_outer_volume));
+    driver.set3DSampleCone(voice.sample, definition.cone_inner, definition.cone_outer, std.math.lossyCast(i32, definition.cone_outer_volume));
     driver.set3DSampleDistances(voice.sample, range, min_distance * hog_snd.distance_scale);
     // Not the game's: how far the sound of what it follows spreads, its model's radius, which the
     // software mixer leaves out.
     driver.set3DSampleRadius(voice.sample, radius * hog_snd.distance_scale);
     const rate: u32 = switch (which) {
-        .explosion01, .explosion02 => @intCast(explosion_rate - math.ftol(scene.random.fraction() * explosion_spread)),
+        .explosion01, .explosion02 => @intCast(explosion_rate - std.math.lossyCast(i32, scene.random.fraction() * explosion_spread)),
         else => sample_rate,
     };
     driver.set3DSamplePlaybackRate(voice.sample, rate);
@@ -488,15 +487,15 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
     const effects = &sound.effects;
     // The voice the afterburner's sound plays on: its own, else the engine's.
     const burner = sound.burner_voice orelse engine;
-    if (sound.burner_voice) |own| driver.set3DSampleVolume(sound.voices_3d[own].sample, math.ftol(scale * burner_volume));
+    if (sound.burner_voice) |own| driver.set3DSampleVolume(sound.voices_3d[own].sample, std.math.lossyCast(i32, scale * burner_volume));
     const burning = player.afterburner or player.reverse_thrust;
     switch (effects.engine) {
         .idle => if (!burning) {
             const row = sounds.engines[engineRow(player.type)];
-            const rate = row.rate + math.ftol(@as(f32, @floatFromInt(row.rate_by_throttle)) * player.throttle);
+            const rate = row.rate + std.math.lossyCast(i32, @as(f32, @floatFromInt(row.rate_by_throttle)) * player.throttle);
             driver.set3DSamplePlaybackRate(sound.voices_3d[engine].sample, @intCast(@max(rate, 0)));
-            const loud = row.volume + math.ftol(@as(f32, @floatFromInt(row.volume_by_throttle)) * player.throttle);
-            driver.set3DSampleVolume(sound.voices_3d[engine].sample, math.ftol(@as(f32, @floatFromInt(loud)) * scale));
+            const loud = row.volume + std.math.lossyCast(i32, @as(f32, @floatFromInt(row.volume_by_throttle)) * player.throttle);
+            driver.set3DSampleVolume(sound.voices_3d[engine].sample, std.math.lossyCast(i32, @as(f32, @floatFromInt(loud)) * scale));
             if (sound.burner_voice) |own| if (!sound.voices_3d[own].isFree()) sound.end3D(own);
         } else {
             effects.engine_changed_at = frame_start;
@@ -509,8 +508,8 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             const since: f32 = @floatFromInt(frame_start - effects.engine_changed_at);
             const grown: f32 = @floatFromInt(@min(math.round(since * burner_growth) + burner_start, burner_most));
             const sample = sound.voices_3d[burner].sample;
-            driver.set3DSampleVolume(sample, math.ftol((grown + burner_base) * scale));
-            driver.set3DSamplePlaybackRate(sample, if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - math.ftol(grown * burner_pitch_step)));
+            driver.set3DSampleVolume(sample, std.math.lossyCast(i32, (grown + burner_base) * scale));
+            driver.set3DSamplePlaybackRate(sample, if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - std.math.lossyCast(i32, grown * burner_pitch_step)));
         } else if (sound.burner_voice == null) {
             effects.engine_changed_at = -1;
             startEngine(sound, scene);
@@ -528,8 +527,8 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             } else if (burning) {
                 effects.engine = .idle;
             } else {
-                const left = math.ftol((1 - @as(f32, @floatFromInt(since)) * cooling_step) * hog_snd.loudest);
-                driver.set3DSampleVolume(sound.voices_3d[burner].sample, math.ftol(@as(f32, @floatFromInt(left)) * scale));
+                const left = std.math.lossyCast(i32, (1 - @as(f32, @floatFromInt(since)) * cooling_step) * hog_snd.loudest);
+                driver.set3DSampleVolume(sound.voices_3d[burner].sample, std.math.lossyCast(i32, @as(f32, @floatFromInt(left)) * scale));
             }
         },
         _ => {},

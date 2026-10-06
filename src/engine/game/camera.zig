@@ -8,7 +8,7 @@ const math = @import("../surrender/math.zig");
 const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const input = @import("../input.zig");
 const controls = @import("../input/controls.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const create = @import("create.zig");
 const hud = @import("hud.zig");
 const gameobj = @import("gameobj.zig");
@@ -340,7 +340,7 @@ pub const World = struct {
     /// object with no cockpit.
     cockpit: ?Cockpit.Input = null,
     /// The runtime's `rand`, which the cockpit's jitter and the shake from hits draw on.
-    random: ?*libcmt.Rand = null,
+    random: ?*Random = null,
     /// Whether the player's ship has begun to drop out of its carrier's bay, which the bay view
     /// tilts down after (`launch.dropping`).
     dropping: bool = false,
@@ -870,7 +870,7 @@ pub const Cockpit = struct {
     };
 
     /// Moves the cockpit for a frame. The rates and the speed count to 1 either way at most.
-    pub fn place(model: Input, recoil: *f32, shake: f32, random: ?*libcmt.Rand) Placed {
+    pub fn place(model: Input, recoil: *f32, shake: f32, random: ?*Random) Placed {
         var rates = model.rates;
         for (&rates) |*rate| rate.* = std.math.clamp(rate.*, -1, 1);
         const speed = std.math.clamp(model.speed, -1, 1);
@@ -892,9 +892,9 @@ pub const Cockpit = struct {
     }
 
     /// A turn of up to half of `amount` either way in yaw and in roll, as `camera_frame` draws two
-    /// of `rand`'s numbers (`libcmt.Rand.centred`), the first for the roll. Without a `rand` it
+    /// of `rand`'s numbers (`Random.centred`), the first for the roll. Without a `rand` it
     /// draws none, and does not turn.
-    pub fn jitter(amount: f32, random: ?*libcmt.Rand) Matrix {
+    pub fn jitter(amount: f32, random: ?*Random) Matrix {
         const source = random orelse return math.identity;
         const roll = source.centred() * amount;
         const yaw = source.centred() * amount;
@@ -942,7 +942,7 @@ test Cockpit {
 
 test "the shake from a hit dies away and turns the camera" {
     var camera: Camera = .{ .hit_shake = 3 };
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const ship: Subject = .{ .position = @splat(0), .orientation = math.identity };
     _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 10, .random = &random });
     // It goes no higher than 2, then dies away by 0.02 a tick.

@@ -1,8 +1,9 @@
 //! The payload, the game executable, as it lies in memory on 32-bit x86. Modules follow its source
 //! tree, `C:\lancer`, where a structure's file is known, and are named for their contents where it
 //! is not. [`engine/sources.zig`](engine/sources.zig) places the code in its files;
-//! [`engine/libcmt.zig`](engine/libcmt.zig) is the C runtime. `surrender/srd3d` is the Direct3D
-//! driver, built from the same tree as a DLL of its own.
+//! [`engine/libcmt.zig`](engine/libcmt.zig) describes the C runtime, and
+//! [`engine/random.zig`](engine/random.zig) gives the random numbers the game draws from it.
+//! `surrender/srd3d` is the Direct3D driver, built from the same tree as a DLL of its own.
 //!
 //! The engine uses mission records in place, pointing each section at the file's bytes, so those
 //! are the structures in `formats/dte.zig`. The ones here are those it builds itself. They describe
@@ -21,6 +22,7 @@ pub const interface = @import("engine/interface.zig");
 pub const libcmt = @import("engine/libcmt.zig");
 pub const mss = @import("engine/mss.zig");
 pub const profile = @import("engine/profile.zig");
+pub const random = @import("engine/random.zig");
 pub const sources = @import("engine/sources.zig");
 pub const surrender = @import("engine/surrender.zig");
 pub const vm = @import("engine/vm.zig");

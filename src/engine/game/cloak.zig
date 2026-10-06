@@ -28,7 +28,7 @@ const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
 const ease = @import("../genilib/interf/ease.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const sound3d = @import("sound3d.zig");
 const srofiles = @import("srofiles.zig");
 
@@ -278,9 +278,9 @@ fn seeThrough(model: *objects.Model, kafelnikof: bool) void {
 
 /// `cloak_node_shimmer` (`0x00462EB0`): each part of `model`, and of the models it carries, that
 /// cloaks has its shimmer, clear, its texture laid on anew at random.
-fn shimmerOn(model: *objects.Model, random: *libcmt.Rand) void {
+fn shimmerOn(model: *objects.Model, random: *Random) void {
     eachCloaking(model, random, struct {
-        fn visit(drawn_from: *libcmt.Rand, _: *objects.Model.Part, effect: *PartCloak) void {
+        fn visit(drawn_from: *Random, _: *objects.Model.Part, effect: *PartCloak) void {
             if (!effect.cloaks) return;
             effect.shimmer_made = true;
             effect.shimmer.colour[3] = 0;

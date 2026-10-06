@@ -546,14 +546,15 @@ out to a distance from the camera the graphic detail gives:
 | Medium | 2500, 5000, 10000, 20000, 40000, 80000 |
 | High | 10000, 20000, 40000, 80000, 160000, 320000 |
 
-It also fills two ramps of 1024 colours, one a tint, by a strength from nothing up to one: a
-friendly ship's runs from dark at 1 up to a cyan of 0.7 green and full blue at 0.6, down through a
-dim blue of 0.3 at 0.4 to dark below 0.35, each stretch eased by a cosine (`cosine_ease`,
-`0x004268C0`), and is grey without a hardware renderer. The other sides' swaps the green and the
-blue, at 0.8. Both are 0.07 as bright.
+It also fills two ramps of 1024 colours (`0x0049EE40`), one a tint, by a strength from nothing
+up to one: a friendly ship's runs from dark at 1 up to a cyan of 0.7 green and full blue at 0.6,
+down through a dim blue of 0.3 at 0.4 to dark below 0.35, each stretch eased by a cosine
+(`cosine_ease`, `0x004268C0`), and is grey without a hardware renderer. The other sides' swaps the
+green and the blue, at 0.8. Both are 0.07 as bright. A strength reads the step it falls in.
 
-**Improvement:** OpenReliant divides by each stretch's span of strength, where the game multiplies
-by its reciprocal, rounded.
+**Improvement:** OpenReliant works each colour out at its strength instead of reading a step of a
+table, and divides by each stretch's span of strength, where the game multiplies by its
+reciprocal, rounded.
 
 A shot spent on a shield, whatever becomes of it, and a knock that reaches a shield flare it
 (`shield_flare`, `0x0049F1E0`), while any of the ship's shields holds anything and the ship is not

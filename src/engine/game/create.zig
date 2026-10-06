@@ -22,7 +22,7 @@ const stats = @import("../../formats/stats.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const Pointer = engine.Pointer;
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const ai = @import("ai.zig");
 const camera = @import("camera.zig");
 const cloak = @import("cloak.zig");
@@ -659,7 +659,7 @@ pub const Objects = struct {
     reuses: [gameobj.max_objects]u32 = @splat(0),
 
     /// Every slot standing in, as a mission's start leaves them (`reset`), made in `gpa`.
-    pub fn create(gpa: Allocator, random: *libcmt.Rand) Allocator.Error!*Objects {
+    pub fn create(gpa: Allocator, random: *Random) Allocator.Error!*Objects {
         const all = try gpa.create(Objects);
         all.* = .{ .gpa = gpa, .slots = @splat(.{ .object = undefined }) };
         all.reset(random);
@@ -679,7 +679,7 @@ pub const Objects = struct {
     ///
     /// The planets' atmospheres, whose texture it loads and whose table it empties, are
     /// `atmosphere.Atmospheres`.
-    pub fn reset(all: *Objects, random: *libcmt.Rand) void {
+    pub fn reset(all: *Objects, random: *Random) void {
         for (&all.slots) |*slot| {
             slot.release(all.gpa);
             var object = gameobj.objectAlloc(.of(.stand_in), random);
@@ -700,7 +700,7 @@ pub const Objects = struct {
     ///
     /// Not ported: the `exit` routines popping those orders would run, none of which is ported yet
     /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
-    pub fn resetSlot(all: *Objects, index: u16, random: *libcmt.Rand) void {
+    pub fn resetSlot(all: *Objects, index: u16, random: *Random) void {
         const slot = &all.slots[index];
         if (slot.object.type.base() != .stand_in) hooks.tell(all, .object_removed, .{ .object = .of(index) });
         slot.release(all.gpa);
@@ -1054,7 +1054,7 @@ pub fn make(world: gameobj.World, wanted: ?u16, object_type: gameobj.Type) Error
 /// Not ported: the components (#40); what it does for capital ships, gates and other single types
 /// but the wrecks and the planets (#233, `wreckMade`, `planetMade`); and what differs in a
 /// multiplayer game.
-pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, asked: gameobj.Type, tier: i32, at: Vector, random: *libcmt.Rand) Error!u16 {
+pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, asked: gameobj.Type, tier: i32, at: Vector, random: *Random) Error!u16 {
     const index = wanted orelse all.count;
     if (index >= gameobj.max_objects) return error.Overrun;
     const ship_type = if (wanted != null) all.slotType(index, asked) else asked;
@@ -1945,7 +1945,7 @@ test collectComponents {
 }
 
 test "Objects.slotType" {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try Objects.create(std.testing.allocator, &random);
     defer all.destroy();
     // With no loadout, the player's slot takes the mission's own kind; other slots always do.
@@ -1998,7 +1998,7 @@ test hardpoints {
 
 test "a ship's racks are fitted by its tier" {
     const gpa = std.testing.allocator;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try Objects.create(gpa, &random);
     defer all.destroy();
     var tables = testing.tables();
@@ -2047,7 +2047,7 @@ test "a ship's racks are fitted by its tier" {
 
 test "a player's ship takes the racks its loadout fitted" {
     const gpa = std.testing.allocator;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try Objects.create(gpa, &random);
     defer all.destroy();
     var tables = testing.tables();
@@ -2097,7 +2097,7 @@ test "a player's ship takes the racks its loadout fitted" {
 
 test "a rack left empty on the loadout leaves its hardpoint bare" {
     const gpa = std.testing.allocator;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try Objects.create(gpa, &random);
     defer all.destroy();
     var tables = testing.tables();

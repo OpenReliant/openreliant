@@ -12,7 +12,7 @@ const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const gameobj = @import("../gameobj.zig");
 const hog_snd = @import("../hog_snd.zig");
 const hud = @import("../hud.zig");
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const videoreports = @import("../videoreports.zig");
 const windows = @import("windows.zig");
 
@@ -46,7 +46,7 @@ pub const Shown = struct {
     /// The camera's shake, which shakes the film a row at a time, and the C runtime's `rand`, which
     /// it draws from.
     hit_shake: f32,
-    random: *libcmt.Rand,
+    random: *Random,
 };
 
 /// `hud_window_draw`'s case 0, in every view: in the view ahead (`ahead`) while the window closes,
@@ -90,7 +90,7 @@ test "the film keeps its shape at any window's size" {
     var rgba: [across * down * 4]u8 = @splat(0);
     var level = [1]srtexture.Level{.{ .width = across, .height = down, .texels = &rgba }};
     var picture: srtexture.Image = .{ .levels = &level };
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     // The display is drawn at one scale both ways, the least of the window's to 1024 by 768, so
     // the film stands 6 to 5 whatever the window's shape, and shaken, a row at a time, as well.
     for ([_][2]u32{ .{ 1024, 768 }, .{ 1920, 1080 }, .{ 768, 1024 }, .{ 3440, 1440 }, .{ 640, 480 } }) |screen| {

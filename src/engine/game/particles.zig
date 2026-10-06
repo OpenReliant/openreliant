@@ -20,7 +20,7 @@ const Vector = math.Vector;
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const explode = @import("explode.zig");
 const matmanager = @import("matmanager.zig");
 const xtrabits = @import("xtrabits.zig");
@@ -74,7 +74,7 @@ pub const Template = extern struct {
         sparks = 2,
 
         /// What a stream sends on one of its turns.
-        fn roll(kind: Kind, random: *libcmt.Rand) Sent {
+        fn roll(kind: Kind, random: *Random) Sent {
             return switch (kind) {
                 .particles => .particle,
                 .sparks => .spark,
@@ -154,7 +154,7 @@ pub const Emitter = struct {
 
     /// How fast something leaves it: along `direction`, strayed by `spread`, at a speed from
     /// `speed`, turned into the world.
-    fn leaving(emitter: *const Emitter, random: *libcmt.Rand) Vector {
+    fn leaving(emitter: *const Emitter, random: *Random) Vector {
         var v = random.centredVector(emitter.spread) + emitter.direction;
         const length = math.length(v);
         if (length > 0) v *= @splat((random.fraction() * emitter.speed_range + emitter.speed) / length);
@@ -162,13 +162,13 @@ pub const Emitter = struct {
     }
 
     /// A particle's velocity from it: how fast it leaves, plus what it inherits.
-    fn velocity(emitter: *const Emitter, random: *libcmt.Rand) Vector {
+    fn velocity(emitter: *const Emitter, random: *Random) Vector {
         return emitter.leaving(random) + emitter.inherited;
     }
 
     /// `particle_spark` (`0x0049C340`): a spark from where it stands, as fast as a particle leaves
     /// but inheriting nothing, its velocity a second's.
-    fn spark(emitter: *const Emitter, explosions: *explode.Explosions, clock: *const Clock, random: *libcmt.Rand) void {
+    fn spark(emitter: *const Emitter, explosions: *explode.Explosions, clock: *const Clock, random: *Random) void {
         const velocity_per_second = emitter.leaving(random) * @as(Vector, @splat(@import("main.zig").ticks_per_second));
         explosions.throwSpark(emitter.world.position, velocity_per_second, clock, random);
     }
@@ -179,7 +179,7 @@ pub const Emitter = struct {
 pub const Sending = struct {
     view: Place,
     clock: *const Clock,
-    random: *libcmt.Rand,
+    random: *Random,
     explosions: ?*explode.Explosions = null,
 };
 
@@ -323,7 +323,7 @@ pub const Pool = struct {
 
     /// `particle_emit` (`0x0049C1C0`): particle `index` born from `emitter`, now, where the emitter
     /// stands.
-    pub fn emit(pool: *Pool, emitter: *const Emitter, index: usize, clock: *const Clock, random: *libcmt.Rand) void {
+    pub fn emit(pool: *Pool, emitter: *const Emitter, index: usize, clock: *const Clock, random: *Random) void {
         if (pool.used <= index) pool.used = @intCast(index + 1);
         const template = emitter.template;
         const spread = if (template.life_spread > 0) @rem(@as(i32, random.rand()), template.life_spread) else 0;
@@ -453,7 +453,7 @@ test Curve {
 }
 
 test "Template.Kind.roll" {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var sparks: usize = 0;
     for (0..20000) |_| {
         if (Template.Kind.sometimes_sparks.roll(&random) == .spark) sparks += 1;
@@ -489,7 +489,7 @@ test "Pool.burst" {
     defer pool.deinit();
     var clock: Clock = .{};
     clock.frame_start = 10;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var emitter: Emitter = .{
         .born = clock.frame_start,
         .template = &testing.template,
@@ -527,7 +527,7 @@ test "Pool.frame" {
     var clock: Clock = .{};
     // A particle is free once its life is before the frame, so none is before the first tick.
     clock.frame_start = 1;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var emitter: Emitter = .{ .born = clock.frame_start, .template = &testing.template };
     pool.burst(&emitter, null, 2, .{ .view = .{ .position = .{ 0, 0, -10 } }, .clock = &clock, .random = &random });
     pool.particles[0].velocity = .{ 1, 0, 0 };
@@ -564,8 +564,8 @@ test "Pool.Variety" {
     varied.settings.variety = .varied;
     var clock: Clock = .{};
     clock.frame_start = 1;
-    var random: libcmt.Rand = .{};
-    var same_random: libcmt.Rand = .{};
+    var random: Random = .{};
+    var same_random: Random = .{};
     var emitter: Emitter = .{ .born = clock.frame_start, .template = &testing.template };
     const view: Place = .{ .position = .{ 0, 0, -10 } };
 
@@ -573,7 +573,7 @@ test "Pool.Variety" {
     // so the game's go on as they would.
     alike.burst(&emitter, null, 2, .{ .view = view, .clock = &clock, .random = &same_random });
     varied.burst(&emitter, null, 2, .{ .view = view, .clock = &clock, .random = &random });
-    try std.testing.expectEqual(same_random.seed, random.seed);
+    try std.testing.expectEqual(same_random.fingerprint(), random.fingerprint());
     try std.testing.expectEqual(1, alike.particles[0].scale);
     for (varied.particles[0..2]) |particle| {
         try std.testing.expect(particle.scale >= 0.75 and particle.scale <= 1.25);
@@ -593,7 +593,7 @@ test "Pool.stream" {
     var pool = try testing.pool();
     defer pool.deinit();
     var clock: Clock = .{};
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var streaming = testing.template;
     streaming.rate = .through(100, 100, 100);
     var emitter: Emitter = .{ .born = clock.frame_start, .life = 100, .template = &streaming, .place = .{ .position = .{ 0, 0, 1 } } };

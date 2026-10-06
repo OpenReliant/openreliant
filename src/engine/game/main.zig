@@ -13,7 +13,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const input = @import("../input.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const mss = @import("../mss.zig");
 const shp = @import("../../formats/shp.zig");
 const math = @import("../surrender/math.zig");
@@ -503,7 +503,7 @@ pub const Controls = struct {
     /// The cockpit's model, where the player's ship has one, which the camera's frame moves.
     cockpit: ?*cockpit.Cockpit.Shown,
     forces: *input.force.Forces,
-    random: *libcmt.Rand,
+    random: *Random,
     /// Whether what moves is drawn between the game's ticks (`objects.pastTick`).
     smooth_motion: bool,
 };
@@ -1097,7 +1097,7 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
 
 test "the objects are framed and drawn, save those left out" {
     const gpa = std.testing.allocator;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const all = try create.Objects.create(gpa, &random);
     defer all.destroy();
     var model: create.testing.Model = undefined;
@@ -1853,13 +1853,14 @@ fn givePilots(all: *create.Objects, number: u16) void {
     }
 }
 
-/// The seed of the mods' scripts' random numbers for mission `number`: the seed of the game's own
-/// random numbers, which the scripts don't draw from, combined with the mission's number.
+/// The seed of the mods' scripts' random numbers for mission `number`: where the game's own random
+/// numbers stand (`Random.fingerprint`), which the scripts don't draw from, combined with the
+/// mission's number.
 ///
 /// Not ported: `mission_start` seeds the game's own numbers with the time (`0x004936AE`)
 /// ([#582](https://github.com/OpenReliant/openreliant/issues/582)).
-pub fn scriptSeed(random: *const libcmt.Rand, number: u16) u64 {
-    return @as(u64, random.seed) << 16 | number;
+pub fn scriptSeed(random: *const Random, number: u16) u64 {
+    return random.fingerprint() << 16 | number;
 }
 
 /// OpenReliant's: ends the mission `loaded` and lets it go. First the mods' scripts hear how it

@@ -48,7 +48,7 @@ const create = @import("create.zig");
 const xtrabits = @import("xtrabits.zig");
 const guns = @import("guns.zig");
 const objects = @import("objects.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const collision = @import("collision.zig");
 const sound3d = @import("sound3d.zig");
 const main = @import("main.zig");
@@ -663,7 +663,7 @@ pub const Draw = struct {
 pub const Shake = struct {
     hit_shake: f32,
     interference: f32,
-    random: *libcmt.Rand,
+    random: *Random,
 
     /// How far the next row of a shape flipped as `mirror` says moves.
     fn row(shake: Shake, mirror: Mirror) i32 {
@@ -674,7 +674,7 @@ pub const Shake = struct {
 
 /// How far a shake of `amount` moves a row, in the display's own pixels: nothing while it is not
 /// above zero, and otherwise a random share of `10 * amount`, rounded as `sr_round` rounds.
-pub fn rowShift(amount: f32, random: ?*libcmt.Rand) i32 {
+pub fn rowShift(amount: f32, random: ?*Random) i32 {
     if (!(amount > 0)) return 0;
     const source = random orelse return 0;
     return math.round(source.fraction() * row_reach * amount);
@@ -727,7 +727,7 @@ pub const Interference = struct {
 
     /// How the display shakes this frame, `hit_shake` the camera's shake: not at all while the
     /// interference is out.
-    pub fn shake(interference: Interference, hit_shake: f32, random: *libcmt.Rand) ?Shake {
+    pub fn shake(interference: Interference, hit_shake: f32, random: *Random) ?Shake {
         if (!(interference.level > 0)) return null;
         return .{ .hit_shake = hit_shake, .interference = interference.level, .random = random };
     }
@@ -1956,7 +1956,7 @@ pub const Frame = struct {
     /// The camera's shake, which shakes the power ball too, and the C runtime's `rand`, which the
     /// ball draws from.
     hit_shake: f32,
-    random: *libcmt.Rand,
+    random: *Random,
     /// What the mission has ready for JUMP DRIVE.
     ready: *Readiness,
     edge_line: EdgeLine,
@@ -3991,14 +3991,13 @@ pub const ShipStatus = struct {
     };
 
     /// How much of an arc is drawn: the quadrant's value over the ship's shield power, for a
-    /// shield, or its armour class, for the armour, cut down to a whole number as the runtime's
-    /// `__ftol` does (`math.ftol`), less one, in the game's 32-bit arithmetic. An arc of 0 or less
-    /// is not drawn. A ship with none of either has no arcs of it; the game divides by nothing
+    /// shield, or its armour class, for the armour, cut down to a whole number, less one, in the
+    /// game's 32-bit arithmetic. An arc of 0 or less is not drawn. A ship with none of either has no arcs of it; the game divides by nothing
     /// regardless.
     pub fn level(value: f32, per_arc: i32) i32 {
         if (per_arc == 0) return 0;
         const share = value / @as(f32, @floatFromInt(per_arc));
-        return math.ftol(share) -% 1;
+        return std.math.lossyCast(i32, share) -% 1;
     }
 
     /// The rings of the ship of `slot`, or null for a comms relay or a deathmatch beacon, which
@@ -4095,11 +4094,10 @@ test ShipStatus {
     try std.testing.expectEqual(5, ShipStatus.level(6 * 3, 3));
     // Down to under twice the power, none are left.
     try std.testing.expectEqual(0, ShipStatus.level(5, 3));
-    // The runtime cuts toward zero rather than rounding, and past an `int` keeps the low half of
-    // the 64-bit whole number, as `__ftol` does.
+    // The share is cut toward zero rather than rounded, and stops at the largest `int`.
     try std.testing.expectEqual(1, ShipStatus.level(2.99 * 3, 3));
     try std.testing.expectEqual(0, ShipStatus.level(10, 0));
-    try std.testing.expectEqual(-1294967297, ShipStatus.level(3e9, 1));
+    try std.testing.expectEqual(std.math.maxInt(i32) - 1, ShipStatus.level(3e9, 1));
 
     // In both modes, the armour's arcs are shapes 0x85 to 0x98 and the shields' 0x99 to 0xAC,
     // five an arc, each arc's following on from the last's.
@@ -4190,9 +4188,9 @@ pub const Cluster = struct {
     pub const spread: f32 = 0.15625;
 
     /// How far either arc stands from the middle of a screen `width` across: `spread` of it, cut
-    /// down to a whole number as `__ftol` does.
+    /// down to a whole number.
     pub fn apart(width: i32) i32 {
-        return math.ftol(@as(f32, @floatFromInt(width)) * spread);
+        return std.math.lossyCast(i32, @as(f32, @floatFromInt(width)) * spread);
     }
     /// How far above the middle the arcs' tops stand.
     pub const up: i32 = 0x4A;
@@ -5373,7 +5371,7 @@ test Interference {
 }
 
 test rowShift {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     try std.testing.expectEqual(0, rowShift(0, &random));
     try std.testing.expectEqual(0, rowShift(1, null));
     for (0..20) |_| {
@@ -5389,7 +5387,7 @@ test "a shaken image is drawn a row at a time" {
     const texels: [2 * 3 * 4]u8 = @splat(0xFF);
     var level = [_]srtexture.Level{.{ .width = 2, .height = 3, .texels = &texels }};
     var image: srtexture.Image = .{ .levels = &level };
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
 
     drawImage(into, &image, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1, .{});
     try std.testing.expectEqual(1, recorder.draws.items.len);
@@ -5431,7 +5429,7 @@ test "a mod's picture replaces a shape, drawn over the shape's rectangle" {
     try std.testing.expectEqual(3, own.images[1].?.width());
 
     // When the display shakes, the shape is drawn one row at a time.
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const before = recorder.draws.items.len;
     try drawShapeWith(&art, gpa, into, 1, .{ 10, 20 }, .{ 1, 1, 1, 1 }, 2, .{ .shake = .{ .hit_shake = 1, .interference = 0, .random = &random } });
     try std.testing.expectEqual(before + 2, recorder.draws.items.len);

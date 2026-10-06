@@ -17,7 +17,7 @@ const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srlight = @import("../surrender/surrenderlib/srlight.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const Objects = @import("create.zig").Objects;
 const gameobj = @import("gameobj.zig");
 const matmanager = @import("matmanager.zig");
@@ -218,7 +218,7 @@ pub const Ray = struct {
 
     /// `eray_create` (`0x0046ACE0`): a ray of `spec` over `laser2`, lit, with the time it first
     /// stays dark drawn at random.
-    fn create(gpa: Allocator, spec: Spec, laser: *srtexture.Image, random: *libcmt.Rand) Allocator.Error!*Ray {
+    fn create(gpa: Allocator, spec: Spec, laser: *srtexture.Image, random: *Random) Allocator.Error!*Ray {
         const ray = try gpa.create(Ray);
         errdefer gpa.destroy(ray);
         const strands = try gpa.alloc(Strand, spec.strands);
@@ -264,7 +264,7 @@ pub const Ray = struct {
     /// in. A flickering one lit past its time goes dark, or starts to fade, for up to
     /// `dark_at_most` ticks; dark past its time, it lights again, for up to `lit_at_most`. One that
     /// fades dims while dark.
-    fn update(ray: *Ray, all: *const Objects, now: i32, random: *libcmt.Rand) bool {
+    fn update(ray: *Ray, all: *const Objects, now: i32, random: *Random) bool {
         const ticks: f32 = @floatFromInt(if (ray.moved) |moved| now -% moved else 0);
         const moved = ray.moved orelse now;
         if (ray.flags.timed) {
@@ -299,7 +299,7 @@ pub const Ray = struct {
     /// **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows
     /// only on what the sweep has laid bare; the game cuts the part alone, and its rays crackle
     /// over the stretch of the ship still whole.
-    fn draw(ray: *Ray, gpa: Allocator, scene: *srcore.Scene, standing: Parent.Standing, random: *libcmt.Rand) Allocator.Error!void {
+    fn draw(ray: *Ray, gpa: Allocator, scene: *srcore.Scene, standing: Parent.Standing, random: *Random) Allocator.Error!void {
         const place = standing.place;
         for (ray.strands, 0..) |*strand, index| {
             var at: [points]Vector = undefined;
@@ -320,7 +320,7 @@ pub const Ray = struct {
 };
 
 /// A number of ticks up to `most`, at random.
-fn drawTicks(random: *libcmt.Rand, most: f32) i32 {
+fn drawTicks(random: *Random, most: f32) i32 {
     return @intFromFloat(random.fraction() * most);
 }
 
@@ -338,7 +338,7 @@ fn shapeSegment(corners: *[segment_vertices]Vector, width: f32, frame: math.Plac
 /// `0x0046AA70`: the point halfway between points `a` and `b` of `at`, strayed at random by up to
 /// `amount` of the distance between them, then, `depth` times over, the points halfway between it
 /// and each of them, the nearer first.
-fn jitter(at: *[points]Vector, a: usize, b: usize, amount: f32, depth: u8, random: *libcmt.Rand) void {
+fn jitter(at: *[points]Vector, a: usize, b: usize, amount: f32, depth: u8, random: *Random) void {
     const middle = (a + b) / 2;
     const off = math.normalize(random.centredVector(@splat(std.math.tau)));
     const reach = random.fraction() * math.distance(at[a], at[b]) * amount;
@@ -374,7 +374,7 @@ pub const Rays = struct {
 
     /// `eray_add` (`0x0046AC50`): a ray of `spec` in the first free slot, or in the first where
     /// all are taken, letting that ray go.
-    pub fn add(rays: *Rays, spec: Spec, random: *libcmt.Rand) Allocator.Error!*Ray {
+    pub fn add(rays: *Rays, spec: Spec, random: *Random) Allocator.Error!*Ray {
         const slot = table.firstFree(*Ray, &rays.slots) orelse first: {
             rays.remove(rays.slots[0].?);
             break :first &rays.slots[0];
@@ -396,7 +396,7 @@ pub const Rays = struct {
     /// `0x0046AC30`, once a frame (`mission_frame`): each ray moves on at tick `now`
     /// (`Ray.update`) and, while it is bright and what it hangs from stands in `all`, is drawn.
     /// A ray whose part has gone goes with it.
-    pub fn draw(rays: *Rays, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, now: i32, random: *libcmt.Rand) Allocator.Error!void {
+    pub fn draw(rays: *Rays, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, now: i32, random: *Random) Allocator.Error!void {
         for (rays.slots) |maybe| {
             const ray = maybe orelse continue;
             if (!ray.update(all, now, random)) {
@@ -436,7 +436,7 @@ pub const testing = struct {
 };
 
 test jitter {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var at: [points]Vector = undefined;
     at[0] = @splat(0);
     at[segments] = .{ 0, 0, 1600 };
@@ -461,7 +461,7 @@ test "a ray flickers, fades and runs out" {
     try mission.init(gpa);
     defer mission.deinit();
     const all = mission.objects;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const ray = try built.rays.add(.{ .life = 100, .jitter = 0.2, .width = 10, .flags = .{ .flickers = true, .fades = true, .timed = true } }, &random);
 
     // It goes dark on its first frame, and dims while dark.
@@ -497,7 +497,7 @@ test Rays {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const spec: Spec = .{ .life = 0, .jitter = 0.2, .width = 10, .flags = .{} };
 
     // Room for a hundred; the next takes the first's place.

@@ -125,7 +125,7 @@ fn draw(ctx: Context, command: Command) !void {
         .projection = (camera.Camera{}).projection(command.width, command.height),
     };
 
-    var rand: openreliant.engine.libcmt.Rand = .{};
+    var rand: openreliant.engine.random.Random = .{};
     const star_map = try tga.decode(gpa, try need(&resources, backdrop.star_map_name));
     const space = try backdrop.Backdrop.create(gpa, &textures, star_map, &rand, context.projection.near, .original);
     defer space.destroy(gpa);

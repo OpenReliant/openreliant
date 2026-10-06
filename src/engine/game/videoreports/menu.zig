@@ -429,7 +429,7 @@ const armour_per_class = 6;
 fn condition(armour: gameobj.Quadrants, class: i32) usize {
     const together = armour.aft + armour.fore + armour.right + armour.left;
     const whole: f32 = @floatFromInt(class *% armour_per_class);
-    const level = @as(i16, @truncate(math.ftol(together / whole))) - 1;
+    const level = @as(i16, @truncate(std.math.lossyCast(i32, together / whole))) - 1;
     return @intCast(std.math.clamp(level, 0, status_answers.full.len - 1));
 }
 

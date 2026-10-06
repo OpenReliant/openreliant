@@ -313,6 +313,11 @@ pub fn round(x: f32) i32 {
 /// `__ftol` (`0x004CF28C`), which the compiler calls to turn a float into an integer: `x` with its
 /// fraction dropped, as a 64-bit integer whose low half an `int` keeps. A value no `i64` holds, or
 /// no number at all, gives the x87's indefinite integer, whose low half is zero.
+///
+/// It is kept for what a mission's script works out, which a mission file decides and may take
+/// past an `int`. **Improvement:** the engine's own conversions use `std.math.lossyCast`, which
+/// gives the same for every value they can have, and stops at the largest or least `int` past
+/// them.
 pub fn ftol(x: f32) i32 {
     const t = @trunc(x);
     if (!(t >= -0x1p63 and t < 0x1p63)) return 0;

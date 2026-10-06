@@ -23,7 +23,7 @@ const create = @import("create.zig");
 const additions = @import("additions.zig");
 const guns = @import("guns.zig");
 const missiles = @import("missiles.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const motion = @import("motion.zig");
 const input = @import("../input.zig");
 const Clock = @import("main.zig").Clock;
@@ -1588,8 +1588,8 @@ pub fn rechargeShields(object: *GameObject, combat: *const create.ShipCombat, re
 const recharge_steps: f32 = 25;
 
 /// A new object's `blink_offset` (`object_alloc`, `0x00475DD0`): C's `rand()` over its largest
-/// value (`libcmt.Rand.fraction`), times `blink_range`, truncated.
-pub fn blinkOffset(random: *libcmt.Rand) i16 {
+/// value (`Random.fraction`), times `blink_range`, truncated.
+pub fn blinkOffset(random: *Random) i16 {
     return @intFromFloat(random.fraction() * blink_range);
 }
 
@@ -1600,7 +1600,7 @@ const blink_range: f32 = 100;
 /// it hands out, so everything the allocation doesn't set starts at zero: the object is at rest,
 /// turned by nothing each update, and has no motion, orders or renderer's object. Its root is
 /// flagged as a component, and it draws its `blink_offset` from `random`.
-pub fn objectAlloc(object_type: Type, random: *libcmt.Rand) GameObject {
+pub fn objectAlloc(object_type: Type, random: *Random) GameObject {
     var object = std.mem.zeroes(GameObject);
     object.type = object_type;
     object.rotation = math.identity;
@@ -1614,14 +1614,15 @@ pub fn objectAlloc(object_type: Type, random: *libcmt.Rand) GameObject {
 }
 
 test objectAlloc {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const object = objectAlloc(.of(.stand_in), &random);
     try std.testing.expectEqual(Type.of(.stand_in), object.type);
     try std.testing.expectEqual(math.identity, object.rotation);
     try std.testing.expect(object.root.flags.component);
     try std.testing.expectEqual(1, object.visibility);
-    // The runtime's first number from its first seed gives the first object no offset.
-    try std.testing.expectEqual(0, object.blink_offset);
+    // Its lights stand into their blinks by the offset the next number gives.
+    var same: Random = .{};
+    try std.testing.expectEqual(blinkOffset(&same), object.blink_offset);
     try std.testing.expect(!object.created);
 }
 
@@ -1710,9 +1711,9 @@ pub const World = struct {
     touchdown: @import("ailand.zig").Touchdown = .level,
     view: camera.View,
     shake: *f32,
-    /// The runtime's numbers (`libcmt.Rand`), which the guns' step draws a damaged gun's misfire
+    /// The runtime's numbers (`Random`), which the guns' step draws a damaged gun's misfire
     /// from.
-    random: *libcmt.Rand,
+    random: *Random,
     /// The sound the objects are heard through, and where from; null where nothing is heard.
     hearing: ?@import("hog_snd.zig").Hearing = null,
     /// The camera, whose view the game's code switches (`camera_set_view`); null where nothing is
@@ -2268,7 +2269,7 @@ pub const testing = struct {
     /// they are made from, and what their world points at. It stays where `init` fills it in, as
     /// the world points into it.
     pub const Mission = struct {
-        random: libcmt.Rand,
+        random: Random,
         objects: *create.Objects,
         tables: create.Stats,
         player: input.Player,
@@ -2402,21 +2403,14 @@ test knockLocal {
 }
 
 test blinkOffset {
-    var random: libcmt.Rand = .{};
-    // The runtime's first number from its first seed is 41, 41 / 32767 of the way to 100.
-    try std.testing.expectEqual(0, blinkOffset(&random));
+    var random: Random = .{};
     for (0..1000) |_| {
         const offset = blinkOffset(&random);
         try std.testing.expect(offset >= 0 and offset <= 100);
     }
-    // The largest number C's `rand()` gives makes 100, its share of the way rounding up to 1 in
-    // single precision. The seed that gives it is the runtime's step run backwards from one whose
-    // bits 16 to 30 are all set.
-    const step: u32 = 214013;
-    var inverse: u32 = step;
-    for (0..5) |_| inverse *%= 2 -% step *% inverse;
-    var largest: libcmt.Rand = .{ .seed = (0x7FFF_0000 -% 2531011) *% inverse };
-    try std.testing.expectEqual(100, blinkOffset(&largest));
+    // The largest number `rand` gives makes 100: its share of the way rounds up to 1 in single
+    // precision.
+    try std.testing.expectEqual(1, @as(f32, Random.max) * (1.0 / @as(f32, Random.max)));
 }
 
 test rechargeShields {

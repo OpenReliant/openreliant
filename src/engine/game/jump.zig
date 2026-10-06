@@ -659,7 +659,7 @@ fn flash(world: gameobj.World, slot: *create.Slot, dt: f32) void {
 }
 
 /// The view the player's arrival is watched from, by `share`, the C runtime's `rand` over the most
-/// it gives (`libcmt.Rand.fraction`): twice it, rounded (`sr_round`), picks one of three, the
+/// it gives (`Random.fraction`): twice it, rounded (`sr_round`), picks one of three, the
 /// middle one half the time.
 fn arrivalView(share: f32) camera.View {
     return switch (math.round(share + share)) {
@@ -861,11 +861,11 @@ test markJumping {
 }
 
 test arrivalView {
-    const libcmt = @import("../libcmt.zig");
+    const Random = @import("../random.zig").Random;
     const Draw = struct {
         /// The share `rand` gives with `random`.
         fn share(random: u15) f32 {
-            return @as(f32, @floatFromInt(random)) / libcmt.Rand.max;
+            return @as(f32, @floatFromInt(random)) / Random.max;
         }
     };
     // A quarter of the time the close view, half the time the view ahead, and a quarter the view

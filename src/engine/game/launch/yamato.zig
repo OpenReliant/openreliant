@@ -3,7 +3,7 @@
 //! launch shows a separate hangar, six steam emitters and three exterior camera views.
 
 const std = @import("std");
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const math = @import("../../surrender/math.zig");
 const aigeneric = @import("../aigeneric.zig");
 const camera = @import("../camera.zig");
@@ -129,7 +129,7 @@ pub const Cutaway = enum(i32) {
     aside = 2,
 
     /// Selects one of three cutaways using the original's random call (`launch_yamato_run`).
-    fn pick(random: *libcmt.Rand) Cutaway {
+    fn pick(random: *Random) Cutaway {
         const choices = [_]Cutaway{ .beside, .ahead, .aside };
         return choices[random.rand() % choices.len];
     }

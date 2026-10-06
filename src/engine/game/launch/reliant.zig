@@ -7,7 +7,7 @@
 const std = @import("std");
 const log = std.log.scoped(.launch);
 
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const math = @import("../../surrender/math.zig");
 const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
 const aigeneric = @import("../aigeneric.zig");
@@ -79,7 +79,7 @@ pub const Cutaway = enum(i32) {
     /// One of the three, picked from the runtime's numbers as the player's launch starts
     /// (`0x0041B2C5` to `0x0041B2D6`): the remainder of `random`'s next over `cutaways`, counted
     /// from the first, the bay's.
-    pub fn pick(random: *libcmt.Rand) Cutaway {
+    pub fn pick(random: *Random) Cutaway {
         return @fromBackingInt(@intCast(@as(i32, random.rand() % cutaways) + @backingInt(Cutaway.bay)));
     }
 };
@@ -510,7 +510,7 @@ test "a ship drops out of the Reliant's tube, step by step" {
 }
 
 test "Cutaway.pick" {
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     for (0..30) |_| switch (Cutaway.pick(&random)) {
         .bay, .below, .aside => {},
         .none, _ => return error.TestUnexpectedResult,

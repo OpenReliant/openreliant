@@ -20,7 +20,7 @@ const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const matmanager = @import("matmanager.zig");
 const create = @import("create.zig");
 const environfx = @import("environfx.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const xtrabits = @import("xtrabits.zig");
 const Clock = @import("main.zig").Clock;
 const aigeneric = @import("aigeneric.zig");
@@ -1223,7 +1223,7 @@ pub const Model = struct {
 
         /// How far along its length the plume burns, or null while it burns nothing. Every glow but
         /// a steady one flickers a little each frame (`node_draw`).
-        pub fn plume(glow: Glow, throttle: f32, random: ?*libcmt.Rand) ?f32 {
+        pub fn plume(glow: Glow, throttle: f32, random: ?*Random) ?f32 {
             if (glow.steady) return 1;
             const lit = if (glow.retro) -throttle else throttle;
             if (!(lit > 0)) return null;
@@ -2486,7 +2486,7 @@ pub const View = struct {
     /// still standing.
     throttle: f32 = 0,
     /// Where the glows' flicker comes from; without one they burn steady.
-    random: ?*libcmt.Rand = null,
+    random: ?*Random = null,
     /// Pixels to a view unit across the screen (`srapi.Projection.scale`), which says how far off
     /// an object stops being worth drawing. Zero draws one however far off it stands.
     scale: f32 = 0,
@@ -2578,7 +2578,7 @@ comptime {
 
 /// What a plume's length is scaled by this frame: somewhere between `flicker_least` and its whole
 /// length, so that a burning engine is never quite still (`node_draw`).
-fn flicker(random: ?*libcmt.Rand) f32 {
+fn flicker(random: ?*Random) f32 {
     const source = random orelse return 1;
     return source.fraction() * flicker_range + flicker_least;
 }
@@ -3234,17 +3234,17 @@ test "an engine glow burns with the throttle" {
     try std.testing.expectEqual(null, retro.plume(0.5, null));
     try std.testing.expectEqual(1, retro.plume(-1, null));
     // The steady glow burns full whatever the throttle, and never flickers.
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     try std.testing.expectEqual(1, steady.plume(0, &random));
     try std.testing.expectEqual(1, steady.plume(-1, &random));
-    try std.testing.expectEqual(1, random.seed);
+    try std.testing.expectEqual((Random{}).fingerprint(), random.fingerprint());
 
     // A flicker takes a burning plume down by at most a fifth, never past its full length.
     for (0..100) |_| {
         const burning = forward.plume(1, &random).?;
         try std.testing.expect(burning >= flicker_least and burning <= 1);
     }
-    try std.testing.expect(random.seed != 1);
+    try std.testing.expect(random.fingerprint() != (Random{}).fingerprint());
 }
 
 test "a model draws the muzzle flashes a shot has lit" {

@@ -435,7 +435,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer loading.close();
     try loading.show(game.xtrabits.loading.startup_first);
     try loading.show(game.xtrabits.loading.startup_step);
-    var rand: engine.libcmt.Rand = .{};
+    var rand: engine.random.Random = .{};
     const space = try game.backdrop.Backdrop.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.backdrop.star_map_name), &rand, context.projection.near, options.sun);
     const sky = try game.nebula.Sky.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.nebula.dome_image_name));
     try sky.select(&textures, game.nebula.default_nebula, &space.lights);
@@ -2117,7 +2117,7 @@ const Display = struct {
     /// The radio, whose window shows the speaker's face.
     radio: *game.videoreports.Radio,
     /// The C runtime's `rand`, which the camera and the display both draw from.
-    random: *engine.libcmt.Rand,
+    random: *engine.random.Random,
     /// The display's own state, `hud.cpp`'s globals.
     state: game.hud.State = .{},
     /// What the display shows ready for JUMP DRIVE while no mission is loaded: nothing.

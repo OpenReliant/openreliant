@@ -35,7 +35,7 @@ const matmanager = @import("../matmanager.zig");
 const particles = @import("../particles.zig");
 const shield = @import("../shield.zig");
 const shockwave = @import("../shockwave.zig");
-const libcmt = @import("../../libcmt.zig");
+const Random = @import("../../random.zig").Random;
 const srlight = @import("../../surrender/surrenderlib/srlight.zig");
 const sound3d = @import("../sound3d.zig");
 const xtrabits = @import("../xtrabits.zig");
@@ -274,7 +274,7 @@ pub const Blast = struct {
     /// The ball's flicker drawn afresh: each vertex of the game's ball red at a random number to
     /// the fifth, its green `ball_green` of its red; each of its own vertices taking the colours of
     /// those round it (`shield.Grid.sample`).
-    fn flicker(blast: *Blast, random: *libcmt.Rand) void {
+    fn flicker(blast: *Blast, random: *Random) void {
         // Two numbers the game draws and drops.
         _ = random.rand();
         _ = random.rand();

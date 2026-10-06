@@ -107,9 +107,8 @@ A few kinds of improvement recur:
 - **Exact maths.** OpenReliant computes with `std.math` and `@Vector` where the original uses a
   lookup table or a rounded constant, so `3.14159` becomes `std.math.pi`. Design values such as
   `0.25` or 200 ticks stay as the game has them.
-- **Modern randomness.** Random numbers come from `std.Random` rather than the MSVC runtime's
-  `rand`; [#234](https://github.com/OpenReliant/openreliant/issues/234) moves the remaining code
-  over.
+- **Modern randomness.** Random numbers come from `std.Random` (`engine/random.zig`) rather than
+  the MSVC runtime's `rand`.
 - **High settings.** A quality or detail setting defaults to the original's highest.
 - **Graceful limits.** An enhancement with a hard limit keeps the most important items on the
   enhanced path, and sends the rest through the original's.

@@ -12,7 +12,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const ease = @import("../genilib/interf/ease.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const math = @import("../surrender/math.zig");
 const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
@@ -249,7 +249,7 @@ pub const IceField = struct {
     const flat_share: f32 = 0.65;
     const flat_pitch: f32 = 0.1;
     const steep_pitch: f32 = 0.7;
-    const arc: f32 = 2.1991148;
+    const arc: f32 = 0.7 * std.math.pi;
     const first_arc_share: f32 = 0.5;
     const distance: f32 = 2500;
 
@@ -271,7 +271,7 @@ pub const IceField = struct {
     /// `random` in the game's order: which of the texture's pictures it shows, its grey, from half
     /// to full, the band and the arc it lies in and where in them, and its size. Each turns at the
     /// next of the seven turn rates. `reach` says which are drawn.
-    pub fn create(gpa: Allocator, textures: *srtexture.Table, detail: Detail, reach: Reach, random: *libcmt.Rand) (Allocator.Error || matmanager.Error)!*IceField {
+    pub fn create(gpa: Allocator, textures: *srtexture.Table, detail: Detail, reach: Reach, random: *Random) (Allocator.Error || matmanager.Error)!*IceField {
         const image = try matmanager.textureRequire(textures, texture_name);
         const field = try gpa.create(IceField);
         errdefer gpa.destroy(field);
@@ -648,7 +648,7 @@ test IceField {
     const gpa = std.testing.allocator;
     const textures = try srtexture.testing.Textures.init(gpa, &.{IceField.texture_name});
     defer textures.deinit(gpa);
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     const field = try IceField.create(gpa, &textures.table, .low, .original, &random);
     defer field.destroy(gpa);
     try std.testing.expectEqual(200, field.rocks.len);

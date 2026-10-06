@@ -26,7 +26,7 @@ const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const ease = @import("../genilib/interf/ease.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
@@ -208,7 +208,7 @@ pub const Gates = struct {
     /// Whether the ride through the worm rumbles on the frame at tick `now`: where a number drawn
     /// from `random` comes up, `rumble_chance` of the time, once a frame as the game draws it; or
     /// in the steady style once for each simulation step since the last were drawn (`Rumbles`).
-    fn rumbles(gates: *Gates, random: *libcmt.Rand, now: i32) bool {
+    fn rumbles(gates: *Gates, random: *Random, now: i32) bool {
         const draws: u32 = switch (gates.settings.rumbles) {
             .original => 1,
             .steady => gameobj.stepsDue(&gates.rumbled_at, now),
@@ -1286,7 +1286,7 @@ test "the ride through the worm draws its rumbles at the pace of the simulation'
     try built.init(gpa);
     defer built.deinit(gpa);
     const gates = &built.gates;
-    var random: libcmt.Rand = .{};
+    var random: Random = .{};
     var expected = random;
 
     // A frame each tick draws a number on every fourth.

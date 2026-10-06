@@ -241,7 +241,7 @@ const reveal_at: f32 = 0.4;
 /// Yamato arrival offset and translation coefficients (`order_warp_in`, `0x004DC5F4`,
 /// `0x004DC5F8`). Its motion stays frozen while the sequence moves its frame explicitly.
 const yamato_tunnel_ahead: f32 = 210000;
-const yamato_slowing: f32 = 1.6666666;
+const yamato_slowing: f32 = 5.0 / 3.0;
 const yamato_depth_speed: f32 = 20.5;
 const warp_throttle: f32 = 2;
 /// End-ring flare multiplier (`0x004DC4E0`) and minimum arrival radius (`order_warp_in`).

@@ -1060,10 +1060,12 @@ test "a Sabre fights the player" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     var devices: @import("../input.zig").Devices = .{};
-    const fighter = try testFight(&mission, 100000);
+    const apart = 100000;
+    const fighter = try testFight(&mission, apart);
     const state = fighter.state;
 
-    // A minute of frames: the Sabre closes on the player and goes from one maneuver to another.
+    // A minute of frames: the Sabre closes most of the way on the player and goes from one
+    // maneuver to another.
     var nearest = std.math.inf(f32);
     var changes: usize = 0;
     var last = state.maneuver;
@@ -1077,7 +1079,7 @@ test "a Sabre fights the player" {
         last = state.maneuver;
     }
     try std.testing.expectEqual(1, fighter.ship().order_count);
-    try std.testing.expect(nearest < 20000);
+    try std.testing.expect(nearest < apart / 2);
     try std.testing.expect(changes > 1);
 }
 

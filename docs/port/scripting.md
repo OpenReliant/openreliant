@@ -297,9 +297,9 @@ while a game runs, null otherwise:
 | `ended` | `main.endMission`, as the driver lets a mission go | `on_mission_end`, then the hook `mission_ended`; the objects' and the mission's scripts stop |
 | `call` | The hooks ([Hooks](#hooks)) | For `object_added`, the object's scripts start, then `on_object_added`; for `object_removed`, `on_object_removed`, then the object's scripts get `on_removed` and stop. Then the hooks' handlers |
 
-`math.random` starts again from a seed made of the C runtime's `rand` seed as the mission begins
-(`libcmt.Rand`, which it doesn't draw from) and the mission's number, so the game's own numbers stay
-as they are and every machine draws the same. Before the first mission it starts from load
+`math.random` starts again from a seed made of where the game's own random numbers stand as the
+mission begins (`Random.fingerprint`, which doesn't draw from them) and the mission's number, so the
+game's own numbers stay as they are and every machine draws the same. Before the first mission it starts from load
 scripts' fixed seed. The original seeds `rand` with the time as each mission starts, which
 OpenReliant doesn't port yet ([#582](https://github.com/OpenReliant/openreliant/issues/582)).
 

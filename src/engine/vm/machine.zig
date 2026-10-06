@@ -21,7 +21,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.vm);
 
 const dte = @import("../../formats/dte.zig");
-const libcmt = @import("../libcmt.zig");
+const Random = @import("../random.zig").Random;
 const math = @import("../surrender/math.zig");
 const vm = @import("../vm.zig");
 const executor = @import("../game/executor.zig");
@@ -272,7 +272,7 @@ pub const Machine = struct {
     /// globals into, and the tables binding it made.
     mission: *bind.Mission,
     /// The game's random numbers (`rand`), which `random_branch` draws.
-    random: *libcmt.Rand,
+    random: *Random,
     /// `vm_thread_pool` (`0x00537590`).
     threads: [vm.max_threads]Running = @splat(.{}),
     /// `vm_thread_count` (`0x00537415`).
@@ -334,7 +334,7 @@ pub const Machine = struct {
     /// `last_jumped` as the script starts (`0x0045CC2E`).
     pub const never_jumped: u32 = 0xFFFF;
 
-    pub fn init(gpa: Allocator, bound: *bind.Mission, random: *libcmt.Rand) Machine {
+    pub fn init(gpa: Allocator, bound: *bind.Mission, random: *Random) Machine {
         return .{ .gpa = gpa, .mission = bound, .random = random };
     }
 
@@ -1222,7 +1222,7 @@ pub const testing = struct {
 
     pub const Fixture = struct {
         mission: bind.Mission,
-        random: libcmt.Rand = .{},
+        random: Random = .{},
         machine: Machine,
 
         /// A mission whose script holds `parts` one after another, each a part of its own, with
@@ -1684,7 +1684,7 @@ test "random_branch takes the first arm its roll falls below" {
     var fixture: testing.Fixture = undefined;
     try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{0} });
     defer fixture.deinit();
-    var expected: libcmt.Rand = .{};
+    var expected: Random = .{};
     const roll = @rem(expected.rand(), Machine.roll_range);
     try fixture.machine.start();
     // The roll picked an arm, whose value lies under the stores.

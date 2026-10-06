@@ -50,6 +50,19 @@ Ported so far: the clocks, pacing, keyboard, joystick and mouse inputs (polled 2
 
 Not yet: the countdown that `game_tick` steps once a second, and sound streaming that shares `tick_timer`.
 
+## Random numbers
+
+The game draws its random numbers from the C runtime's `rand` (`0x004CF555`), a linear
+congruential generator that steps its seed as `seed * 0x343FD + 0x269EC3` and gives bits 16 to 30,
+from 0 to 32767. Its code takes a number as it is, as `rand() % n`, or over 32767 as a share from 0
+to 1. Each object also has random numbers of its own (`object_random15`, `0x004ADCE0`), which step
+the object's seed the same way ([Objects](objects.md)).
+
+**Improvement:** OpenReliant draws the game's numbers from Zig's `std.Random`
+([`random.zig`](../../src/engine/random.zig)), in `rand`'s range, so the game's code takes them
+as it takes `rand`'s. The sequences differ from the original's. An object's own numbers keep the
+game's step, which is part of the object's record.
+
 ## Collisions
 
 After moving objects, `objects_update` gathers colliding candidates: slot index, collision radius (`0x59C`) times `visibility` (`0x12C`), and bounding sphere reach along X. It sorts the list by that reach (farthest first) and checks each object against subsequent ones whose spheres reach back to it. Pairs where either object lists the other in `passes_through` (`0x618`) or whose spheres do not overlap are skipped; remaining pairs route to `objects_collide` (`0x00466170`). Up to 10 collision passes run; on the tenth, the game displays "collision" on screen.

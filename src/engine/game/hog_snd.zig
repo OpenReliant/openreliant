@@ -352,7 +352,7 @@ pub const Scene = struct {
     view: camera.View,
     clock: *const Clock,
     /// The runtime's numbers, which pitch the explosions.
-    random: *@import("../libcmt.zig").Rand,
+    random: *@import("../random.zig").Random,
 };
 
 /// What the game's code reaches the sound through: the sound, the camera it is heard from,
@@ -539,7 +539,7 @@ pub const Sound = struct {
         const rate = if (wave.Wave.parse(file)) |info| info.rate else |_| 0;
         if (pitch != 0) {
             const moved = @as(f32, @floatFromInt(rate)) * pitchFactor(pitch);
-            driver.setSamplePlaybackRate(voice.sample, @intCast(math.ftol(moved)));
+            driver.setSamplePlaybackRate(voice.sample, @intCast(std.math.lossyCast(i32, moved)));
         }
         driver.setSampleVolume(voice.sample, sound.volumes.mastered(sound.volumes.effects, volume, start_divisor));
         driver.setSampleLoopCount(voice.sample, loops);
