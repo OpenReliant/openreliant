@@ -1620,7 +1620,7 @@ test objectAlloc {
     try std.testing.expectEqual(math.identity, object.rotation);
     try std.testing.expect(object.root.flags.component);
     try std.testing.expectEqual(1, object.visibility);
-    // Its lights stand into their blinks by the offset the next number gives.
+    // Its blink offset comes from the next random number.
     var same: Random = .{};
     try std.testing.expectEqual(blinkOffset(&same), object.blink_offset);
     try std.testing.expect(!object.created);
@@ -1711,8 +1711,8 @@ pub const World = struct {
     touchdown: @import("ailand.zig").Touchdown = .level,
     view: camera.View,
     shake: *f32,
-    /// The runtime's numbers (`Random`), which the guns' step draws a damaged gun's misfire
-    /// from.
+    /// The game's random numbers (`Random`), from which the guns' step draws a damaged gun's
+    /// misfire.
     random: *Random,
     /// The sound the objects are heard through, and where from; null where nothing is heard.
     hearing: ?@import("hog_snd.zig").Hearing = null,
@@ -2408,9 +2408,8 @@ test blinkOffset {
         const offset = blinkOffset(&random);
         try std.testing.expect(offset >= 0 and offset <= 100);
     }
-    // The largest number `rand` gives makes 100: its share of the way rounds up to 1 in single
-    // precision.
-    try std.testing.expectEqual(1, @as(f32, Random.max) * (1.0 / @as(f32, Random.max)));
+    // The largest number makes 100: its share rounds up to 1 in single precision.
+    try std.testing.expectEqual(1, Random.share(Random.max));
 }
 
 test rechargeShields {

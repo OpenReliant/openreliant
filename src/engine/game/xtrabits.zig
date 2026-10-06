@@ -138,13 +138,15 @@ test sceneAdd {
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
 }
 
-/// How `object_random15` steps an object's seed: times `seed_multiplier`, plus `seed_increment`,
-/// the step of the C runtime's `rand` (`0x004ADCE0`).
+/// What `object_random15` (`0x004ADCE0`) multiplies an object's seed by, the same step as the C
+/// runtime's `rand` (`0x004CF555`).
 const seed_multiplier: u32 = 214013;
+
+/// What `object_random15` (`0x004ADCE0`) then adds to the seed, as `rand` (`0x004CF555`) does.
 const seed_increment: u32 = 2531011;
 
 /// `object_random15` (`0x004ADCE0`): the object's own random number from 0 to 32767, bits 16 to
-/// 30 of its seed (`GameObject.random_seed`) stepped on once. **Unverified:** it lies after this
+/// 30 of its seed (`GameObject.random_seed`) after one step. **Unverified:** it lies after this
 /// file's known code, before `deathmatch.cpp`'s.
 pub fn objectRandom15(object: *GameObject) u15 {
     var seed: std.Random.lcg.Wrapping(u32) = .init(object.random_seed, seed_multiplier, seed_increment);
@@ -153,10 +155,10 @@ pub fn objectRandom15(object: *GameObject) u15 {
 }
 
 /// `object_random` (`0x004ADD10`): the object's own random number from 0 to 1, which is
-/// `objectRandom15` times the reciprocal of the largest it gives (`0x004DC710`).
+/// `objectRandom15` times the reciprocal of the largest it gives (`0x004DC710`, `Random.share`).
 /// **Unverified:** it lies after this file's known code, before `deathmatch.cpp`'s.
 pub fn objectRandom(object: *GameObject) f32 {
-    return @as(f32, @floatFromInt(objectRandom15(object))) * (1.0 / @as(f32, std.math.maxInt(u15)));
+    return Random.share(objectRandom15(object));
 }
 
 /// `ship_type_first_levels` (`0x004AE190`): a ship type's model, loaded where none of its objects

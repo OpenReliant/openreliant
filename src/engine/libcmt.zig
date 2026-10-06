@@ -1,8 +1,9 @@
 //! The C runtime linked into the payload: the static multithreaded library of Visual C++ 6.0,
 //! LIBCMT. `ghidra/names/LANCER.EXE.runtime.tsv` names its functions and data; the structures
 //! here are those of it that the game's own code handles, for naming the payload's memory in
-//! Ghidra. OpenReliant runs none of it and uses Zig's standard library instead, for example for
-//! the random numbers (`random.zig`).
+//! Ghidra. OpenReliant runs none of it except `__ftol`, which mission scripts still use
+//! (`surrender/math.zig`). Elsewhere it uses Zig's standard library, for example for the random
+//! numbers (`random.zig`).
 
 const std = @import("std");
 const assert = std.debug.assert;

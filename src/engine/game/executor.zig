@@ -33,6 +33,34 @@ pub const commands = @import("executor/commands.zig");
 pub const curves = @import("executor/curves.zig");
 pub const director = @import("executor/director.zig");
 
+/// What a parameter accepts: a mask of the kinds of value it takes. The bit names are read off
+/// the labels of the parameters that set them, in the command catalogue (`commands`).
+pub const Kinds = packed struct(u32) {
+    _unknown_0: u7 = 0,
+    /// `0x80`: a count, an ID, a number of seconds.
+    number: bool = false,
+    /// `0x100`: the name of a speech or movie file.
+    file_name: bool = false,
+    /// `0x200`: text, or an animation name.
+    text: bool = false,
+    /// `0x400`: a ship.
+    ship: bool = false,
+    /// `0x800`: a flight group, or a patrol route.
+    flight_group: bool = false,
+    _unknown_12: u2 = 0,
+    /// `0x4000`: a function, meaning a part.
+    part: bool = false,
+    _unknown_15: u4 = 0,
+    /// `0x80000`: a named constant: a pilot, an AI mode, a text ID.
+    constant: bool = false,
+    _unknown_20: bool = false,
+    /// `0x200000`: a trigger condition.
+    condition: bool = false,
+    /// `0x400000`: a camera or flight curve.
+    curve: bool = false,
+    _unknown_23: u9 = 0,
+};
+
 const Call = vm.machine.Call;
 const Ship = vm.Machine.Ship;
 const run_on = vm.run_on;

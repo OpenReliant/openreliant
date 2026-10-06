@@ -239,8 +239,8 @@ pub fn build(b: *std.Build) void {
     runStep(b, "run", "Run sltool", sltool);
 
     // Every module's tests, and `zig build check`, which compiles the programs and the tests
-    // without writing any binary: `zig build check -fincremental --watch` reports compile errors
-    // within moments of a save.
+    // without linking them (the C libraries, translate-c and mission0 build once first):
+    // `zig build check -fincremental --watch` reports compile errors within moments of a save.
     const test_step = b.step("test", "Run tests");
     const check_step = b.step("check", "Check that the programs and the tests compile, without writing binaries");
     for ([_]*std.Build.Module{ lib, platform, scripting, version, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module }) |module| {

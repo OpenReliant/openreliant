@@ -198,8 +198,9 @@ const Colour = @Vector(3, f32);
 /// A tint's ramp (`0x0058CB6C` for a friendly ship's, `0x00590728` for the others'): a colour for
 /// each strength from nothing up to one.
 ///
-/// **Improvement:** OpenReliant works each colour out at its strength (`rampColour`), where the
-/// game fills a table of 1024 steps once (`0x0049EE40`) and reads the step a strength falls in.
+/// **Improvement:** OpenReliant computes each colour from the strength (`rampColour`), where the
+/// game fills a table of 1024 steps once (`shield_ramps_build`, `0x0049EE40`) and looks up the step
+/// a strength falls in.
 const Ramp = struct {
     tint: Tint,
     hardware: bool,
@@ -396,8 +397,8 @@ pub const Shields = struct {
         ahead: f32 = 0,
         /// While the game is paused (`0x0057E04C`), the bubbles' colours stand still.
         paused: bool = false,
-        /// The runtime's numbers (`Random`), which a force field flickers by; without them it
-        /// stays dark.
+        /// The game's random numbers (`Random`), which make a force field flicker; without them
+        /// it stays dark.
         random: ?*Random,
     };
 
@@ -1015,8 +1016,8 @@ pub const CapitalShield = struct {
         for (uv) |*coordinates| coordinates.* = swirledAbout(coordinates.*, capital_centre, ticks * capital_swirl_per_tick);
     }
 
-    /// A force field's texture coordinates each thrown anywhere at random, where there are the
-    /// runtime's numbers to throw them by, and its green turned blue.
+    /// Moves each of a force field's texture coordinates to a random place, where it has the
+    /// game's random numbers, and turns its green blue.
     fn flicker(shown: *CapitalShield, random: ?*Random) void {
         if (random) |numbers| if (shown.mesh.uv[0]) |uv| for (uv) |*coordinates| {
             const u = numbers.fraction();

@@ -13,7 +13,7 @@ pub fn enumValue(w: *Io.Writer, value: anytype) Io.Writer.Error!void {
 }
 
 /// `value`, a packed struct of flags, as Zig: a literal naming the fields it sets, such as
-/// `.{ .ship = true, ._unknown_12 = 0x2 }`, or `.{}` where none is set. Every field needs a default
+/// `.{ .ship = true, ._unknown_12 = 2 }`, or `.{}` where none is set. Every field needs a default
 /// of zero, so that the literal can leave the others out.
 pub fn flags(value: anytype) Flags(@TypeOf(value)) {
     return .{ .value = value };
@@ -46,7 +46,7 @@ pub fn Flags(comptime T: type) type {
                     try w.writeAll(name);
                     switch (@typeInfo(Field)) {
                         .bool => try w.writeAll(" = true"),
-                        .int => try w.print(" = 0x{X}", .{field}),
+                        .int => try w.print(" = {d}", .{field}),
                         else => unreachable,
                     }
                     any = true;
@@ -82,7 +82,7 @@ test flags {
     var buffer: [64]u8 = undefined;
     var w: Io.Writer = .fixed(&buffer);
     try w.print("{f}; {f}", .{ flags(Seen{}), flags(Seen{ .far = true, ._unknown_2 = 0x21 }) });
-    try std.testing.expectEqualStrings(".{}; .{ .far = true, ._unknown_2 = 0x21 }", w.buffered());
+    try std.testing.expectEqualStrings(".{}; .{ .far = true, ._unknown_2 = 33 }", w.buffered());
 }
 
 test identifier {

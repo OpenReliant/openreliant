@@ -2,8 +2,9 @@
 //! tree, `C:\lancer`, where a structure's file is known, and are named for their contents where it
 //! is not. [`engine/sources.zig`](engine/sources.zig) places the code in its files;
 //! [`engine/libcmt.zig`](engine/libcmt.zig) describes the C runtime, and
-//! [`engine/random.zig`](engine/random.zig) gives the random numbers the game draws from it.
-//! `surrender/srd3d` is the Direct3D driver, built from the same tree as a DLL of its own.
+//! [`engine/random.zig`](engine/random.zig) gives the game its random numbers in place of the C
+//! runtime's `rand`. `surrender/srd3d` is the Direct3D driver, built from the same tree as a DLL of
+//! its own.
 //!
 //! The engine uses mission records in place, pointing each section at the file's bytes, so those
 //! are the structures in `formats/dte.zig`. The ones here are those it builds itself. They describe

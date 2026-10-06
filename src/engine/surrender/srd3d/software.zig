@@ -223,7 +223,7 @@ pub const Software = struct {
 /// The pixels whose centres, at whole numbers, can lie between `low` and `high`, in sixteenths of a
 /// pixel, cut to `size`; null when none can.
 fn pixelRange(low: i64, high: i64, size: u32) ?[2]u32 {
-    const first = std.math.lossyCast(u32, @divFloor(low + subpixel - 1, subpixel));
+    const first = std.math.lossyCast(u32, @divCeil(low, subpixel));
     const last = std.math.lossyCast(u32, @min(@divFloor(high, subpixel) + 1, size));
     if (first >= last) return null;
     return .{ first, last };

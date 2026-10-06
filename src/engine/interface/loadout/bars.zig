@@ -299,7 +299,7 @@ pub const MissileBars = extern struct {
 
     /// The figures in the order the rows show them.
     pub fn figures(bars: MissileBars) tables.MissileFigures {
-        return @as(*const tables.MissileFigures, @ptrCast(&bars)).*;
+        return .{ bars.lock_seconds, bars.speed, bars.range, bars.damage };
     }
 };
 

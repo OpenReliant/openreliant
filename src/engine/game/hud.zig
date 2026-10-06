@@ -1953,8 +1953,8 @@ pub const Frame = struct {
     last_view: camera.View,
     mode: camera.CockpitMode,
     strings: *const language.Language,
-    /// The camera's shake, which shakes the power ball too, and the C runtime's `rand`, which the
-    /// ball draws from.
+    /// The camera's shake, which shakes the power ball too, and the game's random numbers
+    /// (`Random`), which the ball draws from.
     hit_shake: f32,
     random: *Random,
     /// What the mission has ready for JUMP DRIVE.
@@ -3992,8 +3992,8 @@ pub const ShipStatus = struct {
 
     /// How much of an arc is drawn: the quadrant's value over the ship's shield power, for a
     /// shield, or its armour class, for the armour, cut down to a whole number, less one, in the
-    /// game's 32-bit arithmetic. An arc of 0 or less is not drawn. A ship with none of either has no arcs of it; the game divides by nothing
-    /// regardless.
+    /// game's 32-bit arithmetic. An arc of 0 or less is not drawn. A ship with neither has no arcs
+    /// of that kind; the game divides by zero anyway.
     pub fn level(value: f32, per_arc: i32) i32 {
         if (per_arc == 0) return 0;
         const share = value / @as(f32, @floatFromInt(per_arc));

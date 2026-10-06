@@ -48,8 +48,8 @@ pub const table = [_]Condition{
         .subjects = .{ .ship = true, .flight_group = true, .squad = true, ._unused = 0 },
         .values = &.{
             .{ .label = "Attacker", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
-            .{ .label = "Shield Damage", .kinds = .{ ._unknown_12 = 0x1 }, .extra = 0xFF, .checked = false },
-            .{ .label = "Hull Damage", .kinds = .{ ._unknown_12 = 0x1 }, .extra = 0xFF, .checked = false },
+            .{ .label = "Shield Damage", .kinds = .{ ._unknown_12 = 1 }, .extra = 0xFF, .checked = false },
+            .{ .label = "Hull Damage", .kinds = .{ ._unknown_12 = 1 }, .extra = 0xFF, .checked = false },
             .{ .label = "Victim", .kinds = .{ .ship = true }, .extra = 0xFF, .checked = true },
             .{ .label = "Weapon Fired", .kinds = .{ .constant = true }, .extra = 0x09, .checked = true },
         },

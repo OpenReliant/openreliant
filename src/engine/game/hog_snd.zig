@@ -351,7 +351,7 @@ pub const Scene = struct {
     camera: camera.Place,
     view: camera.View,
     clock: *const Clock,
-    /// The runtime's numbers, which pitch the explosions.
+    /// The game's random numbers (`Random`), which pitch the explosions.
     random: *@import("../random.zig").Random,
 };
 

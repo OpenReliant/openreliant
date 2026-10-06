@@ -658,9 +658,9 @@ fn flash(world: gameobj.World, slot: *create.Slot, dt: f32) void {
     }
 }
 
-/// The view the player's arrival is watched from, by `share`, the C runtime's `rand` over the most
-/// it gives (`Random.fraction`): twice it, rounded (`sr_round`), picks one of three, the
-/// middle one half the time.
+/// The view the player's arrival is watched from, by `share`, a random number divided by the
+/// largest (`Random.fraction`; the game uses the C runtime's `rand`, `0x004CF555`): twice it,
+/// rounded (`sr_round`), picks one of three, the middle one half the time.
 fn arrivalView(share: f32) camera.View {
     return switch (math.round(share + share)) {
         0 => .jump_in_close,

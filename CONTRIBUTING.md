@@ -9,7 +9,8 @@ and `CLAUDE.md` point agents here.
 
 - Install [Zig 0.17](https://ziglang.org). `zig build` builds everything, `zig build sltool`
   builds `sltool` alone, and `zig build test` runs the tests. `zig build check -fincremental
-  --watch` compiles everything without writing binaries and reports errors moments after a save.
+  --watch` compiles everything without linking the programs and reports errors moments after a
+  save; its first run builds the C libraries.
 - Run `make hooks` once. It installs a pre-commit hook that keeps the game's files out of the
   repository.
 - `make help` lists every workflow, and `make doctor` reports which parts of the environment are
@@ -91,7 +92,8 @@ OpenReliant is faithful by default, and every difference is marked where it is m
 - An **Improvement** is a deliberate change, such as widescreen, per-pixel lighting or a smoother
   effect. Where it changes what the player sees or hears, `--original` brings back the original's
   behaviour. One that doesn't, such as exact maths, Zig's random numbers, a faster way to do the
-  same work or something OpenReliant adds, is marked all the same but has no switch.
+  same work, a raised limit that keeps mods' content from vanishing, or something OpenReliant
+  adds, is still marked but has no switch.
 - A **Fix** corrects a clear bug of the original, such as reading the wrong variable. A fix needs
   no switch: it stays in under `--original`, which brings back the original's look and sound, not
   its bugs.

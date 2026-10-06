@@ -13,6 +13,7 @@ const Record = openreliant.engine.game.ai.Record;
 
 const image = @import("image.zig");
 const testing = @import("testing.zig");
+const zig_text = @import("zig_text.zig");
 
 /// `order_groups`, which `object_orders` (`0x0040C5F0`) and the others index.
 pub const order_groups: u32 = 0x004E06E0;
@@ -102,29 +103,6 @@ fn identifierOf(arena: std.mem.Allocator, name: []const u8) std.mem.Allocator.Er
     return out.toOwnedSlice(arena);
 }
 
-/// Writes a word of `Record.Flags` as a literal of the fields it sets, each by name, `.{}` for
-/// none.
-fn writeFlags(w: *Io.Writer, word: u32) Io.Writer.Error!void {
-    const flags: Record.Flags = @bitCast(word);
-    var any = false;
-    try w.writeAll(".{");
-    const info = @typeInfo(Record.Flags).@"struct";
-    inline for (info.field_names, info.field_types) |name, Field| {
-        const value = @field(flags, name);
-        const set = if (Field == bool) value else value != 0;
-        if (set) {
-            try w.writeAll(if (any) ", ." else " .");
-            any = true;
-            if (Field == bool) {
-                try w.print("{s} = true", .{name});
-            } else {
-                try w.print("{s} = {d}", .{ name, value });
-            }
-        }
-    }
-    try w.writeAll(if (any) " }" else "}");
-}
-
 /// Writes `orders.zig`.
 pub fn emit(w: *Io.Writer, table: Table, names: []const []const u8) Io.Writer.Error!void {
     try w.print(
@@ -193,9 +171,7 @@ pub fn emit(w: *Io.Writer, table: Table, names: []const []const u8) Io.Writer.Er
         \\
     );
     for (table.orders, names) |order, name| {
-        try w.print("    .{{ .order = .{f}, .name = \"{f}\", .flags = ", .{ std.zig.fmtId(name), std.zig.fmtString(order.name) });
-        try writeFlags(w, order.flags);
-        try w.print(", .priority = {d}", .{order.priority});
+        try w.print("    .{{ .order = .{f}, .name = \"{f}\", .flags = {f}, .priority = {d}", .{ std.zig.fmtId(name), std.zig.fmtString(order.name), zig_text.flags(@as(Record.Flags, @bitCast(order.flags))), order.priority });
         inline for (.{ "init", "update", "exit" }) |field| {
             const address = @field(order, field);
             if (address == 0) {
@@ -316,17 +292,12 @@ test "groups must tile the table" {
     try std.testing.expectError(error.BadGroups, payload.table(arena.allocator()));
 }
 
-test writeFlags {
+test "an order's flags are written by name" {
     var out: Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
-    // None, and the named and the unknown bits of Fly's word.
-    try writeFlags(&out.writer, 0);
-    try std.testing.expectEqualStrings(".{}", out.written());
-    out.clearRetainingCapacity();
-    try writeFlags(&out.writer, 0x4C2);
+    // The named and the unknown bits of Fly's word.
+    try out.writer.print("{f}", .{zig_text.flags(@as(Record.Flags, @bitCast(@as(u32, 0x4C2))))});
     try std.testing.expectEqualStrings(".{ ._unknown_1 = 1, .retaliate = true, .avoidance = true, .send_flight = true }", out.written());
-    const read_back: Record.Flags = .{ ._unknown_1 = 1, .retaliate = true, .avoidance = true, .send_flight = true };
-    try std.testing.expectEqual(0x4C2, @as(u32, @bitCast(read_back)));
 }
 
 test identifiers {

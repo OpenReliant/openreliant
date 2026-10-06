@@ -76,7 +76,7 @@ pub const Cutaway = enum(i32) {
     /// How many cutaways `pick` picks among (`0x0041B2CB`).
     const cutaways = 3;
 
-    /// One of the three, picked from the runtime's numbers as the player's launch starts
+    /// One of the three, picked from the game's random numbers as the player's launch starts
     /// (`0x0041B2C5` to `0x0041B2D6`): the remainder of `random`'s next over `cutaways`, counted
     /// from the first, the bay's.
     pub fn pick(random: *Random) Cutaway {
@@ -259,7 +259,7 @@ fn showHangar(ctx: aigeneric.Context, index: u16, gate: i16, in_tube: math.Vecto
 /// Reliant, one step (`Step`) each time the last step's wait has passed:
 ///
 /// 1. `start`: for the player's ship, the engine starts sounding with a shake, one of the three
-///    cutaways is picked from the runtime's numbers (`Cutaway.pick`), the bay's view taking the
+///    cutaways is picked from the game's random numbers (`Cutaway.pick`), the bay's view taking the
 ///    camera at once, and the tube's upper door shows, playing its opening backwards.
 /// 2. `lower`: the hangar's retainer lowers the player's ship, its clamps heard.
 /// 3. `release`: the retainer rises again, and the ship rides its node no more.

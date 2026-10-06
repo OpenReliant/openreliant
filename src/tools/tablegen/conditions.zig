@@ -14,7 +14,7 @@ const KindSet = openreliant.dte.Object.KindSet;
 const vm = openreliant.engine.vm;
 const Descriptor = vm.ConditionDescriptor;
 const EventValue = vm.EventValue;
-const Kinds = openreliant.engine.game.executor.commands.Kinds;
+const Kinds = openreliant.engine.game.executor.Kinds;
 
 const image = @import("image.zig");
 const testing = @import("testing.zig");

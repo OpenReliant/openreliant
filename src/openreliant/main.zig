@@ -2116,7 +2116,7 @@ const Display = struct {
     view: *const camera.Camera,
     /// The radio, whose window shows the speaker's face.
     radio: *game.videoreports.Radio,
-    /// The C runtime's `rand`, which the camera and the display both draw from.
+    /// The game's random numbers (`Random`), which the camera and the display both draw from.
     random: *engine.random.Random,
     /// The display's own state, `hud.cpp`'s globals.
     state: game.hud.State = .{},

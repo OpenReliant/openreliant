@@ -339,7 +339,8 @@ pub const World = struct {
     /// The cockpit's model and what moves it, for view 0 outside the chase mode; null for an
     /// object with no cockpit.
     cockpit: ?Cockpit.Input = null,
-    /// The runtime's `rand`, which the cockpit's jitter and the shake from hits draw on.
+    /// The game's random numbers (`Random`), which the cockpit's jitter and the shake from hits
+    /// draw on.
     random: ?*Random = null,
     /// Whether the player's ship has begun to drop out of its carrier's bay, which the bay view
     /// tilts down after (`launch.dropping`).

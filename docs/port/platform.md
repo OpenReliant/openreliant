@@ -38,7 +38,7 @@ The font OpenReliant carries, Newtown, lies in [`deps/newtown`](../../deps/newto
 make play                                      # optimized, for the host, on game/install
 zig build --release=fast                       # zig-out/bin/openreliant
 zig build --release=fast -Dstrip               # without debug information, as released
-zig build check                                # compile everything, write no binary
+zig build check                                # compile, link no program (the C libraries build once)
 zig build -Dtarget=x86_64-windows              # openreliant.exe
 zig build -Dtarget=x86_64-linux-gnu
 zig build -Dtarget=aarch64-macos               # Apple silicon, from any Zig

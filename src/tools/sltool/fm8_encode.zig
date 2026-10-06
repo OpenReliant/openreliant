@@ -140,8 +140,8 @@ fn medianCut(arena: Allocator, colours: []Weighted, most: usize) Allocator.Error
         const split = widest orelse break;
         const box = boxes.items[split];
         const Sort = struct {
-            /// By the channel, and colours alike in it by the whole colour, so that the palette
-            /// doesn't depend on how the sort orders ties.
+            /// Orders by the channel, and colours with the same value in that channel by the whole
+            /// colour, so the palette doesn't depend on how the sort orders ties.
             fn less(channel: usize, a: Weighted, b: Weighted) bool {
                 if (a.colour[channel] != b.colour[channel]) return a.colour[channel] < b.colour[channel];
                 return std.mem.order(u8, &a.colour, &b.colour) == .lt;

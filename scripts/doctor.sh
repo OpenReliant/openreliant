@@ -17,7 +17,7 @@ native() { [[ -x "$ghidra_home/Ghidra/Features/Decompiler/build/os/$platform/dec
 
 echo "toolchain"
 check "zig ($("$zig" version 2>/dev/null || echo '?'))"   "$zig" version
-check "zig is $zig_version, as build.zig.zon asks"         test "$("$zig" version 2>/dev/null)" = "$zig_version"
+check "zig is ${zig_version%.*}.x, as build.zig.zon asks"   bash -c '[[ "$1" == "$2".* ]]' _ "$("$zig" version 2>/dev/null)" "${zig_version%.*}"
 check "uv (ghydra CLI + MCP bridge)"                       command -v uv
 check "JDK at tools/jdk"                                   "$jdk_home/bin/java" -version
 check "Ghidra at ${ghidra_home#"$root"/}"                  test -x "$ghidra_home/ghidraRun"

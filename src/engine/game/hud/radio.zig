@@ -43,8 +43,8 @@ pub const Shown = struct {
     radio: *videoreports.Radio,
     /// What the line is heard through; none where nothing is heard.
     sound: ?*hog_snd.Sound,
-    /// The camera's shake, which shakes the film a row at a time, and the C runtime's `rand`, which
-    /// it draws from.
+    /// The camera's shake, which shakes the film a row at a time, and the game's random numbers
+    /// (`Random`), which it draws from.
     hit_shake: f32,
     random: *Random,
 };

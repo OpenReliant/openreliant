@@ -1853,9 +1853,9 @@ fn givePilots(all: *create.Objects, number: u16) void {
     }
 }
 
-/// The seed of the mods' scripts' random numbers for mission `number`: where the game's own random
-/// numbers stand (`Random.fingerprint`), which the scripts don't draw from, combined with the
-/// mission's number.
+/// The seed of the mods' scripts' random numbers for mission `number`: a number made from the state
+/// of the game's random number generator (`Random.fingerprint`, which reads the state without
+/// drawing a number), combined with the mission's number.
 ///
 /// Not ported: `mission_start` seeds the game's own numbers with the time (`0x004936AE`)
 /// ([#582](https://github.com/OpenReliant/openreliant/issues/582)).
