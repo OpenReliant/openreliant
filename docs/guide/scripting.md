@@ -90,6 +90,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | [`rules`](../../examples/mods/rules) | [Hooks](#hooks) on the game's functions |
 | [`strafe-run`](../../examples/mods/strafe-run) | A custom order, a [HUD display](#hud-displays), a [camera view](#camera-views), a [screen](#screens) and [actions](#keys-and-actions), through the [built-in interfaces](#built-in-interfaces) |
 | [`tally`](../../examples/mods/tally) | [Saved games](#saved-games), [storage](#storage) and [timers](#timers) |
+| [`trent`](../../examples/mods/trent) | The game's text in [the records](#the-records), changed from a load script, beside face films that replace the game's |
 | [`teapot`](../../examples/mods/teapot) | A mod's ship type with its own model, and the [`radio_say`](#changing-what-the-radio-says) hook |
 | [`wingmen`](../../examples/mods/wingmen) | [Object scripts](#object-scripts), [events](#events), [interfaces](#interfaces), `nearby` and an [options](#options) page |
 

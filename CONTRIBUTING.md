@@ -342,11 +342,12 @@ The repository holds the engine and its tools. The game's files, and everything 
 derived from them, live in the git-ignored `game/` directory. The pre-commit hook, `make
 check-files` and CI keep it that way.
 
-The example mods can hold pictures, sounds and models of their own, PNG, WAV, OBJ and SHP files
-directly in a mod's folder, such as the bananas example's shot and the teapot. Only original work
-goes there, made for the example and under a licence compatible with the MPL 2.0: never the game's
-art, sounds or models, or anything made from them. Build a model with `sltool shp from-obj` from an
-OBJ file kept beside it, so that nothing of the game's goes into it.
+The example mods can hold pictures, sounds, models and face films of their own, PNG, WAV, OBJ, SHP
+and FM8 files directly in a mod's folder, such as the bananas example's shot, the teapot and the
+trent example's faces. Only original work goes there, made for the example and under a licence
+compatible with the MPL 2.0: never the game's art, sounds or models, or anything made from them.
+Build a model with `sltool shp from-obj` from an OBJ file kept beside it, and a face film with
+`sltool fm8 encode` from its frames kept beside it, so that nothing of the game's goes into them.
 
 ## Commits and pull requests
 
