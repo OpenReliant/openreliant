@@ -871,8 +871,8 @@ return {
   since the last.
 - For a player script, `require("openreliant.self")` gives the player's ship (nil between games),
   and `openreliant.nearby` the objects around it.
-- Menu scripts don't run yet while the briefing, the loadout, the ITAC and the other rooms are
-  shown ([#589](https://github.com/OpenReliant/openreliant/issues/589)).
+- Player and menu scripts run, and draw with `ui` over the screen, in the briefing, the loadout,
+  the ITAC and the other rooms, over the movies and over the loading screens too.
 
 [`examples/mods/dvd`](../../examples/mods/dvd) draws over the menus, and
 [`examples/mods/wingmen`](../../examples/mods/wingmen) over the flight display.

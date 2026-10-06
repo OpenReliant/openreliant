@@ -16,6 +16,7 @@ const movie = game.xtrabits.movie;
 const landing = game.xtrabits.landing;
 const Pacing = @import("options.zig").Pacing;
 const Presenter = @import("presenter.zig").Presenter;
+const ScriptFrames = @import("script_frames.zig").ScriptFrames;
 
 pub const Movies = struct {
     gpa: Allocator,
@@ -45,6 +46,9 @@ pub const Movies = struct {
     /// original's does (`hog_snd.Sound.runTimer`), so a music fade continues over a movie; null
     /// until the game has its clock.
     timer: ?Timer = null,
+    /// The player and menu scripts, which hear the keys the movies' and the rooms' loops read, and
+    /// draw over their screens; null without them.
+    scripts: ?*ScriptFrames = null,
 
     pub const Timer = struct { clock: *game.main.Clock, sound: *hog_snd.Sound };
 
@@ -74,7 +78,10 @@ pub const Movies = struct {
         _ = devices.mouse.notches();
         while (movies.presenter.window.poll()) |event| switch (event) {
             .quit => return null,
-            .key => |key| devices.keyboard.down[@intFromEnum(key.scan)] = key.down,
+            .key => |key| {
+                devices.keyboard.down[@intFromEnum(key.scan)] = key.down;
+                if (movies.scripts) |scripts| scripts.key(key.scan, key.down);
+            },
             .pointer => |pointer| devices.mouse.at = pointer.at,
             .button => |button| switch (button.which) {
                 .left => devices.mouse.buttons.left = button.down,
@@ -109,6 +116,7 @@ pub const Movies = struct {
             };
             if (end) |how| return how;
             const pixels = try movies.presenter.size();
+            if (movies.scripts) |scripts| scripts.screenFrame(pixels);
             var shown: Shown = .{ .movies = movies, .player = player, .window = pixels };
             try movies.presenter.present(pixels, shown.overlay());
             movies.pace();
@@ -120,7 +128,7 @@ pub const Movies = struct {
         if (movies.pacing.rate(movies.presenter.window.*)) |rate| movies.pacer.wait(rate);
     }
 
-    /// A frame's overlay: the movie's frame, over the cleared frame.
+    /// A frame's overlay: the movie's frame, over the cleared frame, and what the scripts drew.
     const Shown = struct {
         movies: *Movies,
         player: *movie.Player,
@@ -132,7 +140,9 @@ pub const Movies = struct {
 
         fn draw(context: *anyopaque) Allocator.Error!void {
             const shown: *Shown = @ptrCast(@alignCast(context));
-            shown.player.draw(shown.movies.presenter.screen.interface(), shown.window, shown.movies.size);
+            const target = shown.movies.presenter.screen.interface();
+            shown.player.draw(target, shown.window, shown.movies.size);
+            if (shown.movies.scripts) |scripts| try scripts.drawUi(target);
         }
     };
 
