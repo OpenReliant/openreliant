@@ -184,9 +184,12 @@ pub const Mode = struct {
     /// The file of its records script, as its mod has it, if it has one.
     records: ?[]const u8 = null,
 
-    /// Its name without the mod's.
+    /// Its name without the mod's: what follows the last colon, since the mod's part is its
+    /// qualifier (`Mod.qualifier`), which leaves out a packed mod's `.hog`, and its own part has no
+    /// colon.
     fn own(mode: Mode) []const u8 {
-        return mode.name[mode.mod.len + 1 ..];
+        const colon = std.mem.findScalarLast(u8, mode.name, ':') orelse return mode.name;
+        return mode.name[colon + 1 ..];
     }
 };
 
@@ -539,6 +542,12 @@ test Registry {
     try storage.put("a", progress_section, .global, "tour", .{ .number = 7 });
     registry.start(2);
     try std.testing.expectEqual(40, registry.mission().?.file);
+    // A packed mod's campaign keeps its progress under the mode's own name too, though the mod's
+    // name, `b.hog`, is longer than its qualifier.
+    try registry.adopt("b.hog", "B", "b:ace", .{}, .{ .name = "ace", .label = "ACE", .missions = missions, .campaign = true });
+    registry.start(3);
+    try std.testing.expectEqual(.mission, registry.goesOn(.playing, .success));
+    try std.testing.expectEqual(1, storage.read("b.hog", progress_section, .global, "ace").?.number);
 }
 
 test ModeRecords {
