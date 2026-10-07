@@ -77,4 +77,4 @@ The room's screen plays `%s.bik` of a table the briefing builds on its stack, in
 
 ## The campaign's end
 
-As mission 28 is won, the campaign moves on to mission 29, and `WinMain` runs the briefing itself for it (`0x004AA027`, `0x004AA6F2`), before the story's end (`ending_movies_play`; [#416](https://github.com/OpenReliant/openreliant/issues/416)). Mission 29's briefing loads no loadout. In place of the movie, Enriquez speaks `enddebriefing.ut`, from `speech_hog`, over the Yamato's briefing room, until Escape, the right button or the end of her speech, and no loadout or last word follows.
+As mission 28 is won, the campaign moves on to mission 29, and `WinMain` runs the briefing itself for it (`0x004AA027`, `0x004AA6F2`), before the story's end ([The story's end](movies.md#the-storys-end)). Mission 29's briefing loads no loadout. In place of the movie, Enriquez speaks `enddebriefing.ut`, from `speech_hog`, over the Yamato's briefing room, until Escape, the right button or the end of her speech, and no loadout or last word follows.

@@ -60,6 +60,7 @@ pub const TextureDetail = enum(u32) {
     }
 };
 
+pub const ending = @import("xtrabits/ending.zig");
 pub const landing = @import("xtrabits/landing.zig");
 pub const loading = @import("xtrabits/loading.zig");
 pub const movie = @import("xtrabits/movie.zig");
@@ -288,6 +289,7 @@ test TextureDetail {
 }
 
 test {
+    _ = ending;
     _ = landing;
     _ = loading;
     _ = movie;

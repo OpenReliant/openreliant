@@ -14,6 +14,7 @@ const game = engine.game;
 const hog_snd = game.hog_snd;
 const movie = game.xtrabits.movie;
 const landing = game.xtrabits.landing;
+const ending = game.xtrabits.ending;
 const Pacing = @import("options.zig").Pacing;
 const Presenter = @import("presenter.zig").Presenter;
 const ScriptFrames = @import("script_frames.zig").ScriptFrames;
@@ -178,11 +179,27 @@ pub const Movies = struct {
                 const news: ?Bank = .start(movies.gpa, resources, sound, landing.news_loop, landing.news_loop_volume, hog_snd.forever);
                 defer if (news) |started| started.stop(movies.gpa, sound);
                 _ = try movies.play(chapter.movie, .over_screen_from_disc) orelse return false;
-                for (chapter.reports.slice()) |report| {
-                    _ = try movies.play(landing.news_transition, .over_screen_from_disc) orelse return false;
-                    _ = try movies.play(report, .over_screen_from_disc) orelse return false;
-                }
+                return movies.newsReports(chapter.reports.slice());
             },
+        }
+        return true;
+    }
+
+    /// The story's end (`ending_movies_play`, `ending.movies`), from the first disc's archive.
+    /// False where the window was closed meanwhile.
+    pub fn storyEnd(movies: *Movies, played: ending.Movies) !bool {
+        movies.disc.open(ending.Movies.source);
+        _ = try movies.play(ending.Movies.first, .cleared_from_disc) orelse return false;
+        if (!try movies.newsReports(played.reports.slice())) return false;
+        return movies.newsReports(&.{ending.Movies.last});
+    }
+
+    /// News reports, over the screen from the disc's archive open, each after the news'
+    /// transition. False where the window was closed meanwhile.
+    fn newsReports(movies: *Movies, reports: []const []const u8) !bool {
+        for (reports) |report| {
+            _ = try movies.play(landing.news_transition, .over_screen_from_disc) orelse return false;
+            _ = try movies.play(report, .over_screen_from_disc) orelse return false;
         }
         return true;
     }

@@ -33,6 +33,7 @@ const rooms = interface.rooms;
 const saved_games = interface.saved_games;
 const settings = interface.settings;
 const save = game.gameflow.save;
+const ending = game.xtrabits.ending;
 const itac_module = game.itac;
 const simulator_pod = loadout.simulator_pod;
 const Movies = @import("movies.zig").Movies;
@@ -205,6 +206,38 @@ pub const Driver = struct {
             if (screen.state.frame(driver.pointer, &driver.movies.devices.keyboard, elapsed)) |choice| return choice;
             try driver.present(.{ .restart = &screen });
         }
+    }
+
+    /// The briefing of the story's end (`interface_briefing` for `gameflow.story_end`,
+    /// `0x004AA6F2`): Enriquez over the Yamato's briefing room. However it ends, the story's end
+    /// goes on after it. False where the game quits meanwhile.
+    pub fn endBriefing(driver: *Driver) !bool {
+        driver.turnTo(rooms.Carrier.of(game.gameflow.story_end).disc());
+        return try driver.brief(game.gameflow.story_end, false) != null;
+    }
+
+    /// The credits (`ending.Credits`) in their loop, to their music. As they end, the music fades
+    /// out, and they wait for it to stop on their last frame. False where the game quits
+    /// meanwhile.
+    pub fn credits(driver: *Driver) !bool {
+        const gpa = driver.movies.gpa;
+        var screen: Crediting = .{ .shapes = .read(gpa, driver.resources, ending.shapes_name) };
+        defer if (screen.shapes) |*shapes| shapes.deinit(gpa);
+        driver.startTimer();
+        driver.sound.playMusic(ending.music_name, 0, ending.music_level, .now);
+        defer driver.sound.closeMusic();
+        screen.state = .begin(driver.clock.game_ticks);
+        while (true) {
+            if (!try driver.pump()) return false;
+            if (!screen.state.frame(&driver.movies.devices.keyboard, driver.clock.game_ticks)) break;
+            try driver.present(.{ .credits = &screen });
+        }
+        driver.sound.fadeMusic(ending.music_fade_step, driver.clock.game_ticks);
+        while (driver.sound.musicPlaying()) {
+            if (!try driver.pump()) return false;
+            try driver.present(.{ .credits = &screen });
+        }
+        return true;
     }
 
     /// The ITAC (`itac`) in its loop, for `run`, as the campaign comes to mission `mission`: how it
@@ -894,6 +927,17 @@ const Restarting = struct {
     }
 };
 
+/// The credits, and their shapes.
+const Crediting = struct {
+    state: ending.Credits = .{},
+    shapes: ?canvas.Shapes = null,
+
+    fn draw(screen: *Crediting, target: canvas.Canvas) canvas.Error!void {
+        const shapes = if (screen.shapes) |*loaded| loaded else return;
+        try screen.state.draw(target, shapes);
+    }
+};
+
 /// A frame's overlay: one of the screens, on the front end's screen fitted to the window.
 const Shown = struct {
     driver: *Driver,
@@ -908,6 +952,7 @@ const Shown = struct {
         settings: *SettingsScreen,
         briefing: *briefing.Briefing,
         restart: *Restarting,
+        credits: *Crediting,
         itac: *itac_module.Itac,
         pod: *simulator_pod.Pod,
         locker: *locker.Locker,
@@ -930,6 +975,7 @@ const Shown = struct {
             .settings => |screen| try drawn(screen.draw(target, &driver.front.dialog, .{ .devices = driver.movies.devices, .sound = driver.sound, .video = driver.video }, driver.pointer)),
             .briefing => |meeting| try drawn(meeting.draw(target)),
             .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
+            .credits => |screen| try drawn(screen.draw(target)),
             .itac => |terminal| try drawn(terminal.draw(target)),
             .pod => |pod| try drawn(pod.draw(target)),
             .locker => |case| try drawn(case.draw(target)),
