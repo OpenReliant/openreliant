@@ -779,6 +779,9 @@ pub const Mirror = packed struct(u2) {
 /// A rectangle of the screen in its pixels: its left and top edges inside it, its right and
 /// bottom ones not.
 pub const Clip = struct {
+    /// The name scripts know it by, as where an instrument draws (`State.bounds`).
+    pub const script_name = "HudBounds";
+
     left: f32,
     top: f32,
     right: f32,

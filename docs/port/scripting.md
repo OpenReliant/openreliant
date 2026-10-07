@@ -14,11 +14,14 @@ explains how to write them; this page explains how they run.
 ## Drawing resources
 
 **Improvement:** scripted HUD/UI drawing uses mod PNG pictures, the current game's sprite set,
-and selected bitmap or outline fonts (#590). `drawing.Assets` owns cached mod resources by script
-context and filename, while `drawing.View` borrows the current game's fonts, sprite set and
-rasterizer. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Measurement uses the
-same bitmap layout as drawing. Cached resources are released before the rasterizer and renderer
-at shutdown; reload creates a new context's entries without invalidating preceding frames.
+and selected bitmap or outline fonts (#590). `drawing.Assets` caches the mods' pictures and fonts
+by script context and file name, while `drawing.View` borrows the current game's fonts, sprite set
+and rasterizer. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Measurement uses
+the same bitmap layout as drawing. When a new picture or font needs room, the pictures drawn
+longest ago are taken out of the cache, but never one drawn in the last two frames; the device
+lets go of their textures (`device.Device.release`) at the next draw, and they are freed. Fonts,
+and the rest at shutdown, are released before the rasterizer and the renderer; a reload makes new
+entries for the new contexts without invalidating earlier frames.
 
 ## Registries and built-in interfaces
 
@@ -28,6 +31,15 @@ a protected boundary. Camera selection uses unnamed view values after the origin
 original view change releases the custom selection. Camera subjects use reuse-counted object
 handles. HUD displays and selected screens record commands through the existing drawing layer.
 Context shutdown and failed loads invalidate registrations and release callback references.
+
+A HUD display's `replaces` and `layout` give each of the game's instruments a placement
+(`Registry.placements`, `hud.Placement`), from the displays that are on, a later one winning. Once
+the scripts' frame has run, the driver keeps them for the frame
+(`Presentation.instrumentPlacements`): the flight display draws each instrument through a device
+of its own that moves, scales or hides it (`hud.Placings`), and the radar's backing in the scene
+follows the radar. The driver also passes the flight display's state and the player's
+(`Presentation.Host.flight`), which [`instruments.zig`](../../src/scripting/instruments.zig) reads
+for `openreliant.hud`: as the instruments last drew, since the scripts run first.
 
 `builtin_interfaces.zig` groups existing API declarations. `interfaces.zig` supplies these tables
 as fallback bases, while keeping normal scope/override behavior. Generated definitions follow

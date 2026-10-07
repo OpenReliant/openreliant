@@ -268,7 +268,7 @@ pub fn register(comptime kind: Kind, state: *luau.State) i32 {
     while (state.next(2)) {
         const key = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse call.raise("definition keys must be names", .{});
         if (kind == .camera and std.mem.eql(u8, key, "letterbox")) letterbox = values.read(state, bool, -1, "letterbox") else if (kind == .display and std.mem.eql(u8, key, "replaces")) {
-            const listed = values.read(state, values.List(hud.Instrument, std.enums.values(hud.Instrument).len), -1, "replaces");
+            const listed = values.read(state, instruments.Instruments, -1, "replaces");
             for (listed.slice()) |instrument| replaces.insert(instrument);
         } else if (kind == .display and std.mem.eql(u8, key, "layout")) {
             readLayout(call, &layout);

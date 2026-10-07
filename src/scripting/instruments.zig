@@ -20,8 +20,7 @@ const values = @import("values.zig");
 const presentation = @import("presentation.zig");
 
 /// A list of the game's instruments, which holds them all.
-const instrument_count = std.enums.values(hud.Instrument).len;
-const Instruments = values.List(hud.Instrument, instrument_count);
+pub const Instruments = values.List(hud.Instrument, std.enums.values(hud.Instrument).len);
 
 /// Where a display puts one of the game's instruments (`register_display`'s `layout`).
 pub const Layout = struct {
@@ -41,16 +40,6 @@ pub const Layout = struct {
         const offset: @Vector(3, f32) = layout.offset orelse @splat(0);
         return .{ .offset = .{ offset[0], offset[1] }, .scale = scale };
     }
-};
-
-/// Where an instrument draws, in the window's pixels.
-pub const Bounds = struct {
-    pub const script_name = "HudBounds";
-
-    left: f32,
-    top: f32,
-    right: f32,
-    bottom: f32,
 };
 
 /// The player's guns as the gunnery window and the targeting cluster show them.
@@ -124,10 +113,9 @@ pub const replaced = api.Field(Instruments, "The game's instruments the mods' di
 });
 
 pub const bounds = api.Function("Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission.", &.{"instrument"}, struct {
-    fn get(call: Call, instrument: hud.Instrument) ?Bounds {
+    fn get(call: Call, instrument: hud.Instrument) ?hud.Clip {
         const flight, _ = flightOf(call, "bounds") orelse return null;
-        const box = flight.hud.bounds.get(instrument) orelse return null;
-        return .{ .left = box.left, .top = box.top, .right = box.right, .bottom = box.bottom };
+        return flight.hud.bounds.get(instrument);
     }
 }.get);
 

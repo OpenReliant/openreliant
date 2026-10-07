@@ -1206,7 +1206,8 @@ hud.register_display("radar", {
   gun group, how the guns fire and their charge; `hud.missiles`, the ring of missiles and the armed
   one; `hud.target`, the target the display shows and its subtarget; `hud.radar`, the radar's
   range and reach; `hud.kills`; and `hud.open_windows`. `hud.instruments_shown` says whether the
-  game's instruments show this frame, which is in the view ahead from the cockpit. Each is nil, or
+  game's instruments show this frame, which is in the view ahead from the cockpit. The scripts run
+  before the flight display draws, so these are as the instruments last drew them. Each is nil, or
   empty, outside a mission.
 
 [`examples/mods/hud-layout`](../../examples/mods/hud-layout) draws a radar of its own in the game's

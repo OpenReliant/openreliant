@@ -21,6 +21,10 @@ local ring = vector.create(0.3, 1, 0.4)
 -- How many lines draw the ring, and the size of a ship on it, in the window's pixels.
 local segments = 32
 local blip = 2
+-- The gap between the radar and the weapons' lines, in the window's pixels, and their spacing, in
+-- lines of text.
+local gap = 12
+local spacing = 1.4
 
 -- Draws the radar in `box`, where the game's radar draws, reaching `reach` from the player's ship.
 local function drawRadar(box, reach)
@@ -47,8 +51,8 @@ end
 
 -- Writes the guns' and the armed missile's state to the right of `box`.
 local function drawWeapons(box)
-    local at = vector.create(box.right + 12, box.top, 0)
-    local line = vector.create(0, hud.measure("A").height * 1.4, 0)
+    local at = vector.create(box.right + gap, box.top, 0)
+    local line = vector.create(0, hud.measure("A").height * spacing, 0)
     local guns, missiles = hud.guns, hud.missiles
     if guns then
         local charge = if guns.full_charge > 0 then guns.charge / guns.full_charge else 0
