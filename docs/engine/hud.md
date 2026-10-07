@@ -474,8 +474,9 @@ clears the mark.
 | 0 | the player's own ship: the schematic; the hits, for a type of the target display's small form; the shields, what [SHIELD BALANCING](controls.md#the-shield-balance) shifted beyond the fore and aft shields (shapes `0xB2` and `0xB7` less the level, at `(-0x1A, -0x24)` and `(-0x26, 0x1D)`), then the armour | 0.3 of the way across the screen, at the foot, 2 right and 44 up; the schematic and the hits at `(-0x22, -0x1B)` from there |
 | 1 | the target, in the target display's small form: for a type of the small form, the schematic and the hits, mirrored across unless the type is hostile, where a comms relay or a deathmatch beacon leaves out the hits; the shields and the armour mirrored across, the left arcs the player's right ones and on the left | `(-4, -0x2C)` from window 3's place; the schematic at `(-0x1C, -0x1A)` and the hits at `(-0x1E, -0x1B)` from there |
 
-In mode 1 a stand-in target closes window 3. **Not ported:** in mission 25, a Kamov's schematic
-drawn mirrored in mode 0 ([#528](https://github.com/OpenReliant/openreliant/issues/528)).
+In mode 1 a stand-in target closes window 3. In mode 0, in mission 25 (`mission_number`,
+`0x00562DC8`), the schematic of a ship of type `0x2D`, the Kamov, is drawn mirrored across, still or
+shaken (`0x004895BE`, `0x00489600`), but its hits are not.
 
 ## The target display
 
