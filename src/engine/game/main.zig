@@ -348,7 +348,7 @@ pub const Frame = struct {
     trails: ?*missiles.trail.Trails = null,
     countermeasures: ?*cloak.Countermeasures = null,
     /// The player's missile lock and its rings, which go into the overlay's layer while it builds,
-    /// from the cockpit's views and the chase view.
+    /// while the last frame's view is one of the cockpit's or the chase view (`runLock`).
     lock: ?*const lock.Lock = null,
     lock_rings: ?*lock.Rings = null,
     /// The chase view's objects, and the display whose reticle, pointer and lead point they
@@ -657,10 +657,14 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
     if (orders.world.shockwaves) |waves| waves.frame(orders.world);
-    if (orders.world.display) |display| {
-        if (orders.world.view.showsLock()) display.lock.frame(orders.world, &display.missiles);
-    }
+    if (orders.world.display) |display| runLock(orders.world, display);
     return over or player.terminated != 0;
+}
+
+/// `mission_frame`'s missile lock (`hud_missile_lock`, `0x00491520`), which runs while the last
+/// frame's view shows it (`0x004933D7`), whatever the camera has switched to since.
+fn runLock(world: gameobj.World, display: *hud.State) void {
+    if (world.last_view.showsLock()) display.lock.frame(world, &display.missiles);
 }
 
 /// The first mission whose script can end it (`TerminateMission`) without its ending as one the
@@ -949,7 +953,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     try missiles.draw(frame.objects, gpa, scene, attachments);
     if (frame.trails) |trails| try trails.draw(gpa, scene);
     if (frame.countermeasures) |dropped| try dropped.draw(gpa, scene, attachments);
-    if (frame.lock_rings) |rings| if (frame.lock) |held| if (frame.view.showsLock()) {
+    if (frame.lock_rings) |rings| if (frame.lock) |held| if (frame.last_view.showsLock()) {
         try rings.draw(gpa, scene, held, .{ .position = context.camera.position, .orientation = context.camera.orientation }, context.projection);
     };
     if (frame.chase) |seen_behind| if (frame.display) |display| if (frame.view == .cockpit and frame.cockpit_mode == .chase) {
@@ -2091,6 +2095,26 @@ test missionFrame {
     // The frame ran the ship's order, and framed every object where it is drawn.
     try std.testing.expect(mission.objects.slots[1].object.yaw_input > 0);
     try std.testing.expect(!mission.objects.slots[1].object.root.flags.unframed);
+}
+
+test runLock {
+    var stage: lock.testing.Stage = undefined;
+    try stage.init(20000);
+    defer stage.deinit();
+    var display: hud.State = .{};
+    display.missiles = stage.ring;
+    var world = stage.armed.mission.world();
+    // Switched from the cockpit to a view without it this frame, the lock still starts.
+    world.view = .target;
+    world.last_view = .cockpit;
+    runLock(world, &display);
+    try std.testing.expectEqual(lock.Phase.closing, display.lock.phase);
+    // Switched the other way, it doesn't run yet.
+    display.lock = .{};
+    world.view = .cockpit;
+    world.last_view = .target;
+    runLock(world, &display);
+    try std.testing.expectEqual(lock.Phase.idle, display.lock.phase);
 }
 
 test "the simulation steps on every fourth tick" {

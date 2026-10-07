@@ -170,9 +170,9 @@ pub const View = enum(u8) {
         return if (view.record()) |found| found.name else null;
     }
 
-    /// Whether the player's missile lock builds and its rings show in the view: the cockpit's
-    /// views and the chase view, views 0 to 4 (`mission_frame`, `0x004933D7`), but not the chase
-    /// view under its second number.
+    /// Whether the player's missile lock builds and its rings show while the last frame's view is
+    /// this one: the cockpit's views and the chase view, views 0 to 4 (`mission_frame`,
+    /// `0x004933D7`), but not the chase view under its second number.
     pub fn showsLock(view: View) bool {
         return switch (view) {
             .cockpit, .cockpit_left, .cockpit_right, .cockpit_rear, .chase => true,

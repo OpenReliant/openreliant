@@ -492,8 +492,10 @@ game's power-up, and what the Kamov's launch tells the other players.
 ### The lock
 
 The player's lock is `main.cpp`'s, by where its code lies: `hud_missile_lock` (`0x00491520`), once
-a frame from `mission_frame` while the view is one of the cockpit's or the chase view, and while the
-player's ship has its Player Control order. `lock_rings_init` (`0x004911D0`) clears it as a mission
+a frame from `mission_frame` while the last frame's view (`camera_view_last`, `0x00539A64`) is one of
+the cockpit's or the chase view, views 0 to 4 (`0x004933D7`), and while the player's ship has its
+Player Control order. It places the lock's rings in the scene too, so they follow the same view: a
+frame that switches into such a view shows them from the next frame. `lock_rings_init` (`0x004911D0`) clears it as a mission
 runs.
 
 A lock is possible (`missile_lock_possible`, `0x00491350`) while:
