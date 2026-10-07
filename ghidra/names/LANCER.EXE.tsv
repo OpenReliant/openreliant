@@ -2751,3 +2751,10 @@ address	kind	name	type	comment
 00579e04	data	subtarget_levels	void *[10]	The levels of the parts hud_subtarget picked out in red, for parts that have levels, in place of which they show copies
 005656c0	data	subtarget_saved	byte[372]	A copy of a scene object hud_subtarget picks out in red, made for each part over the last; hud_subtarget_clear reads part n at 0x00565780 plus 0x174 times n
 0050c2e8	data	mp_ship_type	int	The ship type the local player flies in a network game: WinMain makes the player's ship of it and gives it to the loadout (0x004A986E, 0x004A9923), and mission_start fits the cockpit for it in a multiplayer scenario; WinMain clears it before a network game's campaign mission (0x004A9A40)
+004b58d0	function	mp_script_sync	void (void)	MultiPlayerSync's work: in a network session (net_session), clears 0x00563000 and sets 0x005DCC8C, and on the host (net_session 1) sets the local player's byte of 0x005DC1F0 (player_index); nothing in single player
+00566630	data	fosters_last_stand	int	Set by PlayFostersLastStand: hud_target_keys then pauses the game, the music, the voices, the 3D voices and the radio's line, plays foster_movie_name from the disc's archive (play_bink_movie_resourced), resumes it all and clears it; hud_init clears it too
+00502564	data	foster_movie_name	char[11]	foster.bik, Foster's last stand, which hud_target_keys plays as fosters_last_stand asks
+0055230c	data	next_jump_changes	byte[400]	What DisableObjectAtNextJump asks of each object for the next jump, by its index: 1 to set its flag 0x400 (disabled), 2 to clear it; environment_update makes the changes and clears them, and environment_effects_clear drops them
+00536d58	data	debug_message		The line a debug message writes for the screen, DEBUG: and the text as PrintDebugMessage writes it, which nothing in the retail build draws
+005373dc	data	debug_message_until	int	frame_start plus 500 as a debug message is written (debug_message): until when it was meant to show
+0052abd0	data	debug_message_shown	short	Set as a debug message is written (debug_message), which nothing in the retail build reads

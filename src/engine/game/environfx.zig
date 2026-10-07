@@ -33,10 +33,8 @@ const log = std.log.scoped(.environfx);
 
 /// What a mission's script asks of the space it is flown in, which `environment_update`
 /// (`0x00469D30`) applies: the nebula it asks for, shown on the sky, whose fill lights take the
-/// nebula's colour (`nebula.Sky.select`), and the environment effects it turns on (`setEffect`).
-///
-/// Not ported: the objects' flag `0x400`, which `environment_update` sets and clears as
-/// `DisableObjectAtNextJump` asks ([#281](https://github.com/OpenReliant/openreliant/issues/281)).
+/// nebula's colour (`nebula.Sky.select`), the objects it disables or enables at the next jump
+/// (`NextJump`), and the environment effects it turns on (`setEffect`).
 pub const Environment = struct {
     sky: *nebula.Sky,
     textures: *srtexture.Table,
@@ -50,23 +48,44 @@ pub const Environment = struct {
     /// effect that waits for `update` turns on and off.
     effects: Effects = .{},
     asked: Effects = .{},
+    /// What `DisableObjectAtNextJump` asks of each object for the next jump, by slot (`0x0055230C`,
+    /// a byte a slot), which `update` does.
+    next_jump: [gameobj.max_objects]NextJump = @splat(.none),
     /// The ice field's rocks, which the renderer's start builds (`backdrop_create`); none leaves
     /// the ice field unseen.
     ice_field: ?*IceField = null,
 
     /// `environment_update` (`0x00469D30`), as a fixed gate's jump ends or the script asks
     /// (`UpdateEnvironmentFXState`): the nebula asked for shows where the sky shows another
-    /// (`nebula_select`, `0x00498D00`), then the effects asked for are on, and the rest off.
+    /// (`nebula_select`, `0x00498D00`), then each of `all`'s objects is disabled or enabled as the
+    /// script asked for the next jump (`changeObjects`), then the effects asked for are on, and the
+    /// rest off.
     ///
     /// **Fix:** the game stops with the assertion "Error in script: Invalid nebula" for a nebula
     /// past the seventh; OpenReliant logs it, and keeps the nebula it shows.
-    pub fn update(environment: *Environment) void {
+    pub fn update(environment: *Environment, all: *create.Objects) void {
         if (environment.sky.nebula != environment.requested) {
             environment.sky.select(environment.textures, environment.requested, &environment.space.lights) catch |err| {
                 log.warn("nebula {d} is left out: {s}", .{ environment.requested, @errorName(err) });
             };
         }
+        environment.changeObjects(all);
         environment.effects = environment.asked;
+    }
+
+    /// `environment_update`'s work on the objects (`0x00469D47` to `0x00469D85`): each object of
+    /// `all` that `DisableObjectAtNextJump` asked to disable is disabled, which leaves it out of
+    /// the mission's work (`GameObject.Flags.disabled`), each it asked to enable is enabled again,
+    /// and nothing is asked any more.
+    pub fn changeObjects(environment: *Environment, all: *create.Objects) void {
+        for (&environment.next_jump, &all.slots) |*asked, *slot| {
+            switch (asked.*) {
+                .none => continue,
+                .disable => slot.object.flags.disabled = true,
+                .enable => slot.object.flags.disabled = false,
+            }
+            asked.* = .none;
+        }
     }
 
     /// `environment_effect_set` (`0x00469C60`), as the script asks (`SetEnvironmentFX`): turns the
@@ -92,15 +111,17 @@ pub const Environment = struct {
         }
     }
 
-    /// Turns every effect off, as a mission starts.
+    /// Turns every effect off, and drops what the script asked of the objects for the next jump,
+    /// as a mission starts (`environment_effects_clear`, `0x00469C30`).
     ///
-    /// **Fix:** the game turns them off only as its renderer starts (`backdrop_create`,
-    /// `0x00469C30`), which it does as it starts and as the display's settings change, so that an
-    /// effect one mission leaves on shows in the next, the ice field of Instant Action's last wave
-    /// among them. OpenReliant turns them off for each mission.
+    /// **Fix:** the game does this only as its renderer starts (`backdrop_create`), which it does
+    /// as it starts and as the display's settings change, so that an effect one mission leaves on
+    /// shows in the next, the ice field of Instant Action's last wave among them. OpenReliant does
+    /// it for each mission.
     pub fn resetEffects(environment: *Environment) void {
         environment.effects = .{};
         environment.asked = .{};
+        environment.next_jump = @splat(.none);
     }
 
     /// The effects' frame (`0x00469C50`), which `backdrop_frame` runs after the lights, before the
@@ -111,6 +132,10 @@ pub const Environment = struct {
         if (environment.ice_field) |field| try field.frame(gpa, scene, camera, frame_start);
     }
 };
+
+/// What `DisableObjectAtNextJump` asks of an object for the next jump (`Environment.next_jump`):
+/// nothing, to be disabled (1), or to be enabled again (2).
+pub const NextJump = enum(u8) { none = 0, disable = 1, enable = 2 };
 
 /// An environment effect, by the number a script names it by (`SetEnvironmentFX`), as
 /// `environment_effects` (`0x004FF804`, 32 bytes each) lists them: whether it waits for
@@ -633,9 +658,32 @@ test "Environment.setEffect" {
     // A number past 31 is its low five bits'.
     environment.setEffect(32, true);
     try std.testing.expect(environment.asked.ice_field);
+    environment.next_jump[3] = .disable;
     environment.resetEffects();
     try std.testing.expectEqual(@as(Effects, .{}), environment.effects);
     try std.testing.expectEqual(@as(Effects, .{}), environment.asked);
+    try std.testing.expectEqual(.none, environment.next_jump[3]);
+}
+
+test "Environment.changeObjects" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const planet = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.predator), .{ 1000, 0, 0 });
+    const all = mission.objects;
+    all.slots[other].object.flags.disabled = true;
+    var environment: Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    environment.next_jump[planet] = .disable;
+    environment.next_jump[other] = .enable;
+    // Each change asked for is made once, and then nothing is asked.
+    environment.changeObjects(all);
+    try std.testing.expect(all.slots[planet].object.flags.disabled);
+    try std.testing.expect(!all.slots[other].object.flags.disabled);
+    try std.testing.expectEqual(.none, environment.next_jump[planet]);
+    all.slots[planet].object.flags.disabled = false;
+    environment.changeObjects(all);
+    try std.testing.expect(!all.slots[planet].object.flags.disabled);
 }
 
 test Effect {

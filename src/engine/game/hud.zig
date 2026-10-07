@@ -3045,6 +3045,10 @@ pub const State = struct {
     /// Where blind fire's sight stands (`0x00566628`, `0x0056662C`), which `hud_init` puts at
     /// the middle of the screen; null until OpenReliant first draws it there.
     sight: ?[2]i32 = null,
+    /// Set by `PlayFostersLastStand` (`0x00566630`) until the targeting keys play Foster's last
+    /// stand (`fosters_last_stand_movie`, `MovieHold`), which OpenReliant's driver does once the
+    /// frame's controls have run. A mission's start clears it, as `hud_init` does (`0x00483F00`).
+    fosters_last_stand: bool = false,
     /// Where the lead cursor last stood in the scene (`hud_lead_point`, `0x0057C260`), which blind
     /// fire aims the player's shots at (`guns.shoot`).
     lead_point: Vector = @splat(0),
@@ -3637,6 +3641,61 @@ const nearest_keys = [_]struct { action: input.controls.Action, side: gameobj.Si
     .{ .action = .target_nearest_enemy, .side = .hostile },
     .{ .action = .target_nearest_friendly, .side = .friendly },
 };
+
+/// The movie `PlayFostersLastStand` asks for, the Reliant's last stand, which the targeting keys
+/// play from the disc's archive open (`play_bink_movie_resourced`, `0x0048C432`; `0x00502564`).
+pub const fosters_last_stand_movie = "foster.bik";
+
+/// What the targeting keys hold still while they play Foster's last stand (`0x0048C32A` to
+/// `0x0048C35F`, then `0x0048C4ED` to `0x0048C51D` once it has played): the game, whose ticks and
+/// script clock stop (`main.Clock.paused`), the music, the voices, the 3D voices, and the line the
+/// radio says, where it says one (`speech_playing`).
+///
+/// Not ported, as OpenReliant's movies don't need it: the renderer's switch to 640 by 480 for the
+/// movie and back, with the textures unloaded and loaded again.
+pub const MovieHold = struct {
+    /// Whether the radio was saying a line, which then goes on.
+    speaking: bool,
+
+    pub fn begin(clock: *main.Clock, sound: *hog_snd.Sound, on_air: ?*videoreports.Radio) MovieHold {
+        clock.paused = true;
+        sound.pauseMusic(true);
+        sound.pauseAll();
+        sound3d.pause(sound, true);
+        const air = on_air orelse return .{ .speaking = false };
+        const speaking = air.speaking(sound);
+        if (speaking) air.player.pause(sound, true);
+        return .{ .speaking = speaking };
+    }
+
+    pub fn end(hold: MovieHold, clock: *main.Clock, sound: *hog_snd.Sound, on_air: ?*videoreports.Radio) void {
+        if (hold.speaking) if (on_air) |air| air.player.pause(sound, false);
+        sound3d.pause(sound, false);
+        sound.resumeAll();
+        sound.pauseMusic(false);
+        clock.paused = false;
+    }
+};
+
+test MovieHold {
+    const mss = @import("../mss.zig");
+    const fat = @import("../../formats/fat.zig");
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
+    const bytes = comptime hog_snd.testing.bank(2);
+    const v = sound.play(try fat.Bank.parse(&bytes), 1, hog_snd.loudest, hog_snd.forever, hog_snd.centre, hog_snd.own_pitch).?;
+    var clock: main.Clock = .{};
+    // The game and its voices stop while the movie plays, with no radio to hold.
+    const hold: MovieHold = .begin(&clock, sound, null);
+    try std.testing.expect(clock.paused and !hold.speaking);
+    try std.testing.expectEqual(mss.Status.stopped, driver.sampleStatus(sound.voices[v].sample));
+    // Then they go on.
+    hold.end(&clock, sound, null);
+    try std.testing.expect(!clock.paused);
+    try std.testing.expectEqual(mss.Status.playing, driver.sampleStatus(sound.voices[v].sample));
+}
 
 /// The keys that step the target or its component, in the order `hud_target_keys` reads them:
 /// which way each steps, and what through.

@@ -203,6 +203,20 @@ every five ticks (`music_fade_out`), and the credits end once it has stopped.
 the higher the frame rate. OpenReliant takes a step for each of the simulation's steps, 25 a
 second, as the game does at 25 frames a second.
 
+## In a mission
+
+A mission's script asks for Foster's last stand, the Reliant's destruction, with
+`PlayFostersLastStand` (`0x00459740`), which mission 18 runs. The targeting keys' next pass
+(`hud_target_keys`, `0x0048C31B` on) pauses the game, which stops its ticks and the script's
+clock, pauses the music, the voices and the 3D voices, and stops the line the radio says, where it
+says one. It plays `foster.bik` from the disc's archive open (`play_bink_movie_resourced`), and
+outside its software renderer switches to 640 by 480 for the movie and back. Then the line, the 3D
+voices, the voices and the music go on, and the game with them.
+
+OpenReliant's driver plays it once the frame's controls have run (`hud.MovieHold`). With
+`--mission`, which flies the mission without the hangar's movie, no disc's archive is open yet, so
+the movie opens the disc of the mission's carrier.
+
 ## The movies played
 
 - As the renderer first starts, before its loading screens, `renderer_load` plays the intro:
@@ -218,6 +232,7 @@ second, as the game does at 25 frames a second.
   MENU plays `interface\igo2mm.bik` before the main menu ([The Reliant's rooms](rooms.md)).
 - Around each mission `WinMain` flies, the hangar's movie, the landing or a chapter's end, and how
   the mission ended or a medal's ceremony ([Around a mission](#around-a-mission)).
+- In mission 18, Foster's last stand, `foster.bik`, as its script asks ([In a mission](#in-a-mission)).
 - The ITAC plays its own in its loop, its sections' movies in and out, and on the Reliant the pilot's
   eye read ([The ITAC](itac.md)).
 

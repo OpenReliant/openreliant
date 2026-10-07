@@ -1105,6 +1105,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .random = &rand,
                     .smooth_motion = smooth_motion,
                 });
+                // Foster's last stand, once the script has asked for it, which the game plays as
+                // its targeting keys end.
+                if (display.state.fosters_last_stand) {
+                    if (!try movies.fostersLastStand(play.number, &clock, sound, &radio)) return;
+                    display.state.fosters_last_stand = false;
+                }
                 switch (player_launch.step(slot, clock.mission_ticks)) {
                     .under_way => if (options.skip_launch) continue,
                     .ended => {

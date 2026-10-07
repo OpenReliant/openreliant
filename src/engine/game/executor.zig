@@ -112,8 +112,11 @@ pub const max_arguments = most: {
 /// A command's arguments, the first first. Those past the ones it takes are 0.
 pub const Arguments = [max_arguments]u32;
 
-/// The implementation of command `number`, or null for one not ported yet
-/// ([#281](https://github.com/OpenReliant/openreliant/issues/281)).
+/// The implementation of command `number`, or null for one not ported yet: those only the
+/// simulator's and the multiplayer arenas' missions use
+/// ([#533](https://github.com/OpenReliant/openreliant/issues/533),
+/// [#554](https://github.com/OpenReliant/openreliant/issues/554)), and those no shipped mission
+/// uses ([#806](https://github.com/OpenReliant/openreliant/issues/806)).
 pub fn implementation(number: u8) ?vm.Implementation {
     return if (number < implementations.len) implementations[number] else null;
 }
@@ -206,6 +209,16 @@ const implementations = table: {
         .{ "Scanner", .{ .in_game = scanner } },
         .{ "Fire", .{ .in_game = fire } },
         .{ "Cloak", .{ .per_ship = cloakShip } },
+        .{ "PrintDebugMessage", .{ .command = printDebugMessage } },
+        .{ "StartMissileCam", .{ .command = startMissileCam } },
+        .{ "MultiPlayerSync", .{ .command = multiPlayerSync } },
+        .{ "DisableMissiles", .{ .per_ship = flagShip("missiles_disabled") } },
+        .{ "DisableEngines", .{ .per_ship = flagShip("engines_disabled") } },
+        .{ "PlayFostersLastStand", .{ .in_game = playFostersLastStand } },
+        .{ "StopShipAnimation", .{ .in_game = stopShipAnimation } },
+        .{ "WillsBlag", .{ .in_game = willsBlag } },
+        .{ "DisableObjectAtNextJump", .{ .in_game = disableObjectAtNextJump } },
+        .{ "DarrensNaughtyBlag", .{ .in_game = darrensNaughtyBlag } },
     }) |pair| {
         const number = commandIndex(pair[0]);
         table[number] = switch (pair[1]) {
@@ -475,6 +488,17 @@ fn waitForMovie(call: Call) u32 {
     return if (radio.movie.playing) call.againItself() else run_on;
 }
 
+/// `cmd_PrintDebugMessage` (`0x004581A0`, command `0x0A`): the game writes `DEBUG: ` and the text
+/// the argument names into a line to show for half a second (`0x00536D58`), which nothing in its
+/// retail build draws, and passes it to its debug log (`debug_print`), which the retail build
+/// leaves empty. Missions 11 and 24 print their start and lines of speech so.
+///
+/// **Improvement:** OpenReliant writes the line to its log, where a mission's maker can read it.
+fn printDebugMessage(call: Call) u32 {
+    if (argumentText(call, 0)) |text| log.info("DEBUG: {s}", .{text});
+    return run_on;
+}
+
 /// `cmd_SetupLaunch` (`0x00458970`, command `0x13`) and `cmd_SetupLaunch_ship` (`0x004589A0`), for
 /// each ship the first argument names, the orders numbered from 0 as they are given (`numbered`),
 /// which a launch from a flight group or a squad counts its launch points by (`launch.init`):
@@ -544,6 +568,57 @@ test "Cloak uses the existing setter and its command catalogue entry" {
     cloakShip(call, .{ .game = ctx, .index = stage.index, .slot = stage.slot() });
     try std.testing.expect(stage.slot().object.flags.cloaked);
     try std.testing.expect(implementation(commandIndex("Cloak")) != null);
+}
+
+/// An eject roll no pilot's is below (`ai.eject_below`), past the rolls a ship is made with, 0 to
+/// 99 (`0x0045A1D9`).
+const never_ejects = 100;
+
+/// `cmd_WillsBlag` (`0x0045A1C0`, command `0x5A`): the ship the argument names is alive again to
+/// the mission: its record is no longer destroyed (`dte.Ship.Flags.destroyed`), so that its
+/// Destroyed event can come again, its pilot no longer ejected, and it never ejects
+/// (`never_ejects`). Mission 28 brings Steiner back so before making him invulnerable.
+///
+/// **Fix:** where the argument names no ship, the game reads past the objects' table; OpenReliant
+/// does nothing.
+fn willsBlag(call: Call, game: aigeneric.Context) void {
+    const machine = call.machine;
+    const all = game.world.objects;
+    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    if (machine.mission.ship(ship)) |record| record.flags.destroyed = false;
+    const object = &all.slots[ship].object;
+    object.eject_roll = never_ejects;
+    object.flags.ejected = false;
+}
+
+/// `cmd_DisableObjectAtNextJump` (`0x0045A250`, command `0x5D`): asks for the object of the ship the
+/// first argument names, such as a planet, to be disabled at the next jump or warp while the
+/// second is set, and enabled again while it is not (`environfx.Environment.next_jump`). Mission 11
+/// disables Saturn at once and has it back at the next jump so.
+///
+/// **Fix:** where the first argument names no ship, the game reads past the objects' table;
+/// OpenReliant does nothing.
+fn disableObjectAtNextJump(call: Call, game: aigeneric.Context) void {
+    const environment = game.world.environment orelse return;
+    const ship = mission.shipSlot(call.machine.mission, game.world.objects, call.args[0]) orelse return;
+    environment.next_jump[ship] = if (call.args[1] != 0) .disable else .enable;
+}
+
+/// `cmd_DarrensNaughtyBlag` (`0x0045A290`, command `0x5E`): the ship the first argument names turns
+/// to face the ship the second names, from where each stands next, with no roll
+/// (`math.lookAt`, `objects.setOrientation`). Mission 27 turns a ship it has snapped to a point
+/// toward the Yamato so.
+///
+/// **Fix:** where an argument names no ship, the game reads past the objects' table; OpenReliant
+/// does nothing.
+fn darrensNaughtyBlag(call: Call, game: aigeneric.Context) void {
+    const all = game.world.objects;
+    const turned = mission.shipSlot(call.machine.mission, all, call.args[0]) orelse return;
+    const faced = mission.shipSlot(call.machine.mission, all, call.args[1]) orelse return;
+    const slot = &all.slots[turned];
+    const from = gameobj.vector(slot.object.root.next_position);
+    const to = gameobj.vector(all.slots[faced].object.root.next_position);
+    objects.setOrientation(&slot.object, &slot.drawn, math.lookAt(to - from));
 }
 
 /// How loud a mission's music plays (`cmd_PlayMusic`, `0x00458E16`).
@@ -655,7 +730,7 @@ fn remarkFlag(comptime flag: []const u8) vm.GameImplementation {
 fn updateEnvironmentFXState(_: Call, game: aigeneric.Context) void {
     const world = game.world;
     const environment = world.environment orelse return;
-    environment.update();
+    environment.update(world.objects);
     const ships = if (world.mission) |bound| bound.shipCount() else 0;
     environment.space.place(environment.sky, world.objects, ships);
 }
@@ -715,6 +790,32 @@ fn setShipAvoidanceShip(call: Call, ship: Ship) void {
     const object = &ship.slot.object;
     if (object.type.base() == .stand_in) return;
     object.flags.no_avoidance = call.args[0] != 0;
+}
+
+/// `cmd_StartMissileCam` (`0x00458B60`, command `0x1F`): the camera switches to the missile view,
+/// locked and forced, following the next missile in flight that the ship the argument names
+/// launched (`camera.Camera.setView`), and stays as it is where there's none. The thread then
+/// yields until it runs next. Mission 28 has the camera follow a torpedo of the Yamato's so.
+///
+/// **Fix:** where the argument names no ship, the game reads past the objects' table; OpenReliant
+/// does nothing.
+fn startMissileCam(call: Call) u32 {
+    const game = call.machine.game orelse return yield;
+    const view = game.world.camera orelse return yield;
+    const ship = mission.shipSlot(call.machine.mission, game.world.objects, call.args[0]) orelse return yield;
+    _ = view.setView(.missile, ship, true, true, game.world.clock.viewTime());
+    return yield;
+}
+
+/// `cmd_MultiPlayerSync` (`0x004591E0`, command `0x2D`): the thread yields until it runs next. In a
+/// network game, the game first marks the local player's script as waiting for the others
+/// (`0x004B58D0`), which does nothing in single player.
+///
+/// Not ported: a multiplayer game's players' scripts kept in step
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+fn multiPlayerSync(call: Call) u32 {
+    _ = call;
+    return yield;
 }
 
 /// `cmd_MultiplayerScriptSync` (`0x00459DF0`, command `0x56`): in a single-player game, the thread
@@ -777,27 +878,46 @@ const animation_speed: f32 = 4;
 /// argument names, but those taken out of its model, plays its track the second names, from the
 /// start, in the track's own mode, at `animation_speed` (`playShipAnimation`).
 fn startShipAnimation(call: Call, game: aigeneric.Context) void {
-    playShipAnimation(call, game, false);
+    playShipAnimation(call, game, .forwards);
 }
 
 /// `cmd_StartShipAnimationReverse` (`0x004587D0`, command `0x3D`): the same backwards, each part's
 /// track from where it stands (`playShipAnimation`).
 fn startShipAnimationReverse(call: Call, game: aigeneric.Context) void {
-    playShipAnimation(call, game, true);
+    playShipAnimation(call, game, .backwards);
 }
 
-/// The work of `StartShipAnimation` and `StartShipAnimationReverse`: each part in the root's child
-/// list of the model of the ship the command's first argument names plays its track the second
-/// names (`objects.Model.playNamedTree`), forwards from 0 at `animation_speed`, or `backwards`
-/// from where the part's own track stands at `-animation_speed`.
-fn playShipAnimation(call: Call, game: aigeneric.Context, backwards: bool) void {
+/// `cmd_StopShipAnimation` (`0x00458770`, command `0x48`): each part's track the second argument
+/// names stops where it stands (`playShipAnimation`). Missions 23 and 28 stop a ship's spinning
+/// parts so.
+fn stopShipAnimation(call: Call, game: aigeneric.Context) void {
+    playShipAnimation(call, game, .stopped);
+}
+
+/// How the ship animation commands play a track.
+const Playing = enum {
+    /// From the start, in the track's own mode, at `animation_speed`.
+    forwards,
+    /// From where the part's track stands, in the track's own mode, at `-animation_speed`.
+    backwards,
+    /// Where the part's track stands, still (mode 0).
+    stopped,
+};
+
+/// The work of `StartShipAnimation`, `StartShipAnimationReverse` and `StopShipAnimation`: each part
+/// in the root's child list of the model of the ship the command's first argument names plays its
+/// track the second names (`objects.Model.playNamedTree`) as `playing` says.
+fn playShipAnimation(call: Call, game: aigeneric.Context, playing: Playing) void {
     const machine = call.machine;
     const all = game.world.objects;
     const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
     const model = if (all.slots[ship].model) |*live| live else return;
     const name = argumentText(call, 1) orelse return;
-    const time: f32 = if (backwards) objects.Model.keep_time else 0;
-    model.playNamedTree(name, time, null, if (backwards) -animation_speed else animation_speed);
+    switch (playing) {
+        .forwards => model.playNamedTree(name, 0, null, animation_speed),
+        .backwards => model.playNamedTree(name, objects.Model.keep_time, null, -animation_speed),
+        .stopped => model.playNamedTree(name, objects.Model.keep_time, .none, animation_speed),
+    }
 }
 
 /// `cmd_DisableObject` (`0x004583C0`, command `0x1C`) and `cmd_DisableObject_ship` (`0x004583E0`),
@@ -904,6 +1024,8 @@ fn setActionCentre(call: Call, game: aigeneric.Context) void {
 /// | Command | Flag |
 /// |---|---|
 /// | `cmd_DisableGuns` (`0x00459200`, command `0x2F`; `0x00459220`) | `guns_disabled`: its guns do not fire, and its turrets rest |
+/// | `cmd_DisableMissiles` (`0x00459370`, command `0x33`; `0x00459390`) | `missiles_disabled`: it launches no missiles |
+/// | `cmd_DisableEngines` (`0x004593E0`, command `0x34`; `0x00459400`) | `engines_disabled`: its throttle is held at 0, and it has no afterburner or reverse thrust |
 /// | `cmd_DisableEject` (`0x00459450`, command `0x35`; `0x00459470`) | `eject_disabled`: the player cannot eject |
 /// | `cmd_DoNotDisturb` (`0x00459640`, command `0x3B`; `0x00459660`) | `do_not_disturb`: it does not retaliate, come to another's help, rise to a taunt or take the wingmen's commands |
 fn flagShip(comptime flag: []const u8) vm.Machine.ShipImplementation {
@@ -920,6 +1042,12 @@ fn flagShip(comptime flag: []const u8) vm.Machine.ShipImplementation {
 /// neutral ship's too.
 fn setHostileShip(call: Call, ship: Ship) void {
     ship.slot.object.side = if (call.args[0] != 0) .hostile else .friendly;
+}
+
+/// `cmd_PlayFostersLastStand` (`0x00459740`, command `0x3F`): asks the targeting keys to play
+/// Foster's last stand (`hud.State.fosters_last_stand`). Mission 18 plays it so.
+fn playFostersLastStand(_: Call, game: aigeneric.Context) void {
+    if (game.world.display) |display| display.fosters_last_stand = true;
 }
 
 /// `cmd_DestroySubObject` (`0x00459750`, command `0x42`): the component the first argument names
@@ -1764,6 +1892,65 @@ test "the commands that move ships, change their sides and leave them be" {
     try std.testing.expect(all.slots[1].object.flags.listing_disabled and !all.slots[2].object.flags.listing_disabled);
 }
 
+test "the commands of the campaign's later missions" {
+    const gpa = std.testing.allocator;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    try createFlightGroups(&routine, &.{ 0, 1 });
+    try routine.pushString("MISSION STARTED");
+    try routine.command("PrintDebugMessage");
+    // The Sabres launch no missiles, and the second has its engines off.
+    try routine.op(.push_flight_group, &.{1});
+    try routine.op(.push_byte, &.{1});
+    try routine.command("DisableMissiles");
+    try routine.op(.push_ship, &.{2});
+    try routine.op(.push_byte, &.{1});
+    try routine.command("DisableEngines");
+    // The first Sabre is alive again and turns to face the second, which is enabled again at the
+    // next jump.
+    try routine.op(.push_ship, &.{1});
+    try routine.command("WillsBlag");
+    try routine.op(.push_ship, &.{1});
+    try routine.op(.push_ship, &.{2});
+    try routine.command("DarrensNaughtyBlag");
+    try routine.op(.push_ship, &.{2});
+    try routine.op(.push_byte, &.{0});
+    try routine.command("DisableObjectAtNextJump");
+    try routine.command("PlayFostersLastStand");
+    // The sync yields, so the thread is still running once the start part has run.
+    try routine.command("MultiPlayerSync");
+    const code = try finishPart(&routine);
+    defer gpa.free(code);
+
+    var sabres = [2]dte.Ship{ shipRecord(1, 1, @backingInt(gameobj.GameType.sabre)), shipRecord(2, 1, @backingInt(gameobj.GameType.sabre)) };
+    sabres[1].position = .{ 1000, 0, 0 };
+    var game: vm.machine.testing.Game = undefined;
+    try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .ships = &.{ shipRecord(0, 0, @backingInt(gameobj.GameType.predator)), sabres[0], sabres[1] },
+        .flight_groups = &.{ groupRecord(3, .player), groupRecord(4, .none) },
+    });
+    defer game.deinit();
+    const ships = try game.fixture.mission.ships();
+    ships[1].flags.destroyed = true;
+    var display: hud.State = .{};
+    var environment: @import("environfx.zig").Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    var ctx = game.spawning();
+    ctx.world.display = &display;
+    ctx.world.environment = &environment;
+    try game.start(ctx);
+
+    const all = game.mission.objects;
+    try std.testing.expect(all.slots[1].object.flags.missiles_disabled and all.slots[2].object.flags.missiles_disabled);
+    try std.testing.expect(!all.slots[0].object.flags.missiles_disabled);
+    try std.testing.expect(all.slots[2].object.flags.engines_disabled and !all.slots[1].object.flags.engines_disabled);
+    try std.testing.expect(!ships[1].flags.destroyed);
+    try std.testing.expectEqual(never_ejects, all.slots[1].object.eject_roll);
+    try math.testing.expectVector(.{ 1, 0, 0 }, math.forward(all.slots[1].object.root.orientation));
+    try std.testing.expectEqual(.enable, environment.next_jump[2]);
+    try std.testing.expect(display.fosters_last_stand);
+    try std.testing.expect(!game.fixture.machine.finished);
+}
+
 test "the flyback markers and the Grendels go, and the action sphere takes its default" {
     const gpa = std.testing.allocator;
     var routine: Routine = .init(gpa);
@@ -2442,48 +2629,47 @@ test "SetInvulnerability reaches the player's ship in the simulator's training, 
     try std.testing.expect(slot.component(0).?.targetable and !slot.component(1).?.targetable);
 }
 
-test "StartShipAnimation plays a ship's track from the start, and the reverse from where it stands" {
+test "the ship animation commands play a track from the start, back from where it stands, or stop it" {
     const gpa = std.testing.allocator;
     const shp = @import("../../formats/shp.zig");
     var routine: Routine = .init(gpa);
     defer routine.deinit();
-    // The first ship's doors open, and the second's close.
-    try routine.op(.push_ship, &.{0});
-    try routine.pushString("doors");
-    try routine.command("StartShipAnimation");
-    try routine.op(.push_ship, &.{1});
-    try routine.pushString("doors");
-    try routine.command("StartShipAnimationReverse");
+    // The first ship's doors open, the second's close, and the third's stop.
+    inline for (.{ "StartShipAnimation", "StartShipAnimationReverse", "StopShipAnimation" }, 0..) |command, ship| {
+        try routine.op(.push_ship, &.{@intCast(ship)});
+        try routine.pushString("doors");
+        try routine.command(command);
+    }
     const code = try finishPart(&routine);
     defer gpa.free(code);
 
-    const ships = dte.testing.ships(2, @backingInt(gameobj.GameType.reliant));
+    const ships = dte.testing.ships(3, @backingInt(gameobj.GameType.reliant));
     var game: vm.machine.testing.Game = undefined;
     try game.init(gpa, &.{.{ .code = code, .start = true }}, .{ .ships = &ships });
     defer game.deinit();
     const world = &game.mission;
-    // Two ships of two parts, each with the track; each part of the second stands partway through
-    // it.
+    // Three ships of two parts, each with the track; each part of the second and the third stands
+    // partway through it.
     var tracks = [_]shp.Track{.{ .clip = objects.testing.clip(400, .once, "Doors"), .keyframes = &.{}, .events = &.{} }};
-    var models: [2]objects.testing.Parts(2) = undefined;
+    var models: [3]objects.testing.Parts(2) = undefined;
     const times = [2]f32{ 100, 250 };
     for (&models, 0..) |*parts, at| {
         parts.init();
         for (&parts.data) |*data| data.tracks = &tracks;
         const slot = world.slot(try world.add(.of(.reliant), @splat(0)));
         try parts.fit(gpa, slot);
-        if (at == 1) for (slot.model.?.parts, times) |*part, time| {
+        if (at > 0) for (slot.model.?.parts, times) |*part, time| {
             part.animation.time = time;
         };
     }
     try game.start(game.orders());
 
-    for ([_]u16{ 0, 1 }) |ship| {
+    for ([_]u16{ 0, 1, 2 }) |ship| {
         for (world.slot(ship).model.?.parts, times) |part, time| {
             const a = part.animation;
-            try std.testing.expectEqual(objects.Model.Mode.once, a.mode);
+            try std.testing.expectEqual(if (ship == 2) objects.Model.Mode.none else .once, a.mode);
             try std.testing.expectEqual(if (ship == 0) 0 else time, a.time);
-            try std.testing.expectEqual(if (ship == 0) animation_speed else -animation_speed, a.speed);
+            try std.testing.expectEqual(if (ship == 1) -animation_speed else animation_speed, a.speed);
         }
     }
 }
