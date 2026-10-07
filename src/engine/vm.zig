@@ -212,7 +212,9 @@ pub const Variables = extern struct {
     /// `jump_ready` and `warp_ready` (0 and 1): whether the mission has a jump or a warp ready for
     /// JUMP DRIVE, which the display's prompt reads (`hud.Readiness`).
     ready: hud.Readiness = .{},
-    _unknown_2: u32 = 0,
+    /// Variable 2, which no script names. A new campaign and a saved game's load clear it with the
+    /// first 32 (`gameflow.newCampaign`).
+    _unused_2: u32 = 0,
     /// `backup_available` (3): whether the carrier sends backup when the pilot asks for it. The
     /// radio's REQUEST BACKUP (`0x004558D0`) raises the mission's PlayerWantsBackup event for the
     /// first request while it is set, and the carrier refuses otherwise. The scripts set it as
@@ -220,14 +222,42 @@ pub const Variables = extern struct {
     backup_available: u32 = 0,
     /// `player_missiles_left` (4): the missile display's counts together.
     player_missiles_left: u32 = 0,
-    _unknown_5: [4]u32 = @splat(0),
+    /// The campaign's flags, which a new campaign sets to 1 (`gameflow.newCampaign`), the scripts
+    /// clear as the story goes, and the pilot's saved game keeps. The engine reads some of them to
+    /// pick the movies between missions (`xtrabits.landing`) and at the story's end; a custom
+    /// campaign can give them stories of its own.
+    ///
+    /// `mcgann_alive` (5): whether McGann lives. Mission 15's script clears it as his Phoenix is
+    /// destroyed, and mission 9's reads it. The news report after mission 16 reads it too, but
+    /// never plays, as mission 16 ends no chapter.
+    mcgann_alive: u32 = 0,
+    /// Variable 6: mission 27's script clears it as it starts. The third news report after mission
+    /// 11 (`new_chapter2_thread3.bik`) plays once it's clear, which it never is then.
+    /// `mission191.dte`, which the campaign never flies, reads it as its Petrov wing's leader
+    /// alive. **Unknown:** what mission 27 clears it for.
+    _unknown_6: u32 = 0,
+    /// `ivan_petrov_alive` (7): whether Ivan Petrov lives. Mission 28's script clears it as his
+    /// Basilisk is destroyed, and the story's end plays his news report once it's clear.
+    ivan_petrov_alive: u32 = 0,
+    /// `kulov_alive` (8): whether Kulov lives. Mission 28's script clears it as the Boridin
+    /// breakaway is destroyed, and the story's end plays his news report once it's clear.
+    kulov_alive: u32 = 0,
     /// `mission_over` (9): set once the camera has watched the mission's end long enough, or once
     /// the player's ship has landed.
     mission_over: u32 = 0,
     /// `landing_cleared` (10): whether PERMISSION TO LAND is granted, and the player's ship lands
     /// (`videoreports.permissionToLand`). Mission 1's script sets it as the Reliant jumps in.
     landing_cleared: u32 = 0,
-    _unknown_11: [3]u32 = @splat(0),
+    /// `al_rahan_alive` (11): whether Al-Rahan lives, 0 in a new campaign. Mission 7's script
+    /// clears it as he dies, and mission 24's sets it as it starts, before any of its tests read
+    /// it, so mission 7's clear never shows.
+    al_rahan_alive: u32 = 0,
+    /// `sharif_alive` (12): whether Sharif lives, 0 in a new campaign. Mission 9's script clears it
+    /// as he dies, and nothing reads it.
+    sharif_alive: u32 = 0,
+    /// `steiner_alive` (13): whether Steiner lives. Mission 28's script clears it as his Wolverine
+    /// is destroyed, and the story's end plays one of his two news reports by it.
+    steiner_alive: u32 = 0,
     /// `mission_success` (14): how the script rates the mission.
     mission_success: Outcome = .failure,
     /// `script_players` (15): how many players fly the mission, which the game gives the script as
@@ -235,7 +265,36 @@ pub const Variables = extern struct {
     /// scripts test it for the enemies a multiplayer game adds, and for which of a part's endings
     /// runs: mission 1's ambush ends only for the count it was flown with.
     players: u32 = 0,
-    _unknown_16: [11]u32 = @splat(0),
+    /// Variable 16, which no script names: 1 in a new campaign, and kept with the pilot's game.
+    _unused_16: u32 = 0,
+    /// `krasnaya_alive` (17): whether the Krasnaya got away in mission 8, whose script clears it as
+    /// the ship is destroyed and sets it again as it jumps out. The second news report after
+    /// mission 11 plays once it's clear.
+    krasnaya_alive: u32 = 0,
+    /// `rameses_alive` (18): whether the Rameses survived mission 7, whose script clears it as the
+    /// ship is destroyed. Mission 24 brings the Rameses back while it's set, and the news report
+    /// after mission 7 plays once it's clear.
+    rameses_alive: u32 = 0,
+    /// `kozah_alive` (19): whether Kozah lives. Mission 9's script clears it as his group is
+    /// destroyed, and nothing reads it.
+    kozah_alive: u32 = 0,
+    /// Variables 20 and 21, which no script names: 1 in a new campaign, and kept with the pilot's
+    /// game.
+    _unused_20: u32 = 0,
+    _unused_21: u32 = 0,
+    /// `fixed_gate_alive` (22): whether mission 3's fixed gate stands. Mission 3's script sets it as
+    /// it starts and clears it as the gate is destroyed, and missions 4, 11, 20 and 26 take their
+    /// other ways while it's set.
+    fixed_gate_alive: u32 = 0,
+    /// `warp_gate_alive` (23): whether mission 16's warp gate stands. Mission 16's script clears it
+    /// as the gate falls. The news report after mission 16 reads it, but never plays, as mission 16
+    /// ends no chapter.
+    warp_gate_alive: u32 = 0,
+    /// Variables 24 to 26, which no script names: 0 in a new campaign, and kept with the pilot's
+    /// game.
+    _unused_24: u32 = 0,
+    _unused_25: u32 = 0,
+    _unused_26: u32 = 0,
     /// `last_success` (27): how the script rated the last mission the pilot came through, which the
     /// mission's end keeps unless the rating is a total failure (`mission_end_record`,
     /// `0x00475AC2`). Mission 25's second part weighs its own rating by it. Mission 1's script
@@ -248,18 +307,36 @@ pub const Variables = extern struct {
     /// (`0x00424ECE`, `0x0042545B`). **Not ported:** the debriefing
     /// ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
     objectives_met: u32 = 0,
-    _unknown_29: u32 = 0,
+    /// `czar_alive` (29): whether the Czar survived mission 11, whose script clears it as the ship
+    /// is destroyed. The first news report after mission 11 plays once it's clear.
+    czar_alive: u32 = 0,
     /// `ghost_alive` (30): whether Ghost, the ace mission 1 puts up against the player, lives: 1 in
     /// a new campaign. Mission 1's script clears it as Ghost dies, and mission 4's has Petrov say
     /// a line by it. The engine only keeps it with the pilot's game.
     ghost_alive: u32 = 0,
-    _unknown_31: [2]u32 = @splat(0),
+    /// Variable 31, which no script names: 1 in a new campaign, and kept with the pilot's game.
+    _unused_31: u32 = 0,
+    /// `reliant_alive` (32): whether the Reliant flies. Missions 7, 8 and 18 clear it as she's
+    /// lost. While it's set, mission 8 ends in a landing on the Reliant rather than the Yamato, and
+    /// a total failure before mission 19 ends the pilot's career in the transfer off the Reliant
+    /// (`winmain.careerOver`).
+    reliant_alive: u32 = 0,
     /// `countdown` (33): seconds left, which mission 29's script sets and the display shows as a
     /// clock in minutes and seconds (`hud.clockTime`). The game takes one off at every 100th tick
     /// of the mission (`gameobj.gameTick`).
     countdown: i32 = 0,
-    _unknown_34: u32 = 0,
-    _unknown_35: [2]u32 = @splat(0),
+    /// `chapter2_thread3_shown` (34): set as the third news report after mission 11 plays, and
+    /// cleared before each attempt at a mission (`gameflow.resetVariables`). Only the news report
+    /// after mission 16 reads it, which never plays.
+    chapter2_thread3_shown: u32 = 0,
+    /// Variable 35: 1 in a new campaign, not kept with the pilot's game, and nothing clears it.
+    /// Mission 26's script reads it, always set. **Unknown:** what it was meant to hold.
+    _unknown_35: u32 = 0,
+    /// `yamato_alive` (36): whether the Yamato lives. Mission 25's second part and mission 27
+    /// clear it as she's destroyed. Once it's clear, those missions end without the landing
+    /// (`xtrabits.landing.lastWithoutLanding`), and a total failure in them ends the career in the
+    /// shuttle at Fort Bear.
+    yamato_alive: u32 = 0,
     /// `ion_cannons_hold_lock` (37): while it is set, the Dark Reign's ion cannon keeps its target
     /// (`aiioncan.cpp`, order 110): it loses it neither as the target flies into its cone or out of
     /// the angle it fires in, nor, in a multiplayer game, after a long search (`0x0040D40F`,
@@ -286,6 +363,13 @@ pub const Variables = extern struct {
     /// The number the scripts give the variable `name`.
     pub fn number(comptime name: []const u8) u8 {
         return @offsetOf(Variables, name) / @sizeOf(u32);
+    }
+
+    /// The numbers the scripts give the variables `names`, in their order.
+    pub fn numbers(comptime names: anytype) [names.len]u8 {
+        var found: [names.len]u8 = undefined;
+        for (names, &found) |name, *at| at.* = number(name);
+        return found;
     }
 
     /// How the script rates the mission, as the game's debug line names each rating: the carrier's
@@ -333,6 +417,23 @@ pub const Variables = extern struct {
         assert(@sizeOf(Variables) == count * @sizeOf(u32));
     }
 };
+
+comptime {
+    // Each named variable at the number the scripts give it, and every number a byte names.
+    const numbered = .{
+        .{ "_unused_2", 2 },         .{ "mcgann_alive", 5 },   .{ "_unknown_6", 6 },
+        .{ "ivan_petrov_alive", 7 }, .{ "kulov_alive", 8 },    .{ "al_rahan_alive", 11 },
+        .{ "sharif_alive", 12 },     .{ "steiner_alive", 13 }, .{ "_unused_16", 16 },
+        .{ "krasnaya_alive", 17 },   .{ "rameses_alive", 18 }, .{ "kozah_alive", 19 },
+        .{ "_unused_20", 20 },       .{ "_unused_21", 21 },    .{ "fixed_gate_alive", 22 },
+        .{ "warp_gate_alive", 23 },  .{ "_unused_24", 24 },    .{ "_unused_25", 25 },
+        .{ "_unused_26", 26 },       .{ "czar_alive", 29 },    .{ "ghost_alive", 30 },
+        .{ "_unused_31", 31 },       .{ "reliant_alive", 32 }, .{ "chapter2_thread3_shown", 34 },
+        .{ "_unknown_35", 35 },      .{ "yamato_alive", 36 },
+    };
+    for (numbered) |named| assert(Variables.number(named[0]) == named[1]);
+    assert(@sizeOf(Variables) == Variables.count * @sizeOf(u32));
+}
 
 test Variables {
     var variables: Variables = .{};

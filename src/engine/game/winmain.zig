@@ -412,11 +412,11 @@ const shuttle = "fortbearshuttle_.bik";
 
 /// The movie of a total failure (`0x004AA5AD` on): after missions 25 and 27, the shuttle at Fort
 /// Bear where the landing would be none (`landing.lastWithoutLanding`); on the Reliant, the pilot's
-/// transfer off it where the game's variable 32 is set, and otherwise, as on the Yamato, off the
+/// transfer off it where `reliant_alive` is set, and otherwise, as on the Yamato, off the
 /// Yamato.
 fn careerOver(mission: u16, variables: *vm.Variables) []const u8 {
     if (landing.lastWithoutLanding(mission, variables)) return shuttle;
-    const on_reliant = rooms.Carrier.of(mission) == .reliant and variables.slot(landing.mission8_on_reliant).* != 0;
+    const on_reliant = rooms.Carrier.of(mission) == .reliant and variables.reliant_alive != 0;
     return transfer.get(if (on_reliant) .reliant else .yamato);
 }
 
@@ -451,7 +451,7 @@ test afterMission {
     try std.testing.expect(!second_part);
     try std.testing.expectEqual(6, afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).goes_on.next);
     try std.testing.expectEqual(.story_end, std.meta.activeTag(afterMission(&campaign, &player, &variables, gameflow.last_mission, &second_part, 0, &wingmen)));
-    // A total failure ends the career: off the Reliant where variable 32 is set, as a new
+    // A total failure ends the career: off the Reliant where `reliant_alive` is set, as a new
     // campaign has it; off the Yamato after mission 18; and after mission 25, where the landing
     // would be none, the shuttle.
     variables.mission_success = .total_failure;
@@ -459,7 +459,7 @@ test afterMission {
     player.ending = .playing;
     try std.testing.expectEqualStrings(transfer.get(.yamato), afterMission(&campaign, &player, &variables, 20, &second_part, 0, &wingmen).career_over);
     player.ending = .playing;
-    variables.slot(landing.last_missions_land).* = 0;
+    variables.yamato_alive = 0;
     try std.testing.expectEqualStrings(shuttle, afterMission(&campaign, &player, &variables, 25, &second_part, 0, &wingmen).career_over);
     // Picked up twice, the campaign goes on; the third time, the pilot is transferred.
     variables.mission_success = .success;
