@@ -1,0 +1,63 @@
+name: Feature request
+description: Something OpenReliant doesn't do yet that you'd like it to, in the game, for mods and scripts, or in the tools.
+labels: [feature request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! A feature request asks for something new: a feature the original game had that OpenReliant still lacks, an improvement over the original, or something mods and scripts can't do yet.
+
+        If something is broken, or works differently from the original game, please use the bug report instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where it belongs.
+      options:
+        - Gameplay and missions
+        - Graphics
+        - Sound
+        - Controls
+        - Menus and interface
+        - Mods
+        - Scripting
+        - Tools, such as sltool
+        - Website and documentation
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: wanted
+    attributes:
+      label: What you'd like
+      description: What OpenReliant should do, in a few sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What it would let you do, or the problem it solves. For a mod, what you're making and where you got stuck.
+    validations:
+      required: true
+  - type: dropdown
+    id: original
+    attributes:
+      label: Does the original game have it?
+      description: OpenReliant aims to play like the original, so it helps to know whether this is missing from the original's features or new.
+      options:
+        - No, it's new
+        - Yes, the original has it and OpenReliant doesn't yet
+        - I don't know
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How it could work
+      description: Optional. Your ideas for how it could look or work, examples from other games or mods, or for scripting, the functions you'd want.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, sketches, example files or links. Drag them in here.
