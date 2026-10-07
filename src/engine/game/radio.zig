@@ -287,8 +287,8 @@ pub const Remarks = struct {
 /// Who makes the squadron's remarks: Moose, pilot 2 of the pilots' table, the 45th Tigers', after
 /// mission `hudmovie.last_volunteers_mission`, and pilot 4, the 45th Volunteers', through it
 /// (`0x0045681C`).
-const tigers_moose: u16 = 2;
-const volunteers_moose: u16 = 4;
+const tigers_moose: u16 = @intCast(pilots.GamePilot.moose_tigers.number());
+const volunteers_moose: u16 = @intCast(pilots.GamePilot.moose_volunteers.number());
 
 fn moose(all: *const create.Objects) u16 {
     return if (all.mission_number > hudmovie.last_volunteers_mission) tigers_moose else volunteers_moose;

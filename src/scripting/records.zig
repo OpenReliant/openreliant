@@ -188,7 +188,10 @@ pub const Set = enum {
                 .missiles => for (std.enums.values(game.missiles.GameMissile)) |missile| {
                     if (missile != .none) named = named ++ .{Named{ .name = @tagName(missile), .number = @intCast(@backingInt(missile)) }};
                 },
-                .pilots, .faces, .text, .itac_text => {},
+                .pilots, .faces => for (std.enums.values(game.pilots.GamePilot)) |pilot| {
+                    named = named ++ .{Named{ .name = @tagName(pilot), .number = @backingInt(pilot) }};
+                },
+                .text, .itac_text => {},
             }
             return named;
         }

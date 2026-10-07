@@ -700,7 +700,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .in_front_end = options.mission == null,
         .scripts = &game_scripts,
         .modes = &game_modes,
-        .mode_tables = .{ .own = &own_records, .tables = tables, .objects = objects },
+        .mode_state = .{ .own = &own_records, .tables = tables, .objects = objects },
     };
     // The campaign's saved loadout, which `campaign_new` starts in the Predator, and which the
     // saved games keep.
@@ -923,6 +923,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .game_mode => |mode| {
                         game_modes.start(mode);
                         flow.mode_campaign = .begin();
+                        flow.mode_state.begin();
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
@@ -946,7 +947,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     // briefing in the game's briefing room where it has one.
                     .mode_mission => mode: {
                         const current = game_modes.current().?;
-                        try flow.mode_tables.apply(current);
+                        try flow.mode_state.apply(current);
                         var flight = modeFlight(&game_modes);
                         if (current.briefing_room) |carrier| {
                             const entry = game_modes.mission().?;
@@ -958,7 +959,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                                     flight.racks = result.racks;
                                 },
                                 .main_menu, .simulator => {
-                                    flow.mode_tables.restore();
+                                    flow.mode_state.restore();
                                     flow.toFrontEnd(&front);
                                     continue;
                                 },
@@ -1016,6 +1017,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             play.number = flight.mission;
             play.file_number = flight.file orelse flight.mission;
             play.objectives = flight.objectives;
+            play.wing = flight.wing;
             play.file = missionFile(io, arena, directory, &resources, play.file_number, objects.mission25_second_part) catch |err| switch (err) {
                 error.MissingMission => {
                     flow.toFrontEnd(&front);
@@ -1561,8 +1563,8 @@ const Flow = struct {
     restart_point: ?save.Save = null,
     /// The game modes the mods registered, and the one running while it does.
     modes: *scripting.game_modes.Registry,
-    /// The records the mode's script changes for its missions alone.
-    mode_tables: mode_records.ModeTables,
+    /// What the game mode keeps of its own for its missions: its records and its wingmen.
+    mode_state: mode_records.ModeState,
     /// The game mode's own record of its missions, which its debriefings show, kept apart from
     /// the campaign's; set as each mode starts.
     mode_campaign: ?game.gameflow.Campaign = null,
@@ -1600,15 +1602,16 @@ const Flow = struct {
 
 /// The flight of the mission the game mode that runs is at, which the main menu flies, in the
 /// mode's ship: from its file, as the number the mode flies it as, with the names it gives its
-/// objectives.
+/// objectives and the pilots it seats in the player's wing.
 fn modeFlight(modes: *const scripting.game_modes.Registry) game.interface.main_menu.Flight {
-    const ship = modes.current().?.ship;
+    const mode = modes.current().?;
     const entry = modes.mission().?;
     return .{
         .mission = entry.number,
         .file = entry.file,
         .objectives = if (entry.objectives) |*names| names else null,
-        .ship = if (ship) |chosen| @intCast(@backingInt(chosen)) else null,
+        .wing = mode.wing_pilots orelse &.{},
+        .ship = if (mode.ship) |chosen| @intCast(@backingInt(chosen)) else null,
         .flier = .main_menu,
     };
 }
@@ -1720,12 +1723,12 @@ fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Pla
             const debriefed = try rooms.modeItac(record) orelse return false;
             if (debriefed == .replay) {
                 flow.modes.replay(place);
-                flow.mode_tables.restore();
+                flow.mode_state.restore();
                 flow.toBriefing(front);
                 return true;
             }
         }
-        flow.mode_tables.restore();
+        flow.mode_state.restore();
         switch (next) {
             .mission => flow.toBriefing(front),
             .over => if (mode.ending != null) flow.toEnding(front) else flow.toFrontEnd(front),
@@ -1737,7 +1740,7 @@ fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Pla
                 switch (try rooms.restart(all) orelse return false) {
                     .replay_from_briefing => flow.toBriefing(front),
                     .replay_from_launch => {
-                        try flow.mode_tables.apply(flow.modes.current().?);
+                        try flow.mode_state.apply(flow.modes.current().?);
                         flow.next = .{ .flight = flow.flown, .hangar = false };
                     },
                     .main_menu => flow.toFrontEnd(front),
@@ -1979,8 +1982,10 @@ const Play = struct {
     /// game mode can set apart (`game.interface.main_menu.Flight.file`).
     number: u16,
     file_number: u16 = 0,
-    /// The names a game mode gives the mission's objectives, if it gives any.
+    /// The names a game mode gives the mission's objectives, if it gives any, and the pilots it
+    /// seats in the player's wing.
     objectives: ?*const game.hud.Objectives.Names = null,
+    wing: []const game.pilots.Number = &.{},
     /// The mission's file as read, of which each start binds a copy, as the game reads the file
     /// again for each.
     file: []const u8,
@@ -2032,6 +2037,7 @@ const Play = struct {
             .call_sign = play.pilot.call_sign.slice(),
             .file = play.file_number,
             .objectives = play.objectives,
+            .wing = play.wing,
         }, try play.gpa.dupe(u8, play.file), play.number);
         const all = orders.world.objects;
         if (play.presentation) |shown| {
