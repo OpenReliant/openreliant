@@ -40,7 +40,7 @@ The `srmemory.dll` import thunks and the [C runtime](runtime.md) follow. A file 
 
 Placed functions place their literals, which place further functions, until nothing changes. A literal that contradicts the others has a user the listing does not show, and is left out.
 
-Code no string places lies between two placed files: the end of one, the start of the next, or files without a path. The Sources tree puts it under `unplaced`, named for the files around it (`aidock.cpp .. aifight.cpp`). `videoreports.cpp` and `environfx.cpp` have no code placed.
+Code no string places lies between two placed files: the end of one, the start of the next, or files without a path. The Sources tree puts it under `unplaced`, named for the files around it (`aidock.cpp .. aifight.cpp`).
 
 Variables used by one function usually lie in that function's file, but not always, so they place nothing here.
 

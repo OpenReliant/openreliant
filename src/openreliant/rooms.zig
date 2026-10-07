@@ -244,9 +244,11 @@ pub const Driver = struct {
 
     /// The ITAC (`itac`) in its loop, for `run`, as the campaign comes to mission `mission`: how it
     /// ends, or null where the game quits meanwhile. Its sounds end as it does (`0x0043FB3D`), and
-    /// with none flown, it closes at once.
+    /// then it opens the archive of the carrier's disc again, which a video report may have
+    /// changed (`0x0043FC31`). With none flown, it closes at once.
     pub fn itac(driver: *Driver, run: itac_module.Run, mission: u16) !?ItacEnd {
         const flown = if (driver.campaign_flown.*) |*going| going else return .closed;
+        defer driver.movies.disc.open(rooms.Carrier.of(mission).disc());
         const pilot: itac_module.Pilot = .{
             .call_sign = driver.pilot.call_sign.slice(),
             .kills = driver.player.kills.count,

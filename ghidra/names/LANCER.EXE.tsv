@@ -2598,7 +2598,7 @@ address	kind	name	type	comment
 005231c0	data	itac_ticks	int	The ticks of itac_timer
 005231c4	data	itac_font_small	void *	inter\itac\itacsml.fnt
 005231c8	data	itac_scroll_least	int	How far the box last written can scroll
-005251dc	data	itac_video_request	void *	The video report VIDEO REPORTS asks the ITAC to play
+005251dc	data	itac_video_request	void *	The video report VIDEO REPORTS asks the ITAC to play, which the ITAC's loop plays after the frame (0x0043F883): every sound ended, the archive of its disc opened, its movie played (play_bink_movie_resourced), then the hum and the section's picture again
 005d6094	data	itac_replay_offered	int	Set by WinMain for the ITAC after a mission, which offers REPLAY MISSION for the latest debriefing
 00562e2c	data	mission_ratings	short[28]	How each mission of the campaign was rated as it ended, by mission_number less 1; mission_end_record keeps it, but for the last
 00562e9c	data	mission_pickups	short[28]	The campaign's pickups by a nanny ship where one picked the ejected pilot up in each mission, by mission_number less 1 (pickup_count)
@@ -2760,7 +2760,7 @@ address	kind	name	type	comment
 0052abd0	data	debug_message_shown	short	Set as a debug message is written (debug_message), which nothing in the retail build reads
 0044dd90	function	news_enter	void (void)	NEWS REPORTS opened, the ITAC's section 1: lists the items after the missions flown (news_list_build), reads inter\itac\newsrep.spr into news_pictures, chooses the latest, steps the list on as far as it goes (news_list_next), and sets the body's box: pane 1, its arrows at 0x004EB408, 258 by 210 at (34, 91), at the top of its text
 0044de50	function	news_leave	void (void)	NEWS REPORTS left: frees news_pictures, where news_open, and asks for a rebuild
-0044de90	function	itac_section_rebuild	void (void)	The third handler most of the ITAC's sections share, as a section is loaded: asks for a rebuild (itac_rebuild) and clears the panes (itac_panes_reset)
+0044de90	function	itac_section_rebuild	void (void)	The third handler of NEWS REPORTS, VIDEO REPORTS and either side's fighters and ships, as the section is loaded: asks for a rebuild (itac_rebuild) and clears the panes (itac_panes_reset)
 0044dea0	function	news_update	void (void)	NEWS REPORTS each pass: builds where itac_rebuild asks, wiping all three panes in; a press on another listed item chooses it and builds again, the list's pane left, holding the ITAC (itac_pause); the list's arrows at 0x004EB3E8 step it on and back (itac_repeat); and scrolls the body (itac_scroll_text_update)
 0044df90	function	news_list_next	void (void)	Steps NEWS REPORTS' list on by one, no further than to show its last item at the foot of twelve
 0044dfc0	function	news_list_previous	void (void)	Steps NEWS REPORTS' list back by one, to its first at most
@@ -2781,3 +2781,24 @@ address	kind	name	type	comment
 00524e6c	data	news_pictures	void *	inter\itac\newsrep.spr, while NEWS REPORTS is open
 00524e70	data	news_list_first	int	The place of the first item NEWS REPORTS' list shows
 00524e74	data	news_open	byte	Set while NEWS REPORTS is open, its pictures read
+00450540	function	video_reports_enter	void (void)	VIDEO REPORTS opened, the ITAC's section 2: chooses the first report, starts the list from its first, sets the body's box (pane 0, its arrows at video_reports_text_arrows, at (34, 103), 258 by 156, text drawn by video_reports_text_draw), lists the reports whose mission is below mission_number (dynamiclist_append onto video_reports_list), and reads inter\itac\vidrep.spr into video_reports_pictures
+00450600	function	video_reports_leave	void (void)	VIDEO REPORTS left: frees video_reports_pictures, where video_reports_open
+00450630	function	video_reports_update	void (void)	VIDEO REPORTS each pass: builds where itac_rebuild asks, wiping all three panes in; a press on another listed report chooses it and builds again, holding the ITAC (itac_pause); the list's arrows step it back to 0 at most, or on to its count less those shown less one, which is -1 where all show (itac_repeat); a press on the play button plays the chosen report (video_reports_play); then the body scrolls (itac_scroll_text_update)
+00450760	function	video_reports_draw	void (float fade)	VIDEO REPORTS drawn, while video_reports_open: the film strip, shape 0x23 at (297, 97), and the chosen report's still drawn at the top left of a buffer 116 by 91 that is never cleared, with block 0x1A's palette (block 0's for shapes 25 and below) at fade; rows 64 to 89 of the buffer copied to (317, 96), all of it to (317, 130), and rows 0 to 25 to (317, 228); then the panes (itac_panes_draw). Its memory names videoreports.cpp
+004508d0	function	video_reports_build	void __fastcall (char wipe)	VIDEO REPORTS' panes built for the report chosen, after the text sound: its title in capitals (CharUpperBuffA) at (2, 2) in pane 2, in (58, 209, 255), wiping in at (34, 77), 258 by 20; the body (video_reports_text_draw), wiping in at (34, 101), 258 by 165; the list (video_reports_list_draw); and where wipe, the list's pane wiping in at (470, 104), 150 by 246
+00450a90	function	video_reports_text_draw	void (void)	The chosen report's paragraphs, two at most and ended early by 9, into itac_text with \n\n between them, written into the body's pane in (255, 146, 58) (itac_scroll_text_draw); reads video_reports_items at video_reports_selected rather than the list
+00450ba0	function	video_reports_list_draw	void (void)	VIDEO REPORTS' list from video_reports_list_first into pane 1: each title broken into lines of 134 at most, 11 apart, from (10, 1), a blank line between two, at most eleven, the one at video_reports_selected less video_reports_list_first in (58, 209, 255) and the rest in (255, 146, 58); each a hotspot at x 474, level with its text, 140 wide
+00450cc0	function	video_reports_play	void (void)	VIDEO REPORTS' play button: waits for the left button to come up, pumping the messages (message_pump), then asks the ITAC to play the chosen report (itac_video_request)
+004ee5b0	data	video_reports_items	byte[456]	VIDEO REPORTS' six reports of 0x4C bytes: the links video_reports_list threads them on, the string of the title at +0x0C, two paragraphs' strings from +0x0E ended early by 9, the still's shape at +0x12, at +0x14 the mission after which it is listed, the movie's name at +0x18, and at +0x4A the part of the campaign it comes from, 1 the Reliant's and 2 the Yamato's, whose disc the ITAC opens to play it
+004ee778	data	video_reports_text_arrows	short[8]	VIDEO REPORTS' body's two arrows, each x, y, width and height
+004ee788	data	video_reports_play_button	short[4]	VIDEO REPORTS' play button: x, y, width and height
+004ee790	data	video_reports_list_arrows	short[8]	VIDEO REPORTS' list's two arrows, each x, y, width and height
+004ee7a0	data	video_reports_pictures_name	char[22]	inter\itac\vidrep.spr, VIDEO REPORTS' stills
+00525108	data	video_reports_open	byte	Set while VIDEO REPORTS is open, its stills read
+0052510c	data	video_reports_list	void *	The video reports listed, threaded on their own links (video_reports_enter)
+00525110	data	video_reports_hotspots	short[44]	VIDEO REPORTS' listed reports' hotspots, each x, y, width and height
+005251b0	data	video_reports_box	byte[36]	VIDEO REPORTS' body's scrolling box
+005251d4	data	video_reports_selected	int	The VIDEO REPORTS report chosen, by its place in video_reports_list
+005251d8	data	video_reports_hotspot_count	int	How many of video_reports_hotspots the list has laid out
+005251e0	data	video_reports_list_first	int	The place of the first report VIDEO REPORTS' list shows; -1 once its arrow steps it on with every report shown
+005251e4	data	video_reports_pictures	void *	inter\itac\vidrep.spr, while VIDEO REPORTS is open

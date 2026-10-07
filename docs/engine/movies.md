@@ -234,7 +234,8 @@ the movie opens the disc of the mission's carrier.
   the mission ended or a medal's ceremony ([Around a mission](#around-a-mission)).
 - In mission 18, Foster's last stand, `foster.bik`, as its script asks ([In a mission](#in-a-mission)).
 - The ITAC plays its own in its loop, its sections' movies in and out, and on the Reliant the pilot's
-  eye read ([The ITAC](itac.md)).
+  eye read. VIDEO REPORTS plays a report's movie again from its disc's archive on a cleared screen,
+  such as `new_intro.bik` or `foster.bik` ([The ITAC](itac.md#video-reports)).
 
 ## In OpenReliant
 

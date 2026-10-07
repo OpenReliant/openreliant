@@ -10,9 +10,10 @@ picture of its own that its text is written on; the last button closes it. Its s
 ## In OpenReliant
 
 [`game/itac.zig`](../../src/engine/game/itac.zig) runs the ITAC,
-[`game/itac/debriefing.zig`](../../src/engine/game/itac/debriefing.zig) is DEBRIEFINGS, and
-[`game/itac/news_reports.zig`](../../src/engine/game/itac/news_reports.zig) is NEWS REPORTS. The lit
-shapes, the debriefings' texts and the news items are in
+[`game/itac/debriefing.zig`](../../src/engine/game/itac/debriefing.zig) is DEBRIEFINGS,
+[`game/itac/news_reports.zig`](../../src/engine/game/itac/news_reports.zig) is NEWS REPORTS, and
+[`game/videoreports/section.zig`](../../src/engine/game/videoreports/section.zig) is VIDEO REPORTS.
+The lit shapes, the debriefings' texts, the news items and the video reports are in
 [`game/itac/tables.zig`](../../src/engine/game/itac/tables.zig), which `make itac-tables` derives
 from the executable. The driver runs the loop
 (`Driver.itac` in [`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), from the rooms and
@@ -20,9 +21,8 @@ after each mission of the campaign.
 
 Ported so far: the ITAC's loop, with its movies, its sections' pictures and titles, the fades of
 their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds;
-DEBRIEFINGS with REPLAY MISSION; and NEWS REPORTS. Not yet: the other sections, which show their
-pictures with nothing written on them: VIDEO REPORTS
-([#462](https://github.com/OpenReliant/openreliant/issues/462)), the fighters
+DEBRIEFINGS with REPLAY MISSION; NEWS REPORTS; and VIDEO REPORTS. Not yet: the other sections, which
+show their pictures with nothing written on them: the fighters
 ([#463](https://github.com/OpenReliant/openreliant/issues/463)), the capital ships
 ([#464](https://github.com/OpenReliant/openreliant/issues/464)), the squadrons
 ([#465](https://github.com/OpenReliant/openreliant/issues/465)) and the personnel
@@ -39,11 +39,18 @@ pictures with nothing written on them: VIDEO REPORTS
 - After a mission, the game opens DEBRIEFINGS after its movie in, so that the figures fading in over
   the movie are those of whichever debriefing was chosen last. OpenReliant opens it before, as the
   rooms open NEWS REPORTS.
-- As another debriefing or news item is chosen, the game holds the screen still for half a second,
-  drawing nothing (`itac_pause`, `0x00440170`). OpenReliant shows it at once.
-- With no news item listed, NEWS REPORTS draws the picture of the record before its table's first;
-  OpenReliant draws none. And it copies an item's title into a room of 60 bytes whatever its length;
-  OpenReliant keeps what fits.
+- As another debriefing, news item or video report is chosen, the game holds the screen still for
+  half a second, drawing nothing (`itac_pause`, `0x00440170`). OpenReliant shows it at once.
+- With no news item listed, NEWS REPORTS draws the picture of the record before its table's first,
+  and with no report listed, VIDEO REPORTS crashes, though the campaign always lists one;
+  OpenReliant shows none. NEWS REPORTS and VIDEO REPORTS copy a title into a room of 60 and 500
+  bytes whatever its length; OpenReliant keeps what fits.
+- Where VIDEO REPORTS' list shows every report, its arrow steps the list's first on to -1, after
+  which the list lights the report after the chosen one, and a press on a report chooses the one
+  before it. OpenReliant keeps the first at 0 or more.
+- VIDEO REPORTS draws a still, 116 by 90, into a buffer a column wider and a row taller that it never
+  clears, so that the film strip's frames show what the memory held down their right edge and
+  along their foot. OpenReliant shows black there.
 
 **Improvements:**
 
@@ -164,3 +171,49 @@ the latest is chosen, and the list steps on so that it shows at the foot.
 | "(more)" | Right edge at (292, 306) |
 | Picture | (302, 100) |
 | List | (470, 101), 150 by 256, the titles from x 480, 134 wide; arrows at (515, 368) and (540, 368), 25 by 25 |
+
+## VIDEO REPORTS
+
+`C:\lancer\game\videoreports.cpp` holds VIDEO REPORTS, the war's video reports
+(`video_reports_items`, `0x004EE5B0`, 6 records). It lists those whose missions come before the one
+the campaign has come to (`video_reports_enter`, `0x00450540`), so that the first shows before
+mission 1. Each has a title, two paragraphs, a still of `inter\itac\vidrep.spr`, which the section
+reads as it opens and lets go of as it is left (`video_reports_leave`, `0x00450600`), and a movie in
+a disc's archive. As it opens, the first is chosen.
+
+| Report | Listed after mission | Movie | Disc |
+|---|---|---|---|
+| 1 | 0 | `new_intro.bik` | 2 |
+| 2 | 7 | `new_chapter1.bik` | 2 |
+| 3 | 13 | `new_chapter2.bik` | 2 |
+| 4 | 18 | `foster.bik` | 2 |
+| 5 | 19 | `new_chapter3.bik` | 1 |
+| 6 | 21 | `new_chapter4.bik` | 1 |
+
+- The title, in capitals, in (58, 209, 255).
+- The body, in (255, 146, 58), which the arrows below it scroll: the two paragraphs, a blank line
+  between them. "(more)" marks a body that runs past its box.
+- The film strip (`video_reports_draw`, `0x00450760`): shape 0x23 of the stills, and the report's
+  still three times down it, like frames of a film: its foot, all of it and its head. Both fade
+  with the section and use block 26's palette.
+- The list of the titles, at most eleven from the first shown, a blank line between each two, the
+  chosen in (58, 209, 255). A press on one chooses it, and its title and body wipe in again; the
+  arrows step the list on and back.
+- The play button. A press holds the screen until the left button is up (`video_reports_play`,
+  `0x00450CC0`). After the frame, the ITAC ends every sound, opens the archive of the report's disc
+  and plays its movie on a screen cleared to black (`play_bink_movie_resourced`). Then its hum
+  plays again, and the sounds now and then start over as when it came on (`0x0043F883` on).
+
+A report holds the part of the campaign it comes from, 1 for the Reliant's and 2 for the Yamato's,
+and its movie lies on the disc of that carrier's rooms: the second for the Reliant, the first for
+the Yamato. As the ITAC closes, it opens the archive of the carrier's disc again (`0x0043FC31`),
+which a report may have changed.
+
+| What | Where |
+|---|---|
+| Title | (34, 77), 258 by 20, the title at (36, 79) |
+| Body | (34, 101), 258 by 165, scrolled in a box 156 high from y 103; arrows at (135, 277) and (160, 277), 25 by 25 |
+| "(more)" | Right edge at (292, 264) |
+| Film strip | Frame at (297, 97); the still's buffer, 116 by 91: its rows 64 to 89 at (317, 96), all of it at (317, 130), and its rows 0 to 25 at (317, 228) |
+| Play button | (360, 277), 40 by 40 |
+| List | (470, 104), 150 by 246, the titles from (480, 105), 134 wide; arrows at (514, 368) and (541, 368), 27 by 27 |

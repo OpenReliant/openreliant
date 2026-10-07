@@ -1,8 +1,8 @@
 //! The radio's menu (`comms_menu_run`, `0x00455D40`), which the display's window 11 shows while
 //! COMMS WINDOW holds it open, and whose number keys choose its items: pages of items, each leading
 //! to another page, and pages that do what their item says and close the window. The pages and
-//! what they do lie among the radio's code, from `0x00453A70` to `0x00455D40`. **Unverified:**
-//! that the code is `videoreports.cpp`'s, as the radio's is.
+//! what they do lie among the radio's code, from `0x00453A70` to `0x00455D40`. **Unknown:** their
+//! file, as for the rest of the radio ([#810](https://github.com/OpenReliant/openreliant/issues/810)).
 //!
 //! Not ported: a multiplayer game's pages (`Page.multiplayer` to `Page.deny`), which list the other
 //! players, send them messages and the wingmen's commands, and answer another player's request,

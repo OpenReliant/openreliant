@@ -1,7 +1,8 @@
-//! `C:\lancer\game\videoreports.cpp`: the radio's reports, the lines the pilots say with their
-//! faces in the radio's window (`Radio`). **Unverified:** no string places its code; the link
-//! order puts it after `loadout.cpp`, where the code that queues the reports and makes the radio's
-//! remarks lies, from `0x00456050` to `0x00456F00`.
+//! The radio's reports, the lines the pilots say with their faces in the radio's window (`Radio`),
+//! and the ITAC's VIDEO REPORTS (`section`), which `C:\lancer\game\videoreports.cpp` holds. The
+//! radio's code, from `0x00456050` to `0x00456F00`, comes from a file without a path, as other
+//! files' code lies between it and VIDEO REPORTS; it is to get a module of its own
+//! ([#810](https://github.com/OpenReliant/openreliant/issues/810)).
 //!
 //! The reports (`Report`) wait their time and are then said as lines: PERMISSION TO LAND's answer
 //! and the wingmen's replies to their commands (`wingmen`) queue them. The remarks (`Remarks`) are
@@ -33,10 +34,12 @@ const events = @import("mission/events.zig");
 
 pub const wingmen = @import("videoreports/wingmen.zig");
 pub const menu = @import("videoreports/menu.zig");
+pub const section = @import("videoreports/section.zig");
 
 test {
     _ = wingmen;
     _ = menu;
+    _ = section;
 }
 
 /// The lines `stem` numbered from `first` to `last`, as `_amt_001.ut`, as the radio's tables list

@@ -9,7 +9,6 @@
 const std = @import("std");
 
 const canvas_module = @import("../interface/canvas.zig");
-const language = @import("../language.zig");
 const itac_module = @import("../itac.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
@@ -37,8 +36,8 @@ const title = 0;
 const body = 1;
 const list = 2;
 
-/// The title, in capitals (`CharUpperBuffA`, `language.upperCase`) in the headers' colour, where it
-/// stands in its pane (`0x0044E15A`), and the room its copy has (`0x0044E0A0`).
+/// The title, in capitals (`itac.capitals`) in the headers' colour, where it stands in its pane
+/// (`0x0044E15A`), and the room its copy has (`0x0044E0A0`).
 const title_at: [2]i32 = .{ 2, 2 };
 const title_room = 60;
 
@@ -49,24 +48,18 @@ const body_box: ScrollBox = .{
     .rect = .{ .x = 34, .y = 91, .width = 258, .height = 210 },
 };
 
-/// The list of the items (`news_list_draw`, `0x0044E370`): each title broken into lines of at most
-/// `entry_width`, `entry_line` apart, from `entry_x` across in the pane, a blank line below the
-/// last, at most `most_listed` of them from the first shown; the chosen in the headers' colour.
-/// Each is a hotspot `hotspot_width` wide from `hotspot_x` across and `hotspot_below` further down
-/// than its text, as tall as its lines. Its arrows (`0x004EB3E8`) step through it.
-const entry_x = 10;
-const entry_width = 134;
-const entry_line = 11;
-const entry_most_lines = 20;
-const hotspot_x = 474;
-const hotspot_below = 3;
-const hotspot_width = 140;
+/// The list of the items' titles (`news_list_draw`, `0x0044E370`), at most `most_listed` from the
+/// first shown, the first at the top of its pane, each hotspot 3 below its text. Its arrows
+/// (`0x004EB3E8`) step through it.
+const title_list: itac_module.TitleList = .{ .pane = list_pane, .top = 0, .hotspot_below = 3 };
 const most_listed = 12;
 const list_arrows = [2]Rect{ .{ .x = 515, .y = 368, .width = 25, .height = 25 }, .{ .x = 540, .y = 368, .width = 25, .height = 25 } };
 
 pub const NewsReports = struct {
-    /// The items listed, by their places in `tables.news` (`news_list`, `0x00524E40`).
+    /// The items listed, by their places in `tables.news` (`news_list`, `0x00524E40`), and the
+    /// strings of their titles.
     items: [tables.news.len]u8 = undefined,
+    titles: [tables.news.len]u16 = undefined,
     item_count: u8 = 0,
     /// The item chosen, by its place in the list (`news_selected`, `0x00524D78`); none where none
     /// is listed.
@@ -77,8 +70,6 @@ pub const NewsReports = struct {
     /// (`news_pictures`, `0x00524E6C`).
     open: bool = false,
     pictures: ?canvas_module.Shapes = null,
-    /// Whether it builds its panes on its next update (`itac_rebuild`, `0x0052032C`).
-    rebuild: bool = false,
     box: ScrollBox = body_box,
     /// The entries the list shows, each a hotspot (`news_hotspots`, `0x00524D80`).
     listed: [most_listed]itac_module.ListEntry = undefined,
@@ -96,19 +87,14 @@ pub const NewsReports = struct {
         news.selected = std.math.sub(u8, news.item_count, 1) catch null;
         news.first = news.lastFirst();
         news.layOut(itac);
-        news.rebuild = true;
+        itac.rebuild = true;
         news.open = true;
     }
 
     /// `news_list_build` (`0x0044E490`): the items whose missions come before `mission`, the one
     /// the campaign has come to, in the table's order.
     fn listItems(news: *NewsReports, mission: u16) void {
-        news.item_count = 0;
-        for (tables.news, 0..) |item, index| {
-            if (item.mission >= mission) continue;
-            news.items[news.item_count] = @intCast(index);
-            news.item_count += 1;
-        }
+        news.item_count = itac_module.listBefore(&tables.news, mission, &news.items, &news.titles);
     }
 
     /// The furthest the list steps on, with its last item at the foot of those shown
@@ -117,20 +103,13 @@ pub const NewsReports = struct {
         return news.item_count -| most_listed;
     }
 
-    /// `news_leave` (`0x0044DE50`): the pictures let go of, where it is open.
-    pub fn leave(news: *NewsReports, gpa: std.mem.Allocator) void {
+    /// `news_leave` (`0x0044DE50`): the pictures let go of, where it is open, and a build asked for.
+    pub fn leave(news: *NewsReports, itac: *Itac) void {
         if (!news.open) return;
-        if (news.pictures) |*pictures| pictures.deinit(gpa);
+        if (news.pictures) |*pictures| pictures.deinit(itac.context.rooms.gpa);
         news.pictures = null;
-        news.rebuild = true;
+        itac.rebuild = true;
         news.open = false;
-    }
-
-    /// The handler the most of the sections share as they are loaded (`itac_section_rebuild`,
-    /// `0x0044DE90`): built on the next update, the panes hidden.
-    pub fn loaded(news: *NewsReports, itac: *Itac) void {
-        news.rebuild = true;
-        itac.panes = @splat(.{});
     }
 
     /// `news_update` (`0x0044DEA0`), each pass: a build asked for, another item chosen from the
@@ -139,9 +118,9 @@ pub const NewsReports = struct {
     /// **Fix:** as another item is chosen, the game holds the screen still for half a second
     /// (`itac_pause`, `0x00440170`), drawing nothing. OpenReliant shows the item at once.
     pub fn update(news: *NewsReports, itac: *Itac) void {
-        if (news.rebuild) {
+        if (itac.rebuild) {
             news.build(itac, true);
-            news.rebuild = false;
+            itac.rebuild = false;
         }
         if (itac.left) if (itac_module.entryAt(news.listed[0..news.listed_count], itac.pointer.at)) |place| if (news.selected != place) {
             news.selected = place;
@@ -180,14 +159,7 @@ pub const NewsReports = struct {
     /// The body of `item` (`news_text_draw`, `0x0044E260`): its paragraphs, a blank line between
     /// each two.
     fn write(news: *NewsReports, itac: *Itac, item: tables.NewsItem) void {
-        var writer: std.Io.Writer = .fixed(&news.text);
-        for (item.paragraphs, 0..) |id, n| {
-            if (n > 0) writer.writeAll(itac_module.between) catch {};
-            writer.writeAll(itac.string(id)) catch {};
-        }
-        news.text_len = writer.end;
-        const font = &(itac.small orelse return).font;
-        news.box.reach(news.box.lines().count(font, news.bodyText()));
+        news.text_len = itac.writeParagraphs(&news.text, item.paragraphs, &news.box);
     }
 
     fn bodyText(news: *const NewsReports) []const u8 {
@@ -197,22 +169,7 @@ pub const NewsReports = struct {
     /// The list's entries laid out from the first shown, as its drawing lays them out, each a
     /// hotspot.
     fn layOut(news: *NewsReports, itac: *Itac) void {
-        news.listed_count = 0;
-        const font = &(itac.small orelse return).font;
-        var y: i32 = 0;
-        var place = news.first;
-        while (place < news.item_count and news.listed_count < most_listed) : (place += 1) {
-            const item = tables.news[news.items[place]];
-            const lines: i32 = @intCast(entryLines().count(font, itac.string(item.title)));
-            news.listed[news.listed_count] = .{ .place = place, .top = y, .rect = .{
-                .x = hotspot_x,
-                .y = @intCast(list_pane.y + y + hotspot_below),
-                .width = hotspot_width,
-                .height = @intCast(lines * entry_line),
-            } };
-            news.listed_count += 1;
-            y += (lines + 1) * entry_line;
-        }
+        news.listed_count = title_list.layOut(itac, news.titles[0..news.item_count], news.first, &news.listed);
     }
 
     /// `news_draw` (`0x0044DFE0`) at `fade`, while it is open: the chosen item's picture at `fade`,
@@ -231,7 +188,7 @@ pub const NewsReports = struct {
         }
         if (!itac.panesShow()) return;
         try news.drawPanes(itac, canvas);
-        if (!itac.frozen and news.box.more(itac.panes[title].wiping != 0)) try itac.drawMore(canvas, news.box);
+        try itac.drawMore(canvas, news.box);
     }
 
     /// The panes as they have wiped in: the title, the body as far as it is scrolled, and the list.
@@ -240,17 +197,10 @@ pub const NewsReports = struct {
         const item = news.chosen() orelse return;
         if (itac.panes[title].showing()) |shown| {
             var buffer: [title_room]u8 = undefined;
-            try canvas.within(shown).text(small, .{ title_pane.x + title_at[0], title_pane.y + title_at[1] }, capitals(&buffer, itac.string(item.title)), itac_module.header_colour, .left);
+            try canvas.within(shown).text(small, .{ title_pane.x + title_at[0], title_pane.y + title_at[1] }, itac_module.capitals(&buffer, itac.string(item.title)), itac_module.header_colour, .left);
         }
         if (itac.panes[body].showing()) |shown| try news.box.drawText(canvas, small, body_pane, shown, news.bodyText());
-        if (itac.panes[list].showing()) |shown| {
-            const in_pane = canvas.within(shown);
-            for (news.listed[0..news.listed_count]) |entry| {
-                const colour = if (news.selected == entry.place) itac_module.header_colour else itac_module.text_colour;
-                const listed_title = itac.string(tables.news[news.items[entry.place]].title);
-                try in_pane.wrapped(small, .{ list_pane.x + entry_x, list_pane.y + entry.top }, listed_title, colour, .left, entryLines());
-            }
-        }
+        if (itac.panes[list].showing()) |shown| try title_list.write(itac, canvas, shown, news.titles[0..news.item_count], news.listed[0..news.listed_count], news.selected);
     }
 };
 
@@ -261,33 +211,11 @@ fn paletteOf(place: u8) usize {
     return palettes[2];
 }
 
-/// `text` in capitals, in `buffer`.
-///
-/// **Fix:** the game copies a title into its room whatever its length; OpenReliant keeps what fits.
-fn capitals(buffer: *[title_room]u8, text: []const u8) []const u8 {
-    const kept = buffer[0..@min(text.len, title_room - 1)];
-    @memcpy(kept, text[0..kept.len]);
-    language.upperCase(kept);
-    return kept;
-}
-
-/// How a list's entry breaks into lines.
-fn entryLines() Canvas.Lines {
-    return .{ .width = entry_width, .height = entry_line, .most = entry_most_lines };
-}
-
 test paletteOf {
     try std.testing.expectEqual(0, paletteOf(0));
     try std.testing.expectEqual(0, paletteOf(10));
     try std.testing.expectEqual(13, paletteOf(11));
     try std.testing.expectEqual(26, paletteOf(20));
-}
-
-test capitals {
-    var buffer: [title_room]u8 = undefined;
-    try std.testing.expectEqualStrings("CONVOY HIT", capitals(&buffer, "Convoy hit"));
-    // A title too long for the room keeps what fits.
-    try std.testing.expectEqual(title_room - 1, capitals(&buffer, &@as([80]u8, @splat('a'))).len);
 }
 
 test "NewsReports.listItems" {
