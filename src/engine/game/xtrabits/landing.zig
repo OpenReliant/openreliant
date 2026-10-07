@@ -128,32 +128,32 @@ const zoom_before_yamato = "thread_zoom.bik";
 const zoom_from_yamato = "rthread_zoom.bik";
 
 /// A news report: its movie, which plays where each of the game's variables `unless` names is other
-/// than 1, and the variable it then sets to 1, where it sets one.
+/// than 1, and the variable it then sets to 1, where it sets one. The variables are the game's,
+/// by number (`vm.Variables`).
 const Report = struct {
     movie: []const u8,
     unless: []const u8,
     sets: ?u8 = null,
 };
 
-/// The reports after a chapter's movie, by the mission that ends it (`0x004AC07F` on). The
-/// variables are the game's, by number (`vm.Variables`): all but 34 are the campaign's flags, which
-/// a new campaign sets (`gameflow.newCampaign`) and a mission's script may clear, and each attempt
-/// at a mission clears 34 (`gameflow.resetVariables`). What each stands for is not known
-/// ([#381](https://github.com/OpenReliant/openreliant/issues/381)). Mission 16's are never reached, as
-/// it ends no chapter.
+const flag = vm.Variables.number;
+
+/// The reports after a chapter's movie, by the mission that ends it (`0x004AC07F` on): each
+/// waits for the campaign's flag of what it reports to be cleared, as a ship destroyed. Mission
+/// 16's are never reached, as it ends no chapter.
 const news = [_]struct { mission: u16, reports: []const Report }{
     .{ .mission = 7, .reports = &.{
-        .{ .movie = "new_chapter1_thread1.bik", .unless = &.{18} },
+        .{ .movie = "new_chapter1_thread1.bik", .unless = &.{flag("rameses_alive")} },
     } },
     .{ .mission = 11, .reports = &.{
-        .{ .movie = "new_chapter2_thread1.bik", .unless = &.{29} },
-        .{ .movie = "new_chapter2_thread2.bik", .unless = &.{17} },
-        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{6}, .sets = 34 },
+        .{ .movie = "new_chapter2_thread1.bik", .unless = &.{flag("czar_alive")} },
+        .{ .movie = "new_chapter2_thread2.bik", .unless = &.{flag("krasnaya_alive")} },
+        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{flag("_unknown_6")}, .sets = flag("chapter2_thread3_shown") },
     } },
     .{ .mission = 16, .reports = &.{
-        .{ .movie = "new_chapter3_thread1.bik", .unless = &.{5} },
-        .{ .movie = "new_chapter3_thread2.bik", .unless = &.{23} },
-        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{ 6, 34 } },
+        .{ .movie = "new_chapter3_thread1.bik", .unless = &.{flag("mcgann_alive")} },
+        .{ .movie = "new_chapter3_thread2.bik", .unless = &.{flag("warp_gate_alive")} },
+        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{ flag("_unknown_6"), flag("chapter2_thread3_shown") } },
     } },
 };
 
@@ -180,17 +180,11 @@ fn reportsAfter(mission: u16, variables: *vm.Variables) Reports {
 /// Mission 27, which ends without the landing as mission 25's second part may.
 const mission27 = 27;
 
-/// The variable that, clear, has mission 25's second part and mission 27 end without the landing
-/// (`0x004ABEA7`), and the one that, clear, has mission 8 end on the Yamato, as mission 7 always
-/// does (`0x004ABF09`, `0x004AC1F0`). Both are the campaign's flags.
-pub const last_missions_land = 36;
-pub const mission8_on_reliant = 32;
-
-/// Whether mission `number` is mission 25 or 27 with `last_missions_land` clear: no landing plays
+/// Whether mission `number` is mission 25 or 27 with `yamato_alive` clear (`0x004ABEA7`): no landing plays
 /// after it, where it is 25's second part, and a total failure in it ends the pilot's career in the
 /// shuttle at Fort Bear (`winmain.afterMission`).
 pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
-    return (number == winmain.second_part_mission or number == mission27) and variables.slot(last_missions_land).* == 0;
+    return (number == winmain.second_part_mission or number == mission27) and variables.yamato_alive == 0;
 }
 
 /// `play_landing_movie` (`0x004ABDE0`) after mission `mission` ended as `ending`: what it plays by
@@ -198,10 +192,10 @@ pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
 /// news report may set; null for nothing. `second_part` is mission 25's second part
 /// (`mission25_second_part`).
 ///
-/// Nothing plays after mission 25's second part or mission 27 where `last_missions_land` is clear, nor where
+/// Nothing plays after mission 25's second part or mission 27 where `yamato_alive` is clear, nor where
 /// the ship was sent home (`Ending.sentHome`). A mission that ends a chapter, unless the
 /// script rated it a total failure, ends in the chapter; any other in the landing, on the Yamato
-/// from mission 18 on and after mission 7, and after mission 8 where `mission8_on_reliant` is
+/// from mission 18 on and after mission 7, and after mission 8 where `reliant_alive` is
 /// clear, and on the Reliant otherwise. Mission 7's and 8's landings on the Yamato take a failure's
 /// thread and bank, whatever the rating.
 pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.Variables) ?Landing {
@@ -217,7 +211,7 @@ pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.V
         .movie = chapter_movies[chapter],
         .reports = reportsAfter(number, variables),
     } };
-    const visiting = number == 7 or (number == 8 and variables.slot(mission8_on_reliant).* == 0);
+    const visiting = number == 7 or (number == 8 and variables.reliant_alive == 0);
     if (visiting) return .{ .touchdown = yamato.touchdown(.failure) };
     return .{ .touchdown = (if (onYamato(number)) yamato else reliant).touchdown(rating) };
 }
@@ -261,7 +255,7 @@ test "missions 7 and 8 land on the Yamato" {
     try std.testing.expectEqualStrings("ylande.fat", seven.bank.?);
     variables.mission_success = .success;
     try std.testing.expectEqualStrings("r_h_land.bik", landing(8, false, .playing, &variables).?.touchdown.movie);
-    variables.slot(mission8_on_reliant).* = 0;
+    variables.reliant_alive = 0;
     const eight = landing(8, false, .playing, &variables).?.touchdown;
     try std.testing.expectEqualStrings("yamland_generic.bik", eight.movie);
     try std.testing.expectEqualStrings("thread04.bik", eight.thread.?);
@@ -276,7 +270,7 @@ test "a chapter's end, and its news" {
     try std.testing.expectEqualStrings("new_chapter1.bik", first.movie);
     try std.testing.expectEqual(0, first.reports.count);
     // A flag the script cleared calls for its report.
-    variables.slot(18).* = 0;
+    variables.rameses_alive = 0;
     try std.testing.expectEqualStrings("new_chapter1_thread1.bik", landing(7, false, .playing, &variables).?.chapter.reports.slice()[0]);
     // Mission 11's third report marks itself played.
     variables.slot(29).* = 0;
@@ -303,9 +297,9 @@ test "no landing" {
     variables.mission_success = .success;
     // Sent home for destroying a friend.
     try std.testing.expectEqual(null, landing(3, false, .friendly_fire, &variables));
-    // Mission 25's second part and mission 27 once `last_missions_land` is clear; 251 counts as 25.
+    // Mission 25's second part and mission 27 once `yamato_alive` is clear; 251 counts as 25.
     try std.testing.expect(landing(27, false, .playing, &variables) != null);
-    variables.slot(last_missions_land).* = 0;
+    variables.yamato_alive = 0;
     try std.testing.expectEqual(null, landing(27, false, .playing, &variables));
     try std.testing.expectEqual(null, landing(25, true, .playing, &variables));
     try std.testing.expectEqual(null, landing(winmain.second_part_number, true, .playing, &variables));
@@ -315,7 +309,7 @@ test "no landing" {
 test lastWithoutLanding {
     var variables = campaign();
     try std.testing.expect(!lastWithoutLanding(25, &variables));
-    variables.slot(last_missions_land).* = 0;
+    variables.yamato_alive = 0;
     try std.testing.expect(lastWithoutLanding(25, &variables));
     try std.testing.expect(lastWithoutLanding(27, &variables));
     try std.testing.expect(!lastWithoutLanding(26, &variables));

@@ -1989,6 +1989,21 @@ address	kind	name	type	comment
 0052a45c	data	last_success	int	Script variable 27: mission_end_record's copy of mission_success as a mission the player comes through ends with a rating other than a total failure; mission 25's second part weighs its own rating by it
 0052a460	data	objectives_met	int	Script variable 28: set by the script once the mission's objectives are met; the debriefing of a mission the ejected pilot was picked up in picks string 0x720 by it, and 0x721 without it (0x00424ECE, 0x0042545B)
 0052a468	data	ghost_alive	int	Script variable 30: whether mission 1's Ghost lives, 1 in a new campaign; mission 1's script clears it as Ghost dies and mission 4's reads it
+0052a404	data	mcgann_alive	int	Script variable 5, a campaign flag: whether McGann lives, 1 in a new campaign; mission 15 clears it as his Phoenix is destroyed
+0052a40c	data	ivan_petrov_alive	int	Script variable 7, a campaign flag: whether Ivan Petrov lives; mission 28 clears it, and ending_movies_play plays his news report once it is clear
+0052a410	data	kulov_alive	int	Script variable 8, a campaign flag: whether Kulov lives; mission 28 clears it, and ending_movies_play plays his news report once it is clear
+0052a41c	data	al_rahan_alive	int	Script variable 11, a campaign flag: whether Al-Rahan lives, 0 in a new campaign; mission 7 clears it and mission 24 sets it as it starts
+0052a420	data	sharif_alive	int	Script variable 12, a campaign flag: whether Sharif lives, 0 in a new campaign; mission 9 clears it and nothing reads it
+0052a424	data	steiner_alive	int	Script variable 13, a campaign flag: whether Steiner lives; mission 28 clears it, and ending_movies_play picks one of his two news reports by it
+0052a434	data	krasnaya_alive	int	Script variable 17, a campaign flag: whether the Krasnaya got away in mission 8; the end of chapter 2 plays new_chapter2_thread2.bik once it is clear
+0052a438	data	rameses_alive	int	Script variable 18, a campaign flag: whether the Rameses survived mission 7; the end of chapter 1 plays new_chapter1_thread1.bik once it is clear
+0052a43c	data	kozah_alive	int	Script variable 19, a campaign flag: whether Kozah lives; mission 9 clears it and nothing reads it
+0052a448	data	fixed_gate_alive	int	Script variable 22, a campaign flag: whether mission 3's fixed gate stands, which missions 4, 11, 20 and 26 read
+0052a44c	data	warp_gate_alive	int	Script variable 23, a campaign flag: whether mission 16's warp gate stands; read only by the news report after mission 16, which never plays
+0052a464	data	czar_alive	int	Script variable 29, a campaign flag: whether the Czar survived mission 11; the end of chapter 2 plays new_chapter2_thread1.bik once it is clear
+0052a470	data	reliant_alive	int	Script variable 32, a campaign flag: whether the Reliant flies; missions 7, 8 and 18 clear it. It picks mission 8's landing and the transfer movie of a career's end
+0052a478	data	chapter2_thread3_shown	int	Script variable 34: set as the end of chapter 2 plays new_chapter2_thread3.bik; mission_reset_variables clears it before each attempt
+0052a480	data	yamato_alive	int	Script variable 36, a campaign flag: whether the Yamato lives; once it is clear, missions 25 and 27 end without the landing, and a total failure in them in the shuttle at Fort Bear
 0052a474	data	countdown	int	Script variable 33: seconds left, which mission 29's script sets; game_tick takes one off at every 100th of mission_ticks (0x00477889) and the display shows it as a clock in mission 29 (0x00486221)
 0052a484	data	ion_cannons_hold_lock	int	Script variable 37: while it is set, the Dark Reign's ion cannon (aiioncan.cpp, order 110) keeps its target rather than losing it or giving up its search (0x0040D40F, 0x0040D7D9)
 00474b40	function	friendly_fire_send_home	void __fastcall (int slot)	Outside a multiplayer game, for the player's ship while mission_ending is 0 and its current order has no priority: the mission's ending 6, or 7 where +0x678 is 3, Friendly Fire pushed aimed as the current order, and flag 0x10000000 set; for another player's slot without a prioritised order, Jump Out and the flag

@@ -16,6 +16,7 @@ const Io = std.Io;
 const files = @import("../../files.zig");
 const input = @import("../../input.zig");
 const profile = @import("../../profile.zig");
+const vm = @import("../../vm.zig");
 const loadout = @import("../../interface/loadout/loadout.zig");
 const loadout_tables = @import("../../interface/loadout/tables.zig");
 const additions = @import("../additions.zig");
@@ -182,8 +183,15 @@ pub const version: i32 = 1;
 pub const Vars = [30]i32;
 
 /// The game's variables a saved game keeps, by number, in the order `VARS` holds them
-/// (`game_save`, `0x004757A0`; `game_load`, `0x004754DC`).
-pub const kept_variables = [_]u8{ 16, 17, 18, 19, 20, 21, 5, 22, 23, 6, 7, 8, 11, 12, 13, 24, 25, 26, 27, 29, 30, 31, 32, 34, 36 };
+/// (`game_save`, `0x004757A0`; `game_load`, `0x004754DC`): the campaign's flags and
+/// `last_success`.
+pub const kept_variables = vm.Variables.numbers(.{
+    "_unused_16",     "krasnaya_alive",   "rameses_alive",   "kozah_alive", "_unused_20",        "_unused_21",
+    "mcgann_alive",   "fixed_gate_alive", "warp_gate_alive", "_unknown_6",  "ivan_petrov_alive", "kulov_alive",
+    "al_rahan_alive", "sharif_alive",     "steiner_alive",   "_unused_24",  "_unused_25",        "_unused_26",
+    "last_success",   "czar_alive",       "ghost_alive",     "_unused_31",  "reliant_alive",     "chapter2_thread3_shown",
+    "yamato_alive",
+});
 
 /// The game's variables `game_load` clears before it puts back those the save keeps
 /// (`0x004754DA`).

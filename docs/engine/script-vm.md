@@ -98,6 +98,39 @@ it in the game; OpenReliant gives every number a byte names a variable of its ow
 | 33 | `countdown` | Seconds left, which mission 29's script sets. The game takes one off at every 100th tick of the mission (`0x00477889`), and in Instant Action's simulator and in mission 29 the display shows it as a clock in minutes and seconds, none below 0 (`0x004861FD`) |
 | 37 | `ion_cannons_hold_lock` | While it is set, the Dark Reign's ion cannon (order 110) keeps its target rather than losing it as the target flies into its cone or out of its angle, or giving up a long search in a multiplayer game (`0x0040D40F`, `0x0040D7D9`) |
 
+### The campaign's flags
+
+The campaign's flags hold the state of the story: who lives and which ships and gates survived. A
+new campaign sets most of them to 1, the scripts clear them as the story goes, and the pilot's saved
+game keeps them. The engine reads some of them to pick the movies between missions
+([Movies](movies.md)) and at the story's end. A custom campaign can give the flags stories of its
+own: what the engine does with each is in the last column.
+
+| Number | Name | In the shipped campaign | What the engine does with it |
+|---|---|---|---|
+| 5 | `mcgann_alive` | Whether McGann lives. Mission 15 clears it as his Phoenix is destroyed; mission 9 reads it | The news report after mission 16 plays once it's clear, but mission 16 ends no chapter, so it never plays |
+| 6 | | Mission 27 clears it as it starts. `mission191.dte`, which the campaign never flies, reads it as its Petrov wing's leader alive. **Unknown:** what mission 27 clears it for | The third news report after mission 11 (`new_chapter2_thread3.bik`) plays once it's clear, which it never is then |
+| 7 | `ivan_petrov_alive` | Whether Ivan Petrov lives. Mission 28 clears it as his Basilisk is destroyed | The story's end plays his news report once it's clear |
+| 8 | `kulov_alive` | Whether Kulov lives. Mission 28 clears it as the Boridin breakaway is destroyed | The story's end plays his news report once it's clear |
+| 11 | `al_rahan_alive` | Whether Al-Rahan lives, 0 in a new campaign. Mission 7 clears it as he dies, and mission 24 sets it as it starts, before it reads it | |
+| 12 | `sharif_alive` | Whether Sharif lives, 0 in a new campaign. Mission 9 clears it as he dies; nothing reads it | |
+| 13 | `steiner_alive` | Whether Steiner lives. Mission 28 clears it as his Wolverine is destroyed | The story's end plays one of his two news reports by it |
+| 17 | `krasnaya_alive` | Whether the Krasnaya got away in mission 8, which clears it as she's destroyed and sets it again as she jumps out | The second news report after mission 11 plays once it's clear |
+| 18 | `rameses_alive` | Whether the Rameses survived mission 7, which clears it as she's destroyed. Mission 24 brings the Rameses back while it's set | The news report after mission 7 plays once it's clear |
+| 19 | `kozah_alive` | Whether Kozah lives. Mission 9 clears it as his group is destroyed; nothing reads it | |
+| 22 | `fixed_gate_alive` | Whether mission 3's fixed gate stands: mission 3 sets it as it starts and clears it as the gate is destroyed. Missions 4, 11, 20 and 26 take other ways while it's set | |
+| 23 | `warp_gate_alive` | Whether mission 16's warp gate stands. Mission 16 clears it as the gate falls | The news report after mission 16 reads it, but never plays |
+| 29 | `czar_alive` | Whether the Czar survived mission 11, which clears it as she's destroyed | The first news report after mission 11 plays once it's clear |
+| 30 | `ghost_alive` | Whether Ghost lives. Mission 1 clears it as Ghost dies; mission 4 has Petrov say a line by it | |
+| 32 | `reliant_alive` | Whether the Reliant flies. Missions 7, 8 and 18 clear it as she's lost | While it's set, mission 8 ends in a landing on the Reliant rather than the Yamato, and a total failure on the Reliant ends the pilot's career in the transfer off the Reliant |
+| 34 | `chapter2_thread3_shown` | Never set in the shipped campaign, as the report that sets it never plays | Set as the third news report after mission 11 plays; cleared before each attempt at a mission |
+| 35 | | 1 in a new campaign and never cleared; mission 26 reads it. Not kept with the saved game. **Unknown:** what it was meant to hold | |
+| 36 | `yamato_alive` | Whether the Yamato lives. Mission 25's second part and mission 27 clear it as she's destroyed | Once it's clear, those missions end without the landing, and a total failure in them ends the pilot's career in the shuttle at Fort Bear |
+
+No script names variables 2, 16, 20, 21, 24, 25, 26 and 31: a new campaign sets 16, 20, 21 and 31 to
+1, and the saved game keeps all but 2. The news reports wait for a flag to be cleared, so a report
+plays once its ship or character is lost.
+
 Some variables belong to an attempt at a mission, and the rest to the campaign.
 `mission_reset_variables` (`0x00475620`) clears 0, 1, 3, 9, 10, 14, 28, 34 and 37 before each
 attempt. A new campaign (`campaign_new`, `0x004751B0`), which WinMain starts as the game starts,

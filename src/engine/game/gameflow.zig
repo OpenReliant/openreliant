@@ -20,10 +20,15 @@ pub const save = @import("gameflow/save.zig");
 /// How many of the game's variables `campaign_new` clears, from the first on (`0x004751B4`).
 const cleared_variables = 32;
 
-/// The game's variables a new campaign sets to 1 (`campaign_new`), by number: the campaign's flags,
-/// such as `ghost_alive`, and `mission_success`, which each attempt clears again. The rest of the
-/// campaign's start at 0.
-const campaign_flags = [_]u8{ 14, 16, 17, 18, 19, 20, 21, 5, 22, 23, 29, 30, 31, 32, 35, 13, 8, 7, 6, 36 };
+/// The game's variables a new campaign sets to 1 (`campaign_new`), in its order: the campaign's
+/// flags, such as `ghost_alive`, and `mission_success`, which each attempt clears again. The rest
+/// of the campaign's start at 0.
+const campaign_flags = vm.Variables.numbers(.{
+    "mission_success", "_unused_16",  "krasnaya_alive",    "rameses_alive",    "kozah_alive",
+    "_unused_20",      "_unused_21",  "mcgann_alive",      "fixed_gate_alive", "warp_gate_alive",
+    "czar_alive",      "ghost_alive", "_unused_31",        "reliant_alive",    "_unknown_35",
+    "steiner_alive",   "kulov_alive", "ivan_petrov_alive", "_unknown_6",       "yamato_alive",
+});
 
 /// `campaign_new` (`0x004751B0`) as a new campaign begins, which `WinMain` runs as the game starts:
 /// clears the first 32 of the game's variables, then sets the campaign's flags (`campaign_flags`).
@@ -71,7 +76,7 @@ pub fn resetVariables(variables: *vm.Variables) void {
     variables.ion_cannons_hold_lock = 0;
     variables.mission_success = .failure;
     variables.objectives_met = 0;
-    variables._unknown_34 = 0;
+    variables.chapter2_thread3_shown = 0;
 }
 
 /// The campaign as it goes from one mission to the next.
@@ -157,7 +162,7 @@ test restartPoint {
     try std.testing.expectEqual(.failure, variables.last_success);
     try std.testing.expectEqual(1, variables.ghost_alive);
     try std.testing.expectEqual(.partial_failure, variables.mission_success);
-    try std.testing.expectEqual(1, variables._unknown_35[1]);
+    try std.testing.expectEqual(1, variables.yamato_alive);
     try std.testing.expectEqual(30, variables.countdown);
     try std.testing.expectEqual(5, variables.beyond[0]);
 
