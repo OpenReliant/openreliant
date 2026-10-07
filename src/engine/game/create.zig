@@ -2142,7 +2142,7 @@ test "a player's ship takes the racks its loadout fitted" {
     var clock: main.Clock = .{};
     var player: @import("../input.zig").Player = .{};
     var shake: f32 = 0;
-    const world: gameobj.World = .{ .objects = all, .clock = &clock, .player = &player, .view = .cockpit, .shake = &shake, .random = &random };
+    const world: gameobj.World = .{ .objects = all, .clock = &clock, .player = &player, .view = .cockpit, .last_view = .cockpit, .shake = &shake, .random = &random };
     object.loadout_tier = 3;
     object.racks[0].count = 0;
     object.countermeasures = 0;

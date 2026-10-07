@@ -337,16 +337,17 @@ const Colour = @Vector(3, f32);
 const dark_red: Colour = .{ 0.5, 0, 0 };
 const white: Colour = @splat(1);
 
-const testing = struct {
+/// Fixtures for the tests of the missile lock.
+pub const testing = struct {
     /// An armed mission whose player aims at a hostile ship `ahead` along its nose, with its
     /// missiles in the display: a Raptor pod and a Havoc, the Havoc armed.
-    const Stage = struct {
+    pub const Stage = struct {
         armed: missiles.testing.Armed,
         ring: missile_display.Ring = .{},
         player: u16 = undefined,
         enemy: u16 = undefined,
 
-        fn init(stage: *Stage, ahead: f32) !void {
+        pub fn init(stage: *Stage, ahead: f32) !void {
             stage.* = .{ .armed = undefined };
             try stage.armed.init(std.testing.allocator);
             errdefer stage.armed.deinit();
@@ -357,7 +358,7 @@ const testing = struct {
             stage.armed.mission.clock.frame_duration = 10;
         }
 
-        fn deinit(stage: *Stage) void {
+        pub fn deinit(stage: *Stage) void {
             stage.armed.deinit();
         }
 

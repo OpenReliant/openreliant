@@ -1892,6 +1892,9 @@ pub const World = struct {
     /// How the Reliant's landing brings the ship down.
     touchdown: @import("ailand.zig").Touchdown = .level,
     view: camera.View,
+    /// Last frame's view (`camera_view_last`, `0x00539A64`), which the missile lock follows
+    /// (`main.runLock`).
+    last_view: camera.View,
     shake: *f32,
     /// The game's random numbers (`Random`), from which the guns' step draws a damaged gun's
     /// misfire.
@@ -2478,7 +2481,7 @@ pub const testing = struct {
         }
 
         pub fn world(mission: *Mission) World {
-            return .{ .objects = mission.objects, .player = &mission.player, .clock = &mission.clock, .view = mission.view, .shake = &mission.shake, .random = &mission.random };
+            return .{ .objects = mission.objects, .player = &mission.player, .clock = &mission.clock, .view = mission.view, .last_view = mission.view, .shake = &mission.shake, .random = &mission.random };
         }
 
         /// What the objects' orders run against.
