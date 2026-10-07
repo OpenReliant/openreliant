@@ -2,7 +2,7 @@
 //! which the player gives by their keys (`input.frameKeys`) or the radio's menu (`give`).
 //! **Unverified:** the code lies among the radio's, as PERMISSION TO LAND's does.
 //!
-//! The radio's menu (`videoreports.menu`) names the wingman, or the whole wing.
+//! The radio's menu (`radio.menu`) names the wingman, or the whole wing.
 //!
 //! Not ported: the command sent to another player of a multiplayer game (`0x004BA040`,
 //! `0x004BA080`, `0x004BA0C0`) ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
@@ -16,7 +16,7 @@ const gameobj = @import("../gameobj.zig");
 const math = @import("../../surrender/math.zig");
 const mission = @import("../mission.zig");
 const pilots = @import("../pilots.zig");
-const videoreports = @import("../videoreports.zig");
+const radio = @import("../radio.zig");
 
 /// A command to the wingmen.
 pub const Command = enum {
@@ -43,13 +43,13 @@ const Replies = struct {
     done: []const []const u8,
 };
 
-/// The ends of the wingmen's replies, the pilot's voice before them (`videoreports.shipLine`), by
+/// The ends of the wingmen's replies, the pilot's voice before them (`radio.shipLine`), by
 /// the command, from the set of replies most pilots have and from the fuller one
 /// (`pilots.Face.full_replies`): ATTACK MY TARGET's (`0x004EF3A0`, `0x004EF3B0`; `0x004EF370`,
 /// `0x004EF380`), BACK OFF's (`0x004EF434`, `0x004EF444`; `0x004EF3CC`, `0x004EF3E4`) and HELP
 /// ME's (`0x004EF4CC`, `0x004EF4DC`; `0x004EF464`, `0x004EF47C`).
 const replies = struct {
-    const numbered = videoreports.numbered;
+    const numbered = radio.numbered;
     const most = std.EnumArray(Command, Replies).init(.{
         .attack_my_target = .{ .busy = &numbered("_amt_", 1, 4), .done = &numbered("_amt_", 5, 8) },
         .back_off = .{ .busy = &numbered("_bkoff_", 1, 4), .done = &numbered("_bkoff_", 5, 9) },
@@ -94,16 +94,16 @@ const back_off_ticks = 3000;
 const most_attackers = gameobj.max_objects;
 
 /// `command`, given to the wingman `to` names. The pilot asks on the radio
-/// (`videoreports.playerSays`). ATTACK MY TARGET and BACK OFF are about the player's target
+/// (`radio.playerSays`). ATTACK MY TARGET and BACK OFF are about the player's target
 /// (`ai.playerControlEntry`), which they need; HELP ME about its attackers (`attackers`), which it
 /// needs too. A wingman free to (`standing`), which the game picks where none is named
 /// (`pick`), takes it: it fights the player's target; it stops (`aigeneric.pop`) and leaves the
 /// player's target be for `back_off_ticks` (`gameobj.GameObject.set_aside`); or it fights one of
-/// the attackers at random. It says so `videoreports.report_delay` ticks later
-/// (`videoreports.reportShip`). A wingman named that cannot now says so; one that has it in hand
+/// the attackers at random. It says so `radio.report_delay` ticks later
+/// (`radio.reportShip`). A wingman named that cannot now says so; one that has it in hand
 /// already says it does it, a wingman told to back off leaving the target be all the same.
 pub fn give(world: gameobj.World, command: Command, to: Addressee) void {
-    videoreports.playerSays(world, command.request());
+    radio.playerSays(world, command.request());
     const all = world.objects;
     var found: [most_attackers]u16 = undefined;
     const aim: Aim = switch (command) {
@@ -150,7 +150,7 @@ fn setAside(world: gameobj.World, wingman: u16) void {
 /// (`fullReplies` picks the set).
 fn answer(world: gameobj.World, wingman: u16, command: Command, reply: Standing) void {
     const said = (if (fullReplies(world.objects, wingman)) replies.full else replies.most).get(command);
-    videoreports.reportShip(world, wingman, if (reply == .busy) said.busy else said.done);
+    radio.reportShip(world, wingman, if (reply == .busy) said.busy else said.done);
 }
 
 /// `pilot_full_replies` (`0x004539A0`): whether the pilot of the ship in slot `index` answers from
@@ -242,10 +242,10 @@ fn attackers(all: *create.Objects, out: *[most_attackers]u16) ?[]const u16 {
 }
 
 /// Whether the report waiting first is the wingman's, one of `lines` in Bandit's voice.
-fn expectReply(heard: *const videoreports.testing.Heard, lines: []const []const u8) !void {
+fn expectReply(heard: *const radio.testing.Heard, lines: []const []const u8) !void {
     const report = heard.radio.reports[0] orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(i32, heard.wingman), report.object);
-    try std.testing.expectEqual(heard.mission.clock.game_ticks + videoreports.report_delay, report.due);
+    try std.testing.expectEqual(heard.mission.clock.game_ticks + radio.report_delay, report.due);
     const speech = report.speech.slice();
     try std.testing.expect(std.mem.startsWith(u8, speech, "ban_"));
     for (lines) |suffix| {
@@ -255,7 +255,7 @@ fn expectReply(heard: *const videoreports.testing.Heard, lines: []const []const 
 }
 
 test hostileTarget {
-    var heard: videoreports.testing.Heard = undefined;
+    var heard: radio.testing.Heard = undefined;
     _ = try heard.initWing();
     defer heard.deinit();
     const all = heard.mission.objects;
@@ -269,7 +269,7 @@ test hostileTarget {
 }
 
 test "ATTACK MY TARGET" {
-    var heard: videoreports.testing.Heard = undefined;
+    var heard: radio.testing.Heard = undefined;
     const world = try heard.initWing();
     defer heard.deinit();
     const all = heard.mission.objects;
@@ -297,7 +297,7 @@ test "ATTACK MY TARGET" {
 }
 
 test "BACK OFF" {
-    var heard: videoreports.testing.Heard = undefined;
+    var heard: radio.testing.Heard = undefined;
     const world = try heard.initWing();
     defer heard.deinit();
     const all = heard.mission.objects;
@@ -322,7 +322,7 @@ test "BACK OFF" {
 }
 
 test "HELP ME" {
-    var heard: videoreports.testing.Heard = undefined;
+    var heard: radio.testing.Heard = undefined;
     const world = try heard.initWing();
     defer heard.deinit();
     const all = heard.mission.objects;

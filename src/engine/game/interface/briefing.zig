@@ -36,7 +36,6 @@ const input = @import("../../input.zig");
 const cbox = @import("../cbox.zig");
 const hog_snd = @import("../hog_snd.zig");
 const matmanager = @import("../matmanager.zig");
-const videoreports = @import("../videoreports.zig");
 const canvas = @import("canvas.zig");
 const rooms = @import("rooms.zig");
 const loadout = @import("../../interface/loadout/loadout.zig");

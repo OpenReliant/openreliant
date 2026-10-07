@@ -628,7 +628,7 @@ pub const Machine = struct {
 
     /// `cmd_OpenInstrument` (`0x0045D9D0`, command `0x40`): the display's window the argument
     /// numbers opens (`hud.windows.Windows.open`) and is held open until the script closes it. The
-    /// radio's menu, window 11, starts from its top (`videoreports.menu.Menu.start`), and opening
+    /// radio's menu, window 11, starts from its top (`radio.menu.Menu.start`), and opening
     /// the objectives, window 10, closes the wing status window where it is up. **Unknown:** the
     /// byte after the window's hold (`+0x25`), which the command clears. **Unverified:** it lies
     /// among the interpreter's code, after `cmd_KillAllScriptExecutionExecptMe`, as

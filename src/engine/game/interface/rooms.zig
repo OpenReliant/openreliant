@@ -30,7 +30,7 @@ const cbox = @import("../cbox.zig");
 const gameflow = @import("../gameflow.zig");
 const hog_snd = @import("../hog_snd.zig");
 const hud = @import("../hud.zig");
-const videoreports = @import("../videoreports.zig");
+const radio = @import("../radio.zig");
 const movie = @import("../xtrabits/movie.zig");
 const canvas = @import("canvas.zig");
 const disc_module = @import("disc.zig");
@@ -413,7 +413,7 @@ pub const Context = struct {
     /// How Enriquez's scenes and words sound: the radio's style (`cbox.Style`), where she is heard
     /// as she speaks from a screen or in person (`Voice`).
     speech: cbox.Style,
-    /// `speech_hog`, which holds Enriquez's words in the briefing (`videoreports.speech_archive`);
+    /// `speech_hog`, which holds Enriquez's words in the briefing (`radio.speech_archive`);
     /// null where the game's folder has none.
     lines: ?*const hog.Archive = null,
     /// The campaign flown, whose mission before picks the crew the rooms show (`crew`); none
@@ -452,9 +452,9 @@ pub const Context = struct {
     }
 
     /// Reads the speech file `speech` from `speech_hog` (`hog_read_file`), with a mod's file taking
-    /// priority (`videoreports.readLine`); null if it can't be read.
+    /// priority (`radio.readLine`); null if it can't be read.
     pub fn readLine(context: Context, speech: []const u8) ?[]u8 {
-        return videoreports.readLine(context.gpa, context.resources.mods, if (context.lines) |lines| lines.* else null, speech);
+        return radio.readLine(context.gpa, context.resources.mods, if (context.lines) |lines| lines.* else null, speech);
     }
 };
 

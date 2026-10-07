@@ -29,7 +29,7 @@ const events = @import("mission/events.zig");
 const gameobj = @import("gameobj.zig");
 const objects = @import("objects.zig");
 const sound3d = @import("sound3d.zig");
-const videoreports = @import("videoreports.zig");
+const radio = @import("radio.zig");
 const xtrabits = @import("xtrabits.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
@@ -328,7 +328,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
 /// destroyed with it (`ai.objectDestroyed`). The exception is an escape pod leaving the Ulysses.
 /// Once StartLaunch sets `Data.go`, the launch waits a random delay of up to `most_delay` ticks,
 /// drawn from the ship's own numbers (`xtrabits.objectRandom15`), and then the style runs it from
-/// step 2. When the player's launch starts, the radio plays its line (`videoreports.launchLine`).
+/// step 2. When the player's launch starts, the radio plays its line (`radio.launchLine`).
 ///
 /// **Fix:** for a Launch aimed at nothing, the game reads the carrier from the word before its
 /// object table (`0x00587CDC`, `mission25_second_part`). Its assertion "Launch Crash Imminent"
@@ -352,7 +352,7 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
         }
         if (entry.data.launch.go and state.step == .waiting) {
             state.advance(.delaying, now, @intCast(xtrabits.objectRandom15(&slot.object) % most_delay));
-            if (index == all.player) videoreports.launchLine(ctx.world, carrier);
+            if (index == all.player) radio.launchLine(ctx.world, carrier);
         }
         if (state.step == .delaying and state.due < now) state.step = Step.styled;
     }

@@ -1,5 +1,5 @@
 //! Window 0, the radio's (`hud_window_draw`'s case 0, `0x00488035`): as a line is said
-//! ([`videoreports.zig`](../videoreports.zig)), a picture that settles out of noise on the emblem
+//! ([`radio.zig`](../radio.zig)), a picture that settles out of noise on the emblem
 //! of the speaker's side while the line waits for the window, then the film of the speaker's face
 //! ([`hudmovie.zig`](../hudmovie.zig)) under their name while the line plays. The window closes once
 //! the line is over, on the emblem.
@@ -13,7 +13,7 @@ const gameobj = @import("../gameobj.zig");
 const hog_snd = @import("../hog_snd.zig");
 const hud = @import("../hud.zig");
 const Random = @import("../../random.zig").Random;
-const videoreports = @import("../videoreports.zig");
+const radio_module = @import("../radio.zig");
 const windows = @import("windows.zig");
 
 /// The first of the shapes the window shows while the line waits for it, a friendly speaker's,
@@ -26,7 +26,7 @@ pub const ticks_per_shape = 4;
 
 comptime {
     // The emblem shows as the line starts.
-    assert(@divTrunc(videoreports.speech_delay - 1, ticks_per_shape) == shapes - 1);
+    assert(@divTrunc(radio_module.speech_delay - 1, ticks_per_shape) == shapes - 1);
 }
 
 /// Where the shapes and the film stand from the window's place, and the speaker's name.
@@ -40,7 +40,7 @@ pub fn firstShape(side: gameobj.Side(u16)) u16 {
 
 /// What window 0 shows from.
 pub const Shown = struct {
-    radio: *videoreports.Radio,
+    radio: *radio_module.Radio,
     /// What the line is heard through; none where nothing is heard.
     sound: ?*hog_snd.Sound,
     /// The camera's shake, which shakes the film a row at a time, and the game's random numbers

@@ -6,7 +6,7 @@
 //! textures from the texture cache, with their material maps, sprite shapes and TGA pictures.
 //! TrueType and OpenType fonts in a mod replace the game's fonts, and are drawn at the window's
 //! resolution (`hud.outline`). A mod's line of speech replaces the game's with or without the
-//! extension the game's code gives it, `.ut` (`videoreports.readLine`).
+//! extension the game's code gives it, `.ut` (`radio.readLine`).
 //!
 //! A mod is an archive in the game's format (a `.hog` file) or a folder of files, which is handy
 //! while making a mod. A folder is read the same way as the archive `sltool hog pack` would make
@@ -750,7 +750,7 @@ const Effect = union(enum) {
     /// without the extension.
     font: []const u8,
     /// It's a line of speech with the extension (`cbox.extension`) that replaces the game's line,
-    /// given without it (`videoreports.readLine`).
+    /// given without it (`radio.readLine`).
     line: []const u8,
     /// It adds a new file.
     added,

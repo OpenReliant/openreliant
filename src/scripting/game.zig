@@ -914,7 +914,7 @@ test "a script stops and retargets the orders given, and keeps one from ending" 
 }
 
 test "a script stops or changes the radio's lines" {
-    const videoreports = openreliant.engine.game.videoreports;
+    const radio_module = openreliant.engine.game.radio;
     const hog_snd = openreliant.engine.game.hog_snd;
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{
@@ -934,7 +934,7 @@ test "a script stops or changes the radio's lines" {
     defer fixture.deinit();
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    var archives: videoreports.testing.Archives = undefined;
+    var archives: radio_module.testing.Archives = undefined;
     try archives.init(gpa, io, &.{}, &.{});
     defer archives.deinit();
     var speaker: hog_snd.testing.Speaker = undefined;
@@ -942,8 +942,8 @@ test "a script stops or changes the radio's lines" {
     defer speaker.sound.shutdown();
     var radio = archives.radio(gpa, io);
     defer radio.deinit(&speaker.sound);
-    const ctx: videoreports.Context = .{ .sound = &speaker.sound, .windows = null, .all = fixture.mission.objects, .frame_start = 0 };
-    var line: videoreports.Line = .{ .film = "pilots\\static.fm8", .speech = "ms_speech\\ms_hudtr_001.ut", .name = null, .object = videoreports.nobody };
+    const ctx: radio_module.Context = .{ .sound = &speaker.sound, .windows = null, .all = fixture.mission.objects, .frame_start = 0 };
+    var line: radio_module.Line = .{ .film = "pilots\\static.fm8", .speech = "ms_speech\\ms_hudtr_001.ut", .name = null, .object = radio_module.nobody };
 
     // The simulator's line is stopped: nothing waits.
     radio.say(ctx, line, .queued);

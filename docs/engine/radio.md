@@ -2,13 +2,13 @@
 
 The radio queues the lines the pilots say and plays them with their faces in the display's window
 0, whose films `C:\lancer\game\hudmovie.cpp` plays ([face films](../formats/fm8.md)). OpenReliant
-ports both ([`game/videoreports.zig`](../../src/engine/game/videoreports.zig),
+ports both ([`game/radio.zig`](../../src/engine/game/radio.zig),
 [`game/hudmovie.zig`](../../src/engine/game/hudmovie.zig)), and the window's drawing
 ([`game/hud/radio.zig`](../../src/engine/game/hud/radio.zig)).
 
-**Unknown:** the radio's source file, which has no path. Its code lies after the missions' binding,
-and `videoreports.cpp`, whose module OpenReliant keeps it in for now, holds the ITAC's VIDEO REPORTS
-([#810](https://github.com/OpenReliant/openreliant/issues/810)).
+**Unknown:** the radio's source file, which has no path. Its code, from `0x00453A70` to
+`0x00456F00`, lies between `videoreports.cpp`'s and `Executor.cpp`'s, after the director's camera
+and the missions' binding.
 
 ## Lines
 

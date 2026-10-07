@@ -112,7 +112,7 @@ pub const Movie = struct {
     playing: bool = false,
     /// Set while the line said with the film waits for the window to open (`0x0057C298`), which
     /// holds the film at its first frame, and the ticks it has waited (`0x0057C3AC`), which the
-    /// display counts (`videoreports.Radio.waitForWindow`).
+    /// display counts (`radio.Radio.waitForWindow`).
     waiting: bool = false,
     waited: i32 = 0,
     /// The timer's time toward its next turn, in the game's ticks times `talkie.frames_per_second`.

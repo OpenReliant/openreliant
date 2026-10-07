@@ -28,7 +28,7 @@ const objects = @import("objects.zig");
 const particles = @import("particles.zig");
 const sound3d = @import("sound3d.zig");
 const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
-const videoreports = @import("videoreports.zig");
+const radio = @import("radio.zig");
 
 /// What Eject Player keeps in the object's order state.
 pub const PlayerState = extern struct {
@@ -81,7 +81,7 @@ pub const Stage = enum(i32) {
 /// the first part of that class in its root's child list, whatever part it hangs from
 /// (`objects.Model.rootChildren`), which leaves the ship as the pilot's pod (`separate`). The
 /// ship's Destroyed event is posted (`events.destroyed`), and a wingman of the player's wing has
-/// its words on the radio (`videoreports.wingmanEjected`).
+/// its words on the radio (`radio.wingmanEjected`).
 ///
 /// Not ported: a multiplayer game, in which nobody ejects so
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
@@ -95,7 +95,7 @@ pub fn init(ctx: Context, index: u16) void {
     } else return;
     separate(ctx, index, cockpit);
     events.destroyed(ctx.world, index, null);
-    if (index >= all.players and slot.object.wing == .player) videoreports.wingmanEjected(ctx.world, index);
+    if (index >= all.players and slot.object.wing == .player) radio.wingmanEjected(ctx.world, index);
 }
 
 /// How long the pod takes to shoot clear of its ship (`0x00415BB5`), and to drift before the pilot
@@ -282,7 +282,7 @@ pub fn update(ctx: Context, index: u16) void {
         },
         .drifting => {
             if (state.until >= now) return;
-            videoreports.mooseSaysOneOf(ctx.world, &calling_lines);
+            radio.mooseSaysOneOf(ctx.world, &calling_lines);
             state.stage = .called;
             state.until += calling_ticks;
         },
@@ -386,7 +386,7 @@ fn pickUp(ctx: Context, index: u16) void {
     world.player.ending = fate.ending();
     objects.setPlace(&pod.object, &pod.drawn, .{ .position = cutaway_place, .orientation = math.identity });
     pod.state.eject.stage = .picked_up;
-    videoreports.mooseSaysOneOf(world, switch (fate) {
+    radio.mooseSaysOneOf(world, switch (fate) {
         .rescued => &rescued_lines,
         .captured => &captured_lines,
         .killed => &killed_lines,
@@ -514,7 +514,7 @@ pub fn playerInit(ctx: Context, index: u16) void {
         display.eject_ticks = 0;
     }
     if (ctx.world.cockpit) |cockpit| main.cockpit.lightEmergency(cockpit);
-    videoreports.mooseSaysOneOf(ctx.world, &eject_calls);
+    radio.mooseSaysOneOf(ctx.world, &eject_calls);
 }
 
 /// `order_eject_player` (`0x00416450`): the player's controls run on until the ship's end, when it

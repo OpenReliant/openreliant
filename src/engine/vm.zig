@@ -218,7 +218,7 @@ pub const Variables = extern struct {
     /// `backup_available` (3): whether the carrier sends backup when the pilot asks for it. The
     /// radio's REQUEST BACKUP (`0x004558D0`) raises the mission's PlayerWantsBackup event for the
     /// first request while it is set, and the carrier refuses otherwise. The scripts set it as
-    /// backup can come and clear it as it can no longer (`videoreports.requestBackup`).
+    /// backup can come and clear it as it can no longer (`radio.requestBackup`).
     backup_available: u32 = 0,
     /// `player_missiles_left` (4): the missile display's counts together.
     player_missiles_left: u32 = 0,
@@ -246,7 +246,7 @@ pub const Variables = extern struct {
     /// the player's ship has landed.
     mission_over: u32 = 0,
     /// `landing_cleared` (10): whether PERMISSION TO LAND is granted, and the player's ship lands
-    /// (`videoreports.permissionToLand`). Mission 1's script sets it as the Reliant jumps in.
+    /// (`radio.permissionToLand`). Mission 1's script sets it as the Reliant jumps in.
     landing_cleared: u32 = 0,
     /// `al_rahan_alive` (11): whether Al-Rahan lives, 0 in a new campaign. Mission 7's script
     /// clears it as he dies, and mission 24's sets it as it starts, before any of its tests read

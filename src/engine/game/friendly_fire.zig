@@ -18,7 +18,7 @@ const aigeneric = @import("aigeneric.zig");
 const collision = @import("collision.zig");
 const gameobj = @import("gameobj.zig");
 const input = @import("../input.zig");
-const videoreports = @import("videoreports.zig");
+const radio = @import("radio.zig");
 
 /// What Moose's warnings keep, which `friendly_fire_reset` (`0x00474B20`) clears as `mission_run`
 /// starts a mission.
@@ -71,7 +71,7 @@ pub fn warn(world: gameobj.World, index: u16, attacker: u16, kind: collision.Kin
     kept.count = @min(kept.count + 1, held_count);
     kept.quiet_until = world.clock.game_ticks + warn_every;
     kept.damage = 0;
-    videoreports.mooseSaysOneOf(world, &warnings);
+    radio.mooseSaysOneOf(world, &warnings);
 }
 
 /// `player_friend_destroyed` (`0x00474E00`), as the player's blow destroys a friend (`onFriend`),
@@ -162,9 +162,9 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
         .told, ._unknown_3 => {
             const reliant = if (world.player.carrier) |carrier| world.objects.slots[carrier].object.type.base() == .reliant else false;
             const pilot = if (reliant) reliant_aborts else other_aborts;
-            videoreports.pilotSays(world, pilot, .talking, abort_line, .queued, .looping, videoreports.no_expiry);
+            radio.pilotSays(world, pilot, .talking, abort_line, .queued, .looping, radio.no_expiry);
         },
-        else => videoreports.mooseSaysOneOf(world, &home_lines),
+        else => radio.mooseSaysOneOf(world, &home_lines),
     }
 }
 
@@ -245,7 +245,7 @@ fn mix(steered: f32, own: f32) f32 {
 }
 
 test warn {
-    var heard: videoreports.testing.Heard = undefined;
+    var heard: radio.testing.Heard = undefined;
     try heard.init();
     defer heard.deinit();
     const world = heard.world();
@@ -256,7 +256,7 @@ test warn {
     warn(world, heard.wingman, 0, .bullet, 500);
     try std.testing.expectEqual(0, heard.radio.count);
     warn(world, heard.wingman, 0, .bullet, 500);
-    try heard.expectLine(0, videoreports.pilot_base + 4, &warnings);
+    try heard.expectLine(0, radio.pilot_base + 4, &warnings);
     try std.testing.expectEqual(0, kept.damage);
     try std.testing.expectEqual(100 + warn_every, kept.quiet_until);
     // Within the quiet, the damage mounts unsaid; after it, the count holds at one.
@@ -301,7 +301,7 @@ test destroyedFriend {
 }
 
 test "a player who destroys a friend is sent home, and lands" {
-    var heard: videoreports.testing.Heard = undefined;
+    var heard: radio.testing.Heard = undefined;
     try heard.init();
     defer heard.deinit();
     const world = heard.world();
@@ -325,7 +325,7 @@ test "a player who destroys a friend is sent home, and lands" {
     // As it starts, Moose says so, and the player flies on a while.
     heard.mission.clock.frame_start = 1000;
     init(ctx, 0);
-    try heard.expectLine(0, videoreports.pilot_base + 4, &home_lines);
+    try heard.expectLine(0, radio.pilot_base + 4, &home_lines);
     try std.testing.expectEqual(1000 + speaking_ticks, player.state.friendly_fire.until);
     heard.mission.clock.frame_start += speaking_ticks + 1;
     update(ctx, 0);

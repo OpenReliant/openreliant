@@ -51,6 +51,7 @@ pub const nebula = @import("game/nebula.zig");
 pub const objects = @import("game/objects.zig");
 pub const particles = @import("game/particles.zig");
 pub const pilots = @import("game/pilots.zig");
+pub const radio = @import("game/radio.zig");
 pub const shield = @import("game/shield.zig");
 pub const shieldfx = @import("game/shieldfx.zig");
 pub const shockwave = @import("game/shockwave.zig");

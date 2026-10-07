@@ -756,17 +756,17 @@ test "REQUEST BACKUP brings the mission's backup once" {
         .triggers = &.{triggers.testing.trigger(&parts, 0, .player_wants_backup, .always)},
     }, &.{@splat(0)});
     defer mission.deinit();
-    const videoreports = @import("../videoreports.zig");
+    const radio = @import("../radio.zig");
     var world = mission.world();
     world.variables = &mission.game.fixture.machine.variables;
 
     // With no backup to send, the request brings none.
-    videoreports.requestBackup(world);
+    radio.requestBackup(world);
     try std.testing.expectEqual(0, mission.events.count);
     // With backup to send, the first request brings it, and the next none.
     mission.game.fixture.machine.variables.backup_available = 1;
-    videoreports.requestBackup(world);
-    videoreports.requestBackup(world);
+    radio.requestBackup(world);
+    radio.requestBackup(world);
     mission.events.flush();
     try std.testing.expectEqual(1, mission.game.fixture.global(0));
     try std.testing.expect(mission.game.mission.player.remarks.backup_called);

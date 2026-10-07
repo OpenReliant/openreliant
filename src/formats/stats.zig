@@ -303,13 +303,13 @@ pub const Pilot = extern struct {
     skill: Skill,
     _unread_4e: u16,
     /// Copied to the pilot. The pilot answers the radio's What's your status? only if it's above 0
-    /// (`videoreports.menu`). **Unknown:** what else it does.
+    /// (`radio.menu`). **Unknown:** what else it does.
     _unknown_50: u16,
     _unread_52: u16,
     /// Copied to the pilot. **Unknown:** what it does.
     _unknown_54: u16,
     _unread_56: u16,
-    /// Copied to the pilot. The radio checks it without any effect (`videoreports.wingmen`).
+    /// Copied to the pilot. The radio checks it without any effect (`radio.wingmen`).
     /// **Unknown:** what it does.
     _unknown_58: u16,
     _unread_5a: u16,

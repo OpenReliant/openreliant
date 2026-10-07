@@ -52,7 +52,7 @@ const collision = @import("collision.zig");
 const sound3d = @import("sound3d.zig");
 const main = @import("main.zig");
 const vm = @import("../vm.zig");
-const videoreports = @import("videoreports.zig");
+const radio_module = @import("radio.zig");
 const winmain = @import("winmain.zig");
 const Clock = main.Clock;
 const Vector = math.Vector;
@@ -2084,7 +2084,7 @@ pub const Frame = struct {
     view: camera.View = .cockpit,
     sound: ?*hog_snd.Sound = null,
     /// The radio, whose window shows the speaker's face; none where nothing is heard.
-    radio: ?*videoreports.Radio = null,
+    radio: ?*radio_module.Radio = null,
     /// The game's variables, whose countdown the clock shows where the mission counts down.
     variables: ?*const vm.Variables = null,
 };
@@ -2093,7 +2093,7 @@ pub const Frame = struct {
 /// target, plays or ends the missile lock's tone (`missile_lock.Lock.sound`) and runs the devices'
 /// charges, in every view. In the view ahead from the cockpit it
 /// then draws the jump prompt, the target, the eject marker, the scanner and the status lights.
-/// In every view a line said waits for the radio's window (`videoreports.Radio.waitForWindow`);
+/// In every view a line said waits for the radio's window (`radio.Radio.waitForWindow`);
 /// in the views but the one ahead the view's name follows. Then, in the view ahead, the
 /// instruments: the readouts, the ship status indicator, the targeting cluster, the radar, the
 /// reticle and the clock. Last, in every view, the windows move on, and in the view ahead are
@@ -3546,7 +3546,7 @@ pub const Keys = struct {
 /// TARGET sounds `on` or `off`, MISSILE WINDOW `done`.
 ///
 /// Between the search under the reticle and the keys, while the radio's window is open, the
-/// radio's menu runs (`videoreports.menu.Menu.run`).
+/// radio's menu runs (`radio.menu.Menu.run`).
 ///
 /// Not yet ported: what the game does while a multiplayer game's chat line is typed
 /// (`chat_typing`, `0x00529FB8`), which leaves out every key after the radio's menu
@@ -3657,7 +3657,7 @@ pub const MovieHold = struct {
     /// Whether the radio was saying a line, which then goes on.
     speaking: bool,
 
-    pub fn begin(clock: *main.Clock, sound: *hog_snd.Sound, on_air: ?*videoreports.Radio) MovieHold {
+    pub fn begin(clock: *main.Clock, sound: *hog_snd.Sound, on_air: ?*radio_module.Radio) MovieHold {
         clock.paused = true;
         sound.pauseMusic(true);
         sound.pauseAll();
@@ -3668,7 +3668,7 @@ pub const MovieHold = struct {
         return .{ .speaking = speaking };
     }
 
-    pub fn end(hold: MovieHold, clock: *main.Clock, sound: *hog_snd.Sound, on_air: ?*videoreports.Radio) void {
+    pub fn end(hold: MovieHold, clock: *main.Clock, sound: *hog_snd.Sound, on_air: ?*radio_module.Radio) void {
         if (hold.speaking) if (on_air) |air| air.player.pause(sound, false);
         sound3d.pause(sound, false);
         sound.resumeAll();
@@ -4618,7 +4618,7 @@ pub const TargetScene = struct {
     all: *const create.Objects,
     mode: camera.CockpitMode,
     /// The ship whose line the radio's window names, where it shows
-    /// (`videoreports.Radio.speakingShip`).
+    /// (`radio.Radio.speakingShip`).
     speaker: ?u16 = null,
 };
 
@@ -5059,7 +5059,7 @@ pub const Radar = struct {
         reach: f32,
         /// The range's scale times `spread`, which `hud_radar` works out once.
         factors: Vector,
-        /// The ship whose line the radio's window names (`videoreports.Radio.speakingShip`).
+        /// The ship whose line the radio's window names (`radio.Radio.speakingShip`).
         speaker: ?usize,
         at: usize = 0,
 

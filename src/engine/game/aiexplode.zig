@@ -43,7 +43,7 @@ const objects = @import("objects.zig");
 const shockwave = @import("shockwave.zig");
 const GameObject = gameobj.GameObject;
 const Random = @import("../random.zig").Random;
-const videoreports = @import("videoreports.zig");
+const radio = @import("radio.zig");
 const xtrabits = @import("xtrabits.zig");
 
 /// What the order does, by what the object is.
@@ -354,11 +354,11 @@ fn shipInit(ctx: Context, index: u16) void {
 /// `explode_kill_credit` (`0x00408500`), as a ship's end begins: a kill for the player
 /// (`deathmatch.addKills`) where the player's ship struck it last and it is hostile, and a fighter
 /// by its type's class, a Kamov, a Kurgan or a Gurevich, which the radio remarks on
-/// (`videoreports.killRemark`); and where the ship flies in the player's wing, the radio's words on
-/// its loss (`videoreports.shipLost`). Meanwhile the ship is not marked exploding, so that its
-/// pilot may speak (`videoreports.Radio.sayShip`).
+/// (`radio.killRemark`); and where the ship flies in the player's wing, the radio's words on
+/// its loss (`radio.shipLost`). Meanwhile the ship is not marked exploding, so that its
+/// pilot may speak (`radio.Radio.sayShip`).
 ///
-/// It does nothing while the radio's channels are closed (`videoreports.Remarks.kill_credit`).
+/// It does nothing while the radio's channels are closed (`radio.Remarks.kill_credit`).
 ///
 /// Not ported: the other players' kills in a multiplayer game
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
@@ -372,9 +372,9 @@ pub fn killCredit(world: gameobj.World, index: u16) void {
     defer object.flags = flags;
     if (object.last_attacker.index() == all.player and object.side == .hostile and credited(slot)) {
         deathmatch.addKills(world.player, all, all.player, 1);
-        videoreports.killRemark(world, index);
+        radio.killRemark(world, index);
     }
-    if (object.wing == .player) videoreports.shipLost(world, index);
+    if (object.wing == .player) radio.shipLost(world, index);
 }
 
 /// Whether the player's kill of the ship in `slot` counts: a fighter by its type's class, a Kamov,

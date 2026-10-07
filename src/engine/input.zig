@@ -1152,7 +1152,7 @@ const hog_snd = @import("game/hog_snd.zig");
 const betty = hog_snd.betty;
 const ai = @import("game/ai.zig");
 const aigeneric = @import("game/aigeneric.zig");
-const videoreports = @import("game/videoreports.zig");
+const radio = @import("game/radio.zig");
 const objects = @import("game/objects.zig");
 const missiles = @import("game/missiles.zig");
 const cloak = @import("game/cloak.zig");
@@ -1195,10 +1195,10 @@ pub const Player = struct {
     /// launch's cutaway leaves out, and none from the mission's start until a launch names it.
     carrier: ?u16 = null,
     /// `0x0052987C`: the timer's tick from which PERMISSION TO LAND is heard again
-    /// (`videoreports.permissionToLand`).
+    /// (`radio.permissionToLand`).
     permission_heard_from: u32 = 0,
     /// Whether the pilot is female (`0x00562F16`), whose own lines the radio then plays in the
-    /// female voice (`videoreports.playerSays`). The pilot roster sets it (`pilot_roster.Pilot`), for
+    /// female voice (`radio.playerSays`). The pilot roster sets it (`pilot_roster.Pilot`), for
     /// each mission the front end starts.
     female: bool = false,
     /// The cutaway the player's launch from the Reliant shows.
@@ -1221,11 +1221,11 @@ pub const Player = struct {
     scanner: @import("game/main.zig").scanner.Scanner = .{},
     /// What the radio's remarks keep, and what the mission's script has them leave unsaid, which a
     /// mission's start clears.
-    remarks: videoreports.Remarks = .{},
+    remarks: radio.Remarks = .{},
     /// What Moose's warnings of the player's hits on friends keep, which a mission's start clears.
     friendly_fire: @import("game/friendly_fire.zig").Warnings = .{},
     /// The radio's menu, which the display's window 11 shows.
-    menu: videoreports.menu.Menu = .{},
+    menu: radio.menu.Menu = .{},
     /// The mission's odds of how the pilot fares after ejecting.
     rescue_odds: @import("game/aieject.zig").RescueOdds = .{},
     /// The pilot's kills over the whole campaign.
@@ -2136,7 +2136,7 @@ const Said = struct {
 const blind_fire_said: Said = .{ .on = .blind_fire_on, .off = .blind_fire_off };
 
 /// The wingmen's keys, and the command each gives (`frame_controls`, `0x0041453E`).
-const wingmen_keys = [_]struct { action: controls.Action, command: videoreports.wingmen.Command }{
+const wingmen_keys = [_]struct { action: controls.Action, command: radio.wingmen.Command }{
     .{ .action = .attack_my_target, .command = .attack_my_target },
     .{ .action = .back_off, .command = .back_off },
     .{ .action = .help_me, .command = .help_me },
@@ -2149,14 +2149,14 @@ const cloak_said: Said = .{ .on = .cloak_on, .off = .cloak_off };
 ///
 /// - ATTACK MY TARGET, BACK OFF and HELP ME, outside a multiplayer game and the simulator
 ///   (`create.Simulator.simulated`), while the player's target is a hostile ship that can be aimed
-///   at (`videoreports.wingmen.hostileTarget`), give their command to a wingman the game picks
-///   (`videoreports.wingmen.give`), with no sound of the display's.
+///   at (`radio.wingmen.hostileTarget`), give their command to a wingman the game picks
+///   (`radio.wingmen.give`), with no sound of the display's.
 /// - PERMISSION TO LAND, outside a multiplayer mission, asks the carrier to clear the player's
-///   ship to land (`videoreports.permissionToLand`), with no sound of the display's.
+///   ship to land (`radio.permissionToLand`), with no sound of the display's.
 /// - TOGGLE BLINDFIRE flips blind fire on a ship that carries it, and Betty says which, with no
 ///   sound of the display's.
 /// - COMMS WINDOW opens the radio's menu, window 11, held, and starts the menu from its top
-///   (`videoreports.menu.Menu.start`), and closes it once it is open.
+///   (`radio.menu.Menu.start`), and closes it once it is open.
 /// - WING STATUS WINDOW closes the objectives, then opens the wing status window or, up already,
 ///   closes it; its locked form holds the window open as it opens it, without a sound of its own.
 /// - GUNNERY WINDOW opens the gunnery window and turns to the ship's next group of guns, or out of
@@ -2199,11 +2199,11 @@ pub fn frameKeys(keys: FrameKeys) void {
     for (wingmen_keys) |key| {
         if (!devices.active(key.action, true) or multiplayer or simulated) continue;
         const world = keys.world orelse continue;
-        if (videoreports.wingmen.hostileTarget(world.objects) == null) continue;
-        videoreports.wingmen.give(world, key.command, .picked);
+        if (radio.wingmen.hostileTarget(world.objects) == null) continue;
+        radio.wingmen.give(world, key.command, .picked);
     }
     if (devices.active(.permission_to_land, true) and !multiplayer) {
-        if (keys.world) |world| videoreports.permissionToLand(world, keys.game_ticks);
+        if (keys.world) |world| radio.permissionToLand(world, keys.game_ticks);
     }
     if (devices.active(.toggle_blindfire, true) and display.blind_fire_fitted) {
         display.blind_fire = !display.blind_fire;
@@ -2403,7 +2403,7 @@ test frameKeys {
 }
 
 test "the wingmen's keys go unheard in the simulator" {
-    var heard: videoreports.testing.Heard = undefined;
+    var heard: radio.testing.Heard = undefined;
     const world = try heard.initWing();
     defer heard.deinit();
     const all = heard.mission.objects;

@@ -2,7 +2,7 @@
 //! COMMS WINDOW holds it open, and whose number keys choose its items: pages of items, each leading
 //! to another page, and pages that do what their item says and close the window. The pages and
 //! what they do lie among the radio's code, from `0x00453A70` to `0x00455D40`. **Unknown:** their
-//! file, as for the rest of the radio ([#810](https://github.com/OpenReliant/openreliant/issues/810)).
+//! file, as for the rest of the radio.
 //!
 //! Not ported: a multiplayer game's pages (`Page.multiplayer` to `Page.deny`), which list the other
 //! players, send them messages and the wingmen's commands, and answer another player's request,
@@ -21,9 +21,9 @@ const gameobj = @import("../gameobj.zig");
 const hud = @import("../hud.zig");
 const language = @import("../language.zig");
 const pilots = @import("../pilots.zig");
-const videoreports = @import("../videoreports.zig");
-const wingmen = videoreports.wingmen;
-const numbered = videoreports.numbered;
+const radio = @import("../radio.zig");
+const wingmen = radio.wingmen;
+const numbered = radio.numbered;
 
 /// A page of the menu (`0x00529530`), numbered as the game numbers them (`0x00455FD8`). Each page
 /// also names itself for a title (`0x00529FB4`), which nothing draws.
@@ -60,12 +60,12 @@ pub const Page = enum(i16) {
     praise = 16,
     /// Nothing, which no item leads to.
     nothing = 17,
-    /// PERMISSION TO LAND (`videoreports.permissionToLand`).
+    /// PERMISSION TO LAND (`radio.permissionToLand`).
     permission_to_land = 18,
-    /// REQUEST BACKUP (`videoreports.requestBackup`).
+    /// REQUEST BACKUP (`radio.requestBackup`).
     request_backup = 19,
     /// Open all channels, and close all channels: kills credited and remarked on, or not
-    /// (`videoreports.Remarks.kill_credit`).
+    /// (`radio.Remarks.kill_credit`).
     open_channels = 20,
     close_channels = 21,
     /// A multiplayer game's: the players, a player, a message to a player and to them all,
@@ -262,11 +262,11 @@ pub const Menu = struct {
             },
             .nothing => return true,
             .permission_to_land => {
-                videoreports.permissionToLand(world, world.clock.game_ticks);
+                radio.permissionToLand(world, world.clock.game_ticks);
                 return true;
             },
             .request_backup => {
-                videoreports.requestBackup(world);
+                radio.requestBackup(world);
                 return true;
             },
             .open_channels, .close_channels => {
@@ -377,14 +377,14 @@ const ace_answers = struct {
 };
 
 /// `0x00454870`: taunt `which` to the ship `addressed` names. The pilot says it
-/// (`videoreports.playerSays`). Unless the ship is not to be disturbed, is not a fighter by its
+/// (`radio.playerSays`). Unless the ship is not to be disturbed, is not a fighter by its
 /// type's class, or its current order has a priority or aims at the player's ship already, it turns
-/// on the player's ship (Fight), and answers in `videoreports.report_delay` ticks: one of an ace's
+/// on the player's ship (Fight), and answers in `radio.report_delay` ticks: one of an ace's
 /// own lines (`Ace`), or one of `taunt_answers` in its pilot's voice. Before it turns, the game
 /// draws a random number it doesn't use if the pilot's `pilots.Pilot._unknown_20` is 0 or 1.
 fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
     const world = ctx.world;
-    videoreports.playerSays(world, taunt_lines[which]);
+    radio.playerSays(world, taunt_lines[which]);
     const all = world.objects;
     const index = std.math.cast(u16, addressed) orelse return;
     const slot = &all.slots[index];
@@ -401,8 +401,8 @@ fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
     }
     _ = aigeneric.giveShip(ctx, index, .fight, all.player, null);
     const own = (@as(Ace, @fromBackingInt(object.pilot))).answers();
-    const lines: videoreports.Lines = if (own) |named| .{ .named = named } else .{ .voiced = &taunt_answers };
-    videoreports.reportShipIn(world, index, lines, videoreports.report_delay);
+    const lines: radio.Lines = if (own) |named| .{ .named = named } else .{ .voiced = &taunt_answers };
+    radio.reportShipIn(world, index, lines, radio.report_delay);
 }
 
 /// The pilot's own What's your status? (`0x004F0E8C`).
@@ -434,7 +434,7 @@ fn condition(armour: gameobj.Quadrants, class: i32) usize {
 }
 
 /// `0x00455720`: What's your status?, to the wingman `addressed` names. The pilot asks
-/// (`videoreports.playerSays`). A wingman whose pilot's `pilots.Pilot._unknown_1e` is above 0
+/// (`radio.playerSays`). A wingman whose pilot's `pilots.Pilot._unknown_1e` is above 0
 /// answers after `status_delay` ticks, by how whole its
 /// armour is (`condition`), from the fuller set of replies or the other
 /// (`pilots.Face.full_replies`), in its voice.
@@ -442,7 +442,7 @@ fn condition(armour: gameobj.Quadrants, class: i32) usize {
 /// **Fix:** the game reads the armour class of a ship with no type's stats through a null pointer;
 /// OpenReliant makes no report.
 fn status(world: gameobj.World, addressed: i16) void {
-    videoreports.playerSays(world, status_line);
+    radio.playerSays(world, status_line);
     const all = world.objects;
     const index = std.math.cast(u16, addressed) orelse return;
     const slot = &all.slots[index];
@@ -451,7 +451,7 @@ fn status(world: gameobj.World, addressed: i16) void {
     const combat = slot.combat orelse return;
     const level = condition(slot.object.armor, combat.armor_class);
     const set = if (face.full_replies) &status_answers.full else &status_answers.most;
-    videoreports.reportShipIn(world, index, .{ .voiced = set[level] }, status_delay);
+    radio.reportShipIn(world, index, .{ .voiced = set[level] }, status_delay);
 }
 
 /// A remark to a wingman: the pilot's own line, and the ends of the wingman's answers from the
@@ -468,12 +468,12 @@ const scolding: Remark = .{ .line = "hud_005.ut", .full = &numbered("_cmon_", 1,
 const praise: Remark = .{ .line = "hud_006.ut", .full = &numbered("_iou_", 1, 8), .most = &numbered("_iou_", 1, 4) };
 
 /// `0x00455B00` and `0x00455C20`: `said` to the ship `addressed` names. The pilot says it
-/// (`videoreports.playerSays`), and the ship answers in `videoreports.report_delay` ticks
-/// (`videoreports.reportShip`), from the fuller set of replies or the other.
+/// (`radio.playerSays`), and the ship answers in `radio.report_delay` ticks
+/// (`radio.reportShip`), from the fuller set of replies or the other.
 fn remark(world: gameobj.World, said: Remark, addressed: i16) void {
-    videoreports.playerSays(world, said.line);
+    radio.playerSays(world, said.line);
     const index = std.math.cast(u16, addressed) orelse return;
-    videoreports.reportShip(world, index, if (wingmen.fullReplies(world.objects, index)) said.full else said.most);
+    radio.reportShip(world, index, if (wingmen.fullReplies(world.objects, index)) said.full else said.most);
 }
 
 /// What the radio's window shows of the menu.
@@ -539,9 +539,9 @@ test condition {
 }
 
 /// The menu's world for the tests: the radio's, with the player's wing and its target
-/// (`videoreports.testing.Heard.initWing`), and the display.
+/// (`radio.testing.Heard.initWing`), and the display.
 const TestMenu = struct {
-    heard: videoreports.testing.Heard,
+    heard: radio.testing.Heard,
     display: hud.State,
     devices: input.Devices,
 
@@ -673,7 +673,7 @@ test "the wingman's status" {
     const combat = &heard.mission.tables.combat[@backingInt(gameobj.GameType.predator)];
     combat.armor_class = 10;
     all.slots[heard.wingman].object.armor = .all(armour_per_class * 10 - 1);
-    all.pilots.pilots[videoreports.testing.Heard.bandit]._unknown_1e = 1;
+    all.pilots.pilots[radio.testing.Heard.bandit]._unknown_1e = 1;
     var menu: Menu = .{ .page = .status, .addressed = @intCast(heard.wingman) };
     menu.run(ctx);
     const report = heard.radio.reports[0] orelse return error.TestUnexpectedResult;
@@ -686,7 +686,7 @@ test "the wingman's status" {
 
     // A pilot whose second value is 0 does not answer.
     heard.radio.reports[0] = null;
-    all.pilots.pilots[videoreports.testing.Heard.bandit]._unknown_1e = 0;
+    all.pilots.pilots[radio.testing.Heard.bandit]._unknown_1e = 0;
     menu.page = .status;
     menu.run(ctx);
     try std.testing.expectEqual(null, heard.radio.reports[0]);

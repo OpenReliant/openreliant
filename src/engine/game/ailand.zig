@@ -1,6 +1,6 @@
 //! `C:\lancer\game\ailand.cpp`: Land, order 8, by which the player's ship lands on the carrier it
 //! launched from, which ends the mission ([Landing](../../../docs/engine/orders.md#landing)). The
-//! player asks for it with PERMISSION TO LAND (`videoreports.permissionToLand`). Its init picks one
+//! player asks for it with PERMISSION TO LAND (`radio.permissionToLand`). Its init picks one
 //! of two styles by the carrier; each has its own init and update (`land_styles`, `0x004E1FE8`,
 //! `0x18` bytes each: init, update, exit, 0, name and 0). OpenReliant has the Reliant's.
 //!
