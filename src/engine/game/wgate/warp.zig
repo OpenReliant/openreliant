@@ -474,7 +474,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             slot.object.flags.unpowered = slot.object.type.base() == .yamato;
             slot.object.throttle = 1;
             advance(state, InStep.begin, held);
-            if (world.gates) |gates| held.tunnel.colour(.warp, gates.hardware);
+            if (world.gates != null) held.tunnel.colour(.warp);
             for (held.tunnel.radii) |*r| r.* = closed_radius;
             held.tunnel.reshapeWarp(world.clock.frame_start, held.deeper);
             held.portalSetUp();

@@ -242,11 +242,11 @@ pub const light_intensity = 2;
 pub const slot_unit: f32 = 0.078125;
 
 /// The loadout's lights (`loadout_enter`): the green and the red point lights, the bright green one
-/// that is never added, the green ambient light, and the cursor's directional light, green on the
-/// software renderer.
-pub fn lights(hardware: bool) std.EnumArray(Light, srlight.Light) {
+/// that is never added, the green ambient light, and the cursor's directional light, which is a
+/// pure green on the original's software renderer.
+pub fn lights() std.EnumArray(Light, srlight.Light) {
     const point: srlight.Light.Kind = .{ .point = .{ .position = light_place, .range = light_range } };
-    const cursor_colour: [3]f32 = if (hardware) .{ 0.4, 1, 0.4 } else .{ 0, 1, 0 };
+    const cursor_colour: [3]f32 = .{ 0.4, 1, 0.4 };
     return .init(.{
         .green = .{ .mask = 2, .intensity = light_intensity, .colour = .{ 1, 1, 1 }, .kind = point },
         .red = .{ .mask = 1, .intensity = light_intensity, .colour = .{ 1, 0.6, 1 }, .kind = point },

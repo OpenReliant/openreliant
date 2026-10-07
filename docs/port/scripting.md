@@ -42,8 +42,8 @@ package and the registry of the effects (`Runtime.post_effects`), on the present
   (`postprocessing.EffectHost`), which the driver gives the presentation side
   (`Presentation.setEffectHost`). The host compiles it, or reads it from the shader cache
   (`platform.shader_cache`), and adds it to the GPU (`platform.gpu.Gpu.addEffect`). A compile
-  error is raised in the script. Without a host, as with the software device, an effect registers
-  and draws nothing.
+  error is raised in the script. Without a host, as in the tests, an effect registers and draws
+  nothing.
 - Each entry keeps its script's context, its qualified name, its stage, its order, its four
   parameters, whether it is on, and the host's effect. `Runtime.close` and a failed load
   (`Runtime.run`) remove a context's effects, and the host removes them from the GPU.

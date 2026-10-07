@@ -75,7 +75,6 @@ The `sltool` utility, included with `openreliant` in each release, inspects, exp
 | `sltool dte` | List a `.DTE` mission's ships, triggers and script parts; disassemble its bytecode | [dte](docs/formats/dte.md) |
 | `sltool save` | Show what saved games hold | [save](docs/formats/save.md) |
 | `sltool stats` | Parse ship, weapon, and pilot stat tables | [stats](docs/formats/stats.md) |
-| `sltool render` | Render 3D ship models with the software reference renderer | [renderer](docs/port/renderer.md) |
 
 ---
 

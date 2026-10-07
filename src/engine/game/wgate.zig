@@ -78,14 +78,14 @@ pub const Rumbles = enum {
 /// records, and the worm the player's ship rides between gates.
 pub const Gates = struct {
     gpa: Allocator,
-    /// The tunnels' texture (`0x0051D1A0`): `warp128`, or `ddwarp128` without a hardware renderer.
+    /// The tunnels' texture (`0x0051D1A0`): `warp128`, which the original's software renderer swaps
+    /// for `ddwarp128`.
     warp: *srtexture.Image,
     /// The jumps' flashes' texture (`warpin3`).
     flash: *srtexture.Image,
+    /// The projectors' beams' texture: `laser2`, which the original's software renderer swaps for
+    /// `ddlaserr`.
     beam: *srtexture.Image,
-    /// Whether a hardware renderer draws them, which gives the tunnels their colours and their
-    /// highlight (`tunnel.Tunnel.build`).
-    hardware: bool,
     /// The grid the options' detail gives the tunnels (`0x0051D198`, `0x0051D128`).
     grid: Grid,
     settings: Settings,
@@ -107,13 +107,12 @@ pub const Gates = struct {
 
     /// `wgates_init` (`0x0041E280`): loads tunnel, flash and projector-beam textures and
     /// selects the grid by detail. Warp particle templates are static values in `warp_orders`.
-    pub fn init(gpa: Allocator, textures: *srtexture.Table, detail: Detail, hardware: bool, settings: Settings) matmanager.Error!Gates {
+    pub fn init(gpa: Allocator, textures: *srtexture.Table, detail: Detail, settings: Settings) matmanager.Error!Gates {
         return .{
             .gpa = gpa,
-            .warp = try matmanager.textureRequire(textures, if (hardware) warp_texture else software_warp_texture),
+            .warp = try matmanager.textureRequire(textures, warp_texture),
             .flash = try matmanager.textureRequire(textures, flash_texture),
-            .beam = try matmanager.textureRequire(textures, if (hardware) beam_texture else software_beam_texture),
-            .hardware = hardware,
+            .beam = try matmanager.textureRequire(textures, beam_texture),
             .grid = .of(detail),
             .settings = settings,
         };
@@ -177,7 +176,7 @@ pub const Gates = struct {
             .warp_place = world.objects.slots[index].drawn,
             .warp_size = sizeOf(world.objects.slots[index].object.type),
         };
-        try record.tunnel.build(gates.gpa, gates.grid, gates.settings.tunnels.split(), gates.hardware, gates.warp, kind, tunnelSize(kind, world.objects.mission_number));
+        try record.tunnel.build(gates.gpa, gates.grid, gates.settings.tunnels.split(), gates.warp, kind, tunnelSize(kind, world.objects.mission_number));
         errdefer record.tunnel.deinit(gates.gpa);
         try record.squares[0].build(gates.gpa, gates.flash);
         errdefer record.squares[0].deinit(gates.gpa);
@@ -269,10 +268,8 @@ pub const Gates = struct {
 
 /// The textures (`0x004E3FA4`, `0x004E3FB8`, `0x004E1C2C`).
 const warp_texture = "warp128";
-const software_warp_texture = "ddwarp128";
 const flash_texture = "warpin3";
 const beam_texture = "laser2";
-const software_beam_texture = "ddlaserr";
 
 /// The time from tick `from` to `now` as the gates count it (`gameobj.progress_per_tick`), the
 /// ticks taken unsigned as the game takes a record's (`0x00420A00`, `0x00420950`, `0x00421940`,
@@ -1154,9 +1151,9 @@ pub const testing = struct {
         gates: Gates,
 
         pub fn init(built: *Built, gpa: Allocator) !void {
-            built.textures = try .init(gpa, &.{ warp_texture, software_warp_texture, flash_texture, beam_texture, software_beam_texture });
+            built.textures = try .init(gpa, &.{ warp_texture, flash_texture, beam_texture });
             errdefer built.textures.deinit(gpa);
-            built.gates = try .init(gpa, &built.textures.table, .high, true, .{});
+            built.gates = try .init(gpa, &built.textures.table, .high, .{});
         }
 
         pub fn deinit(built: *Built, gpa: Allocator) void {

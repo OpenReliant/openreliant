@@ -287,12 +287,10 @@ pub const Driver = struct {
             .tier = driver.tier.*,
             .rank = driver.player.rank,
             .saved = driver.saved,
-            .hardware = driver.movies.presenter.screen.* != .software,
             .detail = driver.details.graphic,
             .largest_texture = driver.details.texture.largest(),
             .models = driver.models,
-            // The software device draws no holograms.
-            .look = if (driver.movies.presenter.screen.* == .software) .original else driver.loadout_look,
+            .look = driver.loadout_look,
         };
     }
 
@@ -709,7 +707,7 @@ pub const Driver = struct {
         const ticks = platform.window.ticks();
         const elapsed = std.math.cast(i32, ticks -| driver.ticks) orelse std.math.maxInt(i32);
         driver.ticks = ticks;
-        const window = try movies.presenter.size();
+        const window = movies.presenter.size();
         driver.pointer.update(&devices.mouse, window, elapsed);
         driver.sound.runTimer(driver.clock, ticks);
         if (driver.console) |console| try driver.consolePass(console, window);
@@ -763,7 +761,7 @@ pub const Driver = struct {
 
     /// Saves the screen as it stands, the last frame drawn (`screenshot_save`).
     fn saveScreenshot(driver: *Driver) void {
-        driver.movies.presenter.screen.saveScreenshot(driver.movies.gpa, driver.screenshots);
+        driver.movies.presenter.saveScreenshot(driver.movies.gpa, driver.screenshots);
     }
 
     /// Draws a frame of `screen` and puts it on the window, and brings the console up over it
@@ -779,7 +777,7 @@ pub const Driver = struct {
     /// loadout's hologram where the briefing shows it.
     fn draw(driver: *Driver, screen: Shown.Screen) !void {
         const presenter = driver.movies.presenter;
-        const pixels = try presenter.size();
+        const pixels = presenter.size();
         var shown: Shown = .{ .driver = driver, .window = pixels, .screen = screen };
         const hologram = switch (screen) {
             .briefing => |meeting| meeting.shownHologram(),
@@ -787,15 +785,15 @@ pub const Driver = struct {
         };
         if (hologram) |shown_hologram| {
             var view = shown_hologram.viewIn(pixels);
-            try presenter.presentScene(pixels, &view, &shown_hologram.scene, shown.overlay());
-        } else try presenter.present(pixels, shown.overlay());
+            try presenter.presentScene(&view, &shown_hologram.scene, shown.overlay());
+        } else try presenter.present(shown.overlay());
         driver.movies.pace();
     }
 
     fn canvasFor(driver: *Driver, window: [2]u32) canvas.Canvas {
         return .{
             .gpa = driver.movies.gpa,
-            .target = driver.movies.presenter.screen.interface(),
+            .target = driver.movies.presenter.gpu.interface(),
             .window = window,
             .fonts = .{ .large = &driver.front.large.font, .small = &driver.front.small.font },
             .strings = driver.strings,

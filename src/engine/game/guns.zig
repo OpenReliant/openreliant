@@ -3144,11 +3144,9 @@ fn fade(bullet: *const Bullet, clock: *const Clock, record: Gun) f32 {
 }
 
 /// The shots in flight, added to the world's layer as `bullets_frame` adds them once it has placed
-/// them, with the lights they cast where the renderer is a hardware one.
-///
-/// The game gives a shot no light at all on its software renderer (`sr + 0x1AC`); OpenReliant gives
-/// it one and leaves it out here, which shows the same.
-pub fn drawBullets(gpa: Allocator, scene: *srcore.Scene, bullets: *Bullets, lights: bool) Allocator.Error!void {
+/// them, with the lights they cast. On its software renderer (`sr + 0x1AC`), the original gives a
+/// shot no light.
+pub fn drawBullets(gpa: Allocator, scene: *srcore.Scene, bullets: *Bullets) Allocator.Error!void {
     for (&bullets.pool) |*bullet| {
         if (!bullet.live) continue;
         for (bullet.pieces[0..bullet.piece_count]) |*piece| {
@@ -3164,10 +3162,9 @@ pub fn drawBullets(gpa: Allocator, scene: *srcore.Scene, bullets: *Bullets, ligh
                     set.sprites = &piece.sprite;
                     try xtrabits.sceneAdd(gpa, scene, .{ .sprites = set }, .world);
                 },
-                .light => |*light| if (lights) try xtrabits.sceneAdd(gpa, scene, .{ .light = light }, .world),
+                .light => |*light| try xtrabits.sceneAdd(gpa, scene, .{ .light = light }, .world),
             }
         }
-        if (!lights) continue;
         if (bullet.light) |*light| {
             light.kind.point.position = bullet.place;
             try xtrabits.sceneAdd(gpa, scene, .{ .light = light }, .world);
@@ -3386,17 +3383,13 @@ test drawBullets {
     dress(bullet, built.looks, &random, math.identity);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try drawBullets(gpa, &scene, &bullets, true);
+    try drawBullets(gpa, &scene, &bullets);
     try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(1, scene.lights.items.len);
     // Its mesh points at the shot's own coordinates and colours.
     const mesh = &bullet.pieces[1].drawn.mesh;
     try std.testing.expectEqual(@as(?[][2]f32, &bullet.uv), mesh.own_uv[0]);
     try std.testing.expect(mesh.baked.?.ptr == &bullet.pieces[1].colours);
-    // Without a hardware renderer, it lights nothing.
-    scene.clear();
-    try drawBullets(gpa, &scene, &bullets, false);
-    try std.testing.expectEqual(0, scene.lights.items.len);
 }
 
 test {

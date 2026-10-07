@@ -24,7 +24,7 @@ Each row of quads is one strip of triangles, split along the diagonal from each 
 
 ## Nebula
 
-A patch of 11 by 11 vertices on a sphere of radius 5000 (`sky_patch_create`, `0x00498EA0`), 90 degrees across each way, or 72 for nebula 5, with the texture across it once. Across the columns a vertex turns evenly from -45 to 45 degrees about `X`, down the rows about `Y`; `u = c / 10`, `v = r / 10`. Each quad is two triangles, split along the diagonal from column `c`, row `r` to column `c + 1`, row `r + 1`, and none is culled. Its orientation is the nebula marker's, or a yaw of -90 degrees without one, which faces it toward `-X`.
+A patch of 11 by 11 vertices on a sphere of radius 5000 (`sky_patch_create`, `0x00498EA0`), 90 degrees across each way, or 72 for nebula 5, with the texture across it once. Across the columns a vertex turns evenly from -45 to 45 degrees about `X`, down the rows about `Y`; `u = c / 10`, `v = r / 10`. Each quad is two triangles, split along the diagonal from column `c`, row `r` to column `c + 1`, row `r + 1`, and none is culled. Its orientation is the nebula marker's, or a yaw of -90 degrees without one, which faces it toward `-X`. The software renderer draws no nebula.
 
 **Improvement:** a nebula's texture, 256 texels across in 16-bit colour, spans the patch, about eight pixels a texel at 1080p. OpenReliant magnifies it with a smooth cubic filter rather than the sharp one it gives the other textures, so that the texels' grid gives way to soft cloud ([Renderer](../port/renderer.md)); `--filter original` and `--original` magnify it bilinearly, as the original does.
 
@@ -72,7 +72,7 @@ to a quarter as long, 0.025 view units (`0x004DC424`).
 
 ## Sun and lens flares
 
-The sun's direction is `(1, -0.5, 0.2)`, normalized, until a sun marker aims it ([Placement](#placement)). The sun and the flares are sprites (see [Rendering](rendering.md#sprites)), textured, coloured grey and added. `backdrop_frame` sizes each to reach its texture's width and height times `z / 768` from its centre, with `z` its depth, then scales the sun's: on screen a sprite reaches its texture's size times the view's scale over 768, in pixels, whatever the distance.
+The sun's direction is `(1, -0.5, 0.2)`, normalized, until a sun marker aims it ([Placement](#placement)). The sun and the flares are sprites (see [Rendering](rendering.md#sprites)), textured, coloured grey and added. `backdrop_frame` sizes each to reach its texture's width and height times `z / 768` from its centre, with `z` its depth, then scales the sun's: on screen a sprite reaches its texture's size times the view's scale over 768, in pixels, whatever the distance. The software renderer sizes all but the last.
 
 | Sprite | Size | Drawn | Grey |
 |---|---|---|---|

@@ -189,9 +189,9 @@ pub const Tunnel = struct {
     depths: []f32,
 
     /// `0x0041DD70`: a tunnel of `kind`, `size` across (`ringRadius`), on `grid` with each of its
-    /// bands split `split` ways (`Tunnels`), drawn with `image` and, for a `hardware` renderer, its
-    /// highlight and its colours (`colour`).
-    pub fn build(tunnel: *Tunnel, gpa: Allocator, grid: Grid, split: usize, hardware: bool, image: *srtexture.Image, kind: Kind, size: f32) Allocator.Error!void {
+    /// bands split `split` ways (`Tunnels`), drawn with `image`, its highlight and its colours
+    /// (`colour`). On its software renderer, the original leaves the highlight out.
+    pub fn build(tunnel: *Tunnel, gpa: Allocator, grid: Grid, split: usize, image: *srtexture.Image, kind: Kind, size: f32) Allocator.Error!void {
         const drawn = grid.finer(split);
         const polygons = drawn.polygons();
         var mesh: srapiext.Mesh = try .create(gpa, .{ .polygons = polygons, .vertices = drawn.vertices(), .indices = polygons * 3, .surfaces = 2 });
@@ -217,7 +217,7 @@ pub const Tunnel = struct {
         numberBands(&mesh, drawn);
         for (mesh.indices, uv) |index, *pair| pair.* = coordinatesOf(grid, split, index);
         // The game's last band, however finely it is split.
-        tubeSurfaces(&mesh, 2 * drawn.segments * split, image, highlightOf(kind), hardware, .add);
+        tubeSurfaces(&mesh, 2 * drawn.segments * split, image, highlightOf(kind), .add);
         tunnel.* = .{
             .mesh = mesh,
             .level = undefined,
@@ -237,7 +237,7 @@ pub const Tunnel = struct {
             .levels = &tunnel.level,
             .baked = drawn_colours,
         };
-        tunnel.colour(kind, hardware);
+        tunnel.colour(kind);
     }
 
     pub fn deinit(tunnel: *Tunnel, gpa: Allocator) void {
@@ -266,19 +266,16 @@ pub const Tunnel = struct {
 
     /// `0x0041D7D0`: each ring's colour on each of its vertices (`ringShade`). The mouth's and the
     /// last ring are black and clear, and the ring before the last is the tunnel's deep colour.
-    /// Between them a hardware renderer's tunnel runs from the mouth's colour to the middle's in a
-    /// straight line over the first `palette_turn` of the rings, then to the end's by the square
-    /// root (`Palette.at`): a proto gate's blue, an advanced gate's red. A software renderer's runs
+    /// Between them the tunnel runs from the mouth's colour to the middle's in a straight line over
+    /// the first `palette_turn` of the rings, then to the end's by the square root (`Palette.at`):
+    /// a proto gate's blue, an advanced gate's red. On the original's software renderer, it runs
     /// from white down to black, and its ring before the last is a mid grey.
-    pub fn colour(tunnel: *Tunnel, kind: Kind, hardware: bool) void {
+    pub fn colour(tunnel: *Tunnel, kind: Kind) void {
         const grid = tunnel.grid;
         const palette: Palette = if (kind == .advanced) .red else .blue;
         for (0..grid.rings + 1) |ring| {
             const along = share(ring, grid.rings);
-            const shade = if (hardware)
-                ringShade(grid, ring, srapiext.solid(palette.last), srapiext.solid(palette.at(along)))
-            else
-                ringShade(grid, ring, software_last, srapiext.grey(ease.linear(1, 0, along)));
+            const shade = ringShade(grid, ring, srapiext.solid(palette.last), srapiext.solid(palette.at(along)));
             fillRing(tunnel.colours, grid, ring, shade);
         }
         tunnel.lay();
@@ -553,11 +550,11 @@ pub fn numberBands(mesh: *srapiext.Mesh, grid: Grid) void {
 /// polygons drawn with `image` by its own coordinates and `blend`, and where `two_pass` a second
 /// pass of the driver's highlight texture `highlight` by its normals, added; its last band in one
 /// pass of `image`. Its faces' planes, its vertex normals and its bounds follow.
-pub fn tubeSurfaces(mesh: *srapiext.Mesh, last_band: usize, image: *srtexture.Image, highlight: u3, two_pass: bool, blend: srapiext.Material.Blend) void {
+pub fn tubeSurfaces(mesh: *srapiext.Mesh, last_band: usize, image: *srtexture.Image, highlight: u3, blend: srapiext.Material.Blend) void {
     mesh.surfaces[0] = .{
         .polygons = @intCast(mesh.polygons.len - last_band),
         .material = .{
-            .two_pass = two_pass,
+            .two_pass = true,
             ._unknown_01 = 0,
             .coordinates = .{ .mesh, .generated },
             .lit = .{ true, true },
@@ -617,9 +614,6 @@ pub const Palette = struct {
 
 /// How far along a tunnel its colours turn (`0x004DC4C0`).
 const palette_turn: f32 = 0.3;
-
-/// A software renderer's ring before the last (`0x0041D7D0`).
-const software_last: [4]f32 = .{ 0.5, 0.5, 0.5, 1 };
 
 /// The colour of ring `ring` of a tube on `grid` (`0x0041D7D0`, `0x00422AD0`): black and clear at
 /// the mouth and the last ring (`Grid.edge`), `last` on the ring before the last, and `between`
@@ -750,7 +744,7 @@ test Tunnel {
     var image: srtexture.Image = undefined;
     const grid: Grid = .of(.high);
     var tunnel: Tunnel = undefined;
-    try tunnel.build(gpa, grid, 1, true, &image, .proto, test_size);
+    try tunnel.build(gpa, grid, 1, &image, .proto, test_size);
     defer tunnel.deinit(gpa);
 
     // A ring of vertices round the axis at each ring's radius, flat until it is shaped.
@@ -811,10 +805,10 @@ test "a fine tunnel passes through the game's vertices and follows its curves be
     const grid: Grid = .of(.high);
     const split = fine_split;
     var fine: Tunnel = undefined;
-    try fine.build(gpa, grid, split, true, &image, .advanced, test_size);
+    try fine.build(gpa, grid, split, &image, .advanced, test_size);
     defer fine.deinit(gpa);
     var game: Tunnel = undefined;
-    try game.build(gpa, grid, 1, true, &image, .advanced, test_size);
+    try game.build(gpa, grid, 1, &image, .advanced, test_size);
     defer game.deinit(gpa);
 
     const drawn = grid.finer(split);

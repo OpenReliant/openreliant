@@ -30,10 +30,8 @@ pub const Movies = struct {
     pacing: *const Pacing,
     size: movie.Size,
     look: engine.bink.Look,
-    /// The video settings' `Transitions`, and whether the renderer is a hardware one, which decide
-    /// whether a movie plays (`movie.Kind.plays`).
+    /// The video settings' `Transitions`, which decides whether a movie plays (`movie.Kind.plays`).
     transitions: bool,
-    hardware: bool,
     /// The disc's archive open, which the movies of a mission's flight come from, and whose folder,
     /// the game's, holds the others.
     disc: *game.interface.disc.Disc,
@@ -56,7 +54,7 @@ pub const Movies = struct {
     /// window was closed meanwhile, which quits the game, as it quits the game's loop
     /// (`game_exit`). A movie that is missing, or that cannot be decoded, is left out.
     pub fn play(movies: *Movies, name: []const u8, kind: movie.Kind) !?movie.End {
-        if (!kind.plays(movies.transitions, movies.hardware)) return .finished;
+        if (!kind.plays(movies.transitions)) return .finished;
         var player = movies.open(name, kind) orelse return .finished;
         defer player.close();
         return movies.run(&player, name);
@@ -115,10 +113,10 @@ pub const Movies = struct {
                 break :end .finished;
             };
             if (end) |how| return how;
-            const pixels = try movies.presenter.size();
+            const pixels = movies.presenter.size();
             if (movies.scripts) |scripts| scripts.screenFrame(pixels);
             var shown: Shown = .{ .movies = movies, .player = player, .window = pixels };
-            try movies.presenter.present(pixels, shown.overlay());
+            try movies.presenter.present(shown.overlay());
             movies.pace();
         }
     }
@@ -140,7 +138,7 @@ pub const Movies = struct {
 
         fn draw(context: *anyopaque) Allocator.Error!void {
             const shown: *Shown = @ptrCast(@alignCast(context));
-            const target = shown.movies.presenter.screen.interface();
+            const target = shown.movies.presenter.gpu.interface();
             shown.player.draw(target, shown.window, shown.movies.size);
             if (shown.movies.scripts) |scripts| try scripts.drawUi(target);
         }

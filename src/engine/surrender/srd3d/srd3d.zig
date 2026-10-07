@@ -828,9 +828,9 @@ test "a frame from the scene to the device" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var screen: @import("software.zig").Software = try .init(gpa, 64, 48);
-    defer screen.deinit(gpa);
-    var driver: Driver = try .init(gpa, screen.interface());
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    var driver: Driver = try .init(gpa, recorder.interface());
     defer driver.deinit();
 
     const mesh = try srmesh.testing.square(gpa);
@@ -845,20 +845,27 @@ test "a frame from the scene to the device" {
     var context: srapi.Context = .{ .projection = .init(64, 48, srapi.full_screen, .{ 0.6, 0.8 }) };
 
     try srcore.render(arena, &context, &scene, driver.interface(), null);
-    // The square covers the middle, lit by the ambient light alone.
-    const middle = screen.colour[24 * 64 + 32];
-    for (middle) |c| try std.testing.expectApproxEqAbs(64.0 / 255.0, c, 1e-5);
-    try std.testing.expect(screen.depth[24 * 64 + 32] > 0);
-    // The corners stay black.
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, screen.colour[0]);
+    // The square covers the middle, in front of the camera, lit by the ambient light alone.
+    const square = recorder.last();
+    try std.testing.expect(square.len >= 3);
+    var low: [2]f32 = @splat(std.math.inf(f32));
+    var high: [2]f32 = @splat(-std.math.inf(f32));
+    for (square) |vertex| {
+        low = .{ @min(low[0], vertex.x), @min(low[1], vertex.y) };
+        high = .{ @max(high[0], vertex.x), @max(high[1], vertex.y) };
+        try std.testing.expect(vertex.z > 0 and vertex.z < 1);
+        for (device.unpack(vertex.diffuse)[0..3]) |c| try std.testing.expectApproxEqAbs(64.0 / 255.0, c, 1e-5);
+    }
+    try std.testing.expect(low[0] < 32 and high[0] > 32 and low[1] < 24 and high[1] > 24);
+    // Not the whole frame: the corners are left out.
+    try std.testing.expect(low[0] > 0 and low[1] > 0);
 
-    // Moved across the near plane, it is clipped, not dropped: the middle is still drawn.
+    // Moved across the near plane, it is clipped, not dropped: it is still drawn.
     object.position = .{ 0, 0, 120 };
     object.orientation = math.rotation(.y, 1.2);
+    recorder.clear();
     try srcore.render(arena, &context, &scene, driver.interface(), null);
-    var lit: usize = 0;
-    for (screen.colour) |c| lit += @intFromBool(c[0] > 0);
-    try std.testing.expect(lit > 0);
+    try std.testing.expect(recorder.last().len >= 3);
 }
 
 test "a surface function makes a solid surface see-through" {
@@ -913,9 +920,9 @@ test "a pass keeps what it gathers while it clips a polygon" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var screen: @import("software.zig").Software = try .init(gpa, 64, 48);
-    defer screen.deinit(gpa);
-    var driver: Driver = try .init(gpa, screen.interface());
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    var driver: Driver = try .init(gpa, recorder.interface());
     defer driver.deinit();
 
     // Three triangles facing the camera: one to the left, one above the middle through the near
@@ -962,11 +969,19 @@ test "a pass keeps what it gathers while it clips a polygon" {
     var context: srapi.Context = .{ .projection = .init(64, 48, srapi.full_screen, .{ 0.6, 0.8 }) };
     try srcore.render(arena, &context, &scene, driver.interface(), null);
 
-    // Unlit, the triangles draw white, each where it lies; below the middle stays black.
-    for ([_][2]usize{ .{ 26, 22 }, .{ 42, 22 }, .{ 32, 14 } }) |at| {
-        try std.testing.expectApproxEqAbs(1, screen.colour[at[1] * 64 + at[0]][0], 1e-5);
-    }
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, screen.colour[40 * 64 + 32]);
+    // Unlit, the triangles draw white, each where it lies: one left of the middle, one right of
+    // it, and the clipped one above it. Nothing reaches below the middle.
+    var left = false;
+    var right = false;
+    var above = false;
+    for (recorder.draws.items, 0..) |_, n| for (recorder.drawn(n)) |vertex| {
+        try std.testing.expectEqual(device.white, vertex.diffuse);
+        left = left or vertex.x < 26;
+        right = right or vertex.x > 38;
+        above = above or (vertex.x > 28 and vertex.x < 36 and vertex.y < 20);
+        try std.testing.expect(vertex.y < 40);
+    };
+    try std.testing.expect(left and right and above);
 }
 
 test "a device that lights each pixel" {

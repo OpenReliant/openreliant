@@ -52,7 +52,6 @@ const keys = [_]Key{
     .{ .name = size_key, .takes = "<width>x<height> or <percent>%", .read = byOption(.@"--size") },
     .{ .name = frame_rate_key, .takes = "<rate>", .read = byOption(.@"--fps") },
     .{ .name = vsync_key, .takes = on_off, .read = onOff("settings.vsync") },
-    .{ .name = "Software", .takes = on_off, .read = onOff("software") },
     .{ .name = sixteen_bit_key, .takes = on_off, .read = onOff("settings.sixteen_bit") },
     .{ .name = samples_key, .takes = "1, 2, 4 or 8", .read = byOption(.@"--msaa") },
     .{ .name = filter_key, .takes = "original, trilinear or crisp", .read = byOption(.@"--filter") },
@@ -243,20 +242,12 @@ pub const Own = struct {
     /// drawn between the ticks, and which shots light.
     smooth_motion: ?*bool = null,
     shot_lights: ?*engine.game.guns.ShotLights = null,
-    /// Whether the mods' shaders draw (`platform.gpu.Gpu.mod_effects`), on the GPU only.
+    /// Whether the mods' shaders draw (`platform.gpu.Gpu.mod_effects`); none in the tests.
     mod_effects: ?*bool = null,
 
     pub const Display = struct {
         window: *platform.window.Window,
         presenter: *Presenter,
-
-        /// The GPU, where it draws the frames.
-        fn gpu(display: Display) ?*platform.gpu.Gpu {
-            return switch (display.presenter.screen.*) {
-                .gpu => |*device| device,
-                .software => null,
-            };
-        }
     };
 
     pub fn interface(own: *Own) screen.Own {
@@ -270,12 +261,11 @@ pub const Own = struct {
         } };
     }
 
-    /// The graphics' options, and the most samples a pixel the GPU draws with, one on the software
-    /// device.
+    /// The graphics' options, and the most samples a pixel the GPU draws with.
     fn shownGraphics(context: *anyopaque) screen.Own.Graphics {
         const own: *const Own = @ptrCast(@alignCast(context));
         var graphics = own.graphics;
-        if (own.display) |display| graphics.most_samples = if (display.gpu()) |gpu| gpu.mostSamples() else 1;
+        if (own.display) |display| graphics.most_samples = display.presenter.gpu.mostSamples();
         return graphics;
     }
 
@@ -294,7 +284,7 @@ pub const Own = struct {
         if (own.shot_lights) |lights| lights.* = chosen.shot_lights;
         if (own.mod_effects) |drawn| drawn.* = chosen.mod_effects;
         const display = own.display orelse return;
-        const gpu = display.gpu() orelse return;
+        const gpu = display.presenter.gpu;
         var wanted = gpu.settings;
         wanted.pixel_lighting = chosen.pixel_lighting;
         wanted.materials = chosen.materials;
@@ -371,9 +361,9 @@ pub const Own = struct {
             current.chosen.vsync = pacing.vsync;
         }
         const display = own.display orelse return current;
-        current.chosen.size = display.presenter.wanted;
+        current.chosen.size = display.presenter.gpu.settings.size;
         current.chosen.fullscreen = display.window.fillsDisplay();
-        current.told = .{ .window = display.presenter.windowSize(), .refresh_rate = display.window.refreshRate() };
+        current.told = .{ .window = display.presenter.gpu.windowSize(), .refresh_rate = display.window.refreshRate() };
         return current;
     }
 
@@ -389,7 +379,7 @@ pub const Own = struct {
         const current = own.displayed().chosen;
         if (!std.meta.eql(chosen.size, current.size)) {
             try file.write(section, size_key, try sizeText(file.arena, chosen.size));
-            if (own.display) |display| display.presenter.setSize(chosen.size);
+            if (own.display) |display| display.presenter.gpu.settings.size = chosen.size;
         }
         if (chosen.fullscreen != current.fullscreen) {
             try file.writeInt(section, fullscreen_key, @intFromBool(chosen.fullscreen));
@@ -407,7 +397,7 @@ pub const Own = struct {
             if (own.pacing) |pacing| pacing.vsync = chosen.vsync;
         }
         const display = own.display orelse return;
-        const gpu = display.gpu() orelse return;
+        const gpu = display.presenter.gpu;
         var wanted = gpu.settings;
         wanted.vsync = chosen.vsync;
         gpu.apply(wanted);

@@ -27,8 +27,6 @@ pub const Conditions = struct {
     light_maps: bool = true,
     /// The part's `lightmap` flag.
     part_lightmap: bool = false,
-    /// A hardware renderer rather than the software one.
-    hardware: bool = true,
 };
 
 pub const Texture = union(enum) {
@@ -82,7 +80,7 @@ pub fn look(shading: shp.Face.Shading, conditions: Conditions) Look {
         .unlit_blended => .{ .first = .{ .texture = .material, .lit = false, .blend = .alpha } },
         .lit => .{
             .first = textured,
-            .second = if (conditions.light_maps and conditions.part_lightmap and conditions.hardware)
+            .second = if (conditions.light_maps and conditions.part_lightmap)
                 .{ .texture = .light_map, .lit = false, .blend = .add }
             else
                 null,
@@ -185,10 +183,9 @@ pub const Prefix = enum {
 
 /// What `mesh_build` takes from the game besides the model.
 pub const Settings = struct {
-    /// `Lmaps` in the settings' `Device` section (`light_maps`).
+    /// `Lmaps` in the settings' `Device` section (`light_maps`). The original's software renderer
+    /// leaves the light maps out too (`sr + 0x1AC`).
     light_maps: bool = true,
-    /// A hardware renderer (`sr + 0x1AC`).
-    hardware: bool = true,
     prefix: Prefix = .none,
     /// The model's objects get colours of their own to fade and cloak by: the model's header
     /// flag `cloak`, or a ship type's model in a multiplayer mission (`model_load`).
@@ -332,7 +329,7 @@ pub fn build(
         if (morph_positions) |m| m[i] = gameobj.vector(counterpart.position);
     }
 
-    const conditions: Conditions = .{ .light_maps = settings.light_maps, .part_lightmap = part_flags.lightmap, .hardware = settings.hardware };
+    const conditions: Conditions = .{ .light_maps = settings.light_maps, .part_lightmap = part_flags.lightmap };
     var polygon: usize = 0;
     var index: usize = 0;
     // The face that began the run of faces the current surface draws.
@@ -444,8 +441,8 @@ pub const Cloaking = struct {
     const image = "cloak64";
 
     /// The sets for a part whose own levels are `levels`, its shimmer over `shimmer_image`,
-    /// coloured by its own colours on a hardware renderer and by white on the software one.
-    pub fn build(gpa: Allocator, levels: []const srapiext.Level, shimmer_image: *srtexture.Image, hardware: bool) Allocator.Error!Cloaking {
+    /// coloured by its own colours. On its software renderer, the original colours it white.
+    pub fn build(gpa: Allocator, levels: []const srapiext.Level, shimmer_image: *srtexture.Image) Allocator.Error!Cloaking {
         const see_through = try gpa.alloc(srapiext.Mesh, levels.len);
         var through_made: usize = 0;
         errdefer {
@@ -473,7 +470,7 @@ pub const Cloaking = struct {
             over.surfaces = try gpa.alloc(srapiext.Surface, 1);
             over.surfaces[0] = .{
                 .polygons = polygons,
-                .material = .onePass(.{ .coordinates = .generated, .lit = hardware, .blend = .add }),
+                .material = .onePass(.{ .coordinates = .generated, .lit = true, .blend = .add }),
                 .textures = .{ .{ .image = shimmer_image }, .none },
             };
             shimmer_made += 1;
@@ -504,7 +501,7 @@ test Cloaking {
     defer mesh.deinit(gpa);
     const levels = [_]srapiext.Level{.{ .mesh = &mesh, .until = 1000 }};
     var texture: srtexture.Image = .{ .levels = &.{} };
-    const cloaking: Cloaking = try .build(gpa, &levels, &texture, true);
+    const cloaking: Cloaking = try .build(gpa, &levels, &texture);
     defer cloaking.deinit(gpa);
 
     // Seen through: the part's own mesh at the same distance, its surfaces blended by their alpha,
@@ -624,7 +621,7 @@ pub fn modelLoad(gpa: Allocator, textures: *srtexture.Table, model: *const shp.M
         const shimmer = try settings.prefix.texture(textures, Cloaking.image);
         // A part with no meshes has none for the cloak either.
         for (parts) |*part| {
-            if (part.levels.len > 0) part.cloaking = try .build(gpa, part.levels, shimmer, settings.hardware);
+            if (part.levels.len > 0) part.cloaking = try .build(gpa, part.levels, shimmer);
         }
     }
     return .{ .parts = parts, .real_lights = settings.real_lights };
@@ -859,8 +856,7 @@ test look {
     try std.testing.expectEqual(Texture.light_map, mapped.second.?.texture);
     try std.testing.expectEqual(Material.Blend.add, mapped.second.?.blend);
     try std.testing.expect(!mapped.second.?.lit);
-    // The software renderer and the light maps setting each leave the light map out.
-    try std.testing.expectEqual(null, look(testShading(6, 1), .{ .part_lightmap = true, .hardware = false }).second);
+    // The light maps setting leaves the light map out.
     try std.testing.expectEqual(null, look(testShading(6, 1), .{ .part_lightmap = true, .light_maps = false }).second);
 
     const shiny = look(testShading(7, 3), .{});
@@ -1061,11 +1057,6 @@ test "build: light maps, baked colours and geomorphing" {
     const last = (try build(gpa, &textures.table, &part, 1, .{}, &flags, &.{})).?;
     defer last.deinit(gpa);
     try std.testing.expectEqual(null, last.morph_positions);
-
-    // A software renderer draws no light map, though the coordinates are still shared.
-    const software = (try build(gpa, &textures.table, &part, 0, .{ .hardware = false }, &flags, &.{})).?;
-    defer software.deinit(gpa);
-    try std.testing.expect(!software.surfaces[0].material.two_pass);
 }
 
 test "build: faults the game stops on or does not check" {

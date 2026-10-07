@@ -17,9 +17,8 @@
 //! instead, so on the GPU the display costs the processor nothing and scales without blurring. What
 //! it draws is the same: a glyph's bytes index the font's own palette, as they do for
 //! `VFX_character_draw`, and index 0 is left clear. The state is the engine's own, an overlay-layer
-//! depth and its alpha blend. The software device draws the rectangles too, and `--original` draws
-//! the same way, since OpenReliant draws the display larger on a larger window (`scaleFor`), where
-//! the game blitted it at its own size.
+//! depth and its alpha blend. `--original` draws the same way, since OpenReliant draws the display
+//! larger on a larger window (`scaleFor`), where the game blitted it at its own size.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -465,10 +464,9 @@ pub const Align = enum(u3) {
     _,
 };
 
-/// The sprite set the display's shapes come from: `HUDHARD.SPR` for the hardware renderers and
-/// `HUDSOFT.SPR` for the software one.
+/// The sprite set the display's shapes come from: `HUDHARD.SPR` for the hardware renderers. The
+/// original's software renderer takes `HUDSOFT.SPR`.
 pub const hardware_shapes = "HUDHARD.SPR";
-pub const software_shapes = "HUDSOFT.SPR";
 
 /// The block of the display's set that `hud_draw` makes VFX's global palette of every frame
 /// under the hardware renderers (`0x00428410`), at the brightness `0x00569718` holds, which

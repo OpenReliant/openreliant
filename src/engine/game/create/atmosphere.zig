@@ -219,13 +219,13 @@ pub const Atmospheres = struct {
 
     /// `backdrop_frame`'s (`0x004A5CD0`) last work, at frame `now`: each planet with an atmosphere
     /// turns about its own Y by its spin for each tick since the last frame, drawn so at once.
-    /// Where the renderer is the hardware's, `hardware`, and the planet is not disabled, its
-    /// atmosphere stands where the planet does, turned to face the camera at `camera`, as solid as
-    /// the lens flares' `brightness` (`backdrop.flareBrightness`), or a haze as `Ring.fade` has it
-    /// with the sun along `sun`, and goes on the background layer.
+    /// Where the planet is not disabled, its atmosphere stands where the planet does, turned to face
+    /// the camera at `camera`, as solid as the lens flares' `brightness` (`backdrop.flareBrightness`),
+    /// or a haze as `Ring.fade` has it with the sun along `sun`, and goes on the background layer.
+    /// The original's software renderer draws no atmosphere.
     /// The planet's parts stand at its origin (`create.planetMade`), so it turns in place, and the
     /// ring stands round it.
-    pub fn frame(atmospheres: *Atmospheres, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, camera: Vector, sun: Vector, hardware: bool, brightness: f32, now: i32) Allocator.Error!void {
+    pub fn frame(atmospheres: *Atmospheres, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, camera: Vector, sun: Vector, brightness: f32, now: i32) Allocator.Error!void {
         const ticks: f32 = @floatFromInt(now - atmospheres.turned_at);
         defer atmospheres.turned_at = now;
         const toward = math.normalize(sun);
@@ -233,7 +233,7 @@ pub const Atmospheres = struct {
             const planet = &all.slots[entry.planet];
             planet.drawn.orientation = math.turned(planet.drawn.orientation, .y, ticks * entry.spin);
             if (planet.model) |*model| model.place(planet.drawn.position, planet.drawn.orientation);
-            if (!hardware or planet.object.flags.disabled) continue;
+            if (planet.object.flags.disabled) continue;
             const object = &entry.ring.object;
             object.position = planet.drawn.position;
             object.orientation = math.lookAt(camera - object.position);
@@ -335,7 +335,7 @@ test Atmospheres {
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     const before = all.slots[planets[0]].drawn.orientation;
-    try atmospheres.frame(gpa, &scene, all, .{ 0, 0, -5000 }, .{ 1, 0, 0 }, true, 0.5, 100);
+    try atmospheres.frame(gpa, &scene, all, .{ 0, 0, -5000 }, .{ 1, 0, 0 }, 0.5, 100);
     const turned = math.turned(before, .y, 100 * spin);
     try math.testing.expectMatrixWithin(turned, all.slots[planets[0]].drawn.orientation, 1e-5);
     try std.testing.expectEqual(capacity, scene.layers.get(.background).items.len);
@@ -346,14 +346,11 @@ test Atmospheres {
     // As the game draws them, the planet's terminator stays hard.
     for (all.slots[planets[0]].model.?.parts) |part| try std.testing.expect(!part.object.soft_terminator);
 
-    // The software renderer draws none, nor a disabled planet's; they turn all the same.
+    // A disabled planet's isn't drawn; it turns all the same.
     scene.clear();
     all.slots[planets[1]].object.flags.disabled = true;
-    try atmospheres.frame(gpa, &scene, all, @splat(0), .{ 1, 0, 0 }, true, 0.5, 110);
+    try atmospheres.frame(gpa, &scene, all, @splat(0), .{ 1, 0, 0 }, 0.5, 110);
     try std.testing.expectEqual(capacity - 1, scene.layers.get(.background).items.len);
-    scene.clear();
-    try atmospheres.frame(gpa, &scene, all, @splat(0), .{ 1, 0, 0 }, false, 0.5, 120);
-    try std.testing.expectEqual(0, scene.layers.get(.background).items.len);
 
     // Destroyed, a planet's own atmosphere goes; the others stay.
     atmospheres.release(planets[1]);
@@ -385,7 +382,7 @@ test "an atmosphere round its planet, turning in place" {
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     const before = all.slots[planet].drawn.orientation;
-    try atmospheres.frame(gpa, &scene, all, .{ 0, 0, -5000 }, .{ 1, 0, 0 }, true, 0.5, 1000);
+    try atmospheres.frame(gpa, &scene, all, .{ 0, 0, -5000 }, .{ 1, 0, 0 }, 0.5, 1000);
     try std.testing.expectEqual(Vector{ 1000, 0, 0 }, all.slots[planet].drawn.position);
     try std.testing.expect(!std.meta.eql(before, all.slots[planet].drawn.orientation));
     try std.testing.expectEqual(all.slots[planet].drawn.position, atmospheres.entries[0].ring.object.position);
@@ -415,7 +412,7 @@ test "a haze, brighter toward the sun" {
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     const sphere = all.slots[planet].drawn.position;
-    try atmospheres.frame(gpa, &scene, all, sphere + Vector{ 0, 0, -5000 }, .{ 3, 0, 0 }, true, 0, 0);
+    try atmospheres.frame(gpa, &scene, all, sphere + Vector{ 0, 0, -5000 }, .{ 3, 0, 0 }, 0, 0);
     const colours = &atmospheres.entries[0].ring.colours;
     var least: f32 = 1;
     var most: f32 = 0;
@@ -428,6 +425,6 @@ test "a haze, brighter toward the sun" {
     try std.testing.expectApproxEqAbs(haze_night, least, 1e-3);
 
     // The lens flares brighter than a haze's day make it all as solid as they are bright.
-    try atmospheres.frame(gpa, &scene, all, sphere + Vector{ 0, 0, -5000 }, .{ 3, 0, 0 }, true, 0.9, 0);
+    try atmospheres.frame(gpa, &scene, all, sphere + Vector{ 0, 0, -5000 }, .{ 3, 0, 0 }, 0.9, 0);
     for (colours[0 .. 2 * round_segments]) |colour| try std.testing.expectEqual(0.9, colour[3]);
 }

@@ -10,8 +10,8 @@
 //!   order they were registered.
 //! - An effect is removed when the script that registered it stops. If a script fails to load, the
 //!   effects it registered are removed (`Registry.removeSince`).
-//! - Effects draw on the GPU only. Without a host, as with the software device, scripts can still
-//!   register them, and they draw nothing.
+//! - Effects draw on the GPU. Without a host, as in the tests, scripts can still register them,
+//!   and they draw nothing.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

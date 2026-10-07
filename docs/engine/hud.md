@@ -97,7 +97,7 @@ index 0, which is `0xFF`, and a few change an index or a range of them.
 it, so that nothing of it blooms. The game has no bloom to keep it out of; OpenReliant's is an
 improvement over the scene alone. The device is told where the scene ends
 (`device.Device.overlay`), and the GPU one draws what follows into the composed frame with
-pipelines of a single sample. The software device adds nothing of its own and ignores the mark.
+pipelines of a single sample.
 
 **Improvement:** OpenReliant draws a glyph as a textured rectangle through the device rather than
 blitting it (`VFX_character_draw`), so on the GPU the display costs the processor nothing and scales

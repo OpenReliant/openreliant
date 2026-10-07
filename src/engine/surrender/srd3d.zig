@@ -3,7 +3,6 @@
 const std = @import("std");
 
 pub const device = @import("srd3d/device.zig");
-pub const software = @import("srd3d/software.zig");
 pub const srd3d = @import("srd3d/srd3d.zig");
 
 test {

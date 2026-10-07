@@ -61,15 +61,14 @@ pub const Record = extern struct {
 };
 
 /// What the textures are called: the trails' (`jump_trail_texture`, `0x0051D0AC`), the flare's,
-/// the lights' as they come on and as they go out, and the burst's under the hardware renderers
-/// (`shield_texture`, `0x0058CB68`) and the software one.
+/// the lights' as they come on and as they go out, and the burst's (`shield_texture`,
+/// `0x0058CB68`), which the original's software renderer swaps for `ddheat`.
 const images = struct {
     const trail = "trail3";
     const flare = "jflare";
     const light = "lights\\flare-b";
     const light_going = "lights\\flare-lb";
     const burst = "shield128";
-    const burst_software = "ddheat";
 };
 
 /// Whether a jump's flare lights what stands round it.
@@ -116,8 +115,6 @@ pub const Effects = struct {
     burst_level: [1]srapiext.Level,
     light_image: *srtexture.Image,
     light_going_image: *srtexture.Image,
-    /// Whether the burst glows as the hardware renderers draw it, rather than the software one.
-    hardware: bool,
     /// Whether the flare lights what stands round it, and in what colour.
     lighting: Lighting = .flare,
     flare_colour: [3]f32,
@@ -126,10 +123,10 @@ pub const Effects = struct {
     /// `jump_init` (`0x00416490`): the flare's mesh, a square 4 by 2 over the whole of `jflare`,
     /// white and added; and OpenReliant's shared meshes. It stays where it is made, as the objects
     /// point at its meshes.
-    pub fn init(effects: *Effects, gpa: Allocator, textures: *srtexture.Table, hardware: bool) (Allocator.Error || matmanager.Error)!void {
+    pub fn init(effects: *Effects, gpa: Allocator, textures: *srtexture.Table) (Allocator.Error || matmanager.Error)!void {
         const trail_image = try matmanager.textureRequire(textures, images.trail);
         const flare_image = try matmanager.textureRequire(textures, images.flare);
-        const burst_image = try matmanager.textureRequire(textures, if (hardware) images.burst else images.burst_software);
+        const burst_image = try matmanager.textureRequire(textures, images.burst);
         const light_image = try matmanager.textureRequire(textures, images.light);
         const light_going_image = try matmanager.textureRequire(textures, images.light_going);
         var flare_mesh = try loadout.squareMesh(gpa, false, flare_size[0], flare_size[1]);
@@ -155,7 +152,6 @@ pub const Effects = struct {
             .burst_level = undefined,
             .light_image = light_image,
             .light_going_image = light_going_image,
-            .hardware = hardware,
             .flare_colour = flash.flareColour(&.{.{ .image = flare_image }}),
         };
         effects.flare_level = .{.{ .mesh = &effects.flare_mesh, .until = std.math.inf(f32) }};
@@ -311,7 +307,7 @@ pub const Effects = struct {
         } };
         const burst = &effect.burst.?;
         burst.object.baked = &burst.colours;
-        glowBurst(burst, 1, effects.hardware);
+        glowBurst(burst, 1);
     }
 
     /// `jump_flare_object` (`0x00418120`): the flare, standing at `at` in the world, as wide as
@@ -337,10 +333,9 @@ pub const Effects = struct {
         effect.chargeLights(progress, effects.light_going_image);
     }
 
-    /// Jump In's burst glowing as it flies in, `share` of the way still to go (`glowBurst`), as
-    /// the renderer draws it.
-    pub fn glow(effects: *const Effects, effect: *Effect, share: f32) void {
-        if (effect.burst) |*burst| glowBurst(burst, share, effects.hardware);
+    /// Jump In's burst glowing as it flies in, `share` of the way still to go (`glowBurst`).
+    pub fn glow(_: *const Effects, effect: *Effect, share: f32) void {
+        if (effect.burst) |*burst| glowBurst(burst, share);
     }
 };
 
@@ -648,22 +643,20 @@ fn ringPoint(ring: usize, point: usize) u16 {
 }
 
 /// How the burst's colours fall from ring to ring as it fades (`0x004DC420`) and as it glows
-/// (`0x004DC590`), and the colour of its first twelve as it glows under the hardware renderers
-/// (`0x004DC408`, `0x004DC58C`).
+/// (`0x004DC590`), and the colour of its first twelve as it glows (`0x004DC408`, `0x004DC58C`).
 const burst_fade_step: f32 = 0.1;
 const burst_glow_step: f32 = 0.04;
 const burst_glow_tip: Vector = .{ 0.5, 0.21, 0 };
 
 /// `jump_burst_glow` (`0x004181C0`), `share` of the way. `jump_burst_fade` (`0x00418150`), which
 /// greys the rings as `jump_burst_mesh` makes a burst and as Jump Out goes, goes with Jump Out's
-/// burst, as Jump In's glow covers it: the first twelve colours
-/// `burst_glow_tip` times `share` squared under the hardware renderers, and grey `share` squared
-/// under the software one, as opaque as `share`; each twelve after them a step less, from four
-/// steps of `burst_glow_step` times `share`, red under the hardware renderers and grey under the
-/// software one, opaque. The colours run from the centre on, a place ahead of the rings'.
-fn glowBurst(burst: *Burst, share: f32, hardware: bool) void {
+/// burst, as Jump In's glow covers it: the first twelve colours `burst_glow_tip` times `share`
+/// squared, as opaque as `share`; each twelve after them a step less, from four steps of
+/// `burst_glow_step` times `share`, red, opaque. On the original's software renderer, the colours
+/// are grey. The colours run from the centre on, a place ahead of the rings'.
+fn glowBurst(burst: *Burst, share: f32) void {
     for (burst.colours[0..burst_ring_points]) |*colour| {
-        const tip: Vector = if (hardware) burst_glow_tip * @as(Vector, @splat(share)) else @splat(share);
+        const tip: Vector = burst_glow_tip * @as(Vector, @splat(share));
         colour.* = .{ tip[0] * share, tip[1] * share, tip[2] * share, share };
     }
     var at: usize = burst_ring_points;
@@ -672,7 +665,7 @@ fn glowBurst(burst: *Burst, share: f32, hardware: bool) void {
         step -= 1;
         const shade = @as(f32, @floatFromInt(step)) * share * burst_glow_step;
         for (burst.colours[at..][0..burst_ring_points]) |*colour| {
-            colour.* = if (hardware) .{ shade, 0, 0, 1 } else .{ shade, shade, shade, 1 };
+            colour.* = .{ shade, 0, 0, 1 };
         }
         at += burst_ring_points;
     }
@@ -725,12 +718,13 @@ test "the burst's mesh" {
 
 test glowBurst {
     var burst: Burst = .{ .object = undefined };
-    glowBurst(&burst, 1, true);
+    glowBurst(&burst, 1);
     try std.testing.expectEqual([4]f32{ 0.5, 0.21, 0, 1 }, burst.colours[0]);
     try std.testing.expectApproxEqAbs(4 * burst_glow_step, burst.colours[burst_ring_points][0], 1e-6);
     try std.testing.expectEqual([4]f32{ 0, 0, 0, 1 }, burst.colours[burst_vertices - 2]);
-    glowBurst(&burst, 0.5, false);
-    try std.testing.expectEqual([4]f32{ 0.25, 0.25, 0.25, 0.5 }, burst.colours[0]);
+    // Halfway, the first twelve are a quarter as bright and half opaque.
+    glowBurst(&burst, 0.5);
+    try std.testing.expectEqual([4]f32{ 0.125, 0.0525, 0, 0.5 }, burst.colours[0]);
 }
 
 test "Effect.chargeLights" {
@@ -785,7 +779,6 @@ test "the flare lights what stands round it as it shows" {
         .burst_level = undefined,
         .light_image = undefined,
         .light_going_image = undefined,
-        .hardware = true,
         .flare_colour = .{ 0.5, 0.7, 1 },
     };
     defer effects.flare_mesh.deinit(gpa);

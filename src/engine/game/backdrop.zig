@@ -6,7 +6,8 @@
 //! lies between `srofiles.cpp`'s and `timer.cpp`'s. [`nebula.zig`](nebula.zig) has the sky dome
 //! and the nebula.
 //!
-//! OpenReliant builds the hardware renderers' backdrop. **Unknown:** what sets bit 2 of
+//! OpenReliant builds the backdrop as the hardware renderers draw it. On its software renderer, the
+//! original leaves out the sun's second layer and sizes one sun sprite fewer. **Unknown:** what sets bit 2 of
 //! `sr + 0x38`, with which `backdrop_create` has the star fields blend by `add_alpha` instead of
 //! adding; OpenReliant leaves it clear.
 
@@ -460,11 +461,9 @@ pub const Backdrop = struct {
             backdrop.flare_brightness = brightness;
             sun1.sprites[0].colour = @splat(SunLayer.sunlayer1.grey(brightness));
             if (brightness > 0) {
-                if (context.hardware) {
-                    sun2.sprites[0].colour = @splat(SunLayer.sunlayer2.grey(brightness));
-                    sun3.sprites[0].colour = @splat(SunLayer.sunlayer3.grey(brightness) * glow);
-                    try xtrabits.sceneAdd(gpa, scene, .{ .sprites = sun2 }, .background);
-                }
+                sun2.sprites[0].colour = @splat(SunLayer.sunlayer2.grey(brightness));
+                sun3.sprites[0].colour = @splat(SunLayer.sunlayer3.grey(brightness) * glow);
+                try xtrabits.sceneAdd(gpa, scene, .{ .sprites = sun2 }, .background);
                 const sets = backdrop.sun[first_flare..][0..flares.len];
                 for (flares, sets) |flare, *set| {
                     set.sprites[0].offset = .{ toward[0] * flare.along, toward[1] * flare.along, toward[2] };
@@ -483,8 +482,7 @@ pub const Backdrop = struct {
         try xtrabits.sceneAdd(gpa, scene, .{ .sprites = sun1 }, .background);
 
         // Each sprite as far to each side as its texture is wide and high, times its depth.
-        const sized: usize = if (context.hardware) sun_sprite_count else sun_sprite_count - 1;
-        for (backdrop.sun[0..sized], backdrop.texels[0..sized]) |*set, texels| {
+        for (&backdrop.sun, backdrop.texels) |*set, texels| {
             set.position = context.camera.position;
             const sprite = &set.sprites[0];
             const depth = context.turn(sprite.offset)[2];
