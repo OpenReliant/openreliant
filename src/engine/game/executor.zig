@@ -1678,7 +1678,7 @@ test "the commands that set ships, the radio, the display and the space" {
     const fixture = &game.fixture;
     world.objects.mission_number = 1;
     var display: hud.State = .{};
-    display.objectives.reset(1, false);
+    display.objectives.reset(1, false, null);
     var environment: @import("environfx.zig").Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
     var ctx = game.spawning();
     ctx.world.display = &display;

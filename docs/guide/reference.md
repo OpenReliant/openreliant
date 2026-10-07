@@ -59,12 +59,12 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 | `version` | string | The version of OpenReliant, such as `0.7.0`. |
 | `game_mode` | string, or nil | The qualified name of the game mode that runs, such as `arena:arena`; nil in the game's campaign, INSTANT ACTION and anywhere else. |
 | `game_mode_mission` | [GameModeMission](#gamemodemission), or nil | The mission the game mode that runs is at: the one flown, or between missions the one flown next. nil where no game mode runs. |
-| `register_game_mode(definition: GameMode)` | string | Registers a game mode, which the main menu's GAME MODES lists: a `name`, which the mod's name qualifies; a `label` and a `description` for the screen; the `missions` it flies in turn, by their numbers, each a standard `.DTE` file of the game's or a mod's; the `ship` the player flies them in, or the ship each mission gives; whether it starts again after its last mission (`loop`), or is a `campaign`, which flies a lost mission again and carries on from the mission the player reached; and the `briefing`, the name of the mod's registered screen that the front end shows before each mission. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name. |
+| `register_game_mode(definition: GameMode)` | string | Registers a game mode, which the main menu's GAME MODES lists. The mod's name qualifies its `name`, and the screen shows its `label` and `description`. `missions` lists the missions it flies in turn: each is the number of a standard `.DTE` file of the game's or a mod's, or a table that also gives the number the mission flies as, the names of its objectives, and its `hologram` and `last_word` in the briefing room. `ship` is the ship the player flies them in; without it, each mission gives the ship. With `loop`, the mode starts again after its last mission. A `campaign` shows the restart screen after a mission is lost or left, and carries on from the mission the player reached. `briefing` names the mod's registered screen that the front end shows before each mission. `briefing_room`, `reliant` or `yamato`, then briefs each mission in that game's briefing room, with the loadout. `loadout_ships` lists the ships that loadout offers, in order, starting on the first. With `debriefing`, the ITAC debriefs each mission that goes on to the next. `ending` names the mod's registered screen that the front end shows after the last mission. `records` names the mod's script that changes the records for the mode's missions alone: it runs as a load script before each of them, and its changes go back as the mission ends. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name. |
 | `send_global_event(name: string, data: any)` | nothing | Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update. |
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them. For load, global, object, player and menu scripts.
+The game's records: ships, guns, missiles, pilots, the pilots' faces, and the text of the game and the ITAC. Only load scripts can change them. For load, global, object, player and menu scripts.
 
 ### `openreliant.hooks`
 
@@ -632,6 +632,14 @@ The mission's script runs one of its commands, `command`, on `arguments`: as man
 | `arguments` | { number } |
 | `result` | [MissionCommandResult](#missioncommandresult) |
 
+### restart_screen
+
+The restart screen, after a mission is lost or left. Its result is the player's choice: `replay_from_briefing`, `replay_from_launch` or `main_menu`. A handler that stops it chooses without the screen: `main_menu`, unless it sets `e.result`.
+
+| Field | Type |
+|---|---|
+| `result` | [RestartChoice](#restartchoice) |
+
 ### order_retaliate
 
 `object`, a fighter, turns on whoever last hit it, once it has taken enough damage lately and its order allows it.
@@ -639,6 +647,46 @@ The mission's script runs one of its commands, `command`, on `arguments`: as man
 | Field | Type |
 |---|---|
 | `object` | [object](#objects) |
+
+## OpenReliant's functions
+
+Steps that the original takes inside a larger function, which OpenReliant makes functions of its
+own so that scripts can hook them. Handlers change them as they change the game's functions.
+
+### mission_lost
+
+A mission is lost or left, and `movie` plays before the restart screen. In the game's campaign, it is the pilot's funeral where `ending` is `destroyed`, the pilot in the enemy's hands where it is `captured`, the pilot's execution where it is `friendly_fire`, and none where the player left the mission. A game mode's mission plays none. `rating` is how the mission's script rated it, and `mission` is its number.
+
+| Field | Type |
+|---|---|
+| `ending` | [Ending](#ending) |
+| `rating` | [Rating](#rating) |
+| `mission` | number |
+| `movie` | string, or nil |
+| `result` | string, or nil |
+
+### career_over
+
+The pilot's career in the game's campaign ends after mission `mission`, and `movie` plays before the main menu: the pilot's transfer where `ending` is `rescued`, after too many pickups, and for a total failure (`ending` `total_failure`) the transfer or, after missions 25 and 27 without the Yamato, the shuttle at Fort Bear. `rating` is how the mission's script rated it.
+
+| Field | Type |
+|---|---|
+| `ending` | [Ending](#ending) |
+| `rating` | [Rating](#rating) |
+| `mission` | number |
+| `movie` | string, or nil |
+| `result` | string, or nil |
+
+### medal_ceremony
+
+Mission `mission` of the game's campaign awards the pilot `medal`, and `movie`, the medal's ceremony, plays.
+
+| Field | Type |
+|---|---|
+| `medal` | [Medal](#medal) |
+| `mission` | number |
+| `movie` | string, or nil |
+| `result` | string, or nil |
 
 ## The order routines
 
@@ -1077,11 +1125,16 @@ A table a script gives, which may leave out a field with a default.
 | `name` | string | needed |
 | `label` | string | needed |
 | `description` | string | `""` |
-| `missions` | list of number | needed |
+| `missions` | list of number \| GameModeMissionTable | needed |
 | `ship` | [ShipType](#shiptype), or nil | nil |
 | `loop` | boolean | false |
 | `campaign` | boolean | false |
 | `briefing` | string, or nil | nil |
+| `briefing_room` | [Carrier](#carrier), or nil | nil |
+| `loadout_ships` | list of [ShipType](#shiptype), or nil | nil |
+| `debriefing` | boolean | false |
+| `ending` | string, or nil | nil |
+| `records` | string, or nil | nil |
 
 ### Mission
 
@@ -1267,7 +1320,7 @@ number. A script can set a field to either.
 
 ### ShipType
 
-`predator`, `grendel`, `wolverine`, `reaper`, `phoenix`, `reliant`, `yamato`, `victorious`, `endeavour`, `mitchell`, `bremen`, `ulysses`, `nanny`, `limpet_car`, `prowler`, `ripper`, `mammoth`, `stork`, `sabre`, `kamov`, `scimitar`, `ramases`, `badanov`, `pukov`, `kurgan`, `sharov`, `gurevich`, `saladin`, `darkreign`, `stalag`, `antanov`, `kronstadt`, `boridin`, `troop_car`, `torpedo`, `escape_pod`, `debris`, `crewman`, `russian_torpedo`, `neptune_hi`, `uranus_hi`, `jupiter_hi`, `venus_hi`, `proto_gate`, `advanced_gate`, `proximity_mine`, `black_box`, `satellite`, `mammoth_wreck_front`, `mammoth_wreck_back`, `badanov_wreck_back`, `badanov_wreck_front`, `kurgan_wreck`, `krasnaya`, `latov`, `czar_docked`, `dm_beacon`, `kafelnikof`, `krasny`, `varyag`, `other_ramases`, `other_mitchell`, `rogue_base`, `boridin_breakaway`, `other_escape_pod`, `cargo_pod`, `zakov`, `shell`, `rock_chunk`, `limpet_pod`, `kiev`, `neptune_lo`, `uranus_lo`, `jupiter_lo`, `venus_lo`, `yamato_hangar`, `reliant_hangar`, `comms_relay`, `late_escape_pod`, `other_late_escape_pod`, `fuel_pod`, `t_phoenix`, `sun_marker`, `nebula_marker`, `marker`, `stand_in`, the qualified name of one a mod adds, or a number.
+`predator`, `grendel`, `wolverine`, `reaper`, `phoenix`, `reliant`, `yamato`, `victorious`, `endeavour`, `mitchell`, `bremen`, `ulysses`, `nanny`, `limpet_car`, `prowler`, `ripper`, `mammoth`, `stork`, `sabre`, `kamov`, `scimitar`, `ramases`, `badanov`, `pukov`, `kurgan`, `sharov`, `gurevich`, `saladin`, `darkreign`, `stalag`, `antanov`, `kronstadt`, `boridin`, `troop_car`, `torpedo`, `escape_pod`, `debris`, `crewman`, `russian_torpedo`, `neptune_hi`, `uranus_hi`, `jupiter_hi`, `venus_hi`, `proto_gate`, `advanced_gate`, `proximity_mine`, `black_box`, `satellite`, `mammoth_wreck_front`, `mammoth_wreck_back`, `badanov_wreck_back`, `badanov_wreck_front`, `kurgan_wreck`, `krasnaya`, `latov`, `czar_docked`, `dm_beacon`, `kafelnikof`, `krasny`, `varyag`, `other_ramases`, `other_mitchell`, `rogue_base`, `boridin_breakaway`, `other_escape_pod`, `cargo_pod`, `zakov`, `shell`, `rock_chunk`, `limpet_pod`, `kiev`, `neptune_lo`, `uranus_lo`, `jupiter_lo`, `venus_lo`, `yamato_hangar`, `yamato_landing_bay`, `reliant_hangar`, `comms_relay`, `late_escape_pod`, `other_late_escape_pod`, `fuel_pod`, `t_phoenix`, `sun_marker`, `nebula_marker`, `marker`, `stand_in`, the qualified name of one a mod adds, or a number.
 
 ### ShipClass
 
@@ -1297,6 +1350,10 @@ number. A script can set a field to either.
 
 `laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`, the qualified name of one a mod adds, or a number.
 
+### Carrier
+
+`reliant`, `yamato`.
+
 ### Font
 
 `default`, `hud`, `menu_small`, `menu_large`.
@@ -1307,7 +1364,7 @@ number. A script can set a field to either.
 
 ### FrontEndScreen
 
-`main_menu`, `game_options`, `audio`, `briefing`, `landing_movie`, `pilot_roster`, `saved_games`, `connection`, `video`, `controls`, `mods`, `mod_options`, `game_modes`, `mode_briefing`, or a number.
+`main_menu`, `game_options`, `audio`, `briefing`, `landing_movie`, `pilot_roster`, `saved_games`, `connection`, `video`, `controls`, `mods`, `mod_options`, `game_modes`, `mode_briefing`, `mode_ending`, or a number.
 
 ### Key
 
@@ -1373,6 +1430,14 @@ number. A script can set a field to either.
 
 `wait`, `run_on`, or a number.
 
+### RestartChoice
+
+`replay_from_briefing`, `replay_from_launch`, `main_menu`.
+
+### Medal
+
+`silver`, `black_eagle`, `valour`, `legion`, `navy_cross`, `medal_of_honour`.
+
 ### Condition
 
 `shot_at`, `destroyed`, `launched`, `camera_reached`, `ship_reached`, `proximity_close`, `proximity_general`, `object_scooped`, `player_ready_to_jump`, `jumped_in`, `fixed_gate_jumped_in`, `player_ready_to_warp`, `jumped_through_hoop`, `player_wants_backup`, `ripper_grabbed_object`, `ripper_dropped_object`, `cloaked`, `decloaked`, `targetted`, `player_l1_doubletap`, `player_l2_doubletap`, `player_r1_doubletap`, `player_r2_doubletap`, `player_l1_l2_r1_r2_pressed`, `player_l1_r1_pressed`, `game_timer_expired`, `tractor_beam_locked`, `tractor_beam_broken`, `inside_object`, `outside_object`, `docked`, `undocked`, `being_chased`, `call_reinforcements`, `explosion_ship`, or a number.
@@ -1391,4 +1456,4 @@ number. A script can set a field to either.
 
 ### View
 
-`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.
+`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `landing_bay`, `landing_ship`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.

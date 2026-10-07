@@ -121,7 +121,9 @@ Then the loading (`0x004AD0A0`) puts a stand-in in every object's slot
    ships share their numbers, and runs the frame's mission work once (`process_mission`);
 5. puts the player's slot first in the player's wing and gives each of its ships its wing icon;
 6. makes the camera's marker (`0x00588390`), a marker at (0, 0, -8000) in the next slot, which the
-   flyby and target views move about;
+   flyby and target views move about, and the Yamato's launch moves beside the player's bay
+   ([Launches](launch.md#the-yamatos-launch)); the marker keeps that slot
+   (`create.Objects.camera_marker`), so that nothing else moves in its place;
 7. loads the model of each ship type the mission places, and resets the frame's clock;
 8. last, copies the call sign into the pilot's profile and writes it (`0x00493F8E`,
    [The pilot's profile](../formats/profile.md)).

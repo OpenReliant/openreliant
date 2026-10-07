@@ -46,7 +46,18 @@ The loadout offers the first ships of its table, from the Predator on, as many a
 
 The ship the loadout starts on is the Shroud in mission 23, the Predator in mission 1, and the campaign's saved one otherwise (`loadout_reset`, `0x004439D0`). In mission 23 only the Shroud is shown or can be clicked.
 
-**Fix:** a saved ship the loadout does not offer, as a campaign begun again at an earlier mission leaves it, leaves the game without the chosen ship's object, which it then writes to. OpenReliant starts on the Predator.
+**Fix:** a saved ship the loadout does not offer, as a campaign begun again at an earlier mission leaves it, leaves the game without the chosen ship's object, which it then writes to. OpenReliant starts on the first ship offered, the Predator unless a game mode lists the ships.
+
+### In a game mode
+
+**Improvement:** a game mode that briefs its missions in a briefing room ([A game mode's briefing](briefing.md#a-game-modes-briefing)) runs the loadout as a new pilot finds it, at tier 0 and rank 0, with these differences:
+
+- It shows the backdrop of the room's carrier (`Context.carrier`). The original picks the backdrop by the mission's number alone, the Reliant's `rbackground.tga` up to mission 18 and the Yamato's `background.tga` after it (`0x004426A0`), so the StarLancer trial's missions 1 and 2 go from the Yamato's briefing room to the Reliant's loadout.
+- It leaves out the first mission's lesson, `loadout.ut` and the exit's blinking, like the trial's loadout. The trial's `loadout_enter` (`0x00408920` in its executable) has no speech, and its exit's blink times from a speech start it leaves at 0, so the exit never blinks.
+- It keeps the game modes' own saved loadout, apart from the campaign's, which starts without a ship as each mode starts (`Saved.unchosen`). A mode's first loadout then starts on the first ship offered, with the tier's missiles.
+- The mode can list the ships it offers, in its own order (`loadout_ships`, [Game modes](../guide/scripting.md#game-modes)). The loadout offers those the player can fly, each once, as many as the arc holds (`tables.listedOffers`), and starts on the ship chosen last in the mode where the list has it, else on the first.
+
+Not ported: the rank the pilot's kills over the mode's missions reach. The trial promotes its pilot as the campaign does, so 35 kills in its mission 1 add the Coyote to mission 2's loadout ([#821](https://github.com/OpenReliant/openreliant/issues/821)).
 
 ## The scene
 
@@ -70,7 +81,7 @@ The ships' models load with the `g` texture prefix, the missiles' and the gunshi
 
 The loadout's textures are indexed into `palette3.tga` ([Texture caches](../formats/tcache.md)), which the loadout gives the device as it loads and enters (`loadout_palette`, `0x004436B0`): the ships come out green, the missiles red. OpenReliant decodes the loadout's textures with it.
 
-**Improvement:** the texture cache holds the `g` and `r` copy of every ship texture, the same picture in shades of green or red. Where neither a mod nor the cache gives a copy, or a mod gives a picture for the texture but no copy of it, OpenReliant makes the copy from the picture (`srtexture.Table.findCopy`, [#664](https://github.com/OpenReliant/openreliant/issues/664)). It stretches the picture's brightness over its own range, leaving out the darkest and the brightest hundredth. The green copy is that brightness raised to the power 0.6, in green, with red and blue at 9.2% and 5.1% of the green. The red copy goes from 50 to full red with the brightness raised to the power 0.5. These are fitted to the cache's own copies of `yank_1`, `yank_2`, `sam_3` and `wolver`, which are dithered into 256 colours round the same curves.
+**Improvement:** the texture cache holds the `g` and `r` copy of every ship texture, the same picture in shades of green or red. Where a mod gives a picture for the texture, or the cache gives no copy, OpenReliant makes the copy from the picture (`srtexture.Table.findCopy`, [#664](https://github.com/OpenReliant/openreliant/issues/664)). A copy a mod gives of its own, such as `gyank_2.png`, is passed over, so that the copy always matches the mod's picture. It stretches the picture's brightness over its own range, leaving out the darkest and the brightest hundredth. The green copy is that brightness raised to the power 0.6, in green, with red and blue at 9.2% and 5.1% of the green. The red copy goes from 50 to full red with the brightness raised to the power 0.5. These are fitted to the cache's own copies of `yank_1`, `yank_2`, `sam_3` and `wolver`, which are dithered into 256 colours round the same curves.
 
 | Light | Kind | Place or direction | Intensity | Colour | Reaches |
 |---|---|---|---|---|---|

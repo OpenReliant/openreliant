@@ -14,6 +14,7 @@ const engine_hooks = openreliant.engine.hooks;
 const input = openreliant.engine.input;
 const mod_options = openreliant.engine.game.interface.mod_options;
 const Object = engine_hooks.Object;
+const Mod = openreliant.engine.game.bigfile.mods.Mod;
 const data = @import("data.zig");
 const values = @import("values.zig");
 
@@ -125,6 +126,30 @@ pub const List = struct {
         return null;
     }
 };
+
+/// The file name of `mod`'s script `name`, given with or without its extension and in any case, as
+/// the mod has it; null where the mod has no such script.
+pub fn find(mod: *const Mod, name: []const u8) ?[]const u8 {
+    var names = mod.scripts();
+    while (names.next()) |file| {
+        if (isNamed(file, name)) return file;
+    }
+    return null;
+}
+
+/// Whether the script file `file` is the one `name` names, with or without its extension and in
+/// any case (`require`).
+pub fn isNamed(file: []const u8, name: []const u8) bool {
+    if (std.ascii.eqlIgnoreCase(file, name)) return true;
+    const stem = file[0 .. file.len - std.Io.Dir.path.extension(file).len];
+    return std.ascii.eqlIgnoreCase(stem, name);
+}
+
+test isNamed {
+    try std.testing.expect(isNamed("Records.LUAU", "records.luau"));
+    try std.testing.expect(isNamed("records.luau", "Records"));
+    try std.testing.expect(!isNamed("records.luau", "record"));
+}
 
 /// Script families, which decide what a script may do.
 pub const Family = enum {
@@ -305,7 +330,7 @@ pub const Package = enum {
     pub fn about(package: Package) []const u8 {
         return switch (package) {
             .core => "OpenReliant's version, events for the global scripts, and game modes.",
-            .records => "The game's records: ships, guns, missiles, pilots and text. Only load scripts can change them.",
+            .records => "The game's records: ships, guns, missiles, pilots, the pilots' faces, and the text of the game and the ITAC. Only load scripts can change them.",
             .hooks => "Handlers on the game's functions and events.",
             .world => "The mission's objects, the player's ship and the mission itself.",
             .self => "The script's own object, as a handle: an object script's object, a missile script's missile, or the player's ship for a player script, nil between games.",

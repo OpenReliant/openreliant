@@ -7,7 +7,9 @@
 
 const std = @import("std");
 
+const hooks = @import("../../hooks.zig");
 const input = @import("../../input.zig");
+const create = @import("../create.zig");
 const hud = @import("../hud.zig");
 const canvas_module = @import("canvas.zig");
 const Canvas = canvas_module.Canvas;
@@ -20,6 +22,13 @@ pub const shapes_name = "interface\\restart.spr";
 
 /// What the screen offers, in the order of its buttons.
 pub const Choice = enum {
+    /// The name scripts know these values by.
+    pub const script_name = "RestartChoice";
+
+    /// The choice where a script's handler stops the screen without choosing one: MAIN MENU, as
+    /// Escape chooses.
+    pub const stopped: Choice = .main_menu;
+
     /// REPLAY MISSION FROM BRIEFING: the game as the mission began (`restart_load`), and the
     /// mission's briefing.
     replay_from_briefing,
@@ -28,6 +37,19 @@ pub const Choice = enum {
     replay_from_launch,
     /// MAIN MENU, or Escape: the front end's main menu.
     main_menu,
+};
+
+/// `restart_screen` (`0x0043EB80`): the screen until the player chooses, which `shown` runs in a
+/// loop of its own. Scripts can hook it, and choose without the screen.
+pub fn choose(all: *create.Objects, shown: Shown) Choice {
+    if (hooks.enter(.restart_screen, choose, .{ all, shown })) |done| return done;
+    return shown.run(shown.context);
+}
+
+/// What shows the screen in a loop of its own until the player chooses (`choose`).
+pub const Shown = struct {
+    context: *anyopaque,
+    run: *const fn (context: *anyopaque) Choice,
 };
 
 /// Where the pointer finds each choice's button (`0x0043EB8B` on).

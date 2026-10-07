@@ -41,6 +41,7 @@ pub const Words = struct {
 
     pub const Name = union(enum) {
         string: u16,
+        text: []const u8,
         missing,
     };
 };
@@ -55,7 +56,10 @@ pub fn words(objectives: *const Objectives) Words {
     const state = objectives.states[objectives.shown];
     return .{
         .heading = if (state == .current) current_heading else heading,
-        .name = if (objectives.name(objectives.shown)) |string| .{ .string = string } else .missing,
+        .name = if (objectives.name(objectives.shown)) |named| switch (named) {
+            .string => |string| .{ .string = string },
+            .text => |text| .{ .text = text },
+        } else .missing,
     };
 }
 
@@ -68,6 +72,7 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
     const name = said.name orelse return;
     const text = switch (name) {
         .string => |string| canvas.pen.strings.string(string) orelse return,
+        .text => |text| text,
         .missing => no_name,
     };
     try canvas.wrapped(text, name_at, .left, name_width, name_line_height, name_lines);
@@ -75,7 +80,7 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
 
 test words {
     var objectives: Objectives = .{};
-    objectives.reset(1, false);
+    objectives.reset(1, false, null);
     // The first objective is current, named by the table.
     try std.testing.expectEqual(Words{ .heading = current_heading, .name = .{ .string = 297 } }, words(&objectives));
     // The second, listed, is an objective.
@@ -86,6 +91,6 @@ test words {
     objectives.page();
     try std.testing.expectEqual(Words{ .heading = none_heading, .name = null }, words(&objectives));
     // A mission the table has no row for has objectives with no names.
-    objectives.reset(0, false);
+    objectives.reset(0, false, null);
     try std.testing.expectEqual(Words{ .heading = heading, .name = .missing }, words(&objectives));
 }

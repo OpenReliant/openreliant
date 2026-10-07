@@ -885,9 +885,9 @@ fn avoidanceScan(world: gameobj.World, index: u16) void {
 
 /// `mission_frame`'s pass over the objects before the camera's frame: each live object, save
 /// stand-ins and disabled and jumping ones, has `missile_homing` cleared, stands on the node it
-/// rides where it is launching (`launch.hold`), and is framed as far through the simulation's step
-/// as `timing` says (`frameObject`), one the orders placed going on by its glide for the time past
-/// the tick, which the orders set afresh each frame.
+/// rides where it is launching or landing on the Yamato's pad (`holdRider`), and is framed as far
+/// through the simulation's step as `timing` says (`frameObject`), one the orders placed going on
+/// by its glide for the time past the tick, which the orders set afresh each frame.
 ///
 /// **Improvement:** with `timing.riders` `together`, each ship riding a node stands on it again
 /// once every object is framed, and is framed again, so that it keeps with a node framed after it
@@ -904,7 +904,7 @@ pub fn frameObjects(all: *create.Objects, timing: objects.Timing, now: i32) void
         const glide: ?math.Vector = if (gliding or slot.glided) slot.glide * @as(math.Vector, @splat(timing.ahead)) else null;
         slot.glided = gliding;
         slot.glide = @splat(0);
-        _ = launch.hold(all, index);
+        _ = holdRider(all, index);
         frameObject(slot, timing, glide, now);
     }
     if (timing.riders == .in_turn) return;
@@ -912,8 +912,15 @@ pub fn frameObjects(all: *create.Objects, timing: objects.Timing, now: i32) void
     while (riders.next()) |index| {
         const slot = &all.slots[index];
         if (slot.object.flags.outOfFrame()) continue;
-        if (launch.hold(all, index)) frameObject(slot, timing, null, now);
+        if (holdRider(all, index)) frameObject(slot, timing, null, now);
     }
+}
+
+/// Places the ship in slot `index` on the node it rides, as a launch holds it in its carrier's bay
+/// (`launch.hold`) or the Yamato's landing on its bay's pad (`ailand.hold`). Returns whether it
+/// placed the ship.
+fn holdRider(all: *create.Objects, index: u16) bool {
+    return launch.hold(all, index) or ailand.hold(all, index);
 }
 
 /// Frames the object in `slot` as far through the simulation's step as `timing` says
@@ -1695,11 +1702,19 @@ pub const Start = struct {
     /// (`gameflow.ProfileFile.saveWith`); none leaves it.
     profile: ?*gameflow.ProfileFile = null,
     call_sign: []const u8 = "",
+    /// OpenReliant's: the number of the file the mission is read from where it is flown as another
+    /// number (`main_menu.Flight.file`), which the mods' scripts hear of; its own number where
+    /// null.
+    file: ?u16 = null,
+    /// OpenReliant's: the names a game mode gives the mission's objectives
+    /// (`hud.Objectives.reset`); null where it gives none.
+    objectives: ?*const hud.Objectives.Names = null,
 };
 
-/// Where the mission's start makes the camera's marker (`0x00588390`), which the flyby and target
-/// views move about (`frame_controls`, `camera_set_view`): an immediate of `mission_start`.
-/// OpenReliant's camera keeps its own place for those views, and nothing reads the marker.
+/// Where the mission's start makes the camera's marker (`create.Objects.camera_marker`), which the
+/// flyby and target views move about (`frame_controls`, `camera_set_view`) and the Yamato's launch
+/// moves beside the player's bay: an immediate of `mission_start`. OpenReliant's camera keeps its
+/// own place for those views, and nothing reads the marker.
 const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 
 /// A mission's start: the loading before it (`mission_load`, `0x004AD0A0`) and `mission_start`
@@ -1773,7 +1788,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     start.display.fosters_last_stand = false;
     start.display.caption = .{};
     start.display.messages = .{};
-    start.display.objectives.reset(number, all.mission25_second_part);
+    start.display.objectives.reset(number, all.mission25_second_part, start.objectives);
     if (world.countermeasures) |dropped| dropped.reset();
     // The subtarget's parts picked out in red are put back before the objects go, which the game
     // does as the mission before ends (`mission_run`, at `0x00494260`).
@@ -1806,7 +1821,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     winmain.startMission(world.player, if (start.campaign) |campaign| campaign.kept(number).kills else 0);
     all.mission_number = number;
     var file_buffer: [winmain.mission_path_size]u8 = undefined;
-    const mission = scriptMission(&file_buffer, all, number);
+    const mission = scriptMission(&file_buffer, all, number, start.file orelse number);
     const loaded = try Loaded.create(gpa, image, world.random);
     errdefer loaded.destroy();
     loaded.script.variables = if (start.campaign) |campaign| campaign.attempt() else gameflow.restartPoint();
@@ -1818,8 +1833,9 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
 
     givePilots(all, number);
     startWing(all);
-    _ = create.createObject(all, start.tables, types, null, .of(.marker), 0, camera_marker_at, world.random) catch |err| {
+    all.camera_marker = create.createObject(all, start.tables, types, null, .of(.marker), 0, camera_marker_at, world.random) catch |err| marker: {
         std.log.warn("the camera's marker is left out: {s}", .{@errorName(err)});
+        break :marker null;
     };
     start.types.sweep(&all.types);
     // The schematics the target display last showed went with the types let go.
@@ -1880,10 +1896,10 @@ pub fn endMission(all: *create.Objects, player: *const input.Player, loaded: *Lo
     loaded.destroy();
 }
 
-/// OpenReliant's: mission `number` as the mods' scripts hear of it, its file's name written in
-/// `buffer`: mission 25's second part where `all` has it flown.
-pub fn scriptMission(buffer: *[winmain.mission_path_size]u8, all: *const create.Objects, number: u16) hooks.Mission {
-    return .{ .number = number, .file = winmain.missionFileName(buffer, number, all.mission25_second_part) };
+/// OpenReliant's: mission `number` as the mods' scripts hear of it, read from the file of mission
+/// `file`, whose name is written in `buffer`: mission 25's second part where `all` has it flown.
+pub fn scriptMission(buffer: *[winmain.mission_path_size]u8, all: *const create.Objects, number: u16, file: u16) hooks.Mission {
+    return .{ .number = number, .file = winmain.missionFileName(buffer, file, all.mission25_second_part) };
 }
 
 /// OpenReliant's: how the mission `loaded` ended as the mods' scripts hear of it: for the player
@@ -2041,6 +2057,7 @@ test startMission {
     try std.testing.expectEqual(1, loaded.script.variables.players);
     try std.testing.expectEqual(1, loaded.script.variables.ghost_alive);
     try std.testing.expect(all.slots[0].type != null);
+    try std.testing.expectEqual(2, all.camera_marker.?);
     try std.testing.expectEqual(gameobj.Type.of(.marker), all.slots[2].object.type);
     try std.testing.expectEqual(camera_marker_at[2], all.slots[2].object.root.position.z);
     // The player's ship on its controls, and the other under the order the script gave it.

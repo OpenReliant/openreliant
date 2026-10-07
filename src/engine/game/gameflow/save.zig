@@ -255,7 +255,9 @@ pub const ModChoice = struct {
     /// The mods' ship type and missiles in `saved`, the loadout's choice.
     fn of(saved: loadout.Saved) ModChoice {
         var choice: ModChoice = .{};
-        if (additions.ships.get(saved.ship) != null) choice.ship = saved.ship;
+        if (saved.ship) |ship| {
+            if (additions.ships.get(ship) != null) choice.ship = ship;
+        }
         for (&choice.racks, saved.racks) |*rack, missile| {
             const kind = missile orelse continue;
             if (kind.added() != null) rack.* = kind;
@@ -449,7 +451,7 @@ pub const Game = struct {
         miss.difficulty = game.pilot.difficulty;
         miss.female = @intFromBool(game.pilot.female);
         // A mod's ship type as its base, which the original knows (`tables.savedShip`).
-        miss.saved_ship = loadout_tables.savedShip(game.saved.ship);
+        miss.saved_ship = loadout_tables.savedShip(game.saved.ship orelse loadout.predator);
         // A mod's missile as its base, which the original knows (`tables.Missile.savedId`).
         for (&miss.saved_racks, game.saved.racks) |*rack, missile| rack.* = if (missile) |kind| @intCast(kind.savedId()) else no_missile;
         return kept;
@@ -925,7 +927,7 @@ test ModChoice {
     try std.testing.expect(folder.load(gpa, "Ace", 1, &back));
     var other: TestGame = .{};
     other.game().apply(&back);
-    try std.testing.expectEqual(additions.ships.first, other.saved.ship);
+    try std.testing.expectEqual(additions.ships.first, other.saved.ship.?);
     try std.testing.expectEqual(banana, other.saved.racks[1].?);
     try std.testing.expectEqual(.havoc, other.saved.racks[2].?);
 

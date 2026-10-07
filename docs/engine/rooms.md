@@ -71,6 +71,8 @@ Its drawing (`restart_screen_draw`, `0x0043ED90`) takes the palette of shape 17 
 
 Mission 25's second part replays as its first part, but after the pilot's execution, which leaves REPLAY MISSION FROM LAUNCH the second (`0x004AA750`). The pause menu's RESTART, too, starts mission 25 again from its first part (`0x004AA47A`).
 
+**Improvement:** scripts can hook the screen (`restart_screen`) and choose without showing it ([Hooks](../guide/scripting.md#hooks)). A game mode's campaign shows it too, after a mission is lost or left, without a movie unless a script chooses one, as the StarLancer trial does ([Game modes](../guide/scripting.md#game-modes)).
+
 ## The views
 
 Each place the player stands in is a view, `0x30` bytes:

@@ -29,7 +29,7 @@ const presentation = @import("presentation.zig");
 const Presentation = presentation.Presentation;
 
 /// The longest name of a movie `ui.play_movie` plays.
-pub const max_movie_name = 64;
+pub const max_movie_name = openreliant.engine.game.xtrabits.movie.max_name;
 
 /// Where the pointer is, in pixels from the window's top left corner, and whether its left button
 /// is down.
@@ -132,18 +132,23 @@ fn quitGame(call: Call) void {
 }
 
 /// The registered screen that stands in for `screen`, where its script still runs: the one a script
-/// put there, else for a game mode's briefing, the screen the mode that runs names.
+/// put there, else for a game mode's briefing or ending, the screen the mode that runs names.
 fn standingIn(shown: *Presentation, screen: interf.Screen) ?usize {
-    const index = shown.standing.screens.get(screen) orelse
-        if (screen == .mode_briefing) briefingOf(shown) orelse return null else return null;
+    const index = shown.standing.screens.get(screen) orelse modeScreen(shown, screen) orelse return null;
     const entry = shown.runtime.registries.entries.items[index];
     return if (entry.enabled and !entry.context.closed) index else null;
 }
 
-/// The registered screen that briefs the player for the game mode that runs, if it names one.
-fn briefingOf(shown: *Presentation) ?usize {
+/// The registered screen that the game mode that runs names for `screen`, its briefing or its
+/// ending, if it names one.
+fn modeScreen(shown: *Presentation, screen: interf.Screen) ?usize {
     const modes = shown.runtime.options.shared.modes orelse return null;
-    const name = (modes.current() orelse return null).briefing orelse return null;
+    const mode = modes.current() orelse return null;
+    const name = switch (screen) {
+        .mode_briefing => mode.briefing,
+        .mode_ending => mode.ending,
+        else => null,
+    } orelse return null;
     return shown.runtime.registries.find(.screen, name);
 }
 

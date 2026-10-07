@@ -1013,6 +1013,11 @@ below 36; an objective made current becomes the one the window shows. The table'
 from the executable. **Fix:** the game writes an objective past the ten into the next mission's row,
 and mission 0's before the table; OpenReliant writes none.
 
+**Improvement:** a game mode can name its missions' objectives, in place of the table's row for the
+number the mission flies as ([Game modes](../guide/scripting.md#game-modes),
+[#817](https://github.com/OpenReliant/openreliant/issues/817)). The window writes those names as
+they are given, where it writes the table's strings.
+
 OBJECTIVES WINDOW on the open window (`frame_controls`, `0x00414AD7`) gives it its full time again
 and pages: the window shows the next objective that is not hidden, round to the first after the
 tenth, and with every one hidden the next, marking that none is shown (`0x0051CF74`, which

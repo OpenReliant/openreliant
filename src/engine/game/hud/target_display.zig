@@ -71,7 +71,7 @@ pub const Scene = struct {
             scene.state.windows.close(.target);
             return null;
         }
-        return .{ .status = hud.ShipStatus.ofTarget(slot, &scene.state.target_hits), .facts = .of(scene.all, index), .pilot = pilotName(slot) };
+        return .{ .status = hud.ShipStatus.ofTarget(slot, &scene.state.target_hits), .facts = .of(scene.all, index), .pilot = pilotName(scene.all, slot) };
     }
 
     /// What the large form shows now.
@@ -142,13 +142,13 @@ pub const Small = struct {
 };
 
 /// The name of the pilot flying the ship in `slot`, as the small form writes it (`0x00487C99` on):
-/// the string its pilot's face names it by (`pilots.nameOf`). The game reads the face through the
-/// object's `pilot_record`, which `create_object` sets for every ship but a stand-in, giving a
-/// hostile ship pilot 66 and any other pilot 0 until a mission names another
+/// the string its pilot's face names it by (`pilots.Faces.nameOf`). The game reads the face through
+/// the object's `pilot_record`, which `create_object` sets for every ship but a stand-in. It gives
+/// a hostile ship pilot 66 and any other ship pilot 0 until a mission names another
 /// (`mission_ship_create`). Null for a stand-in, which has no combat stats.
-fn pilotName(slot: *const create.Slot) ?u16 {
+fn pilotName(all: *const create.Objects, slot: *const create.Slot) ?u16 {
     if (slot.combat == null) return null;
-    return pilots.nameOf(slot.object.pilot);
+    return all.faces.nameOf(slot.object.pilot);
 }
 
 /// What the large form shows.
@@ -365,9 +365,9 @@ test "the forms show the target" {
     try std.testing.expectEqual(3, facts.range);
     try std.testing.expectEqual(213, facts.speed);
     // Its pilot's name: the hostile default's, until a mission names another pilot.
-    try std.testing.expectEqual(pilots.nameOf(create.coalition_pilot).?, scene.small().?.pilot.?);
+    try std.testing.expectEqual(pilots.faces[create.coalition_pilot].name, scene.small().?.pilot.?);
     pilots.setPilot(&slot.object, 1);
-    try std.testing.expectEqual(pilots.nameOf(1).?, scene.small().?.pilot.?);
+    try std.testing.expectEqual(pilots.faces[1].name, scene.small().?.pilot.?);
 
     // A cloaked hostile target closes the small form.
     _ = state.windows.open(.target, false);

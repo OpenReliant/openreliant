@@ -401,9 +401,10 @@ pub const Table = struct {
     }
 
     /// The `copy` of the texture `name` that the loadout draws (`texture_find` of the name after
-    /// the copy's letter), or null when there is none and none can be made. In order: a picture of
-    /// the copy's name from `files`; the copy made from a picture of `name` from `files`; the
-    /// cache's copy; the copy made from the cache's image of `name`.
+    /// the copy's letter), or null when there is none and none can be made. In order: the copy
+    /// made from a picture of `name` from `files`; the cache's copy; the copy made from the cache's
+    /// image of `name`. A picture of the copy's own name from `files` is passed over, so that a
+    /// mod's copy always matches its picture and the game's shades.
     ///
     /// **Improvement:** the game finds the cache's copy alone, so a mod's picture showed in the
     /// loadout only with a copy of its own (`copies`).
@@ -433,12 +434,12 @@ pub const Table = struct {
                 table.gpa.free(key);
                 continue;
             }
-            // As `make` orders them: a picture of the key's own name, then, for a copy, the copy
-            // made from a picture of the name alone.
-            var outcome = try mod_pictures.start(table.gpa, files, key, table.longest(), table.compressor, null);
-            if (outcome == .none) if (copy) |made| {
-                outcome = try mod_pictures.start(table.gpa, files, key[1..], table.longest(), table.compressor, made);
-            };
+            // As `make` orders them: a picture of the name, or for a copy, the copy made from a
+            // picture of the name alone.
+            const outcome = if (copy) |made|
+                try mod_pictures.start(table.gpa, files, key[1..], table.longest(), table.compressor, made)
+            else
+                try mod_pictures.start(table.gpa, files, key, table.longest(), table.compressor, null);
             switch (outcome) {
                 .none => table.gpa.free(key),
                 .kept => |image| try table.keep(key, image),
@@ -523,9 +524,8 @@ pub const Table = struct {
     /// The image of `key`, the lower-case name after the letter of `copy`, if any; as `findCopy`
     /// and `find` order them.
     fn make(table: *Table, key: []const u8, copy: ?Copy) Allocator.Error!?*Image {
-        if (try table.picture(key, null)) |image| return image;
         const plain = key[@intFromBool(copy != null)..];
-        if (copy) |made| if (try table.picture(plain, made)) |image| return image;
+        if (try table.picture(plain, copy)) |image| return image;
         if (table.cache.find(key)) |found| return try table.decoded(found, null);
         const made = copy orelse return null;
         return try table.decoded(table.cache.find(plain) orelse return null, made);
@@ -992,10 +992,10 @@ test "Table.prefetch" {
     try std.testing.expectEqual(tail, table.images.get("tail").?.?);
     try std.testing.expectEqual(2, (try table.find("wing")).?.width());
 
-    // Copies, as findCopy orders them: the picture of the copy's own name, as it is, and the copy
-    // made from the picture of the name alone.
+    // Copies, as findCopy orders them: the copy made from the picture of the name. The mod's
+    // picture of the nose's copy is passed over, and with no picture of the nose, none is made.
     try table.prefetch(&.{ "nose", "tail" }, .green);
-    try std.testing.expectEqual([4]u8{ 0xFF, 0, 0, 0xFF }, (try table.findCopy("nose", .green)).?.levels[0].texels[0..4].*);
+    try std.testing.expectEqual(null, try table.findCopy("nose", .green));
     try std.testing.expectEqual([4]u8{ 23, 255, 13, 0xFF }, (try table.findCopy("tail", .green)).?.levels[0].texels[0..4].*);
 }
 
@@ -1036,13 +1036,13 @@ test "Table.findCopy" {
     try std.testing.expect(hull != (try table.find("hull")).?);
     try std.testing.expectEqual(hull, (try table.findCopy("hull", .green)).?);
     for (0..4) |at| try std.testing.expect(hull.levels[0].texels[at * 4 + 1] >= hull.levels[0].texels[at * 4]);
-    // A copy made from the mod's picture rather than the cache's image, and the mod's own copy as
-    // it is.
+    // A copy made from the mod's picture rather than the cache's image. The mod's own copy is
+    // passed over, for the cache's.
     const tail = (try table.findCopy("tail", .red)).?;
     try std.testing.expectEqual(4, tail.width());
     try std.testing.expectEqual([4]u8{ 0xFF, 0, 0, 0xFF }, tail.levels[0].texels[0..4].*);
     const nose = (try table.findCopy("nose", .green)).?;
-    try std.testing.expectEqual([4]u8{ 0xFF, 0, 0, 0xFF }, nose.levels[0].texels[0..4].*);
+    try std.testing.expectEqual(2, nose.width());
     // Nothing to make a copy from.
     try std.testing.expectEqual(null, try table.findCopy("missing", .green));
 }

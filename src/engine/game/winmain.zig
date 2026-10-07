@@ -6,13 +6,16 @@
 //! Ported so far: what the pump does as the game's window goes inactive and active again, as far
 //! as the sound and the pause go; the characters typed, which the window's procedure queues; the
 //! list of call signs the settings keep; and what follows a mission of the campaign
-//! (`afterMission`). `openreliant`'s own frame loop stands in for the rest.
+//! (`afterMission`), with the movies of a lost mission and of a career's end, which scripts can
+//! choose (`lostMovie`, `careerOverMovie`). `openreliant`'s own frame loop stands in for the rest.
 
 const std = @import("std");
 const pilots = @import("pilots.zig");
 
 const main = @import("main.zig");
 const Clock = main.Clock;
+const hooks = @import("../hooks.zig");
+const create = @import("create.zig");
 const input = @import("../input.zig");
 const camera = @import("camera.zig");
 const hog_snd = @import("hog_snd.zig");
@@ -418,6 +421,40 @@ fn careerOver(mission: u16, variables: *vm.Variables) []const u8 {
     if (landing.lastWithoutLanding(mission, variables)) return shuttle;
     const on_reliant = rooms.Carrier.of(mission) == .reliant and variables.reliant_alive != 0;
     return transfer.get(if (on_reliant) .reliant else .yamato);
+}
+
+/// The movie that plays as mission `mission` is lost or left as `ending`, rated `rating` by its
+/// script, before the restart screen: `movie`, the one `WinMain` plays (`AfterMission.restart`), or
+/// none for a game mode's mission, as the trial plays none. Scripts can change it
+/// (`mission_lost`).
+///
+/// **Improvement:** a step of OpenReliant's own, so that scripts can choose the movie. The game
+/// picks it inside `WinMain` (`0x004AA52F` on, `0x004AA707` on).
+pub fn lostMovie(all: *create.Objects, ending: Ending, rating: vm.Variables.Outcome, mission: u16, movie: ?xtrabits.movie.Name) ?xtrabits.movie.Name {
+    if (hooks.enter(.mission_lost, lostMovie, .{ all, ending, rating, mission, movie })) |done| return done;
+    return movie;
+}
+
+/// The movie that plays as the pilot's career ends after mission `mission`, which ended as
+/// `ending`, rated `rating`, before the main menu: `movie`, the one `WinMain` plays
+/// (`AfterMission.career_over`). Scripts can change it (`career_over`).
+///
+/// **Improvement:** a step of OpenReliant's own, so that scripts can choose the movie. The game
+/// picks it inside `WinMain` (`0x004AA4F4` on, `0x004AA5AD` on).
+pub fn careerOverMovie(all: *create.Objects, ending: Ending, rating: vm.Variables.Outcome, mission: u16, movie: ?xtrabits.movie.Name) ?xtrabits.movie.Name {
+    if (hooks.enter(.career_over, careerOverMovie, .{ all, ending, rating, mission, movie })) |done| return done;
+    return movie;
+}
+
+test lostMovie {
+    // Without scripts, the movie the game picked plays.
+    var random: @import("../random.zig").Random = .{};
+    const all = try create.Objects.create(std.testing.allocator, &random);
+    defer all.destroy();
+    const funeral_name = xtrabits.movie.nameOf(funeral.get(.reliant)).?;
+    try std.testing.expectEqual(funeral_name, lostMovie(all, .destroyed, .failure, 5, funeral_name).?);
+    try std.testing.expectEqual(null, lostMovie(all, .left, .failure, 5, null));
+    try std.testing.expectEqual(funeral_name, careerOverMovie(all, .rescued, .success, 5, funeral_name).?);
 }
 
 test afterMission {

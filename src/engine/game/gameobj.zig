@@ -423,6 +423,9 @@ pub const GameType = enum(u32) {
     venus_lo = 0xD3,
     /// The Yamato's launch tube (`yam_tube.shp`), shown as the player's hangar (`0x00419544`).
     yamato_hangar = 0xD4,
+    /// The Yamato's landing bay (`yamhanger.shp`), the cutaway the Yamato's landing shows the
+    /// player's ship come down in (`land_yamato_init`, `0x0040EB60`).
+    yamato_landing_bay = 0xD5,
     /// The Reliant's hangar (`reliant_hang.shp`): the cutaway the Reliant's launch shows the
     /// player's ship in.
     reliant_hangar = 0xD6,
@@ -966,7 +969,7 @@ pub const GameObject = extern struct {
     pilot: i32,
     /// Its pilot's face (`pilot_faces`, `0x005048D8`), which `object_set_pilot` points it at; null
     /// for a stand-in. OpenReliant leaves it null and looks the face up by `pilot`
-    /// (`pilots.faceOf`).
+    /// (`create.Objects.faces`).
     pilot_record: Pointer(anyopaque),
     pilot_stats: Pointer(@import("pilots.zig").Pilot),
     /// The wing the mission lists it in (`mission.listPlayerWing`).

@@ -1,9 +1,11 @@
--- A short campaign of the game's first three missions, with a briefing screen of the mod's own. This
--- is a menu script: it runs as OpenReliant starts, when game modes are registered, and in the front
--- end, where it draws the briefing before each mission.
+-- A short campaign of the game's first three missions, with a briefing screen and an ending screen of
+-- the mod's own. This is a menu script: it runs as OpenReliant starts, when game modes are
+-- registered, and in the front end, where it draws the briefing before each mission and the ending
+-- after the last.
 --
--- A campaign flies its missions in order. A lost mission is flown again, and the mission the player
--- reached is kept in the mod's storage (the section "campaigns"), so GAME MODES carries on from it.
+-- A campaign flies its missions in order. After a lost mission, the restart screen offers to fly it
+-- again, and the mission the player reached is kept in the mod's storage (the section "campaigns"),
+-- so GAME MODES carries on from it.
 -- A campaign of new missions lists their numbers the same way: each is a standard .DTE file in the
 -- mod's folder.
 
@@ -101,11 +103,30 @@ ui.register_screen("briefing", {
     end,
 })
 
+-- The ending, after the campaign's last mission, until a key or the pointer's button.
+ui.register_screen("ending", {
+    frame = function()
+        centred(title_share, "FIRST TOUR COMPLETE", lit, 2)
+        centred(lines_share, "Well flown, pilot.", plain, 1)
+        local pointer = ui.pointer
+        if pointer and pointer.down and not was_down then
+            ui.go_to("main_menu")
+        end
+        was_down = pointer ~= nil and pointer.down
+    end,
+    key = function(_, down)
+        if down then
+            ui.go_to("main_menu")
+        end
+    end,
+})
+
 core.register_game_mode({
     name = "first_tour",
     label = "FIRST TOUR",
-    description = "The game's first three missions as a short campaign, each after a briefing of the mod's own. A lost mission is flown again.",
+    description = "The game's first three missions as a short campaign, each after a briefing of the mod's own. A lost mission can be flown again.",
     missions = { 1, 2, 3 },
     campaign = true,
     briefing = "briefing",
+    ending = "ending",
 })

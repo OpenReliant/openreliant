@@ -2342,7 +2342,7 @@ test primaryTarget {
     _ = try aigeneric.push(mission.orders(), player, .player_control, .none);
     var devices: Devices = .{};
     var display: hud.State = .{};
-    display.objectives.reset(1, false);
+    display.objectives.reset(1, false, null);
     display.objectives.set(0, .listed);
     display.objectives.set(2, .current);
     display.objectives.shown = 0;
@@ -2482,7 +2482,7 @@ test "the window keys" {
     try std.testing.expectEqual(.closing, windows.status.get(.wing_status).phase);
     // Pressed on the open objectives, it pages to the next objective shown, and they stay their
     // full time again.
-    display.objectives.reset(1, false);
+    display.objectives.reset(1, false, null);
     _ = windows.step(.objectives, hud.windows.opening_ticks);
     _ = windows.open(.objectives, false);
     _ = windows.step(.objectives, hud.windows.opening_ticks);

@@ -302,10 +302,10 @@ sRGB-encoded, as a PNG's are.
 
 The loadout draws the ships in green and the missiles and guns in red. The game keeps a green and a
 red copy of each ship texture, named with a `g` or an `r` in front: `gyank_2` and `ryank_2` for
-`yank_2`. You don't need to make them. Where your mod gives a picture but no copy, OpenReliant makes
-the copy from the picture, in the same shades as the game's copies. To draw something else in
-the loadout, give the copy as a picture of its own, such as `gyank_2.png`. A picture that comes
-compressed already, in a DDS or KTX2 file, can't be turned green, so give its copies as files too.
+`yank_2`. Don't make them for your mod: OpenReliant makes the copies of your pictures as it runs,
+in the same shades as the game's copies, and passes over any copy a mod gives, such as
+`gyank_2.png`. A picture that comes compressed already, in a DDS or KTX2 file, can't be turned
+green or red; the loadout then draws the game's own copy, where the game has the texture.
 
 ## Material maps
 

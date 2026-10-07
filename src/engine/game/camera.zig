@@ -131,10 +131,13 @@ pub const View = enum(u8) {
     warp_depart = 10,
     /// Watches the ship emerge from its arrival tunnel.
     warp_arrive = 11,
-    /// **Unknown:** what it shows. The second of the two views the Yamato's landing picks from
-    /// (`0x0040EBC0`), which OpenReliant has not ported
-    /// ([#349](https://github.com/OpenReliant/openreliant/issues/349)).
-    _unknown_37 = 0x25,
+    /// The first of the two views the Yamato's landing picks from at random (`ailand`): from low in
+    /// its landing bay, sliding along it as the landing goes on, turned level to face the ship
+    /// (`landingBay`).
+    landing_bay = 0x0E,
+    /// The second: from above the player's ship and behind it, looking down as it rises, then from
+    /// beside it, looking back at it as the view slides along it (`landingShip`).
+    landing_ship = 0x25,
     /// The Yamato's launch: beside the ship, rising with time and following its position.
     yamato_beside = 0x0F,
     /// Far ahead of the ship, held still with a fixed pitch, looking back toward the bay.
@@ -357,11 +360,14 @@ pub const World = struct {
     game: ?gameobj.World = null,
 };
 
-/// What the landing's views stand by: the middle of the carrier's launch tube the ship lands in,
-/// which the landing keeps (`ailand.State.tube`), and how the carrier is turned.
-pub const Landing = struct {
-    tube: Vector,
-    carrier: Matrix,
+/// What the landing's views stand by, by the carrier the ship lands on (`ailand.seen`).
+pub const Landing = union(enum) {
+    /// The Reliant's: the middle of its launch tube the ship lands in, which the landing keeps
+    /// (`ailand.State.tube`), and how the carrier is turned.
+    reliant: struct { tube: Vector, carrier: Matrix },
+    /// The Yamato's: where its landing bay stands, the bounds of the bay's hangar as it was drawn
+    /// last, and the tick the view from the bay slides from (`ailand.State.due`).
+    yamato: struct { bay: Place, hangar: [2]Vector, due: i32 },
 };
 
 /// The camera: the state `camera_set_view` and `camera_frame` keep in globals, and Surrender's
@@ -702,13 +708,23 @@ pub const Camera = struct {
             },
             .yamato_ahead => {},
             .yamato_aside => camera.place = lookingAt(camera.place.position, world.player.position),
-            // The landing's views stand off the tube's middle each frame, turned as the carrier
-            // is, looking at the player's ship and at the view's object.
-            .landing_tube => if (world.landing) |landing| {
-                camera.place = lookingAt(landing.tube + math.transform(landing.carrier, landing_tube_offset), world.player.position);
+            // The Reliant's landing's views stand off the tube's middle each frame, turned as the
+            // carrier is, looking at the player's ship and at the view's object.
+            .landing_tube => if (world.landing) |landing| if (landing == .reliant) {
+                const tube = landing.reliant;
+                camera.place = lookingAt(tube.tube + math.transform(tube.carrier, landing_tube_offset), world.player.position);
             },
-            .landing_aside => if (world.landing) |landing| {
-                camera.place = lookingAt(landing.tube + math.transform(landing.carrier, landing_aside_offset), world.object.position);
+            .landing_aside => if (world.landing) |landing| if (landing == .reliant) {
+                const tube = landing.reliant;
+                camera.place = lookingAt(tube.tube + math.transform(tube.carrier, landing_aside_offset), world.object.position);
+            },
+            .landing_bay => if (world.landing) |landing| if (landing == .yamato) {
+                const bay = landing.yamato;
+                const since = @as(f32, @floatFromInt(@as(i64, world.now) - bay.due)) + world.ahead;
+                camera.place = landingBay(bay.bay, bay.hangar, since, world.object.position);
+            },
+            .landing_ship => if (landingShip(world.player, camera.shown(world))) |place| {
+                camera.place = place;
             },
             .jump_out => camera.place = lookingAt(camera.place.position, world.object.position),
             .nanny_dock => camera.place = lookingAt(world.object.place().point(nanny_dock_offset), world.player.position),
@@ -1284,6 +1300,67 @@ const bay_tilt: f32 = 0.0007;
 const landing_tube_offset: Vector = .{ 500, 0, -500 };
 const landing_aside_offset: Vector = .{ -3500, -1000, -3000 };
 
+/// How the view from the Yamato's landing bay slides along it (`camera_frame`, view `0x0E`): over
+/// `bay_slide_ticks` from the landing's due tick (`0x004DC774` holds its reciprocal), eased by a
+/// cosine, its share `f` going from `bay_slide_from` up by `bay_slide` (`0x004DC408` and
+/// `0x004DC4C0` added, `0x004DC770`); and how far down the hangar's height it stands, of its
+/// bottom, the rest of its top (`0x004DC414`).
+const bay_slide_ticks: f32 = 1100;
+const bay_slide_from: f32 = 0.8;
+const bay_slide: f32 = 0.45;
+const bay_low: f32 = 0.95;
+
+/// View `landing_bay` (`camera_frame`, view `0x0E`), `since` ticks after the landing's due tick:
+/// halfway across the bay's hangar, of whose bounds `hangar` it stands `bay_low` of the way down,
+/// and along it at `f` of its far end and `1 - f / 2` of its near end, as it slides
+/// (`bay_slide_ticks`); turned level to face the ship at `object`. The hangar's frame is the bay's.
+///
+/// **Improvement:** the cosine and the angle come from `std.math` rather than the engine's tables
+/// (`sr_cos`, `sr_atan2`).
+fn landingBay(bay: Place, hangar: [2]Vector, since: f32, object: Vector) Place {
+    const time = std.math.clamp(since / bay_slide_ticks, 0, 1);
+    const eased = (1 - @cos(time * std.math.pi)) / 2;
+    const f = bay_slide_from + eased * bay_slide;
+    const local: Vector = .{
+        (hangar[1][0] + hangar[0][0]) * 0.5,
+        hangar[1][1] * bay_low + hangar[0][1] * (1 - bay_low),
+        hangar[1][2] * f + hangar[0][2] * (1 - f * 0.5),
+    };
+    const position = bay.point(local);
+    const off = object - position;
+    return .{ .position = position, .orientation = math.fromAngles(0, std.math.atan2(off[0], off[2]), 0) };
+}
+
+/// Where view `landing_ship` stands from the player's ship (`camera_frame`, view `0x25`): for its
+/// first `ship_above_ticks` (`0x00460877`), `ship_above` above it and higher by `ship_rise` a
+/// tick, `ship_behind` behind, looking down by `ship_look_down` (`0x004DC76C`, `0x004DC59C`,
+/// `0x0046088A`, `0x00460925`); then until `ship_aside_ticks` (`0x00460951`), `ship_aside` to its
+/// left, `ship_aside_up` above and `ship_aside_ahead` ahead and on by a unit a tick, looking back
+/// by `ship_look_back` (`0x00460984`, `0x0046097F`, `0x004DC508`, `0x004609FF`).
+const ship_above_ticks: f32 = 700;
+const ship_above: f32 = -1600;
+const ship_rise: f32 = 2.5;
+const ship_behind: f32 = -500;
+const ship_look_down: f32 = -(std.math.pi / 2.0 - 0.4);
+const ship_aside_ticks: f32 = 1500;
+const ship_aside: f32 = -1000;
+const ship_aside_up: f32 = -470;
+const ship_aside_ahead: f32 = 3000;
+const ship_look_back: f32 = std.math.pi - 0.3;
+
+/// View `landing_ship` (`camera_frame`, view `0x25`), `since` ticks after it was switched to: from
+/// the player's ship `ship`, above it and then beside it; null once it has run its course, after
+/// which the camera stays where it was.
+fn landingShip(ship: Subject, since: f32) ?Place {
+    const local: Vector, const turn: Matrix = if (since < ship_above_ticks)
+        .{ .{ 0, ship_above - since * ship_rise, ship_behind }, math.fromAngles(ship_look_down, 0, 0) }
+    else if (since < ship_aside_ticks)
+        .{ .{ ship_aside, ship_aside_up, since - ship_above_ticks + ship_aside_ahead }, math.fromAngles(0, ship_look_back, 0) }
+    else
+        return null;
+    return .{ .position = ship.place().point(local), .orientation = math.product(ship.orientation, turn) };
+}
+
 // --- The jumps ----------------------------------------------------------------------------------
 
 /// How far out along each of its ship's axes Jump Out's view stands (`camera_set_view`,
@@ -1482,7 +1559,7 @@ test "Camera.setLaunch" {
 test "the landing's views stand off the carrier's tube, watching the ship" {
     var camera: Camera = .{};
     const ship: Subject = .{ .position = .{ 0, -3000, 5000 }, .orientation = math.identity };
-    const landing: Landing = .{ .tube = .{ 0, 0, 1000 }, .carrier = math.rotation(.y, std.math.pi) };
+    const landing: Landing = .{ .reliant = .{ .tube = .{ 0, 0, 1000 }, .carrier = math.rotation(.y, std.math.pi) } };
     try std.testing.expect(camera.setView(.landing_tube, 0, true, true, 10));
     _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 10, .landing = landing });
     // Turned with the carrier, half a turn round: 500 to the left of the tube and 500 ahead.
@@ -1492,6 +1569,22 @@ test "the landing's views stand off the carrier's tube, watching the ship" {
     _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 20, .landing = landing });
     try expectVector(.{ 3500, -1000, 4000 }, camera.place.position);
     try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
+}
+
+test "the Yamato's landing's views" {
+    // From the bay: halfway across its hangar, low in it, sliding along it, facing the ship.
+    const hangar: [2]Vector = .{ .{ -100, -200, -300 }, .{ 100, 0, 700 } };
+    const bay: Place = .{ .position = .{ 0, 0, 1000 } };
+    const ship: Vector = .{ 0, -10, 3000 };
+    const before = landingBay(bay, hangar, -50, ship);
+    try expectVector(.{ 0, -10, 1380 }, before.position);
+    try expectVector(.{ 0, 0, 1 }, math.forward(before.orientation));
+    try expectVector(.{ 0, -10, 1762.5 }, landingBay(bay, hangar, bay_slide_ticks, ship).position);
+    // From the player's ship: above it and rising, then beside it, then held where it was.
+    const player: Subject = .{ .position = @splat(0), .orientation = math.identity };
+    try expectVector(.{ 0, -1850, -500 }, landingShip(player, 100).?.position);
+    try expectVector(.{ -1000, -470, 3100 }, landingShip(player, 800).?.position);
+    try std.testing.expectEqual(null, landingShip(player, ship_aside_ticks));
 }
 
 test "the launch's views follow the ship" {

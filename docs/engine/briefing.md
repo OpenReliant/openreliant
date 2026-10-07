@@ -73,6 +73,12 @@ In the last word, the animation runs up to frame 60 and stops there.
 
 The room's screen plays `%s.bik` of a table the briefing builds on its stack, indexed by the mission's number: `new_m01` to `new_m28`, missions 12, 13, 17 and 22, which the campaign has none of, taking mission 1's. They lie on the disc of the mission's carrier: missions up to 18 on the second, the rest on the first.
 
+## A game mode's briefing
+
+**Improvement:** a game mode can brief its missions in one of the game's briefing rooms, as the StarLancer trial briefs its two ([Game modes](../guide/scripting.md#game-modes), [#819](https://github.com/OpenReliant/openreliant/issues/819)). The mode gives the room, the Reliant's or the Yamato's, and each mission's movie and last word (`briefing.Own`). The briefing shows the room's door, leaves out the walk into the room, and plays the mode's movie on the room's screen. After the loadout ([In a game mode](loadout.md#in-a-game-mode)), Enriquez says the mode's last word, or stays silent where it gives none.
+
+The trial's executable briefs in the Yamato's room alone and names none of its walk-in movies (`amonoff_.bik`, `briefing room 350.bik`). Like the game, it loads the loadout for every mission but 29 (`0x004BD3A0` in its executable), and her last word is `ms_speech\enrbr_tag%02d.ut` by the mission's number.
+
 ## The campaign's end
 
 As mission 28 is won, the campaign moves on to mission 29, and `WinMain` runs the briefing itself for it (`0x004AA027`, `0x004AA6F2`), before the story's end ([The story's end](movies.md#the-storys-end)). Mission 29's briefing loads no loadout. In place of the movie, Enriquez speaks `enddebriefing.ut`, from `speech_hog`, over the Yamato's briefing room, until Escape, the right button or the end of her speech, and no loadout or last word follows.

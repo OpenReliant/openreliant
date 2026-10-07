@@ -382,7 +382,7 @@ pub fn reportShipIn(world: gameobj.World, ship: u16, lines: Lines, delay: u32) v
         .object = ship,
         .about = all.player,
         .due = world.clock.game_ticks + delay,
-        .film = .of(filmPath(&film, pilots.faceOf(all.slots[ship].object.pilot), .talking)),
+        .film = .of(filmPath(&film, all.faces.of(all.slots[ship].object.pilot), .talking)),
         .speech = .of(speech),
     };
 }
@@ -401,7 +401,7 @@ const ship_line_size = 0x80;
 /// it none.
 pub fn shipLine(buffer: []u8, all: *const create.Objects, ship: u16, suffix: []const u8) ?[]const u8 {
     const object = &all.slots[ship].object;
-    const face = pilots.faceOf(object.pilot) orelse return null;
+    const face = all.faces.of(object.pilot) orelse return null;
     const prefix = switch (object.side) {
         .friendly => face.own_voice orelse @tagName(face.allied_voice orelse return null),
         .hostile => face.own_voice orelse face.voice.prefix() orelse return null,
@@ -708,8 +708,9 @@ pub const queue_size = 5;
 pub const film_size = 50;
 pub const name_size = 52;
 
-/// What marks a pilot of the pilots' table (`pilots.faces`) rather than a ship's slot in whose a
-/// line is (`comms_object`, `0x0057BDF4`): the pilot's number from this on (`0x00456290`).
+/// What marks a line as said by a pilot of the pilots' table (`create.Objects.faces`) rather than
+/// by the ship in a slot (`comms_object`, `0x0057BDF4`): the line's speaker is this plus the
+/// pilot's number (`0x00456290`).
 pub const pilot_base: i32 = 0xFFFF;
 
 /// Whose a line is where it is nobody's (`comms_object`), as `PlayCommsMovie`'s are.
@@ -1040,7 +1041,7 @@ pub const Radio = struct {
     /// `radio_say_pilot` (`0x00456250`): `speech` said by pilot `pilot` of the pilots' table, its
     /// face moving as `head` says, outside a multiplayer mission.
     pub fn sayPilot(radio: *Radio, ctx: Context, pilot: u16, head: pilots.Head, speech: []const u8, mode: Mode, flags: hudmovie.Flags, expiry: i32) void {
-        const face = pilots.faceOf(pilot);
+        const face = ctx.all.faces.of(pilot);
         var buffer: [film_path_size]u8 = undefined;
         radio.say(ctx, .{
             .film = filmPath(&buffer, face, head),
@@ -1064,7 +1065,7 @@ pub const Radio = struct {
         if (ship >= all.slots.len) return;
         const object = &all.slots[ship].object;
         if (object.flags.stand_in or object.flags.exploding) return;
-        const face = pilots.faceOf(object.pilot);
+        const face = all.faces.of(object.pilot);
         var buffer: [film_path_size]u8 = undefined;
         radio.say(ctx, .{
             .film = filmPath(&buffer, face, head),
@@ -1127,7 +1128,7 @@ pub const Radio = struct {
                 if (report.object < 0 or report.object >= ctx.all.slots.len) continue;
                 const object = &ctx.all.slots[@intCast(report.object)].object;
                 if (object.flags.exploding) continue;
-                name = pilots.nameOf(object.pilot);
+                name = ctx.all.faces.nameOf(object.pilot);
             }
             radio.say(ctx, .{
                 .film = report.film.slice(),
@@ -1241,7 +1242,7 @@ pub const Radio = struct {
 /// which the game reads beside them, is friendly too.
 pub fn sideOf(all: *const create.Objects, object: i32) gameobj.Side(u16) {
     if (object >= pilot_base) {
-        const face = pilots.faceOf(object - pilot_base) orelse return .friendly;
+        const face = all.faces.of(object - pilot_base) orelse return .friendly;
         return face.side;
     }
     if (object < 0 or object >= all.count) return .friendly;
@@ -1411,7 +1412,7 @@ test sideOf {
 
 test filmPath {
     var buffer: [film_path_size]u8 = undefined;
-    const bandit = pilots.faceOf(0);
+    const bandit = &pilots.faces[0];
     try std.testing.expectEqualStrings("pilots\\45TigersWL_Bandit_d.fm8", filmPath(&buffer, bandit, .dying));
     try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, bandit, @fromBackingInt(4)));
     try std.testing.expectEqualStrings(hudmovie.static_film, filmPath(&buffer, null, .talking));
@@ -1714,6 +1715,9 @@ test shipLine {
     var list = [_]additions.pilots.Added{.{ .name = "a:trooper", .mod = "a", .base = 21, .extra = .{ .face = face } }};
     additions.pilots.install(&list);
     defer additions.pilots.reset();
+    const records = try pilots.faceRecords(std.testing.allocator);
+    defer std.testing.allocator.free(records);
+    mission.objects.faces.load(records);
     object.pilot = additions.pilots.first;
     try std.testing.expectEqualStrings("trpres_001.ut", shipLine(&buffer, mission.objects, ship, "res_001.ut").?);
     object.side = .hostile;

@@ -156,7 +156,7 @@ fn answer(world: gameobj.World, wingman: u16, command: Command, reply: Standing)
 /// `pilot_full_replies` (`0x004539A0`): whether the pilot of the ship in slot `index` answers from
 /// the fuller set of replies (`pilots.Face.full_replies`); a pilot past the table does not.
 pub fn fullReplies(all: *const create.Objects, index: u16) bool {
-    const face = pilots.faceOf(all.slots[index].object.pilot) orelse return false;
+    const face = all.faces.of(all.slots[index].object.pilot) orelse return false;
     return face.full_replies;
 }
 

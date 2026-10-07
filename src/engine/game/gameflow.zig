@@ -19,6 +19,9 @@ const input = @import("../input.zig");
 const vm = @import("../vm.zig");
 const pilot_roster = @import("interface/pilot_roster.zig");
 const Ending = @import("main.zig").Ending;
+const create = @import("create.zig");
+const hooks = @import("../hooks.zig");
+const movies = @import("xtrabits/movie.zig");
 
 pub const save = @import("gameflow/save.zig");
 
@@ -493,6 +496,16 @@ pub const Medal = enum(u3) {
         };
     }
 };
+
+/// The movie of the ceremony as mission `mission` awards the pilot `medal`. `movie` is the medal's
+/// own (`Medal.movie`), and scripts can change it (`medal_ceremony`).
+///
+/// **Improvement:** a step of OpenReliant's own, so that scripts can choose the movie. The game
+/// plays the ceremony inside `mission_end_record` (`0x00475B98`).
+pub fn ceremonyMovie(all: *create.Objects, medal: Medal, mission: u16, movie: ?movies.Name) ?movies.Name {
+    if (hooks.enter(.medal_ceremony, ceremonyMovie, .{ all, medal, mission, movie })) |done| return done;
+    return movie;
+}
 
 /// The kills each rank needs, from the first (`rank_kills`, `0x005009F4`).
 pub const rank_kills = [_]i32{ 0, 35, 72, 115, 150, 200, 255, 275, 300 };
