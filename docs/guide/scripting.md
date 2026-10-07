@@ -91,6 +91,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | [`crt`](../../examples/mods/crt) | A [post effect](#post-effects) |
 | [`custom-order`](../../examples/mods/custom-order) | A [custom AI order](#custom-ai-orders) started by a [mod action](#keys-and-actions) |
 | [`drawing-assets`](../../examples/mods/drawing-assets) | A mod's [pictures, the game's shapes and fonts](#pictures-shapes-and-fonts) |
+| [`hud-layout`](../../examples/mods/hud-layout) | A [HUD display](#hud-displays) that [stands in for the game's radar](#the-games-instruments), moves and scales other instruments, and reads what they show |
 | [`dvd`](../../examples/mods/dvd) | A menu script that [draws](#drawing) over the menus |
 | [`interceptor`](../../examples/mods/interceptor) | A mod's ship type, flown in a [game mode](#game-modes) |
 | [`main-menu`](../../examples/mods/main-menu) | [Replacing a screen](#replacing-a-screen) of the front end |
@@ -1166,6 +1167,50 @@ hud.set_display_enabled(status, false)  -- hides it until it's turned on again
 
 While the flight display shows, each enabled display draws in the order it was registered, after
 the scripts' `on_frame`. A display whose `frame` fails is turned off; the others carry on.
+
+#### The game's instruments
+
+A display can stand in for the game's own instruments, and move or scale them:
+
+```lua
+hud.register_display("radar", {
+    replaces = { "radar" },  -- the game's radar isn't drawn; this display draws one
+    layout = {
+        gauges = { scale = 1.25 },                    -- the targeting cluster, drawn larger
+        clock = { offset = vector.create(-120, 70, 0) },  -- the clock, moved
+    },
+    frame = function(seconds)
+        local box = hud.bounds("radar")  -- where the game's radar would draw
+        if box then
+            -- draw a radar of the mod's own in the box
+        end
+    end,
+})
+```
+
+- `replaces` lists the instruments ([HudInstrument](reference.md#hudinstrument)) the display stands
+  in for: the radar, the readouts, the targeting cluster, the reticle, the clock, the target's
+  markers, the messages, each window and the rest. They aren't drawn while the display is on, but
+  they keep working: RADAR RANGES still changes the radar's range, and the windows still open and
+  close with their keys.
+- `layout` moves and scales the instruments it names. `offset` is in the game's pixels, which grow
+  with the window as the flight display's own do, so a layout looks the same at any size. `scale`,
+  above 0 and up to 8, draws the instrument that many times its size, sharp at the size it's drawn,
+  growing from where it stands on the screen, as the whole display grows with the window.
+- Everything goes back as it was as soon as the display is turned off, its `frame` fails, or its
+  mod stops. Where two displays place the same instrument, the one registered later does.
+- `hud.bounds(instrument)` gives where an instrument last drew, in the window's pixels, as the
+  layouts place it, and also while a display stands in for it, so that a display can draw its own
+  in the game's instrument's place.
+- What the instruments show can be read, for a display that stands in for one: `hud.guns`, the
+  gun group, how the guns fire and their charge; `hud.missiles`, the ring of missiles and the armed
+  one; `hud.target`, the target the display shows and its subtarget; `hud.radar`, the radar's
+  range and reach; `hud.kills`; and `hud.open_windows`. `hud.instruments_shown` says whether the
+  game's instruments show this frame, which is in the view ahead from the cockpit. Each is nil, or
+  empty, outside a mission.
+
+[`examples/mods/hud-layout`](../../examples/mods/hud-layout) draws a radar of its own in the game's
+radar's place, with the guns and missiles beside it.
 
 ### Screens
 

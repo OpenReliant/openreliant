@@ -15,6 +15,7 @@ type MissileType = "none" | "screamer" | "raptor" | "havoc" | "jack_hammer" | "b
 type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type Carrier = "reliant" | "yamato"
+type HudInstrument = "caption" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
 type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | "mode_ending" | number
@@ -104,6 +105,35 @@ type OrderEntry = {
     target: Object?,
     component: number?,
 }
+type HudGuns = {
+    group: number,
+    groups: number,
+    all: boolean,
+    synchronised: boolean,
+    gun: GunType?,
+    charge: number,
+    full_charge: number,
+}
+type HudMissiles = {
+    armed: MissileType?,
+    left: number,
+    ring: { HudMissile },
+}
+type HudMissile = {
+    type: MissileType,
+    left: number,
+}
+type HudRadar = {
+    range: number,
+    reach: number,
+    zooming: boolean,
+}
+type HudBounds = {
+    left: number,
+    top: number,
+    right: number,
+    bottom: number,
+}
 type FillStyle = {
     colour: vector?,
     alpha: number?,
@@ -187,6 +217,10 @@ type Choice = {
 type Outcome = {
     ending: Ending,
     rating: Rating,
+}
+type HudLayout = {
+    offset: vector?,
+    scale: number?,
 }
 
 -- Objects, missiles and turrets, which scripts hold by handles.
@@ -449,16 +483,34 @@ type Orders = {
 
 -- Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels.
 type Hud = {
+    -- The game's instruments the mods' displays stand in for this frame, which aren't drawn (`register_display`).
+    replaced: { HudInstrument },
+    -- Whether the game's instruments show this frame: during a mission, in the view ahead from the cockpit.
+    instruments_shown: boolean,
+    -- The player's guns as the gunnery window and the targeting cluster show them; nil outside a mission.
+    guns: HudGuns?,
+    -- The player's missiles as the missile window shows them; nil outside a mission.
+    missiles: HudMissiles?,
+    -- The target the display shows, with its subtarget as `component`; nil for none, or outside a mission.
+    target: Target?,
+    -- The radar's range; nil outside a mission.
+    radar: HudRadar?,
+    -- The kills the skull readout shows; nil outside a mission.
+    kills: number?,
+    -- The game's windows that are open, opening or closing; none outside a mission.
+    open_windows: { HudInstrument },
     -- Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read.
     shown: boolean,
     -- The window's width, in pixels.
     width: number,
     -- The window's height, in pixels.
     height: number,
-    -- Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. Returns the qualified name.
-    register_display: (name: string, definition: {frame: (seconds: number) -> ()}) -> string,
+    -- Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.
+    register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}) -> string,
     -- Enables or disables a registered HUD display by qualified name. Returns whether it exists.
     set_display_enabled: (name: string, enabled: boolean) -> boolean,
+    -- Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission.
+    bounds: (instrument: HudInstrument) -> HudBounds?,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
     -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
@@ -671,11 +723,20 @@ type Interfaces = {
         action_down: (action: string | number) -> boolean,
     },
     HUD: {
+        replaced: { HudInstrument },
+        instruments_shown: boolean,
+        guns: HudGuns?,
+        missiles: HudMissiles?,
+        target: Target?,
+        radar: HudRadar?,
+        kills: number?,
+        open_windows: { HudInstrument },
         shown: boolean,
         width: number,
         height: number,
-        register_display: (name: string, definition: {frame: (seconds: number) -> ()}) -> string,
+        register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}) -> string,
         set_display_enabled: (name: string, enabled: boolean) -> boolean,
+        bounds: (instrument: HudInstrument) -> HudBounds?,
         picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
         shape: (at: vector, index: number, style: ShapeStyle?) -> (),
         text: (at: vector, text: string, style: TextStyle?) -> (),

@@ -111,11 +111,20 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 
 | Name | Type | What it is |
 |---|---|---|
+| `replaced` | list of [HudInstrument](#hudinstrument) | The game's instruments the mods' displays stand in for this frame, which aren't drawn (`register_display`). |
+| `instruments_shown` | boolean | Whether the game's instruments show this frame: during a mission, in the view ahead from the cockpit. |
+| `guns` | [HudGuns](#hudguns), or nil | The player's guns as the gunnery window and the targeting cluster show them; nil outside a mission. |
+| `missiles` | [HudMissiles](#hudmissiles), or nil | The player's missiles as the missile window shows them; nil outside a mission. |
+| `target` | [Target](#target), or nil | The target the display shows, with its subtarget as `component`; nil for none, or outside a mission. |
+| `radar` | [HudRadar](#hudradar), or nil | The radar's range; nil outside a mission. |
+| `kills` | number, or nil | The kills the skull readout shows; nil outside a mission. |
+| `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing; none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
-| `register_display(name: string, definition: {frame: (seconds: number) -> ()})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. Returns the qualified name. |
+| `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
 | `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
+| `bounds(instrument: HudInstrument)` | [HudBounds](#hudbounds), or nil | Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
@@ -434,11 +443,20 @@ turret, and a turret's own scripts on their turret.
 
 | Member | Type or returns | Description |
 |---|---|---|
+| `replaced` | list of [HudInstrument](#hudinstrument) | The game's instruments the mods' displays stand in for this frame, which aren't drawn (`register_display`). |
+| `instruments_shown` | boolean | Whether the game's instruments show this frame: during a mission, in the view ahead from the cockpit. |
+| `guns` | [HudGuns](#hudguns), or nil | The player's guns as the gunnery window and the targeting cluster show them; nil outside a mission. |
+| `missiles` | [HudMissiles](#hudmissiles), or nil | The player's missiles as the missile window shows them; nil outside a mission. |
+| `target` | [Target](#target), or nil | The target the display shows, with its subtarget as `component`; nil for none, or outside a mission. |
+| `radar` | [HudRadar](#hudradar), or nil | The radar's range; nil outside a mission. |
+| `kills` | number, or nil | The kills the skull readout shows; nil outside a mission. |
+| `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing; none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
-| `register_display(name: string, definition: {frame: (seconds: number) -> ()})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. Returns the qualified name. |
+| `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
 | `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
+| `bounds(instrument: HudInstrument)` | [HudBounds](#hudbounds), or nil | Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
@@ -1170,6 +1188,50 @@ A table a script gives, which may leave out a field with a default.
 | `target` | [object](#objects), or nil |
 | `component` | number, or nil |
 
+### HudGuns
+
+| Field | Type |
+|---|---|
+| `group` | number |
+| `groups` | number |
+| `all` | boolean |
+| `synchronised` | boolean |
+| `gun` | [GunType](#guntype), or nil |
+| `charge` | number |
+| `full_charge` | number |
+
+### HudMissiles
+
+| Field | Type |
+|---|---|
+| `armed` | [MissileType](#missiletype), or nil |
+| `left` | number |
+| `ring` | list of [HudMissile](#hudmissile) |
+
+### HudMissile
+
+| Field | Type |
+|---|---|
+| `type` | [MissileType](#missiletype) |
+| `left` | number |
+
+### HudRadar
+
+| Field | Type |
+|---|---|
+| `range` | number |
+| `reach` | number |
+| `zooming` | boolean |
+
+### HudBounds
+
+| Field | Type |
+|---|---|
+| `left` | number |
+| `top` | number |
+| `right` | number |
+| `bottom` | number |
+
 ### FillStyle
 
 A table a script gives, which may leave out any field.
@@ -1314,6 +1376,13 @@ A table a script gives, which may leave out a field with a default.
 | `ending` | [Ending](#ending) |
 | `rating` | [Rating](#rating) |
 
+### HudLayout
+
+| Field | Type |
+|---|---|
+| `offset` | vector, or nil |
+| `scale` | number, or nil |
+
 ## Names of values
 
 A value that has a name in OpenReliant is given as a string: its name. One without a name is a
@@ -1354,6 +1423,10 @@ number. A script can set a field to either.
 ### Carrier
 
 `reliant`, `yamato`.
+
+### HudInstrument
+
+`caption`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`.
 
 ### Font
 

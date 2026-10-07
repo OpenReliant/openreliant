@@ -8,10 +8,12 @@ const values = @import("values.zig");
 const util = @import("util.zig");
 const engine = @import("openreliant").engine;
 const camera = engine.game.camera;
+const hud = engine.game.hud;
 const math = engine.surrender.math;
 const presentation = @import("presentation.zig");
 const log = std.log.scoped(.scripts);
 const objects = @import("objects.zig");
+const instruments = @import("instruments.zig");
 
 pub const Kind = enum { camera, display, screen };
 const first_view = camera.views.records.len;
@@ -32,6 +34,9 @@ const Entry = struct {
     enabled: bool = true,
     shown: bool = true,
     letterbox: bool = false,
+    /// A display's: the game's instruments it stands in for, and where it puts them.
+    replaces: std.EnumSet(hud.Instrument) = .empty,
+    layout: std.EnumArray(hud.Instrument, ?hud.Placement) = .initFill(null),
 };
 
 pub const Pose = struct {
@@ -56,6 +61,21 @@ pub const Registry = struct {
             if (entry.kind == kind and entry.enabled and !entry.context.closed and std.mem.eql(u8, entry.name.slice(), name)) return index;
         }
         return null;
+    }
+
+    /// Where the displays on put the game's instruments, and which they stand in for. Where two
+    /// place the same instrument, the one registered later does.
+    pub fn placements(registry: *const Registry) std.EnumArray(hud.Instrument, hud.Placement) {
+        var all: std.EnumArray(hud.Instrument, hud.Placement) = .initFill(.{});
+        for (registry.entries.items) |entry| {
+            if (entry.kind != .display or !entry.enabled or entry.context.closed or !entry.shown) continue;
+            for (std.enums.values(hud.Instrument)) |instrument| {
+                const placement = all.getPtr(instrument);
+                if (entry.layout.get(instrument)) |placed| placement.* = .{ .offset = placed.offset, .scale = placed.scale, .hidden = placement.hidden };
+                if (entry.replaces.contains(instrument)) placement.hidden = true;
+            }
+        }
+        return all;
     }
 
     pub fn removeSince(registry: *Registry, scripts: *runtime.Runtime, context: *runtime.Context, first: usize) void {
@@ -242,10 +262,17 @@ pub fn register(comptime kind: Kind, state: *luau.State) i32 {
     if (scripts.registries.entries.items.len == max_registered) call.raise("the presentation registry is full", .{});
     if (state.typeOf(2) != .table) call.raise("registration expects a definition table", .{});
     var letterbox = false;
+    var replaces: std.EnumSet(hud.Instrument) = .empty;
+    var layout: std.EnumArray(hud.Instrument, ?hud.Placement) = .initFill(null);
     state.pushNil();
     while (state.next(2)) {
         const key = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse call.raise("definition keys must be names", .{});
-        if (kind == .camera and std.mem.eql(u8, key, "letterbox")) letterbox = values.read(state, bool, -1, "letterbox") else if (std.mem.eql(u8, key, "frame") or (kind == .screen and std.mem.eql(u8, key, "key"))) {
+        if (kind == .camera and std.mem.eql(u8, key, "letterbox")) letterbox = values.read(state, bool, -1, "letterbox") else if (kind == .display and std.mem.eql(u8, key, "replaces")) {
+            const listed = values.read(state, values.List(hud.Instrument, std.enums.values(hud.Instrument).len), -1, "replaces");
+            for (listed.slice()) |instrument| replaces.insert(instrument);
+        } else if (kind == .display and std.mem.eql(u8, key, "layout")) {
+            readLayout(call, &layout);
+        } else if (std.mem.eql(u8, key, "frame") or (kind == .screen and std.mem.eql(u8, key, "key"))) {
             if (state.typeOf(-1) != .function) call.raise("registry callbacks must be functions", .{});
         } else call.raise("unknown registry field '{s}'", .{key});
         state.pop(1);
@@ -260,9 +287,24 @@ pub fn register(comptime kind: Kind, state: *luau.State) i32 {
     }
     const callbacks = state.ref(-1);
     state.pop(1);
-    scripts.registries.entries.appendAssumeCapacity(.{ .context = call.context, .name = name, .kind = kind, .callbacks = callbacks, .letterbox = letterbox });
+    scripts.registries.entries.appendAssumeCapacity(.{ .context = call.context, .name = name, .kind = kind, .callbacks = callbacks, .letterbox = letterbox, .replaces = replaces, .layout = layout });
     state.pushString(name.slice());
     return 1;
+}
+
+/// Reads a display's `layout`, on top of the stack: where it puts each instrument it names.
+fn readLayout(call: api.Call, layout: *std.EnumArray(hud.Instrument, ?hud.Placement)) void {
+    const state = call.state;
+    if (state.typeOf(-1) != .table) call.raise("layout must be a table of instruments", .{});
+    const table = state.top();
+    state.pushNil();
+    while (state.next(table)) {
+        const name = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse call.raise("layout keys must be instruments", .{});
+        const instrument = std.meta.stringToEnum(hud.Instrument, name) orelse call.raise("layout: no instrument '{s}'", .{name});
+        const given = values.read(state, instruments.Layout, -1, "layout");
+        layout.set(instrument, given.placement() orelse call.raise("layout: {s}'s scale must be above 0 and at most {d}", .{ name, instruments.Layout.max_scale }));
+        state.pop(1);
+    }
 }
 
 pub fn registration(comptime kind: Kind) fn (*luau.State) i32 {

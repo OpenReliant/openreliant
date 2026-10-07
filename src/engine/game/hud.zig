@@ -2088,6 +2088,193 @@ pub const Frame = struct {
     radio: ?*radio_module.Radio = null,
     /// The game's variables, whose countdown the clock shows where the mission counts down.
     variables: ?*const vm.Variables = null,
+    /// Where the mods' displays put each instrument this frame, and which they stand in for.
+    placements: std.EnumArray(Instrument, Placement) = .initFill(.{}),
+};
+
+/// Where a mod's display puts one of the instruments, or whether it stands in for it.
+///
+/// **Improvement:** OpenReliant's, for the mods' displays.
+pub const Placement = struct {
+    /// How far the instrument moves, in the display's own pixels (`Pen.scale`).
+    offset: [2]f32 = .{ 0, 0 },
+    /// How many times its own size it is drawn: the pen's scale times this, so that it is drawn
+    /// sharp at that size, growing from where it is anchored on the screen as the whole display
+    /// grows with the window.
+    scale: f32 = 1,
+    /// Whether a mod's display stands in for it, so that it isn't drawn.
+    hidden: bool = false,
+
+    /// The whole pixels of the window it moves by, for a display drawn at `scale`.
+    pub fn shift(placement: Placement, scale: f32) [2]f32 {
+        return .{ @round(placement.offset[0] * scale), @round(placement.offset[1] * scale) };
+    }
+};
+
+/// One instrument's draws on their way to the frame's device: it notes the box they cover in the
+/// window, and moves them as the instrument's placement says, by whole pixels so that they stay
+/// sharp, or leaves them out for an instrument a mod's display stands in for. The instrument does
+/// its work either way.
+const Placing = struct {
+    into: device.Device,
+    /// What a draw too large for the stack is moved in.
+    gpa: Allocator,
+    /// The whole pixels its draws move by, and the scale it draws at, times the pen's.
+    shift: [2]f32,
+    scale: f32,
+    hidden: bool,
+    /// The box its draws cover this frame, moved; null until it draws.
+    drawn: ?Clip = null,
+
+    fn interface(placing: *Placing) device.Device {
+        return .{ .ptr = placing, .vtable = &vtable };
+    }
+
+    const vtable: device.Device.VTable = .{ .begin = begin, .end = end, .draw = drawPlaced, .overlay = overlay };
+
+    fn from(ptr: *anyopaque) *Placing {
+        return @ptrCast(@alignCast(ptr));
+    }
+
+    fn begin(ptr: *anyopaque) void {
+        from(ptr).into.begin();
+    }
+
+    fn end(ptr: *anyopaque) void {
+        from(ptr).into.end();
+    }
+
+    fn overlay(ptr: *anyopaque) void {
+        from(ptr).into.overlay();
+    }
+
+    fn drawPlaced(ptr: *anyopaque, state: device.State, primitive: device.Primitive, vertices: []const device.Vertex, indices: ?[]const u16) void {
+        const placing = from(ptr);
+        const shifted = placing.shift[0] != 0 or placing.shift[1] != 0;
+        for (vertices) |vertex| placing.cover(vertex.x + placing.shift[0], vertex.y + placing.shift[1]);
+        if (placing.hidden) return;
+        if (!shifted) return placing.into.draw(state, primitive, vertices, indices);
+        // The display draws a few vertices at a time, moved on the stack. A larger draw is moved
+        // in memory of its own, and left out where there is none.
+        var buffer: [stack_vertices]device.Vertex = undefined;
+        const room = if (vertices.len <= buffer.len) buffer[0..vertices.len] else placing.gpa.alloc(device.Vertex, vertices.len) catch return;
+        defer if (room.ptr != &buffer) placing.gpa.free(room);
+        for (room, vertices) |*into, vertex| {
+            into.* = vertex;
+            into.x += placing.shift[0];
+            into.y += placing.shift[1];
+        }
+        placing.into.draw(state, primitive, room, indices);
+    }
+
+    /// Takes the point `x`, `y` into the box drawn.
+    fn cover(placing: *Placing, x: f32, y: f32) void {
+        const box = placing.drawn orelse {
+            placing.drawn = .{ .left = x, .top = y, .right = x, .bottom = y };
+            return;
+        };
+        placing.drawn = .{ .left = @min(box.left, x), .top = @min(box.top, y), .right = @max(box.right, x), .bottom = @max(box.bottom, y) };
+    }
+};
+
+/// The most vertices of one draw that `Placing` moves on the stack.
+const stack_vertices = 256;
+
+/// The frame's instruments, each drawing through its `Placing`.
+pub const Placings = struct {
+    each: std.EnumArray(Instrument, Placing),
+
+    /// The frame's placings, for a display drawn at `scale`.
+    fn init(frame: Frame, scale: f32) Placings {
+        var placings: Placings = .{ .each = undefined };
+        for (std.enums.values(Instrument)) |instrument| {
+            const placement = frame.placements.get(instrument);
+            placings.each.set(instrument, .{ .into = frame.device, .gpa = frame.gpa, .shift = placement.shift(scale), .scale = placement.scale, .hidden = placement.hidden });
+        }
+        return placings;
+    }
+
+    /// `base` for `instrument`: drawing through its placing, at its placement's scale.
+    pub fn pen(placings: *Placings, base: Pen, instrument: Instrument) Pen {
+        const placing = placings.each.getPtr(instrument);
+        var other = base.sized(base.scale * placing.scale);
+        other.device = placing.interface();
+        return other;
+    }
+
+    /// Keeps in `state` where each instrument drew this frame (`State.bounds`).
+    fn keep(placings: *const Placings, state: *State) void {
+        for (std.enums.values(Instrument)) |instrument| {
+            if (placings.each.get(instrument).drawn) |box| state.bounds.set(instrument, box);
+        }
+    }
+};
+
+/// What the display draws, each of which a mod's display can stand in for, move or scale
+/// (`Frame.placements`).
+///
+/// **Improvement:** OpenReliant's, for the mods' displays. An instrument placed or stood in for
+/// still does its work each frame: only what it draws changes.
+pub const Instrument = enum {
+    /// The name scripts know these by.
+    pub const script_name = "HudInstrument";
+
+    /// The date the player's launch types out (`Caption`).
+    caption,
+    jump_prompt,
+    /// What `drawTarget` marks in the scene: the target's brackets and range, the lead cursor and
+    /// its line, the arrows toward a target or a nav point off the screen, and the corners round
+    /// the ship whose line the radio's window shows.
+    target_markers,
+    eject_marker,
+    scanner,
+    /// The status lights (`drawLights`).
+    lights,
+    /// The view's name, in the views but the one ahead.
+    view_name,
+    /// The message lines.
+    messages,
+    nav_marker,
+    /// The readouts (`Readout`).
+    fuel,
+    kills,
+    countermeasures,
+    /// The player's ship status indicator: its shields and armour.
+    ship_status,
+    /// The targeting cluster: the throttle, the speed and the guns' charge (`drawCluster`).
+    gauges,
+    /// The radar, its contacts, and its backing in the scene.
+    radar,
+    reticle,
+    clock,
+    /// The windows (`windows.Window`).
+    radio,
+    gunnery,
+    missiles,
+    target_display,
+    damage,
+    power,
+    big_target_display,
+    objectives,
+    comms,
+    wing_status,
+
+    /// The instrument a window is; null for the frames alone, which show nothing.
+    pub fn ofWindow(window: windows.Window) ?Instrument {
+        return switch (window) {
+            .radio => .radio,
+            .gunnery => .gunnery,
+            .missiles => .missiles,
+            .target => .target_display,
+            .damage => .damage,
+            .power => .power,
+            .big_target => .big_target_display,
+            .objectives => .objectives,
+            .comms => .comms,
+            .wing_status => .wing_status,
+            ._unknown_5, ._unknown_6, ._unknown_9, ._unknown_12, ._unknown_14 => null,
+        };
+    }
 };
 
 /// `hud_draw` (`0x004843B0`): the display for a frame, in its order. First it takes the player's
@@ -2116,33 +2303,37 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
         .scale = scaleFor(frame.screen),
         .shake = state.interference.shake(frame.hit_shake, frame.random),
     };
+    // Each instrument draws through its own placing, which the mods' displays may move or stand
+    // in for, and which notes where it drew.
+    var placing: Placings = .init(frame, pen.scale);
+    defer placing.keep(state);
     state.messages.expire(frame.clock.frame_start);
     state.followTarget(frame.all, frame.multiplayer);
     if (frame.sound) |sound| state.lock.sound(sound, frame.view);
     state.runCharges(live, frame_duration, frame.multiplayer);
-    try state.caption.draw(pen, frame.all.mission_number, frame.clock.game_ticks);
+    try state.caption.draw(placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
     // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
     // light shows.
     var lead: Cursor = .none;
     var lock_lit = false;
     const speaker = if (frame.radio) |on_air| on_air.speakingShip(&state.windows, frame.all) else null;
     if (ahead) {
-        try state.drawJumpPrompt(frame.ready, pen, frame_duration);
+        try state.drawJumpPrompt(frame.ready, placing.pen(pen, .jump_prompt), frame_duration);
         if (frame.sight) |sight| {
             const scene: TargetScene = .{ .sight = sight, .all = frame.all, .mode = frame.mode, .speaker = speaker };
-            lead = try drawTarget(state, pen, &resources.target_fonts, scene, frame.edge_line);
+            lead = try drawTarget(state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
-        try state.drawEjectMarker(pen, frame_duration);
-        try state.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, pen);
+        try state.drawEjectMarker(placing.pen(pen, .eject_marker), frame_duration);
+        try state.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, placing.pen(pen, .scanner));
         const lit = state.lit(live, frame.player.matching_speed, frame.multiplayer, frame_duration);
-        try state.drawLights(pen, lit, frame_duration);
+        try state.drawLights(placing.pen(pen, .lights), lit, frame_duration);
         lock_lit = lit.enemy_lock;
     }
     if (frame.sound) |sound| state.warnOfLock(sound, lock_lit, live.missile_homing != 0);
     if (frame.radio) |on_air| on_air.waitForWindow(frame.sound, frame_duration);
-    try drawViewName(pen, frame.last_view);
-    try state.messages.draw(pen, &resources.target_fonts.new);
-    if (ahead) try state.drawInstruments(pen, frame, lead, speaker);
+    try drawViewName(placing.pen(pen, .view_name), frame.last_view);
+    try state.messages.draw(placing.pen(pen, .messages), &resources.target_fonts.new);
+    if (ahead) try state.drawInstruments(pen, &placing, frame, lead, speaker);
     const contents: windows.Contents = .{
         .radio = if (frame.radio) |on_air| .{ .radio = on_air, .sound = frame.sound, .hit_shake = frame.hit_shake, .random = frame.random } else null,
         .gunnery = .{ .slot = slot, .wire_frame = state.wire_frame },
@@ -2154,7 +2345,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
     };
-    try state.windows.frame(pen, frame.last_view, frame_duration, contents, frame.all.kamovPart());
+    try state.windows.frame(pen, &placing, frame.last_view, frame_duration, contents, frame.all.kamovPart());
     state.windows.beeps.play(frame.sound, frame.view);
 }
 
@@ -2180,6 +2371,40 @@ pub fn novaShown(slot: *const create.Slot) bool {
     const object = &slot.object;
     if (!object.type.base().carriesNova()) return false;
     return !object.gun_mode.all and guns.GunType.leadCharges(groupLead(slot));
+}
+
+test "the mods' displays move, scale and stand in for instruments" {
+    const gpa = std.testing.allocator;
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    var frame: Frame = undefined;
+    frame.device = recorder.interface();
+    frame.gpa = gpa;
+    frame.placements = .initFill(.{});
+    frame.placements.set(.radar, .{ .hidden = true });
+    frame.placements.set(.clock, .{ .offset = .{ 10, -5 }, .scale = 1.5 });
+    var placing: Placings = .init(frame, 2);
+    var pen: Pen = undefined;
+    pen.scale = 2;
+    // One stood in for draws nothing, but notes where it would have drawn.
+    drawLine(placing.pen(pen, .radar).device, .{ 0, 0 }, .{ 10, 10 }, .{ 1, 1, 1, 1 }, 1);
+    try std.testing.expectEqual(0, recorder.draws.items.len);
+    // One moved draws at its scale, by whole pixels of the window, and notes where.
+    const clock = placing.pen(pen, .clock);
+    try std.testing.expectEqual(3, clock.scale);
+    drawFilled(clock.device, .{ .left = 1, .top = 2, .right = 3, .bottom = 4 }, .{ 1, 1, 1, 1 });
+    try std.testing.expectEqual(1, recorder.draws.items.len);
+    try std.testing.expectEqual(21, recorder.last()[0].x);
+    try std.testing.expectEqual(-8, recorder.last()[0].y);
+    var state: State = .{};
+    placing.keep(&state);
+    try std.testing.expectEqual(Clip{ .left = 21, .top = -8, .right = 23, .bottom = -6 }, state.bounds.get(.clock).?);
+    try std.testing.expect(state.bounds.get(.radar) != null);
+    try std.testing.expectEqual(null, state.bounds.get(.reticle));
+    // Each window that shows something is an instrument; the readouts are too.
+    try std.testing.expectEqual(.target_display, Instrument.ofWindow(.target).?);
+    try std.testing.expectEqual(null, Instrument.ofWindow(._unknown_5));
+    try std.testing.expectEqual(.kills, Readout.skull.instrument());
 }
 
 test "blind fire, and the charge arc for the Nova Cannon" {
@@ -2247,6 +2472,15 @@ pub const Readout = enum {
         /// as its shape is shifted, near enough to stand under it.
         text_offset: [2]i32,
     };
+
+    /// The instrument it is.
+    pub fn instrument(readout: Readout) Instrument {
+        return switch (readout) {
+            .fuel => .fuel,
+            .skull => .kills,
+            .coil => .countermeasures,
+        };
+    }
 
     pub fn spec(readout: Readout) Spec {
         return switch (readout) {
@@ -3127,6 +3361,9 @@ pub const State = struct {
     /// Whether the cloak's charge has run dry since the player's ship last uncloaked for it
     /// (`uncloakSpent`).
     cloak_spent: bool = false,
+    /// Where each instrument last drew, in the window's pixels, as the mods' displays place it
+    /// (`Placings`); null for one that hasn't drawn yet. Kept for the scripts.
+    bounds: std.EnumArray(Instrument, ?Clip) = .initFill(null),
 
     /// `hud_draw`'s work on the devices' charges for a frame, which it does in every view: a
     /// device that runs dry is turned off. The cloak's charge runs only outside a multiplayer
@@ -3314,13 +3551,13 @@ pub const State = struct {
 
     /// What `hud_draw` draws only in the view ahead from the cockpit, after the view's name, with
     /// the ship whose line the radio's window names, where it shows (`speaker`).
-    fn drawInstruments(state: *State, pen: Pen, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
+    fn drawInstruments(state: *State, pen: Pen, placing: *Placings, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
         const frame_duration = frame.clock.frame_duration;
         const slot = &frame.all.slots[frame.all.player];
         const live = &slot.object;
         const flight = slot.flight orelse return;
         const combat = slot.combat orelse return;
-        if (frame.sight) |sight| try drawNavMarker(pen, sight, frame.all);
+        if (frame.sight) |sight| try drawNavMarker(placing.pen(pen, .nav_marker), sight, frame.all);
         for (std.enums.values(Readout)) |readout| {
             if (!state.shows(readout, frame_duration)) continue;
             const value: i32 = switch (readout) {
@@ -3328,11 +3565,12 @@ pub const State = struct {
                 .skull => frame.player.kills.count,
                 .coil => live.countermeasures,
             };
-            try readout.draw(pen, value);
+            try readout.draw(placing.pen(pen, readout.instrument()), value);
         }
         const status = ShipStatus.ofPlayer(slot, &state.ship_hits, frame.player.shield_reserves);
-        try ShipStatus.draw(status, .player, pen, pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
-        try drawCluster(pen, .{
+        const status_pen = placing.pen(pen, .ship_status);
+        try ShipStatus.draw(status, .player, status_pen, status_pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
+        try drawCluster(placing.pen(pen, .gauges), .{
             .throttle = live.throttle,
             .speed = live.speed,
             .max_speed = flight.max_speed,
@@ -3340,12 +3578,12 @@ pub const State = struct {
             .full_charge = combat.gun_energy,
             .nova = if (novaShown(slot)) live.nova_charge else null,
         });
-        try drawRadar(pen, state, frame.all, speaker);
+        try drawRadar(placing.pen(pen, .radar), state, frame.all, speaker);
         stepRadarZoom(state, frame.clock.game_ticks);
-        const aims = try drawReticle(state, pen, frame.mode, lead, blindFire(state, slot), frame_duration);
+        const aims = try drawReticle(state, placing.pen(pen, .reticle), frame.mode, lead, blindFire(state, slot), frame_duration);
         live.blind_fire_aim = @intFromBool(aims);
         const time = clockTime(frame.all, frame.clock.play, frame.variables);
-        try drawClock(pen, time[0], time[1]);
+        try drawClock(placing.pen(pen, .clock), time[0], time[1]);
     }
 
     /// The scanner from its first frame, as the `Scanner` command starts it (`cmd_Scanner`,

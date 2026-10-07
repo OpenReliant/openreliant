@@ -266,13 +266,15 @@ pub const Windows = struct {
     /// view ahead from the cockpit is drawn over the display, with what it shows where OpenReliant
     /// draws that. The radio's window follows its line in every view (`hud.radio.frame`). In
     /// mission 25's first part (`kamov`), the windows the Kamov lacks stand still, unseen
-    /// (`Window.kamovLacks`, `0x00486408`).
-    pub fn frame(windows: *Windows, pen: hud.Pen, last_view: camera.View, frame_duration: i32, contents: Contents, kamov: bool) Canvas.Error!void {
+    /// (`Window.kamovLacks`, `0x00486408`). Each window draws through its instrument's placing
+    /// (`hud.Placings`), which a mod's display may move or stand in for.
+    pub fn frame(windows: *Windows, pen: hud.Pen, placing: *hud.Placings, last_view: camera.View, frame_duration: i32, contents: Contents, kamov: bool) Canvas.Error!void {
         const ahead = hud.instrumented(last_view);
         for (std.enums.values(Window)) |window| {
             if (kamov and window.kamovLacks()) continue;
             const shown = windows.step(window, frame_duration) orelse continue;
-            try draw(windows, pen, window, shown, ahead, contents);
+            const placed = if (hud.Instrument.ofWindow(window)) |instrument| placing.pen(pen, instrument) else pen;
+            try draw(windows, placed, window, shown, ahead, contents);
         }
     }
 };

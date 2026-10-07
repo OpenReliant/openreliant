@@ -76,6 +76,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 |---|---|---|
 | Draw over the flight display and the menus: text, lines, rectangles, the mod's pictures and fonts, and the game's shapes | [Drawing](scripting.md#drawing), [Pictures, shapes and fonts](scripting.md#pictures-shapes-and-fonts) | [`dvd`](../../examples/mods/dvd), [`drawing-assets`](../../examples/mods/drawing-assets) |
 | Add displays to the flight display | [HUD displays](scripting.md#hud-displays) | [`arena`](../../examples/mods/arena), [`strafe-run`](../../examples/mods/strafe-run) |
+| Replace, move and scale the game's HUD instruments, and read what they show | [The game's instruments](scripting.md#the-games-instruments) | [`hud-layout`](../../examples/mods/hud-layout) |
 | Add screens, and replace the front end's | [Screens](scripting.md#screens), [Replacing a screen](scripting.md#replacing-a-screen) | [`main-menu`](../../examples/mods/main-menu), [`strafe-run`](../../examples/mods/strafe-run) |
 | Add camera views | [Camera views](scripting.md#camera-views) | [`strafe-run`](../../examples/mods/strafe-run) |
 | Hear the keys and the game's controls, and add controls the player binds on the controls screen | [Keys and actions](scripting.md#keys-and-actions) | [`custom-order`](../../examples/mods/custom-order), [`strafe-run`](../../examples/mods/strafe-run) |
