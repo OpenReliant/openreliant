@@ -110,8 +110,8 @@ pub const startup_step: Frame = .{ .picture = startup_picture, .line = .loading 
 /// far up (`loading_line_draw`, `0x004AB2EB`).
 const line_rise = 40;
 
-/// What the loading screens draw with: the front end's large font, drawn as levels of one colour
-/// (`hud.Opened.ramp`), its small one, which OpenReliant's version is written in, and the picture
+/// What the loading screens draw with: the front end's large font, drawn in one colour
+/// (`hud.FontFile`), its small one, which OpenReliant's version is written in, and the picture
 /// shown.
 pub const Resources = struct {
     gpa: Allocator,

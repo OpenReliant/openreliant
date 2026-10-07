@@ -624,7 +624,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var game_scripts: GameScripts = .{ .gpa = gpa, .io = io, .mods = mods.list, .records = &records, .objects = objects, .presentation = presentation, .shared = shared };
     display.presentation = presentation;
     // The display's font as the player and menu scripts write in it over the display and the pause
-    // menu: ramped, as the menus' fonts are, so that its text takes the colour a script gives.
+    // menu: in one colour, as the menus' fonts are, so that its text takes the colour a script
+    // gives.
     var script_font: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(gpa, resources, game.hud.Resources.font_name, &outlines) else null;
     defer if (script_font) |*font| font.deinit(gpa);
     var script_small: ?game.hud.FontFile = if (presentation != null) game.hud.FontFile.read(gpa, resources, game.hud.small_menu_font, &outlines) else null;

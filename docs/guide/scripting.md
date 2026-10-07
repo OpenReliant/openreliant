@@ -1081,10 +1081,16 @@ return {
   keeps its own anchor point, and is drawn at the game's scale times the style's `scale`. A set
   that isn't loaded, or a shape it doesn't have, is an error.
 - **Fonts.** A text style's `font` is one of the game's, `"default"`, `"hud"`, `"menu_small"` or
-  `"menu_large"`, or a font file in the mod. A `.fnt` file draws as the game's bitmap fonts do. A
-  `.ttf` or `.otf` file needs OUTLINE FONTS on under VIDEO. Its letters are laid out with the
-  spacing of the built-in font that `base_font` names, `"default"` unless given, which also draws the
-  characters the file doesn't have.
+  `"menu_large"`, or a font file in the mod. Text is always drawn in the style's colour.
+  - A `.ttf` or `.otf` file is drawn at the window's resolution. It takes the spacing of the game's
+    font that `base_font` names (`"default"` unless given), and fits over it the way a mod's
+    replacement for that font does ([Fonts](modding.md#fonts)), so it works over any of them. The
+    base font draws the characters the file doesn't have. With OUTLINE FONTS off under VIDEO, the
+    text is drawn in the base font.
+  - A `.fnt` file is drawn like the game's fonts. Most fonts store each pixel as a level of the
+    text's colour, as the menus' fonts do. If most of a font's letters use colours of its palette
+    instead, as the flight display's font does, each pixel is as strong as its colour is close to
+    the letters' brightest colour.
 - `measure` takes a text style, or just a number for its scale, and measures as `text` draws.
 - A reload reads the files again. All the mods' pictures and fonts together can use up to 128 files
   and 64 MiB. A missing, broken or oversized file is an error in the script.

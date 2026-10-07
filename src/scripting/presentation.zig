@@ -738,10 +738,13 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
                 \\    assert(size.width == 24 and size.height == 16)
                 \\    ui.text(vector.create(1, 2, 0), "AH", style)
                 \\    ui.text(vector.zero, "AH", {font = "menu_large"})
+                \\    -- Over a font whose letters use palette colours too, as the display's do.
+                \\    ui.text(vector.zero, "AH", {font = "font.ttf", base_font = "hud"})
                 \\    ui.picture(vector.create(10, 20, 0), "icon.png", vector.create(12, 8, 0), {alpha = 0.5})
                 \\    ui.shape(vector.create(30, 40, 0), 1, {scale = 2})
                 \\    assert(not pcall(ui.picture, vector.zero, "bad.png"))
-                \\    assert(not pcall(ui.text, vector.zero, "AH", {font = "bad.ttf"}))
+                \\    local ok, err = pcall(ui.text, vector.zero, "AH", {font = "bad.ttf"})
+                \\    assert(not ok and string.find(err, "can't be read as a TrueType or OpenType font", 1, true))
                 \\    assert(not pcall(ui.picture, vector.zero, "../icon.png"))
                 \\end}}
             },
@@ -764,18 +767,31 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
     defer fixture.shown.assets.deinit(gpa);
     var font: hud.Opened = .ramp(try openreliant.fnt.Font.parse(hud.outline.testing.font));
     defer font.deinit(gpa);
+    const palette = comptime palette: {
+        var colours: [openreliant.spr.palette_size]u8 = @splat(0);
+        colours[160 * 3 ..][0..3].* = .{ 0, 0x20, 0x3F };
+        break :palette colours;
+    };
+    // The display's font, drawn in one colour as scripts write in it.
+    var blue: hud.Opened = .monochrome(try openreliant.fnt.Font.parse(comptime hud.outline.testing.fontInked(.{ 12, 160, 160 }, palette)));
+    defer blue.deinit(gpa);
     const sprite_bytes = try openreliant.spr.testing.paletteAndShape(gpa);
     defer gpa.free(sprite_bytes);
     var art = try hud.Art.init(gpa, try openreliant.spr.Sprite.parse(sprite_bytes), null, null);
     defer art.deinit(gpa);
     var view: drawing.View = .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1, .art = &art, .rasterizer = boxes.rasterizer() };
     view.fonts.set(.menu_large, &font);
+    view.fonts.set(.hud, &blue);
     var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 } };
     host.views.set(.ui, view);
     fixture.shown.frame(host);
-    try std.testing.expectEqual(4, fixture.shown.layers.get(.ui).commands.items.len);
+    try std.testing.expectEqual(5, fixture.shown.layers.get(.ui).commands.items.len);
     try std.testing.expectEqual(1, fixture.shown.assets.pictures.items.len);
-    try std.testing.expectEqual(1, fixture.shown.assets.fonts.items.len);
+    try std.testing.expectEqual(2, fixture.shown.assets.fonts.items.len);
+    // The font over it is fitted and drawn like it.
+    const over_blue = fixture.shown.assets.fonts.items[1].opened;
+    try std.testing.expectEqual(blue.paint.inked, over_blue.paint.inked);
+    try std.testing.expect(over_blue.outline != null);
     var recorder: device.testing.Recorder = .{ .gpa = gpa };
     defer recorder.deinit();
     try fixture.shown.draw(.ui, recorder.interface(), null);
@@ -785,7 +801,30 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
     try fixture.shown.reload();
     fixture.shown.frame(host);
     try std.testing.expectEqual(2, fixture.shown.assets.pictures.items.len);
-    try std.testing.expectEqual(2, fixture.shown.assets.fonts.items.len);
+    try std.testing.expectEqual(4, fixture.shown.assets.fonts.items.len);
+}
+
+test "with outline fonts off, a script's outline font is drawn in its base font" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "a", &.{
+        .{ "mod.ini", "[Scripts]\nMenu=a.luau\n" },
+        .{ "font.ttf", "face" },
+        .{ "a.luau", "return {engine_handlers = {on_frame = function() require('openreliant.ui').text(vector.zero, 'AH', {font = 'font.ttf', base_font = 'menu_large'}) end}}" },
+    } }});
+    defer fixture.deinit();
+    defer fixture.shown.assets.deinit(gpa);
+    var font: hud.Opened = .ramp(try openreliant.fnt.Font.parse(hud.outline.testing.font));
+    defer font.deinit(gpa);
+    var view: drawing.View = .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 };
+    view.fonts.set(.menu_large, &font);
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 } };
+    host.views.set(.ui, view);
+    fixture.shown.frame(host);
+    const commands = fixture.shown.layers.get(.ui).commands.items;
+    try std.testing.expectEqual(1, commands.len);
+    try std.testing.expectEqual(&font, commands[0].text.font.?);
+    try std.testing.expectEqual(0, fixture.shown.assets.fonts.items.len);
 }
 
 test "the drawing assets example handles absent optional files" {
