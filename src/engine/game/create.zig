@@ -85,18 +85,13 @@ pub const Stats = struct {
     /// The tables as the executable holds them before `stats_load_ships` runs: every figure zero,
     /// and each record's own words, how the AI turns the type and what its combat record says it is.
     pub const initial: Stats = built: {
+        @setEvalBranchQuota(ship_type_count * 20);
         var tables: Stats = .{
             .flight = @splat(std.mem.zeroes(FlightModel)),
             .combat = @splat(std.mem.zeroes(ShipCombat)),
         };
         for (tables.flight[0..ship_type_count], 0..) |*flight, ship_type| flight.turns = flight_stats.turns(ship_type);
-        for (tables.combat[0..ship_type_count], combat_stats.ship_types) |*record, static| {
-            record.targeting = .{ .targetable = static.targetable };
-            record.name = static.name;
-            record.class = static.class;
-            record.side = static.side;
-            record.display = static.display;
-        }
+        for (tables.combat[0..ship_type_count], combat_stats.ship_types) |*record, static| record.take(static);
         break :built tables;
     };
 
@@ -127,21 +122,22 @@ pub const Stats = struct {
         for (&tables.flight) |*flight| flight.speed_per_pitch_rate = flight.max_speed / flight.pitch_rate;
     }
 
-    /// OpenReliant's: gives each type the mods add (`additions.ships`) its base's words that the
-    /// executable holds, as `initial` has them, and its own name where it has one. Its figures come
-    /// from its record (`load`).
+    /// OpenReliant's: gives each type the mods add (`additions.ships`) its base's way of turning.
+    /// Its figures come from its record (`load`), and its words from its type record
+    /// (`loadTypes`).
     pub fn addTypes(tables: *Stats) void {
         for (additions.ships.all(), additions.ships.first..) |added, number| {
-            const base = @backingInt(added.base);
-            tables.flight[number].turns = tables.flight[base].turns;
-            const record = &tables.combat[number];
-            const from = tables.combat[base];
-            record.targeting = from.targeting;
-            record.name = added.label_string orelse from.name;
-            record.class = from.class;
-            record.side = from.side;
-            record.display = from.display;
+            tables.flight[number].turns = tables.flight[@backingInt(added.base)].turns;
         }
+    }
+
+    /// OpenReliant's: gives each type the words of its type record (`typeRecords`), which the mods'
+    /// scripts can change (`records.ship_types`).
+    ///
+    /// **Improvement:** the game keeps them fixed in its executable.
+    pub fn loadTypes(tables: *Stats, types: []const combat_stats.Static) void {
+        const count = @min(types.len, max_ship_types);
+        for (tables.combat[0..count], types[0..count]) |*record, static| record.take(static);
     }
 
     /// What `create_object` does for a type that is `from` under another number (`donor`): the
@@ -157,20 +153,45 @@ pub const Stats = struct {
     }
 };
 
+/// The type records that the mods' scripts can change (`records.ship_types`, `Stats.loadTypes`):
+/// the words the executable holds for each of the game's types (`combat_stats.Static`), then one
+/// for each type a mod adds, copied from its base's, with its own name where the mod gives one.
+pub fn typeRecords(arena: Allocator) Allocator.Error![]combat_stats.Static {
+    const made = try additions.ships.records(combat_stats.Static, arena, &combat_stats.ship_types, 0);
+    for (made[additions.ships.first..], additions.ships.all()) |*record, added| {
+        if (added.label_string) |name| record.name = name;
+    }
+    return made;
+}
+
 /// The ship type a type is under another number, or null for none (`create_object`): the
 /// Krasnaya, the Kiev, the Mitchell, the Zakov, the Kestrel and the Mammoth are each more than one
 /// type, one model under several numbers. An object of such a type takes the stats of the first
 /// (`Stats.borrow`), and then its number.
 pub fn donor(ship_type: TypeIndex) ?TypeIndex {
-    return switch (ship_type) {
-        0x35, 0xDB, 0xDC => 0x78,
-        0x36, 0x40, 0xDD, 0xDE => 0xC2,
-        0xA0 => 0x13,
-        0xA1, 0xA2, 0xE2 => 0xB0,
-        0xDA => 0x0F,
-        0xE3...0xEF => 0x21,
-        else => null,
+    const first: gameobj.GameType = switch (@as(gameobj.GameType, @fromBackingInt(ship_type))) {
+        .kozlov, .bokov, .bulatov => .krasnaya,
+        .morzov, .kirov, .shinnik, .kovtun => .kiev,
+        .other_mitchell => .mitchell,
+        .ufelsky, .kresta, .yevstafiy => .zakov,
+        .churchill => .kestrel,
+        .mammoth_gulliver,
+        .mammoth_santa_maria,
+        .mammoth_rosario,
+        .mammoth_larsons_pride,
+        .mammoth_brittania,
+        .mammoth_sierra_madre,
+        .mammoth_mayan_gold,
+        .mammoth_dawn_chorus,
+        .mammoth_calysto,
+        .mammoth_sundown,
+        .mammoth_krenna,
+        .mammoth_seabound,
+        .mammoth_crimson_sky,
+        => .mammoth,
+        else => return null,
     };
+    return @intCast(first.number());
 }
 
 /// How a ship or a missile flies. `ship_flight_stats` holds one per ship, `missile_flight_stats`
@@ -291,6 +312,16 @@ pub const ShipCombat = extern struct {
         planet = 8,
         _,
     };
+
+    /// Takes the words of a type record (`static`), the ones the executable holds rather than
+    /// `shipstats.bin`.
+    pub fn take(combat: *ShipCombat, static: combat_stats.Static) void {
+        combat.targeting = .{ .targetable = static.targetable };
+        combat.name = static.name;
+        combat.class = static.class;
+        combat.side = @fromBackingInt(@intCast(@backingInt(static.side)));
+        combat.display = static.display;
+    }
 
     /// Six times its `armor_class`: a quadrant's full armour, which the game measures the
     /// armour's wear against. `create_object` starts each quadrant one below it.
@@ -847,6 +878,35 @@ pub const Simulator = struct {
         return simulator.instant_action or simulator.mode != .none;
     }
 };
+
+test "Stats.loadTypes" {
+    // A type takes the class and side its record gives it, and the other types keep theirs.
+    const gpa = std.testing.allocator;
+    const tables = try gpa.create(Stats);
+    defer gpa.destroy(tables);
+    tables.* = .initial;
+    var types = combat_stats.ship_types;
+    const shuttle = @backingInt(gameobj.GameType.yakob_shuttle);
+    try std.testing.expectEqual(.support, tables.combat[shuttle].class);
+    types[shuttle].class = .fighter;
+    types[shuttle].side = .neutral;
+    tables.loadTypes(&types);
+    try std.testing.expectEqual(.fighter, tables.combat[shuttle].class);
+    try std.testing.expectEqual(.neutral, tables.combat[shuttle].side);
+    try std.testing.expectEqual(combat_stats.ship_types[0].name, tables.combat[0].name);
+}
+
+test typeRecords {
+    // A mod's type takes its base's words, under its own name.
+    var list = [_]additions.ships.Added{.{ .name = "a:pot", .mod = "a", .base = .predator, .label_string = 900, .extra = .{ .model = "pot.shp" } }};
+    additions.ships.install(&list);
+    defer additions.ships.reset();
+    const made = try typeRecords(std.testing.allocator);
+    defer std.testing.allocator.free(made);
+    try std.testing.expectEqual(additions.ships.first + 1, made.len);
+    try std.testing.expectEqual(combat_stats.ship_types[0].class, made[additions.ships.first].class);
+    try std.testing.expectEqual(900, made[additions.ships.first].name);
+}
 
 test "ShipCombat.armorShare" {
     var combat = std.mem.zeroes(ShipCombat);
@@ -1758,7 +1818,7 @@ test planetMade {
     try std.testing.expect(!all.slots[ship].object.flags.no_collisions);
     try std.testing.expectEqual(50, hull.mesh.positions[0][2]);
 
-    const planet = try mission.addWith(hull.types(), @fromBackingInt(0x60), @splat(0));
+    const planet = try mission.addWith(hull.types(), .of(.triton_hi), @splat(0));
     const slot = &all.slots[planet];
     slot.model.?.parts[0].origin = .{ 0, 0, 7 };
     planetMade(all, planet);
@@ -2182,7 +2242,7 @@ test createObject {
     try std.testing.expectError(error.Overrun, createObject(all, &mission.tables, model.types(), gameobj.max_objects, .of(.predator), 0, @splat(0), &mission.random));
 
     // Above the last ship type, a stand-in for a marker, at a slot of its own.
-    const marker = try createObject(all, &mission.tables, model.types(), 20, @fromBackingInt(1000), 0, @splat(0), &mission.random);
+    const marker = try createObject(all, &mission.tables, model.types(), 20, .of(.marker), 0, @splat(0), &mission.random);
     try std.testing.expectEqual(20, marker);
     try std.testing.expectEqual(2, all.count);
     const stand_in = all.slots[marker];
@@ -2234,7 +2294,7 @@ test "an object is created with the guns its model holds" {
     }
     model.data[0].attachments = &muzzles;
 
-    const index = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
+    const index = try mission.addWith(model.types(), .of(.patriot), @splat(0));
     const slot = &all.slots[index];
     // The guns are fitted after the count is cleared, so the object holds them all.
     try std.testing.expectEqual(2, slot.object.gun_count);
@@ -2268,10 +2328,10 @@ test "a ship with a retro thruster can reverse" {
         glow.size = .{ 10, 10, length };
     }
     model.data[0].attachments = glows[0..1];
-    const plain = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
+    const plain = try mission.addWith(model.types(), .of(.patriot), @splat(0));
     try std.testing.expect(!all.slots[plain].object.flags.can_reverse);
     model.data[0].attachments = &glows;
-    const retro = try mission.addWith(model.types(), @fromBackingInt(7), @splat(0));
+    const retro = try mission.addWith(model.types(), .of(.patriot), @splat(0));
     try std.testing.expect(all.slots[retro].object.flags.can_reverse);
 }
 
@@ -2281,21 +2341,24 @@ test "a type under another number takes its stats, then its number" {
     try mission.init(gpa);
     defer mission.deinit();
     const all = mission.objects;
-    mission.tables.flight[0x21].max_speed = 55;
-    mission.tables.combat[0x21].shield_power = 30;
-    mission.tables.combat[0xE5].name = 1123;
-    mission.tables.combat[0xE5].gun_groups = 2;
-    const index = try mission.add(@fromBackingInt(0xE5), @splat(0));
+    const mammoth: TypeIndex = @intCast(gameobj.GameType.mammoth.number());
+    const rosario: TypeIndex = @intCast(gameobj.GameType.mammoth_rosario.number());
+    mission.tables.flight[mammoth].max_speed = 55;
+    mission.tables.combat[mammoth].shield_power = 30;
+    mission.tables.combat[rosario].name = 1123;
+    mission.tables.combat[rosario].gun_groups = 2;
+    const index = try mission.add(.of(.mammoth_rosario), @splat(0));
     const slot = all.slots[index];
-    try std.testing.expectEqual(0x21, slot.object.type.number());
+    try std.testing.expectEqual(gameobj.Type.of(.mammoth), slot.object.type);
     try std.testing.expectEqual(55, slot.flight.?.max_speed);
     try std.testing.expectEqual(30, slot.combat.?.shield_power);
     // Its own name and guns stay.
     try std.testing.expectEqual(1123, slot.combat.?.name);
     try std.testing.expectEqual(2, slot.combat.?.gun_groups);
     // The table it points into is its own number's, which now holds the other's stats.
-    try std.testing.expectEqual(&mission.tables.combat[0xE5], slot.combat.?);
-    try std.testing.expectEqual(null, donor(0x21));
+    try std.testing.expectEqual(&mission.tables.combat[rosario], slot.combat.?);
+    try std.testing.expectEqual(mammoth, donor(rosario));
+    try std.testing.expectEqual(null, donor(mammoth));
 }
 
 test "a type with no model still flies" {
@@ -2303,7 +2366,7 @@ test "a type with no model still flies" {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    const index = try mission.add(@fromBackingInt(3), @splat(0));
+    const index = try mission.add(.of(.crusader), @splat(0));
     try std.testing.expectEqual(null, all.slots[index].model);
     all.slots[index].object.throttle = 1;
     all.slots[index].object.rotation = math.identity;

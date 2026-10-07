@@ -132,9 +132,8 @@ While the current order has `retaliate`, `order_retaliate` (`0x0040C520`) pushes
 aimed at the attacker, once `recent_damage` reaches 0.7 (`0x004DC484`) of the ship's full armor,
 six times its armor class. It does so
 only when the attacker is on the other side, is not already the current order's target, and both
-ships' combat stats hold 1 at `+0x28`, and not while the ship has `do_not_disturb`
-(`DoNotDisturb`).
-**Unknown:** what the word at `+0x28` of the combat stats means.
+ships are fighters (class 1, the word at `+0x28` of the combat stats, see
+[Objects](objects.md)), and not while the ship has `do_not_disturb` (`DoNotDisturb`).
 
 ## Orders from other players
 

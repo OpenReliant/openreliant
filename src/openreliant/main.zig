@@ -259,13 +259,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer textures.deinit();
     textures.files = mods.pictures();
     textures.largest = details.texture.largest();
-    // The records: the ship stats `stats_load_ships` reads, the gun stats `stats_load_guns` reads,
-    // the missile stats `stats_load_missiles` reads, the pilots, their faces, the strings
-    // `language_init` reads from `language.dll` at startup, and the ITAC's strings from
-    // `itaclang.dll` (without it the ITAC shows no text). The mods' load scripts can change them
+    // The records: the ship stats `stats_load_ships` reads, the words the game keeps in its
+    // executable for each ship type, the gun stats `stats_load_guns` reads, the missile stats
+    // `stats_load_missiles` reads, the pilots, their faces, the strings `language_init` reads from
+    // `language.dll` at startup, and the ITAC's strings from `itaclang.dll` (without it the ITAC
+    // shows no text). The mods' load scripts can change them
     // before the game uses them.
     var records: scripting.Records = try .init(arena, .{
         .ships = try game.additions.ships.records(stats.Ship, arena, try readStats(io, arena, directory, &mods, .ships), 0),
+        .ship_types = try game.create.typeRecords(arena),
         .guns = try game.additions.guns.records(stats.Gun, arena, try readStats(io, arena, directory, &mods, .guns), 1),
         .missiles = try game.additions.missiles.records(stats.Missile, arena, try readStats(io, arena, directory, &mods, .missiles), 0),
         .pilots = try game.additions.pilots.records(stats.Pilot, arena, try readStats(io, arena, directory, &mods, .pilots), 0),

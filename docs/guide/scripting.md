@@ -871,7 +871,8 @@ scripts can only read them.
 
 | Table | Contents | First number | Names |
 |---|---|---|---|
-| `ships` | Ship stats, `shipstats.bin`, then the types the mods add | 0 | The ship types OpenReliant has names for, such as `predator`, and the qualified names of the types the mods add, such as `teapot:teapot` |
+| `ships` | Ship stats, `shipstats.bin`, then the types the mods add | 0 | Every ship type's name, such as `predator`, and the qualified names of the types the mods add, such as `teapot:teapot` |
+| `ship_types` | What the executable holds for each ship type, then for the types the mods add | 0 | As `ships` |
 | `guns` | Gun stats, `gunstats.bin`, then the guns the mods add | 1 | `laser_cannon`, `pulse_cannon` and the rest, and the qualified names of the mods' guns |
 | `missiles` | Missile stats, `missilestats.bin`, then the missiles the mods add | 0 | `screamer`, `raptor` and the rest, and the qualified names of the mods' missiles |
 | `pilots` | Pilot stats, `pilotstats.bin`, then the pilots the mods add | 0 | `frenchy`, `viper`, `ronin_leader` and the other pilots the game's code singles out, and the qualified names of the mods' pilots |
@@ -882,6 +883,13 @@ scripts can only read them.
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
 field of `Ship`, `Gun`, `Missile` and `Pilot`.
+
+A ship type's record (`ShipTypeRecord`) holds what the game keeps in its executable rather than in
+`shipstats.bin`: `targetable`, whether ships can target it; `name`, the id of the string that names
+it; `class`, such as `fighter` or `support`; `side`, the side its objects start on; and `display`,
+how the target display draws it. The class decides more than how the type is targeted: fighters
+fly with the fighters' flight model, and only fighters turn on a fighter that hits them
+([Retaliation](../engine/orders.md#retaliation)).
 
 A pilot's face (`Face`) has `name`, the id of the string the radio's window shows over the face,
 and the film the face plays for each way it moves as the pilot speaks: `talking`, `laughing`,
@@ -939,8 +947,8 @@ trooper.skill = "low"
 ```
 
 Wherever scripts see a ship type, a gun, a missile or a pilot, a built-in one is OpenReliant's name
-for it, such as `"predator"`, or a number where it has none. One a mod adds is its qualified name,
-such as `"teapot:teapot"`. A pilot is a number, `"none"`, or the qualified name of a mod's pilot.
+for it, such as `"predator"`, or a number where it has none. Every ship type has a name. One a mod
+adds is its qualified name, such as `"teapot:teapot"`. A pilot can also be `"none"`.
 [`examples/mods/interceptor`](../../examples/mods/interceptor) tunes a mod's ship type.
 
 ## Saved games
@@ -1410,10 +1418,11 @@ core.register_game_mode({
 -- prequel_records.luau: in the prequel, the Yakob Shuttle flies as a pirate fighter.
 local records = require("openreliant.records")
 
-local shuttle = records.ships[153]
+local shuttle = records.ships.yakob_shuttle
 shuttle.max_speed = 300
 shuttle.shield_power = 14
 shuttle.armor_class = 16
+records.ship_types.yakob_shuttle.class = "fighter"
 records.text[1104] = "PIRATE"
 ```
 

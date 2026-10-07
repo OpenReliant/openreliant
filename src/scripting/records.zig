@@ -3,12 +3,13 @@
 //! scripts can change them before the game reads them; other scripts can only read them.
 //!
 //! The record tables are `ships`, `guns`, `missiles` and `pilots` from the stat files
-//! ([Stat tables](../../docs/formats/stats.md)), `faces`, the pilots' faces from the game's
-//! executable, `text` from `language.dll` and `itac_text` from the ITAC's `itaclang.dll`. Records
-//! are indexed by the game's numbers: guns and text from 1, the rest from 0. Ships, guns and
-//! missiles can also be looked up by OpenReliant's names, such as
-//! `records.guns.laser_cannon` or `records.ships.predator`, and the ship types mods add by their
-//! qualified names, such as `records.ships["teapot:teapot"]`. A record is a proxy (`bind.Binding`)
+//! ([Stat tables](../../docs/formats/stats.md)); `ship_types`, the class and the other words the
+//! game's executable holds for each ship type; `faces`, the pilots' faces from the executable;
+//! `text` from `language.dll`; and `itac_text` from the ITAC's `itaclang.dll`. Records are indexed
+//! by the game's numbers: guns and text from 1, the rest from 0. All but the text can also be
+//! looked up by OpenReliant's names, such as `records.guns.laser_cannon` or
+//! `records.ships.predator`, and what the mods add by its qualified name, such as
+//! `records.ships["teapot:teapot"]`. A record is a proxy (`bind.Binding`)
 //! whose fields are named as in the format docs, and a text entry is a string. Records can't be
 //! removed, because missions refer to them by number. Adding new ones isn't supported yet
 //! ([#333](https://github.com/OpenReliant/openreliant/issues/333),
@@ -28,11 +29,15 @@ const values = @import("values.zig");
 const runtime = @import("runtime.zig");
 
 /// The proxies for records.
-pub const Values = bind.Binding(&.{ stats.Ship, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
+pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
 
 /// Editable copies of the game's tables.
 pub const Records = struct {
     ships: []stats.Ship,
+    /// Each ship type's words that the game keeps in its executable rather than `shipstats.bin`:
+    /// its class, its side, the string that names it, whether it can be targeted and which form of
+    /// the target display shows it (`ship_combat_stats`).
+    ship_types: []game.create.combat_stats.Static,
     guns: []stats.Gun,
     missiles: []stats.Missile,
     pilots: []stats.Pilot,
@@ -48,6 +53,7 @@ pub const Records = struct {
     /// The tables as read from the game's files.
     pub const Tables = struct {
         ships: []align(1) const stats.Ship,
+        ship_types: []const game.create.combat_stats.Static,
         guns: []align(1) const stats.Gun,
         missiles: []align(1) const stats.Missile,
         pilots: []align(1) const stats.Pilot,
@@ -60,6 +66,7 @@ pub const Records = struct {
     pub fn init(arena: Allocator, tables: Tables) Allocator.Error!Records {
         return .{
             .ships = try copy(arena, stats.Ship, tables.ships),
+            .ship_types = try arena.dupe(game.create.combat_stats.Static, tables.ship_types),
             .guns = try copy(arena, stats.Gun, tables.guns),
             .missiles = try copy(arena, stats.Missile, tables.missiles),
             .pilots = try copy(arena, stats.Pilot, tables.pilots),
@@ -103,6 +110,7 @@ pub const Records = struct {
 
     pub const Snapshot = struct {
         ships: []stats.Ship,
+        ship_types: []game.create.combat_stats.Static,
         guns: []stats.Gun,
         missiles: []stats.Missile,
         pilots: []stats.Pilot,
@@ -123,6 +131,7 @@ pub const Records = struct {
 /// The record tables.
 pub const Set = enum {
     ships,
+    ship_types,
     guns,
     missiles,
     pilots,
@@ -140,7 +149,7 @@ pub const Set = enum {
     pub fn first(set: Set) u32 {
         return switch (set) {
             .guns, .text, .itac_text => 1,
-            .ships, .missiles, .pilots, .faces => 0,
+            .ships, .ship_types, .missiles, .pilots, .faces => 0,
         };
     }
 
@@ -151,14 +160,14 @@ pub const Set = enum {
             .guns => .guns,
             .missiles => .missiles,
             .pilots => .pilots,
-            .faces, .text, .itac_text => null,
+            .ship_types, .faces, .text, .itac_text => null,
         };
     }
 
     /// The family of records the mods add to the table (`game.additions`), if they add any.
     fn Added(comptime set: Set) ?type {
         return switch (set) {
-            .ships => game.additions.ships,
+            .ships, .ship_types => game.additions.ships,
             .guns => game.additions.guns,
             .missiles => game.additions.missiles,
             .pilots, .faces => game.additions.pilots,
@@ -169,16 +178,17 @@ pub const Set = enum {
     fn isText(set: Set) bool {
         return switch (set) {
             .text, .itac_text => true,
-            .ships, .guns, .missiles, .pilots, .faces => false,
+            .ships, .ship_types, .guns, .missiles, .pilots, .faces => false,
         };
     }
 
     /// OpenReliant's names for records in the table, with their numbers.
     fn names(comptime set: Set) []const Named {
         comptime {
+            @setEvalBranchQuota(20_000);
             var named: []const Named = &.{};
             switch (set) {
-                .ships => for (std.enums.values(game.gameobj.GameType)) |ship| {
+                .ships, .ship_types => for (std.enums.values(game.gameobj.GameType)) |ship| {
                     const number = @backingInt(ship);
                     if (number < stats.Table.ships.load().capacity()) named = named ++ .{Named{ .name = @tagName(ship), .number = number }};
                 },
@@ -330,7 +340,7 @@ fn placeOf(state: *State, records: Records, comptime set: Set, key: i32) ?usize 
     const number: usize = if (state.toNumber(key)) |number|
         bind.wholeIndex(number) orelse return null
     else if (state.toString(key)) |name| named: {
-        inline for (comptime set.names()) |named| {
+        for (comptime set.names()) |named| {
             if (std.mem.eql(u8, name, named.name)) break :named named.number;
         }
         // What the mods add, by its qualified name.
@@ -385,6 +395,7 @@ test "records can be read and changed by number and by name" {
     guns[1].range = 2000;
     var records: Records = try .init(arena.allocator(), .{
         .ships = &.{},
+        .ship_types = &.{},
         .guns = &guns,
         .missiles = &.{},
         .pilots = &.{},
@@ -440,6 +451,7 @@ test "ship records by the game's names and by the qualified names of the types m
     game_ships[@backingInt(game.gameobj.GameType.phoenix)].max_speed = 300;
     var records: Records = try .init(arena.allocator(), .{
         .ships = try ships.records(stats.Ship, arena.allocator(), &game_ships, 0),
+        .ship_types = &.{},
         .guns = &.{},
         .missiles = &.{},
         .pilots = &.{},
@@ -472,7 +484,7 @@ test "read-only records" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     var guns: [1]stats.Gun = @splat(std.mem.zeroes(stats.Gun));
-    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{"x"}, .itac_text = &.{} });
+    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{"x"}, .itac_text = &.{} });
     const state = State.create(luau.testing.allocate, null).?;
     defer state.close();
     state.openLibraries();
@@ -486,11 +498,34 @@ test "read-only records" {
     try bind.testing.expectSourceError(thread, "records.text[1] = 'y'", "records can only be changed by load scripts");
 }
 
+test "the ship types' words the executable holds" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &game.create.combat_stats.ship_types, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{}, .itac_text = &.{} });
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    register(state);
+    push(state, &records, true);
+    state.setGlobal("records");
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+
+    try bind.testing.runSource(thread,
+        \\local shuttle = records.ship_types.yakob_shuttle
+        \\assert(shuttle.class == "support" and shuttle.side == "hostile" and tostring(shuttle) == "ShipTypeRecord")
+        \\assert(records.ship_types[0].class == "fighter")
+        \\shuttle.class = "fighter"
+    );
+    try std.testing.expectEqual(.fighter, records.ship_types[@backingInt(game.gameobj.GameType.yakob_shuttle)].class);
+    try bind.testing.expectSourceError(thread, "records.ship_types.yakob_shuttle.class = 'gunboat'", "class");
+}
+
 test "the pilots' faces" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const faces = [_]game.pilots.FaceRecord{ .of(&game.pilots.faces[0]), .of(&game.pilots.faces[4]) };
-    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &faces, .text = &.{}, .itac_text = &.{} });
+    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &faces, .text = &.{}, .itac_text = &.{} });
     const state = State.create(luau.testing.allocate, null).?;
     defer state.close();
     state.openLibraries();
@@ -519,7 +554,7 @@ test "Records.snapshot" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     var guns: [1]stats.Gun = @splat(std.mem.zeroes(stats.Gun));
-    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{"x"}, .itac_text = &.{} });
+    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{"x"}, .itac_text = &.{} });
     const saved = try records.snapshot(std.testing.allocator);
     defer saved.deinit(std.testing.allocator);
     records.guns[0].range = 5;
@@ -538,6 +573,7 @@ test "the field names scripts see don't change" {
         .{ stats.Missile, "name,speed,turn_rate,flight_time,damage,lock_time,decoy_chance,lock_range,component_damage" },
         .{ stats.Pilot, "name,tier_a,tier_b,tier_c,skill" },
         .{ game.pilots.FaceRecord, "name,talking,laughing,squadron,dying" },
+        .{ game.create.combat_stats.Static, "targetable,name,class,side,display" },
     };
     inline for (expected) |pinned| {
         comptime var names: []const u8 = "";
