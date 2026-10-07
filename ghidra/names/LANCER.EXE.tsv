@@ -2636,7 +2636,7 @@ address	kind	name	type	comment
 0042a950	function	save_error_draw	void (void)	Draws save_error_dialog's box: quit.spr's box and OK, the message and OK's label
 0049cd70	function	update_pilots	void (void)	Sets the wing's fifth and sixth pilots (alpha_pilots) by mission_number, then gives each of the wing's places that has none the first free pilot of pilot_pool; asserts where the pool has run out. Runs at each mission's start and end
 004b1580	function	deaths_add	void __fastcall (int slot, int count, bool report)	Counts the local player's deaths in a multiplayer mission (mp_deaths)
-00441460	function	killboard_kills	void (void)	Adds up the ITAC killboard pilots' kills mission by mission, rand seeded with killboard_seed
+00441460	function	killboard_kills	void (void)	Adds up the KILLBOARD pilots' kills: each starts with its own, and each mission before mission_number but 12, 13, 17 and 22, and for Klaus Steiner 19 to 23, adds (rand / 32767 - 0.5) times its spread plus its mean, rand seeded with killboard_seed; it runs over a twentieth record past the nineteen, into loadout_text_remap
 00500a20	data	save_chunks	uint[15]	The records a saved game keeps after its name, in order, each an id, an address and a size: MISS, VERS, VARS, PILO, ALPH
 00562f44	data	save_version	int	The saved games' version, VERS, which game_save sets to 1; nothing checks it
 00562f70	data	save_file	FILE *	The file game_save writes, opened wb
@@ -2802,3 +2802,98 @@ address	kind	name	type	comment
 005251d8	data	video_reports_hotspot_count	int	How many of video_reports_hotspots the list has laid out
 005251e0	data	video_reports_list_first	int	The place of the first report VIDEO REPORTS' list shows; -1 once its arrow steps it on with every report shown
 005251e4	data	video_reports_pictures	void *	inter\itac\vidrep.spr, while VIDEO REPORTS is open
+00425910	function	fighters_enter	void (void)	The fighters of either side opened, the ITAC's section 3: the first chosen, the bars of both sides' fighters worked out (loadout_ship_bars_init), the Alliance's listed (fighters_list_build), and inter\itac\fighters.spr read into fighters_pictures
+00425960	function	fighters_leave	void (void)	The fighters left: frees fighters_pictures, where fighters_open
+00425980	function	fighters_update	void (void)	The fighters each pass: builds where itac_rebuild asks; clears itac_more; a press on the other side's button at fighters_side_buttons plays sound 8, lists that side and builds again; a press on another listed fighter chooses it and builds again, holding the ITAC (itac_pause)
+00425a70	function	fighters_draw	void (float fade)	The fighters drawn, while fighters_open: the chosen fighter's picture of fighters_pictures at (91, 65) with the palette of the last block before its shape (0, 5, 10, 15, 17, 22 or 27) at fade, where it has one; the side's emblem (itac_side_emblems) with itacgfx.spr's block 23 at fade; then the panes (itac_panes_draw)
+00425b70	function	fighters_build	void __fastcall (char wipe)	The fighters' panes built for the fighter chosen, after the text sound: its name and armament (fighters_armament_draw); its figures in pane 1 at (33, 252), 200 by 138: Type, Clearance on the Alliance's side, and its bars, labels in (255, 189, 130) at x 2 and values right-aligned at x 199, 15 apart; the list (fighters_list_draw); and where wipe, the list's pane wiping in at (474, 146), 146 by 218
+00426030	function	fighters_armament_draw	void (void)	The chosen fighter's name in capitals (CharUpperBuffA) in pane 0 at (32, 80), and in pane 2 at (253, 252) its afterburner fuel in secs, ARMAMENT with a gun a row, a count before each that has one, Crew, and its special abilities joined by commas in a paragraph below
+00426490	function	fighters_list_draw	void (void)	The fighters' list from fighters_list_first into pane 3: each name broken into lines of 126 at most, 11 apart, from (10, 2), 6 below the last, the chosen in (58, 209, 255) and the rest in (255, 146, 58); each a hotspot at x 474, level with its text, 140 wide and 4 taller than its lines
+004265b0	function	fighters_list_build	void __fastcall (short side)	Links onto fighters_list every fighter of side: loadout_alliance_ships for the Alliance, loadout_coalition_ships for the Coalition
+004e5460	data	fighters_side_buttons	short[8]	The fighters' two buttons that choose the side, the Alliance's at x 551 and the Coalition's at x 478, each x, y, width and height
+004e5a04	data	fighters_pictures_name	char[24]	inter\itac\fighters.spr, the fighters' pictures
+0051d388	data	fighters_pictures	void *	inter\itac\fighters.spr, while the fighters are open
+0051d394	data	fighters_list_first	int	The place of the first fighter the list shows, always 0
+0051d398	data	fighters_selected	int	The fighter chosen, by its place in fighters_list
+0051d3c0	data	fighters_hotspots	short[48]	The fighters' listed hotspots, each x, y, width and height
+0051d428	data	fighters_hotspot_count	int	How many of fighters_hotspots the list has laid out
+0051d434	data	fighters_list	void *	The side's fighters, threaded on their own links (fighters_list_build)
+0051d448	data	fighters_open	byte	Set while the fighters are open, their pictures read
+004e96c4	data	itac_side_emblems	short[2]	The shapes of itacgfx.spr the sided sections draw for the Alliance and the Coalition over their buttons
+004e96c8	data	itac_button_sides	short[2]	The side each of a sided section's two buttons shows: 0 the Alliance, 1 the Coalition
+004e96cc	data	itac_side_emblem_x	short[2]	Where each side's emblem stands across: 551 and 478
+004e96d0	data	itac_side_emblem_y	short[2]	Where each side's emblem stands down: 59
+0044faa0	function	squadrons_enter	void (void)	The squadrons of either side opened, the ITAC's section 5: the first chosen, the list from its first, the history's box (squadrons_box: pane 1, arrows at squadrons_text_arrows, at (235, 82), 229 by 116, text drawn by squadrons_text_draw), the Alliance's listed (squadrons_list_build), and inter\itac\squads.spr read into squadrons_pictures
+0044fb40	function	squadrons_leave	void (void)	The squadrons left: frees squadrons_pictures, where squadrons_open
+0044fb60	function	squadrons_loaded	void (void)	The squadrons loaded: the Alliance's side, a rebuild asked for, and the panes cleared (itac_panes_reset)
+0044fb80	function	squadrons_update	void (void)	The squadrons each pass: builds where itac_rebuild asks; a press on another listed squadron chooses it, its history at scroll 0, and builds again, holding the ITAC (itac_pause); on the Alliance's side the list's arrows at squadrons_list_arrows step it on, no further than to leave 13, and back (itac_repeat); a press on the other side's button plays sound 8, lists that side and builds again; then the history scrolls (itac_scroll_text_update)
+0044fd10	function	squadrons_draw	void (float fade)	The squadrons drawn, while squadrons_open: the picture of the record selected places past the list's first in memory, with the palette its record names, at (80, 263) at fade, which past a squadron the list leaves out is one before the chosen; the side's emblem; then the panes (itac_panes_draw)
+0044fde0	function	squadrons_build	void __fastcall (char wipe)	The squadrons' panes built for the squadron chosen, after the text sound: the history (squadrons_text_draw); in pane 0 at (32, 79), 185 by 140, the name in capitals broken into lines of 181, then Class, Leader, Base and Nation 28 apart from a blank line below it, values right-aligned at x 177; the list (squadrons_list_draw); panes 1 and 2 wiping in; and where wipe, the list's pane wiping in at (472, 136), 147 by 223
+00450180	function	squadrons_text_draw	void (void)	PROFILE in pane 2 at (235, 80), and the chosen squadron's history into its box, after mission 6 for the 705 Cobras with the inquiry (string 0x218) after it (itac_scroll_text_draw)
+00450310	function	squadrons_list_draw	void (float fade)	The squadrons' list from squadrons_list_first into pane 3: each name broken into lines of 126 at most, 11 apart, from (10, 2), 6 below the last, until one ends past 220, the chosen in (58, 209, 255) and the rest in (255, 146, 58) at fade; each a hotspot at x 472, 147 wide and 4 taller than its lines
+00450440	function	squadrons_list_build	void __fastcall (short side)	Links onto squadrons_list the Coalition's squadrons, or the Alliance's but the 45th Volunteers from mission 13, the 45th Flying Tigers before it and the 51st Volunteers after mission 9
+004ebce0	data	squadrons_list_arrows	short[8]	The squadrons' list's two arrows, each x, y, width and height
+004ebcf0	data	squadrons_text_arrows	short[8]	The squadrons' history's two arrows, each x, y, width and height
+004ebd00	data	squadrons_side_buttons	short[8]	The squadrons' two buttons that choose the side, each x, y, width and height
+004ebd10	data	squadrons_alliance	byte[532]	The Alliance's 19 squadrons of 0x1C bytes: the links squadrons_list threads them on, then the strings of the name, class, leader, base, nation and history, the picture's shape and its palette's block
+004ebf28	data	squadrons_coalition	byte[224]	The Coalition's 8 squadrons, laid out as squadrons_alliance's
+004ec008	data	squadrons_pictures_name	char[22]	inter\itac\squads.spr, the squadrons' pictures
+00525028	data	squadrons_list_first	int	The place of the first squadron the list shows
+0052502c	data	squadrons_pictures	void *	inter\itac\squads.spr, while the squadrons are open
+00525030	data	squadrons_hotspot_count	int	How many of squadrons_hotspots the list has laid out
+00525038	data	squadrons_box	byte[36]	The squadrons' history's scrolling box
+0052505c	data	squadrons_list	void *	The side's squadrons listed, threaded on their own links (squadrons_list_build)
+00525060	data	squadrons_hotspots	short[76]	The squadrons' listed hotspots, each x, y, width and height
+00525100	data	squadrons_selected	int	The squadron chosen, by its place in squadrons_list
+00525104	data	squadrons_open	byte	Set while the squadrons are open, their pictures read
+0044e4c0	function	personnel_enter	void (void)	The personnel of either side opened, the ITAC's section 6: the first chosen, the Alliance's listed (personnel_list_build), and inter\itac\persons.spr read into personnel_pictures; personnel_list_first stays where it was
+0044e500	function	personnel_leave	void (void)	The personnel left: frees personnel_pictures, where personnel_open
+0044e520	function	personnel_loaded	void (void)	The personnel loaded: the profile's box (personnel_box: pane 1, arrows at personnel_text_arrows, at (35, 258), 405 by 60, text drawn by personnel_text_draw), a rebuild asked for, and the panes cleared (itac_panes_reset)
+0044e590	function	personnel_update	void (void)	The personnel each pass: builds where itac_rebuild asks; a press on the other side's button plays sound 8, lists that side from its first and builds again; a press on another listed person chooses them and builds again, holding the ITAC (itac_pause); on the Alliance's side the list's arrows step it on, no further than to leave 13, and back (itac_repeat); then the profile scrolls (itac_scroll_text_update)
+0044e720	function	personnel_draw	void (float fade)	The personnel drawn, while personnel_open: the chosen person's portrait at (296, 76) with the palette of the last block before its shape (0, 9, 18, 24, 33 or 35; past 41 the bits of fade) at fade; the side's emblem; then the panes (itac_panes_draw)
+0044e830	function	personnel_list_draw	void (void)	The personnel's list from personnel_list_first into pane 2: each name broken into lines of 126 at most, 11 apart, from (10, 2), 6 below the last, until one ends past 218, the chosen in (58, 209, 255); each a hotspot at x 474, 140 wide and 4 taller than its lines
+0044e960	function	personnel_row_draw	int __fastcall (void *pane, int x, int y, char *label, char *value)	Writes label at (x, y) in (255, 189, 130), where there is one, and value right-aligned at x 224 in (255, 146, 58); the y of the next row, 26 below
+0044e9f0	function	personnel_list_build	void __fastcall (int side)	Links onto personnel_list the side's personnel in their table's order, the first and then each from the last back inserted after it
+0044ea50	function	personnel_build	void __fastcall (char wipe)	The personnel's panes built for the person chosen, after the text sound: in pane 0 at (34, 77), 225 by 144, the name in capitals (CharUpperBuffA) and the rows of Age and Nationality, and of Ship and Callsign where the person has them (personnel_row_draw); the profile (personnel_text_draw); panes 1 and 3 wiping in; the list (personnel_list_draw); and where wipe, the list's pane wiping in at (474, 138), 146 by 218
+0044ed00	function	personnel_text_draw	void (void)	PROFILE in pane 3 at (35, 244), and the chosen person's Military History, Training and Background into the box, each heading on a line of its own above its text, a blank line between two (itac_scroll_text_draw)
+004eb430	data	personnel_alliance	byte[960]	The Alliance's 30 personnel of 0x20 bytes: the links personnel_list threads them on, then the strings of the name, nationality, age, ship and call sign (0 for none), military history, training and background, a halfword never read, and the portrait's shape
+004eb7f0	data	personnel_coalition	byte[192]	The Coalition's 6 personnel, laid out as personnel_alliance's
+004eb8b0	data	personnel_side_buttons	short[8]	The personnel's two buttons that choose the side, each x, y, width and height
+004eb8c0	data	personnel_text_arrows	short[8]	The personnel's profile's two arrows, each x, y, width and height
+004eb8d0	data	personnel_list_arrows	short[8]	The personnel's list's two arrows, each x, y, width and height
+004eb8e0	data	personnel_pictures_name	char[23]	inter\itac\persons.spr, the personnel's portraits
+00524e78	data	personnel_hotspot_count	int	How many of personnel_hotspots the list has laid out
+00524e7c	data	personnel_pictures	void *	inter\itac\persons.spr, while the personnel are open
+00524e80	data	personnel_hotspots	short[120]	The personnel's listed hotspots, each x, y, width and height
+00524fa0	data	personnel_box	byte[36]	The personnel's profile's scrolling box
+00524fc4	data	personnel_list_first	int	The place of the first person the list shows, which only choosing the side resets
+00524fc8	data	personnel_selected	int	The person chosen, by their place in personnel_list
+00524fcc	data	personnel_list	void *	The side's personnel, threaded on their own links (personnel_list_build)
+00524fd0	data	personnel_open	byte	Set while the personnel are open, their portraits read
+00441100	function	killboard_enter	void (void)	The KILLBOARD opened, the ITAC's section 7: the player's record (killboard_player) with the call sign, the kills of the campaign (skull_count) and portrait 1 for a female pilot or 2, the board from its first, the pilots' kills (killboard_kills), the board listed (killboard_list_build), and inter\itac\kills.spr read into killboard_pictures
+00441190	function	killboard_leave	void (void)	The KILLBOARD left, where killboard_open: unlinks the board; never frees killboard_pictures
+004411c0	function	killboard_loaded	void (void)	The KILLBOARD loaded: sound 5, a frame drawn and kept in itac_backdrop for the panes, a rebuild asked for, the panes cleared, and the board built, wiping in (killboard_build)
+00441280	function	killboard_update	void (void)	The KILLBOARD each pass: clears itac_more; its arrows at killboard_arrows step the board on, as far as its last five, and back, building it again (itac_repeat)
+00441300	function	killboard_draw	void (float fade)	The KILLBOARD drawn, while killboard_open: its pane (itac_panes_draw)
+00441320	function	killboard_list_build	void (void)	Links onto killboard_list the pilots still on the board at mission_number, then the player, and sorts them by their kills, most first, those with as many in their order; counts them in killboard_count
+00441540	function	killboard_build	void __fastcall (char wipe)	The board in pane 0 at (30, 72), 593 by 295: PILOTS, SHIP and TOTAL KILLS in (58, 209, 255), then five rows from killboard_first, 55 apart, each with the name, the squadron or the player's call sign and squadron, the 45th Flying Tigers from mission 14, the ship and the kills, the place in itacbig.fnt, and the portrait with block 0's palette for the 45th's and block 6's for the rest; where wipe, the pane wiping in
+004e9a08	data	killboard_pilots	byte[2204]	The KILLBOARD's 19 pilots of 0x74 bytes: the links killboard_list threads them on, the strings of the name and the squadron, room for the player's call sign, the string of the ship, the kills to start with, the kills, the mean and the spread of a mission's draw, and the portrait's shape
+004ea2a8	data	killboard_arrows	short[8]	The KILLBOARD's two arrows, each x, y, width and height
+004ea2b8	data	killboard_pictures_name	char[21]	inter\itac\kills.spr, the KILLBOARD's portraits
+005231d0	data	killboard_count	int	How many entries the KILLBOARD lists, the player's among them
+00523698	data	killboard_player	byte[116]	The player's record on the KILLBOARD, laid out as killboard_pilots': no name or squadron string, the call sign at +0x10, the kills of the campaign, and the portrait
+0052370c	data	killboard_pictures	void *	inter\itac\kills.spr, from the KILLBOARD's opening on
+00523710	data	killboard_list	void *	The KILLBOARD's entries, best first (killboard_list_build)
+00523714	data	killboard_first	int	The place of the first entry the KILLBOARD shows
+00523718	data	killboard_open	byte	Set while the KILLBOARD is open
+00440ed0	function	tooltip_box_draw	void __fastcall (void *pane, int x0, int y0, int x1, int y1, char filled, byte colour)	A box from (x0, y0) to (x1, y1) in colour: filled, the lines from y0 to y1 less one, or its four edges
+004e9388	data	itac_tooltips	byte[144]	The ITAC's nine tooltips of 0x10 bytes, one for each button: its rectangle, whether it shows, the tick it is due at and its string, from View Debriefings to Exit ITAC; itac_tooltips_add reads a tenth past them
+00520310	data	tooltip_font	void *	newfont.fnt, the tooltips' font (tooltips_init)
+00520368	data	tooltips	void *[30]	The tooltips added (tooltip_add), at most 30
+005202f8	data	tooltip_last_shown	int	The game tick a tooltip last showed (tooltip_draw)
+005203e0	data	tooltips_language	int	Set where the tooltips' strings are the game's (language_string) rather than the ITAC's (tooltips_init)
+005203ec	data	tooltip_current	int	The tooltip the pointer rests on; -1 for none
+005207d8	data	tooltip_x	int	Where the tooltip shows across, which follows the pointer until it is due
+005207dc	data	tooltip_y	int	Where the tooltip shows down: 38 below the pointer, or 19 above it where that would pass 450
+00523098	data	tooltip_remap	byte[256]	The colours the tooltips' font is drawn in: each its own, but 0 and 0xFF as 2, 0x51 as 100 and 0x69 as 96 of itacgfx.spr's block 29
+005231b4	data	tooltip_count	int	How many tooltips tooltip_add has added

@@ -9,26 +9,27 @@ picture of its own that its text is written on; the last button closes it. Its s
 
 ## In OpenReliant
 
-[`game/itac.zig`](../../src/engine/game/itac.zig) runs the ITAC,
-[`game/itac/debriefing.zig`](../../src/engine/game/itac/debriefing.zig) is DEBRIEFINGS,
-[`game/itac/news_reports.zig`](../../src/engine/game/itac/news_reports.zig) is NEWS REPORTS, and
-[`game/videoreports.zig`](../../src/engine/game/videoreports.zig) is VIDEO REPORTS.
-The lit shapes, the debriefings' texts, the news items and the video reports are in
+[`game/itac.zig`](../../src/engine/game/itac.zig) runs the ITAC. Its sections are DEBRIEFINGS
+([`game/itac/debriefing.zig`](../../src/engine/game/itac/debriefing.zig)), NEWS REPORTS
+([`game/itac/news_reports.zig`](../../src/engine/game/itac/news_reports.zig)), VIDEO REPORTS
+([`game/videoreports.zig`](../../src/engine/game/videoreports.zig)), the fighters, squadrons and
+personnel of either side ([`game/itac/fighters.zig`](../../src/engine/game/itac/fighters.zig),
+[`game/itac/squadrons.zig`](../../src/engine/game/itac/squadrons.zig),
+[`game/itac/personnel.zig`](../../src/engine/game/itac/personnel.zig)) and the KILLBOARD
+([`game/itac/killboard.zig`](../../src/engine/game/itac/killboard.zig)), and
+[`game/itac/tooltips.zig`](../../src/engine/game/itac/tooltips.zig) holds the buttons' tooltips. The
+lit shapes, the debriefings' texts, the news items, the video reports, the fighters, squadrons and
+personnel, and the KILLBOARD's pilots are in
 [`game/itac/tables.zig`](../../src/engine/game/itac/tables.zig), which `make itac-tables` derives
 from the executable. The driver runs the loop
 (`Driver.itac` in [`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), from the rooms and
 after each mission of the campaign.
 
 Ported so far: the ITAC's loop, with its movies, its sections' pictures and titles, the fades of
-their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds;
-DEBRIEFINGS with REPLAY MISSION; NEWS REPORTS; and VIDEO REPORTS. Not yet: the other sections, which
-show their pictures with nothing written on them: the fighters
-([#463](https://github.com/OpenReliant/openreliant/issues/463)), the capital ships
-([#464](https://github.com/OpenReliant/openreliant/issues/464)), the squadrons
-([#465](https://github.com/OpenReliant/openreliant/issues/465)) and the personnel
-([#466](https://github.com/OpenReliant/openreliant/issues/466)) of either side, and the KILLBOARD
-([#467](https://github.com/OpenReliant/openreliant/issues/467)); and the buttons' tooltips
-([#468](https://github.com/OpenReliant/openreliant/issues/468)).
+their text, the panes their text wipes in by, the lit shapes, the pointer, the sounds and the
+buttons' tooltips; and every section but one. Not yet: the capital ships of either side, which show
+their picture with nothing written on it
+([#464](https://github.com/OpenReliant/openreliant/issues/464)).
 
 **Fixes:**
 
@@ -39,8 +40,8 @@ show their pictures with nothing written on them: the fighters
 - After a mission, the game opens DEBRIEFINGS after its movie in, so that the figures fading in over
   the movie are those of whichever debriefing was chosen last. OpenReliant opens it before, as the
   rooms open NEWS REPORTS.
-- As another debriefing, news item or video report is chosen, the game holds the screen still for
-  half a second, drawing nothing (`itac_pause`, `0x00440170`). OpenReliant shows it at once.
+- As another entry of a section's list is chosen, the game holds the screen still for half a second,
+  drawing nothing (`itac_pause`, `0x00440170`). OpenReliant shows it at once.
 - With no news item listed, NEWS REPORTS draws the picture of the record before its table's first,
   and with no report listed, VIDEO REPORTS crashes, though the campaign always lists one;
   OpenReliant shows none. NEWS REPORTS and VIDEO REPORTS copy a title into a room of 60 and 500
@@ -51,11 +52,23 @@ show their pictures with nothing written on them: the fighters
 - VIDEO REPORTS draws a still, 116 by 90, into a buffer a column wider and a row taller that it never
   clears, so that the film strip's frames show what the memory held down their right edge and
   along their foot. OpenReliant shows black there.
+- The squadrons draw the picture of the record at the chosen squadron's place in the whole table,
+  so that past a squadron the Alliance's list leaves out, each shows the picture of one before it.
+  OpenReliant draws the chosen squadron's.
+- A portrait past shape 41, which `persons.spr` doesn't hold, takes its palette's block from the
+  bits of the fade. OpenReliant draws it with the last palette's.
+- The KILLBOARD adds up the kills of a twentieth record past its nineteen pilots, which runs into
+  the loadout's colours for its panels' text (`loadout_text_remap`, `0x004EA308`), and never lets
+  go of the portraits it reads each time it opens. OpenReliant adds up the nineteen's, and lets go
+  of the portraits as the board is left.
+- The game adds ten tooltips for the nine buttons, the tenth read from the bytes after their table.
+  Its rectangle lies far off the screen, so it never shows; OpenReliant adds the nine.
 
 **Improvements:**
 
-- The times of the sounds now and then, and which plays, are drawn from `std.Random`, where the
-  game uses `rand`.
+- The times of the sounds now and then, and which plays, and the KILLBOARD's kills are drawn from
+  `std.Random`, where the game uses `rand`. The kills still come from the campaign's seed, so that
+  a campaign shows the same board each time.
 - Its text, in `itacbig.fnt` and `itacsml.fnt`, is drawn with outline fonts at the window's
   resolution: Newtown, or a font from a mod ([Outline fonts](../formats/fnt.md#outline-fonts)).
 
@@ -83,6 +96,11 @@ Each section writes its text on its picture, `inter\itac\itactrans_NNNNN.tga`, i
 wipe in from the left, 14 pixels a tick of the ITAC's timer, 30 ticks a second (`itac_timer`,
 `0x0043FC60`; `itac_panes_draw`, `0x0043FF50`). The panes show only while no fade runs. The title
 stands at (167, 22) in `itacbig.fnt`, in (236, 105, 77); the rest is in `itacsml.fnt`.
+
+The ITAC draws its shapes straight into the frame, over the picture behind it: the device locks the
+frame after the picture and runs the ITAC's render hook (`srd3d.dll`, `0x10003410`). So their pixels
+of index 0 show in the palette's colour 0, black in every set the ITAC draws, rather than letting the
+picture show through.
 
 `itacgfx.spr` holds the pointer, shapes 2 to 22, one for every 4 game ticks with block 1's palette,
 and the shapes the ITAC lights where the pointer is over them, with block 30's palette
@@ -217,3 +235,111 @@ which a report may have changed.
 | Film strip | Frame at (297, 97); the still's buffer, 116 by 91: its rows 64 to 89 at (317, 96), all of it at (317, 130), and its rows 0 to 25 at (317, 228) |
 | Play button | (360, 277), 40 by 40 |
 | List | (470, 104), 150 by 246, the titles from (480, 105), 134 wide; arrows at (514, 368) and (541, 368), 27 by 27 |
+
+## The sides
+
+The fighters, the capital ships, the squadrons and the personnel show either side's, the Alliance's
+as each opens. Two buttons at the top right choose the side, the Alliance's at x 551 and the
+Coalition's at x 478, each section's own (`0x004E5460` and the others). A press on the other side's
+plays sound 8 at `0x50`, lists the side's from its first, and builds the section again. The side's
+emblem, shape 25 or 24 of `itacgfx.spr` with block 23's palette, stands over its button, fading with
+the section, and the title names the side.
+
+## The fighters
+
+ALLIANCE FIGHTERS and COALITION FIGHTERS list every fighter of the side, twelve and nine: the
+loadout's own records (`loadout_alliance_ships`, `0x004E5470`; `loadout_coalition_ships`,
+`0x004E57A0`). As the section opens, `loadout_ship_bars_init` works out each one's bars from the
+ships' stats, as the loadout does ([The loadout](loadout.md)).
+
+- The name, in capitals, in (58, 209, 255).
+- The picture of `inter\itac\fighters.spr` at (91, 65), fading with the section, with the palette of
+  the last block of the file's before its shape: 0, 5, 10, 15, 17, 22 or 27.
+- The figures, labels in (255, 189, 130) and values right-aligned in (255, 146, 58), 15 apart:
+  Type; Clearance, on the Alliance's side only; and the bars, from 3 to 10, of Speed Rating,
+  Acceleration, Agility Rating, Shield Strength, Shield Recharge and Armor.
+- The armament: Afterburner Fuel in seconds, Armament with a gun a row, a count before each that
+  has one, Crew, and the special abilities in a paragraph below.
+- The list of the names, the chosen in (58, 209, 255). A press on one chooses it.
+
+| What | Where |
+|---|---|
+| Name | (32, 80), 113 by 13 |
+| Figures | (33, 252), 200 by 138, values right-aligned at x 232 |
+| Armament | (253, 252), 207 by 138, values right-aligned at x 452 |
+| List | (474, 146), 146 by 218, the names from x 484, 126 wide |
+
+## The squadrons
+
+ALLIANCE SQUADRONS and COALITION SQUADRONS (`0x004EBD10`, 19 records; `0x004EBF28`, 8). The
+Alliance's list follows the campaign: the 45th Volunteers show before mission 13 and the 45th Flying
+Tigers from it, and the 51st Volunteers up to mission 9 (`0x00450440`).
+
+- The name, in capitals, in (58, 209, 255), then Class, Leader, Base and Nation, 28 apart.
+- The picture of `inter\itac\squads.spr` at (80, 263), with the palette its record names, fading
+  with the section.
+- PROFILE, over the history, which its arrows scroll. After mission 6, the 705 Cobras' tells of the
+  inquiry into their colonel (`0x00450235`). "(more)" marks a history that runs past its box.
+- The list of the names, down to the foot of its pane; the Alliance's has arrows that step it on,
+  no further than to leave 13 showing, and back. A press on a name chooses it.
+
+| What | Where |
+|---|---|
+| Name and figures | (32, 79), 185 by 140, values right-aligned at x 209 |
+| PROFILE | (235, 80), 229 by 15 |
+| History | (235, 101), 229 by 103; arrows at (325, 215) and (352, 215), 27 by 27 |
+| "(more)" | Right edge at (464, 203) |
+| List | (472, 136), 147 by 223, the names from x 482, 126 wide; arrows at (515, 367) and (542, 367), 27 by 27 |
+
+## The personnel
+
+ALLIANCE PERSONNEL and COALITION PERSONNEL (`0x004EB430`, 30 records, then 6).
+
+- The name, in capitals, in (58, 209, 255), then Age and Nationality, and Ship and Callsign where
+  the person has them, 26 apart.
+- The portrait of `inter\itac\persons.spr` at (296, 76), with the palette of the last block of the
+  file's before its shape: 0, 9, 18, 24, 33 or 35.
+- PROFILE, over Military History, Training and Background, each heading on a line of its own above
+  its text, which the arrows scroll. "(more)" marks a profile that runs past its box.
+- The list of the names, down to the foot of its pane; the Alliance's has arrows as the squadrons'
+  do. Only choosing the side brings it back to its top.
+
+| What | Where |
+|---|---|
+| Name and figures | (34, 77), 225 by 144, values right-aligned at x 258 |
+| PROFILE | (35, 244), 405 by 22 |
+| Profile | (35, 266), 405 by 60; arrows at (44, 342) and (71, 342), 27 by 27 |
+| "(more)" | Right edge at (440, 323) |
+| List | (474, 138), 146 by 218, the names from x 484, 126 wide; arrows at (514, 367) and (541, 367), 27 by 27 |
+
+## KILLBOARD
+
+The pilots of the Reliant's squadrons (`0x004E9A08`, 19 records) and the player, best first, five
+at a time from the first shown; the arrows at (293, 377) and (319, 377), 26 by 26, step the board
+on and back. It opens with sound 5 and wipes in at (30, 72), 593 by 295.
+
+- Each pilot starts with their kills, and each mission flown before the one the campaign has come
+  to adds a draw round their mean, more or less half their spread (`killboard_kills`,
+  `0x00441460`), from the campaign's seed (`killboard_seed`, `0x00562F10`). Missions 12, 13, 17 and
+  22 add none, and Klaus Steiner adds none from mission 19 to 23.
+- The board follows the campaign: John McGann and Brad Callan leave it after mission 5, Zoran
+  Grandoni after 12, Angelo Fuser and Joe Dabo after 21, Manzo Takamatsu after 22 and Matt Moreno
+  after 25, and Linc Stevenson joins it at mission 6 (`0x00441320`).
+- Each row has the place in `itacbig.fnt` at (50, 109) down, the portrait of `inter\itac\kills.spr`
+  at (72, 97), the name and the squadron at x 135, the ship at x 288, and the kills at x 441, each
+  row 55 below the last. PILOTS, SHIP and TOTAL KILLS head the columns in (58, 209, 255).
+- The player's row has their call sign over their squadron, the 45th Volunteers, which flies as the
+  45th Flying Tigers from mission 14, as the 45th's pilots do, and their portrait by whether the
+  pilot is female. The 45th's portraits take block 0's palette, the others' block 6's.
+
+## Tooltips
+
+As the pointer rests on a button, its tooltip shows under it: View Debriefings to Exit ITAC, strings
+`0x712` on (`itac_tooltips_add`, `0x00440EB0`). It shows after 100 game ticks, or at once where a
+tooltip showed in the last 30, 38 below the pointer, or 19 above it where that would put it below y 450.
+Until then it follows the pointer (`tooltips_update`, `0x00440C40`). It is written in `newfont.fnt`
+in a black box edged in grey, palette entries 0 and 100 of `itacgfx.spr`'s block 29, kept 6 clear of
+the screen's right edge (`tooltip_draw`, `0x00440D80`). The tooltips show while no fade runs. The
+saved games, the loadout and one more screen show the same tooltips (`tooltips_init`,
+`0x00440B30`), which OpenReliant doesn't yet
+([#813](https://github.com/OpenReliant/openreliant/issues/813)).

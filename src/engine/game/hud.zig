@@ -539,7 +539,8 @@ pub const Art = struct {
         clear,
         /// Drawn in the palette's colour 0, as `VFX_shape_draw` (`winvfx16.dll`, `0x10003596`)
         /// draws every pixel of a row's runs: for a shape over a movie's frame copied into the
-        /// frame drawn, as the rooms' crew are.
+        /// frame drawn, as the rooms' crew are, or drawn into the frame over the picture behind
+        /// it, as the ITAC's are.
         drawn,
     };
 

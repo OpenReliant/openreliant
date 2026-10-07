@@ -43,7 +43,7 @@ pub const base: u32 = 0x400000;
 /// A reader over a synthetic payload made of `regions`, allocated in `allocator`. The strings a
 /// reader returns point into its image, so free it with `freeReader` only after using them.
 pub fn reader(allocator: std.mem.Allocator, regions: []const Region) !image.Reader {
-    var sections: [8]pe.testing.Section = undefined;
+    var sections: [16]pe.testing.Section = undefined;
     for (regions, sections[0..regions.len]) |region, *section| {
         section.* = .{ .rva = region.va - base, .data = region.bytes };
     }

@@ -5,16 +5,13 @@
 //! title and text fade, and a picture its text is written on; the last button closes it.
 //!
 //! Ported so far: the ITAC's loop, with its movies, its sections' pictures and titles, the fades of
-//! their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds;
-//! DEBRIEFINGS (`debriefing`); NEWS REPORTS (`news_reports`); and VIDEO REPORTS, which
-//! `videoreports.cpp` holds (`videoreports.zig`). The other sections show their pictures with
-//! nothing written on them: the fighters
-//! ([#463](https://github.com/OpenReliant/openreliant/issues/463)), the capital ships
-//! ([#464](https://github.com/OpenReliant/openreliant/issues/464)), the squadrons
-//! ([#465](https://github.com/OpenReliant/openreliant/issues/465)) and the personnel
-//! ([#466](https://github.com/OpenReliant/openreliant/issues/466)) of either side, and the KILLBOARD
-//! ([#467](https://github.com/OpenReliant/openreliant/issues/467)). Not ported either: the buttons'
-//! tooltips ([#468](https://github.com/OpenReliant/openreliant/issues/468)).
+//! their text, the panes their text wipes in by, the lit shapes, the pointer, the sounds and the
+//! buttons' tooltips (`tooltips`); and its sections: DEBRIEFINGS (`debriefing`), NEWS REPORTS
+//! (`news_reports`), VIDEO REPORTS, which `videoreports.cpp` holds (`videoreports.zig`), the
+//! fighters, the squadrons and the personnel of either side (`fighters`, `squadrons`,
+//! `personnel`), and the KILLBOARD (`killboard`). Not yet: the capital ships of either side, which
+//! show their picture with nothing written on it
+//! ([#464](https://github.com/OpenReliant/openreliant/issues/464)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -23,6 +20,7 @@ const input = @import("../input.zig");
 const hud = @import("hud.zig");
 const hog_snd = @import("hog_snd.zig");
 const gameflow = @import("gameflow.zig");
+const create = @import("create.zig");
 const language = @import("language.zig");
 const matmanager = @import("matmanager.zig");
 const movie = @import("xtrabits/movie.zig");
@@ -32,6 +30,11 @@ const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
 pub const debriefing = @import("itac/debriefing.zig");
 pub const news_reports = @import("itac/news_reports.zig");
+pub const fighters = @import("itac/fighters.zig");
+pub const squadrons = @import("itac/squadrons.zig");
+pub const personnel = @import("itac/personnel.zig");
+pub const killboard = @import("itac/killboard.zig");
+pub const tooltips = @import("itac/tooltips.zig");
 pub const tables = @import("itac/tables.zig");
 const video_reports = @import("videoreports.zig");
 
@@ -113,6 +116,17 @@ const buttons = std.EnumArray(Section, Rect).init(.{
     .killboard = .{ .x = 499, .y = 422, .width = 58, .height = 51 },
     .exit = .{ .x = 570, .y = 422, .width = 58, .height = 51 },
 });
+
+/// Each button's tooltip, "View Debriefings" to "Exit ITAC" (`itac_tooltips_add`, `0x00440EB0`): the
+/// strings from `first_tooltip` in the buttons' order (`0x004E9388`).
+const first_tooltip = 0x712;
+const button_tooltips = listed: {
+    var list: [buttons.values.len]tooltips.Tooltip = undefined;
+    for (&list, std.enums.values(Section)) |*tip, section| {
+        tip.* = .{ .rect = buttons.get(section), .string = @as(u16, first_tooltip) + @backingInt(section) };
+    }
+    break :listed list;
+};
 
 /// A section's movies in and out and its picture, in `inter\itac\` (`itac_movies`, `0x004E9418`).
 const Files = struct {
@@ -211,6 +225,10 @@ pub const text_colour = hud.rgb(0xFF923A);
 /// The colour the sections' headings and chosen entries are written in.
 pub const header_colour = hud.rgb(0x3AD1FF);
 
+/// The colour the sections' labels are written in, beside their values in the text's colour
+/// (`0x00425C49`, `0x0044FEDB`, `0x0044E974`).
+pub const label_colour = hud.rgb(0xFFBD82);
+
 /// What a section writes between two paragraphs (`0x004E5440`), and the room its text has
 /// (`itac_text`, `0x00520844`).
 pub const between = "\n\n";
@@ -239,14 +257,18 @@ pub const Pilot = struct {
     campaign: *const gameflow.Campaign,
     /// `mission_number`: the mission the campaign has come to, the next to fly.
     mission: u16,
+    /// `pilot_female`: whether the pilot is female, which picks their portrait on the KILLBOARD.
+    female: bool,
 };
 
 /// What the ITAC reads and plays with: the rooms', its own strings (`ITACLANG.DLL`,
-/// `itac_language_init`, `0x00440770`) and the game's.
+/// `itac_language_init`, `0x00440770`) and the game's, and the ships' stats, which the fighters'
+/// bars measure.
 pub const Context = struct {
     rooms: rooms.Context,
     strings: *const language.Language,
     language: *const language.Language,
+    stats: *const create.Stats,
 };
 
 /// A pass's input.
@@ -432,20 +454,30 @@ pub const Repeat = struct {
     }
 };
 
-/// A list of titles, as NEWS REPORTS and VIDEO REPORTS show theirs in `pane` (`news_list_draw`,
-/// `0x0044E370`; `video_reports_list_draw`, `0x00450BA0`): from the first shown, as many as its
-/// entries hold, each title broken into lines of at most 134 across, 11 apart, from x 10 across the
-/// pane and from `top` down it, a blank line below each. Each is a hotspot 140 wide from x 474,
-/// `hotspot_below` further down than its text and as tall as its lines.
+/// A list of titles, as the sections show theirs in `pane` (`news_list_draw`, `0x0044E370`, and the
+/// others): from the first shown, as many as its entries hold and, where it has a `bottom`, until
+/// an entry ends past it. Each title breaks into lines of at most `width` across, 11 apart, from x
+/// 10 across the pane and from `top` down it, with `gap` below it. Each is a hotspot
+/// `hotspot_width` wide from `hotspot_x`, `hotspot_below` further down than its text, and as tall
+/// as its lines and `hotspot_extra` more.
 pub const TitleList = struct {
     pane: Rect,
     top: i32,
-    hotspot_below: i32,
+    width: i32 = 134,
+    gap: i32 = line_height,
+    bottom: ?i32 = null,
+    hotspot_x: i16 = 474,
+    hotspot_width: i16 = 140,
+    hotspot_below: i32 = 0,
+    hotspot_extra: i32 = 0,
 
-    const lines: Canvas.Lines = .{ .width = 134, .height = 11, .most = 20 };
+    const line_height = 11;
+    const most_lines = 20;
     const across = 10;
-    const hotspot_x = 474;
-    const hotspot_width = 140;
+
+    fn lines(list: TitleList) Canvas.Lines {
+        return .{ .width = list.width, .height = line_height, .most = most_lines };
+    }
 
     /// Lays out the strings `titles`, the whole list's, from the one at `first`, into `entries`;
     /// how many it laid out.
@@ -455,15 +487,16 @@ pub const TitleList = struct {
         var count: u8 = 0;
         for (titles[@min(first, titles.len)..], first..) |id, place| {
             if (count == entries.len) break;
-            const height = @as(i32, @intCast(lines.count(font, itac.string(id)))) * lines.height;
+            const height = @as(i32, @intCast(list.lines().count(font, itac.string(id)))) * line_height;
             entries[count] = .{ .place = @intCast(place), .top = top, .rect = .{
-                .x = hotspot_x,
+                .x = list.hotspot_x,
                 .y = @intCast(list.pane.y + top + list.hotspot_below),
-                .width = hotspot_width,
-                .height = @intCast(height),
+                .width = list.hotspot_width,
+                .height = @intCast(height + list.hotspot_extra),
             } };
             count += 1;
-            top += height + lines.height;
+            top += height + list.gap;
+            if (list.bottom) |bottom| if (top > bottom) break;
         }
         return count;
     }
@@ -475,10 +508,55 @@ pub const TitleList = struct {
         const in_pane = canvas.within(shown);
         for (entries) |entry| {
             const colour = if (chosen == entry.place) header_colour else text_colour;
-            try in_pane.wrapped(font, .{ list.pane.x + across, list.pane.y + entry.top }, itac.string(titles[entry.place]), colour, .left, lines);
+            try in_pane.wrapped(font, .{ list.pane.x + across, list.pane.y + entry.top }, itac.string(titles[entry.place]), colour, .left, list.lines());
         }
     }
 };
+
+/// The rows a section writes its figures in, into a pane cut to `canvas`: labels from x 2 in the
+/// labels' colour, and values right-aligned at `value_x` in the text's (`0x0044E960`, as the
+/// fighters' and the squadrons' builds write theirs too).
+pub const Rows = struct {
+    canvas: Canvas,
+    font: *hud.Opened,
+    pane: Rect,
+    value_x: i32,
+
+    const label_x = 2;
+
+    pub fn label(rows: Rows, y: i32, text: []const u8) Allocator.Error!void {
+        try rows.canvas.text(rows.font, .{ rows.pane.x + label_x, rows.pane.y + y }, text, label_colour, .left);
+    }
+
+    pub fn value(rows: Rows, y: i32, text: []const u8) Allocator.Error!void {
+        try rows.canvas.text(rows.font, .{ rows.pane.x + rows.value_x, rows.pane.y + y }, text, text_colour, .right);
+    }
+};
+
+/// The side each of a sided section's two buttons shows (`0x004E96C8`): the first the Alliance's,
+/// the second the Coalition's.
+const button_sides = [2]Side{ .alliance, .coalition };
+
+/// The emblem of the side shown, which the sided sections draw over its button
+/// (`0x004E96C4`, `0x004E96CC`, `0x004E96D0`), with `itacgfx.spr`'s block 23's palette
+/// (`0x00425B1C`).
+const Emblem = struct { shape: usize, at: [2]i32 };
+const emblems = std.EnumArray(Side, Emblem).init(.{
+    .alliance = .{ .shape = 25, .at = .{ 551, 59 } },
+    .coalition = .{ .shape = 24, .at = .{ 478, 59 } },
+});
+const emblem_palette = 0x17;
+
+/// The palette a section draws its picture `shape` with: the last of `blocks` that isn't past the
+/// shape, as the fighters' and the personnel's draws pick it (`0x00425A99`, `0x0044E742`).
+pub fn paletteBefore(blocks: []const usize, shape: usize) usize {
+    var palette = blocks[0];
+    for (blocks) |block| {
+        if (block > shape) break;
+        palette = block;
+    }
+    return palette;
+}
 
 /// The places in `table` of its records whose missions come before `mission`, the one the campaign
 /// has come to, in the table's order, and the strings of their titles; how many
@@ -504,6 +582,53 @@ pub fn capitals(buffer: []u8, text: []const u8) []const u8 {
     @memcpy(kept, text[0..kept.len]);
     language.upperCase(kept);
     return kept;
+}
+
+/// The sprite set `name` of `resource.hog`, which the ITAC draws its shapes from: the pointer, the
+/// lit shapes, the emblems and its sections' pictures. Their pixels of index 0 show in the palette's
+/// colour 0, as `VFX_shape_draw` writes them: the game draws them straight into the frame, after
+/// the picture behind it, as the device runs the render hook with the frame locked (`srd3d.dll`,
+/// `0x10003410`). Null where the set is left out, which the log says.
+pub fn readShapes(context: Context, name: []const u8) ?canvas_module.Shapes {
+    var shapes = canvas_module.Shapes.read(context.rooms.gpa, context.rooms.resources, name) orelse return null;
+    shapes.art.index_zero = .drawn;
+    return shapes;
+}
+
+/// A section's pictures, which it reads as it opens and lets go of as it is left, and whether it is
+/// open, as each section keeps them (such as `news_pictures` and `news_open`).
+pub const Pictures = struct {
+    open: bool = false,
+    shapes: ?canvas_module.Shapes = null,
+
+    /// Reads the set `name` (`readShapes`), and marks the section open.
+    pub fn read(pictures: *Pictures, context: Context, name: []const u8) void {
+        pictures.shapes = readShapes(context, name);
+        pictures.open = true;
+    }
+
+    /// Lets go of the set where the section is open; whether it was.
+    pub fn close(pictures: *Pictures, gpa: Allocator) bool {
+        if (!pictures.open) return false;
+        if (pictures.shapes) |*shapes| shapes.deinit(gpa);
+        pictures.* = .{};
+        return true;
+    }
+
+    /// Shape `shape` at `at` with the palette of block `palette`, at `fade`; none where the set is
+    /// left out.
+    pub fn draw(pictures: *Pictures, canvas: Canvas, palette: usize, shape: usize, at: [2]i32, fade: f32) canvas_module.Error!void {
+        if (pictures.shapes) |*shapes| try drawFaded(canvas, shapes, palette, shape, at, fade);
+    }
+};
+
+/// Shape `shape` of `shapes` at `at` with the palette of block `palette`, at `fade`, as the sections
+/// draw their pictures.
+pub fn drawFaded(canvas: Canvas, shapes: *canvas_module.Shapes, palette: usize, shape: usize, at: [2]i32, fade: f32) canvas_module.Error!void {
+    shapes.usePalette(palette);
+    var faded = canvas;
+    faded.brightness = @min(fade, 1);
+    try faded.shape(&shapes.art, shape, at);
 }
 
 /// What the loop does.
@@ -580,10 +705,19 @@ pub const Itac = struct {
     /// The game tick the next sound now and then is due at.
     now_and_then_due: u32 = 0,
     random: std.Random.DefaultPrng,
-    /// DEBRIEFINGS, NEWS REPORTS and VIDEO REPORTS.
+    /// The sections: DEBRIEFINGS, NEWS REPORTS, VIDEO REPORTS, the fighters, the squadrons and the
+    /// personnel of either side, and the KILLBOARD.
     debriefings: debriefing.Debriefing = .{},
     news: news_reports.NewsReports = .{},
     videos: video_reports.VideoReports = .{},
+    fighters: fighters.Fighters = .{},
+    squadrons: squadrons.Squadrons = .{},
+    personnel: personnel.Personnel = .{},
+    killboard: killboard.Killboard = .{},
+    /// The buttons' tooltips, their font, and the one showing.
+    tooltips: tooltips.Tooltips = .{},
+    tooltip_font: ?hud.FontFile = null,
+    tooltip_shown: ?usize = null,
     /// Whether the shown section builds its panes on its next update (`itac_rebuild`,
     /// `0x0052032C`).
     rebuild: bool = false,
@@ -607,8 +741,9 @@ pub const Itac = struct {
         };
         itac.large = .read(gpa, resources.*, large_font_name, context.rooms.outlines);
         itac.small = .read(gpa, resources.*, small_font_name, context.rooms.outlines);
-        itac.shapes = .read(gpa, resources, shapes_name);
+        itac.shapes = readShapes(context, shapes_name);
         itac.sounds = .read(gpa, resources, sounds_name);
+        itac.tooltip_font = .read(gpa, resources.*, tooltips.font_name, context.rooms.outlines);
         return itac;
     }
 
@@ -621,6 +756,7 @@ pub const Itac = struct {
         itac.picture.deinit(gpa);
         if (itac.large) |*font| font.deinit(gpa);
         if (itac.small) |*font| font.deinit(gpa);
+        if (itac.tooltip_font) |*font| font.deinit(gpa);
         if (itac.shapes) |*shapes| shapes.deinit(gpa);
         if (itac.sounds) |file| file.deinit(gpa);
         itac.* = undefined;
@@ -671,6 +807,7 @@ pub const Itac = struct {
                         itac.stage = .{ .report_pressed = report };
                         return .hold;
                     }
+                    itac.tooltip_shown = if (itac.frozen) null else itac.tooltips.update(&button_tooltips, in.pointer.at, in.ticks);
                 }
             },
             .report_pressed => |report| {
@@ -850,7 +987,11 @@ pub const Itac = struct {
             .debriefings => itac.debriefings.enter(itac),
             .news_reports => itac.news.enter(itac),
             .video_reports => itac.videos.enter(itac),
-            .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
+            .fighters => itac.fighters.enter(itac),
+            .squadrons => itac.squadrons.enter(itac),
+            .personnel => itac.personnel.enter(itac),
+            .killboard => itac.killboard.enter(itac),
+            .ships, .exit => {},
         }
     }
 
@@ -859,7 +1000,11 @@ pub const Itac = struct {
         switch (section) {
             .news_reports => itac.news.leave(itac),
             .video_reports => itac.videos.leave(itac.context.rooms.gpa),
-            .debriefings, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
+            .fighters => itac.fighters.leave(itac.context.rooms.gpa),
+            .squadrons => itac.squadrons.leave(itac.context.rooms.gpa),
+            .personnel => itac.personnel.leave(itac.context.rooms.gpa),
+            .killboard => itac.killboard.leave(itac.context.rooms.gpa),
+            .debriefings, .ships, .exit => {},
         }
     }
 
@@ -871,14 +1016,16 @@ pub const Itac = struct {
         switch (section) {
             .debriefings => itac.debriefings.loaded(itac),
             .news_reports, .video_reports, .fighters, .ships => itac.rebuildSection(),
-            .squadrons, .personnel, .killboard => itac.panes = @splat(.{}),
+            .squadrons => itac.squadrons.loaded(itac),
+            .personnel => itac.personnel.loaded(itac),
+            .killboard => itac.killboard.loaded(itac),
             .exit => {},
         }
     }
 
     /// `itac_section_rebuild` (`0x0044DE90`), the third handler of NEWS REPORTS, VIDEO REPORTS and
     /// either side's fighters and ships: built on the next update, the panes hidden.
-    fn rebuildSection(itac: *Itac) void {
+    pub fn rebuildSection(itac: *Itac) void {
         itac.rebuild = true;
         itac.panes = @splat(.{});
     }
@@ -890,7 +1037,11 @@ pub const Itac = struct {
             .debriefings => itac.debriefings.update(itac),
             .news_reports => itac.news.update(itac),
             .video_reports => itac.videos.update(itac),
-            .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
+            .fighters => itac.fighters.update(itac),
+            .squadrons => itac.squadrons.update(itac),
+            .personnel => itac.personnel.update(itac),
+            .killboard => itac.killboard.update(itac),
+            .ships, .exit => {},
         }
     }
 
@@ -941,6 +1092,7 @@ pub const Itac = struct {
             if (itac.picture.image) |*image| canvas.fill(image);
             if (itac.section != null) try itac.drawSection(canvas, itac.fade);
             if (!itac.frozen) try itac.drawLit(canvas);
+            if (!itac.frozen and itac.panesShow()) if (itac.tooltip_shown) |index| try itac.drawTooltip(canvas, button_tooltips[index]);
         }
         if (!itac.frozen) try itac.drawPointer(canvas);
     }
@@ -954,7 +1106,11 @@ pub const Itac = struct {
             .debriefings => try itac.debriefings.draw(itac, canvas, fade),
             .news_reports => try itac.news.draw(itac, canvas, fade),
             .video_reports => try itac.videos.draw(itac, canvas, fade),
-            .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
+            .fighters => try itac.fighters.draw(itac, canvas, fade),
+            .squadrons => try itac.squadrons.draw(itac, canvas, fade),
+            .personnel => try itac.personnel.draw(itac, canvas, fade),
+            .killboard => try itac.killboard.draw(itac, canvas),
+            .ships, .exit => {},
         }
     }
 
@@ -997,8 +1153,69 @@ pub const Itac = struct {
             if (n > 0) writer.writeAll(between) catch {};
             writer.writeAll(itac.string(id)) catch {};
         }
-        if (itac.small) |*file| box.reach(box.lines().count(&file.font, text[0..writer.end]));
+        itac.fitText(box, text[0..writer.end]);
         return writer.end;
+    }
+
+    /// Lets `box` scroll as far as `text` reaches, broken into its lines in the small font.
+    pub fn fitText(itac: *Itac, box: *ScrollBox, text: []const u8) void {
+        if (itac.small) |*file| box.reach(box.lines().count(&file.font, text));
+    }
+
+    /// Whether the shown section builds its panes now, as `itac_rebuild` asks, which this takes.
+    pub fn rebuildDue(itac: *Itac) bool {
+        defer itac.rebuild = false;
+        return itac.rebuild;
+    }
+
+    /// The place of the entry of `entries` the left button chooses this pass, where it isn't
+    /// `chosen` already, as the sections read their lists (`itac_hit`).
+    pub fn entryChosen(itac: *const Itac, entries: []const ListEntry, chosen: ?u8) ?u8 {
+        if (!itac.left) return null;
+        const place = entryAt(entries, itac.pointer.at) orelse return null;
+        return if (chosen == place) null else place;
+    }
+
+    /// The arrow of `arrows` the left button presses this pass, the press repeating while it is
+    /// held (`itac_repeat`), as the sections step their lists.
+    pub fn arrowPressed(itac: *Itac, arrows: *const [2]Rect) ?usize {
+        if (!itac.left) return null;
+        const arrow = canvas_module.hit(arrows, itac.pointer.at) orelse return null;
+        if (!itac.repeat.fires(itac.left_held)) return null;
+        return arrow;
+    }
+
+    /// The string `id` in capitals, copied into a room of `room` (`capitals`), at `at` in the
+    /// headers' colour, as the sections head their panes.
+    pub fn writeCapitals(itac: *Itac, canvas: Canvas, font: *hud.Opened, comptime room: usize, at: [2]i32, id: u16) Allocator.Error!void {
+        var buffer: [room]u8 = undefined;
+        try canvas.text(font, at, capitals(&buffer, itac.string(id)), header_colour, .left);
+    }
+
+    /// A press on one of a sided section's two buttons, `side_buttons`, that shows the other side:
+    /// sound 8, and the side changed (`0x004259B6` and the others). Whether it changed.
+    pub fn sidePressed(itac: *Itac, side_buttons: *const [2]Rect) bool {
+        if (!itac.left) return false;
+        const button = canvas_module.hit(side_buttons, itac.pointer.at) orelse return false;
+        if (button_sides[button] == itac.side) return false;
+        itac.play(.side, low_volume, 1);
+        itac.side = button_sides[button];
+        return true;
+    }
+
+    /// The emblem of the side shown, at `fade`, as the sided sections draw it after their picture
+    /// (`0x00425B15` and the others).
+    pub fn drawEmblem(itac: *Itac, canvas: Canvas, fade: f32) canvas_module.Error!void {
+        const emblem = emblems.get(itac.side);
+        if (itac.shapes) |*shapes| try drawFaded(canvas, shapes, emblem_palette, emblem.shape, emblem.at, fade);
+    }
+
+    /// The tooltip `tip` (`tooltip_draw`, `0x00440D80`), in its font and with `itacgfx.spr`'s
+    /// colours.
+    fn drawTooltip(itac: *Itac, canvas: Canvas, tip: tooltips.Tooltip) canvas_module.Error!void {
+        const font = &(itac.tooltip_font orelse return).font;
+        const shapes = &(itac.shapes orelse return);
+        try itac.tooltips.draw(canvas, font, shapes, itac.string(tip.string));
     }
 
     /// `itac_more_draw` (`0x00441090`): "(more)" at the foot of a box whose text runs past it, while
@@ -1108,6 +1325,7 @@ test Itac {
         .{ .name = "itacbig.fnt", .data = "x" },
         .{ .name = "itacsml.fnt", .data = "x" },
         .{ .name = "itacgfx.spr", .data = "x" },
+        .{ .name = "newfont.fnt", .data = "x" },
         .{ .name = "itactrans_00014.tga", .data = "x" },
         .{ .name = "itactrans_00030.tga", .data = "x" },
     });
@@ -1116,8 +1334,8 @@ test Itac {
     const strings: language.Language = .{ .strings = &.{} };
     var campaign: gameflow.Campaign = .begin();
     campaign.records[0] = .{ .rating = .success };
-    const pilot: Pilot = .{ .call_sign = "MAVERICK", .kills = 3, .rank = 0, .tier = 0, .campaign = &campaign, .mission = 2 };
-    var itac: Itac = .open(.{ .rooms = tested.context(), .strings = &strings, .language = &strings }, .after_mission, pilot, 0, 0);
+    const pilot: Pilot = .{ .call_sign = "MAVERICK", .kills = 3, .rank = 0, .tier = 0, .campaign = &campaign, .mission = 2, .female = false };
+    var itac: Itac = .open(.{ .rooms = tested.context(), .strings = &strings, .language = &strings, .stats = &create.Stats.initial }, .after_mission, pilot, 0, 0);
     defer itac.deinit();
     const pass = struct {
         var now: u64 = 0;
@@ -1151,6 +1369,7 @@ test "Use ITAC opens NEWS REPORTS on the latest item" {
         .{ .name = "itacbig.fnt", .data = "x" },
         .{ .name = "itacsml.fnt", .data = "x" },
         .{ .name = "itacgfx.spr", .data = "x" },
+        .{ .name = "newfont.fnt", .data = "x" },
         .{ .name = "itactrans_00014.tga", .data = "x" },
         .{ .name = "itactrans_00051.tga", .data = "x" },
         .{ .name = "newsrep.spr", .data = "x" },
@@ -1160,8 +1379,8 @@ test "Use ITAC opens NEWS REPORTS on the latest item" {
     const strings: language.Language = .{ .strings = &.{} };
     var campaign: gameflow.Campaign = .begin();
     // Before mission 5, the items of missions 0 to 4.
-    const pilot: Pilot = .{ .call_sign = "MAVERICK", .kills = 0, .rank = 0, .tier = 0, .campaign = &campaign, .mission = 5 };
-    var itac: Itac = .open(.{ .rooms = tested.context(), .strings = &strings, .language = &strings }, .rooms, pilot, 0, 0);
+    const pilot: Pilot = .{ .call_sign = "MAVERICK", .kills = 0, .rank = 0, .tier = 0, .campaign = &campaign, .mission = 5, .female = false };
+    var itac: Itac = .open(.{ .rooms = tested.context(), .strings = &strings, .language = &strings, .stats = &create.Stats.initial }, .rooms, pilot, 0, 0);
     defer itac.deinit();
     var now: u64 = 0;
     for (0..6) |_| {
@@ -1172,7 +1391,7 @@ test "Use ITAC opens NEWS REPORTS on the latest item" {
     try std.testing.expectEqual(.news_reports, itac.section.?);
     try std.testing.expectEqual(5, itac.news.item_count);
     try std.testing.expectEqual(4, itac.news.selected.?);
-    try std.testing.expect(itac.news.open and itac.panes[0].shown and itac.panes[2].shown);
+    try std.testing.expect(itac.news.pictures.open and itac.panes[0].shown and itac.panes[2].shown);
 }
 
 test "VIDEO REPORTS plays the chosen report once the button is up" {
@@ -1184,6 +1403,7 @@ test "VIDEO REPORTS plays the chosen report once the button is up" {
         .{ .name = "itacbig.fnt", .data = "x" },
         .{ .name = "itacsml.fnt", .data = hud.outline.testing.font },
         .{ .name = "itacgfx.spr", .data = "x" },
+        .{ .name = "newfont.fnt", .data = "x" },
         .{ .name = "itactrans_00014.tga", .data = "x" },
         .{ .name = "itactrans_00030.tga", .data = "x" },
         .{ .name = "itactrans_00072.tga", .data = "x" },
@@ -1195,8 +1415,8 @@ test "VIDEO REPORTS plays the chosen report once the button is up" {
     var campaign: gameflow.Campaign = .begin();
     campaign.records[0] = .{ .rating = .success };
     // Before mission 19, the Reliant's four reports.
-    const pilot: Pilot = .{ .call_sign = "MAVERICK", .kills = 0, .rank = 0, .tier = 0, .campaign = &campaign, .mission = 19 };
-    var itac: Itac = .open(.{ .rooms = tested.context(), .strings = &strings, .language = &strings }, .after_mission, pilot, 0, 0);
+    const pilot: Pilot = .{ .call_sign = "MAVERICK", .kills = 0, .rank = 0, .tier = 0, .campaign = &campaign, .mission = 19, .female = false };
+    var itac: Itac = .open(.{ .rooms = tested.context(), .strings = &strings, .language = &strings, .stats = &create.Stats.initial }, .after_mission, pilot, 0, 0);
     defer itac.deinit();
     const pass = struct {
         var now: u64 = 0;
@@ -1227,8 +1447,65 @@ test "VIDEO REPORTS plays the chosen report once the button is up" {
     try std.testing.expectEqual(.shown, std.meta.activeTag(itac.stage));
 }
 
+test "the fighters switch sides, and the KILLBOARD steps through its pilots" {
+    // Its files are there, the small font a stand-in and the rest unreadable and left out.
+    var tested: rooms.testing.Tested = undefined;
+    try tested.init(&.{}, &.{}, &.{
+        .{ .name = "itacsnd.fat", .data = "x" },
+        .{ .name = "itacbig.fnt", .data = "x" },
+        .{ .name = "itacsml.fnt", .data = hud.outline.testing.font },
+        .{ .name = "itacgfx.spr", .data = "x" },
+        .{ .name = "newfont.fnt", .data = "x" },
+        .{ .name = "itactrans_00014.tga", .data = "x" },
+        .{ .name = "itactrans_00030.tga", .data = "x" },
+        .{ .name = "itactrans_00093.tga", .data = "x" },
+        .{ .name = "itactrans_00177.tga", .data = "x" },
+        .{ .name = "fighters.spr", .data = "x" },
+        .{ .name = "kills.spr", .data = "x" },
+    });
+    defer tested.deinit();
+    var keyboard: input.Keyboard = .{};
+    const strings: language.Language = .{ .strings = &.{} };
+    var campaign: gameflow.Campaign = .begin();
+    campaign.records[0] = .{ .rating = .success };
+    const pilot: Pilot = .{ .call_sign = "MAVERICK", .kills = 0, .rank = 0, .tier = 0, .campaign = &campaign, .mission = 19, .female = false };
+    var itac: Itac = .open(.{ .rooms = tested.context(), .strings = &strings, .language = &strings, .stats = &create.Stats.initial }, .after_mission, pilot, 0, 0);
+    defer itac.deinit();
+    const pass = struct {
+        var now: u64 = 0;
+        fn with(terminal: *Itac, keys: *input.Keyboard, pointer: canvas_module.Pointer) ?Step {
+            now += std.time.ns_per_s / timer_rate;
+            return terminal.pass(.{ .keyboard = keys, .pointer = pointer, .now = now, .ticks = @intCast(now / (std.time.ns_per_s / 100)) });
+        }
+    }.with;
+    // The fighters open on the Alliance's twelve, the Coalition's emblem shows its nine.
+    for (0..4) |_| _ = pass(&itac, &keyboard, .{});
+    _ = pass(&itac, &keyboard, .{ .at = .{ 240, 440 }, .down = true });
+    for (0..3) |_| _ = pass(&itac, &keyboard, .{});
+    try std.testing.expectEqual(.fighters, itac.section.?);
+    try std.testing.expectEqual(.alliance, itac.side);
+    try std.testing.expectEqual(tables.fighters[0].len, itac.fighters.listed_count);
+    _ = pass(&itac, &keyboard, .{ .at = .{ 500, 80 }, .down = true });
+    try std.testing.expectEqual(.coalition, itac.side);
+    try std.testing.expectEqual(tables.fighters[1].len, itac.fighters.listed_count);
+    // Before mission 19, three pilots have left the board, which holds the rest and the player; its
+    // first arrow steps it on.
+    _ = pass(&itac, &keyboard, .{});
+    _ = pass(&itac, &keyboard, .{ .at = .{ 520, 440 }, .down = true });
+    for (0..3) |_| _ = pass(&itac, &keyboard, .{});
+    try std.testing.expectEqual(.killboard, itac.section.?);
+    try std.testing.expectEqual(tables.pilots.len - 3 + 1, itac.killboard.count);
+    _ = pass(&itac, &keyboard, .{ .at = .{ 300, 390 }, .down = true });
+    try std.testing.expectEqual(1, itac.killboard.first);
+}
+
 test {
     _ = debriefing;
     _ = news_reports;
+    _ = fighters;
+    _ = squadrons;
+    _ = personnel;
+    _ = killboard;
+    _ = tooltips;
     _ = tables;
 }
