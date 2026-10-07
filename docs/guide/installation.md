@@ -91,6 +91,21 @@ While flying:
 - A mission started with `--mission` starts flying at once. Its LEAVE MISSION quits, and when the mission ends the pause menu opens, where RESTART or CONTINUE flies it again.
 - The keys are in [In-flight keys](configuration.md#in-flight-keys).
 
+### The log file
+
+OpenReliant writes what it does to the terminal it runs in, and to `openreliant.log` in the game
+folder. When something goes wrong, attach that file to your
+[bug report](https://github.com/OpenReliant/openreliant/issues/new/choose). If OpenReliant crashes,
+the file ends with what the crash says.
+
+- Each run starts the file afresh, so attach it before you start the game again.
+- A message that comes again straight after itself, such as one a mod's script writes every frame,
+  is written once, followed by how many more times it came.
+- The file stops growing at 8 MiB, and then says so, as does the terminal. The rest of the run's
+  messages only go to the terminal.
+
+**Improvement:** the original keeps no log.
+
 ## Building from source
 
 To compile OpenReliant, install [Zig 0.17](https://ziglang.org). Dependencies (SDL3, OpenAL Soft, FFmpeg, libarchive) build from source automatically:
