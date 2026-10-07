@@ -2259,6 +2259,7 @@ pub const Instrument = enum {
     power,
     big_target_display,
     objectives,
+    /// The radio's menu, in its window and in window 14, which shows it too.
     comms,
     wing_status,
 
@@ -2275,7 +2276,8 @@ pub const Instrument = enum {
             .objectives => .objectives,
             .comms => .comms,
             .wing_status => .wing_status,
-            ._unknown_5, ._unknown_6, ._unknown_9, ._unknown_12, ._unknown_14 => null,
+            .other_comms => .comms,
+            ._unknown_5, ._unknown_6, ._unknown_9, ._unknown_12 => null,
         };
     }
 };

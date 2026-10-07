@@ -190,7 +190,9 @@ pub const open_windows = api.Field(Instruments, "The game's windows that are ope
         const flight, _ = flightOf(call, "open_windows") orelse return list;
         for (std.enums.values(hud.windows.Window)) |window| {
             const instrument = hud.Instrument.ofWindow(window) orelse continue;
-            if (flight.hud.windows.status.get(window).phase != .shut) list.append(instrument);
+            if (flight.hud.windows.status.get(window).phase == .shut) continue;
+            // Window 14 shows the radio's menu too, which is listed once.
+            if (std.mem.findScalar(hud.Instrument, list.slice(), instrument) == null) list.append(instrument);
         }
         return list;
     }

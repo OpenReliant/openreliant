@@ -205,7 +205,8 @@ items. Opening the window starts the menu at its top page and runs it at once; w
 open, `hud_target_keys` runs it each frame before its own keys. A run makes the page's items, ten
 at most (`0x00529540`, `0x00529CBC` of them), or does what the page is for and closes the window,
 held no more, still showing the page before. A page left with no items goes back to the top, which
-a page of none makes at once. Then the number keys choose an item, 1 the first and 0 the tenth,
+a page of none makes at once. Window 14 shows the same menu, further into its frame and in every
+view, though nothing in the shipped game opens it ([The windows](hud.md#the-windows)). Then the number keys choose an item, 1 the first and 0 the tenth,
 each press once (`key_pressed`), with the display's sound 0: the item's page comes next, about whom
 the item names (`wingman_addressed`, `0x00529596`). While the window is open, the keys 1 to 8 do
 nothing else. Each page also names a title (`0x00529FB4`), which nothing draws.
