@@ -411,15 +411,24 @@ pub const Game = struct {
     /// What `game_save` writes of the game (`0x0047579B` to `0x004758E2`), under `name`: the
     /// records as they stand, `VERS` 1, and the variables the campaign keeps.
     pub fn capture(game: Game, name: []const u8) Save {
-        const campaign = game.campaign;
         var save: Save = .{
-            .miss = std.mem.zeroes(Miss),
+            .miss = game.campaignRecord(),
             .vars = @splat(0),
             .pilo = game.wingmen.pool[0],
             .alph = game.wingmen.alpha,
         };
         save.name.set(name);
-        const miss = &save.miss;
+        save.mods = .of(game.saved.*);
+        for (kept_variables, save.vars[0..kept_variables.len]) |number, *value| value.* = @bitCast(game.campaign.variables.slot(number).*);
+        return save;
+    }
+
+    /// The campaign as it stands, as `game_save` writes it (`Miss`), and as each mission's end
+    /// copies it into the pilot's profile (`gameflow.Profile.keep`).
+    pub fn campaignRecord(game: Game) Miss {
+        const campaign = game.campaign;
+        var kept = std.mem.zeroes(Miss);
+        const miss = &kept;
         miss.mission = campaign.mission;
         const call_sign = game.pilot.call_sign.slice();
         @memcpy(miss.call_sign[0..call_sign.len], call_sign);
@@ -443,9 +452,7 @@ pub const Game = struct {
         miss.saved_ship = loadout_tables.savedShip(game.saved.ship);
         // A mod's missile as its base, which the original knows (`tables.Missile.savedId`).
         for (&miss.saved_racks, game.saved.racks) |*rack, missile| rack.* = if (missile) |kind| @intCast(kind.savedId()) else no_missile;
-        save.mods = .of(game.saved.*);
-        for (kept_variables, save.vars[0..kept_variables.len]) |number, *value| value.* = @bitCast(campaign.variables.slot(number).*);
-        return save;
+        return kept;
     }
 
     /// What `game_load` puts back of `save` (`0x00475488` to `0x004755F0`): each record, then the
@@ -490,7 +497,7 @@ pub const Game = struct {
 };
 
 /// A mission's rating where it has none, and a rack with no missile.
-const no_rating = -1;
+pub const no_rating = -1;
 const no_missile = -1;
 
 /// The autosave's name (`0x00475BF6` to `0x00475C1A`): the game's string `AUTOSAVE: Mission `

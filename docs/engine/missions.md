@@ -110,7 +110,9 @@ Then the loading (`0x004AD0A0`) puts a stand-in in every object's slot
 
 1. ends the 3D sounds, resets the clocks and the camera, and sets the rescue odds to the pilot always
    picked up;
-2. loads the cockpit of the loadout's ship (`player_loadouts`, `0x00588400`);
+2. loads the cockpit of the loadout's ship (`player_loadouts`, `0x00588400`); in mission 25's first
+   part, where the player's wing flies Kamovs, it loads the Kamov's, `kamg_frm.shp`, whatever the
+   loadout's ship, with the Phoenix's wire frame on the gunnery display (`0x00493761`);
 3. binds the mission, whose binding ends by starting the script's clock and the script
    (`mission_script_start`): the start part runs, and its commands make the mission's first ships,
    and then its curves' ships;
@@ -120,7 +122,9 @@ Then the loading (`0x004AD0A0`) puts a stand-in in every object's slot
 5. puts the player's slot first in the player's wing and gives each of its ships its wing icon;
 6. makes the camera's marker (`0x00588390`), a marker at (0, 0, -8000) in the next slot, which the
    flyby and target views move about;
-7. loads the model of each ship type the mission places, and resets the frame's clock.
+7. loads the model of each ship type the mission places, and resets the frame's clock;
+8. last, copies the call sign into the pilot's profile and writes it (`0x00493F8E`,
+   [The pilot's profile](../formats/profile.md)).
 
 ## The mission's ships
 
@@ -235,7 +239,5 @@ none, where the game takes the code from wherever the section's offset, `0xFFFF`
 
 Not ported: the rest of the loading and of `mission_start`: the renderer's and the textures'
 setting up, which OpenReliant's renderer does its own way ([Renderer](../port/renderer.md)), the
-chat line, a multiplayer game, and
-what the start does for the campaign, mission 25's first part's cockpit, the Kamov's, and the
-pilot's profile ([#301](https://github.com/OpenReliant/openreliant/issues/301)). The pilots it
-gives the player's wing are in [Objects](objects.md#the-wings-pilots).
+chat line, and a multiplayer game. The pilots the start gives the player's wing are in
+[Objects](objects.md#the-wings-pilots).

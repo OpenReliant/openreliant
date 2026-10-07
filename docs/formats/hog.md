@@ -76,7 +76,7 @@ the same names in any of these archives and among the game's loose files
 
 `resource.hog`'s members by extension: `.shp` models, `.spr` sprites, `.tga` images, `.dte`
 missions, `.fat` [sound banks](fat.md), `.fnt` [fonts](fnt.md), `.ccb` colour tables, and five `.bin` files:
-the four stat tables and `profile.bin`.
+the four stat tables and a `profile.bin`, which the game never reads ([The pilot's profile](profile.md)).
 
 ## Reading a file
 

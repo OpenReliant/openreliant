@@ -426,11 +426,7 @@ START GAME puts up `difficulty_dialog` (`0x00430300`) over the roster (`0x0051D5
 
 The pilot's sex and the difficulty are what the missions take from the roster: the radio says the pilot's own lines in the female voice for a female pilot ([Radio](radio.md)), and the difficulty scales damage ([Destruction](objects.md#destruction)). Both start at 0 as the game starts: male, and easy until SET GAME DIFFICULTY sets it, so INSTANT ACTION, chosen first, is flown on easy. The call sign names the pilot's profile and saved games.
 
-OpenReliant keeps what the roster sets in `Interface.pilot`, which flies every mission the front end starts. `--difficulty` sets the difficulty the game starts with. As the game starts, `campaign_new` reads the pilot's profile, `profile.bin` (the 0xD0 bytes at `0x00562CF8`), whose name becomes the call sign (`profile_load`, `0x00475390`); where the game's folder has none, it makes one under the name PLAYER and leaves the call sign empty.
-
-Not ported:
-
-- Writing the pilot's profile, as the roster changes the call sign, as a campaign starts without one, and as each mission starts ([#74](https://github.com/OpenReliant/openreliant/issues/74), [#301](https://github.com/OpenReliant/openreliant/issues/301)). OpenReliant reads the call sign from the profile the game's folder has.
+OpenReliant keeps what the roster sets in `Interface.pilot`, which flies every mission the front end starts. `--difficulty` sets the difficulty the game starts with. The call sign is the pilot's profile's as the game starts, as the main menu opens and as START GAME begins a campaign, and empty where the game's folder has no profile ([The pilot's profile](../formats/profile.md)).
 
 **Fixes:**
 

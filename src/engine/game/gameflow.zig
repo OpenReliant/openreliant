@@ -1,18 +1,23 @@
 //! `C:\lancer\game\gameflow.cpp`: the campaign's flow from one mission to the next.
-//! **Unverified:** that `campaign_new`, `profile_load`, `mission_reset_variables` and
-//! `mission_end_record` are this file's: they lie beside the file's known code, between
+//! **Unverified:** that `campaign_new`, `profile_load`, `profile_save`, `mission_reset_variables`
+//! and `mission_end_record` are this file's: they lie beside the file's known code, between
 //! `explode.cpp`'s and `gameobj.cpp`'s.
 //!
 //! Ported so far: the campaign as it begins and as each attempt at a mission starts (`Campaign`),
-//! the call sign the pilot's profile gives (`profileCallSign`), what a mission's end makes of the
-//! campaign (`endMission`): the pilot's rank, the kills kept, the rating kept, the tier, the medal,
-//! the ribbon and the next mission; and the saved games (`save`).
+//! the pilot's profile (`Profile`, `ProfileFile`), what a mission's end makes of the campaign
+//! (`endMission`): the pilot's rank, the kills kept, the rating kept, the tier, the medal, the
+//! ribbon and the next mission; and the saved games (`save`).
 
 const std = @import("std");
+const assert = std.debug.assert;
+const Io = std.Io;
+const log = std.log.scoped(.gameflow);
 const pilots = @import("pilots.zig");
 
+const files = @import("../files.zig");
 const input = @import("../input.zig");
 const vm = @import("../vm.zig");
+const pilot_roster = @import("interface/pilot_roster.zig");
 const Ending = @import("main.zig").Ending;
 
 pub const save = @import("gameflow/save.zig");
@@ -33,32 +38,152 @@ const campaign_flags = vm.Variables.numbers(.{
 /// `campaign_new` (`0x004751B0`) as a new campaign begins, which `WinMain` runs as the game starts:
 /// clears the first 32 of the game's variables, then sets the campaign's flags (`campaign_flags`).
 /// `Campaign.begin` sets up the rest of the campaign, mission 1 as the next and each mission's
-/// records, and `save.Game.clearPilot` the pilot's tallies. **Not ported:** the pilot's profile but
-/// for its call sign (`profileCallSign`) ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
+/// records, `save.Game.clearPilot` the pilot's tallies, and `ProfileFile.open` reads the pilot's
+/// profile.
 pub fn newCampaign(variables: *vm.Variables) void {
     for (0..cleared_variables) |index| variables.slot(@intCast(index)).* = 0;
     for (campaign_flags) |index| variables.slot(index).* = 1;
 }
 
-/// The pilot's profile, `profile.bin` in the game's folder (`0x00500ACC`): the 0xD0 bytes at
-/// `0x00562CF8`, the pilot's name 32 bytes from the fourth (`0x00562CFC`). `campaign_new` reads it,
-/// or makes a new one under the name PLAYER where there is none.
+/// The pilot's profile's file in the game's folder (`profile_name`, `0x00500ACC`), and its size.
 pub const profile_name = "profile.bin";
 pub const profile_size = 0xD0;
-const pilot_name_at = 4;
-const pilot_name_size = 32;
 
-/// The call sign `profile_load` (`0x00475390`) gives the pilot as `campaign_new` reads the profile,
-/// `bytes` as far as the file has them: the name the profile keeps, up to its terminator
-/// (`0x004753C5`). Where the game's folder has no profile, `campaign_new` makes one and leaves the
-/// call sign as it was, empty as the game starts.
-///
-/// **Fix:** the game copies the name up to its terminator wherever that lies; OpenReliant keeps to
-/// its 32 bytes.
-pub fn profileCallSign(bytes: []const u8) []const u8 {
-    const name = bytes[@min(bytes.len, pilot_name_at)..@min(bytes.len, pilot_name_at + pilot_name_size)];
-    return std.mem.sliceTo(name, 0);
-}
+/// The pilot's profile, the 0xD0 bytes the game keeps at `profile` (`0x00562CF8`) and writes to
+/// `profile.bin`. Each mission's end copies the campaign into it (`keep`), and the game copies the
+/// call sign into it each time before it writes it (`setCallSign`). The game reads it back for its
+/// call sign as the game starts, as the main menu opens and as START GAME begins a campaign
+/// (`ProfileFile.open`). A network game's campaign mission also takes the pilot's rank, tier,
+/// kills, medals, ribbons, ratings and each mission's kills back from it (`0x004A99CC`), which
+/// OpenReliant doesn't have yet ([#804](https://github.com/OpenReliant/openreliant/issues/804)).
+pub const Profile = extern struct {
+    /// The mission the campaign had moved on to when a mission's end last copied the campaign in
+    /// (`mission_number`); 0 in a new profile.
+    mission: i32,
+    /// The pilot's call sign, up to its terminator.
+    call_sign: [32]u8,
+    /// The pilot's rank, the campaign's tier, the pilot's kills, medals and ribbons, and each
+    /// mission's rating and kills, as the saved games keep them (`save.Miss`).
+    rank: i32,
+    tier: i32,
+    kills: i32,
+    medals: [save.medals]i32,
+    ribbons: [save.ribbons]i32,
+    ratings: [save.missions]i16,
+    mission_kills: [save.missions]i16,
+
+    /// A new profile, which `campaign_new` makes where the game's folder has none (`0x004752CA`
+    /// to `0x00475337`): named `name`, no mission rated, and the rest 0.
+    pub fn new(name: []const u8) Profile {
+        var profile = std.mem.zeroes(Profile);
+        profile.setCallSign(name);
+        profile.ratings = @splat(save.no_rating);
+        return profile;
+    }
+
+    /// `profile_load`'s read (`0x00475390`): `bytes` over the profile, as far as the file has
+    /// them.
+    pub fn read(profile: *Profile, bytes: []const u8) void {
+        const length = @min(bytes.len, profile_size);
+        @memcpy(std.mem.asBytes(profile)[0..length], bytes[0..length]);
+    }
+
+    /// The call sign the profile keeps, which `profile_load` gives the pilot (`0x004753C5`).
+    ///
+    /// **Fix:** the game copies the name up to its terminator wherever that lies; OpenReliant keeps
+    /// to its 32 bytes.
+    pub fn callSign(profile: *const Profile) []const u8 {
+        return std.mem.sliceTo(&profile.call_sign, 0);
+    }
+
+    /// The copy of `call_sign` into the profile that comes before each write: the call sign as
+    /// much as fits, and its terminator; the rest of the field keeps what it held.
+    pub fn setCallSign(profile: *Profile, call_sign: []const u8) void {
+        const length = @min(call_sign.len, profile.call_sign.len - 1);
+        @memcpy(profile.call_sign[0..length], call_sign[0..length]);
+        profile.call_sign[length] = 0;
+    }
+
+    /// `mission_end_record`'s copy of the campaign into the profile (`0x00475C2D` to
+    /// `0x00475CC6`), from the campaign as the saved games take it (`save.Game.campaignRecord`).
+    pub fn keep(profile: *Profile, miss: save.Miss) void {
+        profile.mission = miss.mission;
+        profile.setCallSign(std.mem.sliceTo(&miss.call_sign, 0));
+        profile.rank = miss.rank;
+        profile.tier = miss.tier;
+        profile.kills = miss.kills;
+        profile.medals = miss.medals;
+        profile.ribbons = miss.ribbons;
+        profile.ratings = miss.ratings;
+        profile.mission_kills = miss.mission_kills;
+    }
+
+    comptime {
+        assert(@offsetOf(Profile, "call_sign") == 4);
+        assert(@offsetOf(Profile, "rank") == 0x24);
+        assert(@offsetOf(Profile, "medals") == 0x30);
+        assert(@offsetOf(Profile, "ribbons") == 0x48);
+        assert(@offsetOf(Profile, "ratings") == 0x60);
+        assert(@offsetOf(Profile, "mission_kills") == 0x98);
+        assert(@sizeOf(Profile) == profile_size);
+    }
+};
+
+/// The pilot's profile as the game keeps it, and the game's folder, where `save` writes it.
+pub const ProfileFile = struct {
+    profile: Profile = std.mem.zeroes(Profile),
+    io: Io,
+    dir: Io.Dir,
+    /// The name a new profile takes: the game's string PLAYER (`0xBF`).
+    default_name: []const u8,
+    /// The profile as the file was last read or written, if all of it was.
+    written: ?Profile = null,
+
+    /// `campaign_new`'s part in the profile (`0x004752B0` on), as the game starts, as the main menu
+    /// opens and as START GAME begins a campaign: the profile `profile.bin` holds (`profile_load`,
+    /// `0x00475390`), whose call sign the pilot takes (`call_sign`). Where the game's folder has
+    /// none, a new profile named `default_name` (`Profile.new`), written at once, the call sign left
+    /// as it was.
+    pub fn open(file: *ProfileFile, call_sign: *pilot_roster.CallSign) void {
+        var name: [files.max_path]u8 = undefined;
+        if (files.find(file.io, file.dir, profile_name, &name)) |spelled| {
+            var bytes: [profile_size]u8 = undefined;
+            if (file.dir.readFile(file.io, spelled, &bytes)) |read| {
+                file.profile.read(read);
+                file.written = if (read.len == profile_size) file.profile else null;
+                call_sign.set(file.profile.callSign());
+                return;
+            } else |err| log.warn("can't read {s}: {t}", .{ profile_name, err });
+        }
+        file.profile = .new(file.default_name);
+        file.written = null;
+        file.save();
+    }
+
+    /// `profile_save` (`0x004753F0`): the profile written to `profile.bin`, over the file found
+    /// whatever the case of its name.
+    ///
+    /// **Improvement:** OpenReliant writes the file only where the profile has changed since it was
+    /// last read or written. The game writes it again in each pass of the pilot roster while the
+    /// pointer's button is held anywhere off the call sign.
+    pub fn save(file: *ProfileFile) void {
+        if (file.written) |last| if (std.mem.eql(u8, std.mem.asBytes(&last), std.mem.asBytes(&file.profile))) return;
+        files.writeFile(file.io, file.dir, profile_name, std.mem.asBytes(&file.profile)) catch |err| {
+            log.warn("the pilot's profile can't be saved to {s}: {t}", .{ profile_name, err });
+            return;
+        };
+        file.written = file.profile;
+    }
+
+    /// The pilot's call sign copied into the profile, which is then written (`Profile.setCallSign`,
+    /// `save`), as the pilot roster does as its call sign changes (`0x004307EB`, `0x00430860`,
+    /// `0x00430921`), the Reliant's rooms as they open (`0x0043A002`), and each mission's start
+    /// last (`0x00493F8E`).
+    pub fn saveWith(file: *ProfileFile, call_sign: []const u8) void {
+        file.profile.setCallSign(call_sign);
+        file.save();
+    }
+};
 
 /// The tier of the loadout each mission's end brings the campaign to, by mission from the first
 /// (`0x005009D8`, a byte a mission): the 11th's 1, the 19th's 2 and the 21st's 3, the rest none.
@@ -192,9 +317,9 @@ pub fn keepsKills(ending: Ending) bool {
     };
 }
 
-/// What the pilot's record keeps of a mission of the campaign, which the ITAC's debriefings show:
-/// what `mission_end_record` keeps for the next mission's start (`0x00475C69` on), which `WinMain`
-/// puts back before each attempt (`0x004A9A1C` on), and the pickups `pickup_count` keeps.
+/// What the pilot's record keeps of a mission of the campaign, which the ITAC's debriefings show
+/// and the saved games keep: what `mission_end_record` keeps as the mission ends, and the pickups
+/// `pickup_count` keeps.
 pub const MissionRecord = struct {
     /// How its script rated it as it ended (`mission_ratings`, `0x00562E2C`): none before it is
     /// flown, nor for the campaign's last mission, which leads to the story's end first
@@ -234,10 +359,8 @@ pub const Record = struct {
 /// rating (`0x00475B43`). A mission that awards a medal (`medal_of_mission`, `0x00475B57`) awards
 /// it for a success with its bonus, unless a nanny ship picked the pilot up (`medal_award`,
 /// `0x00475A40`). Last, the wing's pilots are brought up to date for the next mission
-/// (`update_pilots`, `0x00475BE8`), before the autosave keeps them.
-///
-/// Not ported: the pilot's profile written
-/// ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
+/// (`update_pilots`, `0x00475BE8`), before the autosave keeps them (`save.autosave`) and the pilot's
+/// profile takes the campaign (`Profile.keep`).
 pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16, tier: u2, campaign: ?*Campaign, wingmen: *pilots.Wingmen) ?Record {
     if (!keepsKills(player.ending)) return null;
     const rating = variables.mission_success;
@@ -512,15 +635,81 @@ test promote {
     try std.testing.expectEqual(rank_kills.len - 1, player.rank);
 }
 
-test profileCallSign {
+test Profile {
+    var profile: Profile = .new("PLAYER");
+    try std.testing.expectEqualStrings("PLAYER", profile.callSign());
+    try std.testing.expectEqual(0, profile.mission);
+    try std.testing.expectEqual(save.no_rating, profile.ratings[0]);
+    // A shorter call sign leaves the rest of the field as it was, as the game's copy does.
+    profile.setCallSign("Ace");
+    try std.testing.expectEqualStrings("Ace", profile.callSign());
+    try std.testing.expectEqualStrings("Ace\x00ER\x00", profile.call_sign[0..7]);
+    // One too long keeps what fits, with its terminator.
+    profile.setCallSign(&@as([40]u8, @splat('x')));
+    try std.testing.expectEqual(31, profile.callSign().len);
+
+    // The file's bytes, as far as it has them; a name with no terminator ends with its 32 bytes.
     var bytes: [profile_size]u8 = @splat(0);
     @memcpy(bytes[4..][0..6], "Maniac");
-    try std.testing.expectEqualStrings("Maniac", profileCallSign(&bytes));
-    // A name with no terminator ends with its 32 bytes, and a short file gives what it holds.
-    @memset(bytes[4..][0..40], 'x');
-    try std.testing.expectEqual(32, profileCallSign(&bytes).len);
-    try std.testing.expectEqualStrings("xx", profileCallSign(bytes[0..6]));
-    try std.testing.expectEqualStrings("", profileCallSign(bytes[0..2]));
+    profile.read(&bytes);
+    try std.testing.expectEqualStrings("Maniac", profile.callSign());
+    @memset(bytes[4..][0..40], 'y');
+    profile.read(bytes[0..8]);
+    try std.testing.expectEqualStrings("yyyyac", profile.callSign());
+    profile.read(&bytes);
+    try std.testing.expectEqual(32, profile.callSign().len);
+
+    // A mission's end copies the campaign in.
+    var miss = std.mem.zeroes(save.Miss);
+    miss.mission = 6;
+    @memcpy(miss.call_sign[0..4], "Wolf");
+    miss.rank = 2;
+    miss.tier = 1;
+    miss.kills = 80;
+    miss.mp_deaths = 9;
+    miss.medals[0] = 1;
+    miss.ribbons[4] = 1;
+    miss.ratings = @splat(save.no_rating);
+    miss.ratings[4] = 1;
+    miss.mission_kills[5] = 12;
+    profile.keep(miss);
+    try std.testing.expectEqual(6, profile.mission);
+    try std.testing.expectEqualStrings("Wolf", profile.callSign());
+    try std.testing.expectEqual(2, profile.rank);
+    try std.testing.expectEqual(1, profile.tier);
+    try std.testing.expectEqual(80, profile.kills);
+    try std.testing.expectEqual(1, profile.medals[0]);
+    try std.testing.expectEqual(1, profile.ribbons[4]);
+    try std.testing.expectEqual(1, profile.ratings[4]);
+    try std.testing.expectEqual(save.no_rating, profile.ratings[5]);
+    try std.testing.expectEqual(12, profile.mission_kills[5]);
+}
+
+test ProfileFile {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var file: ProfileFile = .{ .io = std.testing.io, .dir = tmp.dir, .default_name = "PLAYER" };
+    // Without a profile, a new one is made and written, and the call sign stays as it was.
+    var call_sign: pilot_roster.CallSign = .{};
+    call_sign.set("Ace");
+    file.open(&call_sign);
+    try std.testing.expectEqualStrings("Ace", call_sign.slice());
+    var bytes: [profile_size + 1]u8 = undefined;
+    const written = try tmp.dir.readFile(std.testing.io, profile_name, &bytes);
+    try std.testing.expectEqualSlices(u8, std.mem.asBytes(&Profile.new("PLAYER")), written);
+    // Each write takes the call sign, and the file gives it back, whatever the case of its name.
+    file.saveWith("Maniac");
+    try tmp.dir.rename(profile_name, tmp.dir, "PROFILE.BIN", std.testing.io);
+    file.saveWith("Wolf");
+    var again: ProfileFile = .{ .io = std.testing.io, .dir = tmp.dir, .default_name = "PLAYER" };
+    again.open(&call_sign);
+    try std.testing.expectEqualStrings("Wolf", call_sign.slice());
+    // A short file gives what it holds over the profile as it was.
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "PROFILE.BIN", .data = "\x01\x00\x00\x00Ace\x00" });
+    again.open(&call_sign);
+    try std.testing.expectEqualStrings("Ace", call_sign.slice());
+    try std.testing.expectEqual(1, again.profile.mission);
+    try std.testing.expectEqual(save.no_rating, again.profile.ratings[0]);
 }
 
 test {

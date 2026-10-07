@@ -220,4 +220,4 @@ The panels are added, so their black is clear and the room shows through.
 
 **Fix:** OpenReliant flies every missile the loadout hung, each on the hardpoint the loadout showed it on, and leaves the hardpoints of the empty racks bare ([#451](https://github.com/OpenReliant/openreliant/issues/451)).
 
-OpenReliant flies the chosen ship with its racks, at the tier the loadout raised the campaign's to; `--ship` still overrides the ship, which is then fitted by the tier. The campaign's saved loadout is kept for the session, the campaign's saving not being ported ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
+OpenReliant flies the chosen ship with its racks, at the tier the loadout raised the campaign's to; `--ship` still overrides the ship, which is then fitted by the tier. The saved games keep the campaign's saved loadout ([Saved games](../formats/save.md)).

@@ -2,11 +2,8 @@
 //! PLAYER opens, drawn by `pilot_roster_draw` (`0x00430C60`), the render hook it puts in
 //! `sr + 0x88`. The pilot types a call sign or picks one of the last ten, and is male or female;
 //! START GAME asks the game's difficulty (`DifficultyDialog`) and starts a new campaign, LOAD GAME
-//! leads to the saved games, and MAIN MENU and QUIT to what they name.
-//!
-//! Not ported: writing the pilot's profile, `profile.bin`, which the roster does as the call sign
-//! changes (`profile_save`, [#74](https://github.com/OpenReliant/openreliant/issues/74),
-//! [#301](https://github.com/OpenReliant/openreliant/issues/301)).
+//! leads to the saved games, and MAIN MENU and QUIT to what they name. The roster writes the pilot's
+//! profile as the call sign changes (`gameflow.ProfileFile.saveWith`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -15,6 +12,7 @@ const fnt = @import("../../../formats/fnt.zig");
 const input = @import("../../input.zig");
 const profile = @import("../../profile.zig");
 const collision = @import("../collision.zig");
+const gameflow = @import("../gameflow.zig");
 const hud = @import("../hud.zig");
 const winmain = @import("../winmain.zig");
 const canvas_module = @import("canvas.zig");
@@ -202,7 +200,7 @@ pub const CallSigns = struct {
 /// What the roster sets of the pilot, which the missions flown after it go by: the call sign
 /// (`call_sign`), whether the pilot is female, whose own lines the radio then plays in the female
 /// voice (`pilot_female`, `0x00562F16`), and the game's difficulty (`difficulty`, `0x00562F14`).
-/// As the game starts, the call sign is the profile's (`gameflow.profileCallSign`) or none, the
+/// As the game starts, the call sign is the profile's (`gameflow.ProfileFile.open`) or none, the
 /// pilot male, and the difficulty 0, easy, until SET GAME DIFFICULTY sets it, so INSTANT ACTION
 /// chosen first is flown on easy.
 pub const Pilot = struct {
@@ -333,6 +331,8 @@ pub const Context = struct {
     pilot: *Pilot,
     /// `starlancer.ini`, which keeps the list; none leaves it unsaved.
     settings: ?*profile.File = null,
+    /// The pilot's profile, which takes the call sign; none leaves it.
+    pilot_profile: ?*gameflow.ProfileFile = null,
 };
 
 /// The roster's state, which the game keeps in globals.
@@ -415,6 +415,7 @@ pub const Roster = struct {
             if (roster.under == .load_game or roster.under == .start_game) roster.under = null;
             if (canvas_module.hit(&rowRects(), pointer.at)) |row| if (pointer.down) {
                 pilot.call_sign.set(roster.list.names[row].slice());
+                if (context.pilot_profile) |pilot_profile| pilot_profile.saveWith(pilot.call_sign.slice());
                 roster.list_open = false;
                 roster.list_turned = false;
                 roster.picked = true;
@@ -454,10 +455,11 @@ pub const Roster = struct {
         return null;
     }
 
-    /// The call sign's typing ended (`0x004307B9`): the call sign put in the list, which
-    /// `starlancer.ini` then keeps, where it wasn't there.
+    /// The call sign's typing ended (`0x004307B9`): the pilot's profile written with the call sign,
+    /// then the call sign put in the list, which `starlancer.ini` then keeps, where it wasn't there.
     fn finishTyping(roster: *Roster, context: Context) void {
         roster.typing = false;
+        if (context.pilot_profile) |pilot_profile| pilot_profile.saveWith(context.pilot.call_sign.slice());
         if (!roster.list.add(context.pilot.call_sign.slice())) return;
         const settings = context.settings orelse return;
         winmain.saveCallSigns(&roster.list, settings) catch |err| log.warn("the call signs are not kept: {s}", .{@errorName(err)});
@@ -556,6 +558,7 @@ const Fixture = struct {
     pilot: Pilot = .{},
     roster: Roster = .{},
     font: hud.Opened,
+    pilot_profile: ?*gameflow.ProfileFile = null,
 
     fn init() !Fixture {
         var fixture: Fixture = .{ .font = .open(try fnt.Font.parse(comptime fnt.testing.font(true)), null) };
@@ -571,9 +574,36 @@ const Fixture = struct {
             .elapsed = 1,
             .small = &fixture.font,
             .pilot = &fixture.pilot,
+            .pilot_profile = fixture.pilot_profile,
         });
     }
 };
+
+test "the pilot's profile takes the call sign as its typing ends, and as a row is picked" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var pilot_profile: gameflow.ProfileFile = .{ .io = std.testing.io, .dir = tmp.dir, .default_name = "PLAYER" };
+    var fixture: Fixture = try .init();
+    fixture.pilot_profile = &pilot_profile;
+    _ = fixture.roster.list.add("Wolf");
+    for ([_]u8{ 'A', 'c', 'e' }) |character| fixture.typed.push(character);
+    for (0..3) |_| _ = fixture.frame(.{ .at = .{ 450, 190 } });
+    // Enter ends the typing.
+    fixture.keyboard.down[@backingInt(input.Key.enter)] = true;
+    _ = fixture.frame(.{ .at = .{ 450, 190 } });
+    fixture.keyboard.down[@backingInt(input.Key.enter)] = false;
+    var again: gameflow.ProfileFile = .{ .io = std.testing.io, .dir = tmp.dir, .default_name = "PLAYER" };
+    var read: CallSign = .{};
+    again.open(&read);
+    try std.testing.expectEqualStrings("Ace", read.slice());
+    // The list's first row, Wolf.
+    const arrow: Pointer = .{ .at = .{ 550, 205 }, .down = true };
+    _ = fixture.frame(arrow);
+    _ = fixture.frame(.{ .at = .{ 450, 230 } });
+    _ = fixture.frame(.{ .at = .{ 450, 230 }, .down = true });
+    again.open(&read);
+    try std.testing.expectEqualStrings("Wolf", read.slice());
+}
 
 test "the call sign is typed, and a click elsewhere puts it in the list" {
     var fixture: Fixture = try .init();

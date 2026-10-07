@@ -10,8 +10,6 @@ The front end's screen 7 (`interface_briefing`, `0x00437010`, named after its as
 
 The in-game options' SAVE and LOAD over the loadout open the saved games ([Front end](front-end.md#the-saved-games)); a game loaded leaves the loadout and ends the briefing for the rooms, from the first view of its mission's carrier.
 
-Not ported: the way to the campaign's end after mission 28 ([#74](https://github.com/OpenReliant/openreliant/issues/74)). The briefing's part in it is ported.
-
 **Fixes:**
 
 - Past the table of the missions' movies, the game reads what lies beside it on the stack for the movie's name. OpenReliant plays none there, and the briefing ends at once.

@@ -650,6 +650,17 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer if (console) |*shown| shown.deinit();
     display.console = if (console) |*shown| shown else null;
     if (script_frames) |*frames| frames.console = display.console;
+    // The front end, where the game opens unless `--mission` names a mission, with the pilot it
+    // sets, who flies every mission; and the pilot's profile, whose call sign the pilot takes as
+    // the game starts (`campaign_new`).
+    var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
+    defer front.deinit();
+    var pilot_profile: game.gameflow.ProfileFile = .{
+        .io = io,
+        .dir = directory,
+        .default_name = strings.string(@backingInt(game.interface.pilot_roster.String.player)) orelse "",
+    };
+    pilot_profile.open(&front.pilot.call_sign);
     // The mission `--mission` names, read once from the game's files, or for mission 0, where the
     // game has none, from the copy `openreliant` carries, and started; it starts again as each
     // attempt ends. Without it, the front end picks the mission.
@@ -666,6 +677,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .loading = &loading,
         .objects = objects,
         .player = &player,
+        .pilot = &front.pilot,
+        .pilot_profile = &pilot_profile,
         .presentation = presentation,
     };
     defer play.end();
@@ -680,10 +693,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         try game_scripts.start();
         try play.start(.{ .world = world, .devices = &devices });
     }
-    // The front end, where the game opens unless `--mission` names a mission, and what it draws
-    // with; and where the game is between it and the missions.
-    var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
-    defer front.deinit();
+    // What the front end draws with, and where the game is between it and the missions.
     var front_resources: ?engine.genilib.interf.Resources = null;
     defer if (front_resources) |*open| open.close();
     var flow: Flow = .{ .in_front_end = options.mission == null, .scripts = &game_scripts, .modes = &game_modes };
@@ -699,16 +709,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .pilot = &front.pilot,
         .saved = &saved_loadout,
         .wingmen = &objects.wingmen,
+        .pilot_profile = &pilot_profile,
         .strings = &strings,
     };
-    // The pilot as the game starts: the call sign the profile gives, as `campaign_new` reads it,
-    // and the list of call signs, which `WinMain` reads and writes straight back (`0x004A919B`).
+    // The list of call signs, which `WinMain` reads and writes straight back (`0x004A919B`).
     if (flow.in_front_end) {
-        if (engine.files.readFile(io, arena, directory, game.gameflow.profile_name, .limited(engine.files.max_file_size)) catch null) |bytes| {
-            front.pilot.call_sign.set(game.gameflow.profileCallSign(bytes));
-        }
-        const player_name = strings.string(@backingInt(game.interface.pilot_roster.String.player)) orelse "";
-        front.pilot_roster.list = game.winmain.loadCallSigns(settings_file.profile, player_name);
+        front.pilot_roster.list = game.winmain.loadCallSigns(settings_file.profile, pilot_profile.default_name);
         try game.winmain.saveCallSigns(&front.pilot_roster.list, settings_file);
     }
     var front_ticks = platform.window.ticks();
@@ -726,6 +732,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .sound = sound,
         .bank = stdsmp,
         .settings = settings_file,
+        .pilot_profile = &pilot_profile,
         .own = own.interface(),
         .video = video_settings,
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
@@ -872,6 +879,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .missile_stats = &objects.missile_stats,
                     .tier = &objects.campaign_tier,
                     .pilot = &front.pilot,
+                    .pilot_profile = &pilot_profile,
                     .player = &player,
                     .campaign_flown = &flow.campaign,
                     .wingmen = &objects.wingmen,
@@ -940,6 +948,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .campaign => |mission| fly: {
                         flow.campaign = .begin();
                         saving.gameOf(&flow.campaign.?).clearPilot();
+                        pilot_profile.open(&front.pilot.call_sign);
                         objects.mission25_second_part = false;
                         const flight = briefedFlight(try through.campaign(mission) orelse return, objects, asked_ship) orelse {
                             flow.toFrontEnd(&front);
@@ -1554,8 +1563,8 @@ fn localDate(since_1970: i96) ?game.interface.saved_games.Date {
 }
 
 /// What the saved games save and load, and where: the game's folder, and where the driver keeps
-/// the pilot, the campaign's tier and the loadout's saved choice; and the strings the autosave's
-/// name is written with.
+/// the pilot, the campaign's tier and the loadout's saved choice; the pilot's profile, which each
+/// mission's end writes too; and the strings the autosave's name is written with.
 const Saving = struct {
     gpa: Allocator,
     folder: save.Folder,
@@ -1566,6 +1575,7 @@ const Saving = struct {
     pilot: *game.interface.pilot_roster.Pilot,
     saved: *engine.interface.loadout.Saved,
     wingmen: *game.pilots.Wingmen,
+    pilot_profile: *game.gameflow.ProfileFile,
     strings: *const game.language.Language,
 
     /// The game of `campaign`, as a save takes it and puts it back.
@@ -1592,11 +1602,14 @@ const Saving = struct {
         try saving.scripts.backToRestartPoint();
     }
 
-    /// `mission_end_record`'s save as the campaign moves on (`save.autosave`).
-    fn autosave(saving: Saving, campaign: *game.gameflow.Campaign) void {
+    /// What `mission_end_record` writes as the campaign moves on: the autosave (`save.autosave`),
+    /// then the pilot's profile, with the campaign copied into it (`gameflow.Profile.keep`).
+    fn saveRecord(saving: Saving, campaign: *game.gameflow.Campaign) void {
         const prefix = saving.strings.string(save.autosave_string) orelse "";
         save.autosave(saving.gameOf(campaign), saving.folder, saving.gpa, prefix) catch |err|
             std.log.warn("the game can't be saved: {s}", .{@errorName(err)});
+        saving.pilot_profile.profile.keep(saving.gameOf(campaign).campaignRecord());
+        saving.pilot_profile.save();
     }
 };
 
@@ -1723,7 +1736,7 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
         .goes_on => |record| {
             all.campaign_tier = record.tier;
             if (record.medal) |medal| _ = try movies.play(medal.movie(), .cleared_from_disc) orelse return null;
-            saving.autosave(campaign);
+            saving.saveRecord(campaign);
             switch (try rooms.itac(.after_mission, record.next) orelse return null) {
                 .closed => return .briefed(try rooms.goOn(record.next) orelse return null, all, ship),
                 .replay => {
@@ -1884,6 +1897,10 @@ const Play = struct {
     /// The objects and the player, whose ending the mods' scripts hear as a mission ends.
     objects: *game.create.Objects,
     player: *const engine.input.Player,
+    /// The pilot the front end set, and the pilot's profile, which each start writes with the
+    /// pilot's call sign.
+    pilot: *const game.interface.pilot_roster.Pilot,
+    pilot_profile: *game.gameflow.ProfileFile,
     /// The player and menu scripts, which hear as each mission starts and ends.
     presentation: ?*scripting.Presentation = null,
 
@@ -1904,6 +1921,8 @@ const Play = struct {
             .cockpit = play.cockpit,
             .display = play.display,
             .campaign = play.campaign,
+            .profile = play.pilot_profile,
+            .call_sign = play.pilot.call_sign.slice(),
         }, try play.gpa.dupe(u8, play.file), play.number);
         const all = orders.world.objects;
         if (play.presentation) |shown| {
