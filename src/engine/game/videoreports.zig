@@ -97,10 +97,9 @@ pub const VideoReports = struct {
     selected: ?u8 = null,
     /// The place of the first shown (`video_reports_list_first`, `0x005251E0`).
     first: u8 = 0,
-    /// Whether it is open, its stills read (`video_reports_open`, `0x00525108`), and its stills
-    /// (`video_reports_pictures`, `0x005251E4`).
-    open: bool = false,
-    pictures: ?canvas_module.Shapes = null,
+    /// Its stills (`video_reports_pictures`, `0x005251E4`), and whether it is open
+    /// (`video_reports_open`, `0x00525108`).
+    pictures: itac_module.Pictures = .{},
     box: ScrollBox = body_box,
     /// The entries the list shows, each a hotspot (`video_reports_hotspots`, `0x00525110`).
     listed: [most_listed]itac_module.ListEntry = undefined,
@@ -117,16 +116,12 @@ pub const VideoReports = struct {
         video.box = body_box;
         video.item_count = itac_module.listBefore(&tables.videos, itac.pilot.mission, &video.items, &video.titles);
         video.selected = if (video.item_count > 0) 0 else null;
-        video.pictures = canvas_module.Shapes.read(itac.context.rooms.gpa, itac.context.rooms.resources, pictures_name);
-        video.open = true;
+        video.pictures.read(itac.context, pictures_name);
     }
 
     /// `video_reports_leave` (`0x00450600`): the stills let go of, where it is open.
     pub fn leave(video: *VideoReports, gpa: std.mem.Allocator) void {
-        if (!video.open) return;
-        if (video.pictures) |*pictures| pictures.deinit(gpa);
-        video.pictures = null;
-        video.open = false;
+        _ = video.pictures.close(gpa);
     }
 
     /// `video_reports_update` (`0x00450630`), each pass: a build asked for, another report chosen
@@ -136,23 +131,20 @@ pub const VideoReports = struct {
     /// **Fix:** as another report is chosen, the game holds the screen still for half a second
     /// (`itac_pause`, `0x00440170`), drawing nothing. OpenReliant shows the report at once.
     pub fn update(video: *VideoReports, itac: *Itac) void {
-        if (itac.rebuild) {
-            video.build(itac, true);
-            itac.rebuild = false;
-        }
-        if (itac.left) if (itac_module.entryAt(video.listed[0..video.listed_count], itac.pointer.at)) |place| if (video.selected != place) {
+        if (itac.rebuildDue()) video.build(itac, true);
+        if (itac.entryChosen(video.listed[0..video.listed_count], video.selected)) |place| {
             video.selected = place;
             video.box.scroll = ScrollBox.top;
             video.build(itac, false);
-        };
-        if (itac.left) if (canvas_module.hit(&list_arrows, itac.pointer.at)) |arrow| if (itac.repeat.fires(itac.left_held)) {
+        }
+        if (itac.arrowPressed(&list_arrows)) |arrow| {
             if (arrow == 0) {
                 video.first = @min(video.first + 1, video.lastFirst());
             } else {
                 video.first -|= 1;
             }
             video.layOut(itac);
-        };
+        }
         if (itac.left and play_button.holds(itac.pointer.at)) itac.report = video.chosen();
         video.box.update(itac.ticks, itac.pointer);
     }
@@ -206,18 +198,15 @@ pub const VideoReports = struct {
     /// **Fix:** with no report listed, which the campaign never has, the game reads the chosen
     /// report through a null pointer and crashes. OpenReliant shows none.
     pub fn draw(video: *VideoReports, itac: *Itac, canvas: Canvas, fade: f32) canvas_module.Error!void {
-        if (!video.open) return;
+        if (!video.pictures.open) return;
         const item = video.chosen() orelse return;
-        if (video.pictures) |*pictures| {
-            var faded = canvas;
-            faded.brightness = @min(fade, 1);
-            pictures.usePalette(strip_palette);
-            try faded.shape(&pictures.art, frame_shape, frame_at);
-            pictures.usePalette(if (item.shape > plain_shapes) strip_palette else plain_palette);
+        if (video.pictures.shapes) |*pictures| {
+            try itac_module.drawFaded(canvas, pictures, strip_palette, frame_shape, frame_at, fade);
+            const palette: usize = if (item.shape > plain_shapes) strip_palette else plain_palette;
             for (strips) |strip| {
                 const rect = strip.rect();
                 canvas.wipe(.{ rect.x, rect.y }, .{ rect.x + rect.width - 1, rect.y + rect.height - 1 }, .{ 0, 0, 0 });
-                try faded.within(rect).shape(&pictures.art, item.shape, .{ strip_x, strip.to - strip.from });
+                try itac_module.drawFaded(canvas.within(rect), pictures, palette, item.shape, .{ strip_x, strip.to - strip.from }, fade);
             }
         }
         if (!itac.panesShow()) return;
@@ -229,10 +218,7 @@ pub const VideoReports = struct {
     fn drawPanes(video: *VideoReports, itac: *Itac, canvas: Canvas) canvas_module.Error!void {
         const small = &(itac.small orelse return).font;
         const item = video.chosen() orelse return;
-        if (itac.panes[title].showing()) |shown| {
-            var buffer: [title_room]u8 = undefined;
-            try canvas.within(shown).text(small, .{ title_pane.x + title_at[0], title_pane.y + title_at[1] }, itac_module.capitals(&buffer, itac.string(item.title)), itac_module.header_colour, .left);
-        }
+        if (itac.panes[title].showing()) |shown| try itac.writeCapitals(canvas.within(shown), small, title_room, .{ title_pane.x + title_at[0], title_pane.y + title_at[1] }, item.title);
         if (itac.panes[body].showing()) |shown| try video.box.drawText(canvas, small, body_pane, shown, video.bodyText());
         if (itac.panes[list].showing()) |shown| try title_list.write(itac, canvas, shown, video.titles[0..video.item_count], video.listed[0..video.listed_count], video.selected);
     }

@@ -23,6 +23,7 @@ const additions = @import("../../game/additions.zig");
 const create = @import("../../game/create.zig");
 const gameobj = @import("../../game/gameobj.zig");
 const missiles = @import("../../game/missiles.zig");
+const itac_tables = @import("../../game/itac/tables.zig");
 const tables = @import("tables.zig");
 
 /// The least and the most of a figure among those a bar measures against (`{min, max}`, two
@@ -69,11 +70,17 @@ const most_damage_segments = 8;
 /// What every bar's share is raised to: 1, a straight line (`0x004267B0`).
 const bar_exponent: f32 = 1;
 
-/// The ship types of the fighters the ITAC lists (`0x44` bytes a fighter, its type at `+0x40`):
-/// the alliance's (`loadout_alliance_ships`, `0x004E5470`), which are the loadout's ships, and
-/// the Coalition's (`loadout_coalition_ships`, `0x004E57A0`).
-pub const alliance_fighters = [_]u8{ 4, 3, 2, 5, 1, 7, 11, 0, 9, 10, 6, 8 };
-pub const coalition_fighters = [_]u8{ 42, 49, 39, 40, 50, 44, 43, 41, 46 };
+/// The ship types of the fighters the ITAC lists (`itac.tables.fighters`): the alliance's
+/// (`loadout_alliance_ships`, `0x004E5470`), which are the loadout's ships, and the Coalition's
+/// (`loadout_coalition_ships`, `0x004E57A0`).
+pub const alliance_fighters = shipTypes(itac_tables.fighters[0]);
+pub const coalition_fighters = shipTypes(itac_tables.fighters[1]);
+
+fn shipTypes(comptime fighters: []const itac_tables.Fighter) [fighters.len]u8 {
+    var types: [fighters.len]u8 = undefined;
+    for (&types, fighters) |*ship_type, fighter| ship_type.* = fighter.ship_type;
+    return types;
+}
 
 /// The ranges the ships' bars measure against (`0x0051D38C` on).
 pub const ShipRanges = struct {

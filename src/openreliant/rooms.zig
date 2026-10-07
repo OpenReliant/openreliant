@@ -256,8 +256,9 @@ pub const Driver = struct {
             .tier = driver.tier.*,
             .campaign = flown,
             .mission = mission,
+            .female = driver.pilot.female,
         };
-        const with: itac_module.Context = .{ .rooms = driver.context(), .strings = driver.itac_strings, .language = driver.strings };
+        const with: itac_module.Context = .{ .rooms = driver.context(), .strings = driver.itac_strings, .language = driver.strings, .stats = driver.stats };
         driver.startTimer();
         var terminal: itac_module.Itac = .open(with, run, pilot, platform.window.nanoseconds(), driver.clock.game_ticks);
         defer terminal.deinit();

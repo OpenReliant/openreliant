@@ -66,10 +66,9 @@ pub const NewsReports = struct {
     selected: ?u8 = null,
     /// The place of the first shown (`news_list_first`, `0x00524E70`).
     first: u8 = 0,
-    /// Whether it is open, its pictures read (`news_open`, `0x00524E74`), and its pictures
-    /// (`news_pictures`, `0x00524E6C`).
-    open: bool = false,
-    pictures: ?canvas_module.Shapes = null,
+    /// Its pictures (`news_pictures`, `0x00524E6C`), and whether it is open (`news_open`,
+    /// `0x00524E74`).
+    pictures: itac_module.Pictures = .{},
     box: ScrollBox = body_box,
     /// The entries the list shows, each a hotspot (`news_hotspots`, `0x00524D80`).
     listed: [most_listed]itac_module.ListEntry = undefined,
@@ -83,12 +82,11 @@ pub const NewsReports = struct {
     pub fn enter(news: *NewsReports, itac: *Itac) void {
         news.listItems(itac.pilot.mission);
         news.box = body_box;
-        news.pictures = canvas_module.Shapes.read(itac.context.rooms.gpa, itac.context.rooms.resources, pictures_name);
+        news.pictures.read(itac.context, pictures_name);
         news.selected = std.math.sub(u8, news.item_count, 1) catch null;
         news.first = news.lastFirst();
         news.layOut(itac);
         itac.rebuild = true;
-        news.open = true;
     }
 
     /// `news_list_build` (`0x0044E490`): the items whose missions come before `mission`, the one
@@ -105,11 +103,7 @@ pub const NewsReports = struct {
 
     /// `news_leave` (`0x0044DE50`): the pictures let go of, where it is open, and a build asked for.
     pub fn leave(news: *NewsReports, itac: *Itac) void {
-        if (!news.open) return;
-        if (news.pictures) |*pictures| pictures.deinit(itac.context.rooms.gpa);
-        news.pictures = null;
-        itac.rebuild = true;
-        news.open = false;
+        if (news.pictures.close(itac.context.rooms.gpa)) itac.rebuild = true;
     }
 
     /// `news_update` (`0x0044DEA0`), each pass: a build asked for, another item chosen from the
@@ -118,23 +112,20 @@ pub const NewsReports = struct {
     /// **Fix:** as another item is chosen, the game holds the screen still for half a second
     /// (`itac_pause`, `0x00440170`), drawing nothing. OpenReliant shows the item at once.
     pub fn update(news: *NewsReports, itac: *Itac) void {
-        if (itac.rebuild) {
-            news.build(itac, true);
-            itac.rebuild = false;
-        }
-        if (itac.left) if (itac_module.entryAt(news.listed[0..news.listed_count], itac.pointer.at)) |place| if (news.selected != place) {
+        if (itac.rebuildDue()) news.build(itac, true);
+        if (itac.entryChosen(news.listed[0..news.listed_count], news.selected)) |place| {
             news.selected = place;
             news.box.scroll = ScrollBox.top;
             news.build(itac, false);
-        };
-        if (itac.left) if (canvas_module.hit(&list_arrows, itac.pointer.at)) |arrow| if (itac.repeat.fires(itac.left_held)) {
+        }
+        if (itac.arrowPressed(&list_arrows)) |arrow| {
             if (arrow == 0) {
                 news.first = @min(news.first + 1, news.lastFirst());
             } else {
                 news.first -|= 1;
             }
             news.layOut(itac);
-        };
+        }
         news.box.update(itac.ticks, itac.pointer);
     }
 
@@ -178,14 +169,9 @@ pub const NewsReports = struct {
     /// **Fix:** with no item listed, the game draws the picture of the record before its table's
     /// first; OpenReliant draws none.
     pub fn draw(news: *NewsReports, itac: *Itac, canvas: Canvas, fade: f32) canvas_module.Error!void {
-        if (!news.open) return;
+        if (!news.pictures.open) return;
         const place = news.selected orelse return;
-        if (news.pictures) |*pictures| {
-            pictures.usePalette(paletteOf(place));
-            var faded = canvas;
-            faded.brightness = @min(fade, 1);
-            try faded.shape(&pictures.art, news.chosen().?.shape, picture_at);
-        }
+        try news.pictures.draw(canvas, paletteOf(place), news.chosen().?.shape, picture_at, fade);
         if (!itac.panesShow()) return;
         try news.drawPanes(itac, canvas);
         try itac.drawMore(canvas, news.box);
@@ -195,10 +181,7 @@ pub const NewsReports = struct {
     fn drawPanes(news: *NewsReports, itac: *Itac, canvas: Canvas) canvas_module.Error!void {
         const small = &(itac.small orelse return).font;
         const item = news.chosen() orelse return;
-        if (itac.panes[title].showing()) |shown| {
-            var buffer: [title_room]u8 = undefined;
-            try canvas.within(shown).text(small, .{ title_pane.x + title_at[0], title_pane.y + title_at[1] }, itac_module.capitals(&buffer, itac.string(item.title)), itac_module.header_colour, .left);
-        }
+        if (itac.panes[title].showing()) |shown| try itac.writeCapitals(canvas.within(shown), small, title_room, .{ title_pane.x + title_at[0], title_pane.y + title_at[1] }, item.title);
         if (itac.panes[body].showing()) |shown| try news.box.drawText(canvas, small, body_pane, shown, news.bodyText());
         if (itac.panes[list].showing()) |shown| try title_list.write(itac, canvas, shown, news.titles[0..news.item_count], news.listed[0..news.listed_count], news.selected);
     }

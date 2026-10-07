@@ -1,8 +1,9 @@
 //! Reads the ITAC's tables out of the payload: the shapes it lights where the pointer is over them
 //! (`itac_lit_draw`, `0x00440F90`), the debriefings its DEBRIEFINGS shows, by the rating a
 //! mission's script gave it (`debrief_text_draw`, `0x00424CF0`), the items of its NEWS REPORTS
-//! (`news_list_build`, `0x0044E490`), and the reports of its VIDEO REPORTS (`video_reports_enter`,
-//! `0x00450540`).
+//! (`news_list_build`, `0x0044E490`), the reports of its VIDEO REPORTS (`video_reports_enter`,
+//! `0x00450540`), the fighters, squadrons and personnel of either side, and the pilots of its
+//! KILLBOARD.
 //!
 //! The lit shapes are rows of twelve bytes, up to one whose x is -1: where the shape stands, its
 //! index in `itacgfx.spr`, a halfword never read, and a mask of the sections it lights in.
@@ -20,6 +21,11 @@
 //! them on, the string of the report's title, those of two paragraphs, which `end_mark` ends early
 //! as in the debriefings, the still's shape, the mission after which the report is listed, its
 //! movie's name, and the part of the campaign it comes from.
+//!
+//! The fighters, the squadrons, the personnel and the KILLBOARD's pilots are records each section
+//! threads on a list of its own by their first 12 bytes, then the strings and figures it writes
+//! (`StoredFighter`, `StoredSquadron`, `StoredPerson`, `StoredPilot`). The fighters are the
+//! loadout's ships too, whose bars `loadout_ship_bars_init` fills in.
 
 const std = @import("std");
 const Io = std.Io;
@@ -141,13 +147,148 @@ pub const Video = struct {
     part: u16,
 };
 
+/// The fighters, the alliance's (`loadout_alliance_ships`) and then the Coalition's
+/// (`loadout_coalition_ships`), which follow without a gap.
+pub const fighters_table: u32 = 0x004E5470;
+pub const fighter_counts = [2]usize{ 12, 9 };
+
+/// A fighter as the payload lays it out. Its bars stay zero until `loadout_ship_bars_init` fills
+/// them in.
+const StoredFighter = extern struct {
+    links: [3]u32,
+    name: u16,
+    bars: [7]i16,
+    type: u16,
+    clearance: u16,
+    crew: i16,
+    guns: [4]u16,
+    gun_counts: [4]i16,
+    specials: [4]u16,
+    _unread: u16,
+    shape: i32,
+    ship_type: i32,
+
+    comptime {
+        std.debug.assert(@sizeOf(StoredFighter) == 0x44);
+        std.debug.assert(@offsetOf(StoredFighter, "shape") == 0x3C);
+    }
+};
+
+/// A gun a fighter carries: its string, and how many, 0 where the ITAC writes no count.
+pub const Gun = struct { name: u16, count: i16 };
+
+/// A fighter: the strings of its name, its type and its clearance (0 for none), its crew, its guns
+/// and the strings of its special abilities, up to the first of each that is 0, the shape of its
+/// picture (-1 for none), and its ship type.
+pub const Fighter = struct {
+    name: u16,
+    type: u16,
+    clearance: u16,
+    crew: i16,
+    guns: []const Gun,
+    specials: []const u16,
+    shape: i32,
+    ship_type: i32,
+};
+
+/// The squadrons of either side, the alliance's and the Coalition's.
+pub const squadron_tables = [2]u32{ 0x004EBD10, 0x004EBF28 };
+pub const squadron_counts = [2]usize{ 19, 8 };
+
+/// A squadron as the payload lays it out.
+const StoredSquadron = extern struct {
+    links: [3]u32,
+    name: u16,
+    class: u16,
+    leader: u16,
+    base: u16,
+    nation: u16,
+    text: u16,
+    shape: i16,
+    palette: i16,
+
+    comptime {
+        std.debug.assert(@sizeOf(StoredSquadron) == 0x1C);
+    }
+};
+
+/// A squadron: the strings of its name, class, leader, base, nation and history, the shape of its
+/// picture, and the block of the palette it is drawn with.
+pub const Squadron = struct { name: u16, class: u16, leader: u16, base: u16, nation: u16, text: u16, shape: i16, palette: i16 };
+
+/// The personnel, the alliance's and then the Coalition's, which follow without a gap.
+pub const personnel_table: u32 = 0x004EB430;
+pub const personnel_counts = [2]usize{ 30, 6 };
+
+/// A person as the payload lays it out.
+const StoredPerson = extern struct {
+    links: [3]u32,
+    name: u16,
+    nationality: u16,
+    age: u16,
+    ship: u16,
+    call_sign: u16,
+    history: u16,
+    training: u16,
+    background: u16,
+    _unread: i16,
+    shape: i16,
+
+    comptime {
+        std.debug.assert(@sizeOf(StoredPerson) == 0x20);
+    }
+};
+
+/// A person: the strings of their name, nationality, age, ship and call sign (0 for none), and of
+/// their military history, training and background, and the shape of their portrait.
+pub const Person = struct { name: u16, nationality: u16, age: u16, ship: u16, call_sign: u16, history: u16, training: u16, background: u16, shape: i16 };
+
+/// The KILLBOARD's pilots (`killboard_pilots`), and how many there are.
+pub const pilots_table: u32 = 0x004E9A08;
+pub const pilots_count = 19;
+
+/// A pilot as the payload lays it out. The player's record, which the KILLBOARD adds, keeps the
+/// call sign in `_call_sign_room`, zero in the table.
+const StoredPilot = extern struct {
+    links: [3]u32,
+    name: u16,
+    call_sign: u16,
+    _call_sign_room: [0x52]u8,
+    ship: u16,
+    base_kills: i16,
+    _kills: i16,
+    mean: f32,
+    spread: f32,
+    shape: i16,
+    _unread: u16,
+
+    comptime {
+        std.debug.assert(@sizeOf(StoredPilot) == 0x74);
+        std.debug.assert(@offsetOf(StoredPilot, "ship") == 0x62);
+    }
+};
+
+/// A pilot: the strings of their name, the line below it and their ship, the kills they start
+/// with, the mean and the spread of the kills each mission adds, and the shape of their portrait.
+pub const Pilot = struct { name: u16, call_sign: u16, ship: u16, base_kills: i16, mean: f32, spread: f32, shape: i16 };
+
 /// What the tables hold.
 pub const Tables = struct {
     lit_shapes: []const LitShape,
     debriefings: [ratings][missions]Text,
     news: [news_count]News,
     videos: [videos_count]Video,
+    /// By side, the alliance's first.
+    fighters: [2][]const Fighter,
+    squadrons: [2][]const Squadron,
+    personnel: [2][]const Person,
+    pilots: [pilots_count]Pilot,
 };
+
+/// The leading values of `values` up to the first that is 0.
+fn untilZero(comptime T: type, values: []const T) []const T {
+    return values[0 .. std.mem.findScalar(T, values, 0) orelse values.len];
+}
 
 /// The table of rating `rating`.
 fn debriefingsOf(rating: usize) u32 {
@@ -198,7 +339,68 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (image.Error || std.
             .part = stored.part,
         };
     }
-    return .{ .lit_shapes = try lit.toOwnedSlice(arena), .debriefings = debriefings, .news = news, .videos = videos };
+    var fighters: [2][]const Fighter = undefined;
+    var first_fighter: usize = 0;
+    for (&fighters, fighter_counts) |*side, count| {
+        const list = try arena.alloc(Fighter, count);
+        for (list, first_fighter..) |*fighter, index| {
+            const stored = try reader.recordAt(StoredFighter, fighters_table, index);
+            const guns = untilZero(u16, &stored.guns);
+            const listed = try arena.alloc(Gun, guns.len);
+            for (listed, guns, stored.gun_counts[0..guns.len]) |*gun, name, count_of| gun.* = .{ .name = name, .count = count_of };
+            fighter.* = .{
+                .name = stored.name,
+                .type = stored.type,
+                .clearance = stored.clearance,
+                .crew = stored.crew,
+                .guns = listed,
+                .specials = try arena.dupe(u16, untilZero(u16, &stored.specials)),
+                .shape = stored.shape,
+                .ship_type = stored.ship_type,
+            };
+        }
+        side.* = list;
+        first_fighter += count;
+    }
+
+    var squadrons: [2][]const Squadron = undefined;
+    for (&squadrons, squadron_tables, squadron_counts) |*side, table, count| {
+        const list = try arena.alloc(Squadron, count);
+        for (list, 0..) |*squadron, index| {
+            const stored = try reader.recordAt(StoredSquadron, table, index);
+            squadron.* = .{ .name = stored.name, .class = stored.class, .leader = stored.leader, .base = stored.base, .nation = stored.nation, .text = stored.text, .shape = stored.shape, .palette = stored.palette };
+        }
+        side.* = list;
+    }
+
+    var personnel: [2][]const Person = undefined;
+    var first_person: usize = 0;
+    for (&personnel, personnel_counts) |*side, count| {
+        const list = try arena.alloc(Person, count);
+        for (list, first_person..) |*person, index| {
+            const stored = try reader.recordAt(StoredPerson, personnel_table, index);
+            person.* = .{ .name = stored.name, .nationality = stored.nationality, .age = stored.age, .ship = stored.ship, .call_sign = stored.call_sign, .history = stored.history, .training = stored.training, .background = stored.background, .shape = stored.shape };
+        }
+        side.* = list;
+        first_person += count;
+    }
+
+    var pilots: [pilots_count]Pilot = undefined;
+    for (&pilots, 0..) |*pilot, index| {
+        const stored = try reader.recordAt(StoredPilot, pilots_table, index);
+        pilot.* = .{ .name = stored.name, .call_sign = stored.call_sign, .ship = stored.ship, .base_kills = stored.base_kills, .mean = stored.mean, .spread = stored.spread, .shape = stored.shape };
+    }
+
+    return .{
+        .lit_shapes = try lit.toOwnedSlice(arena),
+        .debriefings = debriefings,
+        .news = news,
+        .videos = videos,
+        .fighters = fighters,
+        .squadrons = squadrons,
+        .personnel = personnel,
+        .pilots = pilots,
+    };
 }
 
 /// The names the emitted tables of debriefings go by, from failure up.
@@ -208,19 +410,21 @@ const rating_names = [ratings][]const u8{ "failure", "partial failure", "partial
 pub fn emit(w: *Io.Writer, tables: Tables) Io.Writer.Error!void {
     try w.print(
         \\//! The ITAC's tables: the shapes it lights where the pointer is over them, the debriefings its
-        \\//! DEBRIEFINGS shows, the items of its NEWS REPORTS and the reports of its VIDEO REPORTS.
+        \\//! DEBRIEFINGS shows, the items of its NEWS REPORTS, the reports of its VIDEO REPORTS, the
+        \\//! fighters, squadrons and personnel of either side, and the pilots of its KILLBOARD.
         \\//!
         \\//! Generated by `src/tools/tablegen` from the payload executable's lit shapes at 0x{X:0>8}, {d}
         \\//! rows, its debriefings from 0x{X:0>8}, {d} tables of {d} rows, its news items at 0x{X:0>8},
-        \\//! {d} rows, and its video reports at 0x{X:0>8}, {d} rows. Do not edit by hand; run
-        \\//! `make itac-tables`.
+        \\//! {d} rows, its video reports at 0x{X:0>8}, {d} rows, its fighters at 0x{X:0>8}, its squadrons
+        \\//! at 0x{X:0>8} and 0x{X:0>8}, its personnel at 0x{X:0>8} and its pilots at 0x{X:0>8}, {d} rows.
+        \\//! Do not edit by hand; run `make itac-tables`.
         \\
         \\/// A shape the ITAC lights where the pointer is over it, while a section its mask holds shows.
         \\pub const LitShape = struct {{ at: [2]i16, shape: u16, sections: u32 }};
         \\
         \\pub const lit_shapes = [_]LitShape{{
         \\
-    , .{ lit_table, tables.lit_shapes.len, first_debriefings, ratings, missions, news_table, news_count, videos_table, videos_count });
+    , .{ lit_table, tables.lit_shapes.len, first_debriefings, ratings, missions, news_table, news_count, videos_table, videos_count, fighters_table, squadron_tables[0], squadron_tables[1], personnel_table, pilots_table, pilots_count });
     for (tables.lit_shapes) |lit| {
         try w.print("    .{{ .at = .{{ {d}, {d} }}, .shape = 0x{X}, .sections = 0x{X} }},\n", .{ lit.at[0], lit.at[1], lit.shape, lit.sections });
     }
@@ -277,8 +481,82 @@ pub fn emit(w: *Io.Writer, tables: Tables) Io.Writer.Error!void {
     try w.writeAll(
         \\};
         \\
+        \\/// A gun a fighter carries: its string, and how many, 0 where the ITAC writes no count.
+        \\pub const Gun = struct { name: u16, count: i16 };
+        \\
+        \\/// A fighter the ITAC lists, which the loadout offers too: the strings of its name, its type and
+        \\/// its clearance (0 for none), its crew, its guns, the strings of its special abilities, the shape
+        \\/// of its picture in `fighters.spr` (-1 for none), and its ship type.
+        \\pub const Fighter = struct { name: u16, type: u16, clearance: u16, crew: i16, guns: []const Gun, specials: []const u16, shape: i32, ship_type: u8 };
+        \\
+        \\/// By side, the alliance's first.
+        \\pub const fighters = [2][]const Fighter{
+        \\
+    );
+    for (tables.fighters, side_names) |side, side_name| {
+        try w.print("    &.{{ // {s}\n", .{side_name});
+        for (side) |fighter| {
+            try w.print("        .{{ .name = {d}, .type = {d}, .clearance = {d}, .crew = {d}, .guns = &.{{", .{ fighter.name, fighter.type, fighter.clearance, fighter.crew });
+            for (fighter.guns, 0..) |gun, n| try w.print("{s}.{{ .name = {d}, .count = {d} }}", .{ if (n == 0) " " else ", ", gun.name, gun.count });
+            try w.writeAll(" }, .specials = &.{");
+            for (fighter.specials, 0..) |id, n| try w.print("{s}{d}", .{ if (n == 0) " " else ", ", id });
+            try w.print(" }}, .shape = {d}, .ship_type = {d} }},\n", .{ fighter.shape, fighter.ship_type });
+        }
+        try w.writeAll("    },\n");
+    }
+    try w.writeAll(
+        \\};
+        \\
+        \\/// A squadron: the strings of its name, class, leader, base, nation and history, the shape of its
+        \\/// picture in `squads.spr`, and the block of the palette it is drawn with.
+        \\pub const Squadron = struct { name: u16, class: u16, leader: u16, base: u16, nation: u16, text: u16, shape: i16, palette: i16 };
+        \\
+        \\/// By side, the alliance's first.
+        \\pub const squadrons = [2][]const Squadron{
+        \\
+    );
+    for (tables.squadrons, side_names) |side, side_name| {
+        try w.print("    &.{{ // {s}\n", .{side_name});
+        for (side) |squadron| try w.print("        .{{ .name = {d}, .class = {d}, .leader = {d}, .base = {d}, .nation = {d}, .text = {d}, .shape = {d}, .palette = {d} }},\n", .{ squadron.name, squadron.class, squadron.leader, squadron.base, squadron.nation, squadron.text, squadron.shape, squadron.palette });
+        try w.writeAll("    },\n");
+    }
+    try w.writeAll(
+        \\};
+        \\
+        \\/// A person: the strings of their name, nationality, age, ship and call sign (0 for none), and of
+        \\/// their military history, training and background, and the shape of their portrait in
+        \\/// `persons.spr`.
+        \\pub const Person = struct { name: u16, nationality: u16, age: u16, ship: u16, call_sign: u16, history: u16, training: u16, background: u16, shape: i16 };
+        \\
+        \\/// By side, the alliance's first.
+        \\pub const personnel = [2][]const Person{
+        \\
+    );
+    for (tables.personnel, side_names) |side, side_name| {
+        try w.print("    &.{{ // {s}\n", .{side_name});
+        for (side) |person| try w.print("        .{{ .name = {d}, .nationality = {d}, .age = {d}, .ship = {d}, .call_sign = {d}, .history = {d}, .training = {d}, .background = {d}, .shape = {d} }},\n", .{ person.name, person.nationality, person.age, person.ship, person.call_sign, person.history, person.training, person.background, person.shape });
+        try w.writeAll("    },\n");
+    }
+    try w.writeAll(
+        \\};
+        \\
+        \\/// A pilot of the KILLBOARD: the strings of their name, the line below it and their ship, the kills
+        \\/// they start with, the mean and the spread of the kills each mission adds, and the shape of their
+        \\/// portrait in `kills.spr`.
+        \\pub const Pilot = struct { name: u16, call_sign: u16, ship: u16, base_kills: i16, mean: f32, spread: f32, shape: i16 };
+        \\
+        \\pub const pilots = [_]Pilot{
+        \\
+    );
+    for (tables.pilots) |pilot| try w.print("    .{{ .name = {d}, .call_sign = {d}, .ship = {d}, .base_kills = {d}, .mean = {d}, .spread = {d}, .shape = {d} }},\n", .{ pilot.name, pilot.call_sign, pilot.ship, pilot.base_kills, pilot.mean, pilot.spread, pilot.shape });
+    try w.writeAll(
+        \\};
+        \\
     );
 }
+
+/// The names the emitted tables of either side go by.
+const side_names = [2][]const u8{ "alliance", "coalition" };
 
 test read {
     const allocator = std.testing.allocator;
@@ -326,7 +604,40 @@ test read {
     @memcpy(chapter.movie[0..16], "new_chapter3.bik");
     video_region.putRecord(videos_table + @sizeOf(StoredVideo), chapter);
 
-    const payload = try testing.reader(allocator, &.{ lit_region, region, news_region, video_region });
+    // The first fighter with two guns, one counted, and a special; the rest zeros.
+    const fighter_bytes = try allocator.alloc(u8, (fighter_counts[0] + fighter_counts[1]) * @sizeOf(StoredFighter));
+    defer allocator.free(fighter_bytes);
+    @memset(fighter_bytes, 0);
+    const fighter_region: testing.Region = .{ .va = fighters_table, .bytes = fighter_bytes };
+    fighter_region.putRecord(fighters_table, StoredFighter{ .links = @splat(0), .name = 1035, .bars = @splat(0), .type = 1219, .clearance = 1224, .crew = 2, .guns = .{ 1242, 1235, 0, 0 }, .gun_counts = .{ 2, 0, 0, 0 }, .specials = .{ 1251, 0, 0, 0 }, ._unread = 0, .shape = 1, .ship_type = 4 });
+
+    // A squadron of each side.
+    var squadron_regions: [2]testing.Region = undefined;
+    var squadron_bytes: [2][]u8 = undefined;
+    for (&squadron_regions, &squadron_bytes, squadron_tables, squadron_counts) |*squadron_region, *bytes_of, table, count| {
+        bytes_of.* = try allocator.alloc(u8, count * @sizeOf(StoredSquadron));
+        @memset(bytes_of.*, 0);
+        squadron_region.* = .{ .va = table, .bytes = bytes_of.* };
+    }
+    defer for (squadron_bytes) |bytes_of| allocator.free(bytes_of);
+    squadron_regions[0].putRecord(squadron_tables[0], StoredSquadron{ .links = @splat(0), .name = 446, .class = 419, .leader = 421, .base = 501, .nation = 526, .text = 474, .shape = 21, .palette = 20 });
+    squadron_regions[1].putRecord(squadron_tables[1], StoredSquadron{ .links = @splat(0), .name = 465, .class = 419, .leader = 439, .base = 517, .nation = 533, .text = 493, .shape = 32, .palette = 30 });
+
+    // The Coalition's first person, after the alliance's.
+    const person_bytes = try allocator.alloc(u8, (personnel_counts[0] + personnel_counts[1]) * @sizeOf(StoredPerson));
+    defer allocator.free(person_bytes);
+    @memset(person_bytes, 0);
+    const person_region: testing.Region = .{ .va = personnel_table, .bytes = person_bytes };
+    person_region.putRecord(personnel_table + personnel_counts[0] * @sizeOf(StoredPerson), StoredPerson{ .links = @splat(0), .name = 753, .nationality = 819, .age = 789, .ship = 865, .call_sign = 834, .history = 907, .training = 920, .background = 956, ._unread = 0, .shape = 39 });
+
+    // The first pilot.
+    const pilot_bytes = try allocator.alloc(u8, pilots_count * @sizeOf(StoredPilot));
+    defer allocator.free(pilot_bytes);
+    @memset(pilot_bytes, 0);
+    const pilot_region: testing.Region = .{ .va = pilots_table, .bytes = pilot_bytes };
+    pilot_region.putRecord(pilots_table, StoredPilot{ .links = @splat(0), .name = 1301, .call_sign = 1305, ._call_sign_room = @splat(0), .ship = 1309, .base_kills = 29, ._kills = 0, .mean = 11, .spread = 3, .shape = 3, ._unread = 0 });
+
+    const payload = try testing.reader(allocator, &.{ lit_region, region, news_region, video_region, fighter_region, squadron_regions[0], squadron_regions[1], person_region, pilot_region });
     defer testing.freeReader(allocator, payload);
     const tables = try read(arena, payload);
     try std.testing.expectEqual(2, tables.lit_shapes.len);
@@ -347,6 +658,15 @@ test read {
     try std.testing.expectEqualStrings("new_chapter3.bik", tables.videos[1].movie);
     try std.testing.expectEqual(19, tables.videos[1].mission);
     try std.testing.expectEqual(2, tables.videos[1].part);
+    const fighter = tables.fighters[0][0];
+    try std.testing.expectEqual(2, fighter.guns.len);
+    try std.testing.expectEqual(Gun{ .name = 1235, .count = 0 }, fighter.guns[1]);
+    try std.testing.expectEqualSlices(u16, &.{1251}, fighter.specials);
+    try std.testing.expectEqual(4, fighter.ship_type);
+    try std.testing.expectEqual(fighter_counts[1], tables.fighters[1].len);
+    try std.testing.expectEqual(32, tables.squadrons[1][0].shape);
+    try std.testing.expectEqual(753, tables.personnel[1][0].name);
+    try std.testing.expectEqual(11, tables.pilots[0].mean);
 
     var out: Io.Writer.Allocating = .init(allocator);
     defer out.deinit();

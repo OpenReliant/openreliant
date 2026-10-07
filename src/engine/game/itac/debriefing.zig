@@ -111,7 +111,7 @@ const labels_x = 36;
 const values_x = 214;
 const figures_y = 346;
 const figure_line = 16;
-pub const label_colour = hud.rgb(0xFFBD82);
+const label_colour = itac_module.label_colour;
 
 /// REPLAY MISSION: its button, lit where the pointer is over it (`0x004E4948`), shapes 27 and 28
 /// of `itacgfx.spr` with the palette of block 26, and its label, the game's string, right-aligned
@@ -182,17 +182,14 @@ pub const Debriefing = struct {
     /// **Fix:** as another debriefing is chosen, the game holds the screen still for half a second
     /// (`itac_pause`, `0x00440170`), drawing nothing. OpenReliant shows the debriefing at once.
     pub fn update(debriefing: *Debriefing, itac: *Itac) void {
-        if (itac.rebuild) {
-            debriefing.build(itac, true);
-            itac.rebuild = false;
-        }
+        if (itac.rebuildDue()) debriefing.build(itac, true);
         debriefing.box.update(itac.ticks, itac.pointer);
-        if (itac.left) if (itac_module.entryAt(debriefing.listed[0..debriefing.listed_count], itac.pointer.at)) |place| if (debriefing.selected != place) {
+        if (itac.entryChosen(debriefing.listed[0..debriefing.listed_count], debriefing.selected)) |place| {
             debriefing.selected = place;
             debriefing.box.scroll = ScrollBox.top;
             debriefing.build(itac, false);
-        };
-        if (itac.left) if (canvas_module.hit(&list_arrows, itac.pointer.at)) |arrow| if (itac.repeat.fires(itac.left_held)) {
+        }
+        if (itac.arrowPressed(&list_arrows)) |arrow| {
             const mission = itac.pilot.mission;
             const room = std.math.sub(u8, placeOf(mission + 1), list_room) catch 0;
             if (arrow == 0) {
@@ -201,7 +198,7 @@ pub const Debriefing = struct {
                 debriefing.first -|= 1;
             }
             debriefing.layOut(itac);
-        };
+        }
         debriefing.replay_lit = false;
         if (debriefing.replayOffered(itac)) {
             debriefing.replay_lit = replay_button.holds(itac.pointer.at);
