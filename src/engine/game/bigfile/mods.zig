@@ -88,6 +88,10 @@ pub const Field = enum {
     /// The OpenReliant version the mod needs, such as `0.7` or `0.7.1`. Mods that need a newer
     /// version are skipped (`Mods.open`).
     openreliant,
+    /// The mods it needs, by their names in the `mods` folder (`Mod.qualifier`), separated by
+    /// commas. It loads only after every one of them, and is left out otherwise (`Mods.open`), as
+    /// OpenMW's content files need their masters.
+    requires,
 
     /// Its key in the manifest, matched ignoring case.
     pub fn key(field: Field) []const u8 {
@@ -98,6 +102,7 @@ pub const Field = enum {
             .description => "Description",
             .url => "Url",
             .openreliant => "OpenReliant",
+            .requires => "Requires",
         };
     }
 };
@@ -154,6 +159,32 @@ pub const Mod = struct {
     /// not.
     pub fn qualifier(mod: Mod) []const u8 {
         return withoutSuffix(mod.name, archive_extension) orelse mod.name;
+    }
+
+    /// The mods it needs (`Field.requires`), each by its name in the `mods` folder.
+    pub fn requirements(mod: *const Mod) Requirements {
+        return .{ .names = std.mem.tokenizeScalar(u8, mod.about(.requires) orelse "", ',') };
+    }
+
+    pub const Requirements = struct {
+        names: std.mem.TokenIterator(u8, .scalar),
+
+        pub fn next(listed: *Requirements) ?[]const u8 {
+            while (listed.names.next()) |raw| {
+                const name = std.mem.trim(u8, raw, " \t");
+                if (name.len > 0) return name;
+            }
+            return null;
+        }
+    };
+
+    /// The first mod it needs that `earlier` lacks, where `earlier`, the mods that load before it,
+    /// says with `has(name)` whether it holds the mod of that name, ignoring case. Null where it
+    /// has every one.
+    pub fn missing(mod: *const Mod, earlier: anytype) ?[]const u8 {
+        var needed = mod.requirements();
+        while (needed.next()) |name| if (!earlier.has(name)) return name;
+        return null;
     }
 
     /// The value of `field` in its manifest; null if it's missing or empty.
@@ -418,6 +449,9 @@ pub const Mods = struct {
     /// The archives that don't match their checksum files (`Mod.Checksum.mismatch`), opened so that
     /// the mods screen can say so. Their files and scripts aren't used.
     damaged: []Mod = &.{},
+    /// The mods that are on but need a mod that doesn't load before them (`Field.requires`), opened
+    /// so that the mods screen can say so. Their files and scripts aren't used.
+    unmet: []Mod = &.{},
     /// Every file in the mods, by its name in lower case, pointing to the last mod that has it.
     index: std.StringHashMapUnmanaged(Place) = .empty,
 
@@ -436,10 +470,10 @@ pub const Mods = struct {
     /// Opens the mods in the `mods` folder of the game folder `game`: each `.hog` file is an
     /// archive and each folder a folder mod. `order` says which are on and the order they load in:
     /// the mods it lists first, in its order, then the others sorted by name, ignoring case. The
-    /// mods that are off go to `off`, and the archives that don't match their checksum files to
-    /// `damaged`. Anything else, mods that fail to open, and mods that need a newer OpenReliant than
-    /// `running` are skipped and logged. If `running` is null, the version
-    /// check is skipped. Returns no mods if there's no `mods` folder. The log lists each mod and
+    /// mods that are off go to `off`, the archives that don't match their checksum files to
+    /// `damaged`, and the mods that need a mod that doesn't load before them to `unmet`. Anything
+    /// else, mods that fail to open, and mods that need a newer OpenReliant than `running` are
+    /// skipped and logged. If `running` is null, the version check is skipped. Returns no mods if there's no `mods` folder. The log lists each mod and
     /// what each of its files replaces or adds (`report`).
     pub fn openOrdered(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion, order: Order) Allocator.Error!Mods {
         return openListing(gpa, io, game, running, order, true);
@@ -496,6 +530,9 @@ pub const Mods = struct {
         var damaged: std.ArrayList(Mod) = .empty;
         defer damaged.deinit(gpa);
         errdefer for (damaged.items) |*mod| mod.close(gpa);
+        var unmet: std.ArrayList(Mod) = .empty;
+        defer unmet.deinit(gpa);
+        errdefer for (unmet.items) |*mod| mod.close(gpa);
         for (entries.items) |entry| {
             // A mod that is off isn't checked against its checksum, as none of it is used.
             const on = order.isOn(entry.name);
@@ -506,7 +543,10 @@ pub const Mods = struct {
                 continue;
             };
             if (!on) log.info("the mod {f} is off", .{mod});
-            const into = if (mod.checksum == .mismatch) &damaged else if (on) &list else &off;
+            const into = if (mod.checksum == .mismatch) &damaged else if (!on) &off else if (mod.missing(Earlier{ .mods = list.items })) |needed| unmet: {
+                log.warn("skipping the mod {f}: it needs the mod {s}, which doesn't load before it", .{ mod, needed });
+                break :unmet &unmet;
+            } else &list;
             into.append(gpa, mod) catch |err| {
                 mod.close(gpa);
                 return err;
@@ -516,6 +556,7 @@ pub const Mods = struct {
         errdefer mods.close(gpa);
         mods.off = try off.toOwnedSlice(gpa);
         mods.damaged = try damaged.toOwnedSlice(gpa);
+        mods.unmet = try unmet.toOwnedSlice(gpa);
         try mods.makeIndex(gpa);
         if (report_files) try mods.report(gpa, io, game);
         return mods;
@@ -525,7 +566,7 @@ pub const Mods = struct {
         freeIndex(Place, &mods.index, gpa);
         for (mods.list) |*mod| mod.close(gpa);
         gpa.free(mods.list);
-        for ([_][]Mod{ mods.off, mods.damaged }) |kept| {
+        for ([_][]Mod{ mods.off, mods.damaged, mods.unmet }) |kept| {
             for (kept) |*mod| mod.close(gpa);
             gpa.free(kept);
         }
@@ -640,6 +681,52 @@ pub const Mods = struct {
                 .added => log.info("{s} adds {s}", .{ mod.name, name }),
             };
         }
+    }
+};
+
+/// Mods that load before another, which its requirements are looked up in (`Mod.missing`).
+pub const Earlier = struct {
+    mods: []const Mod,
+
+    pub fn has(earlier: Earlier, name: []const u8) bool {
+        for (earlier.mods) |mod| if (std.ascii.eqlIgnoreCase(mod.qualifier(), name)) return true;
+        return false;
+    }
+};
+
+/// The names of a mod's game files, in lower case, to find the other mods that hold files of the
+/// same names (`sharedWith`): the mods whose files it replaces, or that replace its.
+pub const FileSet = struct {
+    names: std.StringHashMapUnmanaged(void) = .empty,
+
+    pub fn of(gpa: Allocator, mod: *const Mod) Allocator.Error!FileSet {
+        var set: FileSet = .{};
+        errdefer set.deinit(gpa);
+        var names = mod.names();
+        while (names.next()) |name| {
+            var buffer: [files.max_path]u8 = undefined;
+            const key = try gpa.dupe(u8, lowered(&buffer, name) orelse continue);
+            const slot = set.names.getOrPut(gpa, key) catch |err| {
+                gpa.free(key);
+                return err;
+            };
+            if (slot.found_existing) gpa.free(key);
+        }
+        return set;
+    }
+
+    pub fn deinit(set: *FileSet, gpa: Allocator) void {
+        freeIndex(void, &set.names, gpa);
+    }
+
+    /// Whether `other` holds a game file whose name is in the set, ignoring case.
+    pub fn sharedWith(set: FileSet, other: *const Mod) bool {
+        var names = other.names();
+        while (names.next()) |name| {
+            var buffer: [files.max_path]u8 = undefined;
+            if (set.names.contains(lowered(&buffer, name) orelse continue)) return true;
+        }
+        return false;
     }
 };
 
@@ -1103,6 +1190,56 @@ test "a mod that needs a newer version is skipped" {
     var every: Mods = try .open(gpa, io, tmp.dir, null);
     defer every.close(gpa);
     try std.testing.expectEqual(5, every.list.len);
+}
+
+test "a mod loads only after the mods it needs" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    for ([_]struct { []const u8, []const u8 }{
+        .{ "base", "Name=Base" },
+        .{ "extra", "Requires=Base" },
+        .{ "chained", "Requires=base, extra" },
+        .{ "lost", "Requires=nowhere" },
+        .{ "after", "Requires=zebra" },
+        .{ "zebra", "Name=Zebra" },
+    }) |mod| {
+        const folder = try gpa.print("mods/{s}", .{mod[0]});
+        defer gpa.free(folder);
+        try tmp.dir.createDirPath(io, folder);
+        const manifest = try gpa.print("{s}/mod.ini", .{folder});
+        defer gpa.free(manifest);
+        const text = try gpa.print("[Mod]\n{s}\n", .{mod[1]});
+        defer gpa.free(text);
+        try tmp.dir.writeFile(io, .{ .sub_path = manifest, .data = text });
+    }
+    // In the order of their names: after, base, chained, extra, lost, zebra. Extra comes after
+    // chained, so chained's needs aren't met; nor are lost's, or after's, whose mod loads later.
+    var played: Mods = try .open(gpa, io, tmp.dir, null);
+    defer played.close(gpa);
+    try std.testing.expectEqual(3, played.list.len);
+    for ([_][]const u8{ "base", "extra", "zebra" }, played.list) |name, mod| try std.testing.expectEqualStrings(name, mod.name);
+    try std.testing.expectEqual(3, played.unmet.len);
+    try std.testing.expectEqualStrings("nowhere", played.unmet[2].missing(Earlier{ .mods = played.list }).?);
+}
+
+test FileSet {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    for ([_][]const u8{ "mods/a/SKY.TGA", "mods/a/mod.ini", "mods/b/sky.tga", "mods/c/mod.ini", "mods/c/other.wav" }) |path| {
+        try tmp.dir.createDirPath(io, std.fs.path.dirname(path).?);
+        try tmp.dir.writeFile(io, .{ .sub_path = path, .data = "x" });
+    }
+    var opened: Mods = try .open(gpa, io, tmp.dir, null);
+    defer opened.close(gpa);
+    var set: FileSet = try .of(gpa, &opened.list[0]);
+    defer set.deinit(gpa);
+    // B replaces a's sky, whatever its case; c holds no file of a's, its manifest being its own.
+    try std.testing.expect(set.sharedWith(&opened.list[1]));
+    try std.testing.expect(!set.sharedWith(&opened.list[2]));
 }
 
 test "the order says which mods are on and when they load" {

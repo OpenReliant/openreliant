@@ -1,7 +1,8 @@
 //! The mods screen (`ModManager`), which GAME OPTIONS' MODS button opens: a list of the mods in the
 //! game's `mods` folder ([#497](https://github.com/OpenReliant/openreliant/issues/497)). A check box
 //! turns each mod on or off, a box of up and down arrows sets the order the mods load in, and the
-//! panel on the right shows the chosen mod's thumbnail and what its manifest says of it. The order
+//! panel on the right shows the chosen mod's thumbnail, what its manifest says of it, the mods whose
+//! files it replaces or that replace its, and why it doesn't load where it doesn't. The order
 //! and the state are kept in `starlancer.ini`'s `[OpenReliantMods]` section (`bigfile.mods.Order`)
 //! as they change, and take effect the next time OpenReliant starts, which the screen says while
 //! they differ from what is loaded.
@@ -15,9 +16,6 @@
 //! (`mod_options`).
 //!
 //! **Improvement:** the original can't load mods.
-//!
-//! Not ported: a mod's conflicts, and the mods it depends on
-//! ([#497](https://github.com/OpenReliant/openreliant/issues/497)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -41,6 +39,7 @@ const mod_options = @import("mod_options.zig");
 
 const Mod = bigfile.mods.Mod;
 const Order = bigfile.mods.Order;
+const FileSet = bigfile.mods.FileSet;
 
 const log = std.log.scoped(.interface);
 
@@ -328,6 +327,8 @@ pub const ModManager = struct {
     thumbnails: Thumbnails = .{},
     /// The chosen mod's thumbnail, if it has one; kept up to date after each pass.
     thumbnail: ?*srtexture.Image = null,
+    /// The rows whose mods hold files of the chosen mod's names; kept up to date after each pass.
+    conflicts: Conflicts = .{},
 
     /// Opens the screen: the mods OpenReliant found, in the order the settings file gives them.
     pub fn enter(screen: *ModManager, context: Context) void {
@@ -367,7 +368,7 @@ pub const ModManager = struct {
     /// gives. Beyond `capacity` they are left out, and stay as the settings file has them.
     fn fill(screen: *ModManager, mods: *const bigfile.Mods, order: Order) void {
         screen.count = 0;
-        for ([_][]const Mod{ mods.list, mods.off, mods.damaged }) |each| for (each) |*mod| {
+        for ([_][]const Mod{ mods.list, mods.off, mods.damaged, mods.unmet }) |each| for (each) |*mod| {
             if (screen.count == capacity) {
                 log.warn("the mods screen lists {d} mods; {s} and the rest are left out", .{ capacity, mod.name });
                 return;
@@ -417,6 +418,7 @@ pub const ModManager = struct {
     /// file is logged.
     pub fn frame(screen: *ModManager, context: Context) ?Leave {
         defer screen.showThumbnail(context.source);
+        defer screen.conflicts.update(context.source.gpa, screen.*);
         return screen.pass(context) catch |err| {
             log.warn("the mods are not kept: {s}", .{@errorName(err)});
             return null;
@@ -521,12 +523,13 @@ pub const ModManager = struct {
         try Order.write(context.settings_file, listed[0..screen.count]);
     }
 
-    /// Whether the mods that are on, in their order, differ from the ones OpenReliant started with.
-    /// A damaged archive never loads, so it counts for neither.
+    /// Whether the mods that load, in their order, differ from the ones OpenReliant started with. A
+    /// damaged archive never loads, nor a mod whose needs aren't met, so they count for neither.
     pub fn waits(screen: ModManager) bool {
+        const loading = screen.loads();
         var at: usize = 0;
-        for (screen.rows[0..screen.count]) |row| {
-            if (!row.on or row.damaged()) continue;
+        for (screen.rows[0..screen.count], 0..) |row, place| {
+            if (!loading.isSet(place)) continue;
             if (at == screen.loaded.len or !std.mem.eql(u8, row.mod.name, screen.loaded[at].name)) return true;
             at += 1;
         }
@@ -552,17 +555,31 @@ pub const ModManager = struct {
         try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 
-    /// The rows shown, each a check box and the mod's name, the chosen one white, a damaged one red,
-    /// a mod that is off dim, and the arrows, the one under the pointer lit.
+    /// The rows whose mods load, as the rows stand: the mods that are on, aren't damaged, and have
+    /// each mod they need (`Mod.missing`) loading above them.
+    fn loads(screen: ModManager) Rows {
+        var loading: Rows = .empty;
+        for (screen.rows[0..screen.count], 0..) |row, at| {
+            if (!row.on or row.damaged()) continue;
+            if (row.mod.missing(Loading{ .rows = screen.rows[0..at], .loads = &loading }) != null) continue;
+            loading.set(at);
+        }
+        return loading;
+    }
+
+    /// The rows shown, each a check box and the mod's name, the chosen one white, one that is on but
+    /// doesn't load red, a mod that is off dim, and the arrows, the one under the pointer lit.
     fn drawList(screen: ModManager, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         if (screen.count == 0) for (empty_notes) |note| try note.write(canvas, canvas.fonts.small, canvas_module.blue);
+        const loading = screen.loads();
         for (screen.list.rows.first..screen.list.rows.end(), 0..) |at, place| {
             const row = screen.rows[at];
             const box = checkBox(place);
             try widgets.Box.draw(canvas.dimmedUnless(row.listable()), art, box.at, row.on);
             var named: [name_buffer]u8 = undefined;
             const is_chosen = if (screen.chosen) |chosen| chosen == at else false;
-            const colour = if (row.damaged()) canvas_module.red else if (is_chosen) canvas_module.white else canvas_module.blue;
+            const fails = row.damaged() or (row.on and !loading.isSet(at));
+            const colour = if (fails) canvas_module.red else if (is_chosen) canvas_module.white else canvas_module.blue;
             try canvas.dimmedUnless(row.on).wrapped(canvas.fonts.small, box.label(.{ .words = "" }).at, nameOf(&named, row), colour, .left, .{ .width = name_width, .height = row_spacing, .most = 1 });
         }
         try arrows.draw(canvas, art, screen.litArrow(.scroll));
@@ -579,10 +596,12 @@ pub const ModManager = struct {
     }
 
     /// The chosen mod's thumbnail, if it has one, then its manifest: its name, version and author,
-    /// its description and its page; and for an archive that doesn't match its checksum file, that
-    /// it isn't loaded.
+    /// its description and its page; then the mods whose files it replaces, the mods that replace
+    /// its, and why it isn't loaded where it isn't: an archive that doesn't match its checksum file,
+    /// or a mod it needs that doesn't load above it.
     fn drawDetails(screen: ModManager, canvas: Canvas) canvas_module.Error!void {
-        const row = screen.rows[screen.chosen orelse return choose_note.write(canvas, canvas.fonts.small, canvas_module.blue)];
+        const chosen = screen.chosen orelse return choose_note.write(canvas, canvas.fonts.small, canvas_module.blue);
+        const row = screen.rows[chosen];
         const font = canvas.fonts.small;
         const x = details_frame.at[0] + details_inside;
         var y = details_frame.at[1] + details_inside;
@@ -600,9 +619,27 @@ pub const ModManager = struct {
             try canvas.wrapped(font, .{ x, y }, line, canvas_module.blue, .left, details_lines);
             y += details_lines.height;
         };
+        // What goes below the description: its page, its conflicts and why it doesn't load.
+        var texts: [4][name_buffer]u8 = undefined;
+        var notes: [4]Note = undefined;
+        var count: usize = 0;
+        if (row.mod.about(.url)) |url| {
+            notes[count] = .{ .text = url, .colour = canvas_module.gold };
+            count += 1;
+        }
+        const conflicts = [_]struct { []const u8, *const Rows }{ .{ "REPLACES FILES OF ", &screen.conflicts.before }, .{ "FILES REPLACED BY ", &screen.conflicts.after } };
+        for (conflicts) |conflict| if (conflict[1].count() > 0) {
+            notes[count] = .{ .text = screen.listOf(&texts[count], conflict[0], conflict[1].*), .colour = canvas_module.blue };
+            count += 1;
+        };
+        if (screen.failure(&texts[count], chosen)) |why| {
+            notes[count] = .{ .text = why, .colour = canvas_module.red };
+            count += 1;
+        }
+        var lines_below: i32 = 0;
+        for (notes[0..count]) |note| lines_below += @intCast(note_lines.count(font, note.text));
         if (row.mod.about(.description)) |description| {
-            // As many lines as fit above the lines below it and the OPTIONS button.
-            const lines_below = @as(i32, @intFromBool(row.mod.about(.url) != null)) + @intFromBool(row.damaged());
+            // As many lines as fit above the notes below it and the OPTIONS button.
             const bottom = if (screen.has_options) options_button_at[1] else details_frame.at[1] + frame_height - details_inside;
             const room = @divTrunc(bottom - y, details_lines.height) - lines_below;
             var shown = description_lines;
@@ -610,11 +647,95 @@ pub const ModManager = struct {
             try canvas.wrapped(font, .{ x, y }, description, canvas_module.blue, .left, shown);
             y += shown.height * @as(i32, @intCast(shown.count(font, description)));
         }
-        if (row.mod.about(.url)) |url| {
-            try canvas.wrapped(font, .{ x, y }, url, canvas_module.gold, .left, details_lines);
-            y += details_lines.height;
+        for (notes[0..count]) |note| {
+            try canvas.wrapped(font, .{ x, y }, note.text, note.colour, .left, note_lines);
+            y += note_lines.height * @as(i32, @intCast(note_lines.count(font, note.text)));
         }
-        if (row.damaged()) try canvas.wrapped(font, .{ x, y }, "DAMAGED: NOT LOADED", canvas_module.red, .left, details_lines);
+    }
+
+    /// `prefix` and the names of the mods of `listed`, separated by commas, written in `buffer`; cut
+    /// short where they don't fit.
+    fn listOf(screen: ModManager, buffer: *[name_buffer]u8, prefix: []const u8, listed: Rows) []const u8 {
+        var writer: std.Io.Writer = .fixed(buffer);
+        writer.writeAll(prefix) catch {};
+        var each = listed.iterator(.{});
+        var first = true;
+        while (each.next()) |at| {
+            writer.print("{s}{s}", .{ if (first) "" else ", ", screen.rows[at].title() }) catch break;
+            first = false;
+        }
+        return writer.buffered();
+    }
+
+    /// Why the mod of row `at` doesn't load, written in `buffer`; null where it does, or is off.
+    fn failure(screen: ModManager, buffer: *[name_buffer]u8, at: u8) ?[]const u8 {
+        const row = screen.rows[at];
+        if (row.damaged()) return "DAMAGED: NOT LOADED";
+        if (!row.on) return null;
+        const loading = screen.loads();
+        const needed = row.mod.missing(Loading{ .rows = screen.rows[0..at], .loads = &loading }) orelse return null;
+        // A mod it needs that loads, but below it, is to be moved above it.
+        for (screen.rows[0..screen.count], 0..) |other, place| {
+            if (!std.ascii.eqlIgnoreCase(other.mod.qualifier(), needed)) continue;
+            const where = if (place > at and loading.isSet(place)) " ABOVE IT" else "";
+            return std.mem.print(buffer, "NEEDS {s}{s}: NOT LOADED", .{ other.title(), where }) catch "NOT LOADED";
+        }
+        return std.mem.print(buffer, "NEEDS {s}: NOT LOADED", .{needed}) catch "NOT LOADED";
+    }
+};
+
+/// A set of rows, by their places in the list.
+const Rows = std.StaticBitSet(capacity);
+
+/// The rows above a mod's, whose mods load, which its needs are looked up in (`Mod.missing`).
+const Loading = struct {
+    rows: []const Row,
+    loads: *const Rows,
+
+    pub fn has(loading: Loading, name: []const u8) bool {
+        for (loading.rows, 0..) |row, at| {
+            if (loading.loads.isSet(at) and std.ascii.eqlIgnoreCase(row.mod.qualifier(), name)) return true;
+        }
+        return false;
+    }
+};
+
+/// A line below a mod's description, in its colour.
+const Note = struct { text: []const u8, colour: @TypeOf(canvas_module.blue) };
+
+/// How the lines below the description are laid out: up to two lines each.
+const note_lines: Canvas.Lines = .{ .width = details_lines.width, .height = details_lines.height, .most = 2 };
+
+/// The rows whose mods hold files of the chosen mod's names, above it, whose files it replaces, and
+/// below it, which replace its, among the mods that load. They are worked out again only when the
+/// chosen mod or the rows change (`fingerprint`), since each mod's files are read through.
+const Conflicts = struct {
+    before: Rows = .empty,
+    after: Rows = .empty,
+    fingerprint: ?u64 = null,
+
+    fn update(conflicts: *Conflicts, gpa: Allocator, screen: ModManager) void {
+        var hash: std.hash.Wyhash = .init(0);
+        hash.update(std.mem.asBytes(&screen.chosen));
+        for (screen.rows[0..screen.count]) |row| {
+            hash.update(std.mem.asBytes(&row.mod));
+            hash.update(std.mem.asBytes(&row.on));
+        }
+        const fingerprint = hash.final();
+        if (conflicts.fingerprint == fingerprint) return;
+        conflicts.* = .{ .fingerprint = fingerprint };
+        const chosen = screen.chosen orelse return;
+        const loading = screen.loads();
+        if (!loading.isSet(chosen)) return;
+        var set: FileSet = FileSet.of(gpa, screen.rows[chosen].mod) catch |err| {
+            log.warn("the mods' conflicts can't be found: {s}", .{@errorName(err)});
+            return;
+        };
+        defer set.deinit(gpa);
+        for (screen.rows[0..screen.count], 0..) |row, at| {
+            if (at == chosen or !loading.isSet(at) or !set.sharedWith(row.mod)) continue;
+            if (at < chosen) conflicts.before.set(at) else conflicts.after.set(at);
+        }
     }
 };
 
@@ -872,6 +993,52 @@ test "the panel takes a mod's thumbnail, and a damaged archive is listed but doe
     fixture.screen.enter(fixture.context(.{}));
     try std.testing.expectEqual(thumbnail, fixture.screen.thumbnails.of(gpa, fixture.screen.rows[0].mod).?);
     try std.testing.expectEqual(3, fixture.screen.thumbnails.entries.items.len);
+}
+
+test "a mod that needs another loads only below it, and the panel tells the mods whose files it replaces" {
+    var fixture: Fixture = undefined;
+    try fixture.init("");
+    defer fixture.deinit();
+    const io = std.testing.io;
+    // Alpha and gamma both hold the sky. Beta needs gamma, which loads below it; delta needs beta;
+    // zeta needs a mod that isn't there.
+    for ([_]struct { []const u8, []const u8 }{
+        .{ "mods/alpha/sky.tga", "a" },
+        .{ "mods/gamma/SKY.TGA", "g" },
+        .{ "mods/beta/mod.ini", "[Mod]\nName=Beta mod\nRequires=gamma\n" },
+        .{ "mods/delta/mod.ini", "[Mod]\nName=Delta mod\nRequires=beta\n" },
+        .{ "mods/zeta/mod.ini", "[Mod]\nName=Zeta mod\nRequires=omega\n" },
+    }) |file| {
+        try fixture.tmp.dir.createDirPath(io, std.fs.path.dirname(file[0]).?);
+        try fixture.tmp.dir.writeFile(io, .{ .sub_path = file[0], .data = file[1] });
+    }
+    try fixture.screen.refresh(fixture.context(.{}));
+    var buffer: [capacity][]const u8 = undefined;
+    const order = [_][]const u8{ "alpha", "beta", "delta", "gamma", "zeta" };
+    for (order, fixture.names(&buffer)) |name, listed| try std.testing.expectEqualStrings(name, listed);
+    // Only alpha and gamma load, and the panel says why the others don't.
+    var loading = fixture.screen.loads();
+    try std.testing.expectEqual(2, loading.count());
+    try std.testing.expect(loading.isSet(0) and loading.isSet(3));
+    var why: [name_buffer]u8 = undefined;
+    try std.testing.expectEqualStrings("NEEDS Gamma mod ABOVE IT: NOT LOADED", fixture.screen.failure(&why, 1).?);
+    try std.testing.expectEqualStrings("NEEDS Beta mod: NOT LOADED", fixture.screen.failure(&why, 2).?);
+    try std.testing.expectEqualStrings("NEEDS omega: NOT LOADED", fixture.screen.failure(&why, 4).?);
+    try std.testing.expectEqual(null, fixture.screen.failure(&why, 0));
+    // Alpha's sky is replaced by gamma's.
+    fixture.screen.chosen = 0;
+    fixture.screen.conflicts.update(std.testing.allocator, fixture.screen);
+    try std.testing.expect(fixture.screen.conflicts.after.isSet(3) and fixture.screen.conflicts.before.count() == 0);
+    try std.testing.expectEqualStrings("FILES REPLACED BY Gamma mod", fixture.screen.listOf(&why, "FILES REPLACED BY ", fixture.screen.conflicts.after));
+    // With gamma moved above beta, beta and delta load too.
+    fixture.screen.chosen = 3;
+    try fixture.screen.move(.up, fixture.context(.{}));
+    try fixture.screen.move(.up, fixture.context(.{}));
+    loading = fixture.screen.loads();
+    try std.testing.expectEqual(4, loading.count());
+    try std.testing.expectEqual(null, fixture.screen.failure(&why, 2));
+    fixture.screen.conflicts.update(std.testing.allocator, fixture.screen);
+    try std.testing.expect(fixture.screen.conflicts.before.isSet(0));
 }
 
 test "OPTIONS opens the page of the mod that has one" {
