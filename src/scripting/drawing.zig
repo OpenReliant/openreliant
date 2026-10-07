@@ -90,14 +90,17 @@ pub const Assets = struct {
         return image;
     }
 
+    /// The mod's font `path` of the script of `call`, laid out as the built-in font `base` where
+    /// it's an outline font. With outline fonts off, that's the base font itself.
     fn loadFont(assets: *Assets, call: Call, path: []const u8, base: Font, view: View) !*hud.Opened {
         const bitmap = view.fontOf(base) orelse return error.FontUnavailable;
         const is_bitmap = std.ascii.endsWithIgnoreCase(path, ".fnt");
         if (!is_bitmap and !std.ascii.endsWithIgnoreCase(path, ".ttf") and !std.ascii.endsWithIgnoreCase(path, ".otf")) return error.InvalidFontExtension;
+        const rasterizer = if (is_bitmap) null else view.rasterizer orelse return bitmap;
         // A layer's default can change across menus and flight. Cache its actual layout, not
         // the word "default", so drawing and measurement keep using the selected font's metrics.
         for (assets.fonts.items) |font| {
-            const same_layout = if (is_bitmap) !font.outline_layout else font.outline_layout and std.mem.eql(u8, font.bytes, bitmap.font.bytes);
+            const same_layout = if (is_bitmap) !font.outline_layout else font.outline_layout and std.meta.activeTag(font.opened.paint) == bitmap.paint and std.mem.eql(u8, font.bytes, bitmap.font.bytes);
             if (font.context == call.context and same_layout and std.ascii.eqlIgnoreCase(font.name, path)) return font.opened;
         }
         if (assets.pictures.items.len + assets.fonts.items.len == max_assets) return error.TooManyAssets;
@@ -110,23 +113,27 @@ pub const Assets = struct {
         errdefer gpa.free(bytes);
         const opened = try gpa.create(hud.Opened);
         errdefer gpa.destroy(opened);
-        opened.* = .ramp(try openreliant.fnt.Font.parse(bytes));
+        const font = try openreliant.fnt.Font.parse(bytes);
+        opened.* = if (is_bitmap) .monochrome(font) else .like(font, bitmap.*);
         var outline: ?*hud.outline.Outline = null;
         errdefer if (outline) |made| {
             made.deinit();
             gpa.destroy(made);
         };
-        if (!is_bitmap) {
-            const rasterizer = view.rasterizer orelse return error.OutlineFontsUnavailable;
+        if (rasterizer) |fonts| {
+            // Fitted over the base font as the game's own replacement for it is
+            // (`hud.Opened.standIn`), but drawn in the text's colour.
+            const ink = opened.fitting() orelse return error.BaseFontHasNoInk;
             const kept = try gpa.dupe(u8, file);
             errdefer gpa.free(kept);
-            const face = rasterizer.open(kept) orelse return error.InvalidFont;
-            errdefer rasterizer.close(face);
-            const fit = try hud.outline.Fit.of(rasterizer, face, opened.font, &hud.outline.level_cover, .own, gpa) orelse return error.InvalidFont;
+            const face = fonts.open(kept) orelse return error.InvalidFont;
+            errdefer fonts.close(face);
+            const fit = try hud.outline.Fit.of(fonts, face, opened.font, &ink.cover, .own, gpa) orelse return error.NoCapitalsInCommon;
             const made = try gpa.create(hud.outline.Outline);
-            made.* = .{ .gpa = gpa, .rasterizer = rasterizer, .face = face, .file = kept, .fit = fit };
+            made.* = .{ .gpa = gpa, .rasterizer = fonts, .face = face, .file = kept, .fit = fit };
             outline = made;
             opened.outline = made;
+            opened.own_colours = ink.own_colours;
         }
         const name = try gpa.dupe(u8, path);
         errdefer gpa.free(name);
@@ -136,6 +143,23 @@ pub const Assets = struct {
     }
 };
 
+/// What's wrong with a mod's picture or font, in plain words for the script's error.
+fn problem(err: anyerror) []const u8 {
+    return switch (err) {
+        error.InvalidAssetName => "a file's name must be printable ASCII",
+        error.AssetNotFound => "the mod has no file with that name",
+        error.TooManyAssets => std.fmt.comptimePrint("the mods' pictures and fonts already use the most files they can, {d}", .{max_assets}),
+        error.AssetsTooLarge => std.fmt.comptimePrint("the mods' pictures and fonts would take more than {d} MiB", .{max_asset_bytes >> 20}),
+        error.FontUnavailable => "its base font isn't loaded this frame",
+        error.InvalidFontExtension => "a font must be a .fnt, .ttf or .otf file",
+        error.NotAFont, error.BadGlyph => "it isn't a valid .fnt font",
+        error.InvalidFont => "it can't be read as a TrueType or OpenType font",
+        error.BaseFontHasNoInk => "its base font has no letters to fit it over",
+        error.NoCapitalsInCommon => "it has none of the capitals " ++ hud.outline.references ++ " that its base font has",
+        else => @errorName(err),
+    };
+}
+
 fn readAsset(call: Call, path: []const u8) ![]u8 {
     if (!openreliant.hog.validName(path)) return error.InvalidAssetName;
     return (try call.context.modOf().readFile(call.runtime().gpa, path)) orelse error.AssetNotFound;
@@ -144,7 +168,7 @@ fn readAsset(call: Call, path: []const u8) ![]u8 {
 fn selectedFont(call: Call, view: View, name: ?[]const u8, base: Font) *hud.Opened {
     const asked = name orelse return view.font;
     if (std.meta.stringToEnum(Font, asked)) |builtin| return view.fontOf(builtin) orelse call.raise("font '{s}' is unavailable this frame", .{asked});
-    return presentation.Presentation.of(call, "font").assets.loadFont(call, asked, base, view) catch |err| call.raise("font {s}: {s}", .{ asked, @errorName(err) });
+    return presentation.Presentation.of(call, "font").assets.loadFont(call, asked, base, view) catch |err| call.raise("font {s}: {s}", .{ asked, problem(err) });
 }
 
 /// Where a script draws.
@@ -167,9 +191,10 @@ const default_colour: Colour = @splat(1);
 
 /// How a script's text is drawn.
 pub const TextStyle = struct {
-    /// Built-in name or a font filename in the calling mod.
+    /// One of the game's fonts, or a font file in the script's mod.
     font: ?[]const u8 = null,
-    /// Layout/fallback for a custom outline font.
+    /// The game's font that gives an outline font in the mod its spacing, and draws the characters
+    /// it doesn't have.
     base_font: Font = .default,
     /// Red, green and blue, each from 0 to 1.
     colour: Colour = default_colour,
@@ -372,7 +397,7 @@ pub fn Package(comptime which: Which) type {
         pub const picture = api.Function("Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.", &.{ "at", "file", "size", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), path: []const u8, size: ?@Vector(3, f32), given: ?FillStyle) void {
                 const scripts = presentation.Presentation.of(call, "picture");
-                const image = scripts.assets.loadPicture(call, path) catch |err| call.raise("picture {s}: {s}", .{ path, @errorName(err) });
+                const image = scripts.assets.loadPicture(call, path) catch |err| call.raise("picture {s}: {s}", .{ path, problem(err) });
                 const style = given orelse FillStyle{};
                 const extent: [2]f32 = if (size) |asked| .{ @max(asked[0], 0), @max(asked[1], 0) } else .{ @floatFromInt(image.width()), @floatFromInt(image.height()) };
                 scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .picture = .{ .image = image, .at = screenPoint(at), .size = extent, .colour = rgba(style.colour, style.alpha) } });

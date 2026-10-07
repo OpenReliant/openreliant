@@ -123,7 +123,7 @@ const codes = hud.cached_codes;
 
 /// The capitals used to fit an outline font's size, taking the first that both fonts have: letters
 /// that sit on the baseline and have a flat top at the capital height.
-const references = "HIEFLT";
+pub const references = "HIEFLT";
 
 /// The largest size an outline font is drawn at, in pixels per em, a limit for windows many times
 /// the size of the original screens.

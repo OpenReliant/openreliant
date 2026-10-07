@@ -488,6 +488,9 @@ fonts](../formats/fnt.md#outline-fonts)):
   font's. A mod's font takes priority over Newtown, and a `.fnt` file in a mod over both.
 - **Licence.** The font is distributed with the mod, so its licence must allow that.
 
+A script can also write text in a mod's font, over any of the game's fonts
+([Pictures, shapes and fonts](scripting.md#pictures-shapes-and-fonts)).
+
 The loadout's panels, which draw their text into their own pictures, and the flight display's small
 fonts, used for target ranges and the radio menu, still use their bitmaps
 ([#520](https://github.com/OpenReliant/openreliant/issues/520)).

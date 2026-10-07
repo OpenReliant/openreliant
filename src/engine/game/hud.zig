@@ -312,7 +312,7 @@ pub const Opened = struct {
     /// ink (`standIn`).
     own_colours: std.bit_set.Static(cached_codes) = .empty,
 
-    pub const Paint = enum {
+    pub const Paint = union(enum) {
         /// Through the font's palette, or else VFX's global one, as the display's text is.
         palette,
         /// As levels of one colour, as the pause menu's text is. Its bytes are coverage levels
@@ -328,6 +328,10 @@ pub const Opened = struct {
         ///
         /// **Fix:** OpenReliant leaves level 16 clear, as the front end draws it.
         ramp,
+        /// **Improvement:** in one colour, like `ramp`, for a font whose letters use the colours
+        /// of its palette. Each byte is as strong as the share of its colour in the font's ink
+        /// (`Ink`). Scripts write in the display's font this way, in the colour they give.
+        inked: outline.Cover,
     };
 
     /// Takes the widths out of `font`, as `font_open` does with `VFX_character_width`, and keeps
@@ -349,28 +353,56 @@ pub const Opened = struct {
         return opened;
     }
 
-    /// **Improvement:** the outline of `outlines` that stands in for the font `name`, where one
-    /// does. A font drawn through a palette has its edges fade into black, so its outline is
-    /// fitted by how far each colour comes towards its ink, the brightest colour its digits and
-    /// letters are drawn in, and its glyphs drawn in that ink; a glyph in any colour its digits and
-    /// letters aren't keeps its bitmap, as the display's glyphs of their own colours do.
+    /// `font` opened to be drawn in one colour, the colour of the text: as levels (`ramp`), or by
+    /// the share of each colour in its ink (`inked`) if most of its letters' and digits' pixels use
+    /// colours of its palette, as the display's font's do.
+    pub fn monochrome(font: fnt.Font) Opened {
+        var opened: Opened = .ramp(font);
+        const palette = font.palette orelse return opened;
+        if (!indexesPalette(font)) return opened;
+        const ink = Ink.of(font, palette) orelse return opened;
+        opened.paint = .{ .inked = ink.cover };
+        return opened;
+    }
+
+    /// `font` opened to be drawn the way `base` is, through its own palette only, since `base`'s
+    /// global palette may not live as long.
+    pub fn like(font: fnt.Font, base: Opened) Opened {
+        var opened: Opened = .open(font, null);
+        opened.paint = base.paint;
+        return opened;
+    }
+
+    /// **Improvement:** gives the font the outline from `outlines` that replaces the font `name`,
+    /// if there is one, fitted and drawn as `fitting` says.
     pub fn standIn(opened: *Opened, outlines: *outline.Outlines, name: []const u8) Allocator.Error!void {
-        const palette = opened.colours() orelse {
-            opened.outline = try outlines.of(name, opened.font, &outline.level_cover);
-            return;
-        };
-        const ink = Ink.of(opened.font, palette) orelse return;
+        const ink = opened.fitting() orelse return;
         opened.outline = try outlines.of(name, opened.font, &ink.cover) orelse return;
         opened.ink = ink.colour;
         opened.own_colours = ink.own_colours;
     }
 
+    /// How an outline font is fitted over it and drawn (`Ink`). Over a font drawn in one colour,
+    /// the outline is fitted by its levels and drawn in the text's colour. A font drawn
+    /// through a palette has edges that fade to black, so the outline is fitted by how close each
+    /// colour comes to its ink (the brightest colour of its letters and digits), and drawn in that
+    /// ink. A glyph in a colour that its letters and digits don't use keeps its bitmap, like the
+    /// display's glyphs that have colours of their own. Null for a font drawn through a palette
+    /// that it doesn't have, or whose letters and digits are all black.
+    pub fn fitting(opened: Opened) ?Ink {
+        return switch (opened.paint) {
+            .ramp => .{ .colour = null, .cover = outline.level_cover, .own_colours = .empty },
+            .inked => |cover| .{ .colour = null, .cover = cover, .own_colours = .empty },
+            .palette => .of(opened.font, opened.colours() orelse return null),
+        };
+    }
+
     /// The palette its glyphs' bytes index: its own, else VFX's global one; none for a font drawn
-    /// as levels of one colour.
+    /// in one colour.
     fn colours(opened: Opened) ?*const [spr.palette_size]u8 {
         return switch (opened.paint) {
             .palette => opened.font.palette orelse opened.global,
-            .ramp => null,
+            .ramp, .inked => null,
         };
     }
 
@@ -393,10 +425,10 @@ pub const Opened = struct {
     }
 };
 
-/// A font read whole, as `hog_load` reads one, and opened (`font_open`), its levels ramped through
-/// the colour it is drawn in (`Opened.ramp`), with the outline font that stands in for it where
-/// there is one (`outline.Outlines`): the front end's fonts, the pause menu's, the loading
-/// screens', the ITAC's, the CD player's and the simulator pod's.
+/// A font read whole, as `hog_load` reads one, and opened (`font_open`) to be drawn in the colour of
+/// its text (`Opened.monochrome`), with the outline font that replaces it, if there is one
+/// (`outline.Outlines`). These are the fonts of the front end, the pause menu, the loading screens,
+/// the ITAC, the CD player and the simulator pod, and the fonts scripts write in.
 pub const FontFile = struct {
     bytes: []u8,
     font: Opened,
@@ -405,7 +437,7 @@ pub const FontFile = struct {
     pub fn open(gpa: Allocator, archive: bigfile.Hog, name: []const u8, outlines: ?*outline.Outlines) !FontFile {
         const bytes = try archive.readFile(gpa, name);
         errdefer gpa.free(bytes);
-        var font: Opened = .ramp(try fnt.Font.parse(bytes));
+        var font: Opened = .monochrome(try fnt.Font.parse(bytes));
         if (outlines) |made| try font.standIn(made, name);
         return .{ .bytes = bytes, .font = font };
     }
@@ -875,8 +907,8 @@ fn drawPart(into: device.Device, image: *srtexture.Image, edges: Clip, u_in: [2]
 }
 
 /// A glyph as the GPU draws it: the font's palette, or the global one, looked up for each of its
-/// bytes, with index 0 left clear. Made the first time the glyph is drawn and kept for the rest of
-/// the run.
+/// bytes, or for a font drawn in one colour, its levels in grey, with index 0 left clear. Made the
+/// first time the glyph is drawn and kept for the rest of the run.
 fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtexture.Image {
     if (opened.images[code]) |*made| return made;
     const glyph = opened.font.glyph(code) orelse return null;
@@ -892,24 +924,28 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
             pixel[0..3].* = paletteColour(colours, index);
             pixel[3] = if (index == 0) 0 else 255;
         } else {
-            const grey = rampLevel(index);
+            const grey = switch (opened.paint) {
+                .inked => |cover| std.math.lossyCast(u8, @round(cover[index] * std.math.maxInt(u8))),
+                .ramp, .palette => rampLevel(index),
+            };
             @memset(pixel[0..3], grey);
             pixel[3] = if (grey == 0) 0 else 255;
         }
     }
     var image: srtexture.Image = try .single(gpa, glyph.width, opened.font.header.height, rgba);
-    // **Improvement:** the menus' text, magnified from its coverage (`srtexture.Image.Magnify`).
-    if (opened.paint == .ramp) image.magnify = .coverage;
+    // **Improvement:** text in one colour, such as the menus', magnified from its coverage
+    // (`srtexture.Image.Magnify`).
+    if (opened.paint != .palette) image.magnify = .coverage;
     opened.images[code] = image;
     return &opened.images[code].?;
 }
 
-/// What an outline font standing in for a font drawn through a palette is drawn by
-/// (`Opened.standIn`).
-const Ink = struct {
-    /// The brightest colour the font's digits and letters are drawn in.
-    colour: [3]u8,
-    /// How far each of the palette's colours comes towards it, as the bitmap's pixels cover.
+/// How an outline font is fitted over a bitmap font and drawn (`Opened.fitting`).
+pub const Ink = struct {
+    /// The brightest colour the font's digits and letters are drawn in; none for a font drawn in
+    /// levels of one colour, whose outline is drawn in the text's colour.
+    colour: ?[3]u8,
+    /// How much each byte of the bitmap covers a pixel: how close its colour comes to the ink.
     cover: outline.Cover,
     /// The codes drawn in colours its digits and letters aren't.
     own_colours: std.bit_set.Static(cached_codes),
@@ -956,7 +992,7 @@ test Ink {
     };
     const font: fnt.Font = try .parse(comptime outline.testing.fontInked(.{ 12, 9, 9 }, palette));
     const ink = Ink.of(font, font.palette.?).?;
-    try std.testing.expectEqual([3]u8{ 255, 97, 0 }, ink.colour);
+    try std.testing.expectEqual([3]u8{ 255, 97, 0 }, ink.colour.?);
     try std.testing.expectEqual(1, ink.cover[9]);
     try std.testing.expectEqual(0, ink.cover[0]);
     // The green comes a third of the way towards the orange.
@@ -964,6 +1000,90 @@ test Ink {
     try std.testing.expect(ink.own_colours.isSet('#') and !ink.own_colours.isSet('A'));
     // A font drawn all in black has none.
     try std.testing.expectEqual(null, Ink.of(font, &@as([spr.palette_size]u8, @splat(0))));
+}
+
+/// Whether most of the ink of `font`'s letters and digits uses bytes above the ramp's top, which
+/// index a palette rather than give levels of one colour. A font of levels can have a few such
+/// bytes (SMLFNT2.FNT does), which it draws as clear.
+fn indexesPalette(font: fnt.Font) bool {
+    var levels: usize = 0;
+    var colours: usize = 0;
+    for (outline.letters_and_digits) |code| {
+        const glyph = font.glyph(code) orelse continue;
+        for (glyph.pixels) |byte| switch (byte) {
+            0 => {},
+            1...ramp_top => levels += 1,
+            else => colours += 1,
+        };
+    }
+    return colours > levels;
+}
+
+test "Opened.fitting" {
+    // A font drawn in levels is fitted by its levels, even with a palette after it, as the menus' are.
+    const palette = comptime palette: {
+        var colours: [spr.palette_size]u8 = @splat(0);
+        colours[160 * 3 ..][0..3].* = .{ 0, 0x20, 0x3F };
+        break :palette colours;
+    };
+    const levels: Opened = .ramp(try .parse(comptime outline.testing.fontInked(.{ 12, 9, 9 }, palette)));
+    try std.testing.expectEqual(outline.level_cover, levels.fitting().?.cover);
+    try std.testing.expectEqual(null, levels.fitting().?.colour);
+    // A font drawn through its palette is fitted by its ink, and a copy of it drawn like it too.
+    const blue: Opened = .open(try .parse(comptime outline.testing.fontInked(.{ 160, 160, 160 }, palette)), null);
+    const copy: Opened = .like(blue.font, blue);
+    for ([_]Opened{ blue, copy }) |opened| {
+        const ink = opened.fitting().?;
+        try std.testing.expectEqual(1, ink.cover[160]);
+        try std.testing.expectEqual(0, ink.cover[9]);
+        try std.testing.expectEqual([3]u8{ 0, 130, 255 }, ink.colour.?);
+    }
+    // Without a palette, it can't be fitted.
+    const bare: Opened = .open(try .parse(comptime outline.testing.fontInked(.{ 160, 160, 160 }, null)), null);
+    try std.testing.expectEqual(null, bare.fitting());
+}
+
+test "Opened.monochrome" {
+    const palette = comptime palette: {
+        var colours: [spr.palette_size]u8 = @splat(0);
+        colours[160 * 3 ..][0..3].* = .{ 0, 0x20, 0x3F };
+        colours[161 * 3 ..][0..3].* = .{ 0, 0x10, 0x20 };
+        break :palette colours;
+    };
+    // Letters in palette colours are drawn by the share of each colour in the ink, and an outline
+    // is fitted over them by the same shares.
+    const blue: Opened = .monochrome(try .parse(comptime outline.testing.fontInked(.{ 12, 160, 160 }, palette)));
+    try std.testing.expectEqual(1, blue.paint.inked[160]);
+    try std.testing.expectApproxEqAbs(0.5, blue.paint.inked[161], 0.02);
+    try std.testing.expectEqual(blue.paint.inked, blue.fitting().?.cover);
+    try std.testing.expectEqual(null, blue.fitting().?.colour);
+    // Letters in levels are drawn in levels, even with a stray byte above the ramp's top, as
+    // SMLFNT2.FNT has.
+    const stray: fnt.Font = try .parse(comptime stray: {
+        var bytes = outline.testing.fontInked(.{ 12, 9, 9 }, palette)[0..].*;
+        bytes[std.mem.lastIndexOfScalar(u8, bytes[0 .. bytes.len - palette.len], 9).?] = ramp_top + 1;
+        const fixed = bytes;
+        break :stray &fixed;
+    });
+    try std.testing.expectEqual(.ramp, Opened.monochrome(stray).paint);
+    // So are letters in palette colours without a palette.
+    try std.testing.expectEqual(.ramp, Opened.monochrome(try .parse(comptime outline.testing.fontInked(.{ 12, 160, 160 }, null))).paint);
+}
+
+test "glyphImage of a font drawn in one colour" {
+    const gpa = std.testing.allocator;
+    const palette = comptime palette: {
+        var colours: [spr.palette_size]u8 = @splat(0);
+        colours[160 * 3 ..][0..3].* = .{ 0, 0x20, 0x3F };
+        break :palette colours;
+    };
+    var opened: Opened = .monochrome(try .parse(comptime outline.testing.fontInked(.{ 12, 160, 160 }, palette)));
+    defer opened.deinit(gpa);
+    const image = (try glyphImage(&opened, gpa, 'A')).?;
+    // A's box is full grey, opaque, in the middle, and clear in the corner.
+    const rgba = image.levels[0].texels;
+    try std.testing.expectEqualSlices(u8, &.{ 255, 255, 255, 255 }, rgba[(3 * 6 + 2) * 4 ..][0..4]);
+    try std.testing.expectEqual(0, rgba[3]);
 }
 
 /// Entry `index` of a font's `palette`, its 6-bit levels, as the sprites' palette holds them, made
