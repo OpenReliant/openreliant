@@ -57,7 +57,7 @@
 //!
 //! `itac`: the ITAC's tables: the shapes it lights under the pointer, the strings of each
 //! mission's debriefing by the rating its script gave it, its news items, its video reports, the
-//! fighters, squadrons and personnel of either side, and its KILLBOARD's pilots.
+//! fighters, capital ships, squadrons and personnel of either side, and its KILLBOARD's pilots.
 //!
 //! `sequences`: how each capital ship type that splits in two as its hull is destroyed does so.
 //!
@@ -314,7 +314,7 @@ fn objectiveTable(init: std.process.Init, arena: std.mem.Allocator, paths: @Fiel
 fn itacTables(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType(Mode, "itac")) !u8 {
     const tables = try itac.read(arena, try loadBinary(init, arena, paths.binary));
     try writeOutput(init, paths.output, itac.emit, .{tables});
-    std.debug.print("{d} lit shapes, {d} tables of debriefings, {d} news items, {d} video reports, {d} and {d} fighters, {d} and {d} squadrons, {d} and {d} personnel and {d} pilots -> {s}\n", .{ tables.lit_shapes.len, tables.debriefings.len, tables.news.len, tables.videos.len, tables.fighters[0].len, tables.fighters[1].len, tables.squadrons[0].len, tables.squadrons[1].len, tables.personnel[0].len, tables.personnel[1].len, tables.pilots.len, paths.output });
+    std.debug.print("{d} lit shapes, {d} tables of debriefings, {d} news items, {d} video reports, {d} and {d} fighters, {d} and {d} capital ships, {d} and {d} squadrons, {d} and {d} personnel and {d} pilots -> {s}\n", .{ tables.lit_shapes.len, tables.debriefings.len, tables.news.len, tables.videos.len, tables.fighters[0].len, tables.fighters[1].len, tables.ships[0].len, tables.ships[1].len, tables.squadrons[0].len, tables.squadrons[1].len, tables.personnel[0].len, tables.personnel[1].len, tables.pilots.len, paths.output });
     return 0;
 }
 

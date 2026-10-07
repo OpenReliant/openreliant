@@ -118,14 +118,7 @@ pub const NewsReports = struct {
             news.box.scroll = ScrollBox.top;
             news.build(itac, false);
         }
-        if (itac.arrowPressed(&list_arrows)) |arrow| {
-            if (arrow == 0) {
-                news.first = @min(news.first + 1, news.lastFirst());
-            } else {
-                news.first -|= 1;
-            }
-            news.layOut(itac);
-        }
+        if (itac.listStepped(&list_arrows, &news.first, news.lastFirst())) news.layOut(itac);
         news.box.update(itac.ticks, itac.pointer);
     }
 

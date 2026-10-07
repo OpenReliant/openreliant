@@ -12,24 +12,24 @@ picture of its own that its text is written on; the last button closes it. Its s
 [`game/itac.zig`](../../src/engine/game/itac.zig) runs the ITAC. Its sections are DEBRIEFINGS
 ([`game/itac/debriefing.zig`](../../src/engine/game/itac/debriefing.zig)), NEWS REPORTS
 ([`game/itac/news_reports.zig`](../../src/engine/game/itac/news_reports.zig)), VIDEO REPORTS
-([`game/videoreports.zig`](../../src/engine/game/videoreports.zig)), the fighters, squadrons and
-personnel of either side ([`game/itac/fighters.zig`](../../src/engine/game/itac/fighters.zig),
+([`game/videoreports.zig`](../../src/engine/game/videoreports.zig)), the fighters, capital ships,
+squadrons and personnel of either side
+([`game/itac/fighters.zig`](../../src/engine/game/itac/fighters.zig),
+[`game/itac/ships.zig`](../../src/engine/game/itac/ships.zig),
 [`game/itac/squadrons.zig`](../../src/engine/game/itac/squadrons.zig),
 [`game/itac/personnel.zig`](../../src/engine/game/itac/personnel.zig)) and the KILLBOARD
 ([`game/itac/killboard.zig`](../../src/engine/game/itac/killboard.zig)), and
 [`game/itac/tooltips.zig`](../../src/engine/game/itac/tooltips.zig) holds the buttons' tooltips. The
-lit shapes, the debriefings' texts, the news items, the video reports, the fighters, squadrons and
-personnel, and the KILLBOARD's pilots are in
+lit shapes, the debriefings' texts, the news items, the video reports, the fighters, capital ships,
+squadrons and personnel, and the KILLBOARD's pilots are in
 [`game/itac/tables.zig`](../../src/engine/game/itac/tables.zig), which `make itac-tables` derives
 from the executable. The driver runs the loop
 (`Driver.itac` in [`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), from the rooms and
 after each mission of the campaign.
 
-Ported so far: the ITAC's loop, with its movies, its sections' pictures and titles, the fades of
-their text, the panes their text wipes in by, the lit shapes, the pointer, the sounds and the
-buttons' tooltips; and every section but one. Not yet: the capital ships of either side, which show
-their picture with nothing written on it
-([#464](https://github.com/OpenReliant/openreliant/issues/464)).
+OpenReliant ports the whole ITAC: its loop, with its movies, its sections' pictures and titles, the
+fades of their text, the panes their text wipes in by, the lit shapes, the pointer, the sounds and
+the buttons' tooltips, and every section.
 
 **Fixes:**
 
@@ -52,6 +52,9 @@ their picture with nothing written on it
 - VIDEO REPORTS draws a still, 116 by 90, into a buffer a column wider and a row taller that it never
   clears, so that the film strip's frames show what the memory held down their right edge and
   along their foot. OpenReliant shows black there.
+- The capital ships' second text arrow stands at (349, 204), overlapping the first, which wins where
+  they overlap. So the right 10 pixels of the second arrow light up but don't scroll the text.
+  OpenReliant moves it to (359, 204), where it covers the arrow that lights up.
 - The squadrons draw the picture of the record at the chosen squadron's place in the whole table,
   so that past a squadron the Alliance's list leaves out, each shows the picture of one before it.
   OpenReliant draws the chosen squadron's.
@@ -268,6 +271,28 @@ ships' stats, as the loadout does ([The loadout](loadout.md)).
 | Figures | (33, 252), 200 by 138, values right-aligned at x 232 |
 | Armament | (253, 252), 207 by 138, values right-aligned at x 452 |
 | List | (474, 146), 146 by 218, the names from x 484, 126 wide |
+
+## The capital ships
+
+ALLIANCE SHIPS and COALITION SHIPS list every capital ship of the side (`0x004E42C0`, 21 records,
+then 27).
+
+- The name, in capitals, in (58, 209, 255), then Commissioned, Type, Displacement, Propulsion,
+  Spacecraft, Armament and Crew, 15 apart.
+- The picture of `inter\itac\capships.spr` at (57, 234), fading with the section, with the palette of
+  the last block of the file's before its shape: every third block, from 0 to 54, is a palette.
+- PROFILE, over the description, which its arrows scroll. The Reliant's and the Yamato's continue in
+  a second string each (`0x004241F8`). "(more)" marks a description that runs past its box.
+- The list of the names, down to the foot of its pane, with arrows on either side that step it on,
+  no further than to leave 13 showing, and back. A press on a name chooses it.
+
+| What | Where |
+|---|---|
+| Name and figures | (33, 80), 200 by 138, values right-aligned at x 232 |
+| PROFILE | (255, 81), 215 by 24 |
+| Description | (255, 103), 207 by 88, scrolled in a box 94 high from y 88; arrows at (332, 204) and (359, 204), 27 by 27 |
+| "(more)" | Right edge at (462, 187) |
+| List | (474, 140), 146 by 220, the names from x 484, 126 wide; arrows at (514, 367) and (541, 367), 27 by 27 |
 
 ## The squadrons
 

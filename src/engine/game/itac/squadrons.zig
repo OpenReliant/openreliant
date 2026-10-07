@@ -53,9 +53,8 @@ const row_height = 28;
 const value_x = 177;
 const labels = [_]u16{ 0x3C, 0x8F, 0x90, 0x20D };
 
-/// PROFILE, over the history (`0x00450201`).
-const heading_string = 0x87;
-const heading_at: [2]i32 = .{ 2, 2 };
+/// Where PROFILE stands over the history (`0x00450201`).
+const profile_at: [2]i32 = .{ 2, 2 };
 
 /// The text box of the history, with its arrows (`0x004EBCF0`), where "(more)" hangs from
 /// (`0x0044FAA0`).
@@ -157,14 +156,7 @@ pub const Squadrons = struct {
             squadrons.box.scroll = chosen_scroll;
             squadrons.build(itac, false);
         }
-        if (itac.side == .alliance) if (itac.arrowPressed(&list_arrows)) |arrow| {
-            if (arrow == 0) {
-                squadrons.first = @min(squadrons.first + 1, squadrons.item_count -| shown_at_least);
-            } else {
-                squadrons.first -|= 1;
-            }
-            squadrons.layOut(itac);
-        };
+        if (itac.side == .alliance and itac.listStepped(&list_arrows, &squadrons.first, squadrons.item_count -| shown_at_least)) squadrons.layOut(itac);
         if (itac.sidePressed(&side_buttons)) {
             squadrons.selected = 0;
             squadrons.first = 0;
@@ -244,7 +236,7 @@ pub const Squadrons = struct {
                 try rows.value(y, itac.string(value));
             }
         }
-        if (itac.panes[heading].showing()) |shown| try canvas.within(shown).text(font, .{ heading_pane.x + heading_at[0], heading_pane.y + heading_at[1] }, itac.string(heading_string), itac_module.label_colour, .left);
+        if (itac.panes[heading].showing()) |shown| try itac.writeProfile(canvas, font, heading_pane, shown, profile_at);
         if (itac.panes[body].showing()) |shown| try squadrons.box.drawText(canvas, font, body_pane, shown, squadrons.bodyText());
         if (itac.panes[list].showing()) |shown| try title_list.write(itac, canvas, shown, squadrons.titles[0..squadrons.item_count], squadrons.listed[0..squadrons.listed_count], squadrons.selected);
     }

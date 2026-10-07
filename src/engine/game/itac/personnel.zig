@@ -55,10 +55,9 @@ const nationality_label = 0x3DC;
 const ship_label = 0x3DD;
 const call_sign_label = 0x3DE;
 
-/// PROFILE, over the profile, and the headings of its parts, each on a line of its own above it
-/// (`0x0044ED00`).
-const heading_string = 0x87;
-const heading_at: [2]i32 = .{ 1, 1 };
+/// Where PROFILE stands over the profile, and the headings of its parts, each on a line of its own
+/// above it (`0x0044ED00`).
+const profile_at: [2]i32 = .{ 1, 1 };
 const part_headings = [_]u16{ 0x3E0, 0x3E1, 0x3E2 };
 const below_heading = "\n";
 
@@ -139,14 +138,7 @@ pub const Personnel = struct {
             people.box.scroll = ScrollBox.top;
             people.build(itac, false);
         }
-        if (itac.side == .alliance) if (itac.arrowPressed(&list_arrows)) |arrow| {
-            if (arrow == 0) {
-                people.first = @min(people.first + 1, sidePeople(itac).len -| shown_at_least);
-            } else {
-                people.first -|= 1;
-            }
-            people.layOut(itac);
-        };
+        if (itac.side == .alliance and itac.listStepped(&list_arrows, &people.first, sidePeople(itac).len -| shown_at_least)) people.layOut(itac);
         people.box.update(itac.ticks, itac.pointer);
     }
 
@@ -231,7 +223,7 @@ pub const Personnel = struct {
                 y += row_height;
             }
         }
-        if (itac.panes[heading].showing()) |shown| try canvas.within(shown).text(font, .{ heading_pane.x + heading_at[0], heading_pane.y + heading_at[1] }, itac.string(heading_string), itac_module.label_colour, .left);
+        if (itac.panes[heading].showing()) |shown| try itac.writeProfile(canvas, font, heading_pane, shown, profile_at);
         if (itac.panes[body].showing()) |shown| try people.box.drawText(canvas, font, body_pane, shown, people.bodyText());
         if (itac.panes[list].showing()) |shown| try title_list.write(itac, canvas, shown, people.titles[0..sidePeople(itac).len], people.listed[0..people.listed_count], people.selected);
     }

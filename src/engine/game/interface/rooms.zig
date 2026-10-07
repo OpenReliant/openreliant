@@ -1171,7 +1171,7 @@ pub const testing = struct {
             @memcpy(members[names.len..][0..others.len], others);
             try bigfile.testing.write(gpa, io, tested.tmp.dir, "CD2.HOG", members[0 .. names.len + others.len]);
             // The pointer's shapes, which don't parse, and so are left out, and `resources`.
-            var resource_members: [12]hog.Member = undefined;
+            var resource_members: [16]hog.Member = undefined;
             resource_members[0] = .{ .name = "vrgfx.spr", .data = "x" };
             @memcpy(resource_members[1..][0..resources.len], resources);
             try bigfile.testing.write(gpa, io, tested.tmp.dir, bigfile.resource_name, resource_members[0 .. resources.len + 1]);

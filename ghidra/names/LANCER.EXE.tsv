@@ -2823,6 +2823,28 @@ address	kind	name	type	comment
 004e96c8	data	itac_button_sides	short[2]	The side each of a sided section's two buttons shows: 0 the Alliance, 1 the Coalition
 004e96cc	data	itac_side_emblem_x	short[2]	Where each side's emblem stands across: 551 and 478
 004e96d0	data	itac_side_emblem_y	short[2]	Where each side's emblem stands down: 59
+00423870	function	ships_enter	void (void)	The capital ships of either side opened, the ITAC's section 4: the first chosen, the list from its first, itac_text_top 0, the description's box (ships_box: pane 2, arrows at ships_text_arrows, at (255, 88), 207 by 94, at scroll 0, text drawn by ships_text_draw), inter\itac\capships.spr read into ships_pictures, and the Alliance's listed (ships_list_build)
+00423910	function	ships_leave	void (void)	The capital ships left: frees ships_pictures, where ships_open
+00423930	function	ships_update	void (void)	The capital ships each pass: builds where itac_rebuild asks; a press on the other side's button at ships_side_buttons plays sound 8, lists that side from its first with the first chosen and the description at scroll 0, and builds again; a press on another listed ship chooses it, its description at scroll 0, and builds again, holding the ITAC (itac_pause); on either side the list's arrows at ships_list_arrows step it on, no further than to leave 13, and back (itac_repeat); then the description scrolls (itac_scroll_text_update)
+00423ac0	function	ships_draw	void (float fade)	The capital ships drawn, while ships_open: the chosen ship's picture of ships_pictures at (57, 234) with the palette of the last block before its shape, every third from 0 to 54, at fade, where it has one; a shape that is a palette's block or past 56 would take the bits of fade as its palette's block; the side's emblem; then the panes (itac_panes_draw)
+00423cb0	function	ships_build	void __fastcall (char wipe)	The capital ships' panes built for the ship chosen, after the text sound: the description (ships_text_draw); panes 1 and 2 wiping in at (255, 81), 215 by 24, and (255, 103), 207 by 88; in pane 0 at (33, 80), 200 by 138, the name in capitals (CharUpperBuffA) at (2, 2), then Commissioned, Type, Displacement, Propulsion, Spacecraft, Armament and Crew from y 24, 15 apart, values right-aligned at x 199; the list (ships_list_draw); and where wipe, the list's pane wiping in at (474, 140), 146 by 220
+00424130	function	ships_text_draw	void (void)	PROFILE in pane 1 at (2, 2), and the chosen ship's description into its box, the Reliant's (string 0x578) and the Yamato's (0x5A8) with strings 0x78D and 0x78A after them in itac_text (itac_scroll_text_draw)
+004242e0	function	ships_list_draw	void (void)	The capital ships' list from ships_list_first into pane 3: each name broken into lines of 126 at most, 11 apart, from (10, 2), 6 below the last, until one ends past 210, the chosen in (58, 209, 255) and the rest in (255, 146, 58); each a hotspot at x 474, 140 wide and 4 taller than its lines
+00424410	function	ships_list_build	void __fastcall (short side)	Links onto ships_list every capital ship of side: ships_alliance for the Alliance, ships_coalition for the Coalition
+004e42c0	data	ships_alliance	byte[672]	The Alliance's 21 capital ships of 0x20 bytes: the links ships_list threads them on, then the strings of the name, when it was commissioned, the type, displacement, propulsion, spacecraft and armament, the crew, the description's string and the picture's shape
+004e4560	data	ships_coalition	byte[864]	The Coalition's 27 capital ships, laid out as ships_alliance's
+004e48c0	data	ships_list_arrows	short[8]	The capital ships' list's two arrows, each x, y, width and height
+004e48d0	data	ships_text_arrows	short[8]	The capital ships' description's two arrows, each x, y, width and height; the second overlaps the first
+004e48e0	data	ships_side_buttons	short[8]	The capital ships' two buttons that choose the side, the Alliance's at x 551 and the Coalition's at x 478, each x, y, width and height
+004e48f0	data	ships_pictures_name	char[24]	inter\itac\capships.spr, the capital ships' pictures
+0051d238	data	ships_list_first	int	The place of the first capital ship the list shows
+0051d23c	data	ships_selected	int	The capital ship chosen, by its place in ships_list
+0051d240	data	ships_box	byte[36]	The capital ships' description's scrolling box
+0051d264	data	ships_pictures	void *	inter\itac\capships.spr, while the capital ships are open
+0051d268	data	ships_hotspots	short[52]	The capital ships' listed hotspots, each x, y, width and height
+0051d2d0	data	ships_hotspot_count	int	How many of ships_hotspots the list has laid out
+0051d2d4	data	ships_list	void *	The side's capital ships listed, threaded on their own links (ships_list_build)
+0051d2d8	data	ships_open	byte	Set while the capital ships are open, their pictures read
 0044faa0	function	squadrons_enter	void (void)	The squadrons of either side opened, the ITAC's section 5: the first chosen, the list from its first, the history's box (squadrons_box: pane 1, arrows at squadrons_text_arrows, at (235, 82), 229 by 116, text drawn by squadrons_text_draw), the Alliance's listed (squadrons_list_build), and inter\itac\squads.spr read into squadrons_pictures
 0044fb40	function	squadrons_leave	void (void)	The squadrons left: frees squadrons_pictures, where squadrons_open
 0044fb60	function	squadrons_loaded	void (void)	The squadrons loaded: the Alliance's side, a rebuild asked for, and the panes cleared (itac_panes_reset)

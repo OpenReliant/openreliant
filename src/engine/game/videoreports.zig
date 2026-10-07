@@ -137,14 +137,7 @@ pub const VideoReports = struct {
             video.box.scroll = ScrollBox.top;
             video.build(itac, false);
         }
-        if (itac.arrowPressed(&list_arrows)) |arrow| {
-            if (arrow == 0) {
-                video.first = @min(video.first + 1, video.lastFirst());
-            } else {
-                video.first -|= 1;
-            }
-            video.layOut(itac);
-        }
+        if (itac.listStepped(&list_arrows, &video.first, video.lastFirst())) video.layOut(itac);
         if (itac.left and play_button.holds(itac.pointer.at)) itac.report = video.chosen();
         video.box.update(itac.ticks, itac.pointer);
     }
