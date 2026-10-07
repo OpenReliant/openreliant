@@ -105,6 +105,7 @@ Author=Someone
 Description=The Coyote, remodelled.
 Url=https://example.com/coyote-hd
 OpenReliant=0.7
+Requires=coyote-models
 ```
 
 | Key | What it is |
@@ -113,6 +114,7 @@ OpenReliant=0.7
 | `Version`, `Author`, `Description` | What the mods screen says about the mod |
 | `Url` | The mod's web page, where players can find it and its updates |
 | `OpenReliant` | The version of OpenReliant the mod needs, such as `0.7`. An older OpenReliant skips the mod and says so in the log, and the mods screen leaves it out |
+| `Requires` | The mods it needs, by their names in the `mods` folder, without `.hog`, separated by commas. The mod loads only if each of them is on and loads before it; otherwise it's left out, the log says so, and the mods screen lists it in red with the mod it needs |
 
 The manifest's other sections list what the mod runs and adds:
 
@@ -152,8 +154,10 @@ again, to find mods you've added or removed while the screen is open.
   its storage file, `storage\<mod>.data`.
 - The changes take effect the next time OpenReliant starts. RESTART TO APPLY shows while the screen's
   list differs from what's loaded.
-- The panel shows the mod's thumbnail ([The thumbnail](#the-thumbnail)). A damaged archive
-  ([Checksums](#checksums)) is listed in red.
+- The panel shows the mod's thumbnail ([The thumbnail](#the-thumbnail)), the mods whose files it
+  replaces (REPLACES FILES OF), and the mods below it that replace its own (FILES REPLACED BY).
+- A mod that won't load is listed in red, and the panel says why: a damaged archive
+  ([Checksums](#checksums)), or a mod it needs (`Requires`) that is missing, off, or below it.
 
 The screen keeps the order and which mods are off in `starlancer.ini` in the game's folder, in its
 own section, one line for each mod: the mod's name in the `mods` folder, and 1 if it's on or 0 if
@@ -1111,6 +1115,7 @@ A script's messages and errors follow its mod's name, as above;
 | `skipping <mod>/<file>: a mod's files must be directly in its folder` | Move the file out of its subfolder |
 | `skipping <mod>/<file>: file names must be printable ASCII, like archive member names` | Rename the file |
 | `skipping the mod <mod>: it needs OpenReliant <version>, and this is <version>` | Update OpenReliant, or check the mod's `OpenReliant=` ([The manifest](#the-manifest)) |
+| `skipping the mod <mod>: it needs the mod <name>, which doesn't load before it` | Add that mod, turn it on, or move it above this one on the mods screen ([The manifest](#the-manifest)) |
 | `skipping the mod <archive>: checking <file> failed: ...` | The archive doesn't match its checksum: download it again, or pack it again with `--checksum` ([Checksums](#checksums)) |
 | `<mod>: mod.ini: the <kind> '<name>' ...` | The entry the message names, and what it says is wrong ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)) |
 | `skipping the picture that replaces <name>: it's <size>, and the original is <size>` | That picture must keep the original's size ([Pictures](#pictures)) |

@@ -108,8 +108,6 @@ These are planned, each in an issue of the
   ([#509](https://github.com/OpenReliant/openreliant/issues/509))
 - Outline fonts for the loadout panels' text and the flight display's small fonts
   ([#520](https://github.com/OpenReliant/openreliant/issues/520))
-- A mod manager, to import, order and configure mods
-  ([#497](https://github.com/OpenReliant/openreliant/issues/497))
 - The game's models exported with all their detail levels and parts
   ([#697](https://github.com/OpenReliant/openreliant/issues/697))
 - A mission source format, and a visual mission and script builder

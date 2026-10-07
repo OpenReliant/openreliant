@@ -314,16 +314,14 @@ Not ported: 3D RENDER MODE, which OpenReliant has no Direct3D devices for.
 **Improvement:** the original can't load mods. GAME OPTIONS' MODS button opens OpenReliant's mods screen ([`mod_manager.zig`](../../src/engine/game/interface/mod_manager.zig), [#497](https://github.com/OpenReliant/openreliant/issues/497)) after `interface\optfade.bik`, on the settings screen's shapes and background (`interface\frntend5.spr`, `interface\optfade.tga`), laid out as its controls tab is:
 
 - MODS, in white, centred on (320, 95), where the settings screen has its tabs.
-- A framed list of the mods in the `mods` folder, from (45, 136), 324 by 250, with nine rows 26 pixels apart. Each row is a check box, ticked while the mod is on, and the mod's name and version from its manifest, or its folder name if it has none. The chosen row's name is white, a mod that is off is dim. The lists' arrows right of the frame scroll it, as the mouse wheel and the Up and Down keys do.
-- A framed panel from (401, 136), 195 by 250, with the chosen mod's name, version, author, description, the number of files it replaces or adds and of scripts it has, and its page.
+- A framed list of the mods in the `mods` folder, from (45, 136), 324 by 250, with nine rows 26 pixels apart. Each row is a check box, ticked while the mod is on, and the mod's name and version from its manifest, or its folder name if it has none. The chosen row's name is white, a mod that is on but doesn't load is red, and a mod that is off is dim. The lists' arrows right of the frame scroll it, as the mouse wheel and the Up and Down keys do.
+- A framed panel from (401, 136), 195 by 250, with the chosen mod's thumbnail where it has one, fitted to a box 175 by 70 at its top; its name, version, author, description and page; the mods whose files it replaces (REPLACES FILES OF) and the mods below it that replace its own (FILES REPLACED BY), each up to two lines; and in red why it doesn't load: an archive that doesn't match its checksum file, or a mod it needs that is missing, off, or below it. The description takes the lines the rest leaves.
 - A gold box of up and down arrows (shape `0x2A`, lit with `0x2B` and `0x27`) at the foot of the gap between the frames, which moves the chosen mod up or down the order.
 - The settings screen's buttons: OK and MAIN MENU in the left column, and in the right column REFRESH, where RESET DEFAULTS stands on the settings screen, and CANCEL CHANGES. REFRESH reads the `mods` folder again, to find mods added or removed since OpenReliant started, and keeps the chosen mod chosen. CANCEL CHANGES puts the mods back as they were when the screen opened, or at the last REFRESH. OK and Escape end the screen, back to GAME OPTIONS.
 - OPTIONS, in the foot of the panel, where the chosen mod's scripts offer a page of options ([The mod's options](#the-mods-options)). It is a button of the settings screen's shapes (`0x28`, lit `0x29`) with its label right of it.
-- RESTART TO APPLY, in gold over the right frame, while the mods that are on, in their order, differ from the ones OpenReliant started with.
+- RESTART TO APPLY, in gold over the right frame, while the mods that load, in their order, differ from the ones OpenReliant started with.
 
 Each change is written to `starlancer.ini` at once, in the section `[OpenReliantMods]` ([Load order](../guide/modding.md#load-order)), and takes effect at the next start. A mod whose folder name can't be a key of the settings file (it has an equals sign, starts with a bracket or has spaces at either end) stays on, in name order after the mods the list names. The screen lists at most 255 mods. It stays shut with `--no-mods`.
-
-Not ported: a mod's thumbnail and its conflicts ([#497](https://github.com/OpenReliant/openreliant/issues/497)).
 
 ## The mod's options
 
