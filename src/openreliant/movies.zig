@@ -191,17 +191,21 @@ pub const Movies = struct {
         movies.disc.open(ending.Movies.source);
         _ = try movies.play(ending.Movies.first, .cleared_from_disc) orelse return false;
         if (!try movies.newsReports(played.reports.slice())) return false;
-        return movies.newsReports(&.{ending.Movies.last});
+        return movies.afterTransition(ending.Movies.last);
     }
 
-    /// News reports, over the screen from the disc's archive open, each after the news'
-    /// transition. False where the window was closed meanwhile.
+    /// News reports, each after the news' transition (`afterTransition`). False where the window
+    /// was closed meanwhile.
     fn newsReports(movies: *Movies, reports: []const []const u8) !bool {
-        for (reports) |report| {
-            _ = try movies.play(landing.news_transition, .over_screen_from_disc) orelse return false;
-            _ = try movies.play(report, .over_screen_from_disc) orelse return false;
-        }
+        for (reports) |report| if (!try movies.afterTransition(report)) return false;
         return true;
+    }
+
+    /// The news' transition, then the movie `name`, both over the screen from the disc's archive
+    /// open. False where the window was closed meanwhile.
+    fn afterTransition(movies: *Movies, name: []const u8) !bool {
+        _ = try movies.play(landing.news_transition, .over_screen_from_disc) orelse return false;
+        return try movies.play(name, .over_screen_from_disc) != null;
     }
 };
 

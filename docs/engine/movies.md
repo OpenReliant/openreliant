@@ -182,10 +182,10 @@ As mission 28 is won, the campaign moves on to mission 29, the story's end. `Win
 Then `WinMain` puts the campaign back at mission 1 (`0x004AA6FC`) and goes back to the main menu.
 
 The credits show eight pages over `credits.spr`'s pictures, to `music\new_sim07.wav` played over
-and over at 127. Each page is a picture drawn through its own palette, and the developers' names,
+and over at level 127. Each page is a picture drawn through its own palette, and the developers' names,
 strings of the game's, in the menus' small font: the headings orange (`0xFF7E00`), the names white,
 each at its place or centred across the screen (`credits_lines`, `0x0050A180`). A page fades in by
-0.03 at a time, up to full, and stands until 750 game ticks have passed since it began; it then
+0.03 at a time, up to full, and stays until 750 game ticks have passed since it began; it then
 fades out by 0.03 at a time over 150 ticks, the palette and the text alike (`credits_brightness`,
 `0x005D6B34`), and gives way to the next. Escape ends the credits. Then the music fades out by 15
 every five ticks (`music_fade_out`), and the credits end once it has stopped.

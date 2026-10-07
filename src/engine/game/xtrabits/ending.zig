@@ -38,9 +38,9 @@ pub fn movies(variables: *const vm.Variables) Movies {
     return .{ .reports = reports };
 }
 
-/// What the credits are drawn with (`0x0050A7EC`), beside the menus' small font, and the music they
-/// play to, over and over at 127 (`music_play`, `0x0050A7D8`). As they end, the music fades out by
-/// `music_fade_step` (`music_fade_out`), and they wait for it to stop.
+/// The credits' pictures (`0x0050A7EC`) and their music (`0x0050A7D8`), which plays over and over
+/// at level 127 (`music_play`). As the credits end, the music fades out by `music_fade_step`
+/// (`music_fade_out`), and they wait for it to stop. Their text is in the menus' small font.
 pub const shapes_name = "credits.spr";
 pub const music_name = "music\\new_sim07.wav";
 pub const music_level = 0x7F;
@@ -49,8 +49,8 @@ pub const music_fade_step = 15;
 /// How many pages the credits show.
 const page_count = 8;
 
-/// How long a page stands, faded in, and how long it takes to fade out, in game ticks
-/// (`0x004AC874`, `0x004AC8C7`).
+/// How long a page shows from when it starts to fade in, and how long it takes to fade out, in game
+/// ticks (`0x004AC874`, `0x004AC8C7`).
 const standing_ticks = 750;
 const fading_ticks = 150;
 
@@ -74,12 +74,14 @@ const Colour = enum {
     white,
 
     fn rgb(colour: Colour) [3]f32 {
-        return hud.rgb(switch (colour) {
-            .orange => 0xFF7E00,
-            .white => 0xFFFFFF,
-        });
+        return switch (colour) {
+            .orange => orange,
+            .white => canvas_module.white,
+        };
     }
 };
+
+const orange = hud.rgb(0xFF7E00);
 
 /// A line of the credits: a string of the game's, where it stands, and its colour. A line at x 0
 /// is centred across the screen (`0x004ACB2A`).
@@ -98,8 +100,8 @@ const Line = struct {
     }
 };
 
-/// Where a centred line stands across the screen (`0x004ACB52`).
-const centre_x = 320;
+/// Where a centred line stands across the screen: its middle (`0x004ACB52`).
+const centre_x = canvas_module.size[0] / 2;
 
 /// Each page's lines (`credits_lines`, `0x0050A180`, counted at `0x0050A170`).
 const pages = [page_count][]const Line{
@@ -291,8 +293,8 @@ const pages = [page_count][]const Line{
     },
 };
 
-/// The credits as they play: 16 steps, each page fading in and standing on one, and fading out on
-/// the next (`0x004AC8A0` on).
+/// The credits as they play, in 16 steps (`0x004AC8A0` on): on each even step a page fades in and
+/// stays, and on each odd step it fades out.
 pub const Credits = struct {
     step: u8 = 0,
     /// How bright the page is drawn (`credits_brightness`, `0x005D6B34`).
@@ -310,8 +312,8 @@ pub const Credits = struct {
     }
 
     /// A pass of the credits' loop at game tick `now`: false once they're over, after the last page
-    /// has faded out or Escape was pressed. A page fades in until its time is up, then fades out
-    /// over `fading_ticks` and gives way to the next.
+    /// has faded out or Escape was pressed. A page fades in and stays until its time is up, then
+    /// fades out over `fading_ticks` and gives way to the next.
     pub fn frame(credits: *Credits, keyboard: *input.Keyboard, now: u32) bool {
         if (credits.step >= steps) return false;
         const escaped = keyboard.pressed(input.scan.escape, .none, true);
