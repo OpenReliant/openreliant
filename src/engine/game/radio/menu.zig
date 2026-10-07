@@ -483,26 +483,28 @@ pub const Shown = struct {
     font: *hud.Opened,
 };
 
-/// Where the menu stands from the window's place (`hud_window_draw`, `0x00486E74`), how far its
-/// first item stands below it and each from the one before (`0x00453AA2`, `0x00453AC1`), and how
-/// far an item's words stand from its number (`0x00453B30`).
-const menu_at = [2]i32{ 2, 2 };
+/// Where the menu stands from the window's place: in the radio's menu's window, 11
+/// (`hud_window_draw`, `0x00486E74`), and in window 14, which shows it too (`0x0048801A`). Then how
+/// far its first item stands below it and each from the one before (`0x00453AA2`, `0x00453AC1`),
+/// and how far an item's words stand from its number (`0x00453B30`).
+pub const window_at = [2]i32{ 2, 2 };
+pub const other_window_at = [2]i32{ 0xF, 0x15 };
 const items_below = 0x18;
 const item_height = 0xC;
 const words_across = 0xD;
 
-/// Where item `index` of the page stands.
-fn itemAt(index: usize) [2]i32 {
+/// Where item `index` of the page stands, the menu standing at `menu_at`.
+fn itemAt(menu_at: [2]i32, index: usize) [2]i32 {
     return .{ menu_at[0], menu_at[1] + items_below + @as(i32, @intCast(index)) * item_height };
 }
 
-/// `0x00453A70`, the radio's window's contents in the view ahead: COMMS in the display's font,
-/// and below it each item of the page in `newfont.fnt`, its number, 1 the first, and what it says
-/// (`0x00453AD0`).
-pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!void {
+/// `comms_menu_draw` (`0x00453A70`), a window's contents from `menu_at`: COMMS in the display's
+/// font, and below it each item of the page in `newfont.fnt`, its number, 1 the first, and what it
+/// says (`0x00453AD0`).
+pub fn draw(shown: Shown, canvas: hud.windows.Canvas, menu_at: [2]i32) hud.windows.Canvas.Error!void {
     try canvas.string(strings.title, menu_at, .left);
     for (shown.menu.shown(), 0..) |item, index| {
-        const at = itemAt(index);
+        const at = itemAt(menu_at, index);
         try canvas.printIn(shown.font, "{d}.", .{index + 1}, at, .left);
         var buffer: [Label.room]u8 = undefined;
         try canvas.textIn(shown.font, item.label.words(canvas.pen.strings, &buffer), .{ at[0] + words_across, at[1] }, .left);
@@ -523,8 +525,9 @@ test "Label.words" {
 }
 
 test itemAt {
-    try std.testing.expectEqual([2]i32{ 2, 26 }, itemAt(0));
-    try std.testing.expectEqual([2]i32{ 2, 50 }, itemAt(2));
+    try std.testing.expectEqual([2]i32{ 2, 26 }, itemAt(window_at, 0));
+    try std.testing.expectEqual([2]i32{ 2, 50 }, itemAt(window_at, 2));
+    try std.testing.expectEqual([2]i32{ 0xF, 0x15 + 0x18 }, itemAt(other_window_at, 0));
 }
 
 test condition {
