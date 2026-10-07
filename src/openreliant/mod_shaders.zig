@@ -3,8 +3,7 @@
 //! and lighting functions (`scripting.shaders`). It compiles their shaders, or reads them from the
 //! shader cache (`platform.shader_cache`), and adds them to the GPU: the post effects as passes
 //! (`platform.gpu.effects`), and the functions as variants of the device's fragment shader
-//! (`platform.gpu.variants`). Shaders draw on the GPU only: with the software device the scripts
-//! have no host, and their shaders draw nothing.
+//! (`platform.gpu.variants`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -18,13 +17,12 @@ const postprocessing = scripting.postprocessing;
 const shaders = scripting.shaders;
 const openreliant = @import("openreliant");
 const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
-const Screen = @import("presenter.zig").Screen;
 
 const log = std.log.scoped(.shaders);
 
 pub const ModShaders = struct {
     gpa: Allocator,
-    screen: *Screen,
+    gpu: *platform.gpu.Gpu,
     /// The compiled shaders kept in the game folder.
     cache: platform.shader_cache.Cache,
     /// The scripts that register the shaders, if any run.
@@ -75,7 +73,7 @@ pub const ModShaders = struct {
     /// so that their shaders compile and draw. Does nothing without scripts or without the GPU.
     pub fn start(host: *ModShaders) void {
         const shown = host.presentation orelse return;
-        const device = host.gpu() orelse return;
+        const device = host.gpu;
         shown.setEffectHost(.{ .context = host, .vtable = &.{ .compile = compileEffect, .remove = removeEffect } });
         shown.setShaderHost(.{ .context = host, .vtable = &.{ .add = addFunction, .remove = removeFunction, .update = update } });
         device.effect_source = .{ .context = host, .passes = passes };
@@ -87,18 +85,11 @@ pub const ModShaders = struct {
             shown.setEffectHost(null);
             shown.setShaderHost(null);
         }
-        if (host.gpu()) |device| device.effect_source = null;
+        host.gpu.effect_source = null;
         host.untag();
         host.tagged.deinit(host.gpa);
         for (host.functions.values()) |function| host.free(function);
         host.functions.deinit(host.gpa);
-    }
-
-    fn gpu(host: *const ModShaders) ?*platform.gpu.Gpu {
-        return switch (host.screen.*) {
-            .gpu => |*device| device,
-            .software => null,
-        };
     }
 
     fn from(context: *anyopaque) *ModShaders {
@@ -126,12 +117,12 @@ pub const ModShaders = struct {
             .diagnostic => |text| return .{ .failed = host.keep(text) },
             .compiled => |code| code,
         };
-        const id = host.gpu().?.addEffect(code.spirv, code.metal) catch |err| return .{ .failed = host.gpuFailed(err) };
+        const id = host.gpu.addEffect(code.spirv, code.metal) catch |err| return .{ .failed = host.gpuFailed(err) };
         return .{ .effect = @backingInt(id) };
     }
 
     fn removeEffect(context: *anyopaque, effect: u32) void {
-        const device = from(context).gpu() orelse return;
+        const device = from(context).gpu;
         device.removeEffect(@fromBackingInt(effect));
     }
 
@@ -207,7 +198,7 @@ pub const ModShaders = struct {
 
     fn removeFunction(context: *anyopaque, id: u16) void {
         const host = from(context);
-        if (host.gpu()) |device| device.removeVariant(id);
+        host.gpu.removeVariant(id);
         const removed = host.functions.fetchSwapRemove(id) orelse return;
         host.free(removed.value);
         if (host.lighting == id) host.lighting = 0;
@@ -217,7 +208,7 @@ pub const ModShaders = struct {
     /// needs, gives the textures their surface functions, and sets what every lit surface takes.
     fn update(context: *anyopaque, functions: []const shaders.Function) void {
         const host = from(context);
-        const device = host.gpu() orelse return;
+        const device = host.gpu;
         // The enabled lighting function registered last draws.
         var lighting: u16 = 0;
         device.mod_shaders.lighting = @splat(0);
@@ -259,7 +250,7 @@ pub const ModShaders = struct {
     fn make(host: *ModShaders, id: u16, lighting: u16) void {
         const function = host.functions.getPtr(id) orelse return;
         if (function.compiled_with == lighting) return;
-        const device = host.gpu() orelse return;
+        const device = host.gpu;
         const template = if (host.template) |*held| held else return;
         function.compiled_with = lighting;
         const lit = if (lighting != 0) host.functions.get(lighting) else null;
@@ -289,7 +280,7 @@ pub const ModShaders = struct {
     fn drop(host: *ModShaders, id: u16) void {
         const function = host.functions.getPtr(id) orelse return;
         function.compiled_with = null;
-        if (host.gpu()) |device| device.removeVariant(id);
+        host.gpu.removeVariant(id);
     }
 
     /// Gives the textures `function` names its surface function, `surface`.

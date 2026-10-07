@@ -443,8 +443,8 @@ pub fn shimmerColour(strength: f32) [3]f32 {
 /// What a cloaked object's part draws, as `node_draw` does with flag `0x80`: its shimmer, where it
 /// has one, placed where the part stands and updated as it is drawn (`cloak_shimmer_callback`,
 /// `0x00463B20`), unless the cloak is off or the object is the Kafelnikof; and its hull,
-/// see-through and faded (`cloak_hull_callback`, `0x00463B90`), only on a hardware renderer.
-/// Nothing changes while the game is paused.
+/// see-through and faded (`cloak_hull_callback`, `0x00463B90`), which the original leaves out on
+/// its software renderer. Nothing changes while the game is paused.
 ///
 /// The game updates each as the pipeline draws it, once it is in sight; OpenReliant updates it as
 /// it is added to the scene, in sight or not.
@@ -470,7 +470,6 @@ pub const Drawing = struct {
     pub fn hull(drawing: Drawing, part: *objects.Model.Part, view: *const objects.View) bool {
         const effect = if (part.cloak) |*kept| kept else return true;
         if (!effect.shimmer_made) return true;
-        if (!view.hardware) return false;
         if (!effect.cloaks or view.paused) return true;
         const ticks = drawing.cloak.hull_drawn.since(view.frame_start);
         const solid = drawing.cloak.hull;
@@ -638,16 +637,13 @@ test Drawing {
     slot.cloak.?.hull_drawn.before = 250;
     try std.testing.expect(drawing.hull(part, &view));
     try std.testing.expectApproxEqAbs(0.5, effect.hull_colours[0][3], 1e-6);
-    // Paused, nothing changes; the Kafelnikof shows no shimmer, and the software renderer no
-    // hull.
+    // Paused, nothing changes; the Kafelnikof shows no shimmer.
     view = .{ .frame_start = 400, .paused = true };
     try std.testing.expect(drawing.hull(part, &view));
     try std.testing.expectApproxEqAbs(0.5, effect.hull_colours[0][3], 1e-6);
     view.paused = false;
     drawing.kafelnikof = true;
     try std.testing.expectEqual(null, drawing.shimmer(part, &view));
-    view.hardware = false;
-    try std.testing.expect(!drawing.hull(part, &view));
 }
 
 test shimmerColour {

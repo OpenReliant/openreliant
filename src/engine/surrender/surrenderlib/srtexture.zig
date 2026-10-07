@@ -371,8 +371,8 @@ pub const Table = struct {
     /// textures; null to keep them as they are.
     compressor: ?Compressor = null,
     /// OpenReliant's: whether the table lets go of an image's pixels once the device holds them
-    /// (`releaseHeld`): with the GPU, which keeps its own copy, and not with the software device,
-    /// which reads them.
+    /// (`releaseHeld`): with the GPU, which keeps its own copy, and not in the tools and tests that
+    /// read them.
     release_held: bool = false,
     /// The images whose pixels it hasn't let go of yet, while `release_held`.
     unreleased: std.ArrayList(*Image) = .empty,

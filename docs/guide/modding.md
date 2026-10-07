@@ -293,8 +293,8 @@ sRGB-encoded, as a PNG's are.
   and a PNG map is compressed to match. A map in another format is left out, which the log says.
 - A map needs at least as many mipmap levels as its picture. Extra levels are dropped, and a map
   with fewer is left out, which the log says. A PNG file always has them all.
-- A compressed picture needs a GPU that takes its format. Elsewhere, such as with the software
-  device, it is left out, and the cache's own texture is drawn.
+- A compressed picture needs a GPU that takes its format. Elsewhere, it is left out, and the
+  cache's own texture is drawn.
 
 **Improvement:** the original only uses the textures in its cache, at most 256x256.
 

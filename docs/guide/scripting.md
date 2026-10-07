@@ -1495,7 +1495,6 @@ post.set_enabled("crt", false)
 - An effect is removed when the script that registered it stops. If a script fails to load, the
   effects it registered are removed.
 - The mods can register at most 64 effects at once.
-- Effects draw on the GPU only. With `--software` they register and draw nothing.
 - Compiled shaders are kept in the game folder's `cache/shaders`, so a shader compiles again only
   when it or OpenReliant's shader compiler changes. The folder can be deleted at any time.
 - In the developer mode, saving a folder mod's shader reloads its scripts, which compiles the
@@ -1656,7 +1655,6 @@ versions, and a replacement made for one can stop fitting the next.
   for them; without that line the functions draw nothing, and the log says so.
 - Replacements are chosen as OpenReliant starts, while MOD EFFECTS is on. Changing MOD EFFECTS
   takes effect for them at the next start.
-- They draw on the GPU only. The software device ignores them.
 
 ## Files
 

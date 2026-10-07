@@ -1,7 +1,7 @@
 //! The parts of Direct3D 7 the driver uses (`IDirect3DDevice7`), as OpenReliant provides them: a
 //! device that draws transformed, lit vertices with the states `set_material` and `set_depth`
-//! choose. `software.zig` draws them as Direct3D 7 rasterizes; the executable's device draws them
-//! with SDL's GPU interface.
+//! choose. The GPU device draws them with SDL's GPU interface (`platform/gpu.zig`), and the tests
+//! record them (`testing.Recorder`).
 
 const std = @import("std");
 

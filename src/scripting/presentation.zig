@@ -1086,7 +1086,7 @@ test "player scripts register post effects, which draw in order and end with the
     try std.testing.expectEqual(5, host.removed.items.len);
 }
 
-test "without a host, as with the software device, effects register and draw nothing" {
+test "without a host, effects register and draw nothing" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{ "retro", &.{
         .{ "mod.ini", "[Scripts]\nPlayer=effects.luau\n" },

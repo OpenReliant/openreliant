@@ -1613,7 +1613,7 @@ pub const testing = struct {
         /// Lets the model cloak, its part shimmering with `image` (`srofiles.Cloaking`).
         pub fn withCloak(model: *Model, gpa: Allocator, image: *@import("../surrender/surrenderlib/srtexture.zig").Image) Allocator.Error!void {
             model.source.header.flags.cloak = true;
-            model.loaded_parts[0].cloaking = try .build(gpa, &model.levels, image, true);
+            model.loaded_parts[0].cloaking = try .build(gpa, &model.levels, image);
         }
 
         pub fn deinit(model: *Model, gpa: Allocator) void {

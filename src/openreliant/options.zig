@@ -29,7 +29,6 @@ pub const Arg = enum {
     @"--size",
     @"--fps",
     @"--no-vsync",
-    @"--software",
     @"--16-bit",
     @"--msaa",
     @"--filter",
@@ -113,7 +112,6 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--size" = .{ .section = .display, .value = "<width>x<height>|<percent>%", .text = "draw frames of this size in pixels whatever the window's, which shows them scaled, as for a screenshot larger than the display; or a share of the window's own, such as 50%, to draw faster; the window's own by default" },
     .@"--fps" = .{ .section = .display, .value = "<rate>", .text = "frames a second at most; without vsync, the display's rate by default; 0 for no limit" },
     .@"--no-vsync" = .{ .section = .display, .text = "draw without waiting for the display" },
-    .@"--software" = .{ .section = .graphics, .text = "draw on the software device, OpenReliant's reference, rather than the GPU" },
     .@"--16-bit" = .{ .section = .graphics, .text = "16-bit colour, dithered" },
     .@"--msaa" = .{ .section = .graphics, .value = "<1|2|4|8>", .text = "samples a pixel, for smooth edges; 4 by default" },
     .@"--filter" = .{ .section = .graphics, .value = "<original|trilinear|crisp>", .text = "how textures are filtered; crisp by default" },
@@ -256,7 +254,6 @@ pub const Options = struct {
     /// change.
     original: bool = false,
     fullscreen: bool = false,
-    software: bool = false,
     settings: platform.gpu.Settings = .{},
     /// Frames a second at most, 0 for no limit; null for the display's rate without vsync.
     fps: ?f32 = null,
@@ -456,7 +453,6 @@ pub const Options = struct {
                 options.fps = fps;
             },
             .@"--no-vsync" => options.settings.vsync = false,
-            .@"--software" => options.software = true,
             .@"--16-bit" => options.settings.sixteen_bit = true,
             .@"--msaa" => {
                 const samples = std.fmt.parseInt(u8, value, 10) catch return error.BadValue;
@@ -521,7 +517,7 @@ pub const Options = struct {
 
     /// How the frames are paced as the game starts.
     pub fn pacing(options: Options) Pacing {
-        return .{ .fps = options.fps, .vsync = options.settings.vsync, .software = options.software };
+        return .{ .fps = options.fps, .vsync = options.settings.vsync };
     }
 };
 
@@ -531,14 +527,11 @@ pub const Pacing = struct {
     /// Frames a second at most, 0 for no limit; null for the display's rate without vsync.
     fps: ?f32 = null,
     vsync: bool = true,
-    /// Whether the software device draws the frames, which go to the window as the display shows
-    /// them.
-    software: bool = false,
 
     /// The frames a second to hold to, where the display does not already.
     pub fn rate(pacing: Pacing, window: platform.window.Window) ?f32 {
         if (pacing.fps) |fps| return if (fps > 0) fps else null;
-        if (pacing.software or pacing.vsync) return null;
+        if (pacing.vsync) return null;
         return window.refreshRate();
     }
 };
@@ -708,9 +701,9 @@ test Options {
     for ([_][:0]const u8{ "3840", "0x100", "100x", "1x2x3", "99999x100", "0%", "101%", "%", "x%" }) |bad| {
         try std.testing.expectError(error.Usage, parsed(&.{ "--size", bad }));
     }
-    const chosen = try parsed(&.{ "--filter", "trilinear", "--16-bit", "--software", "--fullscreen" });
+    const chosen = try parsed(&.{ "--filter", "trilinear", "--16-bit", "--fullscreen" });
     try std.testing.expectEqual(.trilinear, chosen.settings.filter);
-    try std.testing.expect(chosen.settings.sixteen_bit and chosen.software and chosen.fullscreen);
+    try std.testing.expect(chosen.settings.sixteen_bit and chosen.fullscreen);
     try std.testing.expectError(error.Usage, parsed(&.{ "--msaa", "3" }));
     try std.testing.expectError(error.Usage, parsed(&.{ "--filter", "sharp" }));
     try std.testing.expectError(error.Usage, parsed(&.{ "--fps", "-1" }));

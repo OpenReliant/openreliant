@@ -109,13 +109,12 @@ pub const Kind = enum {
     }
 
     /// Whether it plays: the video settings' `Transitions` (`[Device]`, 1 unless set) leaves out
-    /// the movies over the screen, and on a renderer that is not a hardware one, those on a cleared
-    /// screen too (`sr + 0x15F8`, `sr + 0x1AC`). The landing's play whatever the settings.
-    pub fn plays(kind: Kind, transitions: bool, hardware: bool) bool {
+    /// the movies over the screen (`sr + 0x15F8`). On its software renderer (`sr + 0x1AC`), the
+    /// original leaves out those on a cleared screen too. The landing's play whatever the settings.
+    pub fn plays(kind: Kind, transitions: bool) bool {
         return switch (kind) {
-            .cleared, .cleared_from_disc => transitions or hardware,
+            .cleared, .cleared_from_disc, .landing, .thread, .screen, .briefing, .itac => true,
             .over_screen, .over_screen_from_disc => transitions,
-            .landing, .thread, .screen, .briefing, .itac => true,
         };
     }
 
@@ -354,14 +353,14 @@ test "the landing plays on with the right button down" {
 }
 
 test Kind {
-    try std.testing.expect(Kind.over_screen.plays(true, false));
-    try std.testing.expect(!Kind.over_screen.plays(false, true));
-    try std.testing.expect(!Kind.over_screen_from_disc.plays(false, true));
-    try std.testing.expect(Kind.cleared.plays(false, true));
-    try std.testing.expect(!Kind.cleared.plays(false, false));
-    try std.testing.expect(!Kind.cleared_from_disc.plays(false, false));
-    try std.testing.expect(Kind.landing.plays(false, false));
-    try std.testing.expect(Kind.thread.plays(false, false));
+    // Without transitions, the movies over the screen are left out, and the others play.
+    try std.testing.expect(Kind.over_screen.plays(true));
+    try std.testing.expect(!Kind.over_screen.plays(false));
+    try std.testing.expect(!Kind.over_screen_from_disc.plays(false));
+    try std.testing.expect(Kind.cleared.plays(false));
+    try std.testing.expect(Kind.cleared_from_disc.plays(false));
+    try std.testing.expect(Kind.landing.plays(false));
+    try std.testing.expect(Kind.thread.plays(false));
     // The disc's players read the archive; the thread's movie is a file of the game's folder.
     try std.testing.expectEqual(Source.disc, Kind.over_screen_from_disc.source());
     try std.testing.expectEqual(Source.folder, Kind.thread.source());
@@ -371,7 +370,7 @@ test Kind {
     // The briefing's movie plays from the disc at its own rate, whatever the settings.
     try std.testing.expectEqual(Source.disc, Kind.briefing.source());
     try std.testing.expectEqual(null, Kind.briefing.rate());
-    try std.testing.expect(Kind.briefing.plays(false, false));
+    try std.testing.expect(Kind.briefing.plays(false));
 }
 
 test Hangar {

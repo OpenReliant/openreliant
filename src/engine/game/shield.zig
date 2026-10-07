@@ -203,7 +203,6 @@ const Colour = @Vector(3, f32);
 /// a strength falls in.
 const Ramp = struct {
     tint: Tint,
-    hardware: bool,
 };
 
 /// How bright a step of the ramp is at most (`0x0049EB00`), and what share of that the others'
@@ -231,9 +230,9 @@ const ramp_fade: f32 = 0.6;
 
 /// `0x0049EB00` and `0x0049EC30`: a ramp's colour at `strength`, as red, green and blue. A friendly
 /// ship's runs from nothing at 1 up to a cyan of 0.7 green and full blue at 0.6, down through a dim
-/// blue at 0.4 to nothing below 0.35; without a hardware renderer it is grey. The others' swaps the
-/// green and blue, at 0.8 of the strength.
-fn rampColour(tint: Tint, strength: f32, hardware: bool) Colour {
+/// blue at 0.4 to nothing below 0.35; on the original's software renderer it is grey. The others'
+/// swaps the green and blue, at 0.8 of the strength.
+fn rampColour(tint: Tint, strength: f32) Colour {
     var colour: Colour = @splat(0);
     if (strength > ramp_peak) {
         const share = (1 - strength) / ramp_rise;
@@ -245,7 +244,7 @@ fn rampColour(tint: Tint, strength: f32, hardware: bool) Colour {
         colour = .{ 0, 0, ease.cosine(ramp_dim_blue, 0, (ramp_peak - strength) / ramp_fade) };
     }
     const tinted: Colour = switch (tint) {
-        .friendly => if (hardware) colour else @splat(colour[2]),
+        .friendly => colour,
         .other => .{ 0, colour[2] * other_share, colour[1] * other_share },
     };
     return tinted * @as(Colour, @splat(ramp_brightness));
@@ -255,7 +254,7 @@ fn rampColour(tint: Tint, strength: f32, hardware: bool) Colour {
 /// one; nothing outside.
 fn rampAt(ramp: *const Ramp, strength: f32) Colour {
     if (!(strength > 0 and strength < 1)) return @splat(0);
-    return rampColour(ramp.tint, strength, ramp.hardware);
+    return rampColour(ramp.tint, strength);
 }
 
 /// A bubble's size over its ship's radius (`0x004DC7C4`).
@@ -337,8 +336,8 @@ pub const Shields = struct {
     capital: Capital,
 
     /// `0x0049EF10`: the textures, each tint's ramp, and the levels' spheres (`0x0049EE90`), at the
-    /// options' detail, in `style`. The ramps are grey without a hardware renderer.
-    pub fn create(gpa: Allocator, textures: *srtexture.Table, detail: Detail, hardware: bool, style: Style) (Allocator.Error || matmanager.Error)!Shields {
+    /// options' detail, in `style`.
+    pub fn create(gpa: Allocator, textures: *srtexture.Table, detail: Detail, style: Style) (Allocator.Error || matmanager.Error)!Shields {
         const texture = try matmanager.textureRequire(textures, "shield128");
         const field = try matmanager.textureRequire(textures, "ffield");
         var meshes: [all_grids.len]srapiext.Mesh = undefined;
@@ -351,7 +350,7 @@ pub const Shields = struct {
         return .{
             .meshes = meshes,
             .style = style,
-            .ramps = .init(.{ .friendly = .{ .tint = .friendly, .hardware = hardware }, .other = .{ .tint = .other, .hardware = hardware } }),
+            .ramps = .init(.{ .friendly = .{ .tint = .friendly }, .other = .{ .tint = .other } }),
             .reaches = reaches.get(detail),
             .texture = texture,
             .field = field,
@@ -1061,7 +1060,7 @@ pub const testing = struct {
         pub fn init(gpa: Allocator) !Built {
             const textures = try @import("../surrender/surrenderlib/srtexture.zig").testing.Textures.init(gpa, &.{ "shield128", "ffield" });
             errdefer textures.deinit(gpa);
-            return .{ .textures = textures, .shields = try .create(gpa, &textures.table, .high, true, .original) };
+            return .{ .textures = textures, .shields = try .create(gpa, &textures.table, .high, .original) };
         }
 
         pub fn deinit(built: *Built, gpa: Allocator) void {
@@ -1130,20 +1129,18 @@ test Grid {
 test rampColour {
     // At 0.6 a friendly ship's is at its brightest, a cyan; it is dark at full strength and below
     // 0.35.
-    const top = rampColour(.friendly, 0.6, true);
+    const top = rampColour(.friendly, 0.6);
     try std.testing.expectApproxEqAbs(0.7 * ramp_brightness, top[1], 1e-6);
     try std.testing.expectApproxEqAbs(ramp_brightness, top[2], 1e-6);
     try std.testing.expectEqual(0, top[0]);
-    try std.testing.expectEqual(Colour{ 0, 0, 0 }, rampColour(.friendly, 1, true));
-    try std.testing.expectEqual(Colour{ 0, 0, 0 }, rampColour(.friendly, 0.3, true));
-    // The others' swaps the green and the blue, dimmer; a friendly ship's is grey without a
-    // hardware renderer.
-    const other = rampColour(.other, 0.6, true);
+    try std.testing.expectEqual(Colour{ 0, 0, 0 }, rampColour(.friendly, 1));
+    try std.testing.expectEqual(Colour{ 0, 0, 0 }, rampColour(.friendly, 0.3));
+    // The others' swaps the green and the blue, dimmer.
+    const other = rampColour(.other, 0.6);
     try std.testing.expectApproxEqAbs(ramp_brightness * other_share, other[1], 1e-6);
     try std.testing.expectApproxEqAbs(0.7 * ramp_brightness * other_share, other[2], 1e-6);
-    try std.testing.expectEqual(@as(Colour, @splat(top[2])), rampColour(.friendly, 0.6, false));
     // Only a strength strictly between nothing and one shows.
-    const ramp: Ramp = .{ .tint = .friendly, .hardware = true };
+    const ramp: Ramp = .{ .tint = .friendly };
     try std.testing.expectEqual(Colour{ 0, 0, 0 }, rampAt(&ramp, 0));
     try std.testing.expectEqual(Colour{ 0, 0, 0 }, rampAt(&ramp, 1));
     try std.testing.expect(rampAt(&ramp, 0.6)[2] > 0);

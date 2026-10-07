@@ -256,16 +256,16 @@ pub const Sky = struct {
     }
 
     /// Centres the dome and the nebula on the camera and adds them to the background layer
-    /// (`nebula_frame`); the software renderer shows no nebula.
+    /// (`nebula_frame`). The original's software renderer shows no nebula.
     pub fn frame(sky: *Sky, gpa: Allocator, scene: *srcore.Scene, context: *const srapi.Context) Allocator.Error!void {
         const patch = &sky.patches[sky.shown];
         sky.dome.position = context.camera.position;
         patch.position = context.camera.position;
         try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &sky.dome }, .background);
-        if (context.hardware) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = patch }, .background);
+        try xtrabits.sceneAdd(gpa, scene, .{ .mesh = patch }, .background);
         // OpenReliant's: what a material's reflections show (`srcore.Scene.reflected`).
         try scene.reflected.append(gpa, .{ .mesh = &sky.dome });
-        if (context.hardware) try scene.reflected.append(gpa, .{ .mesh = patch });
+        try scene.reflected.append(gpa, .{ .mesh = patch });
     }
 };
 
@@ -355,9 +355,4 @@ test Sky {
     try sky.frame(gpa, &scene, &context);
     try std.testing.expectEqual(2, scene.layers.get(.background).items.len);
     try std.testing.expectEqual(context.camera.position, sky.patches[1].position);
-    // The software renderer shows the dome alone.
-    scene.clear();
-    context.hardware = false;
-    try sky.frame(gpa, &scene, &context);
-    try std.testing.expectEqual(1, scene.layers.get(.background).items.len);
 }

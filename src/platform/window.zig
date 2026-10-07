@@ -46,8 +46,6 @@ pub const Event = union(enum) {
 pub const Window = struct {
     handle: *c.SDL_Window,
     gpu: *c.SDL_GPUDevice,
-    /// A frame drawn in memory, and the texture it goes up to on its way to the screen.
-    frame: ?struct { width: u32, height: u32, transfer: *c.SDL_GPUTransferBuffer, texture: *c.SDL_GPUTexture } = null,
     /// Whether it takes text (`takeText`), the text the system's input made that `poll` has yet to
     /// hand out a character at a time, and a backspace to hand out after its key.
     taking_text: bool = false,
@@ -82,7 +80,6 @@ pub const Window = struct {
     }
 
     pub fn close(window: *Window) void {
-        window.releaseFrame();
         c.SDL_ReleaseWindowFromGPUDevice(window.gpu, window.handle);
         c.SDL_DestroyGPUDevice(window.gpu);
         c.SDL_DestroyWindow(window.handle);
@@ -208,73 +205,6 @@ pub const Window = struct {
     /// while the game is in the foreground, or lets it go.
     pub fn holdMouse(window: Window, held: bool) Error!void {
         if (!c.SDL_SetWindowRelativeMouseMode(window.handle, held)) return fail("SDL_SetWindowRelativeMouseMode");
-    }
-
-    /// Puts a frame drawn in memory, rows of red, green, blue and alpha from the top, on the
-    /// screen, scaled to the window.
-    pub fn present(window: *Window, rgba: []const u8, width: u32, height: u32) Error!void {
-        const frame = try window.frameOf(width, height);
-        const mapped: [*]u8 = @ptrCast(c.SDL_MapGPUTransferBuffer(window.gpu, frame.transfer, true) orelse return fail("SDL_MapGPUTransferBuffer"));
-        @memcpy(mapped[0 .. width * height * 4], rgba[0 .. width * height * 4]);
-        c.SDL_UnmapGPUTransferBuffer(window.gpu, frame.transfer);
-
-        const commands = c.SDL_AcquireGPUCommandBuffer(window.gpu) orelse return fail("SDL_AcquireGPUCommandBuffer");
-        const copy = c.SDL_BeginGPUCopyPass(commands);
-        c.SDL_UploadToGPUTexture(
-            copy,
-            &.{ .transfer_buffer = frame.transfer, .offset = 0, .pixels_per_row = width, .rows_per_layer = height },
-            &.{ .texture = frame.texture, .w = width, .h = height, .d = 1 },
-            true,
-        );
-        c.SDL_EndGPUCopyPass(copy);
-        var target: ?*c.SDL_GPUTexture = null;
-        var target_width: u32 = 0;
-        var target_height: u32 = 0;
-        if (!c.SDL_WaitAndAcquireGPUSwapchainTexture(commands, window.handle, &target, &target_width, &target_height)) {
-            _ = c.SDL_CancelGPUCommandBuffer(commands);
-            return fail("SDL_WaitAndAcquireGPUSwapchainTexture");
-        }
-        if (target) |swapchain| {
-            var blit = std.mem.zeroes(c.SDL_GPUBlitInfo);
-            blit.source = .{ .texture = frame.texture, .w = width, .h = height };
-            blit.destination = .{ .texture = swapchain, .w = target_width, .h = target_height };
-            blit.load_op = c.SDL_GPU_LOADOP_DONT_CARE;
-            blit.filter = c.SDL_GPU_FILTER_LINEAR;
-            c.SDL_BlitGPUTexture(commands, &blit);
-        }
-        if (!c.SDL_SubmitGPUCommandBuffer(commands)) return fail("SDL_SubmitGPUCommandBuffer");
-    }
-
-    /// The texture a frame of `width` by `height` goes up to, made again when the size changes.
-    fn frameOf(window: *Window, width: u32, height: u32) Error!@typeInfo(@TypeOf(window.frame)).optional.child {
-        if (window.frame) |frame| {
-            if (frame.width == width and frame.height == height) return frame;
-            window.releaseFrame();
-        }
-        const transfer = c.SDL_CreateGPUTransferBuffer(window.gpu, &.{
-            .usage = c.SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-            .size = width * height * 4,
-            .props = 0,
-        }) orelse return fail("SDL_CreateGPUTransferBuffer");
-        errdefer c.SDL_ReleaseGPUTransferBuffer(window.gpu, transfer);
-        var info = std.mem.zeroes(c.SDL_GPUTextureCreateInfo);
-        info.type = c.SDL_GPU_TEXTURETYPE_2D;
-        info.format = c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-        info.usage = c.SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        info.width = width;
-        info.height = height;
-        info.layer_count_or_depth = 1;
-        info.num_levels = 1;
-        const texture = c.SDL_CreateGPUTexture(window.gpu, &info) orelse return fail("SDL_CreateGPUTexture");
-        window.frame = .{ .width = width, .height = height, .transfer = transfer, .texture = texture };
-        return window.frame.?;
-    }
-
-    fn releaseFrame(window: *Window) void {
-        const frame = window.frame orelse return;
-        c.SDL_ReleaseGPUTexture(window.gpu, frame.texture);
-        c.SDL_ReleaseGPUTransferBuffer(window.gpu, frame.transfer);
-        window.frame = null;
     }
 
     /// Whether the window fills the display.

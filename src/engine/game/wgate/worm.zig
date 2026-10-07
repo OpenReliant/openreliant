@@ -45,7 +45,7 @@ pub const Worm = struct {
             const at = mesh.positions[index];
             pair.* = .{ at[2] * worm_uv_along, at[1] * worm_uv_across };
         }
-        tunnel.tubeSurfaces(&mesh, 2 * worm_segments, image, worm_highlight, true, .off);
+        tunnel.tubeSurfaces(&mesh, 2 * worm_segments, image, worm_highlight, .off);
         const colours = try gpa.alloc([4]f32, grid.vertices());
         @memset(colours, @splat(0));
         worm.* = .{ .mesh = mesh, .level = undefined, .object = undefined, .colours = colours };

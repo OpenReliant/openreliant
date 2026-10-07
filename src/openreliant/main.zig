@@ -6,8 +6,7 @@
 //! It plays a mission, which pauses into the game's menu as each attempt ends, to be flown again:
 //! by default mission 0, OpenReliant's own sandbox (`mission0.zig`), which it carries, or the
 //! game's mission `--mission` names. It draws through Surrender's pipeline and its Direct3D driver
-//! with the GPU, or onto the software device, from the camera's views, which the game's camera keys
-//! pick and steer. Added for OpenReliant: the test keys (`test_keys.zig`), and Alt and Enter, which
+//! with the GPU, from the camera's views, which the game's camera keys pick and steer. Added for OpenReliant: the test keys (`test_keys.zig`), and Alt and Enter, which
 //! switch to the full screen and back. Escape opens the game's pause menu, whose LEAVE MISSION
 //! quits.
 
@@ -42,7 +41,6 @@ const missions = @import("missions.zig");
 const Movies = @import("movies.zig").Movies;
 const presenting = @import("presenter.zig");
 const Presenter = presenting.Presenter;
-const Screen = presenting.Screen;
 const ModShaders = @import("mod_shaders.zig").ModShaders;
 const whole_shaders = @import("whole_shaders.zig");
 const WholeShaders = whole_shaders.Loaded;
@@ -186,8 +184,8 @@ fn missingGameFiles(directory: []const u8, file: ?[]const u8, searched: bool) u8
     return 1;
 }
 
-/// The window's size in points as it opens, which the software device draws at until the first
-/// frame takes the window's own. OpenReliant's: the original took the display mode `[Device]` names.
+/// The window's size in points as it opens. OpenReliant's: the original took the display mode
+/// `[Device]` names.
 const initial_size = [2]u32{ 1280, 720 };
 
 /// How often the mods' storage that changed is written to the game folder, at most, so that a
@@ -309,34 +307,26 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The compiled shaders of the mods, kept in the game folder, and their replacements for
     // OpenReliant's shaders, chosen as OpenReliant starts while MOD EFFECTS is on.
     const shader_cache: platform.shader_cache.Cache = .{ .io = io, .root = directory };
-    const whole: WholeShaders = if (!options.software and options.mod_effects) try whole_shaders.load(arena, shader_cache, mods.list) else .{ .template = .builtin() };
-    // The device the driver draws with, and the driver.
-    const screen = try arena.create(Screen);
-    screen.* = if (options.software)
-        .{ .software = try .init(arena, initial_size[0], initial_size[1]) }
-    else
-        .{ .gpu = try .init(gpa, window.gpu, window.handle, options.settings, &whole.replacements) };
-    defer switch (screen.*) {
-        .gpu => |*device| device.deinit(),
-        .software => |*device| device.deinit(arena),
-    };
-    var driver: srd3d.srd3d.Driver = try .init(arena, screen.interface());
+    const whole: WholeShaders = if (options.mod_effects) try whole_shaders.load(arena, shader_cache, mods.list) else .{ .template = .builtin() };
+    // The GPU the driver draws with, and the driver.
+    const gpu = try arena.create(platform.gpu.Gpu);
+    gpu.* = try .init(gpa, window.gpu, window.handle, options.settings, &whole.replacements);
+    defer gpu.deinit();
+    var driver: srd3d.srd3d.Driver = try .init(arena, gpu.interface());
     defer driver.deinit();
     // The GPU keeps its own copy of the textures, and takes the mods' pictures compressed, which
-    // the texture cache keeps between runs; the software device reads the table's own pixels.
+    // the texture cache keeps between runs.
+    textures.release_held = true;
     var texture_store: platform.texture_cache.Store = undefined;
-    if (screen.* == .gpu) {
-        textures.release_held = true;
-        if (options.texture_compression) {
-            texture_store = .{ .io = io, .root = directory, .takes = screen.gpu.compressed };
-            textures.compressor = texture_store.compressor();
-        }
+    if (options.texture_compression) {
+        texture_store = .{ .io = io, .root = directory, .takes = gpu.compressed };
+        textures.compressor = texture_store.compressor();
     }
     // The mods' shaders: the player scripts register them, and the GPU draws them while MOD
     // EFFECTS is on. `stop` removes them before the GPU is destroyed.
     var mod_shaders: ModShaders = .{
         .gpa = gpa,
-        .screen = screen,
+        .gpu = gpu,
         .cache = shader_cache,
         .presentation = presentation,
         .textures = &textures,
@@ -344,11 +334,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     };
     mod_shaders.start();
     defer mod_shaders.stop();
-    const mod_effects: ?*bool = switch (screen.*) {
-        .gpu => |*device| &device.mod_effects,
-        .software => null,
-    };
-    if (mod_effects) |on| on.* = options.mod_effects;
+    gpu.mod_effects = options.mod_effects;
     var pacer: platform.window.Pacer = .{};
     // How the frames are paced, which the settings screen changes as the game plays.
     var pacing = options.pacing();
@@ -385,7 +371,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     sound.volumes = .read(settings_file.profile);
     context.brightness = device_settings.brightness;
     // What draws the frames outside the game's loop: the movies', and the loading screens'.
-    var presenter: Presenter = .{ .window = &window, .screen = screen, .driver = &driver, .context = &context, .wanted = options.settings.size, .arena = arena };
+    var presenter: Presenter = .{ .window = &window, .gpu = gpu, .driver = &driver, .context = &context };
     defer presenter.close(gpa);
     // Whether what moves is drawn between the game's ticks, which the settings screen changes as
     // the game plays.
@@ -399,7 +385,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .display = .{ .window = &window, .presenter = &presenter },
         .graphics = settings_module.graphicsOf(options, details),
         .smooth_motion = &smooth_motion,
-        .mod_effects = mod_effects,
+        .mod_effects = &gpu.mod_effects,
     };
     // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
     var screenshots: game.xtrabits.screenshot.Screenshots = .{ .io = io, .directory = directory };
@@ -424,7 +410,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .size = options.movie_size,
         .look = options.movie_look,
         .transitions = device_settings.transitions,
-        .hardware = !options.software,
         .disc = &disc,
         .typed = &typed,
     };
@@ -534,7 +519,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     const cockpit_setting = options.cockpit orelse device_settings.view;
     var view: camera.Camera = .{ .setting = cockpit_setting, .cockpit_mode = cockpit_setting.mode(), .missiles = &objects.missiles };
     // The game's video settings, which the settings screen's video changes.
-    const video_settings: game.interface.settings.Video = .{ .camera = &view, .surrender = &context, .gamma = screen.interface().setsGamma(), .transitions = &movies.transitions };
+    const video_settings: game.interface.settings.Video = .{ .camera = &view, .surrender = &context, .gamma = gpu.interface().setsGamma(), .transitions = &movies.transitions };
     var last_view = view.view;
     // The mission's clocks, which `mission_run` zeroes before it loops.
     var clock: game.main.Clock = .{};
@@ -571,7 +556,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var rippers: game.airipper.Rippers = try .init(gpa, &textures);
     defer rippers.deinit();
     var jump_effects: game.jump.effect.Effects = undefined;
-    try jump_effects.init(gpa, &textures, context.hardware);
+    try jump_effects.init(gpa, &textures);
     defer jump_effects.deinit();
     jump_effects.lighting = options.jump_light;
     rippers.look.glow = options.beam_glow;
@@ -591,10 +576,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer chase_objects.destroy(gpa);
     var sparks: game.sparks.Sparks = try .create(gpa, &textures);
     defer sparks.deinit();
-    var shields: game.shield.Shields = try .create(gpa, &textures, explosions.settings.detail, context.hardware, options.shields);
+    var shields: game.shield.Shields = try .create(gpa, &textures, explosions.settings.detail, options.shields);
     defer shields.deinit(gpa);
     environment.ice_field = try .create(arena, &textures, explosions.settings.detail, options.ice_field, &rand);
-    var gates: game.wgate.Gates = try .init(gpa, &textures, explosions.settings.detail, context.hardware, options.gates);
+    var gates: game.wgate.Gates = try .init(gpa, &textures, explosions.settings.detail, options.gates);
     defer gates.deinit();
     // The force feedback's effects, and what plays them on the player's controller.
     const forces_library = engine.input.force.load(io, arena, directory, &mods);
@@ -835,7 +820,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // mission loaded too.
         try game.winmain.followActivation(&app, pausing, play.loaded != null);
         if (output) |open| open.update();
-        const size = try presenter.size();
+        const size = presenter.size();
         // The scripting console, which takes the keys while it's up. The scripts reload when it
         // asks, and when a folder mod's script or shader is saved.
         if (console) |*shown| {
@@ -1147,7 +1132,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             // The screen a transition's movie or a mission's end has just led to entered before
             // its first frame is drawn, as each of the game's screens enters before its loop.
             front.enterShown(front_context);
-            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = screen.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation, .console = if (console) |*up| up else null };
+            var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = gpu.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation, .console = if (console) |*up| up else null };
             scene.clear();
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
@@ -1156,7 +1141,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
             if (cockpit.shown) |*shown| if (view.cockpit_place) |placed| game.main.cockpit.place(&shown.model, view.place, placed);
             backing.place(context.projection, view.place, game.hud.scaleFor(size));
-            display.device = screen.interface();
+            display.device = gpu.interface();
             display.screen = size;
             display.sight = .{ .place = view.place, .projection = context.projection };
             display.last_view = last_view;
@@ -1210,7 +1195,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 },
             }, driver.interface());
             // `mission_frame` ends with the 0 key, which saves the frame just drawn.
-            if (!clock.paused and game.main.screenshotAsked(&devices.keyboard)) screen.saveScreenshot(gpa, &screenshots);
+            if (!clock.paused and game.main.screenshotAsked(&devices.keyboard)) presenter.saveScreenshot(gpa, &screenshots);
             last_view = view.view;
             view.cut = false;
             // What the menu's choice ends the pause in, as `mission_paused_frame` acts on it: the
@@ -1264,11 +1249,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             engine.files.writeFile(io, directory, engine.profile.settings_name, settings_file.profile.text) catch |err|
                 std.log.warn("the settings can't be saved to {s}: {t}", .{ engine.profile.settings_name, err });
         }
-        if (screen.* == .software) try window.present(try screen.software.rgba(frame_arena.allocator()), size[0], size[1]);
         if (frames_left) |*left| {
             left.* -= 1;
             if (left.* == 0) {
-                const frame = try screen.capture(frame_arena.allocator());
+                const frame = try presenter.capture(frame_arena.allocator());
                 return writeScreenshot(io, frame_arena.allocator(), options.screenshot.?, frame.rgba, frame.size);
             }
         }
@@ -1825,7 +1809,7 @@ const Loading = struct {
     }
 
     /// The size the frames are drawn at.
-    fn size(loading: *Loading) ![2]u32 {
+    fn size(loading: *Loading) [2]u32 {
         return loading.presenter.size();
     }
 
@@ -1833,10 +1817,10 @@ const Loading = struct {
     fn show(loading: *Loading, frame: game.xtrabits.loading.Frame) !void {
         loading.presenter.window.pump();
         loading.resources.show(loading.archive.*, frame);
-        const pixels = try loading.size();
+        const pixels = loading.size();
         if (loading.scripts) |scripts| scripts.screenFrame(pixels);
         var shown: Shown = .{ .loading = loading, .window = pixels, .line = if (frame.line) |id| loading.strings.string(@backingInt(id)) else null };
-        try loading.presenter.present(pixels, shown.overlay());
+        try loading.presenter.present(shown.overlay());
     }
 
     /// A frame's overlay: the loading screen, on the front end's screen fitted to the window, and
@@ -1853,7 +1837,7 @@ const Loading = struct {
         fn draw(context: *anyopaque) Allocator.Error!void {
             const shown: *Shown = @ptrCast(@alignCast(context));
             const resources = &shown.loading.resources;
-            const target = shown.loading.presenter.screen.interface();
+            const target = shown.loading.presenter.gpu.interface();
             try resources.draw(.{
                 .gpa = resources.gpa,
                 .target = target,
@@ -1904,7 +1888,7 @@ const Play = struct {
         play.end();
         play.over = false;
         if (play.loading) |loading| {
-            const frames = game.xtrabits.loading.missionFrames(loading.splash, (try loading.size())[0], orders.world.objects.simulator.mode);
+            const frames = game.xtrabits.loading.missionFrames(loading.splash, loading.size()[0], orders.world.objects.simulator.mode);
             for (frames) |frame| try loading.show(frame);
         }
         play.loaded = try game.main.startMission(play.gpa, .{

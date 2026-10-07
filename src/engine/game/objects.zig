@@ -1101,8 +1101,8 @@ pub const Model = struct {
     /// grows with how far off it is and a small lamp at its heart, and a light that blinks casts a
     /// point light on what stands near it as well. All three blink by the attachment's timing.
     ///
-    /// Not ported: in the software renderer, `node_mount_light` makes no point light for an
-    /// object of type 13, the Yamato. OpenReliant draws as the hardware renderer does.
+    /// On its software renderer, which OpenReliant doesn't have, `node_mount_light` makes no point
+    /// light for an object of type 13, the Yamato.
     pub const Light = struct {
         /// The part that carries it, whose node `node_draw` walks to reach it.
         part: usize,
@@ -2493,10 +2493,8 @@ pub const View = struct {
     /// How a cloaked object's cloak draws its parts (`node_draw`'s flag `0x80`); null for an
     /// object not cloaked.
     cloak: ?cloak.Drawing = null,
-    /// Whether the game is paused, and whether a hardware renderer draws (`sr + 0x1AC`), which a
-    /// cloak draws by (`cloak.Drawing`).
+    /// Whether the game is paused, which a cloak draws by (`cloak.Drawing`).
     paused: bool = false,
-    hardware: bool = true,
 
     /// Whether an object of `radius` standing at `at` is too far off to be worth drawing
     /// (`node_draw`): its radius no longer covers a pixel, since the radius over the distance,

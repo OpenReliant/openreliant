@@ -188,8 +188,6 @@ pub const Context = struct {
     /// How many vertices, and how many polygons, the objects drawn in a frame may take
     /// (`srmesh.Budget`), in a mission and in the loadout alike.
     budget: usize = budget,
-    /// A hardware renderer (`sr + 0x1AC`).
-    hardware: bool = true,
     /// The sun's point on the screen (`sr + 0x173E`), and how much of it shows (`sr + 0x1746`):
     /// the driver lessens it for each triangle of an object flagged `sun_occluder` near the point.
     sun: [2]f32 = .{ 0, 0 },

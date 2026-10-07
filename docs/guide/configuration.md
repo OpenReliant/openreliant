@@ -44,7 +44,6 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 
 | Option | Description |
 |---|---|
-| `--software` | Draw on the software device, OpenReliant's reference, rather than the GPU |
 | `--16-bit` | 16-bit colour, dithered |
 | `--msaa <1\|2\|4\|8>` | Samples a pixel, for smooth edges; 4 by default |
 | `--filter <original\|trilinear\|crisp>` | How textures are filtered; `crisp` by default (trilinear, sixteen times anisotropic, and magnified with a Catmull-Rom filter, or the nebulae with a smooth cubic one; the bitmap fonts' text is drawn crisp from its glyphs' coverage) |
@@ -166,7 +165,6 @@ Samples=8
 | `Size` | `<width>x<height>`, or a share of the window's own such as `50%`, which VIDEO's RESOLUTION sets | `--size` |
 | `FrameRate` | Frames a second at most, which VIDEO's FRAME RATE LIMIT sets; 0 for no limit, and without it, the display's rate where vsync is off | `--fps` |
 | `Vsync` | 1 or 0, which VIDEO's VSYNC sets | `--no-vsync` |
-| `Software` | 1 or 0 | `--software` |
 | `SixteenBit` | 1 or 0, which VIDEO's COLOR DEPTH sets: 16-BIT or 32-BIT | `--16-bit` |
 | `Samples` | 1, 2, 4 or 8, which VIDEO's ANTI-ALIASING sets | `--msaa` |
 | `Filter` | `original`, `trilinear` or `crisp`, which VIDEO's TEXTURE FILTER sets | `--filter` |

@@ -11,8 +11,8 @@
 //!   the file and the line. Names are qualified with the mod's, as `cel:ink`.
 //! - A function is removed when the script that registered it stops. If a script fails to load,
 //!   the functions it registered are removed (`Registry.removeSince`).
-//! - The host draws them on the GPU only. Without a host, as with the software device, scripts can
-//!   still register them, and they draw nothing.
+//! - The host draws them on the GPU. Without a host, as in the tests, scripts can still register
+//!   them, and they draw nothing.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

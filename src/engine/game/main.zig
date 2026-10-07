@@ -330,7 +330,7 @@ pub const Frame = struct {
     /// What is drawn over the scene once its layers are done, which is the head-up display.
     overlay: ?srcore.Overlay = null,
     /// The cockpit's model and the radar's backing, which view 0 draws over the world in cockpit
-    /// mode 1 under the hardware renderers.
+    /// mode 1.
     cockpit: ?*objects.Model = null,
     backing: ?*RadarBacking = null,
     /// Whether DISPLAY KILLS is held, which leaves the backing out.
@@ -935,7 +935,6 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     // caller does not have to hand it over with the rest.
     var attachments = frame.attachments;
     attachments.scale = context.projection.scale[0];
-    attachments.hardware = context.hardware;
     attachments.paused = frame.paused;
     try drawObjects(gpa, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown);
     if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects);
@@ -961,7 +960,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
         .paused = frame.paused,
         .random = attachments.random,
     });
-    try guns.drawBullets(gpa, scene, &frame.objects.bullets, context.hardware);
+    try guns.drawBullets(gpa, scene, &frame.objects.bullets);
     if (frame.sparks) |thrown| try thrown.draw(gpa, scene, frame.ahead);
     if (frame.particles) |pool| try pool.draw(gpa, scene, frame.ahead);
     if (frame.smoke) |pools| try pools.draw(gpa, scene, frame.ahead);
@@ -979,10 +978,10 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     frame.space.shortenDust(frame.jumping_in);
     if (frame.environment) |environment| try environment.frame(gpa, scene, context.camera, attachments.frame_start);
     try frame.space.frame(gpa, scene, context, frame.view, frame.cockpit_mode);
-    if (frame.atmospheres) |atmospheres| try atmospheres.frame(gpa, scene, frame.objects, context.camera.position, frame.space.sun_direction, context.hardware, frame.space.flare_brightness, frame.attachments.frame_start);
+    if (frame.atmospheres) |atmospheres| try atmospheres.frame(gpa, scene, frame.objects, context.camera.position, frame.space.sun_direction, frame.space.flare_brightness, frame.attachments.frame_start);
     if (frame.escort_marker) |marker| try marker.frame(gpa, scene, frame.objects, context.camera.position, frame.view, frame.ticks);
-    if (context.hardware) try frame.sky.frame(gpa, scene, context);
-    if (frame.view == .cockpit and frame.cockpit_mode == .cockpit and context.hardware) {
+    try frame.sky.frame(gpa, scene, context);
+    if (frame.view == .cockpit and frame.cockpit_mode == .cockpit) {
         // The backing, then the hands, then the cockpit, all over the world, sorted by depth.
         if (frame.backing) |backing| if (!frame.kills_shown) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &backing.object }, .overlay);
         if (frame.cockpit) |model| {
@@ -1310,16 +1309,6 @@ test drawFrame {
     overlay = scene.layers.get(.overlay).items;
     try std.testing.expectEqual(1, overlay.len);
     try std.testing.expectEqual(&cockpit_model.parts[cockpit.frame].object, overlay[0].mesh);
-
-    // The software renderer draws neither the sky nor the cockpit.
-    context.hardware = false;
-    frame.kills_shown = false;
-    try drawFrame(gpa, arena, &scene, &context, frame, idle.driver());
-    try std.testing.expectEqual(4, idle.frames);
-    try std.testing.expectEqual(0, scene.layers.get(.overlay).items.len);
-    for (scene.layers.get(.background).items) |item| {
-        if (item == .mesh) try std.testing.expect(item.mesh != &sky.dome);
-    }
 }
 
 test "the passes draw a cloaked object through its cloak" {

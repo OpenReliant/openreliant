@@ -978,7 +978,7 @@ test Bubble {
 
     // In the smooth style it is drawn on the finer sphere, its waves as the game's: its poles glow
     // as the game's do.
-    var smooth: shield.Shields = try .create(gpa, &shields.textures.table, .high, true, .smooth);
+    var smooth: shield.Shields = try .create(gpa, &shields.textures.table, .high, .smooth);
     defer smooth.deinit(gpa);
     const round = try Bubble.create(gpa, &smooth, 300);
     defer round.destroy(gpa);

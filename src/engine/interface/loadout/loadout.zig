@@ -80,8 +80,6 @@ pub const Context = struct {
     rank: gameflow.Rank = 0,
     /// The campaign's saved loadout, which the loadout starts from and its exit keeps.
     saved: *Saved,
-    /// A hardware renderer (`sr + 0x1AC`), which the cursor's light takes its colour by.
-    hardware: bool = true,
     /// The settings' graphic detail (`graphic_detail`, `0x005D54E0`), which the ships on the arc
     /// are drawn at while they move.
     detail: explode.Detail = .high,
@@ -612,13 +610,13 @@ pub const Loadout = struct {
             .arena = .init(gpa),
             .frame_arena = .init(gpa),
             .palette = undefined,
-            .view = .{ .projection = canvas.projection(canvas.size, camera.factors), .hardware = context.hardware },
+            .view = .{ .projection = canvas.projection(canvas.size, camera.factors) },
             .interface = .create(gpa, loadout),
             .tier = tier,
             .offers = offers,
             .offer_count = offered.len,
             .chosen = chosenFor(context, offered),
-            .lights = hologram.lights(context.hardware),
+            .lights = hologram.lights(),
         };
         errdefer loadout.destroy();
         try loadout.loadParts();
@@ -801,7 +799,6 @@ pub const Loadout = struct {
     /// loadout's renderer, their textures named with `prefix`'s letter.
     fn modelSettings(loadout: *const Loadout, prefix: srofiles.Prefix) srofiles.Settings {
         var settings = loadout.context.models;
-        settings.hardware = loadout.context.hardware;
         settings.prefix = prefix;
         return settings;
     }
