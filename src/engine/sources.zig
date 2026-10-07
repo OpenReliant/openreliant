@@ -44,7 +44,7 @@ pub const files = [_]File{
     .{ .path = "C:\\lancer\\game\\interface.cpp", .path_string = 0x004E82DC, .code = .{ .start = 0x004296A0, .end = 0x0043CA15 } },
     .{ .path = "C:\\lancer\\game\\itac.cpp", .path_string = 0x004E98DC, .code = .{ .start = 0x0043EFC0, .end = 0x00440C0A } },
     .{ .path = "C:\\lancer\\interface\\loadout\\loadout.cpp", .path_string = 0x004EAB8C, .code = .{ .start = 0x00441AA0, .end = 0x004504BD } },
-    .{ .path = "C:\\lancer\\game\\videoreports.cpp", .path_string = 0x004EE7B8, .code = null },
+    .{ .path = "C:\\lancer\\game\\videoreports.cpp", .path_string = 0x004EE7B8, .code = .{ .start = 0x00450760, .end = 0x004508D0 } },
     .{ .path = "C:\\lancer\\game\\Executor.cpp", .path_string = 0x004F5B94, .code = .{ .start = 0x00457C40, .end = 0x004599D2 } },
     .{ .path = "C:\\lancer\\game\\mission.cpp", .path_string = 0x004F5FB0, .code = .{ .start = 0x0045A4E0, .end = 0x0045B4D6 } },
     .{ .path = "C:\\lancer\\game\\attach.cpp", .path_string = 0x004F709C, .code = .{ .start = 0x0045E1A0, .end = 0x0045E4FC } },

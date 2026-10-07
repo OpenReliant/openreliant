@@ -148,8 +148,6 @@ pub const Debriefing = struct {
     selected: ?u8 = null,
     /// The first listed (`debrief_list_first`, `0x0051D30C`).
     first: u8 = 0,
-    /// Whether it builds its panes on its next update (`itac_rebuild`, `0x0052032C`).
-    rebuild: bool = false,
     box: ScrollBox = body_box,
     /// Whether the pointer is over REPLAY MISSION (`debrief_replay_hover`, `0x0051D310`).
     replay_lit: bool = false,
@@ -161,18 +159,19 @@ pub const Debriefing = struct {
     text_len: usize = 0,
 
     /// `debrief_enter` (`0x004246C0`): the latest debriefing chosen (`debrief_select_latest`,
-    /// `0x004258E0`), the list from its start, and the body's box at its top.
-    pub fn enter(debriefing: *Debriefing, pilot: itac_module.Pilot) void {
-        const place = placeOf(if (pilot.mission == odd_mission) odd_mission_as else pilot.mission);
+    /// `0x004258E0`), the list from its start, no build asked for, and the body's box at its top.
+    pub fn enter(debriefing: *Debriefing, itac: *Itac) void {
+        const mission = itac.pilot.mission;
+        const place = placeOf(if (mission == odd_mission) odd_mission_as else mission);
         debriefing.selected = std.math.sub(u8, place, 1) catch null;
         debriefing.first = 0;
-        debriefing.rebuild = false;
+        itac.rebuild = false;
         debriefing.box = body_box;
     }
 
     /// `debrief_loaded` (`0x004247A0`): built with its panes wiping in, and again on the next update.
     pub fn loaded(debriefing: *Debriefing, itac: *Itac) void {
-        debriefing.rebuild = true;
+        itac.rebuild = true;
         itac.panes = @splat(.{});
         debriefing.build(itac, true);
     }
@@ -183,9 +182,9 @@ pub const Debriefing = struct {
     /// **Fix:** as another debriefing is chosen, the game holds the screen still for half a second
     /// (`itac_pause`, `0x00440170`), drawing nothing. OpenReliant shows the debriefing at once.
     pub fn update(debriefing: *Debriefing, itac: *Itac) void {
-        if (debriefing.rebuild) {
+        if (itac.rebuild) {
             debriefing.build(itac, true);
-            debriefing.rebuild = false;
+            itac.rebuild = false;
         }
         debriefing.box.update(itac.ticks, itac.pointer);
         if (itac.left) if (itac_module.entryAt(debriefing.listed[0..debriefing.listed_count], itac.pointer.at)) |place| if (debriefing.selected != place) {
@@ -335,7 +334,7 @@ pub const Debriefing = struct {
             const colour = if (debriefing.replay_lit) replay_lit_colour else itac_module.text_colour;
             try faded.text(small, replay_label_at, itac.context.language.string(replay_string) orelse "", colour, .right);
         };
-        if (!itac.frozen and itac.panesShow() and debriefing.box.more(itac.panes[header].wiping != 0)) try itac.drawMore(canvas, debriefing.box);
+        try itac.drawMore(canvas, debriefing.box);
     }
 
     /// The panes as they have wiped in: the header, the body as far as it is scrolled, and the list.
