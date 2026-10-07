@@ -594,7 +594,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
                     const pick = arrivalView(world.random.fraction());
                     _ = view.setJump(pick, index, ctx.world.clock.viewTime(), .of(slot), .of(&all.slots[all.player]));
                 }
-                if (world.environment) |space| space.update();
+                if (world.environment) |space| space.update(all);
                 world.player.jumping_in = true;
             }
             if (fx) |held| held.effects.startTrails(held.record, slot);

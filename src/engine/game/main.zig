@@ -1770,6 +1770,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     world.player.friendly_fire = .{};
     if (world.flash) |lit| lit.* = .{};
     start.display.interference = .{};
+    start.display.fosters_last_stand = false;
     start.display.caption = .{};
     start.display.messages = .{};
     start.display.objectives.reset(number, all.mission25_second_part);

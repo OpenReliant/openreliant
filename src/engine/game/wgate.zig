@@ -585,7 +585,7 @@ pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
             state.next(.{ .in = .coming });
             objects.setPosition(&slot.object, &slot.drawn, gameobj.vector(state.from));
             sound3d.playIn(world, null, null, index, .warpin, 1, .not_reserved);
-            if (index == all.player) if (world.environment) |environment| environment.update();
+            if (index == all.player) if (world.environment) |environment| environment.update(all);
         },
         .coming => {
             state.progress += elapsed * (if (krasnyRun(all, index)) krasny_rate else in_rate);

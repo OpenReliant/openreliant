@@ -217,9 +217,11 @@ back 2 bytes, over the command alone; `WaitForJumpOrLaunch` 4, over the push of 
 which then pushes it afresh.
 
 Every command, by the number `command` takes, with what it does and whether OpenReliant runs it.
-One that OpenReliant does not run yet does nothing and lets the script go on
-([#281](https://github.com/OpenReliant/openreliant/issues/281)); its description is the developers' own,
-from the catalogue.
+One that OpenReliant does not run yet does nothing and lets the script go on: those only the
+simulator's and the multiplayer arenas' missions use ([#533](https://github.com/OpenReliant/openreliant/issues/533),
+[#554](https://github.com/OpenReliant/openreliant/issues/554)), and those no shipped mission uses
+([#806](https://github.com/OpenReliant/openreliant/issues/806)). Its description is the developers'
+own, from the catalogue.
 
 | Number | Command | What it does | Ported |
 |---|---|---|---|
@@ -233,7 +235,7 @@ from the catalogue.
 | `0x07` | `WaitForSpeech` | Waits while a line plays | Yes |
 | `0x08` | `PlayCommsMovie` | Plays the film `pilots\<film>` the first argument names in the radio's window, with the speech file the second names, under the string the third numbers | Yes |
 | `0x09` | `WaitForMovie` | Waits while a film of the radio's plays (`0x0057C3A8`) | Yes |
-| `0x0A` | `PrintDebugMessage` | Writes the text the argument names on the screen, for debugging | No |
+| `0x0A` | `PrintDebugMessage` | Writes `DEBUG: ` and the text the argument names for the screen and the debug log, neither of which the retail build shows. **Improvement:** OpenReliant writes it to its log | Yes |
 | `0x0B` | `SetAI` | Each ship the first argument names takes the order the second gives, aimed at what the fourth names, the orders numbered as they are given; the third, whether it starts at once, is not read ([Orders](orders.md)) | Yes |
 | `0x0C` | `ClearAI` | Each ship the argument names, past the players' slots, drops its orders, where its current one gives way (`orders_clear`, [Orders](orders.md)) | Yes |
 | `0x0D` | `SetPatrolRoute` | Each ship the first argument names follows the patrol route the second names | No |
@@ -254,7 +256,7 @@ from the catalogue.
 | `0x1C` | `DisableObject` | Each ship the first argument names is disabled while the second is set, which leaves it out of the mission's work, or enabled again; for a component, which `push_component` or a squad's member names, its assembly shows its damaged model instead, or its own again | Yes |
 | `0x1D` | `PositionRelative` | Each ship the first argument names moves as far as the ship or point the second names stands from where the mission places it, its record's run-time place with it ([Missions](missions.md#the-missions-ships)) | Yes |
 | `0x1E` | `WhenPlayerLastJumped` | How many seconds of the script's clock ago JUMP DRIVE last took a jump or a warp, at least 1 | Yes |
-| `0x1F` | `StartMissileCam` | The director's camera follows a missile the ship the argument names fires | No |
+| `0x1F` | `StartMissileCam` | The camera switches to the missile view, locked and forced, following the next missile in flight the ship the argument names launched, or stays as it is where there's none; the thread then yields | Yes |
 | `0x20` | `StartChaseCam` | The camera follows the ship the argument names from behind | No |
 | `0x21` | `SetPlayerTarget` | Where the first argument names the player's ship, the ship the second names, or its component, becomes the player's target, where the player can aim at it; the display follows, and MATCH SPEED stops ([Display](hud.md#the-target)) | Yes |
 | `0x22` | `SetTargetable` | Each ship the first argument names can be targeted, where its type allows, or not; for the component `push_component` named, whether it can be picked as a subtarget | Yes |
@@ -268,14 +270,14 @@ from the catalogue.
 | `0x2A` | `CommsFromPilotOnce` | As `CommsFromPilot`, the film played once | Yes |
 | `0x2B` | `DisableLights` | Puts out the lights of each ship the first argument names while the second is set, the static lights baked into its parts with them, and lights them again where it is not ([Static lights](rendering.md#static-lights)) | Yes |
 | `0x2C` | `SetEnvironmentFX` | Turns the environment effect the first argument numbers on while the second is set, or off: the ice field, and effect 2, which does nothing ([Environment effects](backdrop.md#environment-effects)) | Yes |
-| `0x2D` | `MultiPlayerSync` | **Unknown.** It takes no arguments, and its description names only its author | No |
+| `0x2D` | `MultiPlayerSync` | The thread yields; in a network game, the local player's script first waits for the others' ([#55](https://github.com/OpenReliant/openreliant/issues/55)) | Yes |
 | `0x2E` | `DisableGenericComms` | Keeps the remarks the radio makes by itself (`0x00529538`) quiet while the argument is set; a mission's start clears it ([Radio](radio.md#remarks)) | Yes |
 | `0x2F` | `DisableGuns` | Each ship the first argument names fires no guns while the second is set, its turrets resting too | Yes |
 | `0x30` | `SetNavPoint` | Sets the nav point of each ship the first argument names to the one the second names | No |
 | `0x31` | `SetEscortPoint` | Each ship the first argument names takes the object the second names as its escort point (`+0x724`), whose marker the player's ship shows ([The escort point's marker](missions.md#the-escort-points-marker)) | Yes |
 | `0x32` | `ResetAfterBurners` | Fills the player's afterburner fuel | No |
-| `0x33` | `DisableMissiles` | Each ship the first argument names launches no missiles while the second is set | No |
-| `0x34` | `DisableEngines` | Each ship the first argument names has its engines off while the second is set | No |
+| `0x33` | `DisableMissiles` | Each ship the first argument names launches no missiles while the second is set | Yes |
+| `0x34` | `DisableEngines` | Each ship the first argument names has its engines off while the second is set | Yes |
 | `0x35` | `DisableEject` | The pilot of each ship the first argument names cannot eject while the second is set | Yes |
 | `0x36` | `SetHostile` | Each ship the first argument names turns hostile while the second is set, or friendly, a neutral one too | Yes |
 | `0x37` | `ResetToSpawnPositions` | In a deathmatch, puts the player at a spawn place at random | No |
@@ -286,7 +288,7 @@ from the catalogue.
 | `0x3C` | `SetEnvironmentFXNebula` | Asks for the nebula the argument numbers (`nebula_requested`, `0x0058A6B8`) | Yes |
 | `0x3D` | `StartShipAnimationReverse` | As `StartShipAnimation`, backwards at -4 from where each part stands | Yes |
 | `0x3E` | `SnapToPoint` | The ship the first argument names, unless it is exploding, ejected or out of a multiplayer game, is put where the object the second names will stand next, turned as it will be, and stopped | Yes |
-| `0x3F` | `PlayFostersLastStand` | Plays the Foster's Last Stand film | No |
+| `0x3F` | `PlayFostersLastStand` | The targeting keys' next pass holds the game still and plays `foster.bik`, the Reliant's last stand, from the disc's archive ([Movies](movies.md#in-a-mission)) | Yes |
 | `0x40` | `OpenInstrument` | Opens the display's window the argument numbers, held open ([Display](hud.md#the-windows)) | Yes |
 | `0x41` | `CloseInstrument` | Closes the display's window the argument numbers | Yes |
 | `0x42` | `DestroySubObject` | The component the first argument names (`push_component`) goes at once, with its assembly: an engine takes its share off the ship's engines, a shield generator leaves it without one, and its damaged model goes too unless the second argument is set, when it is shown in its place | Yes |
@@ -295,7 +297,7 @@ from the catalogue.
 | `0x45` | `IsShipThisPlayer` | 1 where the argument names the player's ship, 2 otherwise | Yes |
 | `0x46` | `SetFlybackMarker` | Sets the flyback markers afresh on each ship the first argument names, the second their reach ([Display](hud.md#the-flyback-markers)) | Yes |
 | `0x47` | `ResetFlybackMarker` | Drops the flyback markers | Yes |
-| `0x48` | `StopShipAnimation` | Stops the track the second argument names on the ship the first names | No |
+| `0x48` | `StopShipAnimation` | As `StartShipAnimation`, each part's track stopped where it stands (mode 0) | Yes |
 | `0x49` | `SetShipAvoidance` | Each ship the first argument names, unless a stand-in, keeps clear of others no more while the second is set (`no_avoidance`, [Orders](orders.md#avoidance)) | Yes |
 | `0x4A` | `MatchSpeed` | Where the first argument names the player's ship, MATCH SPEED turns on, matching at once where it already was, while the second is set, and off otherwise | Yes |
 | `0x4B` | `MovingShipBackupCurve` | As `MovingShipFollowCurve`, the path flown backwards | Yes |
@@ -313,11 +315,11 @@ from the catalogue.
 | `0x57` | `FriendlyFire` | The carrier sends the player's ship home as though it had destroyed a friend ([Friendly fire](orders.md#friendly-fire)) | Yes |
 | `0x58` | `Cloak` | Cloaks each ship the first argument names while the second is set, or uncloaks it. Uses the shared cloak setter, including launching ships | Yes |
 | `0x59` | `ReplenishWeapons` | The ship the argument names is armed again, a player's with the racks its loadout chose, or by loadout tier 0 in the simulator or where the briefing was skipped, and any other by its own tier; and made whole ([Missiles](missiles.md#the-loadout)) | Yes |
-| `0x5A` | `WillsBlag` | The mission's record of the ship the argument names is no longer destroyed, and its pilot neither ejects nor has | No |
+| `0x5A` | `WillsBlag` | The mission's record of the ship the argument names is no longer destroyed, and its pilot is no longer ejected and never ejects | Yes |
 | `0x5B` | `ShowHudIcon` | Shows one of the display's icons, off, on or flashing | No |
 | `0x5C` | `DisableListing` | The ship the first argument names, a ship alone, does not lurch as a torpedo strikes it while the second is set (`listing_disabled`, [Collisions](loop.md#collisions)) | Yes |
-| `0x5D` | `DisableObjectAtNextJump` | Disables the object the first argument names, such as a planet, at the next jump or warp while the second is set, or enables it | No |
-| `0x5E` | `DarrensNaughtyBlag` | **Unknown.** It takes two ships, and its description names only its author | No |
+| `0x5D` | `DisableObjectAtNextJump` | Disables the object the first argument names, such as a planet, at the next jump or warp while the second is set, or enables it | Yes |
+| `0x5E` | `DarrensNaughtyBlag` | Turns the ship the first argument names to face the ship the second names, with no roll | Yes |
 
 ## The clock and timers
 
@@ -536,8 +538,7 @@ holds the commands that act on the game: every command [the table above](#comman
 ported, other than those `vm/machine.zig` holds and `vm/triggers.zig`'s `SetTriggerState` and
 `SetAnyTriggerState`. They act on it through the world the mission's start and its frame give the
 machine, which the game reaches through its globals. A command not ported yet does nothing and gives
-1, which lets the thread run on, and is logged the first time it runs
-([#281](https://github.com/OpenReliant/openreliant/issues/281)).
+1, which lets the thread run on, and is logged the first time it runs.
 
 [`vm/triggers.zig`](../../src/engine/vm/triggers.zig) matches the events to the triggers, raises
 them on the groups with the conditions' handlers, and holds `SetTriggerState` and

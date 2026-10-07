@@ -460,7 +460,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             };
             if (index == all.player) {
                 for (all.slots[0..all.count]) |*other| other.object.flags.jumping = false;
-                if (world.environment) |environment| environment.update();
+                if (world.environment) |environment| environment.update(all);
             }
             sound3d.playIn(world, null, null, index, .warpin, 1, sound3d.fxClass(all, index));
             slot.object.flags.disabled = false;

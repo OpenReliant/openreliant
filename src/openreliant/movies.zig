@@ -154,6 +154,18 @@ pub const Movies = struct {
         return try movies.play(next.name, .cleared_from_disc) != null;
     }
 
+    /// In mission `mission`, Foster's last stand (`game.hud.fosters_last_stand_movie`), from the
+    /// disc's archive open, with the game on `clock`, its sound and the radio held still around it
+    /// (`game.hud.MovieHold`). With `--mission`, which flies the mission without the hangar's
+    /// movie, no disc's archive is open yet, so the disc of the mission's carrier opens. False where
+    /// the window was closed meanwhile.
+    pub fn fostersLastStand(movies: *Movies, mission: u16, clock: *game.main.Clock, sound: *hog_snd.Sound, radio: *game.videoreports.Radio) !bool {
+        if (movies.disc.hog == null) movies.disc.open(game.interface.rooms.Carrier.of(mission).disc());
+        const hold: game.hud.MovieHold = .begin(clock, sound, radio);
+        defer hold.end(clock, sound, radio);
+        return try movies.play(game.hud.fosters_last_stand_movie, .cleared_from_disc) != null;
+    }
+
     /// After the mission: what `play_landing_movie` plays (`landing.landing`), the banks read from
     /// `resources` and played through `sound`. False where the window was closed meanwhile.
     pub fn land(movies: *Movies, what: landing.Landing, resources: *const game.bigfile.Hog, sound: *hog_snd.Sound) !bool {

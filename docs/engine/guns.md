@@ -232,7 +232,7 @@ Turrets start in state 0 with zero missiles, reloading immediately. Targets betw
 
 Destroying a turret base disables the weapon permanently: `node_forget` (`0x00499BB0`) sets its kind to -1 ([Objects](objects.md#a-components-destruction)).
 
-Not ported: script `TurretSetTarget` targeting commands ([#281](https://github.com/OpenReliant/openreliant/issues/281)), and multiplayer damage-induced re-targeting ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+Not ported: multiplayer damage-induced re-targeting ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 Gun groups exclude kinds 1 and 3, and `FULL GUNS` excludes kind 1 ([The trigger](#the-trigger)). The original game read into adjacent memory when assemblies lacked expected parts; OpenReliant checks for missing base, muzzle, or launcher parts, skipping invalid slots and trigger calls (**Fix**).
 

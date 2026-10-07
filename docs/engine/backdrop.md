@@ -185,9 +185,15 @@ for it, and `environment_update` turns the effects on and off as asked, at the n
 `UpdateEnvironmentFXState`. Any other goes on or off at once, and what is asked for is then what is
 on. Nothing reads effect 2 (`0x0046A6F0`).
 
-The renderer's start clears the effects (`backdrop_create`, `0x00469C30`), and builds the ice field
-and ten flashes for Planet Bombard (`0x0046A500`, `Boom_Mesh`, `pbang`), which nothing draws: their
-frame (`0x0046A312`) is never called.
+The same update first disables or enables each object that `DisableObjectAtNextJump` asked about
+(`0x0055230C`, a byte an object: 1 to disable it, 2 to enable it again), which leaves a disabled
+object out of the mission's work ([Objects](objects.md)). Mission 11 disables Saturn at once and
+has it back at the next jump so.
+
+The renderer's start clears the effects and drops what was asked of the objects
+(`backdrop_create`, `0x00469C30`), and builds the ice field and ten flashes for Planet Bombard
+(`0x0046A500`, `Boom_Mesh`, `pbang`), which nothing draws: their frame (`0x0046A312`) is never
+called.
 
 **Fix:** since nothing else clears them, an effect one mission leaves on shows in the next, the ice
 field of Instant Action's last wave among them; OpenReliant clears them as each mission starts.

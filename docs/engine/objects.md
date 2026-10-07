@@ -171,8 +171,8 @@ commands and their like set; the names in quotes are the developers' labels for 
 | `0x80` | `can_reverse` | Reverse thrust works only while it is set. Set for a ship with an engine glow that burns forward (`node_mount_glow`). |
 | `0x100` | `cloaked` | Set by `object_cloak` (`0x00463640`), which posts the Cloaked event ([The cloak](cloak.md)). |
 | `0x200` | `targetable` | `SetTargetable` for the whole object, which sets it only when the word at `+0x24` of its combat stats is nonzero. |
-| `0x400` | `disabled` | Not processed: `DisableObject`, "Stops entities from being processed", and `DisableObjectAtNextJump` at the next jump. |
-| `0x800` | `ejected` | Set once its pilot ejects. It takes no more orders, and destroying it now makes it explode. |
+| `0x400` | `disabled` | Not processed: `DisableObject`, "Stops entities from being processed", and `DisableObjectAtNextJump` at the next jump ([Backdrop](backdrop.md#environment-effects)). |
+| `0x800` | `ejected` | Set once its pilot ejects. It takes no more orders, and destroying it now makes it explode. `WillsBlag` clears it. |
 | `0x1000` | `tractored` | Set while a ship's Scoop Up claims it, so no other ship takes it in ([Ejection](ejection.md#scoop-up)). |
 | `0x2000` | `lights_disabled` | `DisableLights`. |
 | `0x4000` | `shield_generator` | It has a shield generator, which destroying the part clears. |
