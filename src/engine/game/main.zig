@@ -55,7 +55,7 @@ const hooks = @import("../hooks.zig");
 const betty = hog_snd.betty;
 const hud = @import("hud.zig");
 const hudoptions = @import("hudoptions.zig");
-const videoreports = @import("videoreports.zig");
+const radio_module = @import("radio.zig");
 const sound3d = @import("sound3d.zig");
 const matmanager = @import("matmanager.zig");
 const nebula = @import("nebula.zig");
@@ -549,13 +549,13 @@ pub fn controlsFrame(controls: Controls) void {
     });
     // `mission_frame` runs the radio's queue after the controls, then its reports and its remarks;
     // the film's timer turns with the game's clock.
-    if (videoreports.onAir(world)) |on_air| {
+    if (radio_module.onAir(world)) |on_air| {
         const radio, const ctx = on_air;
         radio.runFilm(ctx, ticks);
         radio.frame(ctx);
         radio.stepReports(ctx, clock.game_ticks);
     }
-    videoreports.remarksFrame(world);
+    radio_module.remarksFrame(world);
     const cockpit_input = if (controls.cockpit) |shown| shown.inputFor(slot, view.view) else null;
     const subject = camera.Subject.of(slot);
     const seen = if (view.object) |object| camera.Subject.of(&all.slots[object]) else subject;

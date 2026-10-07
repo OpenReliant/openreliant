@@ -174,7 +174,7 @@ pub const exported = [_]Export{
     .{ "JumpState", engine.game.jump.State },
     .{ "GateState", engine.game.wgate.State },
     .{ "JumpEffect", engine.game.jump.effect.Record },
-    .{ "RadioReport", engine.game.videoreports.ReportRecord },
+    .{ "RadioReport", engine.game.radio.ReportRecord },
     .{ "JumpStep", engine.game.jump.Step },
     .{ "JumpOutStep", engine.game.jump.OutStep },
     .{ "JumpInStep", engine.game.jump.InStep },

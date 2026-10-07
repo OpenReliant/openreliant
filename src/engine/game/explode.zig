@@ -42,7 +42,7 @@ const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
 const cloak = @import("cloak.zig");
 const deathmatch = @import("deathmatch.zig");
-const videoreports = @import("videoreports.zig");
+const radio = @import("radio.zig");
 
 /// What the explosions leave for the frames after them.
 pub const Explosions = struct {
@@ -1163,7 +1163,7 @@ pub fn loseComponent(ctx: aigeneric.Context, index: u16, routine: ComponentLoss,
 
 /// A ship that lists components losing its hull, as both `node_draw` and the capital ships'
 /// routine end one: where the player took it from a Kurgan, an Antanov or a Gurevich, the kill is
-/// theirs (`kills_add`), which the radio remarks on (`videoreports.killRemark`), and the ship is
+/// theirs (`kills_add`), which the radio remarks on (`radio.killRemark`), and the ship is
 /// lost (`ai.hullLost`).
 pub fn loseHull(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
@@ -1175,7 +1175,7 @@ pub fn loseHull(ctx: aigeneric.Context, index: u16) void {
     };
     if (object.last_attacker.index() == all.player and credited) {
         deathmatch.addKills(world.player, all, all.player, 1);
-        videoreports.killRemark(world, index);
+        radio.killRemark(world, index);
     }
     ai.hullLost(ctx, index);
 }

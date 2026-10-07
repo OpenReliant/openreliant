@@ -502,7 +502,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     try loading.show(game.xtrabits.loading.startup_step);
     // The radio's lines, from the game's speech archive, said through the sound's speech sample,
     // and the films of the speakers' faces.
-    var radio: game.videoreports.Radio = .open(gpa, io, directory, &mods);
+    var radio: game.radio.Radio = .open(gpa, io, directory, &mods);
     defer radio.deinit(sound);
     radio.style = options.speech;
     sound.objects = objects;
@@ -2028,7 +2028,7 @@ const Display = struct {
     /// The camera, whose shake shakes the power ball too.
     view: *const camera.Camera,
     /// The radio, whose window shows the speaker's face.
-    radio: *game.videoreports.Radio,
+    radio: *game.radio.Radio,
     /// The game's random numbers (`Random`), which the camera and the display both draw from.
     random: *engine.random.Random,
     /// The display's own state, `hud.cpp`'s globals.

@@ -22,7 +22,7 @@ const hog_snd = @import("hog_snd.zig");
 const hud = @import("hud.zig");
 const hudmovie = @import("hudmovie.zig");
 const launch = @import("launch.zig");
-const videoreports = @import("videoreports.zig");
+const radio_module = @import("radio.zig");
 const mission = @import("mission.zig");
 const objects = @import("objects.zig");
 const math = @import("../surrender/math.zig");
@@ -422,19 +422,19 @@ fn setRescueProbabilities(call: Call, game: aigeneric.Context) void {
 
 /// `cmd_PlaySpeech` (`0x00458090`, command `0x06`): the speech file the argument names plays at
 /// once, without the radio's window or a film, ending the line playing
-/// (`videoreports.Radio.playSpeech`).
+/// (`radio.Radio.playSpeech`).
 fn playSpeech(call: Call, game: aigeneric.Context) void {
-    const radio, const ctx = videoreports.onAir(game.world) orelse return;
+    const radio, const ctx = radio_module.onAir(game.world) orelse return;
     const name = argumentText(call, 0) orelse return;
     radio.playSpeech(ctx.sound, name);
 }
 
 /// `cmd_WaitForSpeech` (`0x00458100`, command `0x07`): the thread waits while a line plays
-/// (`videoreports.Radio.speaking`), running the command again each time
+/// (`radio.Radio.speaking`), running the command again each time
 /// (`vm.machine.Call.againItself`).
 fn waitForSpeech(call: Call) u32 {
     const game = call.machine.game orelse return run_on;
-    const radio, const ctx = videoreports.onAir(game.world) orelse return run_on;
+    const radio, const ctx = radio_module.onAir(game.world) orelse return run_on;
     return if (radio.speaking(ctx.sound)) call.againItself() else run_on;
 }
 
@@ -465,7 +465,7 @@ const comms_movie_path_size = 52;
 /// logs it once.
 fn playCommsMovie(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
-    const radio, const ctx = videoreports.onAir(game.world) orelse return;
+    const radio, const ctx = radio_module.onAir(game.world) orelse return;
     const film = argumentText(call, 0) orelse return;
     const speech = argumentText(call, 1) orelse return;
     var buffer: [comms_movie_path_size]u8 = undefined;
@@ -476,7 +476,7 @@ fn playCommsMovie(call: Call, game: aigeneric.Context) void {
         if (machine.firstTime(.long_name)) log.warn("PlayCommsMovie leaves out the film {s} and the speech {s}: a name is too long for the game's {d}-byte buffers", .{ film, speech, comms_movie_path_size });
         return;
     };
-    radio.say(ctx, .{ .film = path, .speech = speech, .name = @truncate(call.args[2]), .flags = .looping, .object = videoreports.nobody }, .now);
+    radio.say(ctx, .{ .film = path, .speech = speech, .name = @truncate(call.args[2]), .flags = .looping, .object = radio_module.nobody }, .now);
 }
 
 /// `cmd_WaitForMovie` (`0x00458180`, command `0x09`): the thread waits while a film of the radio's
@@ -668,8 +668,8 @@ const Speaker = enum { ship, pilot };
 /// | `cmd_CommsFromShipOnce` (`0x00458FD0`, command `0x29`) | `ship` | `once` |
 /// | `cmd_CommsFromPilotOnce` (`0x00459020`, command `0x2A`) | `pilot` | `once` |
 ///
-/// The ship the first argument names (`videoreports.Radio.sayShip`), or the pilot it numbers
-/// (`videoreports.Radio.sayPilot`), says the speech file the third names at once, its face moving
+/// The ship the first argument names (`radio.Radio.sayShip`), or the pilot it numbers
+/// (`radio.Radio.sayPilot`), says the speech file the third names at once, its face moving
 /// as the second says, the film looping while the line plays, or playing once
 /// (`hudmovie.Flags.once`).
 fn comms(comptime speaker: Speaker, comptime flags: hudmovie.Flags) vm.Implementation {
@@ -677,15 +677,15 @@ fn comms(comptime speaker: Speaker, comptime flags: hudmovie.Flags) vm.Implement
         fn run(call: Call) u32 {
             const machine = call.machine;
             const game = machine.game orelse return yield;
-            const radio, const ctx = videoreports.onAir(game.world) orelse return yield;
+            const radio, const ctx = radio_module.onAir(game.world) orelse return yield;
             const head: pilots.Head = @fromBackingInt(call.args[1]);
             const name = argumentText(call, 2) orelse return yield;
             switch (speaker) {
                 .ship => {
                     const ship = mission.shipSlot(machine.mission, ctx.all, call.args[0]) orelse return yield;
-                    radio.sayShip(ctx, ship, head, name, .now, flags, videoreports.no_expiry);
+                    radio.sayShip(ctx, ship, head, name, .now, flags, radio_module.no_expiry);
                 },
-                .pilot => radio.sayPilot(ctx, @truncate(call.args[0]), head, name, .now, flags, videoreports.no_expiry),
+                .pilot => radio.sayPilot(ctx, @truncate(call.args[0]), head, name, .now, flags, radio_module.no_expiry),
             }
             return yield;
         }
@@ -708,7 +708,7 @@ fn friendlyFire(_: Call, game: aigeneric.Context) void {
     friendly_fire.friendDestroyed(game.world);
 }
 
-/// The commands that set a flag of the radio's remarks (`videoreports.Remarks`) while the argument,
+/// The commands that set a flag of the radio's remarks (`radio.Remarks`) while the argument,
 /// read as a halfword, is set, and clear it while it is not (`halfwordSet`):
 ///
 /// | Command | Flag |
@@ -2445,9 +2445,9 @@ test "the director's commands stack shots, wait for them and stop them" {
 /// archives of their own, a speaker, and the radio on them. It stays where `init` fills it in, as
 /// the world's hearing holds the speaker.
 const TestRadio = struct {
-    archives: videoreports.testing.Archives,
+    archives: radio_module.testing.Archives,
     speaker: @import("hog_snd.zig").testing.Speaker,
-    radio: videoreports.Radio,
+    radio: radio_module.Radio,
 
     fn init(t: *TestRadio) !void {
         const gpa = std.testing.allocator;
@@ -2745,11 +2745,11 @@ test "PlayCommsMovie and CommsFromPilot say their lines on the radio" {
     on_air.wire(&ctx, &game);
     try game.start(ctx);
 
-    try std.testing.expectEqual(videoreports.pilot_base, radio.object);
+    try std.testing.expectEqual(radio_module.pilot_base, radio.object);
     try std.testing.expect(radio.movie.playing);
     game.fixture.second();
     try std.testing.expectEqual(9, radio.name);
-    try std.testing.expectEqual(videoreports.nobody, radio.object);
+    try std.testing.expectEqual(radio_module.nobody, radio.object);
     try std.testing.expectEqual(hudmovie.Flags.looping, radio.movie.flags);
     try std.testing.expect(game.fixture.machine.finished);
     try std.testing.expect(game.fixture.machine.warned.contains(.long_name));

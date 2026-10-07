@@ -929,7 +929,7 @@ pub const GameObject = extern struct {
     fought_by: u32,
     /// A target Find New Target does not pick to fight until `game_ticks` pass `set_aside_until`,
     /// which BACK OFF sets to the player's target for 3000 ticks (`0x0045517F`,
-    /// `videoreports.wingmen`); none when created.
+    /// `radio.wingmen`); none when created.
     set_aside: Slot,
     set_aside_until: u32,
     /// What `avoidance_scan` finds the ship could hit, for the avoidance code: the objects that
@@ -1777,7 +1777,7 @@ pub const World = struct {
     /// mission runs, as in a test.
     variables: ?*@import("../vm.zig").Variables = null,
     /// The radio, whose lines the pilots say (`videoreports.cpp`); null where nothing is heard.
-    radio: ?*@import("videoreports.zig").Radio = null,
+    radio: ?*@import("radio.zig").Radio = null,
 
     /// The ship types' stats and their models.
     pub const Spawn = struct {

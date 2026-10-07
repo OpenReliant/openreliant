@@ -1,15 +1,14 @@
-//! The radio's reports, the lines the pilots say with their faces in the radio's window (`Radio`),
-//! and the ITAC's VIDEO REPORTS (`section`), which `C:\lancer\game\videoreports.cpp` holds. The
-//! radio's code, from `0x00456050` to `0x00456F00`, comes from a file without a path, as other
-//! files' code lies between it and VIDEO REPORTS; it is to get a module of its own
-//! ([#810](https://github.com/OpenReliant/openreliant/issues/810)).
-//!
+//! The radio's reports, the lines the pilots say with their faces in the radio's window (`Radio`).
 //! The reports (`Report`) wait their time and are then said as lines: PERMISSION TO LAND's answer
 //! and the wingmen's replies to their commands (`wingmen`) queue them. The remarks (`Remarks`) are
 //! the lines the game has the pilots say by itself: the reminders to land and to jump, the warning
 //! of a missile, and the words on a kill, a ship lost, a pilot ejecting, a hit on the player and a
 //! launch. The radio's menu (`menu`), which the display's window 11 shows, reaches the wingmen,
-//! the enemy and the base.
+//! the enemy and the base. [`radio.md`](../../../docs/engine/radio.md) describes it.
+//!
+//! **Unknown:** its source file. The code, from `0x00453A70` to `0x00456F00`, lies between
+//! `videoreports.cpp`'s and `Executor.cpp`'s, after the director's camera and the missions'
+//! binding, and no string places it; this module is named for what it does.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -32,8 +31,8 @@ const input = @import("../input.zig");
 const vm = @import("../vm.zig");
 const events = @import("mission/events.zig");
 
-pub const wingmen = @import("videoreports/wingmen.zig");
-pub const menu = @import("videoreports/menu.zig");
+pub const wingmen = @import("radio/wingmen.zig");
+pub const menu = @import("radio/menu.zig");
 pub const section = @import("videoreports/section.zig");
 
 test {

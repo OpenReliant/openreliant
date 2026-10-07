@@ -159,7 +159,7 @@ pub const Movies = struct {
     /// (`game.hud.MovieHold`). With `--mission`, which flies the mission without the hangar's
     /// movie, no disc's archive is open yet, so the disc of the mission's carrier opens. False where
     /// the window was closed meanwhile.
-    pub fn fostersLastStand(movies: *Movies, mission: u16, clock: *game.main.Clock, sound: *hog_snd.Sound, radio: *game.videoreports.Radio) !bool {
+    pub fn fostersLastStand(movies: *Movies, mission: u16, clock: *game.main.Clock, sound: *hog_snd.Sound, radio: *game.radio.Radio) !bool {
         if (movies.disc.hog == null) movies.disc.open(game.interface.rooms.Carrier.of(mission).disc());
         const hold: game.hud.MovieHold = .begin(clock, sound, radio);
         defer hold.end(clock, sound, radio);

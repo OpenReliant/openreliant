@@ -13,7 +13,7 @@
 //! [`missile_display.zig`](missile_display.zig), [`target_display.zig`](target_display.zig),
 //! [`damage.zig`](damage.zig), [`power.zig`](power.zig),
 //! [`objectives_window.zig`](objectives_window.zig), the radio's menu
-//! ([`videoreports/menu.zig`](../videoreports/menu.zig)), [`wing_status.zig`](wing_status.zig)).
+//! ([`radio/menu.zig`](../radio/menu.zig)), [`wing_status.zig`](wing_status.zig)).
 //! Not yet: what windows 5, 6, 9, 12 and 14 are for, and what window 14 shows
 //! ([#105](https://github.com/OpenReliant/openreliant/issues/105)).
 
@@ -24,7 +24,7 @@ const camera = @import("../camera.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const hud = @import("../hud.zig");
 const math = @import("../../surrender/math.zig");
-const videoreports = @import("../videoreports.zig");
+const radio_module = @import("../radio.zig");
 
 /// The windows, numbered as the game numbers their records.
 pub const Window = enum(u4) {
@@ -322,7 +322,7 @@ pub const Contents = struct {
     /// Window 10's.
     objectives: ?hud.objectives_window.Shown = null,
     /// Window 11's, the radio's menu.
-    comms: ?videoreports.menu.Shown = null,
+    comms: ?radio_module.menu.Shown = null,
     /// Windows 3 and 8's, the target display's two forms.
     target_display: ?hud.target_display.Scene = null,
     /// Window 13's.
@@ -473,7 +473,7 @@ fn draw(windows: *Windows, pen: hud.Pen, window: Window, shown: Shown, ahead: bo
         .damage => if (contents.damage) |damage| try hud.damage.draw(damage, canvas),
         .power => if (contents.power) |power| try hud.power.draw(power, canvas),
         .objectives => if (contents.objectives) |objectives| try hud.objectives_window.draw(objectives, canvas),
-        .comms => if (contents.comms) |comms| try videoreports.menu.draw(comms, canvas),
+        .comms => if (contents.comms) |comms| try radio_module.menu.draw(comms, canvas),
         .wing_status => if (contents.wing_status) |wing| try hud.wing_status.draw(wing, canvas),
         else => if (hud.target_display.Form.of(window)) |form| if (contents.target_display) |scene| {
             try scene.draw(form, phase == .closing, canvas);

@@ -12,8 +12,8 @@
 //! **Unverified:** the files. `loadout_ship_bars_init` and the two functions after it
 //! (`0x00426600` to `0x00426894`) lie after `wgate.cpp`'s known code and before `interf.cpp`'s,
 //! among the data of which lie the ITAC's fighter tables they fill (`0x004E5470`, `0x004E57A0`).
-//! `range_widen` and `range_scale` (`0x004504C0`, `0x004504F0`) lie after `loadout.cpp`'s known
-//! code and before `videoreports.cpp`'s, which has none. They do the loadout's work.
+//! `range_widen` and `range_scale` (`0x004504C0`, `0x004504F0`) lie between `loadout.cpp`'s known
+//! code and VIDEO REPORTS, `videoreports.cpp`'s (`0x00450540`). They do the loadout's work.
 
 const std = @import("std");
 const assert = std.debug.assert;

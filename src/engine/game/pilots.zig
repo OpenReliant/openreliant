@@ -35,9 +35,9 @@ pub const Pilot = extern struct {
     /// The record's `_unknown_54`, copied through.
     _unknown_1c: u16,
     /// The record's `_unknown_50`. The pilot answers What's your status? only if it's above 0
-    /// (`videoreports.menu`).
+    /// (`radio.menu`).
     _unknown_1e: u16,
-    /// The record's `_unknown_58`. The radio checks it without any effect (`videoreports.wingmen`).
+    /// The record's `_unknown_58`. The radio checks it without any effect (`radio.wingmen`).
     _unknown_20: u16,
     /// The pilot's skill, which the maneuvers use: how far away it starts pursuing, how much
     /// distance it keeps from what it might hit, and whether it uses the afterburner when
@@ -226,7 +226,7 @@ pub const Face = struct {
     name: u16,
     side: gameobj.Side(u16),
     films: [heads][]const u8,
-    /// The voice the pilot speaks in flying a hostile ship (`+0x06`, `videoreports.shipLine`).
+    /// The voice the pilot speaks in flying a hostile ship (`+0x06`, `radio.shipLine`).
     voice: Voice = .rus,
     /// The voice the pilot speaks in flying a friendly ship, by the pilot's number (`0x004538E0`);
     /// none for a pilot the game gives none, whose lines are then left out.
@@ -236,7 +236,7 @@ pub const Face = struct {
     /// Hawkeye).
     full_replies: bool = false,
     /// OpenReliant's: the voice a mod's pilot speaks in on any side, the start of its lines' names,
-    /// in place of `voice` and `allied_voice` (`videoreports.shipLine`).
+    /// in place of `voice` and `allied_voice` (`radio.shipLine`).
     own_voice: ?[]const u8 = null,
 
     pub const heads = 4;

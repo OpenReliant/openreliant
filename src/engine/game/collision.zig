@@ -24,7 +24,7 @@ const hud = @import("hud.zig");
 const input = @import("../input.zig");
 const camera = @import("camera.zig");
 const friendly_fire = @import("friendly_fire.zig");
-const videoreports = @import("videoreports.zig");
+const radio = @import("radio.zig");
 
 /// How far apart a collision sets two objects, as a share of each one's radius from the point
 /// between them (`0x004DC7C0` and `0x004DC7C4`): a tenth further than touching, so that the next
@@ -395,7 +395,7 @@ fn holdShots(world: gameobj.World, held: bool) void {
 /// and nor does debris, though a blow to the player's ship starts the display's interference
 /// (`hud.Interference.start`) before that is known. Otherwise the blow, `value` as the difficulty
 /// scales it, of a kind that counts, to the player's ship draws the attacker's taunt on the radio
-/// (`videoreports.enemyTaunt`); it shakes the player's ship and its controller (`feedback`, where
+/// (`radio.enemyTaunt`); it shakes the player's ship and its controller (`feedback`, where
 /// `shielded` says whether the shields took it), and counts toward what the object has taken lately
 /// where its kind does. Returns the scaled blow, or null where the object takes nothing.
 fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: u16, kind: Kind, shielded: bool) ?f32 {
@@ -405,7 +405,7 @@ fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, at
     if (index == all.player) if (world.display) |display| display.interference.start(world);
     if (slot.combat) |combat| if (combat.class == .debris) return null;
     const scaled = byDifficulty(world, index, kind, value);
-    if (index == all.player and counted(kind)) videoreports.enemyTaunt(world, attacker);
+    if (index == all.player and counted(kind)) radio.enemyTaunt(world, attacker);
     if (index == all.player) feedback(world, struck, kind, scaled, shielded);
     if (counted(kind)) slot.object.recent_damage += scaled;
     return scaled;
