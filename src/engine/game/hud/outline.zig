@@ -23,6 +23,7 @@ const Allocator = std.mem.Allocator;
 
 const fnt = @import("../../../formats/fnt.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
+const device = @import("../../surrender/srd3d/device.zig");
 const bigfile = @import("../bigfile.zig");
 const hud = @import("../hud.zig");
 const itac = @import("../itac.zig");
@@ -369,8 +370,8 @@ pub const Outline = struct {
     file: ?[]u8,
     fit: Fit,
     atlases: [kept_sizes]?Atlas = @splat(null),
-    /// The textures of atlases that outgrew them, kept until the end because the device may still
-    /// be uploading them with the frame that used them.
+    /// The textures of atlases that outgrew them, kept until the next frame starts, as the device
+    /// may still draw them in the frame that replaced them (`release`).
     retired: std.ArrayList(srtexture.Image) = .empty,
     /// A count of its draws, used to find the least recently used atlas.
     draws: u64 = 0,
@@ -386,6 +387,17 @@ pub const Outline = struct {
             outline.rasterizer.close(outline.face);
             gpa.free(file);
         }
+    }
+
+    /// Hands the device `into` the textures of the atlases retired before this frame, so that it
+    /// lets go of what it made of them, and frees them. Called as a frame starts, before anything
+    /// is drawn.
+    pub fn release(outline: *Outline, into: device.Device) void {
+        for (outline.retired.items) |*image| {
+            into.release(image);
+            image.deinit(outline.gpa);
+        }
+        outline.retired.clearRetainingCapacity();
     }
 
     /// Its glyphs for the bitmap font drawn at `scale` times its size. They are rendered the first
@@ -572,6 +584,12 @@ pub const Outlines = struct {
 
     pub fn init(gpa: Allocator, rasterizer: ?Rasterizer, mods: *const bigfile.Mods) Outlines {
         return .{ .gpa = gpa, .rasterizer = rasterizer, .mods = mods };
+    }
+
+    /// Hands the device the textures of every font's retired atlases (`Outline.release`), as a
+    /// frame starts.
+    pub fn release(outlines: *Outlines, into: device.Device) void {
+        for (outlines.fonts.items) |font| if (font.outline) |outline| outline.release(into);
     }
 
     pub fn deinit(outlines: *Outlines) void {
@@ -845,10 +863,15 @@ test Outline {
     try std.testing.expect(atlas.image.changed);
     try std.testing.expectEqual(0, outline.retired.items.len);
     // A size too large for it gets a new texture, and the old one is kept for the frame that used
-    // it.
+    // it, until the next frame starts and the device lets go of it.
     const large = (try outline.at(20)).?.atlas;
     try std.testing.expect(large.image.width() > 64);
     try std.testing.expectEqual(1, outline.retired.items.len);
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    outline.release(recorder.interface());
+    try std.testing.expectEqual(0, outline.retired.items.len);
+    try std.testing.expectEqual(1, recorder.released);
 }
 
 test Outlines {
