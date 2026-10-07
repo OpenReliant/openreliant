@@ -1139,8 +1139,13 @@ return {
     instead, as the flight display's font does, each pixel is as strong as its colour is close to
     the letters' brightest colour.
 - `measure` takes a text style, or just a number for its scale, and measures as `text` draws.
-- A reload reads the files again. All the mods' pictures and fonts together can use up to 128 files
-  and 64 MiB. A missing, broken or oversized file is an error in the script.
+- The pictures and fonts stay loaded once drawn, and a reload reads the files again. All the mods'
+  pictures and fonts together can hold up to 128 files and 128 MiB, a picture taking 4 bytes a
+  pixel: a 4096x4096 picture takes 64 MiB. When a new one doesn't fit, the pictures drawn longest
+  ago make room for it, so a mod can cycle through more pictures than that, such as the frames of
+  an animation. Only the fonts and the pictures drawn in the last two frames have to fit at once.
+- A missing or broken file is an error in the script, and so is a picture or font that doesn't
+  fit.
 
 [`examples/mods/drawing-assets`](../../examples/mods/drawing-assets) draws each of them.
 
@@ -1881,7 +1886,7 @@ logged with the file and the line, and the game carries on.
 | A mod's scripts' memory | 64 MiB |
 | A loose file a script reads | 32 MiB, half of that memory ([Files](#files)) |
 | Drawing each frame | 4096 things and 64 KiB of text over the flight display (`hud` and `debug` together), and as much over the menus (`ui`). What's past that isn't drawn |
-| The pictures and fonts scripts draw | 128 files and 64 MiB, all mods together ([Pictures, shapes and fonts](#pictures-shapes-and-fonts)) |
+| The pictures and fonts scripts draw | 128 files and 128 MiB at once, all mods together, the pictures drawn longest ago making room for new ones ([Pictures, shapes and fonts](#pictures-shapes-and-fonts)) |
 | Camera views, HUD displays and screens | About 200 together in one run of OpenReliant, counting the ones registered before a reload ([Camera views](#camera-views)) |
 | Post effects | 64 at once, all mods together ([Post effects](#post-effects)) |
 | Surface and lighting functions | 64 at once, all mods together ([Surface and lighting functions](#surface-and-lighting-functions)) |

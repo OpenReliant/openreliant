@@ -272,6 +272,7 @@ pub const Presentation = struct {
         shown.host = host;
         shown.views = host.views;
         for (&shown.layers.values) |*layer| layer.clear();
+        shown.assets.startFrame();
         if (shown.window) |last| {
             if (!std.mem.eql(u32, &last, &host.window)) shown.runner.callAll(.on_viewport_resized, .{ .width = host.window[0], .height = host.window[1] });
         }
@@ -302,8 +303,10 @@ pub const Presentation = struct {
     }
 
     /// Draws what the scripts drew on `which` this frame into `into`, where it's shown. `sight`
-    /// places what they drew in the world.
-    pub fn draw(shown: *const Presentation, which: drawing.Which, into: device.Device, sight: ?hud.Sight) Allocator.Error!void {
+    /// places what they drew in the world. First, `into` lets go of the pictures taken out of the
+    /// cache (`drawing.Assets.release`).
+    pub fn draw(shown: *Presentation, which: drawing.Which, into: device.Device, sight: ?hud.Sight) Allocator.Error!void {
+        shown.assets.release(shown.gpa, into);
         const view = shown.views.get(which) orelse return;
         try shown.layers.getPtrConst(which).draw(into, view, sight);
     }
@@ -802,6 +805,36 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
     fixture.shown.frame(host);
     try std.testing.expectEqual(2, fixture.shown.assets.pictures.items.len);
     try std.testing.expectEqual(4, fixture.shown.assets.fonts.items.len);
+}
+
+test "a script draws more pictures over time than the cache holds" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    var png: std.Io.Writer.Allocating = .init(gpa);
+    defer png.deinit();
+    try openreliant.png.writeRgba(gpa, &png.writer, 1, 1, &.{ 255, 0, 0, 255 });
+    // A picture for each frame, one more than the cache holds.
+    const pictures = drawing.max_assets + 1;
+    var files: std.ArrayList(struct { []const u8, []const u8 }) = .empty;
+    try files.append(arena.allocator(), .{ "mod.ini", "[Scripts]\nMenu=a.luau\n" });
+    try files.append(arena.allocator(), .{ "a.luau", "local n = 0\nreturn {engine_handlers = {on_frame = function() n += 1; require('openreliant.ui').picture(vector.zero, 'p' .. n .. '.png') end}}" });
+    for (1..pictures + 1) |n| try files.append(arena.allocator(), .{ try std.fmt.allocPrint(arena.allocator(), "p{d}.png", .{n}), png.written() });
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "a", files.items }});
+    defer fixture.deinit();
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 } };
+    host.views.set(.ui, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    for (0..pictures) |_| fixture.shown.frame(host);
+    // The last picture drew, and the first, drawn longest ago, made room for it.
+    try std.testing.expectEqual(1, fixture.shown.layers.get(.ui).commands.items.len);
+    try std.testing.expectEqual(drawing.max_assets, fixture.shown.assets.pictures.items.len);
+    try std.testing.expectEqual(1, fixture.shown.assets.taken_out.items.len);
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    try fixture.shown.draw(.ui, recorder.interface(), null);
+    try std.testing.expectEqual(1, recorder.released);
+    try std.testing.expectEqual(0, fixture.shown.assets.taken_out.items.len);
 }
 
 test "with outline fonts off, a script's outline font is drawn in its base font" {
