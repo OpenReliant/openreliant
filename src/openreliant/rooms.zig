@@ -199,9 +199,6 @@ pub const Driver = struct {
     /// (`briefing.Own`): where it leads, or null where the game quits meanwhile. The loadout
     /// offers what a new pilot gets, or the `ships` the mode lists. It stands on the room's
     /// carrier, leaves out the first mission's lesson, and keeps the modes' own saved loadout.
-    ///
-    /// Not ported: the rank the pilot's kills over the mode's missions reach, which the trial's
-    /// loadout goes by ([#821](https://github.com/OpenReliant/openreliant/issues/821)).
     pub fn modeBriefing(driver: *Driver, mission: u16, own: briefing.Own, ships: ?[]const game.gameobj.Type) !?End {
         driver.turnTo(own.carrier.disc());
         var hologram = driver.loadoutContext(mission);

@@ -57,8 +57,6 @@ The ship the loadout starts on is the Shroud in mission 23, the Predator in miss
 - It keeps the game modes' own saved loadout, apart from the campaign's, which starts without a ship as each mode starts (`Saved.unchosen`). A mode's first loadout then starts on the first ship offered, with the tier's missiles.
 - The mode can list the ships it offers, in its own order (`loadout_ships`, [Game modes](../guide/scripting.md#game-modes)). The loadout offers those the player can fly, each once, as many as the arc holds (`tables.listedOffers`), and starts on the ship chosen last in the mode where the list has it, else on the first.
 
-Not ported: the rank the pilot's kills over the mode's missions reach. The trial promotes its pilot as the campaign does, so 35 kills in its mission 1 add the Coyote to mission 2's loadout ([#821](https://github.com/OpenReliant/openreliant/issues/821)).
-
 ## The scene
 
 The camera stands at (-2.8, -6.5, -16.85), turned by (-0.368, 0.067, 0.03) (`loadout_placements`, `0x0044B5E0`), over the front end's screen with the renderer's projection, its near plane at 1. The objects the placements name (`0x004EA520`) stand where they say:
