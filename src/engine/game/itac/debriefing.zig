@@ -84,10 +84,8 @@ const to_string = 0x8D;
 const header_labels_x = 1;
 const header_values_x = 46;
 const header_line = 15;
-pub const header_colour = hud.rgb(0x3AD1FF);
-
-/// Between two paragraphs (`0x004E5440`).
-const between = "\n\n";
+const header_colour = itac_module.header_colour;
+const between = itac_module.between;
 
 /// The paragraphs added to the body: a medal's, by the medal (`0x004E4A26`); a promotion's, by the
 /// rank (`0x004E4A48`); a ribbon's, by the ribbon (`0x004E4A32`); the new fighters', by the tier
@@ -144,13 +142,6 @@ const list_room = 14;
 const list_arrows = [2]Rect{ .{ .x = 515, .y = 368, .width = 27, .height = 27 }, .{ .x = 542, .y = 368, .width = 27, .height = 27 } };
 const most_listed = 13;
 
-/// The room the body's text has (`itac_text`, `0x00520844`).
-const text_room = 10000;
-
-/// A mission listed, and where its entry stands on the screen (`debrief_list_hotspots`,
-/// `0x0051D318`).
-const Listed = struct { place: u8, rect: Rect };
-
 pub const Debriefing = struct {
     /// The debriefing chosen, a place in the campaign's order (`debrief_selected`, `0x0051D380`);
     /// none where the campaign has none yet.
@@ -162,10 +153,11 @@ pub const Debriefing = struct {
     box: ScrollBox = body_box,
     /// Whether the pointer is over REPLAY MISSION (`debrief_replay_hover`, `0x0051D310`).
     replay_lit: bool = false,
-    listed: [most_listed]Listed = undefined,
+    /// The entries the list shows, each a hotspot (`debrief_list_hotspots`, `0x0051D318`).
+    listed: [most_listed]itac_module.ListEntry = undefined,
     listed_count: u8 = 0,
     /// The body, as its build writes it.
-    text: [text_room]u8 = undefined,
+    text: [itac_module.text_room]u8 = undefined,
     text_len: usize = 0,
 
     /// `debrief_enter` (`0x004246C0`): the latest debriefing chosen (`debrief_select_latest`,
@@ -196,7 +188,7 @@ pub const Debriefing = struct {
             debriefing.rebuild = false;
         }
         debriefing.box.update(itac.ticks, itac.pointer);
-        if (itac.left) if (debriefing.listedAt(itac.pointer.at)) |place| if (debriefing.selected != place) {
+        if (itac.left) if (itac_module.entryAt(debriefing.listed[0..debriefing.listed_count], itac.pointer.at)) |place| if (debriefing.selected != place) {
             debriefing.selected = place;
             debriefing.box.scroll = ScrollBox.top;
             debriefing.build(itac, false);
@@ -222,12 +214,6 @@ pub const Debriefing = struct {
     fn replayOffered(debriefing: Debriefing, itac: *const Itac) bool {
         const selected = debriefing.selected orelse return false;
         return itac.run == .after_mission and placeOf(itac.pilot.mission) == selected + 1;
-    }
-
-    /// The listed mission whose entry holds `at`, its edges left out.
-    fn listedAt(debriefing: Debriefing, at: [2]i32) ?u8 {
-        for (debriefing.listed[0..debriefing.listed_count]) |entry| if (entry.rect.holds(at)) return entry.place;
-        return null;
     }
 
     /// The mission chosen, by its number; none where none is.
@@ -305,7 +291,7 @@ pub const Debriefing = struct {
             var buffer: [64]u8 = undefined;
             const entry = entryText(&buffer, itac, place);
             const lines: i32 = @intCast(entryLines().count(font, entry));
-            debriefing.listed[debriefing.listed_count] = .{ .place = place, .rect = .{
+            debriefing.listed[debriefing.listed_count] = .{ .place = place, .top = y, .rect = .{
                 .x = list_pane.x,
                 .y = @intCast(list_pane.y + y),
                 .width = list_pane.width,
@@ -363,16 +349,13 @@ pub const Debriefing = struct {
             try in_pane.text(small, .{ header_pane.x + header_labels_x, top + header_line }, itac.string(to_string), header_colour, .left);
             try in_pane.text(small, .{ header_pane.x + header_values_x, top + header_line }, itac.pilot.call_sign, header_colour, .left);
         };
-        if (itac.panes[body].showing()) |shown| {
-            const scroll: i32 = @intFromFloat(debriefing.box.scroll);
-            try canvas.within(shown).wrapped(small, .{ body_pane.x, body_pane.y + scroll - 1 }, debriefing.bodyText(), itac_module.text_colour, .left, debriefing.box.lines());
-        }
+        if (itac.panes[body].showing()) |shown| try debriefing.box.drawText(canvas, small, body_pane, shown, debriefing.bodyText());
         if (itac.panes[list].showing()) |shown| {
             const in_pane = canvas.within(shown);
             for (debriefing.listed[0..debriefing.listed_count]) |entry| {
                 var buffer: [64]u8 = undefined;
                 const colour = if (debriefing.selected == entry.place) header_colour else itac_module.text_colour;
-                try in_pane.wrapped(small, .{ list_pane.x + entry_x, entry.rect.y }, entryText(&buffer, itac, entry.place), colour, .left, entryLines());
+                try in_pane.wrapped(small, .{ list_pane.x + entry_x, list_pane.y + entry.top }, entryText(&buffer, itac, entry.place), colour, .left, entryLines());
             }
         }
     }
