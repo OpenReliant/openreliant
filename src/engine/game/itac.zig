@@ -5,9 +5,9 @@
 //! title and text fade, and a picture its text is written on; the last button closes it.
 //!
 //! Ported so far: the ITAC's loop, with its movies, its sections' pictures and titles, the fades of
-//! their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds; and
-//! DEBRIEFINGS (`debriefing`). The other sections show their pictures with nothing written on them:
-//! NEWS REPORTS ([#461](https://github.com/OpenReliant/openreliant/issues/461)), VIDEO REPORTS
+//! their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds;
+//! DEBRIEFINGS (`debriefing`); and NEWS REPORTS (`news_reports`). The other sections show their
+//! pictures with nothing written on them: VIDEO REPORTS
 //! ([#462](https://github.com/OpenReliant/openreliant/issues/462)), the fighters
 //! ([#463](https://github.com/OpenReliant/openreliant/issues/463)), the capital ships
 //! ([#464](https://github.com/OpenReliant/openreliant/issues/464)), the squadrons
@@ -31,6 +31,7 @@ const rooms = @import("interface/rooms.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
 pub const debriefing = @import("itac/debriefing.zig");
+pub const news_reports = @import("itac/news_reports.zig");
 pub const tables = @import("itac/tables.zig");
 
 /// The module the ITAC's strings come from (`itac_language_init`, `0x00440770`): the game asks for
@@ -206,6 +207,14 @@ const lit_palette = 0x1E;
 const more_string = 0x78C;
 pub const text_colour = hud.rgb(0xFF923A);
 
+/// The colour the sections' headings and chosen entries are written in.
+pub const header_colour = hud.rgb(0x3AD1FF);
+
+/// What a section writes between two paragraphs (`0x004E5440`), and the room its text has
+/// (`itac_text`, `0x00520844`).
+pub const between = "\n\n";
+pub const text_room = 10000;
+
 /// How far a pane wipes in each tick of the ITAC's timer (`0x0043FFD4`).
 const wipe_step = 14;
 
@@ -365,6 +374,13 @@ pub const ScrollBox = struct {
         };
     }
 
+    /// `itac_scroll_text_draw`'s writing of `text` in `font`, in the text's colour, broken into its
+    /// lines from its scroll, into its pane at `pane`, as far as `shown` of the pane has wiped in.
+    pub fn drawText(box: ScrollBox, canvas: Canvas, font: *hud.Opened, pane: Rect, shown: Rect, text: []const u8) Allocator.Error!void {
+        const scroll: i32 = @intFromFloat(box.scroll);
+        try canvas.within(shown).wrapped(font, .{ pane.x, pane.y + scroll - 1 }, text, text_colour, .left, box.lines());
+    }
+
     /// The scroll kept between the top of its text and `least`.
     fn keep(box: *ScrollBox) void {
         if (box.scroll > top) {
@@ -374,6 +390,17 @@ pub const ScrollBox = struct {
         }
     }
 };
+
+/// An entry a section's list shows: its place in the list, where its text stands down the list's
+/// pane, and its hotspot, by which the pointer chooses it.
+pub const ListEntry = struct { place: u8, top: i32, rect: Rect };
+
+/// The place of the entry of `entries` whose hotspot holds `at`, its edges left out (`itac_hit`,
+/// `0x0043FE40`).
+pub fn entryAt(entries: []const ListEntry, at: [2]i32) ?u8 {
+    for (entries) |entry| if (entry.rect.holds(at)) return entry.place;
+    return null;
+}
 
 /// The auto-repeat of the arrows that step through a list (`itac_repeat`, `0x00441060`): true as
 /// the left button goes down, then while it is held, on the timer's fourth tick and every fifth
@@ -473,8 +500,9 @@ pub const Itac = struct {
     /// The game tick the next sound now and then is due at.
     now_and_then_due: u32 = 0,
     random: std.Random.DefaultPrng,
-    /// DEBRIEFINGS.
+    /// DEBRIEFINGS and NEWS REPORTS.
     debriefings: debriefing.Debriefing = .{},
+    news: news_reports.NewsReports = .{},
     /// REPLAY MISSION chosen (`replay_briefing`, `0x00520840`).
     replay: bool = false,
 
@@ -498,9 +526,11 @@ pub const Itac = struct {
         return itac;
     }
 
-    /// Lets go of what it read.
+    /// Lets go of what it read, each section left as the game leaves them all once it has closed
+    /// (`0x0043FA4B`).
     pub fn deinit(itac: *Itac) void {
         const gpa = itac.context.rooms.gpa;
+        for (std.enums.values(Section)) |section| itac.leaveSection(section);
         itac.film.close();
         itac.picture.deinit(gpa);
         if (itac.large) |*font| font.deinit(gpa);
@@ -545,7 +575,7 @@ pub const Itac = struct {
                 }
                 if (escape) return itac.close();
                 itac.nowAndThen(in.ticks);
-                if (itac.left) if (canvas_module.itemAt(Section, &buttons, in.pointer.at)) |section| if (section != itac.section) itac.leave(section, in.now);
+                if (itac.left) if (canvas_module.itemAt(Section, &buttons, in.pointer.at)) |section| if (section != itac.section) itac.choose(section, in.now);
                 itac.pointer_clock.advance(in.ticks, pointer_wrap);
                 if (itac.stage == .shown) {
                     itac.wipePanes();
@@ -670,7 +700,7 @@ pub const Itac = struct {
 
     /// A press on the button of `to`: its sound, the shown section's movie out with its title and
     /// text fading out over it, the pointer still shown (`0x0043F6DE` on).
-    fn leave(itac: *Itac, to: Section, now: u64) void {
+    fn choose(itac: *Itac, to: Section, now: u64) void {
         itac.play(.button, full_volume, 1);
         const from = itac.section orelse return itac.openNext(to, now);
         itac.fading = .out;
@@ -679,11 +709,11 @@ pub const Itac = struct {
         itac.stage = .{ .leaving = to };
     }
 
-    /// The shown section's movie out played: it is left, and `to` opened, its movie in playing with
-    /// its title and text fading in over it, the pointer left out (`0x0043F751` on). Of the
-    /// sections' handlers for leaving them, DEBRIEFINGS' does nothing (`noop`), and the others are
-    /// not ported.
+    /// The shown section's movie out played: it is left (`leaveSection`), and `to` opened, its movie
+    /// in playing with its title and text fading in over it, the pointer left out (`0x0043F751`
+    /// on).
     fn openNext(itac: *Itac, to: Section, now: u64) void {
+        if (itac.section) |from| itac.leaveSection(from);
         itac.section = to;
         if (to != .exit) itac.enter(to);
         itac.fading = .in;
@@ -698,7 +728,16 @@ pub const Itac = struct {
         if (section.sided()) itac.side = .alliance;
         switch (section) {
             .debriefings => itac.debriefings.enter(itac.pilot),
-            .news_reports, .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
+            .news_reports => itac.news.enter(itac),
+            .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
+        }
+    }
+
+    /// A section's second handler, as it is left (slot 1): DEBRIEFINGS' does nothing (`noop`).
+    fn leaveSection(itac: *Itac, section: Section) void {
+        switch (section) {
+            .news_reports => itac.news.leave(itac.context.rooms.gpa),
+            .debriefings, .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
         }
     }
 
@@ -709,7 +748,8 @@ pub const Itac = struct {
         for (&itac.panes) |*pane| pane.shown = false;
         switch (section) {
             .debriefings => itac.debriefings.loaded(itac),
-            .news_reports, .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard => itac.panes = @splat(.{}),
+            .news_reports => itac.news.loaded(itac),
+            .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard => itac.panes = @splat(.{}),
             .exit => {},
         }
     }
@@ -719,7 +759,8 @@ pub const Itac = struct {
         const section = itac.section orelse return;
         switch (section) {
             .debriefings => itac.debriefings.update(itac),
-            .news_reports, .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
+            .news_reports => itac.news.update(itac),
+            .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
         }
     }
 
@@ -781,7 +822,8 @@ pub const Itac = struct {
         if (itac.large) |*file| try canvas.text(&file.font, title_at, itac.string(section.title(itac.side)), title_colour, .left);
         switch (section) {
             .debriefings => try itac.debriefings.draw(itac, canvas, fade),
-            .news_reports, .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
+            .news_reports => try itac.news.draw(itac, canvas, fade),
+            .video_reports, .fighters, .ships, .squadrons, .personnel, .killboard, .exit => {},
         }
     }
 
@@ -946,7 +988,40 @@ test Itac {
     try std.testing.expectEqual(Step.closed, pass(&itac, &keyboard, .{}));
 }
 
+test "Use ITAC opens NEWS REPORTS on the latest item" {
+    // Its files are there but unreadable, and left out.
+    var tested: rooms.testing.Tested = undefined;
+    try tested.init(&.{}, &.{}, &.{
+        .{ .name = "itacsnd.fat", .data = "x" },
+        .{ .name = "itacbig.fnt", .data = "x" },
+        .{ .name = "itacsml.fnt", .data = "x" },
+        .{ .name = "itacgfx.spr", .data = "x" },
+        .{ .name = "itactrans_00014.tga", .data = "x" },
+        .{ .name = "itactrans_00051.tga", .data = "x" },
+        .{ .name = "newsrep.spr", .data = "x" },
+    });
+    defer tested.deinit();
+    var keyboard: input.Keyboard = .{};
+    const strings: language.Language = .{ .strings = &.{} };
+    var campaign: gameflow.Campaign = .begin();
+    // Before mission 5, the items of missions 0 to 4.
+    const pilot: Pilot = .{ .call_sign = "MAVERICK", .kills = 0, .rank = 0, .tier = 0, .campaign = &campaign, .mission = 5 };
+    var itac: Itac = .open(.{ .rooms = tested.context(), .strings = &strings, .language = &strings }, .rooms, pilot, 0, 0);
+    defer itac.deinit();
+    var now: u64 = 0;
+    for (0..6) |_| {
+        now += std.time.ns_per_s / timer_rate;
+        _ = itac.pass(.{ .keyboard = &keyboard, .pointer = .{}, .now = now, .ticks = @intCast(now / (std.time.ns_per_s / 100)) });
+    }
+    try std.testing.expectEqual(.shown, std.meta.activeTag(itac.stage));
+    try std.testing.expectEqual(.news_reports, itac.section.?);
+    try std.testing.expectEqual(5, itac.news.item_count);
+    try std.testing.expectEqual(4, itac.news.selected.?);
+    try std.testing.expect(itac.news.open and itac.panes[0].shown and itac.panes[2].shown);
+}
+
 test {
     _ = debriefing;
+    _ = news_reports;
     _ = tables;
 }

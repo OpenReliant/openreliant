@@ -9,18 +9,20 @@ picture of its own that its text is written on; the last button closes it. Its s
 
 ## In OpenReliant
 
-[`game/itac.zig`](../../src/engine/game/itac.zig) runs the ITAC, and
-[`game/itac/debriefing.zig`](../../src/engine/game/itac/debriefing.zig) is DEBRIEFINGS. The lit
-shapes and the debriefings' texts are in [`game/itac/tables.zig`](../../src/engine/game/itac/tables.zig),
-which `make itac-tables` derives from the executable. The driver runs the loop
+[`game/itac.zig`](../../src/engine/game/itac.zig) runs the ITAC,
+[`game/itac/debriefing.zig`](../../src/engine/game/itac/debriefing.zig) is DEBRIEFINGS, and
+[`game/itac/news_reports.zig`](../../src/engine/game/itac/news_reports.zig) is NEWS REPORTS. The lit
+shapes, the debriefings' texts and the news items are in
+[`game/itac/tables.zig`](../../src/engine/game/itac/tables.zig), which `make itac-tables` derives
+from the executable. The driver runs the loop
 (`Driver.itac` in [`openreliant/rooms.zig`](../../src/openreliant/rooms.zig)), from the rooms and
 after each mission of the campaign.
 
 Ported so far: the ITAC's loop, with its movies, its sections' pictures and titles, the fades of
-their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds; and
-DEBRIEFINGS with REPLAY MISSION. Not yet: the other sections, which show their pictures with nothing
-written on them: NEWS REPORTS ([#461](https://github.com/OpenReliant/openreliant/issues/461)), VIDEO
-REPORTS ([#462](https://github.com/OpenReliant/openreliant/issues/462)), the fighters
+their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds;
+DEBRIEFINGS with REPLAY MISSION; and NEWS REPORTS. Not yet: the other sections, which show their
+pictures with nothing written on them: VIDEO REPORTS
+([#462](https://github.com/OpenReliant/openreliant/issues/462)), the fighters
 ([#463](https://github.com/OpenReliant/openreliant/issues/463)), the capital ships
 ([#464](https://github.com/OpenReliant/openreliant/issues/464)), the squadrons
 ([#465](https://github.com/OpenReliant/openreliant/issues/465)) and the personnel
@@ -37,8 +39,11 @@ REPORTS ([#462](https://github.com/OpenReliant/openreliant/issues/462)), the fig
 - After a mission, the game opens DEBRIEFINGS after its movie in, so that the figures fading in over
   the movie are those of whichever debriefing was chosen last. OpenReliant opens it before, as the
   rooms open NEWS REPORTS.
-- As another debriefing is chosen, the game holds the screen still for half a second, drawing
-  nothing (`itac_pause`, `0x00440170`). OpenReliant shows it at once.
+- As another debriefing or news item is chosen, the game holds the screen still for half a second,
+  drawing nothing (`itac_pause`, `0x00440170`). OpenReliant shows it at once.
+- With no news item listed, NEWS REPORTS draws the picture of the record before its table's first;
+  OpenReliant draws none. And it copies an item's title into a room of 60 bytes whatever its length;
+  OpenReliant keeps what fits.
 
 **Improvements:**
 
@@ -98,7 +103,8 @@ A press on another section's button plays sound 1 (`0x0043F6DE`). The shown sect
 plays, its title and text fading out over it, and its handler for leaving it runs. The new
 section's handler for opening it runs, and its movie in plays with its title and text fading in, the
 pointer hidden. Then its picture shows and its panes wipe in. Each section has five handlers
-(`itac_section_handlers`, `0x004E9288`): opened, left, loaded, each frame and drawn.
+(`itac_section_handlers`, `0x004E9288`): opened, left, loaded, each frame and drawn. Once the ITAC
+has closed, it runs each section's handler for leaving it (`0x0043FA4B`).
 
 ## DEBRIEFINGS
 
@@ -132,3 +138,29 @@ What it shows of each mission is the pilot's record of it, which `mission_end_re
 (`gameflow.MissionRecord`): its rating, the kills made in it, one a ship (`kills_add`), the
 campaign's pickups where a nanny ship picked the pilot up in it, and the rank the pilot was promoted
 to at its end.
+
+## NEWS REPORTS
+
+The news of the war, an item after each mission the campaign has come through (`news_items`,
+`0x004EB0E8`, 24 records): the items whose missions come before the one the campaign has come to,
+so that the first shows before mission 1 (`news_list_build`, `0x0044E490`). Each has a title, up to
+five paragraphs and a picture of `inter\itac\newsrep.spr`, which the section reads as it opens and
+lets go of as it is left (`news_enter`, `0x0044DD90`; `news_leave`, `0x0044DE50`). As it opens,
+the latest is chosen, and the list steps on so that it shows at the foot.
+
+- The title, in capitals, in (58, 209, 255).
+- The body, in (255, 146, 58), which the arrows below it scroll: the paragraphs, a blank line between
+  each two. "(more)" marks a body that runs past its box.
+- The picture, the item's shape, at (302, 100), fading with the section. Its palette is that of
+  block 0 for the first eleven items of the list, block 13 to the twentieth, and block 26 past it.
+- The list of the titles, at most twelve from the first shown, a blank line between each two, the
+  chosen in (58, 209, 255). A press on one chooses it, and its title and body wipe in again; the
+  arrows step the list on and back.
+
+| What | Where |
+|---|---|
+| Title | (34, 77), 255 by 20, the title at (36, 79) |
+| Body | (34, 101), 258 by 210; arrows at (45, 327) and (70, 327), 25 by 25 |
+| "(more)" | Right edge at (292, 306) |
+| Picture | (302, 100) |
+| List | (470, 101), 150 by 256, the titles from x 480, 134 wide; arrows at (515, 368) and (540, 368), 25 by 25 |

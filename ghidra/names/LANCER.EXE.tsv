@@ -2758,3 +2758,26 @@ address	kind	name	type	comment
 00536d58	data	debug_message		The line a debug message writes for the screen, DEBUG: and the text as PrintDebugMessage writes it, which nothing in the retail build draws
 005373dc	data	debug_message_until	int	frame_start plus 500 as a debug message is written (debug_message): until when it was meant to show
 0052abd0	data	debug_message_shown	short	Set as a debug message is written (debug_message), which nothing in the retail build reads
+0044dd90	function	news_enter	void (void)	NEWS REPORTS opened, the ITAC's section 1: lists the items after the missions flown (news_list_build), reads inter\itac\newsrep.spr into news_pictures, chooses the latest, steps the list on as far as it goes (news_list_next), and sets the body's box: pane 1, its arrows at 0x004EB408, 258 by 210 at (34, 91), at the top of its text
+0044de50	function	news_leave	void (void)	NEWS REPORTS left: frees news_pictures, where news_open, and asks for a rebuild
+0044de90	function	itac_section_rebuild	void (void)	The third handler most of the ITAC's sections share, as a section is loaded: asks for a rebuild (itac_rebuild) and clears the panes (itac_panes_reset)
+0044dea0	function	news_update	void (void)	NEWS REPORTS each pass: builds where itac_rebuild asks, wiping all three panes in; a press on another listed item chooses it and builds again, the list's pane left, holding the ITAC (itac_pause); the list's arrows at 0x004EB3E8 step it on and back (itac_repeat); and scrolls the body (itac_scroll_text_update)
+0044df90	function	news_list_next	void (void)	Steps NEWS REPORTS' list on by one, no further than to show its last item at the foot of twelve
+0044dfc0	function	news_list_previous	void (void)	Steps NEWS REPORTS' list back by one, to its first at most
+0044dfe0	function	news_draw	void (float fade)	NEWS REPORTS drawn, while news_open: the chosen item's shape of news_pictures at (302, 100) with the palette of block 0, 13 or 26 by its place in the list (below 11, below 20, past) at fade; while no fade runs and no choice holds the ITAC, the body written into its pane again; then the panes (itac_panes_draw)
+0044e0a0	function	news_build	void __fastcall (char wipe)	NEWS REPORTS' panes built for the item chosen, after the text sound: its title in capitals (CharUpperBuffA) at (2, 2) in pane 0, in (58, 209, 255), wiping in at (34, 77), 255 by 20; the body (news_text_draw), wiping in at (34, 101), 258 by 210; the list (news_list_draw); and where wipe, the list's pane wiping in at (470, 101), 150 by 256
+0044e260	function	news_text_draw	void (void)	The chosen item's paragraphs into itac_text, \n\n between each two, written into the body's pane in (255, 146, 58) (itac_scroll_text_draw)
+0044e370	function	news_list_draw	void (void)	NEWS REPORTS' list from news_list_first into pane 2: each title broken into lines of 134 at most, 11 apart, from x 10, a blank line between two, at most twelve, the chosen in (58, 209, 255) and the rest in (255, 146, 58); each a hotspot at x 474, 3 below its text, 140 wide
+0044e490	function	news_list_build	void (void)	Links onto news_list each of news_items whose mission is below mission_number, in order
+004eb0e8	data	news_items	byte[768]	NEWS REPORTS' 24 items of 0x20 bytes: the links news_list threads them on, the string of the title at +0x0C, up to five paragraphs' strings from +0x0E ended by -1, the picture's shape at +0x18, and at +0x1C the mission after which it is listed
+004eb3e8	data	news_list_arrows	short[8]	NEWS REPORTS' list's two arrows, each x, y, width and height
+004eb408	data	news_text_arrows	short[8]	NEWS REPORTS' body's two arrows, each x, y, width and height
+004eb418	data	news_pictures_name	char[23]	inter\itac\newsrep.spr, NEWS REPORTS' pictures
+00524d78	data	news_selected	int	The NEWS REPORTS item chosen, by its place in news_list; -1 for none
+00524d80	data	news_hotspots	short[48]	NEWS REPORTS' listed items' hotspots, each x, y, width and height
+00524e40	data	news_list	void *	The news items listed, threaded on their own links (news_list_build)
+00524e44	data	news_hotspot_count	int	How many of news_hotspots the list has laid out
+00524e48	data	news_box	byte[36]	NEWS REPORTS' body's scrolling box
+00524e6c	data	news_pictures	void *	inter\itac\newsrep.spr, while NEWS REPORTS is open
+00524e70	data	news_list_first	int	The place of the first item NEWS REPORTS' list shows
+00524e74	data	news_open	byte	Set while NEWS REPORTS is open, its pictures read
