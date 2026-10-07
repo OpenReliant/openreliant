@@ -63,6 +63,14 @@ pub const Missile = enum(u8) {
     }
 };
 
+/// A turret: one of an object's guns that turns to aim, spins its barrels or launches missiles, by
+/// the object and the gun's place among its guns (`create.Slot.guns`). Scripts see it as a turret
+/// handle.
+pub const Turret = struct {
+    object: Object,
+    gun: u16,
+};
+
 /// What an order or a missile is aimed at, as a hook passes it: a ship of the mission, whole or one
 /// of its components, one of the mission's flight groups or squads, by its index, or nothing.
 /// Scripts see it as a table, each field nil where it doesn't apply; a handler that sets more than

@@ -16,6 +16,8 @@
 //! - Its missile scripts (`Missile=`) start on each missile as it's launched, and stop as its
 //!   flight ends, or as the mission ends. Each missile has the mod opened for it on its own, as an
 //!   object has.
+//! - Its turret scripts (`Turret=`) start on each turret of an object as the object is added, after
+//!   the object's own scripts, and stop with them. Each turret has the mod opened for it on its own.
 //! - The engine calls the scripts' handlers in the order the scripts started: the global and
 //!   mission scripts', then each object's, by slot, then each missile's, by record. Events sent between scripts wait for the next
 //!   update (`events.zig`).
@@ -49,6 +51,7 @@ const packages = @import("packages.zig");
 const hooks = @import("hooks.zig");
 const objects = @import("objects.zig");
 const missiles = @import("missiles.zig");
+const turrets = @import("turrets.zig");
 const values = @import("values.zig");
 const load = @import("load.zig");
 const data = @import("data.zig");
@@ -143,6 +146,7 @@ pub const Game = struct {
         scripts.setPackage(.hooks);
         objects.register(scripts);
         missiles.register(scripts);
+        turrets.register(scripts);
         interfaces.Interfaces.register(state);
         game.runner.interfaces.push(state);
         scripts.setPackage(.interfaces);
@@ -242,7 +246,7 @@ pub const Game = struct {
             while (keys.next()) |key| {
                 const attachment = script.Attachment.parse(key, mod.name) orelse continue;
                 const matches = switch (attachment) {
-                    .kind => |kind| kind.runs() and kind.class() != null and kind.class() == class,
+                    .kind => |kind| kind.class() != null and kind.class() == class,
                     .object_type => |object_type| object_type == slot.object.type,
                 };
                 if (!matches) continue;
@@ -257,6 +261,28 @@ pub const Game = struct {
                         log.warn("{s}: {s} can't start on object {d}: {s}", .{ mod.name, name, index, @errorName(err) });
                     };
                 }
+            }
+        }
+        game.turretsAdded(index);
+    }
+
+    /// Starts the turret scripts of mods' manifests on each turret of the object in slot `index`, as
+    /// it's added to the mission.
+    fn turretsAdded(game: *Game, index: u16) void {
+        const listed = turrets.on(game.objects, index);
+        if (listed.len == 0) return;
+        for (game.runtime.mods, 0..) |*mod, at| {
+            var names = turretScripts(mod);
+            if (names.next() == null) continue;
+            for (listed.slice()) |turret| {
+                var each = turretScripts(mod);
+                const opened = game.runtime.open(@intCast(at), .object, .{ .turret = .of(game.objects, turret) }) catch |err| {
+                    log.warn("{s}: the scripts of turret {d} of object {d} can't start: {s}", .{ mod.name, turret.gun, index, @errorName(err) });
+                    return;
+                };
+                while (each.next()) |name| _ = game.startScript(game.onObject(index), opened, name, false, null, false) catch |err| {
+                    log.warn("{s}: {s} can't start on turret {d} of object {d}: {s}", .{ mod.name, name, turret.gun, index, @errorName(err) });
+                };
             }
         }
     }
@@ -430,18 +456,23 @@ fn globalScripts(mod: *const Mod) script.List {
     return .of(mod.manifest.value(script.section, script.Kind.global.key()) orelse "");
 }
 
+/// The scripts `mod` runs on each turret.
+fn turretScripts(mod: *const Mod) script.List {
+    return .of(mod.manifest.value(script.section, script.Kind.turret.key()) orelse "");
+}
+
 /// The scripts `mod` runs on each missile in flight.
 fn missileScripts(mod: *const Mod) script.List {
     return .of(mod.manifest.value(script.section, script.Kind.missile.key()) orelse "");
 }
 
-/// Whether `mod`'s manifest attaches scripts to objects by their class or type.
+/// Whether `mod`'s manifest attaches scripts to objects by their class or type, or to their turrets.
 fn attachesScripts(mod: *const Mod) bool {
     var keys = mod.manifest.keys(script.section);
     while (keys.next()) |key| {
         const attachment = script.Attachment.parse(key, mod.name) orelse continue;
         switch (attachment) {
-            .kind => |kind| if (kind.runs() and kind.class() != null) return true,
+            .kind => |kind| if (kind.class() != null or kind == .turret) return true,
             .object_type => return true,
         }
     }
@@ -1251,6 +1282,62 @@ test "missile scripts run on each missile from its launch to its end, and see it
     try std.testing.expectEqual(0, fixture.game.onMissile(record).items.len);
     fixture.game.scripts.update(0.1);
     try std.testing.expectEqual(0.25, all.slots[fixture.sabre].object.throttle);
+}
+
+test "turret scripts run on each turret of an object, and aim it" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=watch.luau\nTurret=turret.luau\n" },
+            .{
+                "watch.luau",
+                \\local world = require("openreliant.world")
+                \\local seen = 0
+                \\return { event_handlers = { turret = function(kind)
+                \\    seen += 1
+                \\    if seen == 2 then world.objects()[2].throttle = 0.5 end
+                \\end } }
+            },
+            .{
+                "turret.luau",
+                \\local self = require("openreliant.self")
+                \\local core = require("openreliant.core")
+                \\local nearby = require("openreliant.nearby")
+                \\return { engine_handlers = { on_added = function()
+                \\    local ship = self.object
+                \\    assert(ship.type == "sabre" and #ship:turrets() == 2)
+                \\    if self.kind == "launcher" then
+                \\        assert(not self.destroyed and self.gun_type == nil and self.target.object == nil)
+                \\        self.target = { object = nearby.objects(5000)[1] }
+                \\    else
+                \\        assert(self.destroyed and self.kind == nil and self.position == nil and self.target == nil)
+                \\    end
+                \\    core.send_global_event("turret", self.kind or "destroyed")
+                \\end } }
+            },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    const gpa = std.testing.allocator;
+    // The Sabre carries a missile turret, and a turret destroyed with its base.
+    var parts: openreliant.engine.game.objects.testing.Parts(2) = undefined;
+    parts.init();
+    parts.turret(0, .missile_turret, .missile, 1, 0);
+    parts.member(1, 1, 1);
+    var model = try parts.create(gpa);
+    defer model.deinit(gpa);
+    const slot = &fixture.mission.objects.slots[fixture.sabre];
+    slot.guns = try gpa.alloc(openreliant.engine.game.guns.Fitted, 2);
+    slot.guns[0] = .{ .turret = .gone };
+    slot.guns[1] = .{ .turret = .{ .missile = .{ .model = &model, .base = 0, .launcher = 1 } } };
+    openreliant.engine.hooks.tell(fixture.mission.world(), .object_added, .{ .object = .of(fixture.sabre) });
+    // Each turret's script runs with its own globals, and the launcher's aims it at the Predator.
+    try std.testing.expectEqual(2, fixture.game.onObject(fixture.sabre).items.len);
+    try std.testing.expectEqual(0, slot.guns[1].turret.missile.target.slot().?);
+    fixture.game.scripts.update(0.1);
+    try std.testing.expectEqual(0.5, slot.object.throttle);
 }
 
 test "global scripts add scripts to objects, send them events, and share interfaces" {

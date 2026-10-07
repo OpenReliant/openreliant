@@ -12,7 +12,8 @@ type PilotNumber = "none" | number | string
 type Side = "friendly" | "hostile" | "neutral" | number
 type Invulnerability = "none" | "player_can_hit" | "full" | "eject_before_exploding" | number
 type MissileType = "none" | "screamer" | "raptor" | "havoc" | "jack_hammer" | "bandit" | "vagabond" | "solomon" | "imp" | "hawk" | "torpedo" | "fuel_pod" | number | string
-type Missile =  | number
+type TurretKind = "aimed" | "spinning" | "launcher"
+type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
 type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | number
@@ -27,7 +28,6 @@ type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
 type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
-type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type RadioMode = "now" | "queued" | "if_idle" | number
 type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "unnamed_3" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_40" | "jump_out_41" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "eject_106" | "scoop_up" | "eject_spin" | "dock" | "dark_reign_shoot_110" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | "unnamed_200" | number
 type OrderPushed = "refused" | "taken" | "conflict"
@@ -57,10 +57,6 @@ type Quadrants = {
     right: number,
     fore: number,
     aft: number,
-}
-type Handle = {
-    record: number,
-    count: number,
 }
 type GameModeMission = {
     number: number,
@@ -183,7 +179,7 @@ type Outcome = {
     rating: Rating,
 }
 
--- Objects and missiles, which scripts hold by handles.
+-- Objects, missiles and turrets, which scripts hold by handles.
 
 declare class Object
     -- The slot it fills in the mission, from 0.
@@ -274,6 +270,8 @@ declare class Object
     function hook(self, name: string, handler: (e: any) -> boolean?, filter: (Filter | (e: any) -> boolean)?): HookHandle
     -- Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it.
     function set_surface(self, name: string?, parameters: { number }?): boolean
+    -- Its turrets: its guns that turn to aim, spin their barrels or launch missiles, destroyed ones included, in the order of its guns.
+    function turrets(self): { Turret }
     -- Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts.
     function remove_script(self, name: string): boolean
 end
@@ -298,6 +296,22 @@ declare class Missile
     function is_valid(self): boolean
     -- Ends its flight now, as it ends when its time runs out: it blows up where it is, with a shockwave for a Havoc or an Imp. Global scripts can set off any missile, and a missile's own scripts their missile.
     function detonate(self): ()
+end
+declare class Turret
+    -- The object it's on.
+    object: Object
+    -- What it is: `aimed`, which turns to aim at a target of its own; `spinning`, a gun whose barrels spin up while its object's trigger is held; or `launcher`, which launches missiles. Nil once it's destroyed.
+    kind: TurretKind?
+    -- Whether it was destroyed with its base. It turns and fires no more.
+    destroyed: boolean
+    -- The type of the shots it fires; nil for a missile turret, or once it's destroyed.
+    gun_type: GunType?
+    -- Where its base is; nil once it's destroyed.
+    position: vector?
+    -- What it aims at: an aimed turret's and a missile turret's own target; nil for a spinning gun, which fires where its object points, or once it's destroyed. Setting it aims the turret, which turns to it, and nil leaves it to look for one.
+    target: Target?
+    -- Whether its object is still in the mission. A handle stops being valid once its object is removed or its mission ends.
+    function is_valid(self): boolean
 end
 
 -- The records (`openreliant.records`).

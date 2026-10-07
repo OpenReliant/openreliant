@@ -2,7 +2,7 @@
 //! [#498](https://github.com/OpenReliant/openreliant/issues/498): the script kinds a manifest's
 //! `[Scripts]` section accepts, the engine handlers each kind may use, and the packages each kind
 //! may require. They cover the whole design so that scripts written now keep working as later
-//! versions add features. `Kind.runs` and `Package.ready` say what this version supports.
+//! versions add features. `Package.ready` says which packages this version supports.
 
 const std = @import("std");
 
@@ -97,16 +97,6 @@ pub const Kind = enum {
             .player => .player,
             .menu => .menu,
             .fighter, .capital, .support, .other, .torpedo, .debris, .mine, .planet, .missile, .turret => .object,
-        };
-    }
-
-    /// Whether this version runs scripts of this kind. Turrets aren't objects of their own, so
-    /// their scripts need handles of their own first
-    /// ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
-    pub fn runs(kind: Kind) bool {
-        return switch (kind) {
-            .load, .global, .player, .menu, .fighter, .capital, .support, .other, .torpedo, .debris, .mine, .planet, .missile => true,
-            .turret => false,
         };
     }
 
@@ -382,11 +372,6 @@ test "Attachment.parse" {
 test Kind {
     try std.testing.expectEqualStrings("Load", Kind.load.key());
     try std.testing.expectEqualStrings("Postprocessing", comptime capitalised("postprocessing"));
-    try std.testing.expect(Kind.load.runs());
-    try std.testing.expect(Kind.global.runs());
-    try std.testing.expect(Kind.fighter.runs());
-    try std.testing.expect(Kind.player.runs());
-    try std.testing.expect(!Kind.turret.runs());
     try std.testing.expectEqual(create.ShipCombat.Class.mine, Kind.mine.class().?);
     try std.testing.expectEqual(null, Kind.missile.class());
 }

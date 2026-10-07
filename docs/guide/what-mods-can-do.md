@@ -62,6 +62,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Change what the radio says | [Changing what the radio says](scripting.md#changing-what-the-radio-says) | [`arena`](../../examples/mods/arena), [`teapot`](../../examples/mods/teapot) |
 | Run a script on each ship of a class or a type | [Object scripts](scripting.md#object-scripts) | [`wingmen`](../../examples/mods/wingmen) |
 | Run a script on each missile in flight, to retarget it or set it off | [Missile scripts](scripting.md#missile-scripts) | |
+| Run a script on each turret, to choose what it aims at | [Turret scripts](scripting.md#turret-scripts) | |
 | Give ships orders, and add AI orders of their own | [Orders](scripting.md#orders), [Custom AI orders](scripting.md#custom-ai-orders) | [`custom-order`](../../examples/mods/custom-order), [`wingmen`](../../examples/mods/wingmen) |
 | Choose the pilot who flies a ship | [Objects](scripting.md#objects) | [`bananas`](../../examples/mods/bananas) |
 | Find what's near a ship, and work with positions and angles | [Where things are](scripting.md#where-things-are) | [`wingmen`](../../examples/mods/wingmen) |
@@ -99,7 +100,6 @@ These are planned, each in an issue of the
 
 - Sounds, music, speech and movies in today's formats
   ([#496](https://github.com/OpenReliant/openreliant/issues/496))
-- Scripts on turrets ([#587](https://github.com/OpenReliant/openreliant/issues/587))
 - Campaigns that go through the game's rooms, ITAC and saved games
   ([#641](https://github.com/OpenReliant/openreliant/issues/641))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))

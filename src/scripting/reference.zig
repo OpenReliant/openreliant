@@ -19,6 +19,7 @@ const Object = engine_hooks.Object;
 const values = @import("values.zig");
 const objects = @import("objects.zig");
 const missiles = @import("missiles.zig");
+const turrets = @import("turrets.zig");
 const records = @import("records.zig");
 const bind = @import("bind.zig");
 const script = @import("script.zig");
@@ -29,7 +30,7 @@ const packages = @import("packages.zig");
 /// Whether `T` is a value that scripts hold as a handle or a reference, which has a type of its
 /// own in the definitions rather than fields to list.
 fn held(comptime T: type) bool {
-    return T == Object or T == objects.Handle or T == data.Data or T == values.Table or T == []const u8;
+    return T == Object or T == objects.Handle or T == engine_hooks.Missile or T == missiles.Handle or T == engine_hooks.Turret or T == turrets.Handle or T == data.Data or T == values.Table or T == []const u8;
 }
 
 /// Whether `T` is one of the records' structs, which the definitions declare as classes.
@@ -45,7 +46,7 @@ fn functionTypes(comptime F: type) []const type {
 /// The types at the roots of what scripts see, which `gather` follows.
 const roots: []const type = list: {
     @setEvalBranchQuota(1_000_000);
-    var found: []const type = namespaceTypes(objects.fields) ++ namespaceTypes(objects.methods) ++ namespaceTypes(missiles.fields) ++ namespaceTypes(missiles.methods);
+    var found: []const type = namespaceTypes(objects.fields) ++ namespaceTypes(objects.methods) ++ namespaceTypes(missiles.fields) ++ namespaceTypes(missiles.methods) ++ namespaceTypes(turrets.fields) ++ namespaceTypes(turrets.methods);
     for (std.enums.values(script.Package)) |package| {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceTypes(Namespace);
     }
@@ -66,7 +67,7 @@ const roots: []const type = list: {
 /// The types of what scripts pass the functions and methods declared, which `given` follows.
 const passed: []const type = list: {
     @setEvalBranchQuota(1_000_000);
-    var found: []const type = namespaceParameters(objects.methods) ++ namespaceParameters(missiles.methods);
+    var found: []const type = namespaceParameters(objects.methods) ++ namespaceParameters(missiles.methods) ++ namespaceParameters(turrets.methods);
     for (std.enums.values(script.Package)) |package| {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceParameters(Namespace);
     }
@@ -175,6 +176,7 @@ fn luauType(comptime T: type) []const u8 {
     comptime {
         if (T == Object or T == objects.Handle) return "Object";
         if (T == engine_hooks.Missile or T == missiles.Handle) return "Missile";
+        if (T == engine_hooks.Turret or T == turrets.Handle) return "Turret";
         if (values.isList(T)) return "{ " ++ luauType(T.Item) ++ " }";
         if (T == data.Data) return "any";
         if (T == values.Table) return "{ [any]: any }";
@@ -246,22 +248,8 @@ fn pascal(comptime name: []const u8) []const u8 {
     }
 }
 
-/// Whether this version runs scripts of `family`.
-fn familyRuns(comptime family: script.Family) bool {
-    for (std.enums.values(script.Kind)) |kind| {
-        if (kind.family() == family and kind.runs()) return true;
-    }
-    return false;
-}
-
-/// The families of scripts this version runs, in order.
-const running_families: []const script.Family = list: {
-    var found: []const script.Family = &.{};
-    for (std.enums.values(script.Family)) |family| {
-        if (familyRuns(family)) found = found ++ .{family};
-    }
-    break :list found;
-};
+/// The families of scripts, in order.
+const running_families = std.enums.values(script.Family);
 
 /// Whether the engine calls `handler` for a family it runs.
 fn called(comptime handler: script.Handler) bool {
@@ -311,9 +299,10 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     try w.writeAll("\n-- Tables of values, which scripts can only read.\n\n");
     inline for (gathered.tables) |T| try writeTable(w, comptime bind.noun(T), T);
 
-    try w.writeAll("\n-- Objects and missiles, which scripts hold by handles.\n\n");
+    try w.writeAll("\n-- Objects, missiles and turrets, which scripts hold by handles.\n\n");
     try writeHandleClass(w, "Object", objects.fields, objects.methods);
     try writeHandleClass(w, "Missile", missiles.fields, missiles.methods);
+    try writeHandleClass(w, "Turret", turrets.fields, turrets.methods);
 
     try w.writeAll("\n-- The records (`openreliant.records`).\n\n");
     inline for (comptime records.Values.kinds) |T| {
@@ -574,6 +563,17 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         \\
     );
     try writeHandleTables(w, missiles.fields, missiles.methods);
+    try w.writeAll(
+        \\
+        \\## Turrets
+        \\
+        \\Scripts see an object's turrets through handles too: its guns that turn to aim, spin their
+        \\barrels or launch missiles. A turret's handle stays valid while its object is in the mission.
+        \\Every script can read the fields; global scripts can change those marked *changes* on any
+        \\turret, and a turret's own scripts on their turret.
+        \\
+    );
+    try writeHandleTables(w, turrets.fields, turrets.methods);
 
     try w.writeAll("\n## Built-in interfaces\n\n`require(\"openreliant.interfaces\")` gives these groups of the packages' functions, unless a mod offers an interface of the same name. A group a script's packages don't allow is nil.\n");
     inline for (comptime std.enums.values(@import("builtin_interfaces.zig").Group)) |tag| {
@@ -770,6 +770,7 @@ fn markdownType(comptime T: type) []const u8 {
         const optional = if (Plain == T) "" else ", or nil";
         if (Plain == Object or Plain == objects.Handle) return "[object](#objects)" ++ optional;
         if (Plain == engine_hooks.Missile or Plain == missiles.Handle) return "[missile](#missiles)" ++ optional;
+        if (Plain == engine_hooks.Turret or Plain == turrets.Handle) return "[turret](#turrets)" ++ optional;
         if (values.isList(Plain)) return "list of " ++ (if (Plain.Item == Object) "[objects](#objects)" else markdownType(Plain.Item)) ++ optional;
         if (Plain == data.Data) return "plain data";
         if (std.mem.findScalar(type, gathered.enums ++ gathered.tables, Plain) != null) {

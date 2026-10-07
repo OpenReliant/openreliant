@@ -985,7 +985,8 @@ script, and the [scripting reference](reference.md) lists everything they can us
   react to what happens in the game, and change it, through hooks on the game's functions and
   events.
 - **Object scripts** run on each ship of a class or a type, such as every fighter, while it's in
-  the mission, and **missile scripts** on each missile in flight.
+  the mission, **missile scripts** on each missile in flight, and **turret scripts** on each
+  turret.
 - **Player and menu scripts** draw over the flight display and the menus, and react to the keys.
   Menu scripts can also replace the front end's screens, and add game modes and campaigns to the
   main menu's GAME MODES ([Menus, game modes and campaigns](scripting.md#menus-game-modes-and-campaigns)).

@@ -26,6 +26,7 @@ fn objectsWithin(call: Call, radius: f32) handles.List {
     const centre = own.position(all);
     const itself: ?u16 = switch (own) {
         .object => |handle| handle.slot,
+        .turret => |handle| handle.object.slot,
         .missile => null,
     };
     var found: handles.List = .{};

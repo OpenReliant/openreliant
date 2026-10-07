@@ -160,7 +160,7 @@ pub fn mayChange(context: *const Context, record: u8) bool {
         .global => true,
         .object => if (context.runs_on) |own| switch (own) {
             .missile => |handle| handle.record == record,
-            .object => false,
+            .object, .turret => false,
         } else false,
         .load, .player, .menu => false,
     };
