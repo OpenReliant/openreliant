@@ -1033,9 +1033,8 @@ fn fitTurn(ship: gameobj.Type) math.Axis {
     return switch (ship.base()) {
         .mammoth, .sharov, .boridin => .x,
         else => {
-            const number = std.math.cast(u8, @backingInt(ship.base())) orelse return .z;
-            const under = create.donor(number) orelse return .z;
-            return if (under == @backingInt(gameobj.GameType.mammoth)) .x else .z;
+            const under = create.donor(.of(ship.base())) orelse return .z;
+            return if (under == gameobj.Type.of(.mammoth)) .x else .z;
         },
     };
 }

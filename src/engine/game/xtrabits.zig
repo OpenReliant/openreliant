@@ -22,7 +22,8 @@ const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srlight = @import("../surrender/surrenderlib/srlight.zig");
 const srstars = @import("../surrender/surrenderlib/srstars.zig");
 const Random = @import("../random.zig").Random;
-const GameObject = @import("gameobj.zig").GameObject;
+const gameobj = @import("gameobj.zig");
+const GameObject = gameobj.GameObject;
 const create = @import("create.zig");
 const objects = @import("objects.zig");
 
@@ -165,7 +166,7 @@ pub fn objectRandom(object: *GameObject) f32 {
 /// `ship_type_first_levels` (`0x004AE190`): a ship type's model, loaded where none of its objects
 /// has yet, one more object of it counted, and its first part's levels of detail. Null where the
 /// game has no model for it. **Unverified:** it lies after this file's known code.
-pub fn firstLevels(all: *create.Objects, types: create.Types, ship_type: u8) ?[]const srapiext.Level {
+pub fn firstLevels(all: *create.Objects, types: create.Types, ship_type: gameobj.Type) ?[]const srapiext.Level {
     const loaded = all.useType(types, ship_type) orelse return null;
     const parts = loaded.loaded.parts;
     return if (parts.len > 0) parts[0].levels else null;
@@ -177,16 +178,16 @@ test firstLevels {
     defer all.destroy();
 
     // A type without a model has no levels, but is counted as used all the same.
-    try std.testing.expectEqual(null, firstLevels(all, create.testing.no_models, 0x4E));
-    try std.testing.expectEqual(1, all.types[0x4E].objects);
+    try std.testing.expectEqual(null, firstLevels(all, create.testing.no_models, .of(.debris)));
+    try std.testing.expectEqual(1, all.types[gameobj.GameType.debris.number()].objects);
 
     // One with a model gives its first part's.
     var model: create.testing.Model = undefined;
     try model.init(std.testing.allocator);
     defer model.deinit(std.testing.allocator);
-    const levels = firstLevels(all, model.types(), 0x4F).?;
+    const levels = firstLevels(all, model.types(), .of(.debris_1)).?;
     try std.testing.expectEqual(&model.mesh, levels[0].mesh);
-    try std.testing.expectEqual(1, all.types[0x4F].objects);
+    try std.testing.expectEqual(1, all.types[gameobj.GameType.debris_1.number()].objects);
 }
 
 test objectRandom {
