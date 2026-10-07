@@ -57,6 +57,12 @@ pub const Reports = struct {
     pub fn slice(reports: *const Reports) []const []const u8 {
         return reports.movies[0..reports.count];
     }
+
+    /// Adds the report `name` after the others.
+    pub fn append(reports: *Reports, name: []const u8) void {
+        reports.movies[reports.count] = name;
+        reports.count += 1;
+    }
 };
 
 /// The bank the news' loop is (`0x004ABFFE`), and its volume (`0x004AC05D`).
@@ -169,8 +175,7 @@ fn reportsAfter(mission: u16, variables: *vm.Variables) Reports {
         if (entry.mission != mission) continue;
         report: for (entry.reports) |report| {
             for (report.unless) |number| if (variables.slot(number).* == 1) continue :report;
-            chosen.movies[chosen.count] = report.movie;
-            chosen.count += 1;
+            chosen.append(report.movie);
             if (report.sets) |number| variables.slot(number).* = 1;
         }
     }

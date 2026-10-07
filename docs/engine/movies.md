@@ -112,20 +112,19 @@ and plays:
 2. The chapter's movie, `new_chapter1.bik` to `new_chapter5.bik` (`chapter_movies`, `0x00509BE8`),
    with the news' loop, the first sound of `newsloop.fat`, playing over and over at 80 from here to
    the last report (`play_bink_movie_no_clear_resourced` from here on).
-3. The news reports the game's variables call for, each after the news' transition, `acntran.bik`.
+3. The news reports the campaign's flags call for, each after the news' transition, `acntran.bik`
+   ([The campaign's flags](script-vm.md#the-campaigns-flags)).
 
 | After mission | Report | Plays where |
 |---|---|---|
-| 7 | `new_chapter1_thread1.bik` | Variable 18 is other than 1 |
-| 11 | `new_chapter2_thread1.bik` | Variable 29 is other than 1 |
-| 11 | `new_chapter2_thread2.bik` | Variable 17 is other than 1 |
-| 11 | `new_chapter2_thread3.bik` | Variable 6 is other than 1; it then sets variable 34 |
+| 7 | `new_chapter1_thread1.bik` | `rameses_alive` (18) is other than 1 |
+| 11 | `new_chapter2_thread1.bik` | `czar_alive` (29) is other than 1 |
+| 11 | `new_chapter2_thread2.bik` | `krasnaya_alive` (17) is other than 1 |
+| 11 | `new_chapter2_thread3.bik` | Variable 6 is other than 1; it then sets `chapter2_thread3_shown` (34) |
 
-All but variable 34 are the campaign's flags, which a new campaign sets to 1 and a mission's
-script may clear; each attempt at a mission clears 34. What each stands for is not known
-([#381](https://github.com/OpenReliant/openreliant/issues/381)). The function has reports for mission
-16 too, `new_chapter3_thread1.bik`, `new_chapter3_thread2.bik` and `new_chapter2_thread3.bik`,
-which are never reached, as mission 16 ends no chapter.
+Each attempt at a mission clears variable 34. The function has reports for mission 16 too,
+`new_chapter3_thread1.bik`, `new_chapter3_thread2.bik` and `new_chapter2_thread3.bik`, which are
+never reached, as mission 16 ends no chapter.
 
 ### How a mission ended
 
@@ -141,9 +140,9 @@ Yamato's after it:
 | The ejected pilot captured: the pilot in the enemy's hands | `int.bik` | `int.bik` | The restart screen |
 | Sent home for destroying a friend: the pilot's execution | `new_rel_exec.bik` | `new_y_exec.bik` | The restart screen |
 | Picked up by a nanny ship the third time: the pilot's transfer | `new_reliant_transfer.bik` | `new_a y trans.bik` | The main menu |
-| A total failure: the pilot's transfer | `new_reliant_transfer.bik` where the game's variable 32 is set, else `new_a y trans.bik` | `new_a y trans.bik` | The main menu |
+| A total failure: the pilot's transfer | `new_reliant_transfer.bik` where `reliant_alive` (32) is set, else `new_a y trans.bik` | `new_a y trans.bik` | The main menu |
 
-After missions 25 and 27, where variable 36 is clear, a total failure plays the shuttle at Fort
+After missions 25 and 27, where `yamato_alive` (36) is clear, a total failure plays the shuttle at Fort
 Bear, `fortbearshuttle_.bik`, in the transfer's place (`0x004AA5E0`). Each movie lies on its
 carrier's disc, and `int.bik` and `new_a y trans.bik` on both.
 
@@ -159,6 +158,50 @@ ship picked the pilot up (`mission_end_record`, `0x00475B57` on), before the ITA
 | 21 | 4 | `new_legion.bik` |
 | 23 | 5 | `new_navy_cross.bik` |
 | 27 | 6 | `new_medal_of_honour.bik` |
+
+### The story's end
+
+As mission 28 is won, the campaign moves on to mission 29, the story's end. `WinMain` runs mission
+29's briefing ([The campaign's end](briefing.md#the-campaigns-end)), then the story's end
+(`ending_movies_play`, `0x004AC620`) from the first disc's archive, which alone holds its movies:
+
+1. `new_chapter6_thread1.bik` on a cleared screen (`play_bink_movie_resourced`).
+2. The news reports the campaign's flags call for, each after `acntran.bik`, over the screen
+   (`play_bink_movie_no_clear_resourced`):
+
+   | Report | Plays where |
+   |---|---|
+   | `new_chapter6_thread2.bik` | `kulov_alive` (8) is other than 1 |
+   | `new_chapter6_thread3.bik` | `ivan_petrov_alive` (7) is other than 1 |
+   | `new_chapter6_thread5.bik` | `steiner_alive` (13) is 1 |
+   | `new_chapter6_thread4.bik` | `steiner_alive` (13) is other than 1 |
+
+3. `acntran.bik` and `new_chapter6.bik`, over the screen.
+4. The credits (`credits_play`, `0x004AC780`).
+
+Then `WinMain` puts the campaign back at mission 1 (`0x004AA6FC`) and goes back to the main menu.
+
+The credits show eight pages over `credits.spr`'s pictures, to `music\new_sim07.wav` played over
+and over at level 127. Each page is a picture drawn through its own palette, and the developers' names,
+strings of the game's, in the menus' small font: the headings orange (`0xFF7E00`), the names white,
+each at its place or centred across the screen (`credits_lines`, `0x0050A180`). A page fades in by
+0.03 at a time, up to full, and stays until 750 game ticks have passed since it began; it then
+fades out by 0.03 at a time over 150 ticks, the palette and the text alike (`credits_brightness`,
+`0x005D6B34`), and gives way to the next. Escape ends the credits. Then the music fades out by 15
+every five ticks (`music_fade_out`), and the credits end once it has stopped.
+
+| Page | Picture | Palette |
+|---|---|---|
+| 1, 6 | 1 | 0 |
+| 2, 7 | 3 | 2 |
+| 3 | 5 | 4 |
+| 4 | 7 | 6 |
+| 5 | 9 | 8 |
+| 8 | 11 | 10 |
+
+**Improvement:** the game fades a page by a step each frame, so that the credits fade the faster
+the higher the frame rate. OpenReliant takes a step for each of the simulation's steps, 25 a
+second, as the game does at 25 frames a second.
 
 ## The movies played
 
@@ -233,6 +276,5 @@ a bank.
   Super Resolution 1.0), which keeps its edges sharp without steps
   ([Renderer](../port/renderer.md#improvements)).
 
-Not ported: the other movies, each with what plays it: the story's end
-([#416](https://github.com/OpenReliant/openreliant/issues/416)), and the transitions of the
-multiplayer screens ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
+Not ported: the transitions of the multiplayer screens
+([#404](https://github.com/OpenReliant/openreliant/issues/404)).

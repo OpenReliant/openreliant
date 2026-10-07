@@ -1700,15 +1700,15 @@ const CampaignNext = union(enum) {
 /// those the mission began with. Then, as the mission ended: the medal's ceremony, the debriefing in
 /// the ITAC (`0x004AA696`), and the rooms the campaign goes on through, or with the ITAC's REPLAY
 /// MISSION the campaign put back as the mission began and its briefing again (`0x004AA2E0` on);
-/// the movie of how it ended and the restart screen; or the movie that ends the pilot's career.
-/// Null where the game quits meanwhile.
+/// the movie of how it ended and the restart screen; the movie that ends the pilot's career; or
+/// after the campaign's last mission, the story's end: the end briefing, the movies and the credits
+/// (`game.xtrabits.ending`), then the main menu with the campaign back at its first mission. Null
+/// where the game quits meanwhile.
 ///
 /// **Fix:** after the pilot's execution in mission 25's second part, REPLAY MISSION FROM BRIEFING
 /// replays the first part's briefing. The game flies the second part again at once, and leaves the
 /// replay asked for, so that the next mission's briefing follows it without the rooms, from the
 /// game's variables as the second part began.
-///
-/// Not ported: the story's end ([#416](https://github.com/OpenReliant/openreliant/issues/416)).
 fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, saving: Saving, flown: game.interface.main_menu.Flight, restart_point: ?*const save.Save, ship: ?game.create.TypeIndex, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !?CampaignNext {
     const loaded = play.loaded orelse return .main_menu;
     const variables = &loaded.script.variables;
@@ -1755,8 +1755,13 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
             _ = try movies.play(name, .cleared_from_disc) orelse return null;
             return .main_menu;
         },
+        // The end briefing, the story's end and the credits, then the main menu with the campaign
+        // back at its first mission (`0x004AA6F2` on).
         .story_end => {
-            std.log.info("the story's end is not ported yet", .{});
+            if (!try rooms.endBriefing()) return null;
+            if (!try movies.storyEnd(game.xtrabits.ending.movies(variables))) return null;
+            if (!try rooms.credits()) return null;
+            campaign.mission = game.gameflow.first_mission;
             return .main_menu;
         },
     }
