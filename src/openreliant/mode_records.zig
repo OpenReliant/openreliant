@@ -10,10 +10,11 @@ const scripting = @import("scripting");
 const game = openreliant.engine.game;
 
 /// Loads the game's tables from `records`: the ships' stats as `stats_load_ships` reads them, the
-/// guns', the missiles' and the pilots', and the pilots' faces. The text needs no loading, since
-/// the game reads it from the records.
+/// ship types' words from the executable, the guns', the missiles' and the pilots' stats, and the
+/// pilots' faces. The text needs no loading, since the game reads it from the records.
 pub fn loadTables(tables: *game.create.Stats, objects: *game.create.Objects, records: *const scripting.Records) void {
     tables.load(records.ships);
+    tables.loadTypes(records.ship_types);
     objects.gun_stats.load(records.guns);
     objects.missile_stats.load(records.missiles);
     objects.pilots.load(records.pilots);
@@ -80,7 +81,7 @@ test ModeState {
     var ships: [1]openreliant.stats.Ship = .{std.mem.zeroes(openreliant.stats.Ship)};
     ships[0].max_speed = 10;
     ships[0].pitch_rate = 1;
-    var records: scripting.Records = try .init(arena.allocator(), .{ .ships = &ships, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{}, .itac_text = &.{} });
+    var records: scripting.Records = try .init(arena.allocator(), .{ .ships = &ships, .ship_types = &.{}, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{}, .itac_text = &.{} });
     const tables = try gpa.create(game.create.Stats);
     defer gpa.destroy(tables);
     tables.* = .initial;

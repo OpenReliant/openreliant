@@ -143,7 +143,7 @@ pub const testing = struct {
     pub fn records3(arena: Allocator) !records.Records {
         var guns: [3]openreliant.stats.Gun = @splat(std.mem.zeroes(openreliant.stats.Gun));
         for (&guns, 0..) |*gun, at| gun.range = @floatFromInt(at + 1);
-        return .init(arena, .{ .ships = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{"Laser Cannon"}, .itac_text = &.{} });
+        return .init(arena, .{ .ships = &.{}, .ship_types = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{"Laser Cannon"}, .itac_text = &.{} });
     }
 };
 
@@ -320,6 +320,7 @@ test "the interceptor example adds a ship type, and its load script changes its 
     game_ships[0].shield_power = 10;
     var held: records.Records = try .init(arena.allocator(), .{
         .ships = try game.additions.ships.records(openreliant.stats.Ship, arena.allocator(), &game_ships, 0),
+        .ship_types = &.{},
         .guns = &.{},
         .missiles = &.{},
         .pilots = &.{},
@@ -373,6 +374,7 @@ test "the bananas example adds a gun, a missile, a pilot and a ship that names t
     missiles[@backingInt(game.missiles.GameMissile.bandit)].lock_time = 300;
     var held: records.Records = try .init(arena.allocator(), .{
         .ships = try game.additions.ships.records(stats.Ship, arena.allocator(), &.{}, 0),
+        .ship_types = &.{},
         .guns = try game.additions.guns.records(stats.Gun, arena.allocator(), &guns, 1),
         .missiles = try game.additions.missiles.records(stats.Missile, arena.allocator(), &missiles, 0),
         .pilots = try game.additions.pilots.records(stats.Pilot, arena.allocator(), &.{}, 0),

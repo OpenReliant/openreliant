@@ -1930,14 +1930,14 @@ pub fn fitDevices(display: *hud.State, ship: ?PlayerShip, can_cloak: bool) void 
 
 test fitDevices {
     // The Shroud carries all three, and a cloak where its model has one.
-    const shroud: gameobj.Type = @fromBackingInt(10);
+    const shroud: gameobj.Type = .of(.shroud);
     var display: hud.State = .{ .blind_fire = false };
     fitDevices(&display, playerShip(shroud), true);
     try std.testing.expectEqual(.off, display.devices.get(.spectral_shields).setting);
     try std.testing.expectEqual(.off, display.devices.get(.cloak).setting);
     try std.testing.expect(display.blind_fire_fitted and display.blind_fire);
     // Its twin is the same ship.
-    try std.testing.expectEqual(playerShip(shroud), playerShip(@fromBackingInt(0xFE)));
+    try std.testing.expectEqual(playerShip(shroud), playerShip(.of(.t_shroud)));
     // The Grendel carries only the ECM.
     fitDevices(&display, playerShip(.of(.grendel)), false);
     try std.testing.expectEqual(.off, display.devices.get(.ecm).setting);
@@ -2014,8 +2014,8 @@ test startMission {
     defer gpa.free(code);
     // The player flies a torpedo, a type with a model but no schematic nor cockpit, and the other
     // is of a type the game names no model for.
-    const torpedo: gameobj.Type = @fromBackingInt(74);
-    const modelless: gameobj.Type = @fromBackingInt(14);
+    const torpedo: gameobj.Type = .of(.torpedo);
+    const modelless: gameobj.Type = .of(.alsace);
     var ships: [2]dte.Ship = undefined;
     for (&ships, [_]gameobj.Type{ torpedo, modelless }, 0..) |*ship, kind, index| {
         ship.* = dte.testing.ship(@intCast(index), @intCast(index), @intCast(kind.number()));

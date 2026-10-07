@@ -286,31 +286,48 @@ pub const Wing = enum(u16) {
 
 /// The game's object types, by their numbers: for a ship, missile, mine or asteroid its record in
 /// `shipstats.bin`, and past those what else the game places, markers and nav points among them,
-/// which have no stats. The names are OpenReliant's, for the types the game's code singles out. An
-/// object holds its type as a `Type`, whose `base` is one of these.
+/// which have no stats. Every type up to 255 has a name, from its record's name in `shipstats.bin`
+/// where the game's code doesn't single it out. An object holds its type as a `Type`, whose `base`
+/// is one of these.
 pub const GameType = enum(u32) {
     predator = 0x00,
+    naginata = 0x01,
     /// The Grendel, the Wolverine and the Reaper, whose guns fire rounds, which the gunnery display
     /// counts.
     grendel = 0x02,
+    crusader = 0x03,
+    coyote = 0x04,
+    mirage = 0x05,
+    tempest = 0x06,
+    patriot = 0x07,
     wolverine = 0x08,
     reaper = 0x09,
+    shroud = 0x0A,
     /// The Phoenix (`uspf_phx.shp`), which carries the Nova Cannon.
     phoenix = 0x0B,
     reliant = 0x0C,
     /// The Yamato (`yamato.shp`), the carrier that takes the place of the ship the player launched
     /// from once that ship explodes.
     yamato = 0x0D,
+    alsace = 0x0E,
+    kestrel = 0x0F,
+    falco = 0x10,
     /// The Victorious (`victorious.shp`), and the carriers after it whose ships launch from a bay
     /// as its do: the Endeavour, the Mitchell and the Bremen.
     victorious = 0x11,
     endeavour = 0x12,
     mitchell = 0x13,
     bremen = 0x14,
+    arc_ship = 0x15,
     /// The Ulysses (`ulysses.shp`), whose escape pods launch even as it is lost.
     ulysses = 0x16,
+    sai = 0x17,
     /// The Nanny (`nanny.shp`).
     nanny = 0x18,
+    galahad = 0x19,
+    hades = 0x1A,
+    mule = 0x1B,
+    lonestar = 0x1C,
     /// The limpet car (`limpet_t_car.shp`).
     limpet_car = 0x1D,
     /// The Prowler (`us_prowler.shp`).
@@ -318,25 +335,49 @@ pub const GameType = enum(u32) {
     /// The Ripper (`ripper_2.shp`), which carries cargo pods in its beams
     /// ([`airipper.zig`](airipper.zig)).
     ripper = 0x1F,
+    lueneburg = 0x20,
     /// The Mammoth (`a_mammoth.shp`), a freighter the Ripper loads with cargo pods.
     mammoth = 0x21,
+    intruder = 0x22,
+    sentry = 0x23,
+    goodwill = 0x24,
     /// The Stork (`stork.shp`).
     stork = 0x25,
+    sky_hawk = 0x26,
+    haidar = 0x27,
+    karak = 0x28,
+    salin = 0x29,
+    azan = 0x2A,
     sabre = 0x2B,
+    lagg = 0x2C,
     kamov = 0x2D,
+    saracen = 0x2E,
+    salamander = 0x2F,
     scimitar = 0x30,
+    basilisk = 0x31,
+    kossac = 0x32,
+    yao = 0x33,
     /// The Ramases (`ramases.shp`).
     ramases = 0x34,
+    kozlov = 0x35,
+    morzov = 0x36,
     /// The Badanov (`cs_badanov.shp`), the smallest of the Coalition's capital ships.
     badanov = 0x37,
     /// The Pukov (`pukov.shp`).
     pukov = 0x38,
+    xia = 0x39,
+    riza = 0x3A,
+    cyclops = 0x3B,
     /// The Kurgan (`rus_kurgan.shp`).
     kurgan = 0x3C,
     /// The Sharov (`sharov.shp`).
     sharov = 0x3D,
     /// The Gurevich (`rmc_gurevich.shp`).
     gurevich = 0x3E,
+    berijev = 0x3F,
+    kirov = 0x40,
+    loki = 0x41,
+    kalan_shuttle = 0x42,
     /// Capital ships (`saladin.shp`, `stalag.shp`, `antanov.shp`, `kronstadt.shp`, `boridin.shp`).
     saladin = 0x43,
     /// The Dark Reign (`darkreign.shp`).
@@ -348,21 +389,47 @@ pub const GameType = enum(u32) {
     /// The Russian troop car (`rus_troopcar.shp`).
     troop_car = 0x49,
     torpedo = 0x4A,
+    ulysses_back = 0x4B,
+    ulysses_fin = 0x4C,
     /// An escape pod (`uly_escape.shp`).
     escape_pod = 0x4D,
     /// The first of ten pieces of debris an explosion throws out (`deb_1.shp` to `deb_10.shp`).
     debris = 0x4E,
+    debris_1 = 0x4F,
+    debris_2 = 0x50,
+    debris_3 = 0x51,
+    debris_4 = 0x52,
+    debris_5 = 0x53,
+    debris_6 = 0x54,
+    debris_7 = 0x55,
+    debris_8 = 0x56,
+    debris_9 = 0x57,
     /// The first of four bodies an explosion throws out (`rus_man1.shp` to `rus_man4.shp`).
     crewman = 0x58,
+    crewman_1 = 0x59,
+    crewman_2 = 0x5A,
+    crewman_3 = 0x5B,
     /// The Russian torpedo (`rus_torp.shp`).
     russian_torpedo = 0x5C,
+    mammoth_back = 0x5D,
+    baxter = 0x5E,
     /// The planets with an atmosphere (`create.atmosphere`): Neptune (`neptune_hi_1.shp`), Uranus
     /// (`uranus_hi_1.shp`), Jupiter (`jupiter_hi_1.shp`) and Venus (`venus1_hi_1.shp`), and their
     /// models of less detail below.
     neptune_hi = 0x5F,
+    triton_hi = 0x60,
     uranus_hi = 0x61,
+    saturn_hi = 0x62,
+    titan_hi = 0x63,
     jupiter_hi = 0x64,
+    europa_hi = 0x65,
+    ganymede_hi = 0x66,
+    io_hi = 0x67,
+    calisto_hi = 0x68,
     venus_hi = 0x69,
+    earth = 0x6A,
+    kronstadt_wreck = 0x6B,
+    planet_placeholder_4 = 0x6C,
     /// The Coalition's gates: the prototype (`coalprotogate.shp`) and the advanced one
     /// (`coaladvgate.shp`).
     proto_gate = 0x6D,
@@ -378,48 +445,121 @@ pub const GameType = enum(u32) {
     /// (`rus_kurgan_dest.shp`).
     mammoth_wreck_front = 0x72,
     mammoth_wreck_back = 0x73,
+    proto_gate_panel = 0x74,
     badanov_wreck_back = 0x75,
     badanov_wreck_front = 0x76,
     kurgan_wreck = 0x77,
     /// The Krasnaya (`krasnaya.shp`).
     krasnaya = 0x78,
+    asteroid_1 = 0x79,
+    asteroid_2 = 0x7A,
+    asteroid_3 = 0x7B,
+    asteroid_4 = 0x7C,
+    asteroid_5 = 0x7D,
+    asteroid_6 = 0x7E,
+    asteroid_7 = 0x7F,
+    research_station = 0x80,
     /// The Latov (`latov.shp`).
     latov = 0x81,
+    gurevich_wreck_back = 0x82,
+    training_hoop = 0x83,
     /// The Czar, docked (`czar_docked.shp`).
     czar_docked = 0x84,
+    turret_asteroid_1 = 0x85,
+    turret_asteroid_2 = 0x86,
+    turret_asteroid_3 = 0x87,
+    turret_asteroid_4 = 0x88,
+    turret_asteroid_5 = 0x89,
+    turret_asteroid_6 = 0x8A,
+    turret_asteroid_7 = 0x8B,
+    powerup_random = 0x8C,
+    dm_beacon_gate = 0x8D,
     /// A deathmatch beacon (`DMBeacon.shp`).
     dm_beacon = 0x8E,
+    pukov_wreck_back = 0x8F,
+    /// Another escape pod (`ber_escape.shp`).
+    other_escape_pod = 0x90,
+    /// A cargo pod (`us_cargo.shp`), which the Ripper carries.
+    cargo_pod = 0x91,
+    other_cargo_pod = 0x92,
+    grazer_gun_sat = 0x93,
+    archer_missile_sat = 0x94,
     /// The Kafelnikof (`kafelnikof.shp`).
     kafelnikof = 0x95,
+    reliant_wreck_back = 0x96,
+    stalag_doors = 0x97,
+    stalag_duct_cover = 0x98,
+    /// The Yakob Shuttle, a support ship, which the StarLancer trial's executable makes a fighter
+    /// for its pirates.
+    yakob_shuttle = 0x99,
     /// The Krasny (`krasny.shp`), whose ships launch as the Badanov's do.
     krasny = 0x9A,
     /// The Varyag (`varyag.shp`), and a second Ramases and Mitchell, of the same models.
     varyag = 0x9B,
     other_ramases = 0x9C,
+    fort_carter = 0x9D,
+    koenig = 0x9E,
+    washington = 0x9F,
     other_mitchell = 0xA0,
+    ufelsky = 0xA1,
+    kresta = 0xA2,
+    krasnaya_left_arm = 0xA3,
+    krasnaya_right_arm = 0xA4,
     /// The rogue base (`rogue_base.shp`).
     rogue_base = 0xA5,
+    kronstadt_arm = 0xA6,
+    boridin_gun_dome = 0xA7,
     /// The part of the Boridin that breaks away (`boridin breakaway.shp`).
     boridin_breakaway = 0xA8,
-    /// Another escape pod (`ber_escape.shp`).
-    other_escape_pod = 0x90,
-    /// A cargo pod (`us_cargo.shp`), which the Ripper carries.
-    cargo_pod = 0x91,
+    darkreign_wreck_hat = 0xA9,
+    yamato_wreck_back = 0xAA,
+    maintenance_droid = 0xAB,
+    maintenance_astronaut = 0xAC,
+    rogue_base_wreck_top = 0xAD,
+    tank = 0xAE,
+    training_target = 0xAF,
     /// The Zakov (`zakov.shp`).
     zakov = 0xB0,
     /// The Turret Flak's shell (`shell.shp`).
     shell = 0xB1,
     /// The first of five chunks of rock (`rockchunk00.SHP` to `rockchunk04.SHP`).
     rock_chunk = 0xB2,
+    rock_chunk_tiny_1 = 0xB3,
+    rock_chunk_tiny_2 = 0xB4,
+    rock_chunk_tiny_3 = 0xB5,
+    rock_chunk_tiny_4 = 0xB6,
+    latov_wreck_1 = 0xB7,
+    latov_wreck_2 = 0xB8,
+    czar = 0xB9,
+    zakov_wreck_back = 0xBA,
+    sharov_wreck_back = 0xBB,
     /// The limpet pod, which rides on a hull.
     limpet_pod = 0xBC,
+    stalag_wreck_1 = 0xBD,
+    stalag_wreck_2 = 0xBE,
+    saladin_wreck = 0xBF,
+    gegarin = 0xC0,
+    krelov = 0xC1,
     /// The Kiev (`kiev.shp`).
     kiev = 0xC2,
+    kiev_wreck_back = 0xC3,
+    baxter_wreck_top = 0xC4,
+    victorious_wreck_front = 0xC5,
+    mitchell_wreck_back = 0xC6,
+    fort_bear = 0xC7,
+    fort_sherman = 0xC8,
     /// The planets with an atmosphere in less detail: `neptune_lo_1.shp`, `uranus_lo_1.shp`,
     /// `jupiter_lo_1.shp` and `venus1_lo_1.shp`.
     neptune_lo = 0xC9,
+    triton_lo = 0xCA,
     uranus_lo = 0xCB,
+    saturn_lo = 0xCC,
+    titan_lo = 0xCD,
     jupiter_lo = 0xCE,
+    europa_lo = 0xCF,
+    ganymede_lo = 0xD0,
+    io_lo = 0xD1,
+    calisto_lo = 0xD2,
     venus_lo = 0xD3,
     /// The Yamato's launch tube (`yam_tube.shp`), shown as the player's hangar (`0x00419544`).
     yamato_hangar = 0xD4,
@@ -431,12 +571,50 @@ pub const GameType = enum(u32) {
     reliant_hangar = 0xD6,
     /// A comms relay (`comms relay.shp`).
     comms_relay = 0xD7,
+    saladin_link = 0xD8,
+    varyag_wreck_front = 0xD9,
+    churchill = 0xDA,
+    bokov = 0xDB,
+    bulatov = 0xDC,
+    shinnik = 0xDD,
+    kovtun = 0xDE,
     /// Escape pods again, of the same models as `escape_pod` and `other_escape_pod`.
     late_escape_pod = 0xDF,
     other_late_escape_pod = 0xE0,
     /// A fuel pod (`fuel_pod1.shp`), which a jump that clears its way marks jumping wherever it is
     /// (`jump.markJumping`).
     fuel_pod = 0xE1,
+    yevstafiy = 0xE2,
+    mammoth_gulliver = 0xE3,
+    mammoth_santa_maria = 0xE4,
+    mammoth_rosario = 0xE5,
+    mammoth_larsons_pride = 0xE6,
+    mammoth_brittania = 0xE7,
+    mammoth_sierra_madre = 0xE8,
+    mammoth_mayan_gold = 0xE9,
+    mammoth_dawn_chorus = 0xEA,
+    mammoth_calysto = 0xEB,
+    mammoth_sundown = 0xEC,
+    mammoth_krenna = 0xED,
+    mammoth_seabound = 0xEE,
+    mammoth_crimson_sky = 0xEF,
+    asteroid_with_hole_1 = 0xF0,
+    asteroid_with_hole_2 = 0xF1,
+    asteroid_with_hole_3 = 0xF2,
+    asteroid_with_hole_4 = 0xF3,
+    /// The second set of the player's ships, the same twelve with the `t_` twins of their models
+    /// (`player_twins_first`).
+    t_predator = 0xF4,
+    t_naginata = 0xF5,
+    t_grendel = 0xF6,
+    t_crusader = 0xF7,
+    t_coyote = 0xF8,
+    t_mirage = 0xF9,
+    t_tempest = 0xFA,
+    t_patriot = 0xFB,
+    t_wolverine = 0xFC,
+    t_reaper = 0xFD,
+    t_shroud = 0xFE,
     /// A second Phoenix (`t_uspf_phx.shp`), the last type of the table.
     t_phoenix = 0xFF,
     /// The markers `backdrop_place` reads a mission's sun and nebula from.
@@ -452,10 +630,10 @@ pub const GameType = enum(u32) {
     /// What is made of rock: the asteroids, `ast_1.shp` to `ast_7.shp`; the turret asteroids,
     /// `turast_1.shp` to `turast_7.shp`; and the holes, `ast_hole1.shp` to `ast_hole4.shp`.
     pub const Rock = enum { asteroid, turret, hole };
-    const rocks: std.EnumArray(Rock, [2]u32) = .init(.{
-        .asteroid = .{ 0x79, 0x7F },
-        .turret = .{ 0x85, 0x8B },
-        .hole = .{ 0xF0, 0xF3 },
+    const rocks: std.EnumArray(Rock, [2]GameType) = .init(.{
+        .asteroid = .{ .asteroid_1, .asteroid_7 },
+        .turret = .{ .turret_asteroid_1, .turret_asteroid_7 },
+        .hole = .{ .asteroid_with_hole_1, .asteroid_with_hole_4 },
     });
 
     comptime {
@@ -509,19 +687,19 @@ pub const GameType = enum(u32) {
             .{ .late_escape_pod, "uly_escape.shp" },
             .{ .other_late_escape_pod, "ber_escape.shp" },
             .{ .debris, "deb_1.shp" },
-            .{ @fromBackingInt(GameType.debris.number() + 9), "deb_10.shp" },
+            .{ .debris_9, "deb_10.shp" },
             .{ .crewman, "rus_man1.shp" },
-            .{ @fromBackingInt(GameType.crewman.number() + 3), "rus_man4.shp" },
+            .{ .crewman_3, "rus_man4.shp" },
             .{ .rock_chunk, "rockchunk00.SHP" },
-            .{ @fromBackingInt(GameType.rock_chunk.number() + 4), "rockchunk04.SHP" },
+            .{ .rock_chunk_tiny_4, "rockchunk04.SHP" },
             .{ .shell, "shell.shp" },
             .{ .limpet_pod, "limpet_pod.shp" },
-            .{ @fromBackingInt(rocks.get(.asteroid)[0]), "ast_1.shp" },
-            .{ @fromBackingInt(rocks.get(.asteroid)[1]), "ast_7.shp" },
-            .{ @fromBackingInt(rocks.get(.turret)[0]), "turast_1.shp" },
-            .{ @fromBackingInt(rocks.get(.turret)[1]), "turast_7.shp" },
-            .{ @fromBackingInt(rocks.get(.hole)[0]), "ast_hole1.shp" },
-            .{ @fromBackingInt(rocks.get(.hole)[1]), "ast_hole4.shp" },
+            .{ .asteroid_1, "ast_1.shp" },
+            .{ .asteroid_7, "ast_7.shp" },
+            .{ .turret_asteroid_1, "turast_1.shp" },
+            .{ .turret_asteroid_7, "turast_7.shp" },
+            .{ .asteroid_with_hole_1, "ast_hole1.shp" },
+            .{ .asteroid_with_hole_4, "ast_hole4.shp" },
         };
         for (models) |named| assert(std.mem.eql(u8, create.models.ship_types[named[0].number()].model.?, named[1]));
     }
@@ -530,9 +708,9 @@ pub const GameType = enum(u32) {
         return @backingInt(object_type);
     }
 
-    /// Where the second set of the player's ship types starts: types `0xF4` to `0xFF`, whose models
-    /// are the first twelve's `t_` twins, are the same twelve ships to the start.
-    pub const player_twins_first = 0xF4;
+    /// Where the second set of the player's ship types starts: the types from `t_predator` to
+    /// `t_phoenix`, whose models are the first twelve's `t_` twins, are the same twelve ships.
+    pub const player_twins_first = GameType.t_predator.number();
 
     /// The type it stands for among the player's ships: one of the second set, from
     /// `player_twins_first`, stands for the first set's in the same place, and any other for itself.
@@ -561,7 +739,7 @@ pub const GameType = enum(u32) {
         const n = object_type.number();
         for (std.enums.values(Rock)) |kind| {
             const range = rocks.get(kind);
-            if (n >= range[0] and n <= range[1]) return kind;
+            if (n >= range[0].number() and n <= range[1].number()) return kind;
         }
         return null;
     }
@@ -582,7 +760,8 @@ pub const GameType = enum(u32) {
     /// Asteroid `n`, from `ast_1.shp`, round and round the seven.
     pub fn asteroid(n: usize) GameType {
         const range = rocks.get(.asteroid);
-        return @fromBackingInt(@intCast(range[0] + n % (range[1] - range[0] + 1)));
+        const first = range[0].number();
+        return @fromBackingInt(@intCast(first + n % (range[1].number() - first + 1)));
     }
 
     /// The child of the root the AI aims at on an object of this type, where it aims at a part
@@ -1325,10 +1504,10 @@ pub const GunMode = packed struct(u16) {
 };
 
 test "Type.untwinned" {
-    try std.testing.expectEqual(Type.of(.predator), Type.untwinned(@fromBackingInt(0xF4)));
-    try std.testing.expectEqual(Type.of(.grendel), Type.untwinned(@fromBackingInt(0xF6)));
+    try std.testing.expectEqual(Type.of(.predator), Type.untwinned(.of(.t_predator)));
+    try std.testing.expectEqual(Type.of(.grendel), Type.untwinned(.of(.t_grendel)));
     try std.testing.expectEqual(Type.of(.grendel), Type.of(.grendel).untwinned());
-    try std.testing.expectEqual(@as(Type, @fromBackingInt(0xF3)), Type.untwinned(@fromBackingInt(0xF3)));
+    try std.testing.expectEqual(Type.of(.asteroid_with_hole_4), Type.untwinned(.of(.asteroid_with_hole_4)));
 }
 
 test "GameObject.Flags" {
@@ -1424,15 +1603,15 @@ test "Type.twin" {
 }
 
 test "GameType.rock" {
-    try std.testing.expectEqual(.asteroid, GameType.rock(@fromBackingInt(0x7F)));
-    try std.testing.expectEqual(.turret, GameType.rock(@fromBackingInt(0x85)));
-    try std.testing.expectEqual(.hole, GameType.rock(@fromBackingInt(0xF3)));
-    try std.testing.expectEqual(null, GameType.rock(@fromBackingInt(0x80)));
+    try std.testing.expectEqual(.asteroid, GameType.asteroid_7.rock());
+    try std.testing.expectEqual(.turret, GameType.turret_asteroid_1.rock());
+    try std.testing.expectEqual(.hole, GameType.asteroid_with_hole_4.rock());
+    try std.testing.expectEqual(null, GameType.research_station.rock());
     try std.testing.expectEqual(null, GameType.predator.rock());
-    try std.testing.expect(!GameType.isAsteroid(@fromBackingInt(0x85)));
-    try std.testing.expectEqual(0x79, Type.asteroid(0).number());
-    try std.testing.expectEqual(0x7F, Type.asteroid(6).number());
-    try std.testing.expectEqual(0x79, Type.asteroid(7).number());
+    try std.testing.expect(!GameType.turret_asteroid_1.isAsteroid());
+    try std.testing.expectEqual(Type.of(.asteroid_1), Type.asteroid(0));
+    try std.testing.expectEqual(Type.of(.asteroid_7), Type.asteroid(6));
+    try std.testing.expectEqual(Type.of(.asteroid_1), Type.asteroid(7));
 }
 
 test "GameType.isTorpedo" {

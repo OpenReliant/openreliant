@@ -1968,7 +1968,7 @@ test bulletsFrame {
     const world = ship.world();
 
     // A ship of the same model, 500 ahead of the one that fires.
-    const target = try ship.add(@fromBackingInt(9), .{ 0, 0, 500 });
+    const target = try ship.add(.of(.reaper), .{ 0, 0, 500 });
     const slot = &ship.mission.objects.slots[target];
     slot.drawn = .{ .position = .{ 0, 0, 500 }, .orientation = math.identity };
     const struck = &slot.object;
@@ -2159,7 +2159,7 @@ test "a shot striking a hull throws sparks from where it struck" {
     var world = ship.world();
     world.sparks = &built.sparks;
     world.camera = &watching;
-    const target = try ship.add(@fromBackingInt(9), .{ 0, 0, 500 });
+    const target = try ship.add(.of(.reaper), .{ 0, 0, 500 });
     const slot = &ship.mission.objects.slots[target];
     slot.drawn = .{ .position = .{ 0, 0, 500 }, .orientation = math.identity };
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
@@ -2184,7 +2184,7 @@ test "the player's shifted shields take a hit before the quadrant does" {
     defer ship.deinit(gpa);
     const world = ship.world();
     // The ship that fires is the player's, so the target here is another slot shooting back.
-    const shooter = try ship.add(@fromBackingInt(9), .{ 0, 0, 500 });
+    const shooter = try ship.add(.of(.reaper), .{ 0, 0, 500 });
     const player = &ship.mission.objects.slots[ship.mission.objects.player];
     player.drawn = .{ .position = @splat(0), .orientation = math.identity };
     ship.mission.player.shield_reserves = .{ .fore = 25, .aft = 0 };
@@ -2239,7 +2239,7 @@ test "only the latest two shots of a ring cast a light" {
     const world = ship.world();
     const bullets = &world.objects.bullets;
     // The player's ship is the first slot, and a hostile ship fires too.
-    const other = try ship.add(@fromBackingInt(9), .{ 0, 0, 5000 });
+    const other = try ship.add(.of(.reaper), .{ 0, 0, 5000 });
     ship.mission.objects.slots[other].object.side = .hostile;
 
     // The player's third shot puts out the first one's light.
@@ -2321,7 +2321,7 @@ test "a Huge Gun's shot reaches farther, and always through the shields" {
     gun.type = .of(.coalition_huge_gun);
 
     // A ship off to the side of the shot's path by more than its radius, but within 3000.
-    const target = try ship.add(@fromBackingInt(9), .{ 1500, 0, 500 });
+    const target = try ship.add(.of(.reaper), .{ 1500, 0, 500 });
     const slot = &ship.mission.objects.slots[target];
     slot.drawn = .{ .position = .{ 1500, 0, 500 }, .orientation = math.identity };
     slot.object.shields = .all(0);

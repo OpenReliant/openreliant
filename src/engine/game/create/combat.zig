@@ -8,15 +8,19 @@
 const create = @import("../create.zig");
 const gameobj = @import("../gameobj.zig");
 
-/// What a ship type's record holds besides its figures from `shipstats.bin`.
+/// What a ship type's record holds besides its figures from `shipstats.bin`, which the mods'
+/// scripts can change (`records.ship_types`).
 pub const Static = struct {
+    /// The name scripts know these records by.
+    pub const script_name = "ShipTypeRecord";
+
     /// Whether its objects can be picked as targets (`ShipCombat.Targeting`).
     targetable: bool,
     /// The language string that names it.
     name: u16,
     class: create.ShipCombat.Class,
-    /// The side its objects start on.
-    side: gameobj.Side(i16),
+    /// The side its objects start on. It has `GameObject.side`'s type, so scripts see one `Side`.
+    side: gameobj.Side(i32),
     display: create.ShipCombat.TargetDisplay,
 };
 

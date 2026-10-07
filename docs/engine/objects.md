@@ -129,8 +129,14 @@ effect Planet Bombard (`0x0046A300`). **Unknown:** what bit 20 of the flags does
 The words of each `ship_combat_stats` entry from `+0x1C` on come from the executable rather than
 from `shipstats.bin`: the gun groups, which the gun code fills in at run time (`gun_groups_build`,
 `0x004667F0`), then whether the type can be targeted, the string that names it, its class and its
-side. `make combat-tables` transcribes them into
+side, then how the target display draws it. `make combat-tables` transcribes them into
 [`create/combat.zig`](../../src/engine/game/create/combat.zig).
+
+**Improvement:** the mods' scripts can change these words for each type, apart from the gun groups,
+through `records.ship_types` ([The records](../guide/scripting.md#the-records)). The executable of
+the StarLancer trial holds its own copy of the table at `0x00550768`, and it differs from the
+retail game's in one place: it makes type 153, the Yakob Shuttle, a fighter rather than a support
+ship, for the trial's pirates.
 
 | Class | What it is |
 |---|---|
