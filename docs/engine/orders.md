@@ -378,8 +378,9 @@ follows a path that comes round on itself for ever as it walks it; OpenReliant g
 path of no length all the order's ticks, takes a curve given no ticks to its end going forward and
 past its start going backwards, as the game's endless share does, and stops measuring such a path,
 and walking it for the curve before one, after as many curves as the mission has
-([Curves](director.md#curves)). Flying forward, it still follows such a path for ever
-([#535](https://github.com/OpenReliant/openreliant/issues/535)). Walking the path backwards, the game
+([Curves](director.md#curves)). Flying forward, the order counts the curves it has moved on to, in
+bytes of its state the game's follow orders leave alone, and the path ends once it has taken as
+many as the mission has. Walking the path backwards, the game
 takes a curve's end for a ship unless its whole reference, kind and all, is `0x0000FFFF`
 (`0x0040359E`), and so walks on from a curve that ends at no ship to one that starts or ends at
 none; OpenReliant stops at an end whose index is `0xFFFF`. It holds a curve's ticks at 65535, where

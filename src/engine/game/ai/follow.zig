@@ -81,6 +81,10 @@ pub const State = extern struct {
     /// The share of the way along the curve to the next place a point marks, 0 for none
     /// (`nextMarker`).
     next_marker: f32,
+    /// OpenReliant's: how many curves the path has moved on to since its first, which ends a path
+    /// that comes round on itself (`curveWay`). It lies past the bytes the game's follow orders
+    /// use, and starts at 0 with the rest of the state.
+    taken: u16,
 
     /// The share of the way along the curve to the next place a point marks, where there is one:
     /// none at 0 or less, as `follow_curve_way` takes it (`0x0040326D`).
@@ -96,6 +100,7 @@ pub const State = extern struct {
         assert(@offsetOf(State, "path_length") == 0x18);
         assert(@offsetOf(State, "start") == 0x28);
         assert(@offsetOf(State, "next_marker") == 0x34);
+        assert(@offsetOf(State, "taken") == 0x38);
     }
 };
 
@@ -292,9 +297,10 @@ pub fn backwardsExit(ctx: Context, index: u16) void {
 /// step in the same pass, leaves the order running, to fly the path again once the step comes
 /// round; OpenReliant moves it on once.
 ///
-/// Not ported: an end to a path that comes round on itself, which it flies for ever, where the
-/// path's length and its walk backwards stop at as many curves as the mission has
-/// (`curves.following`, [#535](https://github.com/OpenReliant/openreliant/issues/535)).
+/// **Fix:** the game flies a path that comes round on itself for ever, the order never ending,
+/// where it doesn't hang first measuring the path (`curves.following`). OpenReliant ends the path
+/// once it has taken as many curves as the mission has (`State.taken`), as the path's length and
+/// its walk backwards stop.
 pub fn curveWay(world: gameobj.World, index: u16) motion.Way {
     const slot = &world.objects.slots[index];
     const state = &slot.state.follow;
@@ -310,7 +316,8 @@ pub fn curveWay(world: gameobj.World, index: u16) motion.Way {
     if (t >= 1 and state.step == .following) {
         if (curve.endShip()) |end| {
             events.shipReached(world, end, index);
-            if (curves.next(list, at, end, false)) |following| {
+            if (curves.following(list, at, @as(usize, state.taken) + 1)) |following| {
+                state.taken += 1;
                 beginCurve(world, index, @intCast(following));
                 return .{ .point = point };
             }
@@ -667,6 +674,26 @@ test "a path that comes round on itself is walked no further than its curves" {
     _ = path.way(100 + @as(i32, state.ticks) + 1);
     try std.testing.expectEqual(0, state.curve);
     _ = path.way(100 + @as(i32, state.ticks) * 2 + 2);
+    try std.testing.expectEqual(Step.done, state.step);
+}
+
+test "forward, a path that comes round on itself ends once it has taken every curve" {
+    var path: TestPath = undefined;
+    const records = TestPath.ships(4);
+    try path.init(&records, &.{
+        dte.testing.curve(2, 3, .{ 0, 0, 0 }, .{ 0, 0, 1000 }),
+        dte.testing.curve(3, 2, .{ 0, 0, 1000 }, .{ 0, 0, 0 }),
+    });
+    defer path.game.deinit();
+    const state = try path.following(.ship_follow_curve);
+    try std.testing.expectEqual(0, state.curve);
+    // The first curve's end carries the path on into the second.
+    const first_end = 100 + @as(i32, state.ticks);
+    _ = path.way(first_end);
+    try std.testing.expectEqual(1, state.curve);
+    try std.testing.expectEqual(Step.following, state.step);
+    // The second's would carry it back into the first, but it has taken both.
+    _ = path.way(first_end + @as(i32, state.ticks));
     try std.testing.expectEqual(Step.done, state.step);
 }
 
