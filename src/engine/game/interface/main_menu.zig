@@ -195,9 +195,10 @@ pub const MainMenu = struct {
     has_modes: bool = false,
 
     /// Entering the menu, as `main_menu` does before its loop: the pointer at (320, 200), and the
-    /// music started where none is playing. The game also starts a new campaign
-    /// (`campaign_new`); OpenReliant, which has no campaign yet, starts every mission from a new
-    /// campaign's variables (`gameflow.restartPoint`).
+    /// music started where none is playing. The game also starts a new campaign there
+    /// (`campaign_new`, `0x00428C33`). OpenReliant reads the pilot's profile again as the menu is
+    /// entered, as that does (`gameflow.ProfileFile.open`), and starts every mission the front end
+    /// flies from a new campaign's variables (`gameflow.restartPoint`).
     pub fn enter(menu: *MainMenu, pointer: *Pointer, sound: ?*hog_snd.Sound) void {
         menu.under = null;
         menu.confirm = null;

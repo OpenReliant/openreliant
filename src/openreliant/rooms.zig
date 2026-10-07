@@ -105,6 +105,8 @@ pub const Driver = struct {
     /// roster set, the pilot's kills and rank, and the campaign flown.
     tier: *u2,
     pilot: *interface.pilot_roster.Pilot,
+    /// The pilot's profile, which the rooms write with the call sign as they open.
+    pilot_profile: *game.gameflow.ProfileFile,
     player: *engine.input.Player,
     campaign_flown: *?game.gameflow.Campaign,
     /// The pilots of the player's wing and their replacements, which the saved games keep.
@@ -367,9 +369,11 @@ pub const Driver = struct {
 
     /// The rooms (`vr_rooms`) before mission `mission`, from `view`, in their loop, and through
     /// the briefing room's door, the briefing, which `vr_rooms` runs once it has let the rooms go:
-    /// how they end, or null where the game quits meanwhile. A game loaded from the in-game options
-    /// takes the rooms to its mission (`loadedStart`).
+    /// how they end, or null where the game quits meanwhile. First the pilot's profile is written
+    /// with the call sign (`0x0043A002`). A game loaded from the in-game options takes the rooms to
+    /// its mission (`loadedStart`).
     fn visit(driver: *Driver, mission: u16, view: u8) !?End {
+        driver.pilot_profile.saveWith(driver.pilot.call_sign.slice());
         driver.openRooms(mission, view);
         return driver.carryOn();
     }

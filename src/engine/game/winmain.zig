@@ -469,10 +469,10 @@ test afterMission {
     try std.testing.expectEqualStrings(transfer.get(.reliant), afterMission(&campaign, &player, &variables, 5, &second_part, 0, &wingmen).career_over);
 }
 
-/// What `WinMain` does before each single-player mission (`0x004A99CC`): puts back the pilot's
-/// kills as the last mission the pilot came through kept them (`gameflow.endMission`), and the
-/// mission's as its record keeps them, `kept` (`0x004A9A2D`). **Not ported:** the rank, the medals
-/// and the other tallies it puts back with them, which no screen of OpenReliant shows.
+/// The pilot's kills each attempt at a mission starts with: those over the campaign as the last
+/// mission the pilot came through kept them (`gameflow.endMission`), and the mission's as its
+/// record keeps them, `kept`. In the game, the restart point it saves before each attempt and
+/// loads for a replay holds them (`skull_count`, `mission_kills`; `restart_save`, `0x004AA3FC`).
 pub fn startMission(player: *input.Player, kept: u16) void {
     player.kills.count = player.kills.kept;
     player.kills.mission = kept;

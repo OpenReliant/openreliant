@@ -281,6 +281,8 @@ pub const Context = struct {
     /// `starlancer.ini`, which keeps the roster's call signs and the settings; none leaves them
     /// unsaved, and the settings screen shut.
     settings: ?*profile.File = null,
+    /// The pilot's profile, which the roster writes with the call sign; none leaves it.
+    pilot_profile: ?*game.gameflow.ProfileFile = null,
     /// OpenReliant's own options, which the settings screen shows; none shows them as they come.
     own: ?settings.Own = null,
     /// The game's video settings, which the settings screen changes; none leaves them as they are.
@@ -475,6 +477,7 @@ pub const Interface = struct {
                     .small = if (context.resources) |resources| &resources.small.font else null,
                     .pilot = &front.pilot,
                     .settings = context.settings,
+                    .pilot_profile = context.pilot_profile,
                 }) orelse return null;
                 switch (choice) {
                     .main_menu => {
@@ -603,7 +606,10 @@ pub const Interface = struct {
         front.leave(context);
         front.press = .{};
         switch (front.screen) {
-            .main_menu => front.main_menu.enter(&front.pointer, context.sound),
+            .main_menu => {
+                front.main_menu.enter(&front.pointer, context.sound);
+                if (context.pilot_profile) |pilot_profile| pilot_profile.open(&front.pilot.call_sign);
+            },
             .game_options => front.game_options = .{},
             .audio => if (context.settings) |settings_file| front.settings.enter(.game_options, .audio, settingsContext(front, context, settings_file, front.pointer)),
             .controls => if (context.settings) |settings_file| front.settings.enter(.game_options, .controls, settingsContext(front, context, settings_file, front.pointer)),
@@ -661,8 +667,8 @@ pub const Interface = struct {
         };
     }
 
-    /// Comes back to the front end, as a mission started from it ends: its main menu again, until
-    /// the campaign's way on after a mission is ported (#74).
+    /// Comes back to the front end's main menu, as a mission started from it ends, or the campaign
+    /// is left (`interface_screen` 0, `0x004A982C`).
     pub fn back(front: *Interface) void {
         front.screen = .main_menu;
         front.entered = null;

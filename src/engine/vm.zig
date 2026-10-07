@@ -304,8 +304,7 @@ pub const Variables = extern struct {
     /// `objectives_met` (28): set by the script once the mission's objectives are met, as mission
     /// 1's is once the ambushers are destroyed. The debriefing of a mission the ejected pilot was
     /// picked up in tells the pilot the mission was a success by it, and a failure without it
-    /// (`0x00424ECE`, `0x0042545B`). **Not ported:** the debriefing
-    /// ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
+    /// (`0x00424ECE`, `0x0042545B`; `itac.debriefing`).
     objectives_met: u32 = 0,
     /// `czar_alive` (29): whether the Czar survived mission 11, whose script clears it as the ship
     /// is destroyed. The first news report after mission 11 plays once it's clear.

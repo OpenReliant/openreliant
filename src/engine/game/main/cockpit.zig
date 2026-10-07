@@ -48,13 +48,13 @@ pub const Cockpit = struct {
         }
     };
 
-    /// Loads the cockpit of `ship_type`, a ship the player can fly (`main.playerShip`), in place
-    /// of the one before, as each mission's start makes it afresh, built as `models` says. A
-    /// cockpit the game lacks or can't read is left out.
-    pub fn load(cockpit: *Cockpit, resources: *const bigfile.Hog, textures: *srtexture.Table, ship_type: gameobj.Type, models: srofiles.Settings) Allocator.Error!void {
+    /// Loads the cockpit of `ship`, the ship the start fits it for (`main.cockpitShip`), none for a
+    /// ship the player can't fly, in place of the one before, as each mission's start makes it
+    /// afresh, built as `models` says. A cockpit the game lacks or can't read is left out.
+    pub fn load(cockpit: *Cockpit, resources: *const bigfile.Hog, textures: *srtexture.Table, ship: ?main.PlayerShip, models: srofiles.Settings) Allocator.Error!void {
         cockpit.shown = null;
         _ = cockpit.arena.reset(.free_all);
-        const player_ship = main.playerShip(ship_type) orelse return;
+        const player_ship = ship orelse return;
         const gpa = cockpit.arena.allocator();
         const file = srofiles.readModel(gpa, resources, textures, player_ship.cockpit, models) catch |err| switch (err) {
             error.OutOfMemory => |out| return out,

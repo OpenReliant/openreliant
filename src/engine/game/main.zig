@@ -96,8 +96,7 @@ pub const Ending = enum(u8) {
     /// The mission left from the pause menu (LEAVE MISSION, `mission_paused_frame`, `0x00492149`).
     left = 4,
     /// The script rated the mission a total failure, which `mission_end_record` settles as the
-    /// mission ends (`0x00475CE5`). **Not ported:** the mission's end
-    /// ([#74](https://github.com/OpenReliant/openreliant/issues/74)).
+    /// mission ends (`0x00475CE5`, `gameflow.endMission`).
     total_failure = 5,
     /// The player's ship sent home for destroying a friend (`0x00474B40`), which gives it Friendly
     /// Fire, order 117; its landing begins at once (`ailand`).
@@ -1589,10 +1588,6 @@ pub const PlayerShip = struct {
 };
 
 /// The twelve ships the player can fly, by ship type.
-///
-/// In mission 25's first part (`mission_number`, `mission25_second_part`), the start loads the
-/// Kamov's cockpit, `kamg_frm.shp`, whatever the ship, which OpenReliant does not yet
-/// ([#301](https://github.com/OpenReliant/openreliant/issues/301)).
 pub const player_ships = [_]PlayerShip{
     .{ .cockpit = "preg_frm.shp", .wire_frame = 0x116, .wing_icon = 0xFC, .blind_fire = true },
     .{ .cockpit = "nagg_frm.shp", .wire_frame = 0x10E, .wing_icon = 0xFA, .spectral_shields = true },
@@ -1607,6 +1602,23 @@ pub const player_ships = [_]PlayerShip{
     .{ .cockpit = "shr2_frm.shp", .wire_frame = 0x11A, .wing_icon = 0xFD, .spectral_shields = true, .blind_fire = true },
     .{ .cockpit = "phe2_frm.shp", .wire_frame = 0x112, .wing_icon = 0x104, .blind_fire = true },
 };
+
+/// What the start fits in mission 25's first part, where the player's wing flies Kamovs
+/// (`create.Objects.kamovPart`), whatever the loadout's ship (`0x00493761`): the Kamov's cockpit,
+/// and the Phoenix's wire frame on the gunnery display, with neither spectral shields nor blind
+/// fire. A Kamov has no wing icon (`startWing`).
+pub const kamov_ship: PlayerShip = .{
+    .cockpit = "kamg_frm.shp",
+    .wire_frame = player_ships[@backingInt(gameobj.GameType.phoenix)].wire_frame,
+    .wing_icon = 0,
+};
+
+/// The ship the start fits the cockpit and the display for: the player's ship of `ship_type`
+/// (`playerShip`), but in mission 25's first part, the Kamov (`kamov_ship`).
+pub fn cockpitShip(all: *const create.Objects, ship_type: gameobj.Type) ?PlayerShip {
+    if (all.kamovPart()) return kamov_ship;
+    return playerShip(ship_type);
+}
 
 /// The player's ship of `ship_type`, a twin as the ship it twins (`gameobj.GameType.untwinned`), or
 /// null for a type the start has none for. A type a mod adds is its base, or its template where it
@@ -1679,6 +1691,10 @@ pub const Start = struct {
     /// (`gameflow.Campaign.attempt`); none for a mission flown outside one, which starts from a new
     /// campaign's (`gameflow.restartPoint`).
     campaign: ?*const gameflow.Campaign = null,
+    /// The pilot's profile, which the start writes last with the pilot's call sign
+    /// (`gameflow.ProfileFile.saveWith`); none leaves it.
+    profile: ?*gameflow.ProfileFile = null,
+    call_sign: []const u8 = "",
 };
 
 /// Where the mission's start makes the camera's marker (`0x00588390`), which the flyby and target
@@ -1712,11 +1728,14 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///    slot;
 /// 4. lets go of the types no object is of any more, and loads the model of each type the mission
 ///    places;
-/// 5. resets the frame's clock (`frame_reset`), loads the cockpit of the player's ship, and readies
-///    the display for it as `hud_init` and the start have it: its devices fitted (`fitDevices`),
-///    its missiles in the missile display, no missile lock, and the eject marker out;
+/// 5. resets the frame's clock (`frame_reset`), loads the cockpit of the player's ship, or of the
+///    Kamov in mission 25's first part (`cockpitShip`), and readies the display for it as
+///    `hud_init` and the start have it: its devices fitted (`fitDevices`), its missiles in the
+///    missile display, no missile lock, and the eject marker out;
 /// 6. **Fix:** starts the player's engine's sound where its ship has no launch to start it, so that
-///    a ship that starts in space is heard (`sound3d.hearEngine`).
+///    a ship that starts in space is heard (`sound3d.hearEngine`);
+/// 7. writes the pilot's profile with the pilot's call sign (`Start.profile`, `profile_save`,
+///    `0x00493F8E`).
 ///
 /// Last, mods' scripts run their `on_mission_start` handlers (`hooks.Scripts.started`).
 ///
@@ -1725,9 +1744,7 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///
 /// The caller shows the loading screen that goes before it (`xtrabits.loading.missionFrames`).
 /// Not ported: the renderer's and the textures' setting up, which OpenReliant does once as it
-/// starts; the chat line and a multiplayer game; and what the start does for the campaign:
-/// mission 25's first part's cockpit, and the pilot's profile
-/// ([#301](https://github.com/OpenReliant/openreliant/issues/301)).
+/// starts; the chat line and a multiplayer game.
 pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Loaded {
     const types = start.types.types();
     var orders = start.orders;
@@ -1814,12 +1831,14 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
 
     const player = &all.slots[all.player];
     const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @fromBackingInt(record.kind) else player.object.type);
-    try start.cockpit.load(start.types.resources, start.types.textures, player_type, start.types.models);
+    const ship = cockpitShip(all, player_type);
+    try start.cockpit.load(start.types.resources, start.types.textures, ship, start.types.models);
     start.display.ejected = false;
-    fitDevices(start.display, player_type, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
+    fitDevices(start.display, ship, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     start.display.missiles.build(&player.object);
     start.display.lock.reset();
     if (player.firstOrder(.launch) == null) sound3d.hearEngine(world);
+    if (start.profile) |profile| profile.saveWith(start.call_sign);
     if (all.scripts) |scripts| scripts.started(mission);
     return loaded;
 }
@@ -1872,12 +1891,12 @@ pub fn scriptOutcome(player: *const input.Player, loaded: *const Loaded) hooks.O
     return .{ .ending = player.ending, .rating = loaded.script.variables.mission_success };
 }
 
-/// Fits the display's devices to the player's ship, as the start does after `hud_init` has set
-/// the display up: every ship carries an ECM, the ships of `player_ships` that say so spectral
-/// shields and blind fire, and a ship whose model can cloak (`shp.Header.Flags.cloak`) a cloak.
-/// Blind fire starts on where it is carried; elsewhere it is left as it was.
-pub fn fitDevices(display: *hud.State, ship_type: gameobj.Type, can_cloak: bool) void {
-    const ship = playerShip(ship_type);
+/// Fits the display's devices to the player's ship, `ship` (`cockpitShip`), as the start does
+/// after `hud_init` has set the display up: every ship carries an ECM, the ships of `player_ships`
+/// that say so spectral shields and blind fire, and a ship whose model can cloak
+/// (`shp.Header.Flags.cloak`) a cloak. Blind fire starts on where it is carried; elsewhere it is
+/// left as it was.
+pub fn fitDevices(display: *hud.State, ship: ?PlayerShip, can_cloak: bool) void {
     display.devices.getPtr(.ecm).setting = .off;
     const spectral = if (ship) |known| known.spectral_shields else false;
     display.devices.getPtr(.spectral_shields).setting = if (spectral) .off else .absent;
@@ -1891,20 +1910,40 @@ test fitDevices {
     // The Shroud carries all three, and a cloak where its model has one.
     const shroud: gameobj.Type = @fromBackingInt(10);
     var display: hud.State = .{ .blind_fire = false };
-    fitDevices(&display, shroud, true);
+    fitDevices(&display, playerShip(shroud), true);
     try std.testing.expectEqual(.off, display.devices.get(.spectral_shields).setting);
     try std.testing.expectEqual(.off, display.devices.get(.cloak).setting);
     try std.testing.expect(display.blind_fire_fitted and display.blind_fire);
     // Its twin is the same ship.
     try std.testing.expectEqual(playerShip(shroud), playerShip(@fromBackingInt(0xFE)));
     // The Grendel carries only the ECM.
-    fitDevices(&display, .of(.grendel), false);
+    fitDevices(&display, playerShip(.of(.grendel)), false);
     try std.testing.expectEqual(.off, display.devices.get(.ecm).setting);
     try std.testing.expectEqual(.absent, display.devices.get(.spectral_shields).setting);
     try std.testing.expectEqual(.absent, display.devices.get(.cloak).setting);
     try std.testing.expect(!display.blind_fire_fitted);
     // A capital ship is none of the player's.
     try std.testing.expectEqual(null, playerShip(.of(.yamato)));
+}
+
+test cockpitShip {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    all.mission_number = create.kamov_mission;
+    // Mission 25's first part fits the Kamov's cockpit with the Phoenix's wire frame, and neither
+    // spectral shields nor blind fire.
+    try std.testing.expectEqualDeep(kamov_ship, cockpitShip(all, .of(.kamov)).?);
+    var display: hud.State = .{ .blind_fire = false };
+    fitDevices(&display, cockpitShip(all, .of(.kamov)), false);
+    try std.testing.expectEqual(playerShip(.of(.phoenix)).?.wire_frame, display.wire_frame.?);
+    try std.testing.expect(!display.blind_fire_fitted);
+    try std.testing.expectEqual(.absent, display.devices.get(.spectral_shields).setting);
+    // Its second part fits the ship's own, and a Kamov there has none.
+    all.mission25_second_part = true;
+    try std.testing.expectEqualDeep(playerShip(.of(.phoenix)).?, cockpitShip(all, .of(.phoenix)).?);
+    try std.testing.expectEqual(null, cockpitShip(all, .of(.kamov)));
 }
 
 test "a mod's ship type has its own cockpit and devices" {
