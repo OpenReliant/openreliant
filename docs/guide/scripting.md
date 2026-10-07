@@ -874,8 +874,8 @@ scripts can only read them.
 | `ships` | Ship stats, `shipstats.bin`, then the types the mods add | 0 | The ship types OpenReliant has names for, such as `predator`, and the qualified names of the types the mods add, such as `teapot:teapot` |
 | `guns` | Gun stats, `gunstats.bin`, then the guns the mods add | 1 | `laser_cannon`, `pulse_cannon` and the rest, and the qualified names of the mods' guns |
 | `missiles` | Missile stats, `missilestats.bin`, then the missiles the mods add | 0 | `screamer`, `raptor` and the rest, and the qualified names of the mods' missiles |
-| `pilots` | Pilot stats, `pilotstats.bin`, then the pilots the mods add | 0 | The qualified names of the mods' pilots |
-| `faces` | The pilots' faces, which the game keeps in its executable, then those of the pilots the mods add | 0 | The qualified names of the mods' pilots |
+| `pilots` | Pilot stats, `pilotstats.bin`, then the pilots the mods add | 0 | `frenchy`, `viper`, `ronin_leader` and the other pilots the game's code singles out, and the qualified names of the mods' pilots |
+| `faces` | The pilots' faces, which the game keeps in its executable, then those of the pilots the mods add | 0 | As `pilots` |
 | `text` | The game's text, `language.dll`, by string id | 1 | |
 | `itac_text` | The ITAC's text, `itaclang.dll`, by string id | 1 | |
 
@@ -896,7 +896,7 @@ records.guns.laser_cannon.damage.hull = 30   -- by name
 records.ships[12].max_speed *= 1.1           -- by number
 records.pilots[66].skill = "high"            -- values with names use their names
 records.text[568] = "Laser Cannon Mk II"     -- text is a string
-records.faces[4].talking = "45Tigers_Plt"    -- a face's film
+records.faces.frenchy.talking = "45Tigers_Plt"  -- a face's film
 
 for number, missile in records.missiles do  -- every record, in order
     missile.lock_time *= 0.8
@@ -1481,6 +1481,13 @@ loadout offers instead, in its own order, with `loadout_ships`, such as `{ "gren
 or ship type numbers. The loadout then starts on the first, and later on the ship the player chose
 last. Ships the player can't fly, such as capital ships, are left out.
 
+A mode's missions fly with a wing of their own, which starts anew as the mode starts, so the
+campaign's wing loses nobody to them. In missions flown as the campaign's numbers, 1 to 28, the
+game gives the player's wingmen, Alpha 2 to 6, the wing's pilots in place of those the mission file
+names. `wing_pilots` seats other pilots there, each a pilot of the game's by its name, such as
+`"viper"`, or its number, or one a mod adds by its qualified name; `none` keeps a place's pilot. A pilot it lists flies every mission,
+even after dying in one.
+
 ```lua
 core.register_game_mode({
     name = "prequel",
@@ -1492,6 +1499,8 @@ core.register_game_mode({
     campaign = true,
     briefing_room = "yamato",
     debriefing = true,
+    -- As the trial does, the Ronin wing's leader, Tanaka, flies Alpha 6 in Viper's place.
+    wing_pilots = { "none", "none", "none", "none", "ronin_leader" },
 })
 ```
 

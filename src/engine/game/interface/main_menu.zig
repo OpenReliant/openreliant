@@ -14,6 +14,7 @@ const create = @import("../create.zig");
 const gameobj = @import("../gameobj.zig");
 const hog_snd = @import("../hog_snd.zig");
 const hud = @import("../hud.zig");
+const pilots = @import("../pilots.zig");
 const canvas_module = @import("canvas.zig");
 const Canvas = canvas_module.Canvas;
 const Pointer = canvas_module.Pointer;
@@ -139,6 +140,8 @@ pub const Flight = struct {
     file: ?u16 = null,
     /// OpenReliant's: the names a game mode gives its objectives (`hud.Objectives.reset`).
     objectives: ?*const hud.Objectives.Names = null,
+    /// OpenReliant's: the pilots a game mode seats in the player's wing (`pilots.Wingmen.seat`).
+    wing: []const pilots.Number = &.{},
     ship: ?create.TypeIndex = null,
     /// The racks the loadout fitted the ship with, where it ran (`player_loadouts + 4` on); none
     /// where the mission starts without it, when the player's ship is fitted by its tier

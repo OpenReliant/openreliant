@@ -1,6 +1,6 @@
-//! The records as the game's tables hold them (`loadTables`), and a game mode's own records, which
-//! its missions alone see (`ModeTables`,
-//! [#816](https://github.com/OpenReliant/openreliant/issues/816)).
+//! The records as the game's tables hold them (`loadTables`), and what a game mode keeps of its own
+//! for its missions alone (`ModeState`): its records
+//! ([#816](https://github.com/OpenReliant/openreliant/issues/816)) and its wingmen.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -20,29 +20,51 @@ pub fn loadTables(tables: *game.create.Stats, objects: *game.create.Objects, rec
     objects.faces.load(records.faces);
 }
 
-/// A game mode's own records (`scripting.game_modes.ModeRecords`), and the game's tables, loaded
-/// again from the records as the mode's changes come and go.
-pub const ModeTables = struct {
+/// What a game mode keeps of its own while its missions run, in place of the campaign's: its
+/// records (`scripting.game_modes.ModeRecords`), with the game's tables loaded again from the
+/// records as the mode's changes come and go, and its wingmen (`game.pilots.Wingmen`), which
+/// start anew as each mode starts. So the campaign's wing never sees the mode's losses.
+///
+/// **Improvement:** the original has no game modes.
+pub const ModeState = struct {
     own: *scripting.game_modes.ModeRecords,
     tables: *game.create.Stats,
     objects: *game.create.Objects,
+    /// The mode's wingmen while the campaign's are in the objects, and the campaign's while the
+    /// mode's are (`wingmen_in`).
+    aside: game.pilots.Wingmen = .{},
+    wingmen_in: bool = false,
 
-    /// Before a mission of `mode`: its records, and the tables loaded from them.
-    pub fn apply(mode_tables: ModeTables, mode: scripting.game_modes.Mode) Allocator.Error!void {
-        if (try mode_tables.own.apply(mode)) mode_tables.load();
+    /// As a mode starts: its wingmen anew.
+    pub fn begin(state: *ModeState) void {
+        state.restore();
+        state.aside = .{};
     }
 
-    /// As the mission ends: the records as they were, and the tables loaded from them again.
-    pub fn restore(mode_tables: ModeTables) void {
-        if (mode_tables.own.restore()) mode_tables.load();
+    /// Before a mission of `mode`: its records, the tables loaded from them, and its wingmen.
+    pub fn apply(state: *ModeState, mode: scripting.game_modes.Mode) Allocator.Error!void {
+        if (try state.own.apply(mode)) state.load();
+        if (!state.wingmen_in) state.swapWingmen();
     }
 
-    fn load(mode_tables: ModeTables) void {
-        loadTables(mode_tables.tables, mode_tables.objects, mode_tables.own.held);
+    /// As the mission ends: the records as they were, the tables loaded from them again, and the
+    /// campaign's wingmen.
+    pub fn restore(state: *ModeState) void {
+        if (state.own.restore()) state.load();
+        if (state.wingmen_in) state.swapWingmen();
+    }
+
+    fn load(state: *ModeState) void {
+        loadTables(state.tables, state.objects, state.own.held);
+    }
+
+    fn swapWingmen(state: *ModeState) void {
+        std.mem.swap(game.pilots.Wingmen, &state.objects.wingmen, &state.aside);
+        state.wingmen_in = !state.wingmen_in;
     }
 };
 
-test ModeTables {
+test ModeState {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -71,9 +93,28 @@ test ModeTables {
     // The mode's mission flies with its own records, and the next with the game's again.
     var own: scripting.game_modes.ModeRecords = .init(gpa, io, opened.list, &records, "0.7.0", .{});
     defer own.deinit();
-    const mode_tables: ModeTables = .{ .own = &own, .tables = tables, .objects = objects };
-    try mode_tables.apply(.{ .name = "p:own", .mod = "p", .missions = &.{.{ .file = 91, .number = 91 }}, .ship = null, .kind = .once, .briefing = null, .records = "own.luau" });
+    var state: ModeState = .{ .own = &own, .tables = tables, .objects = objects };
+    const mode: scripting.game_modes.Mode = .{ .name = "p:own", .mod = "p", .missions = &.{.{ .file = 91, .number = 91 }}, .ship = null, .kind = .once, .briefing = null, .records = "own.luau" };
+    try state.apply(mode);
     try std.testing.expectEqual(300, tables.flight[0].max_speed);
-    mode_tables.restore();
+    state.restore();
     try std.testing.expectEqual(10, tables.flight[0].max_speed);
+
+    // The mode's wingmen fly its missions, and the campaign's lose nobody to them.
+    objects.wingmen.alpha[1] = 33;
+    state.begin();
+    try state.apply(mode);
+    try std.testing.expectEqual(game.pilots.new_wing, objects.wingmen.alpha);
+    objects.wingmen.lose(game.pilots.new_wing[2]);
+    state.restore();
+    try std.testing.expectEqual(33, objects.wingmen.alpha[1]);
+    try std.testing.expectEqual(game.pilots.new_wing[2], objects.wingmen.alpha[2]);
+    // The next mission of the mode finds its own losses, and the next mode starts anew.
+    try state.apply(mode);
+    try std.testing.expectEqual(-1, objects.wingmen.alpha[2]);
+    state.begin();
+    try std.testing.expectEqual(33, objects.wingmen.alpha[1]);
+    try state.apply(mode);
+    try std.testing.expectEqual(game.pilots.new_wing, objects.wingmen.alpha);
+    state.restore();
 }

@@ -1241,7 +1241,7 @@ test "menu scripts register game modes as OpenReliant starts, and player scripts
                 \\assert(not ok and string.find(message, "can't loop", 1, true), message)
                 \\ok, message = pcall(core.register_game_mode, { name = "own", label = "OWN", missions = { 1 }, records = "missing.luau" })
                 \\assert(not ok and string.find(message, "has no script missing.luau", 1, true), message)
-                \\assert(core.register_game_mode({ name = "own", label = "OWN", records = "PLAYER", briefing_room = "yamato",
+                \\assert(core.register_game_mode({ name = "own", label = "OWN", records = "PLAYER", briefing_room = "yamato", wing_pilots = { "none", "ronin_leader" },
                 \\    missions = { 90, { number = 91, as = 1, objectives = { "Patrol", "Caf\u{e9}" }, hologram = "own_m01.bik" } } }) == "a:own")
                 \\assert(core.game_mode == nil and core.game_mode_mission == nil)
             },
@@ -1271,8 +1271,10 @@ test "menu scripts register game modes as OpenReliant starts, and player scripts
     try std.testing.expectEqualStrings("Patrol", names[0].?);
     try std.testing.expectEqualStrings("Caf\xe9", names[1].?);
     try std.testing.expectEqual(null, names[2]);
-    // Briefed in the Yamato's briefing room, with the mod's movie, and Enriquez silent.
+    // Briefed in the Yamato's briefing room, with the mod's movie, and Enriquez silent; Alpha 3 is
+    // the Ronin wing's leader.
     try std.testing.expectEqual(.yamato, own.briefing_room.?);
+    try std.testing.expectEqualSlices(engine.game.pilots.Number, &.{ .none, .named(.ronin_leader) }, own.wing_pilots.?);
     try std.testing.expectEqualStrings("own_m01.bik", own.missions[1].hologram.?);
     try std.testing.expectEqual(null, own.missions[1].last_word);
     const arena = modes.modes.items[0];

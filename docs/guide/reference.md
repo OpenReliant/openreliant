@@ -59,7 +59,7 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 | `version` | string | The version of OpenReliant, such as `0.7.0`. |
 | `game_mode` | string, or nil | The qualified name of the game mode that runs, such as `arena:arena`; nil in the game's campaign, INSTANT ACTION and anywhere else. |
 | `game_mode_mission` | [GameModeMission](#gamemodemission), or nil | The mission the game mode that runs is at: the one flown, or between missions the one flown next. nil where no game mode runs. |
-| `register_game_mode(definition: GameMode)` | string | Registers a game mode, which the main menu's GAME MODES lists. The mod's name qualifies its `name`, and the screen shows its `label` and `description`. `missions` lists the missions it flies in turn: each is the number of a standard `.DTE` file of the game's or a mod's, or a table that also gives the number the mission flies as, the names of its objectives, and its `hologram` and `last_word` in the briefing room. `ship` is the ship the player flies them in; without it, each mission gives the ship. With `loop`, the mode starts again after its last mission. A `campaign` shows the restart screen after a mission is lost or left, and carries on from the mission the player reached. `briefing` names the mod's registered screen that the front end shows before each mission. `briefing_room`, `reliant` or `yamato`, then briefs each mission in that game's briefing room, with the loadout. `loadout_ships` lists the ships that loadout offers, in order, starting on the first. With `debriefing`, the ITAC debriefs each mission that goes on to the next. `ending` names the mod's registered screen that the front end shows after the last mission. `records` names the mod's script that changes the records for the mode's missions alone: it runs as a load script before each of them, and its changes go back as the mission ends. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name. |
+| `register_game_mode(definition: GameMode)` | string | Registers a game mode, which the main menu's GAME MODES lists. The mod's name qualifies its `name`, and the screen shows its `label` and `description`. `missions` lists the missions it flies in turn: each is the number of a standard `.DTE` file of the game's or a mod's, or a table that also gives the number the mission flies as, the names of its objectives, and its `hologram` and `last_word` in the briefing room. `ship` is the ship the player flies them in; without it, each mission gives the ship. With `loop`, the mode starts again after its last mission. A `campaign` shows the restart screen after a mission is lost or left, and carries on from the mission the player reached. `briefing` names the mod's registered screen that the front end shows before each mission. `briefing_room`, `reliant` or `yamato`, then briefs each mission in that game's briefing room, with the loadout. `loadout_ships` lists the ships that loadout offers, in order, starting on the first. `wing_pilots` lists the pilots of the player's wingmen, Alpha 2 to 6, in place of the campaign's wing, which the missions flown as the campaign's numbers give the wingmen: each a pilot of the game's by its number, or one a mod adds by its qualified name, and `none` keeps a place's pilot. With `debriefing`, the ITAC debriefs each mission that goes on to the next. `ending` names the mod's registered screen that the front end shows after the last mission. `records` names the mod's script that changes the records for the mode's missions alone: it runs as a load script before each of them, and its changes go back as the mission ends. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name. |
 | `send_global_event(name: string, data: any)` | nothing | Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update. |
 
 ### `openreliant.records`
@@ -1132,6 +1132,7 @@ A table a script gives, which may leave out a field with a default.
 | `briefing` | string, or nil | nil |
 | `briefing_room` | [Carrier](#carrier), or nil | nil |
 | `loadout_ships` | list of [ShipType](#shiptype), or nil | nil |
+| `wing_pilots` | list of [PilotNumber](#pilotnumber), or nil | nil |
 | `debriefing` | boolean | false |
 | `ending` | string, or nil | nil |
 | `records` | string, or nil | nil |
@@ -1328,7 +1329,7 @@ number. A script can set a field to either.
 
 ### PilotNumber
 
-`none`, the qualified name of one a mod adds, or a number.
+`bandit_tigers_leader`, `diceman_tigers_leader`, `moose_tigers`, `moose_volunteers`, `bandit_volunteers_leader`, `viper`, `ronin_leader`, `ronin`, `frenchy`, `silky`, `mayday`, `trigger`, `hawkeye`, `worm`, `ego`, `diceman`, `bandit`, the qualified name of one a mod adds, or a number.
 
 ### Side
 

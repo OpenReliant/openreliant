@@ -172,11 +172,49 @@ test Table {
     try std.testing.expectEqual(Pilot.Skill.medium, table.get(Table.count).skill);
 }
 
-/// A pilot by its number, as scripts know it: none, a pilot a mod adds by its qualified name, and
-/// any other by its number.
+/// The game's pilots, by their numbers in `pilotstats.bin` and in the faces' table (`faces`). The
+/// names are OpenReliant's, for the pilots the game's code singles out: the player's wing and its
+/// stretches (`new_wing`, `stretches`), the first replacements of its pool (`pool`), Moose, who makes
+/// the squadron's remarks (`radio.moose`), and the Ronin wing, which flies with the StarLancer
+/// trial's player.
+pub const GamePilot = enum(u8) {
+    /// Bandit and Diceman, the 45th Tigers' wing leaders (`45TigersWL_*`).
+    bandit_tigers_leader = 0,
+    diceman_tigers_leader = 1,
+    /// Moose, of the 45th Tigers and of the 45th Volunteers.
+    moose_tigers = 2,
+    moose_volunteers = 4,
+    /// Bandit and Viper, the 45th Volunteers' wing leaders (`45VolntrWL_*`).
+    bandit_volunteers_leader = 6,
+    viper = 7,
+    /// The Ronin wing's leader, Tanaka in the trial, and its pilots (`RoninWL_Plt`, `Ronin_Plt`).
+    ronin_leader = 62,
+    ronin = 63,
+    /// The new wing's pilots, Hawkeye and Diceman of the stretches, and the pool's first
+    /// replacements, Ego, Mayday and Trigger.
+    frenchy = 85,
+    silky = 86,
+    mayday = 87,
+    trigger = 88,
+    hawkeye = 95,
+    worm = 108,
+    ego = 119,
+    diceman = 120,
+    bandit = 172,
+    _,
+
+    /// Its number, as the wing keeps it (`Wing`).
+    pub fn number(pilot: GamePilot) i16 {
+        return @backingInt(pilot);
+    }
+};
+
+/// A pilot by its number, as scripts know it: none, one of the game's pilots by its name
+/// (`GamePilot`) or its number, and a pilot a mod adds by its qualified name.
 pub const Number = enum(u8) {
-    /// The name scripts know these values by.
+    /// The name scripts know these values by, and the names they know.
     pub const script_name = "PilotNumber";
+    pub const Named = GamePilot;
 
     /// No pilot of the table: a mission's ship record's `dte.Ship.no_pilot`.
     none = 0xFF,
@@ -187,16 +225,23 @@ pub const Number = enum(u8) {
         return if (std.math.cast(u8, pilot)) |number| @fromBackingInt(number) else .none;
     }
 
-    /// The name scripts know it by: `none`, or a pilot a mod adds by its qualified name.
+    /// The game's pilot `pilot`.
+    pub fn named(pilot: GamePilot) Number {
+        return @fromBackingInt(@backingInt(pilot));
+    }
+
+    /// The name scripts know it by: `none`, one of the game's pilots' names, or a pilot a mod adds
+    /// by its qualified name.
     pub fn scriptName(pilot: Number) ?[]const u8 {
         if (pilot == .none) return "none";
-        const added = additions.pilots.get(@backingInt(pilot)) orelse return null;
-        return added.name;
+        if (additions.pilots.get(@backingInt(pilot))) |added| return added.name;
+        return std.enums.tagName(GamePilot, @fromBackingInt(@backingInt(pilot)));
     }
 
     /// The pilot scripts name `text`, if there is one.
     pub fn fromScriptName(text: []const u8) ?Number {
         if (std.mem.eql(u8, text, "none")) return .none;
+        if (std.meta.stringToEnum(GamePilot, text)) |pilot| return .named(pilot);
         return @fromBackingInt(@intCast(additions.pilots.find(text) orelse return null));
     }
 };
@@ -462,17 +507,20 @@ pub const Wing = [6]i16;
 
 /// The wing `campaign_pilots_reset` (`0x0049CD20`) starts a campaign with: Frenchy, Worm, Silky,
 /// Bandit and Viper behind the player.
-pub const new_wing: Wing = .{ -1, 0x55, 0x6C, 0x56, 0xAC, 7 };
+pub const new_wing: Wing = .{ -1, GamePilot.frenchy.number(), GamePilot.worm.number(), GamePilot.silky.number(), GamePilot.bandit.number(), GamePilot.viper.number() };
+
+/// The wingmen's places, Alpha 2 to 6.
+pub const wingman_places = new_wing.len - 1;
 
 /// The pilots `update_pilots` gives Alpha 5 and Alpha 6 for each stretch of the campaign, by the
-/// last mission of the stretch (`0x0049CD7B` on): Bandit and Viper to mission 5, Diceman and Bandit
-/// to mission 22, the two Bandits a different record each, and Hawkeye and Diceman to mission 28.
-/// A mission past them leaves them as they are.
-const stretches = [_]struct { last: u16, pilots: [2]i16 }{
-    .{ .last = 5, .pilots = .{ 0xAC, 7 } },
-    .{ .last = 13, .pilots = .{ 0x78, 6 } },
-    .{ .last = 22, .pilots = .{ 0x78, 0 } },
-    .{ .last = 28, .pilots = .{ 0x5F, 1 } },
+/// last mission of the stretch (`0x0049CD7B` on): Bandit and Viper to mission 5, Diceman and the
+/// 45th Volunteers' Bandit to mission 13, Diceman and the 45th Tigers' Bandit to mission 22, and
+/// Hawkeye and the 45th Tigers' Diceman to mission 28. A mission past them leaves them as they are.
+const stretches = [_]struct { last: u16, pilots: [2]GamePilot }{
+    .{ .last = 5, .pilots = .{ .bandit, .viper } },
+    .{ .last = 13, .pilots = .{ .diceman, .bandit_volunteers_leader } },
+    .{ .last = 22, .pilots = .{ .diceman, .bandit_tigers_leader } },
+    .{ .last = 28, .pilots = .{ .hawkeye, .diceman_tigers_leader } },
 };
 
 /// The places of the wing `update_pilots` fills from `stretches`: Alpha 5 and Alpha 6.
@@ -506,7 +554,7 @@ pub const Wingmen = struct {
     pub fn update(wingmen: *Wingmen, number: u16) void {
         if (number > 0) for (stretches) |stretch| {
             if (number > stretch.last) continue;
-            wingmen.alpha[story_places..].* = stretch.pilots;
+            wingmen.alpha[story_places..].* = .{ stretch.pilots[0].number(), stretch.pilots[1].number() };
             break;
         };
         for (wingmen.alpha[1..]) |*pilot| {
@@ -538,8 +586,19 @@ pub const Wingmen = struct {
     }
 
     /// The wingmen's pilots, Alpha 2 to 6.
-    pub fn pilots(wingmen: *const Wingmen) *const [5]i16 {
+    pub fn pilots(wingmen: *const Wingmen) *const [wingman_places]i16 {
         return wingmen.alpha[1..];
+    }
+
+    /// Seats the pilots `wing` lists in the wingmen's places, from Alpha 2, as a game mode names
+    /// its wingmen; `none` leaves a place as it is.
+    ///
+    /// **Improvement:** the original's wing is the campaign's alone.
+    pub fn seat(wingmen: *Wingmen, wing: []const Number) void {
+        const seated = @min(wing.len, wingman_places);
+        for (wingmen.alpha[1..][0..seated], wing[0..seated]) |*place, pilot| {
+            if (pilot != .none) place.* = @backingInt(pilot);
+        }
     }
 };
 
@@ -572,6 +631,17 @@ test Wingmen {
     wingmen.alpha[2] = -1;
     wingmen.update(1);
     try std.testing.expectEqual(-1, wingmen.alpha[2]);
+}
+
+test "Wingmen.seat" {
+    var wingmen: Wingmen = .{};
+    // Alpha 6 is Tanaka, and Alpha 2 keeps its pilot, Frenchy.
+    wingmen.seat(&.{ .none, .named(.worm), .named(.silky), .named(.bandit), .named(.ronin_leader) });
+    try std.testing.expectEqual(GamePilot.frenchy.number(), wingmen.alpha[1]);
+    try std.testing.expectEqual(GamePilot.ronin_leader.number(), wingmen.alpha[5]);
+    // A shorter list seats the places it reaches.
+    wingmen.seat(&.{.named(.viper)});
+    try std.testing.expectEqual(GamePilot.viper.number(), wingmen.alpha[1]);
 }
 
 test Faces {

@@ -1709,6 +1709,9 @@ pub const Start = struct {
     /// OpenReliant's: the names a game mode gives the mission's objectives
     /// (`hud.Objectives.reset`); null where it gives none.
     objectives: ?*const hud.Objectives.Names = null,
+    /// OpenReliant's: the pilots a game mode seats in the player's wing, from Alpha 2
+    /// (`pilots.Wingmen.seat`).
+    wing: []const pilots.Number = &.{},
 };
 
 /// Where the mission's start makes the camera's marker (`create.Objects.camera_marker`), which the
@@ -1831,7 +1834,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     if (all.scripts) |scripts| scripts.begin(orders, mission, scriptSeed(world.random, number));
     try loaded.start(orders);
 
-    givePilots(all, number);
+    givePilots(all, number, start.wing);
     startWing(all);
     all.camera_marker = create.createObject(all, start.tables, types, null, .of(.marker), 0, camera_marker_at, world.random) catch |err| marker: {
         std.log.warn("the camera's marker is left out: {s}", .{@errorName(err)});
@@ -1862,14 +1865,16 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
 
 /// What the start does for the player's wing's pilots once the mission's script has started
 /// (`0x00493DCC` to `0x00493E0A`): the wing's pilots brought up to date for mission `number`
-/// (`pilots.Wingmen.update`), then, in a mission of the campaign out of the simulator, each of the
+/// (`pilots.Wingmen.update`), with the pilots a game mode lists in `wing` seated
+/// (`pilots.Wingmen.seat`); then, in a mission of the campaign out of the simulator, each of the
 /// player's wingmen given the pilot of its place, Alpha 2 to 6 (`object_set_pilot`), in place of
 /// the one the mission's records name, such as 45TH VOLUNTEERS.
 ///
 /// **Fix:** a place of the wing no ship fills, the game gives a pilot to the object before the
 /// first, writing through the pointer in front of the objects' table; OpenReliant gives none.
-fn givePilots(all: *create.Objects, number: u16) void {
+fn givePilots(all: *create.Objects, number: u16, wing: []const pilots.Number) void {
     all.wingmen.update(number);
+    all.wingmen.seat(wing);
     // The campaign's missions (`0x00493DE6` to `0x00493DED`).
     if (all.simulator.simulated() or number < gameflow.first_mission or number > gameflow.last_mission) return;
     for (all.wing[1..], all.wingmen.pilots()) |place, pilot| {
@@ -2317,12 +2322,15 @@ test givePilots {
     all.wing = @splat(null);
     all.wing[0] = 0;
     all.wing[1] = wingman;
-    // In mission 2, Alpha 2 takes the wing's pilot of its place, Frenchy.
-    givePilots(all, 2);
+    // In mission 2, Alpha 2 takes the wing's pilot of its place, Frenchy, unless a game mode seats
+    // another there.
+    givePilots(all, 2, &.{});
     try std.testing.expectEqual(pilots.new_wing[1], all.slots[wingman].object.pilot);
+    givePilots(all, 2, &.{.named(.ronin_leader)});
+    try std.testing.expectEqual(pilots.GamePilot.ronin_leader.number(), all.slots[wingman].object.pilot);
     // In the simulator, the ships keep the pilots their records name.
     all.slots[wingman].object.pilot = 0;
     all.simulator.mode = .training;
-    givePilots(all, 2);
+    givePilots(all, 2, &.{});
     try std.testing.expectEqual(0, all.slots[wingman].object.pilot);
 }

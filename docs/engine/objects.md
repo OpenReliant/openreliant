@@ -666,8 +666,8 @@ GAME starts a campaign (`0x00430AB4`).
 As the campaign moves on from a mission, before the autosave (`mission_end_record`,
 `0x00475BE8`), and again as each mission starts, once its script has started, `update_pilots`
 (`0x0049CD70`) gives Alpha 5 and 6 the pilots of the campaign's stretch: Bandit and Viper to
-mission 5, Diceman and Bandit to mission 22 (two different Bandit records), and Hawkeye and Diceman
-to mission 28. Each other place left empty takes the first free pilot of the pool, which is then in
+mission 5, Diceman and the 45th Volunteers' Bandit to mission 13, Diceman and the 45th Tigers'
+Bandit to mission 22, and Hawkeye and the 45th Tigers' Diceman to mission 28. Each other place left empty takes the first free pilot of the pool, which is then in
 the wing; with none free, the game stops (**Fix:** OpenReliant logs it and leaves the place empty).
 Then, in missions 1 to 28 out of the simulator, the start gives each of the player's wingmen its
 place's pilot (`object_set_pilot`, `0x00493DD1` to `0x00493E0A`), in place of the one the mission's
@@ -680,6 +680,14 @@ place for the next mission to fill, and is dead in the pool.
 
 A saved game keeps the wing (`ALPH`) and the pool's first record alone (`PILO`)
 ([Saved games](../formats/save.md#pilo-and-alph)).
+
+**Improvement:** a game mode has a wing and a pool of its own, which start anew as the mode starts
+and stand in for the campaign's while its missions run (`ModeState` in the driver), so that the
+campaign's wing loses nobody to them. A mode can also seat pilots of its own in the wing, from
+Alpha 2, after `update_pilots` (`pilots.Wingmen.seat`, [Game modes](../guide/scripting.md#game-modes)).
+The StarLancer trial, for one, gives Alpha 6 the Ronin wing's leader, Tanaka (`ronin_leader`,
+pilot 62), in place of Viper, in its new wing (`0x004E463F` in its executable) and in its stretch to mission 5
+(`0x004E4693`).
 
 ## Components
 
