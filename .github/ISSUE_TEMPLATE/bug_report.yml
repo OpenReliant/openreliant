@@ -65,8 +65,7 @@ body:
     id: log
     attributes:
       label: Log
-      description: Start OpenReliant from a terminal and paste what it prints around the time of the problem.
-      render: text
+      description: Drag in `openreliant.log` from your game folder, from the run where the problem happened. Each run starts the file afresh, so attach it before you play again. Before version 0.8, start OpenReliant from a terminal and paste what it prints instead.
   - type: textarea
     id: media
     attributes:

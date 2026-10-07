@@ -36,6 +36,7 @@ const help = @import("help.zig");
 const hooks_command = @import("hooks.zig");
 const install = @import("install.zig");
 const joysticks = @import("joysticks.zig");
+const log_file = @import("log_file.zig");
 const mission0 = @import("mission0.zig");
 const missions = @import("missions.zig");
 const Movies = @import("movies.zig").Movies;
@@ -68,11 +69,24 @@ fn say(io: Io, text: []const u8) !u8 {
 
 pub const std_options: std.Options = .{ .logFn = logLine };
 
-/// Writes each message of the log as the standard library does, and the scripts' messages to the
-/// scripting console too (`scripting.console.log`).
+/// Writes each message of the log to the terminal and the log file (`log_file.zig`), and the
+/// scripts' messages to the scripting console too (`scripting.console.log`).
 fn logLine(comptime level: std.log.Level, comptime scope: @EnumLiteral(), comptime format: []const u8, args: anytype) void {
-    std.log.defaultLog(level, scope, format, args);
+    const filled = log_file.logLine(level, scope, format, args);
     if (scope == .scripts) scripting.console.log(level, format, args);
+    if (filled) {
+        std.log.warn(log_file.full_message, .{});
+        scripting.console.log(.warn, log_file.full_message, .{});
+    }
+}
+
+pub const panic = std.debug.FullPanic(panicked);
+
+/// Writes a crash to the log file, then to the terminal as the standard library does.
+fn panicked(message: []const u8, first: ?usize) noreturn {
+    @branchHint(.cold);
+    log_file.crash(message, first orelse @returnAddress());
+    std.debug.defaultPanic(message, first);
 }
 
 pub fn main(init: std.process.Init) !u8 {
@@ -99,6 +113,8 @@ pub fn main(init: std.process.Init) !u8 {
         .missing => |name| return missingGameFiles(game_path, name, asked.directory == null),
     };
     defer directory.close(io);
+    log_file.open(io, directory, version.string);
+    defer log_file.close(io);
     // The game's settings file, which `load_key_config` reads the input settings from and the pause
     // menu's screens write to. If it's missing, every setting keeps its default.
     var settings_file: engine.profile.File = .{ .arena = arena, .profile = .read(io, arena, directory) };
@@ -2090,6 +2106,7 @@ test {
     _ = settings_module;
     _ = install;
     _ = joysticks;
+    _ = log_file;
     _ = mission0;
     _ = missions;
     _ = hooks_command;
