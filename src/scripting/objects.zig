@@ -376,6 +376,7 @@ pub const methods = struct {
     pub const add_script = api.Function("Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts.", &.{ "self", "name", "data" }, game.addScript);
     pub const hook = api.Native("`hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own.", "name: string, handler: (e: any) -> boolean?, filter: (Filter | (e: any) -> boolean)?", "HookHandle", hooks.hookObject);
     pub const set_surface = api.Function("Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it.", &.{ "self", "name", "parameters" }, @import("shaders.zig").setSurface);
+    pub const turrets = api.Function("Its turrets: its guns that turn to aim, spin their barrels or launch missiles, destroyed ones included, in the order of its guns.", &.{"self"}, turretsOn);
     pub const remove_script = api.Function("Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts.", &.{ "self", "name" }, game.removeScript);
 };
 
@@ -383,6 +384,12 @@ pub const methods = struct {
 fn isValid(call: Call, handle: Handle) bool {
     const all = call.runtime().objects orelse return false;
     return handle.valid(all);
+}
+
+/// `object:turrets()`.
+fn turretsOn(call: Call, object: Object) @import("turrets.zig").List {
+    const all = call.runtime().objects orelse call.raise("turrets: objects only exist while a game runs", .{});
+    return @import("turrets.zig").on(all, object.slot());
 }
 
 /// `object:give_order(order, target, component)`.
@@ -420,7 +427,7 @@ pub fn mayChange(context: *const Context, index: u16) bool {
         .global => true,
         .object => if (context.runs_on) |own| switch (own) {
             .object => |handle| handle.slot == index,
-            .missile => false,
+            .missile, .turret => false,
         } else false,
         .load, .player, .menu => false,
     };

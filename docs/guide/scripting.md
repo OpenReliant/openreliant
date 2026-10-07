@@ -5,8 +5,8 @@ Mods can include scripts, written in [Luau](https://luau.org), a version of Lua 
 - **Load scripts** change the game's records, such as a gun's damage, as OpenReliant starts.
 - **Global and mission scripts** run as the game plays. They react to what happens and change it,
   through hooks on the game's functions and events.
-- **Object scripts** run on the ships and other objects of a mission, each on its own object, and
-  **missile scripts** on each missile in flight.
+- **Object scripts** run on the ships and other objects of a mission, each on its own object;
+  **missile scripts** on each missile in flight; and **turret scripts** on each turret.
 - **Player and menu scripts** decide what the player sees, hears and does. They draw over the flight
   display and the menus, react to the keys, and add camera views, game modes and shader effects.
 
@@ -110,6 +110,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | Mission | The mission's file name under `[Missions]` | While that mission runs | The same as global scripts, for one mission |
 | Object | A class, such as `Fighter=`, or a type, such as `Type.predator=`, under `[Scripts]` | On each object of that class or type, while it's in the mission | [Object scripts](#object-scripts) |
 | Missile | `Missile=` under `[Scripts]` | On each missile, from its launch to the end of its flight | [Missile scripts](#missile-scripts) |
+| Turret | `Turret=` under `[Scripts]` | On each turret of each object, while the object is in the mission | [Turret scripts](#turret-scripts) |
 | Player | `Player=` under `[Scripts]` | For the whole game, even while it's paused | [What the player sees and does](#player-and-menu-scripts) in flight |
 | Menu | `Menu=` under `[Scripts]` | From OpenReliant's start until it quits: in the menus, the rooms, the movies and the loading screens, and over the missions | [Drawing over the menus](#player-and-menu-scripts), [replacing screens](#replacing-a-screen), [actions](#keys-and-actions), options and game modes |
 
@@ -140,9 +141,6 @@ mission2.dte=escort.luau
   the mod that adds it by its own name, `Type.teapot`. Its number changes with the mods that are
   on, so don't name it by number.
 - Each script has its own global variables, and the scripts on each object have their own.
-- Scripts on turrets are planned
-  ([#587](https://github.com/OpenReliant/openreliant/issues/587)); this version skips them, and
-  says so in the log.
 
 Some functions only work in some kinds of script:
 
@@ -633,6 +631,38 @@ return {
   of these to any missile.
 - `nearby.objects(radius)` gives the objects around the missile, nearest first.
 - Global scripts hear of each missile with the events `missile_added` and `missile_removed`.
+
+### Turret scripts
+
+A turret is one of a ship's guns that turns to aim (`"aimed"`), spins its barrels while the ship
+fires (`"spinning"`), or launches missiles (`"launcher"`). A turret script runs on one turret while
+its ship is in the mission: `Turret=` starts it on every turret of every ship as the ship is added,
+after the ship's own scripts. `require("openreliant.self")` gives it its turret, a handle
+([Turrets](reference.md#turrets)) with its `object`, its `kind`, its `gun_type`, its `position` and
+its `target`.
+
+```lua
+-- Missile turrets on the Coalition's capital ships hold their fire for the player's ship.
+local self = require("openreliant.self")
+
+return {
+    engine_handlers = {
+        on_update = function()
+            if self.kind ~= "launcher" or self.object.side ~= "hostile" then return end
+            local aimed = self.target and self.target.object
+            if aimed and aimed.is_player then self.target = nil end
+        end,
+    },
+}
+```
+
+- The script gets `on_init` and `on_added` as its ship is added, and `on_removed` as the ship leaves
+  the mission. A turret destroyed with its base stays: `self.destroyed` becomes true, and it turns
+  and fires no more.
+- Each turret's scripts have their own globals.
+- Setting `self.target` aims an aimed turret or a missile turret; nil leaves it to look for a target
+  of its own. A spinning gun fires where its ship points, so it has no target.
+- `object:turrets()` gives global scripts the turrets of any object.
 
 ## Orders
 

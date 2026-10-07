@@ -34,7 +34,7 @@ pub fn run(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, 
 }
 
 fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8, within: runtime.Limits, shared: runtime.Shared) Allocator.Error!void {
-    for (opened) |*mod| tellLeftOut(mod);
+    for (opened) |*mod| tellUnknown(mod);
     const any = for (opened) |*mod| {
         var listed = loadScripts(mod);
         if (listed.next() != null) break true;
@@ -89,19 +89,11 @@ fn loadScripts(mod: *const Mod) script.List {
     return .of(mod.manifest.value(script.section, script.Kind.load.key()) orelse "");
 }
 
-/// Logs the scripts `mod` lists that this version doesn't run, and unknown keys in `[Scripts]`.
-fn tellLeftOut(mod: *const Mod) void {
+/// Logs the unknown keys in `mod`'s `[Scripts]`.
+fn tellUnknown(mod: *const Mod) void {
     var keys = mod.manifest.keys(script.section);
     while (keys.next()) |key| {
-        const attachment = script.Attachment.parse(key, mod.name) orelse {
-            log.warn("{s}: unknown script kind '{s}' in [{s}]", .{ mod.name, key, script.section });
-            continue;
-        };
-        const runs = switch (attachment) {
-            .kind => |kind| kind.runs(),
-            .object_type => true,
-        };
-        if (!runs) log.warn("{s}: skipping its {s} scripts: this version of OpenReliant doesn't run them yet", .{ mod.name, key });
+        if (script.Attachment.parse(key, mod.name) == null) log.warn("{s}: unknown script kind '{s}' in [{s}]", .{ mod.name, key, script.section });
     }
 }
 

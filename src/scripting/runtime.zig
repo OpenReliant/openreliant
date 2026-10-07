@@ -28,6 +28,7 @@ const script = @import("script.zig");
 const values = @import("values.zig");
 const objects = @import("objects.zig");
 const missiles = @import("missiles.zig");
+const turrets = @import("turrets.zig");
 const game_module = @import("game.zig");
 const presentation_module = @import("presentation.zig");
 const storage_module = @import("storage.zig");
@@ -54,12 +55,16 @@ pub const Tag = enum(luau.Tag) {
     section = 7,
     /// A missile's handle (`missiles.Handle`).
     missile = 8,
+    /// A turret's handle (`turrets.Handle`).
+    turret = 9,
 };
 
-/// What an object script's context runs on: an object of the mission, or a missile in flight.
+/// What an object script's context runs on: an object of the mission, a missile in flight, or a
+/// turret.
 pub const RunsOn = union(enum) {
     object: objects.Handle,
     missile: missiles.Handle,
+    turret: turrets.Handle,
 
     /// Whether it's still in the mission.
     pub fn valid(runs_on: RunsOn, all: *const Objects) bool {
@@ -73,6 +78,10 @@ pub const RunsOn = union(enum) {
         return switch (runs_on) {
             .object => |handle| gameobj.vector(all.slots[handle.slot].object.root.position),
             .missile => |handle| gameobj.vector(all.missiles.records[handle.record].?.slot.object.root.position),
+            .turret => |handle| if (all.slots[handle.object.slot].guns[handle.gun].turret.base()) |base|
+                base.part().drawn().position
+            else
+                gameobj.vector(all.slots[handle.object.slot].object.root.position),
         };
     }
 
@@ -173,6 +182,8 @@ pub const Runtime = struct {
     handles: ?luau.Ref = null,
     /// The missiles' handles made, by record (`missiles.zig`).
     missile_handles: ?luau.Ref = null,
+    /// The turrets' handles made, by object and gun (`turrets.zig`).
+    turret_handles: ?luau.Ref = null,
     /// The handle every player script's `self` is, made the first time one asks, which follows the
     /// player's ship from mission to mission (`followPlayer`).
     player_self: ?luau.Ref = null,
@@ -737,8 +748,8 @@ pub const Context = struct {
     /// The mod's index in `Runtime.mods`.
     mod: u16,
     family: script.Family,
-    /// What an object script's context runs on: an object, or a missile for a missile script; null
-    /// for the other families.
+    /// What an object script's context runs on: an object, a missile for a missile script, or a
+    /// turret for a turret script; null for the other families.
     runs_on: ?RunsOn = null,
     /// The thread the mod's calls run on. Its allocations count against the mod.
     thread: *State,
@@ -975,11 +986,12 @@ fn require(state: *State) i32 {
     if (script.Package.parse(name)) |package| {
         if (!package.reachableFrom(context.family)) state.raise("{s} is not available to {t} scripts", .{ name, context.family });
         if (!package.ready()) state.raise("{s} is not available in this version of OpenReliant", .{name});
-        // The script's own object or missile, or the player's ship.
+        // The script's own object, missile or turret, or the player's ship.
         if (package == .self) {
             if (context.runs_on) |own| switch (own) {
                 .object => |handle| objects.push(state, handle.slot),
                 .missile => |handle| missiles.push(state, handle.record),
+                .turret => |handle| turrets.push(state, handle.turret()),
             } else if (context.runtime.player_self) |kept| {
                 _ = state.pushRef(kept);
             } else if (context.runtime.objects) |all| {

@@ -321,6 +321,7 @@ scripts on their object.
 | `add_script(name: string, data: any?)` | boolean | Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts. |
 | `hook(name: string, handler: (e: any) -> boolean?, filter: (Filter \| (e: any) -> boolean)?)` | HookHandle | `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own. |
 | `set_surface(name: string?, parameters: { number }?)` | boolean | Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it. |
+| `turrets()` | list of [turret](#turrets) | Its turrets: its guns that turn to aim, spin their barrels or launch missiles, destroyed ones included, in the order of its guns. |
 | `remove_script(name: string)` | boolean | Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts. |
 
 ## Missiles
@@ -344,6 +345,26 @@ marked *changes* on any missile, and a missile's own scripts on their missile.
 |---|---|---|
 | `is_valid()` | boolean | Whether the missile is still in flight. A handle stops being valid once its flight ends or its mission ends. |
 | `detonate()` | nothing | Ends its flight now, as it ends when its time runs out: it blows up where it is, with a shockwave for a Havoc or an Imp. Global scripts can set off any missile, and a missile's own scripts their missile. |
+
+## Turrets
+
+Scripts see an object's turrets through handles too: its guns that turn to aim, spin their
+barrels or launch missiles. A turret's handle stays valid while its object is in the mission.
+Every script can read the fields; global scripts can change those marked *changes* on any
+turret, and a turret's own scripts on their turret.
+
+| Field | Type | What it is |
+|---|---|---|
+| `object` | [object](#objects) | The object it's on. |
+| `kind` | [TurretKind](#turretkind), or nil | What it is: `aimed`, which turns to aim at a target of its own; `spinning`, a gun whose barrels spin up while its object's trigger is held; or `launcher`, which launches missiles. Nil once it's destroyed. |
+| `destroyed` | boolean | Whether it was destroyed with its base. It turns and fires no more. |
+| `gun_type` | [GunType](#guntype), or nil | The type of the shots it fires; nil for a missile turret, or once it's destroyed. |
+| `position` | vector, or nil | Where its base is; nil once it's destroyed. |
+| `target` | [Target](#target), or nil | *Changes.* What it aims at: an aimed turret's and a missile turret's own target; nil for a spinning gun, which fires where its object points, or once it's destroyed. Setting it aims the turret, which turns to it, and nil leaves it to look for one. |
+
+| Method | Returns | What it does |
+|---|---|---|
+| `is_valid()` | boolean | Whether its object is still in the mission. A handle stops being valid once its object is removed or its mission ends. |
 
 ## Built-in interfaces
 
@@ -1039,13 +1060,6 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 | `fore` | number |
 | `aft` | number |
 
-### Handle
-
-| Field | Type |
-|---|---|
-| `record` | number |
-| `count` | number |
-
 ### GameModeMission
 
 | Field | Type |
@@ -1275,9 +1289,13 @@ number. A script can set a field to either.
 
 `none`, `screamer`, `raptor`, `havoc`, `jack_hammer`, `bandit`, `vagabond`, `solomon`, `imp`, `hawk`, `torpedo`, `fuel_pod`, the qualified name of one a mod adds, or a number.
 
-### Missile
+### TurretKind
 
-, or a number.
+`aimed`, `spinning`, `launcher`.
+
+### GunType
+
+`laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`, the qualified name of one a mod adds, or a number.
 
 ### Font
 
@@ -1334,10 +1352,6 @@ number. A script can set a field to either.
 ### DamageKind
 
 `bullet`, `missile`, `collision`, `crash`, `screamer`, or a number.
-
-### GunType
-
-`laser_cannon`, `pulse_cannon`, `messon_blaster`, `proton_cannon`, `gattling_lasers`, `tachyon_cannon`, `neutron_particle_gun`, `collapser_guns`, `gattling_plasma_cannon`, `vulcan_battery`, `nova_cannon`, `turret_flak`, `turret_lasers`, `allied_huge_gun`, `coalition_huge_gun`, the qualified name of one a mod adds, or a number.
 
 ### RadioMode
 

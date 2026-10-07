@@ -207,8 +207,6 @@ that don't run yet, so that scripts written now keep working as later versions f
   (`Handler.Arguments`), and what it takes from what each returns (`Handler.Result`).
 - The packages, which families may require each one, and which are implemented in this version
   (`Package.ready`): all of them.
-- `Kind.runs` says which kinds of script run: all but `Turret`, since a turret isn't an object in
-  the mission's slots ([#587](https://github.com/OpenReliant/openreliant/issues/587)).
 
 ## Declarations
 
@@ -257,13 +255,19 @@ menu comes back, or the game quits. Each game gets a new Luau state.
   it.
 - Missile scripts start and stop the same way with each missile's flight, through the engine events
   `missile_added`, as `missile_launch` and `missile_launch_turret` finish, and `missile_removed`,
-  as `missile_end` begins. A context runs on an object or a missile (`RunsOn`), which `self`,
-  `nearby`, the interfaces' scope and what a script may change follow. A missile's handle
+  as `missile_end` begins. A context runs on an object, a missile or a turret (`RunsOn`), which
+  `self`, `nearby`, the interfaces' scope and what a script may change follow. A missile's handle
   ([`missiles.zig`](../../src/scripting/missiles.zig)) holds its record and the record's count of
   reuses (`Linked.reuses`, OpenReliant's own), as an object's holds its slot's. Each missile notes
   its launcher slot's count as it's launched (`Missile.launcher_reuses`), so that its `launcher`
   is nil once that object has left, and `missile_end` runs once even where a script sets the
   missile off as it hears of its end (`Missile.ending`).
+- Turret scripts start as an object is added, after its own scripts, on each of its guns that is a
+  turret (`turrets.isTurret`: any but a fixed gun), each turret with the mod opened for it. They
+  run in the object's list, so they stop with its scripts. A turret's handle
+  ([`turrets.zig`](../../src/scripting/turrets.zig)) holds its object's handle and the gun's place
+  among the object's guns (`create.Slot.guns`), and stays valid while the object does, a turret
+  destroyed with its base (`guns.Turret.gone`) included.
 - As a script stops, its handlers, hooks and interfaces go, and so does its context once none of
   the mod's scripts on it runs. While engine handlers are being called, a stopped script only gets
   marked, and leaves its list once they're done (`Game.sweep`), so no list changes under a call.
