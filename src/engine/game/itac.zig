@@ -7,8 +7,8 @@
 //! Ported so far: the ITAC's loop, with its movies, its sections' pictures and titles, the fades of
 //! their text, the panes their text wipes in by, the lit shapes, the pointer and the sounds;
 //! DEBRIEFINGS (`debriefing`); NEWS REPORTS (`news_reports`); and VIDEO REPORTS, which
-//! `videoreports.cpp` holds (`videoreports/section.zig`). The other sections show their pictures
-//! with nothing written on them: the fighters
+//! `videoreports.cpp` holds (`videoreports.zig`). The other sections show their pictures with
+//! nothing written on them: the fighters
 //! ([#463](https://github.com/OpenReliant/openreliant/issues/463)), the capital ships
 //! ([#464](https://github.com/OpenReliant/openreliant/issues/464)), the squadrons
 //! ([#465](https://github.com/OpenReliant/openreliant/issues/465)) and the personnel
@@ -33,7 +33,7 @@ const Rect = canvas_module.Rect;
 pub const debriefing = @import("itac/debriefing.zig");
 pub const news_reports = @import("itac/news_reports.zig");
 pub const tables = @import("itac/tables.zig");
-const video_reports = @import("videoreports/section.zig");
+const video_reports = @import("videoreports.zig");
 
 /// The module the ITAC's strings come from (`itac_language_init`, `0x00440770`): the game asks for
 /// `itaclang.dll`; the disc's file is named in capitals, and Windows finds either.

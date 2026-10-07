@@ -61,6 +61,7 @@ pub const table = @import("game/table.zig");
 pub const talkie = @import("game/talkie.zig");
 pub const tractor = @import("game/tractor.zig");
 pub const voice = @import("game/voice.zig");
+pub const videoreports = @import("game/videoreports.zig");
 pub const wgate = @import("game/wgate.zig");
 pub const winmain = @import("game/winmain.zig");
 pub const xtrabits = @import("game/xtrabits.zig");

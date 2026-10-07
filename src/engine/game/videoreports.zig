@@ -1,18 +1,17 @@
-//! VIDEO REPORTS, the ITAC's third section (`itac`): the war's video reports from the missions the
-//! campaign has come through (`tables.videos`), each with its title, two paragraphs and a still of
-//! `vidrep.spr`, chosen from a list. The play button plays the chosen report's movie from its
-//! disc's archive. The first report is chosen as it opens.
+//! `C:\lancer\game\videoreports.cpp`: VIDEO REPORTS, the ITAC's third section (`itac`), the war's
+//! video reports from the missions the campaign has come through (`tables.videos`), each with its
+//! title, two paragraphs and a still of `vidrep.spr`, chosen from a list. The play button plays the
+//! chosen report's movie from its disc's archive. The first report is chosen as it opens.
 //!
-//! `C:\lancer\game\videoreports.cpp` holds it: `video_reports_draw` names the file's path
-//! (`0x004EE7B8`) as it takes memory (`0x0045079D`), and its code runs from `0x00450540` to
-//! `0x00450D01`.
+//! `video_reports_draw` names the file's path (`0x004EE7B8`) as it takes memory (`0x0045079D`),
+//! which places the file's code, from `0x00450540` to `0x00450D01`.
 
 const std = @import("std");
 
-const canvas_module = @import("../interface/canvas.zig");
-const disc_module = @import("../interface/disc.zig");
-const rooms = @import("../interface/rooms.zig");
-const itac_module = @import("../itac.zig");
+const canvas_module = @import("interface/canvas.zig");
+const disc_module = @import("interface/disc.zig");
+const rooms = @import("interface/rooms.zig");
+const itac_module = @import("itac.zig");
 const tables = itac_module.tables;
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;

@@ -33,12 +33,10 @@ const events = @import("mission/events.zig");
 
 pub const wingmen = @import("radio/wingmen.zig");
 pub const menu = @import("radio/menu.zig");
-pub const section = @import("videoreports/section.zig");
 
 test {
     _ = wingmen;
     _ = menu;
-    _ = section;
 }
 
 /// The lines `stem` numbered from `first` to `last`, as `_amt_001.ut`, as the radio's tables list

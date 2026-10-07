@@ -12,7 +12,7 @@ picture of its own that its text is written on; the last button closes it. Its s
 [`game/itac.zig`](../../src/engine/game/itac.zig) runs the ITAC,
 [`game/itac/debriefing.zig`](../../src/engine/game/itac/debriefing.zig) is DEBRIEFINGS,
 [`game/itac/news_reports.zig`](../../src/engine/game/itac/news_reports.zig) is NEWS REPORTS, and
-[`game/videoreports/section.zig`](../../src/engine/game/videoreports/section.zig) is VIDEO REPORTS.
+[`game/videoreports.zig`](../../src/engine/game/videoreports.zig) is VIDEO REPORTS.
 The lit shapes, the debriefings' texts, the news items and the video reports are in
 [`game/itac/tables.zig`](../../src/engine/game/itac/tables.zig), which `make itac-tables` derives
 from the executable. The driver runs the loop
