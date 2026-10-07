@@ -1181,6 +1181,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         }
 
         _ = frame_arena.reset(.retain_capacity);
+        // The atlases the outline fonts outgrew last frame, which that frame may have drawn, go now,
+        // before this frame draws anything.
+        outlines.release(gpu.interface());
         if (flow.in_front_end) {
             // The screen a transition's movie or a mission's end has just led to entered before
             // its first frame is drawn, as each of the game's screens enters before its loop.
