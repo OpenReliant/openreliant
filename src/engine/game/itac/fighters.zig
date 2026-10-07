@@ -22,11 +22,9 @@ const Itac = itac_module.Itac;
 pub const pictures_name = "inter\\itac\\fighters.spr";
 
 /// Where the chosen fighter's picture stands (`0x00425B08`), and the blocks of `fighters.spr`'s
-/// palettes, the last of which before its shape it is drawn with (`0x00425A99`). A fighter whose
-/// shape is `no_picture` shows none.
+/// palettes, the last of which before its shape it is drawn with (`0x00425A99`).
 const picture_at: [2]i32 = .{ 91, 65 };
 const palette_blocks = [_]usize{ 0, 5, 10, 15, 17, 22, 27 };
-const no_picture = -1;
 
 /// The buttons that choose the side, the Alliance's and the Coalition's (`0x004E5460`).
 const side_buttons = [2]Rect{ .{ .x = 551, .y = 59, .width = 64, .height = 41 }, .{ .x = 478, .y = 59, .width = 64, .height = 61 } };
@@ -156,10 +154,7 @@ pub const Fighters = struct {
     pub fn draw(fighters: *Fighters, itac: *Itac, canvas: Canvas, fade: f32) canvas_module.Error!void {
         if (!fighters.pictures.open) return;
         const fighter = sideFighters(itac)[fighters.selected];
-        if (fighter.shape != no_picture) {
-            const shape: usize = @intCast(fighter.shape);
-            try fighters.pictures.draw(canvas, itac_module.paletteBefore(&palette_blocks, shape), shape, picture_at, fade);
-        }
+        try fighters.pictures.drawWithPalettes(canvas, &palette_blocks, fighter.shape, picture_at, fade);
         try itac.drawEmblem(canvas, fade);
         if (!itac.panesShow()) return;
         try fighters.drawPanes(itac, canvas, fighter);

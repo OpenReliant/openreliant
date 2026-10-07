@@ -8,10 +8,8 @@
 //! their text, the panes their text wipes in by, the lit shapes, the pointer, the sounds and the
 //! buttons' tooltips (`tooltips`); and its sections: DEBRIEFINGS (`debriefing`), NEWS REPORTS
 //! (`news_reports`), VIDEO REPORTS, which `videoreports.cpp` holds (`videoreports.zig`), the
-//! fighters, the squadrons and the personnel of either side (`fighters`, `squadrons`,
-//! `personnel`), and the KILLBOARD (`killboard`). Not yet: the capital ships of either side, which
-//! show their picture with nothing written on it
-//! ([#464](https://github.com/OpenReliant/openreliant/issues/464)).
+//! fighters, the capital ships, the squadrons and the personnel of either side (`fighters`,
+//! `ships`, `squadrons`, `personnel`), and the KILLBOARD (`killboard`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -31,6 +29,7 @@ const Rect = canvas_module.Rect;
 pub const debriefing = @import("itac/debriefing.zig");
 pub const news_reports = @import("itac/news_reports.zig");
 pub const fighters = @import("itac/fighters.zig");
+pub const ships = @import("itac/ships.zig");
 pub const squadrons = @import("itac/squadrons.zig");
 pub const personnel = @import("itac/personnel.zig");
 pub const killboard = @import("itac/killboard.zig");
@@ -228,6 +227,9 @@ pub const header_colour = hud.rgb(0x3AD1FF);
 /// The colour the sections' labels are written in, beside their values in the text's colour
 /// (`0x00425C49`, `0x0044FEDB`, `0x0044E974`).
 pub const label_colour = hud.rgb(0xFFBD82);
+
+/// PROFILE, which heads the squadrons', the personnel's and the capital ships' text.
+const profile_string = 0x87;
 
 /// What a section writes between two paragraphs (`0x004E5440`), and the room its text has
 /// (`itac_text`, `0x00520844`).
@@ -548,7 +550,8 @@ const emblems = std.EnumArray(Side, Emblem).init(.{
 const emblem_palette = 0x17;
 
 /// The palette a section draws its picture `shape` with: the last of `blocks` that isn't past the
-/// shape, as the fighters' and the personnel's draws pick it (`0x00425A99`, `0x0044E742`).
+/// shape, as the fighters', the capital ships' and the personnel's draws pick it (`0x00425A99`,
+/// `0x00423AF4`, `0x0044E742`).
 pub fn paletteBefore(blocks: []const usize, shape: usize) usize {
     var palette = blocks[0];
     for (blocks) |block| {
@@ -620,7 +623,19 @@ pub const Pictures = struct {
     pub fn draw(pictures: *Pictures, canvas: Canvas, palette: usize, shape: usize, at: [2]i32, fade: f32) canvas_module.Error!void {
         if (pictures.shapes) |*shapes| try drawFaded(canvas, shapes, palette, shape, at, fade);
     }
+
+    /// A record's picture `shape` at `at`, at `fade`, with the palette of the last of `blocks` before
+    /// it (`paletteBefore`), as the fighters and the capital ships draw theirs; none for
+    /// `no_picture`.
+    pub fn drawWithPalettes(pictures: *Pictures, canvas: Canvas, blocks: []const usize, shape: i32, at: [2]i32, fade: f32) canvas_module.Error!void {
+        if (shape == no_picture) return;
+        const index: usize = @intCast(shape);
+        try pictures.draw(canvas, paletteBefore(blocks, index), index, at, fade);
+    }
 };
+
+/// The shape of a fighter's or a capital ship's record that has no picture.
+pub const no_picture = -1;
 
 /// Shape `shape` of `shapes` at `at` with the palette of block `palette`, at `fade`, as the sections
 /// draw their pictures.
@@ -705,12 +720,13 @@ pub const Itac = struct {
     /// The game tick the next sound now and then is due at.
     now_and_then_due: u32 = 0,
     random: std.Random.DefaultPrng,
-    /// The sections: DEBRIEFINGS, NEWS REPORTS, VIDEO REPORTS, the fighters, the squadrons and the
-    /// personnel of either side, and the KILLBOARD.
+    /// The sections: DEBRIEFINGS, NEWS REPORTS, VIDEO REPORTS, the fighters, the capital ships, the
+    /// squadrons and the personnel of either side, and the KILLBOARD.
     debriefings: debriefing.Debriefing = .{},
     news: news_reports.NewsReports = .{},
     videos: video_reports.VideoReports = .{},
     fighters: fighters.Fighters = .{},
+    ships: ships.Ships = .{},
     squadrons: squadrons.Squadrons = .{},
     personnel: personnel.Personnel = .{},
     killboard: killboard.Killboard = .{},
@@ -988,10 +1004,11 @@ pub const Itac = struct {
             .news_reports => itac.news.enter(itac),
             .video_reports => itac.videos.enter(itac),
             .fighters => itac.fighters.enter(itac),
+            .ships => itac.ships.enter(itac),
             .squadrons => itac.squadrons.enter(itac),
             .personnel => itac.personnel.enter(itac),
             .killboard => itac.killboard.enter(itac),
-            .ships, .exit => {},
+            .exit => {},
         }
     }
 
@@ -1001,10 +1018,11 @@ pub const Itac = struct {
             .news_reports => itac.news.leave(itac),
             .video_reports => itac.videos.leave(itac.context.rooms.gpa),
             .fighters => itac.fighters.leave(itac.context.rooms.gpa),
+            .ships => itac.ships.leave(itac.context.rooms.gpa),
             .squadrons => itac.squadrons.leave(itac.context.rooms.gpa),
             .personnel => itac.personnel.leave(itac.context.rooms.gpa),
             .killboard => itac.killboard.leave(itac.context.rooms.gpa),
-            .debriefings, .ships, .exit => {},
+            .debriefings, .exit => {},
         }
     }
 
@@ -1038,10 +1056,11 @@ pub const Itac = struct {
             .news_reports => itac.news.update(itac),
             .video_reports => itac.videos.update(itac),
             .fighters => itac.fighters.update(itac),
+            .ships => itac.ships.update(itac),
             .squadrons => itac.squadrons.update(itac),
             .personnel => itac.personnel.update(itac),
             .killboard => itac.killboard.update(itac),
-            .ships, .exit => {},
+            .exit => {},
         }
     }
 
@@ -1107,10 +1126,11 @@ pub const Itac = struct {
             .news_reports => try itac.news.draw(itac, canvas, fade),
             .video_reports => try itac.videos.draw(itac, canvas, fade),
             .fighters => try itac.fighters.draw(itac, canvas, fade),
+            .ships => try itac.ships.draw(itac, canvas, fade),
             .squadrons => try itac.squadrons.draw(itac, canvas, fade),
             .personnel => try itac.personnel.draw(itac, canvas, fade),
             .killboard => try itac.killboard.draw(itac, canvas),
-            .ships, .exit => {},
+            .exit => {},
         }
     }
 
@@ -1185,11 +1205,26 @@ pub const Itac = struct {
         return arrow;
     }
 
+    /// A press on one of a list's two arrows, `arrows` (`arrowPressed`), as the sections step their
+    /// lists: the first steps the first entry shown, `first`, on, no further than `last`, and the
+    /// second steps it back to the list's start at most. Whether one was pressed.
+    pub fn listStepped(itac: *Itac, arrows: *const [2]Rect, first: *u8, last: usize) bool {
+        const arrow = itac.arrowPressed(arrows) orelse return false;
+        first.* = if (arrow == 0) @min(first.* + 1, last) else first.* -| 1;
+        return true;
+    }
+
     /// The string `id` in capitals, copied into a room of `room` (`capitals`), at `at` in the
     /// headers' colour, as the sections head their panes.
     pub fn writeCapitals(itac: *Itac, canvas: Canvas, font: *hud.Opened, comptime room: usize, at: [2]i32, id: u16) Allocator.Error!void {
         var buffer: [room]u8 = undefined;
         try canvas.text(font, at, capitals(&buffer, itac.string(id)), header_colour, .left);
+    }
+
+    /// PROFILE at `at` in `pane`, in the labels' colour, as far as `shown` of the pane has wiped in,
+    /// as the squadrons, the personnel and the capital ships head their text with it.
+    pub fn writeProfile(itac: *Itac, canvas: Canvas, font: *hud.Opened, pane: Rect, shown: Rect, at: [2]i32) Allocator.Error!void {
+        try canvas.within(shown).text(font, .{ pane.x + at[0], pane.y + at[1] }, itac.string(profile_string), label_colour, .left);
     }
 
     /// A press on one of a sided section's two buttons, `side_buttons`, that shows the other side:
@@ -1447,7 +1482,7 @@ test "VIDEO REPORTS plays the chosen report once the button is up" {
     try std.testing.expectEqual(.shown, std.meta.activeTag(itac.stage));
 }
 
-test "the fighters switch sides, and the KILLBOARD steps through its pilots" {
+test "the fighters and the capital ships switch sides, and the KILLBOARD steps through its pilots" {
     // Its files are there, the small font a stand-in and the rest unreadable and left out.
     var tested: rooms.testing.Tested = undefined;
     try tested.init(&.{}, &.{}, &.{
@@ -1459,8 +1494,10 @@ test "the fighters switch sides, and the KILLBOARD steps through its pilots" {
         .{ .name = "itactrans_00014.tga", .data = "x" },
         .{ .name = "itactrans_00030.tga", .data = "x" },
         .{ .name = "itactrans_00093.tga", .data = "x" },
+        .{ .name = "itactrans_00114.tga", .data = "x" },
         .{ .name = "itactrans_00177.tga", .data = "x" },
         .{ .name = "fighters.spr", .data = "x" },
+        .{ .name = "capships.spr", .data = "x" },
         .{ .name = "kills.spr", .data = "x" },
     });
     defer tested.deinit();
@@ -1488,6 +1525,27 @@ test "the fighters switch sides, and the KILLBOARD steps through its pilots" {
     _ = pass(&itac, &keyboard, .{ .at = .{ 500, 80 }, .down = true });
     try std.testing.expectEqual(.coalition, itac.side);
     try std.testing.expectEqual(tables.fighters[1].len, itac.fighters.listed_count);
+    // The capital ships open on the Alliance's. On either side, the list's first arrow steps it on,
+    // no further than to leave 13 showing, and choosing the side brings it back to its top.
+    _ = pass(&itac, &keyboard, .{});
+    _ = pass(&itac, &keyboard, .{ .at = .{ 310, 440 }, .down = true });
+    for (0..3) |_| _ = pass(&itac, &keyboard, .{});
+    try std.testing.expectEqual(.ships, itac.section.?);
+    try std.testing.expectEqual(.alliance, itac.side);
+    try std.testing.expect(itac.ships.pictures.open);
+    for (0..2) |_| {
+        _ = pass(&itac, &keyboard, .{ .at = .{ 527, 380 }, .down = true });
+        _ = pass(&itac, &keyboard, .{});
+    }
+    try std.testing.expectEqual(2, itac.ships.first);
+    _ = pass(&itac, &keyboard, .{ .at = .{ 500, 80 }, .down = true });
+    try std.testing.expectEqual(.coalition, itac.side);
+    try std.testing.expectEqual(0, itac.ships.first);
+    for (0..20) |_| {
+        _ = pass(&itac, &keyboard, .{});
+        _ = pass(&itac, &keyboard, .{ .at = .{ 527, 380 }, .down = true });
+    }
+    try std.testing.expectEqual(tables.ships[1].len - 13, itac.ships.first);
     // Before mission 19, three pilots have left the board, which holds the rest and the player; its
     // first arrow steps it on.
     _ = pass(&itac, &keyboard, .{});
@@ -1503,6 +1561,7 @@ test {
     _ = debriefing;
     _ = news_reports;
     _ = fighters;
+    _ = ships;
     _ = squadrons;
     _ = personnel;
     _ = killboard;
