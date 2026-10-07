@@ -43,11 +43,11 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 | 104, a game mode's ending ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
-| 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
+| 10 and 11, the multiplayer sessions | `multiplayer_sessions_screen` (`0x0043CA50`), with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
 | 12, the pilot roster | `0x00430490` | |
 | 13, the saved games ([The saved games](#the-saved-games)) | `saved_games` (`0x00431730`) | |
-| 14, the multiplayer connection | `0x00432FC0` | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
-| 17 and 18, a session's loadout | `0x0044B950`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
+| 14, the multiplayer connection | `multiplayer_connection_screen` (`0x00432FC0`) | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
+| 17 and 18, a session's loadout | `session_loadout_screen` (`0x0044B950`), with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
 
 Any other number returns 3. **Unknown:** what selects screen 8: `WinMain` plays the landing itself. What `interface_run` returns tells WinMain what to do:
 

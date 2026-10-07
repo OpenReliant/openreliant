@@ -3,8 +3,12 @@
 //! game ticks (`tooltips_update`, `0x00440C40`; `tooltip_draw`, `0x00440D80`). OpenReliant shows the
 //! ITAC's, which name its buttons (`itac_tooltips_add`, `0x00440EB0`).
 //!
-//! Not ported: the tooltips of the other screens that show them, the saved games, the loadout and
-//! one more ([#813](https://github.com/OpenReliant/openreliant/issues/813)).
+//! Not ported: the tooltips of the other screens that show them, which are the multiplayer front
+//! end's: the connection (`multiplayer_connection_screen`), the sessions
+//! (`multiplayer_sessions_screen`) and a session's loadout (`session_loadout_screen`). They show the
+//! game's strings (`tooltips_init` with 1), and come with those screens
+//! ([#813](https://github.com/OpenReliant/openreliant/issues/813),
+//! [#404](https://github.com/OpenReliant/openreliant/issues/404)).
 //!
 //! **Fix:** the game adds ten of the ITAC's tooltips, the tenth read from the start of the table
 //! after the nine. Its rectangle lies far off the screen, so it never shows. OpenReliant adds the

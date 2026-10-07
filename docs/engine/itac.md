@@ -366,7 +366,10 @@ As the pointer rests on a button, its tooltip shows under it: View Debriefings t
 tooltip showed in the last 30, 38 below the pointer, or 19 above it where that would put it below y 450.
 Until then it follows the pointer (`tooltips_update`, `0x00440C40`). It is written in `newfont.fnt`
 in a black box edged in grey, palette entries 0 and 100 of `itacgfx.spr`'s block 29, kept 6 clear of
-the screen's right edge (`tooltip_draw`, `0x00440D80`). The tooltips show while no fade runs. The
-saved games, the loadout and one more screen show the same tooltips (`tooltips_init`,
-`0x00440B30`), which OpenReliant doesn't yet
-([#813](https://github.com/OpenReliant/openreliant/issues/813)).
+the screen's right edge (`tooltip_draw`, `0x00440D80`). The tooltips show while no fade runs.
+
+The multiplayer front end's screens show the same tooltips, with the game's strings rather than the
+ITAC's (`tooltips_init`, `0x00440B30`, with 1): the connection, the sessions and a session's
+loadout ([Front end](front-end.md)). They come with those screens, which OpenReliant doesn't have yet
+([#813](https://github.com/OpenReliant/openreliant/issues/813),
+[#404](https://github.com/OpenReliant/openreliant/issues/404)).
