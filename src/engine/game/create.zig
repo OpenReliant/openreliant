@@ -164,12 +164,13 @@ pub fn typeRecords(arena: Allocator) Allocator.Error![]combat_stats.Static {
     return made;
 }
 
-/// The ship type a type is under another number, or null for none (`create_object`): the
-/// Krasnaya, the Kiev, the Mitchell, the Zakov, the Kestrel and the Mammoth are each more than one
-/// type, one model under several numbers. An object of such a type takes the stats of the first
-/// (`Stats.borrow`), and then its number.
-pub fn donor(ship_type: TypeIndex) ?TypeIndex {
-    const first: gameobj.GameType = switch (@as(gameobj.GameType, @fromBackingInt(ship_type))) {
+/// The ship type a type is under another number, or null for none, as for a type a mod adds
+/// (`create_object`): the Krasnaya, the Kiev, the Mitchell, the Zakov, the Kestrel and the Mammoth
+/// are each more than one type, one model under several numbers. An object of such a type takes
+/// the stats of the first (`Stats.borrow`), and then its number.
+pub fn donor(ship_type: gameobj.Type) ?gameobj.Type {
+    const game_type = ship_type.gameType() orelse return null;
+    const first: gameobj.GameType = switch (game_type) {
         .kozlov, .bokov, .bulatov => .krasnaya,
         .morzov, .kirov, .shinnik, .kovtun => .kiev,
         .other_mitchell => .mitchell,
@@ -191,7 +192,7 @@ pub fn donor(ship_type: TypeIndex) ?TypeIndex {
         => .mammoth,
         else => return null,
     };
-    return @intCast(first.number());
+    return .of(first);
 }
 
 /// How a ship or a missile flies. `ship_flight_stats` holds one per ship, `missile_flight_stats`
@@ -263,7 +264,7 @@ pub const ShipCombat = extern struct {
     /// The groups, `0x00545900 + type * 0x78`, set with `gun_groups`.
     gun_group_table: Pointer(anyopaque),
     targeting: Targeting,
-    /// The language string that names the type.
+    /// The language string that names the type; 0 for none (`nameString`).
     name: u16,
     class: Class,
     /// The side the type's objects start on.
@@ -312,6 +313,11 @@ pub const ShipCombat = extern struct {
         planet = 8,
         _,
     };
+
+    /// The language string that names the type, if it has one (`name`).
+    pub fn nameString(combat: *const ShipCombat) ?u16 {
+        return if (combat.name != 0) combat.name else null;
+    }
 
     /// Takes the words of a type record (`static`), the ones the executable holds rather than
     /// `shipstats.bin`.
@@ -752,9 +758,9 @@ pub const Objects = struct {
     /// A type's model, loaded for its first object where it isn't held, and one more object of it
     /// counted, so that it stays (`create_object`, `ship_type_first_levels`). Null where the game
     /// has no model for it.
-    pub fn useType(all: *Objects, types: Types, ship_type: TypeIndex) ?*const Type {
-        const use = &all.types[ship_type];
-        if (use.objects == 0 and use.loaded == null) use.loaded = types.load(types.context, ship_type);
+    pub fn useType(all: *Objects, types: Types, ship_type: gameobj.Type) ?*const Type {
+        const use = &all.types[ship_type.number()];
+        if (use.objects == 0 and use.loaded == null) use.loaded = types.load(types.context, @intCast(ship_type.number()));
         use.objects += 1;
         return use.loaded;
     }
@@ -906,6 +912,13 @@ test typeRecords {
     try std.testing.expectEqual(additions.ships.first + 1, made.len);
     try std.testing.expectEqual(combat_stats.ship_types[0].class, made[additions.ships.first].class);
     try std.testing.expectEqual(900, made[additions.ships.first].name);
+}
+
+test "ShipCombat.nameString" {
+    var combat = std.mem.zeroes(ShipCombat);
+    try std.testing.expectEqual(null, combat.nameString());
+    combat.name = 1104;
+    try std.testing.expectEqual(1104, combat.nameString().?);
 }
 
 test "ShipCombat.armorShare" {
@@ -1183,15 +1196,15 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         hooks.tell(all, .object_added, .{ .object = .of(index) });
         return index;
     };
-    const becomes = donor(stats_type) orelse stats_type;
-    if (becomes != stats_type) tables.borrow(stats_type, becomes);
+    const becomes = donor(ship_type) orelse ship_type;
+    if (becomes != ship_type) tables.borrow(stats_type, @intCast(becomes.number()));
     const combat = &tables.combat[stats_type];
     slot.combat = combat;
     slot.flight = &tables.flight[stats_type];
     slot.motion = .forward;
     object.side = @fromBackingInt(@backingInt(combat.side));
 
-    slot.type = all.useType(types, stats_type);
+    slot.type = all.useType(types, ship_type);
     if (slot.type) |loaded| {
         var model: objects.Model = try .create(all.gpa, loaded.model, loaded.loaded, loaded.effects);
         startUp(&model);
@@ -1274,7 +1287,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     try arm(all.gpa, slot, fit);
     ai.setTargetable(object, combat, true);
     all.exhaust.offer(all, index);
-    object.type = @fromBackingInt(becomes);
+    object.type = becomes;
     hooks.tell(all, .object_added, .{ .object = .of(index) });
     return index;
 }
@@ -1344,8 +1357,9 @@ pub fn makeWhole(object: *GameObject, combat: *const ShipCombat) void {
     main.armorConditions(object, combat);
 }
 
-/// The last ship type the campaign's tier fits: the player's twelve fighters.
-const last_fighter = 11;
+/// The last ship type the campaign's tier fits: the player's twelve fighters, the Predator to the
+/// Phoenix.
+const last_fighter: gameobj.GameType = .phoenix;
 
 /// The loadout tier `create_object` settles on for an object of `ship_type` asked for `asked`: 5
 /// is 4, and what lies outside 0 to 4 is 0. A fighter asked for 0 takes the campaign's `campaign`,
@@ -1353,7 +1367,7 @@ const last_fighter = 11;
 /// tier 0 with 4 or 5.
 pub fn settledTier(asked: i32, ship_type: gameobj.Type, campaign: u2) u2 {
     var tier: i32 = if (asked == 5) 4 else if (asked < 0 or asked > 4) 0 else asked;
-    if (tier == 0 and @backingInt(ship_type.base()) <= last_fighter) tier = campaign;
+    if (tier == 0 and ship_type.base().number() <= last_fighter.number()) tier = campaign;
     return if (tier == 4) 0 else @intCast(tier);
 }
 
@@ -2357,8 +2371,8 @@ test "a type under another number takes its stats, then its number" {
     try std.testing.expectEqual(2, slot.combat.?.gun_groups);
     // The table it points into is its own number's, which now holds the other's stats.
     try std.testing.expectEqual(&mission.tables.combat[rosario], slot.combat.?);
-    try std.testing.expectEqual(mammoth, donor(rosario));
-    try std.testing.expectEqual(null, donor(mammoth));
+    try std.testing.expectEqual(gameobj.Type.of(.mammoth), donor(.of(.mammoth_rosario)));
+    try std.testing.expectEqual(null, donor(.of(.mammoth)));
 }
 
 test "a type with no model still flies" {

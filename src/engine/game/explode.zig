@@ -499,7 +499,7 @@ pub const Debris = struct {
     /// Each of `into` from the types from `first` on, stretched by `by`.
     fn loadEach(into: []Levels, all: *create.Objects, types: create.Types, first: gameobj.Type, by: f32) void {
         for (into, 0..) |*levels, n| {
-            const found = xtrabits.firstLevels(all, types, @intCast(first.number() + n)) orelse continue;
+            const found = xtrabits.firstLevels(all, types, @fromBackingInt(first.number() + @as(u32, @intCast(n)))) orelse continue;
             levels.* = .of(found, by);
         }
     }
@@ -1114,27 +1114,29 @@ pub fn componentLost(world: gameobj.World, index: u16, model: *const objects.Mod
 pub const ComponentLoss = enum {
     /// `explode_capship_component` (`0x0046F820`): most capital ships, bases and stations.
     capital_ship,
-    /// `explode_ulysses_component` (`0x0046EA50`): type `0x16`.
+    /// `explode_ulysses_component` (`0x0046EA50`): the Ulysses.
     ulysses,
 
-    /// The types, by the type whose stats they take, that `create_object` gives
-    /// `explode_capship_component`.
-    const capital_ships = types: {
-        var set: std.bit_set.Static(256) = .empty;
-        for ([_]u8{
-            0x0C, 0x0D, 0x0F, 0x11, 0x13, 0x14, 0x18, 0x1E, 0x20, 0x21, 0x34, 0x36, 0x37, 0x38,
-            0x3A, 0x3C, 0x3D, 0x3E, 0x3F, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x5E, 0x78,
-            0x80, 0x81, 0x84, 0x95, 0x9B, 0x9C, 0x9F, 0xA5, 0xA8, 0xB0, 0xC0, 0xC1, 0xC2,
-        }) |number| set.set(number);
-        break :types set;
-    };
-
-    /// The routine an object of `ship_type` has, or none.
+    /// The routine an object of `ship_type` has, or none: by the type whose stats it takes
+    /// (`create.donor`).
     pub fn of(ship_type: gameobj.Type) ?ComponentLoss {
-        const number = std.math.cast(u8, @backingInt(ship_type.base())) orelse return null;
-        const stats = create.donor(number) orelse number;
-        if (capital_ships.isSet(stats)) return .capital_ship;
-        return if (stats == 0x16) .ulysses else null;
+        const base: gameobj.Type = .of(ship_type.base());
+        const stats = (create.donor(base) orelse base).base();
+        if (capitalShip(stats)) return .capital_ship;
+        return if (stats == .ulysses) .ulysses else null;
+    }
+
+    /// Whether `create_object` gives `explode_capship_component` to the type whose stats an object
+    /// takes.
+    fn capitalShip(stats: gameobj.GameType) bool {
+        return switch (stats) {
+            .reliant, .yamato, .kestrel, .victorious, .mitchell, .bremen, .nanny, .prowler, .lueneburg, .mammoth => true,
+            .ramases, .morzov, .badanov, .pukov, .riza, .kurgan, .sharov, .gurevich, .berijev => true,
+            .saladin, .darkreign, .stalag, .antanov, .kronstadt, .boridin, .troop_car, .baxter, .krasnaya => true,
+            .research_station, .latov, .czar_docked, .kafelnikof, .varyag, .other_ramases, .washington => true,
+            .rogue_base, .boridin_breakaway, .zakov, .gegarin, .krelov, .kiev => true,
+            else => false,
+        };
     }
 };
 

@@ -2573,7 +2573,7 @@ pub const Looks = struct {
 };
 
 /// The ship type whose model is the Turret Flak's shell (`shell.shp`, `0x00479140`).
-const shell_type: u8 = 0xB1;
+const shell_type: gameobj.Type = .of(.shell);
 
 /// Builds `recipe` into `built`, which stands in place from then on.
 fn build(built: *Built, gpa: Allocator, recipe: Recipe, images: *const std.EnumArray(Image, *srtexture.Image)) Allocator.Error!void {
@@ -3239,7 +3239,7 @@ test Looks {
     defer all.destroy();
     built.looks.loadShell(all, create.testing.no_models);
     try std.testing.expectEqual(null, built.looks.shell);
-    try std.testing.expectEqual(1, all.types[shell_type].objects);
+    try std.testing.expectEqual(1, all.types[shell_type.number()].objects);
 }
 
 test dress {

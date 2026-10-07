@@ -66,7 +66,7 @@ pub fn entries(all: *const create.Objects, out: *[mission.wing_size]Entry) []Ent
             .number = @intCast(number),
             .bar_at = at,
             .lost = lostRows(object.armor, combat.startingArmor()),
-            .icon = if (object.wing_icon != 0) object.wing_icon else null,
+            .icon = object.wingIcon(),
             .own_icon = if (slot.type) |loaded| loaded.wing_icon else null,
         };
         count += 1;
