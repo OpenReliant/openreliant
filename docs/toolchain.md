@@ -40,7 +40,7 @@ Installing it touches one path outside the repository, the per-user Ghidra setti
 - `Extensions/Ghydra/` receives the built plugin, which is what `File > Install Extensions` would do.
 - `tools/_code_browser.tcd` is written with the plugin already enabled, so a fresh install serves the API without opening `File > Configure`. An existing file is never overwritten.
 
-The plugin listens on port 8192, one port per open program. [`.mcp.json`](../.mcp.json) registers the MCP bridge for Claude Code. `make ghydra-status` lists the instances the CLI can reach.
+The plugin listens on port 8192, one port per open program. [`.mcp.json`](../.mcp.json) registers the MCP bridge for Claude Code. It runs the bridge script from the source checkout with the virtualenv's Python, because the package's own `ghydramcp` command fails to import the bridge. `make ghydra-status` lists the instances the CLI can reach.
 
 ## Working with Ghidra
 

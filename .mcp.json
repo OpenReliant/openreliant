@@ -1,11 +1,9 @@
 {
   "mcpServers": {
     "ghydra": {
-      "command": "uvx",
+      "command": "tools/venv/bin/python",
       "args": [
-        "--from",
-        "git+https://github.com/starsong-consulting/GhydraMCP@v3.0.0-rc.1",
-        "ghydramcp"
+        "tools/ghydramcp-src/bridge_mcp_hydra.py"
       ],
       "env": {
         "GHIDRA_HYDRA_HOST": "localhost"
